@@ -2,6 +2,7 @@ package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -12,12 +13,20 @@ import java.util.concurrent.atomic.AtomicLong
  * marked EXCLUDED on the canonical bus and return false; the bus treats that as
  * terminal exclusion rather than retry/failure. Dashboard remains non-learning
  * and still receives the exact canonical terminal event.
+ *
+ * V5.0.6699 — exact terminal proof is restart-safe. Persisted finality rows may
+ * recover from the durable typed economic sidecar when the volatile 6635 map
+ * was lost to process death. Missing proof is logged once per consumer/event;
+ * old permanently-unprovable rows are terminally excluded instead of retried
+ * forever.
  */
 object FinalizedBusConsumerBridge6465 {
 
     private val delivered = AtomicLong(0L)
     private val refused = AtomicLong(0L)
     private val excluded = AtomicLong(0L)
+    private val exactEventPendingLogged6699 = ConcurrentHashMap.newKeySet<String>()
+    private const val EXACT_EVENT_GRACE_MS_6699 = 120_000L
 
     fun deliver(consumer: String, env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
         // Learning purity metadata applies only to actual learning consumers.
@@ -42,19 +51,42 @@ object FinalizedBusConsumerBridge6465 {
         // cohort. Dashboard is intentionally included: it must not race ahead
         // and display a WR that the learners cannot consume.
         if (env.mode.equals("paper", true) || env.economicEventId.isNotBlank()) {
-            val exactEvent6651 = try {
-                CanonicalEconomicEvent6635.committedTerminalEventForPosition(env.positionId, env.economicEventId)
+            val proof6699 = try {
+                CanonicalTerminalProof6699.resolve(env.positionId, env.economicEventId)
             } catch (_: Throwable) { null }
-            if (exactEvent6651 == null) {
-                try {
-                    PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_EXACT_EVENT_PENDING_6651")
-                    ForensicLogger.lifecycle(
-                        "FINALIZED_CONSUMER_EXACT_EVENT_PENDING_6651",
-                        "consumer=$consumer positionId=${env.positionId} economicEventId=${env.economicEventId.take(40)} action=no_mutation_no_ack_retry",
-                    )
-                } catch (_: Throwable) {}
+            val pendingKey6699 = "$consumer|${env.tradeId}|${env.economicEventId}"
+            if (proof6699 == null) {
+                val ageMs6699 = (System.currentTimeMillis() - env.atMs).coerceAtLeast(0L)
+                if (ageMs6699 > EXACT_EVENT_GRACE_MS_6699) {
+                    try {
+                        CanonicalFinalizedTradeBus6464.exclude(
+                            consumer,
+                            env.tradeId,
+                            "UNPROVABLE_EXACT_TERMINAL_ECONOMICS_6699",
+                        )
+                        excluded.incrementAndGet()
+                        if (exactEventPendingLogged6699.add(pendingKey6699)) {
+                            PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_UNPROVABLE_EXCLUDED_6699")
+                            ForensicLogger.lifecycle(
+                                "FINALIZED_CONSUMER_UNPROVABLE_EXCLUDED_6699",
+                                "consumer=$consumer positionId=${env.positionId} economicEventId=${env.economicEventId.take(40)} ageMs=$ageMs6699 action=terminal_exclusion_no_retry_storm",
+                            )
+                        }
+                    } catch (_: Throwable) {}
+                    return false
+                }
+                if (exactEventPendingLogged6699.add(pendingKey6699)) {
+                    try {
+                        PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_EXACT_EVENT_PENDING_6651")
+                        ForensicLogger.lifecycle(
+                            "FINALIZED_CONSUMER_EXACT_EVENT_PENDING_6651",
+                            "consumer=$consumer positionId=${env.positionId} economicEventId=${env.economicEventId.take(40)} ageMs=$ageMs6699 action=no_mutation_retry_bounded",
+                        )
+                    } catch (_: Throwable) {}
+                }
                 return false
             }
+            exactEventPendingLogged6699.remove(pendingKey6699)
         }
 
         if (consumer !in NON_LEARNING_CONSUMERS &&
@@ -205,5 +237,6 @@ object FinalizedBusConsumerBridge6465 {
 
     internal fun resetForTest() {
         delivered.set(0L); refused.set(0L); excluded.set(0L)
+        exactEventPendingLogged6699.clear()
     }
 }
