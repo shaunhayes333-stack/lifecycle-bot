@@ -24,12 +24,12 @@ import java.util.concurrent.atomic.AtomicLong
  *
  *    DsXR94/2cxRDE/2JLR9u repeated SELL pattern must become impossible."
  *
- * DESIGN
- * ──────
- * Compact state machine keyed by positionId. reserveTerminalSell() does
- * CAS OPEN/PARTIAL -> CLOSING. confirmTerminalSell() does CAS CLOSING ->
- * CLOSED. Any other transition is REJECTED and returns false. Blank
- * positionId is refused unconditionally.
+ * V5.0.6702 — CLOSING now has an age. Previously a crashed/cancelled paper
+ * close owner could leave Lifecycle.CLOSING forever; every later paper sell
+ * then returned REJECTED_ALREADY_CLOSING and the position could never round
+ * trip. PAPER may reclaim a proven-stale reservation while the canonical
+ * position is still open. LIVE is deliberately unchanged/fail-closed because
+ * live finality may legitimately wait on chain confirmation/balance proof.
  */
 object PositionStateLedger6454 {
 
@@ -39,16 +39,60 @@ object PositionStateLedger6454 {
     enum class ConfirmResult { CONFIRMED, REJECTED_NOT_CLOSING, REJECTED_ALREADY_CLOSED, REJECTED_BLANK_ID }
 
     private val states = ConcurrentHashMap<String, Lifecycle>()
-    private val terminalCount = ConcurrentHashMap<String, AtomicLong>() // positionId -> increments; expected == 1
+    private val closingSinceMs6702 = ConcurrentHashMap<String, Long>()
+    private val terminalCount = ConcurrentHashMap<String, AtomicLong>()
     private val reservations = AtomicLong(0L)
     private val reservationRejects = AtomicLong(0L)
     private val confirms = AtomicLong(0L)
     private val confirmRejects = AtomicLong(0L)
     private val blankIdRejects = AtomicLong(0L)
 
+    // Ordinary paper close attempts get a generous 30s ownership window.
+    // Emergency stale/max-hold/rug exits may reclaim after 2s; a paper close is
+    // local/atomic and should never legitimately remain CLOSING that long.
+    private const val PAPER_STALE_CLOSING_MS_6702 = 30_000L
+    private const val PAPER_EMERGENCY_STALE_CLOSING_MS_6702 = 2_000L
+
+    private fun emergencyReason6702(reason: String): Boolean {
+        val r = reason.uppercase()
+        return listOf(
+            "STALE", "MAX_HOLD", "CATASTROPHE", "ZOMBIE", "MUST_SELL",
+            "EMERGENCY", "RUG", "HARD_FLOOR", "PHANTOM", "SHUTDOWN",
+        ).any { r.contains(it) }
+    }
+
+    private fun canonicalOpenPaper6702(positionId: String): Boolean {
+        val p = try { CanonicalPositionAuthority6441.getPosition(positionId) } catch (_: Throwable) { null }
+        return p != null && p.mode.equals("paper", true) && p.remainingQtyRaw > java.math.BigInteger.ZERO
+    }
+
+    /**
+     * PAPER-only stale reservation recovery. Returns true only when this caller
+     * successfully changes the exact stale CLOSING state back to OPEN. The next
+     * CAS in reserveTerminalSell then owns a fresh terminal attempt.
+     */
+    private fun recoverStalePaperClosing6702(positionId: String, reason: String, now: Long): Boolean {
+        if (!canonicalOpenPaper6702(positionId)) return false
+        val since = closingSinceMs6702[positionId] ?: return false
+        val age = now - since
+        val ttl = if (emergencyReason6702(reason)) PAPER_EMERGENCY_STALE_CLOSING_MS_6702 else PAPER_STALE_CLOSING_MS_6702
+        if (age < ttl) return false
+        if (!states.replace(positionId, Lifecycle.CLOSING, Lifecycle.OPEN)) return false
+        closingSinceMs6702.remove(positionId, since)
+        try {
+            PipelineHealthCollector.labelInc("PAPER_TERMINAL_STALE_CLOSING_RECOVERED_6702")
+            ForensicLogger.lifecycle(
+                "PAPER_TERMINAL_STALE_CLOSING_RECOVERED_6702",
+                "positionId=${positionId.take(18)} ageMs=$age ttlMs=$ttl reason=${reason.take(80)} action=closing_to_open_retry",
+            )
+        } catch (_: Throwable) {}
+        return true
+    }
+
     /** V5.0.6519 — projection rebuild from CanonicalPositionAuthority only. */
     fun syncFromCanonical6519(openPositions: List<CanonicalPositionAuthority6441.Position>) {
         states.clear()
+        closingSinceMs6702.clear()
         openPositions.forEach { p ->
             if (p.positionId.isNotBlank() && p.remainingQtyRaw > java.math.BigInteger.ZERO) {
                 states[p.positionId] = when (p.lifecycle) {
@@ -66,11 +110,6 @@ object PositionStateLedger6454 {
     fun onEntry(positionId: String) {
         if (positionId.isBlank()) return
         states.putIfAbsent(positionId, Lifecycle.OPEN)
-        // V5.0.6617 §POSITION_LIFECYCLE_FORMALIZATION — mirror DISCOVERED
-        //   into the formalized lifecycle. The formalization module
-        //   backfills mint/symbol/lane later via markDiscovered when the
-        //   trader calls it explicitly; this call only stamps the
-        //   discoveredAtMs so the sequence is preserved.
         try {
             PositionLifecycleFormalization6617.markDiscovered(positionId, mint = "", symbol = "", lane = "")
         } catch (_: Throwable) {}
@@ -82,13 +121,13 @@ object PositionStateLedger6454 {
         val prior = states[positionId]
         if (prior == Lifecycle.OPEN || prior == Lifecycle.PARTIAL) {
             states[positionId] = Lifecycle.PARTIAL
+            closingSinceMs6702.remove(positionId)
         }
     }
 
     /**
      * CAS OPEN/PARTIAL -> CLOSING. Must be called BEFORE any side effect
-     * of a terminal sell (cash mutation, journal write, reward). Returns
-     * REJECTED_* if the position cannot legitimately transition.
+     * of a terminal sell (cash mutation, journal write, reward).
      */
     fun reserveTerminalSell(positionId: String, reason: String): ReserveResult {
         if (positionId.isBlank()) {
@@ -103,10 +142,12 @@ object PositionStateLedger6454 {
             } catch (_: Throwable) {}
             return ReserveResult.REJECTED_BLANK_ID
         }
-        val prior = states.putIfAbsent(positionId, Lifecycle.CLOSING)
+
+        val now = System.currentTimeMillis()
+        var prior = states.putIfAbsent(positionId, Lifecycle.CLOSING)
         if (prior == null) {
-            // Never seen this positionId — treat as UNKNOWN (fail-closed).
             states.remove(positionId, Lifecycle.CLOSING)
+            closingSinceMs6702.remove(positionId)
             reservationRejects.incrementAndGet()
             try {
                 ForensicLogger.lifecycle(
@@ -117,14 +158,22 @@ object PositionStateLedger6454 {
             } catch (_: Throwable) {}
             return ReserveResult.REJECTED_UNKNOWN
         }
+
+        // V5.0.6702 — reclaim only PAPER reservations proven stale while their
+        // canonical position remains economically open. Then continue through
+        // the normal OPEN->CLOSING CAS below in this same call.
+        if (prior == Lifecycle.CLOSING && recoverStalePaperClosing6702(positionId, reason, now)) {
+            prior = Lifecycle.OPEN
+        }
+
         return when (prior) {
             Lifecycle.OPEN, Lifecycle.PARTIAL -> {
                 if (states.replace(positionId, prior, Lifecycle.CLOSING)) {
+                    closingSinceMs6702[positionId] = now
                     reservations.incrementAndGet()
                     try { PipelineHealthCollector.labelInc("TERMINAL_SELL_RESERVED_6454") } catch (_: Throwable) {}
                     ReserveResult.RESERVED
                 } else {
-                    // Someone else beat us — inspect current state.
                     reservationRejects.incrementAndGet()
                     when (states[positionId]) {
                         Lifecycle.CLOSING -> ReserveResult.REJECTED_ALREADY_CLOSING
@@ -138,28 +187,22 @@ object PositionStateLedger6454 {
                 try {
                     ForensicLogger.lifecycle(
                         "TERMINAL_SELL_DUPLICATE_CLOSING_REJECTED_6454",
-                        "positionId=${positionId.take(12)} reason=${reason.take(40)}",
+                        "positionId=${positionId.take(12)} reason=${reason.take(40)} ageMs=${closingSinceMs6702[positionId]?.let { now - it } ?: -1L}",
                     )
                     PipelineHealthCollector.labelInc("TERMINAL_SELL_DUPLICATE_CLOSING_REJECTED_6454")
-                    // V5.0.6578 §P1-4 — duplicate close loop invariant.
-                    // Operator directive: "duplicate close loops = 0". Every
-                    // duplicate attempt is now recorded under the canonical
-                    // DUPLICATE_TERMINAL_MUTATION_6578 counter so a runaway
-                    // retry pattern is visible without inspecting per-reason
-                    // labels.
                     PipelineHealthCollector.labelInc("DUPLICATE_TERMINAL_MUTATION_6578")
                 } catch (_: Throwable) {}
                 ReserveResult.REJECTED_ALREADY_CLOSING
             }
             Lifecycle.CLOSED -> {
                 reservationRejects.incrementAndGet()
+                closingSinceMs6702.remove(positionId)
                 try {
                     ForensicLogger.lifecycle(
                         "TERMINAL_SELL_DUPLICATE_CLOSED_REJECTED_6454",
                         "positionId=${positionId.take(12)} reason=${reason.take(40)}",
                     )
                     PipelineHealthCollector.labelInc("TERMINAL_SELL_DUPLICATE_CLOSED_REJECTED_6454")
-                    // V5.0.6578 §P1-4 — same invariant.
                     PipelineHealthCollector.labelInc("DUPLICATE_TERMINAL_MUTATION_6578")
                 } catch (_: Throwable) {}
                 ReserveResult.REJECTED_ALREADY_CLOSED
@@ -170,8 +213,7 @@ object PositionStateLedger6454 {
 
     /**
      * CAS CLOSING -> CLOSED. Must be called AFTER settlement side effects
-     * (journal + accounting + reward publish) succeed. Returns false and
-     * refuses to mutate if not in CLOSING (never double-counts terminal).
+     * (journal + accounting + reward publish) succeed.
      */
     fun confirmTerminalSell(positionId: String): ConfirmResult {
         if (positionId.isBlank()) {
@@ -182,6 +224,7 @@ object PositionStateLedger6454 {
         val cur = states[positionId]
         if (cur == Lifecycle.CLOSED) {
             confirmRejects.incrementAndGet()
+            closingSinceMs6702.remove(positionId)
             try { PipelineHealthCollector.labelInc("TERMINAL_SELL_CONFIRM_ALREADY_CLOSED_6454") } catch (_: Throwable) {}
             return ConfirmResult.REJECTED_ALREADY_CLOSED
         }
@@ -194,33 +237,22 @@ object PositionStateLedger6454 {
             confirmRejects.incrementAndGet()
             return ConfirmResult.REJECTED_ALREADY_CLOSED
         }
-        // Count exactly once.
+        closingSinceMs6702.remove(positionId)
         terminalCount.getOrPut(positionId) { AtomicLong(0L) }.incrementAndGet()
         confirms.incrementAndGet()
         try { PipelineHealthCollector.labelInc("TERMINAL_SELL_CONFIRMED_6454") } catch (_: Throwable) {}
-        // V5.0.6617 §POSITION_LIFECYCLE_FORMALIZATION — mirror the
-        //   confirmed terminal into the formalized lifecycle so the
-        //   closureDelta reconciler sees CLOSED at the same causal
-        //   moment PSL6454 does. Idempotent — markClosed no-ops on
-        //   duplicate calls per positionId.
         try { PositionLifecycleFormalization6617.markClosed(positionId) } catch (_: Throwable) {}
         return ConfirmResult.CONFIRMED
     }
 
     fun lifecycle(positionId: String): Lifecycle = states[positionId] ?: Lifecycle.UNKNOWN
 
-    /**
-     * Revert CLOSING -> OPEN when a reserved terminal SELL fails to
-     * settle (e.g. live route error, provider outage). Callers MUST use
-     * this on any FAILED_* / WAITING_* return path from a sell function
-     * that had a successful reserveTerminalSell. Idempotent — no-op if
-     * lifecycle is not CLOSING (in particular, does NOT undo a
-     * confirmed CLOSED position).
-     */
+    /** Revert CLOSING -> OPEN when a reserved terminal SELL fails to settle. */
     fun abandonTerminalSell(positionId: String, reason: String): Boolean {
         if (positionId.isBlank()) return false
         val ok = states.replace(positionId, Lifecycle.CLOSING, Lifecycle.OPEN)
         if (ok) {
+            closingSinceMs6702.remove(positionId)
             try {
                 ForensicLogger.lifecycle(
                     "TERMINAL_SELL_ABANDONED_6454",
@@ -235,11 +267,11 @@ object PositionStateLedger6454 {
     fun terminalCount(positionId: String): Long = terminalCount[positionId]?.get() ?: 0L
 
     fun statusLine(): String = "positions=${states.size} reserved=${reservations.get()}/rej=${reservationRejects.get()} " +
-        "confirmed=${confirms.get()}/rej=${confirmRejects.get()} blankIdRejects=${blankIdRejects.get()}"
+        "confirmed=${confirms.get()}/rej=${confirmRejects.get()} blankIdRejects=${blankIdRejects.get()} " +
+        "closingAges=${closingSinceMs6702.size}"
 
-    // Test-only helper.
     internal fun resetForTest() {
-        states.clear(); terminalCount.clear()
+        states.clear(); closingSinceMs6702.clear(); terminalCount.clear()
         reservations.set(0); reservationRejects.set(0)
         confirms.set(0); confirmRejects.set(0); blankIdRejects.set(0)
     }
