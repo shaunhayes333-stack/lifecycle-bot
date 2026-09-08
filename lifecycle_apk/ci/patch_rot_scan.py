@@ -97,9 +97,6 @@ def main() -> int:
             if symbol in text:
                 errors.append(f"{rel}: retired production symbol {symbol!r} returned — {reason}")
 
-    # ------------------------------------------------------------------
-    # 6678 authority contracts.
-    # ------------------------------------------------------------------
     unified = (SRC / "com/lifecyclebot/engine/truth/UnifiedAccountSnapshot6635.kt").read_text()
     for mutation in (
         "CanonicalJournalProjectionRepair6677",
@@ -113,34 +110,14 @@ def main() -> int:
 
     perps_store = (SRC / "com/lifecyclebot/perps/PerpsPositionStore.kt").read_text()
     forbid(errors, perps_store, "CanonicalJournalProjectionRepair6677", "PERPS_PERSISTENCE_READ_PURITY_6678")
-    require(
-        errors,
-        perps_store,
-        "CanonicalSentinelEntryRepair6677.repairOpenPaperCryptoAltSentinels()",
-        "CRYPTO_SENTINEL_NARROW_REPAIR_6678",
-    )
+    require(errors, perps_store, "CanonicalSentinelEntryRepair6677.repairOpenPaperCryptoAltSentinels()", "CRYPTO_SENTINEL_NARROW_REPAIR_6678")
     require(errors, perps_store, "sentinelRepairRunning6678", "CRYPTO_SENTINEL_SINGLE_WORKER_6678")
 
     canonical_paper = (SRC / "com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").read_text()
-    require(
-        errors,
-        canonical_paper,
-        'val eventId = "PAPER6486:OPEN:${position.positionId}"',
-        "PAPER_OPEN_CANONICAL_IDENTITY_6678",
-    )
+    require(errors, canonical_paper, 'val eventId = "PAPER6486:OPEN:${position.positionId}"', "PAPER_OPEN_CANONICAL_IDENTITY_6678")
     require(errors, canonical_paper, "economicEventId = eventId", "PAPER_OPEN_JOURNAL_IDENTITY_6678")
-    require(
-        errors,
-        canonical_paper,
-        "CanonicalPositionAuthority6441.getPosition(positionId)?.let { ensureOpenProjection6659(it) }",
-        "PAPER_OPEN_MUTATION_SOURCE_PROJECTION_6678",
-    )
-    require(
-        errors,
-        canonical_paper,
-        'it.mode.equals("paper", true) && it.assetClass != AssetClass.SOLANA_TOKEN',
-        "CROSS_ASSET_HISTORY_REPAIR_ASSET_BOUNDARY_6697",
-    )
+    require(errors, canonical_paper, "CanonicalPositionAuthority6441.getPosition(positionId)?.let { ensureOpenProjection6659(it) }", "PAPER_OPEN_MUTATION_SOURCE_PROJECTION_6678")
+    require(errors, canonical_paper, 'it.mode.equals("paper", true) && it.assetClass != AssetClass.SOLANA_TOKEN', "CROSS_ASSET_HISTORY_REPAIR_ASSET_BOUNDARY_6697")
 
     journal_replay = (SRC / "com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt").read_text()
     require(errors, journal_replay, "nativeBuyPositions6697", "LEGACY_6659_DUPLICATE_SUPERSESSION_6697")
@@ -183,15 +160,13 @@ def main() -> int:
         errors.append(f"PAPER_BUY_NOT_OPENED_SINGLE_COUNTER_OWNER_6680: expected 1 owner, found {paper_not_opened_owners}")
     forbid(errors, executor, 'PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_PRESALE_SNIPE_51K_RUG_6373F")', "PAPER_PRESALE_REJECT_DYNAMIC_REASON_ONLY_6680")
 
-    # ------------------------------------------------------------------
-    # 6702 exit-liveness contracts. Repeated close signals must not keep
-    # extending their own retry deadline, and a still-open sell must never age
-    # out of retry ownership.
-    # ------------------------------------------------------------------
+    # 6702 exit-liveness contracts.
     paper_close = (SRC / "com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").read_text()
     pending_sell = (SRC / "com/lifecyclebot/engine/PendingSellQueue.kt").read_text()
     require(errors, paper_close, "PAPER_CLOSE_DUPLICATE_TIMESTAMP_FROZEN_6702", "PAPER_CLOSE_DUPLICATE_CLOCK_FREEZE_6702")
     require(errors, paper_close, "PAPER_CLOSING_DUPLICATE_TIMESTAMP_FROZEN_6702", "PAPER_CLOSING_DUPLICATE_CLOCK_FREEZE_6702")
+    require(errors, paper_close, "PAPER_EMERGENCY_CLOSE_STALE_STATE_BYPASSED_6702", "PAPER_ONE_SHOT_EMERGENCY_RETRY_6702")
+    require(errors, paper_close, "EMERGENCY_TRANSIENT_RETRY_GRACE_MS_6702 = 2_000L", "PAPER_EMERGENCY_RETRY_GRACE_6702")
     require(errors, paper_close, "State.CLOSE_REQUESTED, State.CLOSING ->", "PAPER_CLOSE_DUPLICATE_STATE_BRANCH_6702")
     require(errors, pending_sell, "terminalForRuntime6702", "PENDING_SELL_MODE_AWARE_TERMINAL_6702")
     require(errors, pending_sell, 'PaperPositionCloseAuthority.stateOf("PAPER", mint)', "PENDING_SELL_PAPER_TERMINAL_OWNER_6702")
