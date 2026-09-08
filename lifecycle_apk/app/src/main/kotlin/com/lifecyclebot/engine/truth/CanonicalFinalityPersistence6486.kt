@@ -22,6 +22,11 @@ object CanonicalFinalityPersistence6486 {
     fun initAndReplay(context: Context): Int {
         if (initialized) return 0
         prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        // V5.0.6699 — load the durable typed economic sidecar BEFORE replaying
+        // persisted finality rows. CanonicalEconomicEvent6635 is volatile, so
+        // restart-safe exact terminal proof must be able to resolve the matching
+        // EconomicEventSchema6464 SELL while consumers are replayed.
+        try { EconomicEventSchema6464.init6486(context) } catch (_: Throwable) {}
         initialized = true
         val events = prefs!!.all.entries.asSequence()
             .filter { it.key.startsWith(PREFIX) && it.value is String }
