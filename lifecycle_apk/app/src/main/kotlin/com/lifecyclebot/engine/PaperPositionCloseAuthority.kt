@@ -10,6 +10,11 @@ import java.util.concurrent.ConcurrentHashMap
  * mode+mint, later paper exit ticks return before DO_SELL_ENTRY / EXEC_TRACE_SELL
  * / sell-lock churn / cooldown re-arm / journal writes. This keeps paper exit
  * cleanup from starving intake → lane-eval learning.
+ *
+ * V5.0.6702 — duplicate close requests are observational. They MUST NOT refresh
+ * the timestamp of an already CLOSE_REQUESTED/CLOSING state. The old code reset
+ * updatedAtMs on every repeated exit signal, so a busy exit loop could prevent
+ * STUCK_CLOSE_TTL_MS from ever expiring and permanently suppress the actual sell.
  */
 object PaperPositionCloseAuthority {
     enum class State { OPEN, CLOSE_REQUESTED, CLOSING, CLOSED, REJECTED, FAILED }
@@ -24,10 +29,6 @@ object PaperPositionCloseAuthority {
         @Volatile var reason: String = "",
         @Volatile var updatedAtMs: Long = System.currentTimeMillis(),
         @Volatile var lastAlreadyPendingLogMs: Long = 0L,
-        // V5.0.6350 — count how many times the stuck-state TTL has allowed
-        // a retry for this mint. After [STUCK_RETRY_HARD_CAP] retries we
-        // force-terminal-close the mint so paper cannot accumulate 100+
-        // silent-fail positions.
         @Volatile var stuckRetryCount: Int = 0,
     )
 
@@ -36,15 +37,7 @@ object PaperPositionCloseAuthority {
     private val states = ConcurrentHashMap<String, CloseState>()
     private const val ALREADY_PENDING_LOG_MS = 30_000L
     private const val FAILED_RETRY_TTL_MS = 20_000L
-    // V5.0.6350 — tightened from 120s → 30s. Operator: paper accumulation of
-    // 100+ silent-stuck positions in a 15-minute window was blocking learning
-    // (134 BUY vs 27 SELL = 107 open paper). The prior 2-minute TTL was too
-    // slow to drain a dead-oracle stall in real time.
     private const val STUCK_CLOSE_TTL_MS = 30_000L
-    // V5.0.6350 — after this many stuck-state retries on the same mint we
-    // force-terminal the close via [markClosed] with a synthetic reason so
-    // the mint drops out of the pending set entirely and paper trading
-    // recovers cadence.
     private const val STUCK_RETRY_HARD_CAP = 3
 
     private fun normMode(mode: String): String = mode.trim().uppercase().ifBlank { "PAPER" }
@@ -70,10 +63,6 @@ object PaperPositionCloseAuthority {
         if (st != null) {
             if (st.state == State.FAILED || st.state == State.REJECTED) {
                 if (now - st.updatedAtMs >= FAILED_RETRY_TTL_MS) {
-                    // V5.0.6547 §P1-4 — visibility that a stuck failed close
-                    // actually recovered via TTL retry, not by accumulation.
-                    // Operator mandate: PAPER_CLOSE_ALREADY_PENDING must not
-                    // permanently suppress a legitimate retry.
                     try {
                         PipelineHealthCollector.labelInc("PAPER_CLOSE_RETRY_ATTEMPTED_6547")
                         ForensicLogger.lifecycle(
@@ -85,44 +74,18 @@ object PaperPositionCloseAuthority {
                     return Guard(false, st.state, "retryable_after_failed", st.closeId)
                 }
             }
-            // V5.0.6071 — STUCK-STATE TTL. Operator: paper mode was accumulating
-            // 50+ positions because CLOSE_REQUESTED and CLOSING had NO TTL.
-            // A partial-sell that stamped markCloseRequested/markClosing but
-            // then the actual sell path failed silently (crashed lock release,
-            // dead price oracle, exception mid-sell) left the mint blocked
-            // forever from any future sell attempt. Add a 2-minute TTL: if
-            // the mint has been stuck in CLOSE_REQUESTED/CLOSING for longer
-            // than that without a terminal CLOSED stamp, allow the next sell
-            // to proceed as a retry. Terminal CLOSED remains an absolute
-            // block — we never re-sell a truly closed mint.
+
             if ((st.state == State.CLOSE_REQUESTED || st.state == State.CLOSING) &&
                 now - st.updatedAtMs >= STUCK_CLOSE_TTL_MS
             ) {
-                // V5.0.6350 — hard-cap the stuck-retry loop. On the [STUCK_RETRY_HARD_CAP]-th
-                // retry we force-terminal the mint via markClosed() with a synthetic reason.
-                // Prevents paper accumulation of 100+ silent-fail positions and the resulting
-                // 779-events-in-15min PAPER_CLOSE_STUCK_TTL_RETRY_6071 spam operator saw.
                 st.stuckRetryCount += 1
                 if (st.stuckRetryCount >= STUCK_RETRY_HARD_CAP) {
-                    // V5.0.6360 — CORRECTION of V5.0.6350 semantics.
-                    //   Old behaviour stamped state=CLOSED via markClosed()
-                    //   after 3 stuck retries. That killed paper round-trips:
-                    //   the actual TokenState.position was still OPEN with
-                    //   tokens (no recordSell had fired), but every future
-                    //   sell attempt hit Guard(blocked=true, State.CLOSED)
-                    //   so no round-trip could ever complete. Operator saw
-                    //   "heaps of buys nothing round tripping".
-                    //   New behaviour: RESET the stuck state — clear the
-                    //   retry counter and drop back to OPEN so the next
-                    //   sell attempt starts from a fresh mark. This still
-                    //   drains the retry-log spam (the loop is broken) but
-                    //   never blocks a legitimate future sell.
                     try {
-                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        ForensicLogger.lifecycle(
                             "PAPER_CLOSE_FORCE_RESET_6360",
                             "mint=${mint.take(10)} symbol=$symbol prior=${st.state} retries=${st.stuckRetryCount} ageMs=${now - st.updatedAtMs} reason=$reason action=reset_to_open_not_terminal_v6360",
                         )
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_CLOSE_FORCE_RESET_6360")
+                        PipelineHealthCollector.labelInc("PAPER_CLOSE_FORCE_RESET_6360")
                     } catch (_: Throwable) {}
                     st.state = State.OPEN
                     st.stuckRetryCount = 0
@@ -132,14 +95,12 @@ object PaperPositionCloseAuthority {
                     return Guard(false, State.OPEN, "force_reset_open_6360")
                 }
                 try {
-                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    ForensicLogger.lifecycle(
                         "PAPER_CLOSE_STUCK_TTL_RETRY_6071",
                         "mint=${mint.take(10)} symbol=$symbol prior=${st.state} ageMs=${now - st.updatedAtMs} retryCount=${st.stuckRetryCount} reason=$reason action=allow_retry"
                     )
-                    // V5.0.6547 §P1-4 — exit-pending latch cannot suppress
-                    // the retry; publish it as an actionable pipeline event.
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_CLOSE_RETRY_ATTEMPTED_6547")
-                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    PipelineHealthCollector.labelInc("PAPER_CLOSE_RETRY_ATTEMPTED_6547")
+                    ForensicLogger.lifecycle(
                         "PAPER_CLOSE_RETRY_ATTEMPTED_6547",
                         "reason=$reason stage=preSellGuard.stuckTtl mint=${mint.take(10)} " +
                             "prior=${st.state} ageMs=${now - st.updatedAtMs} closeId=${st.closeId} " +
@@ -162,13 +123,26 @@ object PaperPositionCloseAuthority {
         val now = System.currentTimeMillis()
         val st = states.compute(k) { _, old ->
             val s = old ?: CloseState(k, mint, normMode(mode), symbol = symbol)
-            if (s.state != State.CLOSED && s.state != State.CLOSING) {
-                s.state = State.CLOSE_REQUESTED
+            when (s.state) {
+                State.CLOSED -> {
+                    // Terminal stays terminal.
+                }
+                State.CLOSE_REQUESTED, State.CLOSING -> {
+                    // V5.0.6702 — CRITICAL: a duplicate signal may not refresh
+                    // updatedAtMs. The timestamp is the stuck-close retry clock.
+                    // Refreshing it on every tick made the 30s retry physically
+                    // unreachable while exits were noisy.
+                    s.symbol = symbol.ifBlank { s.symbol }
+                    try { PipelineHealthCollector.labelInc("PAPER_CLOSE_DUPLICATE_TIMESTAMP_FROZEN_6702") } catch (_: Throwable) {}
+                }
+                else -> {
+                    s.state = State.CLOSE_REQUESTED
+                    s.symbol = symbol.ifBlank { s.symbol }
+                    s.reason = reason
+                    s.updatedAtMs = now
+                    if (s.closeId.isBlank()) s.closeId = "PAPER_${mint.take(10)}_${now}"
+                }
             }
-            s.symbol = symbol.ifBlank { s.symbol }
-            s.reason = reason
-            s.updatedAtMs = now
-            if (s.closeId.isBlank()) s.closeId = "PAPER_${mint.take(10)}_${now}"
             s
         }
         emit("PAPER_CLOSE_REQUESTED", mint, symbol, "state=${st?.state} closeId=${st?.closeId ?: ""} reason=$reason")
@@ -181,11 +155,24 @@ object PaperPositionCloseAuthority {
         val now = System.currentTimeMillis()
         val st = states.compute(k) { _, old ->
             val s = old ?: CloseState(k, mint, normMode(mode), symbol = symbol)
-            if (s.state != State.CLOSED) s.state = State.CLOSING
-            s.symbol = symbol.ifBlank { s.symbol }
-            s.reason = reason
-            s.updatedAtMs = now
-            if (s.closeId.isBlank()) s.closeId = "PAPER_${mint.take(10)}_${now}"
+            when (s.state) {
+                State.CLOSED -> {
+                    // no-op
+                }
+                State.CLOSING -> {
+                    // V5.0.6702 — same invariant as markCloseRequested: duplicate
+                    // worker/tick calls must not starve the stuck-state TTL.
+                    s.symbol = symbol.ifBlank { s.symbol }
+                    try { PipelineHealthCollector.labelInc("PAPER_CLOSING_DUPLICATE_TIMESTAMP_FROZEN_6702") } catch (_: Throwable) {}
+                }
+                else -> {
+                    s.state = State.CLOSING
+                    s.symbol = symbol.ifBlank { s.symbol }
+                    s.reason = reason
+                    s.updatedAtMs = now
+                    if (s.closeId.isBlank()) s.closeId = "PAPER_${mint.take(10)}_${now}"
+                }
+            }
             s
         }
         return st?.closeId ?: ""
@@ -205,41 +192,21 @@ object PaperPositionCloseAuthority {
             s.reason = reason.ifBlank { s.reason }
             s.closeId = cid
             s.updatedAtMs = now
-            s.stuckRetryCount = 0   // V5.0.6350 — reset on true terminal close
+            s.stuckRetryCount = 0
             s
         }
         try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed(normMode(mode).lowercase(), mint) } catch (_: Throwable) {}
         emit("PAPER_CLOSE_CLOSED", mint, symbol, "closeId=$cid reason=$reason")
         if (normMode(mode) == "PAPER") emit("PAPER_CLOSE_CONFIRMED_LEDGER_ONLY", mint, symbol, "closeId=$cid reason=$reason")
-        // V5.0.6623 §CANONICAL_SELL_JOURNAL_ATOMICITY (operator directive
-        //   Feb 2026 P0: "PAPER_CLOSE_CONFIRMED_LEDGER_ONLY = 149 while
-        //   PAPER_SELL_JOURNAL_DONE = 16 — 149 closes being confirmed
-        //   directly into the ledger, only a tiny fraction become
-        //   normal journal sell records. That perfectly explains how
-        //   the wallet can apparently make money that you cannot see
-        //   as wins in the journal. There should be one terminal
-        //   economic transaction: CanonicalCloseOutcome. A close should
-        //   not become economically visible until its canonical
-        //   journal/economic transaction has committed.")
-        //
-        // Slice-P0 telemetry-first seal: at markClosed we probe
-        // TradeHistoryStore for a paper SELL row within the last
-        // 60s that matches this mint. If none exists, we emit
-        // PAPER_CLOSE_NO_JOURNAL_ROW_6623 so the operator can grep
-        // the EXACT number of unjournaled closes — a much sharper
-        // number than the CLOSED_LEDGER_ONLY label which fires on
-        // every close regardless of journal state. Steady-state
-        // target = 0. Slice-P0-hard-block (follow-up) will refuse
-        // markClosed until the journal row is present.
+
         if (normMode(mode) == "PAPER") try {
-            val recent6623 = com.lifecyclebot.engine.TradeHistoryStore
-                .getAllValidTradesSnapshot(limit = 200)
+            val recent6623 = TradeHistoryStore.getAllValidTradesSnapshot(limit = 200)
             val nowMs6623 = System.currentTimeMillis()
             val hasJournalSell6623 = recent6623.any { t ->
                 t.mode.equals("paper", ignoreCase = true) &&
                     t.mint == mint &&
                     (t.side.equals("SELL", ignoreCase = true) ||
-                     t.side.equals("PARTIAL_SELL", ignoreCase = true)) &&
+                        t.side.equals("PARTIAL_SELL", ignoreCase = true)) &&
                     (nowMs6623 - t.ts) <= 60_000L
             }
             if (!hasJournalSell6623) {
@@ -254,10 +221,7 @@ object PaperPositionCloseAuthority {
                 PipelineHealthCollector.labelInc("PAPER_CLOSE_JOURNAL_PARITY_HEALTHY_6623")
             }
         } catch (_: Throwable) {}
-        // V5.0.6547 §P1-4 — retry recovery marker. Prove the exit-pending
-        // latch is unjammable: a prior FAILED / REJECTED / stuck-retried
-        // close is now genuinely CLOSED, meaning the TTL retry path did
-        // its job. Operator can grep this counter to see recoveries.
+
         if (priorStateForRecoveryTelemetry6547 == State.FAILED ||
             priorStateForRecoveryTelemetry6547 == State.REJECTED ||
             priorStuckRetryCountForRecoveryTelemetry6547 > 0
