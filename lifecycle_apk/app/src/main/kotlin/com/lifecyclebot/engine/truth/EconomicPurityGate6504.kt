@@ -49,6 +49,7 @@ object EconomicPurityGate6504 {
     private val untrusted = ConcurrentHashMap<String, UntrustedRecord>()
     private val queries = AtomicLong(0L)
     private val exclusions = AtomicLong(0L)
+    private val globalPaperExclusions6692 = AtomicLong(0L)
 
     data class UntrustedRecord(
         val mint: String,
@@ -110,16 +111,22 @@ object EconomicPurityGate6504 {
         val historical = try {
             LearningQuarantineGate6470.isQuarantined(positionId = null, mint = mint)
         } catch (_: Throwable) { false }
-        val excluded = local || invariantBroken || historical
+        val unreconciledPaperAccount6692 = try {
+            com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() &&
+                kotlin.math.abs(JournalEconomicReplay6619.latestLedgerDivergenceSol()) > 0.001
+        } catch (_: Throwable) { false }
+        val excluded = local || invariantBroken || historical || unreconciledPaperAccount6692
         if (excluded) {
             exclusions.incrementAndGet()
+            if (unreconciledPaperAccount6692) globalPaperExclusions6692.incrementAndGet()
             if (emit) {
                 try {
                     ForensicLogger.lifecycle(
                         "ECONOMIC_PURITY_EXCLUSION_6504",
-                        "mint=${mint.take(10)} local=$local invariant=$invariantBroken historical=$historical",
+                        "mint=${mint.take(10)} local=$local invariant=$invariantBroken historical=$historical paperAccountDiverged=$unreconciledPaperAccount6692",
                     )
                     PipelineHealthCollector.labelInc("ECONOMIC_PURITY_EXCLUSION_6504")
+                    if (unreconciledPaperAccount6692) PipelineHealthCollector.labelInc("ECONOMIC_PURITY_GLOBAL_PAPER_DIVERGENCE_6692")
                 } catch (_: Throwable) {}
             }
         }
@@ -129,11 +136,11 @@ object EconomicPurityGate6504 {
     fun size(): Int = untrusted.size
 
     fun statusLine(): String =
-        "untrustedMints=${untrusted.size} queries=${queries.get()} exclusions=${exclusions.get()}"
+        "untrustedMints=${untrusted.size} queries=${queries.get()} exclusions=${exclusions.get()} globalPaper=${globalPaperExclusions6692.get()}"
 
     internal fun clearForTest() {
         untrusted.clear()
         queries.set(0L)
-        exclusions.set(0L)
+        exclusions.set(0L); globalPaperExclusions6692.set(0L)
     }
 }

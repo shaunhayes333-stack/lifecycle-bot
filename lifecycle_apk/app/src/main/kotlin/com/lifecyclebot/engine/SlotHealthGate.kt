@@ -42,10 +42,12 @@ object SlotHealthGate {
     // ENTRY_HARD_CAP was misleading because it only applied while a sell job
     // was already active and was bypassed by high-edge candidates.
     private const val ENTRY_SOFT_CAP = 12
-    // Economic safety/turnover ceiling, not a strategy quota. With 14 Meme
-    // lanes this still allows broad simultaneous expression while preventing
-    // 100-250 funded positions from trapping the shared wallet indefinitely.
-    private const val MEME_TURNOVER_ABSOLUTE_CAP_6689 = 24
+    // V5.0.6692 — STATIC MEME POSITION CAP RETIRED. A fixed inventory
+    // count is not an economic authority: position sizes, liquidity and shared
+    // account cash vary by orders of magnitude. Canonical sizing, same-mint
+    // occupancy, capital reservation and exit sellability now bound exposure.
+    // The compatibility accessor below stays for older writer callsites but is
+    // deliberately unbounded so it cannot become a second stacked admission gate.
 
     private val MEME_LANES_6689 = setOf(
         "QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "EXPRESS",
@@ -64,7 +66,7 @@ object SlotHealthGate {
     // mirror uses these exact definitions so the pre-auth gate and the final
     // canonical reservation cannot drift into two different lane/cap policies.
     fun isMemeLane6689(lane: String): Boolean = lane.trim().uppercase() in MEME_LANES_6689
-    fun memeTurnoverAbsoluteCap6689(): Int = MEME_TURNOVER_ABSOLUTE_CAP_6689
+    fun memeTurnoverAbsoluteCap6689(): Int = Int.MAX_VALUE
     fun canonicalMemeOpenCount6689(mode: String): Int = canonicalMemeOpenCount(mode)
 
     // Compatibility name retained deliberately: Golden Tape 3837/6490 asserts
@@ -122,33 +124,11 @@ object SlotHealthGate {
      * canonical turnover ceiling.
      */
     fun shouldDeferBuy(candidateConfirmedHighEdge: Boolean): DeferDecision {
-        // V5.0.6689 — source-of-truth turnover seal. This MUST run before the
-        // stale-snapshot fail-open and before every high-edge/forced-open bypass.
-        // A stale publisher is not permission to keep allocating capital when
-        // canonical Meme inventory is already saturated.
-        val paperRuntime6689 = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
-        val canonicalMemeOpen6689 = canonicalMemeOpenCount(if (paperRuntime6689) "paper" else "live")
-        val effectiveMemeOpen6689 = if (canonicalMemeOpen6689 >= 0)
-            canonicalMemeOpen6689 else openPositionCount.get()
-        if (effectiveMemeOpen6689 >= MEME_TURNOVER_ABSOLUTE_CAP_6689) {
-            try {
-                PipelineHealthCollector.labelInc("MEME_INVENTORY_TURNOVER_CAP_6689")
-                PipelineHealthCollector.labelInc(
-                    if (paperRuntime6689) "MEME_INVENTORY_TURNOVER_CAP_PAPER_6689"
-                    else "MEME_INVENTORY_TURNOVER_CAP_LIVE_6689",
-                )
-                ForensicLogger.lifecycle(
-                    "MEME_INVENTORY_TURNOVER_CAP_6689",
-                    "mode=${if (paperRuntime6689) "PAPER" else "LIVE"} open=$effectiveMemeOpen6689 " +
-                        "cap=$MEME_TURNOVER_ABSOLUTE_CAP_6689 action=defer_entries_until_confirmed_exits_recycle_capital",
-                )
-            } catch (_: Throwable) {}
-            return DeferDecision(
-                true,
-                "MEME_TURNOVER_CAP=$effectiveMemeOpen6689>=$MEME_TURNOVER_ABSOLUTE_CAP_6689",
-            )
-        }
-
+        // V5.0.6692 — the former global 24-position turnover seal was a
+        // self-inflicted choke. Do not defer merely because a static inventory
+        // count was reached. The canonical writer still serializes reservations,
+        // while OrderSizeResolver/CapitalAuthority determine whether cash and risk
+        // actually permit another position.
         // Stale soft telemetry still fails open; canonical turnover above did not.
         if (System.currentTimeMillis() - lastPublishMs.get() > 15_000L) {
             return DeferDecision(false, "stale_snapshot_fail_open")
@@ -190,10 +170,15 @@ object SlotHealthGate {
         if (!candidateConfirmedHighEdge) {
             val activeSellJobs = try { com.lifecyclebot.engine.sell.SellJobRegistry.activeCount() } catch (_: Throwable) { 0 }
             if (activeSellJobs > 0 && openPositionCount.get() >= ENTRY_SOFT_CAP) {
-                return DeferDecision(
-                    true,
-                    "EXITS_PRIORITY sellJobsActive=$activeSellJobs open=${openPositionCount.get()}>=$ENTRY_SOFT_CAP",
-                )
+                // V5.0.6692 — advisory only. Exit pressure may shape sizing/priority
+                // but may not amputate every specialist lane while shared cash exists.
+                try {
+                    PipelineHealthCollector.labelInc("MEME_EXIT_PRIORITY_ADVISORY_6692")
+                    ForensicLogger.lifecycle(
+                        "MEME_EXIT_PRIORITY_ADVISORY_6692",
+                        "sellJobsActive=$activeSellJobs open=${openPositionCount.get()} soft=$ENTRY_SOFT_CAP action=advisory_only_no_entry_block",
+                    )
+                } catch (_: Throwable) {}
             }
         }
 
@@ -205,5 +190,5 @@ object SlotHealthGate {
     fun snapshotLine(): String =
         "ghost=${ghostOpenCount.get()} forced=${forcedOpenCount.get()} open=${openPositionCount.get()} " +
         "sup=${supervisorActive.get()}/${supervisorCap.get()} exitPending=${exitPending.get()} " +
-        "memeTurnoverCap=$MEME_TURNOVER_ABSOLUTE_CAP_6689"
+        "memeTurnoverCap=SHARED_CAPITAL_6692"
 }

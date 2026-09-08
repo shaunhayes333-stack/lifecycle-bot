@@ -179,8 +179,8 @@ object ExecutableOpenGate {
             .filterNotNull()
             .firstOrNull {
                 it.mint == mint && it.mode.equals(mode, true) &&
-                    it.candidateVersion == candidateVersion &&
-                    it.canonicalLane.equals(requestedLane, true)
+                    (it.canonicalLane.equals(requestedLane, true) ||
+                        isSourceBucketLane(requestedLane))
             }
         if (byAttempt != null && candidate == null) {
             try {
@@ -194,6 +194,24 @@ object ExecutableOpenGate {
             } catch (_: Throwable) {}
         }
         if (candidate == null) return null
+        if (candidate.candidateVersion != candidateVersion) {
+            try {
+                PipelineHealthCollector.labelInc("EXEC_RESTORED_TICKET_VERSION_DRIFT_6692")
+                ForensicLogger.lifecycle(
+                    "EXEC_RESTORED_TICKET_VERSION_DRIFT_6692",
+                    "mint=${mint.take(10)} requestedVersion=$candidateVersion sealedVersion=${candidate.candidateVersion} lane=${candidate.canonicalLane} action=keep_sealed_authority_volatile_version_drift",
+                )
+            } catch (_: Throwable) {}
+        }
+        if (!candidate.canonicalLane.equals(requestedLane, true) && isSourceBucketLane(requestedLane)) {
+            try {
+                PipelineHealthCollector.labelInc("EXEC_RESTORED_SPECIALIST_VIA_TRUNK_6692")
+                ForensicLogger.lifecycle(
+                    "EXEC_RESTORED_SPECIALIST_VIA_TRUNK_6692",
+                    "mint=${mint.take(10)} sealedLane=${candidate.canonicalLane} requestedLane=$requestedLane action=preserve_specialist_owner",
+                )
+            } catch (_: Throwable) {}
+        }
         if (!validSealedDecision6613(candidate)) {
             try {
                 if (candidate.finalDecision6613 == CanonicalFinalDecision6613.UNKNOWN)
@@ -396,12 +414,18 @@ object ExecutableOpenGate {
     )
     private val retryPending6548 = ConcurrentHashMap<String, RetryPending6548>()
     const val RETRY_PENDING_TTL_MS_6548: Long = 40_000L
+    private fun effectiveRetryPendingTtlMs6692(): Long = try {
+        maxOf(
+            RETRY_PENDING_TTL_MS_6548,
+            com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626(),
+        )
+    } catch (_: Throwable) { RETRY_PENDING_TTL_MS_6548 }
 
     fun retryPendingFor6548(mint: String): RetryPending6548? {
         val key = mint.trim()
         val entry = retryPending6548[key] ?: return null
         val now = System.currentTimeMillis()
-        if (now - entry.stampedAtMs > RETRY_PENDING_TTL_MS_6548) {
+        if (now - entry.stampedAtMs > effectiveRetryPendingTtlMs6692()) {
             retryPending6548.remove(key, entry)
             return null
         }
@@ -424,9 +448,29 @@ object ExecutableOpenGate {
         // V5.0.6548 §P0-A — retain the ticket + allowedAttempts[mint] entry
         // so the immutable authority stays owned across the retry window.
         // Only prune per-lane residues and the specific attempt lease.
-        if (attemptId.isNotBlank()) executionTickets.remove(attemptId)
-        allowedAttempts.entries.removeIf { (attemptId.isNotBlank() && it.value.first == attemptId) ||
-            it.key == laneKey(mint, lane) }
+        val retainedTicket6548 = if (attemptId.isNotBlank()) executionTickets[attemptId] else null
+        val retryStampMs6548 = System.currentTimeMillis()
+        // Remove only a conflicting lane residue. Never delete the very ticket
+        // this retry slot is supposed to own.
+        allowedAttempts.entries.removeIf { entry ->
+            entry.key == laneKey(mint, lane) &&
+                (attemptId.isBlank() || entry.value.first != attemptId)
+        }
+        if (retainedTicket6548 != null && ticketLive(retainedTicket6548, retryStampMs6548)) {
+            executionTickets[attemptId] = retainedTicket6548
+            activeExecutionIntents6519[intentKey6519(
+                retainedTicket6548.mode, retainedTicket6548.mint, retainedTicket6548.candidateVersion,
+            )] = retainedTicket6548
+            allowedAttempts[laneKey(mint, retainedTicket6548.canonicalLane)] = attemptId to retryStampMs6548
+            allowedAttempts[mint.trim()] = attemptId to retryStampMs6548
+            try {
+                PipelineHealthCollector.labelInc("PAPER_TICKET_AUTHORITY_RETAINED_6692")
+                ForensicLogger.lifecycle(
+                    "PAPER_TICKET_AUTHORITY_RETAINED_6692",
+                    "attemptId=$attemptId mint=${mint.take(10)} lane=${retainedTicket6548.canonicalLane} candidateVersion=${retainedTicket6548.candidateVersion} reason=$reason",
+                )
+            } catch (_: Throwable) {}
+        }
         restorePenalties.remove(attemptId)
         executableBuyClaim6487.entries.removeIf { attemptId.isNotBlank() && it.value.startsWith("$attemptId:") }
         val key = mint.trim()
@@ -436,7 +480,7 @@ object ExecutableOpenGate {
             try {
                 ForensicLogger.lifecycle(
                     "PAPER_TICKET_RETRY_PENDING_6548",
-                    "attemptId=$attemptId mint=${key.take(10)} lane=$lane reason=$reason ttlMs=$RETRY_PENDING_TTL_MS_6548 " +
+                    "attemptId=$attemptId mint=${key.take(10)} lane=$lane reason=$reason ttlMs=${effectiveRetryPendingTtlMs6692()} " +
                         "action=retain_authority_await_resume",
                 )
             } catch (_: Throwable) {}

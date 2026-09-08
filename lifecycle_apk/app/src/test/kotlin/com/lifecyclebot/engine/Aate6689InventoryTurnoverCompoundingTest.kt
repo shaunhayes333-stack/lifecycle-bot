@@ -12,22 +12,15 @@ import java.io.File
 class Aate6689InventoryTurnoverCompoundingTest {
 
     @Test
-    fun `meme turnover ceiling is canonical and precedes every soft fail open`() {
+    fun `static meme position ceiling is retired in favor of shared capital authority`() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt").readText()
 
-        assertTrue(src.contains("MEME_TURNOVER_ABSOLUTE_CAP_6689 = 24"))
-        assertTrue(src.contains("activeMintProjections6490(mode)"))
-        assertTrue(src.contains("MEME_INVENTORY_TURNOVER_CAP_6689"))
-
-        val hardCap = src.indexOf("if (effectiveMemeOpen6689 >= MEME_TURNOVER_ABSOLUTE_CAP_6689)")
-        val staleFailOpen = src.indexOf("stale_snapshot_fail_open")
-        val paperForcedFailOpen = src.indexOf("PAPER_FORCED_OPEN_FAIL_OPEN")
-        assertTrue("turnover cap must execute before stale telemetry fail-open", hardCap >= 0 && hardCap < staleFailOpen)
-        assertTrue("turnover cap must execute before PAPER forced-open fail-open", hardCap >= 0 && hardCap < paperForcedFailOpen)
-
-        val hardBlock = src.substring(hardCap, staleFailOpen)
-        assertFalse("high-edge candidates must not bypass the absolute turnover ceiling",
-            hardBlock.contains("candidateConfirmedHighEdge"))
+        assertFalse(src.contains("MEME_TURNOVER_ABSOLUTE_CAP_6689 = 24"))
+        assertTrue(src.contains("memeTurnoverAbsoluteCap6689(): Int = Int.MAX_VALUE"))
+        assertTrue(src.contains("memeTurnoverCap=SHARED_CAPITAL_6692"))
+        val defer = src.substringAfter("fun shouldDeferBuy").substringBefore("fun snapshotLine")
+        assertFalse("static inventory count must not return a hard defer", defer.contains("MEME_TURNOVER_CAP="))
+        assertTrue(defer.contains("MEME_EXIT_PRIORITY_ADVISORY_6692"))
     }
 
     @Test
@@ -62,11 +55,12 @@ class Aate6689InventoryTurnoverCompoundingTest {
     }
 
     @Test
-    fun `soft exit priority remains below absolute turnover ceiling`() {
+    fun `exit priority is advisory and cannot globally amputate meme entries`() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt").readText()
         assertTrue(src.contains("ENTRY_SOFT_CAP = 12"))
-        assertTrue(src.contains("activeSellJobs > 0 && openPositionCount.get() >= ENTRY_SOFT_CAP"))
-        assertTrue(src.contains("memeTurnoverCap=\$MEME_TURNOVER_ABSOLUTE_CAP_6689"))
+        assertTrue(src.contains("MEME_EXIT_PRIORITY_ADVISORY_6692"))
+        val defer = src.substringAfter("fun shouldDeferBuy").substringBefore("fun snapshotLine")
+        assertFalse(defer.contains("EXITS_PRIORITY sellJobsActive="))
     }
 
     @Test

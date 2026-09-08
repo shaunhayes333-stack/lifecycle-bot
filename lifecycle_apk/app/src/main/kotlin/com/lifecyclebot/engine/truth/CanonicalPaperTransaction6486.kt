@@ -6,6 +6,7 @@ import com.lifecyclebot.engine.TradeHistoryStore
 import com.lifecyclebot.data.Trade
 import java.math.BigInteger
 import java.util.concurrent.locks.ReentrantLock
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.withLock
 
 /** V5.0.6486 — one typed paper transaction reducer for every trader family. */
@@ -14,11 +15,27 @@ object CanonicalPaperTransaction6486 {
     // starved indefinitely by a continuous stream of entry/exit mutations.
     private val lock = ReentrantLock(true)
     private val syntheticUnit = BigInteger.valueOf(1_000_000_000L)
+    private val lastCanonicalHistoryRepair6692Ms = AtomicLong(0L)
+    private const val CANONICAL_HISTORY_REPAIR_CADENCE_6692_MS = 60_000L
 
     /** Background startup reconciliation. Scalars move only after durable
      * journal and canonical raw lots agree exactly. */
     fun reconcileJournalAuthority6663(): Boolean = lock.withLock {
         if (!awaitJournalBoundary6669("pre_replay")) return@withLock false
+        // V5.0.6692 — repair missing journal legs from immutable canonical/typed
+        // receipts before replay. Throttled so reconciliation never becomes an
+        // intake hot path; first pass always runs, later passes run only while
+        // ledger/journal divergence remains non-zero.
+        val nowRepair6692 = System.currentTimeMillis()
+        val divergence6692 = kotlin.math.abs(JournalEconomicReplay6619.latestLedgerDivergenceSol())
+        val lastRepair6692 = lastCanonicalHistoryRepair6692Ms.get()
+        if ((lastRepair6692 == 0L || divergence6692 > 0.001) &&
+            nowRepair6692 - lastRepair6692 >= CANONICAL_HISTORY_REPAIR_CADENCE_6692_MS &&
+            lastCanonicalHistoryRepair6692Ms.compareAndSet(lastRepair6692, nowRepair6692)
+        ) {
+            repairCryptoHistory6659()
+            if (!awaitJournalBoundary6669("post_canonical_history_reprojection_6692")) return@withLock false
+        }
         JournalEconomicReplay6619.repairOrphanedOpenLots6662()
         if (!awaitJournalBoundary6669("post_orphan_repair")) return@withLock false
         var replay = JournalEconomicReplay6619.replay()
@@ -241,7 +258,7 @@ object CanonicalPaperTransaction6486 {
     fun repairCryptoHistory6659() {
         val positions = (CanonicalPositionAuthority6441.openPositions() +
             CanonicalPositionAuthority6441.closedPositions())
-            .filter { it.mode.equals("paper", true) && it.assetClass != AssetClass.SOLANA_TOKEN }
+            .filter { it.mode.equals("paper", true) }
             .associateBy { it.positionId }
         if (positions.isEmpty()) return
 
@@ -318,6 +335,7 @@ object CanonicalPaperTransaction6486 {
         try {
             PipelineHealthCollector.labelInc("CRYPTO_HISTORY_REPROJECTED_6659")
             PipelineHealthCollector.labelInc("CROSS_ASSET_HISTORY_REPROJECTED_6660")
+            PipelineHealthCollector.labelInc("PAPER_CANONICAL_HISTORY_REPROJECTED_6692")
         } catch (_: Throwable) {}
     }
 
@@ -555,7 +573,23 @@ object CanonicalPaperTransaction6486 {
             grossProceedsSol < 0.0 || !basis.isFinite() || basis < 0.0)
             return@withLock Result(false, positionId, "INVALID_CLOSE")
         val terminal = qty >= pos.remainingQtyRaw
-        val canonicalRealizedPnl6569 = grossProceedsSol - basis - sellFeeSol
+        val staleEmergencyExit6692 = exitReason.startsWith(
+            "STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP", ignoreCase = true,
+        )
+        val effectiveGrossProceeds6692 = if (staleEmergencyExit6692) {
+            val boundedGross6692 = (basis * 0.75).coerceAtLeast(0.0)
+            val effective6692 = minOf(grossProceedsSol, boundedGross6692)
+            EconomicPurityGate6504.markUntrusted(mint, "STALE_QUOTE_UNVERIFIED_EXIT_6692")
+            if (kotlin.math.abs(effective6692 - grossProceedsSol) > 1e-9) try {
+                PipelineHealthCollector.labelInc("STALE_QUOTE_PAPER_PROCEEDS_CLAMPED_6692")
+                ForensicLogger.lifecycle(
+                    "STALE_QUOTE_PAPER_PROCEEDS_CLAMPED_6692",
+                    "positionId=$positionId mint=${mint.take(10)} basis=$basis proposedGross=$grossProceedsSol boundedGross=$boundedGross6692 effectiveGross=$effective6692 action=synthetic_backstop_cannot_create_profit",
+                )
+            } catch (_: Throwable) {}
+            effective6692
+        } else grossProceedsSol
+        val canonicalRealizedPnl6569 = effectiveGrossProceeds6692 - basis - sellFeeSol
         val expected6569 = expectedRealizedPnlSol6569
         val return6569 = leveragedReturnPct6569
         // V5.0.6689 — limited-liability paper settlement floors gross proceeds
@@ -592,7 +626,7 @@ object CanonicalPaperTransaction6486 {
             generation = pos.openedAtMs, sellSig = "PAPER6486:$positionId:$terminalSequence",
             soldQtyRaw = qty, preRemainingRaw = pos.remainingQtyRaw,
             preRemainingCostBasisSol = (pos.entryCostSol - pos.soldCostBasisSol).coerceAtLeast(0.0),
-            grossProceedsSol = grossProceedsSol, soldCostBasisSol = basis,
+            grossProceedsSol = effectiveGrossProceeds6692, soldCostBasisSol = basis,
             feesSol = sellFeeSol, lane = pos.lane, exitReason = exitReason,
             terminal = terminal, directPositionMutation6486 = true,
         )
