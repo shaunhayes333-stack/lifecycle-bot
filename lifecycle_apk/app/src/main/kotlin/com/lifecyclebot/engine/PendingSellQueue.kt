@@ -5,20 +5,22 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
  * PENDING SELL QUEUE
- * 
+ *
  * Holds sell orders that couldn't execute due to wallet disconnect or other
  * recoverable errors. When wallet reconnects, these sells should be retried.
- * 
- * Usage:
- *   - Add: PendingSellQueue.add(mint, symbol, reason)
- *   - Check: PendingSellQueue.hasPending()
- *   - Process: PendingSellQueue.getAndClear() → returns list of pending sells
+ *
+ * V5.0.6702 — EXIT LIVENESS AUTHORITY
+ * An OPEN position may not disappear from retry authority because an arbitrary
+ * age/retry counter expired. Retry metadata is diagnostic only. A pending sell
+ * remains retryable until a terminal close authority proves the position closed.
+ * This repairs the old contradiction where comments said "never fake-close,
+ * keep retrying" while MAX_AGE/MAX_RETRIES silently dropped the sell anyway.
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 object PendingSellQueue {
-    
+
     private const val TAG = "PendingSellQueue"
-    
+
     data class PendingSell(
         val mint: String,
         val symbol: String,
@@ -29,30 +31,17 @@ object PendingSellQueue {
         val ageMs: Long get() = System.currentTimeMillis() - queuedAtMs
         val ageMins: Double get() = ageMs / 60_000.0
     }
-    
-    private val queue = ConcurrentHashMap<String, PendingSell>()
-    
-    // V5.9.321: Max age extended 30min → 24h.
-    // A position that can't sell for 30 minutes (RPC outage, illiquid) was being
-    // silently DROPPED. The tokens stayed in the wallet but the bot forgot about
-    // them — phantom position, no sell ever attempted again. 24h aligns with
-    // FeeRetryQueue and gives enough runway for any RPC/Jupiter outage to recover.
-    private const val MAX_AGE_MS = 24 * 60 * 60_000L  // 24 hours
 
-    // V5.9.321: MAX_RETRIES 5 → 50 — matches BotService's "never fake-close, keep retrying"
-    // stance from V5.9.291. The old 5-retry limit meant a position that hit a Jupiter
-    // outage for 25 seconds would exhaust all retries and be PERMANENTLY dropped with
-    // no sell ever executed. retryCount just drives the BotService alert escalation.
-    private const val MAX_RETRIES = 50
-    
-    /**
-     * Add a sell order to the pending queue.
-     * Replaces existing entry for same mint.
-     */
-    // V5.9.1524 — operator spec items 3 & 5: ONLY true temporary network/RPC
-    // faults may enter the queue. Bad-payload / build errors (HTTP 400, invalid
-    // amount, missing decimals, "100%" misuse) must NEVER requeue — they are
-    // resolved by immediate venue rebuild/failover, not by waiting.
+    private val queue = ConcurrentHashMap<String, PendingSell>()
+
+    // V5.0.6702 — retained only as telemetry thresholds. They MUST NOT evict an
+    // open position from retry authority. The old implementation expired after
+    // 24h or 50 retries and could leave a held token with no future sell owner.
+    private const val LEGACY_AGE_ALERT_MS = 24 * 60 * 60_000L
+    private const val LEGACY_RETRY_ALERT = 50
+
+    // V5.9.1524 — ONLY true temporary network/RPC faults may enter the queue.
+    // Bad-payload/build errors are rebuilt/failovered immediately instead.
     private val TEMPORARY_MARKERS = listOf(
         "rpc", "timeout", "timed out", "network", "blockhash", "block height",
         "confirmation", "wallet not connected", "wallet disconnect", "unreachable",
@@ -66,138 +55,158 @@ object PendingSellQueue {
     fun isTemporary(reason: String): Boolean {
         val r = reason.lowercase()
         if (BAD_PAYLOAD_MARKERS.any { r.contains(it) }) return false
-        // Default: a SELL reason label (e.g. "STRICT_SL_-10", "RUG_DRAIN") is the
-        // EXIT trigger, not a failure cause — those are legitimately retryable
-        // (the sell genuinely needs to keep trying). Only explicit bad-payload
-        // markers are rejected.
+        // A strategy exit label is an exit trigger, not a transport failure.
+        // Treat it as retryable unless it is explicitly a malformed payload.
         return true || TEMPORARY_MARKERS.any { r.contains(it) }
     }
 
-    fun add(mint: String, symbol: String, reason: String) {
-        if (com.lifecyclebot.engine.sell.LivePositionCloseAuthority.isTerminalOrClosing(mint)) {
-            queue.remove(mint)
-            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("PENDING_SELL_SUPPRESSED_CLOSING", "mint=${mint.take(10)} symbol=$symbol reason=$reason") } catch (_: Throwable) {}
-            return
-        }
-        if (com.lifecyclebot.engine.PositionCloseLedger.isClosed(mint)) {
-            queue.remove(mint)
-            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("PENDING_SELL_PURGED_CLOSED", "mint=${mint.take(10)} symbol=$symbol reason=$reason") } catch (_: Throwable) {}
-            return
-        }
-        // Reject malformed-payload reasons outright (spec item 5).
-        if (!isTemporary(reason)) {
-            ErrorLogger.warn(TAG,
-                "🚫 SELL_RETRY_BLOCKED_BAD_PAYLOAD: $symbol ($mint) reason='$reason' — not requeued (failover rebuilds instead)")
+    /**
+     * V5.0.6702 — mode-aware terminal proof.
+     * PAPER retries must not be suppressed by LIVE close state for the same mint.
+     * The previous queue unconditionally consulted LivePositionCloseAuthority,
+     * which allowed cross-mode close metadata to erase a paper retry.
+     */
+    private fun terminalForRuntime6702(mint: String): Boolean {
+        val paper = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        return if (paper) {
+            try { PaperPositionCloseAuthority.stateOf("PAPER", mint) == PaperPositionCloseAuthority.State.CLOSED }
+            catch (_: Throwable) { false }
+        } else {
             try {
-                com.lifecyclebot.engine.sell.SellForensics.inc(
-                    com.lifecyclebot.engine.sell.SellForensics.SELL_RETRY_BLOCKED_BAD_PAYLOAD,
-                    "mint=${mint.take(10)} reason=${reason.take(60)}")
+                com.lifecyclebot.engine.sell.LivePositionCloseAuthority.isTerminalOrClosing(mint) ||
+                    PositionCloseLedger.isClosed(mint)
+            } catch (_: Throwable) { false }
+        }
+    }
+
+    /**
+     * Add or refresh a sell order. V5.0.6702 preserves queuedAt/retryCount so a
+     * repeated exit signal cannot reset retry telemetry back to zero forever.
+     */
+    fun add(mint: String, symbol: String, reason: String) {
+        if (terminalForRuntime6702(mint)) {
+            queue.remove(mint)
+            try {
+                ForensicLogger.lifecycle(
+                    "PENDING_SELL_SUPPRESSED_TERMINAL_6702",
+                    "mint=${mint.take(10)} symbol=$symbol reason=$reason",
+                )
             } catch (_: Throwable) {}
             return
         }
-        queue[mint] = PendingSell(mint, symbol, reason)
+        if (!isTemporary(reason)) {
+            ErrorLogger.warn(
+                TAG,
+                "🚫 SELL_RETRY_BLOCKED_BAD_PAYLOAD: $symbol ($mint) reason='$reason' — not requeued (failover rebuilds instead)",
+            )
+            try {
+                com.lifecyclebot.engine.sell.SellForensics.inc(
+                    com.lifecyclebot.engine.sell.SellForensics.SELL_RETRY_BLOCKED_BAD_PAYLOAD,
+                    "mint=${mint.take(10)} reason=${reason.take(60)}",
+                )
+            } catch (_: Throwable) {}
+            return
+        }
+
+        queue.compute(mint) { _, existing ->
+            if (existing == null) PendingSell(mint, symbol, reason)
+            else existing.copy(
+                symbol = symbol.ifBlank { existing.symbol },
+                reason = reason.ifBlank { existing.reason },
+                queuedAtMs = existing.queuedAtMs,
+                retryCount = existing.retryCount,
+            )
+        }
         try {
             com.lifecyclebot.engine.sell.SellForensics.inc(
                 com.lifecyclebot.engine.sell.SellForensics.SELL_RETRY_TEMPORARY_ONLY,
-                "mint=${mint.take(10)} reason=${reason.take(60)}")
+                "mint=${mint.take(10)} reason=${reason.take(60)}",
+            )
         } catch (_: Throwable) {}
-        ErrorLogger.info(TAG, "📥 Queued pending sell: $symbol ($mint) | reason: $reason")
-        ErrorLogger.info(TAG, "📊 Queue size: ${queue.size}")
+        ErrorLogger.info(TAG, "📥 Pending sell owned: $symbol ($mint) | reason: $reason | queue=${queue.size}")
     }
-    
-    /**
-     * Check if there are any pending sells.
-     */
+
     fun hasPending(): Boolean = queue.isNotEmpty()
-    
-    /**
-     * Get count of pending sells.
-     */
     fun size(): Int = queue.size
-    
+
     /**
-     * Get all pending sells and clear the queue.
-     * Filters out expired entries (older than MAX_AGE_MS).
-     * Returns list of sells that should be retried.
+     * Return pending sells for an active retry pass.
+     *
+     * V5.0.6702 — no age/retry eviction. Only terminal proof removes a mint.
+     * Processing still removes the entry temporarily so the caller owns one
+     * attempt; a failed attempt must call [requeue].
      */
     fun getAndClear(): List<PendingSell> {
-        val now = System.currentTimeMillis()
         val pending = mutableListOf<PendingSell>()
-        val expired = mutableListOf<String>()
-        
+        val terminal = mutableListOf<String>()
+
         queue.forEach { (mint, sell) ->
-            when {
-                sell.ageMs > MAX_AGE_MS -> {
-                    ErrorLogger.warn(TAG, "⏰ Expired: ${sell.symbol} (aged ${sell.ageMins.toInt()}min)")
-                    expired.add(mint)
-                }
-                sell.retryCount >= MAX_RETRIES -> {
-                    ErrorLogger.warn(TAG, "🔄 Max retries: ${sell.symbol} (${sell.retryCount} attempts)")
-                    expired.add(mint)
-                }
-                com.lifecyclebot.engine.sell.LivePositionCloseAuthority.isTerminalOrClosing(mint) || com.lifecyclebot.engine.PositionCloseLedger.isClosed(mint) -> {
-                    expired.add(mint)
-                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("PENDING_SELL_PURGED_CLOSING_OR_CLOSED", "mint=${mint.take(10)} symbol=${sell.symbol}") } catch (_: Throwable) {}
-                }
-                else -> {
-                    pending.add(sell.copy(retryCount = sell.retryCount + 1))
+            if (terminalForRuntime6702(mint)) {
+                terminal.add(mint)
+                try {
+                    ForensicLogger.lifecycle(
+                        "PENDING_SELL_PURGED_TERMINAL_6702",
+                        "mint=${mint.take(10)} symbol=${sell.symbol} retries=${sell.retryCount}",
+                    )
+                } catch (_: Throwable) {}
+            } else {
+                val next = sell.copy(retryCount = sell.retryCount + 1)
+                pending.add(next)
+                if (sell.ageMs >= LEGACY_AGE_ALERT_MS || next.retryCount >= LEGACY_RETRY_ALERT) {
+                    try {
+                        PipelineHealthCollector.labelInc("PENDING_SELL_PERSISTED_BEYOND_LEGACY_LIMIT_6702")
+                        ForensicLogger.lifecycle(
+                            "PENDING_SELL_PERSISTED_BEYOND_LEGACY_LIMIT_6702",
+                            "mint=${mint.take(10)} symbol=${sell.symbol} ageMin=${sell.ageMins.toInt()} retries=${next.retryCount} action=KEEP_UNTIL_TERMINAL",
+                        )
+                    } catch (_: Throwable) {}
                 }
             }
         }
-        
-        // Clear processed entries
-        expired.forEach { queue.remove(it) }
+
+        terminal.forEach { queue.remove(it) }
         pending.forEach { queue.remove(it.mint) }
-        
+
         if (pending.isNotEmpty()) {
             ErrorLogger.info(TAG, "📤 Processing ${pending.size} pending sells")
         }
-        
         return pending
     }
-    
+
     /**
-     * Re-queue a sell that failed again.
-     * Increments retry counter.
+     * Requeue a failed attempt. Retry count is already incremented by
+     * [getAndClear], so do not increment a second time here.
      */
     fun requeue(sell: PendingSell) {
-        if (com.lifecyclebot.engine.sell.LivePositionCloseAuthority.isTerminalOrClosing(sell.mint) || com.lifecyclebot.engine.PositionCloseLedger.isClosed(sell.mint)) {
+        if (terminalForRuntime6702(sell.mint)) {
             queue.remove(sell.mint)
-            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("PENDING_SELL_REQUEUE_SUPPRESSED_CLOSING", "mint=${sell.mint.take(10)} symbol=${sell.symbol} retry=${sell.retryCount}") } catch (_: Throwable) {}
+            try {
+                ForensicLogger.lifecycle(
+                    "PENDING_SELL_REQUEUE_SUPPRESSED_TERMINAL_6702",
+                    "mint=${sell.mint.take(10)} symbol=${sell.symbol} retry=${sell.retryCount}",
+                )
+            } catch (_: Throwable) {}
             return
         }
-        if (sell.retryCount >= MAX_RETRIES) {
-            ErrorLogger.warn(TAG, "🛑 Not requeuing ${sell.symbol} - max retries reached")
-            return
-        }
-        queue[sell.mint] = sell.copy(retryCount = sell.retryCount + 1)
-        ErrorLogger.info(TAG, "🔄 Requeued ${sell.symbol} (attempt ${sell.retryCount + 1})")
+        queue[sell.mint] = sell
+        ErrorLogger.info(TAG, "🔄 Requeued ${sell.symbol} (attempt ${sell.retryCount})")
     }
-    
-    /**
-     * Remove a specific mint from queue (e.g., if successfully sold manually).
-     */
+
     fun remove(mint: String) {
         val removed = queue.remove(mint)
         if (removed != null) {
             ErrorLogger.info(TAG, "✅ Removed ${removed.symbol} from pending queue")
         }
     }
-    
-    /**
-     * Clear entire queue (e.g., on manual reset).
-     */
+
     fun clear() {
         val count = queue.size
         queue.clear()
         ErrorLogger.info(TAG, "🗑️ Cleared $count pending sells")
     }
-    
-    /**
-     * Get summary for display.
-     */
+
     fun getSummary(): String {
         if (queue.isEmpty()) return "No pending sells"
-        return queue.values.joinToString(", ") { "${it.symbol}(${it.ageMins.toInt()}m)" }
+        return queue.values.joinToString(", ") { "${it.symbol}(${it.ageMins.toInt()}m,r${it.retryCount})" }
     }
 }
