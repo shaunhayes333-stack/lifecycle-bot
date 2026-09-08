@@ -256,9 +256,15 @@ object CanonicalPaperTransaction6486 {
      * sidecar still has the exact basis/proceeds/quantity receipt, so project
      * it rather than inventing values or resetting the operator's account. */
     fun repairCryptoHistory6659() {
+        // V5.0.6697 — this is CROSS-ASSET history repair only. 6696 selected
+        // every PAPER position, including SOLANA_TOKEN meme positions, and
+        // projected a second CROSS_ASSET_CANONICAL_OPEN_6659 BUY over their
+        // native journal entries. That polluted replay basis/cash and starved
+        // learning via false invariant quarantines. Never repair Solana-token
+        // inventory through the cross-asset projector.
         val positions = (CanonicalPositionAuthority6441.openPositions() +
             CanonicalPositionAuthority6441.closedPositions())
-            .filter { it.mode.equals("paper", true) }
+            .filter { it.mode.equals("paper", true) && it.assetClass != AssetClass.SOLANA_TOKEN }
             .associateBy { it.positionId }
         if (positions.isEmpty()) return
 
@@ -377,24 +383,6 @@ object CanonicalPaperTransaction6486 {
             return@withLock Result(false, positionId, "INVALID_OPEN")
         if (CanonicalPositionAuthority6441.getPosition(positionId) != null)
             return@withLock Result(false, positionId, "POSITION_EXISTS")
-        // V5.0.6605 §REPAIR_H (operator directive Feb 2026 — CANONICAL SAME-MINT OCCUPANCY):
-        //   Operator forensic V5.0.6604 dump captured D1cdMQ opened in QUALITY
-        //   at 01:10:43 then again ~15s later in PROJECT_SNIPER — despite
-        //   `SameMintDedupAuthority6441` reporting raw=97 accepts=97
-        //   coalesces=0 blocks=0 across 81 canonical opens. The scan-time
-        //   dedup gate correctly rejects duplicates WITHIN a single scan
-        //   cycle, but the specialist election → sizing → executor path
-        //   can accept a second candidate for the same mint after the
-        //   first has already opened (different positionId, same mint).
-        //   Bind the invariant HERE at the canonical reducer: if the mint
-        //   already has an OPEN canonical position, refuse a second open
-        //   and emit CANONICAL_SAME_MINT_OCCUPANCY_BLOCK_6605 so the
-        //   contributor lane can be routed to "influence existing
-        //   position" or discarded. This is the last write barrier
-        //   before capital debit; nothing downstream can bypass it.
-        //   Different execution modes (paper vs live) are still allowed
-        //   to co-exist per (mode, mint) — the check is scoped to the
-        //   same runtime mode as the incoming open.
         val incomingMode6605 = "paper"
         val duplicateOpenSameMode6605 = try {
             CanonicalPositionAuthority6441.openPositions().any { p ->
@@ -407,17 +395,12 @@ object CanonicalPaperTransaction6486 {
                 PipelineHealthCollector.labelInc("CANONICAL_SAME_MINT_OCCUPANCY_BLOCK_6605_${lane.uppercase()}")
                 ForensicLogger.lifecycle(
                     "CANONICAL_SAME_MINT_OCCUPANCY_BLOCK_6605",
-                    "mint=${mint.take(10)} lane=$lane positionId=${positionId.take(24)} " +
-                        "mode=$incomingMode6605 action=refuse_duplicate_open",
+                    "mint=${mint.take(10)} lane=$lane positionId=${positionId.take(24)} mode=$incomingMode6605 action=refuse_duplicate_open",
                 )
             } catch (_: Throwable) {}
             return@withLock Result(false, positionId, "CANONICAL_SAME_MINT_ALREADY_OPEN_POSITION_6605")
         }
         val idem = "PAPER6486:OPEN:$positionId"
-        // Use the same immutable event id on the ledger and journal sides.
-        // The legacy onBuy() call supplied a blank key while
-        // ensureOpenProjection6659 journaled PAPER6486:OPEN:<positionId>,
-        // manufacturing a JOURNAL_ONLY half-commit for every cross-asset open.
         if (!PaperAccountLedger6430.onBuyAtomic6632(costSol, feeSol, mint, idem))
             return@withLock Result(false, positionId, "INSUFFICIENT_CANONICAL_CASH")
         val opened = CanonicalPositionAuthority6441.openPosition(
@@ -445,16 +428,9 @@ object CanonicalPaperTransaction6486 {
         CanonicalMintOccupancyRegistry6464.markOpen("paper", mint, symbol, source)
         CanonicalPositionAuthority6441.getPosition(positionId)?.let { ensureOpenProjection6659(it) }
         try { PipelineHealthCollector.labelInc("PAPER_TRANSACTION_OPEN_COMMITTED_6486") } catch (_: Throwable) {}
-        // V5.0.6551 — intent/dispatch were sealed before debit; only the
-        // successful canonical commit emits OPEN_CONFIRMED.
         if (assetClass != AssetClass.SOLANA_TOKEN) {
-            // Confirm the exact immutable intent supplied by the caller. A
-            // mint/mode lookup can select a different concurrent attempt and
-            // break the one-intent/one-terminal invariant.
             executionIntent?.let { CanonicalEntryAuthority6551.markConfirmed(it, positionId) }
         }
-        // Canonical BUY projection — one journal event per canonical open.
-        // It is emitted only after the authority-backed commit succeeds.
         try {
             PipelineHealthCollector.labelInc("CANONICAL_BUY_JOURNAL_PROJECTED_6543")
             ForensicLogger.lifecycle(
@@ -467,11 +443,6 @@ object CanonicalPaperTransaction6486 {
 
     fun add(positionId: String, mint: String, symbol: String, addedCostSol: Double,
             addedFeeSol: Double = 0.0, addedQtyRaw: BigInteger = syntheticUnit,
-            // V5.0.6539 §TOP_UP_ATOMICITY — accept the fill's authoritative
-            // USD/token price so canonical row weighted-average USD entry
-            // basis is updated in the SAME atomic mutation, and the
-            // durable economic-event fillPrice is USD/token rather than
-            // SOL/raw. Defaults to 0.0 (skip rewrite; pre-6539 semantics).
             addedEntryPriceUsd: Double = 0.0,
             quantityScale: Int = 9): Result = lock.withLock {
         val pos = CanonicalPositionAuthority6441.getPosition(positionId)
@@ -479,8 +450,6 @@ object CanonicalPaperTransaction6486 {
         if (!addedCostSol.isFinite() || addedCostSol <= 0.0 || addedQtyRaw <= BigInteger.ZERO)
             return@withLock Result(false, positionId, "INVALID_ADD")
         val idem = "PAPER6486:ADD:$positionId:${pos.originalQtyRaw}"
-        // Top-ups are full economic fills, not an in-memory position detail.
-        // Key ledger debit and journal projection with the same immutable id.
         if (!PaperAccountLedger6430.onBuyAtomic6632(addedCostSol, addedFeeSol, mint, idem))
             return@withLock Result(false, positionId, "INSUFFICIENT_CANONICAL_CASH")
         val applied = CanonicalPositionAuthority6441.addToPosition6486(
@@ -494,10 +463,6 @@ object CanonicalPaperTransaction6486 {
             PositionStateLedger6454.onEntry(positionId)
             SellQtyBoundaryClamp6427.syncAuthoritativeRaw(positionId, updated6498.originalQtyRaw, updated6498.remainingQtyRaw)
         }
-        // V5.0.6539 §DURABLE_ECONOMIC_EVENT — fillPrice is USD/token when
-        // available so replay reproduces the same weighted USD basis
-        // (previously we recorded SOL/rawUnit which is a nonsense unit and
-        // cannot be replayed into a USD-basis position).
         val fillPrice6539 = if (addedEntryPriceUsd > 0.0 && addedEntryPriceUsd.isFinite())
             addedEntryPriceUsd else addedCostSol / addedQtyRaw.toDouble()
         EconomicEventSchema6464.recordBuy("paper", positionId, mint, symbol, idem, addedCostSol,
@@ -534,8 +499,6 @@ object CanonicalPaperTransaction6486 {
         val remainingCostSol: Double = 0.0, val realizedPnlSol: Double = 0.0,
     )
 
-    /** V5.0.6566 — typed cross-asset partial. Canonical receipt commits first;
-     * local trader maps may mirror remainingCostSol only when applied=true. */
     fun partial(positionId: String, mint: String, symbol: String, fraction: Double,
                 currentPnlPct: Double, feeRate: Double, exitReason: String): PartialResult = lock.withLock {
         val eligibility6570 = CanonicalPositionAuthority6441.exitEligibility6570(positionId, mint, expectedMode = "paper")
@@ -573,9 +536,7 @@ object CanonicalPaperTransaction6486 {
             grossProceedsSol < 0.0 || !basis.isFinite() || basis < 0.0)
             return@withLock Result(false, positionId, "INVALID_CLOSE")
         val terminal = qty >= pos.remainingQtyRaw
-        val staleEmergencyExit6692 = exitReason.startsWith(
-            "STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP", ignoreCase = true,
-        )
+        val staleEmergencyExit6692 = exitReason.startsWith("STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP", ignoreCase = true)
         val effectiveGrossProceeds6692 = if (staleEmergencyExit6692) {
             val boundedGross6692 = (basis * 0.75).coerceAtLeast(0.0)
             val effective6692 = minOf(grossProceedsSol, boundedGross6692)
@@ -592,12 +553,6 @@ object CanonicalPaperTransaction6486 {
         val canonicalRealizedPnl6569 = effectiveGrossProceeds6692 - basis - sellFeeSol
         val expected6569 = expectedRealizedPnlSol6569
         val return6569 = leveragedReturnPct6569
-        // V5.0.6689 — limited-liability paper settlement floors gross proceeds
-        // at zero. A leveraged analytical return can therefore imply a raw loss
-        // below -100% of funded basis, while the economic account can lose at
-        // most that basis (plus an explicitly charged exit fee). Compare the
-        // canonical receipt to the economically settleable expectation, not the
-        // unbounded leveraged analytics value.
         val economicallyCappedExpected6569 = expected6569?.coerceAtLeast(-basis)?.minus(sellFeeSol)
         val tolerance6569 = maxOf(0.000001, kotlin.math.abs(economicallyCappedExpected6569 ?: 0.0) * 0.02)
         val arithmeticDivergence6569 = economicallyCappedExpected6569 != null &&
@@ -608,8 +563,7 @@ object CanonicalPaperTransaction6486 {
                 PipelineHealthCollector.labelInc("LEVERAGED_TERMINAL_LIMITED_LIABILITY_CAP_6689")
                 ForensicLogger.lifecycle(
                     "LEVERAGED_TERMINAL_LIMITED_LIABILITY_CAP_6689",
-                    "positionId=$positionId symbol=$symbol basis=$basis rawExpected=$expected6569 " +
-                        "settleableExpected=$economicallyCappedExpected6569 returnPct=$return6569",
+                    "positionId=$positionId symbol=$symbol basis=$basis rawExpected=$expected6569 settleableExpected=$economicallyCappedExpected6569 returnPct=$return6569",
                 )
             } catch (_: Throwable) {}
         }
@@ -631,10 +585,6 @@ object CanonicalPaperTransaction6486 {
             terminal = terminal, directPositionMutation6486 = true,
         )
         if (!r.applied) return@withLock Result(false, positionId, r.reason)
-        // Journal the exact canonical receipt here, before returning to the
-        // asset-specific trader.  That keeps fast shutdown and every normal
-        // close on one transaction path; callers can no longer mutate the
-        // ledger and then return before writing the matching journal row.
         recordCloseProjection6659(pos, r, exitReason, terminal)
         if (terminal) CanonicalMintOccupancyRegistry6464.markClosed("paper", mint)
         try { PipelineHealthCollector.labelInc(if (terminal) "PAPER_TRANSACTION_CLOSE_COMMITTED_6486" else "PAPER_TRANSACTION_PARTIAL_COMMITTED_6486") } catch (_: Throwable) {}
@@ -726,12 +676,6 @@ object CanonicalPaperTransaction6486 {
     }
     data class DuplicateMintRepair6490(val duplicateMints: Int, val refundedLots: Int, val refundedBasisSol: Double, val failures: Int)
 
-    /**
-     * V5.0.6490 — startup correction for historical same-mint paper opens.
-     * Keep the earliest funded position; refund every alias lot at remaining
-     * basis (zero strategy PnL) and suppress learning. This restores deployable
-     * cash without inventing profit or deleting economic history.
-     */
     fun refundDuplicateActiveMintLots6490(): DuplicateMintRepair6490 {
         val groups = CanonicalPositionAuthority6441.openPositions()
             .filter { it.mode == "paper" && it.remainingQtyRaw > BigInteger.ZERO }
@@ -753,12 +697,6 @@ object CanonicalPaperTransaction6486 {
                     directPositionMutation6486 = true, suppressLearningFanout6490 = true,
                 )
                 if (result.applied) {
-                    // V5.0.6689 — the old duplicate repair stopped after the
-                    // bridge. That closed canonical inventory and credited cash
-                    // but never projected the matching immutable SELL to the
-                    // journal, creating a permanent ledger-vs-journal delta on
-                    // every startup repair. Complete the same receipt before
-                    // reporting the refund successful.
                     recordCloseProjection6659(pos, result, "DUPLICATE_SAME_MINT_REFUND_6490", terminal = true)
                     CanonicalMintOccupancyRegistry6464.markClosed("paper", pos.mint)
                     try { PipelineHealthCollector.labelInc("DUPLICATE_REFUND_JOURNAL_COMMITTED_6689") } catch (_: Throwable) {}
@@ -773,6 +711,4 @@ object CanonicalPaperTransaction6486 {
         } catch (_: Throwable) {}
         return DuplicateMintRepair6490(groups.size, refunded, basisTotal, failures)
     }
-
-
 }
