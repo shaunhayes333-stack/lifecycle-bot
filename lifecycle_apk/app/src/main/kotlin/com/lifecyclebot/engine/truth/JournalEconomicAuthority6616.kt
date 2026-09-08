@@ -112,7 +112,11 @@ object JournalEconomicAuthority6616 {
         val replay = try {
             JournalEconomicReplay6619.replay()
         } catch (_: Throwable) { null }
-        try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
+        // V5.0.6699 — this mutation already paid for a full durable journal
+        // replay. Reconciliation consumes the SAME immutable replay result;
+        // running JournalEconomicReplay a second time here doubled all replay
+        // work and historical supersession counters on every mutation.
+        try { ForensicReconciliation6635.reconcile6635(replay) } catch (_: Throwable) {}
         val globallyReconciled6647 = try { ForensicReconciliation6635.deltas6647().reconciled } catch (_: Throwable) { false }
         if (replay == null || !replay.reconciled || !globallyReconciled6647) {
             try {
@@ -160,7 +164,7 @@ object JournalEconomicAuthority6616 {
         // V5.0.6619 — same doctrine as notifyEconomicMutation: publish
         //   journal-replay-derived values, not ledger accumulators.
         val replay = try { JournalEconomicReplay6619.replay() } catch (_: Throwable) { null } ?: return
-        try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
+        try { ForensicReconciliation6635.reconcile6635(replay) } catch (_: Throwable) {}
         val globallyReconciled6647 = try { ForensicReconciliation6635.deltas6647().reconciled } catch (_: Throwable) { false }
         if (!replay.reconciled || !globallyReconciled6647) return
         cached.set(
