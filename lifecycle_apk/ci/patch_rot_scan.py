@@ -22,9 +22,6 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "app/src/main/kotlin"
 TEST_SRC = ROOT / "app/src/test/kotlin"
 
-# These are source-level retirements, not warning counters. Once a patch is
-# superseded, any production reference is a hard regression. Add new entries
-# here when source convergence makes an older patch obsolete.
 RETIRED_PRODUCTION_SYMBOLS = {
     "CanonicalJournalProjectionRepair6677": (
         "global typed-event journal repair was superseded by canonical mutation-source projection"
@@ -47,7 +44,6 @@ RETIRED_PRODUCTION_SYMBOLS = {
     "CRYPTO_ROUND_TRIP_JOURNAL_COMMITTED_6659": (
         "CryptoAlt caller-side paper journal projection is retired; canonical reducer owns it"
     ),
-
 }
 
 
@@ -102,8 +98,7 @@ def main() -> int:
                 errors.append(f"{rel}: retired production symbol {symbol!r} returned — {reason}")
 
     # ------------------------------------------------------------------
-    # 6678 authority contracts: prevent the exact source/patch contradiction
-    # that let account reads manufacture duplicate BUY/SELL journal rows.
+    # 6678 authority contracts.
     # ------------------------------------------------------------------
     unified = (SRC / "com/lifecyclebot/engine/truth/UnifiedAccountSnapshot6635.kt").read_text()
     for mutation in (
@@ -140,9 +135,6 @@ def main() -> int:
         "CanonicalPositionAuthority6441.getPosition(positionId)?.let { ensureOpenProjection6659(it) }",
         "PAPER_OPEN_MUTATION_SOURCE_PROJECTION_6678",
     )
-    # 6697: historical cross-asset repair must never sweep native Solana meme
-    # positions. This exact missing asset-class boundary caused 6696 to project
-    # a second CROSS_ASSET_CANONICAL_OPEN_6659 BUY over valid native BUY rows.
     require(
         errors,
         canonical_paper,
@@ -191,10 +183,24 @@ def main() -> int:
         errors.append(f"PAPER_BUY_NOT_OPENED_SINGLE_COUNTER_OWNER_6680: expected 1 owner, found {paper_not_opened_owners}")
     forbid(errors, executor, 'PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_PRESALE_SNIPE_51K_RUG_6373F")', "PAPER_PRESALE_REJECT_DYNAMIC_REASON_ONLY_6680")
 
-    # A prior Golden Tape assertion required production to retain a deleted
-    # constant-false branch, turning a correct source cleanup into a red build.
-    # Reject positive test contracts for the proven dead-patch sentinels while
-    # still allowing assertFalse guards that prevent their return.
+    # ------------------------------------------------------------------
+    # 6702 exit-liveness contracts. Repeated close signals must not keep
+    # extending their own retry deadline, and a still-open sell must never age
+    # out of retry ownership.
+    # ------------------------------------------------------------------
+    paper_close = (SRC / "com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").read_text()
+    pending_sell = (SRC / "com/lifecyclebot/engine/PendingSellQueue.kt").read_text()
+    require(errors, paper_close, "PAPER_CLOSE_DUPLICATE_TIMESTAMP_FROZEN_6702", "PAPER_CLOSE_DUPLICATE_CLOCK_FREEZE_6702")
+    require(errors, paper_close, "PAPER_CLOSING_DUPLICATE_TIMESTAMP_FROZEN_6702", "PAPER_CLOSING_DUPLICATE_CLOCK_FREEZE_6702")
+    require(errors, paper_close, "State.CLOSE_REQUESTED, State.CLOSING ->", "PAPER_CLOSE_DUPLICATE_STATE_BRANCH_6702")
+    require(errors, pending_sell, "terminalForRuntime6702", "PENDING_SELL_MODE_AWARE_TERMINAL_6702")
+    require(errors, pending_sell, 'PaperPositionCloseAuthority.stateOf("PAPER", mint)', "PENDING_SELL_PAPER_TERMINAL_OWNER_6702")
+    require(errors, pending_sell, "PENDING_SELL_PERSISTED_BEYOND_LEGACY_LIMIT_6702", "PENDING_SELL_NO_SILENT_EXPIRY_6702")
+    require(errors, pending_sell, "queuedAtMs = existing.queuedAtMs", "PENDING_SELL_ADD_PRESERVES_AGE_6702")
+    require(errors, pending_sell, "retryCount = existing.retryCount", "PENDING_SELL_ADD_PRESERVES_RETRIES_6702")
+    forbid(errors, pending_sell, "sell.ageMs > MAX_AGE_MS", "PENDING_SELL_AGE_EVICTION_RETIRED_6702")
+    forbid(errors, pending_sell, "sell.retryCount >= MAX_RETRIES", "PENDING_SELL_RETRY_EVICTION_RETIRED_6702")
+
     stale_contract_names = (
         "v3OwnsMemes",
         "floorPromotionRequested6511",
