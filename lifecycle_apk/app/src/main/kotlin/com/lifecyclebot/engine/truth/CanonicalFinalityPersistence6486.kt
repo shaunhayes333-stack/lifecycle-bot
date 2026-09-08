@@ -13,6 +13,7 @@ object CanonicalFinalityPersistence6486 {
     // contains false-positive ACKs for learning-ineligible/quarantined outcomes,
     // so it must never be imported into the corrected bus. Keep it on disk for
     // forensic history and write/read only the versioned namespace below.
+    private const val ACK_PREFIX_6486_RETIRED_FORENSIC = "ack:"
     private const val ACK_PREFIX_6697 = "ack6697:"
     @Volatile private var prefs: SharedPreferences? = null
     @Volatile private var initialized = false

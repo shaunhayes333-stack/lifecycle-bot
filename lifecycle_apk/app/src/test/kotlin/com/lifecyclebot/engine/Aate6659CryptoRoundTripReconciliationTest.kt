@@ -6,7 +6,7 @@ import org.junit.Test
 import java.io.File
 
 /**
- * V5.0.6659/6660/6678 — source-level acceptance locks for cross-asset paper
+ * V5.0.6659/6660/6678/6697 — source-level acceptance locks for cross-asset paper
  * round trips, reconciliation, and canonical single-writer ownership.
  *
  * Current PAPER transactions must project at the canonical mutation boundary.
@@ -49,14 +49,14 @@ class Aate6659CryptoRoundTripReconciliationTest {
     }
 
     @Test
-    fun `legacy cross asset positions are repaired idempotently during rehydrate`() {
+    fun `legacy cross asset positions are repaired idempotently without touching native solana`() {
         val rehydrate = crypto.substringAfter("private fun rehydrateCanonicalPositions6647")
             .substringBefore("private fun persistAltPositions")
         assertTrue(rehydrate.contains("CanonicalPaperTransaction6486.ensureOpenProjection6659(cp)"))
         assertTrue(rehydrate.contains("if (cp.mode.equals(\"paper\", true))"))
         assertTrue(rehydrate.contains("CanonicalPaperTransaction6486.repairCryptoHistory6659()"))
         assertTrue(transaction.contains("EconomicEventSchema6464.snapshot()"))
-        assertFalse(transaction.contains("it.assetClass != AssetClass.SOLANA_TOKEN"))
+        assertTrue(transaction.contains("it.assetClass != AssetClass.SOLANA_TOKEN"))
         assertTrue(transaction.contains("PAPER_CANONICAL_HISTORY_REPROJECTED_6692"))
         val reconcile = transaction.substringAfter("fun reconcileJournalAuthority6663")
             .substringBefore("private fun awaitJournalBoundary6669")

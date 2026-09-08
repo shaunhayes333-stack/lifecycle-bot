@@ -5,7 +5,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/** V5.0.6692 regression locks for the 5.0.6691 forensic repair. */
+/** V5.0.6692/6697 regression locks for the 5.0.6691 forensic repair plus 6697 asset scoping. */
 class Aate6692RuntimeRepairTest {
     @Test
     fun `nonterminal release retains immutable ticket and adaptive retry authority`() {
@@ -28,9 +28,9 @@ class Aate6692RuntimeRepairTest {
     }
 
     @Test
-    fun `paper canonical history repair includes solana and precedes replay`() {
+    fun `paper cross asset history repair excludes native solana and precedes replay`() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()
-        assertFalse(src.contains("it.assetClass != AssetClass.SOLANA_TOKEN"))
+        assertTrue(src.contains("it.assetClass != AssetClass.SOLANA_TOKEN"))
         val reconcile = src.substringAfter("fun reconcileJournalAuthority6663")
             .substringBefore("private fun awaitJournalBoundary6669")
         assertTrue(reconcile.indexOf("repairCryptoHistory6659()") in 1 until reconcile.indexOf("JournalEconomicReplay6619.replay()"))

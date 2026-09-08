@@ -18,12 +18,12 @@ import org.junit.Test
 import java.math.BigInteger
 
 /**
- * V5.0.6470 — HARD CI ASSERTIONS for §P0 lifecycle convergence.
+ * V5.0.6470/6697 — HARD CI ASSERTIONS for §P0 lifecycle convergence.
  *
  * §P0 Lot quantity invariant — reject sell against bought=0 lot.
  * §P0 Lot quantity invariant — reject oversell.
  * §P0 Learning quarantine gate — sell against phantom lot triggers quarantine.
- * §P0 Learning quarantine gate — drops learning consumer deliveries but not Dashboard.
+ * §P0 Learning quarantine gate — excludes learning consumer deliveries but not Dashboard.
  * §P0 Canonical economic identity — the ONE equation with fees.
  * §P0 Canonical economic identity — NON-CLAMPING.
  * §P0 Unified reconciler health — snapshot pulls from the ground-truth heartbeat.
@@ -73,15 +73,18 @@ class LifecycleConvergenceAcceptanceTest6470 {
 
     // ─── Learning quarantine gate ───────────────────────────────────────
     @Test
-    fun `quarantine gate drops learners but allows dashboard`() {
+    fun `quarantine gate excludes learners but allows dashboard`() {
         LearningQuarantineGate6470.resetForTest()
+        CanonicalFinalizedTradeBus6464.resetForTest()
         LearningQuarantineGate6470.quarantineMint("BAD_MINT", "TEST")
         val env = CanonicalFinalizedTradeBus6464.Envelope(
             tradeId = "TID", atMs = 0L, realizedPnlSol = 0.1, realizedReturnPct = 5.0,
             mint = "BAD_MINT", lane = "MEME",
         )
-        assertTrue("learner quarantine is handled without mutation or retry loop", FinalizedBusConsumerBridge6465.deliver("TacticSwitcher", env))
-        assertTrue("governor quarantine is handled without mutation or retry loop", FinalizedBusConsumerBridge6465.deliver("Governor", env))
+        assertFalse("learner quarantine must not masquerade as a successful ACK", FinalizedBusConsumerBridge6465.deliver("TacticSwitcher", env))
+        assertTrue("learner quarantine is terminally recorded as excluded", CanonicalFinalizedTradeBus6464.isExcluded("TacticSwitcher", env.tradeId))
+        assertFalse("governor quarantine must not masquerade as a successful ACK", FinalizedBusConsumerBridge6465.deliver("Governor", env))
+        assertTrue("governor quarantine is terminally recorded as excluded", CanonicalFinalizedTradeBus6464.isExcluded("Governor", env.tradeId))
         assertTrue("dashboard is not learning — pass through", FinalizedBusConsumerBridge6465.deliver("Dashboard", env))
     }
 
