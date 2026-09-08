@@ -69,13 +69,14 @@ object ForensicReconciliation6635 {
     private val failedChecks = AtomicLong(0L)
 
     /**
-     * Run one reconciliation cadence.  Every non-zero delta emits a
-     * forensic counter + line.  This method never mutates any store.
+     * Run one reconciliation cadence. Every non-zero delta emits a forensic
+     * counter + line. When the caller has already replayed the journal for the
+     * same mutation, pass that immutable result to avoid a second full replay.
      */
-    fun reconcile6635() {
+    fun reconcile6635(precomputedReplay6699: JournalEconomicReplay6619.ReplayResult? = null) {
         checks.incrementAndGet()
         val cashLedger = try { PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { Double.NaN }
-        val replay6647 = try { JournalEconomicReplay6619.replay() } catch (_: Throwable) { null }
+        val replay6647 = precomputedReplay6699 ?: try { JournalEconomicReplay6619.replay() } catch (_: Throwable) { null }
         val cashJournal = replay6647?.cashSol ?: Double.NaN
         val realizedLedger = try { PaperCapitalAuthority6577.realizedPnlSol() } catch (_: Throwable) { 0.0 }
         val realizedJournal = replay6647?.realizedPnlSol ?: Double.NaN
