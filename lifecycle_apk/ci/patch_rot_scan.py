@@ -140,6 +140,29 @@ def main() -> int:
         "CanonicalPositionAuthority6441.getPosition(positionId)?.let { ensureOpenProjection6659(it) }",
         "PAPER_OPEN_MUTATION_SOURCE_PROJECTION_6678",
     )
+    # 6697: historical cross-asset repair must never sweep native Solana meme
+    # positions. This exact missing asset-class boundary caused 6696 to project
+    # a second CROSS_ASSET_CANONICAL_OPEN_6659 BUY over valid native BUY rows.
+    require(
+        errors,
+        canonical_paper,
+        'it.mode.equals("paper", true) && it.assetClass != AssetClass.SOLANA_TOKEN',
+        "CROSS_ASSET_HISTORY_REPAIR_ASSET_BOUNDARY_6697",
+    )
+
+    journal_replay = (SRC / "com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt").read_text()
+    require(errors, journal_replay, "nativeBuyPositions6697", "LEGACY_6659_DUPLICATE_SUPERSESSION_6697")
+    require(errors, journal_replay, "JOURNAL_CROSS_ASSET_OPEN_SUPERSEDED_6697", "LEGACY_6659_DUPLICATE_TELEMETRY_6697")
+
+    finalized_bus = (SRC / "com/lifecyclebot/engine/truth/CanonicalFinalizedTradeBus6464.kt").read_text()
+    finalized_bridge = (SRC / "com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt").read_text()
+    finality_persistence = (SRC / "com/lifecyclebot/engine/truth/CanonicalFinalityPersistence6486.kt").read_text()
+    require(errors, finalized_bus, "consumerExcluded", "FINALIZED_EXCLUSION_NOT_ACKED_6697")
+    require(errors, finalized_bus, "fun exclude(consumer: String, tradeId: String, reason: String)", "FINALIZED_EXCLUSION_API_6697")
+    require(errors, finalized_bridge, "FINALIZED_LEARNING_INELIGIBLE_EXCLUDED_6697", "LEARNING_INELIGIBLE_EXCLUSION_6697")
+    forbid(errors, finalized_bridge, "FINALIZED_LEARNING_INELIGIBLE_ACK_NO_MUTATION_6519", "FALSE_LEARNING_ACK_RETIRED_6697")
+    require(errors, finality_persistence, 'ACK_PREFIX_6697 = "ack6697:"', "DURABLE_ACK_SEMANTICS_VERSION_6697")
+    require(errors, finality_persistence, 'put("economicEventId", e.economicEventId)', "DURABLE_TERMINAL_EVENT_ID_6697")
 
     crypto_alt = (SRC / "com/lifecyclebot/perps/CryptoAltTrader.kt").read_text()
     crypto_close = crypto_alt.split("private fun closePosition(positionId: String, reason: String)", 1)[-1]
