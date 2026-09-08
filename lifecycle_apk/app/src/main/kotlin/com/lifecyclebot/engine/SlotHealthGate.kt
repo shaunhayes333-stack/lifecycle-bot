@@ -16,11 +16,11 @@ import java.util.concurrent.atomic.AtomicLong
  * shouldDeferBuy() at the top of authorize() and returns a SOFT, retryable reject when
  * dirty. PROBE_ONLY / already-confirmed-high-edge candidates bypass the soft pressure.
  *
- * V5.0.6689 adds a different invariant: Meme inventory is working capital, not an
- * unbounded sample reservoir. Soft dirty-slot pressure may fail open, but the canonical
- * Meme inventory turnover ceiling MUST NOT. Once the ceiling is reached, exits continue
- * while new Meme entries wait for confirmed closes to recycle cash back into the shared
- * paper/live wallet. No lane is disabled and no exit is blocked.
+ * V5.0.6692 retires the V5.0.6689 global Meme position-count ceiling. Canonical sizing,
+ * shared cash reservation, same-mint occupancy, liquidity/sellability and real risk
+ * remain the economic authorities. Slot health may briefly defer genuine dirty/ghost
+ * state, but a fixed count and ordinary exit pressure are advisory only and may not
+ * globally amputate the specialist desks.
  */
 object SlotHealthGate {
 
@@ -38,9 +38,7 @@ object SlotHealthGate {
     private const val FORCED_DEFER_GRACE_MS = 60_000L
 
     private const val FORCED_OPEN_DIRTY = 20
-    // V5.0.6689 — 12 remains the soft exit-priority threshold. The old name
-    // ENTRY_HARD_CAP was misleading because it only applied while a sell job
-    // was already active and was bypassed by high-edge candidates.
+    // 12 is now telemetry/priority context only; it is not an entry cap.
     private const val ENTRY_SOFT_CAP = 12
     // V5.0.6692 — STATIC MEME POSITION CAP RETIRED. A fixed inventory
     // count is not an economic authority: position sizes, liquidity and shared
@@ -62,17 +60,14 @@ object SlotHealthGate {
             .count { it.lane.uppercase() in MEME_LANES_6689 }
     } catch (_: Throwable) { -1 }
 
-    // V5.0.6689 — shared writer-side turnover contract. Executor's canonical
-    // mirror uses these exact definitions so the pre-auth gate and the final
-    // canonical reservation cannot drift into two different lane/cap policies.
+    // Compatibility surface retained so older writer callsites compile against one
+    // shared lane definition. The cap accessor is intentionally unbounded in 6692.
     fun isMemeLane6689(lane: String): Boolean = lane.trim().uppercase() in MEME_LANES_6689
     fun memeTurnoverAbsoluteCap6689(): Int = Int.MAX_VALUE
     fun canonicalMemeOpenCount6689(mode: String): Int = canonicalMemeOpenCount(mode)
 
     // Compatibility name retained deliberately: Golden Tape 3837/6490 asserts
     // that PAPER slot-health is rebuilt from canonical current-mode inventory.
-    // The implementation is now Meme-scoped (6689), but the source-level
-    // contract remains canonical and directly names the paper projection.
     private fun canonicalPaperOpenCount(): Int = try {
         com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
             .activeMintProjections6490("paper")
@@ -118,18 +113,12 @@ object SlotHealthGate {
 
     data class DeferDecision(val defer: Boolean, val reason: String)
 
-    /**
-     * Decide whether a NEW executable buy should defer one cycle.
-     * High-edge may bypass soft cleanup pressure, but never the V5.0.6689
-     * canonical turnover ceiling.
-     */
+    /** Decide whether a NEW executable buy should defer one cycle for real runtime dirt. */
     fun shouldDeferBuy(candidateConfirmedHighEdge: Boolean): DeferDecision {
-        // V5.0.6692 — the former global 24-position turnover seal was a
-        // self-inflicted choke. Do not defer merely because a static inventory
-        // count was reached. The canonical writer still serializes reservations,
-        // while OrderSizeResolver/CapitalAuthority determine whether cash and risk
-        // actually permit another position.
-        // Stale soft telemetry still fails open; canonical turnover above did not.
+        // V5.0.6692 — no global position-count gate. Retain the runtime mode only for
+        // forced-slot cleanup semantics below; PAPER continues to fail open safely.
+        val paperRuntime6692 = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+
         if (System.currentTimeMillis() - lastPublishMs.get() > 15_000L) {
             return DeferDecision(false, "stale_snapshot_fail_open")
         }
@@ -146,12 +135,9 @@ object SlotHealthGate {
 
         val forced = forcedOpenCount.get()
         if (forced > FORCED_OPEN_DIRTY) {
-            // Below the absolute turnover ceiling PAPER may still fail open after
-            // cleanup pressure; this preserves throughput without permitting
-            // unlimited inventory accumulation.
             val stuckSince = forcedStuckSinceMs.get()
             val stuckMs = if (stuckSince > 0L) System.currentTimeMillis() - stuckSince else 0L
-            if (paperRuntime6689) {
+            if (paperRuntime6692) {
                 return DeferDecision(false, "PAPER_FORCED_OPEN_FAIL_OPEN=$forced>$FORCED_OPEN_DIRTY(stuck=${stuckMs}ms)")
             }
             if (stuckMs <= FORCED_DEFER_GRACE_MS) {
@@ -164,14 +150,11 @@ object SlotHealthGate {
             return DeferDecision(true, "SUPERVISOR_OVER_CAP=${supervisorActive.get()}/${supervisorCap.get()}")
         }
 
-        // Soft turnover pressure: when exits are already working and inventory
-        // is above 12, ordinary candidates wait. High-edge may pass here while
-        // the absolute 24-position ceiling above remains non-bypassable.
         if (!candidateConfirmedHighEdge) {
             val activeSellJobs = try { com.lifecyclebot.engine.sell.SellJobRegistry.activeCount() } catch (_: Throwable) { 0 }
             if (activeSellJobs > 0 && openPositionCount.get() >= ENTRY_SOFT_CAP) {
-                // V5.0.6692 — advisory only. Exit pressure may shape sizing/priority
-                // but may not amputate every specialist lane while shared cash exists.
+                // Advisory only. Exits can influence prioritisation/sizing but do not
+                // globally reject fresh executable specialist opportunities.
                 try {
                     PipelineHealthCollector.labelInc("MEME_EXIT_PRIORITY_ADVISORY_6692")
                     ForensicLogger.lifecycle(
