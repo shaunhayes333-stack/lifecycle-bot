@@ -8,7 +8,12 @@ import org.json.JSONObject
 object CanonicalFinalityPersistence6486 {
     private const val PREFS = "canonical_finality_6486"
     private const val PREFIX = "final:"
-    private const val ACK_PREFIX_6486 = "ack:"
+    // V5.0.6697 — ACK semantics changed from "terminally handled" to
+    // "consumer actually mutated/processed this event". The old ack: namespace
+    // contains false-positive ACKs for learning-ineligible/quarantined outcomes,
+    // so it must never be imported into the corrected bus. Keep it on disk for
+    // forensic history and write/read only the versioned namespace below.
+    private const val ACK_PREFIX_6697 = "ack6697:"
     @Volatile private var prefs: SharedPreferences? = null
     @Volatile private var initialized = false
 
@@ -32,14 +37,14 @@ object CanonicalFinalityPersistence6486 {
 
     fun recordAck6486(consumer: String, positionId: String) {
         if (consumer.isBlank() || positionId.isBlank()) return
-        prefs?.edit()?.putBoolean(ACK_PREFIX_6486 + consumer + ":" + positionId, true)?.apply()
+        prefs?.edit()?.putBoolean(ACK_PREFIX_6697 + consumer + ":" + positionId, true)?.apply()
     }
 
     fun hasAck6486(consumer: String, positionId: String): Boolean =
-        prefs?.getBoolean(ACK_PREFIX_6486 + consumer + ":" + positionId, false) == true
+        prefs?.getBoolean(ACK_PREFIX_6697 + consumer + ":" + positionId, false) == true
 
     fun ackedIds6486(consumer: String): Set<String> {
-        val prefix = ACK_PREFIX_6486 + consumer + ":"
+        val prefix = ACK_PREFIX_6697 + consumer + ":"
         return prefs?.all?.asSequence()?.filter { it.key.startsWith(prefix) && it.value == true }
             ?.map { it.key.removePrefix(prefix) }?.toSet() ?: emptySet()
     }
@@ -51,6 +56,10 @@ object CanonicalFinalityPersistence6486 {
         put("entryLane", e.entryLane); put("entryStrategyPid", e.entryStrategyPid); put("entryTactic", e.entryTactic)
         put("exitReason", e.exitReason); put("holdingTimeMs", e.holdingTimeMs); put("dataQuality", e.dataQuality)
         put("priceIntegrity", e.priceIntegrity); put("mode", e.mode); put("settledAtMs", e.settledAtMs); put("assetClass", e.assetClassTag)
+        // V5.0.6697 — preserve exact terminal economic identity across restart.
+        // Post-commit learning delivery must be able to prove the same event
+        // after process death instead of falling back to position-only lookup.
+        put("economicEventId", e.economicEventId)
     }.toString()
 
     private fun decode(raw: String): CanonicalTradeFinalizedBus6450.Event? = try {
@@ -65,7 +74,9 @@ object CanonicalFinalityPersistence6486 {
             entryStrategyPid = j.optString("entryStrategyPid"), entryTactic = j.optString("entryTactic"),
             exitReason = j.optString("exitReason"), holdingTimeMs = j.optLong("holdingTimeMs"),
             dataQuality = j.optString("dataQuality"), priceIntegrity = j.optString("priceIntegrity"),
-            mode = j.optString("mode", "unknown"), settledAtMs = j.getLong("settledAtMs"), assetClassTag = j.optString("assetClass", ""),
+            mode = j.optString("mode", "unknown"), settledAtMs = j.getLong("settledAtMs"),
+            assetClassTag = j.optString("assetClass", ""),
+            economicEventId = j.optString("economicEventId", ""),
         )
     } catch (_: Throwable) { null }
 }
