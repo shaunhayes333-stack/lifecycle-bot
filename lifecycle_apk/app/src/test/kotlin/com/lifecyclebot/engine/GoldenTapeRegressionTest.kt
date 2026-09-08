@@ -9081,7 +9081,7 @@ class GoldenTapeRegressionTest {
             mark.contains("resolveExecutableFromSourceEvidence6616") &&
             bot.contains("CanonicalPriceMarkRegistry6522.resolveExecutableFromSourceEvidence6616"))
         assertTrue(markGate.contains("isObservationAuthoritative6570") && markGate.contains("GECKOTERMINAL"))
-        assertTrue(crypto.contains("markEvaluationProgress6570(refreshed") && crypto.contains("markEvaluationDisposition6567(observedTok6569") &&
+        assertTrue(crypto.contains("markEvaluationProgress6570(refreshed") && crypto.contains("markEvaluationProgress6570(observedTok6569") &&
             crypto.contains("SHARED_INTELLIGENCE_BACKLOG_COALESCED"))
         assertEquals(1, Regex("SHARED_INTELLIGENCE_BACKLOG_COALESCED_REQUEUE").findAll(crypto).count())
         assertTrue(registry.contains("evaluationGeneration6615") && registry.contains("evaluationInflight6615") &&
