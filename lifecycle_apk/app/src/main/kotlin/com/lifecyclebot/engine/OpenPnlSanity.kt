@@ -59,12 +59,19 @@ object OpenPnlSanity {
      * representable. A decimal-scale discontinuity must be re-proved on a
      * coherent basis before it can mutate PnL, peak, locks, exits or learning.
      */
-    private fun tokenDecimalScaleDiscontinuity6701(ratio: Double, tokenDecimals: Int): Boolean {
-        if (!ratio.isFinite() || ratio <= 0.0 || tokenDecimals !in 3..12) return false
-        val scale = Math.pow(10.0, tokenDecimals.toDouble())
-        if (!scale.isFinite() || scale <= 0.0) return false
-        val relative = ratio / scale
-        return ratio >= 1_000.0 && relative in 0.50..2.00
+    private fun tokenDecimalScaleDiscontinuity6701(ratio: Double, tokenDecimals: Int, entryPrice: Double): Boolean {
+        if (!ratio.isFinite() || ratio <= 0.0) return false
+        fun nearScale(decimals: Int): Boolean {
+            val scale = Math.pow(10.0, decimals.toDouble())
+            if (!scale.isFinite() || scale <= 0.0) return false
+            val relative = ratio / scale
+            return ratio >= 1_000.0 && relative in 0.50..2.00
+        }
+        if (tokenDecimals in 3..12) return nearScale(tokenDecimals)
+        // Some early/recovered Meme rows have not hydrated tokenMap.decimals yet.
+        // The two normal Solana token scales are 6 and 9. Only apply this fallback
+        // to sub-micro-dollar entries so ordinary high-priced assets cannot match.
+        return entryPrice < 0.000001 && (nearScale(6) || nearScale(9))
     }
 
     fun inspect(
@@ -92,7 +99,7 @@ object OpenPnlSanity {
         // that produced the operator screenshot was precisely a new numeric mark
         // wearing stale same-source/same-pool metadata. Decimal-unit continuity is
         // an independent invariant and cannot be waived by provenance equality.
-        if (tokenDecimalScaleDiscontinuity6701(ratio, tokenDecimals)) {
+        if (tokenDecimalScaleDiscontinuity6701(ratio, tokenDecimals, entryPrice)) {
             return reject("TOKEN_DECIMAL_SCALE_DISCONTINUITY_6701", entryPrice, currentPrice, context, emit, mint)
         }
 
@@ -161,7 +168,7 @@ object OpenPnlSanity {
 
     fun inspect(ts: TokenState, context: String = "", emit: Boolean = true): Verdict {
         val p = ts.position
-        return inspect(
+        val verdict = inspect(
             entryPrice = p.entryPrice,
             currentPrice = ts.ref,
             entrySource = p.entryPriceSource,
@@ -174,6 +181,28 @@ object OpenPnlSanity {
             mint = ts.mint,
             tokenDecimals = ts.tokenMap.decimals ?: -1,
         )
+        // V5.0.6701 — a rejected raw/UI decimal discontinuity may already have
+        // poisoned mutable peak/high-water state before provenance caught up.
+        // Self-heal only this exact failure class. We do NOT clamp a trusted
+        // runner; we discard a peak that was generated from a mark proven to be
+        // unit-incompatible. This also clears the stale TARGET/lock badge after
+        // restart once the first canonical PnL read occurs.
+        if (!verdict.ok && verdict.reason == "TOKEN_DECIMAL_SCALE_DISCONTINUITY_6701") {
+            val hadPoisonedPeak = p.peakGainPct > 0.0 || p.highestPrice > p.entryPrice || p.lastRoutePrice > 0.0
+            p.peakGainPct = 0.0
+            p.highestPrice = p.entryPrice.coerceAtLeast(0.0)
+            p.lastRoutePrice = 0.0
+            p.lastRoutePriceTs = 0L
+            p.lastTickFloorBreach = false
+            if (hadPoisonedPeak) try {
+                PipelineHealthCollector.labelInc("MEME_DECIMAL_SCALE_PEAK_SELF_HEALED_6701")
+                ForensicLogger.lifecycle(
+                    "MEME_DECIMAL_SCALE_PEAK_SELF_HEALED_6701",
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} entry=${p.entryPrice} mark=${ts.ref} action=reset_untrusted_peak_route_mark",
+                )
+            } catch (_: Throwable) {}
+        }
+        return verdict
     }
 
     fun inspectPosition(pos: Position, currentPrice: Double, context: String = "", emit: Boolean = true, mint: String = ""): Verdict {
