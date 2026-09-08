@@ -36,16 +36,22 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
           p = Path('app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt')
           s = p.read_text()
-          old = '''        assertTrue(crypto.contains("markEvaluationProgress6570(refreshed") && crypto.contains("markEvaluationDisposition6567(observedTok6569") &&
-              crypto.contains("SHARED_INTELLIGENCE_BACKLOG_COALESCED"))'''
-          new = '''        assertTrue(crypto.contains("markEvaluationProgress6570(refreshed") &&
-              crypto.contains("markEvaluationProgress6570(observedTok6569, \\\"SHARED_INTELLIGENCE_BACKLOG_COALESCED\\\")"))
-          assertFalse(crypto.contains("markEvaluationDisposition6567(observedTok6569, \\\"SHARED_INTELLIGENCE_BACKLOG_COALESCED\\\")"))'''
-          if old not in s:
-              raise SystemExit('stale Golden Tape assertion not found exactly')
-          p.write_text(s.replace(old, new, 1))
+          pattern = re.compile(
+              r'\s*assertTrue\(crypto\.contains\("markEvaluationProgress6570\(refreshed"\)\s*&&\s*'
+              r'crypto\.contains\("markEvaluationDisposition6567\(observedTok6569"\)\s*&&\s*'
+              r'crypto\.contains\("SHARED_INTELLIGENCE_BACKLOG_COALESCED"\)\)'
+          )
+          replacement = '''
+        assertTrue(crypto.contains("markEvaluationProgress6570(refreshed") &&
+            crypto.contains("markEvaluationProgress6570(observedTok6569, \\"SHARED_INTELLIGENCE_BACKLOG_COALESCED\\")"))
+        assertFalse(crypto.contains("markEvaluationDisposition6567(observedTok6569, \\"SHARED_INTELLIGENCE_BACKLOG_COALESCED\\")"))'''
+          s2, n = pattern.subn(replacement, s, count=1)
+          if n != 1:
+              raise SystemExit(f'expected one stale Golden Tape assertion, matched {n}')
+          p.write_text(s2)
           print('Golden Tape 6570 backlog contract updated')
           PY
 
