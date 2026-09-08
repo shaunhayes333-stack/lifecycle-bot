@@ -1,5 +1,7 @@
 # V5.0.6697 Learning / Replay Authority Repair
 
+Release authority: **V5.0.6697**
+
 ## Runtime evidence from 5.0.6696
 
 The 5.0.6696 runtime was mechanically active but not learning from the same population it was closing:
@@ -81,6 +83,8 @@ The following are source-level acceptance requirements:
 - exclusion-vs-ACK semantics;
 - versioned durable ACK namespace;
 - persisted terminal economic event identity.
+
+`ci/patch_rot_scan.py` also pins those authority boundaries before Gradle compilation so a later patch cannot silently reintroduce the same contradiction.
 
 ## Expected runtime readback
 
