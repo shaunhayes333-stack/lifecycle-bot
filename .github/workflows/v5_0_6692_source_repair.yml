@@ -1,0 +1,288 @@
+name: V5.0.6692 Source Repair
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.event.head_commit.message == 'V5.0.6692 source repair bootstrap'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply guarded V5.0.6692 source repairs
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          ROOT = Path('lifecycle_apk')
+
+          def read(rel):
+              return (ROOT / rel).read_text()
+
+          def write(rel, text):
+              (ROOT / rel).write_text(text)
+
+          def replace_once(rel, old, new, label):
+              p = ROOT / rel
+              s = p.read_text()
+              n = s.count(old)
+              if n != 1:
+                  raise SystemExit(f'{label}: expected exactly 1 old block, found {n}')
+              p.write_text(s.replace(old, new, 1))
+              print(f'patched {label}')
+
+          # ------------------------------------------------------------------
+          # 1) RETIRE STATIC MEME INVENTORY CAP / EXIT-PRIORITY HARD DEFER.
+          # Capital, canonical sizing, same-mint occupancy and actual sellability
+          # remain the authorities; a magic position count is not an economic gate.
+          # ------------------------------------------------------------------
+          slot = 'app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt'
+          replace_once(
+              slot,
+              '''    // Economic safety/turnover ceiling, not a strategy quota. With 14 Meme\n    // lanes this still allows broad simultaneous expression while preventing\n    // 100-250 funded positions from trapping the shared wallet indefinitely.\n    private const val MEME_TURNOVER_ABSOLUTE_CAP_6689 = 24\n''',
+              '''    // V5.0.6692 — STATIC MEME POSITION CAP RETIRED. A fixed inventory\n    // count is not an economic authority: position sizes, liquidity and shared\n    // account cash vary by orders of magnitude. Canonical sizing, same-mint\n    // occupancy, capital reservation and exit sellability now bound exposure.\n    // The compatibility accessor below stays for older writer callsites but is\n    // deliberately unbounded so it cannot become a second stacked admission gate.\n''',
+              'SlotHealth static cap declaration',
+          )
+          replace_once(
+              slot,
+              '    fun memeTurnoverAbsoluteCap6689(): Int = MEME_TURNOVER_ABSOLUTE_CAP_6689\n',
+              '    fun memeTurnoverAbsoluteCap6689(): Int = Int.MAX_VALUE\n',
+              'SlotHealth compatibility cap accessor',
+          )
+          slot_text = read(slot)
+          start = slot_text.index('        // V5.0.6689 — source-of-truth turnover seal.')
+          end = slot_text.index('        // Stale soft telemetry still fails open;', start)
+          old_block = slot_text[start:end]
+          new_block = '''        // V5.0.6692 — the former global 24-position turnover seal was a\n        // self-inflicted choke. Do not defer merely because a static inventory\n        // count was reached. The canonical writer still serializes reservations,\n        // while OrderSizeResolver/CapitalAuthority determine whether cash and risk\n        // actually permit another position.\n'''
+          slot_text = slot_text[:start] + new_block + slot_text[end:]
+          old_soft = '''        if (!candidateConfirmedHighEdge) {\n            val activeSellJobs = try { com.lifecyclebot.engine.sell.SellJobRegistry.activeCount() } catch (_: Throwable) { 0 }\n            if (activeSellJobs > 0 && openPositionCount.get() >= ENTRY_SOFT_CAP) {\n                return DeferDecision(\n                    true,\n                    "EXITS_PRIORITY sellJobsActive=$activeSellJobs open=${openPositionCount.get()}>=$ENTRY_SOFT_CAP",\n                )\n            }\n        }\n'''
+          new_soft = '''        if (!candidateConfirmedHighEdge) {\n            val activeSellJobs = try { com.lifecyclebot.engine.sell.SellJobRegistry.activeCount() } catch (_: Throwable) { 0 }\n            if (activeSellJobs > 0 && openPositionCount.get() >= ENTRY_SOFT_CAP) {\n                // V5.0.6692 — advisory only. Exit pressure may shape sizing/priority\n                // but may not amputate every specialist lane while shared cash exists.\n                try {\n                    PipelineHealthCollector.labelInc("MEME_EXIT_PRIORITY_ADVISORY_6692")\n                    ForensicLogger.lifecycle(\n                        "MEME_EXIT_PRIORITY_ADVISORY_6692",\n                        "sellJobsActive=$activeSellJobs open=${openPositionCount.get()} soft=$ENTRY_SOFT_CAP action=advisory_only_no_entry_block",\n                    )\n                } catch (_: Throwable) {}\n            }\n        }\n'''
+          if slot_text.count(old_soft) != 1:
+              raise SystemExit(f'SlotHealth soft exit block: expected 1, found {slot_text.count(old_soft)}')
+          slot_text = slot_text.replace(old_soft, new_soft, 1)
+          if '"memeTurnoverCap=$MEME_TURNOVER_ABSOLUTE_CAP_6689"' not in slot_text:
+              raise SystemExit('SlotHealth snapshot cap token missing')
+          slot_text = slot_text.replace('"memeTurnoverCap=$MEME_TURNOVER_ABSOLUTE_CAP_6689"', '"memeTurnoverCap=SHARED_CAPITAL_6692"', 1)
+          write(slot, slot_text)
+
+          # ------------------------------------------------------------------
+          # 2) IMMUTABLE TICKET CONTINUITY.
+          # Accept a sealed specialist ticket through a CORE/source trunk and do
+          # not re-reject it on volatile candidate-version churn. More importantly,
+          # a retryable/nonterminal release must retain the exact ticket it claims
+          # to retain instead of deleting it.
+          # ------------------------------------------------------------------
+          gate = 'app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt'
+          replace_once(
+              gate,
+              '''            .firstOrNull {\n                it.mint == mint && it.mode.equals(mode, true) &&\n                    it.candidateVersion == candidateVersion &&\n                    it.canonicalLane.equals(requestedLane, true)\n            }\n''',
+              '''            .firstOrNull {\n                it.mint == mint && it.mode.equals(mode, true) &&\n                    (it.canonicalLane.equals(requestedLane, true) ||\n                        isSourceBucketLane(requestedLane))\n            }\n''',
+              'sealed ticket restore identity',
+          )
+          gate_text = read(gate)
+          needle = '''        if (!validSealedDecision6613(candidate)) {\n'''
+          idx = gate_text.index(needle, gate_text.index('private fun resolveSealedIntent6613'))
+          # Insert drift/provenance telemetry immediately before validity handling.
+          inject = '''        if (candidate.candidateVersion != candidateVersion) {\n            try {\n                PipelineHealthCollector.labelInc("EXEC_RESTORED_TICKET_VERSION_DRIFT_6692")\n                ForensicLogger.lifecycle(\n                    "EXEC_RESTORED_TICKET_VERSION_DRIFT_6692",\n                    "mint=${mint.take(10)} requestedVersion=$candidateVersion sealedVersion=${candidate.candidateVersion} lane=${candidate.canonicalLane} action=keep_sealed_authority_volatile_version_drift",\n                )\n            } catch (_: Throwable) {}\n        }\n        if (!candidate.canonicalLane.equals(requestedLane, true) && isSourceBucketLane(requestedLane)) {\n            try {\n                PipelineHealthCollector.labelInc("EXEC_RESTORED_SPECIALIST_VIA_TRUNK_6692")\n                ForensicLogger.lifecycle(\n                    "EXEC_RESTORED_SPECIALIST_VIA_TRUNK_6692",\n                    "mint=${mint.take(10)} sealedLane=${candidate.canonicalLane} requestedLane=$requestedLane action=preserve_specialist_owner",\n                )\n            } catch (_: Throwable) {}\n        }\n'''
+          gate_text = gate_text[:idx] + inject + gate_text[idx:]
+
+          old_release = '''        if (attemptId.isNotBlank()) executionTickets.remove(attemptId)\n        allowedAttempts.entries.removeIf { (attemptId.isNotBlank() && it.value.first == attemptId) ||\n            it.key == laneKey(mint, lane) }\n        restorePenalties.remove(attemptId)\n'''
+          new_release = '''        val retainedTicket6548 = if (attemptId.isNotBlank()) executionTickets[attemptId] else null\n        val retryStampMs6548 = System.currentTimeMillis()\n        // Remove only a conflicting lane residue. Never delete the very ticket\n        // this retry slot is supposed to own.\n        allowedAttempts.entries.removeIf { entry ->\n            entry.key == laneKey(mint, lane) &&\n                (attemptId.isBlank() || entry.value.first != attemptId)\n        }\n        if (retainedTicket6548 != null && ticketLive(retainedTicket6548, retryStampMs6548)) {\n            executionTickets[attemptId] = retainedTicket6548\n            activeExecutionIntents6519[intentKey6519(\n                retainedTicket6548.mode, retainedTicket6548.mint, retainedTicket6548.candidateVersion,\n            )] = retainedTicket6548\n            allowedAttempts[laneKey(mint, retainedTicket6548.canonicalLane)] = attemptId to retryStampMs6548\n            allowedAttempts[mint.trim()] = attemptId to retryStampMs6548\n            try {\n                PipelineHealthCollector.labelInc("PAPER_TICKET_AUTHORITY_RETAINED_6692")\n                ForensicLogger.lifecycle(\n                    "PAPER_TICKET_AUTHORITY_RETAINED_6692",\n                    "attemptId=$attemptId mint=${mint.take(10)} lane=${retainedTicket6548.canonicalLane} candidateVersion=${retainedTicket6548.candidateVersion} reason=$reason",\n                )\n            } catch (_: Throwable) {}\n        }\n        restorePenalties.remove(attemptId)\n'''
+          if gate_text.count(old_release) != 1:
+              raise SystemExit(f'nonterminal release deletion block: expected 1, found {gate_text.count(old_release)}')
+          gate_text = gate_text.replace(old_release, new_release, 1)
+
+          old_ttl = '''    const val RETRY_PENDING_TTL_MS_6548: Long = 40_000L\n\n    fun retryPendingFor6548(mint: String): RetryPending6548? {\n        val key = mint.trim()\n        val entry = retryPending6548[key] ?: return null\n        val now = System.currentTimeMillis()\n        if (now - entry.stampedAtMs > RETRY_PENDING_TTL_MS_6548) {\n'''
+          new_ttl = '''    const val RETRY_PENDING_TTL_MS_6548: Long = 40_000L\n    private fun effectiveRetryPendingTtlMs6692(): Long = try {\n        maxOf(\n            RETRY_PENDING_TTL_MS_6548,\n            com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626(),\n        )\n    } catch (_: Throwable) { RETRY_PENDING_TTL_MS_6548 }\n\n    fun retryPendingFor6548(mint: String): RetryPending6548? {\n        val key = mint.trim()\n        val entry = retryPending6548[key] ?: return null\n        val now = System.currentTimeMillis()\n        if (now - entry.stampedAtMs > effectiveRetryPendingTtlMs6692()) {\n'''
+          if gate_text.count(old_ttl) != 1:
+              raise SystemExit(f'retry TTL block: expected 1, found {gate_text.count(old_ttl)}')
+          gate_text = gate_text.replace(old_ttl, new_ttl, 1)
+          gate_text = gate_text.replace('"attemptId=$attemptId mint=${key.take(10)} lane=$lane reason=$reason ttlMs=$RETRY_PENDING_TTL_MS_6548 " +', '"attemptId=$attemptId mint=${key.take(10)} lane=$lane reason=$reason ttlMs=${effectiveRetryPendingTtlMs6692()} " +', 1)
+          write(gate, gate_text)
+
+          # ------------------------------------------------------------------
+          # 3) PAPER JOURNAL / CANONICAL HISTORY CONVERGENCE + STALE EXIT PURITY.
+          # Broaden the existing exact typed-event repair to all PAPER assets,
+          # throttle it, and invoke it from reconciliation. Never invent values.
+          # ------------------------------------------------------------------
+          tx = 'app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt'
+          tx_text = read(tx)
+          if 'import java.util.concurrent.atomic.AtomicLong\n' not in tx_text:
+              tx_text = tx_text.replace('import java.util.concurrent.locks.ReentrantLock\n', 'import java.util.concurrent.locks.ReentrantLock\nimport java.util.concurrent.atomic.AtomicLong\n', 1)
+          marker = '    private val syntheticUnit = BigInteger.valueOf(1_000_000_000L)\n'
+          if marker not in tx_text:
+              raise SystemExit('CanonicalPaperTransaction syntheticUnit marker missing')
+          tx_text = tx_text.replace(marker, marker + '    private val lastCanonicalHistoryRepair6692Ms = AtomicLong(0L)\n    private const val CANONICAL_HISTORY_REPAIR_CADENCE_6692_MS = 60_000L\n', 1)
+
+          old_reconcile = '''        if (!awaitJournalBoundary6669("pre_replay")) return@withLock false\n        JournalEconomicReplay6619.repairOrphanedOpenLots6662()\n'''
+          new_reconcile = '''        if (!awaitJournalBoundary6669("pre_replay")) return@withLock false\n        // V5.0.6692 — repair missing journal legs from immutable canonical/typed\n        // receipts before replay. Throttled so reconciliation never becomes an\n        // intake hot path; first pass always runs, later passes run only while\n        // ledger/journal divergence remains non-zero.\n        val nowRepair6692 = System.currentTimeMillis()\n        val divergence6692 = kotlin.math.abs(JournalEconomicReplay6619.latestLedgerDivergenceSol())\n        val lastRepair6692 = lastCanonicalHistoryRepair6692Ms.get()\n        if ((lastRepair6692 == 0L || divergence6692 > 0.001) &&\n            nowRepair6692 - lastRepair6692 >= CANONICAL_HISTORY_REPAIR_CADENCE_6692_MS &&\n            lastCanonicalHistoryRepair6692Ms.compareAndSet(lastRepair6692, nowRepair6692)\n        ) {\n            repairCryptoHistory6659()\n            if (!awaitJournalBoundary6669("post_canonical_history_reprojection_6692")) return@withLock false\n        }\n        JournalEconomicReplay6619.repairOrphanedOpenLots6662()\n'''
+          if tx_text.count(old_reconcile) != 1:
+              raise SystemExit(f'reconcile history hook: expected 1, found {tx_text.count(old_reconcile)}')
+          tx_text = tx_text.replace(old_reconcile, new_reconcile, 1)
+
+          old_filter = '.filter { it.mode.equals("paper", true) && it.assetClass != AssetClass.SOLANA_TOKEN }'
+          if tx_text.count(old_filter) != 1:
+              raise SystemExit(f'paper history asset exclusion: expected 1, found {tx_text.count(old_filter)}')
+          tx_text = tx_text.replace(old_filter, '.filter { it.mode.equals("paper", true) }', 1)
+
+          # Stale-quote emergency is a synthetic -25% backstop. It must never
+          # become a positive canonical PnL because a later stale/decimal price
+          # happened to imply enormous proceeds. Preserve worse observed losses.
+          old_close_calc = '''        val terminal = qty >= pos.remainingQtyRaw\n        val canonicalRealizedPnl6569 = grossProceedsSol - basis - sellFeeSol\n'''
+          new_close_calc = '''        val terminal = qty >= pos.remainingQtyRaw\n        val staleEmergencyExit6692 = exitReason.startsWith(\n            "STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP", ignoreCase = true,\n        )\n        val effectiveGrossProceeds6692 = if (staleEmergencyExit6692) {\n            val boundedGross6692 = (basis * 0.75).coerceAtLeast(0.0)\n            val effective6692 = minOf(grossProceedsSol, boundedGross6692)\n            EconomicPurityGate6504.markUntrusted(mint, "STALE_QUOTE_UNVERIFIED_EXIT_6692")\n            if (kotlin.math.abs(effective6692 - grossProceedsSol) > 1e-9) try {\n                PipelineHealthCollector.labelInc("STALE_QUOTE_PAPER_PROCEEDS_CLAMPED_6692")\n                ForensicLogger.lifecycle(\n                    "STALE_QUOTE_PAPER_PROCEEDS_CLAMPED_6692",\n                    "positionId=$positionId mint=${mint.take(10)} basis=$basis proposedGross=$grossProceedsSol boundedGross=$boundedGross6692 effectiveGross=$effective6692 action=synthetic_backstop_cannot_create_profit",\n                )\n            } catch (_: Throwable) {}\n            effective6692\n        } else grossProceedsSol\n        val canonicalRealizedPnl6569 = effectiveGrossProceeds6692 - basis - sellFeeSol\n'''
+          if tx_text.count(old_close_calc) != 1:
+              raise SystemExit(f'stale close arithmetic marker: expected 1, found {tx_text.count(old_close_calc)}')
+          tx_text = tx_text.replace(old_close_calc, new_close_calc, 1)
+          close_start = tx_text.index('    fun close(positionId: String')
+          close_end = tx_text.index('    private fun recordCloseProjection6659', close_start)
+          close_seg = tx_text[close_start:close_end]
+          if close_seg.count('            grossProceedsSol = grossProceedsSol, soldCostBasisSol = basis,') != 1:
+              raise SystemExit('canonical close finalize gross assignment not unique')
+          close_seg = close_seg.replace('            grossProceedsSol = grossProceedsSol, soldCostBasisSol = basis,', '            grossProceedsSol = effectiveGrossProceeds6692, soldCostBasisSol = basis,', 1)
+          tx_text = tx_text[:close_start] + close_seg + tx_text[close_end:]
+          tx_text = tx_text.replace('PipelineHealthCollector.labelInc("CROSS_ASSET_HISTORY_REPROJECTED_6660")', 'PipelineHealthCollector.labelInc("CROSS_ASSET_HISTORY_REPROJECTED_6660")\n            PipelineHealthCollector.labelInc("PAPER_CANONICAL_HISTORY_REPROJECTED_6692")', 1)
+          write(tx, tx_text)
+
+          # ------------------------------------------------------------------
+          # 4) GLOBAL PAPER ECONOMIC PURITY.
+          # If the durable journal and shared ledger disagree, PAPER terminal
+          # outcomes are not allowed to train policy/WR/PF/EV until convergence.
+          # ------------------------------------------------------------------
+          purity = 'app/src/main/kotlin/com/lifecyclebot/engine/truth/EconomicPurityGate6504.kt'
+          purity_text = read(purity)
+          purity_text = purity_text.replace('    private val exclusions = AtomicLong(0L)\n', '    private val exclusions = AtomicLong(0L)\n    private val globalPaperExclusions6692 = AtomicLong(0L)\n', 1)
+          old_excluded = '''        val historical = try {\n            LearningQuarantineGate6470.isQuarantined(positionId = null, mint = mint)\n        } catch (_: Throwable) { false }\n        val excluded = local || invariantBroken || historical\n        if (excluded) {\n            exclusions.incrementAndGet()\n'''
+          new_excluded = '''        val historical = try {\n            LearningQuarantineGate6470.isQuarantined(positionId = null, mint = mint)\n        } catch (_: Throwable) { false }\n        val unreconciledPaperAccount6692 = try {\n            com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() &&\n                kotlin.math.abs(JournalEconomicReplay6619.latestLedgerDivergenceSol()) > 0.001\n        } catch (_: Throwable) { false }\n        val excluded = local || invariantBroken || historical || unreconciledPaperAccount6692\n        if (excluded) {\n            exclusions.incrementAndGet()\n            if (unreconciledPaperAccount6692) globalPaperExclusions6692.incrementAndGet()\n'''
+          if purity_text.count(old_excluded) != 1:
+              raise SystemExit(f'EconomicPurity exclude block: expected 1, found {purity_text.count(old_excluded)}')
+          purity_text = purity_text.replace(old_excluded, new_excluded, 1)
+          purity_text = purity_text.replace('"mint=${mint.take(10)} local=$local invariant=$invariantBroken historical=$historical",', '"mint=${mint.take(10)} local=$local invariant=$invariantBroken historical=$historical paperAccountDiverged=$unreconciledPaperAccount6692",', 1)
+          purity_text = purity_text.replace('                    PipelineHealthCollector.labelInc("ECONOMIC_PURITY_EXCLUSION_6504")\n', '                    PipelineHealthCollector.labelInc("ECONOMIC_PURITY_EXCLUSION_6504")\n                    if (unreconciledPaperAccount6692) PipelineHealthCollector.labelInc("ECONOMIC_PURITY_GLOBAL_PAPER_DIVERGENCE_6692")\n', 1)
+          purity_text = purity_text.replace('"untrustedMints=${untrusted.size} queries=${queries.get()} exclusions=${exclusions.get()}"', '"untrustedMints=${untrusted.size} queries=${queries.get()} exclusions=${exclusions.get()} globalPaper=${globalPaperExclusions6692.get()}"', 1)
+          purity_text = purity_text.replace('        exclusions.set(0L)\n', '        exclusions.set(0L); globalPaperExclusions6692.set(0L)\n', 1)
+          write(purity, purity_text)
+
+          # ------------------------------------------------------------------
+          # 5) UPDATE CONTRADICTORY REGRESSION TESTS + ADD 6692 SOURCE CONTRACT.
+          # ------------------------------------------------------------------
+          t6689 = 'app/src/test/kotlin/com/lifecyclebot/engine/Aate6689InventoryTurnoverCompoundingTest.kt'
+          t = read(t6689)
+          first_start = t.index('    @Test\n    fun `meme turnover ceiling is canonical and precedes every soft fail open`()')
+          first_end = t.index('    @Test\n    fun `paper specialist sizing binds compounding ladder to shared account cash`', first_start)
+          new_first = '''    @Test\n    fun `static meme position ceiling is retired in favor of shared capital authority`() {\n        val src = File("src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt").readText()\n\n        assertFalse(src.contains("MEME_TURNOVER_ABSOLUTE_CAP_6689 = 24"))\n        assertTrue(src.contains("memeTurnoverAbsoluteCap6689(): Int = Int.MAX_VALUE"))\n        assertTrue(src.contains("memeTurnoverCap=SHARED_CAPITAL_6692"))\n        val defer = src.substringAfter("fun shouldDeferBuy").substringBefore("fun snapshotLine")\n        assertFalse("static inventory count must not return a hard defer", defer.contains("MEME_TURNOVER_CAP="))\n        assertTrue(defer.contains("MEME_EXIT_PRIORITY_ADVISORY_6692"))\n    }\n\n'''
+          t = t[:first_start] + new_first + t[first_end:]
+          soft_start = t.index('    @Test\n    fun `soft exit priority remains below absolute turnover ceiling`()')
+          soft_end = t.index('    @Test\n    fun `executor canonical writer counts open plus pending atomically`()', soft_start)
+          new_soft_test = '''    @Test\n    fun `exit priority is advisory and cannot globally amputate meme entries`() {\n        val src = File("src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt").readText()\n        assertTrue(src.contains("ENTRY_SOFT_CAP = 12"))\n        assertTrue(src.contains("MEME_EXIT_PRIORITY_ADVISORY_6692"))\n        val defer = src.substringAfter("fun shouldDeferBuy").substringBefore("fun snapshotLine")\n        assertFalse(defer.contains("return DeferDecision(\\n                    true,\\n                    \\\"EXITS_PRIORITY"))\n    }\n\n'''
+          t = t[:soft_start] + new_soft_test + t[soft_end:]
+          write(t6689, t)
+
+          t6659 = 'app/src/test/kotlin/com/lifecyclebot/engine/Aate6659CryptoRoundTripReconciliationTest.kt'
+          t = read(t6659)
+          old_assert = '        assertTrue(transaction.contains("it.assetClass != AssetClass.SOLANA_TOKEN"))\n'
+          if t.count(old_assert) != 1:
+              raise SystemExit('6659 old SOLANA exclusion assertion missing')
+          t = t.replace(old_assert, '        assertFalse(transaction.contains("it.assetClass != AssetClass.SOLANA_TOKEN"))\n        assertTrue(transaction.contains("PAPER_CANONICAL_HISTORY_REPROJECTED_6692"))\n        val reconcile = transaction.substringAfter("fun reconcileJournalAuthority6663")\n            .substringBefore("private fun awaitJournalBoundary6669")\n        assertTrue(reconcile.contains("repairCryptoHistory6659()"))\n', 1)
+          write(t6659, t)
+
+          t6692 = ROOT / 'app/src/test/kotlin/com/lifecyclebot/engine/Aate6692RuntimeRepairTest.kt'
+          t6692.write_text(r'''package com.lifecyclebot.engine
+
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+
+/** V5.0.6692 regression locks for the 5.0.6691 forensic repair. */
+class Aate6692RuntimeRepairTest {
+    @Test fun `nonterminal release retains immutable ticket and adaptive retry authority`() {
+        val src = File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val release = src.substringAfter("fun releaseAttemptNonTerminal6514")
+            .substringBefore("fun terminalizeAttempt6514")
+        assertFalse(release.contains("executionTickets.remove(attemptId)"))
+        assertTrue(release.contains("PAPER_TICKET_AUTHORITY_RETAINED_6692"))
+        assertTrue(src.contains("effectiveRetryPendingTtlMs6692"))
+        val restore = src.substringAfter("private fun resolveSealedIntent6613")
+            .substringBefore("fun activeExecutionIntent6519", missingDelimiterValue = src)
+        assertTrue(src.contains("EXEC_RESTORED_SPECIALIST_VIA_TRUNK_6692"))
+        assertTrue(src.contains("isSourceBucketLane(requestedLane)"))
+    }
+
+    @Test fun `static 24 slot meme choke is gone`() {
+        val src = File("src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt").readText()
+        assertFalse(src.contains("MEME_TURNOVER_ABSOLUTE_CAP_6689 = 24"))
+        assertTrue(src.contains("memeTurnoverAbsoluteCap6689(): Int = Int.MAX_VALUE"))
+        assertTrue(src.contains("MEME_EXIT_PRIORITY_ADVISORY_6692"))
+    }
+
+    @Test fun `paper canonical history repair includes solana and precedes replay`() {
+        val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()
+        assertFalse(src.contains("it.assetClass != AssetClass.SOLANA_TOKEN"))
+        val reconcile = src.substringAfter("fun reconcileJournalAuthority6663")
+            .substringBefore("private fun awaitJournalBoundary6669")
+        assertTrue(reconcile.indexOf("repairCryptoHistory6659()") in 1 until reconcile.indexOf("JournalEconomicReplay6619.replay()"))
+        assertTrue(src.contains("PAPER_CANONICAL_HISTORY_REPROJECTED_6692"))
+    }
+
+    @Test fun `stale quote synthetic backstop cannot manufacture paper profit`() {
+        val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()
+        val close = src.substringAfter("fun close(positionId: String")
+            .substringBefore("private fun recordCloseProjection6659")
+        assertTrue(close.contains("STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP"))
+        assertTrue(close.contains("minOf(grossProceedsSol, boundedGross6692)"))
+        assertTrue(close.contains("grossProceedsSol = effectiveGrossProceeds6692"))
+        assertTrue(close.contains("EconomicPurityGate6504.markUntrusted"))
+    }
+
+    @Test fun `paper ledger journal divergence globally quarantines learning`() {
+        val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/EconomicPurityGate6504.kt").readText()
+        assertTrue(src.contains("JournalEconomicReplay6619.latestLedgerDivergenceSol()"))
+        assertTrue(src.contains("ECONOMIC_PURITY_GLOBAL_PAPER_DIVERGENCE_6692"))
+        assertTrue(src.contains("unreconciledPaperAccount6692"))
+    }
+}
+''')
+
+          # Guard against the exact regressions we are removing.
+          final_slot = read(slot)
+          final_gate = read(gate)
+          final_tx = read(tx)
+          assert 'MEME_TURNOVER_ABSOLUTE_CAP_6689 = 24' not in final_slot
+          assert 'executionTickets.remove(attemptId)' not in final_gate[final_gate.index('fun releaseAttemptNonTerminal6514'):final_gate.index('fun terminalizeAttempt6514')]
+          assert 'grossProceedsSol = effectiveGrossProceeds6692' in final_tx
+          assert 'it.assetClass != AssetClass.SOLANA_TOKEN' not in final_tx
+          print('V5.0.6692 guarded source transforms complete')
+          PY
+
+      - name: Run source authority scans
+        working-directory: lifecycle_apk
+        run: |
+          python3 ci/golden_tape_literal_scan.py
+          python3 ci/authority_contradiction_scan.py
+          python3 ci/patch_rot_scan.py
+
+      - name: Commit repaired source to main
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/v5_0_6692_source_repair.yml
+          git add lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt \
+                  lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt \
+                  lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt \
+                  lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/EconomicPurityGate6504.kt \
+                  lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate6689InventoryTurnoverCompoundingTest.kt \
+                  lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate6659CryptoRoundTripReconciliationTest.kt \
+                  lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate6692RuntimeRepairTest.kt
+          git diff --cached --check
+          git commit -m "V5.0.6692 repair execution authority and paper economics"
+          git push origin HEAD:main
