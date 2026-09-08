@@ -33,4 +33,10 @@ Runtime forensic source repair following the 5.0.6694 paper snapshot.
 - patch-rot scan
 - `Aate6695RuntimeAuthorityRepairTest`
 
+## Release-build regression alignment
+
+- The full release suite exposed one stale `GoldenTapeRegressionTest` assertion that still required `SHARED_INTELLIGENCE_BACKLOG_COALESCED` to be a terminal disposition.
+- That contract is now aligned with the repaired non-terminal `markEvaluationProgress6570` backlog semantics at commit `07b9896ffd983d2ff1db501ff2e0606e407b338c`.
+- This commit intentionally triggers the standard `Build AATE APK` workflow from the corrected `main` head for full release-test, assemble, and artifact verification.
+
 Runtime repair commit: `76f2ce92e80fd162a2c9777aea67ef86ec6ad197`.
