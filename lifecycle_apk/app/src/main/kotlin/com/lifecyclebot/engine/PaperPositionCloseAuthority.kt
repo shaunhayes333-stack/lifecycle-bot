@@ -15,6 +15,12 @@ import java.util.concurrent.ConcurrentHashMap
  * the timestamp of an already CLOSE_REQUESTED/CLOSING state. The old code reset
  * updatedAtMs on every repeated exit signal, so a busy exit loop could prevent
  * STUCK_CLOSE_TTL_MS from ever expiring and permanently suppress the actual sell.
+ *
+ * Emergency stale/max-hold/rug exits are different: BotService intentionally has
+ * one-shot emergency latches. A one-shot must never be consumed by a stale
+ * transient close state. Emergency callers may therefore break a transient state
+ * after a short grace interval; true CLOSED remains terminal and normal duplicate
+ * exits remain fenced.
  */
 object PaperPositionCloseAuthority {
     enum class State { OPEN, CLOSE_REQUESTED, CLOSING, CLOSED, REJECTED, FAILED }
@@ -39,9 +45,18 @@ object PaperPositionCloseAuthority {
     private const val FAILED_RETRY_TTL_MS = 20_000L
     private const val STUCK_CLOSE_TTL_MS = 30_000L
     private const val STUCK_RETRY_HARD_CAP = 3
+    private const val EMERGENCY_TRANSIENT_RETRY_GRACE_MS_6702 = 2_000L
 
     private fun normMode(mode: String): String = mode.trim().uppercase().ifBlank { "PAPER" }
     private fun key(mode: String, mint: String): String = "${normMode(mode)}|$mint"
+
+    private fun isEmergencyRetryReason6702(reason: String): Boolean {
+        val r = reason.uppercase()
+        return listOf(
+            "STALE", "MAX_HOLD", "CATASTROPHE", "ZOMBIE", "MUST_SELL",
+            "EMERGENCY", "RUG", "HARD_FLOOR", "PHANTOM", "SHUTDOWN",
+        ).any { r.contains(it) }
+    }
 
     fun reopen(mode: String = "PAPER", mint: String) {
         if (mint.isBlank()) return
@@ -61,6 +76,39 @@ object PaperPositionCloseAuthority {
         val now = System.currentTimeMillis()
         val st = states[k]
         if (st != null) {
+            // V5.0.6702 — ONE-SHOT EMERGENCY EXIT LIVENESS.
+            // BotService's stale/zombie emergency path deliberately latches after
+            // one request. Before this repair, that single request could hit an old
+            // CLOSE_REQUESTED/CLOSING row, return ALREADY_CLOSED, and never get a
+            // second chance even though the position remained economically OPEN.
+            //
+            // Give an in-flight close two seconds to finish. If it is still only a
+            // transient state after that grace window, reset the transient marker
+            // and allow this emergency attempt through. This is PAPER only at this
+            // authority; paperSell's mint lock and canonical reducer still prevent
+            // duplicate economic closes. CLOSED is never bypassed.
+            val transientAge6702 = now - st.updatedAtMs
+            if (isEmergencyRetryReason6702(reason) &&
+                (st.state == State.CLOSE_REQUESTED || st.state == State.CLOSING) &&
+                transientAge6702 >= EMERGENCY_TRANSIENT_RETRY_GRACE_MS_6702
+            ) {
+                val prior = st.state
+                val priorCloseId = st.closeId
+                st.state = State.OPEN
+                st.reason = ""
+                st.closeId = ""
+                st.stuckRetryCount = 0
+                st.updatedAtMs = now
+                try {
+                    PipelineHealthCollector.labelInc("PAPER_EMERGENCY_CLOSE_STALE_STATE_BYPASSED_6702")
+                    ForensicLogger.lifecycle(
+                        "PAPER_EMERGENCY_CLOSE_STALE_STATE_BYPASSED_6702",
+                        "mint=${mint.take(10)} symbol=$symbol prior=$prior ageMs=$transientAge6702 priorCloseId=$priorCloseId reason=$reason action=allow_emergency_retry",
+                    )
+                } catch (_: Throwable) {}
+                return Guard(false, State.OPEN, "emergency_stale_state_bypass_6702")
+            }
+
             if (st.state == State.FAILED || st.state == State.REJECTED) {
                 if (now - st.updatedAtMs >= FAILED_RETRY_TTL_MS) {
                     try {
