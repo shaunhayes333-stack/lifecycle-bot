@@ -43,6 +43,15 @@ class Aate6699RuntimeLoopConvergenceTest {
         assertFalse(reward.contains("val terminalEvent = try"))
     }
 
+    @Test fun reward_acceptance_parity_counts_processed_plus_terminal_exclusions() {
+        val audit = src("engine/truth/AcceptanceInvariantAudit6441.kt")
+        assertTrue(audit.contains("consumerExcludedUnique(\"RewardPurity\")"))
+        assertTrue(audit.contains("CanonicalFinalizedTradeBus6464.canonicalUnique()"))
+        assertTrue(audit.contains("rewardHandled6699 = rewardProcessed6699 + rewardExcluded6699"))
+        assertTrue(audit.contains("busCanonical6699 == closedCount && rewardHandled6699 == closedCount"))
+        assertFalse(audit.contains("closedCount == (w + l + b).toInt()"))
+    }
+
     @Test fun journal_reconciliation_reuses_existing_replay() {
         val reconciliation = src("engine/truth/ForensicReconciliation6635.kt")
         val authority = src("engine/truth/JournalEconomicAuthority6616.kt")
