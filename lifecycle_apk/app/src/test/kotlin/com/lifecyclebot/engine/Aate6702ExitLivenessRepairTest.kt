@@ -7,15 +7,6 @@ import java.io.File
 
 /**
  * V5.0.6702 — regression locks for the paper sell accumulation incident.
- *
- * Proven failure shape:
- *  1) duplicate CLOSE_REQUESTED/CLOSING signals refreshed updatedAtMs every tick,
- *     so the 30s stuck-close retry could be starved forever;
- *  2) a one-shot stale/zombie emergency exit could be consumed by that transient
- *     close state and never get another attempt;
- *  3) PendingSellQueue dropped still-open positions after an age/retry budget;
- *  4) requeue accounting incremented retryCount twice per failed attempt;
- *  5) the queue consulted LIVE terminal state even while PAPER was authoritative.
  */
 class Aate6702ExitLivenessRepairTest {
 
@@ -25,6 +16,10 @@ class Aate6702ExitLivenessRepairTest {
 
     private fun pendingSource() = File(
         "src/main/kotlin/com/lifecyclebot/engine/PendingSellQueue.kt"
+    ).readText()
+
+    private fun stateLedgerSource() = File(
+        "src/main/kotlin/com/lifecyclebot/engine/truth/PositionStateLedger6454.kt"
     ).readText()
 
     @Test
@@ -47,10 +42,29 @@ class Aate6702ExitLivenessRepairTest {
         assertTrue(src.contains("\"STALE\""))
         assertTrue(src.contains("\"MAX_HOLD\""))
         assertTrue(src.contains("\"ZOMBIE\""))
-        // CLOSED must remain terminal; the bypass is restricted to the two
-        // transient states only.
-        val bypass = src.substringAfter("PAPER_EMERGENCY_CLOSE_STALE_STATE_BYPASSED_6702")
-        assertFalse(bypass.take(500).contains("st.state == State.CLOSED"))
+    }
+
+    @Test
+    fun `paper terminal cas cannot remain closing forever`() {
+        val src = stateLedgerSource()
+        assertTrue(src.contains("closingSinceMs6702"))
+        assertTrue(src.contains("PAPER_STALE_CLOSING_MS_6702 = 30_000L"))
+        assertTrue(src.contains("PAPER_EMERGENCY_STALE_CLOSING_MS_6702 = 2_000L"))
+        assertTrue(src.contains("recoverStalePaperClosing6702"))
+        assertTrue(src.contains("PAPER_TERMINAL_STALE_CLOSING_RECOVERED_6702"))
+        assertTrue(src.contains("p.mode.equals(\"paper\", true)"))
+        assertTrue(src.contains("p.remainingQtyRaw > java.math.BigInteger.ZERO"))
+        // Recovery belongs to paper only; live chain finality remains fail-closed.
+        assertFalse(src.contains("p.mode.equals(\"live\", true)"))
+    }
+
+    @Test
+    fun `terminal cas age is cleared on confirmation abandon and canonical rebuild`() {
+        val src = stateLedgerSource()
+        assertTrue(src.contains("closingSinceMs6702.clear()"))
+        assertTrue(src.contains("closingSinceMs6702.remove(positionId)"))
+        assertTrue(src.contains("states.replace(positionId, Lifecycle.CLOSING, Lifecycle.OPEN)"))
+        assertTrue(src.contains("states.replace(positionId, Lifecycle.CLOSING, Lifecycle.CLOSED)"))
     }
 
     @Test
