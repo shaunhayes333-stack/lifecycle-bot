@@ -62,6 +62,19 @@ class Aate6699RuntimeLoopConvergenceTest {
         assertTrue(replay.contains("supersessionIncidents="))
     }
 
+    @Test fun cyclic_executor_routed_entry_cannot_write_a_second_buy() {
+        val cyclic = src("engine/CyclicTradeEngine.kt")
+        val recorder = src("engine/V3JournalRecorder.kt")
+        assertTrue(cyclic.contains("executor.treasuryBuy("))
+        assertTrue(cyclic.contains("V3JournalRecorder.recordOpen("))
+        assertTrue(recorder.contains("executorAlreadyJournaledCyclic6699"))
+        assertTrue(recorder.contains("layer.equals(\"CYCLIC\", ignoreCase = true)"))
+        assertTrue(recorder.contains("CanonicalPositionAuthority6441.openPositions()"))
+        assertTrue(recorder.contains("t.side.equals(\"BUY\", ignoreCase = true)"))
+        assertTrue(recorder.contains("V3_RECORD_OPEN_SUPERSEDED_BY_EXECUTOR_6699"))
+        assertTrue(recorder.contains("if (executorAlreadyJournaledCyclic6699(mint, isPaper, layer)) return"))
+    }
+
     @Test fun stale_close_metadata_self_heals_only_for_newer_canonical_open() {
         val close = src("engine/PositionCloseLedger.kt")
         assertTrue(close.contains("clearIfCanonicallyReopened6699"))
