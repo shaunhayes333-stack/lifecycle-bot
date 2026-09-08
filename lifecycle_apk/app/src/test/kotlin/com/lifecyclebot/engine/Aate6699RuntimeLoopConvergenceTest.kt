@@ -50,8 +50,16 @@ class Aate6699RuntimeLoopConvergenceTest {
         assertTrue(reconciliation.contains("precomputedReplay6699 ?: try { JournalEconomicReplay6619.replay()"))
         assertTrue(authority.contains("ForensicReconciliation6635.reconcile6635(replay)"))
         val notify = authority.substringAfter("fun notifyEconomicMutation").substringBefore("fun currentSnapshot")
-        assertTrue(notify.count { false } == 0) // keep block non-empty for source parser stability
         assertFalse(notify.contains("ForensicReconciliation6635.reconcile6635()"))
+    }
+
+    @Test fun replay_supersession_telemetry_is_idempotent_per_historical_event() {
+        val replay = src("engine/truth/JournalEconomicReplay6619.kt")
+        assertTrue(replay.contains("reportedReplaySupersessions6699"))
+        assertTrue(replay.contains("reportedReplaySupersessions6699.add(\"CROSS_ASSET:\$eventId\")"))
+        assertTrue(replay.contains("ignore_repair_projection_native_buy_exists_once_6699"))
+        assertTrue(replay.contains("reportedReplaySupersessions6699.add(\"CRYPTO_DISPLAY:\$eventId\")"))
+        assertTrue(replay.contains("supersessionIncidents="))
     }
 
     @Test fun stale_close_metadata_self_heals_only_for_newer_canonical_open() {
