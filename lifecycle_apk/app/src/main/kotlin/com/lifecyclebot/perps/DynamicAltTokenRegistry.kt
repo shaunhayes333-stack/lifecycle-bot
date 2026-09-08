@@ -202,6 +202,10 @@ object DynamicAltTokenRegistry {
     // V5.0.6615 — one owner and one terminal outcome per canonical
     // chain+token + material-market-state generation.
     private val evaluationInflight6615 = ConcurrentHashMap<String, String>()
+    // V5.0.6692 — ownership age belongs to the evaluation lease, not to the
+    // token metadata row. Using token.lastUpdatedMs made queue age meaningless
+    // and could never prove/reap a genuinely wedged owner.
+    private val evaluationInflightStartedAt6692 = ConcurrentHashMap<String, Long>()
     private val evaluationCompleted6615 = ConcurrentHashMap<String, String>()
     private val evaluationTerminalKeys6615 = ConcurrentHashMap.newKeySet<String>()
     private val evaluationProgressKeys6615 = ConcurrentHashMap.newKeySet<String>()
@@ -212,6 +216,10 @@ object DynamicAltTokenRegistry {
     // (identity, state-key) so a second stamp of the same non-terminal state
     // more than EVIDENCE_TTL_MS_6580 later reaps into STALE_EXPIRED_6580_<state>.
     private val evaluationProgressStamp6580 = ConcurrentHashMap<String, Long>()
+    // Canonical identities are themselves `chain|token`. Never parse a progress
+    // key with the same pipe delimiter; that reduced `bsc|0x...` to `bsc` and
+    // made the global stale reaper unable to find/terminalize the real owner.
+    private const val EVAL_PROGRESS_SEPARATOR_6692 = "\u001F"
     // V5.0.6632 §P0-J — ADAPTIVE_SHARED_INTELLIGENCE_DEADLINE (operator
     //   directive Feb 2026: "adaptive evaluation deadline = max(4 *
     //   rollingAverageBotCycleMs, reasonable provider floor)"). A fixed
@@ -733,30 +741,61 @@ object DynamicAltTokenRegistry {
         tok.buys24h, tok.sells24h, tok.source.trim().uppercase(), tok.isTrending, tok.isBoosted,
     ).joinToString("|")
 
+    /** V5.0.6692 — terminalize the exact ownership generation without
+     * reconstructing it from a newer mutable token row. This is the missing
+     * primitive that lets timeout/supersede cleanup actually release leases. */
+    private fun expireInflightGeneration6692(identity: String, generation: String, reason: String): Boolean {
+        if (!evaluationInflight6615.remove(identity, generation)) return false
+        evaluationInflightStartedAt6692.remove(identity)
+        evaluationCompleted6615[identity] = generation
+        val terminalKey = "$identity|$generation"
+        if (!evaluationTerminalKeys6615.add(terminalKey)) return true
+        val key = reason.uppercase().replace(Regex("[^A-Z0-9_]+"), "_").take(72)
+        evaluationDisposition6567.computeIfAbsent(key) { AtomicLong(0L) }.incrementAndGet()
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_TERMINAL_6567|$key")
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_EXACT_OWNER_REAPED_6692")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                "CRYPTO_EVAL_EXACT_OWNER_REAPED_6692",
+                "identity=$identity generation=${generation.hashCode()} reason=$key action=release_exact_inflight_owner",
+            )
+        } catch (_: Throwable) {}
+        return true
+    }
+
     fun markEvaluationStarted6567(tok: DynToken): Boolean {
         val identity = tok.canonicalIdentity6544
         val generation = evaluationGeneration6615(tok)
-        if (evaluationCompleted6615[identity] == generation) {
-            evaluationCoalesced6615.incrementAndGet()
-            // V5.0.6626 §RUNTIME_LOOP_UNCHOKE §1 — coalesced hot-label increment.
-            try { com.lifecyclebot.engine.truth.HotLabelCoalescer6626.inc6626("CRYPTO_EVAL_GENERATION_COALESCED_6615") } catch (_: Throwable) {}
-            return false
-        }
-        var admitted = false
-        evaluationInflight6615.compute(identity) { _, active ->
-            when {
-                active == generation -> active
-                else -> {
-                    if (active != null) evaluationSuperseded6615.incrementAndGet()
-                    admitted = true
-                    generation
+        val now6692 = System.currentTimeMillis()
+
+        // Reap an owner that exceeded the adaptive evidence deadline even when
+        // nobody ever re-stamped its progress state. This closes the one-shot
+        // silence leak that could survive for tens of minutes.
+        val activeBefore6692 = evaluationInflight6615[identity]
+        if (activeBefore6692 != null) {
+            val born6692 = evaluationInflightStartedAt6692[identity] ?: now6692
+            val expired6692 = now6692 - born6692 > adaptiveEvidenceTtlMs6632()
+            if (expired6692) {
+                expireInflightGeneration6692(identity, activeBefore6692, "STALE_EXPIRED_INFLIGHT_6692")
+            } else if (activeBefore6692 != generation) {
+                // A new material generation supersedes the old lease. The old
+                // START must receive an explicit terminal before the new START.
+                if (expireInflightGeneration6692(identity, activeBefore6692, "SUPERSEDED_BY_NEW_GENERATION_6692")) {
+                    evaluationSuperseded6615.incrementAndGet()
                 }
             }
         }
-        if (!admitted) {
+
+        if (evaluationCompleted6615[identity] == generation) {
+            evaluationCoalesced6615.incrementAndGet()
+            try { com.lifecyclebot.engine.truth.HotLabelCoalescer6626.inc6626("CRYPTO_EVAL_GENERATION_COALESCED_6615") } catch (_: Throwable) {}
+            return false
+        }
+        if (evaluationInflight6615.putIfAbsent(identity, generation) != null) {
             evaluationCoalesced6615.incrementAndGet()
             return false
         }
+        evaluationInflightStartedAt6692[identity] = now6692
         evaluationStarted6567.incrementAndGet()
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_EVAL_STARTED_6567") } catch (_: Throwable) {}
         return true
@@ -784,7 +823,7 @@ object DynamicAltTokenRegistry {
         // holds. Discovery breadth is not reduced — the token remains in the
         // registry, just with an explicit terminal disposition.
         try {
-            val progressKey6580 = "${tok.canonicalIdentity6544}|$key"
+            val progressKey6580 = "${tok.canonicalIdentity6544}$EVAL_PROGRESS_SEPARATOR_6692$key"
             val firstSeenAt = evaluationProgressStamp6580.putIfAbsent(progressKey6580, System.currentTimeMillis())
             if (firstSeenAt != null) {
                 val age = System.currentTimeMillis() - firstSeenAt
@@ -817,12 +856,18 @@ object DynamicAltTokenRegistry {
                 while (iter.hasNext()) {
                     val entry = iter.next()
                     if (nowMs6587 - entry.value > ttl6632) {
-                        val split = entry.key.indexOf('|')
+                        val split = entry.key.lastIndexOf(EVAL_PROGRESS_SEPARATOR_6692)
                         if (split > 0) {
                             val identity6587 = entry.key.substring(0, split)
-                            val state6587 = entry.key.substring(split + 1)
-                            val stale6587 = getTokenByCanonicalIdentity6544(identity6587)
-                            if (stale6587 != null) markEvaluationDisposition6567(stale6587, "STALE_EXPIRED_6587_$state6587")
+                            val state6587 = entry.key.substring(split + EVAL_PROGRESS_SEPARATOR_6692.length)
+                            val activeGeneration6692 = evaluationInflight6615[identity6587]
+                            if (activeGeneration6692 != null) {
+                                expireInflightGeneration6692(
+                                    identity6587,
+                                    activeGeneration6692,
+                                    "STALE_EXPIRED_6587_$state6587",
+                                )
+                            }
                         }
                         iter.remove()
                         reaped++
@@ -858,6 +903,7 @@ object DynamicAltTokenRegistry {
             return
         }
         evaluationInflight6615.remove(identity, generation)
+        evaluationInflightStartedAt6692.remove(identity)
         evaluationCompleted6615[identity] = generation
         val key = reason.uppercase().replace(Regex("[^A-Z0-9_]+"), "_").take(72)
         evaluationDisposition6567.computeIfAbsent(key) { AtomicLong(0L) }.incrementAndGet()
@@ -900,7 +946,7 @@ object DynamicAltTokenRegistry {
             append("evaluation terminal dispositions=started:").append(evaluationStarted6567.get())
                 .append(" terminal:").append(terminal6567)
                 .append(" missing:").append((evaluationStarted6567.get() - terminal6567).coerceAtLeast(0L)).append('\n')
-            val oldestInflightAge6615 = evaluationInflight6615.keys.mapNotNull { registry[it]?.lastUpdatedMs }
+            val oldestInflightAge6615 = evaluationInflightStartedAt6692.values
                 .minOrNull()?.let { (System.currentTimeMillis() - it).coerceAtLeast(0L) } ?: 0L
             append("evaluation ownership queueSize=0 uniqueCandidateCount=").append(registry.size)
                 .append(" inflightCount=").append(evaluationInflight6615.size)

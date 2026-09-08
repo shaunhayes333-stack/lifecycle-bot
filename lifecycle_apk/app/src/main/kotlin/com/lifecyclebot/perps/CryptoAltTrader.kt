@@ -789,7 +789,9 @@ object CryptoAltTrader {
                 // the token is genuinely unresolvable.
                 var priceNow = tok.price
                 if (priceNow <= 0.0) {
-                    priceNow = DynamicAltTokenRegistry.refreshPriceForMintBlocking(tok.canonicalIdentity6544)
+                    priceNow = withContext(Dispatchers.IO) {
+                        DynamicAltTokenRegistry.refreshPriceForMintBlocking(tok.canonicalIdentity6544)
+                    }
                     if (priceNow <= 0.0) {
                         if (!DynamicAltTokenRegistry.markEvaluationStarted6567(tok)) continue
                         DynamicAltTokenRegistry.markEvaluationDisposition6567(tok, "PRICE_UNAVAILABLE")
