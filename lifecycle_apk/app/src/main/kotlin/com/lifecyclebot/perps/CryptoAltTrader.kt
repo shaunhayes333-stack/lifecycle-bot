@@ -1094,7 +1094,7 @@ object CryptoAltTrader {
                     ?: observed.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
                 // Compatibility counter only: one per terminalized material generation.
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SHARED_INTELLIGENCE_BACKLOG_COALESCED_REQUEUE") } catch (_: Throwable) {}
-                DynamicAltTokenRegistry.markEvaluationDisposition6567(observedTok6569, "SHARED_INTELLIGENCE_BACKLOG_COALESCED")
+                DynamicAltTokenRegistry.markEvaluationProgress6570(observedTok6569, "SHARED_INTELLIGENCE_BACKLOG_COALESCED")
             }
             for ((signalIndex6567, sig) in topDyn.withIndex()) {
                 if (positions.size >= MAX_POSITIONS) {

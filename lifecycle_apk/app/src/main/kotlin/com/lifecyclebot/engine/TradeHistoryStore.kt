@@ -2216,6 +2216,10 @@ object TradeHistoryStore {
             "BUY" -> com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.Side.BUY
             "SELL" -> com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.Side.SELL
             "PARTIAL_SELL" -> com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.Side.PARTIAL_SELL
+            "QTY_RECONCILE" -> if (trade.canonicalConsumedRaw > java.math.BigInteger.ZERO)
+                com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.Side.SELL
+            else
+                com.lifecyclebot.engine.truth.PaperEconomicAtomicCommit6632.Side.BUY
             else -> return
         }
         val key = trade.economicEventId.ifBlank { trade.operationId }

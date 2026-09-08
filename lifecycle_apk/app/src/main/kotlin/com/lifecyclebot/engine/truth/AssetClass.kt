@@ -63,7 +63,7 @@ enum class AssetClass {
             "SHITCOIN", "MEME", "MOONSHOT", "EXPRESS", "BLUECHIP", "MANIP",
             "MANIPULATED", "PROJECT_SNIPER", "QUALITY", "TREASURY", "STANDARD",
             "V3_CORE", "CASHGEN", "DIP_HUNTER", "COPY_TRADE", "COMMUNITY",
-            "CYCLIC", "LAB", "RECOVERED_CARRY_6492" -> SOLANA_TOKEN
+            "CYCLIC", "CORE", "LAB", "RECOVERED_CARRY_6492" -> SOLANA_TOKEN
             else -> UNKNOWN
         }
 

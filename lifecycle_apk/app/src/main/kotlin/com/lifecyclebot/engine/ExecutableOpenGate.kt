@@ -692,10 +692,26 @@ object ExecutableOpenGate {
                         com.lifecyclebot.engine.truth.ExecutionSnapshotAuthority6496
                             .sealedSnapshot6609(mint)
                     } catch (_: Throwable) { null }
-                    val intentAuthoritative6627 = sealedIntent6627 != null &&
+                    val canonicalIntent6695 = try {
+                        activeExecutionIntent6519(mode, mint, currentVersion)
+                            ?: activeExecutionIntent6519(mode, mint, candidateVersion)
+                    } catch (_: Throwable) { null }
+                    val snapshotIntentAuthoritative6695 = sealedIntent6627 != null &&
                         sealedIntent6627.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY") &&
                         sealedIntent6627.executionAction.isNotBlank() &&
                         !sealedIntent6627.executionAction.equals("UNKNOWN", true)
+                    val canonicalIntentAuthoritative6695 = canonicalIntent6695 != null &&
+                        validSealedDecision6613(canonicalIntent6695)
+                    val intentAuthoritative6627 = snapshotIntentAuthoritative6695 || canonicalIntentAuthoritative6695
+                    if (canonicalIntentAuthoritative6695 && !snapshotIntentAuthoritative6695) {
+                        try {
+                            PipelineHealthCollector.labelInc("EXEC_FROZEN_CANONICAL_INTENT_RECOVERED_6695")
+                            ForensicLogger.lifecycle(
+                                "EXEC_FROZEN_CANONICAL_INTENT_RECOVERED_6695",
+                                "mint=${mint.take(10)} lane=$selected candidate=${canonicalIntent6695?.candidateVersion} action=preserve_sealed_fdg_authority",
+                            )
+                        } catch (_: Throwable) {}
+                    }
                     if (!intentAuthoritative6627) {
                         try {
                             PipelineHealthCollector.labelInc(

@@ -1701,13 +1701,14 @@ object ShitCoinTraderAI {
         // through the canonical TraderSizingBridge6444 for lane-cap parity.
         val _shitCoinFinalSol = try {
             val walletSolProxy = com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol().coerceAtLeast(0.0)
-            val bridged = com.lifecyclebot.engine.truth.TraderSizingBridge6444.sizeForLane(
+            val bridged = com.lifecyclebot.engine.truth.TraderSizingBridge6444.resolveForLane(
                 laneName = "SHITCOIN",
                 requestedSol = positionSol,
                 walletSol = walletSolProxy,
                 paperMode = isPaperMode,
+                mintForSeal = mint,
             )
-            bridged
+            bridged.finalSizeSol
         } catch (_: Throwable) { positionSol }
         return ShitCoinSignal(
             shouldEnter = true,
