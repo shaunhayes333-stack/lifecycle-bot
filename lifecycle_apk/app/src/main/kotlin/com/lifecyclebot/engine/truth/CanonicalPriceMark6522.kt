@@ -28,6 +28,25 @@ object CanonicalPriceMarkRegistry6522 {
         if (mark.mint.isBlank() || mark.baseMint != mark.mint) return false
         if (mark.pairId.isBlank()) return false
         if (mark.quoteMint.isBlank() || mark.priceUsd.value.signum() <= 0 || mark.timestampMs <= 0L) return false
+
+        // V5.0.6697 — universal mark-registry write barrier. 6471 already owns
+        // the canonical standalone sentinel fingerprint list, but prior code
+        // only consulted it while classifying observation tuples or in a few
+        // asset-specific callers. A direct EXECUTABLE_ENTRY_QUOTE publication
+        // could therefore preserve a known placeholder price and later satisfy
+        // a paper entry. No purpose may persist a known sentinel fingerprint.
+        val rawPrice6697 = try { mark.priceUsd.value.toDouble() } catch (_: Throwable) { Double.NaN }
+        if (MarketDataProvenance6471.isKnownStandaloneSentinelPrice6658(rawPrice6697)) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_MARK_SENTINEL_REJECTED_6697")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "CANONICAL_MARK_SENTINEL_REJECTED_6697",
+                    "mint=${mark.mint.take(18)} purpose=${mark.purpose} price=$rawPrice6697 source=${mark.source.take(40)} pair=${mark.pairId.take(32)} action=reject_before_registry_write",
+                )
+            } catch (_: Throwable) {}
+            return false
+        }
+
         val mintRoute = mark.pairId.startsWith("MINT_ROUTE:", true)
         val sourceGroundedMintIdentity6613 = mintRoute &&
             mark.pairId.equals("MINT_ROUTE:${mark.mint}", true) &&
@@ -111,6 +130,8 @@ object CanonicalPriceMarkRegistry6522 {
             return PromotionResult6613(null, "SOURCE_EVIDENCE_STALE", source, priceUsd, ageMs = ageMs, identity = mint)
         if (!priceUsd.isFinite() || priceUsd <= 0.0 || priceUsd < 1e-18 || priceUsd > 1e12)
             return PromotionResult6613(null, "SOURCE_PRICE_INVALID", source, priceUsd, ageMs = ageMs, identity = mint)
+        if (MarketDataProvenance6471.isKnownStandaloneSentinelPrice6658(priceUsd))
+            return PromotionResult6613(null, "SOURCE_PRICE_SENTINEL_6697", source, priceUsd, ageMs = ageMs, identity = mint)
         if (!liquidityUsd.isFinite() || liquidityUsd <= 0.0)
             return PromotionResult6613(null, "SOURCE_LIQUIDITY_INVALID", source, priceUsd, ageMs = ageMs, identity = mint)
         val normalizedPair = pairOrPool.ifBlank { "MINT_ROUTE:$mint" }
@@ -206,6 +227,8 @@ object CanonicalPriceMarkRegistry6522 {
             return PromotionResult6613(null, "SOURCE_EVIDENCE_STALE", source, priceUsd, ageMs = ageMs, identity = mint)
         if (!priceUsd.isFinite() || priceUsd <= 0.0 || priceUsd < 1e-18 || priceUsd > 1e12)
             return PromotionResult6613(null, "SOURCE_PRICE_INVALID", source, priceUsd, ageMs = ageMs, identity = mint)
+        if (MarketDataProvenance6471.isKnownStandaloneSentinelPrice6658(priceUsd))
+            return PromotionResult6613(null, "SOURCE_PRICE_SENTINEL_6697", source, priceUsd, ageMs = ageMs, identity = mint)
         val normalizedPair = pairOrPool.ifBlank { "MINT_ROUTE:$mint" }
         val normalizedQuote = quoteMint.ifBlank { "USD" }
         val observation = CanonicalPriceMark6522(
