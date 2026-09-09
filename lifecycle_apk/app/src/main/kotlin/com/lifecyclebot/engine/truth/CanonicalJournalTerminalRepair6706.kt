@@ -89,19 +89,18 @@ object CanonicalJournalTerminalRepair6706 {
             val soldDisplay = display(sell.soldQty, scale)
             val remainingDisplay = display(sell.remainingQty, scale)
             val originalDisplay = display(originalRaw, scale)
-            val entryPrice = when {
-                pos?.entryPriceUsd?.isFinite() == true && pos.entryPriceUsd > 0.0 -> pos.entryPriceUsd
-                firstBuy?.fillPrice?.isFinite() == true && firstBuy.fillPrice > 0.0 -> firstBuy.fillPrice
-                else -> 0.0
-            }
+            val posEntryPrice = pos?.entryPriceUsd?.takeIf { it.isFinite() && it > 0.0 }
+            val typedEntryPrice = firstBuy?.fillPrice?.takeIf { it.isFinite() && it > 0.0 }
+            val entryPrice = posEntryPrice ?: typedEntryPrice ?: 0.0
             val exitPrice = if (soldDisplay > 0.0) sell.grossProceedsSol / soldDisplay else entryPrice
             if (!exitPrice.isFinite() || exitPrice <= 0.0) continue
             val lane = pos?.lane ?: positionRows.firstOrNull()?.tradingMode ?: "STANDARD"
             val mint = sell.mint.ifBlank { pos?.mint.orEmpty() }
             val symbol = sell.symbol.ifBlank { pos?.symbol.orEmpty() }
             if (mint.isBlank()) continue
-            val entryCost = buys.sumOf { it.executedCostSol.coerceAtLeast(0.0) }
-                .takeIf { it > 0.0 } ?: pos?.entryCostSol?.coerceAtLeast(0.0) ?: 0.0
+            val typedEntryCost = buys.sumOf { it.executedCostSol.coerceAtLeast(0.0) }
+            val entryCost = typedEntryCost.takeIf { it > 0.0 }
+                ?: pos?.entryCostSol?.coerceAtLeast(0.0) ?: 0.0
             val entryTs = firstBuy?.atMs ?: pos?.openedAtMs ?: sell.atMs
 
             try {
