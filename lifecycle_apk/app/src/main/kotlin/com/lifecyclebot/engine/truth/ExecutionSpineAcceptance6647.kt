@@ -41,20 +41,7 @@ object ExecutionSpineAcceptance6647 {
         if (o.v3 <= 0L) f += "V3_ZERO"
         if (o.bgSplitRuntimeIntakeZombie != 0L) f += "BG_SPLIT_RUNTIME_INTAKE_ZOMBIE"
         if (o.configuredWorkers <= 0 || o.currentWorkerHeartbeats != o.configuredWorkers) f += "SPECIALIST_HEARTBEAT_GAP"
-        // V5.0.6706 — SpecialistCausalFunnel's historical `phantomSizedOnly`
-        // diagnostic also counts a size record when DISCOVER telemetry was not
-        // co-keyed, even if immutable INTENT/FDG authority is perfectly valid.
-        // Smoke 6705 proved this false-positive shape: phantom>0 while
-        // FDG_ALLOW_WITHOUT_EXEC_INTENT=0 and SIZE_PENDING=0. Keep PHANTOM fatal
-        // only when an execution-authority invariant corroborates it. Discovery
-        // telemetry completeness remains visible in the report but is not itself
-        // permission to call a sealed size economically phantom.
-        val authorityBackedPhantom6706 = o.phantomSizedOnly != 0L && (
-            o.sizePending != 0L ||
-                o.fdgAllowWithoutIntent != 0L ||
-                o.dispatches != o.immutableIntentsForDispatches
-            )
-        if (authorityBackedPhantom6706) f += "PHANTOM_SIZED_ONLY"
+        if (o.phantomSizedOnly != 0L) f += "PHANTOM_SIZED_ONLY"
         if (o.sizePending != 0L) f += "EXEC_OPEN_PRECHECK_SIZE_PENDING"
         if (o.fdgAllowWithoutIntent != 0L) f += "FDG_ALLOW_WITHOUT_EXEC_INTENT"
         if (o.dispatches != o.immutableIntentsForDispatches) f += "DISPATCH_INTENT_CARDINALITY"
@@ -134,6 +121,15 @@ object ExecutionSpineAcceptanceWindow6647 {
     fun onExitSweepDone() { exitSweepDone.incrementAndGet() }
     fun onExitEvaluation() { exitEvaluations.incrementAndGet() }
 
+    /**
+     * V5.0.6689 — startup capture must be total. This witness is invoked at the
+     * accepted service-start boundary, when one of the specialist registries can
+     * legitimately still be initializing. The old all-or-nothing capture threw
+     * before beginWindow6662 emitted its START marker; BotService deliberately
+     * swallowed acceptance exceptions, leaving CI with no START and no RESULT.
+     * Missing sources now sample as zero and therefore produce an explicit FAIL
+     * at the closing boundary instead of silently deleting the witness.
+     */
     private fun capture(nowMs: Long): Baseline {
         val health = try { com.lifecyclebot.engine.PipelineHealthCollector.snapshot() } catch (_: Throwable) { null }
         val desks = try { com.lifecyclebot.engine.ToolkitSignalSheet.configuredMemeDesks6647() } catch (_: Throwable) { emptyList() }
@@ -166,8 +162,17 @@ object ExecutionSpineAcceptanceWindow6647 {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * Start the mandatory window at the accepted runtime start boundary.
+     * AcceptanceInvariantAudit runs on a slower cadence than the CI capture;
+     * lazily creating the baseline on its first audit meant a healthy
+     * three-minute smoke could finish before any 120-second window closed.
+     */
     @Synchronized
     fun beginWindow6662(nowMs: Long = System.currentTimeMillis()) {
+        // Emit the start witness BEFORE touching optional runtime registries.
+        // Even if a future capture regression reappears, CI gets a precise
+        // start marker rather than an unexplained missing acceptance window.
         try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_WINDOW_STARTED_6662")
             com.lifecyclebot.engine.ForensicLogger.lifecycle(
@@ -201,6 +206,8 @@ object ExecutionSpineAcceptanceWindow6647 {
 
         return try {
             // Close against durable economic truth, not a stale periodic sample.
+            // This also settles stop/restart journal lots which no longer have a
+            // canonical owner before enforcing exact scalar and quantity parity.
             try { CanonicalPaperTransaction6486.reconcileForensicBoundary6666() } catch (_: Throwable) {}
             val end = capture(nowMs)
             val delta: (String) -> Long = { key -> ((end.labels[key] ?: 0L) - (start.labels[key] ?: 0L)).coerceAtLeast(0L) }
@@ -210,6 +217,8 @@ object ExecutionSpineAcceptanceWindow6647 {
             }
             val phantom = (end.phantomSizedOnly - start.phantomSizedOnly).coerceAtLeast(0L)
             val forensic = try { ForensicReconciliation6635.deltas6647() } catch (_: Throwable) { null }
+            // A dispatch begun at the sampling edge may still be legitimately in
+            // flight; terminal-cardinality applies after a bounded grace period.
             val cardinality = try {
                 CanonicalEntryAuthority6551.cardinalityForWindow6647(
                     start.atMs, (end.atMs - 10_000L).coerceAtLeast(start.atMs),
@@ -232,6 +241,11 @@ object ExecutionSpineAcceptanceWindow6647 {
                 dispatches = cardinality?.dispatches ?: -1L,
                 immutableIntentsForDispatches = cardinality?.immutableIntentsForDispatches ?: -2L,
                 terminalResultsForDispatches = cardinality?.terminalResultsForDispatches ?: -3L,
+                // A fresh OPEN is ideal, but a bounded window can begin after Crypto
+                // has already filled its slots. Existing canonical CRYPTO_ALT
+                // positions are durable proof that the venue reached OPEN; do not
+                // call a capacity-bound healthy book "choked" merely because it
+                // correctly declined another position during this exact window.
                 cryptoOpenConfirmed = (end.cryptoOpen - start.cryptoOpen).coerceAtLeast(0L) +
                     canonicalOpenPositions.count { it.assetClass == AssetClass.CRYPTO_ALT }.toLong(),
                 maxExitStartDelayCycles = maxStartDelayCycles.get(),

@@ -12,12 +12,39 @@ import kotlin.math.abs
  *    where you can. all data, pricing, wins and losses must reconcile
  *    forensically. same as the journal and reports."
  *
- * Read-only comparison reconciler. Runs on demand from BotService and on the
- * independent reconciliation cadence. V5.0.6706 fixes the stale bounded-window
- * assumption: PAPER checks use the durable full journal snapshot when available,
- * and WALLET_VS_JOURNAL prefers JournalEconomicReplay6619's exact cash replay.
- * This prevents a healthy 192-SOL account being compared with only the PnL from
- * the last bounded slice and falsely reported as phantom cash.
+ * Read-only, pure-comparison reconciler. Runs on demand from
+ * BotService.emitBotLoopTick (periodic) and on startup after journal
+ * hydration. Every check is:
+ *   • Additive        — never mutates state, never rewrites the journal.
+ *   • Fluid-tolerant  — uses relative tolerances (SAFE_REL_TOL) so
+ *                       legitimate rounding does not flag mismatches.
+ *   • Domain-scoped   — separates paper from live and live-broadcast
+ *                       from live-canonical so cross-domain drift does
+ *                       not create phantom failures.
+ *
+ * Each check emits exactly ONE PipelineHealthCollector counter per pass:
+ *   FORENSIC_OK_6377|<CHECK_NAME>
+ *   FORENSIC_MISMATCH_6377|<CHECK_NAME>|<summary>
+ * so the pipeline dump and any post-hoc log-scrape have a single audit
+ * surface.
+ *
+ * The 11 checks (all derived from the operator's ongoing "wallet vs
+ * journal vs reports must tie out" requirement):
+ *
+ *   1. WALLET_VS_JOURNAL        paperWalletSol ≈ startCapital + Σ(sell.pnlSol)
+ *   2. JOURNAL_ROW_PARITY       Σ(BUY rows) ≥ Σ(SELL rows) — no orphan sells
+ *   3. BUY_SELL_QTY_SKEW        per-mint Σbuyqty ≥ Σsellqty (never over-sold)
+ *   4. COST_BASIS               each BUY: |sol - price×0| ignored; positive sanity only
+ *   5. PNL_PCT_VS_SOL           each SELL: sign(pnlPct) == sign(pnlSol) (no phantom flip)
+ *   6. SELL_REASON_PRESENCE     every SELL has non-empty reason field
+ *   7. PRICE_IMMUTABILITY       every BUY has price>0 (no zero-price sneak-throughs)
+ *   8. TACTIC_MU_VS_JOURNAL     TacticSwitcher aggregated μ per lane vs journal μ per mode
+ *   9. DUPLICATE_JOURNAL_ROWS   no exact (mint, side, ts) duplicates
+ *  10. ORPHAN_SELL              every SELL(mint) has ≥1 prior BUY(mint) in journal
+ *  11. CANONICAL_VS_REGISTRY    canonical live-open count vs GlobalTradeRegistry open count
+ *
+ * Failure surface (pipeline dump reads this):
+ *   ForensicReconciler6377.lastReport().mismatches → List<Mismatch>
  */
 object ForensicReconciler6377 {
 
@@ -53,6 +80,14 @@ object ForensicReconciler6377 {
     fun lifetimeMismatchCount(): Long = mismatchCount.get()
     fun lastRunAtMs(): Long = lastRunAtMs.get()
 
+    /**
+     * Run all 11 checks. Pure function against provided inputs — the
+     * caller is expected to have already resolved the current
+     * paperWalletSol / startCapitalSol / etc.
+     *
+     * Emits a PipelineHealthCollector counter per check and stores the
+     * full report in [_lastReport] for the pipeline dump to render.
+     */
     @JvmStatic
     fun runAll(
         allTrades: List<Trade>,
@@ -64,17 +99,8 @@ object ForensicReconciler6377 {
     ): Report {
         val results = mutableListOf<CheckResult>()
 
-        // V5.0.6706 — relationship checks must see the durable parent rows, not
-        // only the caller's bounded reporting slice. A sell whose BUY is older
-        // than that slice is not an orphan, and current cash cannot be reconciled
-        // against truncated lifetime PnL.
-        val sourceTrades = if (paperMode) {
-            try {
-                TradeHistoryStore.getAllValidTradesSnapshot(limit = 20_000).takeIf { it.isNotEmpty() }
-                    ?: allTrades
-            } catch (_: Throwable) { allTrades }
-        } else allTrades
-        val tradesForMode = sourceTrades.filter {
+        // Filter by mode so paper and live are separately reconciled.
+        val tradesForMode = allTrades.filter {
             val m = it.mode.uppercase()
             if (paperMode) m == "PAPER" else m == "LIVE"
         }
@@ -83,31 +109,17 @@ object ForensicReconciler6377 {
 
         // ── 1. WALLET_VS_JOURNAL ─────────────────────────────────────────
         run {
-            val exactReplay = if (paperMode) try {
-                com.lifecyclebot.engine.truth.JournalEconomicReplay6619.latest()?.takeIf { it.reconciled }
-            } catch (_: Throwable) { null } else null
-            if (exactReplay != null) {
-                val expected = exactReplay.cashSol
-                val delta = paperWalletSol - expected
-                val tolerance = maxOf(SAFE_ABS_FLOOR_SOL, abs(expected) * SAFE_REL_TOL)
-                val ok = abs(delta) <= tolerance
-                results += CheckResult(
-                    "WALLET_VS_JOURNAL", ok,
-                    "wallet=${fmt(paperWalletSol)} durableJournalCash=${fmt(expected)} tol=${fmt(tolerance)} delta=${fmt(delta)}",
-                )
-            } else {
-                // Legacy fallback is retained only when no exact durable replay has
-                // been produced yet. It now operates on the full durable rows above.
-                val realizedSol = sells.sumOf { it.pnlSol }
-                val expected = startCapitalSol + realizedSol
-                val over = paperWalletSol - expected
-                val tolerance = maxOf(SAFE_ABS_FLOOR_SOL, abs(expected) * SAFE_REL_TOL)
-                val ok = over <= tolerance
-                results += CheckResult(
-                    "WALLET_VS_JOURNAL", ok,
-                    "wallet=${fmt(paperWalletSol)} legacyExpected≤${fmt(expected)}+tol=${fmt(tolerance)} over=${fmt(over)}",
-                )
-            }
+            val realizedSol = sells.sumOf { it.pnlSol }
+            val expected = startCapitalSol + realizedSol
+            // Open positions consume SOL from the wallet — a mismatch here
+            // may just mean money is parked in open buys. So this check
+            // treats "wallet <= expected" as OK (parked capital) and only
+            // flags "wallet > expected + tolerance" (phantom SOL creation).
+            val over = paperWalletSol - expected
+            val tolerance = maxOf(SAFE_ABS_FLOOR_SOL, abs(expected) * SAFE_REL_TOL)
+            val ok = over <= tolerance
+            val summary = "wallet=${fmt(paperWalletSol)} expected≤${fmt(expected)}+tol=${fmt(tolerance)} over=${fmt(over)}"
+            results += CheckResult("WALLET_VS_JOURNAL", ok, summary)
         }
 
         // ── 2. JOURNAL_ROW_PARITY (buys ≥ sells) ─────────────────────────
@@ -122,12 +134,16 @@ object ForensicReconciler6377 {
             val sellByMint = sells.groupBy { it.mint }.mapValues { e -> e.value.sumOf { it.soldQtyToken.coerceAtLeast(0.0) } }
             val violators = sellByMint.entries.filter { (mint, sellQty) ->
                 val buyQty = buyByMint[mint] ?: 0.0
+                // Only flag when sold qty materially exceeds bought qty.
                 buyQty > 0.0 && sellQty > buyQty * (1.0 + SAFE_REL_TOL) && (sellQty - buyQty) > 1.0
             }
             val ok = violators.isEmpty()
             val summary = if (ok) "buyMints=${buyByMint.size} sellMints=${sellByMint.size}"
                           else "over-sold mints=${violators.size} e.g. ${violators.first().key.take(6)}=(buy${fmt(buyByMint[violators.first().key] ?: 0.0)}/sell${fmt(violators.first().value)})"
             results += CheckResult("BUY_SELL_QTY_SKEW", ok, summary)
+            // V5.0.6496 §2 — feed skewed mints into the historical
+            // economic quarantine so their (contaminated) outcomes
+            // never reach learners / tactic μ / WR / FOM / UPH / sizing.
             if (!ok) {
                 try {
                     com.lifecyclebot.engine.truth.HistoricalEconomicQuarantine6496
@@ -136,16 +152,17 @@ object ForensicReconciler6377 {
             }
         }
 
-        // ── 4. COST_BASIS ────────────────────────────────────────────────
+        // ── 4. COST_BASIS (buy.sol > 0 for entries) ──────────────────────
         run {
             val zeroCostBuys = buys.count { it.sol <= 0.0 && it.price > 0.0 }
             val ok = zeroCostBuys == 0
             results += CheckResult("COST_BASIS", ok, if (ok) "buys=${buys.size} all positive-cost" else "zero-cost buys=$zeroCostBuys")
         }
 
-        // ── 5. PNL_PCT_VS_SOL ────────────────────────────────────────────
+        // ── 5. PNL_PCT_VS_SOL (sign parity, no phantom flip) ─────────────
         run {
             val flipped = sells.count { t ->
+                // Skip scratches (near-zero on both).
                 if (abs(t.pnlSol) < 0.0005 && abs(t.pnlPct) < 0.1) return@count false
                 val signSol = if (t.pnlSol > 0) 1 else if (t.pnlSol < 0) -1 else 0
                 val signPct = if (t.pnlPct > 0) 1 else if (t.pnlPct < 0) -1 else 0
@@ -162,7 +179,7 @@ object ForensicReconciler6377 {
             results += CheckResult("SELL_REASON_PRESENCE", ok, if (ok) "sells=${sells.size} all-tagged" else "reason-blank sells=$missing")
         }
 
-        // ── 7. PRICE_IMMUTABILITY ────────────────────────────────────────
+        // ── 7. PRICE_IMMUTABILITY (proxy: no zero-price entries) ─────────
         run {
             val zeroPriceBuys = buys.count { it.price <= 0.0 && it.sol > 0.0 }
             val ok = zeroPriceBuys == 0
@@ -170,6 +187,9 @@ object ForensicReconciler6377 {
         }
 
         // ── 8. TACTIC_MU_VS_JOURNAL ──────────────────────────────────────
+        // Compare TacticSwitcher-reported μ per (lane) to journal-derived
+        // μ per tradingMode over a bounded lookback. Deviations >200pp
+        // relative are flagged as "tactic persistence drift".
         run {
             try {
                 val laneStats = try {
@@ -189,7 +209,12 @@ object ForensicReconciler6377 {
                         if (journalPnls.size < 5) continue
                         val journalMu = journalPnls.average()
                         totalCompared++
-                        if (abs(tacticMu - journalMu) > 100.0 && abs(tacticMu) > 50.0) drift++
+                        // Deviation is flagged when tacticMu > journalMu + 100pp for the
+                        // same lane over a 5+ sample overlap. This catches the persisted
+                        // phantom-inflated pnlSum leak.
+                        if (abs(tacticMu - journalMu) > 100.0 && abs(tacticMu) > 50.0) {
+                            drift++
+                        }
                     }
                     val ok = drift == 0
                     results += CheckResult("TACTIC_MU_VS_JOURNAL", ok, "compared=$totalCompared drift=$drift")
@@ -223,6 +248,7 @@ object ForensicReconciler6377 {
             results += CheckResult("CANONICAL_VS_REGISTRY", ok, "canonical=$canonicalLiveOpenCount registry=$registryLiveOpenCount delta=$delta")
         }
 
+        // Emit telemetry.
         for (r in results) {
             try {
                 if (r.ok) {
@@ -242,6 +268,7 @@ object ForensicReconciler6377 {
         return report
     }
 
+    /** Test-only reset. */
     internal fun resetForTest() {
         passCount.set(0L)
         mismatchCount.set(0L)

@@ -117,58 +117,6 @@ object OrderSizeResolver6441 {
     ): Resolution {
         totalResolves.incrementAndGet()
 
-        // V5.0.6706 — WR TARGET IS EXECUTION AUTHORITY, NOT JUST A SIZE NOTE.
-        // Runtime 5.0.6705 had EXPRESS=0%, QUALITY≈0-8%, CORE≈8% and
-        // PROJECT_SNIPER≈18%, yet every lane continued receiving ordinary BUY
-        // authority because all learned feedback downstream was soft sizing.
-        // That can reduce money lost but cannot mathematically improve win-rate
-        // selection. The canonical finalized bus now feeds a persisted posterior;
-        // this mandatory resolver consumes it before any ticket is materialized.
-        // Below 50% after real evidence, ordinary entries are held and only a
-        // bounded re-probe cadence remains. Recovery >=50% automatically releases.
-        val wr6706 = try {
-            com.lifecyclebot.engine.learning.AdaptiveWinRateAuthority6706.entryDecision(laneName)
-        } catch (_: Throwable) {
-            com.lifecyclebot.engine.learning.AdaptiveWinRateAuthority6706.Decision(
-                execute = true, sizeMultiplier = 1.0, probe = false,
-                posteriorWr = 0.5, evidence = 0.0, reason = "FAIL_OPEN",
-            )
-        }
-        if (!wr6706.execute) {
-            val authoritativeCash6706 = if (paperMode) {
-                try { PaperCapitalAuthority6577.cashSol().coerceAtLeast(0.0) } catch (_: Throwable) { walletSol.coerceAtLeast(0.0) }
-            } else walletSol.coerceAtLeast(0.0)
-            val min6706 = when {
-                paperMode && applyPaperMemeMinimum -> maxOf(laneMinExecutableSol, PAPER_EXECUTABLE_MINIMUM_SOL)
-                else -> laneMinExecutableSol.coerceAtLeast(ABS_MIN_EXECUTABLE_SOL)
-            }
-            val res6706 = Resolution(
-                requestedSol = requestedSol.coerceAtLeast(0.0),
-                riskSol = 0.0,
-                ladderSol = 0.0,
-                cashCapSol = authoritativeCash6706,
-                laneCapSol = laneRiskCapSol,
-                finalSizeSol = 0.0,
-                executable = false,
-                reason = "ADAPTIVE_WR_${wr6706.reason}",
-                minimumExecutableSol = min6706,
-            )
-            lastResolution.set(res6706)
-            skippedCount.incrementAndGet()
-            try {
-                PipelineHealthCollector.labelInc("ORDER_SIZE_ADAPTIVE_WR_HELD_6706")
-                PipelineHealthCollector.labelInc("ORDER_SIZE_ADAPTIVE_WR_HELD_6706_${laneName.uppercase().take(24)}")
-                ForensicLogger.lifecycle(
-                    "ORDER_SIZE_ADAPTIVE_WR_HELD_6706",
-                    "lane=$laneName paper=$paperMode posterior=${"%.3f".format(wr6706.posteriorWr)} evidence=${"%.2f".format(wr6706.evidence)} target=${com.lifecyclebot.engine.learning.AdaptiveWinRateAuthority6706.TARGET_WR} reason=${wr6706.reason}",
-                )
-            } catch (_: Throwable) {}
-            if (causalEventId.isNotBlank()) try {
-                com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(laneName, "SIZE_REJECT", causalEventId)
-            } catch (_: Throwable) {}
-            return res6706
-        }
-
         // 1. requested -> adaptive strategy/risk -> hard caps.
         // V5.0.6684 restores the severed SSI sizing hand and exact Lab-proven
         // replacement at the ONE mandatory size authority.
@@ -178,17 +126,13 @@ object OrderSizeResolver6441 {
         val labMult6684 = try {
             com.lifecyclebot.engine.AdaptiveLaneReproof6684.sizeMultiplierForLane(laneName)
         } catch (_: Throwable) { 1.0 }
-        // 6706 is intentionally part of the SAME composition rather than a
-        // later patch-floor that could erase it. It may reduce/restore size, but
-        // all existing hard caps still win downstream.
-        val adaptiveMult6684 = (ssiMult6684 * labMult6684 * wr6706.sizeMultiplier).coerceIn(0.10, 2.50)
+        val adaptiveMult6684 = (ssiMult6684 * labMult6684).coerceIn(0.35, 2.50)
         val requested = (requestedSol.coerceAtLeast(0.0) * adaptiveMult6684).coerceAtLeast(0.0)
         val risk = requested.coerceAtMost(laneRiskCapSol)
         if (kotlin.math.abs(adaptiveMult6684 - 1.0) > 0.001) {
             try {
                 PipelineHealthCollector.labelInc("CANONICAL_ADAPTIVE_SIZE_6684")
                 PipelineHealthCollector.labelInc("CANONICAL_ADAPTIVE_SIZE_6684_${laneName.uppercase().take(24)}")
-                if (wr6706.probe) PipelineHealthCollector.labelInc("CANONICAL_ADAPTIVE_WR_REPROBE_SIZE_6706_${laneName.uppercase().take(24)}")
             } catch (_: Throwable) {}
         }
 
@@ -208,10 +152,7 @@ object OrderSizeResolver6441 {
         val ladderTarget = try {
             RunnerCompoundingLadder6440.recommendedSizeSol(walletSol)
         } catch (_: Throwable) { 0.0 }
-        // V5.0.6706 — a below-target re-probe must NOT be promoted back to a
-        // full compounding-ladder order. Probe authority is deliberately small.
-        val laddered = if (wr6706.probe) nudgedRisk else
-            if (ladderTarget.isFinite() && ladderTarget > 0.0) kotlin.math.max(nudgedRisk, ladderTarget) else nudgedRisk
+        val laddered = if (ladderTarget.isFinite() && ladderTarget > 0.0) kotlin.math.max(nudgedRisk, ladderTarget) else nudgedRisk
 
         // 3. wallet / cash cap — final hard cap is supplied by the dynamic
         // wallet-percent/portfolio policy, not a lane's static SOL map.
@@ -301,7 +242,7 @@ object OrderSizeResolver6441 {
         try {
             ForensicLogger.lifecycle(
                 "ORDER_SIZE_RESOLVED_6441",
-                "lane=$laneName paper=$paperMode wr6706=${"%.3f".format(wr6706.posteriorWr)} ${res.trace()}",
+                "lane=$laneName paper=$paperMode ${res.trace()}",
             )
         } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("ORDER_SIZE_RESOLVED_6441") } catch (_: Throwable) {}

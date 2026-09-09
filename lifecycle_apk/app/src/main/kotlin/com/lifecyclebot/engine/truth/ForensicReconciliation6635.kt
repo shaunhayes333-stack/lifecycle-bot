@@ -36,12 +36,17 @@ import java.util.concurrent.atomic.AtomicReference
  *   CanonicalLotQuantity6464                    --> lot qty
  *   CanonicalEconomicEvent6635 registry          --> event-by-event parity
  *
- * V5.0.6706 source correction: before measuring deltas, an exact typed SELL
- * receipt may restore a missing durable journal terminal leg through
- * CanonicalJournalTerminalRepair6706. This is not heuristic healing: the repair
- * uses the already-committed economicEventId, raw quantity, allocated basis,
- * proceeds and fees. Only after journal raw lots exactly equal canonical raw lots
- * may PaperAccountLedger adopt that durable replay.
+ * Fires strict deltas:
+ *   FORENSIC_CASH_DELTA_6635           = |journal.cash - ledger.cash|
+ *   FORENSIC_REALIZED_DELTA_6635       = |journal.realized - ledger.realized|
+ *   FORENSIC_OPEN_COST_DELTA_6635      = |journal.openCost - ledger.openCost|
+ *   FORENSIC_MISSING_JOURNAL_6635      = count(events with LEDGER but !JOURNAL)
+ *   FORENSIC_MISSING_LEDGER_6635       = count(events with JOURNAL but !LEDGER)
+ *   FORENSIC_DUPLICATE_EVENT_ID_6635   = distinct opens same eventId
+ *
+ * Any non-zero counter above is a FAILED forensic state and the
+ * operator's health line shows status=FAILED.  Never healed by this
+ * module — the operator inspects and repairs the source.
  */
 object ForensicReconciliation6635 {
 
@@ -70,54 +75,8 @@ object ForensicReconciliation6635 {
      */
     fun reconcile6635(precomputedReplay6699: JournalEconomicReplay6619.ReplayResult? = null) {
         checks.incrementAndGet()
-
-        // V5.0.6706 — close a precise projection hole BEFORE comparing. Runtime
-        // 6705 retained CLOSED canonical positions, so the older orphan repair
-        // (which only acts when canonical == null) could never close their missing
-        // journal lots. Exact typed receipts are sufficient authority to restore
-        // the journal leg without fabricating economics.
-        val repaired6706 = try { CanonicalJournalTerminalRepair6706.repairMissingTerminalLegs() }
-            catch (_: Throwable) { 0 }
-        var replay6647 = if (repaired6706 > 0 || precomputedReplay6699 == null) {
-            try { JournalEconomicReplay6619.replay() } catch (_: Throwable) { null }
-        } else precomputedReplay6699
-
-        var canonicalRaw6647 = try {
-            CanonicalPositionAuthority6441.openPositions()
-                .filter { it.mode.equals("paper", true) }
-                .associate { it.positionId to it.remainingQtyRaw }
-        } catch (_: Throwable) { emptyMap() }
-        var journalRaw6647 = replay6647?.openRawQtyByPosition.orEmpty()
-        var quantityDeltaRaw6647 = (journalRaw6647.keys + canonicalRaw6647.keys).fold(java.math.BigInteger.ZERO) { acc, positionId ->
-            acc + ((journalRaw6647[positionId] ?: java.math.BigInteger.ZERO) -
-                (canonicalRaw6647[positionId] ?: java.math.BigInteger.ZERO)).abs()
-        }
-
-        // Only exact durable parity may move the account scalar projection. This
-        // prevents a stale ledger from keeping the smoke test red after the journal
-        // has been repaired, while still fail-closing on any raw-lot mismatch.
-        if (replay6647?.reconciled == true && quantityDeltaRaw6647 == java.math.BigInteger.ZERO) {
-            val adopted6706 = try {
-                PaperAccountLedger6430.reconcileFromJournal6663(
-                    replay6647.cashSol,
-                    replay6647.openCostBasisSol,
-                    replay6647.realizedPnlSol,
-                    replay6647.feesSol,
-                )
-            } catch (_: Throwable) { false }
-            if (adopted6706) {
-                try {
-                    PipelineHealthCollector.labelInc("FORENSIC_EXACT_JOURNAL_ADOPTED_6706")
-                    if (repaired6706 > 0) PipelineHealthCollector.labelInc("FORENSIC_TERMINAL_REPAIR_CONVERGED_6706")
-                    ForensicLogger.lifecycle(
-                        "FORENSIC_EXACT_JOURNAL_ADOPTED_6706",
-                        "repaired=$repaired6706 cash=${replay6647.cashSol} realized=${replay6647.realizedPnlSol} openCost=${replay6647.openCostBasisSol} rawPositions=${journalRaw6647.size}",
-                    )
-                } catch (_: Throwable) {}
-            }
-        }
-
         val cashLedger = try { PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { Double.NaN }
+        val replay6647 = precomputedReplay6699 ?: try { JournalEconomicReplay6619.replay() } catch (_: Throwable) { null }
         val cashJournal = replay6647?.cashSol ?: Double.NaN
         val realizedLedger = try { PaperCapitalAuthority6577.realizedPnlSol() } catch (_: Throwable) { 0.0 }
         val realizedJournal = replay6647?.realizedPnlSol ?: Double.NaN
@@ -127,16 +86,13 @@ object ForensicReconciliation6635 {
         val cashDelta = kotlin.math.abs(cashJournal - cashLedger)
         val realizedDelta = kotlin.math.abs(realizedJournal - realizedLedger)
         val openCostDelta = kotlin.math.abs(openCostJournal - openCostLedger)
-
-        // Re-read raw maps after any exact adoption. Account adoption does not
-        // mutate lots, but the explicit refresh makes the measured boundary clear.
-        canonicalRaw6647 = try {
+        val journalRaw6647 = replay6647?.openRawQtyByPosition.orEmpty()
+        val canonicalRaw6647 = try {
             CanonicalPositionAuthority6441.openPositions()
                 .filter { it.mode.equals("paper", true) }
                 .associate { it.positionId to it.remainingQtyRaw }
         } catch (_: Throwable) { emptyMap() }
-        journalRaw6647 = replay6647?.openRawQtyByPosition.orEmpty()
-        quantityDeltaRaw6647 = (journalRaw6647.keys + canonicalRaw6647.keys).fold(java.math.BigInteger.ZERO) { acc, positionId ->
+        val quantityDeltaRaw6647 = (journalRaw6647.keys + canonicalRaw6647.keys).fold(java.math.BigInteger.ZERO) { acc, positionId ->
             acc + ((journalRaw6647[positionId] ?: java.math.BigInteger.ZERO) -
                 (canonicalRaw6647[positionId] ?: java.math.BigInteger.ZERO)).abs()
         }

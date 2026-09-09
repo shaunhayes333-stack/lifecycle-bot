@@ -180,24 +180,6 @@ object FinalizedBusConsumerBridge6465 {
     } catch (_: Throwable) { false }
 
     private fun deliverToAatePolicyReward(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        // V5.0.6706 — canonical owner-lane learning authority. 5.0.6705 still
-        // assumed V3JournalRecorder trained the primary lane, but normal Executor
-        // closes do not traverse that fallback. Feed the exact committed terminal
-        // event here, where finality + economic proof have already succeeded.
-        val band6706 = env.scoreBand.ifBlank {
-            try { com.lifecyclebot.engine.LosingPatternMemory.scoreBand(env.entryScore) }
-            catch (_: Throwable) { "UNKNOWN" }
-        }
-        val eventKey6706 = env.economicEventId.ifBlank { env.tradeId }
-        try {
-            com.lifecyclebot.engine.learning.AdaptiveWinRateAuthority6706.recordCanonicalOutcome(
-                canonicalEventKey = eventKey6706,
-                positionId = env.positionId,
-                lane = env.lane,
-                scoreBand = band6706,
-                realizedReturnPct = env.realizedReturnPct,
-            )
-        } catch (_: Throwable) {}
         AateDecisionFabric6512.onFinalized(env)
     } catch (_: Throwable) { false }
 
