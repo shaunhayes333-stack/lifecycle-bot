@@ -54,7 +54,7 @@ class Aate6709AdaptiveTurnoverCycleTest {
     @Test
     fun `operator report exposes cadence and admission counters`() {
         val src = slotHealthSource()
-        assertTrue(src.contains("cadence=1/${turnoverCadenceNow6709.get()}"))
-        assertTrue(src.contains("turnover6709[admit=${turnoverAdmitted6709.get()} defer=${turnoverDeferred6709.get()} highEdge=${turnoverHighEdgeBypass6709.get()}]"))
+        assertTrue(src.contains("cadence=1/\${turnoverCadenceNow6709.get()}"))
+        assertTrue(src.contains("turnover6709[admit=\${turnoverAdmitted6709.get()} defer=\${turnoverDeferred6709.get()} highEdge=\${turnoverHighEdgeBypass6709.get()}]"))
     }
 }
