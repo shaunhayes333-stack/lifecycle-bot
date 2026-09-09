@@ -8591,8 +8591,16 @@ class Executor(
         // independent of scanner/learner/UI completion.
         try {
             val pid6451 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
-            val effStopPct = modeConf?.stopLossPct ?: cfg().stopLossPct
-            val stopPx = if (pos.entryPrice > 0.0 && effStopPct > 0.0) pos.entryPrice * (1.0 - effStopPct / 100.0) else 0.0
+            // V5.0.6709 — canonical protective-exit stop uses magnitude authority.
+            // ModeConfig historically drifted between signed PnL thresholds and
+            // positive percentages. A negative learned value previously made the
+            // `effStopPct > 0` predicate false and silently set stopPx=0.
+            val effStopPctRaw6709 = modeConf?.stopLossPct ?: cfg().stopLossPct
+            val effStopPct = kotlin.math.abs(effStopPctRaw6709)
+            if (effStopPctRaw6709 < 0.0) {
+                try { PipelineHealthCollector.labelInc("PROTECTIVE_EXIT_STOP_SIGN_NORMALIZED_6709") } catch (_: Throwable) {}
+            }
+            val stopPx = if (pos.entryPrice > 0.0 && effStopPct.isFinite() && effStopPct > 0.0) pos.entryPrice * (1.0 - effStopPct / 100.0) else 0.0
             val catastrophePx = if (pos.entryPrice > 0.0) pos.entryPrice * 0.75 else 0.0 // -25% catastrophic
             val trailPx = if (pos.highestPrice > pos.entryPrice) pos.highestPrice * 0.90 else 0.0 // 10% trail off peak
             // V5.0.6581 §P0-7 — TAKE-PROFIT WIRING.

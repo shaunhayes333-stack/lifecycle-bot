@@ -280,10 +280,18 @@ class AutoModeEngine(
      * Mature: Tighter stops to protect capital
      */
     private fun fluidStop(modeDefaultStop: Double): Double {
+        // V5.0.6709 — SIGNED-THRESHOLD / MAGNITUDE AUTHORITY BOUNDARY.
+        // AutoModeEngine.ModeConfig stores stopLossPct as a POSITIVE magnitude
+        // (SNIPE=12%, RANGE=8%, etc). FluidLearningAI.getFluidStopLoss expects
+        // a NEGATIVE PnL threshold. Passing +12 into that API lets the returned
+        // sign vary by learning branch; Executor then sees a non-positive mode
+        // stop and constructs stopPx=0, disabling the canonical SL scheduler.
+        val magnitude6709 = kotlin.math.abs(modeDefaultStop).takeIf { it.isFinite() && it > 0.0 } ?: 10.0
         return try {
-            com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(modeDefaultStop)
+            val signed6709 = com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(-magnitude6709)
+            kotlin.math.abs(signed6709).takeIf { it.isFinite() && it > 0.0 } ?: magnitude6709
         } catch (_: Exception) {
-            modeDefaultStop  // Fallback to mode default
+            magnitude6709
         }
     }
     
