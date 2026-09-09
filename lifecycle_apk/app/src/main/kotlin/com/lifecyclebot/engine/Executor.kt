@@ -557,7 +557,7 @@ object WrRecoveryPartial {
     fun minScoreFloor(): Int {
         val s = stateNow()
         val base = when {
-            s.rollingCollapse -> 35
+            s.rollingCollapse -> 60
             s.band == Band.AGGRESSIVE -> 45
             s.band == Band.MODERATE   -> 30
             else            -> 0
@@ -569,10 +569,13 @@ object WrRecoveryPartial {
         //   THIN-  (median<25) → -12  (half-tier drop)
         //   NORMAL                 0
         //   RICH   (median>50) → +10  (tighten to keep only top setups)
-        // V5.9.1223: collapse is probe mode, not disable mode. Keep
-        // thin-regime auto-fit so the bot continues learning in bad markets,
-        // just at tiny size and under FDG shaping.
-        val delta = when {
+        // V5.0.6710 — catastrophic rolling collapse is quality mode.
+        // Do not relax the score floor merely because the current candidate
+        // distribution is thin: that is exactly how a 0%-WR cohort keeps
+        // admitting more weak entries. Rich regimes may still tighten further.
+        val delta = if (s.rollingCollapse) {
+            if (median > 50) +10 else 0
+        } else when {
             median < 15 -> -25
             median < 25 -> -12
             median > 50 -> +10

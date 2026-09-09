@@ -65,6 +65,23 @@ object RewardPurityGate6441 {
             try { PipelineHealthCollector.labelInc("REWARD_PURITY_REJECT_LIFECYCLE_6441") } catch (_: Throwable) {}
             return false
         }
+        // V5.0.6710 — defence in depth at the canonical reward boundary.
+        // EconomicPurityGate6504 is marked by stale/unverified close paths.
+        // A CLOSED lifecycle alone is not proof that the exit price was valid.
+        val economicExcluded6710 = try {
+            EconomicPurityGate6504.shouldExcludeFromAnalytics(pos.mint)
+        } catch (_: Throwable) { true }
+        if (economicExcluded6710) {
+            rejectedAccounting.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("REWARD_PURITY_REJECT_ECONOMIC_6710")
+                ForensicLogger.lifecycle(
+                    "REWARD_PURITY_REJECT_ECONOMIC_6710",
+                    "positionId=$positionId mint=${pos.mint.take(12)} action=exclude_from_canonical_learning",
+                )
+            } catch (_: Throwable) {}
+            return false
+        }
         // V5.0.6699 — per-terminal-event proof survives process restart. The
         // current-process 6635 commit remains first authority; persisted finality
         // may recover only from the exact durable typed terminal SELL carrying

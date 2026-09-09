@@ -20,6 +20,13 @@ object PaperLearningEligibility6519 {
         val pid = positionId.orEmpty()
         val recorded = pid.takeIf { it.isNotBlank() }?.let { byPosition[it] } ?: byMint[mint] ?: Decision(true, "DEFAULT_ELIGIBLE")
         if (!recorded.eligible) return recorded
+        // V5.0.6710 — ECONOMIC PURITY IS LEARNING AUTHORITY.
+        // Stale/synthetic/unreconciled terminal economics may close inventory,
+        // but must never become canonical W/L/PF/EV or train strategy heads.
+        val economicExcluded6710 = try {
+            EconomicPurityGate6504.shouldExcludeFromAnalytics(mint)
+        } catch (_: Throwable) { true }
+        if (economicExcluded6710) return Decision(false, "ECONOMIC_PURITY_EXCLUDED_6504")
         if (pid.isNotBlank() && !CanonicalPerformanceFilter6395.isCanonicalEligible(pid))
             return Decision(false, "CANONICAL_PERFORMANCE_QUARANTINE:${CanonicalPerformanceFilter6395.reasons(pid).joinToString("+")}")
         val reason = recorded.reason.uppercase()

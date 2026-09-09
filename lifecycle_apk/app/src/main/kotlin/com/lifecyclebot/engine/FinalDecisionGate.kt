@@ -1393,23 +1393,19 @@ object FinalDecisionGate {
             val isHighRecovery = wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.MODERATE ||
                                  wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.AGGRESSIVE
             val isAGrade = candidate.setupQuality == "A" || candidate.setupQuality == "A+"
-            // V5.9.1223 — collapse is not lane-disable mode. Operator rule:
-            // keep learning; do not disable lanes. When roll50 is catastrophic,
-            // let non-A setups continue as micro-probes with harsher size
-            // shaping instead of hard-blocking them.
+            // V5.0.6710 — restore V5.9.1221's selective collapse authority.
+            // A catastrophic rolling cohort is evidence the CURRENT entry policy
+            // is broken, not a request for more canonical low-grade probes. Keep
+            // discovery/shadow evidence flowing, but require A/A+ for new capital
+            // until the rolling cohort recovers automatically.
             if (wrState.rollingCollapse && !isAGrade) {
-                val collapseQualityMult = when (candidate.setupQuality) {
-                    "B"  -> 0.35
-                    "C"  -> 0.22
-                    "D"  -> 0.12
-                    else -> 0.20
-                }
-                wrRecoveryQualityPenaltyMult = minOf(wrRecoveryQualityPenaltyMult, collapseQualityMult)
-                tags.add("wr_roll50_collapse_probe")
-                checks.add(GateCheck("wr_roll50_collapse_probe", true, "roll50=${"%.1f".format(wrState.rollingWr)}% target=${wrState.targetWr.toInt()}% quality=${candidate.setupQuality} size×${"%.2f".format(wrRecoveryQualityPenaltyMult)}"))
+                blockReason = "WR_ROLL50_COLLAPSE_A_GRADE_REQUIRED roll=${"%.1f".format(wrState.rollingWr)} target=${wrState.targetWr.toInt()} quality=${candidate.setupQuality}"
+                blockLevel = BlockLevel.CONFIDENCE
+                tags.add("wr_roll50_collapse")
+                checks.add(GateCheck("wr_roll50_collapse", false, "roll50=${"%.1f".format(wrState.rollingWr)}% target=${wrState.targetWr.toInt()}% requires A/A+ setup"))
                 ErrorLogger.info(
                     "FDG",
-                    "🛑 WR_ROLL50_COLLAPSE_PROBE: ${ts.symbol} | roll50=${"%.1f".format(wrState.rollingWr)}% target=${wrState.targetWr.toInt()}% quality=${candidate.setupQuality} size×${"%.2f".format(wrRecoveryQualityPenaltyMult)}"
+                    "🛑 WR_ROLL50_COLLAPSE_BLOCK: ${ts.symbol} | roll50=${"%.1f".format(wrState.rollingWr)}% target=${wrState.targetWr.toInt()}% quality=${candidate.setupQuality}"
                 )
             } else if (isHighRecovery && !isAGrade) {
                 // Soft penalty graduated by quality + band severity. Same
@@ -3373,7 +3369,7 @@ object FinalDecisionGate {
             ErrorLogger.info("EV", "📊 ${ts.symbol}: ${evResult.summary()}")
         }
 
-        var finalSize = proposedSizeSol * wrRecoveryQualityPenaltyMult  // V5.9.809/1223: soft WR-recovery/collapse probe size penalty
+        var finalSize = proposedSizeSol * wrRecoveryQualityPenaltyMult  // V5.0.6710: soft non-collapse WR-recovery size penalty
 
         // V5.0.4588 — LANE AUTO-PAUSE HARD-BLOCK (operator P0 tasks a + b).
         // Operator on 2026-02: 'EXPRESS needs to find the right strategy and
