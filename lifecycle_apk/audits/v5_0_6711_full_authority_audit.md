@@ -1,0 +1,6203 @@
+# V5.0.6711 Full Runtime Authority / Patch-Rot Audit
+
+Generated from the complete checked-out Kotlin source. This report maps source authority, overlays, bypasses and causal wiring; it is not a string-presence regression test.
+
+
+## Duplicate class/object definitions (parallel-authority risk)
+
+Count: **947**
+
+- `app/src/main/kotlin/com/lifecyclebot/v3/core/AIStartupCoordinator.kt:41` — `AILayer: enum class AILayer(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/MetaCognitionAI.kt:45` — `AILayer: enum class AILayer(val displayName: String, val category: String) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt:628` — `Acc: data class Acc(var n: Int = 0, var pnlSumBp: Long = 0L, var wins: Int = 0, var losses: Int = 0)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/TuningActivity.kt:208` — `Acc: data class Acc(var realizedSum: Double = 0.0, var peakSum: Double = 0.0, var n: Int = 0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PriceIntegrityAuthority6405.kt:60` — `Accept: data class Accept(val priceUsd: Double, val source: String, val ageMs: Long) : Verdict()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SellIntentQuantityAuthority6401.kt:60` — `Accept: data class Accept(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeSelfHealer.kt:4` — `Action: enum class Action { PAUSE_TRADING, SWITCH_LIVE_TO_PAPER, DISABLE_LANE, DISABLE_SCANNER_SOURCE, QUARANTINE_TOKEN, RESTART_SELL_RECONCILER, CLEAR_STALE_LOCKS, REDUCE_SCANNER_CONCURRENCY, FORCE_UI_RUNTIME_REBIND, NEW_RUNTIME_GENERATION_AFTER_CLEAN_RESTART }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SymbolicExitReasoner.kt:246` — `Action: enum class Action { HOLD, TIGHTEN, PARTIAL, EXIT }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AdvisorDecisionHistory6463.kt:37` — `Action: enum class Action { AUTO_APPLIED, QUEUED_INBOX, LOW_AGREEMENT, COOLDOWN_SKIP, APPLY_NOOP, APPLY_FAILED, REVERTED }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/EarlyEntryAndPeakCapture6390.kt:159` — `Action: enum class Action { HOLD, CUT_HALF, CUT_FULL }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MultiHorizonHolding6405.kt:23` — `Action: enum class Action { HOLD, PARTIAL_TAKE, TRAILING_STOP, DRAWDOWN_EXIT, STRICT_STOP }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/quant/QuantMetrics.kt:85` — `AlertLevel: enum class AlertLevel { NONE, WARNING, DANGER, CRITICAL }`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/UltraFastRugDetectorAI.kt:87` — `AlertLevel: enum class AlertLevel(val emoji: String, val priority: Int) {`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsTradeVisualizer.kt:221` — `AlertType: enum class AlertType {`
+- `app/src/main/kotlin/com/lifecyclebot/perps/WatchlistEngine.kt:77` — `AlertType: enum class AlertType {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutoCompoundEngine.kt:79` — `AllocationResult: data class AllocationResult(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalSettlement6389.kt:111` — `AllocationResult: data class AllocationResult(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SecurityGuard.kt:16` — `Allow: object Allow : GuardResult()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LaneAdmissionGate6473.kt:33` — `Allow: data class Allow(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveExecutionGate.kt:51` — `Allowed: data object Allowed : Decision()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:38` — `Allowed: data class Allowed(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LlmPaperTradeExecutor.kt:87` — `Applied: data class Applied(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LlmParameterTuner.kt:33` — `Applied: data class Applied(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AutoPipelineAdvisor6462.kt:491` — `Applied: data class Applied(val oldValue: Double, val newValue: Double) : ApplyResult()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HotfixRules.kt:8` — `ApplyResult: data class ApplyResult(val applied: Boolean, val reason: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AutoPipelineAdvisor6462.kt:490` — `ApplyResult: sealed class ApplyResult {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableQuoteGate.kt:37` — `Approved: data class Approved(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/LiveBuyAdmissionGate.kt:64` — `Approved: object Approved : Decision()`
+- `app/src/main/kotlin/com/lifecyclebot/v3/arb/ArbModels.kt:67` — `ArbPosition: data class ArbPosition(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/SolanaArbAI.kt:141` — `ArbPosition: data class ArbPosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutonomousMetaPolicy.kt:81` — `Arm: private data class Arm(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/StrategyHypothesisEngine.kt:59` — `Arm: private data class Arm(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearningContract6346.kt:49` — `Assessment: data class Assessment(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FirstTradeReadiness6348.kt:51` — `Assessment: data class Assessment(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneEntryContract6342.kt:56` — `Assessment: data class Assessment(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/RunnerLedgerHealthGate6450.kt:32` — `Assessment: data class Assessment(val allowExpansion: Boolean, val reason: String, val canonicalEquitySol: Double)`
+- `app/src/main/kotlin/com/lifecyclebot/backtest/BacktestEngine.kt:35` — `AssetClass: enum class AssetClass { MEME, ALT, PERPS, STOCK, FOREX, METAL, COMMODITY, UNKNOWN }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:42` — `AssetClass: enum class AssetClass {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LeveragePreference.kt:37` — `AssetClass: enum class AssetClass(val key: String, val defaultLeverage: Boolean) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AssetClass.kt:18` — `AssetClass: enum class AssetClass {`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsLearningBridge.kt:76` — `AssetClass: enum class AssetClass { MEME, PERPS, STOCK, FOREX, METAL, COMMODITY, ALT }`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PriceAggregator.kt:248` — `AssetType: enum class AssetType {`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoFinalBuyCandidate.kt:42` — `AssetType: enum class AssetType { SPOT, PERP, TOKENIZED, PAPER_ONLY }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PaperEntryFinalityAuthority6497.kt:48` — `Attempt: data class Attempt(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SellOnlyHoldRepair6391.kt:371` — `Attempt: data class Attempt(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LayerBrain.kt:71` — `AuthorityTier: enum class AuthorityTier(val minSamples: Long) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerSourceBrain.kt:54` — `AuthorityTier: enum class AuthorityTier { BOOTSTRAP, ADVISORY, LEARNED, AUTHORITATIVE }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/UnifiedExitPolicyHead.kt:97` — `AuthorityTier: enum class AuthorityTier(val minSamples: Long) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/UnifiedPolicyHead.kt:130` — `AuthorityTier: enum class AuthorityTier(val minSamples: Long) {`
+- `app/src/main/kotlin/com/lifecyclebot/backtest/BacktestEngine.kt:73` — `BacktestResult: data class BacktestResult(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HistoricalChartScanner.kt:132` — `BacktestResult: data class BacktestResult(`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BacktestActivity.kt:252` — `BacktestResult: data class BacktestResult(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:236` — `Band: enum class Band { OFF, PERFORMING, FLUID, MODERATE, AGGRESSIVE }`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/ExecutionCostPredictorAI.kt:31` — `Band: private data class Band(var samples: Int = 0, var sumSlipPct: Double = 0.0) {`
+- `app/src/main/kotlin/com/lifecyclebot/v3/V3EngineManager.kt:1051` — `BlockFatal: data class BlockFatal(val reason: String) : V3Decision()`
+- `app/src/main/kotlin/com/lifecyclebot/v3/core/BotOrchestrator.kt:599` — `BlockFatal: data class BlockFatal(val reason: String) : ProcessResult()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:84` — `BlockLevel: enum class BlockLevel {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt:63` — `BlockLevel: enum class BlockLevel {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveExecutionGate.kt:52` — `Blocked: data class Blocked(val code: String, val reason: String) : Decision()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/LiveBuyAdmissionGate.kt:65` — `Blocked: data class Blocked(val reasonCode: String, val detail: String) : Decision()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:51` — `Blocked: data class Blocked(val reason: String) : CanonicalAssetEntryResult6551()`
+- `app/src/main/kotlin/com/lifecyclebot/v3/V3EngineManager.kt:1052` — `Blocked: data class Blocked(val reason: String) : V3Decision()`
+- `app/src/main/kotlin/com/lifecyclebot/v3/core/BotOrchestrator.kt:601` — `Blocked: data class Blocked(val reason: String) : ProcessResult()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:29` — `BotService: class BotService : Service() {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28893` — `BotService: // SmartChart scans. Lives at file scope (not inside class BotService) so the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AdvisorDecisionHistory6463.kt:39` — `BrainVote: data class BrainVote(val brain: String, val agree: Boolean, val weight: Double)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AutoPipelineAdvisor6462.kt:107` — `BrainVote: data class BrainVote(val brain: String, val agreesWithDeltaSign: Boolean, val weight: Double)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ProviderDomainCircuits6411.kt:47` — `Breaker: private data class Breaker(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SellOnlyHoldRepair6391.kt:313` — `Breaker: data class Breaker(val state: State, val stateAgeMs: Long,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CryptoPositionState.kt:24` — `Bucket: enum class Bucket { LIVE, PAPER, SIMULATED, WATCHLIST }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RateLimiter.kt:21` — `Bucket: private data class Bucket(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerHydrationQueues6347.kt:43` — `Bucket: enum class Bucket {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerLaneBridge.kt:32` — `Bucket: private data class Bucket(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/BotLoopStageTiming6402.kt:54` — `Bucket: private data class Bucket(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ScoreDistributionHistogram6396.kt:26` — `Bucket: enum class Bucket {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/StopLatencyClasses6464.kt:29` — `Bucket: private data class Bucket(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/brain/CryptoLosingPatternMemory.kt:22` — `Bucket: private data class Bucket(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/brain/CryptoScannerLaneBridge.kt:21` — `Bucket: private data class Bucket(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LosingPatternMemory.kt:33` — `BucketStats: data class BucketStats(val losses: Int, val wins: Int, val meanPnl: Double) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:8471` — `BucketStats: data class BucketStats(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LlmSentimentEngine.kt:33` — `CacheEntry: private data class CacheEntry(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RealPriceLock.kt:66` — `CacheEntry: private data class CacheEntry(val verifiedAtMs: Long, val ok: Boolean, val reason: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt:41` — `CacheEntry: private data class CacheEntry(val atMs: Long, val report: TextReport)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt:29` — `CacheEntry: private data class CacheEntry(val sheet: Sheet, val tsMs: Long, val fingerprint: Int)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeCreationInfoProvider.kt:38` — `Cached: private data class Cached(val info: Info, val ts: Long)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:41` — `Cached: private data class Cached(val meta: Meta, val ts: Long)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyePriceStatsProvider.kt:46` — `Cached: private data class Cached(val snapshot: StatsSnapshot, val ts: Long)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeTradeDataProvider.kt:37` — `Cached: private data class Cached(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/PriceResolverFallback.kt:34` — `Cached: private data class Cached(val priceUsd: Double, val source: String, val tsMs: Long)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EfficiencyLayer.kt:317` — `CachedPrice: data class CachedPrice(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PriceAggregator.kt:114` — `CachedPrice: data class CachedPrice(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt:90` — `Candidate: private data class Candidate(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AutoPipelineAdvisor6462.kt:109` — `Candidate: data class Candidate(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalBuyFillRegistry.kt:51` — `CanonicalBuyFill: data class CanonicalBuyFill(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LiveContinuity6392.kt:171` — `CanonicalBuyFill: data class CanonicalBuyFill(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RejectTaxonomy.kt:14` — `Category: enum class Category {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentientPersonality.kt:52` — `Category: enum class Category {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SolanaBlueChipWatchlist.kt:41` — `Category: enum class Category {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutionRouteReliabilityMemory.kt:15` — `Cell: private data class Cell(var failures: Int = 0, var lastMs: Long = 0L, var reason: String = "")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ForwardOutcomeModel.kt:43` — `Cell: private data class Cell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/learning/LanePolicy.kt:64` — `Cell: private data class Cell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt:145` — `Cell: private data class Cell(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/brain/CryptoTacticSwitcher.kt:21` — `Cell: private data class Cell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LifecycleStrategy.kt:2069` — `ChartPattern: enum class ChartPattern {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SmartChartScanner.kt:68` — `ChartPattern: enum class ChartPattern(val emoji: String, val bullish: Boolean) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeRegressionGuards.kt:10` — `Check: data class Check(val name: String, val ok: Boolean, val detail: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LiveContinuity6392.kt:560` — `Check: data class Check(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ForensicReconciler6377.kt:63` — `CheckResult: data class CheckResult(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTokenPrice6387.kt:64` — `CheckResult: data class CheckResult(val compatible: Boolean, val reason: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt:52` — `Claim: private data class Claim(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/TerminalCloseIdempotencyLatch6450.kt:33` — `Claim: private data class Claim(val positionId: String, val terminalEpoch: Long, val claimedAtMs: Long, val reason: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/TerminalCloseIdempotencyLatch6450.kt:31` — `ClaimResult: enum class ClaimResult { CLAIMED, REJECTED_DUPLICATE, REJECTED_UNKNOWN_POSITION }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/TerminalMutationAuthority6466.kt:24` — `ClaimResult: enum class ClaimResult { GRANTED, ALREADY_FINALIZED, BLANK_KEY }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/SellRouteErrorClassifier.kt:19` — `Class: enum class Class {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalOutcomeClassifier6576.kt:52` — `Class: enum class Class { WIN, LOSS, BREAKEVEN }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/GovernorRecoverySubstrate6388.kt:91` — `Class: enum class Class {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SellOnlyHoldRepair6391.kt:33` — `Class: enum class Class {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/StartupReconciliation6635.kt:33` — `Class: enum class Class {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/StopLatencyClasses6464.kt:25` — `Class: enum class Class { NORMAL_STOP, TRAILING_STOP, HARD_STOP, CATASTROPHIC_EXIT }`
+- `app/src/main/kotlin/com/lifecyclebot/perps/strategy/CommoditiesStrategy.kt:27` — `Class: enum class Class { ENERGY_CRUDE, ENERGY_GAS, ENERGY_PRODUCT, GRAIN, SOFT, LUMBER, LIVESTOCK }`
+- `app/src/main/kotlin/com/lifecyclebot/perps/strategy/MetalsStrategy.kt:27` — `Class: enum class Class { PRECIOUS_GOLD, PRECIOUS_SILVER, PRECIOUS_PT_PD, INDUSTRIAL_BASE, BATTERY_MATERIAL }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningEligibility.kt:31` — `Classification: data class Classification(val eligibility: Eligibility, val reason: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ModeRouter.kt:137` — `Classification: data class Classification(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RejectTaxonomy.kt:25` — `Classification: data class Classification(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalSettlement6389.kt:276` — `Classification: enum class Classification { FRESH_COHORT, INHERITED_POSITION, RECOVERED_UNKNOWN_BASIS }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/RootCauseClassifier6471.kt:47` — `Classification: data class Classification(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/RootCauseTtl6464.kt:30` — `Classification: data class Classification(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt:28` — `CloseState: data class CloseState(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/LivePositionCloseAuthority.kt:29` — `CloseState: data class CloseState(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeConfigOverlay.kt:9` — `Command: data class Command(val kind: String, val target: String, val value: String, val reason: String, val expiresAtMs: Long)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeMitigationBus.kt:4` — `Command: sealed class Command(open val reason: String, open val ttlMs: Long) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveExecutionGate.kt:38` — `Config: data class Config(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MaintenanceBudgetGovernor6469.kt:55` — `Config: private data class Config(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TokenLifecycleTracker.kt:486` — `Confirmed: data class Confirmed(val uiAmount: Double) : Reading()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt:51` — `Confirmed: data class Confirmed(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/EvmBridgeTransactionEngine6649.kt:52` — `Confirmed: data class Confirmed(val record: Record, val receipt: Receipt) : Outcome()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/HeroSnapshotAuthority6503.kt:147` — `Contrib: data class Contrib(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SpecialistContributorMerge6612.kt:49` — `Contrib: private data class Contrib(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/quant/PortfolioAnalytics.kt:214` — `CorrelationPair: data class CorrelationPair(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CorrelationScanner.kt:84` — `CorrelationPair: data class CorrelationPair(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AICrossTalk.kt:20` — `CrossTalkSignal: data class CrossTalkSignal(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:112` — `CrossTalkSignal: enum class CrossTalkSignal {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:65` — `Decision: data class Decision(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneTransitionManager.kt:51` — `Decision: enum class Decision { KEEP, PROMOTE, ROTATE, EXIT }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveExecutionGate.kt:50` — `Decision: sealed class Decision {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbeEntry.kt:78` — `Decision: enum class Decision { PROMOTE, REJECT, WAIT }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveStylePivotRouter.kt:16` — `Decision: data class Decision(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MoonshotPivotArbiter.kt:21` — `Decision: data class Decision(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PositionExitArbiter.kt:89` — `Decision: enum class Decision { ALLOW, SUPPRESS }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ProtectedIntakeAdmissionGate.kt:18` — `Decision: data class Decision(val probationOnly: Boolean, val reason: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SellQuantityAuthority.kt:13` — `Decision: data class Decision(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SnipeAgeGate.kt:20` — `Decision: enum class Decision {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/runtime/ColdStreakDamper.kt:173` — `Decision: enum class Decision { ALLOW, PROBE_ONLY, BLOCK_NORMAL }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/LiveBuyAdmissionGate.kt:63` — `Decision: sealed class Decision {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AdvisorDecisionHistory6463.kt:41` — `Decision: data class Decision(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalSettlement6389.kt:420` — `Decision: enum class Decision { KEEP_POLLING, FALL_BACK_TO_JUPITER, TREAT_AS_LANDED }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CapitalRecyclingOrchestrator6405.kt:29` — `Decision: data class Decision(val result: Result, val nextBaseLamports: BigInteger, val reason: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CheapLiquidityGate6430.kt:33` — `Decision: data class Decision(val verdict: Verdict, val reason: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/EarlyEntryAndPeakCapture6390.kt:247` — `Decision: data class Decision(val verdict: Verdict, val reason: String, val sellFraction: Double)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/EarlyLaunchBypass6394.kt:30` — `Decision: data class Decision(val allow: Boolean, val sizeMultiplier: Double, val reason: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/EarlyLaunchBypass6396.kt:33` — `Decision: data class Decision(val allow: Boolean, val sizeMultiplier: Double, val reason: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt:41` — `Decision: data class Decision(val verdict: Verdict, val recommendedSizeSol: Double, val reason: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/GlobalEntryPolicy6405.kt:24` — `Decision: data class Decision(val allow: Boolean, val reason: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LaneAdmissionGate6473.kt:32` — `Decision: sealed class Decision {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MaintenanceBudgetGovernor6469.kt:44` — `Decision: sealed class Decision {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PaperLearningEligibility6519.kt:7` — `Decision: data class Decision(val eligible: Boolean, val reason: String, val atMs: Long = System.currentTimeMillis())`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionStateLedger6427.kt:36` — `Decision: data class Decision(val allow: Boolean, val reason: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SameMintDedupAuthority6441.kt:41` — `Decision: enum class Decision { ACCEPT, COALESCE, BLOCK, REENTRY_LOCKOUT }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/StalePriceFillGate6427.kt:42` — `Decision: data class Decision(val allow: Boolean, val reason: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/StateDebuggerAI.kt:5` — `Diagnosis: data class Diagnosis(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/RuntimeDoctor6399.kt:12` — `Diagnosis: enum class Diagnosis {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SsiPilotCouncil.kt:47` — `Directive: data class Directive(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradingCopilot.kt:72` — `Directive: data class Directive(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/GovernorRecoverySubstrate6388.kt:95` — `Distribution: data class Distribution(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SellOnlyHoldRepair6391.kt:118` — `Distribution: data class Distribution(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ProfitabilityLayer.kt:279` — `DynamicTargets: data class DynamicTargets(val tpPct: Double, val slPct: Double, val src: String)`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsAdvancedAI.kt:602` — `DynamicTargets: data class DynamicTargets(`
+- `app/src/main/kotlin/com/lifecyclebot/collective/LocalOrphanStore.kt:46` — `Entry: data class Entry(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AsyncGeminiExitAdviceCache6479.kt:14` — `Entry: data class Entry(val advice: GeminiCopilot.ExitAdvice?, val updatedAtMs: Long)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AsyncGeminiNarrativeCache6478.kt:11` — `Entry: data class Entry(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FdgReEvalThrottle.kt:45` — `Entry: private data class Entry(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MemeLossStreakGuard.kt:22` — `Entry: private data class Entry(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PendingReconcileQueue.kt:42` — `Entry: private data class Entry(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/QuarantineStore.kt:15` — `Entry: data class Entry(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SmartChartCache.kt:17` — `Entry: private data class Entry(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SymbolicVerdictRegistry.kt:63` — `Entry: private data class Entry(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TokenMetaCache.kt:29` — `Entry: data class Entry(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/WatchlistTtlPolicy.kt:32` — `Entry: private data class Entry(val symbol: String, val ts: Long, val score: Int)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/execution/Forensics.kt:51` — `Entry: data class Entry(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/RecoveryLockTracker.kt:26` — `Entry: private data class Entry(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/SellFailureHistory.kt:33` — `Entry: data class Entry(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/SellSpamGuard.kt:23` — `Entry: private data class Entry(val reason: String, val priority: Int, val lastMs: Long)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalMintOccupancyRegistry6464.kt:47` — `Entry: private data class Entry(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/GovernorRecoverySubstrate6388.kt:248` — `Entry: data class Entry(val state: State, val enteredAtMs: Long, val cooldownUntilMs: Long)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/GovernorRecoverySubstrate6388.kt:487` — `Entry: private data class Entry(val evidenceEpoch: Int, val pnlSol: Double, val closedAtMs: Long,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LaneAttributionLedger6427.kt:26` — `Entry: data class Entry(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PaperEconomicAtomicCommit6632.kt:70` — `Entry: private data class Entry(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PerpsHandoffIdempotency6632.kt:66` — `Entry: private data class Entry(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionIdentity6395.kt:30` — `Entry: private data class Entry(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SameMintCandidateEpoch6402.kt:46` — `Entry: private data class Entry(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoExecFailureTracker.kt:31` — `Entry: private data class Entry(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LockedEntryMetrics6634.kt:68` — `EntrySnapshot: data class EntrySnapshot(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsUnifiedScorerBridge.kt:62` — `EntrySnapshot: private data class EntrySnapshot(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalizedTradeBus6464.kt:46` — `Envelope: data class Envelope(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ForensicEventEnvelope6430.kt:31` — `Envelope: data class Envelope(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DeferActivityTracker.kt:20` — `Event: private data class Event(val tsMs: Long, val kind: Kind, val symbol: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveAttemptStats.kt:33` — `Event: private data class Event(val tsMs: Long, val trader: String, val outcome: Outcome)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveTradeLogStore.kt:261` — `Event: data class Event(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:322` — `Event: data class Event(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/execution/Forensics.kt:20` — `Event: enum class Event {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEconomicEvent6635.kt:62` — `Event: data class Event(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEventStream6405.kt:41` — `Event: data class Event(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt:35` — `Event: data class Event(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/EconomicEventSchema6464.kt:43` — `Event: sealed class Event {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/voice/PersonalityEventRouter.kt:21` — `Event: enum class Event(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAccumulator6430.kt:38` — `Evidence: data class Evidence(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ClassificationProvenanceGuard6450.kt:32` — `Evidence: data class Evidence(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoUniverseExecutor.kt:34` — `Executed: data class Executed(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/core/BotOrchestrator.kt:577` — `Executed: data class Executed(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:79` — `ExecutionResult: enum class ExecutionResult {`
+- `app/src/main/kotlin/com/lifecyclebot/v4/meta/ExecutionPathAI.kt:41` — `ExecutionResult: data class ExecutionResult(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExitIntelligence.kt:40` — `ExitDecision: data class ExitDecision(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExitManager.kt:87` — `ExitDecision: data class ExitDecision(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/AdvancedExitManager.kt:336` — `ExitDecision: data class ExitDecision(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneStrategyEvaluator.kt:47` — `ExitProfile: data class ExitProfile(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LaneProfileRegistry6405.kt:19` — `ExitProfile: data class ExitProfile(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/AdvancedExitManager.kt:39` — `ExitProfile: enum class ExitProfile(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExitManager.kt:59` — `ExitReason: enum class ExitReason {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/SellIntent.kt:114` — `ExitReason: enum class ExitReason {`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/AdvancedExitManager.kt:344` — `ExitReason: enum class ExitReason {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PrecisionExitLogic.kt:30` — `ExitSignal: data class ExitSignal(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/BlueChipTraderAI.kt:203` — `ExitSignal: enum class ExitSignal {`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt:1466` — `ExitSignal: enum class ExitSignal {`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt:242` — `ExitSignal: enum class ExitSignal {`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/ProjectSniperAI.kt:193` — `ExitSignal: data class ExitSignal(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/QualityTraderAI.kt:213` — `ExitSignal: enum class ExitSignal {`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinExpress.kt:194` — `ExitSignal: enum class ExitSignal {`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt:301` — `ExitSignal: enum class ExitSignal {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ModeSpecificExits.kt:226` — `ExitUrgency: enum class ExitUrgency {`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/AdvancedExitManager.kt:356` — `ExitUrgency: enum class ExitUrgency { NONE, LOW, MEDIUM, HIGH, CRITICAL }`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/SellOptimizationAI.kt:92` — `ExitUrgency: enum class ExitUrgency(val multiplier: Double) {`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/UltraFastRugDetectorAI.kt:103` — `ExitUrgency: enum class ExitUrgency {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/execution/MemeExecutionRouteStack.kt:101` — `Failed: data class Failed(val failureClass: FailureClass, val reason: String) : BuildResult()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/execution/MemeExecutionRouteStack.kt:177` — `Failed: data class Failed(val failureClass: FailureClass, val reason: String) : SenderResult()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/execution/RouteValidator.kt:37` — `Failed: data class Failed(val reason: String) : PostResult()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AutoPipelineAdvisor6462.kt:493` — `Failed: object Failed : ApplyResult()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/BuyResult6621.kt:17` — `Failed: *        data class Failed(val reason)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/BuyResult6621.kt:45` — `Failed: data class Failed(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/EvmBridgeTransactionEngine6649.kt:54` — `Failed: data class Failed(val record: Record?, val reason: String) : Outcome()`
+- `app/src/main/kotlin/com/lifecyclebot/v3/V3EngineManager.kt:1084` — `Failed: data class Failed(val error: String) : V3ExecutionResult()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AsiSsiReauditSweeper.kt:15` — `Finding: data class Finding(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MemeLaneParitySentinel.kt:14` — `Finding: data class Finding(val id: String, val passed: Boolean, val detail: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SizingStackIntegritySentinel.kt:8` — `Finding: data class Finding(val severity: String, val reason: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/UiAnrDecouplingSentinel.kt:13` — `Finding: data class Finding(val id: String, val passed: Boolean, val detail: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/execution/PositionWalletReconciler.kt:59` — `Finding: data class Finding(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt:41` — `Guard: data class Guard(val blocked: Boolean, val state: State?, val reason: String, val closeId: String = "")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/LivePositionCloseAuthority.kt:42` — `Guard: data class Guard(val blocked: Boolean, val reason: String, val state: State?)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLotQuantity6464.kt:52` — `Guard: data class Guard(val result: GuardResult, val allowedQty: BigInteger, val sellable: BigInteger, val reason: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SecurityGuard.kt:15` — `GuardResult: sealed class GuardResult {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLotQuantity6464.kt:50` — `GuardResult: enum class GuardResult { OK, CLAMPED_TO_SELLABLE, REJECTED_NO_LOT, REJECTED_ZERO_SELLABLE }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BehaviorLearning.kt:185` — `HealthStatus: data class HealthStatus(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SelfHealingDiagnostics.kt:84` — `HealthStatus: enum class HealthStatus {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FillLotLedger6504.kt:428` — `Helper: private class Helper(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERSION) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/IdempotencyKeyStore6437.kt:218` — `Helper: private class Helper(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERSION) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PortfolioStore6405.kt:248` — `Helper: private class Helper(ctx: Context) : SQLiteOpenHelper(ctx, DB_NAME, null, DB_VERSION) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorCQ1ZeroSizeHitList.kt:11` — `Hit: data class Hit(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorCQ2AuthorityFalseReturnHitList.kt:5` — `Hit: data class Hit(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorCQ3CQ4PauseRejectHitList.kt:5` — `Hit: data class Hit(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorCQ5ProviderHotPathHitList.kt:5` — `Hit: data class Hit(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalIdentityModel6464.kt:36` — `Identity: data class Identity(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LiveContinuity6392.kt:378` — `Identity: data class Identity(val mint: String, val chain: String, val expectedSymbol: String,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeRegressionGuards.kt:12` — `Input: data class Input(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalSettlement6389.kt:138` — `Input: data class Input(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CapitalRecyclingOrchestrator6405.kt:31` — `Input: data class Input(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CompoundingEngine6405.kt:26` — `Input: data class Input(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LiveContinuity6392.kt:215` — `Input: data class Input(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LiveContinuity6392.kt:419` — `Input: data class Input(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MultiHorizonHolding6405.kt:25` — `Input: data class Input(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SellOnlyHoldRepair6391.kt:232` — `Input: data class Input(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/EarlyEntryAndPeakCapture6390.kt:249` — `Inputs: data class Inputs(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LiveTruthExitAuthority6387.kt:88` — `Inputs: data class Inputs(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/InsiderWalletTracker.kt:115` — `InsiderSignal: data class InsiderSignal(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/InsiderTrackerAI.kt:327` — `InsiderSignal: data class InsiderSignal(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ShadowLearningEngine.kt:97` — `InsightType: enum class InsightType {`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsAutoReplayLearner.kt:148` — `InsightType: enum class InsightType {`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsLearningInsightsPanel.kt:82` — `InsightType: enum class InsightType(val emoji: String, val displayName: String, val priority: Int) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest.kt:12` — `Item: data class Item(val name: String, val path: String, val classification: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest10.kt:5` — `Item: data class Item(val name: String, val path: String, val classification: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest11.kt:5` — `Item: data class Item(val name: String, val path: String, val classification: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest12.kt:5` — `Item: data class Item(val name: String, val path: String, val classification: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest13.kt:5` — `Item: data class Item(val name: String, val path: String, val classification: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest2.kt:5` — `Item: data class Item(val name: String, val path: String, val classification: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest3.kt:5` — `Item: data class Item(val name: String, val path: String, val classification: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest4.kt:5` — `Item: data class Item(val name: String, val path: String, val classification: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest5.kt:5` — `Item: data class Item(val name: String, val path: String, val classification: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest6.kt:5` — `Item: data class Item(val name: String, val path: String, val classification: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest7.kt:5` — `Item: data class Item(val name: String, val path: String, val classification: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest8.kt:5` — `Item: data class Item(val name: String, val path: String, val classification: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest9.kt:5` — `Item: data class Item(val name: String, val path: String, val classification: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FdgReEvalThrottle.kt:38` — `Key: private data class Key(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionIntent6386.kt:77` — `Key: private data class Key(val wallet: String, val mint: String, val side: IntentSide)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FalseProfitHistoricalQuarantine6387.kt:75` — `Key: private data class Key(val runtimeGen: Long, val scope: String, val subject: String, val prev: String, val next: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/GovernorRecovery6388.kt:250` — `Key: private data class Key(val gen: Long, val mint: String, val fdgId: String, val gov: String, val recov: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/GovernorRecoverySubstrate6388.kt:317` — `Key: data class Key(val runtimeGeneration: Long, val positionId: String, val exitIntentId: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LiveContinuity6392.kt:262` — `Key: data class Key(val wallet: String, val mint: String, val positionGeneration: Long,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DeferActivityTracker.kt:18` — `Kind: enum class Kind { DEFERRED, BACKGROUND_CLASSED, EXPIRED }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt:32` — `Kind: enum class Kind { UNIFIED_HEALTH, PIPELINE_HEALTH, ERROR_LOG, FORENSIC_SUMMARY }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/SellFailureHistory.kt:24` — `Kind: enum class Kind {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HotPathLaneGate.kt:23` — `Lane: enum class Lane {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneTag.kt:24` — `Lane: enum class Lane { MEME, BLUECHIP, ALT, STOCK, PERP, FOREX, METAL, COMMODITY, CORE, UNKNOWN }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LiveContinuity6392.kt:376` — `Lane: enum class Lane { BLUECHIP, QUALITY, MOMENTUM, MOONSHOT, SPECULATIVE }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LivePauseButton.kt:40` — `LaneRank: data class LaneRank(val lane: String, val n: Int, val wrPct: Double)`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/brain/CryptoLivePauseButton.kt:27` — `LaneRank: data class LaneRank(val lane: String, val n: Int, val wrPct: Double)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CapitalEfficiencyBrain.kt:10` — `LaneStat: data class LaneStat(var trades: Int = 0, var wins: Int = 0, var score: Double = 0.0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AdaptiveFloorBrain6397.kt:91` — `LaneStat: data class LaneStat(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneTimeoutGate.kt:33` — `LaneState: private data class LaneState(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/learning/LaneExitTuner.kt:55` — `LaneState: private class LaneState {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/learning/LanePolicy.kt:54` — `LaneState: data class LaneState(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/brain/CryptoLaneTimeoutGate.kt:24` — `LaneState: private data class LaneState(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveLaneGovernor.kt:87` — `LaneStats: private data class LaneStats(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsLearningBridge.kt:1256` — `LaneStats: data class LaneStats(val trust: Double, val accuracy: Double, val signals: Int)`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/brain/CryptoLaneExitTuner.kt:25` — `LaneStats: private data class LaneStats(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MarkAuthorityInvalidLatch6499.kt:53` — `Latch: data class Latch(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PaperCatastrophicCloseIdempotency6497.kt:60` — `Latch: private data class Latch(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ProtectiveExitScheduler6450.kt:42` — `Latch: data class Latch(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DeadAILayerFilter.kt:25` — `LayerHealth: enum class LayerHealth { HEALTHY, ZERO_STARVED, DISABLED_NOT_APPLICABLE }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/WiringHealth.kt:23` — `LayerHealth: data class LayerHealth(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/core/AIStartupCoordinator.kt:463` — `LayerHealth: data class LayerHealth(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/core/AIStartupCoordinator.kt:105` — `LayerState: data class LayerState(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/LayerTransitionManager.kt:159` — `LayerState: data class LayerState(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AdaptiveLearningEngine.kt:323` — `LearnedPattern: data class LearnedPattern(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HistoricalChartScanner.kt:62` — `LearnedPattern: data class LearnedPattern(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ShadowLearningEngine.kt:86` — `LearningInsight: data class LearningInsight(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsAutoReplayLearner.kt:137` — `LearningInsight: data class LearningInsight(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:229` — `LearningPhase: enum class LearningPhase {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FluidLearning.kt:304` — `LearningPhase: enum class LearningPhase {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/CloseLease.kt:34` — `Lease: data class Lease(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MaintenanceBudgetGovernor6469.kt:50` — `Lease: private data class Lease(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:42` — `Level: enum class Level { CLEAR, WATCH, SOFTEN, RECOVERY }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ErrorLogger.kt:34` — `Level: enum class Level {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeLifecycle.kt:87` — `Lifecycle: data class Lifecycle(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:42` — `Lifecycle: enum class Lifecycle { PENDING_ENTRY, OPEN, PARTIALLY_CLOSED, CLOSED, QUARANTINED }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionStateLedger6454.kt:36` — `Lifecycle: enum class Lifecycle { UNKNOWN, OPEN, PARTIAL, CLOSING, CLOSED }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EfficiencyLayer.kt:182` — `LiquiditySnapshot: data class LiquiditySnapshot(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiquidityDepthAI.kt:33` — `LiquiditySnapshot: data class LiquiditySnapshot(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/LiquidityCycleAI.kt:78` — `LiquiditySnapshot: private data class LiquiditySnapshot(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FillLotLedger6344.kt:59` — `Lot: data class Lot(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLotQuantity6464.kt:39` — `Lot: data class Lot(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FillLotLedger6504.kt:75` — `Lot: data class Lot(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt:76` — `Lot: data class Lot(var basisSol: Double, var rawQty: java.math.BigInteger, var displayQty: Double)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MarketRegimeAI.kt:56` — `MarketRegimeAI: object MarketRegimeAI {`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/ScoringModules.kt:298` — `MarketRegimeAI: class MarketRegimeAI : ScoringModule {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MarketRegimeAI.kt:134` — `MarketSnapshot: data class MarketSnapshot(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsAutoReplayLearner.kt:86` — `MarketSnapshot: data class MarketSnapshot(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PersonalityMemoryStore.kt:128` — `Milestone: data class Milestone(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TreasuryManager.kt:65` — `Milestone: data class Milestone(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/GrowthCompoundRing6550.kt:45` — `Milestone: data class Milestone(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LivePauseButton.kt:38` — `Mode: enum class Mode { NORMAL, DEFENSIVE }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeModeAuthority.kt:29` — `Mode: enum class Mode { PAPER, LIVE }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanaryReleaseGate6386.kt:35` — `Mode: enum class Mode { LOCKED, CANARY, PROBATION, FULL }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/DataProviderFaultCircuits6468.kt:39` — `Mode: enum class Mode {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/GovernorRecoverySubstrate6388.kt:346` — `Mode: enum class Mode { PRIMARY, FALLBACK }`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/brain/CryptoLivePauseButton.kt:26` — `Mode: enum class Mode { NORMAL, DEFENSIVE }`
+- `app/src/main/kotlin/com/lifecyclebot/perps/strategy/CryptoAltStrategy.kt:25` — `Mode: enum class Mode { SPOT_LONG_ONLY, PERPS_BIDIRECTIONAL }`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveSchema.kt:59` — `ModePerformance: data class ModePerformance(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ShadowLearningEngine.kt:692` — `ModePerformance: data class ModePerformance(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/learning/ShadowLearningEngine.kt:660` — `ModePerformance: data class ModePerformance(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/CollectiveIntelligenceAI.kt:140` — `ModePerformance: data class ModePerformance(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/UnifiedModeOrchestrator.kt:84` — `ModeRecommendation: data class ModeRecommendation(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/CollectiveIntelligenceAI.kt:150` — `ModeRecommendation: enum class ModeRecommendation {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PersonalityQuoteBanks.kt:626` — `Mood: enum class Mood { WIN, LOSS, GIVEBACK, BOOTSTRAP, FLOW, MILESTONE }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentientPersonality.kt:39` — `Mood: enum class Mood {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/NarrativeDetector.kt:48` — `NarrativeResult: data class NarrativeResult(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/UnifiedNarrativeAI.kt:17` — `NarrativeResult: data class NarrativeResult(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoBridgeAdapter.kt:526` — `NotConfigured: object NotConfigured : BridgeQuoteResult()`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoCexAdapter.kt:21` — `NotConfigured: object NotConfigured : CexOrderResult()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionSpineAcceptance6647.kt:7` — `Observation: data class Observation(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PairPriceIdentity6395.kt:27` — `Observation: data class Observation(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PriceIntegrityAuthority6405.kt:64` — `Observation: private data class Observation(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/execution/MintIntegrityGate.kt:60` — `Ok: data object Ok : Result()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/execution/RouteValidator.kt:30` — `Ok: data object Ok : PreResult()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/voice/ElevenLabsApi.kt:51` — `Ok: data class Ok<T>(val value: T) : Result<T>()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/BuyResult6621.kt:15` — `Opened: *        data class Opened(val positionId, val fillPrice, val filledSol)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/BuyResult6621.kt:33` — `Opened: data class Opened(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveAttemptStats.kt:23` — `Outcome: enum class Outcome {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeVerifier.kt:41` — `Outcome: enum class Outcome {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/learning/LaneExitTuner.kt:48` — `Outcome: private data class Outcome(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/RecoveryLockUnlocker.kt:95` — `Outcome: enum class Outcome {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt:33` — `Outcome: enum class Outcome { WIN, LOSS, BREAKEVEN }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MemeSellFinality6620.kt:56` — `Outcome: enum class Outcome { CONFIRMED, PAPER_CONFIRMED, PENDING, FAILED, REJECTED, UNKNOWN }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PaperCatastrophicCloseIdempotency6497.kt:55` — `Outcome: enum class Outcome {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/RewardPurityGate6441.kt:34` — `Outcome: enum class Outcome { WIN, LOSS, BREAKEVEN }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/RouteResolver6411.kt:41` — `Outcome: enum class Outcome {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SellOnlyHoldRepair6391.kt:351` — `Outcome: enum class Outcome {`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoUniverseExecutor.kt:33` — `Outcome: sealed class Outcome {`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/EvmBridgeTransactionEngine6649.kt:51` — `Outcome: sealed class Outcome {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalizedTradeBus6464.kt:223` — `Parity: data class Parity(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperReplay6464.kt:54` — `Parity: data class Parity(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/EventStreamReplay6467.kt:17` — `Parity: data class Parity(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:40` — `ParityReport: data class ParityReport(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CounterParityLedger6399.kt:50` — `ParityReport: data class ParityReport(val ok: Boolean, val violations: List<String>)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SemanticPatternGraph.kt:32` — `PatternEdge: data class PatternEdge(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TokenWinMemory.kt:738` — `PatternEdge: data class PatternEdge(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CloudLearningSync.kt:78` — `PatternStat: data class PatternStat(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CollectiveAnalytics.kt:51` — `PatternStat: data class PatternStat(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SuperBrainEnhancements.kt:139` — `PatternStat: data class PatternStat(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BehaviorLearning.kt:136` — `PatternStats: data class PatternStats(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PatternBacktester.kt:18` — `PatternStats: data class PatternStats(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TokenWinMemory.kt:66` — `PatternStats: data class PatternStats(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoBridgeAdapter.kt:129` — `Pending: data class Pending(val code: String, val reason: String) : Exit()`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/EvmBridgeTransactionEngine6649.kt:53` — `Pending: data class Pending(val record: Record, val reason: String) : Outcome()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExitCoordinatorHeartbeat.kt:27` — `Phase: enum class Phase {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveTradeLogStore.kt:143` — `Phase: enum class Phase {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MoonshotAdaptiveGate.kt:54` — `Phase: enum class Phase { COLD_START, AGGRESSIVE, NEUTRAL, DEFENSIVE, EMERGENCY }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LiveCanaryMode6411.kt:35` — `Phase: enum class Phase { CANARY_ACTIVE, RAMP_2, NORMAL }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/QualityIntakeTrace6450.kt:26` — `Phase: enum class Phase { INTAKE, METADATA_READY, SCORE_READY, LANE_ALLOW, FDG, EXEC, EXIT, ATTRITION }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ReconciliationCoordinator6387.kt:13` — `Phase: enum class Phase { FETCH, CLASSIFY, ATTACH_PENDING, RECONCILE, RECOVER_ORPHANS, PROVE_CLOSED, EMIT, COMMIT, PUBLISH, IDLE }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SupervisorAdmissionPlanner.kt:19` — `Plan: data class Plan(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SellOnlyHoldRepair6391.kt:380` — `Plan: data class Plan(val positionId: String, val mint: String, val attempts: MutableList<Attempt> = mutableListOf()) {`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:49` — `Position: data class Position(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:44` — `Position: data class Position(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PerpsSandbox6463.kt:54` — `Position: data class Position(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EmergentGuardrails.kt:219` — `PositionInfo: data class PositionInfo(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/JupiterPerps.kt:137` — `PositionInfo: data class PositionInfo(`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:2479` — `PositionInfo: data class PositionInfo(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalSettlement6389.kt:452` — `PositionRow: data class PositionRow(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PortfolioStore6405.kt:118` — `PositionRow: data class PositionRow(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/quant/PortfolioAnalytics.kt:25` — `PositionSnapshot: data class PositionSnapshot(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalSettlement6389.kt:448` — `PositionSnapshot: data class PositionSnapshot(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExitIntelligence.kt:21` — `PositionState: data class PositionState(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/SellOptimizationAI.kt:60` — `PositionState: data class PositionState(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HistoricalChartScanner.kt:124` — `PricePoint: data class PricePoint(val ts: Long, val price: Double, val mcap: Double)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MomentumPredictorAI.kt:67` — `PricePoint: data class PricePoint(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/quant/PortfolioAnalytics.kt:39` — `PricePoint: data class PricePoint(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CorrelationScanner.kt:48` — `PricePoint: data class PricePoint(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsAdvancedAI.kt:56` — `PricePoint: data class PricePoint(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsTradeVisualizer.kt:45` — `PricePoint: data class PricePoint(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PostLearningOffloader6450.kt:34` — `Priority: enum class Priority { PROTECTIVE_EXIT, CANONICAL_SETTLEMENT, POSITION_UPDATE, INTAKE, EXECUTION, SCANNER, LEARNING, REPORTING }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/RunnerQuoteProbe6395.kt:56` — `Priority: ) { enum class Priority { NONE, NORMAL, HIGH } }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/voice/VoiceTextProcessor.kt:63` — `ProcessResult: data class ProcessResult(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/core/BotOrchestrator.kt:576` — `ProcessResult: sealed class ProcessResult {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SellSlippageProfile.kt:31` — `Profile: data class Profile(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ForensicFinalityAndTuner6393.kt:425` — `Profile: enum class Profile { CONSERVATIVE_GROWTH, AGGRESSIVE_GROWTH, WEEKLY_5X_ASYMMETRIC }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MoonshotHoldProfileRegistry6415.kt:34` — `Profile: enum class Profile { NONE, STRONG_MOONSHOT_STANDARD, ELITE_MOONSHOT_PATIENT_HOLD }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SymbolicInvariantProver.kt:16` — `Proof: data class Proof(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTerminalProof6699.kt:29` — `Proof: data class Proof(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ForensicFinalityAndTuner6393.kt:122` — `Proof: enum class Proof { HELD, ZERO, UNKNOWN }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SellOnlyHoldRepair6391.kt:43` — `Proof: data class Proof(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ClassificationProvenanceGuard6450.kt:30` — `Provenance: enum class Provenance { CONFIRMED_FRESH, CACHED, FALLBACK, SYNTHETIC, MISSING, INFERRED }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MarketDataProvenance6471.kt:31` — `Provenance: enum class Provenance {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/QuoteFreshnessGuard6452.kt:29` — `Provenance: enum class Provenance { WS_LIVE, REST_LIVE, CACHED, DERIVED, UNKNOWN }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AsyncStrategyLab.kt:17` — `Provider: enum class Provider { LOCAL_ONLY, GEMINI_FREE, GROQ_FREE, OPENROUTER_FREE }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/DataProviderFaultCircuits6468.kt:37` — `Provider: enum class Provider { BIRDEYE, GROQ, HELIUS, SOLSCAN, GENERIC }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ProviderCircuitBreaker6402.kt:38` — `Provider: enum class Provider { BIRDEYE, HELIUS, GROQ, DEXSCREENER, GECKOTERMINAL, COINGECKO }`
+- `app/src/main/kotlin/com/lifecyclebot/network/KeylessLlmClient.kt:119` — `Provider: private data class Provider(val name: String, val call: (String, String, Int) -> String?)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PerformanceAnalytics.kt:110` — `Quadruple: data class Quadruple<A, B, C, D>(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SellQuantityAuthority.kt:79` — `Quadruple: private data class Quadruple<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11971` — `Quadruple: private data class Quadruple<A,B,C,D>(val a:A, val b:B, val c:C, val d:D)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ProviderProofWalker.kt:49` — `Quality: enum class Quality { REAL_CONFIRMED, PARTIAL_CONFIRMED, FALLBACK, STALE, UNKNOWN }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TerminalOutcomeQualityGate.kt:9` — `Quality: enum class Quality { TRAINABLE, SCRATCH, CONTAMINATED }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/learning/TradeRowSanityCheck.kt:28` — `QuarantineReason: enum class QuarantineReason(val tag: String) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPerformanceFilter6395.kt:26` — `QuarantineReason: enum class QuarantineReason {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/QuoteFreshnessGuard6452.kt:31` — `Quote: data class Quote(val mint: String, val priceUsd: Double, val source: Provenance, val stampedAtMs: Long)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/RunnerQuoteProbe6395.kt:31` — `Quote: data class Quote(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RawTokenAmount.kt:21` — `RawTokenAmount: value class RawTokenAmount(val packed: String) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AmountTypes6386.kt:59` — `RawTokenAmount: value class RawTokenAmount(val value: BigInteger) : Comparable<RawTokenAmount> {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ProviderProofWalker.kt:174` — `Reading: private data class Reading(val value: Double, val tsMs: Long)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TokenLifecycleTracker.kt:485` — `Reading: sealed class Reading {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperPartialOperation6510.kt:48` — `Receipt: data class Receipt(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/EvmBridgeTransactionEngine6649.kt:30` — `Receipt: data class Receipt(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PreEntryDecisionRecord6345.kt:37` — `Record: data class Record(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TokenLifecycleTracker.kt:68` — `Record: data class Record(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/execution/IntermediateAssetRecovery.kt:41` — `Record: data class Record(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LaneQuarantineRegistry6411.kt:36` — `Record: data class Record(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LiveContinuity6392.kt:339` — `Record: data class Record(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MemeExecutionFunnelReceivers6625.kt:312` — `Record: private data class Record(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MoonshotHoldProfileRegistry6415.kt:36` — `Record: data class Record(val profile: Profile, val stampedAtMs: Long, val ttlMs: Long = 24L * 60 * 60_000L)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SellOnlyHoldRepair6391.kt:66` — `Record: data class Record(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/TerminalFinalityAuthority6405.kt:27` — `Record: private data class Record(val terminal: Terminal, val atMs: Long, val reason: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/TerminalMutationAuthority6466.kt:32` — `Record: data class Record(val key: String, val claimedAtMs: Long, val exitReason: String)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/TerminalSellIdempotency6464.kt:39` — `Record: private data class Record(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/EvmBridgeTransactionEngine6649.kt:38` — `Record: data class Record(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MarketRegimeAI.kt:64` — `Regime: enum class Regime(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RegimeDetector.kt:27` — `Regime: enum class Regime { BULL_RIPPING, NORMAL, CHOP, DUMP, DEAD, BOOTSTRAP }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RegimeDetector.kt:29` — `RegimeSnapshot: data class RegimeSnapshot(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/RegimeTransitionAI.kt:79` — `RegimeSnapshot: data class RegimeSnapshot(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerHardRejectStore.kt:20` — `Reject: data class Reject(val mint: String, val symbol: String, val reason: String, val source: String, val atMs: Long)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/execution/MintIntegrityGate.kt:61` — `Reject: data class Reject(val code: String, val reason: String) : Result()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/execution/RouteValidator.kt:31` — `Reject: data class Reject(val reason: String, val code: String) : PreResult()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PriceIntegrityAuthority6405.kt:61` — `Reject: data class Reject(val reason: String) : Verdict()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SellIntentQuantityAuthority6401.kt:65` — `Reject: data class Reject(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableQuoteGate.kt:44` — `Rejected: data class Rejected(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/BuyResult6621.kt:16` — `Rejected: *        data class Rejected(val reason)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/BuyResult6621.kt:40` — `Rejected: data class Rejected(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLedger6387.kt:60` — `Rejected: data class Rejected(val reason: String) : CommitResult()`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:3976` — `Rejected: data class Rejected(val reason: String) : LlmTradeResult()`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoBridgeAdapter.kt:119` — `Rejected: data class Rejected(val code: String, val reason: String) : Execution()`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoBridgeAdapter.kt:130` — `Rejected: data class Rejected(val code: String, val reason: String) : Exit()`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoBridgeAdapter.kt:528` — `Rejected: data class Rejected(val code: String, val reason: String) : BridgeQuoteResult()`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoCexAdapter.kt:23` — `Rejected: data class Rejected(val code: String, val reason: String) : CexOrderResult()`
+- … 447 more
+
+## Legacy FinalDecisionGate callsites
+
+Count: **16**
+
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22336` — `FinalDecisionGate.evaluate(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22637` — `FinalDecisionGate.evaluate(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22842` — `FinalDecisionGate.evaluate(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23174` — `FinalDecisionGate.evaluate(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23774` — `FinalDecisionGate.evaluate(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24111` — `FinalDecisionGate.evaluate(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24370` — `FinalDecisionGate.evaluate(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24795` — `FinalDecisionGate.evaluate(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25211` — `val v3Fdg6533 = FinalDecisionGate.evaluate(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25761` — `// watchlisted mint re-runs the full FinalDecisionGate.evaluate() on`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25791` — `val fresh = FinalDecisionGate.evaluate(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:847` — `FinalDecisionGate.evaluate(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:765` — `// The boolean authority (FinalDecisionGate.canExecute(), line ~44) and the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:514` — `// recordV3Score() is called from FinalDecisionGate.evaluate() — the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FdgReEvalThrottle.kt:10` — `* NOT lane fanout per se — FinalDecisionGate.evaluate is gated to the elected`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MultiAgentCriticStack.kt:104` — `"FINALDECISIONGATE.EVALUATE(",`
+
+## V3 FinalDecisionEngine construction/calls
+
+Count: **28**
+
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:446` — `// V5.0.4125 — AGI style multipliers from AgenticStyleRouter.decide().`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9560` — `com.lifecyclebot.engine.truth.PeakCaptureAuthority6390.decide(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12456` — `com.lifecyclebot.engine.ProtectedIntakeAdmissionGate.decide(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:20764` — `val styleDecision = AgenticStyleRouter.decide(ts, modeClassification)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23131` — `val style = AgenticStyleRouter.decide(ts, modeClassification, "MOONSHOT")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:13` — `message = "V3 Architecture Migration: Use v3/decision/FinalDecisionEngine instead",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:14` — `replaceWith = ReplaceWith("FinalDecisionEngine", "com.lifecyclebot.v3.decision.FinalDecisionEngine"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveStylePivotRouter.kt:345` — `val arb = MoonshotPivotArbiter.decide(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PreV3ReturnTelemetry6525.kt:33` — `*   HARD_RUG                     HardRugPreFilter.decide() returned block`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CommoditiesTrader.kt:452` — `val setup = com.lifecyclebot.perps.strategy.CommoditiesStrategy.decide(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:1516` — `com.lifecyclebot.perps.strategy.CryptoAltStrategy.decide(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/ForexTrader.kt:450` — `val setup = com.lifecyclebot.perps.strategy.ForexStrategy.decide(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/ForexTrader.kt:714` — `val strategySetup = com.lifecyclebot.perps.strategy.ForexStrategy.decide(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MetalsTrader.kt:431` — `val setup = com.lifecyclebot.perps.strategy.MetalsStrategy.decide(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsTraderAI.kt:455` — `com.lifecyclebot.perps.strategy.PerpsStrategy.decide(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/strategy/ForexStrategy.kt:27` — `*   ForexStrategy.decide(...)                  → ForexSetup?`
+- `app/src/main/kotlin/com/lifecyclebot/v3/V3EngineManager.kt:14` — `import com.lifecyclebot.v3.decision.FinalDecisionEngine`
+- `app/src/main/kotlin/com/lifecyclebot/v3/V3EngineManager.kt:952` — `finalDecisionEngine = FinalDecisionEngine(localConfig),`
+- `app/src/main/kotlin/com/lifecyclebot/v3/bridge/V3Adapter.kt:101` — `finalDecisionEngine = com.lifecyclebot.v3.decision.FinalDecisionEngine(config),`
+- `app/src/main/kotlin/com/lifecyclebot/v3/core/BotOrchestrator.kt:5` — `import com.lifecyclebot.v3.decision.FinalDecisionEngine`
+- `app/src/main/kotlin/com/lifecyclebot/v3/core/BotOrchestrator.kt:42` — `private val finalDecisionEngine: FinalDecisionEngine,`
+- `app/src/main/kotlin/com/lifecyclebot/v3/core/BotOrchestrator.kt:160` — `val decision = finalDecisionEngine.decide(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:143` — `class FinalDecisionEngine(`
+- `app/src/main/kotlin/com/lifecyclebot/v4/meta/CrossTalkFusionEngine.kt:15` — `* FinalDecisionEngine.`
+- `app/src/main/kotlin/com/lifecyclebot/v4/meta/CrossTalkFusionEngine.kt:17` — `* Architecture position: Between Base Analyzers and FinalDecisionEngine`
+- `app/src/main/kotlin/com/lifecyclebot/v4/meta/ExecutionPathAI.kt:15` — `* Sits between FinalDecisionEngine and Executor.`
+- `app/src/main/kotlin/com/lifecyclebot/v4/meta/MetaModels.kt:10` — `* FinalDecisionEngine consumes CrossTalkSnapshot.`
+- `app/src/main/kotlin/com/lifecyclebot/v4/meta/MetaModels.kt:14` — `*   FinalDecisionEngine → Executor → EducationAI`
+
+## ExecutableOpenGate authority callsites
+
+Count: **131**
+
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21107` — `ExecutableOpenGate.recordEntryAuthority6487(identity.mint, candidateVersion6487, preEntry6487)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21131` — `// SecurityGuard and ExecutableOpenGate already bypass this pause for PAPER,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21432` — `// ExecutableOpenGate.ticketForAttempt("") returns null → hits`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21675` — `ExecutableOpenGate.recordV3(ts.mint, ts.symbol, "BLOCK_FATAL", result.reason, "BLOCK_FATAL", ts.safety.rugcheckScore)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21707` — `ExecutableOpenGate.recordV3(ts.mint, ts.symbol, "BLOCKED", result.reason, "BLOCK_FATAL", ts.safety.rugcheckScore)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21732` — `ExecutableOpenGate.clearExecutableApproval(ts.mint, ts.symbol, "EXECUTE")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21743` — `// NEVER refreshed ExecutableOpenGate's cached preFdgVerdict. So the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21764` — `// Fix: refresh ExecutableOpenGate's FDG verdict with V3's`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21774` — `ExecutableOpenGate.recordFdg(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21812` — `ExecutableOpenGate.recordV3(ts.mint, ts.symbol, "WATCH", "DECISION_WATCH", "WATCH", ts.safety.rugcheckScore)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21822` — `ExecutableOpenGate.recordV3(ts.mint, ts.symbol, "REJECTED", result.reason, "REJECT", ts.safety.rugcheckScore)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21860` — `ExecutableOpenGate.recordV3(ts.mint, ts.symbol, "SHADOW_ONLY", result.reason, "WATCH", ts.safety.rugcheckScore)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22361` — `ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "TREASURY", treasuryFdgCanExecute6663, treasuryFdgReason6663, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entrySc`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22402` — `// V5.9.1191 — reuse the canonical EXEC_OPEN_ALLOWED`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22403` — `// key emitted by TradeAuthorizer/ExecutableOpenGate.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22659` — `ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "QUALITY", qualityFdg?.canExecute() ?: true, qualityFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22864` — `ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "BLUECHIP", blueChipFdg?.canExecute() ?: true, blueChipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore =`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23188` — `ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "MOONSHOT", moonshotFdgDecision?.canExecute() ?: true, moonshotFdgDecision?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReaso`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23796` — `ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "SHITCOIN", shitCoinFdg?.canExecute() ?: true, shitCoinFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore =`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24133` — `ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "MANIPULATED", manipFdg?.canExecute() ?: true, manipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24397` — `// TradeAuthorizer/ExecutableOpenGate finality. The 6dc6f73a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24404` — `ExecutableOpenGate.recordFdg(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24817` — `ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "DIP_HUNTER", dipFdg?.canExecute() ?: true, dipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entr`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25218` — `val v3Intent6533 = ExecutableOpenGate.recordFdgAndGetIntent6533(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26157` — `ExecutableOpenGate.canonicalExecutionKey(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26167` — `var specialistIntent6614 = ExecutableOpenGate.activeExecutionIntent6519(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26171` — `specialistIntent6614 = ExecutableOpenGate.recordFdgAndGetIntent6533(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26191` — `//   inside `recordFdgAndGetIntent6533` (ExecutableOpenGate.kt:895).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26195` — `//   ExecutableOpenGate.kt:1089 without a TICKET stamp — the retrieve`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:878` — `ExecutableOpenGate.recordFdg(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:929` — `val cyclicAttemptId = ExecutableOpenGate.recentAllowedAttemptId(best.mint, "CYCLIC") ?: cyclicAuth.attemptId`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:14` — `object ExecutableOpenGate {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:43` — `data class ExecutionIntent(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:96` — `val logName: String = "EXEC_OPEN_ALLOWED",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:307` — `"PREFDG_ENTRY_AUTHORITY_6487",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:405` — `// Operator mandate: after EXEC_OPEN_ALLOWED, a paper ticket must end in`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:972` — `ExecutionIntent(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1191` — `ExecutionIntent(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1933` — `ToxicModeCircuitBreaker.emitExecutionStateBlockedIfDue(symbol, "ExecutableOpenGate")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2130` — `"attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol stage=ExecutableOpenGate route=$stateTokenMapRouteStatus providers=$stateTokenMapProviderAttempts expectedOut=$stateTokenMapExpectedOut action=defer_not_zero_liquidity",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2290` — `// may not claim occupancy, publish a ticket, or emit EXEC_OPEN_ALLOWED.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2370` — `val synthesized = ExecutionIntent(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2475` — `// flow — the ExecutableOpenGate remains the last safety`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2493` — `ForensicLogger.lifecycle("EXEC_OPEN_ALLOWED", "attemptId=$execKey symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane reason=finality_clear candidateVersion=$candidateVersion")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutionRouteGuard.kt:61` — `// ExecutableOpenGate/PreTradeHardGate/SafetyRefreshQueue, which can defer`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:763` — `// ExecutableOpenGate still protects finality, but repeated lane/source`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10762` — `// counters wired at their respective ExecutableOpenGate /`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12180` — `//   ExecutableOpenGate.publishFdgIntent6519 registers an active`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12187` — `//   ExecutableOpenGate.ticketForAttempt(...) misses the ticket`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12200` — `ExecutableOpenGate.activeExecutionIntent6519("PAPER", ts.mint, authorityVersion6513)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12212` — `// Operator mandate: after EXEC_OPEN_ALLOWED, a paper ticket must not`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12213` — `// be discarded by a nonterminal release. ExecutableOpenGate now`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12220` — `try { ExecutableOpenGate.retryPendingFor6548(ts.mint) } catch (_: Throwable) { null }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12233` — `?: ExecutableOpenGate.nextAttemptId(ts.mint, preTicketLane6514)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12236` — `val ticket6513 = ExecutableOpenGate.ticketForAttempt(executionAttemptId6514)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12250` — `//   That value then re-entered ExecutableOpenGate as the request`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12285` — `try { ExecutableOpenGate.releaseAttemptNonTerminal6514(executionAttemptId6514, ts.mint, layerTag, reason) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12287` — `try { ExecutableOpenGate.terminalizeAttempt6514(executionAttemptId6514, ts.mint, layerTag) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12342` — `try { ExecutableOpenGate.terminalizeAttempt6514(executionAttemptId6514, ts.mint, layerTag) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12738` — `// V5.0.6447 — source-level alias suppression before ExecutableOpenGate.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12741` — `// ExecutableOpenGate. Cut the repeat at paperBuy entry and coalesce`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12762` — `val executableOpen = ExecutableOpenGate.canOpenExecutablePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13538` — `val sealedIntent6613 = ExecutableOpenGate.activeExecutionIntent6519("PAPER", tradeId.mint, tradeId.fdgCandidateVersion)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13835` — `val exactIntent6533 = effectiveAttemptId.takeIf { it.isNotBlank() }?.let { ExecutableOpenGate.ticketForAttempt(it) }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14003` — `): ExecutableOpenGate.OpenVerdict {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14021` — `val intentLane = ExecutableOpenGate.activeExecutionIntent6519(if (isPaper) "PAPER" else "LIVE", ts.mint, version)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14028` — `return ExecutableOpenGate.canOpenExecutablePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14034` — `ExecutableOpenGate.recentAllowedAttemptId(ts.mint, convergedLane)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14035` — `?: ExecutableOpenGate.nextAttemptId(ts.mint, convergedLane)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14053` — `val preflight = if (finalityPrechecked) ExecutableOpenGate.OpenVerdict(true, "prechecked", attemptId = attemptId)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14125` — `val preflight = if (finalityPrechecked) ExecutableOpenGate.OpenVerdict(true, "prechecked", attemptId = attemptId)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14237` — `val preflight = if (finalityPrechecked) ExecutableOpenGate.OpenVerdict(true, "prechecked", attemptId = attemptId)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14368` — `val preflight = if (finalityPrechecked) ExecutableOpenGate.OpenVerdict(true, "prechecked", attemptId = attemptId)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14476` — `val preflight = if (finalityPrechecked) ExecutableOpenGate.OpenVerdict(true, "prechecked", attemptId = attemptId)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15490` — `// runtime = LIVE. Downstream ExecutableOpenGate line 850 already`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16157` — `// after TradeAuthorizer/ExecutableOpenGate already approved a specialist lane.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16166` — `ExecutableOpenGate.recentAllowedAttemptId(ts.mint, preferredLane)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16167` — `?: ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16430` — `var finalityVerdict: ExecutableOpenGate.OpenVerdict? = if (recoveredFinalityPrechecked && recoveredLiveAttemptId.isNotBlank()) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16431` — `ExecutableOpenGate.consumeRestorePenalty(recoveredLiveAttemptId) ?: ExecutableOpenGate.restorePenaltyForAttempt(recoveredLiveAttemptId)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16434` — `val executableOpen = ExecutableOpenGate.canOpenExecutablePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16439` — `attemptId = recoveredLiveAttemptId.ifBlank { ExecutableOpenGate.nextAttemptId(ts.mint, canonicalRoutedLane.ifBlank { "UNKNOWN" }) },`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16685` — `// V5.9.1539 — INVARIANT: an EXEC_OPEN_ALLOWED candidate must NOT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16689` — `// EXEC_OPEN_ALLOWED → EXEC_LIVE_ATTEMPT | EXEC_OPEN_ABORT_TERMINAL).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18258` — `val sealedLiveIntent6613 = ExecutableOpenGate.activeExecutionIntent6519("LIVE", tradeId.mint, tradeId.fdgCandidateVersion)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1992` — `// remain strict in LIVE. This mirrors FatalRiskChecker/ExecutableOpenGate.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalExecutionPermit.kt:135` — `val ticket6494 = ExecutableOpenGate.ticketForAttempt(attemptId)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalExecutionPermit.kt:174` — `val finalityAttemptId = attemptId.ifBlank { ExecutableOpenGate.nextAttemptId(mint, layer) }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalExecutionPermit.kt:175` — `val sizeFinalityTicketPresent6491 = ExecutableOpenGate.ticketForAttempt(finalityAttemptId) != null`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalExecutionPermit.kt:177` — `val finality = ExecutableOpenGate.canOpenExecutablePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalExecutionPermit.kt:199` — `// canonical lane and ExecutableOpenGate sealed it into this ticket. Never`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalExecutionPermit.kt:201` — `val executionTicket6494 = ExecutableOpenGate.ticketForAttempt(finalityAttemptId)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt:137` — `// V5.0.6640 — `ExecutableOpenGate.recordFdg()` emits one canonical`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveAccountingRepairMode6385.kt:42` — `*   - ExecutableOpenGate.canOpenExecutablePosition (LIVE BUY reject)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorCQ2AuthorityFalseReturnHitList.kt:43` — `file = "ExecutableOpenGate.kt",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorChokeButterflyAuditLedger.kt:33` — `sampleFiles = listOf("BotService.kt", "TradeAuthorizer.kt", "ExecutableOpenGate.kt", "AICrossTalk.kt", "CollectiveLearning.kt")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorChokeRemediationQueue.kt:33` — `confirmedSiblings = listOf("BotService.kt", "TradeAuthorizer.kt", "ExecutableOpenGate.kt", "FinalExecutionPermit.kt", "LaneExecutionCoordinator.kt"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SafetyRefreshQueue.kt:9` — `* the finality layer (ExecutableOpenGate) requests an out-of-band refresh for`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt:257` — `// secondary lanes were reaching ExecutableOpenGate just to be rejected`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt:281` — `// EXEC_OPEN_ALLOWED for this same attempt.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt:283` — `ExecutableOpenGate.nextAttemptId(mint, requestedBook.name)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt:285` — `val finality = ExecutableOpenGate.canOpenExecutablePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/LiveBuyAdmissionGate.kt:115` — `// FDG allow=161 / EXEC_GATE allow=86 / EXEC_OPEN_ALLOWED=86 but`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AdaptiveTicketTtl6626.kt:17` — `*   (ExecutableOpenGate.kt:233). Runtime cycles are 30-373s under`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AdaptiveTicketTtl6626.kt:34` — `*   (ExecutableOpenGate.revalidateAndResealExpired6613). Staleness`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:3` — `import com.lifecyclebot.engine.ExecutableOpenGate`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:39` — `val intent: ExecutableOpenGate.ExecutionIntent,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:45` — `val intent: ExecutableOpenGate.ExecutionIntent,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:61` — `private val pending = ConcurrentHashMap<String, ExecutableOpenGate.ExecutionIntent>()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:67` — `private fun intentAssetClass6569(intent: ExecutableOpenGate.ExecutionIntent): AssetClass =`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:135` — `val attemptId = ExecutableOpenGate.canonicalExecutionKey(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:163` — `val intent = ExecutableOpenGate.ExecutionIntent(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:173` — `finalDecision6613 = if (verdict == "PROBE_ONLY") ExecutableOpenGate.CanonicalFinalDecision6613.PROBE_ONLY else ExecutableOpenGate.CanonicalFinalDecision6613.BUY,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:179` — `val registered = ExecutableOpenGate.registerCanonicalIntent6554(intent)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:207` — `fun findPending(assetId: String, mode: String, candidateVersion: Long? = null): ExecutableOpenGate.ExecutionIntent? {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:213` — `fun markDispatch(intent: ExecutableOpenGate.ExecutionIntent) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:222` — `fun markConfirmed(intent: ExecutableOpenGate.ExecutionIntent, positionId: String) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:233` — `fun markFailed(intent: ExecutableOpenGate.ExecutionIntent, reason: String) = releasePending6554(intent, "FAILED", reason)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:234` — `fun markDeferred(intent: ExecutableOpenGate.ExecutionIntent, reason: String) = releasePending6554(intent, "DEFERRED", reason)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:235` — `fun markCancelled(intent: ExecutableOpenGate.ExecutionIntent, reason: String) = releasePending6554(intent, "CANCELLED", reason)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:237` — `private fun releasePending6554(intent: ExecutableOpenGate.ExecutionIntent, state: String, reason: String) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFdgBuyStamp6508.kt:58` — `* Called by ExecutableOpenGate.canOpenExecutablePosition when the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLaneIdentity6506.kt:10` — `* ExecutableOpenGate telemetry showed BLUE_CHIP / BLUECHIP identity`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:367` — `executionIntent: com.lifecyclebot.engine.ExecutableOpenGate.ExecutionIntent? = null): Result = lock.withLock {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalSizingBridge6532.kt:90` — `com.lifecyclebot.engine.ExecutableOpenGate`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionAttemptJournal6411.kt:14` — `*   EXEC_OPEN_ALLOWED = 501, TRADEJRNL_REC = 0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LiveExecutionReadiness6411.kt:113` — `val execAuthorised = snap("EXEC_OPEN_ALLOWED")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MemeExecutionIntent6621.kt:14` — `*   "specialist → canonical MemeExecutionIntent(lane) → executor`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:12` — `import com.lifecyclebot.engine.ExecutableOpenGate`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:2404` — `val finalExecutableVerdict6647 = ExecutableOpenGate.canOpenExecutablePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsTraderAI.kt:723` — `executionIntent6565: com.lifecyclebot.engine.ExecutableOpenGate.ExecutionIntent? = null,`
+
+## TradeAuthorizer callsites
+
+Count: **198**
+
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2363` — `// TradeAuthorizer, FDG, hard-rug gates, and executor balance checks; this`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4042` — `// snapshot showed 523 EXEC_GATE PAPER_SAME_MINT_ALREADY_OPEN blocks in`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4052` — `// 90%+ of same-mint EXEC_GATE blocks vanish at hydration time.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4064` — `PipelineHealthCollector.onGate("EXEC_GATE", ts.symbol, false, "MINT_OCCUPANCY_${admission6464.name}_6464")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4072` — `PipelineHealthCollector.onGate("EXEC_GATE", ts.symbol, false, "V3_SAME_MINT_ALREADY_OPEN_6373 existing=$existingLayer6373")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11286` — `private fun executionBookForLane6494(lane: String): TradeAuthorizer.ExecutionBook = when (RuntimeConfigOverlay.normalizeLane(lane)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11287` — `"CORE" -> TradeAuthorizer.ExecutionBook.CORE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11288` — `"TREASURY" -> TradeAuthorizer.ExecutionBook.TREASURY`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11289` — `"CASHGEN" -> TradeAuthorizer.ExecutionBook.CASHGEN`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11290` — `"QUALITY" -> TradeAuthorizer.ExecutionBook.QUALITY`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11291` — `"BLUECHIP", "BLUE_CHIP" -> TradeAuthorizer.ExecutionBook.BLUECHIP`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11292` — `"MOONSHOT" -> TradeAuthorizer.ExecutionBook.MOONSHOT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11293` — `"MANIPULATED" -> TradeAuthorizer.ExecutionBook.MANIPULATED`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11294` — `"DIP_HUNTER" -> TradeAuthorizer.ExecutionBook.DIP_HUNTER`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11295` — `"PROJECT_SNIPER" -> TradeAuthorizer.ExecutionBook.PROJECT_SNIPER`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11296` — `"EXPRESS" -> TradeAuthorizer.ExecutionBook.EXPRESS`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11297` — `"CRYPTO" -> TradeAuthorizer.ExecutionBook.CRYPTO`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11298` — `"CYCLIC" -> TradeAuthorizer.ExecutionBook.CYCLIC`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11299` — `else -> TradeAuthorizer.ExecutionBook.SHITCOIN`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11658` — `// self-caused fanout: laneEval/intake=35.25, FDG/intake=3.35, EXEC_GATE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15761` — `TradeAuthorizer.cleanup()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15767` — `// TradeAuthorizer.cleanup, WatchlistTtlPolicy.sweepStale).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15849` — `// V5.0: Advance TradeAuthorizer epoch for decision tracking`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15850` — `TradeAuthorizer.advanceEpoch()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15855` — `// SolanaArbAI.syncTreasuryUsd, TradeAuthorizer.advanceEpoch).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18230` — `// so TradeAuthorizer can defer (not block) new buys while slots are dirty. Pure`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21834` — `// fdgCan=true, EXEC_GATE_ALLOW). A V3 terminal reject must`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22376` — `val authResult = TradeAuthorizer.authorize(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22383` — `requestedBook = TradeAuthorizer.ExecutionBook.TREASURY,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22403` — `// key emitted by TradeAuthorizer/ExecutableOpenGate.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22473` — `try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.TREASURY) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22516` — `TradeAuthorizer.releasePosition(ts.mint, "PERMIT_BLOCKED")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22672` — `val qualityAuth6494 = TradeAuthorizer.authorize(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22677` — `requestedBook = TradeAuthorizer.ExecutionBook.QUALITY,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22878` — `val blueChipAuth6494 = TradeAuthorizer.authorize(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22883` — `requestedBook = TradeAuthorizer.ExecutionBook.BLUECHIP,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23163` — `// V5.9.687 — Run FDG BEFORE TradeAuthorizer on Moonshot.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23222` — `// V5.2: Authorize through TradeAuthorizer`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23223` — `val authResult = TradeAuthorizer.authorize(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23230` — `requestedBook = TradeAuthorizer.ExecutionBook.MOONSHOT,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23294` — `try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.MOONSHOT) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23420` — `if (releaseAuth) try { TradeAuthorizer.releasePosition(ts.mint, reason, TradeAuthorizer.ExecutionBook.SHITCOIN) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23854` — `val authResult = TradeAuthorizer.authorize(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23861` — `requestedBook = TradeAuthorizer.ExecutionBook.SHITCOIN,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24146` — `val manipAuthResult = TradeAuthorizer.authorize(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24153` — `requestedBook = TradeAuthorizer.ExecutionBook.MANIPULATED,  // V5.6.8: Use MANIPULATED book to bypass rugcheck`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24197` — `try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.MANIPULATED) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24397` — `// TradeAuthorizer/ExecutableOpenGate finality. The 6dc6f73a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24410` — `// while TradeAuthorizer and the executor requested`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24435` — `// V5.2: MUST check TradeAuthorizer BEFORE any execution`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24436` — `val authResult = TradeAuthorizer.authorize(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24443` — `requestedBook = TradeAuthorizer.ExecutionBook.EXPRESS,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24490` — `try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.EXPRESS) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24625` — `// Authorize with TradeAuthorizer`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24626` — `val authResult = TradeAuthorizer.authorize(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24633` — `requestedBook = TradeAuthorizer.ExecutionBook.PROJECT_SNIPER,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24683` — `try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.PROJECT_SNIPER) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24830` — `// V5.2: MUST check TradeAuthorizer BEFORE any execution`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24831` — `val authResult = TradeAuthorizer.authorize(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24838` — `requestedBook = TradeAuthorizer.ExecutionBook.DIP_HUNTER,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24879` — `try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.DIP_HUNTER) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25009` — `// V5.2: MUST check TradeAuthorizer BEFORE any execution`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25010` — `val authResult = TradeAuthorizer.authorize(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25017` — `requestedBook = TradeAuthorizer.ExecutionBook.CORE,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25101` — `try { TradeAuthorizer.releasePosition(ts.mint, "V3_SYMBOLIC_BLOCK_PREBUY", TradeAuthorizer.ExecutionBook.CORE) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25241` — `try { TradeAuthorizer.releasePosition(ts.mint, "V3_FDG_REJECT_6533", TradeAuthorizer.ExecutionBook.CORE) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26008` — `// followed by FDG_ALLOW/EXEC_GATE_ALLOW. If V3 controls`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26123` — `val authResult = TradeAuthorizer.authorize(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26223` — `// If TradeAuthorizer says SHADOW_ONLY, track but don't execute`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26240` — `// If TradeAuthorizer says REJECT, skip entirely`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BucketExecutionState.kt:20` — `* EXEC_GATE_ALLOW, or count toward headline winrate.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:329` — `// participates as paper. Wallet/balance/FDG/TradeAuthorizer/hard-floor are`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:911` — `val cyclicAuth = TradeAuthorizer.authorize(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:918` — `requestedBook = TradeAuthorizer.ExecutionBook.CYCLIC,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:949` — `// journal attribution, and TradeAuthorizer release don't treat the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:1059` — `try { TradeAuthorizer.releasePosition(ts.mint, "CYCLIC_ALREADY_CLOSED", TradeAuthorizer.ExecutionBook.CYCLIC) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:1127` — `try { TradeAuthorizer.releasePosition(ts.mint, "CYCLIC_$reason", TradeAuthorizer.ExecutionBook.CYCLIC) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:621` — `// Runtime 5.0.4002: FDG allow=110, EXEC_GATE allow=586, BUY ok=0,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:780` — `// PRE_FDG_NOT_BUY, so FDG, EXEC_GATE, and TradeAuth all agree on the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:854` — `// Historical invariant: EXEC_GATE_ALLOW>0 but EXEC_LIVE_ATTEMPT=0 must`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:918` — `// Runtime 5.0.3730 showed FDG/TradeAuthorizer approving MOONSHOT for BANNED`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1018` — `// produced EXEC_GATE safetyTier=UNKNOWN after SAFETY_WRITE SAFE.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1246` — `// atomically at final EXEC_GATE allow after lane election and entry authority.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1609` — `// LaneExecutionCoordinator receipt passed by TradeAuthorizer is the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1744` — `ForensicLogger.phase(ForensicLogger.PHASE.EXEC_GATE, symbol, "EXEC_GATE_BLOCK $detail")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1745` — `ForensicLogger.gate(ForensicLogger.PHASE.EXEC_GATE, symbol, allow = false, reason = reason)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1773` — `ForensicLogger.phase(ForensicLogger.PHASE.EXEC_GATE, symbol, "EXEC_GATE_DROPPED $detail")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1916` — `// were top EXEC_GATE blocks in the 6030 live report and amputated volume`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2173` — `//   EXEC_GATE/SIGNAL_NOT_BUY:UNKNOWN against 296 FDG allows —`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2281` — `try { PipelineHealthCollector.labelInc("EXEC_GATE_BLOCKED_ENTRY_AUTHORITY_6487") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2289` — `// TradeAuthorizer can inspect safety before canonical size exists, but it`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2423` — `// TradeAuthorizer/FinalExecutionPermit/Executor wrappers all verify the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2432` — `ForensicLogger.phase(ForensicLogger.PHASE.EXEC_GATE, symbol, "EXEC_GATE_ALLOW_RECHECK $detail")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2440` — `ForensicLogger.phase(ForensicLogger.PHASE.EXEC_GATE, symbol, "EXEC_GATE_DUPLICATE_SUPPRESSED $detail")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2471` — `// BUY intent. If the caller reached EXEC_GATE_ALLOW while the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2490` — `ForensicLogger.lifecycle("EXEC_GATE_ALLOW", detail)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2491` — `ForensicLogger.phase(ForensicLogger.PHASE.EXEC_GATE, symbol, "EXEC_GATE_ALLOW $detail")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2492` — `ForensicLogger.gate(ForensicLogger.PHASE.EXEC_GATE, symbol, allow = true, reason = "finality_clear")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2495` — `// Successful BUY reached EXEC_GATE_ALLOW. Consume any prior`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutionRouteGuard.kt:57` — `// Runtime 4006 showed FDG/EXEC_GATE green but LIVE buys dying as`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10671` — `val taxonomy = try { RejectTaxonomy.classify(reason, TradeAuthorizer.BlockLevel.HARD) } catch (_: Throwable) { null }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12178` — `//     Top block: EXEC_GATE/FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519: 910`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12239` — `//     EXEC_GATE/EXEC_INTENT_MISSING_AT_FINAL_BIND_6519: 441`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12751` — `PipelineHealthCollector.onGate("EXEC_GATE", ts.symbol, false, "PAPER_SAME_MINT_ALREADY_OPEN_SOURCE_6447 existing=$existingLayer6447 requested=$finalityLane")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12872` — `PipelineHealthCollector.onGate("EXEC_GATE", tradeId.symbol, false, "PAPER_SAME_MINT_ALREADY_OPEN_6370 existing=$existingLayer6370 requested=$requestedLayer6370")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13842` — `try { TradeAuthorizer.releasePosition(ts.mint, "V3_NO_EXACT_INTENT_6533", TradeAuthorizer.ExecutionBook.CORE) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13903` — `try { TradeAuthorizer.releasePosition(ts.mint, "V3_LIVE_BUY_NO_WALLET_PREOPEN") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14006` — `//     EXEC_GATE/EXEC_INTENT_MISSING_AT_FINAL_BIND_6519: 1885 (79%)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14574` — `// Downstream gates (EXEC_GATE reentry lockout, LiveSafetyCircuitBreaker,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14732` — `// RUGCHECK_FLOOR, PATTERN_SUPPRESSED, EXEC_GATE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15205` — `// EXEC_LEASE_PRUNED_EXPIRED events — 1712 EXEC_GATE allows collapsed`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15731` — `"EXEC_GATE",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15741` — `// 105 candidates DNA-vetoed at EXEC_GATE AFTER all supervisor lease`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15764` — `"EXEC_GATE",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15855` — `// fall through to remaining EXEC_GATE checks`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15967` — `com.lifecyclebot.engine.PipelineHealthCollector.onGate("EXEC_GATE", ts.symbol, false, "PROVIDER_DEGRADED_BUY_BLOCK_6264 mode=LIVE lane=$layerTag $detail")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16157` — `// after TradeAuthorizer/ExecutableOpenGate already approved a specialist lane.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16958` — `buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:EXEC_GATE_${decision.code}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21077` — `try { TradeAuthorizer.releasePosition(ts.mint, "SELL_$reason") } catch (_: Exception) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21247` — `TradeAuthorizer.releasePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24783` — `TradeAuthorizer.releasePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1929` — `// rugcheck gate matches the new TradeAuthorizer floor (only`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2260` — `// FDG top mcap/liquidity-ratio block while EXEC_GATE had 0 blocks.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalExecutionPermit.kt:198` — `// V5.0.6494 — immutable authorization receipt. TradeAuthorizer elected the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ForensicLogger.kt:123` — `EXEC_GATE    ("EXEC_GATE"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ForensicLogger.kt:305` — `else -> { /* allow EXEC / SAFETY / LANE_DEC / EXEC_GATE / PERMIT */ }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HealthSnapshot6324.kt:57` — `sb.appendLine("    live authorized:      ${PipelineHealthCollector.labelCountSnapshot("BUY_LIVE_AUTHORIZED_6324")}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneExecutionCoordinator.kt:12` — `* block TradeAuthorizer/FinalExecutionPermit/Executor side effects.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneExecutionCoordinator.kt:182` — `* TradeAuthorizer wrapper reached this method first, CORE won the election,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneTag.kt:8` — `*   - TradeAuthorizer used ExecutionBook`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveEntrySafetyHold.kt:37` — `*    must never authorize a LIVE buy. These are allowed in paper/shadow/`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveEntrySafetyHold.kt:165` — `//   probe. These MUST NOT authorize a live buy under any circumstance.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ModeSpecificGates.kt:40` — `MANIPULATED,     // Intentionally risky pumps (TradeAuthorizer bypass pre-V5.9.409)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorCQ2AuthorityFalseReturnHitList.kt:19` — `downstream = "FEP -> LaneExecutionCoordinator -> TradeAuthorizer release -> FDG route verdict -> KPI suppressor counters"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorCQ2AuthorityFalseReturnHitList.kt:22` — `file = "TradeAuthorizer.kt",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorCQ2AuthorityFalseReturnHitList.kt:33` — `downstream = "lane election -> FEP release -> TradeAuthorizer release -> retry eligibility"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorCQ2AuthorityFalseReturnHitList.kt:46` — `risk = "keep in CQ2 family tree because FEP/TradeAuthorizer call through executable-open semantics",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorCQ3CQ4PauseRejectHitList.kt:16` — `files = listOf("AutoModeEngine.kt", "FinalExecutionPermit.kt", "TradeAuthorizer.kt", "ColdStreakDamper.kt"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorCQ3CQ4PauseRejectHitList.kt:19` — `butterflyPath = "lane policy -> AutoMode -> FEP/TradeAuthorizer -> SmartSizer -> KPI suppressor counters"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorChokeButterflyAuditLedger.kt:32` — `butterflies = "scanner intake, lane coordinator, FinalExecutionPermit, TradeAuthorizer, route verdict, release paths",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorChokeButterflyAuditLedger.kt:33` — `sampleFiles = listOf("BotService.kt", "TradeAuthorizer.kt", "ExecutableOpenGate.kt", "AICrossTalk.kt", "CollectiveLearning.kt")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorChokeButterflyAuditLedger.kt:40` — `sampleFiles = listOf("AutoModeEngine.kt", "FinalExecutionPermit.kt", "TradeAuthorizer.kt", "SecurityGuard.kt", "ColdStreakDamper.kt")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorChokeRemediationQueue.kt:33` — `confirmedSiblings = listOf("BotService.kt", "TradeAuthorizer.kt", "ExecutableOpenGate.kt", "FinalExecutionPermit.kt", "LaneExecutionCoordinator.kt"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorChokeRemediationQueue.kt:35` — `butterflyPath = "scanner admission -> lane lease -> FEP -> TradeAuthorizer -> route verdict -> release path -> journal visibility"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorChokeRemediationQueue.kt:41` — `confirmedSiblings = listOf("AutoModeEngine.kt", "TradeAuthorizer.kt", "FinalExecutionPermit.kt", "ColdStreakDamper.kt", "SecurityGuard.kt"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorChokeSourceContractSentinel.kt:26` — `protectedButterflies = listOf("FEP", "LaneExecutionCoordinator", "TradeAuthorizer", "release path", "route verdict")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest10.kt:19` — `Item("TradeAuthorizer", "engine/TradeAuthorizer.kt", "trade_authorizer_surface"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PerpsLaneGate.kt:49` — `/** Universal check — TradeAuthorizer / FDG can call this to enrich telemetry`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:2489` — `val execGateAllow = s.phaseAllow["EXEC_GATE"] ?: 0L`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:2490` — `val execGateBlock = s.phaseBlock["EXEC_GATE"] ?: 0L`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:2503` — `sb.append("  EXEC_GATE allow:      $execGateAllow\n")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:2504` — `sb.append("  EXEC_GATE block:      $execGateBlock\n")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RejectTaxonomy.kt:32` — `fun classify(reason: String, blockLevel: TradeAuthorizer.BlockLevel? = null): Classification {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RejectTaxonomy.kt:41` — `r.contains("RUG") || r.contains("BANNED") || r.contains("FINALITY") || r.contains("SAFETY") || r.contains("RUNTIME_PAUSED") || r.contains("LP_UNLOCK") || blockLevel == TradeAuthorizer.BlockLevel.PERMANENT -> Category.HARD_SAFETY`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RejectTaxonomy.kt:42` — `r.contains("LANE_TELEMETRY") || r.contains("QUALITY_ONLY") || r.contains("ADVISORY") || blockLevel == TradeAuthorizer.BlockLevel.SOFT -> Category.ADVISORY`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RejectTaxonomy.kt:43` — `blockLevel == TradeAuthorizer.BlockLevel.HARD -> Category.HARD_SAFETY`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RejectTaxonomyAuditRegister.kt:9` — `fun status(): String = "REJECT_TAXONOMY_AUDIT_REGISTER_4432 closed=[SCANNER_HARD_REJECT_4429 FDG_FINAL_DECISION_4427 TRADE_AUTHORIZER_4424 EXECUTOR_PREATTEMPT_4428 TRADE_HISTORY_PRE_LEARNING_4430 OPERATOR_DIGEST_4426 COVERAGE_DIGEST_4431] invariants=[pending_is_penalty low_liq_is_size_reduction zero`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RejectTaxonomyCoverageDigest.kt:8` — `return "REJECT_TAXONOMY_COVERAGE_DIGEST_4431 coverage=[SCANNER_HARD_REJECT FDG_FINAL_DECISION TRADE_AUTHORIZER EXECUTOR_PREATTEMPT TRADE_HISTORY_PRE_LEARNING] taxonomy=[$taxonomy] ledger=[$ledger] remaining=[CANONICAL_OUTCOME_BUS_ROW_TAG EXECUTOR_DEFERRED_BUY_QUOTES UI_REJECT_PRESSURE_BREAKDOWN] rep`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerHardRejectStore.kt:48` — `val taxonomy = try { RejectTaxonomy.classify(cleanReason, TradeAuthorizer.BlockLevel.HARD) } catch (_: Throwable) { null }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:15` — `* BotService publishes live slot-health each cycle via publish(); TradeAuthorizer reads`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt:724` — `// EXEC_GATE resolvedSize≈0.01 blocks in 27 lifetime trades).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SymbolicInvariantProver.kt:77` — `bot.contains("TradeAuthorizer.release") &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TokenLifecycleTracker.kt:122` — `*   • SHADOW_TRACKING locks (now blocked in z52 TradeAuthorizer)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TokenSafetyChecker.kt:793` — `// here. Sub-trader floors + TradeAuthorizer GATE 3 still enforce`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt:32` — `object TradeAuthorizer {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt:127` — `// authorize() historically wrote PAPER_OPEN/LIVE_OPEN before the executor`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt:291` — `source = "TradeAuthorizer.preAuth",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt:393` — `try { ForensicLogger.lifecycle("INTAKE_SIZE_REDUCED", "symbol=$symbol mint=${mint.take(10)} liq=${liquidity.toInt()} stage=TradeAuthorizer") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt:743` — `ErrorLogger.info(TAG, "TradeAuthorizer reset")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/LiveBuyAdmissionGate.kt:115` — `// FDG allow=161 / EXEC_GATE allow=86 / EXEC_OPEN_ALLOWED=86 but`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AdaptiveTicketTtl6626.kt:12` — `*   EXEC_GATE/EXPIRED_TICKET_ECONOMIC_REJECT_6614 = 235`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFdgBuyStamp6508.kt:18` — `*    If EXEC_GATE receives UNKNOWN after a canonical FDG BUY for the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFdgBuyStamp6508.kt:27` — `* FDG BUY (candidateVersion, decisionId, createdAt) — so EXEC_GATE can`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFdgBuyStamp6508.kt:104` — `* Report an invariant mismatch — EXEC_GATE received a non-BUY signal`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalMintOccupancyRegistry6464.kt:12` — `*   "97.3% of EXEC_GATE blocks are duplicates/open-position cases.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/HotLabelCoalescer6626.kt:18` — `*   EXEC_GATE/EXPIRED_TICKET_ECONOMIC_REJECT_6614=  235   (tickets dying`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LiveEntryThresholdAuthority6396.kt:10` — `* (LiveEntrySafetyHold, FDG, EXEC_GATE, PRE_ENTRY_DECISION_RECORD,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LivePipelineTrace6431.kt:13` — `*    LIVE_AUTHORITY_RESULT, LIVE_EXEC_GATE_RESULT, LIVE_EXEC_ATTEMPT,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LivePipelineTrace6431.kt:33` — `AUTHORITY_ALLOW, EXEC_GATE_ALLOW, EXEC_ATTEMPT,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SealedOrderSizeAuthority6497.kt:18` — `*    Yet the execution gate reports: EXEC_GATE allow=0 block=3`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SealedOrderSizeAuthority6497.kt:19` — `*    EXEC_GATE/resolvedSize=0.01 and zero execution.`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:2065` — `// touch meme discipline state. Vetoes run BEFORE EXEC_GATE/auth.`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:2146` — `// gate + EXEC_GATE finality already cover trust at the bucket level,`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/brain/CryptoFunnel.kt:21` — `*   7. execGateAllow       — TradeAuthorizer allowed execution`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/brain/CryptoFunnel.kt:78` — `appendLine("  EXEC_GATE      allow=${execGateAllow.get()}  block=${execGateBlock.get()}")`
+- `app/src/main/kotlin/com/lifecyclebot/v3/V3EngineManager.kt:336` — `// layer"), punting meme decisions to a TradeAuthorizer path that`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:475` — `// TradeAuthorizer promotion-gate floor. V5.9.97 added hard maxOf(..., 40/50)`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/BlueChipTraderAI.kt:413` — `com.lifecyclebot.engine.TradeAuthorizer.releasePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/BlueChipTraderAI.kt:416` — `book = com.lifecyclebot.engine.TradeAuthorizer.ExecutionBook.BLUECHIP`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt:1503` — `com.lifecyclebot.engine.TradeAuthorizer.releasePosition(mint)`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt:1540` — `com.lifecyclebot.engine.TradeAuthorizer.releasePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt:1543` — `book = com.lifecyclebot.engine.TradeAuthorizer.ExecutionBook.TREASURY,`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/ManipulatedTraderAI.kt:292` — `// TradeAuthorizer.ExecutionBook.MANIPULATED bypasses rugcheck checks`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/MetaCognitionAI.kt:340` — `// the signals that actually authorized the trade.`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt:1148` — `com.lifecyclebot.engine.TradeAuthorizer.releasePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt:1151` — `book = com.lifecyclebot.engine.TradeAuthorizer.ExecutionBook.MOONSHOT`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt:592` — `com.lifecyclebot.engine.TradeAuthorizer.releasePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt:595` — `book = com.lifecyclebot.engine.TradeAuthorizer.ExecutionBook.SHITCOIN`
+
+## WR recovery/collapse authority
+
+Count: **73**
+
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:182` — `*   currentWR < phaseTargetWR * WR_RECOVERY_THRESHOLD  (default 0.85)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:191` — `object WrRecoveryPartial {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:246` — `val rollingCollapse: Boolean = false, // rolling-50 is catastrophically below target`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:291` — `com.lifecyclebot.engine.FreeRangeMode.phaseTargetWr(total.toInt())`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:294` — `// FreeRangeMode.phaseTargetWr returns 0.0 for the entire trades<500`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:307` — `com.lifecyclebot.engine.TradeHistoryStore.rollingWinRatePct(50)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:316` — `val rollingCollapse = rollingWr in 0.0..minOf(10.0, targetWR * 0.35)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:329` — `rollingCollapse -> Band.AGGRESSIVE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:333` — `return State(band, currentWR, targetWR, total.toInt(), rollingWr, predictive, rollingCollapse)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:560` — `s.rollingCollapse -> 60`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:576` — `val delta = if (s.rollingCollapse) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:593` — `s.rollingCollapse -> "*COLLAPSE"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:611` — `s.rollingCollapse -> "🛑"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:5413` — `val learnedRungs = try { WrRecoveryPartial.learnedExitRungs(pos.tradingMode.ifBlank { "STANDARD" }) } catch (_: Throwable) { Triple(50.0, 1000.0, 10000.0) }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7045` — `val learnedTpFloor = try { WrRecoveryPartial.learnedExitRungs(laneKey).first } catch (_: Throwable) { 50.0 }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7896` — `val firstTrigger = WrRecoveryPartial.effectiveTrigger(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7903` — `val secondTrigger = WrRecoveryPartial.effectiveSecondTrigger(c.partialSellSecondTriggerPct, laneKey)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7904` — `val thirdTrigger  = WrRecoveryPartial.effectiveThirdTrigger(c.partialSellThirdTriggerPct, laneKey)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7927` — `// of the position on the first ladder hit. WrRecoveryPartial returns`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7929` — `val baseFraction = WrRecoveryPartial.effectiveSellFraction(c.partialSellFraction)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8045` — `val wrRecovTag = if (partialLevel == 0) " [${WrRecoveryPartial.statusTag()}]" else ""`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16492` — `val wrSizeMult = try { WrRecoveryPartial.entrySizeMultiplier() } catch (_: Throwable) { 1.0 }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16496` — `ErrorLogger.info("Executor", "🩹 WR_RECOVERY_SIZE_DAMP (live): ${ts.symbol} | sol=${sol.fmt(4)} × ${"%.2f".format(wrSizeMult)} → ${damped.fmt(4)} (band=${WrRecoveryPartial.stateNow().band.name})")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19077` — `return try { WrRecoveryPartial.learnedExitRungs(lane).first } catch (_: Throwable) { 50.0 }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:898` — `val canonicalRollingWr = try { TradeHistoryStore.rollingWinRatePct(50) } catch (_: Throwable) { -1.0 }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:899` — `val canonicalTargetWr = try { FreeRangeMode.phaseTargetWr(canonicalDecisive) } catch (_: Throwable) { 0.0 }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:947` — `// score in the WrRecoveryPartial rolling distribution. We do this`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:951` — `// zeros. The auto-fit logic in WrRecoveryPartial.minScoreFloor()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:956` — `if (v3Score >= 0) com.lifecyclebot.engine.WrRecoveryPartial.recordV3Score(v3Score)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1392` — `val wrState = com.lifecyclebot.engine.WrRecoveryPartial.stateNow()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1393` — `val isHighRecovery = wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.MODERATE ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1394` — `wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.AGGRESSIVE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1401` — `if (wrState.rollingCollapse && !isAGrade) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1402` — `blockReason = "WR_ROLL50_COLLAPSE_A_GRADE_REQUIRED roll=${"%.1f".format(wrState.rollingWr)} target=${wrState.targetWr.toInt()} quality=${candidate.setupQuality}"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1404` — `tags.add("wr_roll50_collapse")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1405` — `checks.add(GateCheck("wr_roll50_collapse", false, "roll50=${"%.1f".format(wrState.rollingWr)}% target=${wrState.targetWr.toInt()}% requires A/A+ setup"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1408` — `"🛑 WR_ROLL50_COLLAPSE_BLOCK: ${ts.symbol} | roll50=${"%.1f".format(wrState.rollingWr)}% target=${wrState.targetWr.toInt()}% quality=${candidate.setupQuality}"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1414` — `val bandMult = if (wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.AGGRESSIVE) 0.65 else 0.80`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FreeRangeMode.kt:170` — `val targetWr = phaseTargetWr(try { deskSnapshot6648(book).trades } catch (_: Throwable) { 0 })`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FreeRangeMode.kt:225` — `fun phaseTargetWr(trades: Int): Double = when {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FreeRangeMode.kt:281` — `val target = phaseTargetWr(trades)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:1204` — `rootCauses.add("WR_BELOW_FLOOR ($phaseTag wr=${"%.1f".format(perf.winRate)}% < floor=${wrFloor.toInt()}% n=${perf.totalTrades} live=${liveMaturity.liveTerminalCloses} lifetime=$lifetime)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/QualityLadder.kt:40` — `FreeRangeMode.phaseTargetWr(memeSnapshot6648().trades)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/QualityLadder.kt:53` — `val target = FreeRangeMode.phaseTargetWr(trades)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/QualityLadder.kt:68` — `fun targetWrForTrades(trades: Int): Double = FreeRangeMode.phaseTargetWr(trades)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/QualityLadder.kt:105` — `val target = FreeRangeMode.phaseTargetWr(trades)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RegimeDetector.kt:72` — `WrRecoveryPartial.v3DistSnapshot().median`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt:450` — `appendLine("         low_ev_lane_auto_quarantine, dyn_quarantine_wr_below_15, lane_release_wr_above_30,")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:1770` — `// producing 5-15s frame freezes. This mirrors the rollingWinRatePct pattern:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:1838` — `* WrRecoveryPartial predictive band. Looks at the last [n] SELL trades`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:1843` — `// V5.0.3680 — Main-thread cache for rollingWinRatePct. ANR snapshot`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:1853` — `fun rollingWinRatePct(n: Int): Double {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:1865` — `val v = computeRollingWinRatePct(n)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:1873` — `val v = computeRollingWinRatePct(n)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:1879` — `private fun computeRollingWinRatePct(n: Int): Double {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:1903` — `fun rollingWinRatePctSlice(offset: Int, width: Int): Double {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:1912` — `return computeRollingWinRatePctSlice(offset, width)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:1915` — `private fun computeRollingWinRatePctSlice(offset: Int, width: Int): Double {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:1940` — `fresh["$off:$width"] = computeRollingWinRatePctSlice(off, width)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/HeatmapRenderCache6374.kt:28` — `* (5 × rollingWinRatePctSlice + 1 × rollingWinRatePct + getLifetimeStats)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/HeatmapRenderCache6374.kt:29` — `* PLUS FreeRangeMode.phaseTargetWr — even though the underlying data`
+- `app/src/main/kotlin/com/lifecyclebot/ui/HeatmapRenderCache6374.kt:102` — `com.lifecyclebot.engine.FreeRangeMode.phaseTargetWr(totalSettled)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/HeatmapRenderCache6374.kt:108` — `val rolling = store.rollingWinRatePct(sliceWidth)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/HeatmapRenderCache6374.kt:110` — `val pct = store.rollingWinRatePctSlice(offset = i * sliceWidth, width = sliceWidth)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:3358` — `// canonical status tag from WrRecoveryPartial.statusTag().`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:13057` — `// phaseTargetWr) now runs on Dispatchers.Default via`
+- `app/src/main/kotlin/com/lifecyclebot/ui/UiSnapshotCache.kt:8` — `*   - TradeHistoryStore.rollingWinRatePct → 1004ms freeze (via WrRecoveryPartial.shortBadge)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/UiSnapshotCache.kt:28` — `/** Cached WrRecoveryPartial.shortBadge() (heavy: scans TradeHistoryStore). */`
+- `app/src/main/kotlin/com/lifecyclebot/ui/UiSnapshotCache.kt:33` — `val v = com.lifecyclebot.engine.WrRecoveryPartial.shortBadge()`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt:731` — `com.lifecyclebot.engine.WrRecoveryPartial.stateNow().band.name`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt:666` — `val wrFloor = try { com.lifecyclebot.engine.WrRecoveryPartial.minScoreFloor() } catch (_: Throwable) { 0 }`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt:1316` — `// WrRecoveryPartial.minScoreFloor() (45 / 30 respectively) on top`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt:1319` — `val wrFloor = try { com.lifecyclebot.engine.WrRecoveryPartial.minScoreFloor() } catch (_: Throwable) { 0 }`
+
+## Anti-choke/starvation/adaptive relaxation
+
+Count: **301**
+
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:9` — `* V5.9.612 — AntiChokeManager`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:17` — `* HARD INTAKE RULE (V5.9.623): AntiChoke must never prune, evict, shrink,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:22` — `object AntiChokeManager {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:23` — `private const val TAG = "AntiChoke"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:93` — `// V5.9.1205 — AntiChoke must only unchoke true starvation.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:98` — `// and crushes WR. Stagnation is only starvation when projected volume`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:103` — `val stagnantStarvation = !throughputMet && stagnantMs > TARGET_MS_PER_TRADE * SOFTEN_STAGNATION_MULT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:104` — `val projectedStarvation = projectedDaily < TARGET_TRADES_PER_DAY * 0.70`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:105` — `val starving = stagnantStarvation || projectedStarvation`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:108` — `//   "AntiChokeManager clogged=false cannot remain hard-coded. Derive`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:114` — `// amplification — only on trade-starvation stagnation. Derive`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:127` — `if (clogged) try { PipelineHealthCollector.labelInc("ANTI_CHOKE_CLOGGED_DETECTED_6579") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:146` — `// only during genuine starvation. V5.9.1205 blocks this bridge`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:149` — `FinalDecisionGate.forceAdaptiveRelaxation("AntiChoke=${level.name}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:152` — `try { FinalDecisionGate.clearAdaptiveRelaxation("AntiChoke=THROUGHPUT_MET") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:153` — `try { ForensicLogger.lifecycle("ANTICHOKE_RELAXATION_SUPPRESSED", "level=${level.name} trades24h=$trades24h projected=${projectedDaily.toInt()} stagnant=${stagnantMs/1000}s overTarget=$overTarget") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:157` — `// Trade-rate recovered — clear the relaxation that AntiChoke`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:160` — `FinalDecisionGate.clearAdaptiveRelaxation("AntiChoke=CLEAR")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:199` — `* AntiChoke is not allowed to evict them.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:213` — `// include cleared pending rows and inflate anti-choke pressure.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:278` — `try { TokenLifecycleTracker.forceClearUnheld(mint, "anti_choke_wallet_zero") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:279` — `try { HostWalletTokenTracker.markUnheldByAntiChoke(mint, "wallet_zero") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:342` — `val removed = try { GlobalTradeRegistry.removeFromWatchlistForced(e.mint, "ANTI_CHOKE_DORMANT") } catch (_: Throwable) { false }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:165` — `* V5.9.614 — AntiChokeManager safety hook. When the choke goes RECOVERY`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:810` — `// Root cause: Dispatchers.IO thread-pool starvation. The supervisor phase`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2364` — `// authority only prevents accidental starvation of learning/execution`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4040` — `"⚡ V3_EXEC ${ts.symbol} | ${"%.4f".format(if (!isPaper && v3ZeroSignalProbe) execSol else req.sizeSol)} SOL | mode=${if (isPaper) "PAPER" else "LIVE"}${if (!isPaper && v3ZeroSignalProbe) " | PROBE_ONLY_ZERO_SIGNAL" else ""}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4837` — `// heartbeat + starvation check run on wall-clock cadence`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5645` — `val createdLoopJob6518 = scope.launch(botLoopDispatcher) { botLoop() } // V5.9.1023: dedicated single-thread dispatcher prevents Dispatchers.IO pool starvation from wedged supervisor workers`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5947` — `// This skips the ~90s cold-start starvation window shown in`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5979` — `"warmed=$warmed total=${hotList.size} note=cold_boot_starvation_bypass"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10679` — `// V5.9.1364 — BOOTSTRAP DATA-STARVATION PROBE WHITELIST (SHITCOIN volume fix).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10686` — `// DATA-STARVATION on fresh pump.fun tokens (1-2 candles, no learned bucket).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10704` — `// Soft data-starvation / low-conviction reasons bootstrap should probe.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10998` — `//      buy from score=0/conf=0 — a tiny PROBE_ONLY trade is not a normal`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11061` — `// PROBE_ONLY tiny-size path so learning gets real outcomes without spraying`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11068` — `"lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} action=probe_only_live_learning")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11166` — `blockReason = "PROBE_ONLY",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11666` — `// V5.0.3710 — INTERNAL_TOOLKIT_STARVATION_FIX.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12441` — `// bags — total entry starvation. The registry's own contract`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12977` — `// priceAgeMs check used by AntiChoke's unpriced-fresh`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13947` — `// Every 3 loops, check its heartbeat and log SCHEDULER_STARVATION`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13951` — `try { com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.checkStarvation() } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13955` — `// detect scheduler-side starvation vs price-side gap.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16024` — `com.lifecyclebot.engine.AntiChokeManager.tick(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16259` — `name = "anti_choke_tick_6489", budgetMs = 2_000L,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16262` — `val antiChoke = com.lifecyclebot.engine.AntiChokeManager.tick(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16268` — `if (antiChoke != null && antiChoke.level != com.lifecyclebot.engine.AntiChokeManager.Level.CLEAR) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16269` — `addLog("🫁 AntiChoke ${antiChoke.level.name}: ghosts=${antiChoke.ghostsCleared} pruned=${antiChoke.dormantPruned} trades24h=${antiChoke.trades24h}/${antiChoke.target24h}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16272` — `ErrorLogger.debug("BotService", "AntiChoke tick error: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16395` — `// → isBootstrapPhase=false → canBypassConfidenceFloors=false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17638` — `val antiChokeSoftening = try { com.lifecyclebot.engine.AntiChokeManager.isSoftening() } catch (_: Throwable) { false }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17641` — `if (staleMs > freezeStaleThresholdMs && scannerAlive && haveOpens && canFireAgain && antiChokeSoftening && !projectedOk) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17674` — `// 5) Bump the AntiChokeManager.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17676` — `com.lifecyclebot.engine.AntiChokeManager.tick(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18207` — `// coverage 50% without the 100-worker IO-starvation the V5.9.1026 cap guarded`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18674` — `// a large share of those were blocked (FDG/PROBE_ONLY, REENTRY_LOCKOUT) or`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22227` — `// learning preserved, no starvation, FDG still the only`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22244` — `// no starvation). Bootstrap candidates (sample<20) get ×1.0.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23810` — `// data-starvation blocks that bootstrap should PROBE through at`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24458` — `// LanePolicy, danger buckets, drawdown circuit, and PROBE_ONLY`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25162` — `// V5.9.489 — CASCADE FLOOR (anti-choke).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusGate.kt:163` — `com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PROVEN_DEAD_CONTEXT_PROBE_ONLY")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:1327` — `* starvation). Returns Triple(settled, richEducation, incompleteEducation).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:46` — `// V5.9.1492 — starvation-probe tunables. After this many consecutive ticks`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:50` — `private const val STARVATION_PROBE_TICKS = 4`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:80` — `// V5.9.1492 — STARVATION PROBE. When the strict score floor finds no`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:83` — `// forever — 5 lifetime cycles. Every OTHER lane fires via FDG PROBE_ONLY;`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:607` — `// V5.9.1492 — STARVATION PROBE FALLBACK. No token cleared the strict`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:610` — `// once we've been starved for STARVATION_PROBE_TICKS in a row, take`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:615` — `// CYCLIC learning bucket maturing. Mirrors the PROBE_ONLY path every`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:619` — `if (noEligibleStreak < STARVATION_PROBE_TICKS) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:620` — `statusMessage = "Scanning… (need score ≥${effectiveMinScore.toInt()}${if (cyclicCold) " [COLD]" else if (isBootstrapPhase) " [BOOT]" else ""}${if (consecutiveLosses > 0) " +${consecutiveLosses}L" else ""}) probe in ${STARVATION_PROBE_TICKS - noEligibleStreak}"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:659` — `com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_STARVATION_PROBE")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:661` — `"CYCLIC_STARVATION_PROBE",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:684` — `// V5.9.1492 — a token WAS selected (strict or probe) → clear starvation.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:15` — `enum class CanonicalFinalDecision6613 { BUY, PROBE_ONLY, UNKNOWN }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:140` — `(preFdgVerdict.equals("BUY", true) || preFdgVerdict.equals("PROBE_ONLY", true))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:144` — `intent.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:166` — `return final in setOf("BUY", "PROBE_ONLY") &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:636` — `preFdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY", "WATCH", "PROBE")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:691` — `// FDG verdict (BUY / PROBE_ONLY) — that IS the ExecutionIntent`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:704` — `sealedIntent6627.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY") &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:764` — `// V5.9.1483 — PROBE_ONLY IS AN APPROVED BUY (single biggest volume choke).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:766` — `// internal finality gate (fdgCan path, line ~588) already treat PROBE_ONLY`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:769` — `// cached preFdgVerdict resolved to PROBE_ONLY (or whose last lane write was`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:770` — `// PROBE_ONLY) got dropped as PRE_FDG_NOT_BUY — killing the entire V3 EXECUTE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:772` — `// no_open_committed_blocked_finality). Accept PROBE_ONLY here so the string`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:775` — `if (preFdgVerdict != "BUY" && preFdgVerdict != "PROBE_ONLY") {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:818` — `// WATCH/PROBE/PROBE_ONLY/BUY with no hardNo.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:819` — `val verdictAllowedByFdg = state?.fdgCan == true && verdictUpper in setOf("BUY", "PROBE_ONLY", "WATCH", "PROBE")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:862` — `verdictUpper in setOf("BUY", "PROBE_ONLY", "WATCH", "PROBE")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:969` — `if (hardNoReasons.isEmpty() && verdict in setOf("BUY", "PROBE_ONLY") &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:982` — `finalDecision6613 = if (verdict == "PROBE_ONLY") CanonicalFinalDecision6613.PROBE_ONLY else CanonicalFinalDecision6613.BUY,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1081` — `// The snapshot showed candidates with FDG_ALLOW=PROBE_ONLY (canExecute=true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1085` — `// A PROBE_ONLY approval (canExecute=true, but signal not literally "BUY")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1088` — `// ~44) and the V5.9.1483 string-gate fix, both of which treat PROBE_ONLY as`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1090` — `// EXECUTABLE — preserve an explicit PROBE_ONLY (so the dust-size path stays`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1092` — `val incomingProbe = preFdgVerdict.equals("PROBE_ONLY", true) ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1093` — `(reason?.equals("PROBE_ONLY", true) == true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1097` — `incomingProbe -> "PROBE_ONLY"   // approved dust-buy — must NOT become WATCH`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1101` — `// signal label — treat as executable PROBE_ONLY rather than WATCH-dropping it.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1102` — `else -> "PROBE_ONLY"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1104` — `if (canExecute && finalHardNo.isEmpty() && finalVerdict in setOf("BUY", "PROBE_ONLY")) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1128` — `// BUY/PROBE_ONLY for the SAME candidateVersion, then the finality gate read`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1133` — `"BUY" -> 3; "PROBE_ONLY" -> 2; "WATCH", "PROBE" -> 1`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1163` — `if (winner?.fdgCan == true && winner.hardNoReasons.isEmpty() && winner.preFdgVerdict in setOf("BUY", "PROBE_ONLY")) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1196` — `// immutable tuple.  Mapping PROBE_ONLY to BUY here`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1209` — `finalDecision6613 = if (winner.preFdgVerdict == "PROBE_ONLY") CanonicalFinalDecision6613.PROBE_ONLY else CanonicalFinalDecision6613.BUY,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1255` — `val executableFdg = winningState6512?.fdgCan == true && winningState6512.hardNoReasons.isEmpty() && winningState6512.preFdgVerdict in setOf("BUY", "PROBE_ONLY")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1287` — `"PROBE_ONLY" -> "PROBE_BUY"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1649` — `//   "Once FDG returns BUY/PROBE_ONLY with allowed=true and an`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1954` — `val immutableFdgBuy6519 = immutableTicket?.fdgAllowed == true && immutableTicket.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2155` — `immutableAuthority6513.verdict !in setOf("BUY", "PROBE_ONLY"))) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2178` — `//   authority is present AND carries a BUY/PROBE_ONLY verdict`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2186` — `//   equal BUY/PROBE_ONLY. `immutableAuthority6513` and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2191` — `val immAuthSealed6608 = immAuth6608 != null && immAuth6608.verdict.uppercase() in setOf("BUY", "PROBE_ONLY")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2193` — `ticketAuthority6564.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY") &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2351` — `ticketAuthority6564.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY") &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2353` — `immutableAuthority6513?.verdict?.uppercase() in setOf("BUY", "PROBE_ONLY") &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2478` — `val canonicalBuy6506 = signal.trim().uppercase() in setOf("BUY", "EXECUTE", "PROBE_ONLY", "PROBE")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8587` — `// scheduler heartbeat (kills SCHEDULER_STARVATION_6450), records the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10780` — `signal6504 !in setOf("BUY", "PROBE", "PROBE_ONLY", "EXECUTE")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10800` — `val snapshotExecutable6512 = decision6512?.verdict in setOf("BUY", "PROBE_ONLY") &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12474` — `//   ticket that never existed → NO_EXECUTION_INTENT → PROBE_ONLY`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13837` — `exactIntent6533.fdgVerdict.uppercase() !in setOf("BUY", "PROBE_ONLY")) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15703` — `// V5.0.6312 — LIVE ENTRY SAFETY HOLD + BYPASS BAN + CONFIDENCE GOVERNOR.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16263` — `// rest of the chain agrees and AntiChoke/current performance support`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16285` — `antiChokeSoftening = try { AntiChokeManager.isSoftening() } catch (_: Throwable) { false },`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19483` — `// internal token map with qtyToken > 0 forever and AntiChoke has`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FdgBrainChain.kt:9` — `* common-sense mechanics, and AntiChoke state.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FdgBrainChain.kt:48` — `antiChokeSoftening: Boolean,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FdgBrainChain.kt:87` — `if (antiChokeSoftening) agree += "antichoke_softening"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FdgBrainChain.kt:93` — `val blocking = disagreeVotes >= 4 && score <= -0.35 && !antiChokeSoftening`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FdgBrainChain.kt:99` — `val soften = antiChokeSoftening || (verdict == Verdict.ALIGNED && disagreeVotes <= 2)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FdgBrainChain.kt:105` — `antiChokeSoftening -> "VOLUME_RECOVERY"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:35` — `// V5.9.1368 — PROBE_ONLY is an APPROVED dust-size buy, NOT a veto. The lane`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:37` — `// shouldTrade=true with blockReason="PROBE_ONLY" + qualityPenalty=DUST size to`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:42` — `// floor. PROBE_ONLY is the single biggest volume choke. Treat it (and only it)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:61` — `fun canExecute(): Boolean = shouldTrade && (blockReason == null || blockReason == "PROBE_ONLY")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:347` — `private var adaptiveRelaxationActive = false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:350` — `private const val MAX_RELAXATION_TRADES = 15  // V5.9.643: raised 3→15 (3 trades burned out too fast when AntiChoke not actively holding forceAdaptiveRelaxation; starvation recovered in 3 trades then floors snapped back)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:357` — `if (consecutiveBlockCount >= DANGER_ZONE_BYPASS_THRESHOLD && !adaptiveRelaxationActive) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:358` — `adaptiveRelaxationActive = true`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:365` — `if (adaptiveRelaxationActive) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:366` — `// V5.9.616 — do NOT consume relaxation budget while AntiChoke is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:368` — `// recovery, not for the bot-wide starvation immune system. While`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:369` — `// AntiChoke says SOFTEN/RECOVERY, relaxation persists until the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:371` — `val antiChokeForcing = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:372` — `com.lifecyclebot.engine.AntiChokeManager.isSoftening()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:374` — `if (!antiChokeForcing) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:377` — `adaptiveRelaxationActive = false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:388` — `* V5.9.616 — AntiChoke → FDG bridge. AntiChokeManager calls this when`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:393` — `* instantly". This is the lever AntiChoke pulls.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:396` — `fun isAdaptiveRelaxationActive(): Boolean = adaptiveRelaxationActive`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:398` — `fun forceAdaptiveRelaxation(reason: String) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:399` — `if (adaptiveRelaxationActive) return`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:400` — `adaptiveRelaxationActive = true`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:406` — `* V5.9.616 — explicit clear (for AntiChoke when it returns to CLEAR).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:408` — `fun clearAdaptiveRelaxation(reason: String) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:409` — `if (!adaptiveRelaxationActive) return`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:410` — `adaptiveRelaxationActive = false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:417` — `if (!adaptiveRelaxationActive) return false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:427` — `return if (adaptiveRelaxationActive) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:452` — `// V5.9.620 — ANTI-CHOKE TEETH. When adaptive relaxation is active`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:453` — `// (driven by AntiChokeManager SOFTEN/RECOVERY), pin the lerp`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:457` — `// forceAdaptiveRelaxation() only halved the confidence floor`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:460` — `// starvation event. Operator: "the choke manager isnt doing`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:464` — `val progress = if (adaptiveRelaxationActive) 0.0 else rawProgress`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:467` — `val evGating = !adaptiveRelaxationActive && phase == LearningPhase.MATURE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:549` — `val adaptiveFloor = if (adaptiveRelaxationActive) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:726` — `adaptiveRelaxationActive = false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1153` — `// early return bypassed that new doctrine. A 0% confidence candidate`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1248` — `//   3. AntiChokeManager is currently in SOFTEN or RECOVERY — the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1249` — `//      anti-choke immune system has detected starvation and is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1251` — `//   4. FDG.adaptiveRelaxationActive — the in-FDG soft-block bypass.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1254` — `val antiChokeRelaxing = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1255` — `com.lifecyclebot.engine.AntiChokeManager.isSoftening()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1257` — `// V5.9.721-FIX: Low-WR bypass — when system WR < 30% the confidence floors`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1274` — `val canBypassConfidenceFloors = isBootstrapPhase ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1276` — `antiChokeRelaxing ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1277` — `adaptiveRelaxationActive ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1280` — `ErrorLogger.debug("FDG", "FDG_BYPASS=${canBypassConfidenceFloors}: bypass=$totalTradesForBypass/500 paperBootstrap=$isBootstrapPhase liveAdaptiveFromTrade1=${!isPaperMode} antiChoke=$antiChokeRelaxing adaptive=$adaptiveRelaxationActive lowWR=${(systemWrForBypass*100).toInt()}%(revoked)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1363` — `// ran when canBypassConfidenceFloors was TRUE (wide-open path) — i.e.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1443` — `ErrorLogger.debug("FDG", "ℹ️ BOOTSTRAP_FLOOR_PAPER_BYPASS: ${ts.symbol} | conf=${confidence.toInt()}% < ${BOOTSTRAP_MIN_CONFIDENCE.toInt()}% → paper learn")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1458` — `if (canBypassConfidenceFloors && confidence < 22.0) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1459` — `ErrorLogger.info("FDG", "🎓 BOOTSTRAP_OVERRIDE: ${ts.symbol} | conf=${confidence.toInt()}% | Bypassing confidence floor for learning (progress=${(learningProgress * 100).toInt()}%)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1472` — `if (confidence < 27.0 && isCGrade && !canBypassConfidenceFloors) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1501` — `// V5.8: In paper mode, bypass AI_DEGRADED confidence floor.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1506` — `//   - <1000 trades: floor never engages (canBypassConfidenceFloors above`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1511` — `if (confidence < aiDegradedFloor && earlyAIDegraded && !canBypassConfidenceFloors) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1515` — `ErrorLogger.info("FDG", "🧠 AI_DEGRADED_SOFT_PROBE_4297: ${ts.symbol} | conf=${confidence.toInt()}% floor=${aiDegradedFloor.toInt()}% size×0.45 no_hard_block=true")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1536` — `if (toxicPatternFlags.size >= 4 && !canBypassConfidenceFloors) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1541` — `ErrorLogger.info("FDG", "☣️ TOXIC_PATTERN_SOFT_PROBE_4297: ${ts.symbol} | flags=${toxicPatternFlags.joinToString(",")} size×0.25 no_hard_block=true")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1542` — `} else if (toxicPatternFlags.size >= 4 && canBypassConfidenceFloors) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1543` — `ErrorLogger.info("FDG", "🎓 BOOTSTRAP_OVERRIDE: ${ts.symbol} | Bypassing toxic pattern check for learning (flags=${toxicPatternFlags.joinToString(",")})")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2647` — `ErrorLogger.info("FDG", "⏱️ DANGER_ZONE_SOFT_PROBE_4298: ${ts.symbol} | size×${dangerSizeMult4298.format(2)} no_hard_block=true")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2699` — `ErrorLogger.info("FDG", "🧠 MEMORY_NEGATIVE_SOFT_PROBE_4298: ${ts.symbol} | memMult=$memoryMult size×${memorySizeMult4298.format(2)} no_hard_block=true")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4292` — `val antiChokeSoftening6026 = try { AntiChokeManager.isSoftening() } catch (_: Throwable) { false } || adaptiveRelaxationActive`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4308` — `antiChokeSoftening = antiChokeSoftening6026,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4319` — `val softBlockReason6026 = blockReason != null && blockReason != "PROBE_ONLY" &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4349` — `// V5.9.1486 — PROBE_ONLY IS AN APPROVED DUST BUY, NOT A BLOCK (matches the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4351` — `// PROBE_ONLY as the #1 reject reason (471) AND logged as SHITCOIN_FDG_HARD_VETO`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4353` — `// whenever blockReason!=null, but PROBE_ONLY candidates legitimately carry a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4356` — `// probes meant to flow at tiny size to gather bootstrap data. Treat PROBE_ONLY`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4360` — `val shouldTrade = (blockReason == null || blockReason == "PROBE_ONLY") && (candidate.shouldTrade || baseSignalMismatchIgnoredForLane)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4368` — `if (adaptiveRelaxationActive) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4977` — `proposedAction = if (shouldTradeFinal) if (blockReasonFinal == "PROBE_ONLY") "PROBE_ONLY" else "BUY" else "BLOCK",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalExecutionPermit.kt:208` — `executionTicket6494.fdgVerdict !in setOf("BUY", "PROBE_ONLY") ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FreeRangeMode.kt:46` — `* 3. AntiChoke override: if AntiChoke is softening, immediately drop to`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FreeRangeMode.kt:47` — `*    level 0 so every guard relaxes — starvation prevention takes priority.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FreeRangeMode.kt:104` — `// V5.9.1333 — FROZEN-WR FIX. Previously AntiChokeManager.isSoftening()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FreeRangeMode.kt:107` — `// floor ignored). AntiChoke softens whenever 24h throughput is under the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FreeRangeMode.kt:113` — `// FIX: AntiChoke may only collapse the ladder to wide-open DURING the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FreeRangeMode.kt:115` — `// ladder HOLDS even when throughput is soft. AntiChoke still does its real`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FreeRangeMode.kt:122` — `if (trades < PHASE1_START && AntiChokeManager.isSoftening()) return 0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/GeminiCopilot.kt:675` — `(regime, lane pause, scanner starvation, safety veto, cold streak, provider`
+- `app/src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt:1167` — `* guard is benign there. From cleanup paths (AntiChoke, sweepers, etc.)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt:1351` — `* but only ONE exit path (paperSell) + AntiChoke ever call closePosition().`
+- `app/src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt:1404` — `/** V5.9.612 AntiChoke: clear a stale registry-only position when wallet / sub-trader truth proves unheld. */`
+- `app/src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt:1405` — `fun clearPositionIfUnheld(mint: String, reason: String = "ANTI_CHOKE_UNHELD"): Boolean {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt:1413` — `* Scanner/watchlist is a 500-token discovery bench, not an AntiChoke garbage`
+- `app/src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt:1417` — `fun pruneDormant(maxAgeMs: Long, maxRemove: Int, reason: String = "ANTI_CHOKE_DORMANT"): Int {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:1645` — `/** V5.9.612 AntiChoke: wallet snapshot proved zero; unblock internal ghost state. */`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:1646` — `fun markUnheldByAntiChoke(mint: String, reason: String): Boolean {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:1649` — `markNoCurrentHeldProof(p, "ANTICHOKE_ZERO_REJECTED_NO_FINALITY:$reason")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveEntrySafetyHold.kt:50` — `*      - PROBE_ONLY`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveEntrySafetyHold.kt:176` — `"PROBE_ONLY",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:549` — `"lane=$lane liveWR=${"%.1f".format(liveWr)}%(n=${liveSnap.trades}) paperWR=${"%.1f".format(paperWr)}%(n=${paperFromLifetime.trades}) preMult=${"%.2f".format(clampedMult)} clampedTo=0.30 note=live_underperforms_paper_lane_bleed_probe_only",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveSizingProfile.kt:336` — `* (Executor's score-band cuts, anti-choke scalers, expectancy-gate)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveStylePivotRouter.kt:248` — `// bootstrap data starvation or hard-deferred by default. If proof`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LosingPatternMemory.kt:222` — `// no starvation — doctrine soft-shape). Only the most-proven death`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ModeLeniency.kt:41` — `AntiChokeManager.isSoftening() -> "LIVE-ANTI-CHOKE"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorAdaptiveStatusDigest.kt:9` — `val antiChoke = try { AntiChokeManager.statusLine().take(120) } catch (_: Throwable) { "AntiChokeManager unavailable" }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorAdaptiveStatusDigest.kt:16` — `return "OPERATOR_ADAPTIVE_STATUS_DIGEST_4365 liveProb=[$liveProb] quality=[$quality] laneExpectancy=[$laneExpectancy] antiChoke=[$antiChoke] freeRange=[$freeRange] sentience=[$sentience] llmLab=[$llmLab] llmStore=[$llmStore] coldStreak=[$coldStreak] execCounters=[$execCounters] report_only=true no_g`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorFinalResidualSourceContractSweep.kt:5` — `fun status(): String = "OPERATOR_FINAL_RESIDUAL_SOURCE_CONTRACT_SWEEP_4456 closed=[strategy_telemetry_noop_contract anti_choke_prune_visibility data_pipeline_identity_hint endpoint_health_reporting residual_disabled_marker_triage] remaining_source_contract_tail=0_7_pending_ci verification=[4443_gree`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorFullLearningSystemAuditDigest.kt:34` — `"DATA_STARVATION",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest6.kt:37` — `Item("AntiChokeManager", "engine/AntiChokeManager.kt", "anti_choke_manager"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorMidTailMarkerDigest.kt:5` — `fun status(): String = "OPERATOR_MID_TAIL_MARKER_DIGEST_4447 raw_markers=[DataPipeline:12 AntiChokeManager:10 StrategyTelemetry:10 HostWalletTokenTracker:7 PipelineHealthCollector:7 EducationSubLayerAI:7 EmergentGuardrails:6 SolanaMarketScanner:6] likely_intentional=[anti_choke_dormant_prune telemet`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorSourceMarkerTriageDigest.kt:5` — `fun status(): String = "OPERATOR_SOURCE_MARKER_TRIAGE_DIGEST_4443 raw_markers=353 estimated_noise=55 crude_post_noise=298 operator_actionable_estimate=80_120 top_clusters=[BotService:48 Executor:18 FinalDecisionGate:18 TokenSafetyChecker:18 ToxicModeCircuitBreaker:16 RuntimeRepairState:14 ExecutionE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerSourceBrain.kt:16` — `* Operator P0 mandate: "find any fix any lane starvation. if the scanners`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerSourceBrain.kt:28` — `*   • Detects lane starvation (BLUECHIP / DIP_HUNTER / QUALITY ≤ 5 evals in`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerSourceBrain.kt:74` — `private val starvationBoostUntilMs = ConcurrentHashMap<String, AtomicLong>()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerSourceBrain.kt:159` — `val s = stats[key] ?: return checkStarvationBoost(key, 1.0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerSourceBrain.kt:161` — `if (n < BOOT_THRESHOLD) return checkStarvationBoost(key, 1.0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerSourceBrain.kt:172` — `return checkStarvationBoost(key, raw.coerceIn(floor, cap))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerSourceBrain.kt:236` — `fun signalStarvation(established: Boolean) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerSourceBrain.kt:243` — `starvationBoostUntilMs.getOrPut(key) { AtomicLong(0L) }.set(boostUntil)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerSourceBrain.kt:248` — `"⚠ STARVATION DETECTED: boosting ${ESTABLISHED_FEEDERS.size} established-asset sources for 60s"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerSourceBrain.kt:252` — `"SCANNER_STARVATION_BOOST",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerSourceBrain.kt:259` — `private fun checkStarvationBoost(key: String, baseline: Double): Double {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerSourceBrain.kt:260` — `val until = starvationBoostUntilMs[key]?.get() ?: 0L`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SelfHealingAdvisor.kt:29` — `*  - Auto: fires when starvation is detected AND ≥ 5 minutes since the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SelfHealingAdvisor.kt:83` — `* Called from the bot loop when starvation is detected. Rate-limited`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:17` — `* dirty. PROBE_ONLY / already-confirmed-high-edge candidates bypass the soft pressure.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SolanaMarketScanner.kt:1386` — `// V5.0.4097 — starvation detector for established lanes.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SolanaMarketScanner.kt:1401` — `ScannerSourceBrain.signalStarvation(established = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SolanaMarketScanner.kt:2470` — `* Operator P0: lane-eval starvation. The deepScan batch was dominated`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TokenLifecycleTracker.kt:401` — `* V5.9.612 AntiChoke: when a non-empty wallet snapshot proves this mint is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TokenMetricStageRouter.kt:103` — `// starvation. BLUECHIP/DIP_HUNTER/MANIPULATED/CYCLIC show 0 lane evals`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt:457` — `entry = "protected_probe_only",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/WalletManager.kt:622` — `// shrinks: AntiChokeManager + DataPipeline evict tokens once they're`
+- `app/src/main/kotlin/com/lifecyclebot/engine/runtime/ColdStreakDamper.kt:173` — `enum class Decision { ALLOW, PROBE_ONLY, BLOCK_NORMAL }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/runtime/ColdStreakDamper.kt:181` — `Decision.PROBE_ONLY`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:153` — `val verdict = if (shaping.probe) "PROBE_ONLY" else "BUY"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:173` — `finalDecision6613 = if (verdict == "PROBE_ONLY") ExecutableOpenGate.CanonicalFinalDecision6613.PROBE_ONLY else ExecutableOpenGate.CanonicalFinalDecision6613.BUY,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:375` — `intent.fdgVerdict.uppercase() !in setOf("BUY", "PROBE_ONLY") ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalRiskClock6454.kt:30` — `* that pumps ProtectiveExitScheduler6450 heartbeat + starvation check`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalRiskClock6454.kt:72` — `try { ProtectiveExitScheduler6450.checkStarvation() } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionDecisionSnapshot6510.kt:37` — `.filter { it.verdict in setOf("BUY", "PROBE_ONLY") && it.authoritativeSignal == "BUY" }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionDecisionSnapshot6510.kt:48` — `val executable = old.verdict in setOf("BUY", "PROBE_ONLY") && old.executionLane.equals(currentLane, true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionDecisionSnapshot6510.kt:50` — `if (currentVerdict !in setOf("BUY", "PROBE_ONLY")) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MaintenanceBudgetGovernor6469.kt:13` — `*   "188s, 41s, 64s, 37s, 223s, 174s, 218s, 175s. Sustained starvation.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MemeOwnershipInvariant6620.kt:36` — `*       existed. STANDARD then fell into a PROBE_ONLY path and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ProtectiveExitScheduler6450.kt:36` — `*      SCHEDULER_STARVATION_6450 if no heartbeat for > STARVATION_MS.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ProtectiveExitScheduler6450.kt:51` — `private const val STARVATION_MS = 15_000L`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ProtectiveExitScheduler6450.kt:60` — `private val starvations = AtomicLong(0L)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ProtectiveExitScheduler6450.kt:142` — `fun checkStarvation() {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ProtectiveExitScheduler6450.kt:143` — `if (heartbeatAgeMs() > STARVATION_MS && lastHeartbeatMs.get() > 0L) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ProtectiveExitScheduler6450.kt:144` — `starvations.incrementAndGet()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ProtectiveExitScheduler6450.kt:147` — `"PROTECTIVE_EXIT_SCHEDULER_STARVATION_6450",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ProtectiveExitScheduler6450.kt:148` — `"ageMs=${heartbeatAgeMs()} threshold=$STARVATION_MS",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ProtectiveExitScheduler6450.kt:150` — `PipelineHealthCollector.labelInc("PROTECTIVE_EXIT_SCHEDULER_STARVATION_6450")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ProtectiveExitScheduler6450.kt:159` — `"starvations=${starvations.get()} untriggerDenied=${untriggerAttempts.get()}"`
+- `app/src/main/kotlin/com/lifecyclebot/network/CoinGeckoSolanaTopMcap.kt:13` — `* Operator P0: lane-eval starvation. The SolanaMarketScanner deepScan batch`
+- `app/src/main/kotlin/com/lifecyclebot/network/DexscreenerApi.kt:54` — `// IO-pool starvation cascade (session 9551671c: 526 worker_timeouts/10min,`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsAdvancedAI.kt:913` — `// accumulated another dozen live ticks per symbol. That starvation`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:146` — `// V5.8: Anti-starvation — relax floors by 2-4 pts if no trades execute over a window`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:149` — `private const val STARVATION_WINDOW = 50`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:150` — `private const val STARVATION_RELIEF_SMALL = 2`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:151` — `private const val STARVATION_RELIEF_LARGE = 4`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:153` — `fun getStarvationRelief(): Int = when {`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:154` — `consecutiveNonExecute >= 100 -> STARVATION_RELIEF_LARGE`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:155` — `consecutiveNonExecute >= STARVATION_WINDOW -> STARVATION_RELIEF_SMALL`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:453` — `// V5.8: Anti-starvation — relax floors if no executes in recent window`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:454` — `// V5.9.939 — Apply tierAdj on top of starvation relief. Lower-tier`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:465` — `val starvationRelief = getStarvationRelief()`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:469` — `val effectiveMinScore = (minScoreForExecute - starvationRelief - sparseLayerRelief + tierAdj)`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:471` — `val effectiveMinConf = minConfForExecute - starvationRelief + tierAdj`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:472` — `val effectiveCGradeConf = cGradeMinConf - starvationRelief + tierAdj`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/FluidLearningAI.kt:1220` — `* Lerps from 25 (bootstrap) to 30 (mature). Hard cap at 40 prevents drift starvation.`
+
+## Fresh-launch / dust / WAIT override promotions
+
+Count: **92**
+
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:240` — `ddAgg < 0.50 && lowInfoFresh -> sameLaneWeakPivotStyle(laneHint, Style.DEFENSIVE_PROBE)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:245` — `weakChopSheet && classification.tradeType in setOf(ModeRouter.TradeType.FRESH_LAUNCH, ModeRouter.TradeType.SENTIMENT_IGNITION, ModeRouter.TradeType.GRADUATION) -> sameLaneWeakPivotStyle(laneHint, Style.DEFENSIVE_PROBE)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutonomousMetaPolicy.kt:76` — `private const val VETO_BYPASS_EVERY  = 25L      // 1-in-25 fresh probe escapes the veto`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutonomousMetaPolicy.kt:204` — `Log.i(TAG, "🩺 VETO-PROBE $key — letting 1 fresh probe through (n=$n) to keep $key learnable")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:32` — `// V5.9.1355 P0.3 — WAIT-override dust-probe controls.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:37` — `// LANE_WAIT_OVERRIDE_BLOCKED=8984, projected exec/day collapsed to 107 vs`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:75` — `private const val LANE_DUST_PROBE_SIZE_MULT = 0.04`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8799` — `else             -> 22   // sub-$2k fresh rug-zone — discovery probe only`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10633` — `if (mint.isBlank() || currentLiqUsd <= 0.0) return LANE_DUST_PROBE_SIZE_MULT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10644` — `LANE_DUST_PROBE_SIZE_MULT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10646` — `} catch (_: Throwable) { LANE_DUST_PROBE_SIZE_MULT }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10722` — `* WAIT/dust-probe override can rescue the buy.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10928` — `PipelineHealthCollector.labelInc("MANIP_OVERLAY_DUST_PROBE_FALLBACK_6011")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10929` — `ForensicLogger.lifecycle("MANIP_OVERLAY_DUST_PROBE_FALLBACK_6011", "lane=$lane mint=${mintForProbe.take(10)} symbol=$edgeSymbol4529 action=dust_probe_instead_of_reject reason=manip_lane_quarantined")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10959` — `PipelineHealthCollector.labelInc("MANIP_OVERLAY_DUST_PROBE_SCORE_PENALTY_6011")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10960` — `ForensicLogger.lifecycle("MANIP_OVERLAY_DUST_PROBE_SCORE_PENALTY_6011", "lane=$lane mint=${mintForProbe.take(10)} priorScore=${laneBase0.entryScore.toInt()} penalty=40 action=shrink_to_dust_probe")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10973` — `// V5.9.1355 P0.3 — WAIT-OVERRIDE GUARD. Previously this method flipped ANY`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11006` — `PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_BLOCKED")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11009` — `ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_BLOCKED",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11015` — `blockReason = if (baseBlock.isBlank()) "WAIT_OVERRIDE_BLOCKED_THIN_LIQ" else baseBlock,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11064` — `PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11065` — `PipelineHealthCollector.labelInc("FDG_ZERO_SCORE_DUST_PROBE_4164")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11067` — `ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11069` — `LearningLifecycleBus.preFdgProbe("ZERO_SIGNAL_PROBE", lane, sourceForChop, mintForProbe, edgeSymbol4529, baseBlock, laneBase.entryScore, laneBase.aiConfidence, liquidityUsd, edgeMcap4529, resolveProbeSizeMult(mintForProbe, liquidityUsd), edgeRegime4529)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11158` — `PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_DUST_PROBE")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11159` — `PipelineHealthCollector.labelInc("PREFDG_DUST_PROBE_${lane.uppercase()}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11160` — `ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_DUST_PROBE",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11162` — `LearningLifecycleBus.preFdgProbe("DUST_PROBE", lane, sourceForChop, mintForProbe, edgeSymbol4529, baseBlock, laneBase.entryScore, laneBase.aiConfidence, liquidityUsd, edgeMcap4529, resolveProbeSizeMult(mintForProbe, liquidityUsd), edgeRegime4529)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11190` — `"LANE_BUY_INTENT_OVERRIDES_BASE_WAIT",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25856` — `//   2. V3 outputs: EXECUTE_AGGRESSIVE, EXECUTE_STANDARD, EXECUTE_SMALL, WATCH, REJECT, BLOCK`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EntryIntelligence.kt:355` — `// V5.9.495z32 — observational EntryWaitOverrideGate log. Operator`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EntryIntelligence.kt:364` — `val gate = EntryWaitOverrideGate.evaluate(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EntryIntelligence.kt:370` — `if (gate.verdict != EntryWaitOverrideGate.Verdict.ALLOW) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EntryWaitOverrideGate.kt:28` — `object EntryWaitOverrideGate {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EntryWaitOverrideGate.kt:32` — `FDG_OVERRIDE_ENTRY_WAIT,        // explicit override (moonshot / high conf)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:9923` — `// V5.9.495z33 — executive hook for EntryWaitOverrideGate.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:9936` — `val gate = com.lifecyclebot.engine.EntryWaitOverrideGate.evaluate(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:9942` — `if (gate.verdict == com.lifecyclebot.engine.EntryWaitOverrideGate.Verdict.FDG_DEFER_ENTRY_WAIT) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12168` — `// Every LANE_BUY_INTENT_OVERRIDES_BASE_WAIT event must produce`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:36` — `// wait-override path (BotService ~7616/7640) deliberately returns`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:44` — `// upstream via qualityPenalty=LANE_DUST_PROBE_SIZE_MULT, so this respects the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1723` — `// (paper_low_conf_dust_probe tag). We add a forensic tag here`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:3255` — `tags.add(if (mode == TradeMode.PAPER) "paper_low_conf_dust_probe" else "live_low_conf_adaptive_size")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveEntrySafetyHold.kt:41` — `*      - LANE_WAIT_OVERRIDE_DUST_PROBE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveEntrySafetyHold.kt:42` — `*      - LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveEntrySafetyHold.kt:186` — `"LANE_WAIT_OVERRIDE_DUST_PROBE",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveEntrySafetyHold.kt:187` — `"LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:538` — `// Report showed 8 back-to-back LIVE_PAPER_DIVERGENCE_DUST_PROBE_6279`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:546` — `if (ForensicEmitRateLimiter6356.shouldEmit("LIVE_PAPER_DIVERGENCE_DUST_PROBE_6279", lane)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:548` — `"LIVE_PAPER_DIVERGENCE_DUST_PROBE_6279",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:552` — `PipelineHealthCollector.labelInc("LIVE_PAPER_DIVERGENCE_DUST_PROBE_6279_${lane.uppercase()}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest2.kt:44` — `Item("EntryWaitOverrideGate", "engine/EntryWaitOverrideGate.kt", "entry_wait_soft_override_gate"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt:426` — `appendLine("         holder_concentration_reject, low_liquidity_dust_probe, high_tax_avoid, honeypot_hard_reject,")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt:449` — `appendLine("         moonshot_dust_probe, manip_dust_probe, cutlass_soft_shape, low_wr_lane_auto_raise,")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt:739` — `// the funnel (every EXECUTE_SMALL band under a 0.6 SOL wallet`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt:121` — `ModeRouter.TradeType.FRESH_LAUNCH -> if (weakRegime) Setup.REGIME_DEFENSIVE_PROBE else Setup.DEGEN_MICRO_SNIPE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PaperEntryFinalityAuthority6497.kt:16` — `*      LANE_BUY_INTENT_OVERRIDES_BASE_WAIT = 168`
+- `app/src/main/kotlin/com/lifecyclebot/v3/V3EngineManager.kt:176` — `// (🪪 caps: meme=1/100 + LANE_BUY_INTENT_OVERRIDES_BASE_WAIT`
+- `app/src/main/kotlin/com/lifecyclebot/v3/core/BotOrchestrator.kt:166` — `ageMinutes = candidate.ageMinutes,       // V5.9.1586: fresh-launch probe`
+- `app/src/main/kotlin/com/lifecyclebot/v3/core/BotOrchestrator.kt:213` — `DecisionBand.EXECUTE_SMALL,`
+- `app/src/main/kotlin/com/lifecyclebot/v3/core/BotOrchestrator.kt:326` — `DecisionBand.EXECUTE_SMALL,`
+- `app/src/main/kotlin/com/lifecyclebot/v3/core/BotOrchestrator.kt:380` — `DecisionBand.EXECUTE_SMALL,`
+- `app/src/main/kotlin/com/lifecyclebot/v3/core/Enums.kt:28` — `EXECUTE_SMALL,`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:162` — `// V5.9.1516 — P1 FIX 4: PRE_RUNNER soft-shape telemetry. A PRE_RUNNER is`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:167` — `// launches that become runners. We promote them to EXECUTE_SMALL (smallest`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:170` — `// let the operator measure PRE_RUNNER hit-rate separately.`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:197` — `ageMinutes: Double = 999.0,    // V5.9.1586: fresh-launch probe gate`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:329` — `val isFreshLaunchProbe = ageMinutes <= 15.0`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:363` — `if (conf < cGradeConfFloor && !isFreshLaunchProbe) {`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:366` — `if (memoryScore <= cGradeMemoryFloor && !isFreshLaunchProbe) {`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:369` — `if (effectiveAIDegraded && !isFreshLaunchProbe) {`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:381` — `if (score < 20 && momentumScoreV <= 0 && volumeScoreV <= 0 && !isFreshLaunchProbe) {`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:440` — `// C-grade confidence floor for EXECUTE_SMALL: 10% at bootstrap → 40% at mature`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:462` — `// EXECUTE_SMALL / EXECUTE_STANDARD bands during learning so the`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:502` — `// hold"). The previous `score >= -5` cut for fresh-launch probes was`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:506` — `// unknown. We still let fresh launches probe (score==0 / very small`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:510` — `isFreshLaunchProbe && score >= 0 && effectiveConf >= 20 -> DecisionBand.EXECUTE_SMALL`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:513` — `hasMomentumOrVolume && score >= (effectiveMinScore * 0.7).toInt() && effectiveConf >= smallConfFloor && score >= 0 -> DecisionBand.EXECUTE_SMALL`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:518` — `// V5.9.1516 — P1 FIX 4: PRE_RUNNER soft-shape promotion. When the raw band`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:519` — `// is WATCH (a near-miss: above watchScoreMin but below the EXECUTE_SMALL`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:522` — `// promote to EXECUTE_SMALL (smallest risk-bounded probe). This converts the`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:533` — `DecisionBand.EXECUTE_SMALL`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:540` — `if (band == DecisionBand.EXECUTE_AGGRESSIVE || band == DecisionBand.EXECUTE_STANDARD || band == DecisionBand.EXECUTE_SMALL) {`
+- `app/src/main/kotlin/com/lifecyclebot/v3/sizing/SmartSizerV3.kt:35` — `* - Probe sizes reduced 0.4-0.6x for low-confidence EXECUTE_SMALL`
+- `app/src/main/kotlin/com/lifecyclebot/v3/sizing/SmartSizerV3.kt:64` — `// EXECUTE_SMALL basePct was capped at 3.0% of tradeable, compounded`
+- `app/src/main/kotlin/com/lifecyclebot/v3/sizing/SmartSizerV3.kt:66` — `// <1% of wallet. Promote LIVE-mode EXECUTE_SMALL to 5% basePct and`
+- `app/src/main/kotlin/com/lifecyclebot/v3/sizing/SmartSizerV3.kt:73` — `DecisionBand.EXECUTE_SMALL -> if (isLive) maxOf(config.maxSmallSizePct.coerceAtMost(0.05), 0.05)`
+- `app/src/main/kotlin/com/lifecyclebot/v3/sizing/SmartSizerV3.kt:97` — `// V3 SELECTIVITY: EXECUTE_SMALL probe multiplier`
+- `app/src/main/kotlin/com/lifecyclebot/v3/sizing/SmartSizerV3.kt:99` — `// EXECUTE_SMALL is already a "probe" tier, so reduce further:`
+- `app/src/main/kotlin/com/lifecyclebot/v3/sizing/SmartSizerV3.kt:103` — `val probeMult = if (band == DecisionBand.EXECUTE_SMALL) {`
+- `app/src/main/kotlin/com/lifecyclebot/v3/sizing/SmartSizerV3.kt:104` — `0.50  // Probe trades are half the normal EXECUTE_SMALL size`
+- `app/src/main/kotlin/com/lifecyclebot/v3/sizing/SmartSizerV3.kt:162` — `// multiplier math produces sub-0.05 SOL for every EXECUTE_SMALL`
+
+## Brain + cross-talk contributors
+
+Count: **981**
+
+- `app/src/main/kotlin/com/lifecyclebot/AATEApp.kt:68` — `// Non-blocking/idempotent: Lab, Sentience, SSI and lane re-proof remain`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:36` — `// read/write to the operator's own Superbrain DB. Operator directive:`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:8` — `const val DB_URL = "libsql://superbrain-shaunhayes333-stack.aws-ap-northeast-1.turso.io"`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:14` — `// operator's own Superbrain DB with no in-app path to reconnect (Turso is`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:459` — `// consensus evaluation. Populated post-BrainConsensusGate.evaluate.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AICrossTalk.kt:10` — `* AICrossTalk - Inter-Layer Communication Hub`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AICrossTalk.kt:18` — `object AICrossTalk {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AICrossTalk.kt:84` — `private var metaCognitionBoostsDetected = 0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AICrossTalk.kt:91` — `private var metaCognitionWeight = 1.2`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AICrossTalk.kt:904` — `try { com.lifecyclebot.v4.meta.CrossTalkFusionEngine.fuse() } catch (_: Exception) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AICrossTalk.kt:936` — `put("metaCognitionWeight", metaCognitionWeight)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AICrossTalk.kt:941` — `put("metaCognitionBoostsDetected", metaCognitionBoostsDetected)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AICrossTalk.kt:952` — `metaCognitionWeight = json.optDouble("metaCognitionWeight", 1.2)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AICrossTalk.kt:957` — `metaCognitionBoostsDetected = json.optInt("metaCognitionBoostsDetected", 0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AICrossTalk.kt:967` — `"switches=$modeSwitchesRecommended meta=$metaCognitionBoostsDetected | " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AICrossTalk.kt:968` — `"weights: pump=${smartMoneyBoostWeight.toInt()} dump=${coordinatedDumpUrgencyWeight.toInt()} narr=${narrativeMomentumWeight.toInt()} meta=${"%.2f".format(metaCognitionWeight)}"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AdaptiveIntelligenceRuntime6684.kt:18` — `* Earlier revisions wired Lab / Sentience / SSI directly into BotService and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AdaptiveIntelligenceRuntime6684.kt:23` — `*   sentience reflection`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AdaptiveIntelligenceRuntime6684.kt:45` — `try { SentienceOrchestrator.start(app) } catch (t: Throwable) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AdaptiveIntelligenceRuntime6684.kt:46` — `ErrorLogger.warn("AdaptiveRuntime6684", "sentience start failed: ${t.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AdaptiveIntelligenceRuntime6684.kt:67` — `try { SentienceHooks.maybeAutoTune(app) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AsyncStrategyLab.kt:14` — `* workers until StrategyHypothesisEngine/symbolic checks can consume them.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AsyncStrategyLab.kt:149` — `// V5.0.4251 — hot path O(1): StrategyHypothesisEngine calls this from`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutonomousMetaPolicy.kt:19` — `* BrainConsensusGate. Where the consensus gate collects rule OBJECTIONS, this`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeWhaleFeeder.kt:13` — `* had been receiving INFERRED whale activity (from AICrossTalk price-`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:57` — `//   Min UnifiedPolicyHead.predictWinProb required for a MEME specialist`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1737` — `// feeders into CrossTalkFusionEngine. Signal-only, fail-open, off the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1980` — `// V5.9.129: Start the Sentience loop — LLM ↔ Personality ↔ Symbolic feedback.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1985` — `SentienceOrchestrator.start(applicationContext)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1987` — `// control-tower checkpoints. Fuses sentience symbolic state, lane`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1991` — `ErrorLogger.info("BotService", "🌌 SentienceOrchestrator started")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1993` — `ErrorLogger.debug("BotService", "SentienceOrchestrator start error: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2003` — `try { com.lifecyclebot.engine.ForwardOutcomeModel.attachContext(applicationContext) } catch (_: Throwable) {}  // V5.9.1261`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2005` — `try { com.lifecyclebot.engine.UnifiedPolicyHead.attachContext(applicationContext) } catch (_: Throwable) {}  // V5.9.1262`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2008` — `try { com.lifecyclebot.engine.StrategyHypothesisEngine.attachContext(applicationContext) } catch (_: Throwable) {}  // V5.9.1263`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2066` — `// exit reason) that every AGI/LLM/SSI/meta-cog/sentience brain can read`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2261` — `// (BehaviorAI/MetaCognitionAI/FluidLearningAI/etc were being`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3560` — `// Save AICrossTalk`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3563` — `crossTalkPrefs.edit().putString("data", AICrossTalk.saveToJson().toString()).apply()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3564` — `ErrorLogger.info("BotService", "💾 AICrossTalk saved before destroy")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3566` — `ErrorLogger.error("BotService", "Failed to save AICrossTalk: ${e.message}", e)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6654` — `// AGI/LLM/SSI/meta-cog/sentience brains have a populated corpus at`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6837` — `// Initialize AICrossTalk - inter-layer communication hub`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6842` — `AICrossTalk.loadFromJson(org.json.JSONObject(crossTalkJson))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6844` — `addLog("🔗 ${AICrossTalk.getStats()}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6846` — `ErrorLogger.error("BotService", "Failed to load AICrossTalk: ${e.message}", e)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6936` — `com.lifecyclebot.v4.meta.CrossTalkFusionEngine.init(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6946` — `addLog("🧠 V4 Meta-Intelligence: ${com.lifecyclebot.v4.meta.CrossTalkFusionEngine.getStats()}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10839` — `val agiAuthority6020 = try { com.lifecyclebot.engine.UnifiedPolicyHead.currentAuthority(laneUpperForFloor4591) } catch (_: Throwable) { com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.BOOTSTRAP }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10842` — `com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.BOOTSTRAP -> (structuralFloor6020 - 18.0).coerceAtLeast(25.0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10843` — `com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.ADVISORY -> (structuralFloor6020 + 4.0).coerceAtMost(88.0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10844` — `com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.LEARNED -> (structuralFloor6020 - 12.0).coerceAtLeast(20.0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10845` — `com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE -> 0.0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10857` — `val cleanSnap = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots().firstOrNull { it.lane == "QUALITY" }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10862` — `agiAuthority6020 != com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE) -5.0 else 0.0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10970` — `// ForwardOutcomeModel can finally bucket by true lane quality WITHOUT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11028` — `val authoritativePolicyPositive6568 = if (agiAuthority6020 != com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE) true else try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11029` — `val policySignals6568 = com.lifecyclebot.engine.UnifiedPolicyHead.Signals(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11032` — `fwdPWin = com.lifecyclebot.engine.LiveProbabilityEngine.forecast(laneUpperForFloor4591, laneBase.entryScore.toInt().coerceIn(0, 100), cleanQuality.take(1), edgeRegime4529).pWin,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11035` — `com.lifecyclebot.engine.UnifiedPolicyHead.predictWinProb(laneUpperForFloor4591, policySignals6568) >= 0.50 && edgeToken4529?.lastConsensusObjections.orEmpty().isEmpty()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11093` — `com.lifecyclebot.engine.UnifiedPolicyHead.laneHasOwnAuthoritativeHead(lane)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11451` — `//   BrainConsensusGate would independently HARD_BLOCK the same`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11458` — `//   • provenDeadHardBlock6604: mirror BrainConsensusGate's`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11476` — `// Same shape as BrainConsensusGate.isProvenDead: mature sample,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11503` — `val ownTier6605 = com.lifecyclebot.engine.UnifiedPolicyHead.laneOwnHeadAuthority6605(l)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11504` — `val laneLearnedOrBetter6605 = ownTier6605 == com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.LEARNED ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11505` — `ownTier6605 == com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11507` — `val sigs6604 = com.lifecyclebot.engine.UnifiedPolicyHead.Signals(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11515` — `val pWin6604 = com.lifecyclebot.engine.UnifiedPolicyHead.predictWinProb(l, sigs6604)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11525` — `"ownTier=${com.lifecyclebot.engine.UnifiedPolicyHead.laneOwnHeadAuthority6605(l).name} " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11601` — `val learnedFloorDelta6491 = try { LiveProbabilityEngine.learnedEntryFloorDelta6491(l) } catch (_: Throwable) { 0 }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11746` — `// LiveProbabilityEngine (V5.0.4596) is the safety net if`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13230` — `// V5.9.1000 — runSentienceAutoTune() extracted to BotServiceLifecycleExt.kt`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13981` — `// V5.0.6445 SENTIENCE / LAB DIVERGENCE GUARD — every 15 loops`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13992` — `// SentienceOrchestrator + LlmLabEngine export a stat surface.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13996` — `com.lifecyclebot.engine.truth.SentienceLabRewardBridge6444`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13997` — `.alignWithCanonicalIfDivergent("SentienceOrchestrator", w, l)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13998` — `com.lifecyclebot.engine.truth.SentienceLabRewardBridge6444`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15207` — `// at: ENTER, REGIME_PULSE_DONE, SENTIENCE_DONE, LAB_DONE,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15236` — `// ChronicBleederScout, SentienceAutoTune, LabUniverseTick,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15502` — `// V5.9.401 — Sentience auto-tune + distrust nomination (rate-limited internally)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15506` — `com.lifecyclebot.engine.truth.PreSupervisorBudgetGuard6437.runBudgeted("SentienceAutoTune") {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15507` — `runSentienceAutoTune()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15525` — `// the ChronicBleeder/Sentience/Lab learners above.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16518` — `addLog("🔗 ${AICrossTalk.getStats()}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16525` — `AICrossTalk.cleanup()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17157` — `// per-token/network problem, not a regime/sentience/lab issue.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:20963` — `// Feeds insights to SuperBrainEnhancements for learning`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22107` — `val hasDumpSignal = try { AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol) } catch (_: Exception) { false }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23149` — `// (V3 + UnifiedScorer + MetaCognition) already weighs these`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23691` — `val shitCoinHasDump = try { AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol) } catch (_: Exception) { false }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25062` — `// V5.9.418 — V3-MEME SENTIENCE & SYMBOLIC RE-WIRE.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25067` — `// but never applied, and (c) SentienceHooks.shouldFilterByPersonality`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25114` — `// Sentience hook #6 — personality-driven filter.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25119` — `com.lifecyclebot.engine.SentienceHooks.shouldFilterByPersonality(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25144` — `//   × SentienceHooks.suggestSizeMultiplier() (cross-engine bias).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25151` — `com.lifecyclebot.engine.SentienceHooks.suggestSizeMultiplier(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27579` — `// shared predictive brains (ForwardOutcomeModel + MomentumPredictorAI +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotServiceLifecycleExt.kt:23` — `//      - top-level / object utilities (ErrorLogger, SentienceHooks, etc.)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotServiceLifecycleExt.kt:33` — `//   - runSentienceAutoTune          (10 lines)  — periodic sentience tune`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotServiceLifecycleExt.kt:90` — `internal fun BotService.runSentienceAutoTune() {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotServiceLifecycleExt.kt:91` — `com.lifecyclebot.engine.SentienceHooks.maybeAutoTune(applicationContext)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotServiceLifecycleExt.kt:98` — `com.lifecyclebot.engine.SentienceHooks.nominateStrategiesToPause(distrusted)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusBridge6329.kt:20` — `*   • MetaCognitionExecutorBridge            (meta-cog AI layer bias)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusBridge6329.kt:21` — `*   • SuperBrainEnhancements.entrySizeMultiplier (per-mint memory)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusBridge6329.kt:23` — `*   • BrainConsensusGate (advisor pass)      (proven-dead veto)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusBridge6329.kt:24` — `*   • SentienceOrchestrator reflections      (diagnostic only)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusBridge6329.kt:35` — `object BrainConsensusBridge6329 {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusBridge6329.kt:62` — `// 2) MetaCognitionExecutorBridge — meta-cog AI layer for this lane`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusBridge6329.kt:64` — `MetaCognitionExecutorBridge.sizeMultiplierForLane(lane).coerceIn(0.1, 1.5)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusBridge6329.kt:66` — `readings["MetaCognitionExecutorBridge"] = metaCogMult`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusBridge6329.kt:68` — `// 3) SuperBrainEnhancements — per-mint recency-aware multiplier`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusBridge6329.kt:69` — `val superBrainMult = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusBridge6329.kt:70` — `SuperBrainEnhancements.entrySizeMultiplier(mint).coerceIn(0.1, 1.5)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusBridge6329.kt:72` — `readings["SuperBrainEnhancements"] = superBrainMult`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusBridge6329.kt:81` — `// BrainConsensusGate owns proven-dead evaluation because it has the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusBridge6329.kt:88` — `val sentienceMult = 1.0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusBridge6329.kt:89` — `readings["SentienceOrchestrator"] = sentienceMult`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusBridge6329.kt:92` — `val product = capitalMult * metaCogMult * superBrainMult * botBrainMult`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusBridge6329.kt:101` — `"mint=${mint.take(10)} sym=${symbol.take(12)} lane=$lane src=$source consensus=${"%.3f".format(consensus)} capital=${"%.2f".format(capitalMult)} meta=${"%.2f".format(metaCogMult)} super=${"%.2f".format(superBrainMult)} bot=${"%.2f".format(botBrainMult)} sent=${"%.2f".format(sentienceMult)} labels=${`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusGate.kt:9` — `* The operator's diagnosis was correct: SentientPersonality / MetaCognitionAI /`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusGate.kt:39` — `object BrainConsensusGate {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusGate.kt:97` — `// V5.9.1150 — doctrine correction: Sentience mood is NOT an allowed`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusGate.kt:99` — `// BRAIN_CONSENSUS_VETO:SENTIENCE_VETO=mood, causing the personality loop`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusGate.kt:107` — `objections += "SENTIENCE_ADVISORY=mood=$mood+regime=DUMP+trades=$lifetimeTrades"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusGate.kt:135` — `// SecondScorer, losing-pattern, strategy bleed, and Sentience mood all stay`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CandidateSymbolicContext.kt:21` — `*          MetaCognitionAI calibration tracking.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CandidateSymbolicContext.kt:97` — `* preTradeVeto path inside SentienceHooks is still optional commentary;`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:138` — `* subscriber (BehaviorLearning, AdaptiveLearningEngine, MetaCognitionAI,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:227` — `// (BehaviorLearning patterns, AdaptiveLearningEngine, MetaCognitionAI`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:1179` — `"MetaCognitionAI",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalPublishHelper.kt:12` — `* BehaviorLearning / MetaCognitionAI's rich-feature path.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalSubscribers.kt:4` — `*  RunTracker30D / MetaCognitionAI / BehaviorLearning to subscribe to`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalSubscribers.kt:179` — `"MetaCognitionAI",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalSubscribers.kt:225` — `if (layer == "MetaCognitionAI") {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalSubscribers.kt:230` — `com.lifecyclebot.v3.scoring.MetaCognitionAI.onCanonicalOutcome(outcome)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CommonSenseTradePlaybook.kt:128` — `// then fade out as UnifiedPolicyHead becomes LEARNED/AUTHORITATIVE.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CommonSenseTradePlaybook.kt:129` — `val agiAuthority6020 = try { UnifiedPolicyHead.currentAuthority(snap.lane) } catch (_: Throwable) { UnifiedPolicyHead.AuthorityTier.BOOTSTRAP }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CommonSenseTradePlaybook.kt:131` — `UnifiedPolicyHead.AuthorityTier.BOOTSTRAP -> (base - 18.0).coerceAtLeast(25.0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CommonSenseTradePlaybook.kt:132` — `UnifiedPolicyHead.AuthorityTier.ADVISORY -> (base + 4.0).coerceAtMost(72.0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CommonSenseTradePlaybook.kt:133` — `UnifiedPolicyHead.AuthorityTier.LEARNED -> (base - 12.0).coerceAtLeast(20.0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CommonSenseTradePlaybook.kt:134` — `UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE -> 0.0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CommonSenseTradePlaybook.kt:232` — `val policyAuth6021 = try { UnifiedPolicyHead.currentAuthority(lane).name } catch (_: Throwable) { "BOOTSTRAP" }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CompoundGrowthMentality.kt:17` — `* LLM / super-AGI / SSI / meta-cog / sentience layers all read as a shared`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CompoundGrowthMentality.kt:18` — `* bias signal. Each brain applies it in its own way — sentience frames the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:74` — `// and AI assistance symbolic reasoning and sentience etc for more`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:497` — `// ── 2a. V5.9.451 — SENTIENCE + SYMBOLIC + PERSONALITY veto stack ──────`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:499` — `// and sentience etc for more success".`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:503` — `if (SentienceHooks.shouldFilterByPersonality("CYCLIC", "spot")) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:512` — `// loop-learning + sentience feedback into entry quality.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DashboardDataProvider.kt:11` — `* - SuperBrainEnhancements`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DashboardDataProvider.kt:75` — `val brainData = getSafeSuperBrainDashboard()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DashboardDataProvider.kt:207` — `sanitizeText(SuperBrainEnhancements.getCurrentSentiment(), "UNKNOWN")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DashboardDataProvider.kt:220` — `normalizeCount(SuperBrainEnhancements.getDashboardData().totalInsights)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DashboardDataProvider.kt:374` — `root.put("superBrain", SuperBrainEnhancements.toJson())`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DashboardDataProvider.kt:376` — `ErrorLogger.debug(TAG, "superBrain toJson error: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DashboardDataProvider.kt:377` — `root.put("superBrain", JSONObject())`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DashboardDataProvider.kt:431` — `private fun getSafeSuperBrainDashboard(): SuperBrainEnhancements.SuperBrainDashboard {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DashboardDataProvider.kt:433` — `SuperBrainEnhancements.getDashboardData()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DashboardDataProvider.kt:435` — `ErrorLogger.debug(TAG, "getSafeSuperBrainDashboard error: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DashboardDataProvider.kt:436` — `SuperBrainEnhancements.SuperBrainDashboard()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:507` — `try { com.lifecyclebot.engine.truth.AateDecisionFabric6512.sealForExecution(ticket.attemptId, ticket.mode, ticket.mint, ticket.candidateVersion, ticket.lane) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1230` — `if (com.lifecyclebot.engine.truth.AateDecisionFabric6512.get(mode6512, mint, winner.candidateVersion, winner.selectedLane) == null) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1231` — `com.lifecyclebot.engine.truth.AateDecisionFabric6512.record(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1881` — `// LiveProbabilityEngine/LaneAdaptiveDamping score+size shaping, never`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1886` — `com.lifecyclebot.engine.LiveProbabilityEngine.toxicShapeReason6489(canonicalSelectedLane)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:2526` — `//   AICrossTalk → getEntryScoreAdjustment (score boost only)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3199` — `* LiveStrategyTuner, UnifiedPolicyHead, ScannerLaneBridge, and journal/close`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3317` — `// outcome + ToxicModeCircuitBreaker loss + MetaCognition outcome`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3700` — `// (LiveStrategyTuner, LaneExitTuner, PatternAutoTuner, MetaCognition,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3978` — `MathematicalEdgeEngine.captureTerminal(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4004` — `// UnifiedPolicyHead / UnifiedExitPolicyHead / ForwardOutcomeModel see every`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4013` — `try { com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(mintForHeads4514, pnlForHeads4514) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4014` — `try { com.lifecyclebot.engine.UnifiedPolicyHead.recordOutcome(mintForHeads4514, pnlForHeads4514) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4015` — `// V5.0.6258 — PAPER→LIVE AGI REWIRE. Central-fanout StrategyHypothesisEngine`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4022` — `try { com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(mintForHeads4514, pnlForHeads4514) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4408` — `// ToxicMode, MetaCognition, BehaviorAI, Copilot, PersonalityMemory,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4543` — `// ── MetaCognitionAI ───────────────────────────────────`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4546` — `com.lifecyclebot.v3.scoring.MetaCognitionAI.recordTradeOutcome(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4644` — `// RunTracker30D, BehaviorLearning, MetaCognitionAI at their feature-rich`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4742` — `// / MetaCognitionAI can pattern-match on venue/route/safety/`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4901` — `* AGI/SSI/LLM/sentience should be able to add to an existing winner when fresh`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:5837` — `* recorded. The AI's learning stack (FluidLearningAI, UnifiedPolicyHead,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8732` — `if (heldSecs >= 45 && AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8733` — `val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts, isOpenPosition = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:9767` — `if (AICrossTalk.shouldCheckModeSwitch(ts.mint, mcapChange, liquidityChange, currentPnl)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:9768` — `val modeSwitchSignal = AICrossTalk.evaluateModeSwitchCrossTalk(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10837` — `// V5.0.4189 — Sentience pre-trade is ADVISORY ONLY.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10841` — `val sentienceAllowed4189 = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10842` — `com.lifecyclebot.engine.SentienceHooks.preTradeVeto(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10846` — `if (!sentienceAllowed4189) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10848` — `onLog("🧠 LLM SENTIENCE ADVISORY: ${ts.symbol} veto suggested but ignored for live-throughput doctrine", tradeId.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10849` — `com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SENTIENCE_VETO_ADVISORY_4189")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10850` — `com.lifecyclebot.engine.ForensicLogger.lifecycle("SENTIENCE_VETO_ADVISORY_4189", "mint=${ts.mint.take(10)} symbol=${ts.symbol} source=${ts.source.take(80)} action=ignored_no_hard_veto")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10896` — `// V5.9.401 — Sentience hook #7: dynamic size scaling (0.5..1.5×, default 1.0).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10898` — `com.lifecyclebot.engine.SentienceHooks.suggestSizeMultiplier(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10992` — `val snap = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11097` — `// shaped scanner priority but not buy size. UnifiedPolicyHead.conviction`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11144` — `val signals = UnifiedPolicyHead.Signals(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11150` — `com.lifecyclebot.engine.LiveProbabilityEngine.forecast(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11159` — `UnifiedPolicyHead.conviction(laneKeyForAgi, signals)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11161` — `// V5.0.4197 — StrategyHypothesisEngine must shape the executor-side`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11168` — `StrategyHypothesisEngine.getSizeBias(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11212` — `val superBrainSizeMult = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11219` — `SuperBrainEnhancements.recordSignal(ts.mint, ts.symbol, "EXECUTOR_ENTRY_SCORE", signalType)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11221` — `SuperBrainEnhancements.entrySizeMultiplier(ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11223` — `if (superBrainSizeMult != 1.0) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11225` — `ForensicLogger.lifecycle("SUPERBRAIN_ENTRY_SIZE_SHAPED_4265", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi score=${score.toInt()} mult=${superBrainSizeMult.fmt(3)}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11226` — `PipelineHealthCollector.labelInc("SUPERBRAIN_ENTRY_SIZE_SHAPED_4265")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11235` — `val metaCognitionSizeMult = try { MetaCognitionExecutorBridge.sizeMultiplierForLane(laneKeyForAgi) } catch (_: Throwable) { 1.0 }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11236` — `if (metaCognitionSizeMult != 1.0) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11238` — `ForensicLogger.lifecycle("METACOGNITION_EXECUTOR_SIZE_SHAPED_4267", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi mult=${metaCognitionSizeMult.fmt(3)} mode=${if (RuntimeModeAuthority.isPaper()) "paper" else "live"}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11239` — `PipelineHealthCollector.labelInc("METACOGNITION_EXECUTOR_SIZE_SHAPED_4267")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11302` — `"superBrain" to superBrainSizeMult,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11303` — `"metaCognition" to metaCognitionSizeMult,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11349` — `"superBrain" to superBrainSizeMult,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11350` — `"metaCog" to metaCognitionSizeMult,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11420` — `// via LiveProbabilityEngine snapshots and:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11427` — `val snap = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11445` — `val snap = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11481` — `hypothesisSizeMult, superBrainSizeMult, metaCognitionSizeMult,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11999` — `val policySignals6568 = UnifiedPolicyHead.Signals(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12002` — `fwdPWin = try { LiveProbabilityEngine.forecast(safeLane, score.toInt().coerceIn(0, 100), "C", try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" }).pWin } catch (_: Throwable) { 0.5 },`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12005` — `val policyPWin6568 = try { UnifiedPolicyHead.predictWinProb(safeLane, policySignals6568) } catch (_: Throwable) { 0.5 }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12013` — `"brainConsensus=$brainVerdict6568",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12015` — `"policyAuthority=${try { UnifiedPolicyHead.currentAuthority(safeLane).name } catch (_: Throwable) { "BOOTSTRAP" }}",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13567` — `brainConsensusVerdict = policyField6568(paperPolicySnapshot, "brainConsensus"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13568` — `brainConsensusConfidence = if (ts.lastConsensusObjections.isEmpty()) 1.0 else (1.0 / (1.0 + ts.lastConsensusObjections.size)),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13569` — `brainConsensusObjections = ts.lastConsensusObjections.joinToString("+").take(240),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14546` — `// tool adjusted thru the learning, brain, education, sentience and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14716` — `val snap = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots().firstOrNull { it.lane == laneName4595 }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15065` — `// BotBrain / MetaCognition / SentienceOrchestrator brains are`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15071` — `com.lifecyclebot.engine.BrainConsensusBridge6329.consult(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15376` — `// Use the same telemetry source LiveProbabilityEngine reads from, so the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16275` — `policyAuthority = try { UnifiedPolicyHead.currentAuthority(routedLaneTag) } catch (_: Throwable) { UnifiedPolicyHead.AuthorityTier.BOOTSTRAP },`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16276` — `metaCogMult = try { MetaCognitionExecutorBridge.sizeMultiplierForLane(routedLaneTag) } catch (_: Throwable) { 1.0 },`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16835` — `val snap = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18281` — `brainConsensusVerdict = policyField6568(ts.position.entryPolicySnapshot, "brainConsensus"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18282` — `brainConsensusConfidence = if (ts.lastConsensusObjections.isEmpty()) 1.0 else (1.0 / (1.0 + ts.lastConsensusObjections.size)),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18283` — `brainConsensusObjections = ts.lastConsensusObjections.joinToString("+").take(240),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21815` — `AICrossTalk.recordStampedEntryOutcome(ts.mint, pnlP, pnlP > 0, ts.position.tradingMode)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21894` — `SuperBrainEnhancements.updateInsightOutcome(ts.mint, outcomeStr, pnlP)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22084` — `try { com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24673` — `AICrossTalk.recordStampedEntryOutcome(ts.mint, pnlP, pnl > 0, ts.position.tradingMode)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24700` — `SuperBrainEnhancements.updateInsightOutcome(ts.mint, outcomeStr, pnlP)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24878` — `// V5.0.4542 — do NOT train ForwardOutcomeModel/UnifiedPolicyHead/`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24887` — `try { com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FdgBrainChain.kt:7` — `* reconciles the data path: lane/Toolkit score, UnifiedPolicyHead authority,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FdgBrainChain.kt:38` — `policyAuthority: UnifiedPolicyHead.AuthorityTier,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FdgBrainChain.kt:59` — `UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE -> agree += "policy_authoritative"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FdgBrainChain.kt:60` — `UnifiedPolicyHead.AuthorityTier.LEARNED -> agree += "policy_learned"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FdgBrainChain.kt:61` — `UnifiedPolicyHead.AuthorityTier.ADVISORY -> agree += "policy_advisory"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FdgBrainChain.kt:62` — `UnifiedPolicyHead.AuthorityTier.BOOTSTRAP -> agree += "policy_bootstrap_trade1"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FdgBrainChain.kt:103` — `cleanPositive && laneSig >= 55.0 && policyAuthority in setOf(UnifiedPolicyHead.AuthorityTier.LEARNED, UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE) -> "COMPOUND"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:864` — `// gates from trade #1, then hand over more authority as UnifiedPolicyHead and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:868` — `val policyAuthority6025 = try { UnifiedPolicyHead.currentAuthority(laneName) } catch (_: Throwable) { UnifiedPolicyHead.AuthorityTier.BOOTSTRAP }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:869` — `val metaCogMult6025 = try { MetaCognitionExecutorBridge.sizeMultiplierForLane(laneName) } catch (_: Throwable) { 1.0 }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:875` — `UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE -> maxOf(rawCandidateGateScore6025, laneConsensusScore6025)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:876` — `UnifiedPolicyHead.AuthorityTier.LEARNED -> maxOf(rawCandidateGateScore6025, laneConsensusScore6025 * 0.98)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:877` — `UnifiedPolicyHead.AuthorityTier.ADVISORY -> if (cleanPerfSupportsFluid6025 || metaCogMult6025 >= 0.98) maxOf(rawCandidateGateScore6025, laneConsensusScore6025 * 0.94) else rawCandidateGateScore6025`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:878` — `UnifiedPolicyHead.AuthorityTier.BOOTSTRAP -> if ((cleanPerfSupportsFluid6025 || metaCogMult6025 >= 0.98) && laneScoreDelta6025 >= 8.0) maxOf(rawCandidateGateScore6025, laneConsensusScore6025 * 0.90) else rawCandidateGateScore6025`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2364` — `val snap = LiveProbabilityEngine.laneSnapshots().firstOrNull { it.lane == laneU }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:3378` — `// LaneAutoPauseGuard reads LiveProbabilityEngine.laneSnapshots() and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:3538` — `// below: UnifiedPolicyHead.conviction() scales size by the LEARNED`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:3633` — `AICrossTalk.analyzeCrossTalk(ts, isOpenPosition = false)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:3664` — `// Wire-up: at the same composition point as AICrossTalk's shape,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4419` — `val report = BrainConsensusGate.evaluate(ts, fdgGateCandidate6025, modeTag)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4420` — `BrainConsensusGate.recordOutcome(report.verdict)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4427` — `BrainConsensusGate.Verdict.HARD_BLOCK -> {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4432` — `BrainConsensusGate.Verdict.SOFT_BLOCK -> {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4469` — `// UnifiedPolicyHead already encodes via fwdPWin/meta`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4500` — `// BrainConsensusGate "learned danger" is statistical evidence,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4546` — `BrainConsensusGate.Verdict.ALLOW -> { /* normal path */ }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4598` — `val fwd = ForwardOutcomeModel.forecast(mpLane, mpScore, candidate.setupQuality, mpRegime, candidate.edgePhase)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4599` — `ForwardOutcomeModel.stamp(ts.mint, mpLane, mpScore, candidate.setupQuality, mpRegime, candidate.edgePhase)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4631` — `val uphSignals = UnifiedPolicyHead.Signals(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4639` — `UnifiedPolicyHead.stamp(ts.mint, mpLane, uphSignals)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4643` — `val authConv = UnifiedPolicyHead.authoritativeConviction(mpLane, uphSignals)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4647` — `tags.add("agi_auth:${mpLane}:${UnifiedPolicyHead.currentAuthority(mpLane).name}:${"%.2f".format(authConv)}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4648` — `checks.add(GateCheck("agi_authority_head", true, "lane=$mpLane tier=${UnifiedPolicyHead.currentAuthority(mpLane).name} pWin=${(UnifiedPolicyHead.predictWinProb(mpLane, uphSignals)*100).toInt()}% mult=${"%.2f".format(authConv)} brier=${"%.3f".format(UnifiedPolicyHead.brierScore(mpLane))} size ${befor`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4652` — `// V5.0.4096 — emit override into sentience family so`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4654` — `try { com.lifecyclebot.engine.SentienceOrchestrator.noteRuntimeEvent(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4656` — `"mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$mpLane tier=${UnifiedPolicyHead.currentAuthority(mpLane).name} mult=${"%.2f".format(authConv)} brier=${"%.3f".format(UnifiedPolicyHead.brierScore(mpLane))}",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4660` — `val uph = UnifiedPolicyHead.conviction(mpLane, uphSignals)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4665` — `checks.add(GateCheck("unified_policy_head", true, "lane=$mpLane pWin=${(UnifiedPolicyHead.predictWinProb(mpLane, uphSignals)*100).toInt()}% mult=${"%.2f".format(uph)} size ${before.format(3)}→${finalSize.format(3)}"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4674` — `val hypoBias = StrategyHypothesisEngine.getSizeBias(mpLane, effectiveGateScore6025.toInt(), mpRegime, ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4974` — `com.lifecyclebot.engine.truth.AateDecisionFabric6512.record(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4982` — `learningState = "entryHead=${com.lifecyclebot.engine.UnifiedPolicyHead.currentAuthority(laneName).name};meta=${"contexts=" + com.lifecyclebot.engine.AutonomousMetaPolicy.contextCount()}",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ForwardOutcomeModel.kt:9` — `* ForwardOutcomeModel — V5.9.1261  (Roadmap STEP 2: forward-simulation / counterfactual)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ForwardOutcomeModel.kt:33` — `object ForwardOutcomeModel {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FreeRangeMode.kt:235` — `* adjustmentStrength: LLM/Sentience tuner ramp. 0.0 = no tuning,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/GeminiCopilot.kt:90` — `// V5.0.6677 §KEYLESS_SENTIENCE_BRIDGE — pseudo-provider that`
+- `app/src/main/kotlin/com/lifecyclebot/engine/GeminiCopilot.kt:93` — `// never empty so SentienceHooks.llmStatus() can remain available even`
+- `app/src/main/kotlin/com/lifecyclebot/engine/GeminiCopilot.kt:832` — `val snap = com.lifecyclebot.v4.meta.CrossTalkFusionEngine.getSnapshot()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HeldPositionPivotArbiter.kt:27` — `*     • ForwardOutcomeModel.forecast(lane,...) — forward pWin × expectedPnl per`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HeldPositionPivotArbiter.kt:40` — `*   • Self-crediting: on pivot it re-stamps ForwardOutcomeModel with the new lane`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HeldPositionPivotArbiter.kt:154` — `ForwardOutcomeModel.stamp(mint, bestLane, score, quality, regime, edgePhase)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HeldPositionPivotArbiter.kt:186` — `ForwardOutcomeModel.forecast(lane, score, quality, regime, edgePhase)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneAutoPauseGuard.kt:202` — `// LiveProbabilityEngine.laneSnapshots -> StrategyTelemetry which`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneTag.kt:11` — `*   - AICrossTalk didn't ask at all`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LayerBrain.kt:26` — `*      AUTHORITATIVE) with calibration-aware demote (mirrors UnifiedPolicyHead).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LayerBrain.kt:38` — `*     of `UnifiedPolicyHead`. No retry logic, no allocation churn.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LayerBrain.kt:63` — `// Brier-calibrated demote thresholds (mirror UnifiedPolicyHead).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LayerBrain.kt:66` — `// Authority thresholds — identical to UnifiedPolicyHead for consistency.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LayerBrain.kt:250` — `// Tier graduation events — soft narrate into sentience family.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LayerBrain.kt:255` — `try { SentienceOrchestrator.noteRuntimeEvent(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningLifecycleBus.kt:6` — `* Tiny hot-path facade over MathematicalEdgeEngine. It standardizes labels for`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningLifecycleBus.kt:11` — `* MathematicalEdgeEngine / ChokeReliefBus coroutine fanout.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningLifecycleBus.kt:94` — `MathematicalEdgeEngine.captureEntryOpportunity(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningLifecycleBus.kt:141` — `MathematicalEdgeEngine.captureSizing(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningLifecycleBus.kt:182` — `MathematicalEdgeEngine.captureExitDecision(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningLifecycleBus.kt:231` — `fun status(): String = "${VERSION} signals=candidate,reject,probe,admit,sizing,fill,exit,terminal source_level=true coroutine_consumers=MathematicalEdgeEngine+ChokeReliefBus no_trade_authority=true"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:20` — `* sentience llm symbolic reasoning is all meant to be persistent."`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:163` — `putBlob("SENTIENCE",      com.lifecyclebot.engine.SentienceOrchestrator.exportState())`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:171` — `try { putBlob("META_COGNITION",  com.lifecyclebot.v3.scoring.MetaCognitionAI.exportState()) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:173` — `try { putBlob("FORWARD_OUTCOME_MODEL", com.lifecyclebot.engine.ForwardOutcomeModel.exportState()) } catch (_: Throwable) {}  // V5.9.1261`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:176` — `try { putBlob("UNIFIED_POLICY_HEAD", com.lifecyclebot.engine.UnifiedPolicyHead.exportState()) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:178` — `try { putBlob("STRATEGY_HYPOTHESIS", com.lifecyclebot.engine.StrategyHypothesisEngine.exportState()) } catch (_: Throwable) {}  // V5.9.1263`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:200` — `// AICrossTalk. Persist them here so restart does not erase order`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:218` — `// SentienceHooks + NetworkSignalAutoBuyer are SAFETY-FIRST per`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:221` — `try { putBlob("SENTIENCE_HOOKS",   com.lifecyclebot.engine.SentienceHooks.exportState()) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:259` — `getBlob("SENTIENCE")?.let      { com.lifecyclebot.engine.SentienceOrchestrator.importState(it) }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:262` — `try { getBlob("FORWARD_OUTCOME_MODEL")?.let { com.lifecyclebot.engine.ForwardOutcomeModel.importState(it) } } catch (_: Throwable) {}  // V5.9.1261`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:265` — `try { getBlob("UNIFIED_POLICY_HEAD")?.let { com.lifecyclebot.engine.UnifiedPolicyHead.importState(it) } } catch (_: Throwable) {}  // V5.9.1262`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:266` — `try { getBlob("STRATEGY_HYPOTHESIS")?.let { com.lifecyclebot.engine.StrategyHypothesisEngine.importState(it) } } catch (_: Throwable) {}  // V5.9.1263`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:284` — `try { getBlob("META_COGNITION")?.let { com.lifecyclebot.v3.scoring.MetaCognitionAI.importState(it) } } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:307` — `try { getBlob("SENTIENCE_HOOKS")?.let  { com.lifecyclebot.engine.SentienceHooks.importState(it) } } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:323` — `//   Used for FluidLearningAI meme counters + SentienceOrchestrator`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:427` — `z("META_COGNITION")    { com.lifecyclebot.v3.scoring.MetaCognitionAI.reset() }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:429` — `z("FORWARD_OUTCOME")   { com.lifecyclebot.engine.ForwardOutcomeModel.reset() }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:431` — `z("STRATEGY_HYPOTHESIS"){ com.lifecyclebot.engine.StrategyHypothesisEngine.reset() }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:446` — `// UnifiedPolicyHead has no reset(): clear its persisted blob so the next`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LifecycleStrategy.kt:496` — `val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts, isOpenPosition = false)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LifecycleStrategy.kt:497` — `if (crossTalkSignal.signalType != AICrossTalk.SignalType.NO_CORRELATION) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LifecycleStrategy.kt:509` — `val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts, isOpenPosition = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveEntrySafetyHold.kt:158` — `// MEANT to shrink size (they already do so via BrainConsensusBridge`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveLaneGovernor.kt:38` — `*      livePF≥WINNER_PF, the LiveProbabilityEngine's paused-lane`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:7` — `* ForwardOutcomeModel, UnifiedPolicyHead, StrategyTelemetry lane priors, and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:19` — `object LiveProbabilityEngine {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:91` — `* too far — LiveProbabilityEngine now sees pWin=0% E=-28.7% at n=8 and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:189` — `//   • UnifiedPolicyHead AUTHORITATIVE + positive fwd prediction:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:239` — `UnifiedPolicyHead.formatForPipelineDump()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:264` — `val fwd = ForwardOutcomeModel.forecast(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:275` — `// LiveProbabilityEngine while StrategyExpectancy tracks n=700/178/544`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:319` — `val signals = UnifiedPolicyHead.Signals(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:327` — `val policyP = UnifiedPolicyHead.predictWinProb(signals).coerceIn(0.0, 1.0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:333` — `val policySamples6077 = UnifiedPolicyHead.trainedCount().coerceAtLeast(0L)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:357` — `// (composite score, ForwardOutcomeModel pWin, forward pRug)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:578` — `if (rows.isEmpty()) "LiveProbabilityEngine: rapid-live/no clean terminal rows yet"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:579` — `else "LiveProbabilityEngine: " + rows.joinToString(" · ") { "${it.lane}:pWin=${"%.0f".format(it.pWin * 100)}% E=${"%+.1f".format(it.expectedPnlPct)}% size×=${"%.2f".format(it.sizeMult)} n=${it.samples}" }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:580` — `} catch (_: Throwable) { "LiveProbabilityEngine: unavailable" }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveTransferAudit.kt:39` — `val fwdSignatures = try { ForwardOutcomeModel.signatureCount() } catch (_: Throwable) { -1 }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveTransferAudit.kt:40` — `val uphTrained = try { UnifiedPolicyHead.trainedCount() } catch (_: Throwable) { -1L }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveWinDNAStore.kt:24` — `* super-AGI / meta-cog / sentience brains have a shared, transferable`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt:22` — `object MathematicalEdgeEngine {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt:191` — `val lp = LiveProbabilityEngine.forecast(e.lane, e.score.toInt().coerceIn(0, 100), e.style.ifBlank { "U" }, e.regime.ifBlank { "NORMAL" }, e.stage, candidateConfidence = (e.confidence / 100.0).coerceIn(0.0, 1.0))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt:192` — `val fwd = ForwardOutcomeModel.forecast(e.lane, e.score.toInt().coerceIn(0, 100), e.style.ifBlank { "U" }, e.regime.ifBlank { "NORMAL" }, e.stage)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt:194` — `val uph = UnifiedPolicyHead.predictWinProb(e.lane, UnifiedPolicyHead.Signals(mlEntryConf = (e.confidence / 100.0).coerceIn(0.0,1.0), symGreenLight = sem.sizeMult.coerceIn(0.0,1.0), evRatio = ((lp.expectedPnlPct + 50.0) / 100.0).coerceIn(0.0,1.0), metaConviction = lp.sizeMult.coerceIn(0.0,1.0), fwdPW`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt:195` — `readback("LiveProbabilityEngine"); readback("ForwardOutcomeModel"); readback("UnifiedPolicyHead"); readback("SemanticPatternGraph")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt:204` — `val lp = LiveProbabilityEngine.forecast(e.lane, scoreInt, e.style.ifBlank { "MEE" }, regimeForEdge, e.stage)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt:205` — `val fwd = ForwardOutcomeModel.forecast(e.lane, scoreInt, e.style.ifBlank { "MEE" }, regimeForEdge, e.stage)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt:206` — `ForwardOutcomeModel.stamp(e.mint, e.lane, scoreInt, e.style.ifBlank { "MEE" }, regimeForEdge, e.stage)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt:207` — `UnifiedPolicyHead.stamp(e.mint, e.lane, UnifiedPolicyHead.Signals(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt:215` — `readback("ForwardOutcomeModel.stamp"); readback("UnifiedPolicyHead.stamp"); readback("LiveProbabilityEngine.sizing")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt:217` — `try { LiveStrategyTuner.adjustment(e.lane); LaneExpectancyDamper.sizeMultiplier(e.lane); CapitalEfficiencyBrain.sizeMultiplier(e.lane, e.source); StrategyHypothesisEngine.getSizeBias(e.lane, scoreInt, regimeForEdge, e.mint); StrategyHypothesisEngine.getStopBias(e.lane, scoreInt, regimeForEdge, e.min`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt:225` — `proposal = "MathematicalEdgeEngine observed high-score candidate score=${e.score.toInt()} lane=${e.lane} source=${e.source} compressed to multiplier=${fmt(e.clampedMultiplier,3)} finalSol=${fmt(e.finalSol,4)}. Test bounded recovery-size lift only for matching lane/source/regime when terminal expecta`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt:245` — `try { CounterfactualReplayEngine.policyHints(e.lane); ExitCostMicrobrain.exitUrgencyHint(e.lane, e.liquidityUsd, e.reason); CapitalEfficiencyBrain.sizeMultiplier(e.lane, e.source); StrategyHypothesisEngine.peekSizeBias(e.lane, scoreInt, e.regime.ifBlank { "NORMAL" }, e.mint); readback("Counterfactua`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt:253` — `proposal = "MathematicalEdgeEngine terminal anomaly lane=${e.lane} source=${e.source} score=${e.score.toInt()} pnl=${fmt(e.pnlPct,1)} peak=${fmt(e.peakGainPct,1)} draw=${fmt(e.maxDrawdownPct,1)} reason=${e.reason.take(120)}. Test bounded exit-bias adjustment for matching DNA only; do not override ha`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt:338` — `try { LiveProbabilityEngine.statusLine().take(140) } catch (_: Throwable) { "LiveProbabilityEngine:error" },`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt:339` — `try { ForwardOutcomeModel.formatForPipelineDump().lineSequence().firstOrNull()?.take(140) ?: "ForwardOutcomeModel:empty" } catch (_: Throwable) { "ForwardOutcomeModel:error" },`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt:340` — `try { UnifiedPolicyHead.formatForPipelineDump().lineSequence().firstOrNull()?.take(140) ?: "UnifiedPolicyHead:empty" } catch (_: Throwable) { "UnifiedPolicyHead:error" },`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt:342` — `try { StrategyHypothesisEngine.formatForPipelineDump().lineSequence().firstOrNull()?.take(140) ?: "StrategyHypothesisEngine:empty" } catch (_: Throwable) { "StrategyHypothesisEngine:error" },`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt:346` — `appendLine("  queued=${queued.get()} processed=${processed.get()} dropped=${dropped.get()} coroutine=AppDispatchers.sideEffect authority=report+learning_data_only integrations=UltimateEdgeEngine+CounterfactualReplayEngine+SemanticPatternGraph+AsyncStrategyLab+MultiplierAttributionLedger+ExitCostMicr`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MemeCrossTalkEntryBridge.kt:15` — `val signal = try { AICrossTalk.analyzeCrossTalk(ts, isOpenPosition) } catch (_: Throwable) { null }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MemeCrossTalkEntryBridge.kt:24` — `AICrossTalk.stampEntrySignal(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MemeTraderFullAuditSweeper.kt:10` — `* SuperBrain, Express, ShadowLearning, exit manager duplication, hold-time, and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MemeTraderFullAuditSweeper.kt:11` — `* MetaCognition consumption. It never gates trading.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MemeTraderFullAuditSweeper.kt:25` — `val aiCrossTalk = src("src/main/kotlin/com/lifecyclebot/engine/AICrossTalk.kt")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MemeTraderFullAuditSweeper.kt:33` — `val meta = src("src/main/kotlin/com/lifecyclebot/engine/MetaCognitionAI.kt") + src("src/main/kotlin/com/lifecyclebot/v3/scoring/MetaCognitionAI.kt")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MemeTraderFullAuditSweeper.kt:35` — `val superBrain = src("src/main/kotlin/com/lifecyclebot/engine/SuperBrainEnhancements.kt")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MemeTraderFullAuditSweeper.kt:38` — `item("PASS_B_CROSSTALK_ENTRY_CONSUMPTION_4261", aiCrossTalk.contains("analyzeCrossTalk") && (bot + executor + fdg).contains("analyzeCrossTalk") && (bot + executor + fdg).contains("MemeCrossTalkEntryBridge"), "AICrossTalk must shape entry decisions, not only reports/final gate"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MemeTraderFullAuditSweeper.kt:42` — `item("PASS_E_SUPERBRAIN_CONSUMPTION_4261", superBrain.contains("entrySizeMultiplier") && executor.contains("SuperBrainEnhancements.recordSignal") && executor.contains("SuperBrainEnhancements.entrySizeMultiplier") && executor.contains("SUPERBRAIN_ENTRY_SIZE_SHAPED_4265"), "SuperBrainEnhancements must`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MemeTraderFullAuditSweeper.kt:47` — `item("PASS_J_METACOGNITION_CONSUMPTION_4261", meta.isNotBlank() && executor.contains("MetaCognitionExecutorBridge.sizeMultiplierForLane") && src("src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt").contains("MetaCognitionAI.getTrustMultiplier"), "MetaCognition grade must be cons`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt:3` — `import com.lifecyclebot.v3.scoring.MetaCognitionAI`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt:5` — `/** V5.0.4267 — executor-side MetaCognition consumer for high-throughput lanes.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt:10` — `object MetaCognitionExecutorBridge {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt:13` — `val analyzed6077 = MetaCognitionAI.getTotalTradesAnalyzed()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt:18` — `MetaCognitionAI.AILayer.ENTRY_INTELLIGENCE,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt:19` — `MetaCognitionAI.AILayer.LIQUIDITY_DEPTH,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt:20` — `MetaCognitionAI.AILayer.MOMENTUM_PREDICTOR,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt:21` — `MetaCognitionAI.AILayer.VOLATILITY_REGIME,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt:22` — `MetaCognitionAI.AILayer.EXECUTION_COST_PREDICTOR,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt:24` — `val mults = (listOfNotNull(trader) + core).map { MetaCognitionAI.getTrustMultiplier(it).coerceIn(0.55, 1.65) }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt:29` — `private fun traderLayerFor(lane: String): MetaCognitionAI.AILayer? {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt:32` — `l.contains("SHIT") -> MetaCognitionAI.AILayer.SHITCOIN_TRADER`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt:33` — `l.contains("EXPRESS") -> MetaCognitionAI.AILayer.SHITCOIN_EXPRESS`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt:34` — `l.contains("QUALITY") -> MetaCognitionAI.AILayer.QUALITY_TRADER`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt:35` — `l.contains("BLUE") -> MetaCognitionAI.AILayer.BLUECHIP_TRADER`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt:36` — `l.contains("MOON") -> MetaCognitionAI.AILayer.MOONSHOT_TRADER`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt:37` — `l.contains("DIP") -> MetaCognitionAI.AILayer.DIP_HUNTER`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MoonshotPivotArbiter.kt:65` — `val p = try { LiveProbabilityEngine.forecast("MOONSHOT", score.toInt(), ts.meta.setupQuality, regime) } catch (_: Throwable) { null }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorAdaptiveStatusDigest.kt:6` — `val liveProb = try { LiveProbabilityEngine.statusLine().take(120) } catch (_: Throwable) { "LiveProbabilityEngine unavailable" }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorAdaptiveStatusDigest.kt:11` — `val sentience = try { SentienceHooks.statusSummary().take(160) } catch (_: Throwable) { "SentienceHooks unavailable" }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorAdaptiveStatusDigest.kt:16` — `return "OPERATOR_ADAPTIVE_STATUS_DIGEST_4365 liveProb=[$liveProb] quality=[$quality] laneExpectancy=[$laneExpectancy] antiChoke=[$antiChoke] freeRange=[$freeRange] sentience=[$sentience] llmLab=[$llmLab] llmStore=[$llmStore] coldStreak=[$coldStreak] execCounters=[$execCounters] report_only=true no_g`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorCQ3CQ4PauseRejectHitList.kt:30` — `files = listOf("BotService.kt", "AgenticStyleRouter.kt", "BrainConsensusGate.kt", "CanonicalLearning.kt"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorChokeButterflyAuditLedger.kt:33` — `sampleFiles = listOf("BotService.kt", "TradeAuthorizer.kt", "ExecutableOpenGate.kt", "AICrossTalk.kt", "CollectiveLearning.kt")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorChokeButterflyAuditLedger.kt:47` — `sampleFiles = listOf("BotService.kt", "AgenticStyleRouter.kt", "BrainConsensusGate.kt", "DataOrchestrator.kt", "CanonicalLearning.kt")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorChokeRemediationQueue.kt:49` — `confirmedSiblings = listOf("BotService.kt", "AgenticStyleRouter.kt", "BrainConsensusGate.kt", "CanonicalLearning.kt", "ScannerHardRejectStore.kt"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorFullLearningSystemAuditDigest.kt:45` — `"ForwardOutcomeModel",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorFullLearningSystemAuditDigest.kt:46` — `"UnifiedPolicyHead",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorFullLearningSystemAuditDigest.kt:48` — `"StrategyHypothesisEngine",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorFullLearningSystemAuditDigest.kt:69` — `"LiveProbabilityEngine",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorFullLearningSystemAuditDigest.kt:73` — `"MetaCognitionExecutorBridge",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest12.kt:18` — `Item("MetaCognitionAI", "v3/scoring/MetaCognitionAI.kt", "meta_cognition_ai_surface"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest3.kt:52` — `Item("LiveProbabilityEngine", "engine/LiveProbabilityEngine.kt", "live_probability_engine"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest4.kt:9` — `Item("BrainConsensusGate", "engine/BrainConsensusGate.kt", "brain_consensus_gate"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest6.kt:31` — `Item("StrategyHypothesisEngine", "engine/StrategyHypothesisEngine.kt", "strategy_hypothesis_engine"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest7.kt:8` — `Item("ForwardOutcomeModel", "engine/ForwardOutcomeModel.kt", "forwardoutcomemodel_surface"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest7.kt:44` — `Item("SuperBrainEnhancements", "engine/SuperBrainEnhancements.kt", "superbr_ainenhancements_surface"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest8.kt:25` — `Item("UnifiedPolicyHead", "engine/UnifiedPolicyHead.kt", "unifiedpolicyhead_surface"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest8.kt:40` — `Item("CrossTalkFusionEngine", "v4/meta/CrossTalkFusionEngine.kt", "crosstalkfusionengine_surface"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest9.kt:12` — `Item("AICrossTalk", "engine/AICrossTalk.kt", "aicrosstalk_surface"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OperatorV3ScoringDigest.kt:11` — `val meta = "MetaCognitionAI decision summary instance-scoped"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PersonalityMemoryStore.kt:124` — `// V5.9.129: LLM-driven self-reflection milestones from SentienceOrchestrator`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:1949` — `// V5.0.6444 — Sentience/Lab reward bridge + trader sizing bridge.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:1950` — `sb.append("  Sentience reward bridge(§6444)").append(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:1951` — `com.lifecyclebot.engine.truth.SentienceLabRewardBridge6444.statusLine()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:2158` — `// V5.9.915 — Regime / LosingPattern / BrainConsensus telemetry.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:2160` — `try { sb.append(MathematicalEdgeEngine.formatForPipelineDump()) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:2166` — `val bcg = BrainConsensusGate.formatForPipelineDump()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:2168` — `val fwdDump = try { com.lifecyclebot.engine.ForwardOutcomeModel.formatForPipelineDump() } catch (_: Throwable) { "" }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:2169` — `val uphDump = try { com.lifecyclebot.engine.UnifiedPolicyHead.formatForPipelineDump() } catch (_: Throwable) { "" }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:2171` — `val hypoDump = try { com.lifecyclebot.engine.StrategyHypothesisEngine.formatForPipelineDump() } catch (_: Throwable) { "" }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt:465` — `appendLine(safe("unified_policy_head") { UnifiedPolicyHead.formatForPipelineDump().trim() }.ifBlank { "Unified Policy Head: no trained weights yet" })`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt:475` — `appendLine(safe("live_probability_engine") { LiveProbabilityEngine.statusLine() })`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt:485` — `appendLine(safe("strategy_hypothesis") { StrategyHypothesisEngine.formatForPipelineDump().trim() }.ifBlank { "Strategy Hypothesis Engine: no active/promoted experiments" })`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt:490` — `// so every AGI/LLM/SSI/meta-cog/sentience layer has a live snapshot to`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeDoctor.kt:74` — `publishSentienceEventReflections(faults)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeDoctor.kt:96` — `private fun publishSentienceEventReflections(faults: List<InvariantGuardian.Fault>) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeDoctor.kt:102` — `SentienceOrchestrator.noteRuntimeEvent(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerSourceBrain.kt:21` — `*     same Bernoulli/logistic update vocabulary as UnifiedPolicyHead +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerSourceBrain.kt:32` — `* Authority tiers mirror UnifiedPolicyHead:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerSourceBrain.kt:250` — `// Narrate into sentience family so the personality reflects on it`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ScannerSourceBrain.kt:251` — `SentienceOrchestrator.noteRuntimeEvent(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SelfHealingDiagnostics.kt:327` — `safeClear("SuperBrainEnhancements") { SuperBrainEnhancements.clear() }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceHooks.kt:16` — `*  V5.9.401 — SENTIENCE HOOKS (LLM-driven cross-engine intervention orchestrator)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceHooks.kt:33` — `object SentienceHooks {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceHooks.kt:35` — `private const val TAG = "SentienceHooks"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceHooks.kt:91` — `// V5.0.6678 §TRADE_QUALITY_SENTIENCE_LOOP — six hours was effectively`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceHooks.kt:113` — `// sentience/symbolic layer when in reality the layer was NEUTRAL because`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceHooks.kt:173` — `try { PipelineHealthCollector.labelInc("SENTIENCE_ENTRY_REVIEW_REQUESTED_6678") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceHooks.kt:187` — `try { PipelineHealthCollector.labelInc("SENTIENCE_ENTRY_VETO_6678") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceHooks.kt:190` — `try { PipelineHealthCollector.labelInc("SENTIENCE_ENTRY_ALLOW_6678") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceHooks.kt:263` — `try { PipelineHealthCollector.labelInc("SENTIENCE_CANONICAL_OUTCOME_CONSUMED_6486") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceHooks.kt:269` — `try { PipelineHealthCollector.labelInc("SENTIENCE_DIRECT_OUTCOME_REJECTED_6486") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceHooks.kt:274` — `try { PipelineHealthCollector.labelInc("SENTIENCE_DIRECT_OUTCOME_REJECTED_6486") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceHooks.kt:455` — `"UnifiedPolicy trained=${UnifiedPolicyHead.trainedCount()} authority=${UnifiedPolicyHead.currentAuthority().name}"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceHooks.kt:486` — `try { PipelineHealthCollector.labelInc("SENTIENCE_AUTOTUNE_ATTEMPT_6678") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceHooks.kt:506` — `try { PipelineHealthCollector.labelInc("SENTIENCE_AUTOTUNE_APPLIED_6678") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceHooks.kt:512` — `try { PipelineHealthCollector.labelInc("SENTIENCE_AUTOTUNE_NO_APPLY_6678") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:5` — `import com.lifecyclebot.v4.meta.CrossTalkFusionEngine`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:18` — `* V5.9.129 — SENTIENCE ORCHESTRATOR`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:40` — `object SentienceOrchestrator {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:42` — `private const val TAG = "Sentience"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:61` — `* V5.0.3820 — EVENT_TRIGGERED_SENTIENCE_SAFE.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:99` — `try { PipelineHealthCollector.labelInc("SENTIENCE_EVENT_REFLECTION") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:112` — `ErrorLogger.info(TAG, "🌌 Sentience loop started (every ${REFLECT_INTERVAL_MS / 60_000}min)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:180` — `try { PipelineHealthCollector.labelInc("SENTIENCE_REFLECTION_DIAGNOSTIC_ONLY_6641") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:217` — `// V5.9.224 — MetaCognitionAI trust intelligence`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:258` — `val v4Snap = try { CrossTalkFusionEngine.getSnapshot() } catch (_: Exception) { null }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:297` — `// V5.9.224 — MetaCognitionAI trust intelligence`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:300` — `com.lifecyclebot.v3.scoring.MetaCognitionAI.getAllLayerPerformance()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:310` — `com.lifecyclebot.v3.scoring.MetaCognitionAI.getAllLayerPerformance()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:320` — `com.lifecyclebot.v3.scoring.MetaCognitionAI.getAllLayerPerformance()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:327` — `com.lifecyclebot.v3.scoring.MetaCognitionAI.getTotalTradesAnalyzed()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:340` — `• 41+ AI scoring layers: V3 classic (27 layers incl. BehaviorAI, MetaCognitionAI,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:344` — `• V4 meta-intelligence: CrossTalkFusionEngine, StrategyTrustAI, CrossMarketRegimeAI,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:352` — `• Full reflective loop: you → CrossTalkFusionEngine → V4 FDE → V3 UnifiedScorer → you.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:357` — `BehaviorAdj, CrossTalkExit, LocalRegime, ShadowWR, EducationLevel, MetaCognition,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:459` — `// V5.9.224 — MetaCognitionAI trust intelligence in LLM prompt`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:461` — `appendLine("MetaCognition trust analysis (${s.metaTradesAnalyzed} trades tracked):")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:602` — `try { PipelineHealthCollector.labelInc("SENTIENCE_MUTATION_DIAGNOSTIC_ONLY_6642") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt:614` — `// V5.9.439 — DURABLE SENTIENCE MEMORY`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SentientPersonality.kt:106` — `* V5.9.129 — SentienceOrchestrator entry point. Lets the autonomous`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SignalQualityTracker.kt:11` — `* (ForwardOutcomeModel) that emits pWin / E[pnl] per signature and nudges`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SmartChartScanner.kt:20` — `* - Feeds insights to SuperBrainEnhancements`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SmartChartScanner.kt:184` — `// Record insights to SuperBrain`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SmartChartScanner.kt:688` — `// SUPERBRAIN INTEGRATION`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SmartChartScanner.kt:695` — `SuperBrainEnhancements.recordChartInsight(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SmartChartScanner.kt:707` — `SuperBrainEnhancements.recordChartInsight(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SmartChartScanner.kt:723` — `SuperBrainEnhancements.recordSignal(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt:257` — `// ForwardOutcomeModel bend on line 285-289 still pulls the BOOST`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt:273` — `com.lifecyclebot.engine.LiveProbabilityEngine.forecast(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt:281` — `} catch (_: Throwable) { com.lifecyclebot.engine.LiveProbabilityEngine.Edge(laneMode.ifBlank { "STANDARD" }, 0.5, 0.0, 0.0, 0.0, 0L, "failopen", 1.0, "") }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SmartSystemRuntimeRegistry.kt:56` — `SmartSystem("StrategyVariantStore", RuntimeClass.INTERFACE_USED, "strategy_genome", "V5.0.4342 consumed by StrategyHypothesisEngine size bias and terminal outcome fanout"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SsiCouncilClosedLoopSentinel.kt:17` — `val sentience = try { SentienceHooks.statusSummary().take(140) } catch (_: Throwable) { "SentienceHooks unavailable" }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SsiCouncilClosedLoopSentinel.kt:18` — `return "SSI_COUNCIL_CLOSED_LOOP_4381 semantic=[$semantic] replay=[$replay] reviewedBias=${String.format(java.util.Locale.US, "%.3f", reviewedBias)} sentience=[$sentience] chain=SemanticPatternGraph.entryBias+CounterfactualReplayEngine.policyHints->ReflectiveOptimizerGEPA->MultiAgentCriticStack.revie`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SsiPilotCouncil.kt:18` — `*   • SentienceOrchestrator symbolic state (risk / conf / health / edge / mood)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SsiPilotCouncil.kt:19` — `*   • MetaCognitionAI layer trust`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SsiPilotCouncil.kt:147` — `try { SentienceOrchestrator.noteRuntimeEvent("SSI_PILOT", parsed.note.take(200), "INFO") } catch (_: Throwable) {}`
+- … 481 more
+
+## Canonical position binding
+
+Count: **444**
+
+- `app/src/main/kotlin/com/lifecyclebot/AATEApp.kt:163` — `// canonical position/account reconstruction has finished. We open`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMintBurnMonitor.kt:37` — `val positionOpenedMs: Long,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMintBurnMonitor.kt:59` — `positionOpenedMs    = System.currentTimeMillis(),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMintBurnMonitor.kt:89` — `if (ev.timestampMs <= state.positionOpenedMs) continue`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1604` — `"tick=$tick managed=${managedThisTick6663.size} canonicalOpen=${openTokens.size} openMints cursor=${hotExitCoverageCursor6663.get()}",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1670` — `val repairedPaperPositions6490 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().filter { it.mode == "paper" }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4059` — `val occupancyBlocked6464 = admission6464 == com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.Admission.BLOCK_OPEN ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4089` — `// from the canonical open predicate — the single source of truth.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4659` — `for (canonical in com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4672` — `val ageMs6538 = System.currentTimeMillis() - canonical.openedAtMs`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4681` — `"symbol=${canonical.symbol} openedAgeMs=$ageMs6538 " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13535` — `val canonicalOpen = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13554` — `canonicalLiveOpenCount = canonicalOpen,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13957` — `val open = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14243` — `// V5.0.6647 — forced/canonical opens are exit work, never discovery`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15325` — `// Feeds the canonical open-market-value from CanonicalCapitalAuthority6450`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15345` — `// canonical open positions surface. When occupancy leaks`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15367` — `// Emit the delta between the canonical open-position`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15371` — `val canonicalOpen = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().size`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15373` — `val occOpen = occSnap[com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.Occupancy.OPEN] ?: 0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15374` — `val delta = occOpen - canonicalOpen`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15379` — `"canonicalOpen=$canonicalOpen registryOpen=$occOpen delta=$delta",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15384` — `// Detects canonical-CLOSED but occupancy-OPEN drift and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15398` — `canonicalOpenCostBasisSol = cap6470.openCostBasisSol,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16852` — `val canonicalOpenForPriority6489 = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16853` — `com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().map { it.mint }.toSet()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16857` — `val opens = all.filter { it in canonicalOpenForPriority6489 }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16858` — `val candidates = all.filterNot { it in canonicalOpenForPriority6489 }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16987` — `com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17063` — `// Discovery selection priority (canonical opens are owned by the exit`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17266` — `com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().size`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17269` — `ForensicLogger.lifecycle("POST_SUPERVISOR_CANONICAL_OPEN_PARITY_6647", "postSupervisorOpen=$postSupervisorOpenCount canonicalOpen=$postSupervisorOpenCount equal=true")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18306` — `// "rawForced=68 rawOpen=68 canonicalPaperOpen=29". 39 paper`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19219` — `/** V5.0.6512 — every exit sweep starts from canonical OPEN authority.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19224` — `val canonical = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19300` — `// CanonicalPositionAuthority6441.openPosition). Belt-and-`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19358` — `com.lifecyclebot.engine.ForensicLogger.lifecycle("CANONICAL_EXIT_FEED_6512", "canonicalOpen=${canonical.size} exitVisible=${out.size} projected=$projected cacheHydrated=$cacheHydrated missingTokenState=$missingState missingMark=$missingMark")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19392` — `val canonicalOpenTokensForFloor6663 = canonicalExitTokenSnapshot6512()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19394` — `canonicalOpenTokensForFloor6663, maxItems = 24, cursor = fullExitCoverageCursor6663,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19415` — `"elapsedMs=${System.currentTimeMillis() - fullSweepStartedAt} positionsSeen=${canonicalOpenTokensForFloor6663.size} slice=${openTokensForFloor.size} processed=$floorPositionsProcessed budgetMs=$FULL_SWEEP_HARD_DEADLINE_MS cursor=${fullExitCoverageCursor6663.get()}",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19753` — `val canonicalOpen6647 = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19754` — `com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.firstOpenForMint(mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19756` — `if (canonicalOpen6647 != null) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19758` — `PipelineHealthCollector.labelInc("CANONICAL_OPEN_ROUTED_DIRECT_TO_EXIT_6647")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19759` — `ForensicLogger.lifecycle("CANONICAL_OPEN_ROUTED_DIRECT_TO_EXIT_6647", "positionId=${canonicalOpen6647.positionId} mint=${mint.take(10)} state=OPEN_OR_PARTIALLY_CLOSED dispatcher=dedicated_exit")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19761` — `requestExitSweepCoordinator(reason = "PROCESS_TOKEN_CANONICAL_OPEN", full = true, universal = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21074` — `// the canonical open TokenState continues through its existing exit/learning path.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21082` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.Occupancy.OPEN,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22402` — `// V5.9.1191 — reuse the canonical EXEC_OPEN_ALLOWED`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22501` — `if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22757` — `if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22957` — `if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23327` — `if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23931` — `if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24221` — `if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24897` — `if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:808` — `TradeResult.OPEN -> CanonicalLearningCounters.openTrades.incrementAndGet()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:559` — `&& !com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.isOpen(if (isLiveMode) "live" else "paper", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:560` — `&& !com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:631` — `&& !com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.isOpen(if (isLiveMode) "live" else "paper", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:632` — `&& !com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EmergentGuardrails.kt:247` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markOpen(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EmergentGuardrails.kt:273` — `(it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.OPEN ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EmergentGuardrails.kt:283` — `state = if (lots.any { it.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED }) "PARTIALLY_CLOSED" else "OPEN",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:345` — `com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().any {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1853` — `// bucket has enough canonical evidence to become SHADOW_TRAIN_ONLY, opening`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1868` — `"lane=$canonicalSelectedLane score=$gateScore mode=$modeUpper ${BucketExecutionState.describe(canonicalSelectedLane, gateScore)} attemptId=$attemptId action=shadow_train_counterfactual_no_economic_open"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1833` — `val canonical = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1843` — `entryTime = canonical.openedAtMs,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3141` — `val canonical = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { 0 }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10643` — `* V5.9.1475 (spec item 1/2) — CANONICAL OPEN PREDICATE.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10660` — `return canonical?.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.OPEN &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10662` — `com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.hasFundedOpenLot6485(pid) &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10663` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.isOpen("paper", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12244` — `//   canonical open-gate call reads to name the request lane.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13341` — `com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.OPEN,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13430` — `rollbackPaperEntry6485("CANONICAL_OPEN_REJECTED")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13435` — `if (!com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.hasFundedOpenLot6485(pid6485)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13457` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markOpen("paper", tradeId.mint, ts.symbol, "Executor.paperBuy.atomic6485")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13465` — `// CLOSED=13} while canonical open=5 — the extra 20 OPENs were`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13467` — `// canonicalMint convention so open + close land on the same slot.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13491` — `if (!com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.openEvent(canonicalEvent6485)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13492` — `rollbackPaperEntry6485("CANONICAL_EVENT_OPEN_FAILED")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13592` — `// at canonical OPEN transition. Fires OPEN_POSITION_ZERO_ENTRY_PRICE_`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13596` — `com.lifecyclebot.engine.truth.OpenPositionBasisInvariant6627.onCanonicalOpen6627(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16455` — `"mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$canonicalRoutedLane attemptId=${executableOpen.attemptId} reason=${executableOpen.reason.take(120)} no_buy_failed=true requeue=true")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16465` — `return observeOnlyLiveEntry("OBSERVE_ONLY_NOT_LIVE_EXECUTABLE", canonicalRoutedLane, executableOpen.reason)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16469` — `ForensicLogger.lifecycle("DEFERRED_REQUOTE_REQUIRED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$canonicalRoutedLane attemptId=${executableOpen.attemptId} reason=${executableOpen.reason.take(120)} no_buy_failed=true release_lease=true")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:17385` — `// old later recordBuyPending left canonicalOpen=1 while`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18242` — `val canonicalOpen6486 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyFill(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18254` — `if (!canonicalOpen6486) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18317` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markOpen("live", verifyMint, verifySymbol, "TradeVerifier.LANDED.6486")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20455` — `com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20582` — `entryTime = canonicalTerminalPosition6492.openedAtMs, costSol = canonicalCost6600,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20826` — `// without canonical cash/openCost/finalized fanout is a money-path lie.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20856` — `// canonical position. Generation is the immutable openedAtMs carried`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20858` — `val sellGeneration6474 = canonicalTerminalPosition6492.openedAtMs`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20945` — `ForensicLogger.lifecycle("CANONICAL_PAPER_SELL_COMMIT_6474", "mint=${tradeId.mint.take(10)} pid=${pid6474.take(18)} terminalId=$terminalId6474 applied=${close6474.applied} claimed=${close6474.terminalClaimed} bus=${close6474.busPublished} cash=${com.lifecyclebot.engine.truth.PaperCapitalAuthority657`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21032` — `// Canonical CLOSED also closes the local projection; no future exit retry may treat it as open.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalExecutionPermit.kt:199` — `// canonical lane and ExecutableOpenGate sealed it into this ticket. Never`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ForensicReconciler6377.kt:44` — `*  11. CANONICAL_VS_REGISTRY    canonical live-open count vs GlobalTradeRegistry open count`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ForensicReconciler6377.kt:97` — `canonicalLiveOpenCount: Int,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ForensicReconciler6377.kt:246` — `val delta = canonicalLiveOpenCount - registryLiveOpenCount`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ForensicReconciler6377.kt:248` — `results += CheckResult("CANONICAL_VS_REGISTRY", ok, "canonical=$canonicalLiveOpenCount registry=$registryLiveOpenCount delta=$delta")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt:501` — `// canonical-open mints, recently-admitted entries (< 60s so`
+- `app/src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt:507` — `com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:1055` — `// canonical open/held after this snapshot.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:1416` — `* host tracker does NOT consider open can never inflate canonicalOpen and trip the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:1417` — `* canonicalOpen>walletHeld drift that latches SELL_ONLY_SAFE_MODE. This is the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt:36` — `// V5.9.1518 — PATCH ITEM 1/7: ledger drift. Canonical open count exceeding`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt:41` — `(s.canonicalOpenPositions - s.walletHeldMints - walletProofAllowance6019).coerceAtLeast(0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt:43` — `if (s.mode == "LIVE" && s.canonicalOpenPositions > 0 && s.walletHeldMints == 0) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt:49` — `"canonicalOpen=${s.canonicalOpenPositions} > walletHeld=${s.walletHeldMints} proofGrace=$walletProofAllowance6019 (drift=$effectiveLedgerDrift6019)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt:52` — `// V5.9.1564 — In PAPER mode canonicalOpen is the simulator book, so`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt:56` — `if (s.mode == "LIVE" && s.botLoopActive && s.canonicalOpenPositions > 0 && s.reconcilerTotalChecked == 0 && !liveSellPathHasProof) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt:58` — `"reconciler.totalChecked=0 while canonicalOpen=${s.canonicalOpenPositions}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt:61` — `// whenever canonicalOpen > 0 && (liveOpen == 0 || hostTrackerOpen`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt:75` — `if (s.mode == "LIVE" && s.botLoopActive && s.canonicalOpenPositions > 0 && s.liveOpenPositions == 0 && !pendingProofInFlight) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt:77` — `"canonicalOpen=${s.canonicalOpenPositions} but liveOpen=0; confirmed buy invisible")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt:79` — `if (s.mode == "LIVE" && s.botLoopActive && s.hostTrackerOpenCount == 0 && s.canonicalOpenPositions > 0 && !pendingProofInFlight) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt:81` — `"canonicalOpen=${s.canonicalOpenPositions} but hostTrackerOpen=0")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt:83` — `if (s.mode == "LIVE" && s.botLoopActive && s.canonicalOpenPositions > 0 && s.reconcilerTotalChecked == 0 && !liveSellPathHasProof) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt:116` — `CanonicalPositionAuthority6441.openPosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveEntrySafetyHold.kt:458` — `* (20 canonical fresh trades). This prevents a bad opening streak`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveRestoreExecutionPolicy.kt:54` — `snap.canonicalOpenPositions == 0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveRestoreExecutionPolicy.kt:69` — `if (snap.reconcilerTotalChecked == 0 && snap.canonicalOpenPositions > 0) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OpenPnlSanity.kt:248` — `/** V5.0.6037 — canonical open pricing truth for reports/UI/journal-facing displays.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PaperTerminalProjectionConvergence6509.kt:16` — `val active = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().any { it.mode == "paper" && it.mint == mint } } catch (_: Throwable) { false }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:1084` — `sb.append("  Open positions: ${s.canonicalTradeCounts.openTrades}\n")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:1385` — `sb.append(line("Canonical ShitCoin mints:", scOpen, "canonical mode+mint authority")).append('\n')`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:1386` — `sb.append(line("Canonical Moonshot mints:", msOpen, "canonical mode+mint authority")).append('\n')`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:1821` — `"(source: CanonicalPositionAuthority6441.openPositions())\n")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PositionCloseLedger.kt:138` — `* guards. Self-heal only when a canonical open position is newer than the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PositionCloseLedger.kt:141` — `private fun clearIfCanonicallyReopened6699(mint: String, rec: CloseRecord): Boolean {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PositionCloseLedger.kt:143` — `com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().any { p ->`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PositionCloseLedger.kt:152` — `PipelineHealthCollector.labelInc("POSITION_CLOSE_LEDGER_CANONICAL_REOPEN_6699")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PositionCloseLedger.kt:154` — `"POSITION_CLOSE_LEDGER_CANONICAL_REOPEN_6699",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PositionCloseLedger.kt:155` — `"mint=${mint.take(10)} priorCloseId=${rec.closeId} closedAt=${rec.closedAtMs} action=clear_stale_close_for_new_canonical_open",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PositionCloseLedger.kt:165` — `if (clearIfCanonicallyReopened6699(mint, rec)) return false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ProcessorAmountPlanner.kt:223` — `val canonical = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ProcessorAmountPlanner.kt:250` — `val canonical = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeRegressionGuards.kt:31` — `val canonicalOpenPositions: Int = 0,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeRegressionGuards.kt:41` — `val duplicateCanonicalOpenMints: Int = 0,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeRegressionGuards.kt:70` — `detail = "hostLive=${input.hostTrackerOpenCount} liveStore=${input.liveOpenPositions} paperStore=${input.paperOpenPositions} walletHeld=${input.walletHeldMints} canonical=${input.canonicalOpenPositions}",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeRegressionGuards.kt:105` — `"wallet_canonical_not_above_open_authority",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeRegressionGuards.kt:109` — `ok = input.walletHeldMints <= input.canonicalOpenPositions,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeRegressionGuards.kt:110` — `detail = "walletHeld=${input.walletHeldMints} canonical=${input.canonicalOpenPositions}",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeRegressionGuards.kt:148` — `"no_duplicate_canonical_opens",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeRegressionGuards.kt:149` — `ok = input.duplicateCanonicalOpenMints == 0,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeRegressionGuards.kt:150` — `detail = "duplicateCanonicalOpenMints=${input.duplicateCanonicalOpenMints}",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt:21` — `val canonicalOpenPositions: Int,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt:78` — `// canonicalOpen -> canonicalOpen>walletHeld drift -> SELL_ONLY_SAFE_MODE ->`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt:95` — `// showed canonicalOpen=2 while hostTrackerOpen=0 and walletHeld=0,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt:127` — `val canonicalOpen = if (isPaperRuntime) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt:232` — `canonicalOpenPositions = canonicalOpen,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:83` — `private fun canonicalMemeOpenCount(mode: String): Int = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:93` — `fun canonicalMemeOpenCount6689(mode: String): Int = canonicalMemeOpenCount(mode)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:97` — `private fun canonicalPaperOpenCount(): Int = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:133` — `val canonicalPaperOpen = if (paperRuntime) canonicalPaperOpenCount() else -1`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:134` — `val effectiveOpen = if (paperRuntime && canonicalPaperOpen >= 0) canonicalPaperOpen else openPositions.coerceAtLeast(0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:135` — `val effectiveForced = if (paperRuntime && canonicalPaperOpen >= 0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:136` — `forcedOpen.coerceAtLeast(0).coerceAtMost(canonicalPaperOpen)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:138` — `if (paperRuntime && canonicalPaperOpen >= 0 &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:144` — `"rawForced=$forcedOpen rawOpen=$openPositions canonicalPaperOpen=$canonicalPaperOpen scope=MEME",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SupervisorAdmissionPlanner.kt:15` — `* selection with the effective live-worker budget. Canonical open positions are`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TokenLifecycleTracker.kt:169` — `* canonicalOpen=1/liveOpen=0/hostTrackerOpen=0 and the false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TokenMergeQueue.kt:317` — `*  for a micro-cap meme). Snapshot 6595 confirmed: every canonical open`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt:743` — `appendLine("$lane discovered=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.DISCOVER)} qualified=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.QUALIFY)} ownerSelected=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.OWNER)} buyIntent=${n(com`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt:807` — `appendLine("$lane runtimeAlive=${runtime.runtimeAlive} trafficSeen=${runtime.trafficSeen} candidateQualified=${qualified > 0L} executionEligible=$executionEligible heartbeatAtMs=${runtime.heartbeatAtMs} queueOwner=${runtime.queueOwner.ifBlank { "NONE" }} queueDepth=${runtime.queueDepth} candidateN=$`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt:814` — `val positions = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/UnifiedPolicyHead.kt:26` — `*             canonical opened position + owner lane. A terminal outcome trains`
+- `app/src/main/kotlin/com/lifecyclebot/engine/UnifiedPolicyHead.kt:86` — `// these observations are NOT outcomes. At canonical open, only the elected`
+- `app/src/main/kotlin/com/lifecyclebot/engine/UnifiedPolicyHead.kt:303` — `// BLUE_CHIP) in some paths. At the canonical open boundary we may`
+- `app/src/main/kotlin/com/lifecyclebot/engine/UnifiedPolicyHead.kt:316` — `fun bindPosition6681(positionId: String, mint: String, ownerLane: String): Boolean {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/UnifiedPolicyHead.kt:345` — `"UNIFIED_POLICY_POSITION_BOUND_6681",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/UnifiedPolicyHead.kt:348` — `PipelineHealthCollector.labelInc("UNIFIED_POLICY_POSITION_BOUND_6681")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/V3JournalRecorder.kt:20` — `* Suppress only when a current canonical open AND a recent durable executor`
+- `app/src/main/kotlin/com/lifecyclebot/engine/V3JournalRecorder.kt:26` — `val canonicalOpen = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/V3JournalRecorder.kt:27` — `com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().any {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/V3JournalRecorder.kt:32` — `if (!canonicalOpen) return false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/execution/ForensicReportExporter.kt:154` — `put("canonicalOpenPositions", runtimeSnapshot?.canonicalOpenPositions ?: -1)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/execution/ForensicReportExporter.kt:176` — `canonicalOpenPositions = runtimeSnapshot?.canonicalOpenPositions ?: 0,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/execution/ForensicReportExporter.kt:187` — `duplicateCanonicalOpenMints = try { com.lifecyclebot.engine.HostWalletTokenTracker.closeAuthorityAudit().duplicateOpenMints } catch (_: Throwable) { 0 },`
+- `app/src/main/kotlin/com/lifecyclebot/engine/execution/ForensicReportExporter.kt:292` — `put("canonical_open_positions", runtimeSnapshot?.canonicalOpenPositions ?: -1)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/LiveWalletReconciler.kt:241` — `// so phantom dust rows (UPLON/WSOLP) stranded canonicalOpen>walletHeld,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/SellFinalizationCoordinator.kt:207` — `mode = "live", positionId = positionId, generation = canonicalPosition6522.openedAtMs, mint = intent.mint,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/SellFinalizationCoordinator.kt:212` — `val invariantCloseKey6522 = if (!partial) "live|$positionId|${canonicalPosition6522.openedAtMs}|FULL_CLOSE" else "live|$positionId|${canonicalPosition6522.openedAtMs}|PARTIAL_CLOSE|$sellSig"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/SellFinalizationCoordinator.kt:230` — `mode = "live", generation = canonicalPosition6522.openedAtMs,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/SellFinalizationCoordinator.kt:241` — `generation = canonicalPosition6522.openedAtMs,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AateDecisionEnvelope6512.kt:89` — `fun attachPosition(positionId: String, mode: String, mint: String, lane: String): Boolean {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AateDecisionEnvelope6512.kt:92` — `// V5.0.6681 §CAUSAL_POLICY_POSITION_BINDING — the canonical open itself`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AateDecisionEnvelope6512.kt:97` — `val policyBound6681 = try { UnifiedPolicyHead.bindPosition6681(positionId, mint, lane) } catch (_: Throwable) { false }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AcceptanceInvariantAudit6441.kt:41` — `val allPositions = CanonicalPositionAuthority6441.openPositions() +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/BuyResult6621.kt:105` — `* onPositionOpened, learning-arm, exposure register) call this`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:173` — `finalDecision6613 = if (verdict == "PROBE_ONLY") ExecutableOpenGate.CanonicalFinalDecision6613.PROBE_ONLY else ExecutableOpenGate.CanonicalFinalDecision6613.BUY,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt:230` — `CanonicalEntryAuthority6540.markOpenConfirmedFor6551(intentAssetClass6569(intent), intent.symbol, positionId)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalCapitalAuthority6450.kt:11` — `*   PositionStateLedger OPEN=274 vs CanonicalPositions OPEN=42`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalCapitalAuthority6450.kt:30` — `*   OPEN_COST_BASIS     — canonical open cost, excluding reserved`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEconomicEvent6635.kt:157` — `PipelineHealthCollector.labelInc("CANONICAL_EVENT_OPEN_REFUSED_BLANK_ID_6635")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEconomicEvent6635.kt:159` — `"CANONICAL_EVENT_OPEN_REFUSED_BLANK_ID_6635",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEconomicEvent6635.kt:168` — `try { PipelineHealthCollector.labelInc("CANONICAL_EVENT_DUPLICATE_OPEN_6635") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEconomicEvent6635.kt:176` — `PipelineHealthCollector.labelInc("CANONICAL_EVENT_OPENED_6635")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEconomicEvent6635.kt:177` — `PipelineHealthCollector.labelInc("CANONICAL_EVENT_OPENED_${event.side.name}_6635")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEconomicIdentity6470.kt:25` — `*     + canonicalOpenCostBasis`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEconomicIdentity6470.kt:61` — `canonicalOpenCostBasisSol: Double,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEconomicIdentity6470.kt:69` — `val rhs = canonicalCashSol + canonicalOpenCostBasisSol`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEconomicIdentity6470.kt:78` — `"cash=$canonicalCashSol openCost=$canonicalOpenCostBasisSol " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEntryAuthority6540.kt:19` — `*      → canonical fill/open commit`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEntryAuthority6540.kt:153` — `CanonicalEntryAuthority6551.undispatchedPendingCount6569(c), n("OPEN"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalIntegrityGuards6449.kt:43` — `* (V5.0.6452 §P0-#8) Unknown canonical sell state must NOT fail-open to`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalIntegrityGuards6449.kt:141` — `val open = try { CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLaneIdentity6506.kt:15` — `* `canonical(name)` so the executable-open snapshot / candidate`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLedger6387.kt:30` — `// (wallet, mint, canonicalEpoch) among status ∈ {PENDING_BUY_PROOF, OPEN, PARTIALLY_CLOSED}.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:18` — `*    multiple canonical CLOSED / registry OPEN`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:29` — `*      unrecoverable (e.g., canonical CLOSED but registry OPEN with`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:41` — `val canonicalOpen: Int,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:56` — `val canonicalOpenPositions = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:57` — `CanonicalPositionAuthority6441.openPositions().filter { it.remainingQtyRaw > java.math.BigInteger.ZERO }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:59` — `try { CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(canonicalOpenPositions) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:60` — `try { PositionStateLedger6454.syncFromCanonical6519(canonicalOpenPositions) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:61` — `try { SellQtyBoundaryClamp6427.syncFromCanonical6519(canonicalOpenPositions) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:62` — `val canonicalOpen = canonicalOpenPositions.map { it.mint }.toSet()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:66` — `val occupancyOpen = occSnap[CanonicalMintOccupancyRegistry6464.Occupancy.OPEN] ?: 0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:69` — `val exitCoordinatorVisibleOpen = canonicalOpenPositions.size`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:76` — `kotlin.math.abs(occupancyOpen - canonicalOpenPositions.size),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:77` — `kotlin.math.abs(positionStateOpen - canonicalOpenPositions.size),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:78` — `kotlin.math.abs(sellBoundaryOpen - canonicalOpenPositions.size),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:79` — `kotlin.math.abs(exitCoordinatorVisibleOpen - canonicalOpenPositions.size),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:83` — `// Detect: canonical CLOSED but occupancy still OPEN for the same mint.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:89` — `.filter { it.mint !in canonicalOpen }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:92` — `if (CanonicalMintOccupancyRegistry6464.isOpen(pos.mode, pos.mint)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:93` — `// Contradiction: canonical CLOSED, occupancy OPEN.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:95` — `pos.mint, "CANONICAL_CLOSED_OCCUPANCY_OPEN_6470",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:108` — `"canonicalOpen=${canonicalOpenPositions.size} positionStateOpen=$positionStateOpen sellBoundaryOpen=$sellBoundaryOpen exitCoordinatorVisibleOpen=$exitCoordinatorVisibleOpen occupancyOpen=$occupancyOpen " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:109` — `"delta=$delta closedButOccupancyOpen=$closedButOpen quarantinedNow=$quarantinedNow invariant=${canonicalOpenPositions.size == positionStateOpen && canonicalOpenPositions.size == sellBoundaryOpen && canonicalOpenPositions.size == exitCoordinatorVisibleOpen}",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:119` — `canonicalOpen = canonicalOpenPositions.size,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLotQuantity6464.kt:79` — `val pid = CanonicalPositionAuthority6441.openPositions().filter { it.mint == mint }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalMintOccupancyRegistry6464.kt:178` — `(it.lifecycle == CanonicalPositionAuthority6441.Lifecycle.OPEN ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalMintOccupancyRegistry6464.kt:193` — `source = "canonical_active_reconcile_6489", occupancy = Occupancy.OPEN,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt:166` — `if (!CanonicalEconomicEvent6635.openEvent(event6635)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt:167` — `try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_EVENT_OPEN_REJECTED_6641") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt:168` — `return Result(false, true, false, "CANONICAL_EVENT_OPEN_REJECTED")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:43` — `val canonicalRaw = CanonicalPositionAuthority6441.openPositions()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:49` — `if (canonicalRaw != replay.openRawQtyByPosition) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:189` — `CanonicalEconomicEvent6635.openEvent(event) // false means the stable event already exists`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:197` — `"CanonicalPaperTransaction6486.openProjection6659",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:215` — `).forEach { CanonicalEconomicEvent6635.markCommitted(eventId, it, "CanonicalPaperTransaction6486.open6659") }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:219` — `"CanonicalPaperTransaction6486.open6659",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:232` — `reason = "CROSS_ASSET_CANONICAL_OPEN_6659",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:261` — `// projected a second CROSS_ASSET_CANONICAL_OPEN_6659 BUY over their`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:265` — `val positions = (CanonicalPositionAuthority6441.openPositions() +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:291` — `CanonicalEconomicEvent6635.openEvent(CanonicalEconomicEvent6635.Event(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:388` — `CanonicalPositionAuthority6441.openPositions().any { p ->`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:401` — `return@withLock Result(false, positionId, "CANONICAL_SAME_MINT_ALREADY_OPEN_POSITION_6605")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:406` — `val opened = CanonicalPositionAuthority6441.openPosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:428` — `CanonicalMintOccupancyRegistry6464.markOpen("paper", mint, symbol, source)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:429` — `CanonicalPositionAuthority6441.getPosition(positionId)?.let { ensureOpenProjection6659(it) }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:680` — `val groups = CanonicalPositionAuthority6441.openPositions()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:686` — `val keep = lots.minWithOrNull(compareBy<CanonicalPositionAuthority6441.Position> { it.openedAtMs }.thenBy { it.positionId })`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:231` — `PipelineHealthCollector.labelInc("CANONICAL_SAME_MODE_MINT_OPEN_REJECTED_6490")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:232` — `ForensicLogger.lifecycle("CANONICAL_SAME_MODE_MINT_OPEN_REJECTED_6490", "mode=$canonicalMode6490 mint=${mint.take(10)} existingPid=${existingSameMint6490.positionId.take(20)} rejectedPid=${positionId.take(20)} action=use_explicit_add")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:270` — `PipelineHealthCollector.labelInc("CANONICAL_OPEN_REFUSED_UNSEALED_6635")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:272` — `"CANONICAL_OPEN_REFUSED_UNSEALED_6635",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:379` — `try { AateDecisionFabric6512.attachPosition(positionId, canonicalMode6490, mint, lane) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:386` — `else "CANONICAL_POSITION_OPEN_6441",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:426` — `// V5.0.6538 §CANONICAL_OPENER_ECONOMIC_BELT — the operator's`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:433` — `// same economic notional check at the CANONICAL opener so no`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:454` — `PipelineHealthCollector.labelInc("CANONICAL_PAPER_OPEN_ECONOMIC_REJECT_6538")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:456` — `"CANONICAL_PAPER_OPEN_ECONOMIC_REJECT_6538",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:703` — `*   >  CanonicalPositionAuthority.openPositions()."`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:711` — `* source of "canonical valid open inventory" per operator §L.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:767` — `try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_QUARANTINED_6631") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:772` — `try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_INVALID_QTY_6631") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:783` — `try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_INVARIANT_BROKEN_SOURCE_6631") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:802` — `com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_QTY_INVARIANT_QUARANTINE_6634")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:816` — `com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_ECONOMIC_INVARIANT_6635F")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:826` — `try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_ZERO_ENTRY_PRICE_6631") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:844` — `!CanonicalLotQuantity6464.hasFundedOpenLot6485(p.positionId)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:1144` — `// from canonical lifecycle; it may never invent independent opens.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:1145` — `val canonicalOpen6519 = positions.values.filter {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:1152` — `canonicalOpen6519.forEach { p ->`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:1155` — `try { PositionStateLedger6454.syncFromCanonical6519(canonicalOpen6519) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:1156` — `try { SellQtyBoundaryClamp6427.syncFromCanonical6519(canonicalOpen6519) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:1157` — `try { CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(canonicalOpen6519) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalReconciler6441.kt:70` — `val positions = CanonicalPositionAuthority6441.openPositions() +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalRiskClock6454.kt:65` — `val open = try { CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalSentinelEntryRepair6677.kt:39` — `CanonicalPositionAuthority6441.openPositions()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTokenAmount6522.kt:73` — `if (p.lifecycle !in setOf(CanonicalPositionAuthority6441.Lifecycle.OPEN, CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED)) return blocked("LIFECYCLE_${p.lifecycle}", positionId, mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTokenAmount6522.kt:87` — `com.lifecyclebot.engine.ForensicLogger.lifecycle("CANONICAL_SELL_REPAIR_REQUIRED_6522", "reason=$reason positionId=$positionId mint=${mint.take(10)} action=retain_open_no_accounting")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeCountAuthority6522.kt:16` — `val positions = CanonicalPositionAuthority6441.openPositions() + CanonicalPositionAuthority6441.closedPositions()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeCountAuthority6522.kt:31` — `openTrades = unique.count { it.lifecycle == CanonicalPositionAuthority6441.Lifecycle.OPEN || it.lifecycle == CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED },`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalUiPositionProjection6686.kt:12` — `val canonical = try { CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CausalAuthorityRepair6627.kt:122` — `* This module is called from the canonical position OPEN transition`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CausalAuthorityRepair6627.kt:139` — `* Called at canonical position OPEN. Records whether the entry`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CausalAuthorityRepair6627.kt:143` — `fun onCanonicalOpen6627(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CheckpointRecoveryAuthority6405.kt:17` — `* captures the CANONICAL open-position set plus per-position raw`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionSpineAcceptance6647.kt:24` — `val canonicalOpen: Long,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionSpineAcceptance6647.kt:55` — `if (o.canonicalOpen > 0L && o.exitEvaluations <= 0L) f += "OPEN_WITHOUT_EXIT_EVALUATION"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionSpineAcceptance6647.kt:145` — `CanonicalEntryAuthority6540.snapshot(CanonicalEntryAuthority6540.Venue.CRYPTO).opensConfirmed`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionSpineAcceptance6647.kt:230` — `val canonicalOpenPositions = try { CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionSpineAcceptance6647.kt:250` — `canonicalOpenPositions.count { it.assetClass == AssetClass.CRYPTO_ALT }.toLong(),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionSpineAcceptance6647.kt:254` — `canonicalOpen = canonicalOpenPositions.size.toLong(),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionSpineAcceptance6647.kt:273` — `"durationMs=$duration safety=${observation.safety} v3=${observation.v3} workers=${observation.currentWorkerHeartbeats}/${observation.configuredWorkers} dispatches=${observation.dispatches} cryptoOpen=${observation.cryptoOpenConfirmed} exit=${observation.exitStart}/${observation.exitDone} canonicalOp`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt:61` — `CanonicalPositionAuthority6441.openPositions().filter { it.mint == cm }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt:154` — `val open6689 = SlotHealthGate.canonicalMemeOpenCount6689(mode6689).coerceAtLeast(0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt:190` — `val result = CanonicalPositionAuthority6441.openPosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt:238` — `val result = CanonicalPositionAuthority6441.promotePendingToOpen(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt:253` — `try { PipelineHealthCollector.labelInc("CANONICAL_BUY_CONFIRMED_OPEN_6448") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ForcedCloseSlotSweeper6468.kt:12` — `*    the canonical mint occupancy slot; otherwise mint stays OPEN`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ForcedCloseSlotSweeper6468.kt:18` — `* authoritative `CanonicalPositionAuthority6441.openPositions()`.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ForcedCloseSlotSweeper6468.kt:21` — `* occupancy registry but NOT present in canonical open positions,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ForcedCloseSlotSweeper6468.kt:37` — `CanonicalPositionAuthority6441.openPositions().map { it.mint }.toSet()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ForcedCloseSlotSweeper6468.kt:44` — `if (entry.occupancy != CanonicalMintOccupancyRegistry6464.Occupancy.OPEN &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ForensicFinalityAndTuner6393.kt:230` — `val canonicalBotManagedOpenPositions: Int,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ForensicFinalityAndTuner6393.kt:231` — `val canonicalRecoveredOpenPositions: Int,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ForensicFinalityAndTuner6393.kt:236` — `canonicalBotManagedOpenPositions <= (botManagedWalletHeldMints + freshBuyGracePositions)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ForensicReconciliation6635.kt:33` — `*   PaperAccountLedger6430  (canonical ledger)  --> cash / realized / openCost`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ForensicReconciliation6635.kt:35` — `*   CanonicalPositionAuthority6441              --> open qty`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ForensicReconciliation6635.kt:91` — `CanonicalPositionAuthority6441.openPositions()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/GovernorRecoverySubstrate6388.kt:92` — `CANONICAL_OPEN, RESTORED_OPEN_KNOWN_BASIS, RESTORED_OPEN_UNKNOWN_BASIS,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/GovernorRecoverySubstrate6388.kt:97` — `val canonicalOpen: Int, val restoredKnownBasis: Int, val restoredUnknownBasis: Int,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/GovernorRecoverySubstrate6388.kt:100` — `val sum: Int get() = canonicalOpen + restoredKnownBasis + restoredUnknownBasis +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/GovernorRecoverySubstrate6388.kt:374` — `val startingCanonicalOpenPositions: Int, val startingRestoredPositions: Int,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/GovernorRecoverySubstrate6388.kt:384` — `startingCanonicalOpenPositions: Int, startingRestoredPositions: Int,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/GovernorRecoverySubstrate6388.kt:390` — `startingCanonicalOpenPositions = startingCanonicalOpenPositions,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicAuthority6616.kt:35` — `*   Canonical:  cash = 36.3987 SOL, openMV = 29.0573, equity = 65.4560 SOL`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicAuthority6616.kt:46` — `*         - snapshots the canonical economics (cash / openMV / equity /`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt:95` — `.filterNot { it.reason.contains("CROSS_ASSET_CANONICAL_OPEN_6659", ignoreCase = true) }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt:149` — `t.reason.contains("CROSS_ASSET_CANONICAL_OPEN_6659", ignoreCase = true) &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt:339` — `.filterNot { it.reason.contains("CROSS_ASSET_CANONICAL_OPEN_6659", ignoreCase = true) }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt:344` — `it.reason.contains("CROSS_ASSET_CANONICAL_OPEN_6659", ignoreCase = true) &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MarkAuthorityIntegrityGate6496.kt:95` — `* Snapshot 6595 showed 55 canonical open positions with 51 missing marks`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MemeSellFinality6620.kt:41` — `* canonical position stays OPEN, the specialist registry stays OPEN,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MintWorkCoordinator6450.kt:21` — `*    Before lane evaluation: if canonical position already OPEN for mint,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MintWorkCoordinator6450.kt:29` — `* BUY generation via `isOpenBlocked(mint)` which checks canonical open`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MintWorkCoordinator6450.kt:90` — `/** Called before lane/FDG fan-out. Returns true if a canonical open`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MintWorkCoordinator6450.kt:95` — `val open = CanonicalPositionAuthority6441.openPositions()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PaperCapitalAuthority6577.kt:24` — `*   Canonical       CASH=0.9081 SOL, OPEN=10.5901, EQUITY=11.4981`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PaperEconomicSnapshot6629.kt:108` — `openMarketValueSol = canonical.openMarketValueSol,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PendingEntryProjectionGuard6461.kt:18` — `* CanonicalPositionAuthority6441.openPositions() already filters to`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PendingEntryProjectionGuard6461.kt:58` — `val open = try { CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { return 0 }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PerpsNeuralBridge6531.kt:27` — `* Reads the assetClass off the canonical position (set at open by`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PerpsNeuralBridge6531.kt:28` — `* CanonicalPaperTransaction6486.open) — no string parsing, no re-inference.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionParityDomainAudit6471.kt:13` — `*      canonical = 58 OPEN + 2 PENDING_ENTRY + 10 CLOSED = 70`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionParityDomainAudit6471.kt:18` — `*      canonical OPEN/PARTIALLY_CLOSED     ↔ active registry`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionParityDomainAudit6471.kt:33` — `*   report.openDelta         ← canonical OPEN vs occupancy OPEN`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionParityDomainAudit6471.kt:34` — `*   report.partiallyDelta    ← canonical PARTIALLY_CLOSED vs occupancy (OPEN as well)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionParityDomainAudit6471.kt:45` — `val canonicalOpen: Int,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionParityDomainAudit6471.kt:65` — `val active = try { CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionParityDomainAudit6471.kt:66` — `val canonicalOpen = active.filter { it.lifecycle == CanonicalPositionAuthority6441.Lifecycle.OPEN }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionParityDomainAudit6471.kt:78` — `val occupancyOpen = occSnap[CanonicalMintOccupancyRegistry6464.Occupancy.OPEN] ?: 0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionParityDomainAudit6471.kt:92` — `"activeCanonical=$activeCanonical occupancyOpen=$occupancyOpen " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionParityDomainAudit6471.kt:93` — `"delta=$activeRegistryDelta canonicalOpen=$canonicalOpen partial=$canonicalPartial",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionParityDomainAudit6471.kt:103` — `canonicalOpen = canonicalOpen,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionRegistryParityAudit6464.kt:59` — `val canonicalOpens = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionRegistryParityAudit6464.kt:60` — `CanonicalPositionAuthority6441.openPositions()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionRegistryParityAudit6464.kt:65` — `val canonicalAll = canonicalOpens`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionRegistryParityAudit6464.kt:72` — `if (lots.any { it.lifecycle == CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED }) "PARTIALLY_CLOSED" else "OPEN"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionRegistryParityAudit6464.kt:92` — `val expectedState6498 = canonicalStateByMint6498[mint] ?: "OPEN"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionRegistryParityAudit6464.kt:144` — `* divergent audits. Walks canonical open positions and:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionRegistryParityAudit6464.kt:158` — `CanonicalPositionAuthority6441.openPositions().filter { it.mode == mode6490 }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionRegistryParityAudit6464.kt:165` — `// canonical positions. This removes stale OPEN/zero-qty rows and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionStateLedger6454.kt:64` — `private fun canonicalOpenPaper6702(positionId: String): Boolean {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionStateLedger6454.kt:75` — `if (!canonicalOpenPaper6702(positionId)) return false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionStateLedger6454.kt:93` — `fun syncFromCanonical6519(openPositions: List<CanonicalPositionAuthority6441.Position>) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionStateLedger6454.kt:163` — `// canonical position remains economically open. Then continue through`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/QuantityInvariantAuthority6500.kt:182` — `// returned ok=true when canonical openPositions() had already filtered`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/QuantityInvariantAuthority6500.kt:190` — `// CanonicalPositionAuthority6441.openPositions() inventory.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/QuantityInvariantAuthority6500.kt:191` — `CanonicalPositionAuthority6441.openPositions()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/QuantityInvariantAuthority6500.kt:195` — `"canonical_open_missing_or_identity_mismatch")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/QuantityInvariantAuthority6500.kt:197` — `CanonicalPositionAuthority6441.Lifecycle.OPEN,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/QuantityInvariantAuthority6500.kt:272` — `* canonical OPEN lot, match its raw quantity/cost/entry projection, pass`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/QuantityInvariantAuthority6500.kt:358` — `val canonical = CanonicalPositionAuthority6441.openPositions()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SameMintDedupAuthority6441.kt:67` — `if (CanonicalPositionAuthority6441.hasOpenMint(mint) || openLayer6446.isNotBlank() || registryOpen6446) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SellQtyBoundaryClamp6427.kt:57` — `fun syncFromCanonical6519(openPositions: List<CanonicalPositionAuthority6441.Position>) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/StartupInvariantGate6441.kt:13` — `*      - reconstruct canonical open positions before scanner entry`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/UiSnapshotAuthority6496.kt:92` — `// V5.0.6686 — canonical-first. Do not rebuild open inventory from`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/UnifiedAccountSnapshot6635.kt:94` — `val openPositions = try { CanonicalPositionAuthority6441.openPositions().count { it.mode == mode } } catch (_: Throwable) { 0 }`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CommoditiesTrader.kt:727` — `val canonicalOpen6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CommoditiesTrader.kt:738` — `if (!canonicalOpen6486.applied) {`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CommoditiesTrader.kt:739` — `ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: ${position.market.symbol} ${canonicalOpen6486.reason}")`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:396` — `/** CanonicalPositionAuthority6441 is the sole open-position source.`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:406` — `val canonicalOpen = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:412` — `canonicalOpen.forEach { cp ->`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:416` — `com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.ensureOpenProjection6659(cp)`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:433` — `val legacyUnmatched = stored.count { p -> canonicalOpen.none { it.positionId == p.id || it.mint == p.canonicalAssetKey } }`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:870` — `// V5.0.4581: no canonical-open hook here — this is only signal generation.`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:922` — `// V5.0.4581: no canonical-open hook here — this is only signal generation.`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:1001` — `// V5.0.4581: no canonical-open hook here — this is only signal generation.`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:2500` — `val canonicalOpen6486 = try {`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:2501` — `com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:2514` — `"CANONICAL_PAPER_OPEN_EXCEPTION:${t.javaClass.simpleName}",`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:2516` — `terminalDisposition6613("CANONICAL_PAPER_OPEN_EXCEPTION:${t.javaClass.simpleName}")`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:2520` — `if (!canonicalOpen6486.applied) {`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:2521` — `val rejectionBucket6647 = canonicalOpen6486.reason.uppercase().replace(Regex("[^A-Z0-9_]+"), "_").trim('_')`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:2522` — `ErrorLogger.warn(TAG, "CRYPTO_CANONICAL_OPEN_REJECT[$rejectionBucket6647]: symbol=$mktSym positionId=${position.id} reason=${canonicalOpen6486.reason}")`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:2524` — `PipelineHealthCollector.labelInc("CRYPTO_CANONICAL_OPEN_REJECT_$rejectionBucket6647")`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:2525` — `ForensicLogger.lifecycle("CRYPTO_CANONICAL_OPEN_REJECT_6647", "bucket=$rejectionBucket6647 symbol=$mktSym positionId=${position.id} attemptId=${canonicalCryptoIntent6565.attemptId} exactReason=${canonicalOpen6486.reason}")`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:2527` — `com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(canonicalCryptoIntent6565, canonicalOpen6486.reason)`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:2528` — `terminalDisposition6613("CANONICAL_PAPER_OPEN_REJECTED:${canonicalOpen6486.reason}")`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:2531` — `// V5.0.6578 — success confirms the paper dispatch produced a canonical open.`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:2532` — `// V5.0.6583 §P0-11 — CanonicalPaperTransaction6486.open at line 82-86`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:2538` — `// CanonicalPaperTransaction6486.open.`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:2560` — `com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(canonicalCryptoIntent6565, "CRYPTO_LIVE_BUY_NOT_OPENED")`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:2562` — `terminalDisposition6613("CANONICAL_LIVE_OPEN_FAILED")`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:2578` — `// V5.0.4581 — CRYPTO CANONICAL OPEN HOOK. The isolated CryptoBrain close`
+- `app/src/main/kotlin/com/lifecyclebot/perps/ForexTrader.kt:792` — `val canonicalOpen6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/ForexTrader.kt:807` — `if (!canonicalOpen6486.applied) {`
+- `app/src/main/kotlin/com/lifecyclebot/perps/ForexTrader.kt:808` — `ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: ${position.market.symbol} ${canonicalOpen6486.reason}")`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt:287` — `val mutation = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPosition(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt:297` — `proof.ifBlank { "TARGET_DELTA_UNPROVED" }, reason = if (accepted) "" else "Canonical live open rejected: $mutation")`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt:307` — `val mutation = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPosition(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt:316` — `reason = if (accepted) "" else "Canonical Flash open rejected: $mutation")`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt:321` — `com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPosition(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt:921` — `ErrorLogger.warn(TAG, "🌉 ${market.symbol} canonical bridge returned no swap signature; refusing open")`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MetalsTrader.kt:728` — `val canonicalOpen6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MetalsTrader.kt:739` — `if (!canonicalOpen6486.applied) {`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MetalsTrader.kt:740` — `ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: ${position.market.symbol} ${canonicalOpen6486.reason}")`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsNotificationManager.kt:138` — `fun notifyPositionOpened(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsPositionStore.kt:56` — `CanonicalSentinelEntryRepair6677.repairOpenPaperCryptoAltSentinels()`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsTraderAI.kt:806` — `val canonicalOpen6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsTraderAI.kt:816` — `if (!canonicalOpen6486.applied) {`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsTraderAI.kt:817` — `ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: ${market.symbol} ${canonicalOpen6486.reason}")`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsTraderAI.kt:911` — `PerpsNotificationManager.notifyPositionOpened(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt:1396` — `val canonicalOpen6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt:1409` — `if (!canonicalOpen6486.applied) {`
+- `app/src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt:1410` — `com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(marketIntent6561, canonicalOpen6486.reason)`
+- `app/src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt:1411` — `ErrorLogger.warn(TAG, "PAPER OPEN REJECTED: ${signal.market.symbol} ${canonicalOpen6486.reason}")`
+- `app/src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt:1415` — `// CanonicalPaperTransaction6486.open at line 82-86 already finds`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoUniverseExecutor.kt:109` — `val mutation = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPosition(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoUniverseExecutor.kt:124` — `) else Outcome.ExecFailed(resolution, "Canonical bridge open rejected: $mutation")`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoUniverseExecutor.kt:269` — `val mutation = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPosition(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoUniverseExecutor.kt:277` — `return@runAwaited Outcome.ExecFailed(resolution, "Canonical live open rejected: $mutation")`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/brain/CryptoBrain.kt:104` — `CryptoCanonicalLearning.recordOpen()`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/brain/CryptoBrain.kt:136` — `// 6. Canonical reconciliation: the position was OPEN; un-bump and`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/brain/CryptoBrain.kt:141` — `if (CryptoCanonicalLearning.openTrades.get() > 0L) {`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/brain/CryptoBrain.kt:142` — `CryptoCanonicalLearning.openTrades.decrementAndGet()`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/brain/CryptoCanonicalLearning.kt:13` — `*   canonicalTotal == settledWins + settledLosses + openTrades +`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:2462` — `"PAPER_CANONICAL_COLD_OPEN_6489 ($reason): cash=${"%.4f".format(ledger.cashSol())} SOL"`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:2465` — `com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "canonical paper cold-open hydrate failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/v3/V3EngineManager.kt:759` — `fun onPositionOpened(mint: String) {`
+- `app/src/main/kotlin/com/lifecyclebot/v3/bridge/V3Adapter.kt:250` — `fun onPositionOpened(mint: String) {`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/MetaCognitionAI.kt:337` — `// Once a canonical position is OPEN, its entry prediction roster is`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/MetaCognitionAI.kt:342` — `com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.hasOpenMint(mint)`
+
+## Canonical terminal buses
+
+Count: **93**
+
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4549` — `// slot in CanonicalFinalizedTradeBus6464 so the parity report`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4556` — `)) com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.registerConsumer(c)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DashboardDataProvider.kt:32` — `fun onCanonicalTradeFinalized6485(env: com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12450` — `// Streak counter derives from CanonicalTradeFinalizedBus6450 (the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:1995` — `com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.statusLine()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:2752` — `.append(com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.statusLine()).append("\n")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:2754` — `.append(com.lifecyclebot.engine.truth.FinalizedBusConsumerBridge6465.statusLine()).append("\n")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PositionCloseLedger.kt:109` — `// shaping now fires from the CanonicalTradeFinalizedBus6450`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/LivePositionCloseAuthority.kt:170` — `// (CanonicalTradeFinalizedBus6450 → RewardPurity /`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/SellFinalizationCoordinator.kt:274` — `pnl.realizedPnlSol > 0.0001 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.WIN`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/SellFinalizationCoordinator.kt:275` — `pnl.realizedPnlSol < -0.0001 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.LOSS`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/SellFinalizationCoordinator.kt:276` — `else -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/SellFinalizationCoordinator.kt:278` — `com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.publish(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/SellFinalizationCoordinator.kt:279` — `com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Event(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AateDecisionEnvelope6512.kt:115` — `fun onFinalized(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AcceptanceInvariantAudit6441.kt:68` — `CanonicalFinalizedTradeBus6464.consumerExcludedUnique("RewardPurity")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AcceptanceInvariantAudit6441.kt:70` — `val busCanonical6699 = try { CanonicalFinalizedTradeBus6464.canonicalUnique() } catch (_: Throwable) { 0 }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AdvisorIntegrityHold6466.kt:88` — `val bus = CanonicalFinalizedTradeBus6464.canonicalUnique()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalityPersistence6486.kt:36` — `events.forEach { CanonicalTradeFinalizedBus6450.publish(it) }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalityPersistence6486.kt:40` — `fun record(event: CanonicalTradeFinalizedBus6450.Event) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalityPersistence6486.kt:58` — `private fun encode(e: CanonicalTradeFinalizedBus6450.Event): String = JSONObject().apply {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalityPersistence6486.kt:71` — `private fun decode(raw: String): CanonicalTradeFinalizedBus6450.Event? = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalityPersistence6486.kt:73` — `CanonicalTradeFinalizedBus6450.Event(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalityPersistence6486.kt:75` — `outcome = CanonicalTradeFinalizedBus6450.Outcome.valueOf(j.getString("outcome")),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalizedTradeBus6464.kt:37` — `* `CanonicalTradeFinalizedBus6450` publication. Terminal reducers publish`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalizedTradeBus6464.kt:44` — `object CanonicalFinalizedTradeBus6464 {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalizedTradeBus6464.kt:145` — `fun deliverToConsumers(env: Envelope, deliver: (String, Envelope) -> Boolean) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalizedTradeBus6464.kt:180` — `val ok = try { FinalizedBusConsumerBridge6465.deliver(name, env) } catch (_: Throwable) { false }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt:398` — `CanonicalOutcomeClassifier6576.Class.WIN -> CanonicalTradeFinalizedBus6450.Outcome.WIN`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt:399` — `CanonicalOutcomeClassifier6576.Class.LOSS -> CanonicalTradeFinalizedBus6450.Outcome.LOSS`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt:400` — `CanonicalOutcomeClassifier6576.Class.BREAKEVEN -> CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt:402` — `val finalizedEvent6653 = CanonicalTradeFinalizedBus6450.Event(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt:417` — `if (CanonicalTradeFinalizedBus6450.publish(finalizedEvent6653)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalRewardBootstrap6453.kt:33` — `CanonicalFinalizedTradeBus6464.ensureCanonicalConsumers6485()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalRewardBootstrap6453.kt:50` — `return "installed=${bootstrapped.get()} fanout=CanonicalFinalizedTradeBus6464 " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTerminalProof6699.kt:16` — `* CanonicalFinalizedTradeBus6464 to retry every consumer forever.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt:31` — `object CanonicalTradeFinalizedBus6450 {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt:104` — `"CANONICAL_TRADE_FINALIZE_DUPLICATE_6450",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt:107` — `PipelineHealthCollector.labelInc("CANONICAL_TRADE_FINALIZE_DUPLICATE_6450")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt:134` — `"CANONICAL_TRADE_FINALIZE_SUB_FAIL_6450",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt:141` — `PipelineHealthCollector.labelInc("CANONICAL_TRADE_FINALIZED_6450_${event.outcome}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt:147` — `CanonicalFinalizedTradeBus6464.ensureCanonicalConsumers6485()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt:151` — `val env = CanonicalFinalizedTradeBus6464.Envelope(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt:174` — `if (CanonicalFinalizedTradeBus6464.publish(env)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt:181` — `CanonicalFinalizedTradeBus6464.redeliverPending6486()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt:184` — `CanonicalFinalizedTradeBus6464.deliverToConsumers(env) { name, e ->`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt:185` — `FinalizedBusConsumerBridge6465.deliver(name, e)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt:187` — `CanonicalFinalizedTradeBus6464.requestRetry6486()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/EntryStrategySnapshot6450.kt:200` — `fun record(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt:34` — `* Loss streak is derived from CanonicalTradeFinalizedBus6450 outcomes`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt:78` — `CanonicalTradeFinalizedBus6450.subscribe { e ->`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt:81` — `CanonicalTradeFinalizedBus6450.Outcome.LOSS -> {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt:86` — `CanonicalTradeFinalizedBus6450.Outcome.WIN ->`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt:88` — `CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN -> Unit`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:9` — `* V5.0.6465 §P0-#2 — CONSUMER BRIDGE for CanonicalFinalizedTradeBus6464.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:23` — `object FinalizedBusConsumerBridge6465 {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:31` — `fun deliver(consumer: String, env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:36` — `CanonicalFinalizedTradeBus6464.exclude(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:62` — `CanonicalFinalizedTradeBus6464.exclude(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:99` — `CanonicalFinalizedTradeBus6464.exclude(consumer, env.tradeId, reason)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:136` — `private fun deliverToRewardPurity(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean =`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:141` — `private fun deliverToLearnerRewardBridge(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:148` — `private fun deliverToLosingStreakReflex(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:153` — `private fun deliverToGrowthRewardShaper(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:160` — `private fun deliverToTacticSwitcher(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:168` — `private fun deliverToGovernor(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:173` — `private fun deliverToCapitalCreed(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:177` — `private fun deliverToEvEstimator(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:182` — `private fun deliverToAatePolicyReward(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:186` — `private fun deliverToStrategyHypothesis(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:191` — `private fun deliverToMemeCausalLearning6568(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:239` — `private fun deliverToForwardOutcomeModel6696(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:244` — `private fun deliverToUnifiedExitPolicyHead6696(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:263` — `private fun deliverToDashboard(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedFanoutParity6459.kt:15` — `* counter from CanonicalTradeFinalizedBus6450 subscriber.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedFanoutParity6459.kt:25` — `CanonicalTradeFinalizedBus6450.subscribe { _ ->`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/GrowthAlignedRewardShaper6439.kt:89` — `// belongs only to FinalizedBusConsumerBridge6465 after terminal proof;`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LearningQuarantine6450.kt:24` — `* CanonicalTradeFinalizedBus6450. If mismatched, the cohort key is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LearningQuarantine6450.kt:52` — `CanonicalTradeFinalizedBus6450.subscribe { e ->`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LearningQuarantine6450.kt:54` — `CanonicalTradeFinalizedBus6450.Outcome.WIN -> canonicalWins.getOrPut(e.entryLane) { AtomicLong(0L) }.incrementAndGet()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LearningQuarantine6450.kt:55` — `CanonicalTradeFinalizedBus6450.Outcome.LOSS -> canonicalLosses.getOrPut(e.entryLane) { AtomicLong(0L) }.incrementAndGet()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LearningQuarantine6450.kt:56` — `CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN -> Unit`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LearningQuarantineGate6470.kt:24` — `* learning fanout. `FinalizedBusConsumerBridge6465.deliver` must`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt:1376` — `com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.publish(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt:1377` — `com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Event(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt:1379` — `when { pnl > 0.0 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.WIN`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt:1380` — `pnl < 0.0 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.LOSS`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt:1381` — `else -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN },`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt:1437` — `com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.publish(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt:1438` — `com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Event(`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt:1440` — `when { pnl > 0.0 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.WIN`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt:1441` — `pnl < 0.0 -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.LOSS`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt:1442` — `else -> com.lifecyclebot.engine.truth.CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN },`
+
+## Learning eligibility / purity / quarantine
+
+Count: **76**
+
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4721` — `// LearningQuarantineGate6470 quarantines. Must run AFTER the invariant`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13989` — `val (w, l, _) = com.lifecyclebot.engine.truth.RewardPurityGate6441.canonicalCounts()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:659` — `if (com.lifecyclebot.engine.truth.LearningQuarantineGate6470.shouldDropForLearning(normalized.tradeId, normalized.mint)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:728` — `if (com.lifecyclebot.engine.truth.LearningQuarantineGate6470.shouldDropForLearning(normalized.tradeId, normalized.mint)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3922` — `val accepted6448 = pid6448.isNotBlank() && try { com.lifecyclebot.engine.truth.RewardPurityGate6441.outcomeOf(pid6448) != null } catch (_: Throwable) { false }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13640` — `com.lifecyclebot.engine.truth.PaperLearningEligibility6519.record(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20888` — `com.lifecyclebot.engine.truth.LearningQuarantineGate6470.quarantinePositionId(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt:299` — `val historicalQuarantined = try { com.lifecyclebot.engine.truth.LearningQuarantineGate6470.isQuarantined(positionId = null, mint = mint) } catch (_: Throwable) { false }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:1925` — `com.lifecyclebot.engine.truth.RewardPurityGate6441.statusLine()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:2010` — `com.lifecyclebot.engine.truth.LearningQuarantine6450.statusLine()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt:356` — `appendLine("Learning: ${safe("token_win_stats") { TokenWinMemory.getStats() }} | ${safe("collective") { com.lifecyclebot.collective.CollectiveLearning.getInsightsSummary() }} | quarantined=${learningQuarantineLine()}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt:456` — `appendLine("Learning quarantine: ${learningQuarantineLine()}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt:675` — `private fun learningQuarantineLine(): String {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SourceChokeDiagnostics4584.kt:22` — `private val learningQuarantineReasons = ConcurrentHashMap<String, AtomicLong>()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SourceChokeDiagnostics4584.kt:72` — `fun learningQuarantined(reason: String, context: String = "") {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SourceChokeDiagnostics4584.kt:73` — `bump(learningQuarantineReasons, reason.uppercase().take(80))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SourceChokeDiagnostics4584.kt:81` — `return "SourceChoke4584 preFdg=[${top(preFdgStages)}] preFdgReject=[${top(preFdgReasons)}] sellJournal=[${top(sellJournalReasons)}] stop=[${top(stopFinalityReasons)} avgStopMs=$avgStop overrun=${stopOverrunN.get()}/$n] learningQuarantine=[${top(learningQuarantineReasons)}]"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/StrategyTruthLedger.kt:188` — `com.lifecyclebot.engine.truth.LearningQuarantineGate6470.isQuarantined(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TokenWinMemory.kt:162` — `try { SourceChokeDiagnostics4584.learningQuarantined("TOKEN_WIN_MEMORY_SHADOW_SOURCE", "mint=${mint.take(8)} symbol=$symbol source=${source.take(60)} phase=${phase.take(40)}") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TokenWinMemory.kt:1200` — `if (shadowSourcePattern4584) try { SourceChokeDiagnostics4584.learningQuarantined("PERSISTED_SOURCE_PATTERN_SHADOW", "type=$type value=${value.take(80)}") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/V3JournalRecorder.kt:298` — `com.lifecyclebot.engine.truth.PaperLearningEligibility6519.decision(null, mint).eligible`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/SellFinalizationCoordinator.kt:253` — `com.lifecyclebot.engine.truth.LearningQuarantineGate6470.quarantinePositionId(positionId, "LIVE_SELL_CANONICAL_POSITION_REJECTED_6486")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AateDecisionEnvelope6512.kt:166` — `PaperLearningEligibility6519.decision(null, env.mint).eligible`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AcceptanceInvariantAudit6441.kt:65` — `val (w, l, b) = RewardPurityGate6441.canonicalCounts()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AdvisorIntegrityHold6466.kt:45` — `* finalized fills, EconomicPurityGate6504 quarantines contaminated`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEconomicIdentity6470.kt:53` — `* when |delta| > 0.01 SOL. Also flips the `LearningQuarantineGate6470``
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:94` — `LearningQuarantineGate6470.quarantineMint(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLotQuantity6464.kt:124` — `LearningQuarantineGate6470.quarantinePositionId(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLotQuantity6464.kt:141` — `LearningQuarantineGate6470.quarantinePositionId(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:543` — `EconomicPurityGate6504.markUntrusted(mint, "STALE_QUOTE_UNVERIFIED_EXIT_6692")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:572` — `PaperLearningEligibility6519.record(mint, positionId, false, "LEVERAGED_TERMINAL_ARITHMETIC_DIVERGENCE_6569")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalRewardBootstrap6453.kt:49` — `val (w, l, be) = RewardPurityGate6441.canonicalCounts()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalSentinelEntryRepair6677.kt:62` — `PaperLearningEligibility6519.record(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt:127` — `LearningQuarantineGate6470.shouldDropForLearning(positionId = event.positionId, mint = event.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt:148` — `val learningEligibility6519 = PaperLearningEligibility6519.decision(event.positionId, event.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeStream6501.kt:37` — `*   !LearningQuarantineGate6470.isQuarantined(positionId=null,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeStream6501.kt:74` — `LearningQuarantineGate6470.isQuarantined(positionId = null, mint = record.mint)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/EconomicPurityGate6504.kt:35` — `*   • LearningQuarantineGate6470.isQuarantined(mint) == true`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/EconomicPurityGate6504.kt:40` — `*   • RewardPurityGate6441 (already gates its own; this is defence-in-depth)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/EconomicPurityGate6504.kt:47` — `object EconomicPurityGate6504 {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/EconomicPurityGate6504.kt:112` — `LearningQuarantineGate6470.isQuarantined(positionId = null, mint = mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:41` — `PipelineHealthCollector.labelInc("FINALIZED_LEARNING_INELIGIBLE_EXCLUDED_6697")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:43` — `"FINALIZED_LEARNING_INELIGIBLE_EXCLUDED_6697",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:93` — `LearningQuarantineGate6470.shouldDropForLearning(positionId = env.positionId, mint = env.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:96` — `LearningQuarantineGate6470.quarantineReason(env.positionId, env.mint) ?: "LEARNING_QUARANTINE"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:137` — `RewardPurityGate6441.acceptFinalizedClose(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/HistoricalEconomicQuarantine6496.kt:26` — `* Thin façade over the existing `LearningQuarantineGate6470`. Each`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/HistoricalEconomicQuarantine6496.kt:28` — `* method here; we forward to `LearningQuarantineGate6470` with a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/HistoricalEconomicQuarantine6496.kt:57` — `val already = LearningQuarantineGate6470.isQuarantined(positionId = null, mint = mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/HistoricalEconomicQuarantine6496.kt:58` — `LearningQuarantineGate6470.quarantineMint(mint, "BUY_SELL_QTY_SKEW_6377")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/HistoricalEconomicQuarantine6496.kt:68` — `"newMints=$newly totalNow=${LearningQuarantineGate6470.statusLine()}",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/HistoricalEconomicQuarantine6496.kt:78` — `val already = LearningQuarantineGate6470.isQuarantined(positionId = null, mint = mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/HistoricalEconomicQuarantine6496.kt:79` — `LearningQuarantineGate6470.quarantineMint(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/HistoricalEconomicQuarantine6496.kt:100` — `LearningQuarantineGate6470.quarantinePositionId(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/HistoricalEconomicQuarantine6496.kt:107` — `LearningQuarantineGate6470.quarantineMint(mint, "EVENT_STREAM_REPLAY_DIVERGED_6467")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/HistoricalEconomicQuarantine6496.kt:119` — `LearningQuarantineGate6470.quarantineMint(mint, "PAPER_REPLAY_DIVERGENCE_6461")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt:118` — `LearningQuarantineGate6470.quarantinePositionId("EVENT:$eventId", reason)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt:119` — `if (t.positionId.isNotBlank()) LearningQuarantineGate6470.quarantinePositionId(t.positionId, "EVENT:$eventId:$reason")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LearningQuarantine6450.kt:33` — `object LearningQuarantine6450 {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/LearningQuarantineGate6470.kt:36` — `object LearningQuarantineGate6470 {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PaperAccountLedger6430.kt:379` — `com.lifecyclebot.engine.truth.LearningQuarantineGate6470.isQuarantined(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PaperAccountLedger6430.kt:665` — `LearningQuarantineGate6470.isQuarantined(positionId = null, mint = mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PaperLearningEligibility6519.kt:6` — `object PaperLearningEligibility6519 {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PaperLearningEligibility6519.kt:27` — `EconomicPurityGate6504.shouldExcludeFromAnalytics(mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PaperLearningEligibility6519.kt:31` — `return Decision(false, "CANONICAL_PERFORMANCE_QUARANTINE:${CanonicalPerformanceFilter6395.reasons(pid).joinToString("+")}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/QuantityIntegrityGuard6395.kt:20` — `*   - skewLearningQuarantine`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/QuantityIntegrityGuard6395.kt:34` — `val skewLearningQuarantine = AtomicLong(0L)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/QuantityIntegrityGuard6395.kt:80` — `skewLearningQuarantine.incrementAndGet()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/QuantityIntegrityGuard6395.kt:88` — `decimalSkewAudit.set(0L); skewLearningQuarantine.set(0L); excludedFromCanonQuarantined.set(0L)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/RewardPurityGate6441.kt:32` — `object RewardPurityGate6441 {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/RewardPurityGate6441.kt:69` — `// EconomicPurityGate6504 is marked by stale/unverified close paths.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/RewardPurityGate6441.kt:72` — `EconomicPurityGate6504.shouldExcludeFromAnalytics(pos.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/RunnerCompoundingLadder6440.kt:136` — `com.lifecyclebot.engine.truth.RewardPurityGate6441.acceptShadowSignal(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SentienceLabRewardBridge6444.kt:12` — `*    LlmLabEngine to subscribe to RewardPurityGate6441."`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SentienceLabRewardBridge6444.kt:44` — `/** Canonical (W, L, BE) counts direct from RewardPurityGate6441. */`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SentienceLabRewardBridge6444.kt:47` — `return try { RewardPurityGate6441.canonicalCounts() } catch (_: Throwable) { Triple(0L, 0L, 0L) }`
+
+## Policy outcome credit
+
+Count: **11**
+
+- `app/src/main/kotlin/com/lifecyclebot/engine/UnifiedPolicyHead.kt:412` — `fun recordOutcome6681(positionId: String, mint: String, ownerLane: String, pnlPct: Double): Boolean {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/UnifiedPolicyHead.kt:451` — `* occurs. Production finality uses recordOutcome6681(positionId,...).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/V3JournalRecorder.kt:322` — `com.lifecyclebot.engine.learning.LaneExitTuner.recordClose(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AateDecisionEnvelope6512.kt:115` — `fun onFinalized(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/AateDecisionEnvelope6512.kt:128` — `try { UnifiedPolicyHead.recordOutcome6681(env.positionId, env.mint, env.lane, env.realizedReturnPct) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:183` — `AateDecisionFabric6512.onFinalized(env)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:218` — `com.lifecyclebot.engine.learning.LaneExitTuner.recordClose(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:228` — `com.lifecyclebot.engine.runtime.ColdStreakDamper.noteOutcome(env.lane, env.mode.equals("paper", true), win, loss)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:229` — `com.lifecyclebot.engine.runtime.DamageControlGate.noteOutcome(pnlPctLearn6707)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/FinalizedBusConsumerBridge6465.kt:230` — `MemeCausalLearning6568.record(env)`
+- `app/src/main/kotlin/com/lifecyclebot/perps/crypto/brain/CryptoBrain.kt:134` — `CryptoLaneExitTuner.recordClose(tier, pnlPct, pnlSol)`
+
+## Replay/accounting authority
+
+Count: **2134**
+
+- `app/src/main/kotlin/com/lifecyclebot/AATEApp.kt:118` — `com.lifecyclebot.engine.truth.FillLotLedger6504.attach(this)`
+- `app/src/main/kotlin/com/lifecyclebot/AATEApp.kt:119` — `ErrorLogger.info("App", "FillLotLedger6504 attached — immutable fill lot ledger active")`
+- `app/src/main/kotlin/com/lifecyclebot/AATEApp.kt:121` — `ErrorLogger.error("App", "FillLotLedger6504 attach failed: ${e.message}", e)`
+- `app/src/main/kotlin/com/lifecyclebot/AATEApp.kt:237` — `// immediately rather than at end-of-tick reconciliation.`
+- `app/src/main/kotlin/com/lifecyclebot/AATEApp.kt:243` — `// never wired to a real reconciler; the 6405 invariant runner`
+- `app/src/main/kotlin/com/lifecyclebot/AATEApp.kt:244` — `// IS a real reconciler over the ACID portfolio store, so it`
+- `app/src/main/kotlin/com/lifecyclebot/collective/LocalOrphanStore.kt:12` — `* LocalOrphanStore — V5.9.171`
+- `app/src/main/kotlin/com/lifecyclebot/collective/LocalOrphanStore.kt:14` — `* Local SharedPreferences failsafe for paper-position orphan recovery. The`
+- `app/src/main/kotlin/com/lifecyclebot/collective/LocalOrphanStore.kt:15` — `* existing [PaperOrphanReconciler] only works when Turso is reachable — if`
+- `app/src/main/kotlin/com/lifecyclebot/collective/LocalOrphanStore.kt:23` — `*     LocalOrphanStore.recordOpen(trader = "Metals", posId = position.id,`
+- `app/src/main/kotlin/com/lifecyclebot/collective/LocalOrphanStore.kt:28` — `*     LocalOrphanStore.clear(posId)`
+- `app/src/main/kotlin/com/lifecyclebot/collective/LocalOrphanStore.kt:32` — `*     LocalOrphanStore.init(context)`
+- `app/src/main/kotlin/com/lifecyclebot/collective/LocalOrphanStore.kt:33` — `*     LocalOrphanStore.reconcileAll()`
+- `app/src/main/kotlin/com/lifecyclebot/collective/LocalOrphanStore.kt:37` — `object LocalOrphanStore {`
+- `app/src/main/kotlin/com/lifecyclebot/collective/LocalOrphanStore.kt:39` — `private const val TAG = "LocalOrphan"`
+- `app/src/main/kotlin/com/lifecyclebot/collective/LocalOrphanStore.kt:40` — `private const val PREFS_NAME = "local_orphan_store"`
+- `app/src/main/kotlin/com/lifecyclebot/collective/LocalOrphanStore.kt:77` — `* Refund every local orphaned paper position back to the unified paper`
+- `app/src/main/kotlin/com/lifecyclebot/collective/LocalOrphanStore.kt:79` — `* reconciler has run — the set it operates on is strictly the positions`
+- `app/src/main/kotlin/com/lifecyclebot/collective/LocalOrphanStore.kt:82` — `fun reconcileAll(): Double {`
+- `app/src/main/kotlin/com/lifecyclebot/collective/LocalOrphanStore.kt:88` — `com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.refund(`
+- `app/src/main/kotlin/com/lifecyclebot/collective/LocalOrphanStore.kt:89` — `e.posId, "${e.trader}.localReconcile[${e.symbol}]",`
+- `app/src/main/kotlin/com/lifecyclebot/collective/LocalOrphanStore.kt:100` — `"♻️ LocalOrphanStore reconciled ${entries.size} stuck paper positions → " +`
+- `app/src/main/kotlin/com/lifecyclebot/collective/PaperOrphanReconciler.kt:7` — `* PaperOrphanReconciler — V5.9.134`
+- `app/src/main/kotlin/com/lifecyclebot/collective/PaperOrphanReconciler.kt:11` — `*     canonical paper positions via typed CanonicalPaperTransaction6486 refunds.`
+- `app/src/main/kotlin/com/lifecyclebot/collective/PaperOrphanReconciler.kt:18` — `*     drained while the Turso row rots as an orphan.`
+- `app/src/main/kotlin/com/lifecyclebot/collective/PaperOrphanReconciler.kt:20` — `* The reconciler is invoked from each trader's startup sequence. It:`
+- `app/src/main/kotlin/com/lifecyclebot/collective/PaperOrphanReconciler.kt:35` — `object PaperOrphanReconciler {`
+- `app/src/main/kotlin/com/lifecyclebot/collective/PaperOrphanReconciler.kt:37` — `private const val TAG = "PaperOrphanRecon"`
+- `app/src/main/kotlin/com/lifecyclebot/collective/PaperOrphanReconciler.kt:40` — `* Reconcile orphaned paper positions for one asset class.`
+- `app/src/main/kotlin/com/lifecyclebot/collective/PaperOrphanReconciler.kt:47` — `suspend fun reconcile(assetClass: String, sourceLabel: String): Double {`
+- `app/src/main/kotlin/com/lifecyclebot/collective/PaperOrphanReconciler.kt:51` — `val orphans = client.loadOpenMarketsPositions(`
+- `app/src/main/kotlin/com/lifecyclebot/collective/PaperOrphanReconciler.kt:56` — `if (orphans.isEmpty()) return 0.0`
+- `app/src/main/kotlin/com/lifecyclebot/collective/PaperOrphanReconciler.kt:58` — `orphans.forEach { orphan ->`
+- `app/src/main/kotlin/com/lifecyclebot/collective/PaperOrphanReconciler.kt:60` — `com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.refund(`
+- `app/src/main/kotlin/com/lifecyclebot/collective/PaperOrphanReconciler.kt:61` — `orphan.id, "$sourceLabel.reconcile[${orphan.market}]",`
+- `app/src/main/kotlin/com/lifecyclebot/collective/PaperOrphanReconciler.kt:65` — `refunded += orphan.sizeSol`
+- `app/src/main/kotlin/com/lifecyclebot/collective/PaperOrphanReconciler.kt:66` — `try { client.deleteMarketsPosition(orphan.id) } catch (_: Exception) {}`
+- `app/src/main/kotlin/com/lifecyclebot/collective/PaperOrphanReconciler.kt:71` — `"♻️  $sourceLabel reconciled ${orphans.size} orphan paper positions → " +`
+- `app/src/main/kotlin/com/lifecyclebot/collective/PaperOrphanReconciler.kt:76` — `ErrorLogger.debug(TAG, "$sourceLabel reconcile error: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/collective/TursoClient.kt:886` — `* class. Used at app startup to detect orphaned positions (positions that`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:72` — `val walletReconcileTimeoutMs: Long = 12_000L,`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:428` — `putLong   ("ht_wallet_reconcile_timeout_ms", cfg.walletReconcileTimeoutMs)`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:585` — `walletReconcileTimeoutMs    = p.getLong   ("ht_wallet_reconcile_timeout_ms", 12_000L),`
+- `app/src/main/kotlin/com/lifecyclebot/data/CanonicalMint.kt:13` — `* executor, trade journal, live buy guard, host tracker, reconciler,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AccountingIdempotencyRegistry.kt:10` — `* reconciliation, UI backfill, retry sweep. Each one used to be able`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AdaptiveLearningEngine.kt:595` — `// so a single position being swept/reconciled could mutate into a fresh`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:235` — `try { TokenLifecycleTracker.all().filter { it.status.name !in setOf("CLEARED", "RECONCILE_FAILED") }.forEach { mints.add(it.mint) } } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BleederMemoryRouter.kt:25` — `val orphanCount: Int,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BleederMemoryRouter.kt:34` — `val requiresDefensiveProbe: Boolean get() = provenBleeder || weakPerformer || noWinsOverEight || repeatedDeepLoss || failedBasisCount > 0 || orphanCount > 0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BleederMemoryRouter.kt:87` — `orphanCount = r50.count { it.reason.contains("ORPHAN", true) || it.proofState.contains("ORPHAN", true) },`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BootReceiver.kt:17` — `*   - Long-hold positions can run for days/weeks. A reboot shouldn't orphan them.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BootReceiver.kt:18` — `*   - The StartupReconciler runs on BotService.startBot() and will reconcile`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotRuntimeController.kt:26` — `val sellReconcilerStarted: Boolean = false,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotRuntimeController.kt:87` — `sellReconcilerStarted = false,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotRuntimeController.kt:136` — `sellReconcilerStarted = false,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotRuntimeController.kt:155` — `fun markSellReconcilerStarted(generation: Long, started: Boolean) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotRuntimeController.kt:156` — `updateForGeneration(generation) { it.copy(sellReconcilerStarted = started) }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotRuntimeController.kt:190` — `val sellStarted = try { com.lifecyclebot.engine.sell.SellReconciler.isStarted } catch (_: Throwable) { base.sellReconcilerStarted }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotRuntimeController.kt:209` — `sellReconcilerStarted = sellStarted,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:389` — `@Deprecated("V5.0.6486: use CanonicalPaperTransaction6486 typed BUY/SELL/REFUND")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:482` — `// and the reconciler to re-import dead rows on next start.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:585` — `// includes stale lifecycle-only rows after host/wallet reconciliation,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1024` — `*  exit sweep, wallet reconcile). The heartbeat will NEVER cancel`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1042` — `/** V5.9.756 — Emergent CRITICAL ticket item #4: periodic live-wallet reconciler.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1043` — `*  Forensics 2026-05-15: reconciler.totalChecked = 0 even with 3 live host`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1044` — `*  positions. The per-cycle reconcileNow was being throttled (30 s gap) +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1048` — `*  Cancelled by stopBot via reconcilerJob?.cancel(). */`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1049` — `private var reconcilerJob: Job? = null`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1154` — `// V5.9.1522 — P0: sell reconciler is mandatory in live; resurrect if down/zombie.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1155` — `try { ensureSellReconcilerAlive() } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1192` — `// V5.9.1522 — LIVE EXECUTION FINALISATION: reconciler is MANDATORY in live.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1195` — `private fun startSellReconciler(cfg: com.lifecyclebot.data.BotConfig, runtimeGeneration: Long) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1196` — `// V5.9.764 — EMERGENT CRITICAL item C: start the SellReconciler`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1200` — `// No-op if cfg.paperMode==true (the reconciler returns early).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1202` — `com.lifecyclebot.engine.sell.SellReconciler.start(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1206` — `// V5.9.779 — EMERGENT MEME-ONLY: SellReconciler now actively`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1213` — `DownstreamWorkQueue.reconciliation("reconciler_sell_trigger", mint) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1221` — `val requeueReason = "RECONCILER_REQUEUE_${trackerStatus}"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1230` — `"RECONCILER_SELL_TRIGGERED",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1240` — `// V5.9.1496 — ZERO-BALANCE CLOSE FINALITY. When the reconciler`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1251` — `DownstreamWorkQueue.reconciliation("reconciler_zero_close", mint) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1266` — `mint, ln, "ZERO_BALANCE_RECONCILER_CLOSE",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1272` — `"RECONCILER_ZERO_CLOSE_FINALIZED",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1282` — `DownstreamWorkQueue.reconciliation("reconciler_heal_wallet_held", heldMints.firstOrNull().orEmpty()) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1288` — `BotRuntimeController.markSellReconcilerStarted(runtimeGeneration, com.lifecyclebot.engine.sell.SellReconciler.isStarted)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1290` — `val r = com.lifecyclebot.engine.sell.SellReconciler`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1292` — `ForensicLogger.lifecycle("SELL_RECONCILER", "running=${r.isStarted} ticks=${r.totalTicks} lastTickAgeMs=$age paperMode=${cfg.paperMode} gen=$runtimeGeneration")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1293` — `PipelineHealthCollector.labelInc(if (r.isStarted) "SELL_RECONCILER_RUNNING" else "SELL_RECONCILER_NOT_STARTED")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1298` — `val r = com.lifecyclebot.engine.sell.SellReconciler`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1303` — `ForensicLogger.lifecycle("SELL_RECONCILER_LIVE_STARTUP_HARD_FAIL", "running=${r.isStarted} ticks=${r.totalTicks} lastTickAgeMs=$age gen=$runtimeGeneration")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1304` — `PipelineHealthCollector.labelInc("SELL_RECONCILER_LIVE_STARTUP_HARD_FAIL")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1310` — `BotRuntimeController.markSellReconcilerStarted(runtimeGeneration, false)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1311` — `ErrorLogger.warn("BotService", "SellReconciler start failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1396` — `// reconciler is alive whenever the runtime is live & active. Covers three`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1399` — `//   2. reconciler not started while walletHeldMints>0  → P0, restart now`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1401` — `@Volatile private var reconcilerWatchdogLastMs: Long = 0L`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1402` — `private fun ensureSellReconcilerAlive() {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1405` — `// Paper reconciler is best-effort; start it if somehow down but no P0.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1406` — `if (!com.lifecyclebot.engine.sell.SellReconciler.isStarted && status.running) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1408` — `try { startSellReconciler(cfg, gen) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1415` — `if (now - reconcilerWatchdogLastMs < 3_000L) return`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1417` — `val recon = com.lifecyclebot.engine.sell.SellReconciler`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1420` — `ForensicLogger.lifecycle("SELL_RECONCILER", "running=${recon.isStarted} ticks=${recon.totalTicks} lastTickAgeMs=$age pending=${recon.pendingLiveStart}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1426` — `// V5.9.1582 — in LIVE, reconciler is mandatory while runtime is RUNNING,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1428` — `// owns wallet truth healing and orphan cleanup; gating start on walletHeld>0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1429` — `// leaves sellReconcilerStarted=false and lets stale orphan penalties poison buys.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1435` — `reconcilerWatchdogLastMs = now`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1439` — `"SELL_RECONCILER_P0_RESTART",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1444` — `try { ErrorLogger.error("BotService", "🚨 P0 SELL_RECONCILER restart — walletHeld=$walletHeld activeJobs=$activeJobs started=${recon.isStarted} ticks=${recon.totalTicks}") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1446` — `try { startSellReconciler(cfg, gen) } catch (e: Throwable) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1447` — `ErrorLogger.warn("BotService", "P0 reconciler restart failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1541` — `// V5.9.1196 — low-cadence orphan/treasury sweep backup.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1545` — `// This preserves orphan rescue without spawning reset storms.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1669` — `val inventoryRepair6490 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.refundDuplicateActiveMintLots6490()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1672` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(repairedPaperPositions6490)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1674` — `com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431.start {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1677` — `// choked meme cycle cannot also freeze reconciliation.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1678` — `com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1679` — `.reconcileJournalAuthority6663()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1680` — `com.lifecyclebot.engine.truth.ForensicReconciliation6635`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1681` — `.reconcile6635()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2042` — `// V5.0.6344 — immutable FillLotLedger init/rehydrate. Restores the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2046` — `com.lifecyclebot.engine.FillLotLedger6344.init(applicationContext)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2047` — `val lotCount = com.lifecyclebot.engine.FillLotLedger6344.activeCount()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2048` — `ErrorLogger.info("BotService", "🔒 FillLotLedger6344 initialized | $lotCount lots restored")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2050` — `ErrorLogger.warn("BotService", "FillLotLedger6344 init error: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2115` — `// Survives restarts/updates; used by StartupReconciler to recover positions`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2181` — `// BUY_PENDING → CLEARED + RESIDUAL_HELD/RECONCILE_FAILED. Persisted`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2207` — `walletReconcileTimeoutMs           = c.walletReconcileTimeoutMs,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2584` — `// V5.9.54: One-time unified-paper-wallet reconciliation migration.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2593` — `reconcileUnifiedPaperWallet()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2595` — `ErrorLogger.warn("BotService", "Unified wallet reconciliation error: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3325` — `// V5.0.6431 §K — stop the independent reconciler scheduler.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3326` — `try { com.lifecyclebot.engine.truth.IndependentReconcilerScheduler6431.stop() } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3359` — `//      position even though the tokens are still on-chain → ORPHAN.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3363` — `// PositionPersistence.restorePositions + StartupReconciler chain can`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3377` — `"NOT attempting close (would orphan positions due to 5s SIGKILL window).")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3909` — `// V5.9.54: one-time reconciliation of historical sub-trader P&L into`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3912` — `private fun reconcileUnifiedPaperWallet() {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4736` — `// sources realized PnL exclusively from FillLotLedger6504`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4742` — `val fillLotRealized6504 = com.lifecyclebot.engine.truth.FillLotLedger6504.rebuildRealizedSol(isPaperOnly = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4761` — `// V5.0.6508f §OPEN-COST RECONCILIATION FROM PROJECTIONS.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4767` — `// PAPER_LEDGER_OPEN_COST_RECONCILED_FROM_PROJECTIONS_6508.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4792` — `com.lifecyclebot.engine.truth.JournalEconomicReplay6619`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4793` — `.repairOrphanedOpenLots6662()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4812` — `// V5.0.6454 §P0 — start the INDEPENDENT wall-clock reconciler +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4820` — `com.lifecyclebot.engine.truth.WallClockReconciler6454.start(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4826` — `com.lifecyclebot.engine.truth.CanonicalReconciler6441.fullReconstruct(typed)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4860` — `// init failures (toast/notification/reconciler/external stream/etc.)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5190` — `// live actions until it's ready. Reconciliation fires`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5193` — `launchWalletConnect(cfg.privateKeyB58, rpcUrl, runReconciliation = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5206` — `// Run startup reconciliation to catch any state mismatch`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5214` — `val reconciler = StartupReconciler(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5222` — `executor = executor,  // Pass executor for orphan auto-sell`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5228` — `autoSellOrphans = false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5230` — `reconciler.reconcile()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5232` — `addLog("Reconciliation error: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5236` — `addLog("Paper mode — skipping on-chain reconciliation")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5240` — `// processes orphan-asset records (USDC residue from any pre-z19`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5247` — `addLog("🔄 Recovery loop started (orphan-USDC processor)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5253` — `// V5.9.495z22 (item B) — PositionWalletReconciler. Periodic worker`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5263` — `com.lifecyclebot.engine.execution.PositionWalletReconciler.installHostTrackerSource()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5265` — `// reconciler source so its open positions get phantom-`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5268` — `com.lifecyclebot.engine.execution.PositionWalletReconciler.registerSource("CryptoAltTrader") {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5277` — `com.lifecyclebot.engine.execution.PositionWalletReconciler.ReportedPosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5287` — `com.lifecyclebot.engine.execution.PositionWalletReconciler.start(w)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5288` — `addLog("🛡 Position↔Wallet reconciler started (host + crypto-alt)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5291` — `// Cold-start trigger of LiveWalletReconciler so the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5292` — `// reconciler.totalChecked counter and the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5297` — `com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(w, "bot_start")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5301` — `// reconciler. Ticks every 10 s, but each tick is a no-op`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5304` — `// exist, regardless of whether the per-cycle reconcile`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5306` — `reconcilerJob?.cancel()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5307` — `reconcilerJob = scope.launch {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5319` — `val shouldReconcile = isLive && (openLive > 0 || lifecycleOpen > 0 || statusLive > 0 || walletHeld > 0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5320` — `if (shouldReconcile) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5325` — `com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileBlocking(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5329` — `"periodic reconcile failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5338` — `ErrorLogger.warn("BotService", "reconcilerJob crashed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5341` — `addLog("🔄 Periodic live-wallet reconciler armed (10 s cadence)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5344` — `addLog("⚠️ Reconciler start failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5440` — `// V5.9.1507 — STARTUP HARD GHOST RECONCILE (refresh to wallet-truth`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5453` — `// A partial read + `forceStartupGhostReconcile` = real positions`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5455` — `//   1. API-health gate: refuse to reconcile if Helius/RPC is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5458` — `//      gap between reads. Only reconcile mints that appear`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5466` — `// V5.0.6068 — API-health gate. If Helius is 429ing, do NOT reconcile.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5469` — `addLog("🛡 Startup reconcile DEFERRED — Helius RPC degraded (V5.0.6068 guard)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5470` — `ForensicLogger.lifecycle("STARTUP_GHOST_RECONCILE_DEFERRED_6068", "reason=helius_unhealthy_would_erase_real_positions")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5471` — `try { PipelineHealthCollector.labelInc("STARTUP_GHOST_RECONCILE_DEFERRED_6068") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5488` — `addLog("🛡 Startup reconcile DEFERRED — both wallet reads empty (V5.0.6068)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5489` — `ForensicLogger.lifecycle("STARTUP_GHOST_RECONCILE_DEFERRED_6068", "reason=both_reads_empty_would_erase_real_positions snap1=${snap1.size} snap2=${snap2.size}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5490` — `try { PipelineHealthCollector.labelInc("STARTUP_GHOST_RECONCILE_DEFERRED_6068") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5498` — `ForensicLogger.lifecycle("STARTUP_GHOST_RECONCILE_TWO_READ_UNION_6068", "snap1=${snap1.size} snap2=${snap2.size} merged=${merged.size}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5504` — `val closed = com.lifecyclebot.engine.HostWalletTokenTracker.forceStartupGhostReconcile(snap)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5505` — `if (closed > 0) addLog("🧹 Startup reconcile: closed $closed ghost position(s) → wallet-truth")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5507` — `ForensicLogger.lifecycle("STARTUP_GHOST_RECONCILE", "skipped=wallet_read_empty_live_safety")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5510` — `ErrorLogger.debug("BotService", "startup ghost reconcile error: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5671` — `// V5.9.1522 — reconciler start extracted into startSellReconciler() so the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5672` — `// botLoop P0 watchdog (ensureSellReconcilerAlive) can re-invoke it after a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5674` — `startSellReconciler(cfg, runtimeGeneration)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5676` — `// V5.9.777 — EMERGENT MEME-ONLY: LiveWalletReconciler periodic tick.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5677` — `// Operator forensics_20260516_014510 showed reconciler.totalChecked=0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5678` — `// and tickAtMs=0 — the wallet-truth reconciler was only invoked on`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5684` — `com.lifecyclebot.engine.sell.LiveWalletReconciler.start { WalletManager.getWallet() }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5685` — `ErrorLogger.info("BotService", "🔄 LiveWalletReconciler periodic tick STARTED for LIVE mode")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5687` — `ErrorLogger.warn("BotService", "LiveWalletReconciler start failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5690` — `try { com.lifecyclebot.engine.sell.LiveWalletReconciler.stop() } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5691` — `ErrorLogger.info("BotService", "🔄 LiveWalletReconciler tick SKIPPED (paperMode=true)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7084` — `// V5.9.178 — LocalOrphanStore.reconcileAll is now DISABLED because the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7088` — `// double-credit the paper balance. The orphan store still records`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7091` — `com.lifecyclebot.collective.LocalOrphanStore.init(applicationContext)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7092` — `val snap = com.lifecyclebot.collective.LocalOrphanStore.snapshot()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7094` — `addLog("📂 ${snap.size} paper positions tracked by orphan store (diagnostics only; PerpsPositionStore is the source of truth)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7097` — `ErrorLogger.error("BotService", "LocalOrphanStore init failed: ${e.message}", e)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7328` — `* @param runReconciliation fire StartupReconciler once connected —`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7335` — `runReconciliation: Boolean,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7367` — `if (runReconciliation) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7371` — `val reconciler = StartupReconciler(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7380` — `autoSellOrphans = false,  // V5.9.102: prefer adoption over sell`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7382` — `reconciler.reconcile()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7384` — `addLog("Reconciliation error: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7405` — `* SellReconciler trigger when the mint isn't in status.tokens (e.g.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7584` — `// forensic: walletHeldMints>0 && liveOpenPositions==0 && orphanLivePositions=7.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7585` — `// Called from the SellReconciler live tick with the wallet-truth held set.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7640` — `try { ErrorLogger.warn("BotService", "♻️ LIVE_POSITION_AUTOHEAL healed=$healed orphan wallet bags into live store") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7750` — `// V5.9.756 — Emergent ticket item #4: stop the periodic reconciler.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7751` — `try { reconcilerJob?.cancel() } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7752` — `reconcilerJob = null`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7777` — `// V5.9.495z22 — stop reconciler loop on bot stop.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7779` — `com.lifecyclebot.engine.execution.PositionWalletReconciler.stop()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7782` — `com.lifecyclebot.engine.sell.SellReconciler.stop()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7783` — `BotRuntimeController.markSellReconcilerStarted(stopGeneration, false)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7888` — `// and the process is killed mid-close, the positions are orphaned on-chain`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7891` — `// next-boot reconciler can adopt any that didn't close cleanly.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7920` — `// positions aren't orphaned if the process dies mid-sell.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8106` — `// Also purge any orphaned tokens (live mode only)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8108` — `purgeOrphanedTokensOnStop(cfg)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8123` — `// SEVEN lane-trader clears + a LiveWalletReconciler pass + TWO`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8155` — `// give LiveWalletReconciler one synchronous pass so any swap`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8163` — `com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(w, "stop_pre_tracker_clear")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8166` — `ErrorLogger.debug("BotService", "pre-clear reconcile soft-failed: ${rcEx.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8401` — `// V5.9.764 — EMERGENT item C: tear down the SellReconciler so`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8404` — `com.lifecyclebot.engine.sell.SellReconciler.stop()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8405` — `// V5.9.777 — also stop the LiveWalletReconciler periodic tick`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8407` — `try { com.lifecyclebot.engine.sell.LiveWalletReconciler.stop() } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9373` — `// and it could NEVER reconcile-close (wallet RPC THREW — not empty-map —`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9374` — `// so RECONCILE_ABORT_RPC_UNTRUSTED + my 1540 empty-map reaper both missed`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9405` — `// requestSell, then let the CloseLease + reconciler`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9429` — `// close lease retryable/non-terminal, and wake the reconciler/sell path.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9433` — `try { com.lifecyclebot.engine.sell.SellReconciler.requestUrgentTick("ZOMBIE_CATASTROPHE_PENDING_RETRY") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10191` — `try { com.lifecyclebot.engine.sell.SellReconciler.requestUrgentTick("WS_TICK_FILTER_CRASH_PROOF_ROUTE") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10555` — `// authoritative path for orphan/edge-case positions.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13232` — `private suspend fun runReconcileSweep() {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13264` — `"🔄 RECONCILE SWEEP: liquidated $swept orphan token(s) leaked from V3 exits")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13265` — `addLog("🔄 Reconcile: cleared $swept orphan position(s) from wallet")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13514` — `// V5.0.6377 — FORENSIC RECONCILER (operator directive: "all data,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13515` — `// pricing, wins and losses must reconcile forensically. same as`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13517` — `// typical cycle cadence), run the 11-check reconciler over the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13524` — `// SCANNER_BATCH_BUDGET_EXCEEDED at 37s. Every reconciler pass`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13528` — `// guaranteeing a reconciliation pass every ~30-45 min of uptime.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13541` — `// V5.0.6430 §Q — instrument the reconciler with a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13543` — `// dump. If the reconciler ever silently stops (as`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13546` — `com.lifecyclebot.engine.truth.ReconcilerWatchdog6430.beforeAttempt()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13548` — `val recReport6423: com.lifecyclebot.engine.ForensicReconciler6377.Report? = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13549` — `val r = ForensicReconciler6377.runAll(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13557` — `com.lifecyclebot.engine.truth.ReconcilerWatchdog6430`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13561` — `com.lifecyclebot.engine.truth.ReconcilerWatchdog6430.afterAttempt(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13571` — `// sells and the sells must reconcile back to the buy data`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13576` — `// The reconciler is read-only by design (line 18 comment).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13589` — `// next reconciler pass reports healthy. BUY_SELL_QTY_SKEW`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13590` — `// and ORPHAN_SELL also freeze the runner (both indicate`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13597` — `val orphanCheck = recReport6423.checks.firstOrNull { it.name == "ORPHAN_SELL" }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13600` — `val orphanBad = orphanCheck?.ok == false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13601` — `val ledgerHealthy = !walletBad && !skewBad && !orphanBad`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13685` — `pendingReconcileFailures = 0,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13878` — `* per-cycle diagnostic + reconciler + audit passes.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13883` — `// V5.0.6615 — everything below is audit/reconciliation/learning`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13890` — `// V5.0.6450 §P0 — wrap reconciler calls with the watchdog so`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13896` — `try { com.lifecyclebot.engine.truth.ReconcilerWatchdog6430.beforeAttempt() } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13897` — `try { com.lifecyclebot.engine.truth.CanonicalReconciler6441.quickCheck() } catch (t: Throwable) { qSuccess = false; qErr = t.message }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13898` — `try { com.lifecyclebot.engine.truth.ReconcilerWatchdog6430.afterAttempt(qSuccess, System.currentTimeMillis() - t0q, qErr) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13902` — `// async bounded worker so a slow reconciliation cannot stall`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13914` — `try { com.lifecyclebot.engine.truth.ReconcilerWatchdog6430.beforeAttempt() } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13917` — `com.lifecyclebot.engine.truth.CanonicalReconciler6441.fullReconstruct(rows)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13919` — `try { com.lifecyclebot.engine.truth.ReconcilerWatchdog6430.afterAttempt(fSuccess, System.currentTimeMillis() - t0f, fErr) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13940` — `// V5.0.6617 §POSITION_LIFECYCLE_FORMALIZATION — reconcile`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13944` — `try { com.lifecyclebot.engine.truth.PositionLifecycleFormalization6617.reconcileClosureDeltas6617() } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14744` — `* V5.9.1027 — ORPHAN BOT-LOOP EXIT CHECK.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14763` — `* orphan; emit a forensic event and return true so the caller's`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14780` — `* and V5.9.1027b split out checkBotLoopOrphan).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14901` — `private fun checkBotLoopOrphan(myJob: kotlinx.coroutines.Job?, loopCount: Int): Boolean {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14906` — `"BOTLOOP_ORPHAN_EXIT",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15134` — `// DB work. Reconcile on this dedicated background dispatcher before`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15137` — `com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15138` — `.reconcileJournalAuthority6663()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15141` — `// V5.9.1027 — orphan exit. See checkBotLoopOrphan() doc.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15148` — `// V5.9.251: PERIODIC WALLET RECONCILIATION`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15149` — `// Re-run StartupReconciler every 90s during a live session so`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15154` — `//   - Orphaned tokens from silent buy confirmations`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15155` — `var lastReconcileAt = System.currentTimeMillis()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15156` — `val reconcileIntervalMs = 90 * 1000L  // V5.9.251: 90s (was 5 min — too slow)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15187` — `// V5.9.1027 — orphan exit (see checkBotLoopOrphan doc).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15188` — `if (checkBotLoopOrphan(myJob, loopCount)) return`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15303` — `// and PAPER_REPLAY_PARITY_6464 telemetry the operator uses`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15344` — `// Reconciles CanonicalMintOccupancyRegistry against the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15352` — `// Reconciles cash + openCost against baseline + realized.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15358` — `com.lifecyclebot.engine.truth.CapitalConservationTracer6469.reconcile(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15393` — `com.lifecyclebot.engine.truth.CanonicalEconomicIdentity6470.reconcile(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15401` — `// V5.0.6470 §P0 — unified reconciler health snapshot.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15404` — `com.lifecyclebot.engine.truth.UnifiedReconcilerHealth6470.snapshot()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15451` — `unfunded6485.forEach { orphan ->`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15452` — `try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed("paper", orphan.mint) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15453` — `try { com.lifecyclebot.engine.truth.PositionStateLedger6427.abortOpen6485(orphan.positionId) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15454` — `try { com.lifecyclebot.engine.EmergentGuardrails.unregisterPosition(orphan.mint) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15455` — `try { com.lifecyclebot.engine.GlobalTradeRegistry.closePosition(orphan.mint) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15456` — `try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNFUNDED_PAPER_ENTRY_ABORTED_6485", "positionId=${orphan.positionId.take(24)} mint=${orphan.mint.take(10)} lifecycle=${orphan.lifecycle}") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15467` — `name = "paper_replay_audit_6461", budgetMs = 3_000L,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15524` — `// (reconcile, watchdogs, watchlist rebuild) separately from`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15586` — `// V5.9.103: periodic reconcile (was live-mode-only)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15600` — `// gate locked out any further reconcile attempt → V5.9.748`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15601` — `// RECONCILE-PROMOTE never had a chance to fire → positions`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15608` — `// reconcile() (V5.9.748 promote-pending path handles it) but`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15611` — `val intervalElapsed = nowMs - lastReconcileAt > reconcileIntervalMs`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15622` — `lastReconcileAt = nowMs`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15626` — `launchPeriodicReconcile(rescueOnly = paperRescueEligible, wallet = wallet)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15790` — `launchWalletConnect(cfg.privateKeyB58, rpcUrl, runReconciliation = false)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16039` — `// PERIODIC ORPHAN SCAN - every 10 loops (~50 seconds) in live mode`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16045` — `addLog("🔍 Periodic orphan scan starting...")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16046` — `scanAndSellOrphans(wallet!!)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16048` — `ErrorLogger.error("BotService", "Periodic orphan scan error: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16065` — `// heartbeat, sniper sweep, inert-loop watchdog, orphan scan`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16132` — `//     StartupReconciler will adopt the position on restart.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16156` — `// Token no longer tracked — might be orphaned or already sold`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16299` — `// V5.9.318: LIVE WALLET RECONCILE SWEEP (~every 5 min, LIVE only).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16305` — `// This periodic reconcile sweep liquidates ANY non-stable SPL`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16310` — `try { runReconcileSweep() }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16311` — `catch (e: Exception) { ErrorLogger.debug("BotService", "Reconcile sweep error: ${e.message}") }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16673` — `if (cfg.paperMode && (paperAccount6647?.status != com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16676` — `PipelineHealthCollector.labelInc("GROWTH_MILESTONE_BLOCKED_UNRECONCILED_OR_UNPRICED_6647")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16677` — `ForensicLogger.lifecycle("GROWTH_MILESTONE_BLOCKED_UNRECONCILED_OR_UNPRICED_6647", "status=${paperAccount6647?.status ?: "UNAVAILABLE"} authoritativePrices=${paperAccount6647?.authoritativePrices ?: false}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17247` — `// reconciler / mode-switch / persistence saves afterwards. This`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17308` — `// V5.9.495z6 — WALLET RECONCILIATION (operator spec May 2026).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17310` — `// PositionStore with the on-chain wallet truth. Recovers orphan`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17317` — `WalletReconciler.reconcileWalletHoldings(status, w, isPaperMode = false)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17319` — `ErrorLogger.debug("BotService", "WalletReconciler error: ${e.message?.take(80)}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17449` — `// reconcile (loop%9), FULL reconstruct (loop%60), and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17465` — `// is null/empty (orphans loaded from disk, paper positions`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17470` — `// orphans) but was only invoked when DexScreener was down.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17835` — `// exStart=12 exDone=11: one orphan. Same`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17882` — `// runFallbackSafetyExit crash cannot orphan`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17884` — `// slStart=7 slDone=6, exactly one orphan; this`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17909` — `// 10s is orphaned. Force-release it here so the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18236` — `// V5.9.1470d — extracted periodic-reconcile + phantom-sweep from botLoop to free`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18240` — `// balances/positions here beyond what StartupReconciler/phantom-sweep already did.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18241` — `private fun launchPeriodicReconcile(rescueOnly: Boolean, wallet: SolanaWallet?) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18248` — `addLog("🛟 PAPER-MODE PENDING-VERIFY RESCUE — running reconcile against live wallet to promote stuck positions")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18250` — `val r = com.lifecyclebot.engine.StartupReconciler(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18253` — `onLog = { msg -> addLog("[reconcile] $msg") },`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18258` — `autoSellOrphans = false,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18260` — `r.reconcile()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18278` — `ErrorLogger.warn("BotService", "Periodic reconcile error: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18329` — `// closed, it is NOT a ghost. Real orphaned rows (crashed session`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18355` — `// truly orphaned (crashed session / persistence-only). Empty`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18402` — `try { ForensicLogger.lifecycle("PAPER_SLOT_OPEN_RECONCILED", "raw=${forcedOpenRaw.size} clean=${clean.size} ledger=${paperOpen.size}") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18403` — `try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_SLOT_OPEN_RECONCILED") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19848` — `// V5.9.1179 — remove per-token wallet reconcile from supervisor hot path.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19850` — `// processTokenCycle was spawning across ~200 mints. LiveWalletReconciler`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19852` — `// live-mode tick; firing reconcileNow once per watchlist mint only creates`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21693` — `// V5.9.1323 — V3 Verdict Reconciliation (P0-4 surgical).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21719` — `// V5.9.1323 — V3 Verdict Reconciliation (P0-4 surgical).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21799` — `// V5.9.1323 — V3 Verdict Reconciliation (P0-4 surgical).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21813` — `// V5.9.1323 — V3 Verdict Reconciliation (P0-4 surgical).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21823` — `// V5.9.1323 — V3 Verdict Reconciliation (P0-4 surgical).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26572` — `// catches the orphaned-position cases this block was meant to`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27396` — `// Previously: position was removed from Quality but NOT sold and NOT in Moonshot = orphaned with no stop loss.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28033` — `// if neither sub-trader has the position registered (orphaned ts.position).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28041` — `* for orphans whose tradingMode tag is null/empty). The sweep exists`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28233` — `// ── Last-resort hard-floor (orphaned position) ──────────────`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28257` — `// The fallback orphan hard-floor is a LAST-resort safety net for`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28264` — `// unconditional -15% stop; this guard only suppresses the orphan`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28265` — `// fallback path until the position is old enough to be truly orphaned.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28269` — `"ORPHAN_FALLBACK_SUPPRESSED_FRESH_PAPER",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28278` — `"ORPHAN_FALLBACK_SUPPRESSED_CANONICAL_PAPER",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28287` — `"ORPHAN_FALLBACK_SUPPRESSED_PRICE_BASIS",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28295` — `"🛑 [FALLBACK_SAFETY_SL][ORPHAN] ${ts.symbol} | ${pnlPct.toInt()}% — no sub-trader has mint; firing hard-floor")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28298` — `reason = "FALLBACK_ORPHAN_HARD_FLOOR_${pnlPct.toInt()}PCT",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28701` — `* Purge orphaned tokens on bot stop (live mode only).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28704` — `private fun purgeOrphanedTokensOnStop(cfg: BotConfig) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28707` — `addLog("🧹 Scanning for orphaned tokens on shutdown...")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28717` — `var orphansSold = 0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28728` — `addLog("🧹 Found orphaned token: $symbol ($qty)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28731` — `val sold = executor.sellOrphanedToken(mint, qty, w)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28733` — `orphansSold++`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28734` — `addLog("✅ Sold orphan: $symbol")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28743` — `if (orphansSold > 0) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28744` — `addLog("🧹 Purged $orphansSold orphaned token(s) on shutdown")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28747` — `addLog("⚠️ Orphan purge failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28752` — `* Periodic orphan scan during runtime.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28755` — `private fun scanAndSellOrphans(w: SolanaWallet) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28765` — `var orphansFound = 0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28766` — `var orphansSold = 0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28778` — `orphansFound++`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28780` — `addLog("🧹 ORPHAN FOUND: $symbol | qty=$qty | mint=${mint.take(12)}...")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28783` — `val sold = executor.sellOrphanedToken(mint, qty, w)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28785` — `orphansSold++`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28786` — `addLog("✅ ORPHAN SOLD: $symbol")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28788` — `addLog("⚠️ ORPHAN SELL FAILED: $symbol - sell manually via Jupiter")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28791` — `addLog("❌ ORPHAN ERROR: $symbol - ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28795` — `if (orphansFound > 0) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28796` — `addLog("🧹 Orphan scan: found $orphansFound, sold $orphansSold")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28798` — `addLog("✅ No orphaned tokens found")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28801` — `addLog("⚠️ Orphan scan failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28802` — `ErrorLogger.error("BotService", "Orphan scan error: ${e.message}", e)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CandidateSymbolicContext.kt:276` — `affected += "WalletReconciler"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CandidateSymbolicContext.kt:309` — `affected += "WalletReconciler"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalBuyFillRegistry.kt:30` — `* reconciliation heal, WebSocket update, partial exit, or top-up can`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalBuyFillRegistry.kt:165` — `com.lifecyclebot.engine.truth.FillLotLedger6386.openLot(lot)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalBuyFillRegistry.kt:177` — `try { ErrorLogger.warn(TAG, "FillLotLedger6386 dual-write failed: ${t.message}") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalFeaturesBuilder.kt:179` — `reason.contains("WALLET_RECONCILE")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:89` — `CLOSED_BY_WALLET_RECONCILE,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:372` — `raw0.executionResult == ExecutionResult.CLOSED_BY_WALLET_RECONCILE ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:448` — `raw.executionResult != ExecutionResult.CLOSED_BY_WALLET_RECONCILE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:603` — `// openTrades intentionally NOT restored — must reconcile from on-chain truth.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:762` — `ExecutionResult.CLOSED_BY_WALLET_RECONCILE,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:785` — `ExecutionResult.CLOSED_BY_WALLET_RECONCILE -> CanonicalLearningCounters.executedTradesTotal.incrementAndGet()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalPositionRegistry.kt:24` — `WALLET_RECONCILIATION,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalPositionRegistry.kt:37` — `enum class BasisStatus { PROVISIONAL, RECONCILED, QUARANTINED, CLOSED }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalPositionRegistry.kt:38` — `enum class ReconciliationStatus { NONE, PENDING, COMPLETED, FAILED }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalPositionRegistry.kt:46` — `QuantityAuthority.WALLET_RECONCILIATION -> 2`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalPositionRegistry.kt:93` — `val reconciliationStatus: ReconciliationStatus,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalPositionRegistry.kt:170` — `reconciliationStatus = ReconciliationStatus.NONE,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CatastrophicExitLatency.kt:13` — `* reconciliation.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:1056` — `// Reconcile local occupancy without inventing a second PnL outcome.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:1057` — `try { PipelineHealthCollector.labelInc("CYCLIC_ALREADY_CLOSED_RECONCILED_6566") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:1066` — `// the position and lane ownership for reconciliation or retry.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DeadTokenQuarantine.kt:22` — `*   universal SL check, LiveWalletReconciler price probe, and OpenPnlSanity`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DeadTokenQuarantine.kt:26` — `*     - 7 ANR hints / 78s cumulative stall — LiveWalletReconciler.reconcile`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DeadTokenQuarantine.kt:42` — `*   • LiveWalletReconciler.reconcile balance loop → skip dead mints (no`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DeadTokenQuarantine.kt:107` — `* broadcast failed with NO_ROUTE N times, or wallet reconciler observed`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DownstreamWorkQueue.kt:15` — `* callbacks — reconciler requeue/finality, proof-ready retry enqueue, and telemetry`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DownstreamWorkQueue.kt:25` — `fun reconciliation(label: String, mint: String, block: () -> Unit) = enqueue("RECONCILE", label, mint, block)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecMode.kt:6` — `* carry its own mode from admission through execution/journal/reconcile.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1384` — `// operator + reconciler sells continue via their own paths.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:786` — `// so orphaned locks older than the TTL can be reclaimed on retry.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:813` — `// V5.0.6071 — reclaim orphaned locks. If a lock has been held for`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:945` — `// buy can be observed by the verifier/reconciler before the liveBuy`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1646` — `// PENDING_RECONCILIATION rather than training the brain on`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1657` — `// reconciles never fall to the inferUiScaleFromTrade heuristic even`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:2336` — `// policy methods were architecturally orphaned: getPositionSizeMultiplier,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:2817` — `*  is drifting / reconciler is stalled. 0.05 SOL per operator spec. */`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:2846` — `// (e.g. WALLET_RECOVERED orphan: WalletReconciler sets costSol=0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:2878` — `val stopLike = r.contains("STOP") || r.contains("STRICT_SL") || r.contains("HARD_FLOOR") || r.contains("FALLBACK_ORPHAN_HARD_FLOOR")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3123` — `* reconciler.totalChecked=0 while LiveWalletReconciler logs had checked=2.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3124` — `* Root pattern: the sizing cap read PositionWalletReconciler only, while`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3125` — `* RuntimeStateSnapshot uses the effective reconciler truth across position,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3126` — `* sell, and live-wallet reconcilers. That stale surface silently dust-capped`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3131` — `* and any reconciler has checked wallet/position truth.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3136` — `val snap = com.lifecyclebot.engine.execution.PositionWalletReconciler.snapshot()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3138` — `val sellChecked = try { com.lifecyclebot.engine.sell.SellReconciler.totalChecked.toInt() } catch (_: Throwable) { 0 }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3139` — `val liveWalletChecked = try { com.lifecyclebot.engine.sell.LiveWalletReconciler.totalChecked() } catch (_: Throwable) { 0 }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3150` — `val reconcilerStalled = effectiveChecked == 0 && canonical > 0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3152` — `if ((unresolvedDrift || reconcilerStalled) && size > LEDGER_DRIFT_MAX_LIVE_SOL) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3242` — `// polling + wallet reconciliation + retry sweep. Each callback`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3521` — `val entryQtyMismatch = fill6320.walletVerifiedQty > 0.0 && staleQty > 0.0 &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3523` — `if (entryPxMismatch || entryQtyMismatch) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3537` — `"mint=${tradeWithMint.mint.take(10)} sym=${ts.symbol} stalePx=$stalePx→${canonicalEntryPx} staleQty=$staleQty→${fill6320.walletVerifiedQty} pxMismatch=$entryPxMismatch qtyMismatch=$entryQtyMismatch",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3550` — `// LIVE_FINALIZED / LIVE_RECONCILED count toward canonical live`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3556` — `"LIVE_RECONCILED" -> PipelineHealthCollector.labelInc("LIVE_PNL_RECONCILED_ROWS")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3575` — `// LearningEligibility so QUARANTINED_DECIMAL / PENDING_RECONCILIATION`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3647` — `// position.costSol were 0 (WALLET_RECOVERED orphan), we used the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3730` — `// not count as closed outcomes; orphan/duplicate closes are suppressed`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3755` — `ForensicLogger.lifecycle("TRADE_OUTCOME_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} outcomeId=${close.outcomeId} reason=${close.reason} orphan=${close.orphan}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:6606` — `// for the daily V3JournalRecorder reconciler. Keys`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:6760` — `"⏳ SELL VERIFY INCONCLUSIVE [$reason]: tokens cleared AND SOL returned not BOTH proven within 60s — leaving position open & qty unchanged. Next tick will retry. Reconciler will adopt later.",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:6895` — `// Don't trust SOL-returned alone — reconcile the wallet token`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:6901` — `val reading = TokenLifecycleTracker.reconcileWalletBalance(wallet, ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:6921` — `"Wallet reconcile: " + when {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:6932` — `/* never break the live path on reconcile */`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7436` — `// gets a chance to reconcile before we crystallise the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7455` — `"mint=${ts.mint.take(10)} sym=${ts.symbol} bestPnl=${bestPnl.fmt(1)}% entrySrc=${ts.position.entryPriceSource} stampedEntry=${ts.position.entryPrice} — refusing runner exit until basis reconciles",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10172` — `//     canonical add   = CanonicalPaperTransaction6486.add(...) with`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10242` — `com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.add(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10253` — `com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.Result(false, positionId6539, "EXCEPTION_${t.message?.take(40)}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10270` — `com.lifecyclebot.engine.truth.FillLotLedger6504.recordBuyFill(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13206` — `// on estimate" (learning suppressed until reconciliation, async`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13258` — `// fake -24%..-87% orphan losses seconds after BUY. Persisting the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13502` — `com.lifecyclebot.engine.truth.FillLotLedger6504.recordBuyFill(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15525` — `// reconciler-adopt row that never got upgraded. When runtime authority`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16567` — `// V5.0.4187 — LEASE ORPHAN FIX (A1). V5.0.4186 dump showed 25+`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16625` — `// V5.0.4187 — LEASE ORPHAN FIX (A3).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16632` — `// V5.0.4187 — LEASE ORPHAN FIX (A4).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16702` — `// V5.0.4187 — LEASE ORPHAN FIX (A7). Admission-gate block is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16781` — `// V5.0.4187 — LEASE ORPHAN FIX (A5). Wallet balance is transient`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16784` — `// of orphaning the slot for 30s.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:17005` — `// V5.0.4187 — LEASE ORPHAN FIX (A6). Mutex deferral is transient`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:17007` — `// the current wallet spend completes, instead of 30s orphan.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:17428` — `// once the tx signature is on-chain. The wallet reconciler`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:17908` — `// = 60s. Still well under the 90s periodic reconciler so`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:17911` — `// RECONCILE-PROMOTE path picks it up at the next 90s tick.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18033` — `// V5.0.6344 — APPEND to immutable FillLotLedger6344.`
+- … 1634 more
+
+## Paper open/close mutation paths
+
+Count: **798**
+
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:142` — `val closePositionsOnStop: Boolean = true, // SAFETY: close all positions when bot stops`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:462` — `putBoolean("close_positions_on_stop",     cfg.closePositionsOnStop)`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:625` — `closePositionsOnStop        = p.getBoolean("close_positions_on_stop", true),`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:447` — `// Set once per scan pass at BotService:16114, read by paperBuy/liveBuy`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AdaptiveLearningEngine.kt:578` — `// (paperSell, liveSell, fallback exits) all called learnFromTrade`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:276` — `try { GlobalTradeRegistry.closePosition(mint) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:119` — `// learning in their closePosition() fast paths during bot stop.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4045` — `// fires deep inside paperBuy() after tradeId/normalize work. Cut it`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4047` — `// on already-open mints. The existing paperBuy guard remains as`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4086` — `// PAPER_BUY_BLOCKED_FINALITY / LLM veto / route block, so the previous`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4112` — `"mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=V3 reason=${if (wasOpenBefore) "ALREADY_OPEN" else "NO_OPEN_COMMITTED"} mode=${if (isPaper) "PAPER" else "LIVE"} (see PAPER_BUY_NOT_OPENED_* for explicit reason)"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4147` — `* - In paper mode: routes to paperBuy (no wallet required).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4212` — `* - In paper mode: routes to paperSell (instant fill at last price).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4250` — `//      → call CashGenerationAI.closePosition directly so the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4287` — `com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4653` — `// pre-V5.0.6509 legacy corruption (paperBuy minted qty with`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4763` — `// so a drifted scalar (recordBuy/recordSell accumulator that lost`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5618` — `try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, price,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5620` — `try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, price,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6647` — `addLog("🧠 EdgeLearning: paper(buy>=${EdgeLearning.getPaperBuyPctMin().toInt()}%) live(buy>=${EdgeLearning.getLiveBuyPctMin().toInt()}%)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7817` — `// wallet, regardless of the legacy cfg.closePositionsOnStop`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7865` — `// per-position paperSell() + heavy learning code, ~500ms each),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7871` — `// per-token paperSell learning loop takes 5+ seconds. The bot`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7882` — `// even if the process is killed during the slow paperSell loop,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7931` — `// do only in-memory accounting in their closePosition() paths —`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7962` — `com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7990` — `com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8017` — `com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8064` — `com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8091` — `com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8116` — `// V5.2 FIX: ALWAYS clear all layer positions when bot stops, regardless of closePositionsOnStop setting`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9812` — `com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9822` — `com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9832` — `com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9841` — `com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9850` — `// ShitCoinExpress) could leak zombies that paperSell missed.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9853` — `// entry path that bypasses paperSell's close block still`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9858` — `com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13399` — `// V5.9.1009 — Exit sweeps must never block botLoop. A slow paperSell`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13405` — `// The exit gate kept approving exits but the actual paperSell never fired`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13428` — `// all open positions and may invoke paperSell()'s learning fanout per`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13440` — `// open positions and paperSell's heavy learning fanout (~3-5s each),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13458` — `// executor.treasuryBuy/paperSell, which drag in the full learning/persistence fanout —`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13605` — `val paperBuys = trades.filter { it.side.equals("BUY", true) && it.mode.equals("PAPER", true) }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13606` — `val paperSells = trades.filter { it.side.equals("SELL", true) && it.mode.equals("PAPER", true) }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13607` — `val realizedPnl = paperSells.sumOf { it.pnlSol }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13609` — `val buyQtyByMint = paperBuys.groupBy { it.mint }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13611` — `val sellQtyByMint = paperSells.groupBy { it.mint }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13613` — `val openCostSol = paperBuys.groupBy { it.mint }.entries.sumOf { (mint, buys) ->`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13628` — `"buys=${paperBuys.size} sells=${paperSells.size}",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14776` — `* (paperBuy +12% / paperSell -18% on <$5k pools = -26.8% birth tax).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15452` — `try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed("paper", orphan.mint) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15455` — `try { com.lifecyclebot.engine.GlobalTradeRegistry.closePosition(orphan.mint) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16301` — `// /Manip) closePosition() paths only update in-memory PnL —`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17260` — `// paperSell() heavy learning fanout, parking the cycle in POST_SUPERVISOR.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17477` — `// paperSell's full learning fanout. With 5-10 open positions`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18325` — `// remove + PositionCloseLedger.markClosed). Result: "money is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18343` — `try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(ts.mint, "PAPER_SLOT_DUST_CLOSED", 0) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18344` — `try { com.lifecyclebot.engine.PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "PAPER_SLOT_DUST_CLOSED") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18361` — `try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(ts.mint, "PAPER_GHOST_PURGED_6373C_NO_BUY_ROW", 0) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18362` — `try { com.lifecyclebot.engine.PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "PAPER_GHOST_PURGED_6373C_NO_BUY_ROW") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18396` — `try { com.lifecyclebot.engine.Executor.releasePaperSellLock(mint) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18470` — `try { com.lifecyclebot.engine.Executor.releasePaperSellLock(m) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19178` — `*   • Hard 3s watchdog: if paperSell's non-cancellable IO blocks an`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19510` — `com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:20109` — `//   • EXECUTABLE_ENTRY_QUOTE — strict, required by Executor.paperBuy`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:20766` — `// downstream buy paths (paperBuy, liveBuy, treasuryBuy, blueChipBuy,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21345` — `val paperCloseState = try { PaperPositionCloseAuthority.stateOf("PAPER", ts.mint) } catch (_: Throwable) { null }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21346` — `if (paperCloseState == PaperPositionCloseAuthority.State.CLOSED) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21349` — `try { PipelineHealthCollector.labelInc("PAPER_CLOSED_ACTIVE_ROW_DROPPED") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21350` — `try { ForensicLogger.lifecycle("PAPER_CLOSED_ACTIVE_ROW_DROPPED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} src=${ts.source}") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21353` — `if (paperCloseState == PaperPositionCloseAuthority.State.CLOSE_REQUESTED || paperCloseState == PaperPositionCloseAuthority.State.CLOSING) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22427` — `// V5.2 FIX: Capture Treasury's OWN entry price BEFORE paperBuy applies slippage!`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22455` — `// Execute treasury buy (this calls paperBuy which applies slippage to ts.position)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22488` — `// Do NOT use ts.position.entryPrice - that has paperBuy slippage applied`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23802` — `// late PAPER_BUY_BLOCKED_FINALITY, and in some paths`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24002` — `action = if (cfg.paperMode) "PAPER_BUY" else "LIVE_BUY",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24570` — `// a Jupiter swap; paper mode still uses paperSell.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24859` — `// silently routing through paperBuy().`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26315` — `action = if (cfg.paperMode) "PAPER_BUY" else "LIVE_BUY",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26552` — `try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, effectiveExitPrice,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26554` — `try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, effectiveExitPrice,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26759` — `com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26810` — `com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26876` — `com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26994` — `com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27107` — `com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(ts.mint, currentPrice, exitSignal)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27187` — `com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, ts.position.entryPrice,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27236` — `com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, currentPrice, exitSignal)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27273` — `com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, ts.position.entryPrice, deadExitSignal)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27299` — `com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, ts.position.entryPrice, staleExitSignal)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27340` — `com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, currentPrice, exitSignal)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27367` — `com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, currentPrice, exitSignal)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27419` — `com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, currentPrice, exitSignal)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27477` — `com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(ts.mint, currentPrice, exitSignal)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27689` — `com.lifecyclebot.v3.scoring.SellOptimizationAI.closePosition(ts.mint, pnlPct)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28193` — `com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, price, sig)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28225` — `com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, price, sig)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalPublishHelper.kt:9` — `* closePosition() but bypassed CanonicalOutcomeBus entirely — which is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:801` — `// ring is a SELF-CONTAINED VIRTUAL $500→$1M sandbox: paperBuy debits NO`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:1050` — `executor.paperSell(ts, "CYCLIC_$reason")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt:24` — `var paperBuyPctMin: Double = 5.0,       // V5.9.495z12: 35→5 — bootstrap floor as soft as possible`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt:45` — `paperBuyPctMin = paperBuyPctMin.coerceIn(2.0, 35.0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt:246` — `// approved-loss tightened paperBuyPctMin by +1.0 and every win only`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt:266` — `thresholds.paperBuyPctMin -= adjustAmount`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt:270` — `if (mature) thresholds.paperBuyPctMin += adjustAmount * 0.3`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt:274` — `thresholds.paperBuyPctMin += adjustAmount`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt:279` — `thresholds.paperBuyPctMin -= adjustAmount * 0.3`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt:300` — `"Thresholds: paper(buy=${thresholds.paperBuyPctMin.toInt()}% vol=${thresholds.paperVolumeMin.toInt()}) " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt:362` — `.putFloat("edge_paper_buy_pct", thresholds.paperBuyPctMin.toFloat())`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt:377` — `paperBuyPctMin = thresholds.paperBuyPctMin,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt:395` — `paperBuyPctMin = persistent["paperBuyPctMin"] as Double,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt:408` — `"📂 Loaded from PERSISTENT storage: paper(buy=${thresholds.paperBuyPctMin.toInt()}%) " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt:413` — `paperBuyPctMin = prefs.getFloat("edge_paper_buy_pct", 35f).toDouble(),  // LOWERED default to 35%`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt:430` — `"📂 Loaded thresholds: paper(buy=${thresholds.paperBuyPctMin.toInt()}%) " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt:439` — `fun getPaperBuyPctMin(): Double = thresholds.paperBuyPctMin`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt:461` — `(thresholds.paperBuyPctMin * 1.2).coerceAtLeast(3.0).coerceAtMost(35.0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt:499` — `|   Thresholds: paper(buy=${thresholds.paperBuyPctMin.toInt()}% vol=${thresholds.paperVolumeMin.toInt()}) live(buy=${thresholds.liveBuyPctMin.toInt()}% vol=${thresholds.liveVolumeMin.toInt()})`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeOptimizer.kt:591` — `EdgeLearning.getPaperBuyPctMin()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EmergentGuardrails.kt:319` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:411` — `// paperBuy resume the SAME attemptId. Terminal outcomes still revoke.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1820` — `// paperBuy(), but the runtime still showed 112`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1842` — `"attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol existing=$existingLayer6371 requestedLane=$lane action=blocked_before_paper_buy",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutionRouteGuard.kt:13` — `* - SHADOW is labelled and counted via the explicit shadow path, never normal paperBuy().`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutionRouteGuard.kt:30` — `// Normal paperBuy() mutates TokenState + TradeHistoryStore and bumps`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutionRouteGuard.kt:31` — `// EXEC_PAPER_BUY_OK. Shadow learning in LIVE must use runShadowPaperBuy(),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutionRouteGuard.kt:33` — `// Therefore paperBuy() is blocked in LIVE even when shadowPaperEnabled=true.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:474` — `//                            paperBuy()/liveBuy() commits it. AGGRESSIVE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:761` — `private val paperSellLocks = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicBoolean>()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:782` — `// V5.0.6071 — paperSellLock TTL. If a sell path crashes/exceptions`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:784` — `// paperSell), the AtomicBoolean stays `true` forever and every future`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:787` — `private val paperSellLockAcquiredMs = ConcurrentHashMap<String, Long>()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:788` — `private const val PAPER_SELL_LOCK_STALE_MS = 60_000L  // 1 min TTL`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:795` — `// because acquirePaperSellLock removes the entry on release (line 522).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:801` — `// Any new paperSell within 2 s of the prior completion returns`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:804` — `private val lastPaperSellCompletedMs = ConcurrentHashMap<String, Long>()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:805` — `private const val PAPER_SELL_COOLDOWN_MS = 2_000L`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:806` — `fun acquirePaperSellLock(mint: String): Boolean {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:809` — `val lastDoneMs = lastPaperSellCompletedMs[mint]`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:810` — `if (lastDoneMs != null && (System.currentTimeMillis() - lastDoneMs) < PAPER_SELL_COOLDOWN_MS) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:814` — `// longer than PAPER_SELL_LOCK_STALE_MS without a corresponding`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:817` — `val acquiredMs = paperSellLockAcquiredMs[mint]`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:818` — `if (acquiredMs != null && (System.currentTimeMillis() - acquiredMs) > PAPER_SELL_LOCK_STALE_MS) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:821` — `"PAPER_SELL_LOCK_STALE_RECLAIMED_6071",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:825` — `paperSellLocks.remove(mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:826` — `paperSellLockAcquiredMs.remove(mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:828` — `val acquired = paperSellLocks.getOrPut(mint) { java.util.concurrent.atomic.AtomicBoolean(false) }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:830` — `if (acquired) paperSellLockAcquiredMs[mint] = System.currentTimeMillis()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:833` — `fun releasePaperSellLock(mint: String) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:836` — `lastPaperSellCompletedMs[mint] = System.currentTimeMillis()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:837` — `paperSellLocks.remove(mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:838` — `paperSellLockAcquiredMs.remove(mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:844` — `fun clearAllPaperSellLocks() {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:845` — `paperSellLocks.clear()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:846` — `paperSellLockAcquiredMs.clear()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:847` — `lastPaperSellCompletedMs.clear()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:978` — `//     1. EXEC_PAPER_BUY_OK=0 — paperBuy()/openPosition mode checks crashed,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3294` — `reasonForLog = "paperClose6508/${trade.reason.take(40)}",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3299` — `"PAPER_CLOSE_JOURNAL_DUPLICATE_SUPPRESSED_6508",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3306` — `PipelineHealthCollector.labelInc("PAPER_CLOSE_JOURNAL_DUPLICATE_SUPPRESSED_6508")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3407` — `// never stamped. Root cause: the main V3 buy route (doBuy → paperBuy at the spine`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3439` — `// V5.0.6449 §3 — For SELL/PARTIAL rows, the caller (paperSell /`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4017` — `// impl only fired inside paperSell/liveSell; any close arriving via a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4073` — `// registerPosition/evaluate/closePosition were wired, but the strategy win-rate`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:6650` — `// (recorded on paperBuy); exitPolicyLane +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:6691` — `.onPaperClose(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7245` — `// that fast. Root cause: paperBuy applies +12% slippage on entry`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7246` — `// (Executor.kt L6540) and paperSell applies -18% slippage on exit`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8094` — `try { GlobalTradeRegistry.closePosition(ts.mint) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10270` — `com.lifecyclebot.engine.truth.FillLotLedger6504.recordBuyFill(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10644` — `* doBuy/paperBuy/liveBuy return Unit and have many bail points (LLM veto,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10645` — `* PAPER_BUY_BLOCKED_FINALITY, route blocks). Callers historically assumed`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10739` — `com.lifecyclebot.engine.truth.CounterParityLedger6399.recordBuyFailure()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11686` — `// to paperBuy when the wallet is missing. Operator forensics showed`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11701` — `paperBuy(ts, effSol, score, tradeId, quality, skipGraduated, wallet, walletSol)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11704` — `"🚫 MEME_SPINE LIVE_BUY_REFUSED: ${ts.symbol} — config is LIVE but wallet is NULL. Refusing to fall back to paperBuy.")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11721` — `// to runShadowPaperBuy which accepts SolanaWallet?, re-widening it).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11741` — `runShadowPaperBuy(ts, effSol, score, quality, "blocked:${guard.reason.take(20)}", safeWallet, walletSol)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11766` — `runShadowPaperBuy(ts, effSol, score, quality, "exposure_cap", safeWallet, walletSol)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11811` — `runShadowPaperBuy(ts, effSol, score, quality, "parallel", safeWallet, walletSol)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11817` — `private fun runShadowPaperBuy(ts: TokenState, sol: Double, score: Double,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12140` — `fun paperBuy(ts: TokenState, sol: Double, score: Double, identity: TradeIdentity? = null,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12149` — `try { PipelineHealthCollector.labelInc("PAPER_BUY_ATTEMPT") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12153` — `// paperBuy attempt is tagged with the current UI/screen state so`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12163` — `if (uiAbsent6547) PipelineHealthCollector.labelInc("PAPER_BUY_ATTEMPT_UI_ABSENT_6547")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12164` — `if (screenOff6547) PipelineHealthCollector.labelInc("PAPER_BUY_ATTEMPT_SCREEN_OFF_6547")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12165` — `if (!uiAbsent6547 && !screenOff6547) PipelineHealthCollector.labelInc("PAPER_BUY_ATTEMPT_FOREGROUND_6547")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12169` — `// exactly one terminal outcome: PAPER_BUY_OPENED (via markOk`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12171` — `// (via markPaperBuyNotOpened). Any silent early return is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12262` — `var paperBuyLeaseKey6369 = ""`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12263` — `var paperBuyLeaseMode6369 = "PAPER"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12264` — `var paperBuyLeaseProcessor6369 = "PAPER_BUY"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12277` — `val leaseKey = paperBuyLeaseKey6369`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12280` — `paperBuyLeaseKey6369 = ""`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12295` — `fun markPaperBuyNotOpened(reason: String) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12296` — `try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12297` — `try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_$reason") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12299` — `// Operator forensic (6580): 908 PAPER_BUY_NOT_OPENED without a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12313` — `try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_BUCKET_${bucket6587}_6587") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12315` — `clearPaperAuthorities6514("PAPER_BUY_HARD_BLOCKED_$reason", nonTerminal = false)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12318` — `PipelineHealthCollector.labelInc("PAPER_BUY_HARD_BLOCKED_$reason")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12321` — `"reason=$reason stage=paperBuy.markNotOpened mint=${ts.mint.take(10)} " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12325` — `try { ForensicLogger.lifecycle("PAPER_BUY_NOT_OPENED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$reason attemptId=$executionAttemptId6514") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12328` — `fun releasePaperBuyNonTerminal6514(reason: String) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12330` — `try { PipelineHealthCollector.labelInc("PAPER_BUY_NONTERMINAL_DEFERRED_$reason") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12331` — `clearPaperAuthorities6514("PAPER_BUY_NONTERMINAL_DEFERRED_$reason", nonTerminal = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12335` — `val leaseKey = paperBuyLeaseKey6369`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12338` — `paperBuyLeaseKey6369 = ""`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12348` — `"reason=$reason stage=paperBuy.markTerminalOpen mint=${ts.mint.take(10)} " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12435` — `markPaperBuyNotOpened("NO_EXECUTABLE_MARK_6575")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12519` — `"PAPER_BUY_DENIED_ENTRY_AUTHORITY_6451",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12522` — `PipelineHealthCollector.labelInc("PAPER_BUY_DENIED_ENTRY_AUTHORITY_6451")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12524` — `markPaperBuyNotOpened("ENTRY_AUTHORITY_${gateVerdict6451.reason}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12536` — `// NOTE: sol is a `val` parameter — we can't reassign it, and paperBuy`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12540` — `// liveBuy or paperBuy sizing pass can consume via`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12541` — `// consumeNextPaperBuyBump(). For lane-level parity this is close`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12547` — `.consumeNextPaperBuyBump(laneKey6418, ts.mint, ts.symbol)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12556` — `"note=advisory_full_wire_lands_when_paperbuy_sol_var_refactored",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12575` — `PipelineHealthCollector.labelInc("PAPER_BUY_BLOCKED_PRESALE_SNIPE_6373F")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12577` — `"PAPER_BUY_BLOCKED_PRESALE_SNIPE_6373F",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12582` — `// V5.0.6680 — terminal reject telemetry is emitted exactly once by markPaperBuyNotOpened below.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12584` — `markPaperBuyNotOpened("PRESALE_SNIPE_51K_RUG_6373F")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12590` — `markPaperBuyNotOpened("INVALID_SIZE")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12595` — `markPaperBuyNotOpened("EMPTY_MINT_OR_SYMBOL")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12600` — `markPaperBuyNotOpened("INVALID_SCORE")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12622` — `try { PipelineHealthCollector.labelInc("PAPER_BUY_ADVISOR_HARD_SAFETY_BLOCK_6519") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12623` — `markPaperBuyNotOpened("HARD_SAFETY_ADVISOR_${advisor.second.substringBefore(':')}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12633` — `PipelineHealthCollector.labelInc("PAPER_BUY_ADVISOR_SOFT_SHAPED_6519")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12634` — `PipelineHealthCollector.labelInc("PAPER_BUY_ADVISOR_SOFT_OBSERVED_TRAINABLE_6696")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12635` — `ForensicLogger.lifecycle("PAPER_BUY_ADVISOR_SOFT_SHAPED_6519", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=${advisor.second} action=execute_and_learn_soft_advisor_6696")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12647` — `markPaperBuyNotOpened("LEARNING_QUALITY_REJECTED_6663")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12651` — `// paperBuy() callers. In LIVE mode with shadowPaperEnabled=true this is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12662` — `"PAPER_BUY_IN_LIVE_MODE_BLOCKED",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12670` — `ErrorLogger.warn("Executor", "🚫 PAPER_BUY_IN_LIVE_MODE_BLOCKED: ${ts.symbol} (sol=$sol) — ${routeVerdict.reason}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12671` — `markPaperBuyNotOpened("LIVE_MODE_BLOCKED")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12675` — `paperBuyLeaseMode6369 = if (routeIsShadow) "SHADOW" else "PAPER"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12705` — `PipelineHealthCollector.labelInc("PAPER_BUY_REJECTED_BEFORE_TICKET_SIZE_6490")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12706` — `ForensicLogger.lifecycle("PAPER_BUY_REJECTED_BEFORE_TICKET_SIZE_6490", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$finalityLane ${preTicketSize6490.trace()} action=no_exec_ticket")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12708` — `markPaperBuyNotOpened("PRE_TICKET_SIZE_${preTicketSize6490.reason}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12712` — `paperBuyLeaseProcessor6369 = "PAPER_BUY_${finalityLane.uppercase()}"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12714` — `val paperBuyLease6369 = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12719` — `processor = paperBuyLeaseProcessor6369,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12720` — `mode = paperBuyLeaseMode6369,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12725` — `if (!paperBuyLease6369.allowed) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12727` — `PipelineHealthCollector.labelInc("PAPER_BUY_DUPLICATE_SUPPRESSED_6369")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12729` — `"PAPER_BUY_DUPLICATE_SUPPRESSED_6369",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12730` — `"mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$finalityLane mode=$paperBuyLeaseMode6369 reason=${paperBuyLease6369.reason} backoffMs=${paperBuyLease6369.backoffMs}",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12733` — `markPaperBuyNotOpened("DUPLICATE_LEASE_ACTIVE_6369")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12736` — `paperBuyLeaseKey6369 = paperBuyLease6369.key`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12741` — `// ExecutableOpenGate. Cut the repeat at paperBuy entry and coalesce`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12755` — `markPaperBuyNotOpened("SAME_MINT_ALREADY_OPEN_SOURCE_6447")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12766` — `source = "Executor.paperBuy",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12771` — `ErrorLogger.warn("Executor", "🚫 PAPER_BUY_BLOCKED_FINALITY: ${ts.symbol} | attemptId=${executableOpen.attemptId} | ${executableOpen.reason}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12777` — `PipelineHealthCollector.labelInc("PAPER_BUY_DEFERRED_TOKEN_MAP_RETRY_6492")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12778` — `ForensicLogger.lifecycle("PAPER_BUY_DEFERRED_TOKEN_MAP_RETRY_6492", "mint=${ts.mint.take(10)} symbol=${ts.symbol} attemptId=${executableOpen.attemptId} lane=$finalityLane action=release_all_authority_retry_next_cycle")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12780` — `releasePaperBuyNonTerminal6514("TOKEN_MAP_${executableOpen.reason}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12781` — `} else markPaperBuyNotOpened("FINALITY_BLOCKED_${executableOpen.reason}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12803` — `try { ForensicLogger.lifecycle("PAPER_BUY_INVALID_SIZE_REJECTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$sol") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12804` — `markPaperBuyNotOpened("SIZE_CLAMP_ZERO")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12813` — `if (routeIsShadow) "SHADOW_PAPER_BUY" else "PAPER_BUY",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12815` — `"mint=${ts.mint.take(10)} sol=${"%.4f".format(sol)} score=${"%.1f".format(score)} q=$quality src=paperBuy.entry",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12827` — `try { ForensicLogger.lifecycle("PAPER_BUY_TOXIC_BUCKET_TACTIC_PIVOT_6481", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag score=${score.toInt()} tactic=$pivoted detail=${pressure.second.take(160)}") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12828` — `try { PipelineHealthCollector.labelInc("PAPER_BUY_TOXIC_BUCKET_TACTIC_PIVOT_6481") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12835` — `// == PAPER && !shadowPaperEnabled) block PAPER_BUY_IN_LIVE_MODE".`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12839` — `// invoke paperBuy() directly from sub-trader fallback paths and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12851` — `"SHADOW_PAPER_BUY",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12871` — `PipelineHealthCollector.labelInc("PAPER_BUY_SAME_MINT_OPEN_SUPPRESSED_6370")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12873` — `ForensicLogger.lifecycle("PAPER_BUY_SAME_MINT_OPEN_SUPPRESSED_6370", "mint=${tradeId.mint.take(10)} symbol=${tradeId.symbol} existing=$existingLayer6370 requested=$requestedLayer6370 reason=global_open_registry")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12876` — `markPaperBuyNotOpened("SAME_MINT_ALREADY_OPEN_6370")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12888` — `markPaperBuyNotOpened("NO_VALID_MARKET_SNAPSHOT")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12902` — `//   after entry, but paperBuy consulted `getActualPrice(ts)``
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12926` — `PipelineHealthCollector.labelInc("PAPER_BUY_ENTRY_PROVENANCE_REJECTED_6658")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12927` — `PipelineHealthCollector.labelInc("PAPER_BUY_ENTRY_PROVENANCE_REJECTED_6658|${entryProvenance6658.name}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12929` — `"PAPER_BUY_ENTRY_PROVENANCE_REJECTED_6658",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12937` — `markPaperBuyNotOpened("ENTRY_PROVENANCE_${entryProvenance6658.name}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12941` — `onLog("⚠ Buy skipped: position already open", tradeId.mint); markPaperBuyNotOpened("POSITION_ALREADY_OPEN"); return`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12947` — `markPaperBuyNotOpened("MULTI_LAYER_ENTRY_BLOCK")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12996` — `actualSol = clampPaperTradeSol(fluidSol, ts.mint, ts.symbol, "paperBuy.actual", maxPaperTradeSolOverride)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13013` — `actualSol = clampPaperTradeSol(fluidSol, ts.mint, ts.symbol, "paperBuy.paperFullFluid_6572", maxPaperTradeSolOverride)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13020` — `// Same correction as paperSell — live Jupiter slippage on meme`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13123` — `persistMintEntryMarketSnapshot(ts, entryMarketSnapshot, "paperBuy.authoritative.6663")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13132` — `reasons = listOf("paperBuy", quality.toString(), buildPhase.toString()),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13153` — `PipelineHealthCollector.labelInc("PAPER_BUY_DEFERRED_SOL_USD_MISSING_6509")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13154` — `ForensicLogger.lifecycle("PAPER_BUY_DEFERRED_SOL_USD_MISSING_6509", "mint=${tradeId.mint.take(10)} solUsd=$solPriceForQty6509 action=nonterminal_release_before_debit")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13156` — `releasePaperBuyNonTerminal6514("SOL_USD_MISSING_6509")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13180` — `"reason=DECIMALS_PENDING stage=paperBuy.decimalsResolve mint=${tradeId.mint.take(10)} " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13228` — `"reason=raw_zero_paper_mode stage=paperBuy.rawQty mint=${tradeId.mint.take(10)} " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13238` — `markPaperBuyNotOpened("RAW_QTY_ECONOMICS_INVALID_6520")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13254` — `// did this, but paperBuy left entryPriceSource blank; the shared`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13294` — `try { PipelineHealthCollector.labelInc("PAPER_BUY_QTY_DIMENSIONAL_REJECT_6509") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13295` — `markPaperBuyNotOpened("QTY_DIMENSIONAL_REJECT_6509")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13316` — `try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed("paper", tradeId.mint) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13318` — `try { com.lifecyclebot.engine.GlobalTradeRegistry.closePosition(tradeId.mint) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13319` — `if (paperBuyLeaseKey6369.isNotBlank()) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13320` — `try { ExecutionAttemptLease.terminalFail(paperBuyLeaseKey6369, "BUY", tradeId.mint, tradeId.symbol, "PAPER_BUY_ABORTED_6485:$reason", "Executor.paperBuy.atomic6485") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13321` — `paperBuyLeaseKey6369 = ""`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13324` — `clearPaperAuthorities6514("PAPER_BUY_HARD_BLOCKED_$reason", nonTerminal = false)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13327` — `PipelineHealthCollector.labelInc("PAPER_BUY_HARD_BLOCKED_$reason")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13330` — `"reason=$reason stage=paperBuy.atomicRollback mint=${ts.mint.take(10)} " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13334` — `try { PipelineHealthCollector.labelInc("PAPER_BUY_ATOMIC_ROLLBACK_6485") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13344` — `PipelineHealthCollector.labelInc("PAPER_BUY_TERMINAL_REPLAY_RECOVERED_6513")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13345` — `ForensicLogger.lifecycle("PAPER_BUY_TERMINAL_REPLAY_RECOVERED_6513", "attemptId=$entryFinalityId6497 positionId=$existingPid6513 mint=${tradeId.mint.take(10)} terminal=$existingTerminal6513 action=return_existing_terminal_no_second_debit")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13347` — `markPaperTicketTerminalOpen6514("PAPER_BUY_EXISTING_TERMINAL_6513")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13444` — `com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordBuy(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13457` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markOpen("paper", tradeId.mint, ts.symbol, "Executor.paperBuy.atomic6485")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13502` — `com.lifecyclebot.engine.truth.FillLotLedger6504.recordBuyFill(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13505` — `isPaper = true, source = entryLane6485, note = "paperBuy.atomic6485",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13519` — `"Executor.paperBuy.atomic6485.finalized",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13526` — `).forEach { com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.markCommitted(entryFinalityId6497, it, "Executor.paperBuy.atomic6485") }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13527` — `try { PipelineHealthCollector.labelInc("PAPER_BUY_ATOMIC_COMMIT_6485") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13673` — `try { PipelineHealthCollector.labelInc("PAPER_BUY_OPENED") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13698` — `markPaperTicketTerminalOpen6514("PAPER_BUY_OPENED_6370")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13701` — `// in paperSell only blocks a SELL while a live close stamp exists; a real new BUY`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13723` — `try { ForensicLogger.lifecycle("PAPER_BUY_SHARED_WALLET_DEBIT_SKIPPED", "mint=${tradeId.mint.take(10)} symbol=${tradeId.symbol} layer=$layerTag sol=${actualSol.fmt(4)} reason=virtual_book") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13727` — `FluidLearning.recordPaperBuy(tradeId.mint, actualSol)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13887` — `paperBuy(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13981` — `// historical bugs where the BotService call sites invoked paperBuy() /`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13982` — `// paperSell() UNCONDITIONALLY, ignoring isPaperRT() entirely. In`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13995` — `// This runs before wrapper PAPER_BUY/LIVE_BUY logs, identity.executed(),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14064` — `paperBuy(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14074` — `"📉🎯 DIP ${ts.symbol} | LIVE_BUY_FAILED | no wallet — refusing to fall back to paperBuy")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14099` — `paperSell(ts, reason)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14140` — `paperBuy(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14256` — `paperBuy(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14393` — `paperBuy(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14490` — `paperBuy(ts = ts, sol = sizeSol, score = score, identity = identity,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15173` — `com.lifecyclebot.engine.truth.CounterParityLedger6399.recordBuyAttempt()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16414` — `// (Paper learning is unaffected — paperBuy does not call liveBuy.)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16489` — `// Same dampener applied in paperBuy(); duplicated here so the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:17385` — `// old later recordBuyPending left canonicalOpen=1 while`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:17387` — `HostWalletTokenTracker.recordBuyPending(ts.mint, ts.symbol, sig)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:17436` — `HostWalletTokenTracker.recordBuyPending(ts.mint, ts.symbol, sig)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:17624` — `// V5.9.744 — pricing-context snapshot. See paperBuy for the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:17638` — `// Same bridge as paperBuy: fluidTP * styleTpMult = exit target.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18106` — `try { WalletTokenMemory.recordBuy(ts) } catch (_: Exception) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18175` — `try { HostWalletTokenTracker.recordBuyPending(verifyMint, verifySymbol, verifySig) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18306` — `com.lifecyclebot.engine.truth.EconomicEventSchema6464.recordBuy(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18341` — `try { HostWalletTokenTracker.recordBuyConfirmedWithProof(ts, proof, verifySig) } catch (e: Throwable) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18343` — `try { HostWalletTokenTracker.recordBuyPending(verifyMint, verifySymbol, verifySig) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18435` — `try { HostWalletTokenTracker.recordBuyPending(verifyMint, verifySymbol, verifySig) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18553` — `try { HostWalletTokenTracker.recordBuyPending(verifyMint, verifySymbol, verifySig) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18611` — `try { HostWalletTokenTracker.recordBuyPending(verifyMint, verifySymbol, verifySig) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19116` — `// showed 140 PAPER_CLOSE_FAILED + 140 SELL_BLOCKED_NO_CANONICAL_POSITION_6373`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19480` — `// is below dust, finalize the position the same way paperSell does:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19496` — `try { GlobalTradeRegistry.closePosition(ts.mint) } catch (_: Exception) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19499` — `try { ForensicLogger.lifecycle("PAPER_SELL_POSITION_CLOSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnlPct=${pnlPct.toInt()} reason=partial_finalize_${cumulativeSoldPct.toInt()}pct stage=partial_cumulative persisted=removed") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19545` — `// full paperSell): meme wins 70/30, treasury scalps 100%, losers`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20045` — `val paperCloseAuthorityActive = ts.position.isPaperPosition`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20046` — `if (paperCloseAuthorityActive) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20066` — `try { ForensicLogger.lifecycle("PAPER_SELL_DUPLICATE_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason closedAgoMs=$closedAgoMs stage=pre_sell_lock") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20071` — `// PAPER_SELL_DUPLICATE_SUPPRESSED=367 because doSell acquired the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20072` — `// general lock, then paperSell discovered the mint was already CLOSED.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20076` — `try { ForensicLogger.lifecycle("PAPER_SELL_DUPLICATE_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalCloseId=$existingCloseId reason=$reason stage=pre_sell_lock") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20129` — `if (paperCloseAuthorityActive) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20130` — `PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "POSITION_ALREADY_CLOSED:$reason")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20172` — `onLog("📄 Routing to paperSell (paperMode=$isPaper)", tradeId.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20173` — `return paperSell(ts, reason, tradeId)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20243` — `* label so paperSell can clamp the exit price to a realistic band.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20397` — `fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null): SellResult {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20406` — `try { releasePaperSellLock(ts.mint) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20407` — `try { PipelineHealthCollector.labelInc("PAPER_SELL_CANONICAL_CLOSED_RECONCILED_6509") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20420` — `PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_NOT_OPEN:$reason")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20424` — `PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_NO_PRICE:$reason")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20428` — `// close stamp, a previous paperSell already finalized it. Suppress the duplicate`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20434` — `PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "LEDGER_ALREADY_CLOSED:$reason", existingCloseId)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20435` — `try { ForensicLogger.lifecycle("PAPER_SELL_DUPLICATE_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalCloseId=$existingCloseId reason=$reason") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20461` — `try { PipelineHealthCollector.labelInc("PAPER_SELL_RESOLVED_BY_POSITIONID_6635") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20470` — `PipelineHealthCollector.labelInc("PAPER_SELL_RESOLVED_BY_MINT_FALLBACK_6635")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20472` — `"PAPER_SELL_RESOLVED_BY_MINT_FALLBACK_6635",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20481` — `PipelineHealthCollector.labelInc("PAPER_SELL_AMBIGUOUS_MINT_FALLBACK_REFUSED_6635")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20483` — `"PAPER_SELL_AMBIGUOUS_MINT_FALLBACK_REFUSED_6635",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20494` — `try { PipelineHealthCollector.labelInc("PAPER_SELL_LOOKUP_MISSING_PID_6635") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20500` — `ForensicLogger.lifecycle("PAPER_SELL_CANONICAL_POSITION_MISSING_6498", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason action=retry_no_projection_mutation")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20501` — `PipelineHealthCollector.labelInc("PAPER_SELL_CANONICAL_POSITION_MISSING_6498")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20535` — `"PAPER_SELL_TERMINAL_RESERVE_REJECTED_6455",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20538` — `PipelineHealthCollector.labelInc("PAPER_SELL_TERMINAL_RESERVE_REJECTED_6455")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20543` — `try { releasePaperSellLock(ts.mint) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20548` — `if (!acquirePaperSellLock(ts.mint)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20560` — `try { ForensicLogger.lifecycle("PAPER_SELL_START", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20605` — `try { releasePaperSellLock(ts.mint) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20752` — `// V5.0.6492 — paperSell is a terminal API: sell exactly the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20812` — `// proved paperSell was stalling between PAPER_SELL_START and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20813` — `// PAPER_SELL_JOURNAL_DONE, i.e. inside synchronous recordTrade()/`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20849` — `var canonicalPaperSellCommitted6474 = false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20881` — `canonicalPaperSellCommitted6474 = close6474.applied`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20882` — `if (canonicalPaperSellCommitted6474) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20925` — `if (canonicalPaperSellCommitted6474) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20930` — `com.lifecyclebot.engine.truth.FillLotLedger6504.recordSellFill(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20938` — `note = "paperSellFull.6474.$reason".take(120),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20945` — `ForensicLogger.lifecycle("CANONICAL_PAPER_SELL_COMMIT_6474", "mint=${tradeId.mint.take(10)} pid=${pid6474.take(18)} terminalId=$terminalId6474 applied=${close6474.applied} claimed=${close6474.terminalClaimed} bus=${close6474.busPublished} cash=${com.lifecyclebot.engine.truth.PaperCapitalAuthority657`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20946` — `PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_COMMIT_6474")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20956` — `if (!canonicalPaperSellCommitted6474) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20976` — `// PaperPositionCloseAuthority.markClosed and probes the journal row)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20978` — `// PAPER_CLOSE_NO_JOURNAL_ROW_6623 hits in the operator's V5.0.6626`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20979` — `// dump. Run the journal write synchronously HERE so markClosed can`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20983` — `try { PipelineHealthCollector.labelInc("PAPER_SELL_JOURNAL_SYNC_APPENDED_6628") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20986` — `PipelineHealthCollector.labelInc("PAPER_SELL_JOURNAL_SYNC_ERR_6628")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20988` — `"PAPER_SELL_JOURNAL_SYNC_ERR_6628",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21008` — `try { ForensicLogger.lifecycle("PAPER_SELL_JOURNAL_DONE", "mint=${tradeSnap.mint.take(10)} symbol=${tsLearningSnap.symbol} pnlPct=${tradeSnap.pnlPct.toInt()} reason=${tradeSnap.reason} canonicalCommitted=true") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21009` — `try { ForensicLogger.exec("PAPER_SELL_OK", tsLearningSnap.symbol, "mint=${tradeSnap.mint.take(10)} pnlPct=${tradeSnap.pnlPct.toInt()} reason=${tradeSnap.reason.take(40)}") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21011` — `ErrorLogger.warn("Executor", "paperSell async journal error: ${t.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21012` — `try { ForensicLogger.lifecycle("PAPER_SELL_JOURNAL_ASYNC_ERR", "mint=${tradeSnap.mint.take(10)} err=${t.message?.take(80)}") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21013` — `try { ForensicLogger.exec("PAPER_SELL_FAIL", tsLearningSnap.symbol, "mint=${tradeSnap.mint.take(10)} reason=ASYNC_ERR:${t.message?.take(60)}") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21016` — `try { ForensicLogger.lifecycle("PAPER_SELL_LEARNING_ASYNC_QUEUED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason canonicalCommitted=true") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21035` — `val cyclicVirtualPaperClose = pos.tradingMode.equals("CYCLIC", true) || reason.startsWith("CYCLIC_", true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21036` — `if (cyclicVirtualPaperClose) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21037` — `try { ForensicLogger.lifecycle("PAPER_SELL_SHARED_WALLET_CREDIT_SKIPPED", "mint=${tradeId.mint.take(10)} symbol=${tradeId.symbol} mode=${pos.tradingMode} reason=$reason value=${value.fmt(4)} virtual_book=CYCLIC") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21053` — `try { GlobalTradeRegistry.closePosition(tradeId.mint) } catch (_: Exception) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21062` — `try { PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "bot_shutdown") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21083` — `FluidLearning.recordPaperSell(tradeId.mint, pos.costSol, pnl)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21148` — `com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(ts.mint, price, treasurySignal)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21155` — `com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, price, shitcoinSignal)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21162` — `com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(ts.mint, price, bluechipSignal)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21164` — `// V5.9.963 — UNIVERSAL SUB-TRADER CLOSE (paperSell win/loss path).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21165` — `// Pre-fix only CashGen/ShitCoin/BlueChip got closePosition() here.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21176` — `com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, price, mEx)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21181` — `com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, price, qEx)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21186` — `com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(ts.mint, price, manEx)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21225` — `try { ForensicLogger.lifecycle("PAPER_SELL_POSITION_CLOSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnlPct=${pnlP.toInt()} reason=$reason stage=early_close persisted=removed") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21242` — `try { GlobalTradeRegistry.closePosition(tradeId.mint) } catch (_: Exception) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21854` — `com.lifecyclebot.v3.scoring.SellOptimizationAI.closePosition(tradeId.mint, pnlP)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21911` — `com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(tradeId.mint, price, treasuryExitSignal)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21926` — `com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(tradeId.mint, price, blueChipExitSignal)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21929` — `// V5.9.963 — UNIVERSAL SUB-TRADER CLOSE (paperSell reason-keyword path).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21939` — `com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(tradeId.mint, price, mEx)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21944` — `com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(tradeId.mint, price, qEx)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21949` — `com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(tradeId.mint, price, manEx)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21978` — `try { HostWalletTokenTracker.recordSellConfirmed(ts.mint, ts.symbol, price, pnlP, reason) } catch (_: Exception) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22098` — `try { ForensicLogger.lifecycle("PAPER_SELL_DONE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22106` — `try { PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_EXITED_WITHOUT_CLOSE:$reason") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22108` — `releasePaperSellLock(ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22116` — `.abandonTerminalSell(terminalPid6455, "paperSell_exited_without_confirm:$reason")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22119` — `try { ForensicLogger.lifecycle("PAPER_SELL_LOCK_RELEASED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:23958` — `com.lifecyclebot.engine.sell.LiveWalletReconciler.recordSellSignature(ts.mint, sig)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24057` — `val cid = com.lifecyclebot.engine.PositionCloseLedger.markClosedFull(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24062` — `try { HostWalletTokenTracker.recordSellConfirmed(ts.mint, ts.symbol, price, pnlP, finalSellReason) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24081` — `// V5.9.1022 — same fix as V5.9.1018c paperSell line 9131. The`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24106` — `com.lifecyclebot.engine.GlobalTradeRegistry.closePosition(tradeId.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24113` — `// V5.9.399 / V5.9.428 — treasury split (live-mode mirror of paperSell).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24712` — `try { HostWalletTokenTracker.recordSellConfirmed(ts.mint, ts.symbol, exitPrice, pnlP, "PAPER_EXIT") } catch (_: Exception) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24729` — `com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(tradeId.mint, exitPrice, treasurySignal)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24736` — `com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(tradeId.mint, exitPrice, shitcoinSignal)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24743` — `com.lifecyclebot.v3.scoring.BlueChipTraderAI.closePosition(tradeId.mint, exitPrice, bluechipSignal)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24746` — `// Same fix as paperSell: close the 6 missing sub-trader maps so`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24751` — `com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(tradeId.mint, exitPrice, mEx)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24756` — `com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(tradeId.mint, exitPrice, qEx)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24761` — `com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(tradeId.mint, exitPrice, manEx)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24930` — `// paperSell always had this clear; liveSell was missing it entirely.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24964` — `// or from a session started before the try/finally fix) would cause paperSell()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24966` — `clearAllPaperSellLocks()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24991` — `// booked a paperSell (phantom close: position numbers updated`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24992` — `// but tokens stayed on-chain). Now: paper positions paperSell,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24998` — `paperSell(ts, "bot_shutdown")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:25050` — `// do in-memory PnL accounting in their `closePosition()` paths. They`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:25553` — `// piggyback on every existing paperBuy/live-buy safety rail`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:25585` — `paperBuy(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FluidLearning.kt:205` — `fun recordPaperBuy(mint: String, solAmount: Double) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FluidLearning.kt:218` — `fun recordPaperSell(mint: String, originalSol: Double, pnlSol: Double, exitReason: String = "UNKNOWN", regime: String = "NEUT") {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FluidLearning.kt:352` — `* Note: write methods (recordPaperBuy/Sell, simulated balance updates)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt:1322` — `fun closePosition(mint: String): PositionEntry? {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt:1351` — `* but only ONE exit path (paperSell) + AntiChoke ever call closePosition().`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:577` — `fun recordBuyPending(mint: String, symbol: String?, sig: String?) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:615` — `fun recordBuyConfirmed(ts: TokenState, sig: String? = null) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:632` — `// (recordSellConfirmed already early-returns on PAPER exits, line ~393). But`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:633` — `// recordBuyConfirmed had NO paper guard, so paper BUYS entered the tracker as`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:646` — `"PAPER_BUY_NOT_TRACKED_IN_HOST_WALLET ${ts.symbol} — live tracker is on-chain truth only")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:721` — `fun recordBuyConfirmedWithProof(ts: TokenState, proof: BalanceProof, sig: String? = null) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:725` — `recordBuyPending(ts.mint, ts.symbol, sig)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:842` — `fun recordSellPending(mint: String, sig: String?) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:869` — `fun recordSellConfirmed(mint: String, symbol: String?, exitPrice: Double, pnlPct: Double, reason: String?) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:1000` — `try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(mint, "CLOSED_BY_TERMINAL_TOKEN_DUST", 0) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:1504` — `try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(p.mint, "CLOSED_BY_CONFIRMED_ZERO_STARTUP", 0) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:1550` — `try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(p.mint, "CLOSED_BY_TERMINAL_TOKEN_DUST", 0) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:1590` — `com.lifecyclebot.engine.PositionCloseLedger.markClosed(p.mint, if (p.sellSignature.isNullOrBlank()) "CLOSED_BY_CONFIRMED_ZERO" else "CLOSED_BY_CONFIRMED_SELL", 0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:1624` — `try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(p.mint, "CLOSED_STALE_RECOVERY_UNHELD", 0) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:1787` — `).closeId ?: com.lifecyclebot.engine.PositionCloseLedger.markClosed(mint, "RECONCILER_ZERO_$reason", pnlPct)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:1791` — `com.lifecyclebot.engine.PositionCloseLedger.markClosed(mint, "CLOSED_BY_CONFIRMED_ZERO_$reason", pnlPct)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InsiderCopyEngine.kt:32` — `*        a getOpenPositions / closePositionManual API:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InsiderCopyEngine.kt:213` — `if (com.lifecyclebot.perps.CryptoAltTrader.closePositionManual(p.id, reason)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InsiderCopyEngine.kt:225` — `if (com.lifecyclebot.perps.TokenizedStockTrader.closePositionManual(p.id, reason)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InsiderCopyEngine.kt:237` — `if (com.lifecyclebot.perps.CommoditiesTrader.closePositionManual(p.id, reason)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InsiderCopyEngine.kt:249` — `if (com.lifecyclebot.perps.ForexTrader.closePositionManual(p.id, reason)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InsiderCopyEngine.kt:261` — `if (com.lifecyclebot.perps.MetalsTrader.closePositionManual(p.id, reason)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt:119` — `// intake=413/exec=28/paperBuyOk=24/paperJournalRows=32 with the full`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:92` — `* only SHAPES SIZE (min 0.35), which the paperBuy floor then clamps`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LlmPaperTradeExecutor.kt:163` — `CryptoAltTrader.llmOpenPaperBuy(symbol, sizeSol, reason.ifBlank { "llm chat" })`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LlmPaperTradeExecutor.kt:165` — `else -> CryptoAltTrader.llmClosePaperSell(symbol, reason.ifBlank { "llm chat" })`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LlmTradeScore.kt:12` — `* CryptoAltTrader.llmOpenPaperBuy) and rolls up wins / losses / net PnL`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LlmTradeScore.kt:17` — `* (set in llmOpenPaperBuy). On close, CryptoAltTrader.closePosition checks`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MoonshotAdaptiveGate.kt:101` — `* Record a closed MOONSHOT trade outcome. Called from MoonshotTraderAI.closePosition.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PaperLearningSanity.kt:14` — `// V5.0.3873 — same live-transfer floor as Executor.paperBuy().`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PaperLearningSanity.kt:35` — `// NOT a trade-sizing cap. Paper sizing still comes from Executor.paperBuy().`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PaperLearningSanity.kt:44` — `if (t.side.equals("BUY", true) && t.sol <= 0.0) return Verdict(false, "PAPER_BUY_SOL_NON_POSITIVE")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PaperLearningSanity.kt:45` — `if (t.side.equals("BUY", true) && (t.price <= 0.0 || t.entryPriceSnapshot <= 0.0 || t.entryCostSol <= 0.0)) return Verdict(false, "PAPER_BUY_ENTRY_BASIS_MISSING")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PaperLearningSanity.kt:50` — `if ((t.side.equals("SELL", true) || t.side.equals("PARTIAL_SELL", true)) && t.sol < 0.0) return Verdict(false, "PAPER_SELL_PROCEEDS_NEGATIVE")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt:88` — `// authority; paperSell's mint lock and canonical reducer still prevent`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt:115` — `PipelineHealthCollector.labelInc("PAPER_CLOSE_RETRY_ATTEMPTED_6547")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt:117` — `"PAPER_CLOSE_RETRY_ATTEMPTED_6547",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt:133` — `"PAPER_CLOSE_FORCE_RESET_6360",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt:136` — `PipelineHealthCollector.labelInc("PAPER_CLOSE_FORCE_RESET_6360")`
+- … 298 more
+
+## Exit/finality authority
+
+Count: **930**
+
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveSchema.kt:620` — `take_profit_price REAL,`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveSchema.kt:759` — `take_profit_price REAL NOT NULL DEFAULT 0.0,`
+- `app/src/main/kotlin/com/lifecyclebot/collective/TursoClient.kt:549` — `entry_time, risk_tier, take_profit_price, stop_loss_price,`
+- `app/src/main/kotlin/com/lifecyclebot/collective/TursoClient.kt:857` — `take_profit_price, stop_loss_price, entry_time,`
+- `app/src/main/kotlin/com/lifecyclebot/collective/TursoClient.kt:920` — `takeProfitPrice  = (row["take_profit_price"] as? Number)?.toDouble() ?: 0.0,`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:444` — `putFloat("trailing_stop_base_pct",        cfg.trailingStopBasePct.toFloat())`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:601` — `trailingStopBasePct         = p.getFloat("trailing_stop_base_pct", 8.0f).toDouble(),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AdaptiveLearningEngine.kt:769` — `(exitLower.contains("tp") || exitLower.contains("take_profit") || exitLower.contains("runner") || exitLower.contains("trail"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:228` — `// candidate, so use the O(1) stale-while-revalidate catastrophic flag.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:229` — `val lowScoreBleedContext = score <= 10 && try { CatastrophicPaperBleedGuard.isActive() } catch (_: Throwable) { false }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:236` — `// candidates into DIP_HUNTER as primary during a catastrophic paper`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AsiSsiReauditSweeper.kt:53` — `!text.contains("requestSell(") &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutoEndpointMigrator.kt:102` — `* task — if a host's success rate is catastrophic and we have a known`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutoModeEngine.kt:375` — `// catastrophic safety. Keep the entry bar higher and size smaller, but`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutonomousMetaPolicy.kt:64` — `// V5.9.1289 — catastrophic-context starve thresholds (separate from conviction floor)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutonomousMetaPolicy.kt:146` — `* V5.9.1289 — CATASTROPHIC-CONTEXT STARVE (separate from conviction()).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMintBurnMonitor.kt:19` — `*   CATASTROPHIC_MINT : > 10% — rug signal`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMintBurnMonitor.kt:33` — `enum class MintAlert { NONE, MILD_MINT, STRONG_MINT, CATASTROPHIC_MINT }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMintBurnMonitor.kt:98` — `mintPct >= 10.0 -> MintAlert.CATASTROPHIC_MINT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:64` — `// V5.9.1455 — TICK-TIME catastrophic loss floor for memes (Moonshot/ShitCoin).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:68` — `// catastrophic kill-switch. Tighter (-10) at operator directive after a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:124` — `// PAPER_STALE_ZOMBIE_SCRATCH_EXIT lifecycle line + requestSell fire`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1111` — `// and run the universal-SL backup INDEPENDENTLY. Threshold lowered 12s → 10s.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1131` — `"loop=$loopCount open=$openCount hotExitLockAgeMs=$staleMs neverRan=$neverRan resets=$hotExitStaleResetCount — force-reset hot-exit lease + independent universal-SL backup",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1146` — `// is force-reset below (ensureHotExitAlive + independent universal-SL`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1159` — `// pendingUniversal=true re-enqueued endlessly). Only (re)request the sweep when`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1161` — `val alreadyPending = try { fullExitSweepPending.get() && universalSlSweepPending.get() } catch (_: Throwable) { false }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1222` — `executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1328` — `// invoke executor.requestSell which acquires a fresh`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1485` — `// causing EXIT_SWEEP/UNIVERSAL_SL coalesced + reset storms.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1556` — `launchUniversalSlSweepAsync(cfg, curWallet)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1558` — `ForensicLogger.lifecycle("HOT_EXIT_UNIVERSAL_SL_SKIPPED", "reason=already_in_flight tick=$tick open=${openTokens.size}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2620` — `// reasonable time. Detect catastrophic poisoning (avg accuracy < 25%`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3799` — `* Repairs only catastrophic paper-cash drift where the persisted wallet is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4288` — `mint, price, com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5527` — `// executor.requestSell() inline. With dozens of restored live`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5612` — `executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6109` — `//   2. PatternGoldenGoose catastrophic veto`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6113` — `val v4132_gooseCata = try { com.lifecyclebot.engine.PatternGoldenGoose.isCatastrophic(name.ifBlank { identity.symbol }, identity.symbol) } catch (_: Throwable) { false }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6118` — `v4132_gooseCata   -> "goose_catastrophic"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7407` — `* TokenState we synthesise is just enough for Executor.requestSell to`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7763` — `universalSlSweepPending.set(false)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8928` — `* This catches catastrophic losses that the main loop (5-10sec cycle) might miss.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9026` — `executor.requestSell(ts = ts, reason = "STALE_PRICE_RUG_ESCAPE",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9170` — `// (mint, generation) so the loud lifecycle line + requestSell`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9184` — `executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9245` — `executor.requestSell(ts = ts, reason = "STALE_LIVE_PRICE_RUG_ESCAPE",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9386` — `// V5.0.6497 §4 — PAPER CATASTROPHIC CLOSE IDEMPOTENCY.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9387` — `// In PAPER mode a catastrophic position with a valid`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9395` — `com.lifecyclebot.engine.truth.PaperCatastrophicCloseIdempotency6497`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9397` — `} catch (_: Throwable) { com.lifecyclebot.engine.truth.PaperCatastrophicCloseIdempotency6497.Outcome.CLAIMED_FIRST }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9398` — `if (claim6497 == com.lifecyclebot.engine.truth.PaperCatastrophicCloseIdempotency6497.Outcome.ALREADY_CLAIMED) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9405` — `// requestSell, then let the CloseLease + reconciler`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9409` — `executor.requestSell(ts = ts, reason = "PAPER_CATASTROPHE_ONESHOT_6497", wallet = wallet, walletSol = effectiveBalance)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9415` — `com.lifecyclebot.engine.truth.PaperCatastrophicCloseIdempotency6497`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9437` — `executor.requestSell(ts = ts, reason = "ZOMBIE_CATASTROPHE_PENDING_RETRY", wallet = wallet, walletSol = effectiveBalance)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9448` — `executor.requestSell(ts = ts, reason = "DEEP_CATASTROPHE_NET",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9519` — `// The when-block held 4 suspending executor.requestSell call sites;`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9665` — `executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9696` — `executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9726` — `// Operator V5.0.4181 dump: `🎯 RAPID TAKE_PROFIT_DELEGATE: piss pnl=98181004%`.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9763` — `executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9783` — `"🎯 RAPID TAKE_PROFIT_DELEGATE: ${ts.symbol} pnl=${pnlPct.toInt()}% ≥ tp=${tpPct.toInt()}% — manage-only partial/profit-lock first")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9940` — `executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10148` — `// tripped trailing-stop / RAPID_TAKE_PROFIT_30 on a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10196` — `executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10361` — `// avgRealized -1.4% — runner cut catastrophically): root`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10387` — `val catastrophicConfirmed4485 = pnlPctNow <= -50.0 && execPxForTickLock != null && execVsRawDelta4485 <= 20.0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10388` — `val phantomRead = pnlPctNow < -50.0 && !catastrophicConfirmed4485`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10390` — `// V5.0.4588 — CATASTROPHIC-LANE ONE-STRIKE (operator P0 task d).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10394` — `// For known-catastrophic lanes, honour the -10% tick`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10400` — `val catastrophicLane4588 =`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10404` — `val oneStrikeCatastrophic4588 = catastrophicLane4588 && !phantomRead && pnlPctNow <= TICK_HARD_FLOOR_PCT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10405` — `// Update the strike flag for the next tick. Confirmed catastrophic`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10408` — `if (pnlPctNow <= TICK_HARD_FLOOR_PCT && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || (!phantomRead && twoStrike))) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10411` — `"≤ ${TICK_HARD_FLOOR_PCT.toInt()}% — immediate exit (peak=${"%.1f".format(peakPct)}% catastrophic=$catastrophicConfirmed4485 oneStrikeLane=$oneStrikeCatastrophic4588)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10413` — `if (catastrophicConfirmed4485) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10414` — `PipelineHealthCollector.labelInc("TICK_CATASTROPHIC_CONFIRMED_BYPASS_PHANTOM_4495")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10415` — `ForensicLogger.lifecycle("TICK_CATASTROPHIC_CONFIRMED_BYPASS_PHANTOM_4495", "mint=${ts.mint.take(10)} symbol=${ts.symbol} raw=${"%.1f".format(rawTickPnlPctNow)} exec=${"%.1f".format(execPnlPctNow)} delta=${"%.1f".format(execVsRawDelta4485)} peak=${"%.1f".format(peakPct)} action=immediate_sell")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10417` — `if (oneStrikeCatastrophic4588 && !catastrophicConfirmed4485) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10418` — `PipelineHealthCollector.labelInc("TICK_HARD_FLOOR_CATASTROPHIC_LANE_ONE_STRIKE_4588_$laneName4588")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10419` — `ForensicLogger.lifecycle("TICK_HARD_FLOOR_CATASTROPHIC_LANE_ONE_STRIKE_4588", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName4588 pnl=${"%.1f".format(pnlPctNow)}% peak=${"%.1f".format(peakPct)}% action=immediate_sell_no_two_strike_grace")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10424` — `executor.requestSell(ts,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10425` — `if (catastrophicConfirmed4485) "TICK_CATASTROPHIC_CONFIRMED_${pnlPctNow.toInt()}PCT"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10426` — `else if (oneStrikeCatastrophic4588) "TICK_HARD_FLOOR_CATASTROPHIC_LANE_${laneName4588}_${pnlPctNow.toInt()}PCT_4588"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10509` — `executor.requestSell(ts,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10568` — `launchUniversalSlSweepAsync(cfgTick, walletTick)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11119` — `//   correctly rotating catastrophic tactics (MOMENTUM→PULLBACK→`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11302` — `private fun catastrophicPaperLowScoreSpecialistBleed(ts: com.lifecyclebot.data.TokenState, lane: String): Boolean {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11311` — `// V5.0.3716/3718 — CATASTROPHIC_PAPER_SPECIALIST_BLEED_GUARD.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11315` — `com.lifecyclebot.engine.CatastrophicPaperBleedGuard.isActive()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11583` — `// (2) Primary normally evaluates, except catastrophic paper S0-10`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11597` — `if (catastrophicPaperLowScoreSpecialistBleed(ts, l)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11598` — `try { ForensicLogger.lifecycle("LANE_PRIMARY_SUPPRESSED_CATASTROPHIC_PAPER_BLEED", "lane=$l symbol=${ts.symbol} mint=${ts.mint.take(10)} score=${ts.lastV3Score ?: ts.entryScore.toInt()}") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13378` — `// The old launchExitSweepAsync/launchUniversalSlSweepAsync functions spawned`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13386` — `private val universalSlSweepPending = AtomicBoolean(false)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13387` — `private val exitCoordinatorLastFullMs = java.util.concurrent.atomic.AtomicLong(0L)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13388` — `private val exitCoordinatorLastUniversalMs = java.util.concurrent.atomic.AtomicLong(0L)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13390` — `private val exitCoordinatorRequestedAtMs6647 = java.util.concurrent.atomic.AtomicLong(0L)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13391` — `private val exitCoordinatorRequestedCycle6647 = java.util.concurrent.atomic.AtomicLong(-1L)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13392` — `private val exitCoordinatorStartedAtMs6647 = java.util.concurrent.atomic.AtomicLong(0L)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13393` — `private val exitCoordinatorStartHeartbeatMs6647 = java.util.concurrent.atomic.AtomicLong(0L)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13394` — `private val exitCoordinatorCompletedAtMs6647 = java.util.concurrent.atomic.AtomicLong(0L)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13395` — `private val exitCoordinatorErrorAtMs6647 = java.util.concurrent.atomic.AtomicLong(0L)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13437` — `// it on runUniversalSlSafetyNetSweep at line ~9763: it ran synchronously`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13439` — `// positions and calling executor.requestSell() per match. With 5-10`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13447` — `// + age so a wedged universal-SL sweep can be force-cancelled by the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13465` — `private val UNIVERSAL_SL_HARD_MS: Long = 15_000L`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13466` — `// V5.9.1082 — UNIVERSAL_SL_SWEEP_FORCE_RESET=52 in operator's 1081b`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13468` — `// runUniversalSlSafetyNetSweep iterating all positions. Bumped to 15s.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14829` — `* executor.requestSell call sites; moving them into a helper`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14863` — `executor.requestSell(ts, "RAPID_CATASTROPHE_STOP", wallet, effectiveBalance)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14870` — `executor.requestSell(ts, "RAPID_HARD_FLOOR_STOP", wallet, effectiveBalance)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14888` — `executor.requestSell(ts, "RAPID_DRAWDOWN_FROM_PEAK_SETTLE_BYPASS_6080", wallet, effectiveBalance)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16154` — `executor.requestSell(ts, canonicalReason, wallet, wallet!!.getSolBalance())`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16163` — `// requestSell internally handles FAILED_RETRYABLE → requeue,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16165` — `// exceptions thrown before requestSell is reached.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17259` — `// entered sweepUniversalExits() → executor.requestSell()/runManageOnly() →`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17459` — `// V5.9.678 — UNIVERSAL SL SAFETY-NET SWEEP (P0 bug fix).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17474` — `// V5.9.1019 — UNIVERSAL SL SWEEP MOVED OFF BOT LOOP THREAD.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17476` — `// could trigger executor.requestSell() per match, dragging in`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17486` — `// V5.9.1318 (Item 1) — universal SL must NEVER be indefinitely deferred to a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17491` — `ErrorLogger.debug("BotService", "universalSL deferred (hotExit live) loop=$loopCount open=$postSupervisorOpenCount")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17495` — `"UNIVERSAL_SL_SWEEP_DEFERRED_INFLIGHT",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17500` — `launchUniversalSlSweepAsync(cfg, wallet)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17563` — `* route them through executor.requestSell, synthesising a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17712` — `val priorRequest6647 = exitCoordinatorRequestedAtMs6647.get()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17714` — `exitCoordinatorStartHeartbeatMs6647.get() < priorRequest6647`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17716` — `exitCoordinatorRequestedAtMs6647.set(requestNow6647)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17717` — `exitCoordinatorRequestedCycle6647.set(requestCycle6647)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17727` — `if (universal && universalSlSweepPending.get()) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17742` — `val staleConsumer6630 = (fullExitSweepPending.get() || universalSlSweepPending.get()) &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17755` — `"pendingUniversal=${universalSlSweepPending.get()} " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17761` — `if (universal) universalSlSweepPending.set(true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17764` — `"reason=$reason full=$full universal=$universal pendingFull=${fullExitSweepPending.get()} pendingUniversal=${universalSlSweepPending.get()}"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17774` — `if (!fullExitSweepPending.get() && !universalSlSweepPending.get()) return`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17775` — `val requestedCycle = exitCoordinatorRequestedCycle6647.get()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17777` — `val requestedAt = exitCoordinatorRequestedAtMs6647.get()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17778` — `if (exitCoordinatorStartHeartbeatMs6647.get() >= requestedAt) return`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17780` — `if (exitCoordinatorStartHeartbeatMs6647.get() >= requestedAt) return`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17799` — `exitCoordinatorStartedAtMs6647.set(start6647)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17800` — `exitCoordinatorStartHeartbeatMs6647.set(start6647)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17802` — `try { ForensicLogger.lifecycle("EXIT_COORDINATOR_STARTED", "thread=dedicated_exit requestedAt=${exitCoordinatorRequestedAtMs6647.get()} startDelayMs=${start6647 - exitCoordinatorRequestedAtMs6647.get()}") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17805` — `exitCoordinatorStartHeartbeatMs6647.set(System.currentTimeMillis())`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17820` — `val wantsUniversal = universalSlSweepPending.get()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17824` — `val age = now - exitCoordinatorLastFullMs.get()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17827` — `exitCoordinatorLastFullMs.set(now)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17833` — `// the FULL exit sweep (Universal SL already`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17839` — `val fullSweepId = com.lifecyclebot.engine.truth.UniversalSlLeaseRegistry6402.acquire()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17847` — `exitCoordinatorCompletedAtMs6647.set(System.currentTimeMillis())`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17848` — `if (!fullExitSweepPending.get() && !universalSlSweepPending.get()) exitCoordinatorRequestedCycle6647.set(-1L)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17850` — `try { com.lifecyclebot.engine.truth.UniversalSlLeaseRegistry6402.release(fullSweepId) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17870` — `val age = now - exitCoordinatorLastUniversalMs.get()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17872` — `universalSlSweepPending.set(false)  // consume only on service`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17873` — `exitCoordinatorLastUniversalMs.set(now)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17886` — `val sweepId = com.lifecyclebot.engine.truth.UniversalSlLeaseRegistry6402.acquire()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17890` — `try { runUniversalSlSafetyNetSweep(snap.cfg, snap.wallet) }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17894` — `exitCoordinatorCompletedAtMs6647.set(System.currentTimeMillis())`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17895` — `if (!fullExitSweepPending.get() && !universalSlSweepPending.get()) exitCoordinatorRequestedCycle6647.set(-1L)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17897` — `try { com.lifecyclebot.engine.truth.UniversalSlLeaseRegistry6402.release(sweepId) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17899` — `// V5.9.1470 (spec item 4) — universal SL sweep also counts as`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17911` — `try { com.lifecyclebot.engine.truth.UniversalSlLeaseRegistry6402.reapStaleLeases(nowMs = now) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17918` — `exitCoordinatorErrorAtMs6647.set(System.currentTimeMillis())`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18498` — `val exitInFlight = try { fullExitSweepPending.get() || universalSlSweepPending.get() } catch (_: Throwable) { false }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18547` — `// protection (ExitCoordinator) is unaffected — it runs on its own dispatcher.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18721` — `// Exits are handled by ExitCoordinator/open-position tick, so skipping full`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19166` — `* V5.9.1019 — UNIVERSAL SL SWEEP, async + single-flight.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19170` — `* (runUniversalSlSafetyNetSweep). With multiple open positions, that`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19175` — `*     UNIVERSAL_SL_SWEEP_SKIPPED. Coalescing is correct because the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19181` — `*     cancelled and may finish late (UNIVERSAL_SL_SWEEP_LATE_DONE).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19185` — `private fun launchUniversalSlSweepAsync(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19191` — `requestExitSweepCoordinator(reason = "UNIVERSAL_SL", full = false, universal = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19398` — `// 6402 snapshot cycles hit 94-173s despite Universal SL being`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19463` — `val r = executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19502` — `val r = executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26518` — `// so the bot learns from a realistic worst-case rug rather than catastrophic noise.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26541` — `executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26563` — `// V5.9.449 — REMOVED V5.9.429 UNIVERSAL_HARD_FLOOR_SL.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26570` — `// still catches ≤-99.5% catastrophic rugs, and each sub-trader's`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26760` — `ts.mint, currentPrice, com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26799` — `val sellResult = executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26806` — `// V5.9.706 FIX: if rapid monitor already closed ts.position, requestSell`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26817` — `if (exitSignal == com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26877` — `ts.mint, currentPrice, com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.TAKE_PROFIT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26945` — `com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.TAKE_PROFIT -> "🎯"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26984` — `val sellResult = executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27020` — `com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_100 -> "🚀"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27021` — `com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_50 -> "🚂"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27022` — `com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_30 -> "⚡"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27027` — `// V5.9.168 — TAKE_PROFIT_XX are LADDER rungs, not full-close`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27030` — `// close only on STOP_LOSS / TRAILING_STOP / MOMENTUM_DEATH /`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27033` — `com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_30,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27034` — `com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_50,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27035` — `com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_100,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27053` — `val sellResult = executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27098` — `val sellResult = executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27181` — `executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27199` — `com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TAKE_PROFIT -> "🌙"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27200` — `com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TRAILING_STOP -> "🎯"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27228` — `val moonshotSellResult = executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27267` — `executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27293` — `executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27313` — `com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.TAKE_PROFIT -> "✅"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27314` — `com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.TRAILING_STOP -> "🎯"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27399` — `executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27412` — `executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27445` — `com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TAKE_PROFIT -> "✅"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27446` — `com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TRAILING_STOP -> "🎯"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27470` — `executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27510` — `executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27681` — `executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28035` — `* V5.9.678 — Universal SL safety-net sweep.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28066` — `* the previous one overran) and "entire Universal SL sweep:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28074` — `private fun runUniversalSlSafetyNetSweep(cfg: BotConfig, wallet: SolanaWallet?) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28085` — `// under us (executor.requestSell sets isOpen=false in place).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28099` — `PipelineHealthCollector.labelInc("UNIVERSAL_SL_SWEEP_HARD_DEADLINE_6402")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28101` — `"UNIVERSAL_SL_SWEEP_HARD_DEADLINE_6402",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28113` — `"universal SL sweep err ${ts.symbol}: ${e.message}"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28120` — `PipelineHealthCollector.labelInc("UNIVERSAL_SL_POSITION_SLOW_6402")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28122` — `"UNIVERSAL_SL_POSITION_SLOW_6402",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28132` — `try { PipelineHealthCollector.labelInc("UNIVERSAL_SL_SWEEP_SOFT_DEADLINE_6402") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28136` — `ErrorLogger.warn("BotService", "universal SL sweep top-level: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28141` — `"UNIVERSAL_SL_SWEEP_SUMMARY_6402",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28186` — `val fbScResult = executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28218` — `val fbMsResult = executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28236` — `// -20% meme hard-floor to stop catastrophic bleed.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28296` — `executor.requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotServiceLifecycleExt.kt:106` — `* pulled from the treasury record so executor.requestSell has`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusGate.kt:61` — `// gate required wins<=1 which only catches catastrophic buckets. Real-world`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainMultiplierFloor6363.kt:25` — `*   crushes the entry below half base. Safety escape: TOXIC/CATASTROPHIC`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainMultiplierFloor6363.kt:47` — `* @param hardVeto       set true when caller has a hard-veto verdict (TOXIC/CATASTROPHIC/etc.);`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:183` — `val exitReasonFamily: String = "",          // TAKE_PROFIT / STOP_LOSS / TRAILING / RAPID_CATASTROPHE / MANUAL / EXTERNAL_SWAP / …`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:1381` — `* as 2500%) or an actually catastrophic boost. This guard caps any conf`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CatastrophicExitLatency.kt:7` — `* V5.0.6324 — CATASTROPHIC EXIT LATENCY TRACE (operator hotfix §15).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CatastrophicExitLatency.kt:9` — `* Measures the time between detection of a catastrophic move and each`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CatastrophicExitLatency.kt:18` — `object CatastrophicExitLatency {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CatastrophicExitLatency.kt:68` — `"CATASTROPHIC_EXIT_LATENCY_6324",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CatastrophicExitLatency.kt:71` — `PipelineHealthCollector.labelInc("CATASTROPHIC_EXIT_LATENCY_6324")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CatastrophicExitLatency.kt:79` — `"CATASTROPHIC_EXIT_LATENCY_CANCELLED_6324",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CatastrophicPaperBleedGuard.kt:6` — `* V5.0.3718 — hot-path safe catastrophic paper bleed signal.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CatastrophicPaperBleedGuard.kt:19` — `object CatastrophicPaperBleedGuard {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CatastrophicPaperBleedGuard.kt:72` — `}.apply { isDaemon = true; name = "catastrophic-paper-bleed-refresh" }.start()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ChronicBleederScout.kt:14` — `* made the scout silently return on an empty live board, so catastrophic PAPER`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CloseOutcomeLabelSanitizer.kt:10` — `* MOONSHOT_TAKE_PROFIT at -95% is a LOSS, not a profitable exit. A row like`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CloseOutcomeLabelSanitizer.kt:42` — `val looksProfit = r.contains("TAKE_PROFIT") || r.contains("PROFIT_LOCK") ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CloseOutcomeLabelSanitizer.kt:43` — `r.contains("CAPITAL_RECOVERY") || r.contains("SWEEP_TAKE_PROFIT") ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CloseOutcomeLabelSanitizer.kt:46` — `r.contains("CATASTROPHE") || r.contains("CATASTROPHIC") || r.contains("RUG") ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CompoundGrowthMentality.kt:20` — `* catastrophic drawdown, size shapers respect the defensive floor, position`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:1048` — `executor.requestSell(ts, "CYCLIC_$reason", wallet, walletSol)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/DeadTokenQuarantine.kt:22` — `*   universal SL check, LiveWalletReconciler price probe, and OpenPnlSanity`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutablePriceStopPreflight6345.kt:12` — `*    catastrophic-slippage failure mode the WADDLE bug produced."`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutionHealthGuard.kt:14` — `* slippage projection and filled into dying liquidity for catastrophic loss.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutionHealthGuard.kt:16` — `* V5.0.4160's `CATASTROPHIC_HARD_BACKSTOP_-25` correctly DETECTS the bleed`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutionHealthGuard.kt:30` — `*      route. Emergency reasons (RUG, HONEYPOT, CATASTROPHIC, STEALTH_MINT,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutionHealthGuard.kt:65` — `"STALE", "MAX_HOLD", "MUST_SELL", "CATASTROPHIC",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutionHealthGuard.kt:132` — `* Emergency reasons (RUG / CATASTROPHIC / STEALTH_MINT / etc) always`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutionHealthGuard.kt:182` — `* the daily "Catastrophic backstops fired today" UI strip and to feed`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:246` — `val rollingCollapse: Boolean = false, // rolling-50 is catastrophically below target`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:326` — `// Collapse escalation: roll50 catastrophically low forces AGGRESSIVE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:572` — `// V5.0.6710 — catastrophic rolling collapse is quality mode.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1505` — `val emergencyKeys = listOf("RUG", "HONEYPOT", "EMERGENCY", "SHUTDOWN", "PHANTOM", "STALE", "MAX_HOLD", "MUST_SELL", "CATASTROPHIC")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1740` — `* requestSell ran, ts.position was empty AND none of the sub-trader`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:2691` — `// 4% of a $50M chip pool ($2M) is catastrophic. Tier-aware`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:2939` — `// the conservative 2% impact cap. TOXIC/CATASTROPHIC use the standard`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3073` — `// floor of MIN_ENTRY_SOL (0.040 SOL ≈ $4). TOXIC/CATASTROPHIC verdicts`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3079` — `gooseImpactVerdict4131 == com.lifecyclebot.engine.TokenWinMemory.Verdict.CATASTROPHIC`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3129` — `* Keep catastrophic protection, but do not throttle growth for a single`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3566` — `// claims TAKE_PROFIT / RUNNER / QUICK_RUNNER / +N% BANK but the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3595` — `rawReason6312.contains("TAKE_PROFIT") ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4037` — `// Also credit TAKE_PROFIT / TRAILING_STOP reasons which by`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4043` — `exitReason.contains("TAKE_PROFIT") || exitReason.contains("TRAILING_STOP") || exitReason.contains("TP_") -> true`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4105` — `sellOptTrade.reason.contains("momentum", true) || sellOptTrade.reason.contains("take_profit", true) || sellOptTrade.reason.contains("sweep", true) -> com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.MOMENTUM_EXIT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:6083` — `reason.startsWith("take_profit")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:6389` — `LiveTradeLogStore.Phase.SELL_CONFIRMED,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7008` — `*   3) Catastrophic floor — last-resort SL via FluidLearning floor`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7060` — `"SWEEP_TAKE_PROFIT_BLOCKED_MARK_INVALID_6499",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7063` — `PipelineHealthCollector.labelInc("SWEEP_TAKE_PROFIT_BLOCKED_MARK_INVALID_6499")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7067` — `val tag = if (settleBypass) "SWEEP_TAKE_PROFIT_SETTLE_BYPASS_4200" else "SWEEP_TAKE_PROFIT"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7073` — `if (settleBypass) PipelineHealthCollector.labelInc("SWEEP_TAKE_PROFIT_SETTLE_BYPASS_4200")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7076` — `doSell(ts, "SWEEP_TAKE_PROFIT_${liveGrowthTpPct.toInt()}${if (settleBypass) "_SETTLE_BYPASS" else ""}", wallet, walletSol)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7096` — `requestSell(ts, "INSIDER_SHARK_COPY_EXIT_6092_${insiderExit6092.walletLabel.take(18)}", wallet, walletSol)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7261` — `// V5.0.4160 — CATASTROPHIC -25% HARD EMERGENCY BACKSTOP`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7269` — `// maxHold finally cut the bag the realized fill was catastrophic.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7315` — `// realized fill is catastrophic. This backstop fires an`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7374` — `// straight through the remaining depth and fill catastrophic.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7491` — `// V5.0.4585 — HARD -15% SL FOR CATASTROPHIC LANES (operator P0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7505` — `val isCatastrophicLane = laneName == "MANIPULATED" ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7508` — `if (isCatastrophicLane && worstPnl <= -15.0) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7512` — `"mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$laneName worstPnl=${worstPnl.fmt(2)} — catastrophic-lane hard cap fired",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7523` — `// dump: BCLiquFq lost -96.1% (reason=CATASTROPHIC_STOP_LOSS_OVERRUN_-95pct_FROM_RAPID).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7570` — `// V5.0.6325 — CATASTROPHIC EXIT LATENCY TRACE onDetect.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7574` — `// when finality confirms. See CatastrophicExitLatency.kt.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7576` — `com.lifecyclebot.engine.CatastrophicExitLatency.onDetect(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7586` — `"CATASTROPHIC_HARD_BACKSTOP_25",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7591` — `"☠ CATASTROPHIC -25% BACKSTOP: ${ts.symbol} worstPnl=${worstPnl.toInt()}% — last-line force-exit (quote freshness ignored)",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7594` — `doSell(ts, "CATASTROPHIC_HARD_BACKSTOP_-25", wallet, walletSol)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7668` — `// (exitBias >= 1.20) AND pnlPct is not catastrophic (> -20%),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7671` — `// losses: quarantined lanes can never veto, catastrophic`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7689` — `// or price falls to catastrophic territory, next pass`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7716` — `//      to avoid silent catastrophic overruns.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7749` — `// the alert escalates to CATASTROPHIC_MINT (>10% supply minted`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7766` — `if (mintAlert == com.lifecyclebot.engine.BirdeyeMintBurnMonitor.MintAlert.CATASTROPHIC_MINT) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7768` — `doSell(ts, "STEALTH_MINT_RUG_CATASTROPHIC", wallet, walletSol)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7804` — `requestSell(ts, "SETTLE_MFE_FLOOR_PEAK_${peakPnlPct.toInt()}pct", wallet, walletSol)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7814` — `requestSell(ts, "SETTLE_PEAK_DRAWDOWN_PEAK_${peakPnlPct.toInt()}pct", wallet, walletSol)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7831` — `// Exit: force sell via requestSell as DEAD_TOKEN_NO_PRICE_EXIT.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7842` — `requestSell(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7855` — `// through into full TP, so the journal showed terminal TAKE_PROFIT/SL`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7963` — `try { ForensicLogger.lifecycle("PAPER_BALANCE_PROOF_BYPASSED_LEDGER_AUTHORITY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=PARTIAL_TAKE_PROFIT qty=${pos.qtyToken}") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7974` — `com.lifecyclebot.engine.sell.SellAmountAuthority.resolveForExit(ts.mint, wallet, "PARTIAL_TAKE_PROFIT")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8009` — `exitReason = "PARTIAL_TAKE_PROFIT",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8161` — `slippageBps = com.lifecyclebot.engine.sell.SellSafetyPolicy.initialSlippageBps("PARTIAL_TAKE_PROFIT"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8162` — `reason = "PARTIAL_TAKE_PROFIT",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8196` — `resolution = try { com.lifecyclebot.engine.sell.SellAmountAuthority.resolveForExit(ts.mint, wallet, "PARTIAL_TAKE_PROFIT") } catch (_: Throwable) { null },`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8197` — `reason = "PARTIAL_TAKE_PROFIT",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8607` — `val catastrophePx = if (pos.entryPrice > 0.0) pos.entryPrice * 0.75 else 0.0 // -25% catastrophic`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8648` — `// other exit path so meme snipers get hard-exited on catastrophic`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8708` — `if (r.contains("REFLEX") || r.contains("LIQUIDITY_COLLAPSE") || r.contains("LIQUIDITY_DRAIN") || r.contains("NO_LIQUIDITY_EXIT") || r.contains("RUG") || r.contains("CATASTROPHIC") || r.contains("EMERGENCY")) return false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8907` — `// V5.9.1293 — CATASTROPHIC GAP GUARD. Pre-empts the -82% gap-through`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8913` — `ProfitabilityLayer.checkCatastrophicGapGuard(ts)?.let { reason ->`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:9079` — `// "trailing_stop pnl=-1%" exits seen across hundreds of trades.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:9103` — `return "trailing_stop"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:9677` — `requestSell(ts, "INSIDER_SHARK_COPY_EXIT_6092_${insiderExit6092.walletLabel.take(18)}", wallet, walletSol)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11009` — `// CATASTROPHIC/TOXIC/NEUTRAL remain on the standard brake.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11091` — `// (TOXIC/CATASTROPHIC verdicts) still bypass elsewhere in the stack.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11360` — `// V5.0.4179 — F1: SLIP-AWARE ENTRY SIZING (catastrophic-overrun fix).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11640` — `gooseVerdict4129 != com.lifecyclebot.engine.TokenWinMemory.Verdict.CATASTROPHIC) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11913` — `pnlPct >= takeProfitPct -> "take_profit"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14101` — `// Live route: requestSell branches internally on isPaperPosition,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14104` — `// mid-position), requestSell still routes via the paper branch`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14106` — `requestSell(ts, reason, wallet, walletSol)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15753` — `// buys on a mint that recently finalised a loss / catastrophic`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18745` — `* BotService → SellOptimizationAI → requestSell("[SELL_OPT] Stop Loss...").`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18771` — `val isPaperFullProfitExit = r.contains("RAPID_TAKE_PROFIT") ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18772` — `r.contains("TAKE_PROFIT") ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18798` — `// PrecisionExitLogic to emit "v8_catastrophic_loss" within the first 5 seconds. If we just`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18807` — `// TAKE_PROFIT/FULL_PROFIT/RAPID_TAKE_PROFIT label, paper settle-in is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18963` — `val advancedRunnerProtect = advanced?.shouldExit == true && (advanced.exitReason == com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitReason.TRAILING_STOP ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18964` — `advanced.exitReason == com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitReason.TAKE_PROFIT_FULL ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18965` — `advanced.exitReason == com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitReason.TAKE_PROFIT_CHUNK ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18990` — `val profit = !exitPolicyLetRun && (r.contains("TAKE_PROFIT") || r.contains("PROFIT") ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19038` — `// TAKE_PROFIT/full-profit winners, peak-giveback locks, hard floor,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19088` — `intent.normalizedReason.contains("TAKE_PROFIT") || intent.normalizedReason.contains("PROFIT") ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19114` — `fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19157` — `try { LearningLifecycleBus.exitDecision("requestSell.intent", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "INTENT", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19159` — `// requestSell() has many upstream callers (main loop, backup sweeps,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19185` — `try { LearningLifecycleBus.exitDecision("requestSell.defer", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "DEFER_TINY_PROFIT_DUST", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: T`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19192` — `// true catastrophic hard-floor/rug/manual-emergency exits bypass.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19205` — `try { LearningLifecycleBus.exitDecision("requestSell.defer", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "DEFER_STYLE_MIN_HOLD", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Thr`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19223` — `try { LearningLifecycleBus.exitDecision("requestSell.defer", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "DEFER_RECONCILER_HEALTHY_HOLD", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catc`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19229` — `// If the mint is already in proof-wait, ExitCoordinator / Universal exit /`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19250` — `try { com.lifecyclebot.engine.sell.BalanceProofWaitState.clear(ts.mint, "PROOF_READY_REQUESTSELL") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19320` — `reason = "requestSell released CloseLease; no blocking retry queue",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19446` — `requestSell(ts, "PARTIAL_LADDER_COLLAPSED_RISK_EXIT_${pnlPct.toInt()}", wallet, walletBalance)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19770` — `LiveTradeLogStore.Phase.SELL_CONFIRMED,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20055` — `// This ensures exits originating from riskCheck (like v8_catastrophic_loss)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20261` — `val tp = Regex("""RAPID_TAKE_PROFIT_(\d+(?:\.\d+)?)""").find(r)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20301` — `if (r.contains("TREASURY_TAKE_PROFIT")) return Pair(+5.0, +15.0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20303` — `if (r.contains("TRAILING_STOP") || r.contains("TRAIL_STOP")) return Pair(-10.0, +5.0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20628` — `//      and RAPID_TAKE_PROFIT_30 books in [+25%, +30%], not +8234%`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21144` — `com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21151` — `com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.TAKE_PROFIT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21158` — `com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TAKE_PROFIT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21170` — `// zombie entry, fired requestSell -> acquireSellLock -> ALREADY_CLOSED`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21174` — `val mEx = if (isWin) com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TAKE_PROFIT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21179` — `val qEx = if (isWin) com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.TAKE_PROFIT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21184` — `val manEx = if (isWin) com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.TAKE_PROFIT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21197` — `reason = if (isWin) "TAKE_PROFIT" else "STOP_LOSS",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21203` — `val expEx = if (isWin) com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_30`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21735` — `// labels severe losses as "v8_catastrophic_loss" / "v8_severe_loss", which`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21736` — `// matched NONE of the cases above — so a catastrophic loss armed NO lockout and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21740` — `reasonLower.contains("catastrophic") || reasonLower.contains("severe") -> {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21742` — `onLog("🔒 REENTRY BLOCKED: ${ts.symbol} - catastrophic/severe loss (2min)", tradeId.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21902` — `com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21906` — `com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TRAILING_STOP`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21917` — `com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TAKE_PROFIT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21921` — `com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TRAILING_STOP`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21935` — `val isProfit6 = r6.contains("profit") || r6.contains("target") || r6.contains("take_profit")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21937` — `val mEx = if (isProfit6) com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TAKE_PROFIT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21942` — `val qEx = if (isProfit6) com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.TAKE_PROFIT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21947` — `val manEx = if (isProfit6) com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.TAKE_PROFIT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21960` — `reason = if (isProfit6) "TAKE_PROFIT" else "STOP_LOSS",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21966` — `val expEx = if (isProfit6) com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_30`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22099` — `try { ToolkitSignalSheet.recordDeskStage(canonicalTerminalPosition6492.lane, "SELL_CONFIRMED", terminalPid6455) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22571` — `// requestSell() recognises WAITING_BALANCE_PROOF and skips`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22748` — `// on-chain balance; partial sells (PARTIAL_TAKE_PROFIT / PROFIT_LOCK)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22932` — `// Emergency reasons (RUG, HONEYPOT, CATASTROPHIC,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22972` — `// quote shows catastrophic price impact (>25%), giving the pool`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:23016` — `// / collapse exits we accept catastrophic slippage to escape`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:23238` — `LiveTradeLogStore.Phase.SELL_CONFIRMED,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:23598` — `// PARTIAL_TAKE_PROFIT) are forbidden by SellIntent`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:23849` — `val catastrophicAllowance = -(configuredStop + 20.0).coerceAtLeast(30.0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:23850` — `if (stopLike && pnlP <= catastrophicAllowance) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:23851` — `try { ForensicLogger.lifecycle("STOP_LOSS_OVERRUN_CATASTROPHIC", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalReason=$reason pnl=${pnlP.fmt(2)} configuredStop=${configuredStop.fmt(1)} action=journal_catastrophic_not_normal_sl") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:23852` — `"CATASTROPHIC_STOP_LOSS_OVERRUN_${pnlP.toInt()}pct_FROM_${reason}"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:23932` — `// so the catastrophic-fill failure mode is visible in`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:23959` — `com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(wallet, "sell_confirmed_${ts.mint.take(6)}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24042` — `// SELL_FINALIZED. Wrapped so a finalize hiccup can never throw the sell path.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24066` — `ForensicLogger.lifecycle("SELL_FINALIZED", "mint=${ts.mint.take(12)} sig=${fSig.take(16)} closed=true dust=$postUi source=HELIUS closeId=$cid")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24208` — `// doSell() then queued PendingSellQueue while requestSell() kept the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24725` — `com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24732` — `com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.TAKE_PROFIT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24739` — `com.lifecyclebot.v3.scoring.BlueChipTraderAI.ExitSignal.TAKE_PROFIT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24749` — `val mEx = if (isWin) com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.TAKE_PROFIT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24754` — `val qEx = if (isWin) com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.TAKE_PROFIT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24759` — `val manEx = if (isWin) com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipExitSignal.TAKE_PROFIT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24772` — `reason = if (isWin) "TAKE_PROFIT" else "STOP_LOSS",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24778` — `val expEx = if (isWin) com.lifecyclebot.v3.scoring.ShitCoinExpress.ExitSignal.TAKE_PROFIT_30`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:24929` — `// requestSell again on a position that was already sold on-chain.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:25812` — `// requestSell wrapper releases the close lease for`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:25877` — `LiveTradeLogStore.Phase.SELL_CONFIRMED,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:26200` — `// BUY_PHANTOM if the chain never indexes the buy (catastrophic`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExitCoordinatorHeartbeat.kt:25` — `object ExitCoordinatorHeartbeat {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExitManager.kt:67` — `TRAILING_STOP,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExitManager.kt:74` — `PARTIAL_TAKE_PROFIT,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExitManager.kt:210` — `reason = ExitReason.TRAILING_STOP,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExitManager.kt:302` — `reason = ExitReason.PARTIAL_TAKE_PROFIT,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExitManager.kt:313` — `reason = ExitReason.PARTIAL_TAKE_PROFIT,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExitManager.kt:413` — `ExitReason.TRAILING_STOP -> "📊 Trailing Stop"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExitManager.kt:418` — `ExitReason.PARTIAL_TAKE_PROFIT -> "💵 Partial Profit"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExitReasonTracker.kt:9` — `* Tracks realised pnlPct by exit reason (TAKE_PROFIT, STOP_LOSS,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExitReasonTracker.kt:10` — `* TRAILING_STOP, TIME_EXIT, RUG_DETECTED, FLAT_EXIT, etc.) per V3`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExitReasonTracker.kt:16` — `*   - "Moonshot TRAILING_STOP averages +18%" → keep the trailing system`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExitReasonTracker.kt:34` — `// positive PnL (or TAKE_PROFIT showing big negative) means the exit`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExitReasonTracker.kt:40` — `val looksTp   = r.contains("TAKE_PROFIT") || r.contains("TP") || r.contains("TARGET")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1194` — `// maturity target) AND an entry-AI win rate < 25% OR catastrophic`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1397` — `// A catastrophic rolling cohort is evidence the CURRENT entry policy`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1549` — `// Field journal showed catastrophic exit slippage on $1.6K-$7K liq`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1564` — `// (where catastrophic slippage IS the dominant risk) but DO NOT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1586` — `// Treasury, all of them. This is catastrophic: EXEC=0, no new trades at all.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2207` — `// launch and DexScreener indexing. CATASTROPHIC/TOXIC still hard-block.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2356` — `// ~7 trades/session while catastrophic-lane bleeders had already`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4448` — `// catches catastrophic buckets at 0.02 dust). Never`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4577` — `// V5.9.1289 — CATASTROPHIC-CONTEXT STARVE. conviction()'s`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4589` — `checks.add(GateCheck("catastrophic_starve", true, "proven-dead ctx ×${"%.2f".format(starve)} size ${beforeS.format(3)}→${finalSize.format(3)} ctx=$mpLane/S${effectiveGateScore6025.toInt()}/$mpRegime"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HealthSnapshot6324.kt:49` — `sb.appendLine("    active sweeps: ${ExitCoordinatorHeartbeat.snapshot().size}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HealthSnapshot6324.kt:50` — `sb.appendLine("    stale resets: ${ExitCoordinatorHeartbeat.staleResetCount()}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HealthSnapshot6324.kt:51` — `sb.appendLine("    justified resets: ${ExitCoordinatorHeartbeat.justifiedResetCount()}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HealthSnapshot6324.kt:52` — `sb.appendLine("    false resets prevented: ${ExitCoordinatorHeartbeat.falseResetsPreventedCount()}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HealthSnapshot6324.kt:53` — `sb.appendLine("    duplicate sweeps suppressed: ${ExitCoordinatorHeartbeat.duplicateSweepsSuppressedCount()}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HealthSnapshot6324.kt:74` — `sb.appendLine("    catastrophic traces:  ${CatastrophicExitLatency.emittedTraceCount()}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HistoricalChartScanner.kt:648` — `exitReason = if (history[i].price >= entryPrice) "TAKE_PROFIT" else "STOP_LOSS"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HoldingLogicLayer.kt:252` — `// V5.0.4264 — AdvancedExitManager is advisory here. Executor.requestSell`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:232` — `* catastrophic loss.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:903` — `markNoCurrentHeldProof(p, "SELL_CONFIRMED_REJECTED_NO_SIGNATURE:${reason ?: "?"}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:907` — `"SELL_CONFIRMED_REJECTED_NO_SIGNATURE ${symbol ?: p.symbol ?: mint.take(6)} — not open")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:918` — `emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_SELL_CONFIRMED, mint, symbol ?: p.symbol, p.sellSignature,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:919` — `"Tracker SELL_CONFIRMED ${symbol ?: p.symbol ?: mint.take(6)} exit=$exitPrice pnl=${pnlPct}% reason=${reason ?: "?"}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:952` — `emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_SELL_CONFIRMED, mint, symbol ?: p.symbol, p.sellSignature,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:953` — `"Tracker SELL_FINALIZED_AWAITING_ZERO_PROOF ${symbol ?: p.symbol ?: mint.take(6)} reason=$reason")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:1251` — `emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_SELL_CONFIRMED, p.mint, p.symbol, p.sellSignature,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:1861` — `// so the next requestSell proceeds. Wallet reconcile / verify watchdog`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt:22` — `val sellFinalizedLabels = (pipe?.labelCounts?.get("LIFECYCLE/SELL_FINALIZED") ?: 0L) +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt:23` — `(pipe?.labelCounts?.get("LIFECYCLE/SELL_FINALIZED_ONCE") ?: 0L) +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt:189` — `val execLiveSellOk = pipe?.labelCounts?.get("LIFECYCLE/EXEC_LIVE_SELL_FINALIZED") ?: 0L`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt:227` — `"exec_live_sell_finalized" to execLiveSellOk.toString(),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneBucketPivot.kt:129` — `val catastrophic = losses >= 15 && lossRate >= 0.60 && meanPnl <= -15.0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneBucketPivot.kt:130` — `if (!catastrophic) return false to ""`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt:51` — `private const val CATASTROPHIC_MEAN_PCT = -20.0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt:52` — `private const val CATASTROPHIC_WR_PCT   = 8.0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt:53` — `private const val CATASTROPHIC_MIN_TRADES = 20`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt:54` — `private const val CATASTROPHIC_MIN_MULT = 0.08`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt:56` — `private const val MODERATE_CATASTROPHIC_MEAN_PCT   = -8.0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt:57` — `private const val MODERATE_CATASTROPHIC_WR_PCT     = 30.0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt:58` — `private const val MODERATE_CATASTROPHIC_MIN_TRADES = 25`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt:59` — `private const val MODERATE_CATASTROPHIC_MIN_MULT   = 0.15`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt:182` — `val moderateCatastrophic = m.trades >= MODERATE_CATASTROPHIC_MIN_TRADES &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt:183` — `m.meanPnlPct <= MODERATE_CATASTROPHIC_MEAN_PCT &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt:184` — `m.winRatePct <= MODERATE_CATASTROPHIC_WR_PCT &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt:186` — `val catastrophic = m.trades >= CATASTROPHIC_MIN_TRADES &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt:187` — `m.meanPnlPct <= CATASTROPHIC_MEAN_PCT &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt:188` — `m.winRatePct <= CATASTROPHIC_WR_PCT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt:190` — `catastrophic         -> CATASTROPHIC_MIN_MULT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt:191` — `moderateCatastrophic -> MODERATE_CATASTROPHIC_MIN_MULT`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveEntrySafetyHold.kt:33` — `*    cooldown+). If any of {WR<25, PF<0.7, catastrophic exits, invariant`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveEntrySafetyHold.kt:213` — `* catastrophic failures).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt:203` — `* override; TOXIC/CATASTROPHIC verdicts return 1.0 (no relax) regardless.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt:210` — `// Toxic/catastrophic patterns NEVER get a relax — extra protection layer.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt:212` — `verdict == com.lifecyclebot.engine.TokenWinMemory.Verdict.CATASTROPHIC) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:24` — `// catastrophic losses as "duplicateTerminal=7" pruned rows. That fooled`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:31` — `// when a lane is catastrophically bleeding in reality regardless of`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:95` — `* This bounded shape signal activates for genuinely catastrophic buckets`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:417` — `// meaningful lane sample (n≥6) UNLESS the lane is a known-catastrophic`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:419` — `// Non-catastrophic lanes with n<6 pass through with the natural math`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:422` — `val isCatastrophicLaneShaper4587 =`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:432` — `val minSample4587 = if (isCatastrophicLaneShaper4587) 3L else 6L`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:435` — `val catastrophicEV = laneN >= 3L && eBase <= -40.0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:436` — `val zeroWrEnough = lanePWin <= 0.001 && laneN >= (if (isCatastrophicLaneShaper4587) 3L else 5L)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:438` — `sampleClear && (badTwoTradeEV || catastrophicEV || zeroWrEnough || doomEV)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt:478` — `// catastrophically bleeding in reality even when the sanitized`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveRestoreExecutionPolicy.kt:12` — `* clear round-trip costs. It never bypasses catastrophic safety, bad mints,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveStrategyTuner.kt:121` — `// LaneExitTuner + StrictSL + ExitCoordinator, NOT by sizing.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveTradeLogStore.kt:166` — `SELL_CONFIRMED,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveTradeLogStore.kt:227` — `TOKEN_TRACKER_SELL_CONFIRMED,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MemeWREmergencyBrake.kt:43` — `private const val CATASTROPHIC_BOOTSTRAP_MIN = 200`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MemeWREmergencyBrake.kt:44` — `private const val CATASTROPHIC_BOOTSTRAP_WR_PCT = 20.0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MemeWREmergencyBrake.kt:45` — `private const val CATASTROPHIC_RELEASE_WR_PCT = 25.0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MemeWREmergencyBrake.kt:148` — `// V5.0.3716 — catastrophic bootstrap brake. Doctrine says 20-35% WR is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MemeWREmergencyBrake.kt:155` — `val catastrophicBootstrap = lifetime >= CATASTROPHIC_BOOTSTRAP_MIN && lifetime < MIN_LIFETIME_TRADES`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MemeWREmergencyBrake.kt:156` — `if (catastrophicBootstrap) {`
+- … 430 more
+
+## Occupancy/slot/turnover
+
+Count: **174**
+
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:760` — `try { com.lifecyclebot.engine.truth.PendingIntentBacklog6625.reap6625(30_000L) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1672` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(repairedPaperPositions6490)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4042` — `// snapshot showed 523 EXEC_GATE PAPER_SAME_MINT_ALREADY_OPEN blocks in`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4055` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.admit(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4058` — `} catch (_: Throwable) { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.Admission.PASS_NONE }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4059` — `val occupancyBlocked6464 = admission6464 == com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.Admission.BLOCK_OPEN ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4060` — `admission6464 == com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.Admission.BLOCK_PENDING ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4061` — `admission6464 == com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.Admission.BLOCK_EXITING`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4071` — `PipelineHealthCollector.labelInc("V3_EXEC_SAME_MINT_PREEMPT_6373")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4072` — `PipelineHealthCollector.onGate("EXEC_GATE", ts.symbol, false, "V3_SAME_MINT_ALREADY_OPEN_6373 existing=$existingLayer6373")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4074` — `"V3_EXEC_SAME_MINT_PREEMPT_6373",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4080` — `error = "SAME_MINT_ALREADY_OPEN_6373_V3_PREEMPT",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15344` — `// Reconciles CanonicalMintOccupancyRegistry against the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15372` — `val occSnap = com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.snapshotByOccupancy()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15373` — `val occOpen = occSnap[com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.Occupancy.OPEN] ?: 0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15452` — `try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed("paper", orphan.mint) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16945` — `// turnover so dead pools don't stay top-of-queue on liquidity`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17038` — `try { publishSlotHealth(forcedOpenMints, forcedOpenMints.size) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18229` — `// under the JVM bytecode size limit. Publishes live slot-health for SlotHealthGate`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18481` — `// Stash the clean list + live set so publishSlotHealth counts the SAME truth.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18488` — `private fun publishSlotHealth(forcedOpenClean: Collection<String>, forcedOpenCount: Int) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18499` — `com.lifecyclebot.engine.SlotHealthGate.publish(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21077` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.occupancyOf(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21080` — `} catch (_: Throwable) { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.Occupancy.NONE }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21082` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.Occupancy.OPEN,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21083` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.Occupancy.PENDING_ENTRY,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21084` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.Occupancy.IN_FLIGHT_ENTRY,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21085` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.Occupancy.PENDING_EXIT,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:559` — `&& !com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.isOpen(if (isLiveMode) "live" else "paper", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt:631` — `&& !com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.isOpen(if (isLiveMode) "live" else "paper", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EmergentGuardrails.kt:247` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markOpen(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EmergentGuardrails.kt:319` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1821` — `// PAPER_SAME_MINT_ALREADY_OPEN_6370 blocks after candidates had already`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1839` — `PipelineHealthCollector.labelInc("EXEC_OPEN_SAME_MINT_ALREADY_OPEN_COOLDOWN_6371")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1841` — `"EXEC_OPEN_SAME_MINT_ALREADY_OPEN_COOLDOWN_6371",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1846` — `return blocked("EXEC_OPEN_BLOCKED_SAME_MINT_ALREADY_OPEN_6371", "PAPER_SAME_MINT_ALREADY_OPEN_6371 existing=$existingLayer6371")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:764` — `// aliases were hitting PAPER_SAME_MINT_ALREADY_OPEN_6371 ~100 times per`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:768` — `private const val PAPER_SAME_MINT_OPEN_COOLDOWN_MS_6447: Long = 45_000L`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:780` — `paperSameMintOpenCooldownUntil6447[mint] = System.currentTimeMillis() + PAPER_SAME_MINT_OPEN_COOLDOWN_MS_6447`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10663` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.isOpen("paper", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12739` — `// 6446 runtime still showed ~100 PAPER_SAME_MINT_ALREADY_OPEN_6371`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12746` — `try { PipelineHealthCollector.labelInc("PAPER_SAME_MINT_OPEN_COALESCED_6447") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12750` — `PipelineHealthCollector.labelInc("PAPER_SAME_MINT_OPEN_SOURCE_SUPPRESSED_6447")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12751` — `PipelineHealthCollector.onGate("EXEC_GATE", ts.symbol, false, "PAPER_SAME_MINT_ALREADY_OPEN_SOURCE_6447 existing=$existingLayer6447 requested=$finalityLane")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12752` — `ForensicLogger.lifecycle("PAPER_SAME_MINT_OPEN_SOURCE_SUPPRESSED_6447", "mint=${ts.mint.take(10)} symbol=${ts.symbol} existing=$existingLayer6447 requested=$finalityLane action=blocked_before_executable_open_gate")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12755` — `markPaperBuyNotOpened("SAME_MINT_ALREADY_OPEN_SOURCE_6447")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12871` — `PipelineHealthCollector.labelInc("PAPER_BUY_SAME_MINT_OPEN_SUPPRESSED_6370")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12872` — `PipelineHealthCollector.onGate("EXEC_GATE", tradeId.symbol, false, "PAPER_SAME_MINT_ALREADY_OPEN_6370 existing=$existingLayer6370 requested=$requestedLayer6370")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12873` — `ForensicLogger.lifecycle("PAPER_BUY_SAME_MINT_OPEN_SUPPRESSED_6370", "mint=${tradeId.mint.take(10)} symbol=${tradeId.symbol} existing=$existingLayer6370 requested=$requestedLayer6370 reason=global_open_registry")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12876` — `markPaperBuyNotOpened("SAME_MINT_ALREADY_OPEN_6370")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13316` — `try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed("paper", tradeId.mint) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13457` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markOpen("paper", tradeId.mint, ts.symbol, "Executor.paperBuy.atomic6485")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16595` — `val fromGate = if (LiveRestoreExecutionPolicy.isSlotHealthClean()) LiveRestoreExecutionPolicy.NONE else fromGateRaw`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18317` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markOpen("live", verifyMint, verifySymbol, "TradeVerifier.LANDED.6486")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveRestoreExecutionPolicy.kt:48` — `fun isSlotHealthClean(): Boolean = try {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveRestoreExecutionPolicy.kt:61` — `if (isSlotHealthClean()) return NONE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/OrthogonalSignals.kt:225` — `ageMinutes < 30 -> 0.5   // New tokens: expect high turnover`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt:246` — `try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed(normMode(mode).lowercase(), mint) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:1766` — `sb.append("  §P3 PENDING_BACKLOG     ${com.lifecyclebot.engine.truth.PendingIntentBacklog6625.statusLine()}\n")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:2034` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.statusLine()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:2586` — `sb.append("  slot health:     ${com.lifecyclebot.engine.SlotHealthGate.snapshotLine()}\n")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:2587` — `sb.append("  Read: ghost>0 or forced>20 => buys defer (EXEC_DEFERRED_SLOT_HEALTH) until cleanup; never a permanent block.\n")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:2741` — `sb.append("  mintOccupancy:      ")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:2742` — `.append(com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.statusLine()).append("\n")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PositionCloseLedger.kt:72` — `try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed("paper", mint) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PositionCloseLedger.kt:106` — `try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed("paper", mint) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ReEntryLockout.kt:146` — `* V5.0.6036 exposes whether the hit is SAME_MINT or FAMILY_ONLY so execution`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:13` — `* rule: "log EXEC_DEFERRED_SLOT_HEALTH, not block permanently".`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:33` — `object SlotHealthGate {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:52` — `// V5.0.6709 — adaptive PAPER turnover pressure. These are cadence bands,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:58` — `private const val TURNOVER_SOFT_START_6709 = 48`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:59` — `private const val TURNOVER_MEDIUM_START_6709 = 72`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:60` — `private const val TURNOVER_HIGH_START_6709 = 96`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:61` — `private const val TURNOVER_SEVERE_START_6709 = 120`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:62` — `private const val TURNOVER_MAX_CADENCE_6709 = 6`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:63` — `private val turnoverAdmissionSeq6709 = AtomicLong(0L)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:64` — `private val turnoverCadenceNow6709 = AtomicInteger(1)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:65` — `private val turnoverDeferred6709 = AtomicLong(0L)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:66` — `private val turnoverAdmitted6709 = AtomicLong(0L)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:67` — `private val turnoverHighEdgeBypass6709 = AtomicLong(0L)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:92` — `fun memeTurnoverAbsoluteCap6689(): Int = Int.MAX_VALUE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:113` — `private fun adaptiveTurnoverCadence6709(open: Int, exitsInFlight: Boolean): Int {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:115` — `open < TURNOVER_SOFT_START_6709 -> 1`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:116` — `open < TURNOVER_MEDIUM_START_6709 -> 2`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:117` — `open < TURNOVER_HIGH_START_6709 -> 3`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:118` — `open < TURNOVER_SEVERE_START_6709 -> 4`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:121` — `return if (exitsInFlight && base > 1) (base + 1).coerceAtMost(TURNOVER_MAX_CADENCE_6709) else base`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:160` — `val cadence6709 = if (paperRuntime) adaptiveTurnoverCadence6709(effectiveOpen, exitInFlight) else 1`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:161` — `val priorCadence6709 = turnoverCadenceNow6709.getAndSet(cadence6709)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:164` — `PipelineHealthCollector.labelInc("MEME_TURNOVER_CADENCE_CHANGED_6709")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:166` — `"MEME_TURNOVER_CADENCE_CHANGED_6709",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:178` — `// forced-slot cleanup semantics and the V5.0.6709 PAPER turnover cadence.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:203` — `// into an accidental bypass of all turnover control (operator 6708:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:222` — `val cadence6709 = if (paperRuntime6692) adaptiveTurnoverCadence6709(openNow6709, exitsNow6709) else 1`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:223` — `turnoverCadenceNow6709.set(cadence6709)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:227` — `turnoverHighEdgeBypass6709.incrementAndGet()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:228` — `try { PipelineHealthCollector.labelInc("MEME_TURNOVER_HIGH_EDGE_BYPASS_6709") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:230` — `val seq6709 = turnoverAdmissionSeq6709.incrementAndGet()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:232` — `try { PipelineHealthCollector.labelInc("MEME_TURNOVER_PRESSURE_BAND_${cadence6709}_6709") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:234` — `turnoverDeferred6709.incrementAndGet()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:236` — `PipelineHealthCollector.labelInc("MEME_TURNOVER_PRESSURE_DEFER_6709")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:238` — `"MEME_TURNOVER_PRESSURE_DEFER_6709",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:242` — `return DeferDecision(true, "MEME_TURNOVER_PRESSURE_6709 open=$openNow6709 cadence=1/$cadence6709")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:244` — `turnoverAdmitted6709.incrementAndGet()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:245` — `try { PipelineHealthCollector.labelInc("MEME_TURNOVER_PRESSURE_ADMIT_6709") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:264` — `return DeferDecision(false, if (cadence6709 > 1) "slot_health_ok_turnover_1/$cadence6709" else "slot_health_ok")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:270` — `"memeTurnoverCap=SHARED_CAPITAL_6692 cadence=1/${turnoverCadenceNow6709.get()} " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt:271` — `"turnover6709[admit=${turnoverAdmitted6709.get()} defer=${turnoverDeferred6709.get()} highEdge=${turnoverHighEdgeBypass6709.get()}]"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/StrategyTruthLedger.kt:203` — `val sameMintCloseDuplicate = priorCloseTs != null && row.ts > 0L && kotlin.math.abs(priorCloseTs - row.ts) <= SAME_MINT_TERMINAL_DEDUP_WINDOW_MS`
+- `app/src/main/kotlin/com/lifecyclebot/engine/StrategyTruthLedger.kt:339` — `private const val SAME_MINT_TERMINAL_DEDUP_WINDOW_MS = 5L * 60_000L`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt:633` — `"BUY_INTENT" -> com.lifecyclebot.engine.truth.PendingIntentBacklog6625`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt:636` — `"MARK_REJECT", "FDG_BLOCK", "AUTH_REJECT", "SUPERSEDED", "STALE" -> com.lifecyclebot.engine.truth.PendingIntentBacklog6625`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt:225` — `val sh = SlotHealthGate.shouldDeferBuy(highEdge)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt:228` — `ForensicLogger.lifecycle("EXEC_DEFERRED_SLOT_HEALTH", "mint=${mint.take(10)} symbol=$symbol lane=${requestedBook.name} reason=${sh.reason} highEdge=$highEdge slots=${SlotHealthGate.snapshotLine()}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt:229` — `com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXEC_DEFERRED_SLOT_HEALTH")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/lab/LlmLabTrader.kt:30` — `com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAB_SAME_MINT_HYPOTHESIS_COALESCED_6490")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/lab/LlmLabTrader.kt:31` — `com.lifecyclebot.engine.ForensicLogger.lifecycle("LAB_SAME_MINT_HYPOTHESIS_COALESCED_6490", "mint=${tick.mint.take(10)} symbol=${tick.symbol} existingStrategy=${existingMint6490.strategyId} observingStrategy=${strategy.id} action=no_second_economic_position")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/LiveBuyAdmissionGate.kt:122` — `return Decision.Blocked("CLOSE_PENDING_SAME_MINT",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/SellFinalizationCoordinator.kt:303` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markPendingExit(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/sell/SellFinalizationCoordinator.kt:308` — `com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed("live", intent.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:59` — `try { CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(canonicalOpenPositions) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:64` — `CanonicalMintOccupancyRegistry6464.snapshotByOccupancy()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:66` — `val occupancyOpen = occSnap[CanonicalMintOccupancyRegistry6464.Occupancy.OPEN] ?: 0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLifecycleAuthority6470.kt:92` — `if (CanonicalMintOccupancyRegistry6464.isOpen(pos.mode, pos.mint)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalMintOccupancyRegistry6464.kt:14` — `*    dedup is not operating. Implement one CanonicalMintOccupancyRegistry.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalMintOccupancyRegistry6464.kt:18` — `* SUPERSEDES: CanonicalMintOccupancyRegistry6459 (unwired, telemetry-only).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalMintOccupancyRegistry6464.kt:41` — `object CanonicalMintOccupancyRegistry6464 {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt:455` — `CanonicalMintOccupancyRegistry6464.markPendingExit(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTerminalBridge6469.kt:461` — `if (terminal) CanonicalMintOccupancyRegistry6464.markClosed("paper", mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:394` — `PipelineHealthCollector.labelInc("CANONICAL_SAME_MINT_OCCUPANCY_BLOCK_6605")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:395` — `PipelineHealthCollector.labelInc("CANONICAL_SAME_MINT_OCCUPANCY_BLOCK_6605_${lane.uppercase()}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:397` — `"CANONICAL_SAME_MINT_OCCUPANCY_BLOCK_6605",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:401` — `return@withLock Result(false, positionId, "CANONICAL_SAME_MINT_ALREADY_OPEN_POSITION_6605")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:428` — `CanonicalMintOccupancyRegistry6464.markOpen("paper", mint, symbol, source)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:589` — `if (terminal) CanonicalMintOccupancyRegistry6464.markClosed("paper", mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:696` — `exitReason = "DUPLICATE_SAME_MINT_REFUND_6490", terminal = true,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:700` — `recordCloseProjection6659(pos, result, "DUPLICATE_SAME_MINT_REFUND_6490", terminal = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:701` — `CanonicalMintOccupancyRegistry6464.markClosed("paper", pos.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:709` — `PipelineHealthCollector.labelInc("DUPLICATE_SAME_MINT_INVENTORY_REPAIRED_6490")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt:710` — `com.lifecyclebot.engine.ForensicLogger.lifecycle("DUPLICATE_SAME_MINT_INVENTORY_REPAIRED_6490", "duplicateMints=${groups.size} refundedLots=$refunded refundedBasis=${"%.6f".format(basisTotal)} failures=$failures")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt:1157` — `try { CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(canonicalOpen6519) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/EarlyLaunchBypass6394.kt:71` — `if (sameMintOpen) return Decision(false, 0.0, "SAME_MINT_ALREADY_OPEN")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/EarlyLaunchBypass6396.kt:51` — `return Decision(false, 0.0, "SAME_MINT_ALREADY_OPEN_6396")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt:5` — `import com.lifecyclebot.engine.SlotHealthGate`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt:130` — `* V5.0.6689 — this function is synchronized because the Meme turnover`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt:152` — `if (SlotHealthGate.isMemeLane6689(lane)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt:154` — `val open6689 = SlotHealthGate.canonicalMemeOpenCount6689(mode6689).coerceAtLeast(0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt:157` — `p.mode.equals(mode6689, ignoreCase = true) && SlotHealthGate.isMemeLane6689(p.lane)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt:161` — `if (totalReserved6689 >= SlotHealthGate.memeTurnoverAbsoluteCap6689()) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutorCanonicalMirror6442.kt:171` — `"reserved=$totalReserved6689 cap=${SlotHealthGate.memeTurnoverAbsoluteCap6689()} " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ForcedCloseSlotSweeper6468.kt:17` — `* Reconcile `CanonicalMintOccupancyRegistry6464` against the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ForcedCloseSlotSweeper6468.kt:40` — `CanonicalMintOccupancyRegistry6464.snapshotEntries()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ForcedCloseSlotSweeper6468.kt:44` — `if (entry.occupancy != CanonicalMintOccupancyRegistry6464.Occupancy.OPEN &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ForcedCloseSlotSweeper6468.kt:45` — `entry.occupancy != CanonicalMintOccupancyRegistry6464.Occupancy.PENDING_EXIT) continue`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ForcedCloseSlotSweeper6468.kt:49` — `CanonicalMintOccupancyRegistry6464.markClosed(entry.mode, entry.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/ForcedCloseSlotSweeper6468.kt:70` — `CanonicalMintOccupancyRegistry6464.markClosed(mode, mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MemeExecutionFunnelReceivers6625.kt:198` — `object PendingIntentBacklog6625 {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MintWorkCoordinator6450.kt:14` — `*   yet Executor later blocks: PAPER_SAME_MINT_ALREADY_OPEN=94.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionIdentity6411.kt:56` — `else -> MergeDecision(true, "OK", "same_wallet_same_mint_same_mode_compatible_program")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionParityDomainAudit6471.kt:76` — `CanonicalMintOccupancyRegistry6464.snapshotByOccupancy()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionParityDomainAudit6471.kt:78` — `val occupancyOpen = occSnap[CanonicalMintOccupancyRegistry6464.Occupancy.OPEN] ?: 0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionParityDomainAudit6471.kt:79` — `val occupancyPending = occSnap[CanonicalMintOccupancyRegistry6464.Occupancy.PENDING_ENTRY] ?: 0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PositionRegistryParityAudit6464.kt:169` — `CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(canonical)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SameMintCandidateEpoch6402.kt:13` — `* `PAPER_SAME_MINT_ALREADY_OPEN_6371:68 · V3_SAME_MINT_ALREADY_OPEN_6373:11``
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SameMintCandidateEpoch6402.kt:87` — `PipelineHealthCollector.labelInc("SAME_MINT_CANDIDATE_SUPPRESSED_6402")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SameMintCandidateEpoch6402.kt:90` — `"SAME_MINT_CANDIDATE_SUPPRESSED_6402",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SameMintCandidateEpoch6402.kt:107` — `PipelineHealthCollector.labelInc("SAME_MINT_EPOCH_BUMPED_6402")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SameMintCandidateEpoch6402.kt:109` — `"SAME_MINT_EPOCH_BUMPED_6402",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SameMintDedupAuthority6441.kt:70` — `PipelineHealthCollector.labelInc("SAME_MINT_BLOCK_OPEN_6441")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SameMintDedupAuthority6441.kt:71` — `if (openLayer6446.isNotBlank()) PipelineHealthCollector.labelInc("SAME_MINT_BLOCK_OPEN_EMERGENT_6446")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SameMintDedupAuthority6441.kt:72` — `if (registryOpen6446) PipelineHealthCollector.labelInc("SAME_MINT_BLOCK_OPEN_REGISTRY_6446")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SameMintDedupAuthority6441.kt:83` — `try { PipelineHealthCollector.labelInc("SAME_MINT_REENTRY_LOCKOUT_6441") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SameMintDedupAuthority6441.kt:90` — `try { PipelineHealthCollector.labelInc("SAME_MINT_COALESCED_6441") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/SameMintDedupAuthority6441.kt:95` — `try { PipelineHealthCollector.labelInc("SAME_MINT_ACCEPTED_6441") } catch (_: Throwable) {}`
+
+## Provider routing / fallback
+
+Count: **4149**
+
+- `app/src/main/kotlin/com/lifecyclebot/AATEApp.kt:166` — `// fallback protects against a bug halting the bot forever.`
+- `app/src/main/kotlin/com/lifecyclebot/AATEApp.kt:423` — `ErrorLogger.info("App", "BotService resurrection scheduled via 1s AlarmClock fallback")`
+- `app/src/main/kotlin/com/lifecyclebot/AATEApp.kt:426` — `ErrorLogger.error("App", "Resurrection AlarmClock fallback failed: ${e.message}", e)`
+- `app/src/main/kotlin/com/lifecyclebot/backtest/BacktestEngine.kt:41` — `* fallback heuristics catch older records that didn't carry it.`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:372` — `val coingeckoId: String,`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:577` — `coingeckoId: String = "",`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:598` — `twitter, telegram, discord, website, coingecko_id, social_count,`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:612` — `coingecko_id = COALESCE(NULLIF(excluded.coingecko_id, ''), coingecko_id),`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:641` — `coingeckoId.take(128),`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:1411` — `twitter, telegram, discord, website, coingecko_id, social_count,`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:1437` — `coingeckoId = parseString(row["coingecko_id"]),`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:1453` — `if (shared.socialCount > 0 || shared.coingeckoId.isNotBlank()) {`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:1455` — `com.lifecyclebot.engine.BirdeyeMetaDataProvider.seedFromHive(`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:1463` — `coingeckoId = shared.coingeckoId,`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveSchema.kt:483` — `coingecko_id TEXT NOT NULL DEFAULT '',`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveSchema.kt:871` — `"ALTER TABLE collective_token_mints ADD COLUMN coingecko_id TEXT NOT NULL DEFAULT ''",`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveSchema.kt:915` — `CREATE INDEX IF NOT EXISTS idx_token_mints_coingecko ON collective_token_mints(coingecko_id);`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveSchema.kt:971` — `execution_route TEXT NOT NULL DEFAULT 'JUPITER_V6',`
+- `app/src/main/kotlin/com/lifecyclebot/collective/TursoClient.kt:1301` — `executionRoute = row["execution_route"] as? String ?: "JUPITER_V6",`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:19` — `// ConfigStore.load's fallback-when-blank pattern.`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:74` — `val rpcUrl: String = "",  // User provides their own RPC URL in settings (Helius, QuickNode, etc.)`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:105` — `// Legacy fixed-size fields — kept for fallback/paper mode reference.`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:145` — `val heliusApiKey: String  = DefaultKeys.HELIUS,`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:146` — `val birdeyeApiKey: String = DefaultKeys.BIRDEYE,`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:149` — `val jupiterApiKey: String = DefaultKeys.JUPITER,`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:245` — `val scanPumpFunNew: Boolean = true,          // new pump.fun launches`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:247` — `val scanDexTrending: Boolean = true,         // dexscreener trending Solana`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:250` — `val scanBirdeyeTrending: Boolean = true,     // birdeye trending (needs key)`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:399` — `putString("helius_api_key",      cfg.heliusApiKey)`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:400` — `putString("birdeye_api_key",     cfg.birdeyeApiKey)`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:403` — `putString("jupiter_api_key",     cfg.jupiterApiKey)`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:404` — `// V5.9.915 — operator-hardcoded fallback LLM keys`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:525` — `putBoolean("scan_pump_new",                cfg.scanPumpFunNew)`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:628` — `heliusApiKey                = s.getString("helius_api_key", "").let {`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:629` — `if (it.isNullOrBlank()) DefaultKeys.HELIUS else it`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:631` — `birdeyeApiKey               = s.getString("birdeye_api_key", "").let {`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:632` — `if (it.isNullOrBlank()) DefaultKeys.BIRDEYE else it`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:638` — `jupiterApiKey               = s.getString("jupiter_api_key", "").let {`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:639` — `if (it.isNullOrBlank()) DefaultKeys.JUPITER else it`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:717` — `scanPumpFunNew              = p.getBoolean("scan_pump_new", true),`
+- `app/src/main/kotlin/com/lifecyclebot/data/DefaultKeys.kt:10` — `* win through ConfigStore's existing fallback-when-blank load path.`
+- `app/src/main/kotlin/com/lifecyclebot/data/DefaultKeys.kt:18` — `private const val HELIUS_X     = "6d3f39683f6f6a62776f396f68776e623b6c77626d6c6b776d6263696869686e6368683f"`
+- `app/src/main/kotlin/com/lifecyclebot/data/DefaultKeys.kt:19` — `private const val HELIUS_M     = 0x5A`
+- `app/src/main/kotlin/com/lifecyclebot/data/DefaultKeys.kt:20` — `private const val BIRDEYE_X    = "0051030303510e565653000e03525354560201020e56560552050f5405010f06"`
+- `app/src/main/kotlin/com/lifecyclebot/data/DefaultKeys.kt:21` — `private const val BIRDEYE_M    = 0x37`
+- `app/src/main/kotlin/com/lifecyclebot/data/DefaultKeys.kt:22` — `private const val JUPITER_X    = "0e59555b555b0d5b415b550f0a41580f0d0941550d550f410e595d0d0809090a5855095c"`
+- `app/src/main/kotlin/com/lifecyclebot/data/DefaultKeys.kt:23` — `private const val JUPITER_M    = 0x6C`
+- `app/src/main/kotlin/com/lifecyclebot/data/DefaultKeys.kt:25` — `// LLM fallback chain`
+- `app/src/main/kotlin/com/lifecyclebot/data/DefaultKeys.kt:35` — `// Solana RPC fallback`
+- `app/src/main/kotlin/com/lifecyclebot/data/DefaultKeys.kt:39` — `val HELIUS:     String by lazy { dec(HELIUS_X, HELIUS_M) }`
+- `app/src/main/kotlin/com/lifecyclebot/data/DefaultKeys.kt:40` — `val BIRDEYE:    String by lazy { dec(BIRDEYE_X, BIRDEYE_M) }`
+- `app/src/main/kotlin/com/lifecyclebot/data/DefaultKeys.kt:41` — `val JUPITER:    String by lazy { dec(JUPITER_X, JUPITER_M) }`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:67` — `// (mcap/1B) and exit was measured against a real DexScreener pool`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:72` — `val entryPriceSource: String = "",    // DEXSCREENER_WS / PUMP_FUN_BC / BIRDEYE / etc.`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:73` — `val entryPoolAddress: String = "",    // Raydium/Bonk/PumpFun/Meteora pool id at entry`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:75` — `val entrySupplyAssumed: Double = 0.0, // supply used for synthetic price (1B for PumpFun BC); 0 if real on-chain quote`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:87` — `// via DEXSCREENER_PAIR_POLL, ticked via a crashed alt-source at`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:322` — `var pumpFunBondingCurveAddress: String = "",`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:323` — `var pumpFunBondingCurveStatus: String = "UNKNOWN",`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:324` — `var pumpFunExecutable: Boolean = false,`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:326` — `var jupiterQuoteOk: Boolean = false,`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:362` — `var logoUrl: String = "",  // Token logo URL (from DexScreener)`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:376` — `// stamps a tag here (DEXSCREENER_WS / DEXSCREENER_POLL / PUMP_FUN_BC /`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:377` — `// PUMP_PORTAL_WS / BIRDEYE / PAIR_FALLBACK / etc). getActualPrice uses`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:382` — `// at mcap/1B then DexScreener overwrote with a real pool price on a`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:386` — `var lastPricePoolAddr: String = "",  // pool address backing the current quote (Raydium/Bonk/PumpFun pool id)`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:397` — `var lastLiquidityUsd: Double = 0.0,    // USD liquidity from Dexscreener — key for exit risk`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:408` — `// Multi-timeframe candles — seeded from Birdeye, used for trend confirmation`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:428` — `// WS lambda for months despite being emitted on every DexScreener tick. Surfaced`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:511` — `*  confirm within its 30s window (Jupiter Ultra indexing lag), so the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AICrossTalk.kt:870` — `val fallbackStamp = if (exactStamp == null) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AICrossTalk.kt:875` — `val stamped = exactStamp ?: fallbackStamp ?: return false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AdaptiveLearningEngine.kt:578` — `// (paperSell, liveSell, fallback exits) all called learnFromTrade`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AdaptiveLearningEngine.kt:594` — `// provide it. The old fallback key included holdTime/pnl/current-minute,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:93` — `val growthFallbackLane4557 = LiveGrowthDoctrine.growthLaneFallback(mint, out + base + style.lanes)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:94` — `val growthFallback = growthFallbackLane4557?.let { listOf(it) } ?: emptyList()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:95` — `val alternatesRaw = (styleLaneList.drop(1) + rapidPivot + base + growthFallback).filter { it.isNotBlank() && it !in out }.distinct()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:97` — `val forceContributionFallback4557 = growthFallbackLane4557 != null &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:98` — `growthFallbackLane4557 !in out &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:99` — `growthFallbackLane4557 in LiveGrowthDoctrine.dispatchableContributionLanes &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:100` — `(out + base + style.lanes).map { LiveGrowthDoctrine.canonicalLane(it) }.none { it == growthFallbackLane4557 }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:101` — `if (forceContributionFallback4557) growthFallbackLane4557?.let { out += it }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:121` — `val growthFallback = LiveGrowthDoctrine.growthToolFallback(mint, out + base + style.tools)?.let { listOf(it) } ?: emptyList()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:122` — `val alternates = (style.tools.drop(1) + base + growthFallback).filter { it.isNotBlank() && it !in out }.distinct()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:155` — `// V5.0.3863 — cached/fallback ToolkitSignalSheet can elect DEGEN_MICRO_SNIPE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:164` — `private fun sameLaneWeakPivotStyle(laneHint: String, fallback: Style): Style {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:170` — `"MOONSHOT" -> when (fallback) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:174` — `else -> if (fallback.lanes.contains("MOONSHOT")) fallback else Style.SMART_WALLET_COPY_FOLLOW`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:178` — `"SHITCOIN" -> when (fallback) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:181` — `else -> if (fallback.lanes.contains("SHITCOIN")) fallback else Style.VOLUME_IGNITION_SCALP`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:183` — `"EXPRESS" -> if (fallback.lanes.contains("EXPRESS")) fallback else Style.EXHAUSTION_QUICK_FLIP`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:184` — `"MANIPULATED" -> if (fallback.lanes.contains("MANIPULATED")) fallback else Style.NARRATIVE_SOCIAL_IGNITION`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:185` — `"PROJECT_SNIPER" -> if (fallback.lanes.contains("PROJECT_SNIPER")) fallback else Style.PUMP_GRADUATION_SNIPE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:186` — `"DIP_HUNTER" -> if (fallback.lanes.contains("DIP_HUNTER")) fallback else Style.PANIC_REVERSION_BOUNCE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:187` — `"TREASURY", "CASHGEN" -> if (fallback.lanes.contains("TREASURY")) fallback else Style.PANIC_REVERSION_BOUNCE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:188` — `"QUALITY" -> if (fallback.lanes.contains("QUALITY")) fallback else Style.WHALE_ACCUMULATION_HOLD`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:189` — `"BLUECHIP", "BLUE_CHIP" -> if (fallback.lanes.contains("BLUECHIP")) fallback else Style.MAINSTREAM_CRYPTO_SWING`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:190` — `else -> fallback`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt:220` — `val sheet = try { ToolkitSignalSheet.snapshot(ts, classification) } catch (_: Throwable) { ToolkitSignalSheet.fallbackSheet(ts, classification) }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt:183` — `* symptoms: pump.fun pre-graduation mints with no DexScreener pair.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt:8` — `* V5.9.1024 — REACTIVE PER-HOST BACKOFF.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt:11` — `*   • dexscreener sr= 49%  4xx=406    (paid-tier rate limit storm)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt:17` — `* provider. When DexScreener returns 429, our limiter happily fires the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt:21` — `* This object adds REACTIVE backoff. On each 4xx response we increment a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt:23` — `* backoff grows on consecutive failures (5s → 15s → 30s → 60s → 120s`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt:27` — `* through that wrapper, so one edit covers DexScreener, PumpFun, Birdeye`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt:28` — `* (REST), Jupiter, and any future host that uses the same path.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt:31` — `* the host as healthy so a buggy ApiBackoff can never *prevent* the bot`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt:34` — `object ApiBackoff {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt:45` — `/** Backoff schedule for HARD rate-limit / auth signals (429, 403).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt:47` — `private val hardBackoffSchedule = longArrayOf(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt:56` — `/** V5.0.4020 — SOFT backoff schedule for TRANSIENT codes (5xx / 408`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt:58` — `*  flaky upstream the same as a paid-tier 429, which left dexscreener`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt:64` — `private val softBackoffSchedule = longArrayOf(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt:72` — `/** Legacy alias for any code reading the old `backoffSchedule`. */`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt:73` — `private val backoffSchedule get() = hardBackoffSchedule`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt:101` — `val schedule = if (isHard) hardBackoffSchedule else softBackoffSchedule`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt:115` — `"API_BACKOFF_ARMED",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt:133` — `"API_BACKOFF_CLEARED",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt:141` — `/** True if the host is currently in backoff lockout.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt:170` — `"API_BACKOFF_HALF_OPEN_PROBE",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiHealthMonitor.kt:11` — `* "is this key still authorized?", ApiHealthMonitor answers`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiHealthMonitor.kt:23` — `*           ApiHealthMonitor.record("dexscreener", resp.code, System.currentTimeMillis()-start)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiHealthMonitor.kt:27` — `*       ApiHealthMonitor.recordNetworkError("dexscreener", e.message)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiHealthMonitor.kt:35` — `object ApiHealthMonitor {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiHealthMonitor.kt:143` — `* V5.0.6251 — CIRCUIT-BREAKER HELPER. Returns true when a provider has`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiHealthMonitor.kt:145` — `* should stop hammering it. Snapshot 6249 showed birdeye sr=0% (401)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ApiHealthMonitor.kt:146` — `* and helius rate-limited 429 — the bot kept round-tripping to them,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutoEndpointMigrator.kt:12` — `* V5.9.856 ApiHealthMonitor (per-host health stats)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutoEndpointMigrator.kt:17` — `*   - V5.9.854 fixed 7 frontend-api.pump.fun call sites + Jupiter price.jup.ag`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutoEndpointMigrator.kt:33` — `* When a host's ApiHealthMonitor.successRate() drops below 0.10 over 20+`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutoEndpointMigrator.kt:34` — `* samples AND a known fallback exists, autoMigrate kicks in. Operators can`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutoEndpointMigrator.kt:103` — `* fallback in `fallbackMap`, install it as a dynamic rule.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutoEndpointMigrator.kt:105` — `fun maybeAutoMigrate(fallbackMap: Map<String, String>) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutoEndpointMigrator.kt:106` — `val snapshot = ApiHealthMonitor.snapshot()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutoEndpointMigrator.kt:112` — `val live = fallbackMap[host] ?: continue`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:6` — `* V5.9.945 — BirdeyeBudgetGate.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:9` — `* GLOBAL DAILY CU BUDGET CIRCUIT BREAKER for Birdeye.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:13` — `*   5 of 7 Birdeye call sites bypass this gate entirely. The 4 scanner-`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:21` — `*     burn hits >75%, scanner-side Birdeye calls drop from every-8s`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:29` — `*     side intake data is duplicated by free sources. Birdeye scanner`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:32` — `object BirdeyeBudgetGate {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:33` — `private const val TAG = "BirdeyeBudget"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:36` — `// V5.0.3977 — monthly soft caps. Birdeye dashboard now shows 6M CU/month.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:52` — `// Operator's Birdeye dashboard (2026-06-20) shows ~3.97K / 6.00M CU used, so`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:54` — `// Birdeye, starving metadata/provider proof. Real protection remains via`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:94` — `if (!birdeyeKeyIsUsable6275()) return false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:103` — `// Helius or Birdeye. Op-report shows birdeye sr=0% http=401 BIRDEYE_UNHEALTHY`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:104` — `// and helius sr=0% http=429/599 — every call is guaranteed to fail. Gate all`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:106` — `// KeyValidator.isLive("birdeye") so a dead key hard-halts every Birdeye`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:107` — `// call site. Free providers (Dexscreener / GeckoTerminal / Jupiter / PumpFun /`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:108` — `// PumpPortal WS / RugCheck / CoinGecko On-chain) already cover 90%+ of`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:111` — `private fun birdeyeKeyIsUsable6275(): Boolean =`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:112` — `try { com.lifecyclebot.engine.KeyValidator.isLive("birdeye") } catch (_: Throwable) { true }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:114` — `/** Emergency-only allowance for open-position price fallback. */`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:117` — `if (!birdeyeKeyIsUsable6275()) return false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:135` — `* V5.9.952 — gates the 4 scanner-side Birdeye endpoints.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:140` — `if (!birdeyeKeyIsUsable6275()) return false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:149` — `// gate says scanner-side Birdeye throttles when burn is high (>60%), but`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:151` — `// daily=47.7%, which silently removed all Birdeye scanner lanes while`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:179` — `* the cap, every Birdeye call returns 5xx (rate-limited). Field log`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:180` — `* 20:53:57: birdeye sr=57% with 328× 5xx + 23× net errors AFTER hitting`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:190` — `if (!birdeyeKeyIsUsable6275()) return false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:218` — `val st = try { ApiHealthMonitor.snapshot()["birdeye"] } catch (_: Throwable) { null } ?: return false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:228` — `ErrorLogger.warn(TAG, "BIRDEYE PROVIDER BROWNOUT — sr=${(st.successRate()*100).toInt()}% hardFails=$hardFails total=$total; skipping Birdeye hot-path calls fail-open")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:229` — `PipelineHealthCollector.labelInc("BIRDEYE_PROVIDER_BROWNOUT_4189")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:245` — `* global buy kill-switch or the bot goes to zero volume while free/Dex/Jupiter`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:246` — `* routes are still viable. Daily exhaustion throttles Birdeye calls via`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:266` — `"BIRDEYE LOCKDOWN — monthly burn=" + "%.0f".format(pct*100) + "% daily=" + "%.0f".format(dailyPct*100) + "%. " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeCreationInfoProvider.kt:3` — `import com.lifecyclebot.network.BirdeyeApi`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeCreationInfoProvider.kt:10` — `* V5.9.938 — BirdeyeCreationInfoProvider.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeCreationInfoProvider.kt:19` — `object BirdeyeCreationInfoProvider {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeCreationInfoProvider.kt:20` — `private const val TAG = "BirdeyeCreationInfo"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeCreationInfoProvider.kt:55` — `// V5.0.4186 — BIRDEYE = BACKUP. DexScreener already provides`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeCreationInfoProvider.kt:56` — `// createdAtMs via seedFromFreeSource — Birdeye creation info is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeCreationInfoProvider.kt:58` — `if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeCreationInfoProvider.kt:59` — `try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BIRDEYE_CREATION_INFO_SKIPPED_BUDGET") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeCreationInfoProvider.kt:67` — `BirdeyeApi(apiKey).getCreationInfo(mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeCreationInfoProvider.kt:89` — `* V5.9.945 — Seed cache from FREE source (DexScreener PairInfo).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeCreationInfoProvider.kt:91` — `* DexScreener already returns pairCreatedAtMs on every getBestPair()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeCreationInfoProvider.kt:92` — `* call. We were paying Birdeye to get the same data. This seeder lets`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeCreationInfoProvider.kt:94` — `* FDG deploy-age soft-shape still fires without burning any Birdeye CU.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeCreationInfoProvider.kt:96` — `* Lower fidelity than Birdeye:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeCreationInfoProvider.kt:97` — `*   - creatorAddress: unknown (we don't get it from DexScreener)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeCreationInfoProvider.kt:105` — `* If Birdeye later populates the cache via maybePrefetch(), it`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeCreationInfoProvider.kt:110` — `// Don't overwrite an existing Birdeye-sourced entry that has a real creator`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:3` — `import com.lifecyclebot.network.BirdeyeApi`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:10` — `* V5.9.938 — BirdeyeMetaDataProvider.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:12` — `* Richer socials than DexScreener — feeds TokenSocialScorer with`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:13` — `* twitter/telegram/discord/website/coingeckoId. 24h cache.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:15` — `object BirdeyeMetaDataProvider {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:16` — `private const val TAG = "BirdeyeMetaData"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:27` — `val coingeckoId: String,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:38` — `fun isListed(): Boolean = coingeckoId.isNotBlank()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:58` — `// V5.0.4186 — BIRDEYE = BACKUP. DexScreener already provides`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:59` — `// socials/websites via seedFromFreeSource — Birdeye metadata is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:61` — `if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:62` — `try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BIRDEYE_METADATA_SKIPPED_BUDGET") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:70` — `BirdeyeApi(apiKey).getTokenMetaData(mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:79` — `coingeckoId = m.coingeckoId, description = m.description,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:92` — `* V5.9.945 — Seed cache from FREE source (DexScreener socials/websites).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:94` — `* DexScreener returns info.socials (twitter/telegram/discord platform`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:97` — `* harvest). We were paying Birdeye to get the same fields.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:100` — `* social-depth soft-shape fires without burning any Birdeye CU.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:102` — `* Lower fidelity than Birdeye:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:103` — `*   - coingeckoId: empty (DexScreener doesn't tell us if CG-listed)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:109` — `*   - twitter/telegram/discord/website: HEURISTIC — DexScreener`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:123` — `if (existing != null && existing.meta.coingeckoId.isNotBlank()) return`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:133` — `coingeckoId = "",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:149` — `coingeckoId: String,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:153` — `if (existing != null && existing.meta.coingeckoId.isNotBlank() && coingeckoId.isBlank()) return`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMetaDataProvider.kt:162` — `coingeckoId = coingeckoId,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMintBurnMonitor.kt:3` — `import com.lifecyclebot.network.BirdeyeApi`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMintBurnMonitor.kt:10` — `* V5.9.938 — BirdeyeMintBurnMonitor.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMintBurnMonitor.kt:28` — `object BirdeyeMintBurnMonitor {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMintBurnMonitor.kt:29` — `private const val TAG = "BirdeyeMintBurn"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeMintBurnMonitor.kt:82` — `BirdeyeApi(apiKey).getMintBurnTxs(mint, limit = 20)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyePriceStatsProvider.kt:3` — `import com.lifecyclebot.network.BirdeyeApi`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyePriceStatsProvider.kt:10` — `* V5.9.938 — BirdeyePriceStatsProvider.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyePriceStatsProvider.kt:22` — `object BirdeyePriceStatsProvider {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyePriceStatsProvider.kt:23` — `private const val TAG = "BirdeyePriceStats"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyePriceStatsProvider.kt:67` — `// V5.0.4186 — BIRDEYE = BACKUP. Operator P0: Birdeye is to be a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyePriceStatsProvider.kt:68` — `// last-resort fallback only. PriceStats is non-essential metadata`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyePriceStatsProvider.kt:71` — `if (!BirdeyeBudgetGate.canAffordScannerLane()) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyePriceStatsProvider.kt:72` — `try { PipelineHealthCollector.labelInc("BIRDEYE_PRICESTATS_SKIPPED_BUDGET") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyePriceStatsProvider.kt:80` — `BirdeyeApi(apiKey).getPriceStats(mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeSecurityProvider.kt:13` — `* V5.9.909 — BIRDEYE TOKEN SECURITY PROVIDER (no API key required).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeSecurityProvider.kt:16` — `*   GET https://public-api.birdeye.so/defi/token_security?address={mint}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeSecurityProvider.kt:32` — `*     - jupStrictList (Jupiter curated whitelist)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeSecurityProvider.kt:34` — `*     - fakeToken (birdeye-flagged duplicate)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeSecurityProvider.kt:44` — `*   trading because birdeye had a hiccup (active-instruction #2).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeSecurityProvider.kt:51` — `*     val trust = BirdeyeSecurityProvider.getTrust(mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeSecurityProvider.kt:58` — `object BirdeyeSecurityProvider {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeSecurityProvider.kt:59` — `private const val TAG = "BirdeyeSecurity"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeSecurityProvider.kt:78` — `// V5.9.919 — CIRCUIT BREAKER. Operator V5.9.916 dump: 5,819 Birdeye 4xx`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeSecurityProvider.kt:166` — `if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordSafety()) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeSecurityProvider.kt:169` — `com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeSecurityProvider.kt:170` — `val url = "https://public-api.birdeye.so/defi/token_security?address=$mint"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeSecurityProvider.kt:249` — `// === BIRDEYE-FLAGGED REPUTATION ===`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeTradeDataProvider.kt:3` — `import com.lifecyclebot.network.BirdeyeApi`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeTradeDataProvider.kt:10` — `* V5.9.937 — Birdeye trade-data cache provider.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeTradeDataProvider.kt:12` — `* Operator upgraded Birdeye to Starter ($99/mo, 5M CUs, 15 rps) on`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeTradeDataProvider.kt:17` — `* Same pattern as BirdeyeSecurityProvider (V5.9.910):`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeTradeDataProvider.kt:27` — `*   and price fallbacks.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeTradeDataProvider.kt:31` — `object BirdeyeTradeDataProvider {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeTradeDataProvider.kt:32` — `private const val TAG = "BirdeyeTradeData"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeTradeDataProvider.kt:98` — `// V5.0.4186 — BIRDEYE = BACKUP. Trade data (volume/buys/sells/wallets)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeTradeDataProvider.kt:99` — `// can be derived from PumpFun WS + DexScreener for the watchlist`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeTradeDataProvider.kt:100` — `// universe. Skip Birdeye when scanner-lane budget is throttled.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeTradeDataProvider.kt:101` — `if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeTradeDataProvider.kt:102` — `try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BIRDEYE_TRADE_DATA_SKIPPED_BUDGET") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeTradeDataProvider.kt:111` — `val api = BirdeyeApi(apiKey)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeWhaleFeeder.kt:3` — `import com.lifecyclebot.network.BirdeyeApi`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeWhaleFeeder.kt:10` — `* V5.9.938 — BirdeyeWhaleFeeder.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeWhaleFeeder.kt:12` — `* Bridges Birdeye /defi/v2/tokens/top_traders into WhaleTrackerAI which`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeWhaleFeeder.kt:27` — `object BirdeyeWhaleFeeder {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeWhaleFeeder.kt:28` — `private const val TAG = "BirdeyeWhaleFeeder"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeWhaleFeeder.kt:47` — `// V5.0.4186 — BIRDEYE = BACKUP. Whale top-traders data is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeWhaleFeeder.kt:49` — `// skip and let HeliusWS / on-chain monitors provide whale signal.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeWhaleFeeder.kt:50` — `if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeWhaleFeeder.kt:51` — `try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BIRDEYE_WHALE_FEED_SKIPPED_BUDGET") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeWhaleFeeder.kt:59` — `BirdeyeApi(apiKey).getTopTraders(mint, limit = 10)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BondingCurveTracker.kt:23` — `*      via Dexscreener liquidity field (not mcap — mcap is misleading)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BondingCurveTracker.kt:32` — `* If SOL raised data isn't available (Dexscreener doesn't always expose it),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BondingCurveTracker.kt:42` — `// Fallback: if we only have USD mcap, estimate SOL raised`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BondingCurveTracker.kt:81` — `// Dexscreener returns liquidity.usd — on Pump.fun this is roughly`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BondingCurveTracker.kt:105` — `// Fallback to mcap % if no SOL data`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22` — `import com.lifecyclebot.network.DexscreenerApi`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:46` — `// tokens. this isnt a pumpfun bot ... its the full sol network on the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:789` — `val backoff = (1_000L shl (failures - 1).coerceIn(0, 5)).coerceAtMost(30_000L)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:790` — `specialistRestartAfterMs6647[lane] = System.currentTimeMillis() + backoff`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:791` — `try { ForensicLogger.lifecycle("SPECIALIST_WORKER_RESTART_SCHEDULED_6647", "lane=$lane backoffMs=$backoff cause=${cause?.javaClass?.simpleName ?: "completed"}") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:812` — `// Helius/Birdeye/DexScreener wedge in JNI socket-reads, those calls`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:834` — `private val dex    = DexscreenerApi()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:951` — `// immediately instead of blocking for 30–90s while RPC fallbacks`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1057` — `* max 14.1s) because degraded API keys (birdeye blank, helius`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1564` — `// Every 45 ticks (~90s) poll BirdeyeMintBurnMonitor for`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1573` — `val mintBurnKey = cfgSnap.birdeyeApiKey`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1576` — `val registered = com.lifecyclebot.engine.BirdeyeMintBurnMonitor.openMintIds()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1579` — `com.lifecyclebot.engine.BirdeyeMintBurnMonitor.unregisterClose(it)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1586` — `if (!com.lifecyclebot.engine.BirdeyeMintBurnMonitor.isRegistered(ts.mint)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1587` — `com.lifecyclebot.engine.BirdeyeMintBurnMonitor.registerOpen(ts.mint, supply)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1591` — `com.lifecyclebot.engine.BirdeyeMintBurnMonitor.check(ts.mint, mintBurnKey)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1776` — `// (Emergent Gemini placeholder + Helius "hive-pattern-learn") so`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1784` — `heliusKey  = cfg.heliusApiKey,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1786` — `birdeyeKey = cfg.birdeyeApiKey,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1788` — `jupiterKey = cfg.jupiterApiKey,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1833` — `if (!c.paperMode && c.heliusApiKey.isNotBlank()) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1953` — `// V5.9.915 — wire LLM fallback chain (groq → openrouter → cerebras).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1956` — `// configureFallbackApis() at boot. The fallback chain in`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1959` — `// backoff cascades whenever the Emergent proxy throttled.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1963` — `GeminiCopilot.configureFallbackApis(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1971` — `"🔑 LLM fallback chain wired: groq=${cfg.groqApiKey.isNotBlank()} " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1976` — `ErrorLogger.warn("BotService", "configureFallbackApis failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2080` — `// of duplicating. Then DailyCorpusRefresher pulls fresh DexScreener`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2142` — `// disk on startup, runs DexScreener+CoinGecko+Jupiter discovery every`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2650` — `com.lifecyclebot.v3.scoring.InsiderTrackerAI.start(heliusApiKey = cfg.heliusApiKey) { signal ->`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3113` — `//      No GlobalScope. No ACTION_START intent fallback.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3354` — `// before SIGKILL — far less than the 10-30s a Jupiter swap needs.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3718` — `ErrorLogger.warn("BotService", "onTaskRemoved: AlarmClock fallback: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3743` — `//      DexScreener pair cache).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3968` — `* cached-balance fallback pattern).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4148` — `* - In live mode: routes through full security guard + Jupiter swap pipeline.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4213` — `* - In live mode: routes through Jupiter swap pipeline + reconnect logic.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4223` — `// V5.9.495o — same cached-balance fallback as manualBuy.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4413` — `// (DexGainers/Losers/Profiles/Boosted/PumpFunTrending/`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4414` — `//  scanTopVolume/scanPumpFunVolume/scanPumpFunActive/`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4562` — `// which the snapshot treats as "use costBasis fallback so unrealized`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4583` — `// V5.0.6496 §1 — MARK AUTHORITY INTEGRITY GATE. Fallback /`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4624` — `// (DexScreener / Jupiter both publish priceUsd).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5163` — `// Determine best RPC URL - prefer Helius if key available`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5164` — `val rpcUrl = if (cfg.heliusApiKey.isNotBlank()) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5165` — `"https://mainnet.helius-rpc.com/?api-key=${cfg.heliusApiKey}"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5181` — `// time out for ~30s; with two fallbacks sequenced after`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5362` — `// V5.9.682 — MASS-GHOST FALLBACK.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5452` — `// Helius returns partial snapshots during cold-start 429 storms.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5455` — `//   1. API-health gate: refuse to reconcile if Helius/RPC is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5466` — `// V5.0.6068 — API-health gate. If Helius is 429ing, do NOT reconcile.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5467` — `val heliusHealthy = try { com.lifecyclebot.engine.ApiHealthMonitor.successRate("helius_rpc") >= 0.30 } catch (_: Throwable) { false }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5468` — `if (!paperGhost && !heliusHealthy) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5469` — `addLog("🛡 Startup reconcile DEFERRED — Helius RPC degraded (V5.0.6068 guard)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5470` — `ForensicLogger.lifecycle("STARTUP_GHOST_RECONCILE_DEFERRED_6068", "reason=helius_unhealthy_would_erase_real_positions")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5542` — `// 5s grace was too short — on cold-start Helius is often 429`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5543` — `// and DexScreener fresh-hits return stale/incorrect prices,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5549` — `//      surfaces (Helius/Birdeye/CoinGecko) are visibly`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5553` — `// V5.0.6068 — API-health gate. Consult ApiHealthMonitor for`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5560` — `val dex = com.lifecyclebot.engine.ApiHealthMonitor.successRate("dexscreener")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5561` — `val hel = com.lifecyclebot.engine.ApiHealthMonitor.successRate("helius_rpc")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5562` — `val bird = com.lifecyclebot.engine.ApiHealthMonitor.successRate("birdeye")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5563` — `// Need DexScreener healthy AND at least one of Helius/Birdeye`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5594` — `// provider fallback. Require BOTH reads to agree`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5696` — `// a network call that has no timeout — Jupiter / RPC fallback chain`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5697` — `// / DexScreener hydrate). Symptom: bot stops trading but loopJob.isActive`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5734` — `// 15m, CoinGecko stables 60m). These feed FundingRateAwarenessAI,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5993` — `// Pump.fun REST, DexScreener latest/trending/gainers/boosted, Raydium,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5994` — `// GeckoTerminal, Meteora, Birdeye, and CoinGecko. The scanner/watchlist`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6049` — `// sources (DexGainers, Boosted, PumpFunTrending,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6469` — `com.lifecyclebot.network.CoinGeckoSolanaTopMcap().primeOnStart()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6470` — `com.lifecyclebot.network.JupiterStrictTokenList().primeOnStart()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6471` — `addLog("🌐 SOL-wide feeders primed (CG-established + Jupiter-strict)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6482` — `val birdeyeKey = cfg.birdeyeApiKey.ifEmpty { "" }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6483` — `HistoricalChartScanner.init(applicationContext, birdeyeKey)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6701` — `srcU.contains("COINGECKO_ESTABLISHED") -> "BLUECHIP"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6738` — `// Warm up DNS cache for Jupiter APIs (bypasses ISP DNS issues)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6739` — `com.lifecyclebot.network.CloudflareDns.INSTANCE.warmupJupiterDns()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6740` — `addLog("🌐 DNS-over-HTTPS enabled for Jupiter APIs")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7101` — `// pump.fun launches, Helius Enhanced WS for whale-wallet txs, Pyth`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7193` — `// JSONException on a malformed Birdeye response, RPC timeout,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7351` — `// every Jupiter swap). Also seeds session-PnL halt.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7409` — `* + Executor's RPC fallback paths fill in the rest. The synthesised`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7706` — `// mid-body, the PumpPortal/Helius/Dex WebSockets were NEVER disconnected`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7932` — `// they never broadcast a Jupiter sell. Sweep the wallet now so`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8157` — `// (Jupiter ATA still settling) is captured into the position`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8699` — `*                      DexScreener/Birdeye see them)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8700` — `*   • Helius LaserStream → push notifications for whale-wallet txs`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8719` — `// callbacks already do this; PumpFunWS is the highest-volume meme`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8726` — `com.lifecyclebot.network.PumpFunWS.start(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8829` — `ErrorLogger.warn("BotService", "PumpFunWS start failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8832` — `// 2) Helius Enhanced WS — push whale-wallet activity`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8834` — `if (cfg.heliusApiKey.isNotBlank()) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8841` — `com.lifecyclebot.network.HeliusEnhancedWS.start(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8842` — `heliusApiKey = cfg.heliusApiKey,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8849` — `// The Helius subscription is firing on ALL mainnet txns (filter`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8852` — `// call hits Birdeye+DexScreener+Helius → direct paid-tier credit`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8870` — `"HeliusEnhancedWS skipped — no tracked whale wallets to subscribe to")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8874` — `ErrorLogger.warn("BotService", "HeliusEnhancedWS start failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8895` — `// 4) EmergentLlmClient — V5.0.6672 always-on with keyless fallback chain`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8917` — `try { com.lifecyclebot.network.PumpFunWS.stop() } catch (_: Exception) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8918` — `try { com.lifecyclebot.network.HeliusEnhancedWS.stop() } catch (_: Exception) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8930` — `// V5.9.1277 — fallback-price oracle chain for stale-feed positions. The full`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8931` — `// 4-oracle stack (Switchboard/Jupiter/Birdeye/DexScreener) lived in perps/ and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8933` — `// Free sources first (DexScreener, no key, multi-DEX), then the budget-gated`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8934` — `// Birdeye boost. Throttled per-mint so a genuinely-dead token can't spam the APIs.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8935` — `private val staleFallbackLastTryMs = java.util.concurrent.ConcurrentHashMap<String, Long>()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8936` — `private suspend fun resolveStaleFallbackPrice(mint: String): Double? {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8938` — `val last = staleFallbackLastTryMs[mint] ?: 0L`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8940` — `staleFallbackLastTryMs[mint] = now`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8941` — `// 1) DexScreener — free, no key, aggregates all DEX pools.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8943` — `val p = com.lifecyclebot.perps.DexScreenerOracle.getPriceByAddress(mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8946` — `// 2) Birdeye — the "boost" (keyed, budget-gated inside the oracle itself).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8948` — `val p = com.lifecyclebot.perps.BirdeyeOracle.getPriceByAddress(mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9004` — `// V5.9.1277 — FALLBACK-PRICE BEFORE FORCED DUMP. The WS feed`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9006` — `// primary feed (Helius/PumpPortal) flaked. Before we assume rug`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9009` — `// DexScreener (free, multi-DEX) → Birdeye (budget-gated). If ANY`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9012` — `val fbPrice = resolveStaleFallbackPrice(ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9016` — `ts.lastPriceSource = "ORACLE_FALLBACK"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9019` — `"🛟 STALE_FALLBACK_RECOVERED: ${ts.symbol} primary feed dark ${lastPriceAgeMs/1000}s → oracle price \$$fbPrice (NO forced dump)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9065` — `// DexScreener dropped the rugged tokens from its batch endpoint.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9088` — `// -74% losses purely because DexScreener/Birdeye/Helius hit`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9129` — `val zombieFb = try { resolveStaleFallbackPrice(ts.mint) } catch (_: Throwable) { null }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9208` — `val fbLivePrice = resolveStaleFallbackPrice(ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9212` — `ts.lastPriceSource = "ORACLE_FALLBACK"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9218` — `currentSource = "ORACLE_FALLBACK",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9222` — `context = "BotService.liveFallback/${ts.symbol}/${ts.mint.take(8)}",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9226` — `"🛟 STALE_LIVE_FALLBACK: ${ts.symbol} feed frozen ${livePriceAgeMs/1000}s → oracle \$$fbLivePrice (pnl ${"%.1f".format(fbPnl)}%) — defer to floor logic")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9312` — `val freshDz = try { resolveStaleFallbackPrice(ts.mint) } catch (_: Throwable) { null }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9372` — `// every tick. Its sell could NEVER land (helius_sender sr=0%, 21x 503)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9641` — `// Fallback to static fluid stop`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9731` — `// trigger, force a Jupiter route verification of`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9733` — `// If Jupiter confirms the price within tolerance,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9734` — `// the gain is REAL — bank it. If Jupiter disagrees,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9735` — `// refresh ts.lastPrice from Jupiter and re-evaluate`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9971` — `* + tryFallbackPriceData calls fired ad-hoc by the scanner. That meant`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9987` — `*     (RateLimiter holds dexscreener at 1-2 req/sec which is fine since`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9994` — `// V5.9.924 — per-mint cooldown for Birdeye fallback in openPositionTickLoop.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9996` — `private val openPosFallbackLastAttempt = java.util.concurrent.ConcurrentHashMap<String, Long>()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9997` — `// V5.9.946 — track first-miss timestamp per mint so chronic DS-misses (>60s) get a 60s backoff`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9998` — `private val openPosFallbackFirstMiss = java.util.concurrent.ConcurrentHashMap<String, Long>()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10027` — `// V5.9.924 — MULTI-SOURCE FALLBACK for mints DS dropped.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10029` — `// every floor while ts.lastPrice was frozen — DexScreener had`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10037` — `// us the rugged price, ask Birdeye. /defi/price is the cheapest`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10040` — `// well inside our rate budget. We rate-limit to 1 fallback`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10046` — `// V5.9.946 — BIRDEYE FALLBACK BUDGET DISCIPLINE.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10052` — `// this loop was firing ~30 Birdeye calls every 5s = ~360/min`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10061` — `//   1. BUDGET GATE — respect BirdeyeBudgetGate. If we're`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10064` — `//   2. CHRONIC-MISS BACKOFF — if a mint has been DS-missing`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10068` — `//   3. PER-TICK CAP — never burn more than 5 Birdeye calls`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10073` — `val key = cfg2?.birdeyeApiKey`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10075` — `val birdeye = try { com.lifecyclebot.network.BirdeyeApi(key) } catch (_: Throwable) { null }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10076` — `if (birdeye != null) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10079` — `// V5.9.1123 — Birdeye emergency conservation: provider`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10080` — `// account is ~300% over monthly. Use at most one fallback`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10085` — `val lastFb = openPosFallbackLastAttempt[mint] ?: 0L`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10086` — `val firstMiss = openPosFallbackFirstMiss.getOrPut(mint) { nowMs }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10094` — `if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordOpenPositionEmergency(1)) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10095` — `com.lifecyclebot.engine.BirdeyeBudgetGate.logThrottleIfDue()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10098` — `openPosFallbackLastAttempt[mint] = nowMs`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10100` — `val price = try { birdeye.getTokenPriceEmergency(mint) } catch (_: Throwable) { null }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10104` — `openPosFallbackFirstMiss.remove(mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10108` — `tsRef.lastPriceSource = "BIRDEYE_PRICE_FALLBACK"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10112` — `"📡 BIRDEYE_FALLBACK: ${mint.take(8)} DS missing → birdeye price=$price")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10118` — `openPosFallbackFirstMiss.keys.retainAll(openMints.toSet())`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10221` — `ts.lastPriceSource = "DEXSCREENER_WS"  // V5.9.744`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10376` — `// price right after a basis switch (PumpFun BC → Raydium)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10563` — `// V5.9.1196 — fallback only. The hotExitJob above owns`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10909` — `// V5.0.6011 — MANIP lane quarantine dust-probe fallback (Issue 3 RCA):`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10928` — `PipelineHealthCollector.labelInc("MANIP_OVERLAY_DUST_PROBE_FALLBACK_6011")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10929` — `ForensicLogger.lifecycle("MANIP_OVERLAY_DUST_PROBE_FALLBACK_6011", "lane=$lane mint=${mintForProbe.take(10)} symbol=$edgeSymbol4529 action=dust_probe_instead_of_reject reason=manip_lane_quarantined")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11207` — `// Birdeye, Dex, CoinGecko, Raydium, Solana scanner, smart-money). Additive:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11906` — `if (tags.contains("DEX_BOOSTED") || tags.contains("DEX_TRENDING") || tags.contains("COINGECKO")) out += listOf("QUALITY", "TREASURY", "CASHGEN")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11918` — `// Feb 2026: COINGECKO_ESTABLISHED / non-Solana crypto sources were`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11921` — `// Runtime evidence: GTBTC (src=COINGECKO_ESTABLISHED) got`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11929` — `val isCryptoUniverseSource6535 = srcU6535.contains("COINGECKO_ESTABLISHED") ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11979` — `// output (preserves the existing degen lanes as fallbacks for variety`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11989` — `// demoted to fallback positions.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12012` — `if (tags.contains("COINGECKO")) out += "TRENDING"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12020` — `t.contains("PUMP_FUN") || t.contains("PUMPFUN") ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12026` — `return t.contains("DEX") || t.contains("RAYDIUM") || t.contains("COINGECKO") ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12027` — `t.contains("GECKO") || t.contains("METEORA") || t.contains("BIRDEYE") ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12028` — `t.contains("ORCA") || t.contains("JUPITER") || t.contains("HELIUS") ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12098` — `// intake metadata first, then any live TokenState fallback.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12453` — `// pump.fun-only: DexScreener/CoinGecko/CMC-backed/Raydium/etc`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12859` — `// Skips a Birdeye + DexScreener round-trip per restart.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12917` — `if (hiveForIntake.socialCount > 0 || hiveForIntake.coingeckoId.isNotBlank()) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12918` — `com.lifecyclebot.engine.BirdeyeMetaDataProvider.seedFromHive(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12926` — `coingeckoId = hiveForIntake.coingeckoId,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12938` — `// liquidity from any source (DexScreener/Raydium) always`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12948` — `// synthesizeFallbackPair() requires ts.lastPrice > 0.0 and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12949` — `// intake never seeded a price. DexScreener/Birdeye/Oracle`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12950` — `// fallbacks all fail for brand-new pump.fun mints (not yet`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12955` — `// tryFallbackPriceData uses the same formula at line 12363`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12966` — `// DexScreener WS will overwrite this with the REAL pool quote`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13015` — `// the next DexScreener tick. seedPrice is now non-zero thanks`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13016` — `// to the mcap/1B fallback above, so the candle is meaningful.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13088` — `val creation = com.lifecyclebot.engine.BirdeyeCreationInfoProvider.peekCached(mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13089` — `val socialMeta = com.lifecyclebot.engine.BirdeyeMetaDataProvider.peekCached(mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13101` — `coingeckoId = socialMeta?.coingeckoId ?: "",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13682` — `scannerCriticalDegradedWithoutFallback = scannerDegraded6312,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13691` — `// V5.0.6325 — DEXSCREENER DEGRADATION → PROVIDER AUTHORITY.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13692` — `// When the scanner-critical scan reports Dexscreener degraded,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13698` — `com.lifecyclebot.engine.ProviderAuthority.markDegraded("DEXSCREENER")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13700` — `com.lifecyclebot.engine.ProviderAuthority.clearDegraded("DEXSCREENER")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13782` — `"cycleMs=$prevCycleMs loop=$loopCount threshold=20000 — cycle slow but not Doze; check scanner timeouts / Birdeye 5xx / supervisor worker timeouts",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13816` — `// health-driven migration. ApiHealthMonitor needs >=20 samples`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13818` — `// safe to call frequently. Fallback rules are curated below`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13819` — `// — if a host has zero fallback, this is a no-op.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13822` — `val fallbackMap = mapOf(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13824` — `// Future: register Helius / Birdeye / etc. fallbacks here`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13826` — `com.lifecyclebot.engine.AutoEndpointMigrator.maybeAutoMigrate(fallbackMap)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14231` — `tags.contains("DATA_ORCHESTRATOR") || tags.contains("SCANNER_DIRECT") || tags.contains("BIRDEYE") || tags.contains("METEORA") ||`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14232` — `tags.contains("ORCA") || tags.contains("JUPITER") || tags.contains("HELIUS") || tags.contains("GRADUATE") || tags.contains("MIGRATED")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14452` — `// PumpPortal/pump.fun flood cannot crowd DexScreener, CoinGecko,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14453` — `// CMC-backed, Raydium/Meteora, Birdeye, or generic scanner candidates out`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14482` — `"DEX", "COINGECKO", "CMC", "RAYDIUM", "BIRDEYE", "SCANNER", "PUMP", "OTHER"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14505` — `tags.contains("DEXSCREENER") || tags.contains("DEX_SCREENER") || tags.contains("DEX_TREND") || tags.contains("DEX_GAIN") || tags.contains("DEX_BOOST") -> "DEX"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14506` — `tags.contains("COINGECKO") || tags.contains("COIN_GECKO") || tags.contains("GECKO") -> "COINGECKO"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14508` — `tags.contains("RAYDIUM") || tags.contains("METEORA") || tags.contains("ORCA") || tags.contains("JUPITER") || tags.contains("NEW_POOL") -> "RAYDIUM"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14509` — `tags.contains("BIRDEYE") -> "BIRDEYE"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15065` — `com.lifecyclebot.engine.ApiHealthMonitor.snapshot().forEach { (host, st) ->`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15152` — `//   - External sells (manual Phantom/Jupiter sells) — stamps recentlyClosedMs`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15169` — `// This 60s pulse pushes SOL/BTC/ETH from PerpsMarketDataFetcher (Pyth/Jupiter/`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15170` — `// CoinGecko, already cached) into the regime engine and re-evaluates so the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15783` — `// all fallback RPCs timed out.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16129` — `//   retryCount < 20 → keep retrying (Jupiter lag is real)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16302` — `// they NEVER broadcast a Jupiter sell. Result: every V3 exit`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16304` — `// BOT sweep was the only fallback, and it was too late.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16645` — `// which is one Jupiter swap + slippage + priority fee`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16830` — `// Fallback to config watchlist if registry is empty`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17127` — `// a real processTokenCycle (Birdeye+Helius+V3+lane evals ≈ 1.5-2s)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17181` — `//      If the FIRST chunk hangs (which it does when Helius is 403'ed and`
+- … 3649 more
+
+## Main-thread UI heavy reads
+
+Count: **395**
+
+- `app/src/main/kotlin/com/lifecyclebot/AATEApp.kt:55` — `// user opens JournalActivity before MainActivity. Prior to this, the`
+- `app/src/main/kotlin/com/lifecyclebot/AATEApp.kt:57` — `// 389) and MainActivity.onCreate, which meant any trade recorded`
+- `app/src/main/kotlin/com/lifecyclebot/AATEApp.kt:189` — `// open. Operator ANR snapshot showed MainActivity.onCreate`
+- `app/src/main/kotlin/com/lifecyclebot/AATEApp.kt:414` — `android.content.Intent(this, com.lifecyclebot.ui.MainActivity::class.java),`
+- `app/src/main/kotlin/com/lifecyclebot/AATEApp.kt:440` — `private val bgHandler = android.os.Handler(android.os.Looper.getMainLooper())`
+- `app/src/main/kotlin/com/lifecyclebot/AATEApp.kt:540` — `Intent(this, com.lifecyclebot.ui.MainActivity::class.java),`
+- `app/src/main/kotlin/com/lifecyclebot/data/BotConfig.kt:779` — `// Every BotViewModel.pollLoop tick called MainActivity.updateUi which`
+- `app/src/main/kotlin/com/lifecyclebot/data/Models.kt:526` — `// off Dispatchers.Main (49 ANR hints / 51s stall on 6495).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24` — `import com.lifecyclebot.ui.MainActivity`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:182` — `* from MainActivity right after the Settings sheet save, so toggling`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:552` — `// runtime, but it must never be invisible: MainActivity renders it as`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:719` — `val onMain = android.os.Looper.myLooper() === android.os.Looper.getMainLooper()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3444` — `this, 6, Intent(applicationContext, com.lifecyclebot.ui.MainActivity::class.java),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3710` — `this, 4, Intent(applicationContext, com.lifecyclebot.ui.MainActivity::class.java),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4143` — `// manual BUY/SELL buttons on the active token panel in MainActivity.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4614` — `com.lifecyclebot.engine.truth.UiOffMainAudit6625.recordMainThreadWork6625(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4799` — `// V5.0.6503 §2 — start HeroSnapshotAuthority6503 so MainActivity /`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4808` — `// Dispatchers.Main. Idempotent.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5725` — `// start and broadcast the result so MainActivity can surface`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6436` — `android.os.Handler(android.os.Looper.getMainLooper()).post {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7117` — `android.os.Handler(android.os.Looper.getMainLooper()).post {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8371` — `kotlinx.coroutines.runBlocking { com.lifecyclebot.perps.PerpsExecutionEngine.closeAllPositions() }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8450` — `android.os.Handler(android.os.Looper.getMainLooper()).post {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8495` — `val posted6518 = android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8602` — `Intent(applicationContext, com.lifecyclebot.ui.MainActivity::class.java),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8644` — `// can fix it in one tap. MainActivity also surfaces a banner via the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8686` — `/** V5.9.675 — read-only accessor used by MainActivity for the banner. */`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9533` — `// slower MainActivity UI tick / lifecycle loop, so a token that`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28396` — `val priceUsd = kotlinx.coroutines.runBlocking {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28419` — `val priceUsd = kotlinx.coroutines.runBlocking {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28634` — `val intent = Intent(this, MainActivity::class.java)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28685` — `val intent = Intent(this, MainActivity::class.java)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotServiceLifecycleExt.kt:58` — `private val serviceToastHandler4484 = Handler(Looper.getMainLooper())`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotServiceLifecycleExt.kt:173` — `// icon. We point at MainActivity (same as keep-alive alarm).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotServiceLifecycleExt.kt:174` — `val showIntent = Intent(applicationContext, com.lifecyclebot.ui.MainActivity::class.java)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalBuyFillRegistry.kt:192` — `// This registry contains persisted on-chain LIVE fills only. MainActivity`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CurrencyManager.kt:91` — `// MainActivity.onCreate, JournalActivity.onCreate, etc., every cold`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CurrencyManager.kt:252` — `// so MainActivity.updateUi never constructs locale formatters while visible.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:9682` — `// former runBlocking call; HoldingLogicLayer is local synchronous logic.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12152` — `// MainActivity/UI state. This bookkeeping proves it — every`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FluidLearning.kt:67` — `val solPrice = try { kotlinx.coroutines.runBlocking { kotlinx.coroutines.withTimeoutOrNull(1500L) { PriceAggregator.getPrice("SOL")?.price } } ?: 140.0 } catch (_: Exception) { 140.0 } // V5.0.4109: bounded runBlocking — prevent worker-thread parking deadlock`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HoldingLogicLayer.kt:43` — `//   - It was called via runBlocking { evaluatePosition(...) } from`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HoldingLogicLayer.kt:53` — `//   - Executor.kt updated to call it directly (no runBlocking).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt:636` — `// but UI showed 24 via maxOf(host, lifecycle, ui, cashgen) in MainActivity).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt:275` — `val mainStall = s.topBlockReasons.keys.any { it.contains("MainActivity", true) || it.contains("renderOpenPositions", true) || it.contains("onCreate", true) }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:129` — `* bounded background save instead of blocking MainActivity/onCreate. */`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:131` — `if (Looper.myLooper() == Looper.getMainLooper()) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:335` — `if (Looper.getMainLooper().thread == Thread.currentThread() && !d.inTransaction()) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MarketsTelemetry.kt:20` — `*  scanner on every cycle so MainActivity can read without holding a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MemeWREmergencyBrake.kt:100` — `* UI thread via MainActivity.updateUi → ShitCoinTraderAI.getStats →`
+- `app/src/main/kotlin/com/lifecyclebot/engine/MemeWREmergencyBrake.kt:136` — `// THREAD (via MainActivity.updateUi → ShitCoinTraderAI.getStats →`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PaperWalletStore.kt:9` — `* The paper balance is shown by MainActivity before BotService.startBot() runs,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PaperWalletStore.kt:33` — `// BotService.startBot only, but MainActivity.hydratePaperWalletForColdOpen`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PerpsLaneGate.kt:32` — `// in MainActivity settings once the shadow ingest pipeline lands.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PerpsLaneGate.kt:35` — `/** Called by MainActivity settings toggle. In-memory only for Phase 1;`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:750` — `if (Looper.myLooper() != Looper.getMainLooper()) return`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:754` — `val mainThread = Looper.getMainLooper().thread`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:755` — `mainHandler = Handler(Looper.getMainLooper())`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:1769` — `sb.append("  §P6 UI_OFF_MAIN_AUDIT   ${com.lifecyclebot.engine.truth.UiOffMainAudit6625.statusLine()}\n")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:2441` — `} else if (topAnrSite.contains("MainActivity") || topAnrSite.contains("renderOpenPositions") || topAnrSite.contains("buildTokenCard")) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt:2442` — `sb.append("    Root cause: UI render saturation. Move heavy work off Dispatchers.Main; cap renderOpenPositions list size.\n")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt:61` — `withContext(Dispatchers.Main) { callback(result.first, result.second) }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt:105` — `withContext(Dispatchers.Main) { callback(result.first, result.second) }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/RuntimeDoctor.kt:118` — `// pause trading because MainActivity is not foreground.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SelfHealingAdvisor.kt:62` — `/** On-demand advisor call. Callback runs on Dispatchers.Main-safe (delegated by caller). */`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SelfHealingAdvisor.kt:71` — `runBlocking(ctx)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SelfHealingAdvisor.kt:93` — `val res = runBlocking(ctx)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SelfHealingAdvisor.kt:109` — `private suspend fun runBlocking(ctx: Context): RunResult = withContext(Dispatchers.IO) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ServiceWatchdog.kt:50` — `* Call this once from Application.onCreate() or MainActivity.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ServiceWatchdog.kt:110` — `Intent(context, com.lifecyclebot.ui.MainActivity::class.java),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ServiceWatchdog.kt:277` — `Intent(context, com.lifecyclebot.ui.MainActivity::class.java),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SmokeTestReceiver.kt:85` — `// V5.0.6517 — UI-only runtime smoke mode. Open MainActivity from`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SmokeTestReceiver.kt:89` — `ctx.startActivity(Intent(ctx, com.lifecyclebot.ui.MainActivity::class.java).apply {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SmokeTestReceiver.kt:92` — `Log.i(TAG, "🧪 SMOKE_UI_SETUP_6517: MainActivity opened")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:111` — `// ANR snapshot showed MainActivity repeatedly blocked in`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:138` — `// showed MainActivity.updateUi blocked in TradeHistoryStore.getSells24h`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:141` — `val onMain = try { Looper.myLooper() == Looper.getMainLooper() } catch (_: Throwable) { false }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:337` — `// MainActivity, and JournalActivity. A race between two callers can`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:1124` — `val onMain = try { Looper.myLooper() == Looper.getMainLooper() } catch (_: Throwable) { false }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:1195` — `/** Latest BUY row per mint, bounded newest-first so MainActivity never copies the whole journal. */`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:1199` — `val onMain = try { Looper.myLooper() == Looper.getMainLooper() } catch (_: Throwable) { false }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:1354` — `* the caller side — and that caller is MainActivity.updateUi on the MAIN`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:1780` — `val onMain = try { Looper.myLooper() == Looper.getMainLooper() } catch (_: Throwable) { false }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:1855` — `val onMain = try { android.os.Looper.myLooper() == android.os.Looper.getMainLooper() } catch (_: Throwable) { false }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt:1906` — `val onMain = try { Looper.myLooper() == Looper.getMainLooper() } catch (_: Throwable) { false }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/UiAnrDecouplingSentinel.kt:16` — `val main = try { File(root, "src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText() } catch (_: Throwable) { "" }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/WalletManager.kt:463` — `* Call this early in MainActivity.onCreate() so USD values display correctly.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/diagnostics/LockDiagnosticsTracker.kt:16` — `* Mutex / runBlocking deadlock pattern.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/BackgroundTradingAuthority6469.kt:18` — `*    Fragment lifecycle, repeatOnLifecycle, MainActivity scope,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/BackgroundTradingAuthority6469.kt:27` — `*   uiVisible            — Activity rendering authority (MainActivity).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/BackgroundTradingAuthority6469.kt:28` — `*   screenInteractive    — display telemetry only (MainActivity).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/BackgroundTradingAuthority6469.kt:36` — `* `caller` looks like a UI-lifecycle path (`MainActivity`, `Fragment`,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/BackgroundTradingAuthority6469.kt:73` — `"mainactivity",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLaneIdentity6506.kt:14` — `* legacy MainActivity constants). We normalise EVERY read/write via`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalSettlement6389.kt:444` — `* Directive S9: renderOpenPositions must consume a precomputed IMMUTABLE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalSettlement6389.kt:481` — `/** Directive S9: forbidden call sites on Dispatchers.Main. */`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/HeroSnapshotAuthority6503.kt:23` — `*    onCreate. Move MainActivity hero aggregation and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/HeroSnapshotAuthority6503.kt:25` — `*    Dispatchers.Main to Dispatchers.Default. Use a snapshot state`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/HeroSnapshotAuthority6503.kt:248` — `* Fast path used by MainActivity hero tiles / status bars.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicAuthority6616.kt:40` — `* (MainActivity, MultiAssetActivity, CryptoAltActivity) consumes.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicAuthority6616.kt:188` — `* Hero-binding invariant probe. Every hero surface (MainActivity,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt:51` — `android.os.Looper.myLooper() == android.os.Looper.getMainLooper()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MemeExecutionFunnelReceivers6625.kt:475` — `* Operator: "6.3-second frame gaps. MainActivity.onCreate, token-card`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MemeExecutionFunnelReceivers6625.kt:484` — `object UiOffMainAudit6625 {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/MemeExecutionFunnelReceivers6625.kt:494` — `android.os.Looper.myLooper() == android.os.Looper.getMainLooper()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PaperAccountLedger6430.kt:118` — `fun snapshotAtomic6643(): LedgerSnapshot6643 = LedgerSnapshot6643(`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PaperCapitalAuthority6577.kt:73` — `val ledger = try { PaperAccountLedger6430.snapshotAtomic6643() } catch (_: Throwable) { null }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/UiSnapshotAuthority6496.kt:26` — `*      MainActivity.onCreate(SourceFile:62) dominates the watchdog`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/UnifiedAccountSnapshot6635.kt:17` — `*   >  MainActivity, MemeTrader screen, Crypto Universe screen,`
+- `app/src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt:160` — `// Dispatchers.Main." We fail FAST with a forensic emit`
+- `app/src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt:165` — `if (android.os.Looper.myLooper() === android.os.Looper.getMainLooper()) {`
+- `app/src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt:172` — `throw IllegalStateException("SolanaWallet.getSolBalance() called from Dispatchers.Main — wrap in withContext(Dispatchers.IO)")`
+- `app/src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt:200` — `if (android.os.Looper.myLooper() === android.os.Looper.getMainLooper()) {`
+- `app/src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt:201` — `throw IllegalStateException("SolanaWallet.getSolBalancePrimaryOnly6685 called from Dispatchers.Main")`
+- `app/src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt:274` — `// preserves dual-route finality without nested runBlocking or a bundle`
+- `app/src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt:608` — `if (android.os.Looper.myLooper() === android.os.Looper.getMainLooper()) {`
+- `app/src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt:615` — `throw IllegalStateException("SolanaWallet.rpc($method) called from Dispatchers.Main — wrap in withContext(Dispatchers.IO)")`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CommoditiesTrader.kt:944` — `closeSuccess = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {`
+- `app/src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt:3217` — `kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {`
+- `app/src/main/kotlin/com/lifecyclebot/perps/ForexTrader.kt:1011` — `closeSuccess = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MetalsTrader.kt:940` — `closeSuccess = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsLearningBridge.kt:1187` — `// (the old diagnostics panel, CryptoAltActivity, MainActivity) keep`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsMarketScanners.kt:114` — `// Fetch top movers and hot sectors using proper suspend functions (no runBlocking deadlock)`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsNotificationManager.kt:48` — `// Context reference (set from MainActivity)`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsNotificationManager.kt:57` — `* Initialize notification system from MainActivity`
+- `app/src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt:1682` — `kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BacktestActivity.kt:100` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BacktestActivity.kt:121` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BacktestActivity.kt:127` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BacktestActivity.kt:210` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BacktestActivity.kt:224` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BacktestActivity.kt:230` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BotViewModel.kt:64` — `// Root cause: when Android destroys+recreates MainActivity under`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BotViewModel.kt:103` — `// was launching on viewModelScope (default Dispatchers.Main.immediate)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BotViewModel.kt:147` — `// reference forever, so MainActivity keeps rendering stale/empty token data`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BotViewModel.kt:150` — `// snapshot here. MainActivity caps row rendering; the count/header must`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BotViewModel.kt:192` — `// status.tokens map; StateFlow needs a fresh value and MainActivity`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BotViewModel.kt:343` — `// V5.9.702 — ANR FIX: saveConfig was called from MainActivity.onPause/onStop`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BotViewModel.kt:344` — `// (main thread). The previous body did runBlocking { withContext(IO) { load() } }`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BotViewModel.kt:374` — `// (MainActivity.onPause/onStop) pass allowRestart=false so navigating`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BotViewModel.kt:464` — `kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BotViewModel.kt:470` — `kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BotViewModel.kt:476` — `kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BotViewModel.kt:539` — `kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BotViewModel.kt:550` — `kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BotViewModel.kt:589` — `kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/BotViewModel.kt:593` — `kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CollectiveBrainActivity.kt:400` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt:111` — `// Bottom bar + Brain + Wallet (mirrors MainActivity)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt:196` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt:218` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt:239` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt:315` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt:330` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt:348` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt:363` — `withContext(Dispatchers.Main) { applyHeroStats() }`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt:430` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt:439` — `// BOTTOM BAR, BRAIN INDICATOR, WALLET PILL — mirrors MainActivity`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt:1984` — `// Logo — exact same as MainActivity`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt:2056` — `// Source badge — same style as MainActivity (green, badge_bg)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt:2069` — `setTextColor(0xFF14F195.toInt())   // same green as MainActivity`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt:2147` — `// ── Wrapper with bottom margin (same as MainActivity) ─────────────────`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt:2273` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt:2491` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt:2784` — `// ── Column visibility (mirrors MainActivity 3-column layout) ───────────`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt:3402` — `// V5.9.1292 — same drawFilledPath→nDrawColor ANR class as MainActivity`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt:3765` — `withContext(Dispatchers.Main) { selectTab(3) }`
+- `app/src/main/kotlin/com/lifecyclebot/ui/CurrencyActivity.kt:183` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/ErrorLogActivity.kt:140` — `Handler(Looper.getMainLooper()).post {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/ErrorLogActivity.kt:167` — `Handler(Looper.getMainLooper()).post {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/ErrorLogActivity.kt:223` — `Handler(Looper.getMainLooper()).post {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/HeatmapRenderCache6374.kt:24` — `*   at com.lifecyclebot.ui.MainActivity.renderWrRecoveryHeatmap(SourceFile:193)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/InsiderWalletsActivity.kt:33` — `private val scope = CoroutineScope(Dispatchers.Main + Job())`
+- `app/src/main/kotlin/com/lifecyclebot/ui/InsiderWalletsActivity.kt:285` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/InsiderWalletsActivity.kt:375` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/InsiderWalletsActivity.kt:503` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/LabActivity.kt:99` — `private val handler = Handler(Looper.getMainLooper())`
+- `app/src/main/kotlin/com/lifecyclebot/ui/LearningCounterActivity.kt:47` — `private val handler = Handler(Looper.getMainLooper())`
+- `app/src/main/kotlin/com/lifecyclebot/ui/LiveTradeLogActivity.kt:65` — `private val handler = Handler(Looper.getMainLooper())`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:41` — `class MainActivity : AppCompatActivity() {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:64` — `"MainActivity",`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:69` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:71` — `this@MainActivity,`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:105` — `.importFullBackup(this@MainActivity, staged)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:110` — `"MainActivity",`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:117` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:119` — `this@MainActivity,`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:551` — `// MainActivity.appendChart / TextView/layout churn on Main. Runtime trading`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:590` — `// disk/network warmups wait until MainActivity has had a chance to draw.`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:633` — `// scanner/probation fix worked, but MainActivity was still starving the bot`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:634` — `// via fmtRef/render30DayMeme/updateCyclicPanel/renderOpenPositions.`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:652` — `// max frame gap=5163ms, renderWatchlist TimSort + partition + renderOpenPositions`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:653` — `// sort all running synchronously on Dispatchers.Main. The UI thread must only`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:659` — `// main thread renderWatchlist/renderOpenPositions just bind the capped rows.`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:699` — `// still showed 18.9s frame gaps with renderWatchlist/renderOpenPositions and`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:712` — `private val mainInactiveHandler = android.os.Handler(android.os.Looper.getMainLooper())`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:846` — `com.lifecyclebot.engine.ErrorLogger.info("MainActivity", "onCreate started")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:848` — `android.util.Log.e("MainActivity", "ErrorLogger init failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:886` — `com.lifecyclebot.engine.ErrorLogger.info("MainActivity", "Currency rates refreshed")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:888` — `com.lifecyclebot.engine.ErrorLogger.error("MainActivity", "Currency refresh error: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:896` — `// the one render that binds Start/Stop and leaves MainActivity looking`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:902` — `// Operator V5.9.1018 ANR snapshot showed 4× MainActivity.onCreate`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:922` — `com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "deferred setupChartControls failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:927` — `com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "deferred setupChart failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:932` — `com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "deferred setupSettings failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:937` — `com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "deferred setupApiKeyHelpLinks failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:943` — `com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "deferred setupQuickActionButtons failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:956` — `// the user re-authenticates via SecurityActivity + Splash, MainActivity`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:976` — `com.lifecyclebot.engine.ErrorLogger.warn("MainActivity",`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:980` — `com.lifecyclebot.engine.ErrorLogger.info("MainActivity",`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:985` — `com.lifecyclebot.engine.ErrorLogger.warn("MainActivity",`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1006` — `com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "deferred setupOperatorDiagnosticTiles failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1009` — `com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "deferred showFirstTimeDisclaimer failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1020` — `// V5.9.1111 — MainActivity must be render-only while the`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1032` — `"MainActivity",`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1041` — `com.lifecyclebot.engine.ErrorLogger.info("MainActivity",`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1045` — `com.lifecyclebot.engine.ErrorLogger.error("MainActivity",`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1047` — `Toast.makeText(this@MainActivity,`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1051` — `com.lifecyclebot.engine.ErrorLogger.error("MainActivity",`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1058` — `// renderOpenPositions / buildTokenCard / renderWatchlist as the`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1073` — `// (V5.9.1065 snapshot: 28 ANR samples on MainActivity.onCreate,`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1094` — `com.lifecyclebot.engine.ErrorLogger.info("MainActivity", "onCreate completed successfully")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1096` — `com.lifecyclebot.engine.ErrorLogger.crash("MainActivity", "onCreate CRASH: ${e.message}", e)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1110` — `// Opening PipelineHealthActivity pauses MainActivity; autosave was writing`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1146` — `"MainActivity",`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1158` — `try { com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "stranded runtime rescue failed: ${t.message}") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1217` — `// MainActivity.onCreate/onResume and renderOpenPositions. Let the`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1230` — `com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "foreground repaint failed: ${t.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1239` — `com.lifecyclebot.engine.ErrorLogger.error("MainActivity", "onResume refresh error: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1254` — `com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "batteryOptBanner refresh err: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1348` — `try { this.background = cachedDrawable(this@MainActivity, resId) } catch (_: Throwable) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1360` — `cachedDrawable(this@MainActivity, R.drawable.ic_token_placeholder)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1366` — `private val pipelineTileHandler = android.os.Handler(android.os.Looper.getMainLooper())`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1429` — `// MainActivity render pipeline sleeps while nobody is looking.`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:1544` — `context = this@MainActivity,`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:2171` — `// (MainActivity.onCreate = top ANR site, 182 hits) that starved the bot`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:2412` — `// owns runtime state; MainActivity only renders it.`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:2420` — `"MainActivity",`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:2427` — `com.lifecyclebot.engine.ErrorLogger.info("MainActivity", "TradeHistoryStore initialized post-frame ($reason)")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:2429` — `com.lifecyclebot.engine.ErrorLogger.error("MainActivity", "TradeHistoryStore post-frame init failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:2446` — `* MainActivity can render before BotService.startBot() restores the paper wallet,`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:2461` — `"MainActivity",`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:2465` — `com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "canonical paper cold-open hydrate failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:2731` — `withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:2741` — `// partition (the dominant renderWatchlist/renderOpenPositions ANR) from Main.`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:2847` — `token, "MainActivity.precomputeTotalUpnl6636/${token.symbol}/${token.mint.take(8)}", emit = false,`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:2866` — `withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:2919` — `// MainActivity.onCreate -> renderOpenPositions/buildTokenCard choking`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:2953` — `// the single point that feeds renderWatchlist + renderOpenPositions.`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:3137` — `kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:3182` — `// ALL MainActivity heavy renders — renderShitCoinPositions,`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:3339` — `// maps and showed up in MainActivity ANR stacks. Render uses a`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:4067` — `renderOpenPositions(openPosDuringShed6040, preSorted6078 = true)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:4087` — `// Moonshot / Treasury) — flows through the SAME renderOpenPositions`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:4102` — `renderOpenPositions(openPos, preSorted6078 = true)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:4176` — `renderBlueChipPositions(blueChipPositions).also { lastBlueChipCachedPnlSol = it }`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:4385` — `addView(TextView(this@MainActivity).apply {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:4392` — `addView(TextView(this@MainActivity).apply {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:4407` — `addView(TextView(this@MainActivity).apply {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:4415` — `addView(TextView(this@MainActivity).apply {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:4429` — `fun stat(label: String, value: String, color: Int) = TextView(this@MainActivity).apply {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:4456` — `addView(TextView(this@MainActivity).apply {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:4463` — `addView(TextView(this@MainActivity).apply {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:4471` — `card.addView(TextView(this@MainActivity).apply {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:4479` — `card.addView(TextView(this@MainActivity).apply {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:4772` — `// list so renderOpenPositions can paint every row in the SAME format.`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:4875` — `// Seed a complete Position so renderOpenPositions shows entry,`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:5104` — `val verdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "MainActivity.openSort/${ts.symbol}/${ts.mint.take(8)}", emit = false)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:5140` — `// renderOpenPositions did llOpenPositions.removeAllViews() + a full inline`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:5164` — `private fun renderOpenPositions(positions: List<TokenState>, preSorted6078: Boolean = false) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:5186` — `val verdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(it, "MainActivity.openHash/${it.symbol}/${it.mint.take(8)}", emit = false)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:5314` — `// [16] buildTokenCard + [15] renderOpenPositions. The`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:5335` — `val verdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "MainActivity.renderSort/${ts.symbol}/${ts.mint.take(8)}", emit = false)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:5391` — `val pnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "MainActivity.renderRow/${ts.symbol}/${ts.mint.take(8)}", emit = true)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:5577` — `// 3196 ANRs still showed renderOpenPositions/TextView allocation on Main.`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:5590` — `try { background = cachedDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:5674` — `callSite = "MainActivity.openPositionCard",`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:5881` — `val v = try { com.lifecyclebot.engine.OpenPnlSanity.inspect(h, "MainActivity.hiddenHeld6039/${h.symbol}/${h.mint.take(8)}", emit = false) } catch (_: Throwable) { com.lifecyclebot.engine.OpenPnlSanity.Verdict(false, reason = "INSPECT_THROW") }`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:5936` — `return try { OpenPnlSanity.inspect(entryPrice, px, context = "MainActivity.$context", emit = false).takeIf { it.ok }?.pnlPct ?: 0.0 } catch (_: Throwable) { 0.0 }`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:6092` — `private fun renderBlueChipPositions(positions: List<com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition>): Double {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:6144` — `try { background = cachedDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:6273` — `try { background = cachedDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:6369` — `com.lifecyclebot.engine.OpenPnlSanity.inspect(tsState, "MainActivity.shitcoinFast/${pos.symbol}/${pos.mint.take(8)}", emit = true)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:6371` — `com.lifecyclebot.engine.OpenPnlSanity.inspect(entryPrice = pos.entryPrice, currentPrice = currentPrice, context = "MainActivity.shitcoinFast/${pos.symbol}/${pos.mint.take(8)}", emit = true)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:6411` — `com.lifecyclebot.engine.OpenPnlSanity.inspect(tsState, "MainActivity.shitcoinBuild/${pos.symbol}/${pos.mint.take(8)}", emit = true)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:6413` — `com.lifecyclebot.engine.OpenPnlSanity.inspect(entryPrice = pos.entryPrice, currentPrice = currentPrice, context = "MainActivity.shitcoinBuild/${pos.symbol}/${pos.mint.take(8)}", emit = true)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:6448` — `try { background = cachedDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:6576` — `try { background = cachedDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:6660` — `// renderOpenPositions): it ran llManipPositions.removeAllViews() + a full`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:6717` — `try { background = cachedDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:6826` — `// on renderOpenPositions). Any rapid sequence of structural`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:6867` — `try { background = cachedDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:7763` — `// Dispatchers.Main and calling PerpsMarketDataFetcher.getMarketData`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:7773` — `kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:7795` — `com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "Perps card update error: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:7852` — `com.lifecyclebot.engine.ErrorLogger.debug("MainActivity", "Layer dashboard update error: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:8801` — `this@MainActivity,`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:8967` — `val pnlVerdict = try { com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "MainActivity.manualSell/${ts.symbol}/${ts.mint.take(8)}", emit = true) } catch (_: Throwable) { com.lifecyclebot.engine.OpenPnlSanity.Verdict(false, reason = "INSPECT_THROW") }`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:9419` — `background = ContextCompat.getDrawable(this@MainActivity, R.drawable.card_bg)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:9471` — `background = ContextCompat.getDrawable(this@MainActivity, R.drawable.badge_bg)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:9569` — `ts.mint == active -> ContextCompat.getDrawable(this@MainActivity, R.drawable.card_selected_bg)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:9570` — `isIdle -> ContextCompat.getDrawable(this@MainActivity, R.drawable.card_bg)?.mutate()?.also { it.alpha = 120 }`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:9571` — `else -> ContextCompat.getDrawable(this@MainActivity, R.drawable.card_bg)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:9637` — `background = ContextCompat.getDrawable(this@MainActivity, R.drawable.badge_bg)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:9789` — `android.widget.Toast.makeText(this@MainActivity, "URL copied: $url", android.widget.Toast.LENGTH_SHORT).show()`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:9804` — `android.app.AlertDialog.Builder(this@MainActivity)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:9817` — `startActivity(android.content.Intent(this@MainActivity, LearningCounterActivity::class.java))`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:9820` — `startActivity(android.content.Intent(this@MainActivity, LiveTradeLogActivity::class.java))`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:9833` — `val handler = android.os.Handler(android.os.Looper.getMainLooper())`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:9845` — `withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:9860` — `com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "Mission Control diagnostics setup failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:10121` — `android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:10124` — `android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:10137` — `android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:10141` — `android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:10162` — `// showed MainActivity.onCreate firing 23× (maxFrameGap=48946ms): the Activity`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:10302` — `Toast.makeText(this@MainActivity,`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:10312` — `AlertDialog.Builder(this@MainActivity, R.style.Theme_AATE_Dialog)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11091` — `withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11158` — `AlertDialog.Builder(this@MainActivity, R.style.Theme_AATE_Dialog)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11198` — `withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11200` — `Toast.makeText(this@MainActivity,`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11204` — `Toast.makeText(this@MainActivity, "Failed to close position", Toast.LENGTH_SHORT).show()`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11208` — `withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11209` — `Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11340` — `withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11342` — `Toast.makeText(this@MainActivity,`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11347` — `Toast.makeText(this@MainActivity, "Failed to open position", Toast.LENGTH_SHORT).show()`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11351` — `withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11352` — `Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11394` — `withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11461` — `AlertDialog.Builder(this@MainActivity, R.style.Theme_AATE_Dialog)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11472` — `withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11473` — `Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11704` — `withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11706` — `Toast.makeText(this@MainActivity,`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11712` — `Toast.makeText(this@MainActivity, "Failed to open position", Toast.LENGTH_SHORT).show()`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11716` — `withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11717` — `Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11780` — `withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11826` — `com.lifecyclebot.engine.ErrorLogger.debug("MainActivity", "Stocks card update error: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:11920` — `withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:12156` — `com.lifecyclebot.engine.ErrorLogger.debug("MainActivity", "Stock position card error: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:12348` — `com.lifecyclebot.engine.ErrorLogger.debug("MainActivity", "Position card error: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:12444` — `withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:12446` — `Toast.makeText(this@MainActivity, "MARKET Opened ${market.symbol} LONG @ 2x - View in Markets", Toast.LENGTH_SHORT).show()`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:12451` — `withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:12452` — `Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:12467` — `withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:12469` — `Toast.makeText(this@MainActivity, "DOWNTICK Opened ${market.symbol} SHORT @ 2x - View in Markets", Toast.LENGTH_SHORT).show()`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:12474` — `withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:12475` — `Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:12702` — `com.lifecyclebot.engine.ErrorLogger.debug("MainActivity", "Insights panel update error: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:12742` — `withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:12773` — `AlertDialog.Builder(this@MainActivity, R.style.Theme_AATE_Dialog)`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:12784` — `withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt:12785` — `Toast.makeText(this@MainActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:62` — `private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:284` — `// This means: come back from MainActivity? Traders start. Every time. No conditions missed.`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:310` — `withContext(Dispatchers.Main) { updateToggleButton() }`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:473` — `kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) { refreshData() }`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:530` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:639` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:663` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:669` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:805` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:878` — `lifecycleScope.launch(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:904` — `// CryptoAlt has its own "Crypto" tab on MainActivity and is NOT a`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:907` — `// 820-trades/30%-WR/56-open mismatch vs MainActivity Live Readiness.`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:1056` — `// Matches MainActivity Live Readiness definition and the page title`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:1319` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:1364` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:1820` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:1827` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:1860` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:1972` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:2873` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:2916` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt:2920` — `withContext(Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/PipelineHealthActivity.kt:68` — `private val mainHandler = Handler(Looper.getMainLooper())`
+- `app/src/main/kotlin/com/lifecyclebot/ui/SecurityActivity.kt:35` — `* 4. On success: Proceed to SplashActivity → MainActivity`
+- `app/src/main/kotlin/com/lifecyclebot/ui/SettingsBottomSheet.kt:19` — `* Replaces the inline settings card in MainActivity for cleaner UI.`
+- `app/src/main/kotlin/com/lifecyclebot/ui/SettingsBottomSheet.kt:44` — `// activity_main.xml; MainActivity owns the read/write of`
+- `app/src/main/kotlin/com/lifecyclebot/ui/SplashActivity.kt:118` — `Handler(Looper.getMainLooper()).postDelayed({`
+- `app/src/main/kotlin/com/lifecyclebot/ui/SplashActivity.kt:128` — `Handler(Looper.getMainLooper()).postDelayed({`
+- `app/src/main/kotlin/com/lifecyclebot/ui/SplashActivity.kt:137` — `// Navigate to MainActivity after splash duration`
+- `app/src/main/kotlin/com/lifecyclebot/ui/SplashActivity.kt:141` — `Handler(Looper.getMainLooper()).postDelayed({`
+- `app/src/main/kotlin/com/lifecyclebot/ui/SplashActivity.kt:143` — `startActivity(Intent(this, MainActivity::class.java))`
+- `app/src/main/kotlin/com/lifecyclebot/ui/TuningActivity.kt:39` — `private val handler = Handler(Looper.getMainLooper())`
+- `app/src/main/kotlin/com/lifecyclebot/ui/UiSnapshotCache.kt:15` — `* caps how often heavy aggregations run on Dispatchers.Main.`
+- `app/src/main/kotlin/com/lifecyclebot/ui/UniverseHealthActivity.kt:40` — `private val handler = Handler(Looper.getMainLooper())`
+- `app/src/main/kotlin/com/lifecyclebot/ui/WalletActivity.kt:74` — `// V5.9.1546 — NO-OP GUARD (mirrors MainActivity.applyTheme V5.9.1447).`
+- `app/src/main/kotlin/com/lifecyclebot/ui/WalletActivity.kt:174` — `kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/ui/WalletActivity.kt:436` — `kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {`
+- `app/src/main/kotlin/com/lifecyclebot/v3/core/AIStartupCoordinator.kt:130` — `// Operator dump 2026-05-19 03:50:32 showed MainActivity`
+
+## Execution-adjacent bypass/relax/restore overlays
+
+Count: **1325**
+
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:33` — `// V5.0.6672 — HIVE MIND RESTORE.`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:166` — `val probe = client!!.testConnectionResult()`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:167` — `if (probe.success) {`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:171` — `connectionError = probe.error ?: "connection probe returned success=false"`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:277` — `suspend fun ensureConnected(force: Boolean = false): Boolean {`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:281` — `if (!force && now - lastReconnectAttempt < RECONNECT_COOLDOWN_MS) {`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:283` — `if (lastInitError.isBlank()) lastInitError = "Reconnect cooldown active (${waitMs / 1000}s remaining); tap Sync/Diagnostics to force retry"`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:293` — `Log.i(TAG, "Attempting to reconnect to Turso... force=$force")`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:2927` — `val reconnected = try { ensureConnected(force = true) } catch (e: Throwable) {`
+- `app/src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt:2973` — `try { ensureConnected(force = true) } catch (e: Throwable) { lastInitError = e.message ?: e.javaClass.simpleName }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AdaptiveLearningEngine.kt:578` — `// (paperSell, liveSell, fallback exits) all called learnFromTrade`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AdaptiveLearningEngine.kt:594` — `// provide it. The old fallback key included holdTime/pnl/current-minute,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutonomousMetaPolicy.kt:68` — `private const val STARVE_FLOOR       = 0.08     // never fully zero (keeps a probe alive)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutonomousMetaPolicy.kt:71` — `// independently agrees (dual-brain consensus). A probabilistic bypass keeps`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutonomousMetaPolicy.kt:76` — `private const val VETO_BYPASS_EVERY  = 25L      // 1-in-25 fresh probe escapes the veto`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutonomousMetaPolicy.kt:184` — `* A 1-in-VETO_BYPASS_EVERY probe is ALWAYS let through so the context keeps`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutonomousMetaPolicy.kt:204` — `Log.i(TAG, "🩺 VETO-PROBE $key — letting 1 fresh probe through (n=$n) to keep $key learnable")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutonomousMetaPolicy.kt:217` — `// V5.9.1290 — monotonic probe counter for the veto bypass valve`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BehaviorLearning.kt:854` — `* rather than only direct-call-site counts which miss shadow/recovery paths.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:13` — `*   5 of 7 Birdeye call sites bypass this gate entirely. The 4 scanner-`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:114` — `/** Emergency-only allowance for open-position price fallback. */`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:32` — `// V5.9.1355 P0.3 — WAIT-override dust-probe controls.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:34` — `// (no probe) because there isn't enough depth to even exit a dust probe.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:38` — `// the 500-1000 doctrine floor). A 0.04x DUST probe is ~0.01-0.02 SOL`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:48` — `// buy a dust probe. On the FULL Solana network a token under ~$2.5K`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:51` — `// a dust probe) below it. Discovery stays wide open (scanner unchanged);`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:72` — `// Dust-probe size multiplier (applied via qualityPenalty) — tiny, so a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:76` — `// V5.9.1466 — PROBE GRADUATION (spec item 8). A probe that shows a real`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:96` — `// The handler in onStartCommand checks lastBotLoopTickMs and force-`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:102` — `// V5.9.1081 — separates the stuck-loop force-restart rescue from the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:105` — `// no restart). The legacy "userRequested && loopActive" force-restart`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:185` — `* is honoured so dev builds can still globally suppress the stack.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:295` — `// V5.9.352: Meme Bridge override guardrails`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:297` — `// V5.9.349 made the bridge override V3 on Watch / ShadowOnly /`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:303` — `// Now the override requires a MUCH higher bar than the logging`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:317` — `* override V3 AND that we haven't hit the rate-limit cap yet.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:330` — `// Liquidity-collapse veto — do not override into a dying pool.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:604` — `// pendingVerify force-clear knows if the watchdog has run this session.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:608` — `// pendingVerify force-clear gate (V5.9.714).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1020` — `*  to decide whether to suppress a rescue while inside a critical`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1039` — `// 30s and force-restarts it if it has not produced a BOT_LOOP_TICK in`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1110` — `// V5.9.1318 (Item 1) — operator doctrine: if hot exit is stale > 10s, force-reset`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1131` — `"loop=$loopCount open=$openCount hotExitLockAgeMs=$staleMs neverRan=$neverRan resets=$hotExitStaleResetCount — force-reset hot-exit lease + independent universal-SL backup",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1146` — `// is force-reset below (ensureHotExitAlive + independent universal-SL`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1152` — `// Force-reset the hot-exit lease/lock and resurrect the manager.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1198` — `// wallet's open tracked positions, force-releases stale sell`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1621` — `override fun onCreate() {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1953` — `// V5.9.915 — wire LLM fallback chain (groq → openrouter → cerebras).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1956` — `// configureFallbackApis() at boot. The fallback chain in`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1971` — `"🔑 LLM fallback chain wired: groq=${cfg.groqApiKey.isNotBlank()} " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2030` — `// (position card, sell journal override, partial-sell toast)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2107` — `// its window expires or shadow-paper proves recovery.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2265` — `// V5.9.369 — initialize + restore leverage preferences for all`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2322` — `// root cause was an OR formula that let tradingMode=2 (default) bypass`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2365` — `// participants such as CYCLIC, TREASURY/CashGen, ProjectSniper, shadow lab,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2368` — `// V5.0.3682 — P1 RESTORE MEME-ONLY AUTHORITY (operator deep-audit).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2706` — `// V3 bypass for non-meme assets). Those 50 losses pushed`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2709` — `// itself. 72h quarantine lets the new V3-bypass path produce a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2828` — `override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2973` — `// V5.9.1081 — explicit operator-confirmed force-restart (e.g.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2978` — `ErrorLogger.warn("BotService", "🆘 EXPLICIT FORCE RESTART: caller set EXTRA_FORCE_RESTART_CONFIRMED=true. Cancelling loop and restarting.")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2979` — `addLog("🆘 Operator-confirmed force-restart — cancelling and restarting loop")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:2985` — `loopJob?.cancel(kotlinx.coroutines.CancellationException("operator force restart"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3113` — `//      No GlobalScope. No ACTION_START intent fallback.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3231` — `// suppress rescue, the loop is doing legitimate work.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3255` — `// wedged → force rescue. Lower than the 10-min`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3321` — `override fun onBind(intent: Intent?): IBinder? = null`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3323` — `override fun onDestroy() {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3335` — `// Positions are already force-saved below; the treasury was the missing`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3378` — `// Force-save so the 30s rate-limiter in saveAllPositions does`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3380` — `PositionPersistence.saveAllPositions(tokensCopy, force = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3399` — `//   • request code 5: 5s setAlarmClock (Doze-bypass guarantee)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3433` — `// Doze-bypass backup: 5s setAlarmClock — fires within seconds`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3474` — `PositionPersistence.saveAllPositions(tokensCopy, force = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3571` — `com.lifecyclebot.perps.PerpsTraderAI.save(force = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3636` — `// Shutdown V3 Shadow Learning Engine`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3664` — `override fun onTaskRemoved(rootIntent: Intent?) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3718` — `ErrorLogger.warn("BotService", "onTaskRemoved: AlarmClock fallback: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3751` — `override fun onTrimMemory(level: Int) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:3968` — `* cached-balance fallback pattern).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4013` — `// latest V3 fields. Zero-signal live candidates are probe-only, not normal capital.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4142` — `// shadow-paper mirroring. This is the single source of truth used by the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4149` — `* - Sizing: caller-supplied sol amount (no SmartSizer override) so user has`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4196` — `score = 50.0,                // neutral score: this is a user override, not an AI decision`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4223` — `// V5.9.495o — same cached-balance fallback as manualBuy.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4562` — `// which the snapshot treats as "use costBasis fallback so unrealized`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4583` — `// V5.0.6496 §1 — MARK AUTHORITY INTEGRITY GATE. Fallback /`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4648` — `// V5.0.6521 — canonical-raw reconstruction before quarantine; never abandon/force-close.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4824` — `@Suppress("UNCHECKED_CAST")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4956` — `override fun onAvailable(network: Network) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4969` — `override fun onLost(network: Network) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4970` — `if (status.running) addLog("📡 Network lost — WebSocket will reconnect on restore")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:4991` — `// ── Paper wallet: restore from SharedPrefs (survives app updates) ──`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5024` — `//   • savedBalance < 0.01 with journal history → wallet-truthful restore from journal`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5025` — `//   • Otherwise                                → restore savedBalance as-is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5041` — `// Wallet-truthful restore: paperWallet = starting capital + realized journal PnL.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5042` — `// Prefs got wiped (rare: sideload/backup restore) but the journal is intact,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5046` — `addLog("💰 V5.0.6376 wallet-truthful restore: prefs missing but journal has ${TradeHistoryStore.getLifetimeStats().totalSells} sells → wallet=${"%.4f".format(restored)} SOL (start ${cfg.paperSimulatedBalance} + realized ${"%.4f".format(journalRealizedSol)})")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5063` — `// history to restore from), REFUSE to blow away the balance.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5079` — `// prefs with 0 — force a self-heal on next successful buy/sell.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5090` — `repairUnifiedPaperWalletIfImpossible("startBot.restore")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5127` — `// V5.9.730: Force-persist the cleared streak so it survives restart.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5128` — `// Without this, restore() reloads the old loss count from SharedPrefs`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5131` — `com.lifecyclebot.v3.scoring.BehaviorAI.save(force = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5132` — `addLog("🔄 V5.9.730: BehaviorAI streak persisted — won't restore on restart")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5258` — `// paper and live so phantoms in shadow runs are also flagged`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5321` — `// Bypass the 30 s throttle for this guaranteed-cadence loop.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5348` — `// V5.6.9: RESTORE PERSISTED POSITIONS ON BOT START`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5362` — `// V5.9.682 — MASS-GHOST FALLBACK.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5366` — `// KEY_MANUAL_STOP_REQUESTED stayed false (force-killed process),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5368` — `// contract said "restore everything if not a manual stop", but`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5375` — `// Crash/kill paths with < 20 persisted rows still restore.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5435` — `ErrorLogger.error("BotService", "Failed to restore positions: ${e.message}", e)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5436` — `addLog("⚠️ Position restore failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5442` — `// bot start." After persistence restore, take ONE fresh wallet`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5544` — `// which the sweep read as -15% and force-closed HEALTHY`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5557` — `// a stuck position than to force-close a HEALTHY one on`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5568` — `ErrorLogger.warn("BotService", "🛡 STARTUP_SWEEP_DEFERRED_6068 reason=api_oracles_unhealthy — refusing to force-close positions on unreliable price data")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5594` — `// provider fallback. Require BOTH reads to agree`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5605` — `"🛡 [STARTUP_SWEEP_ABORTED_6068] ${ts.symbol} | first=${pnlPct.toInt()}% confirm=${pnl2.toInt()}% — likely stale oracle, skipping force-close")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5630` — `addLog("🧹 Startup sweep: force-closed $swept underwater position(s) below -20%")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5696` — `// a network call that has no timeout — Jupiter / RPC fallback chain`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5703` — `// supposed to be alive), force-cancel the zombie loopJob with a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5717` — `// and force-cancels + relaunches the loop coroutine if stale.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5808` — `// Force immediate exit — dev dumping is a rug signal`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5875` — `// but are not force-admitted to the watchlist; the scanner`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5882` — `// restore a bigger recent slice and source-balance it so PumpPortal/pump.fun`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5913` — `// V5.9.1519 — unknown liquidity on a registry restore must be NaN,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5931` — `addLog("🪙 Meme restore: hydrated $hydrated/${recent.size} recent mints (dropped $dropped stale, cap=$hydrateCap)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5932` — `ErrorLogger.info("BotService", "🪙 Meme restore hydrated $hydrated/${recent.size} recent / ${restoredMemeMints.size} total (dropped $dropped stale > 60min)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5941` — `ErrorLogger.warn("BotService", "Meme restore hydrate failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:5945` — `// restore, re-seed intake with the persisted top-conviction hot list`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6097` — `// V5.9.638 — restore pre-1900 arrival semantics.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6194` — `// bypass below: if ≥2 distinct scanners have already discovered the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6202` — `// but cuts the $3K-$5K rug-zone overlap. Multi-scanner bypass`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6216` — `// MIN_LIQUIDITY_USD checks, multi-scanner bypass, and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6253` — `ErrorLogger.info("BotService", "🟢 MULTI-SCANNER BYPASS: ${identity.symbol} liq=\$${liquidityUsd.toInt()} (${priorScanners + 1} scanners) — queued below \$${minLiquidity.toInt()} floor")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6280` — `identity.eligible(score, "[$modeLabel] protected intake queued${if (intakeTags.isNotEmpty()) " shadow=${intakeTags.joinToString(",")}" else ""}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6281` — `TradeLifecycle.eligible(identity.mint, score, "[$modeLabel] protected intake liq=$${liquidityUsd.toInt()}, score=$score${if (intakeTags.isNotEmpty()) ", shadow=${intakeTags.joinToString(",")}" else ""}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6391` — `// Restore session state from last run (streak, peak wallet) - MODE SPECIFIC`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6392` — `val restored = SessionStore.restore(applicationContext, cfg.paperMode)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:6394` — `TreasuryManager.restore(applicationContext)   // load persisted treasury`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7028` — `// V3.2 SHADOW LEARNING: Start BOTH shadow learning engines`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7030` — `// - V3: AI calibration shadow trades`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7031` — `// Shadow learning is NEVER stopped - it's a constant learning state.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7409` — `* + Executor's RPC fallback paths fill in the rest. The synthesised`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7430` — `// V5.0.6069 — PAPER MODE = LEARN EVERYTHING. Force-enable cyclic`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7794` — `// Result: every bot restart (rescue cycle, app reopen, manual stop)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:7883` — `// persistence is already wiped so the next start can't restore`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8028` — `// V5.2: Force clear all ShitCoin positions to ensure UI updates`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8277` — `// V5.6.10 FIX: Also clear PositionPersistence so positions don't restore on restart`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8285` — `addLog("✅ Cleared position persistence — positions won't restore on restart")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8328` — `// Shadow learning should continue running persistently as a constant`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8540` — `//   • DOZE-BYPASS (rc=998): setAlarmClock at +70s — only scheduled if the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8574` — `// V5.9.913 — FGS-BYPASS AlarmClock arm (UNCONDITIONAL).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8613` — `ErrorLogger.info("BotService", "FGS-bypass AlarmClock armed (75s — unconditional)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8615` — `ErrorLogger.warn("BotService", "FGS-bypass AlarmClock arm failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8785` — `// NOT an 80-confidence candidate — it's a discovery-tier probe. The`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8799` — `else             -> 22   // sub-$2k fresh rug-zone — discovery probe only`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8895` — `// 4) EmergentLlmClient — V5.0.6672 always-on with keyless fallback chain`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8930` — `// V5.9.1277 — fallback-price oracle chain for stale-feed positions. The full`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:8932` — `// was ONLY used by the perps trader; the meme trader force-dumped on a dead WS.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9004` — `// V5.9.1277 — FALLBACK-PRICE BEFORE FORCED DUMP. The WS feed`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9024` — `"💀 STALE_PRICE_RUG_ESCAPE: ${ts.symbol} — no price for ${lastPriceAgeMs/1000}s (pos age ${posAgeMs/1000}s), all oracles dark, force-exit")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9077` — `// last-known damage before stale feed may force a sell.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9087` — `// death" — bot was force-exiting tokens at phantom -24% to`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9243` — `"💀 STALE_LIVE_PRICE_RUG_ESCAPE: ${ts.symbol} — lastPrice stale ${livePriceAgeMs/1000}s (since max(priceUpd,entry)), lastPnl=${"%.1f".format(lastKnownPnlPct)}%, oracles dark, force-exit (ONE intent)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9310` — `// least ~1 scan cycle old → force a real quote now.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9360` — `// price reading (even one a couple minutes stale), force-exit. This`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9380` — `// re-requesting a doomed sell. Force the LOCAL close: flip isOpen=false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9382` — `// hard-close the tracker so SafeMode signals drain and buys reopen. NO`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9423` — `// This used to force a LOCAL close (zero qty, release CloseLease,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9445` — `"🚨 DEEP_CATASTROPHE_NET: ${ts.symbol} pnl=${pnlPct.toInt()}% age=${posAgeForNet/1000}s — bypassed all other floors, force-exit")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9641` — `// Fallback to static fluid stop`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9661` — `ErrorLogger.warn("BotService", "🚨 RAPID_PEAK_LOCK_BREACH_4301: ${ts.symbol} peak=${peakPnlPct.toInt()}% lock=${explicitPeakLockFloor4301.toInt()}% now=${pnlPct.toInt()}% — force sell")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9731` — `// trigger, force a Jupiter route verification of`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9932` — `"🚨 RAPID_SUB_TRADER_HARD_FLOOR: $mint pnl=${pnlPct.toInt()}% — force-closing")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:9994` — `// V5.9.924 — per-mint cooldown for Birdeye fallback in openPositionTickLoop.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10027` — `// V5.9.924 — MULTI-SOURCE FALLBACK for mints DS dropped.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10040` — `// well inside our rate budget. We rate-limit to 1 fallback`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10046` — `// V5.9.946 — BIRDEYE FALLBACK BUDGET DISCIPLINE.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10080` — `// account is ~300% over monthly. Use at most one fallback`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10406` — `// executable-price reads bypass the old phantom dead-zone immediately.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10563` — `// V5.9.1196 — fallback only. The hotExitJob above owns`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10626` — `// V5.9.1466 — first-seen liquidity baseline per mint, for PROBE GRADUATION.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10630` — `// V5.9.1466 — probe size resolver: dust by default, graduated once confirmed.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10641` — `try { ForensicLogger.lifecycle("PROBE_GRADUATED", "mint=${mint.take(10)} liq=\$${currentLiqUsd.toInt()} baseline=\$${ref.toInt()} rise=${(rise*100).toInt()}% → confirmed-probe size") } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10679` — `// V5.9.1364 — BOOTSTRAP DATA-STARVATION PROBE WHITELIST (SHITCOIN volume fix).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10683` — `// structural/probe split (MOONSHOT & MANIPULATED already split structural-block`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10684` — `// vs soft-probe). 44% of ALL rejects were SHITCOIN_FDG_HARD_VETO for`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10689` — `// killed. This whitelist marks the SOFT reasons that bootstrap may probe`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10694` — `// Hard safety / integrity — NEVER probe through these (FDG stays hard veto).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10704` — `// Soft data-starvation / low-conviction reasons bootstrap should probe.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10722` — `* WAIT/dust-probe override can rescue the buy.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10807` — `mintForProbe: String = "",     // V5.9.1466 — for PROBE GRADUATION (CandidateDecision has no mint field)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10909` — `// V5.0.6011 — MANIP lane quarantine dust-probe fallback (Issue 3 RCA):`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10913` — `// block to a HEAVY-SIZE-DAMPENER path (dust probe via qualityPenalty)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10919` — `// signal, not a rug. It should ALWAYS soft-shape (dust-probe path)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10924` — `// dust-probe path fire on ALL manipulated_only + non-MANIP hits.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10953` — `// V5.0.6011 — MANIP overlay dust-probe penalty (Issue 3 RCA):`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10956` — `// (-40) so downstream sizing shrinks to dust-probe rather than full size.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10966` — `// and the LIVE edge override @ ~2394); inflating it would loosen entry and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10973` — `// V5.9.1355 P0.3 — WAIT-OVERRIDE GUARD. Previously this method flipped ANY`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10977` — `// NOT promote to a normal buy — at most we allow a labelled dust-probe`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10994` — `//  (a) liquidity too thin to even exit a dust probe  → HARD BLOCK (we`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:10997` — `//      labelled DUST PROBE, NOT a hard block. P0.7 forbids a NORMAL-size`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11099` — `// Continue into the existing lane-local TacticSwitcher/probe composer`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11116` — `// Liquidity OK but still weak → DUST-PROBE only (explicit + tiny size).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11121` — `//   promoted candidates to a DUST-PROBE buy regardless of the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11123` — `//   fired the same probe. Fix: honor the rotator's authority.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11124` — `//   • MOMENTUM (default / initial): probe as before — momentum`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11130` — `//     weak-WAIT probe categorically does NOT satisfy any of`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11131` — `//     those signals, so block the probe until either the tactic`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11230` — `// Pick the style/elected primary once, before lane FDG, and suppress all`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11236` — `// V5.0.6600 — restore the pre-6599 authority: source/character/style routing`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11326` — `// this check runs BEFORE primary-lane override so a bleeder cannot`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11350` — `// V5.9.1586 — restore 3501 lane behavior. Primary lane is display/default`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11353` — `// produces BUY/PROBE intent. Runtime lane disable is already a no-op unless`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11356` — `// V5.9.1561 — fanout collapse must NEVER suppress Standard V3/Core lanes`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11374` — `//   3. EnabledTraderAuthority.isMemeLiveOnly() ⇒ suppress every non-meme`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11398` — `// floor, suppress these from EVALUATING entirely so capital + cycle`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11401` — `// Primary-lane override and STANDARD/CORE/V3 trunk are always allowed`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11409` — `// Do not suppress non-primary meme lanes on a tiny live sample;`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11466` — `//     is not enough to override a learned negative signal.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11738` — `// V5.0.4598 — RESPECT LaneAutoPauseGuard IN OWNER-LANE BYPASS.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11748` — `// primary bypass channel.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11810` — `// shadow LANE_EVAL beacon for QUALITY/MOONSHOT, so the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11841` — `"lane=$l shadow=LIVE_LANE_READ_FLOOR_4489 no_fdg=true primary=$primaryLane ownerHint=$contributorRotationHint6599 canonicalPrimary=$allowed mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:11989` — `// demoted to fallback positions.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12098` — `// intake metadata first, then any live TokenState fallback.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12383` — `// scanners already attributed, and the MULTI-SCANNER BYPASS path`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12387` — `// burned. Reject on liq+mcap alone unless user/registry-restore attributed.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12388` — `// V5.0.4507 — probation promotion is NOT registry restore. Operator logs`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12443` — `// for maximum learning exposure". Restore it: the cold-quarantine`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12450` — `} catch (_: Throwable) { false }   // fail-closed in live: no safety/intake bypass on uncertainty`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12525` — `// reject the rest. User/restore paths exempt. Sliding-window list`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12633` — `// family record rather than spawning a fresh row. We do NOT suppress when`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12662` — `// phase risks routing the token into a shadow lane / idle column`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12663` — `// and could suppress training — which would violate the spec's`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12752` — `// that path may bypass probation routing, but it must still pass`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:12856` — `// If we've seen this mint before, restore the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13016` — `// to the mcap/1B fallback above, so the candle is meaningful.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13415` — `// watchdog budget, force-cancel the prior worker AND clear the gate`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13421` — `// generation N+1 after a force reset starts a fresh sweep.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13431` — `// The watchdog delay below was bumped in lock-step (2.5s → 10s). Force`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13447` — `// + age so a wedged universal-SL sweep can be force-cancelled by the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13818` — `// safe to call frequently. Fallback rules are curated below`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:13819` — `// — if a host has zero fallback, this is a no-op.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14116` — `if (sym.isBlank()) { out.add(mint); continue }  // unknown symbol → never suppress`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14199` — `// starves the scanner (<50 active tokens). Restore the protected 500-token`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14454` — `// of the per-cycle worker slice. This does not raise caps or relax gates.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14597` — `// force a boot (auto-restart unless the user explicitly disabled).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14775` — `* suppress kneejerk exits caused by paper-mode slippage simulation`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14859` — `// FIRST; settle-in may only suppress the softer adaptive/give-back paths.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14878` — `// ignore entry noise; it must never suppress banking a runner that already`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:14893` — `// Settle-in only gates the SOFTER adaptive paths below. It cannot bypass`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15008` — `* (~15min) telemetry refresh: TokenWinMemory force-save + pattern`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15159` — `// pendingVerify for > 120s and force-clears it so exit management can fire.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15544` — `// V5.0.6439 — FORCE FLUSH regardless of cfg.paperMode. Operator complaint:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15744` — `// V5.2.6: Set paper mode flag for bypass logic`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15783` — `// all fallback RPCs timed out.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:15978` — `// First trip (3min silence): force scanner soft-reset + stream`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16140` — `"If persistent, use the positions panel to force-release.",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16304` — `// BOT sweep was the only fallback, and it was too late.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16397` — `// Fix: fdgBypassCount = min(legacy, canonical*10) so the bypass`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16439` — `totalSessionTrades = fdgBypassCount,  // V5.9.683-FIX: canonical-capped count so bypass gate uses real settled trades`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16626` — `// V5.0.4590 — LANE SHADOW-PROOF LOOP. Cheap; internally`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16830` — `// Fallback to config watchlist if registry is empty`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16836` — `// V5.0.6446 — WATCHLIST PRIORITY BUDGET BYPASS.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:16896` — `// Deprioritize obvious shadow-only zombies, but never remove them.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17009` — `// Force-include every open position from sub-trader stores PLUS the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17279` — `// The heavy resurrect+force-sweep logic lives in maybeHealHotExit() (a plain`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17287` — `// maybeHealHotExit ran just above and force-resets if hot exit was actually stale).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17325` — `// V5.0.6073 — SHADOW ALWAYS-ON: runs behind BOTH paper and live`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17329` — `// Pass current token states so shadow positions can get price updates`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17335` — `ErrorLogger.debug("BotService", "Shadow position check error: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17415` — `com.lifecyclebot.v3.scoring.CashGenerationAI.save(force = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17416` — `SmartSizer.save(force = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17417` — `com.lifecyclebot.v3.scoring.BehaviorAI.save(force = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17559` — `*      V5.9.426 fallback path catches some of these but doesn't`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:17909` — `// 10s is orphaned. Force-release it here so the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18144` — `// force-release can CANCEL the underlying coroutine, not just drop the lease`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18145` — `// record. A worker that keeps running after force-release can re-add stale state`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18183` — `// repeat = one worker generates up to 2 spurious "force release" log`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18209` — `// actually complete instead of being force-released mid-flight.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18315` — `// raw ledger that is NOT tracked by ANY V3 sub-trader, force-`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18324` — `// force-closed (ts.position = Position() reset + PositionPersistence`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18608` — `// fallback report showed cycles at avg=36s / max=232s with cycles`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18647` — `@Suppress("unused") private val SUPERVISOR_MAX_LIVE_WORKERS: Int = 32`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18683` — `@Suppress("unused") private val SUPERVISOR_MAX_INFLIGHT: Int = 24  // V5.0.3676 — pressure-safe floor. Kept for overloaded/cooling windows.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18690` — `// were being force-killed at the 5s wall before processTokenCycle finished,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18694` — `// timeouts) vs 668 force-releases proves most workers were NOT genuinely stuck.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18701` — `// force-released and re-queued 90s later via supervisorTimeoutCooldown,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18709` — `// Non-open timed-out mints cool briefly; open positions bypass this so exits`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18720` — `// V5.9.1572 — open mints no longer bypass supervisor timeout cooldown.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18821` — `* V5.9.1470 (spec item 6) — force-release every lease for a mint AND cancel its`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18852` — `// V5.0.6315 — ATOMIC FORCE-RELEASE (§15). Cancelling the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18906` — `// The old pool reset path force-set supervisorActive=0 at cap, which`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18938` — `// polled this tick. Open positions bypass timeout cooldown above.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:18984` — `// is genuinely done (normal finally) or has been force-killed. The`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19108` — `// by-mint force-release (ghost reaper / dirty-slot cleanup) can cancel it.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19123` — `// FORCE-released here was wedged in non-interruptible blocking`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19128` — `// again, and force-released again forever (snapshot 81e428fb:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19131` — `// Arm the cooldown on the force path too so wedged mints rotate`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19136` — `// rate instead of hiding it behind force-releases.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19327` — `// PriceAggregator → Yahoo fallback). SOLANA_TOKEN stays`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19381` — `// net: regardless of which lane owns the position, force-close when`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19545` — `// V5.9.624 — PROTECTED MEME INTAKE: non-destructive shadow classifier.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19592` — `fun shadow(ts: com.lifecyclebot.data.TokenState?, mint: String, phase: String, message: String, hardSafety: Boolean = false) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19600` — `// V5.9.765 — EMERGENT priority 6. Intake hard-shadow`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19610` — `message = "🛡 protected intake shadow · $phase · $message",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19636` — `shadow(null, mint, "MISSING_STATE", "registry mint awaiting TokenState hydrate")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19647` — `shadow(ts, mint, "SAFETY_SHADOW", reason, hardSafety = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19661` — `shadow(ts, mint, "BLACKLIST_SHADOW", reason, hardSafety = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19668` — `shadow(ts, mint, "FRESH_ZERO_LIQ_SHADOW", "liq=${ts.lastLiquidityUsd}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19673` — `// V5.9.640 — do NOT shadow ordinary idle candidates. "idle" is the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19682` — `shadow(ts, mint, "PHASE_SHADOW", "phase=${ts.phase} history=${ts.history.size}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19687` — `shadow(ts, mint, "STALE_SHADOW", "dataAge=${dataAge / 1000}s")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19692` — `shadow(ts, mint, "LOW_LIQ_SHADOW", "liq=$${ts.lastLiquidityUsd.toInt()}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19697` — `shadow(ts, mint, "TIMEOUT_SHADOW", "age=${ageInWatchlist / 60000}m no trade")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19702` — `shadow(ts, mint, "WAIT_SHADOW", "age=${ageInWatchlist / 1000}s")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19713` — `shadow(ts, mint, "FLAT_SHADOW", "range=${"%.2f".format(priceChangePercent)}% buys=$totalBuys")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19721` — `"Protected intake shadow pass: tagged=$shadowTagged hard=$hardSafetyTagged stale=$staleTagged idle=$idleTagged phase=$phaseTagged lowLiq=$lowLiqTagged timeout=$timeoutTagged wait=$waitTagged flat=$flatTagged missing=$missingStateTagged watchlist=${registryWatchlist.size} removed=0"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19859` — `// tokens), try the fallback price providers (pump.fun API / Birdeye).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19955` — `// V5.0.3913 — benchmark restore: 3868-3879 kept fresh`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:19957` — `// fallback price/pair hydration. 3891 demoted/removed them`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:20202` — `// V3.2: Update shadow learning engine with price`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:20271` — `// PAPER MODE LEARNING: Update shadow tracking for blocked trades`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:20291` — `// from status.tokens / scanner-visible state. Retain as shadow-only;`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:20293` — `// shadow deprioritization prevent it from becoming a loop choke.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:20302` — `ErrorLogger.debug("BotService", "Banned token ${ts.symbol} shadow-retained in protected intake")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:20418` — `// V5.9.605 — LIVE MEME THROTTLE ROOT CAUSE liquidity fallback.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:20433` — `ErrorLogger.info("BotService", "💧 Safety liquidity fallback: ${ts.symbol} pair=$${pair.liquidity.toInt()} ts=$${ts.lastLiquidityUsd.toInt()} regEst=$${registryLiqEstimate.toInt()} → using $${resolvedLiquidityUsd.toInt()}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:20676` — `// GlobalTradeRegistry/status.tokens. Tag them as shadow-only and let`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:20684` — `detail = "liq=\$0 + DISTRIBUTION_FADE — shadow-only, retained in protected intake",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:20694` — `message = "🛡 drained zombie risk-shadow retained in protected intake",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:20837` — `// Pass isPaperMode to relax Edge veto in paper mode for better learning`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21010` — `// Force exit if we somehow hold a blacklisted token`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21131` — `// SecurityGuard and ExecutableOpenGate already bypass this pause for PAPER,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21301` — `// V5.9.672 — restore LIVE-mode VOL_GATE bypass. V5.9.606 only`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21309` — `// unknownVolumeButTradable: bypass vol gate for fresh listings (vol=0 but liq/mcap ok).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21310` — `// Keep this bypass for all guard levels — a token with no vol history but`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21312` — `// V5.9.954 — relax bypass thresholds. Fresh Pump.fun launches average`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21623` — `// and override any non-execute V3 outcome in paper mode when`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21627` — `// The override at line ~9550 is still paper-gated, so live behaviour is unchanged`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21877` — `"lane=V3_CORE shadow=V3_CORE_VISIBILITY_4489 decision=$v3CoreDecision4489 no_extra_fdg=true mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21882` — `"lane=STANDARD shadow=CORE_STANDARD_VISIBILITY_4489 decision=$v3CoreDecision4489 no_extra_fdg=true mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21892` — `// Treasury Mode runs CONCURRENTLY with V3 - it's a "2nd shadow mode"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:21896` — `// V4.0 FIX: But Treasury CANNOT override V3 rejections!`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22050` — `// SOURCE first, then by metrics as fallback. Bluechip`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22093` — `// V4.1: Enter if Treasury says yes OR bootstrap override triggered`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22094` — `// V5.2.13: Block bootstrap override when V3 hard-rejects OR dump signals active`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22098` — `// passed (RC_PENDING + paper bypass). Only genuine structural fatals (liquidity`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22121` — `// V5.9: Terminal V3 rejects are globally binding — Treasury cannot override them.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22181` — `// sweep volume. Paper mode is for LEARNING; force the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22182` — `// bypass on regardless of learning progress so paper`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22282` — `// (SKIP → tiny learning probe) to 1.35 (PREMIUM_SCALP).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22303` — `// V5.2.8 FIX: If bootstrap override forced entry, use default TP/SL values`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22371` — `ErrorLogger.info("BotService", "⚠️ FDG SIZE-REDUCE on TREASURY: ${ts.symbol} | ${treasuryFdg?.blockReason ?: "fdg_caution"} | probe trade")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22406` — `// lane handoff. Fallback keeps old behavior if telemetry is absent.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22425` — `val bootstrapTag = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && forceBootstrapEntry) " [PAPER_BOOTSTRAP OVERRIDE]" else ""`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22669` — `ErrorLogger.info("BotService", "⚠️ FDG SIZE-REDUCE on QUALITY: ${ts.symbol} | ${qualityFdg?.blockReason ?: "fdg_caution"} | probe trade")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22736` — `// V5.8: Override tradingMode — blueChipBuy() sets "BLUE_CHIP" by default,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22874` — `ErrorLogger.info("BotService", "⚠️ FDG SIZE-REDUCE on BLUECHIP: ${ts.symbol} | ${blueChipFdg?.blockReason ?: "fdg_caution"} | probe trade")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:22924` — `// executable-open finality for BLUE_CHIP. Bypass only the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23160` — `// V5.9.235: fallback floor raised to -15% (matches HARD_FLOOR_STOP); clamp also applied`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23194` — `// the trade. Everything else → probe size so the AI learns.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23203` — `ErrorLogger.info("BotService", "⚠️ FDG SIZE-REDUCE on MOONSHOT: ${ts.symbol} | ${moonshotFdgDecision.blockReason ?: "fdg_caution"} | trading probe size")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23241` — `// V5.9.691 — apply FDG probe reduction if FDG disagreed`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23247` — `// actual exposure. Fallback preserves legacy behaviour if`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23250` — `// 4526 can restore AATE core live size after old micro/probe`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23390` — `// as a FALLBACK when V3 is disabled / not ready, preserving`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23392` — `// V5.9.650 — operator override: in PAPER mode, run ShitCoin in`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23675` — `// V4.1: Enter if ShitCoin says yes OR bootstrap override triggered`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23690` — `@Suppress("UNUSED_EXPRESSION")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23692` — `// V5.9.156 — same bootstrap bypass as Treasury path.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23697` — `// V5.9.1204 — bootstrap override cannot bypass learned`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23704` — `// do not force through empirically bad buckets.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23749` — `ErrorLogger.info("BotService", "💩 [SHITCOIN] ${ts.symbol} | DISTRUST RECOVERY PROBE | $why | sizeMult=0.35")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23764` — `// V5.2.8 FIX: If bootstrap override forced entry, use default TP/SL values`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23810` — `// data-starvation blocks that bootstrap should PROBE through at`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23814` — `// would generate the data. Probe is wide-open-phase only.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23829` — `// Soft block in wide-open bootstrap → tiny learning probe.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23831` — `ErrorLogger.info("BotService", "🧪 FDG PAPER BOOTSTRAP PROBE on SHITCOIN: ${ts.symbol} | $scBlock | probeSize=${adjustedSize.fmt(3)} SOL")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:23844` — `// the decision is executable; paper bootstrap probe override above`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24053` — `// V5.9.686 — Manipulated runs ALONGSIDE V3, not as a V3 fallback.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24143` — `ErrorLogger.info("BotService", "⚠️ FDG SIZE-REDUCE on MANIP: ${ts.symbol} | ${manipFdg?.blockReason ?: "fdg_caution"} | probe trade")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24153` — `requestedBook = TradeAuthorizer.ExecutionBook.MANIPULATED,  // V5.6.8: Use MANIPULATED book to bypass rugcheck`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24297` — `// V5.9.240: Mirror Moonshot's mcapUnknownButLiq bypass —`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24743` — `// fallback → false GOLDEN_DIP signals. DipHunter evaluated 200x/`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24745` — `// FIX: use the true candle HIGH (highUsd, fallback priceUsd) and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24827` — `ErrorLogger.info("BotService", "⚠️ FDG SIZE-REDUCE on DIPHUNTER: ${ts.symbol} | ${dipFdg?.blockReason ?: "fdg_caution"} | probe trade")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:24925` — `// V5.0.4021 — free-range trust bypass is paper-only. Live`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25028` — `// Track for shadow learning`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25202` — `// V5.0.6533 — V3 approval is causal input, not a finality bypass.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25271` — `// Shadow mode - log only`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25272` — `ErrorLogger.info("BotService", "[SHADOW] ${identity.symbol} | WOULD_EXECUTE | ${result.band} | ${result.sizeSol.fmt(4)} SOL")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25273` — `addLog("🔬 V3 SHADOW: ${identity.symbol} | ${result.band}", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25295` — `// Shadow track for learning`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25308` — `// V5.9.349 / V5.9.352: Bridge override on V3 WATCH — gated by`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25316` — `ErrorLogger.info("BotService", "🌉 BRIDGE OVERRIDE on V3_WATCH: ${identity.symbol} | tech=${memeBridgeVerdict.techScore} blend=${memeBridgeVerdict.blendedScore}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25317` — `addLog("🌉 Bridge BUY: ${identity.symbol} | V3_WATCH override | tech=${memeBridgeVerdict.techScore} blend=${memeBridgeVerdict.blendedScore} | ${bridgeSize} SOL", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25334` — `ErrorLogger.debug("BotService", "🌉 Bridge override SKIP (WATCH ${identity.symbol}): $why")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25354` — `// Shadow track for learning`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25367` — `// V5.9.349 / V5.9.352: Bridge override on V3 SHADOW_ONLY — gated.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25373` — `ErrorLogger.info("BotService", "🌉 BRIDGE OVERRIDE on V3_SHADOW_ONLY: ${identity.symbol} | tech=${memeBridgeVerdict.techScore} blend=${memeBridgeVerdict.blendedScore}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25374` — `addLog("🌉 Bridge BUY: ${identity.symbol} | V3_SHADOW override | tech=${memeBridgeVerdict.techScore} blend=${memeBridgeVerdict.blendedScore} | ${bridgeSize} SOL", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25391` — `ErrorLogger.debug("BotService", "🌉 Bridge override SKIP (SHADOW_ONLY ${identity.symbol}): $why")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25412` — `// True rejection - shadow track and return`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25416` — `// Shadow track`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25429` — `// V5.9.349 / V5.9.352: Bridge override on V3 REJECT — gated.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25435` — `ErrorLogger.info("BotService", "🌉 BRIDGE OVERRIDE on V3_REJECT: ${identity.symbol} | tech=${memeBridgeVerdict.techScore} blend=${memeBridgeVerdict.blendedScore}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25436` — `addLog("🌉 Bridge BUY: ${identity.symbol} | V3_REJECT override | tech=${memeBridgeVerdict.techScore} blend=${memeBridgeVerdict.blendedScore} | ${bridgeSize} SOL", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25453` — `ErrorLogger.debug("BotService", "🌉 Bridge override SKIP (REJECT ${identity.symbol}): $why")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25503` — `// LEGACY FALLBACK: Only runs if V3 is disabled`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25544` — `// candidate was shadow-tracked forever. Now fluid + cached.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25556` — `// can shape size/tactic, but it cannot override safety-ish SKIP admission.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25635` — `// Shadow track for learning`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25653` — `// Log when skip override is used`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25683` — `// V5.9: If bootstrap SKIP override was used at gate 1, don't re-block at gate 2.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25866` — `v3ControlsExecution = !cfg.v3ShadowMode  // V3 controls execution unless shadow mode`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25929` — `// Shadow mode - log only`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25930` — `addLog("🔬 V3 SHADOW: ${identity.symbol} | ${result.band} | " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25962` — `// concern reduces size to a probe — it doesn't`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25966` — `// Shrink: 0.5× FDG-suggested size (probe tier).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:25967` — `// Bridge fallback still runs in paper as before.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26005` — `// V5.0.3703 — terminal V3 reject cannot become an FDG probe.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26006` — `// The previous SCORE_TOO_LOW probe path directly produced`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26026` — `// V5.9.346 — MEME UNIFIED SCORER BRIDGE (paper-only fallback)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26030` — `// look. If it says shouldEnter we override V3 with`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26052` — `ErrorLogger.info("BotService", "🌉 BRIDGE OVERRIDE on V3-REJECT: ${identity.symbol} | $v3Thesis")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26140` — `// same-identity FDG terminal outcome before any SHADOW/REJECT return.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26145` — `// Previously the fallback emitted 3-part "gen:ver:lane" which the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26226` — `// Track as shadow avoid for learning`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26386` — `// PAPER MODE LEARNING: Shadow track blocked trades`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26421` — `// avoid racing with the verify. After 120s we force-clear`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26435` — `// RPC check before we assume the position is real. Blindly force-clearing here`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26439` — `// Gate: only force-clear if the watchdog has already fired at least once this`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26451` — `// In case 1: leave it, watchdog retries. In case 2: safe to force-clear now.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26462` — `"Force-clearing (watchdog RPC must have confirmed real tokens).")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26517` — `// In paper mode, force the recorded exit price to entry × 0.75 (= -25% loss)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26530` — `"${if (isPaper) "PAPER cap @ -25%" else "LIVE bestPrice=$bestPrice"} — FORCE SELL"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26565` — `// The pre-dispatch -20% force-close was firing earlier (and stricter)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26903` — `// V5.9.697 — Restore peak/HW/trailingStop so all profit locks re-arm after restart.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:26921` — `entryTime = System.currentTimeMillis(),  // V5.9.192b: safe fallback (no holdTime field)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27136` — `// V5.9.697 — Restore peak and high-water so PeakDrawdownLock and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27259` — `// Rather than showing -100% on UI indefinitely, force a STOP_LOSS exit`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27286` — `// 20+ min, force a STOP_LOSS exit so the slot is freed.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:27934` — `com.lifecyclebot.v3.scoring.FluidLearningAI.initMarketsPrefs(this)  // V5.8.0: restore Markets trade count`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28000` — `// PRICE FALLBACK HELPER - Extracted to reduce botLoop complexity`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28004` — `* Try to get price data from fallback sources (Birdeye, pump.fun)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28008` — `// V5.9.423 — broadcast a successfully-resolved fallback price to every`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28028` — `// freshly-refreshed fallback price. This means trail exits, profit-floor`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28032` — `// and MoonshotTraderAI (the meme lanes). A final hard-floor fallback runs`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28257` — `// The fallback orphan hard-floor is a LAST-resort safety net for`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28261` — `// report showed 7 fresh paper positions force-sold in 1-7s with`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28265` — `// fallback path until the position is old enough to be truly orphaned.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28309` — `* fallback data (pump.fun API / Birdeye delivered price+mcap+liquidity into`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28316` — `*  - candle: synthetic 1-tick candle at current fallback price+mcap.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:28867` — `//   4. ts.position.entryPrice  (final fallback — same as old behaviour)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotServiceLifecycleExt.kt:149` — `//   • request code 7 — 65s setAlarmClock (Doze-bypass guarantee;`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusGate.kt:56` — `// V5.9.1355 P1 — 1-in-25 probe cadence per proven-dead context.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusGate.kt:64` — `// money (-0.035 SOL realized). Relax to: ANY mature (n>=20) bucket with a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusGate.kt:66` — `// normal-size purposes — the 1-in-25 dust-probe cadence kicks in so the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusGate.kt:149` — `// must NEVER be permanently disabled. Allow a 1-in-25 dust-probe so the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusGate.kt:179` — `// × 0.02 SOL × 24 non-probe ticks = guaranteed -0.33 SOL bleed per`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusGate.kt:180` — `// learning cycle. The probe cadence was nominal, not enforced. Now:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BrainConsensusGate.kt:185` — `// remains alive and CAN heal because the probe keeps it learning.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:75` — `enum class TradeEnvironment { LIVE, PAPER, SHADOW }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:151` — `val runtimeMode: String = "",               // LIVE / PAPER / SHADOW`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:202` — `// compounding from dust/probe-sized samples as if they were full quality`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:650` — `override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?): Boolean = size > 4096`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:679` — `// at the bus level and SUPPRESS the subsequent actual terminal sell.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:698` — `if (verdict.decision == PositionExitArbiter.Decision.SUPPRESS) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:719` — `* V5.9.791 — operator audit Item 1: bypass-arbiter publish. Used by the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:722` — `* key — re-arbitrating in the bus would falsely SUPPRESS the legitimate`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:780` — `TradeEnvironment.SHADOW -> CanonicalLearningCounters.shadowOutcomesTotal.incrementAndGet()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:839` — `// reason as a fallback so these trades still resolve to a real`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:842` — `// the same as blank so the reason/execution fallback can repair the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:890` — `// normalising to UNKNOWN and then getting force-defaulted to STANDARD,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CloudLearningSync.kt:648` — `// mult < 0.8 means collective win rate < 40% — suppress locally too`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt:305` — `// SHADOW LEARNING - Learn from trades we DIDN'T take`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt:325` — `// Create a snapshot for the shadow trade`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt:346` — `"👻 SHADOW ${symbol}: Veto MISSED +${pnlPercent.toInt()}% → loosening thresholds")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt:351` — `"👻 SHADOW ${symbol}: Veto SAVED ${pnlPercent.toInt()}% loss → reinforcing")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EntryWaitOverrideGate.kt:6` — `* **Operator override (z32):** "we shouldn't block at 39% confidence —`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EntryWaitOverrideGate.kt:17` — `*                                  override or conf≥override threshold`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EntryWaitOverrideGate.kt:32` — `FDG_OVERRIDE_ENTRY_WAIT,        // explicit override (moonshot / high conf)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EntryWaitOverrideGate.kt:45` — `* @param moonshotOverride  true when MoonshotTraderAI fires explicit override`
+- `app/src/main/kotlin/com/lifecyclebot/engine/EntryWaitOverrideGate.kt:47` — `* @param highConfThreshold confidence required to override (default 75)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:11` — `* Learning/probe paths may shadow-simulate, but must not create paper-wallet`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:624` — `// Restore ONLY when the caller carries a real execution lane, current`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:626` — `// safety reason is present. Missing-state restore has no FDG state to`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:636` — `preFdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY", "WATCH", "PROBE")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:680` — `//   "Frozen snapshot restore MUST restore intentId + FDG seal +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:792` — `verdictUpper == "NO_BUY" || verdictUpper == "WATCH" || verdictUpper == "PROBE"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:812` — `// V5.0.3911 — FDG-approved WATCH/PROBE is a stale string verdict, not`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:817` — `// WATCH first. Keep HARD_NO/true NO_BUY blocked; restore only FDG-approved`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:818` — `// WATCH/PROBE/PROBE_ONLY/BUY with no hardNo.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:819` — `val verdictAllowedByFdg = state?.fdgCan == true && verdictUpper in setOf("BUY", "PROBE_ONLY", "WATCH", "PROBE")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:828` — `// V5.9.1559 — LIVE finality restore must use the CURRENT candidate`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:833` — `// V5.0.3952 — LOW-LIQ WATCH RESTORE ALIGNMENT.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:837` — `// LOW_LIQUIDITY_SIZE_REDUCED. Restore the FDG-approved WATCH and let`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:853` — `// V5.0.4003 — restore approved live handoff across version churn.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:859` — `// FDG-approved BUY/PROBE, real liquidity, and no true hard safety kill.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:862` — `verdictUpper in setOf("BUY", "PROBE_ONLY", "WATCH", "PROBE")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:985` — `fdgEvidence6613 = "fdgCan=true;preFdg=$verdict;safety=$safetyTier;hardNo=0;fallback=secondary_projection_failure",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1133` — `"BUY" -> 3; "PROBE_ONLY" -> 2; "WATCH", "PROBE" -> 1`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1197` — `// made valid probe tickets fail validSealedDecision6613`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1282` — `//   so a subsequent frozen-snapshot restore can honour`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1331` — `@Suppress("NAME_SHADOWING") val lane = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1332` — `@Suppress("NAME_SHADOWING") val electedLane6494 = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(electedLane6494)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1369` — `@Suppress("NAME_SHADOWING") val lane = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1370` — `@Suppress("NAME_SHADOWING") val electedLane6494 = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(electedLane6494)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1437` — `// the finalized-proof BUY/SELL rails. Paper + shadow evaluation, existing`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1457` — `// WAIT remains shadow/trainable; it must not become an economic open.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1557` — `// V5.0.3722/V5.0.3910 — direct-lane finality restore.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1561` — `// confirmed rug. That made paper BUY ok=109 while live BUY ok=0. Restore the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1563` — `// EntryState. This does not bypass live safety: unknown/unsafe tier, zero liq,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1654` — `//   after restore-from-frozen-snapshot dropped the FDG-authorized`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1682` — `// frozen-restore repair path the operator's directive spec's.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1730` — `preFdgVerdict.uppercase() in setOf("WATCH", "PROBE", "NO_BUY") &&`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1736` — `fun blocked(log: String, reason: String, shadow: Boolean = false): OpenVerdict {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1748` — `// already represented by its EXEC_OPEN_BLOCKED_* reason; probe spam was`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1750` — `return OpenVerdict(false, reason, shadowOnly = shadow, logName = log, attemptId = attemptId)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1755` — `// (the candidate's last FDG verdict was WATCH/PROBE/NO_BUY, i.e. it was`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1808` — `if (modeUpper !in setOf("PAPER", "LIVE", "SHADOW")) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1851` — `// V5.0.6683 — RESTORE SHADOW_TRAIN EXECUTION SEPARATION.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1874` — `shadow = true,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1913` — `return blocked("EXEC_OPEN_BLOCKED_REENTRY_LOCKOUT", lockDecision.reason, shadow = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1918` — `// soft-allow family-only hits so FDG/brain/safety can decide the trade.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1982` — `"symbol=$symbol lane=$lane source=$source — fallback data (dexscreener/helius/pyth/geckoterminal) provides coverage"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2025` — `if (stateRequiresSolanaTokenMap6533 && liquidityUsd <= 0.0 && immutableTicket.liquidityUsd <= 0.0 && !ticketExecutableRoute) return blocked("EXEC_OPEN_DEFERRED_TOKEN_MAP", "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", shadow = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2045` — `currentLiquidityUsd = liquidityUsd,    // V5.9.1559 live stale-WATCH restore`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2046` — `currentSafetyTier = safetyTier,        // V5.9.1559 live stale-WATCH restore`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2094` — `return blocked("EXEC_OPEN_BLOCKED_SAFETY_CONTEXT_MISSING", "PRE_FDG_SAFETY_CONTEXT_MISSING", shadow = mode == "PAPER")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2096` — `// V5.9.1504 — RUG-CONTEXT STRICT FALLBACK (master throughput unblock).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2103` — `// tokens via a STRICT safety fallback (liq+buy+vol floor). We now mirror`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2110` — `return blocked("EXEC_OPEN_BLOCKED_CONFIRMED_RUG", "PRE_FDG_CONFIRMED_RUG_SCORE_0", shadow = false)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2134` — `return blocked("EXEC_OPEN_DEFERRED_TOKEN_MAP", "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", shadow = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2137` — `return blocked("EXEC_OPEN_BLOCKED_TRUE_ZERO_LIQUIDITY", "TRUE_ZERO_LIQUIDITY", shadow = false)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2151` — `return blocked("AUTHORITY_INVARIANT_FAILURE", "FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519", shadow = mode == "PAPER")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2161` — `return blocked("AUTHORITY_INVARIANT_FAILURE", "IMMUTABLE_AUTHORITY_NOT_CURRENT", shadow = mode == "PAPER")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2244` — `return blocked("EXEC_OPEN_BLOCKED_NO_EXECUTION_INTENT_6615", typedNoIntent6615, shadow = mode == "PAPER")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2248` — `return blocked("EXEC_OPEN_BLOCKED_FDG_FINAL", fdgReason, shadow = mode == "PAPER")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2253` — `return blocked("EXEC_OPEN_BLOCKED_RUG_SCORE", "RC_SCORE_0", shadow = mode == "PAPER")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2256` — `return blocked("EXEC_OPEN_BLOCKED_FDG_FINAL", fdgReason, shadow = mode == "PAPER")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2263` — `return blocked("EXEC_OPEN_BLOCKED_SIGNAL_WAIT", "DECISION_WATCH", shadow = mode == "PAPER")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2266` — `return blocked("EXEC_OPEN_BLOCKED_SIGNAL_WAIT", signal.ifBlank { fdgReason }, shadow = mode == "PAPER")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2282` — `return blocked("EXEC_OPEN_BLOCKED_ENTRY_AUTHORITY_6487", effectiveEntryDecision6487.reason, shadow = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2285` — `return blocked("EXEC_OPEN_BLOCKED_SHADOW_LANE_6487", "${lane.uppercase()}_READ_ONLY", shadow = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2325` — `"taxonomy=$taxonomyReason6579 resolvedSize=$effectiveResolvedSize6497 minimum=$minExecutable6491 sealedSize=${try { com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(mint) } catch (_: Throwable) { null }}", shadow = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2359` — `return blocked("AUTHORITY_INVARIANT_FAILURE", "EXEC_INTENT_MISSING_AT_FINAL_BIND_6519", shadow = mode == "PAPER")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2414` — `return blocked("EXEC_OPEN_DEDUP_MINT_VERSION_6487", "ONE_EXECUTABLE_BUY_PER_MINT_VERSION", shadow = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:2478` — `val canonicalBuy6506 = signal.trim().uppercase() in setOf("BUY", "EXECUTE", "PROBE_ONLY", "PROBE")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:102` — `// forever. Bypass it and self-heal on the first real on-route tick.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:187` — `* The override trigger is clamped to:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:313` — `// Treat roll50 <= min(10%, target*0.35) as emergency probe mode.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:573` — `// Do not relax the score floor merely because the current candidate`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:815` — `// release, the prior sell path crashed. Force-release so retry`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:840` — `/** V5.9.720: force-clear ALL paper sell locks — called on bot stop so shutdown`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:883` — `fun dest(primary: String, fallback: String): String? = when {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:885` — `!fallback.equals(self, false) -> fallback   // redirect self→other`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:987` — `// SHADOW PAPER POSITIONS`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:988` — `// Track shadow positions separately from live/paper positions.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1103` — `*   3. fallback heuristics (6 / 9 decimals)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1119` — `src.contains("SYNTH") || src.contains("FALLBACK") || src.contains("DERIVED") ->`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1170` — `// V5.0.6054 — SYNTHETIC-SOURCE BYPASS + SELF-HEAL`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1288` — `pos.positionId.isBlank() && // V5.0.6636 — immutable canonical fills never rebase in a shadow store`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1397` — `// Fallback 1: latest candle price.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1401` — `// Fallback 2: entry price (so callers see SOMETHING non-zero rather`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1486` — `// V5.7.8: Track zero-balance sell retries — force close after 5 attempts`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1495` — `// position permanently — if the pool stays thin after 2 retries, force-`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1498` — `// (RUG/HONEYPOT/SHUTDOWN/EMERGENCY/MAX_HOLD/STALE) bypass the abort`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1700` — `// Safety fallback: if SOL price is unknown (< 50 USD, dead feed),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1703` — `// A canary log fires whenever the fallback is exercised so the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1943` — `// the mint AND no caller-supplied fallback existed. Operator`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1947` — `//   → getAccountInfo(mint, jsonParsed) → caller fallback → REFUSE.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1950` — `// scale factor, no Double fallback, no over-sell.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1976` — `// fallback). Decimals are now proven, so the only remaining`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:2010` — `// V5.0.6405 §5 — NO LEGACY DOUBLE FALLBACK. Decimals are proven,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:2014` — `"🚫 SELL_ABORTED_QTY_CONVERSION_6405 mint=${mint.take(10)} err=${t.message?.take(120)} — refusing Double fallback",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:2116` — `// V5.0.4151 — strict/catastrophe exits override recovered-hold grace.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:2151` — `// hold/profit-lock grace cannot suppress STRICT_SL/RAPID_CATASTROPHE.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:2166` — `// V5.9.967 — z43-D SellSpamGuard: suppress duplicate blocked-log`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:2906` — `* "probe" even when the wallet has >1 SOL and liquidity can absorb more. That`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:2954` — `// low-but-exitable liquidity for a dust-only probe.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:2964` — `// PaperEvBucketGate6405 flags a proven-winner bucket, relax the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3074` — `// bypass this floor (they shouldn't be sized up).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3222` — `private fun resolveExecutionLane(ts: TokenState, identity: TradeIdentity? = null, fallback: String = "STANDARD"): String {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3231` — `ForensicLogger.lifecycle("EXEC_LANE_IDENTITY_INVARIANT_FAILED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} candidateVersion=${identity?.fdgCandidateVersion ?: 0L} explicit=${identity?.executionLane} cycle=$cyclePrimary position=${ts.position.tradingMode} identitySource=${identity?.source} tokenSo`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3233` — `return fallback`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3359` — `// keys include lane/entry identity, so lane drift can bypass the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3362` — `// NOT suppress the first real row. Instead, allow exactly one`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3363` — `// terminal journal row per fresh closeId, then suppress later rows`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3384` — `if (verdict.decision == com.lifecyclebot.engine.PositionExitArbiter.Decision.SUPPRESS) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3431` — `// as the final fallback so SHITCOIN/MOONSHOT/EXPRESS/etc. learn`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3433` — `resolveExecutionLane(ts, fallback = "STANDARD")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3496` — `// V5.0.6320 — CANONICAL BUY FILL OVERRIDE (§8). If the wallet has`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3499` — `// Override the SELL row's entry snapshot with those values so the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3621` — `// before approving a fresh live buy on this mint. Paper/shadow`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3644` — `// V5.0.4112 — PHANTOM_PNL_FIX. The previous fallback to`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3653` — `// fallback because partial SELL rows store the sold-leg cost in`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3684` — `// Force the recovered row to scratch end-to-end.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3699` — `// Even after we force pnl=0 on recovered rows, downstream tuners`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3903` — `// that already has a fresh reopen, the heal rewrites the fresh`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3938` — `val resultLane6078 = tradeWithMint.tradingMode.ifBlank { resolveExecutionLane(ts, fallback = "STANDARD") }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:3980` — `lane = tradeWithMint.tradingMode.ifBlank { resolveExecutionLane(ts, fallback = "STANDARD") },`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4018` — `// different path (shadow, wallet-recovery, external route) left arms at`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4023` — `// V5.0.6260 — BYPASS-WIN STREAK. Credit the outcome to`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4026` — `// (recordBypassOutcome bails when mint wasn't a bypass entry).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4065` — `lane = tradeWithMint.tradingMode.ifBlank { resolveExecutionLane(ts, fallback = "STANDARD") },`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4610` — `// Trade journal, not ModeRouter's coarse classifier fallback.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4693` — `// flags / pos.tradingMode / STANDARD fallback, so make that the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4694` — `// authority. ModeRouter is only a last-resort fallback.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4808` — `// bypass-arbiter publish prevents the bus from re-checking`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:4809` — `// the (now-locked) positionKey and falsely SUPPRESS-ing this`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:5630` — `@Suppress("NAME_SHADOWING") val wallet = wallet ?: return false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:5666` — `// V5.0.6045 — STALE-RUNNER FORCE-HARVEST (operator mandate 2026-07-03:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:5669` — `// When RealPriceLock and route-real fallback BOTH fail (typically`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:5674` — `// gain sustained), FORCE the harvest sell attempt regardless of`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:5676` — `// (25% probe) so if the route is genuinely dead the loss is capped;`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:5694` — `onLog("💰⚡ STALE-RUNNER FORCE-HARVEST: ${ts.symbol} @ ${gainMultiple.fmt(1)}x peak=${peakGainPct.toInt()}% unrealized=${unrealizedProfitSol6028.fmt(4)} SOL — probing route with ${(forceFraction6045*100).toInt()}%", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:5720` — `@Suppress("NAME_SHADOWING") val wallet = wallet ?: return false`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:5730` — `// Never force a 25% minimum and never let a phantom multiple inflate`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:6187` — `// silently-raised slippage. Emergency exits log the override in the policy.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:6243` — `"Quote OK | out=${quote.outAmount} | impact=${"%.2f".format(quote.priceImpactPct)}% | router=${quote.router}${if (quote.isRfqRoute) " (RFQ)" else ""}${if (quote.ultraRejectedReason.isNotBlank()) " ⚠ Ultra REJECTED → Metis fallback (${quote.ultraRejectedReason.take(60)})" else ""}",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:6298` — `// V5.9.495d — Ultra-first fallback signal. liveSell uses`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:6306` — `"↩ FALLBACK → Jupiter Ultra (v2) primary, v6 Metis secondary | ladder=${broadcastSlipLadder.joinToString("/")}bps",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:6413` — `// V5.9.495 — PUMP DIRECT FALLBACK after Jupiter ladder`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:6786` — `else -> quote.outAmount / 1_000_000_000.0  // legacy fallback (rare; verifier should always populate)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7119` — `// mean-revert); (2) RUNNER BYPASS — never evict a live runner`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7143` — `// gated, runner-bypass still applies. Directly serves volume.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7167` — `// RUNNER BYPASS — don't evict a position that ran and is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7168` — `// still near its peak (mirrors maybeAct runner-bypass).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7178` — `//   runner-bypass kept the position alive past every`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7189` — `//   runner. AUTHORITATIVE runners still bypass.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7254` — `// Fix: in paper mode ONLY, suppress STRICT_SL for a per-lane`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7274` — `// most recent cached price shows pnl <= -25%, we force-exit`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7316` — `// unconditional force-exit if:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7322` — `// Threshold: force-exit at the -25% floor already accepted as`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7323` — `// "no scenario where holding this makes sense". Safe fallback:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7333` — `"mint=${ts.mint.take(10)} sym=${ts.symbol} holdMs=$holdMs entry=${pos.entryPrice} livePx=${currentPrice} cachedPx=${cachedPx} — no finite price reads >15s, force-exiting at -25% assumption",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7591` — `"☠ CATASTROPHIC -25% BACKSTOP: ${ts.symbol} worstPnl=${worstPnl.toInt()}% — last-line force-exit (quote freshness ignored)",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7700` — `}) — force-exit", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7715` — `//      update is older than 90s, force-exit with STALE_PRICE_FORCED`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7726` — `onLog("🛑 STRICT SL (cached): ${ts.symbol} cachedPnl=${cachedPnl.toInt()}% ≤ ${hardFloor.toInt()}% — live feed dark, force-exit on cache", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7733` — `onLog("⚠ STRICT SL STALE: ${ts.symbol} feed dark ${cachedAgeMs/1000}s, posAge ${posAgeMs/1000}s — force-exit to prevent overrun", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7751` — `// force-exit immediately. Same priority as STRICT_SL because`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7767` — `onLog("🚨 STEALTH MINT RUG: ${ts.symbol} — dev minted >10% post-entry, force-exiting", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7773` — `// V5.0.4200 — take-win/profit-lock must bypass settle-in.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7786` — `// sat outside the settle-bypass and settle returned early.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7829` — `// (i.e. getActualPrice always resolved to entryPrice via fallback).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7831` — `// Exit: force sell via requestSell as DEAD_TOKEN_NO_PRICE_EXIT.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7838` — `currentPrice == entryPx &&           // still at entry — fallback path`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:7863` — `// the settle-bypass path above so scanner-missed winners can bank`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8169` — `// Shadow the nullable param with a non-null binding so the rest of`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8171` — `@Suppress("NAME_SHADOWING")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8266` — `// Fallback: full Jupiter Ultra → Metis ladder (single shot`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8342` — `// wallet-verify backfill lands. Override with the on-chain-`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8369` — `// Do not fake-credit local SOL; force the wallet manager to pull`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8376` — `wm6041.refreshBalance(force = true)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8693` — `tradingMode = resolveExecutionLane(ts, fallback = "STANDARD"),`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8771` — `onLog("🧠 HOLD OVERRIDE: ${ts.symbol} symbolic patience vetoed ExitAI full-exit", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8799` — `onLog("🧠 HOLD OVERRIDE: ${ts.symbol} symbolic patience vetoed Gemini immediate exit", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8810` — `onLog("🧠 HOLD OVERRIDE: ${ts.symbol} symbolic patience vetoed Gemini soon exit", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:8849` — `onLog("🧠 HOLD OVERRIDE: ${ts.symbol} symbolic patience vetoed V8 soft exit | ${exitSignal.reason}", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:9222` — `onLog("🚨 CIRCUIT BREAKER FORCE EXIT: ${ts.symbol} | mode=$tradingMode | liq=$liquidityCollapsing whale=$whalesStopped copy=$copyInvalidated", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:9249` — `// V5.9.901 — RUNNER BYPASS for mode_maxhold.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:9264` — `//   distrust runner-bypass when the current mark's provenance is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:9524` — `// PAPER: probe at clamped size instead of hard-veto. The unconditional`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:9527` — `ErrorLogger.info("Executor", "🎓 ${ts.symbol} probe-buy: C+unknown+conf${aiConfidence.toInt()}% — size clamped via redFlagCount, NOT blocked${if (isPaper) " [PAPER]" else " [LIVE]"}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:9532` — `3 -> 0.15   // V5.9.1544 — full trinity (C+unknown+lowconf): smallest probe, NOT full size (was uncapped → 1.0)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:9645` — `// ── V5.9.893 — restore checkDataFreshness on maybeActWithDecision path ──`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:9838` — `// runner bypass applied to the primary mode_maxhold gate at`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10114` — `// V5.9.751b — refuse paper fallback when config is live (see A1 note).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10121` — `"🚫 LIVE_TOPUP_REFUSED: ${ts.symbol} — config is LIVE but wallet is NULL. Refusing paperTopUp fallback.")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10147` — `// V5.0.6073 — shadow paper is always-on doctrine; paper mutations in`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10148` — `// live mode are the shadow book by design.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10429` — `// V5.9.756 — Emergent CRITICAL ticket. liveTopUp was the bypass route:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10780` — `signal6504 !in setOf("BUY", "PROBE", "PROBE_ONLY", "EXECUTE")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:10975` — `// Blanket exemption let bleeding MOONSHOT bypass DUMP regime brake.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11007` — `// strong enough to override the macro regime — they're the asset-level`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11014` — `com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD    -> maxOf(regimeMultForLane, 1.00)  // full bypass`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11015` — `com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER  -> maxOf(regimeMultForLane, 0.60)  // partial bypass`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11025` — `// every rejected/probe candidate still journals. This is the "convert weak flow`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11036` — `// V5.0.3913 — benchmark restore: 3868-3879 traded live in high-risk`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11057` — `// keep probe-size until it recovers.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11091` — `// (TOXIC/CATASTROPHIC verdicts) still bypass elsewhere in the stack.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11098` — `// only ran inside FDG, which most volume lanes bypass. All three are`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11119` — `// V5.0.6301 — Band-loss probe damper (never zeros — honors the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11164` — `// FDG/bypass handoff. Without this, the self-directed A/B learner could`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11348` — `"shadow" to shadowVariantSizeMult,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11501` — `// V5.0.6405 §19b — RUNNER BOOST FLOOR BYPASS.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11543` — `// V5.0.4129 — ABSOLUTE FLOOR + PATTERN GOLDEN GOOSE SIZE OVERRIDE.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11548` — `// LiveSizingProfile tiers), AND tokens that match a GOLD pattern bypass`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11560` — `// The veto runs BEFORE the GOLD/WINNER goose bypass because a pattern verdict`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11561` — `// CANNOT override "this exact mint rugged us within the last 24h". The cooldown`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11585` — `// GOLD/WINNER verdicts bypass (proven edge can override learned aversion).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11596` — `// V5.0.4148 — TOP-PERFORMING-LANE BYPASS for the GLOBAL pause button`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11597` — `// (mirrors the liveBuy-entry bypass; see liveBuy() doc for rationale).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11714` — `"Cannot execute live buy on ${ts.symbol} — wallet is not connected. Paper-trade fallback refused.",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11810` — `// V5.0.6073 — SHADOW ALWAYS-ON: no toggle gate.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11829` — `// V5.9.779 — EMERGENT MEME-ONLY: shadow → live shortcut`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11846` — `onLog("🌙🚀 MOONSHOT in shadow mode! Score=${score.toInt()} Quality=$quality → handing off to liveBuy() (full FDG chain).", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11847` — `onNotify("🌙 Shadow → Live!", "${ts.symbol} moonshot detected!",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11890` — `onLog("👻 SHADOW BUY: ${ts.symbol} | $reason | ${sol.toString().take(6)} SOL @ ${price.toString().take(8)} | tracking=${shadowPositions.size}", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11893` — `ErrorLogger.debug("Executor", "Shadow paper buy failed: ${e.message}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11898` — `// V5.0.6073 — SHADOW ALWAYS-ON: gate removed (was toggle + live-only).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11903` — `for ((mint, shadow) in shadowPositions) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11908` — `val pnlPct = OpenPnlSanity.inspect(shadow.entryPrice, currentPrice, context = "Executor.shadow_position_6038/${shadow.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11909` — `val holdTimeMin = (System.currentTimeMillis() - shadow.entryTime) / 60000`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11920` — `val pnlSol = pnlPct * shadow.entrySol / 100`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11921` — `val shadowHoldMins = (System.currentTimeMillis() - shadow.entryTime) / 60_000.0`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11925` — `phase = "shadow_${shadow.quality}",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11927` — `source = shadow.source,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11929` — `mint = shadow.mint,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:11952` — `onLog("👻 SHADOW EXIT: ${shadow.symbol} | $shouldExit | ${pnlPct.toInt()}% | ${pnlSol.toString().take(6)} SOL | $emoji ${if(isWin) "WIN" else "LOSS"} → LEARNING", mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12143` — `layerTag: String = "",            // V5.9.386 — override BUY trade tradingMode for sub-trader journal tagging`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12196` — `//   the intent's canonicalLane over any downstream fallback so`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12257` — `@Suppress("NAME_SHADOWING") val layerTag = ticket6513?.primaryLane`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12370` — `// V5.0.6600 — restore the existing 6579 PAPER observation path at its`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12448` — `//   ALLOW_PROBE     — proceed at PROBE size (streak 5-7, min 0.01 SOL)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12452` — `// pid/source/lane alias can bypass this gate.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12455` — `//   lane at the entry gate, treating STANDARD as a shadow/read-only`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12475` — `//   fallback → cross-lane theft. Fix: resolveExecutorLane6620`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12652` — `// a SHADOW paper route, not a mixed PAPER/LIVE mode violation. Keep this`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12653` — `// before EXEC_OPEN_* finality so shadow paper remains a legal explicit mode`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12654` — `// while ordinary live→paper fallback stays blocked below.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12674` — `val routeIsShadow = routeVerdict.route == ExecutionRouteGuard.Route.SHADOW`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12675` — `paperBuyLeaseMode6369 = if (routeIsShadow) "SHADOW" else "PAPER"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12686` — `// downstream executable minimum may reject/shadow a reduced request, but`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12764` — `mode = if (routeIsShadow) "SHADOW" else "PAPER",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12839` — `// invoke paperBuy() directly from sub-trader fallback paths and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12852` — `"symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$sol layer=$layerTag mode=SHADOW",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:12906` — `//   phantom trail/runner-bypass fired, and exits stalled with`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13169` — `// into a permanent requeue and stalled all trades. Restore the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13257` — `// universal fallback safety path read raw ts.lastPrice and printed`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13473` — `// Without this ID the 6634 lock is unreachable and mint fallback`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13621` — `// used a dummy 0.1◎ fallback and silently broke chunk selling.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13649` — `mode = if (routeIsShadow) "shadow" else "paper",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13699` — `// V5.9.1470 (spec item 2 corollary) — REOPEN clears any prior close stamp so a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13700` — `// legitimately re-bought mint trades again cleanly (the duplicate-suppress guard`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13703` — `try { com.lifecyclebot.engine.PositionCloseLedger.reopen(tradeId.mint) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13704` — `try { com.lifecyclebot.engine.PaperPositionCloseAuthority.reopen("PAPER", tradeId.mint) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:13883` — `// V5.0.6533 — no any-lane fallback and no late synthetic FDG write.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14231` — `// V5.9.386 — allow callers (Quality path) to override journal tag.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14594` — `// runs — that bypass let rug patterns reach liveBuy(). Force`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14674` — `// must block or probe-only if holder proof is unknown').`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14677` — `// walk Birdeye → Helius for fallback once per-provider`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14701` — `// V5.0.4595 — HOLDER-CASCADE-BLIND RELAX for proven-`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14731` — `// Safety fallback: other gates (LP-lock hard block,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14758` — `"mint=${ts.mint.take(10)} sym=${ts.symbol} liq=${ts.lastLiquidityUsd.toInt()} tag=$layerTag — proven-winner lane bypass",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14867` — `@Suppress("NAME_SHADOWING")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:14932` — `@Suppress("NAME_SHADOWING")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15177` — `// direct lane callers bypass doBuy() and can still pass sentinel/NaN`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15329` — `// path (MOONSHOT shadow-to-live handoff at Executor.kt:8115) calls liveBuy()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15354` — `// (a) Rug-blacklist — non-negotiable, runs ahead of any pattern bypass.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15365` — `// V5.0.4149 — Operator override: "its not meant to disable its meant`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15409` — `// V5.0.4148 — TOP-PERFORMING-LANE BYPASS for the GLOBAL pause button.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15444` — `onLog("🛡 LIVE $reasonTag4134 recovery probe: ${ts.symbol} lane=$laneTag4134", "discipline")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15519` — `val shadowFlag = try { (alreadyOpenPosition && ts.position.tradingMode.equals("SHADOW", true)) || layerTag.equals("SHADOW", true) } catch (_: Throwable) { false }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15520` — `// V5.0.6383 — STALE PAPER/SHADOW FLAG AUTO-CLEAR (operator directive:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15524` — `// (or tradingMode=SHADOW) from an earlier paper/shadow run OR a stale`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15526` — `// is LIVE, a stale open PAPER/SHADOW position on the same mint is not`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15529` — `if (runtimePaper) return liveAbortDesync("mode=LIVE runtimePaper=true alreadyOpen=$alreadyOpenPosition positionPaper=$paperFlag shadow=$shadowFlag")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15535` — `tradingMode = if (ts.position.tradingMode.equals("SHADOW", true)) "" else ts.position.tradingMode,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15552` — `// Failed candidates redirect to SHADOW (never silently dropped)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15553` — `// so paper / shadow learning continues.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15626` — `// V5.0.6354 — contract routed to SHADOW; reflect that in the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15632` — `bucket = com.lifecyclebot.engine.ScannerHydrationQueues6347.Bucket.SHADOW,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15703` — `// V5.0.6312 — LIVE ENTRY SAFETY HOLD + BYPASS BAN + CONFIDENCE GOVERNOR.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15707` — `// or when an exploration/probe bypass label authorized this`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15708` — `// candidate. Failed candidates are redirected to shadow (never`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15709` — `// silently dropped) so paper/shadow learning continues.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15748` — `// edge cases (lane-fallback / journal-authority overrides). This`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15756` — `// LIVE mode; paper/shadow evaluation is unaffected.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15786` — `// has the lane-authority override at line ~12648).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15867` — `// V5.0.6286 — LANE-LEVEL DNA FALLBACK. Paper backfill stamps`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15942` — `// V5.0.6266 — DNA-APPROVED FULL BYPASS of provider-degraded`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:15981` — `// credit bypass wins toward auto-unpausing the whole lane.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16366` — `// V5.0.6266 — DNA-APPROVED FULL BYPASS of provider quorum hard block.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16493` — `@Suppress("NAME_SHADOWING")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16584` — `// V5.9.1550 — LIVE restore economics. Stale finality/desync can reduce`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16637` — `// V5.0.3847 — ENTRY BREAK-EVEN BYPASS FOR LIVE MICRO-PROBES.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16712` — `// V5.0.3706 — RESTORE FINAL LIVE PRE-BROADCAST RUG DEFENSE.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16859` — `// it does not force every live buy into a fixed micro cap.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:16878` — `// again (runtime 6686: finalSol=0.0048 < minLiveBuySol=0.0050). Restore the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:17110` — `"↩ FALLBACK → Jupiter Ultra (v2) primary, v6 Metis secondary | ladder=${slippageLadder.joinToString("/")}bps",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:17907` — `// tx-parse fallback to fail too. Extend to 10 polls × 6s`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:17950` — `// Fallback: owner token account poll`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18008` — `// MFE tracker override their stale ts.position readings`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18091` — `// atomically restore the TokenState into BotService.status.tokens.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18743` — `* Regression hunted after V5.9.1085: several exit paths can bypass the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18799` — `// bypass on the word "CATASTROPHE", the position closes instantly for a fake -27% loss.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18809` — `// use settle-in; hard safety and profit protection bypass.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18829` — `// BLUECHIP/MOONSHOT stops, fallback sub-trader stops, and other red`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18848` — `// only to absorb fake instant paper slippage, not override strategy exits.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18880` — `return resolveExecutionLane(ts, fallback = ts.position.tradingMode.ifBlank { "STANDARD" })`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:18920` — `val lane = resolveExecutionLane(ts, fallback = pos.tradingMode.ifBlank { "STANDARD" })`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19015` — `// hard rug/floor exits still bypass below.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19036` — `// True safety + runner-protection + take-win exits bypass style/min-hold.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19037` — `// Min-hold is anti-churn only; it must not override profit lockers,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19156` — `val edgeExitLane4532 = try { ts.position.tradingMode.ifBlank { resolveExecutionLane(ts, fallback = "STANDARD") } } catch (_: Throwable) { "STANDARD" }`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19170` — `// V5.9.1411 — Settle-in and duplicate-suppress guards moved into doSell()`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19176` — `// meaningful-profit floor; hard safety exits bypass.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19192` — `// true catastrophic hard-floor/rug/manual-emergency exits bypass.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19280` — `// A fresh close is already in flight for this mint — suppress the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19396` — `// V5.0.6261 — PARTIAL_BLOCKED_BELOW_BREAKEVEN fix. Prior fallback was`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19427` — `// V5.0.6261 — profit-capture bypass. RAPID_INSTANT_PROFIT_CAPTURE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19431` — `// confirmed the profit but this guard used a fallback pnl=0.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:19689` — `"Quote OK | out=${quote.outAmount} | impact=${"%.2f".format(quote.priceImpactPct)}% | router=${quote.router}${if (quote.isRfqRoute) " (RFQ)" else ""}${if (quote.ultraRejectedReason.isNotBlank()) " ⚠ Ultra REJECTED → Metis fallback (${quote.ultraRejectedReason.take(60)})" else ""}",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20102` — `// V5.9.491 — final on-chain fallback: if no sub-trader had it but`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20115` — `// V5.9.290 FIX: doSell guard — same pendingVerify force-clear as BotService + liveSell.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20122` — `"⚠️ [DOSELL_VERIFY_STUCK] ${ts.symbol} | ${pendingAgeMs / 1000}s — force-clearing pendingVerify in doSell.")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20304` — `// V5.9.1432 — GENERIC SOFT-STOP FALLBACK. Any *_STOP_LOSS / *_SL label not`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20330` — `// legacy micro-probe size. SmartSizer can compute realistic paper sizes,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20428` — `// close stamp, a previous paperSell already finalized it. Suppress the duplicate`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20447` — `//   position using canonical positionId first ... Fallback`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20464` — `// Fallback: (mode, canonicalMint) — but ONLY when unique.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20656` — `// missing (set by the no-entry branch below). null = no override.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:20748` — `// Force the journalled + mirrored qty to strictly track the canonical`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21029` — `// projections stamp CLOSED, release slots, or suppress future zombie exits.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:21344` — `// blacklist that diverts future live candidates into shadow.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22371` — `// AND it's been > 120s since entry, force-clear pendingVerify here before the`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22380` — `"⚠️ [LIVESELL_VERIFY_STUCK] ${ts.symbol} | ${pendingAgeMs / 1000}s — force-clearing pendingVerify in liveSell. " +`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22522` — `// SellAmountAuthority.resolveForExit() owner-delta fallback, so`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22585` — `// V5.9.72 CRITICAL FIX: previous logic force-closed the position`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22634` — `// V5.7.8: If balance is dust AND position is deep in loss, force close`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22686` — `// reading. Tracker/TX_PARSE fallback is forbidden for live amount authority;`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22697` — `// Triage agent found: the `coerceAtLeast(1L)` could force a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22813` — `// PumpPortal/Helius direct route below. Probe-once on cooldown`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22860` — `"Quote OK @ ${slipLevel}bps | out=${quote.outAmount} | impact=${"%.2f".format(quote.priceImpactPct)}% | router=${quote.router}${if (quote.isRfqRoute) " (RFQ)" else ""}${if (quote.ultraRejectedReason.isNotBlank()) " ⚠ Ultra REJECTED → Metis fallback" else ""}",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22898` — `// position open. Previously this force-closed with -100% PnL and`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22929` — `// cap, we MUST force-proceed (better a bad fill than a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22975` — `// rather than carried forever. Emergency exits bypass.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:22993` — `onLog("⚠ SELL FORCE-PROCEED: priceImpact=${"%.1f".format(quote!!.priceImpactPct)}% above ${SELL_SLIPPAGE_ABORT_PCT.toInt()}% after ${SELL_SLIPPAGE_ABORT_MAX} retries — accepting fill to avoid stuck position.", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:23081` — `// direct route. Jupiter (the ladder below) is fallback only.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:23114` — `// V5.9.495d — Ultra-first fallback signal. liveSell uses`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:23122` — `"↩ FALLBACK → Jupiter Ultra (v2) primary, v6 Metis secondary | ladder=${broadcastSlipLadder.joinToString("/")}bps",`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:23142` — `// within the 500bps non-emergency hard cap (counts + clamps any bypass).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:23282` — `// V5.9.488 — PUMP.FUN DIRECT FALLBACK.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:23302` — `// V5.9.488 — PUMP.FUN / PUMPSWAP DIRECT FALLBACK (all mints).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:23315` — `// already try (V5.9.492), invoke the direct-route fallback as`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:23385` — `// It is used only for PnL-display fallback + cost-predictor learning,`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:23783` — `// it), the fallback used `finalQuote.outAmount` — Jupiter's`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:23856` — `// V5.0.6344 — CANONICAL PnL CONDUIT (shadow enforcement).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:25015` — `// V5.7.8: Force close on ANY failure during shutdown — don't leave ghosts`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:25021` — `onLog("Force-closed on shutdown: ${ts.symbol}", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:25030` — `onLog("Force-closed paper position: ${ts.symbol}", ts.mint)`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:25372` — `// V5.9.751b — refuse paper fallback on treasury withdrawal when live.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:25380` — `"🚫 LIVE_TREASURY_WITHDRAWAL_REFUSED: wallet is NULL. Refusing paper-fallback withdrawal.")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:25466` — `// Fallback: Jupiter Ultra → Metis ladder; fresh amount plan for this processor.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:25544` — `// Safety: force paper mode if user hasn't opted into live but signal requested live`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:25628` — `//   3) Final PumpPortal fallback              ← only on sells, after Jupiter ladder`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:25689` — `// (RESCUE / RECOVERY / SWEEP / STOP / RUG) bypass this skip.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:25714` — `// V5.0.3740 — no HostTracker/TX_PARSE fallback for PumpPortal amount authority.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:25933` — `// LiveTradeLogStore will also suppress this if it slips`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:26141` — `// V5.9.495l — PRIMARY qty source = WALLET, FALLBACK = price math.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:26279` — `// can spot it, and emit a distinct log line. The Jupiter fallback`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:26281` — `// MEME_LIVE_BUY_MUTEX (V5.9.778) ensures only one fallback runs.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExitManager.kt:227` — `// V5.9.902 — RUNNER BYPASS for MAX_HOLD_TIME (mirrors Executor V5.9.901`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExitManager.kt:228` — `// and Cyclic V5.9.898). Pre-fix, ExitManager force-closed any winner`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExitManager.kt:234` — `// Runner-bypass: peakGain ≥ 20% AND currentPnl within 30% of peak.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:36` — `// wait-override path (BotService ~7616/7640) deliberately returns`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:38` — `// execute a tiny learning probe on liq-OK-but-weak tokens. The old`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:40` — `// returned false and the probe NEVER fired — 14,096 probe-buys killed in one`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:45` — `// P0.7 "no normal-size zero-signal buy" rule — it only frees the TINY probe.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:389` — `* it transitions to SOFTEN or RECOVERY so confidence floors relax`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:796` — `// RuntimeModeAuthority override ONCE at the top so every downstream`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:798` — `// authoritative mode. Authority wins; config flag is fallback only.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:805` — `@Suppress("NAME_SHADOWING")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1154` — `// with route/liquidity/safety still gets shaped to a tiny live probe;`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1159` — `checks.add(GateCheck("confidence", true, "conf=0% → LIVE micro-probe sizing, not hard block"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1212` — `// by the common low-confidence micro-probe and LiveGrowthDoctrine sizing`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1217` — `checks.add(GateCheck("copy_conf", true, "LIVE COPY low confidence → micro-probe sizing, not hard block"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1231` — `// V5.9.341 — CLASSIC-MODE BYPASS (Phase A).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1234` — `// bootstrap bypass window lines up with golden learning velocity.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1238` — `// from trade 1 and must not get confidence-floor bypass from global learning progress.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1241` — `// The confidence-floor bypass must STAY TRUE in any of these cases:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1250` — `//      explicitly asking gates to relax. FDG must obey.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1251` — `//   4. FDG.adaptiveRelaxationActive — the in-FDG soft-block bypass.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1257` — `// V5.9.721-FIX: Low-WR bypass — when system WR < 30% the confidence floors`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1275` — `(isPaperMode && totalTradesForBypass < 500) ||  // V5.0.4021: cold-start bypass is paper-only; live adapts from trade 1`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1279` — `// V5.9.683-FIX + V5.9.721: surface bypass state so operator can audit 22%-floor trips`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1280` — `ErrorLogger.debug("FDG", "FDG_BYPASS=${canBypassConfidenceFloors}: bypass=$totalTradesForBypass/500 paperBootstrap=$isBootstrapPhase liveAdaptiveFromTrade1=${!isPaperMode} antiChoke=$antiChokeRelaxing adaptive=$adaptiveRelaxationActive lowWR=${(systemWrForBypass*100).toInt()}%(revoked)")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1396` — `// V5.0.6710 — restore V5.9.1221's selective collapse authority.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1399` — `// discovery/shadow evidence flowing, but require A/A+ for new capital`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1435` — `// V5.9.693 — Paper-mode bypass. In paper mode the bot MUST trade`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1501` — `// V5.8: In paper mode, bypass AI_DEGRADED confidence floor.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1514` — `checks.add(GateCheck("ai_degraded_conf_floor", true, "Degraded AI conf ${confidence.toInt()}% < ${aiDegradedFloor.toInt()}% → 0.45x probe, not hard block"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1540` — `checks.add(GateCheck("toxic_pattern", true, "Kris 4-flag toxicity (${toxicPatternFlags.joinToString(",")}) → 0.25x probe, true safety still hard-blocks"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1582` — `// V5.9.696 — Per-trader execution floor override.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1653` — `// SHITCOIN-only bootstrap fallback never fires for them. Operator`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1655` — `// Resolution: extend the BC-only bootstrap fallback to ALL FDG`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1665` — `// on BC-fallback. Pump.fun streams flood the intake with bonding-`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1708` — `// In PAPER, convert the hard block to a DUST PROBE size penalty`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1722` — `// them into the V5.0.3676 paper dust-probe path`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1753` — `"exitCap \$${exitCapacityUsd.toInt()} (BC-only? ${try { com.lifecyclebot.engine.LiquidityClassifier.isBcSimOnly(ts) } catch (_: Throwable) { false }}) < \$${EXECUTION_FLOOR.toInt()} = shadow track only"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1866` — `// probe/observation events were inflating brain/fluid). Cap learning_uses at`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1990` — `// treat it as a penalty/probe-size condition, not HARD_BLOCK_RUGCHECK_1.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2017` — `// V5.0.4167 — RUGCHECK FALLBACK RELAX (volume restore).`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2019` — `// the rugcheck timeout/pending-review fallback gate while`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2023` — `// 3-of-3 fallback signals when the data layer itself is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2059` — `// 2-of-3 (or 1-of-3 with single strong) admits as probe.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2066` — `"Rugcheck $rugcheckStatus for ${ts.symbol}, allowing as PROBE (relaxed 4185 fallback): buy%=${ts.meta.pressScore.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()} vol=\$${(ts.history.lastOrNull()?.volumeH1 ?: 0.0).toInt()} signals=$signalsMet/3 singleStrong=$hasSingleStrong"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2079` — `checks.add(GateCheck("rugcheck_pending_weak_size_shape", true, "status=$rugcheckStatus weak fallback → size-shape, not veto"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2100` — `// was the WRONG philosophy. SIZE block created dust-sized probe`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2107` — `"status=$rugcheckStatus, weak fallback: buy%=${ts.meta.pressScore.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()}"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2116` — `checks.add(GateCheck("rugcheck_pending_penalty", true, "RC_PENDING score=1 → penalty/probe size"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2122` — `"status=PENDING_REVIEW, strong fallback (buy%=${ts.meta.pressScore.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()})"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2201` — `// V5.0.4130 — PATTERN GOLDEN GOOSE OVERRIDE on TOKEN_MAP_INCOMPLETE.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2204` — `// executor's fallback routing (Jupiter Ultra / PumpSwap / Raydium`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2205` — `// probe) a chance — gold-pattern tokens historically convert at`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2353` — `// V5.0.4595 — RSI RELAX FOR PROVEN WINNERS (operator P0 "open the valve").`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2383` — `ErrorLogger.info("FDG", "🟢 RSI WINNER BYPASS: ${ts.symbol} | RSI=${currentRsi.toInt()} lane=${tradingModeTag?.name} — proven >=50%WR/>=5n, allowing with penalty")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2545` — `"PAPER BYPASS (V5.2): $behaviorBlock (n=$sampleCount) → NO PENALTY, full size"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2732` — `checks.add(GateCheck("distribution", true, "LIVE: cooldown bypass (buy%=${ts.meta.pressScore.toInt()}%)"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2842` — `checks.add(GateCheck("edge_veto_sticky", true, "LIVE: veto bypass (buy%=${ts.meta.pressScore.toInt()})"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2929` — `checks.add(GateCheck("edge", true, "PAPER BOOTSTRAP PROBE: DISTRIBUTION (edge=${candidate.edgeQuality}) → -15pts, size×0.25"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2945` — `// V5.0.6396 — EARLY LAUNCH BYPASS (rescaled). The 6394`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2946` — `// bypass targeted the obsolete 0..100 anchor band 40..54.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2947` — `// On the canonical 0..30 scale the probe zone is`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2950` — `// 0.30× micro-probe. Hard safety remains upstream — this`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2968` — `earlyLaunchAllow -> "early_launch score=${effectiveGateScore6025.toInt()} probe×${"%.2f".format(earlyLaunchDecision.sizeMultiplier)}"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2975` — `checks.add(GateCheck("edge", true, "LIVE EARLY LAUNCH MICRO-PROBE: $reason [${currentAdjusted.learningPhase}]"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2980` — `checks.add(GateCheck("edge", true, "LIVE: edge override ($reason) [${currentAdjusted.learningPhase}]"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:2991` — `checks.add(GateCheck("edge", false, "edge=${candidate.edgeQuality} | no override: ${missingReasons.joinToString(", ")} [${currentAdjusted.learningPhase}]"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:3165` — `// V5.9.47: confidence threshold + bootstrap probe both route through`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:3220` — `"PAPER BOOTSTRAP PROBE: conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% BUT $probeReason → size×${confidenceProbeSizeMultiplier.format(2)}"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:3226` — `ErrorLogger.info("FDG", "🔬 PAPER BOOTSTRAP PROBE: ${ts.symbol} | conf=${adjustedConfidence.toInt()}% | $probeReason | size×${confidenceProbeSizeMultiplier.format(2)}")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:3229` — `// PAPER mode is now a SIZE/SCORE PENALTY (dust probe), not a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:3238` — `// micro-probe size/score penalty, not a hard veto, unless a true`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:3381` — `// an LLM Lab shadow-proof or operator manualResume(). Paper/sandbox`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:3385` — `// V5.0.6307 — REVERTED the V5.0.6304 paper-mode bypass.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:3390` — `// with a -81% paper drawdown. Restore the pre-6304 behaviour:`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:3393` — `// isPaused() bypass is preserved for OTHER callers that want`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:3394` — `// paper-only sampling (LLM Lab shadow proof), but the FDG`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:3412` — `// train-first micro-probe at 0.01 SOL. What was missing is a definitive`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:3502` — `// a micro paper probe (size 0.01) instead of blocking.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:3744` — `// Paper mode bypass — per doctrine #87.1 (dropped signal = dropped`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4270` — `checks.add(GateCheck("bootstrap_size_cut", true, "Size cut for probe: ${originalSize.format(4)} × ${combinedSizeMultiplier.format(2)} = ${finalSize.format(4)}"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4389` — `ApprovalClass.PAPER_PROBE to "probe: soft blocks→penalties (${probeReasons.joinToString(",")}), size×${combinedSizeMultiplier.format(2)}"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4447` — `// remaining alive (proven-dead probe cadence below still`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4464` — `// micro probe (0.02); the 1-in-25 cadence tick is allowed`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4465` — `// through at probe size so the bucket keeps learning.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4478` — `// disabled: it keeps trading at probe size so the bucket`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4488` — `checks.add(GateCheck("brain_consensus_proven_dead", true, "PROVEN_DEAD normal-size vetoed → probe ${beforeP.format(3)}→${finalSize.format(3)} (learning stays open)"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4492` — `checks.add(GateCheck("brain_consensus_proven_dead", true, "PROVEN_DEAD 1-in-25 learning probe @ ${finalSize.format(3)}"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4520` — `// probe (size 0.01) instead of vetoing the trade.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4652` — `// V5.0.4096 — emit override into sentience family so`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4701` — `// TRAIN-FIRST COMPLIANT: this SHAPES size (and routes SHADOW/TRAIN to ~0); it does`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4712` — `// never disable, never shadow-only; learn the correct way to trade every`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4720` — `// V5.9.1559 — PAPER_MICRO_EXECUTION is a paper/probe state name. In LIVE`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4822` — `// to 0.05 SOL). Several old train-first/probe paths can still collapse a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4825` — `//   • micro/probe/proven-dead semantics do NOT buy the same setup at dust;`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4839` — `u.contains("MICRO") || u.contains("PROBE") || u.contains("PROVEN_DEAD") || u.contains("TRAIN_FIRST")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4848` — `checks.add(GateCheck("live_core_size_floor", false, "micro/probe live dust ${before4526.format(4)} < core ${coreFloor4526.format(4)}; require strategy pivot instead of same-setup dust buy"))`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4877` — `// repeatedly into a dust probe. Preserve the aggregate direction in a`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:4902` — `//   specialist desk hypothesis (QUALITY as a shadow desk on`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FluidLearning.kt:9` — `* FluidLearning - Makes Paper & Shadow Mode fully functional learning environments`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningLifecycleBus.kt:231` — `fun status(): String = "${VERSION} signals=candidate,reject,probe,admit,sizing,fill,exit,terminal source_level=true coroutine_consumers=MathematicalEdgeEngine+ChokeReliefBus no_trade_authority=true"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:48` — `override fun onCreate(db: SQLiteDatabase) {`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:59` — `override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:62` — `/** Init DB and restore every tracker's rolling window state. */`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:99` — `*   - Plus 6 sub-trader save(force=true) calls`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:124` — `/** Force-flush all trackers. Call on onDestroy / shutdown.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:231` — `// Pre-V5.9.964 these had save()/restore() defined and init() wired`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:232` — `// so restore() ran at boot, but save() was NEVER called. Lifetime`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:235` — `// Force=true bypasses the per-trader throttle so we always flush`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:237` — `try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.save(force = true) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:238` — `try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.save(force = true) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:239` — `try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.save(force = true) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:240` — `try { com.lifecyclebot.v3.scoring.ProjectSniperAI.save(force = true) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:241` — `try { com.lifecyclebot.v3.scoring.ShitCoinExpress.save(force = true) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:242` — `try { com.lifecyclebot.v3.scoring.QualityTraderAI.save(force = true) } catch (_: Throwable) {}`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:251` — `/** Restore every tracker from the kv table. */`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:257` — `// V5.9.439 — restore every brain-state blob.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:279` — `// V5.9.949 — restore the rest of the brain.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:289` — `// V5.0.4205 — restore v3 scorer-brain blobs before runtime scoring.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:296` — `// V5.0.4208 — restore narrative/exit learner state.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:304` — `// V5.9.988 — SAFETY-FIRST restore order (Doctrine #3.36):`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt:34` — `*   WARM_MIN..WARM_FULL    → linearly interpolate relax → 1.00`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt:60` — `"BLUECHIP"   to 1.00, // V5.0.6031: report 6028 shows BLUECHIP WR20 EV-14.46 PnL-0.6858; no live relax until recovery`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt:64` — `"MOONSHOT"   to 0.85, // V5.0.6031: positive-EV MOONSHOT may bypass global WR lock via lanePositiveCache`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt:140` — `// If the cache has not warmed yet, be conservative in DUMP: no cold-start relax`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt:164` — `// based: relax fires whenever live WR clears 30%, emergency only`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt:182` — `liveN < WARM_MIN   -> base   // cold start → full relax`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt:194` — `* V5.0.4129 — Per-token golden-goose override.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt:198` — `* theme_ai 50% WR, etc.). This override lets the relaxer still relax FOR`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt:203` — `* override; TOXIC/CATASTROPHIC verdicts return 1.0 (no relax) regardless.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt:210` — `// Toxic/catastrophic patterns NEVER get a relax — extra protection layer.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt:215` — `// Gold/winner pattern: bypass the global WR-floor and DUMP-regime locks.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt:257` — `return "🔓 GATE RELAXER: LANE-POSITIVE OVERRIDE $positiveParts globalWR=${"%.1f".format(liveWr)}% n=$liveTerminalN"`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveRestoreExecutionPolicy.kt:7` — `* V5.9.1550 — live trading restore policy.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveRestoreExecutionPolicy.kt:11` — `* economic guardrail: restore only if the reduced live trade can realistically`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LlmPaperTradeExecutor.kt:41` — `* V5.9.141 — fallback: if the LLM reply had no block AND the user's`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LlmPaperTradeExecutor.kt:105` — `// V5.9.141 — FALLBACK: no block in LLM reply, but the user's own`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LlmPaperTradeExecutor.kt:113` — `ErrorLogger.info(TAG, "🗣️ intent fallback fired from user msg: $intent")`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ModeSpecificExits.kt:126` — `ErrorLogger.warn(TAG, "HoldTimeAI fallback: ${e.message}")`
+- … 325 more
+
+## Files with heavy version/patch stacking
+
+Count: **23**
+
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt:1` — `778 strata: V5.9.812 → V5.9.346 → V5.0.6673 → V5.9.173 → V5.9.264 → V5.9.302 → V5.9.429 → V5.9.217 → V5.9.208 → V5.9.151 → V5.9.495z39 → V5.9.495z41 → V5.9.192 → V5.9.293 → V5.9.697 → V5.9.192b → V5.9.705 → V5.9.166 → V5.9.243 → V5.9.1351 → V5.9.137 → V5.0.4338 → V5.9.120 → V5.9.123 → V5.9.118 → V5.`
+- `app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt:1` — `567 strata: V5.9.456 → V5.9.1528 → V5.9.492 → V5.9.482 → V5.9.767 → V5.9.488 → V5.9.493 → V5.9.455 → V5.0.3985 → V5.9.52 → V5.9.196 → V5.9.495x → V5.0.6386 → V5.9.495z43 → V5.0.4100 → V5.0.3973 → V5.9.195 → V5.0.4542 → V5.0.4111 → V5.9.284 → V5.9.291 → V5.9.318 → V5.0.3789 → V5.0.6099 → V5.9.451 → V`
+- `app/src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt:1` — `147 strata: V5.9.937-938 → V5.9.937 → V5.9.910 → V5.9.938 → V5.9.940 → V5.9.10 → V5.9.1486 → V5.9.806 → V5.0.6405 → V5.0.4089 → V5.9.1355 → V5.9.1360 → V5.9.1260 → V5.9.1296 → V5.9.1289 → V5.9.1261 → V5.9.1271 → V5.9.1262 → V5.0.4094 → V5.0.4096 → V5.9.1263 → V5.9.1330 → V5.9.1559 → V5.9.1333 → V5.9`
+- `app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt:1` — `66 strata: V5.0.6385 → V5.0.6684 → V5.0.6382 → V5.9.1367 → V5.0.3722 → V5.0.3910 → V5.0.6653 → V5.9.1324 → V5.0.6371 → V5.0.6402 → V5.0.6683 → V5.0.6489 → V5.9.1375 → V5.9.1466 → V5.0.6036 → V5.0.3918 → V5.0.4167 → V5.9.1230 → V5.9.1568 → V5.9.1499 → V5.9.1504 → V5.9.1502 → V5.0.6608 → V5.9.1097 → V`
+- `app/src/main/kotlin/com/lifecyclebot/v3/scoring/FluidLearningAI.kt:1` — `64 strata: V5.9.803 → V5.9.266 → V5.9.263 → V5.9.174 → V5.0.6051 → V5.0.6047 → V5.0.3681 → V5.9.152 → V5.0.6050 → V5.9.452 → V5.9.442 → V5.9.432 → V5.9.229 → V5.9.31 → V5.9.304 → V5.9.190-198 → V5.9.303 → V5.9.495z11 → V5.9.190 → V5.9.835 → V5.9.1326 → V5.0.4302 → V5.9.118 → V5.9.918 → V5.9.917 → V5`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt:1` — `39 strata: V5.9.949 → V5.9.1260 → V5.9.1261 → V5.9.1481 → V5.9.1271 → V5.0.6477 → V5.9.1262 → V5.9.1263 → V5.0.4236 → V5.0.4238 → V5.0.4239 → V5.0.4240 → V5.0.4243 → V5.0.4272 → V5.0.4275 → V5.0.4281 → V5.0.4287 → V5.0.4289 → V5.0.4290 → V5.0.4331 → V5.9.984 → V5.9.985 → V5.0.4205 → V5.0.4208 → V5.9`
+- `app/src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt:1` — `26 strata: V5.9.718 → V5.0.6687 → V5.9.61 → V5.9.186 → V5.9.212 → V5.9.412 → V5.9.68 → V5.0.6574 → V5.9.1352 → V5.9.643 → V5.9.737 → V5.0.3959 → V5.9.495z12 → V5.9.495z23 → V5.9.611 → V5.9.731 → V5.9.1131 → V5.0.6555 → V5.0.6572 → V5.0.6271 → V5.0.6270 → V5.0.4021 → V5.9.1381 → V5.0.4099 → V5.0.6583`
+- `app/src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt:1` — `25 strata: V5.9.495z7 → V5.9.1343 → V5.9.790 → V5.9.782 → V5.0.4000 → V5.9.793 → V5.9.1161 → V5.9.1514 → V5.9.1428 → V5.9.1517 → V5.9.1353 → V5.9.949 → V5.9.495z9 → V5.9.791 → V5.9.800 → V5.9.1038 → V5.9.1037 → V5.9.1035 → V5.9.1556b → V5.9.1300 → V5.9.1236 → V5.9.1355 → V5.9.1034b → V5.9.616 → V5.9`
+- `app/src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt:1` — `20 strata: V5.9.104 → V5.9.105 → V5.9.102 → V5.9.495p → V5.9.495z22 → V5.9.310 → V5.9.16 → V5.9.45 → V5.9.230 → V5.9.477 → V5.9.495z30 → V5.0.3946 → V5.0.3920 → V5.9.600 → V5.9.309 → V5.0.6545 → V5.9.320 → V5.9.475 → V5.9.467 → V5.9.321`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AdaptiveLearningEngine.kt:1` — `17 strata: V5.9.1275 → V5.9.301 → V5.9.721 → V5.9.1154 → V5.9.719 → V5.9.694 → V5.9.723 → V5.9.810 → V5.9.721-FIX → V5.0.6440 → V5.9.875 → V5.9.828 → V5.9.843 → V5.9.871 → V5.9.802 → V5.9.804 → V5.9.783`
+- `app/src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt:1` — `15 strata: V5.9.610 → V5.9.1159 → V5.9.1227 → V5.0.3936 → V5.9.1470 → V5.0.6653 → V5.9.1120 → V5.9.1093 → V5.9.105 → V5.9.495n → V5.9.1561 → V5.9.1377 → V5.9.495z52 → V5.9.662b → V5.9.662`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BehaviorLearning.kt:1` — `14 strata: V5.9.320 → V5.9.683-FIX → V5.9.745 → V5.9.790 → V5.9.832 → V5.9.871 → V5.9.810 → V5.9.662c → V5.9.802 → V5.9.804 → V5.9.949 → V5.9.717 → V5.9.782 → V5.9.873`
+- `app/src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt:1` — `14 strata: V5.9.495z38 → V5.9.1520 → V5.0.4300 → V5.0.6031 → V5.0.4056 → V5.0.4051 → V5.0.4081 → V5.0.4078 → V5.0.4129 → V5.0.6428 → V5.0.4178 → V5.0.4177 → V5.0.4067 → V5.0.4071`
+- `app/src/main/kotlin/com/lifecyclebot/engine/truth/PaperAccountLedger6430.kt:1` — `14 strata: V5.0.6430 → V5.0.6424 → V5.0.6616 → V5.0.6618 → V5.0.6577 → V5.0.6632 → V5.0.6485 → V5.0.6452 → V5.0.6475 → V5.0.6502 → V5.0.6461 → V5.0.6508f → V5.0.6504 → V5.0.6505`
+- `app/src/main/kotlin/com/lifecyclebot/perps/PerpsLearningBridge.kt:1` — `13 strata: V5.9.374 → V5.9.373 → V5.9.461 → V5.9.395 → V5.9.382 → V5.9.463 → V5.0.6549 → V5.9.225 → V5.9.368 → V5.9.380 → V5.9.394 → V5.9.362 → V5.9.357`
+- `app/src/main/kotlin/com/lifecyclebot/v3/decision/DecisionEngine.kt:1` — `13 strata: V5.9.1516 → V5.9.939 → V5.9.1586 → V5.9.495z51 → V5.9.152 → V5.9.184 → V5.0.3681 → V5.9.93 → V5.9.97 → V5.9.150 → V5.9.168 → V5.0.4077 → V5.0.4075`
+- `app/src/main/kotlin/com/lifecyclebot/engine/learning/LanePolicy.kt:1` — `11 strata: V5.9.1321 → V5.9.1460 → V5.9.1325 → V5.0.4526 → V5.0.6094 → V5.9.1461 → V5.0.6367 → V5.9.1464 → V5.0.6611 → V5.0.3804 → V5.9.1462`
+- `app/src/main/kotlin/com/lifecyclebot/engine/AutonomousMetaPolicy.kt:1` — `10 strata: V5.9.1260 → V5.0.4597 → V5.0.6077 → V5.9.1289 → V5.9.1290 → V5.9.1355 → V5.9.1294 → V5.9.1353 → V5.0.6486 → V5.0.6251`
+- `app/src/main/kotlin/com/lifecyclebot/engine/StrategyTruthLedger.kt:1` — `10 strata: V5.0.4151 → V5.0.4151_STRATEGY_TRUTH_LEDGER → V5.0.6358 → V5.0.6308 → V5.0.6378 → V5.0.6308-format → V5.0.6404 → V5.0.6379 → V5.0.6501 → V5.0.4502`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt:1` — `9 strata: V5.9.945 → V5.9.952 → V5.0.3977 → V5.0.6263 → V5.0.6262 → V5.9.1129 → V5.0.6275 → V5.0.4162 → V5.0.4175`
+- `app/src/main/kotlin/com/lifecyclebot/engine/BotServiceLifecycleExt.kt:1` — `9 strata: V5.9.1000 → V5.9.997 → V5.9.1001 → V5.9.744 → V5.9.675 → V5.9.674b → V5.9.674 → V5.9.1081 → V5.0.4484`
+- `app/src/main/kotlin/com/lifecyclebot/engine/UnifiedPolicyHead.kt:1` — `9 strata: V5.0.4094 → V5.9.1262 → V5.0.4093 → V5.0.6681 → V5.0.4179 → V5.0.6005 → V5.0.6605 → V5.0.6596 → V5.0.6604`
+- `app/src/main/kotlin/com/lifecyclebot/ui/LearningCounterActivity.kt:1` — `9 strata: V5.9.495z8 → V5.0.3869 → V5.9.868 → V5.9.781 → V5.9.782 → V5.9.790 → V5.9.807 → V5.9.1035 → V5.9.802`
+
+## Structural invariant summary
+
+- ❌ **Global paper replay divergence participates in EconomicPurity exclusion** — Must be telemetry/account rebuild authority, not blanket per-terminal learner veto
+- ❌ **Specialist FINALIZE has runtime producer outside report/UI** — FINALIZE must be stamped by canonical terminal publication
+- ✅ **Specialist LEARN has runtime producer outside report/UI** — LEARN must be stamped only after actual learner ACK
+- ✅ **UnifiedPolicy position bind exists** — Every canonical OPEN path must call it
+- ✅ **UnifiedPolicy outcome credit exists** — Every eligible terminal must call it exactly once
+- ✅ **Legacy FDG marked deprecated** — Deprecated authority must not independently contradict V3/final open gate
+- ✅ **Canonical final open firewall exists** — Use as one final capital authority
+
+## Consolidation target
+
+1. **Discovery/data/brains remain broad and live.** Scanner, token feeds, specialist models, cross-talk and hypothesis engines may contribute evidence and shadow outcomes.
+
+2. **One immutable decision envelope.** V3/brains/cross-talk produce evidence; no contributor directly creates capital authority.
+
+3. **One final capital admission authority.** ExecutableOpenGate/TradeAuthorizer must consume the immutable decision plus safety, route, WR/adaptive policy and capital state; later anti-choke/probe code cannot override a DENY.
+
+4. **One OPEN identity.** Every successful canonical open binds positionId → exact decision/policy/specialist causal key.
+
+5. **One terminal source.** CanonicalTradeFinalizedBus6450 → CanonicalFinalizedTradeBus6464 with exact terminal economic proof.
+
+6. **Per-event learning purity.** Historical/account replay divergence triggers rebuild/telemetry, never blanket exclusion of unrelated clean terminal events.
+
+7. **One learner ACK path.** Clean terminal event reaches owner learner + cross-talk/strategy consumers once, then stamps LEARN on the original OPEN key.
+
+8. **Replay/admin rows stay forensic only.** Rebuild contaminated performance from immutable lots/events; do not train on repaired/synthetic economics.
+
+9. **Exit and occupancy finality are idempotent.** Sell-confirmed terminal releases locks/slots exactly once.
+
+10. **UI renders cached snapshots only.** No ledger/replay/DB recomputation on Main.
