@@ -24,7 +24,7 @@ jobs:
 
       - name: Apply consolidation at checked-out source
         working-directory: lifecycle_apk
-        run: python3 ci/v5_0_6712_patch_rot_consolidation.py
+        run: python3 ci/v5_0_6712_rebased_apply.py
 
       - name: Patch-rot and authority scans
         working-directory: lifecycle_apk
