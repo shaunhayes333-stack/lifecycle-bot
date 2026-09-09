@@ -169,6 +169,13 @@ def main() -> int:
     require(errors, canonical_sizing, "causalEventId = resolvedCausalEventId6674", "SIZING_CAUSAL_PROPAGATION_6704")
     forbid(errors, canonical_sizing, "$resolvedCandidateVersion6620:SIZE", "FABRICATED_PRE_FDG_EXECUTION_ID_RETIRED_6704")
 
+    # 6705 specialist liveness contract. CASHGEN is explicitly executable in
+    # MemeOwnershipInvariant6620; only STANDARD/V3_CORE may be shadow-only.
+    open_gate = (SRC / "com/lifecyclebot/engine/ExecutableOpenGate.kt").read_text()
+    forbid(errors, open_gate, 'setOf("V3_CORE", "STANDARD", "CASHGEN")', "CASHGEN_SHADOW_DISABLE_RETIRED_6705")
+    require(errors, open_gate, 'setOf("V3_CORE", "STANDARD")', "OBSERVER_ONLY_LANES_6705")
+    require(errors, open_gate, "CASHGEN is a canonical executable MemeTrader specialist", "CASHGEN_EXECUTABLE_SOURCE_CONTRACT_6705")
+
     # 6702 exit-liveness contracts.
     paper_close = (SRC / "com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").read_text()
     pending_sell = (SRC / "com/lifecyclebot/engine/PendingSellQueue.kt").read_text()

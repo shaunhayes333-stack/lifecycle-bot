@@ -289,8 +289,12 @@ object ExecutableOpenGate {
     private fun executableClaimKey6487(mode: String, mint: String, candidateVersion: Long): String =
         "${BotRuntimeController.currentGeneration()}:${mode.uppercase()}:${mint.trim()}:$candidateVersion"
 
+    // V5.0.6705 — CASHGEN is a canonical executable MemeTrader specialist.
+    // MemeOwnershipInvariant6620 names only STANDARD/V3_CORE as observer-only.
+    // Keeping CASHGEN here contradicted that source contract and suppressed its
+    // FDG/ExecutionIntent publication before the trader could ever open.
     private fun isShadowReadOnlyLane6487(rawLane: String): Boolean =
-        rawLane.uppercase().trim().replace('-', '_').replace(' ', '_') in setOf("V3_CORE", "STANDARD", "CASHGEN")
+        rawLane.uppercase().trim().replace('-', '_').replace(' ', '_') in setOf("V3_CORE", "STANDARD")
 
     fun recordEntryAuthority6487(
         mint: String,
