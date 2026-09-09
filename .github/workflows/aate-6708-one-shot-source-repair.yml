@@ -1,0 +1,107 @@
+name: AATE 6708 one-shot source repair
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: contains(github.event.head_commit.message, 'bootstrap one-shot 6708 source repair')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch exact meme BUY journal fee source
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path.cwd()
+          executor_path = root / 'lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt'
+          src = executor_path.read_text()
+
+          marker = 'ForensicLogger.lifecycle("PAPER_LEARNING_ELIGIBILITY_6519"'
+          marker_idx = src.index(marker)
+          trade_start = src.index('        val trade = Trade(', marker_idx)
+          trade_end = src.index('        recordTrade(ts, trade)', trade_start)
+          block = src[trade_start:trade_end]
+
+          assert 'side = "BUY"' in block
+          assert 'economicEventId = entryFinalityId6497' in block
+          assert 'feeSol = fee6485' not in block
+          needle = '            score = score,\n'
+          assert block.count(needle) == 1
+          block = block.replace(needle, needle + '            feeSol = fee6485,\n', 1)
+          src = src[:trade_start] + block + src[trade_end:]
+          executor_path.write_text(src)
+
+          scan_path = root / 'lifecycle_apk/ci/patch_rot_scan.py'
+          scan = scan_path.read_text()
+          anchor = '    executor = (SRC / "com/lifecyclebot/engine/Executor.kt").read_text()\n'
+          assert anchor in scan
+          guard = (
+              '    # 6708 source receipt contract: Executor.paperBuy debits a 0.5% entry fee\n'
+              '    # into PaperAccountLedger6430 and the same immutable BUY must carry that\n'
+              '    # exact fee into the durable journal row. Never let replay/accounting\n'
+              '    # compensate for a creator-side omission again.\n'
+              '    meme_buy_fee_region_6708 = executor.split(\'ForensicLogger.lifecycle("PAPER_LEARNING_ELIGIBILITY_6519"\', 1)[-1].split("recordTrade(ts, trade)", 1)[0]\n'
+              '    require(errors, meme_buy_fee_region_6708, "feeSol = fee6485", "MEME_BUY_JOURNAL_FEE_RECEIPT_6708")\n'
+              '    require(errors, meme_buy_fee_region_6708, "economicEventId = entryFinalityId6497", "MEME_BUY_JOURNAL_EVENT_ID_6708")\n'
+          )
+          if 'MEME_BUY_JOURNAL_FEE_RECEIPT_6708' not in scan:
+              scan = scan.replace(anchor, anchor + guard, 1)
+          scan_path.write_text(scan)
+
+          test_path = root / 'lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate6708MemeBuyJournalFeeReceiptTest.kt'
+          test_path.write_text('''package com.lifecyclebot.engine
+
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+
+class Aate6708MemeBuyJournalFeeReceiptTest {
+    @Test
+    fun `native meme BUY journal carries exact ledger entry fee`() {
+        val src = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val marker = src.indexOf("PAPER_LEARNING_ELIGIBILITY_6519")
+        assertTrue(marker >= 0)
+        val start = src.indexOf("val trade = Trade(", marker)
+        val end = src.indexOf("recordTrade(ts, trade)", start)
+        assertTrue(start >= 0 && end > start)
+        val block = src.substring(start, end)
+        assertTrue(block.contains("side = \\"BUY\\""))
+        assertTrue(block.contains("feeSol = fee6485"))
+        assertTrue(block.contains("economicEventId = entryFinalityId6497"))
+    }
+}
+''')
+
+          # Remove this bootstrap workflow in the repair commit so it cannot become
+          # permanent patch scaffolding or re-run recursively.
+          (root / '.github/workflows/aate-6708-one-shot-source-repair.yml').unlink()
+          PY
+
+      - name: Verify exact source guards before commit
+        shell: bash
+        run: |
+          cd lifecycle_apk
+          python3 ci/patch_rot_scan.py
+          grep -n "feeSol = fee6485" app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt
+
+      - name: Commit repair to main
+        shell: bash
+        run: |
+          git config user.name "AATE Source Repair"
+          git config user.email "actions@users.noreply.github.com"
+          git add lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/Executor.kt \
+                  lifecycle_apk/ci/patch_rot_scan.py \
+                  lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate6708MemeBuyJournalFeeReceiptTest.kt \
+                  .github/workflows/aate-6708-one-shot-source-repair.yml
+          git commit -m "V5.0.6708 — preserve meme BUY entry fee in canonical journal receipt"
+          git push origin HEAD:main
