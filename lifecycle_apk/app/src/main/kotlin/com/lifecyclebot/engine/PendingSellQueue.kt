@@ -15,6 +15,13 @@ import java.util.concurrent.ConcurrentHashMap
  * remains retryable until a terminal close authority proves the position closed.
  * This repairs the old contradiction where comments said "never fake-close,
  * keep retrying" while MAX_AGE/MAX_RETRIES silently dropped the sell anyway.
+ *
+ * V5.0.6703 — CLOSE-AUTHORITY TELEMETRY CONTRACT
+ * Preserve the established CLOSING/CLOSED labels in addition to the 6702
+ * terminal labels. LIVE authority intentionally suppresses retry while a mint is
+ * closing or closed; diagnostics and regression locks must describe that state
+ * consistently rather than renaming the contract out from under downstream
+ * tooling.
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 object PendingSellQueue {
@@ -88,6 +95,10 @@ object PendingSellQueue {
             queue.remove(mint)
             try {
                 ForensicLogger.lifecycle(
+                    "PENDING_SELL_SUPPRESSED_CLOSING",
+                    "mint=${mint.take(10)} symbol=$symbol reason=$reason authority=closing_or_closed",
+                )
+                ForensicLogger.lifecycle(
                     "PENDING_SELL_SUPPRESSED_TERMINAL_6702",
                     "mint=${mint.take(10)} symbol=$symbol reason=$reason",
                 )
@@ -144,6 +155,10 @@ object PendingSellQueue {
             if (terminalForRuntime6702(mint)) {
                 terminal.add(mint)
                 try {
+                    ForensicLogger.lifecycle(
+                        "PENDING_SELL_PURGED_CLOSING_OR_CLOSED",
+                        "mint=${mint.take(10)} symbol=${sell.symbol} retries=${sell.retryCount}",
+                    )
                     ForensicLogger.lifecycle(
                         "PENDING_SELL_PURGED_TERMINAL_6702",
                         "mint=${mint.take(10)} symbol=${sell.symbol} retries=${sell.retryCount}",
