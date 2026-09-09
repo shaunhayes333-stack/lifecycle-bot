@@ -49,17 +49,8 @@ object CanonicalSizingBridge6532 {
         causalEventId: String = "",
     ): OrderSizeResolver6441.Resolution {
         // V5.0.6620 §MEME_SOURCE_LEVEL_EXECUTION_PROVENANCE §9 —
-        //   candidateVersion authority MUST be
-        //   LaneExecutionCoordinator.candidateVersionFor(mint). The
-        //   previous default `System.currentTimeMillis()` created a
-        //   second authority (raw wall-clock ms) that never matched
-        //   the executor's bucket-based check → EXEC_TICKET_RESTORED_
-        //   IMMUTABLE reported ticket versions in the trillions while
-        //   the executor saw the bucket in the tens of millions,
-        //   guaranteeing mismatch and the "NO_EXECUTION_INTENT" bug.
-        //   Sentinel -1L means the caller didn't provide a version; we
-        //   derive it from the canonical authority. Sentinel > 0L is
-        //   respected verbatim (caller has sealed a version).
+        // candidateVersion authority MUST be LaneExecutionCoordinator's
+        // bucket authority, never raw wall-clock milliseconds.
         val resolvedCandidateVersion6620 = if (candidateVersion > 0L) candidateVersion
             else try {
                 com.lifecyclebot.engine.LaneExecutionCoordinator
@@ -72,19 +63,36 @@ object CanonicalSizingBridge6532 {
             }
         } catch (_: Throwable) {}
 
-        // V5.0.6674 §SPECIALIST_CAUSAL_SIZING_CONTINUITY — source repair.
+        // V5.0.6674 §SPECIALIST_CAUSAL_SIZING_CONTINUITY.
+        // V5.0.6704 §PRE_FDG_SIZE_IS_ADVISORY_ONLY.
+        //
+        // 6674 correctly tried to keep sizing telemetry on the immutable
+        // execution attempt, but its fallback fabricated a 7-part execution
+        // key when no ExecutionIntent existed yet. OrderSizeResolver interprets
+        // any nonblank causalEventId as executable-stage telemetry and stamps
+        // SIZED_EXECUTABLE. That contradicted §6558 below (sizing is advisory
+        // before FDG) and generated PHANTOM_SIZED_ONLY records: SIZE existed
+        // without immutable INTENT/FDG/MARK authority.
+        //
+        // The repair is intentionally fail-closed for TELEMETRY ONLY: sizing
+        // still resolves exactly as before and no lane/trader is disabled, but
+        // SIZED_EXECUTABLE receives a causal id only when an immutable intent
+        // already owns this exact mode/mint/candidateVersion. The normal
+        // BotService execution spine stamps SIZED_EXECUTABLE again after the
+        // sealed intent exists, so genuine executable sizes remain visible.
         val resolvedCausalEventId6674 = causalEventId.ifBlank {
-            if (assetClass == AssetClass.SOLANA_TOKEN && canonicalAssetId.isNotBlank() && resolvedCandidateVersion6620 > 0L) {
+            if (assetClass == AssetClass.SOLANA_TOKEN &&
+                canonicalAssetId.isNotBlank() &&
+                resolvedCandidateVersion6620 > 0L
+            ) {
                 val mode6674 = if (paperMode) "PAPER" else "LIVE"
-                val activeAttempt6674 = try {
+                try {
                     com.lifecyclebot.engine.ExecutableOpenGate
                         .activeExecutionIntent6519(mode6674, canonicalAssetId, resolvedCandidateVersion6620)
                         ?.attemptId
-                } catch (_: Throwable) { null }
-                activeAttempt6674?.takeIf { it.isNotBlank() } ?: run {
-                    val generation6674 = try { com.lifecyclebot.engine.BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L }
-                    "$generation6674:$mode6674:$canonicalAssetId:BUY:${laneName.uppercase()}:$resolvedCandidateVersion6620:SIZE"
-                }
+                        ?.takeIf { it.isNotBlank() }
+                        .orEmpty()
+                } catch (_: Throwable) { "" }
             } else ""
         }
 
@@ -138,8 +146,11 @@ object CanonicalSizingBridge6532 {
             )
             if (resolvedCausalEventId6674.isNotBlank()) {
                 PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_SIZING_ID_PROPAGATED_6674")
+            } else if (assetClass == AssetClass.SOLANA_TOKEN && res.executable) {
+                PipelineHealthCollector.labelInc("SPECIALIST_PRE_FDG_SIZE_ADVISORY_6704")
             }
         } catch (_: Throwable) {}
+
         // V5.0.6558 — sizing is advisory input, never a pre-FDG authorization.
         try {
             ForensicLogger.lifecycle(
