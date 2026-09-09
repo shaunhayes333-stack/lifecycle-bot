@@ -133,13 +133,51 @@ object AateDecisionFabric6512 {
         val hypoBefore = StrategyHypothesisEngine.outcomeUpdateCount6512()
         try { StrategyHypothesisEngine.recordOutcome(env.mint, env.realizedReturnPct) } catch (_: Throwable) {}
         if (StrategyHypothesisEngine.outcomeUpdateCount6512() > hypoBefore) updated += "StrategyHypothesisEngine"
+
+        // V5.0.6707 — SOURCE REPAIR, NOT A NEW POLICY LAYER.
+        // Executor owns the canonical terminal close now, so the old assumption
+        // below that V3JournalRecorder always trained the primary lane is false.
+        // Reconnect that exact pre-existing learner trio at canonical finality.
+        // rewardedPositions above is the one-position idempotency boundary.
+        val ownerLane6707 = env.lane.uppercase()
+        val memeOwner6707 = ownerLane6707 in setOf(
+            "QUALITY","BLUECHIP","BLUE_CHIP","SHITCOIN","CYCLIC","EXPRESS","CORE",
+            "MOONSHOT","PROJECT_SNIPER","DIP_HUNTER","MANIPULATED","TREASURY","CASHGEN",
+        )
+        val invalidOwnerStrategy6707 = listOf(
+            "STALE", "RESTORED", "REPLAY", "DECIMAL", "ORPHAN", "PHANTOM",
+            "UNRESOLVED_BASIS", "ADMINISTRATIVE", "SYNTHETIC_CLOSE",
+        ).any { env.exitReason.uppercase().contains(it) }
+        val ownerEligible6707 = memeOwner6707 && !invalidOwnerStrategy6707 && try {
+            PaperLearningEligibility6519.decision(null, env.mint).eligible
+        } catch (_: Throwable) { false }
+        if (ownerEligible6707) {
+            val ownerBand6707 = env.scoreBand.ifBlank {
+                try { LosingPatternMemory.scoreBand(env.entryScore.toInt()) } catch (_: Throwable) { "UNKNOWN" }
+            }
+            val ownerOutcome6707 = CanonicalOutcomeClassifier6576.classifyReadonly(env.realizedReturnPct)
+            val ownerWin6707 = ownerOutcome6707 == CanonicalOutcomeClassifier6576.Class.WIN
+            val ownerLoss6707 = ownerOutcome6707 == CanonicalOutcomeClassifier6576.Class.LOSS
+            try {
+                com.lifecyclebot.engine.learning.LanePolicy.recordOutcome(ownerLane6707, ownerBand6707, ownerWin6707, ownerLoss6707)
+                com.lifecyclebot.engine.learning.RetrainingDecay.noteOutcome(ownerLane6707, ownerBand6707, ownerWin6707, ownerLoss6707, env.realizedReturnPct)
+                com.lifecyclebot.engine.learning.ExplorationBudget.onLaneOutcome(ownerLane6707, env.realizedReturnPct)
+                ToolkitSignalSheet.recordDeskStage(ownerLane6707, "LEARNING", env.positionId)
+                PipelineHealthCollector.labelInc("SPECIALIST_LEARNING_OWNER_CANONICAL_6707_$ownerLane6707")
+                if (ownerWin6707 || ownerLoss6707) updated += "LanePolicy"
+            } catch (_: Throwable) {}
+        } else if (memeOwner6707) {
+            try { PipelineHealthCollector.labelInc("SPECIALIST_LEARNING_OWNER_QUARANTINED_6707_$ownerLane6707") } catch (_: Throwable) {}
+        }
+
         contributors.filter { it.role == "MEME_SPECIALIST_DESK" && it.brain.startsWith("MemeDesk:") }.forEach { c ->
             val lane = c.brain.substringAfter("MemeDesk:").substringBefore(':').uppercase()
             val scoreBand = try { LosingPatternMemory.scoreBand(e?.scoreFinal?.toInt() ?: 0) } catch (_: Throwable) { "UNKNOWN" }
             val outcome = CanonicalOutcomeClassifier6576.classifyReadonly(env.realizedReturnPct)
             try {
-                // Primary lane is already trained exactly once by V3JournalRecorder.
-                // Only secondary desk contributors need this causal outcome fanout.
+                // V5.0.6707 — the actual execution owner was trained above from
+                // canonical finality. Secondary desks still receive causal credit
+                // without double-training the owner.
                 if (!lane.equals(env.lane, true)) {
                     com.lifecyclebot.engine.learning.LanePolicy.recordOutcome(
                         lane, scoreBand,
@@ -150,19 +188,6 @@ object AateDecisionFabric6512 {
                 ToolkitSignalSheet.recordDeskStage(lane, "LEARNING", env.positionId)
             } catch (_: Throwable) {}
         }
-        // V5.0.6610 §LEARNING_FANOUT_TO_OWNER — liveness-stage accounting only;
-        // the primary LanePolicy training remains owned by V3JournalRecorder.
-        try {
-            val ownerLane6610 = env.lane.uppercase()
-            if (ownerLane6610.isNotBlank() && ownerLane6610 in setOf(
-                    "QUALITY","BLUECHIP","BLUE_CHIP","SHITCOIN","CYCLIC","EXPRESS","CORE",
-                    "MOONSHOT","PROJECT_SNIPER","DIP_HUNTER","MANIPULATED","TREASURY","CASHGEN",
-                )
-            ) {
-                ToolkitSignalSheet.recordDeskStage(ownerLane6610, "LEARNING", env.positionId)
-                PipelineHealthCollector.labelInc("SPECIALIST_LEARNING_OWNER_FANOUT_6610_$ownerLane6610")
-            }
-        } catch (_: Throwable) {}
         val graphBefore = SemanticPatternGraph.nodeCount6512()
         val graphId = try { SemanticPatternGraph.recordOutcome(
             lane = env.lane, source = e?.context?.source ?: "CANONICAL_FINALITY",
