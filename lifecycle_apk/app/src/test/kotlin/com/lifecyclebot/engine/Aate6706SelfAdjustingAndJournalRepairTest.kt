@@ -1,9 +1,9 @@
 package com.lifecyclebot.engine
 
 import java.io.File
-import kotlin.test.Test
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
 
 /** Source-lock regression coverage for the 5.0.6705 failures. */
 class Aate6706SelfAdjustingAndJournalRepairTest {
@@ -23,8 +23,10 @@ class Aate6706SelfAdjustingAndJournalRepairTest {
         assertTrue(sizing.contains("AdaptiveWinRateAuthority6706.entryDecision(laneName)"))
         assertTrue(sizing.contains("ORDER_SIZE_ADAPTIVE_WR_HELD_6706"))
         assertTrue(sizing.contains("if (wr6706.probe) nudgedRisk"))
-        assertFalse(sizing.contains("wr6706.sizeMultiplier).coerceIn(0.35"),
-            "6706 WR reprobe must not be re-floored to the old 0.35 minimum")
+        assertFalse(
+            "6706 WR reprobe must not be re-floored to the old 0.35 minimum",
+            sizing.contains("wr6706.sizeMultiplier).coerceIn(0.35")
+        )
     }
 
     @Test
