@@ -13640,6 +13640,7 @@ class Executor(
             price = price, 
             ts = System.currentTimeMillis(),
             score = score,
+            feeSol = fee6485,
             // V5.9.386 — sub-trader tag overrides ExtendedMode when provided
             // so Journal shows SHITCOIN/QUALITY/BLUE_CHIP/MOONSHOT/TREASURY
             // on the BUY leg (SELL leg already correct via ts.position.tradingMode).

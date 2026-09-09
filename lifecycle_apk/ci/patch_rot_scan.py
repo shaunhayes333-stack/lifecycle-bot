@@ -155,6 +155,10 @@ def main() -> int:
     require(errors, stock_trader, "if (!position.isPaper) com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(", "STOCK_PAPER_OUTCOME_SINGLE_PUBLISHER_6679")
 
     executor = (SRC / "com/lifecyclebot/engine/Executor.kt").read_text()
+    # 6708: paperBuy ledger fee and durable BUY journal receipt must be identical.
+    meme_buy_fee_region_6708 = executor.split('ForensicLogger.lifecycle("PAPER_LEARNING_ELIGIBILITY_6519"', 1)[-1].split("recordTrade(ts, trade)", 1)[0]
+    require(errors, meme_buy_fee_region_6708, "feeSol = fee6485", "MEME_BUY_JOURNAL_FEE_RECEIPT_6708")
+    require(errors, meme_buy_fee_region_6708, "economicEventId = entryFinalityId6497", "MEME_BUY_JOURNAL_EVENT_ID_6708")
     paper_not_opened_owners = executor.count('PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED")')
     if paper_not_opened_owners != 1:
         errors.append(f"PAPER_BUY_NOT_OPENED_SINGLE_COUNTER_OWNER_6680: expected 1 owner, found {paper_not_opened_owners}")
