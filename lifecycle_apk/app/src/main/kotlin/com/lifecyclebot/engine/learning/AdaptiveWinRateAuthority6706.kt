@@ -3,6 +3,8 @@ package com.lifecyclebot.engine.learning
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.LearningPersistence
 import com.lifecyclebot.engine.PipelineHealthCollector
+import com.lifecyclebot.engine.StrategyTruthLedger
+import com.lifecyclebot.engine.TradeHistoryStore
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -21,7 +23,9 @@ import kotlinx.coroutines.launch
  * protects PnL but cannot, by itself, repair win rate.
  *
  * This authority is deliberately narrow:
- *  - consumes only canonical finalized terminal outcomes;
+ *  - consumes only canonical finalized terminal outcomes going forward;
+ *  - bootstraps once from StrategyTruthLedger's clean terminal population so an
+ *    upgrade does not forget already-proven bad/good lane evidence;
  *  - maintains a persisted, exponentially-decayed lane outcome posterior;
  *  - targets >=50% WR as the execution doctrine;
  *  - below target, ordinary entries are withheld and only bounded re-probes are
@@ -38,6 +42,8 @@ object AdaptiveWinRateAuthority6706 {
     private const val PRIOR_BETA = 2.0
     private const val DECAY = 0.94
     private const val MIN_BINDING_EVIDENCE = 5.0
+    private const val HISTORY_RAW_LIMIT = 5_000
+    private const val HISTORY_CLEAN_LIMIT = 1_000
 
     private data class Cell(
         val loaded: AtomicBoolean = AtomicBoolean(false),
@@ -45,6 +51,13 @@ object AdaptiveWinRateAuthority6706 {
         val lossMass: AtomicReference<Double> = AtomicReference(0.0),
         val lastAtMs: AtomicLong = AtomicLong(0L),
         val executionSeq: AtomicLong = AtomicLong(0L),
+    )
+
+    private data class HistoricalSeed(
+        val winMass: Double,
+        val lossMass: Double,
+        val lastAtMs: Long,
+        val decisiveRows: Int,
     )
 
     data class Decision(
@@ -63,17 +76,76 @@ object AdaptiveWinRateAuthority6706 {
     private val drains = ConcurrentHashMap<String, Boolean>()
 
     private val memeLanes = setOf(
-        "QUALITY", "BLUECHIP", "BLUE_CHIP", "SHITCOIN", "CYCLIC", "EXPRESS",
+        "QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "EXPRESS",
         "CORE", "MOONSHOT", "PROJECT_SNIPER", "DIP_HUNTER", "MANIPULATED",
         "TREASURY", "CASHGEN",
     )
+    private val historyLoaded = AtomicBoolean(false)
+    private val historySeeds = ConcurrentHashMap<String, HistoricalSeed>()
+    private val historyLoadLock = Any()
 
     private fun laneKey(lane: String): String = lane.uppercase().trim()
         .replace("BLUE_CHIP", "BLUECHIP")
         .replace("SHITCOIN_EXPRESS", "EXPRESS")
         .take(32)
 
-    fun isMemeLane(lane: String): Boolean = laneKey(lane) in memeLanes.map { laneKey(it) }.toSet()
+    fun isMemeLane(lane: String): Boolean = laneKey(lane) in memeLanes
+
+    /**
+     * Build one bounded clean historical seed for all meme lanes. This is a
+     * migration/bootstrap read only; live adaptation after that is exclusively fed
+     * by the canonical finalized bus. StrategyTruthLedger removes recovery rows,
+     * duplicate terminals, bad entry basis, quantity quarantines and forensic
+     * contamination before any row reaches this seed.
+     */
+    private fun ensureHistoricalSeeds6706() {
+        if (historyLoaded.get()) return
+        synchronized(historyLoadLock) {
+            if (historyLoaded.get()) return
+            try {
+                val raw = TradeHistoryStore.getRecentValidClosedTradesRaw(
+                    limit = HISTORY_RAW_LIMIT,
+                    includePartials = false,
+                )
+                val clean = StrategyTruthLedger.clean(raw, HISTORY_CLEAN_LIMIT).rows
+                    .filter { it.mode.equals("paper", true) || it.mode.equals("live", true) }
+                    .sortedBy { it.ts }
+                data class MutableSeed(var w: Double = 0.0, var l: Double = 0.0, var at: Long = 0L, var n: Int = 0)
+                val byLane = mutableMapOf<String, MutableSeed>()
+                for (row in clean) {
+                    val lane = laneKey(row.tradingMode)
+                    if (lane !in memeLanes) continue
+                    val pnlPct = row.pnlPct.takeIf { it.isFinite() } ?: continue
+                    val isWin = pnlPct > 0.5
+                    val isLoss = pnlPct < -0.5
+                    if (!isWin && !isLoss) continue
+                    val s = byLane.getOrPut(lane) { MutableSeed() }
+                    s.w = (s.w * DECAY) + if (isWin) 1.0 else 0.0
+                    s.l = (s.l * DECAY) + if (isLoss) 1.0 else 0.0
+                    s.at = maxOf(s.at, row.ts)
+                    s.n++
+                }
+                byLane.forEach { (lane, s) ->
+                    historySeeds[lane] = HistoricalSeed(s.w, s.l, s.at, s.n)
+                }
+                try {
+                    PipelineHealthCollector.labelInc("ADAPTIVE_WR_HISTORY_BOOTSTRAP_6706")
+                    ForensicLogger.lifecycle(
+                        "ADAPTIVE_WR_HISTORY_BOOTSTRAP_6706",
+                        "cleanRows=${clean.size} lanes=${historySeeds.size} " +
+                            historySeeds.entries.sortedBy { it.key }.joinToString(",") { (lane, s) -> "$lane:${s.decisiveRows}" },
+                    )
+                } catch (_: Throwable) {}
+            } catch (t: Throwable) {
+                try {
+                    PipelineHealthCollector.labelInc("ADAPTIVE_WR_HISTORY_BOOTSTRAP_FAILED_6706")
+                    ForensicLogger.lifecycle("ADAPTIVE_WR_HISTORY_BOOTSTRAP_FAILED_6706", "err=${t.javaClass.simpleName}:${t.message?.take(100)}")
+                } catch (_: Throwable) {}
+            } finally {
+                historyLoaded.set(true)
+            }
+        }
+    }
 
     private fun cell(lane: String): Cell {
         val key = laneKey(lane)
@@ -85,6 +157,21 @@ object AdaptiveWinRateAuthority6706 {
                     Regex("\\\"w\\\":([0-9.Ee+-]+)").find(raw)?.groupValues?.getOrNull(1)?.toDoubleOrNull()?.let(c.winMass::set)
                     Regex("\\\"l\\\":([0-9.Ee+-]+)").find(raw)?.groupValues?.getOrNull(1)?.toDoubleOrNull()?.let(c.lossMass::set)
                     Regex("\\\"at\\\":([0-9]+)").find(raw)?.groupValues?.getOrNull(1)?.toLongOrNull()?.let(c.lastAtMs::set)
+                } else {
+                    ensureHistoricalSeeds6706()
+                    historySeeds[key]?.let { seed ->
+                        c.winMass.set(seed.winMass)
+                        c.lossMass.set(seed.lossMass)
+                        c.lastAtMs.set(seed.lastAtMs)
+                        persist(key, c)
+                        try {
+                            PipelineHealthCollector.labelInc("ADAPTIVE_WR_HISTORY_SEEDED_6706_$key")
+                            ForensicLogger.lifecycle(
+                                "ADAPTIVE_WR_HISTORY_SEEDED_6706",
+                                "lane=$key decisive=${seed.decisiveRows} wMass=${seed.winMass} lMass=${seed.lossMass}",
+                            )
+                        } catch (_: Throwable) {}
+                    }
                 }
             } catch (_: Throwable) {}
         }
@@ -139,7 +226,7 @@ object AdaptiveWinRateAuthority6706 {
         realizedReturnPct: Double,
     ): Boolean {
         val key = laneKey(lane)
-        if (key !in memeLanes.map { laneKey(it) }.toSet()) return false
+        if (key !in memeLanes) return false
         if (canonicalEventKey.isBlank() && positionId.isBlank()) return false
         val eventKey = canonicalEventKey.ifBlank { positionId }
         if (!seenCanonical.add(eventKey)) return false
@@ -183,7 +270,7 @@ object AdaptiveWinRateAuthority6706 {
      */
     fun entryDecision(lane: String): Decision {
         val key = laneKey(lane)
-        if (key !in memeLanes.map { laneKey(it) }.toSet()) {
+        if (key !in memeLanes) {
             return Decision(true, 1.0, false, 0.5, 0.0, "NON_MEME_NEUTRAL")
         }
         val c = cell(key)
