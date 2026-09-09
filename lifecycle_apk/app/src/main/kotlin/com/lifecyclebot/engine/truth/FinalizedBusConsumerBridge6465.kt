@@ -191,9 +191,42 @@ object FinalizedBusConsumerBridge6465 {
     private fun deliverToMemeCausalLearning6568(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         val memeLane = env.lane.uppercase() in setOf("MEME","STANDARD","SHITCOIN","EXPRESS","MOONSHOT","BLUECHIP","BLUE_CHIP","QUALITY","MANIPULATED","CASHGEN","CYCLIC","DIP_HUNTER","TREASURY","PROJECT_SNIPER")
         if (memeLane) {
-            val win = env.realizedReturnPct > 0.5; val loss = env.realizedReturnPct < -0.5
+            // V5.0.6707 — restore the original V3 close-side attribution
+            // consumers at the canonical terminal source. 6485+ moved terminal
+            // ownership into this bus, but these four existing learners were
+            // left behind in V3JournalRecorder.recordClose(). They therefore
+            // stopped seeing ordinary Executor closes even though the code was
+            // still present. This is wiring restoration only: no new policy,
+            // thresholds, sizing authority or log-derived override.
+            val pnlPctLearn6707 = when {
+                !env.realizedReturnPct.isFinite() -> 0.0
+                env.realizedReturnPct > 5000.0 -> 5000.0
+                env.realizedReturnPct < -100.0 -> -100.0
+                else -> env.realizedReturnPct
+            }
+            val holdMinutes6707 = (env.holdingTimeMs / 60_000L).coerceAtLeast(0L)
+            val peakPct6707 = when {
+                !env.mfePct.isFinite() -> 0.0
+                env.mfePct < 0.0 -> 0.0
+                env.mfePct > 5000.0 -> 5000.0
+                else -> env.mfePct
+            }
+            try { com.lifecyclebot.engine.ScoreExpectancyTracker.record(env.lane, env.entryScore, pnlPctLearn6707) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.HoldDurationTracker.record(env.lane, holdMinutes6707, pnlPctLearn6707) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.ExitReasonTracker.record(env.lane, env.exitReason, pnlPctLearn6707) } catch (_: Throwable) {}
+            try {
+                com.lifecyclebot.engine.learning.LaneExitTuner.recordClose(
+                    lane = env.lane,
+                    pnlPct = pnlPctLearn6707,
+                    peakPct = peakPct6707,
+                    exitReason = env.exitReason,
+                )
+            } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("MEME_ORIGINAL_ATTRIBUTION_RESTORED_6707_${env.lane.uppercase().take(24)}") } catch (_: Throwable) {}
+
+            val win = pnlPctLearn6707 > 0.5; val loss = pnlPctLearn6707 < -0.5
             com.lifecyclebot.engine.runtime.ColdStreakDamper.noteOutcome(env.lane, env.mode.equals("paper", true), win, loss)
-            com.lifecyclebot.engine.runtime.DamageControlGate.noteOutcome(env.realizedReturnPct)
+            com.lifecyclebot.engine.runtime.DamageControlGate.noteOutcome(pnlPctLearn6707)
             MemeCausalLearning6568.record(env)
         } else true
     } catch (_: Throwable) { false }
