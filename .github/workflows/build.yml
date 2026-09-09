@@ -16,6 +16,14 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # V5.0.6710 — VERSION PROVENANCE AUTHORITY.
+          # The version resolver scans commit subjects for the highest V5.0.xxxx
+          # patch stamp. A shallow checkout exposes only the current commit, so a
+          # chore/tests-only head silently loses the 67xx stamp and falls back to
+          # the much smaller GITHUB_RUN_NUMBER (the source of the 5.0.5884 report).
+          # Full history makes BuildConfig.VERSION_NAME monotonic with source.
+          fetch-depth: 0
 
       - uses: actions/setup-java@v4
         with:
@@ -51,14 +59,11 @@ jobs:
           # (e.g. report 4550 while git head is 4570). Use the larger of the CI
           # run number and the latest V5.0.xxxx commit subject so report/build/git
           # numbers line up again without ever decreasing versionCode.
-          # V5.0.6550b — regex tightening. Prior form required the subject to
-          # START with V5.0.NNNN, so any non-version-bump commit (PRD.md,
-          # ci/*, tests-only) collapsed COMMIT_BUILD_NUMBER to 0 and CI fell
-          # back to GITHUB_RUN_NUMBER — producing a "weird" small build
-          # number in the APK filename and BuildConfig. Fix: match V5.0.NNNN
-          # ANYWHERE in the subject AND scan the last 20 commits so the
-          # highest patch stamp always wins.
-          COMMIT_BUILD_NUMBER=$(git log -20 --pretty=%s | grep -oE 'V5\.0\.[0-9]+' | sed -E 's/V5\.0\.//' | sort -n | tail -1)
+          # V5.0.6710 — the old resolver said "last 20 commits" but checkout@v4
+          # was shallow (depth=1), so a non-version chore commit made the resolver
+          # see zero patch stamps and fall back to run number 5884. Checkout is now
+          # full-history and this scan covers the complete reachable branch history.
+          COMMIT_BUILD_NUMBER=$(git log --pretty=%s | grep -oE 'V5\.0\.[0-9]+' | sed -E 's/V5\.0\.//' | sort -n | tail -1)
           if [ -z "$COMMIT_BUILD_NUMBER" ]; then COMMIT_BUILD_NUMBER=0; fi
           if [ "$COMMIT_BUILD_NUMBER" -gt "$RUN_BUILD_NUMBER" ]; then
             BUILD_NUMBER="$COMMIT_BUILD_NUMBER"
@@ -93,8 +98,8 @@ jobs:
           # CI infra hardening: the gradle-distributions CDN intermittently
           # returns 504 / times out. Retry the wrapper's distribution download
           # up to 5 times with backoff before giving up, so a transient outage
-          # no longer fails the build (the code itself never reached compile in
-          # the failed runs — the wrapper died fetching gradle-8.7-bin.zip).
+          # no longer fails CI (the code itself never reached compile in the
+          # failed runs — the wrapper died fetching gradle-8.7-bin.zip).
           GRADLE_CMD="./gradlew"
           for i in 1 2 3 4 5; do
             if ./gradlew --version --no-daemon; then
