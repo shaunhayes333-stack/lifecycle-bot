@@ -96,13 +96,16 @@ class Aate6612BoundedContributorMergeCoverageTest {
                 src.contains("SpecialistContributorMerge6612") &&
                 src.contains("boundedSizeMultiplier6612(mint)")
         )
-        // The nudge must be applied BEFORE the runner ladder so subsequent
-        // hard caps still clip it.
+        // The contributor nudge must remain before both the 6706 reprobe branch
+        // and the normal runner ladder. A WR reprobe may deliberately bypass
+        // ladder inflation, but it must not move the contributor merge after
+        // sealed sizing authority.
         val nudgeIdx = src.indexOf("val nudgedRisk = (risk * contribMult6612)")
-        val ladderIdx = src.indexOf("val laddered = if (ladderTarget.isFinite()")
+        val reprobeLadderIdx = src.indexOf("val laddered = if (wr6706.probe) nudgedRisk else")
+        val normalLadderIdx = src.indexOf("if (ladderTarget.isFinite() && ladderTarget > 0.0)")
         assertTrue(
-            "V5.0.6612: nudgedRisk must be computed BEFORE the runner ladder so hard caps still clip it (nudge=$nudgeIdx ladder=$ladderIdx)",
-            nudgeIdx > 0 && ladderIdx > nudgeIdx
+            "V5.0.6706g: contributor nudge must precede WR reprobe selection and the normal runner ladder (nudge=$nudgeIdx reprobe=$reprobeLadderIdx normal=$normalLadderIdx)",
+            nudgeIdx > 0 && reprobeLadderIdx > nudgeIdx && normalLadderIdx > reprobeLadderIdx
         )
     }
 
