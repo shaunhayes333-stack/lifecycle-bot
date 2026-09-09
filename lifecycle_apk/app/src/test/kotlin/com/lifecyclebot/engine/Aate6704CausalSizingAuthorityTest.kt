@@ -13,6 +13,6 @@ class Aate6704CausalSizingAuthorityTest {
         assertTrue(src.contains("activeExecutionIntent6519"))
         assertTrue(src.contains("SPECIALIST_PRE_FDG_SIZE_ADVISORY_6704"))
         assertTrue(src.contains("causalEventId = resolvedCausalEventId6674"))
-        assertFalse(src.contains(":$resolvedCandidateVersion6620:SIZE\""))
+        assertFalse(src.contains(":\$resolvedCandidateVersion6620:SIZE\""))
     }
 }
