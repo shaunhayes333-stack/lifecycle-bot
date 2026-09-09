@@ -9,119 +9,19 @@ permissions:
 
 jobs:
   repair:
-    if: contains(github.event.head_commit.message, 'stage one-shot specialist source authority repair')
+    if: contains(github.event.head_commit.message, 'run one-shot specialist source authority repair')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Repair source authority contradictions
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
+      - name: Apply exact source repair
+        run: python3 lifecycle_apk/ci/source_repair_6705.py
 
-          def replace_once(path, old, new, label):
-              p = Path(path)
-              s = p.read_text()
-              count = s.count(old)
-              if count != 1:
-                  raise SystemExit(f"{label}: expected exactly 1 source match, found {count}")
-              p.write_text(s.replace(old, new, 1))
-              print(f"repaired {label}")
-
-          gate = 'lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt'
-          replace_once(
-              gate,
-              '''    private fun isShadowReadOnlyLane6487(rawLane: String): Boolean =
-        rawLane.uppercase().trim().replace('-', '_').replace(' ', '_') in setOf("V3_CORE", "STANDARD", "CASHGEN")''',
-              '''    // V5.0.6705 — CASHGEN is a canonical executable MemeTrader specialist.
-    // MemeOwnershipInvariant6620 names only STANDARD/V3_CORE as observer-only.
-    // Keeping CASHGEN here contradicted that source contract and suppressed its
-    // FDG/ExecutionIntent publication before the trader could ever open.
-    private fun isShadowReadOnlyLane6487(rawLane: String): Boolean =
-        rawLane.uppercase().trim().replace('-', '_').replace(' ', '_') in setOf("V3_CORE", "STANDARD")''',
-              'CASHGEN_EXECUTABLE_SPECIALIST_6705',
-          )
-
-          test_path = Path('lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate6705CashgenExecutionAuthorityTest.kt')
-          test_path.write_text(r'''package com.lifecyclebot.engine
-
-import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
-import java.io.File
-
-/** V5.0.6705 — CASHGEN is executable; only STANDARD/V3_CORE are observers. */
-class Aate6705CashgenExecutionAuthorityTest {
-    @Before fun setup() {
-        ExecutableOpenGate.resetForTests()
-        LaneExecutionCoordinator.resetForTests()
-        RuntimeModeAuthority.publishConfig(paperMode = true, autoTrade = true)
-        RuntimeModeAuthority.publishUiMode(true)
-        RuntimeModeAuthority.publishExecutorMode(true)
-        RuntimeModeAuthority.publishPipelineMode(true)
-    }
-
-    @After fun cleanup() { ExecutableOpenGate.resetForTests() }
-
-    @Test fun `cashgen fdg allow materializes immutable execution intent`() {
-        val mint = "CashgenExec6705${System.nanoTime()}"
-        val cv = LaneExecutionCoordinator.candidateVersionFor(mint)
-        val intent = ExecutableOpenGate.recordFdgAndGetIntent6533(
-            mint = mint,
-            symbol = "CASH6705",
-            lane = "CASHGEN",
-            canExecute = true,
-            reason = null,
-            signal = "BUY",
-            rugScore = 90,
-            safetyTier = "SAFE",
-            liquidityUsd = 5_000.0,
-            preFdgVerdict = "BUY",
-            candidateVersion = cv,
-            entryScore = 82,
-        )
-        assertNotNull(intent)
-        assertEquals("CASHGEN", intent!!.canonicalLane)
-        assertTrue(intent.fdgAllowed)
-        assertSame(intent, ExecutableOpenGate.activeExecutionIntent6519("PAPER", mint, cv))
-    }
-
-    @Test fun `shadow policy matches canonical meme ownership contract`() {
-        val gate = File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
-        val body = gate.substringAfter("private fun isShadowReadOnlyLane6487")
-            .substringBefore("fun recordEntryAuthority6487")
-        assertTrue(body.contains("V3_CORE"))
-        assertTrue(body.contains("STANDARD"))
-        assertFalse(body.contains("CASHGEN"))
-
-        val ownership = File("src/main/kotlin/com/lifecyclebot/engine/truth/MemeOwnershipInvariant6620.kt").readText()
-        assertTrue(ownership.contains("\"MANIPULATED\", \"TREASURY\", \"CASHGEN\""))
-        assertTrue(ownership.contains("setOf(\"STANDARD\", \"V3_CORE\")"))
-    }
-}
-''')
-
-          rot = 'lifecycle_apk/ci/patch_rot_scan.py'
-          old = '''    # 6702 exit-liveness contracts.\n'''
-          new = '''    # 6705 specialist liveness contract. CASHGEN is explicitly executable in\n    # MemeOwnershipInvariant6620; only STANDARD/V3_CORE may be shadow-only.\n    open_gate = (SRC / "com/lifecyclebot/engine/ExecutableOpenGate.kt").read_text()\n    forbid(errors, open_gate, 'setOf("V3_CORE", "STANDARD", "CASHGEN")', "CASHGEN_SHADOW_DISABLE_RETIRED_6705")\n    require(errors, open_gate, 'setOf("V3_CORE", "STANDARD")', "OBSERVER_ONLY_LANES_6705")\n    require(errors, open_gate, "CASHGEN is a canonical executable MemeTrader specialist", "CASHGEN_EXECUTABLE_SOURCE_CONTRACT_6705")\n\n    # 6702 exit-liveness contracts.\n'''
-          replace_once(rot, old, new, 'PATCH_ROT_CASHGEN_6705')
-
-          workflow = Path('.github/workflows/source-repair-6705.yml')
-          workflow.unlink()
-          print('removed one-shot workflow from resulting source commit')
-          PY
-
-      - name: Verify targeted source contract before commit
+      - name: Verify source contracts
         run: |
           python3 lifecycle_apk/ci/patch_rot_scan.py
-          grep -n 'isShadowReadOnlyLane6487' lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt
           if grep -q 'setOf("V3_CORE", "STANDARD", "CASHGEN")' lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt; then
             echo 'CASHGEN shadow-disable residue remains' >&2
             exit 1
