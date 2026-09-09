@@ -160,6 +160,15 @@ def main() -> int:
         errors.append(f"PAPER_BUY_NOT_OPENED_SINGLE_COUNTER_OWNER_6680: expected 1 owner, found {paper_not_opened_owners}")
     forbid(errors, executor, 'PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_PRESALE_SNIPE_51K_RUG_6373F")', "PAPER_PRESALE_REJECT_DYNAMIC_REASON_ONLY_6680")
 
+    # 6704 pre-FDG sizing authority contract. A sizing resolution remains active,
+    # but it cannot create executable-stage causal telemetry until immutable FDG
+    # authority has created the exact mode/mint/candidate ExecutionIntent.
+    canonical_sizing = (SRC / "com/lifecyclebot/engine/truth/CanonicalSizingBridge6532.kt").read_text()
+    require(errors, canonical_sizing, "activeExecutionIntent6519", "SIZING_CAUSAL_ID_FROM_SEALED_INTENT_6704")
+    require(errors, canonical_sizing, "SPECIALIST_PRE_FDG_SIZE_ADVISORY_6704", "PRE_FDG_SIZE_ADVISORY_6704")
+    require(errors, canonical_sizing, "causalEventId = resolvedCausalEventId6674", "SIZING_CAUSAL_PROPAGATION_6704")
+    forbid(errors, canonical_sizing, "$resolvedCandidateVersion6620:SIZE", "FABRICATED_PRE_FDG_EXECUTION_ID_RETIRED_6704")
+
     # 6702 exit-liveness contracts.
     paper_close = (SRC / "com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").read_text()
     pending_sell = (SRC / "com/lifecyclebot/engine/PendingSellQueue.kt").read_text()
