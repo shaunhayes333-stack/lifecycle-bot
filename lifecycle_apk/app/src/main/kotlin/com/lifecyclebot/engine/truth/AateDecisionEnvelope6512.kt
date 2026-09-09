@@ -144,6 +144,20 @@ object AateDecisionFabric6512 {
             "QUALITY","BLUECHIP","BLUE_CHIP","SHITCOIN","CYCLIC","EXPRESS","CORE",
             "MOONSHOT","PROJECT_SNIPER","DIP_HUNTER","MANIPULATED","TREASURY","CASHGEN",
         )
+
+        // V5.0.6610 §LEARNING_FANOUT_TO_OWNER — canonical finality liveness.
+        // This is an observation/stage signal, not permission to mutate a learner.
+        // Keep it outside PaperLearningEligibility so every finalized configured
+        // MemeTrader owner is visible in learningN; the actual LanePolicy/
+        // RetrainingDecay/ExplorationBudget mutation remains gated below.
+        val ownerLane6610 = ownerLane6707
+        if (memeOwner6707) {
+            try {
+                ToolkitSignalSheet.recordDeskStage(ownerLane6610, "LEARNING", env.positionId)
+                PipelineHealthCollector.labelInc("SPECIALIST_LEARNING_OWNER_FANOUT_6610_$ownerLane6610")
+            } catch (_: Throwable) {}
+        }
+
         val invalidOwnerStrategy6707 = listOf(
             "STALE", "RESTORED", "REPLAY", "DECIMAL", "ORPHAN", "PHANTOM",
             "UNRESOLVED_BASIS", "ADMINISTRATIVE", "SYNTHETIC_CLOSE",
@@ -162,7 +176,6 @@ object AateDecisionFabric6512 {
                 com.lifecyclebot.engine.learning.LanePolicy.recordOutcome(ownerLane6707, ownerBand6707, ownerWin6707, ownerLoss6707)
                 com.lifecyclebot.engine.learning.RetrainingDecay.noteOutcome(ownerLane6707, ownerBand6707, ownerWin6707, ownerLoss6707, env.realizedReturnPct)
                 com.lifecyclebot.engine.learning.ExplorationBudget.onLaneOutcome(ownerLane6707, env.realizedReturnPct)
-                ToolkitSignalSheet.recordDeskStage(ownerLane6707, "LEARNING", env.positionId)
                 PipelineHealthCollector.labelInc("SPECIALIST_LEARNING_OWNER_CANONICAL_6707_$ownerLane6707")
                 if (ownerWin6707 || ownerLoss6707) updated += "LanePolicy"
             } catch (_: Throwable) {}
