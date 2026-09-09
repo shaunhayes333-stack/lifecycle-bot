@@ -58,3 +58,5 @@ class Aate6709AdaptiveTurnoverCycleTest {
         assertTrue(src.contains("turnover6709[admit=\${turnoverAdmitted6709.get()} defer=\${turnoverDeferred6709.get()} highEdge=\${turnoverHighEdgeBypass6709.get()}]"))
     }
 }
+
+// V5.0.6709 retry marker: rerun guarded exit-authority transform from corrected test head.
