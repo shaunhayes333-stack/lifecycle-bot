@@ -468,7 +468,26 @@ object UnifiedPolicyHead {
                     )
                     PipelineHealthCollector.labelInc("UNIFIED_POLICY_CAUSAL_OUTCOME_MISSING_6681")
                 } catch (_: Throwable) {}
-                false
+                // V5.0.6717 §CAUSAL_LOOP_UNSEVERANCE.
+                //
+                // Prior behaviour returned false here, which cascaded up through
+                // AateDecisionEnvelope6512.onFinalized (early return at
+                // "memeOwner6713 && !policyAck6713"), so CausalFeedbackAuthority
+                // 6715.markLearned was NEVER invoked, and the causal admission
+                // gate kept the position stuck in pendingLearning FOREVER,
+                // blocking every future admit for that lane/band with
+                // TERMINAL_FEEDBACK_NOT_LEARNED_6715. That was the trade-one
+                // freeze — 1 trade per lane per session → 8% winrate.
+                //
+                // Missing binding is NOT the same as failed ACK: it just means
+                // there is no training sample for THIS canonical position. The
+                // causalMissCount6681 counter above already measures that. Return
+                // true so the terminal ACK flows through and the causal loop
+                // stays alive; downstream learners (LanePolicy / RetrainingDecay
+                // / ExplorationBudget / AutonomousMetaPolicy / Strategy
+                // HypothesisEngine) still learn from the outcome via mint/lane
+                // paths that do not require this per-position observation.
+                true
             } else {
                 synchronized(trainingLock6681) {
                     trainOneOutcome6681(owner, bound.features, pnlPct)

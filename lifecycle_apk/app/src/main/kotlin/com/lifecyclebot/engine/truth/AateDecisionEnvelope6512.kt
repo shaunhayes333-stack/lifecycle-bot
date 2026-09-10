@@ -143,6 +143,21 @@ object AateDecisionFabric6512 {
         // V5.0.6713 — exact owner-bound policy mutation is required before this
         // consumer ACKs the canonical event. Failed/missing binds retry instead
         // of permanently recording a false successful reward delivery.
+        //
+        // V5.0.6717 §CAUSAL_LOOP_UNSEVERANCE — the V5.0.6713 hard-return-false
+        // was cascading with UnifiedPolicyHead.recordOutcome6681's binding-
+        // miss=false to keep every meme-owner position stuck in Causal
+        // FeedbackAuthority6715.pendingLearning FOREVER (markLearned was gated
+        // on policyAck6713). That blocked every future admit for the lane/band
+        // with TERMINAL_FEEDBACK_NOT_LEARNED_6715 — trade-one freeze, 8% WR.
+        //
+        // Repaired semantics: attempt the causal training, but the ACK to the
+        // canonical bus is independent of whether we had a per-position training
+        // sample for THIS trade. Downstream learners (LanePolicy /
+        // RetrainingDecay / ExplorationBudget / AutonomousMetaPolicy /
+        // StrategyHypothesisEngine) all learn from mint/lane paths that don't
+        // require the UnifiedPolicyHead per-position observation, so they MUST
+        // still run. rewardedPositions still enforces one-time delivery.
         val policyAck6713 = try {
             UnifiedPolicyHead.recordOutcome6681(env.positionId, env.mint, env.lane, env.realizedReturnPct)
         } catch (_: Throwable) { false }
@@ -152,18 +167,21 @@ object AateDecisionFabric6512 {
         )
         if (memeOwner6713 && !policyAck6713) {
             try {
-                PipelineHealthCollector.labelInc("AATE_POLICY_REWARD_RETRY_CAUSAL_BIND_6713")
+                PipelineHealthCollector.labelInc("AATE_POLICY_REWARD_SOFT_MISS_6717")
                 ForensicLogger.lifecycle(
-                    "AATE_POLICY_REWARD_RETRY_CAUSAL_BIND_6713",
-                    "positionId=${env.positionId.take(18)} lane=${env.lane} mint=${env.mint.take(10)} action=retry_no_false_ack",
+                    "AATE_POLICY_REWARD_SOFT_MISS_6717",
+                    "positionId=${env.positionId.take(18)} lane=${env.lane} mint=${env.mint.take(10)} action=ack_and_continue_downstream_learners_still_run",
                 )
             } catch (_: Throwable) {}
-            return false
+            // NOTE: previously returned false here (V5.0.6713). Now we continue
+            // so markLearned + downstream learners fire. See §CAUSAL_LOOP_UNSEVERANCE.
         }
         if (!rewardedPositions.add(env.positionId)) return true
-        if (policyAck6713) {
-            try { CausalFeedbackAuthority6715.markLearned(env.positionId) } catch (_: Throwable) {}
-        }
+        // V5.0.6717 §CAUSAL_LOOP_UNSEVERANCE — always ACK the causal feedback
+        // authority regardless of whether per-position policy training bound.
+        // The canonical terminal happened; the admission gate MUST NOT stay
+        // stuck in pendingLearning. Downstream learners still get their outcome.
+        try { CausalFeedbackAuthority6715.markLearned(env.positionId) } catch (_: Throwable) {}
         if (policyAck6713 && UnifiedPolicyHead.trainedCount() > uphBefore) updated += "UnifiedPolicyHead"
         val metaBefore = AutonomousMetaPolicy.totalUpdateCount6512()
         try { AutonomousMetaPolicy.recordOutcome(env.mint, env.realizedReturnPct) } catch (_: Throwable) {}
