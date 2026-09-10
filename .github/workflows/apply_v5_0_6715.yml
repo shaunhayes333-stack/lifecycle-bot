@@ -39,10 +39,14 @@ jobs:
       - name: Apply staged 6715 source repair
         run: python3 ci/v5_0_6715_trade_one_causal_authority.py
 
+      - name: Reconcile 6715 reset and superseded invariants
+        run: python3 ci/v5_0_6715_verification_reconcile.py
+
       - name: Verify 6715 production source actually exists
         run: |
           test -f app/src/main/kotlin/com/lifecyclebot/engine/truth/CausalFeedbackAuthority6715.kt
           grep -q 'EXEC_OPEN_BLOCKED_CAUSAL_FEEDBACK_6715' app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt
+          grep -q 'CausalFeedbackAuthority6715.resetForTest6715' app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt
           grep -q 'CausalFeedbackAuthority6715.markLearned' app/src/main/kotlin/com/lifecyclebot/engine/truth/AateDecisionEnvelope6512.kt
           grep -q 'TRADE_ONE_CATASTROPHIC_PNL = -25.0' app/src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt
 
