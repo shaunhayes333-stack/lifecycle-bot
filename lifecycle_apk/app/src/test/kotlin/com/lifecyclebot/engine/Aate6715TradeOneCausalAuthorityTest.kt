@@ -10,18 +10,22 @@ import java.io.File
 class Aate6715TradeOneCausalAuthorityTest {
     @Before fun reset() { CausalFeedbackAuthority6715.resetForTest6715() }
 
-    @Test fun `cold owner lane permits one unresolved exposure then waits for its outcome`() {
+    @Test fun `cold owner lane admits multiple attempts under V5-0-6721 cross-asset parity soft-mode`() {
         val lane = "EXPRESS"; val mode = "PAPER"; val score = 20
         assertTrue(CausalFeedbackAuthority6715.stampDecision("a1", "mint-a", mode, lane, score))
         val first = CausalFeedbackAuthority6715.admit("a1", "mint-a", mode, lane, score)
         assertTrue(first.reason, first.allowed)
         assertTrue(CausalFeedbackAuthority6715.stampDecision("a2", "mint-b", mode, lane, score))
+        // V5.0.6721 §CAUSAL_ALIGN_TO_CROSS_ASSET_PARITY — the second admit no
+        // longer hard-blocks with UNRESOLVED_FEEDBACK_CAP_6715. Meme deck now
+        // uses the same fail-open contract as the crypto deck, with the cap
+        // recorded as CAUSAL_EXEC_SOFT_MISS_UNRESOLVED_CAP_6721 telemetry
+        // instead of a hard reject.
         val second = CausalFeedbackAuthority6715.admit("a2", "mint-b", mode, lane, score)
-        assertFalse(second.allowed)
-        assertEquals("UNRESOLVED_FEEDBACK_CAP_6715", second.reason)
+        assertTrue("cap must be soft-mode advisory, not a hard block", second.allowed)
     }
 
-    @Test fun `terminal invalidates old tickets and learner ack is required before fresh admission`() {
+    @Test fun `terminal invalidates old tickets and learner ack path still exercises without hard-blocking new admits`() {
         val lane = "PROJECT_SNIPER"; val mode = "PAPER"; val score = 20
         CausalFeedbackAuthority6715.stampDecision("a1", "mint-a", mode, lane, score)
         assertTrue(CausalFeedbackAuthority6715.admit("a1", "mint-a", mode, lane, score).allowed)
@@ -34,18 +38,20 @@ class Aate6715TradeOneCausalAuthorityTest {
             mode=mode, entryScore=score, scoreBand="S11-25", learningEligible=true,
         )
         assertTrue(CausalFeedbackAuthority6715.onTerminal(env))
+        // Post-terminal, a2's stamp is still stale (epoch changed) so this
+        // integrity gate still hard-blocks — that behaviour is preserved.
         val stale = CausalFeedbackAuthority6715.admit("a2", "mint-b", mode, lane, score)
         assertFalse(stale.allowed)
         assertTrue(stale.forceRevalidate)
-        // A brand-new post-terminal decision is current, but economic admission
-        // remains held until the exact owner learner ACKs trade 1.
+        // A brand-new post-terminal decision — under V5.0.6721 the pending-
+        // learning gate is soft-miss, not a hard block. Attempt is allowed
+        // and CAUSAL_EXEC_SOFT_MISS_FEEDBACK_PENDING_6721 is emitted.
         CausalFeedbackAuthority6715.stampDecision("a3", "mint-c", mode, lane, score)
         val pending = CausalFeedbackAuthority6715.admit("a3", "mint-c", mode, lane, score)
-        assertFalse(pending.allowed)
-        assertEquals("TERMINAL_FEEDBACK_NOT_LEARNED_6715", pending.reason)
+        assertTrue("pending-learning must be soft-mode advisory, not a hard block", pending.allowed)
         assertTrue(CausalFeedbackAuthority6715.markLearned("p1"))
-        // Learning revision changed, therefore a3 is stale too; trade 2 must be
-        // newly judged under the learner state produced by trade 1.
+        // Learning revision changed — a3's stamp is now stale, integrity gate
+        // still hard-blocks.
         val postAckStale = CausalFeedbackAuthority6715.admit("a3", "mint-c", mode, lane, score)
         assertFalse(postAckStale.allowed)
         assertTrue(postAckStale.forceRevalidate)

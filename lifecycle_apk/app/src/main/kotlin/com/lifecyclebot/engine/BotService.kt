@@ -13393,6 +13393,10 @@ class BotService : Service() {
     private val exitCoordinatorStartHeartbeatMs6647 = java.util.concurrent.atomic.AtomicLong(0L)
     private val exitCoordinatorCompletedAtMs6647 = java.util.concurrent.atomic.AtomicLong(0L)
     private val exitCoordinatorErrorAtMs6647 = java.util.concurrent.atomic.AtomicLong(0L)
+    // V5.0.6721 §STALE_MARK_REFRESH — per-mint cooldown map so the proactive
+    // refresh in the exit sweep loop doesn't pound the mark registry for the
+    // same mint every 200ms while the observation is genuinely offline.
+    private val staleMarkRefreshCooldown6721 = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val EXIT_COORDINATOR_FULL_MIN_MS: Long = 30_000L
     private val EXIT_COORDINATOR_UNIVERSAL_MIN_MS: Long = 30_000L
 
@@ -17834,6 +17838,36 @@ if (hotExitHandledSweep) {
                         exitCoordinatorStartHeartbeatMs6647.set(System.currentTimeMillis())
                         com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onCoordinatorStarted(executionSpineCycle6647.get())
                         val now = System.currentTimeMillis()
+                        // V5.0.6721 §STALE_MARK_REFRESH — proactive refresh
+                        // for open positions whose canonical mark has aged
+                        // past the freshness limit. Operator dump 5.0.6720
+                        // showed 12 open positions ALL missing marks with
+                        // ages 156-470s vs a 60s freshness limit, leaving
+                        // the exit layer blind for minutes. This iterates
+                        // canonical opens each sweep tick and pings the
+                        // observation-to-executable resolver for any mint
+                        // whose mark is >60s old. Rate-limited to at most
+                        // once per 5s per mint to avoid provider spam.
+                        try {
+                            val stalenessLimitMs = 60_000L
+                            val perMintCooldownMs = 5_000L
+                            val opens = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                            for (p in opens) {
+                                val mark = com.lifecyclebot.engine.truth.CanonicalPriceMark6522.get(
+                                    p.mint,
+                                    com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_EXIT_QUOTE,
+                                )
+                                val markAge = if (mark == null) Long.MAX_VALUE else now - mark.timestampMs
+                                if (markAge < stalenessLimitMs) continue
+                                val last = staleMarkRefreshCooldown6721[p.mint] ?: 0L
+                                if (now - last < perMintCooldownMs) continue
+                                staleMarkRefreshCooldown6721[p.mint] = now
+                                try {
+                                    com.lifecyclebot.engine.truth.CanonicalPriceMark6522.promoteObservationToExecutable6613(p.mint, now)
+                                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("STALE_MARK_REFRESH_TRIGGERED_6721")
+                                } catch (_: Throwable) {}
+                            }
+                        } catch (_: Throwable) {}
                         // V5.9.1361 P0.6 — DEDUPE-PRESERVING DRAIN. The old code did
                         // getAndSet(false) on the pending flag BEFORE the rate-limit
                         // check, so a request arriving inside the 30s window cleared the

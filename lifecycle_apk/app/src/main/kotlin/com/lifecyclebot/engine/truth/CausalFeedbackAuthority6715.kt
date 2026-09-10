@@ -48,6 +48,14 @@ object CausalFeedbackAuthority6715 {
         var terminalEpoch: Long = 0L,
         var learningRevision: Long = 0L,
         var cleanLearnedCloses: Int = 0,
+        // V5.0.6721 §COHORT_LOSER_ADVISORY — track wins/losses per scope so
+        // admit() can emit COHORT_LOSER_ADVISORY_6721 when a cohort has
+        // enough closes to be judged AND its winrate is below the crypto-
+        // deck-parity floor. Advisory only; matches the operator's cross-
+        // asset parity intent — the sizing damper and tactic switcher can
+        // consume this counter to reduce exposure without hard-blocking.
+        var wins: Int = 0,
+        var losses: Int = 0,
         val reservedAttempts: MutableSet<String> = linkedSetOf(),
         val openPositions: MutableSet<String> = linkedSetOf(),
         val pendingLearning: MutableSet<String> = linkedSetOf(),
@@ -231,8 +239,9 @@ object CausalFeedbackAuthority6715 {
             val bandUnresolved = bandState.openPositions.size + bandState.reservedAttempts.size
             if (laneUnresolved >= laneCap || bandUnresolved >= bandCap) {
                 // V5.0.6721 §CAUSAL_ALIGN_TO_CROSS_ASSET_PARITY — SOFT MODE.
-                // Was: return Admission(false, "UNRESOLVED_FEEDBACK_CAP_6715", ...).
-                // Now: emit soft-miss counter and let the attempt through.
+                // Legacy behaviour: hard-rejected admission with the
+                // unresolved-cap reason. Now: emit soft-miss counter and
+                // let the attempt through.
                 // Cap is preserved as a diagnostic-only measurement so we can
                 // see when the deck WOULD have been throttled.
                 emit(
@@ -240,6 +249,25 @@ object CausalFeedbackAuthority6715 {
                     "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band laneUnresolved=$laneUnresolved/$laneCap bandUnresolved=$bandUnresolved/$bandCap",
                 )
                 // Fall through — cap is now advisory.
+            }
+            // V5.0.6721 §COHORT_LOSER_ADVISORY — surface chronic-losing cohorts
+            // to downstream sizing dampers and the tactic switcher WITHOUT
+            // hard-blocking. Fires when a band scope has recorded at least 8
+            // decided closes and the winrate is under 20% (crypto-deck-parity
+            // floor). Advisory only — the AutonomousMetaPolicy / LanePolicy
+            // sizing damper can consume this counter to trim exposure. This
+            // is the P1 cohort auto-suppression the operator asked for,
+            // implemented as data rather than a hard block so it can't
+            // choke flow the way the previous UNRESOLVED_FEEDBACK_CAP did.
+            val bandDecided = bandState.wins + bandState.losses
+            if (bandDecided >= 8) {
+                val bandWr = bandState.wins.toDouble() / bandDecided.toDouble()
+                if (bandWr < 0.20) {
+                    emit(
+                        "COHORT_LOSER_ADVISORY_6721",
+                        "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band bandWr=${(bandWr * 100).toInt()}% bandN=$bandDecided wins=${bandState.wins} losses=${bandState.losses}",
+                    )
+                }
             }
             val r = Reservation(attemptId, nm, mint, nl, band, ks, System.currentTimeMillis())
             // V5.0.6720 §CAUSAL_RESERVATION_LIFECYCLE — supersede any prior
@@ -336,15 +364,25 @@ object CausalFeedbackAuthority6715 {
                 emit("CAUSAL_PENDING_INVALIDATED_ON_TERMINAL_6715", "positionId=${env.positionId.take(24)} lane=$nl count=${invalidated.size}")
             }
             val earlyAck = earlyLearnAcks.remove(env.positionId)
+            val isWin6721 = env.realizedReturnPct > 0.0
             if (env.learningEligible) {
                 if (earlyAck) {
-                    ks.forEach { k -> state(k).apply { learningRevision += 1L; cleanLearnedCloses += 1 } }
+                    ks.forEach { k -> state(k).apply {
+                        learningRevision += 1L
+                        cleanLearnedCloses += 1
+                        if (isWin6721) wins += 1 else losses += 1
+                    } }
                     learnedSeen.add(env.positionId)
                     positionScopes.remove(env.positionId)
-                    emit("CAUSAL_OWNER_LEARN_ACK_6715", "positionId=${env.positionId.take(24)} lane=$nl order=ACK_BEFORE_TERMINAL")
+                    emit("CAUSAL_OWNER_LEARN_ACK_6715", "positionId=${env.positionId.take(24)} lane=$nl order=ACK_BEFORE_TERMINAL win=$isWin6721")
                 } else {
                     ks.forEach { state(it).pendingLearning.add(env.positionId) }
                     positionScopes[env.positionId] = ks
+                    // Track W/L on terminal even before markLearned so cohort
+                    // advisory sees the truth immediately.
+                    ks.forEach { k -> state(k).apply {
+                        if (isWin6721) wins += 1 else losses += 1
+                    } }
                 }
             } else {
                 positionScopes.remove(env.positionId)
