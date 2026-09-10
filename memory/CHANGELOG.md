@@ -1,3 +1,20 @@
+## V5.0.6726 — §CI_GREEN_6726 (Build GREEN)
+- Single-line compile fix on top of 6725: `cfg().tpPct` referenced a non-existent BotConfig field. Replaced with the 50.0 pre-fluid mode default (the value FluidLearningAI already treats as the base for its lerp).
+- All 6725 metric-aware wire changes carry through cleanly.
+
+---
+## V5.0.6725 — §SMART_EXIT_TOOLS_WIRED + §CANONICAL_TOKEN_METRICS + §COHORT_ADVISORY_PER_BAND + §COUNTER_PARITY_SIDE_BREAKDOWN + §SKEW_QUARANTINE_RATIO_BREAKDOWN (Build RED compile — superseded by 6726)
+- Operator mandate: "all tools traders brains strategies anything involved or invoked during the discovery buy hold or sell should be token metrics aware." Root-cause finding from 6724 dump: `FluidLearningAI.getDynamicExitParams` / `shouldExtendHoldTime` / `getMinProfitableExitPct` / `getFeeAdjustedTakeProfit` DEFINED with ZERO external callers.
+- **§CANONICAL_TOKEN_METRICS**: `CanonicalTokenMetricsSnapshot6725` — single source of truth for volume Δ, holder growth, buy/sell pressure, momentum, whale accum/dump inference, liquidity, mcap, holder count/concentration, hourly drift. Aggregates into `HealthTier` (HEALTHY_RUNNER / HEALTHY_STABLE / NEUTRAL / WEAKENING / DYING / RUG_LIKE).
+- **§SMART_EXIT_TOOLS_WIRED (SL path)**: `Executor.kt` SL trigger site now feeds the snapshot into `FluidLearningAI.getDynamicExitParams` BEFORE the -3% floor clamp — SL widens for healthy runners and tightens for dying tokens. `shouldExtendHoldTime` added as second veto (after AGI) — if metrics say "extend hold" and pnl > -20%, skip SL fire. Counters: `SMART_EXIT_TOOL_SL_ADJUSTED_6725`, `SMART_EXIT_TOOL_HOLD_EXTEND_VETO_6725`.
+- **§SMART_EXIT_TOOLS_WIRED (profit-lock path)**: `calculateProfitLockThresholds` folds a health-tier multiplier (0.60 RUG_LIKE → 1.60 HEALTHY_RUNNER) into both capitalRecoveryMultiple and profitLockMultiple. Counter: `PROFIT_LOCK_METRIC_ADJUST_6725_<TIER>`.
+- **§COHORT_ADVISORY_PER_BAND**: `CausalFeedbackAuthority6715.cohortLoserAdvisoryForBand(mode, lane, band)` — 6724 exposed at lane granularity only, but chronic-loser structure is per-band (EXPRESS|S61+ 0/11 alongside EXPRESS|S26-40 5/9). Downstream sizing with band context now consults the exact band.
+- **§COUNTER_PARITY_SIDE_BREAKDOWN**: `PAPER_JOURNAL_SIDE_<SIDE>` counter emitted per recordExec so the 139-row parity divergence source is targetable in the next push.
+- **§SKEW_QUARANTINE_RATIO_BREAKDOWN**: `QTY_DECIMAL_SKEW_QUARANTINE_BUCKET_6725_<10X/100X/1000X/10000X/100000X/GT_100000X>` — reveals which decade of skew dominates so the actual conversion site can be targeted.
+- **Regression**: `Aate6725TokenMetricsSnapshotTest` — locks in null-neutral, healthy-runner classification, dying-token/rug-like classification, neutral fallback, diagnostic string.
+
+---
+
 ## V5.0.6723 — §CROSS_ASSET_IDENTITY_SANITIZE + §STALE_MARK_REFRESH_API_FIX (Build GREEN)
 - **§STALE_MARK_REFRESH_API_FIX**: 6722 compile FAILED because the previous fork's stale-mark refresh referenced 3 unresolved symbols (`CanonicalPriceMark6522.get`, `CanonicalMarkPurpose6570.EXECUTABLE_EXIT_QUOTE`, `CanonicalPriceMark6522.promoteObservationToExecutable6613`). Rewired all three to `CanonicalPriceMarkRegistry6522` + `EXIT_ECONOMIC` purpose slot. Semantics preserved: any open position whose exit-economic mark is >60s stale gets its observation promoted; per-mint 5s cooldown; `STALE_MARK_REFRESH_TRIGGERED_6721` counter emitted.
 - **§CROSS_ASSET_IDENTITY_SANITIZE**: `ExecutableOpenGate.sanitizeMintForKey` only recognised base58 Solana mints + `unresolved:` / `perps:` / `multichain:` prefixes. Every canonical cross-asset identity (`bsc|0x...`, `eth|0x...`, `robinhood|AAPL`) collapsed to `INVALID_MINT_REDACTED`, which downstream keyed as identity drift and starved every cross-asset exit path. Sanitizer now accepts `^[a-z0-9]{2,16}\|[A-Za-z0-9_\-.:/@]{1,100}$` and hashes it through the same `ASSET_` token contract as perps/multichain. Secret-safety preserved — raw value never leaves the sanitizer.
