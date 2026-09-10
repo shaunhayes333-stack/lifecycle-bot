@@ -440,6 +440,60 @@ object CausalFeedbackAuthority6715 {
         "CausalFeedback6715 scopes=${scopes.size} learned=$learned pendingLearning=$pending reserved=$reserved trackedOpen=$opens tickets=${ticketStamps.size}"
     }
 
+    /**
+     * V5.0.6724 §COHORT_LOSER_ADVISORY_CONSUMER — public snapshot of the
+     * chronic-loser advisory the same admit() path emits into telemetry.
+     * A cohort is chronic-losing when it has recorded >= MIN_DECIDED closes
+     * AND its winrate is under WR_FLOOR. The advisory is intentionally an
+     * observation, not a hard block; downstream sizing callers can choose to
+     * apply the returned floor multiplier without disturbing existing
+     * heuristic thresholds.
+     *
+     * Returns:
+     *  - `null` if the lane has no chronic-loser band on the given side
+     *    (or the lane is non-meme, which fails open).
+     *  - `Advisory(worstBand, worstWr, worstN, sizeMultiplier)` if any of
+     *    the lane's bands have crossed the chronic-loser threshold on the
+     *    given mode side. The multiplier scales down toward 0.4 as the
+     *    winrate approaches 0% (bounded so a single bad band cannot outright
+     *    freeze the lane).
+     */
+    data class CohortLoserAdvisory(
+        val worstBand: String,
+        val worstWinRatePct: Double,
+        val worstDecidedCount: Int,
+        val sizeMultiplier: Double,
+    )
+
+    private const val ADVISORY_MIN_DECIDED = 8
+    private const val ADVISORY_WR_FLOOR = 0.20
+    private const val ADVISORY_MULT_FLOOR = 0.40
+
+    fun cohortLoserAdvisoryForLane(mode: String, lane: String): CohortLoserAdvisory? {
+        if (!isMemeOwnerLane(lane)) return null
+        val nm = normMode(mode)
+        val nl = normLane(lane)
+        synchronized(lock) {
+            val bandPrefix = "BAND|$nm|$nl|"
+            var worst: CohortLoserAdvisory? = null
+            for ((k, s) in scopes) {
+                if (!k.startsWith(bandPrefix)) continue
+                val decided = s.wins + s.losses
+                if (decided < ADVISORY_MIN_DECIDED) continue
+                val wr = s.wins.toDouble() / decided.toDouble()
+                if (wr >= ADVISORY_WR_FLOOR) continue
+                val band = k.removePrefix(bandPrefix)
+                // Linear scale: at wr==0 → ADVISORY_MULT_FLOOR; at wr==WR_FLOOR → 1.0.
+                val frac = (wr / ADVISORY_WR_FLOOR).coerceIn(0.0, 1.0)
+                val mult = (ADVISORY_MULT_FLOOR + (1.0 - ADVISORY_MULT_FLOOR) * frac).coerceIn(ADVISORY_MULT_FLOOR, 1.0)
+                if (worst == null || mult < worst.sizeMultiplier) {
+                    worst = CohortLoserAdvisory(band, wr * 100.0, decided, mult)
+                }
+            }
+            return worst
+        }
+    }
+
     internal fun resetForTest6715() = synchronized(lock) {
         scopes.clear(); ticketStamps.clear(); reservations.clear(); positionScopes.clear()
         earlyLearnAcks.clear(); terminalSeen.clear(); learnedSeen.clear()

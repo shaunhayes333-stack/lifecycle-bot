@@ -17851,8 +17851,23 @@ if (hotExitHandledSweep) {
                         try {
                             val stalenessLimitMs = 60_000L
                             val perMintCooldownMs = 5_000L
+                            // V5.0.6724 §STALE_MARK_REFRESH_SOLANA_SCOPED —
+                            // CanonicalPriceMark6522 is Solana-mint-scoped
+                            // by design (its publish() barrier requires
+                            // baseMint == mint on a mint-shaped identity;
+                            // no perps/crypto/stock caller ever publishes
+                            // to it — those decks consume MarketData via
+                            // PerpsMarketDataFetcher instead). Iterating
+                            // cross-asset opens here just wastes cycles
+                            // and inflates STALE_MARK_REFRESH_TRIGGERED
+                            // counters with promotions that can never
+                            // succeed (no matching observation was ever
+                            // published). Clamp the refresh to genuine
+                            // Solana base58 mints.
+                            val base58Solana6724 = Regex("^[1-9A-HJ-NP-Za-km-z]{32,44}$")
                             val opens = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
                             for (p in opens) {
+                                if (!base58Solana6724.matches(p.mint)) continue
                                 val mark = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(
                                     p.mint,
                                     com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXIT_ECONOMIC,

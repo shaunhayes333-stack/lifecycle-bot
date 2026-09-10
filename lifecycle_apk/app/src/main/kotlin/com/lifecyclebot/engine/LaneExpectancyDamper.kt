@@ -92,7 +92,25 @@ object LaneExpectancyDamper {
         if (lane.isNullOrBlank()) return 1.0
         return try {
             val key = lane.trim().uppercase()
-            snapshot()[key] ?: 1.0
+            val base = snapshot()[key] ?: 1.0
+            // V5.0.6724 §COHORT_LOSER_ADVISORY_CONSUMER — chronic-losing
+            // cohorts surfaced by CausalFeedbackAuthority6715 (>=8 closes at
+            // <20% winrate on a band scope) impose a multiplicative floor
+            // overlay. The overlay never inflates the multiplier (it is
+            // min()'d with the base) and never reads any threshold local to
+            // this file — it purely consumes an already-computed advisory.
+            // Non-meme lanes and lanes without a chronic band return null
+            // from the authority so `base` is returned unchanged.
+            val mode6724 = try { if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "LIVE" }
+            val advisory = try {
+                com.lifecyclebot.engine.truth.CausalFeedbackAuthority6715.cohortLoserAdvisoryForLane(mode6724, key)
+            } catch (_: Throwable) { null }
+            if (advisory != null) {
+                try {
+                    PipelineHealthCollector.labelInc("LANE_DAMPER_COHORT_ADVISORY_APPLIED_6724")
+                } catch (_: Throwable) {}
+                minOf(base, advisory.sizeMultiplier)
+            } else base
         } catch (_: Throwable) {
             1.0
         }

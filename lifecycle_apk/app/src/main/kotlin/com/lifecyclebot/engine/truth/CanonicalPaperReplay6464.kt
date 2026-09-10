@@ -256,6 +256,37 @@ object CanonicalPaperReplay6464 {
                        kotlin.math.abs(realizedDelta) > toleranceSol ||
                        kotlin.math.abs(openDelta) > toleranceSol ||
                        snap.orphanLotCount > 0
+        // V5.0.6724 §PAPER_HISTORY_DIVERGENCE_CATEGORY — diagnostic-only
+        // classification of which class of drift is dominant so the
+        // operator sees at-a-glance whether the divergence is a cash
+        // conservation issue, a realized-pnl double-count, an open-cost
+        // orphan-lot leak, a qty decimal skew, or the multi-cause case
+        // (which historically indicates that a heal attempt would break
+        // more than it fixes and is quarantined per Fire-A revert).
+        // No state is mutated; only telemetry emitted.
+        val divergenceTag6724: String = when {
+            !diverged && snap.orphanLotCount == 0 -> "CONVERGED"
+            snap.orphanLotCount > 0 && !(kotlin.math.abs(cashDelta) > toleranceSol ||
+                kotlin.math.abs(realizedDelta) > toleranceSol || kotlin.math.abs(openDelta) > toleranceSol) ->
+                "ORPHAN_LOTS_ONLY"
+            qtyMismatches > 0 -> "QTY_DECIMAL_SKEW"
+            (kotlin.math.abs(cashDelta) > toleranceSol) &&
+                !(kotlin.math.abs(realizedDelta) > toleranceSol) &&
+                !(kotlin.math.abs(openDelta) > toleranceSol) -> "CASH_ONLY"
+            !(kotlin.math.abs(cashDelta) > toleranceSol) &&
+                (kotlin.math.abs(realizedDelta) > toleranceSol) &&
+                !(kotlin.math.abs(openDelta) > toleranceSol) -> "REALIZED_ONLY"
+            !(kotlin.math.abs(cashDelta) > toleranceSol) &&
+                !(kotlin.math.abs(realizedDelta) > toleranceSol) &&
+                (kotlin.math.abs(openDelta) > toleranceSol) -> "OPEN_COST_ONLY"
+            (kotlin.math.abs(cashDelta) > toleranceSol) &&
+                (kotlin.math.abs(realizedDelta) > toleranceSol) &&
+                kotlin.math.abs(cashDelta + realizedDelta) < toleranceSol -> "CASH_REALIZED_INVERSE"
+            else -> "MULTI_CAUSE"
+        }
+        try {
+            PipelineHealthCollector.labelInc("PAPER_HISTORY_DIVERGENCE_CATEGORY_6724_$divergenceTag6724")
+        } catch (_: Throwable) {}
         try {
             ForensicLogger.lifecycle(
                 "PAPER_REPLAY_PARITY_6464",
