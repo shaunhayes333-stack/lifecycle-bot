@@ -149,16 +149,19 @@ object CausalFeedbackAuthority6715 {
      */
     fun admit(attemptId: String, mint: String, mode: String, lane: String, score: Int): Admission {
         if (!isMemeOwnerLane(lane)) return Admission(true, "NON_MEME_FAIL_OPEN")
-        val nm = normMode(mode); val nl = normLane(lane); val band = scoreBand(score)
-        val canonicalLaneOpen = try {
-            CanonicalPositionAuthority6441.openPositions().count {
-                it.mode.equals(nm, true) && normLane(it.lane) == nl
-            }
-        } catch (_: Throwable) { 0 }
+        val nm = normMode(mode); val nl = normLane(lane); val admitBand = scoreBand(score)
         synchronized(lock) {
+            var stamp = ticketStamps[attemptId]
+            // V5.0.6719 §CAUSAL_STATE_ACCOUNTING — the stamp's scoreBand is the
+            // decision-time band. `entryScore` legitimately drifts between the
+            // decision stamp and this admit (fresher V3 ticks, mark updates),
+            // so we key every scope lookup on the STAMPED band, not the admit-
+            // time band. That eliminates a huge class of FEEDBACK_IDENTITY_
+            // DRIFT_REVALIDATE_6715 blocks that were nothing more than normal
+            // score drift wasting execution attempts.
+            val band = stamp?.scoreBand ?: admitBand
             val ks = keys(nm, nl, band)
             val currentStates = ks.associateWith(::state)
-            var stamp = ticketStamps[attemptId]
             if (stamp == null) {
                 val trulyCold = currentStates.values.all { it.terminalEpoch == 0L && it.learningRevision == 0L && it.cleanLearnedCloses == 0 }
                 if (!trulyCold) {
@@ -170,9 +173,12 @@ object CausalFeedbackAuthority6715 {
                 ticketStamps[attemptId] = stamp
                 emit("CAUSAL_TICKET_BOOTSTRAP_STAMPED_6715", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band")
             }
-            if (stamp.mode != nm || stamp.lane != nl || stamp.scoreBand != band) {
+            // V5.0.6719 §CAUSAL_STATE_ACCOUNTING — identity drift now only
+            // trips on mode/lane mismatch. Score-band drift is expected and
+            // absorbed by using the stamped band above.
+            if (stamp.mode != nm || stamp.lane != nl) {
                 releaseAttemptLocked(attemptId, removeStamp = true)
-                emit("CAUSAL_EXEC_STALE_EPOCH_6715", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} expected=$nm/$nl/$band stamped=${stamp.mode}/${stamp.lane}/${stamp.scoreBand} reason=IDENTITY_DRIFT")
+                emit("CAUSAL_EXEC_STALE_EPOCH_6715", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} expected=$nm/$nl stamped=${stamp.mode}/${stamp.lane} reason=IDENTITY_DRIFT_MODE_OR_LANE")
                 return Admission(false, "FEEDBACK_IDENTITY_DRIFT_REVALIDATE_6715", forceRevalidate = true)
             }
             val stale = stamp.scopes.any { (k, v) -> state(k).let { it.terminalEpoch != v.terminalEpoch || it.learningRevision != v.learningRevision } }
@@ -193,7 +199,19 @@ object CausalFeedbackAuthority6715 {
             val bandState = currentStates.getValue(bandKey(nm, nl, band))
             val laneCap = cap(laneState.cleanLearnedCloses, 6)
             val bandCap = cap(bandState.cleanLearnedCloses, 3)
-            val laneUnresolved = maxOf(laneState.openPositions.size, canonicalLaneOpen) + laneState.reservedAttempts.size
+            // V5.0.6719 §CAUSAL_STATE_ACCOUNTING — count only the causal
+            // authority's OWN tracked openPositions against the cap. Previously
+            // this used maxOf(openPositions.size, canonicalLaneOpen), which
+            // inflated the cap with GHOST positions from
+            // CanonicalPositionAuthority6441 that never called onPositionOpened
+            // on this authority (attachPosition failure, MEME_REGISTRY_RESTORE,
+            // pre-authority opens). Those ghosts can never reach onTerminal
+            // through this authority, so they'd inflate the cap FOREVER and
+            // block every fresh admit. The 663 UNRESOLVED_FEEDBACK_CAP_6715
+            // blocks (81.5% of all EXEC_GATE rejections) in the 5.0.6718 dump
+            // came from this. reservedAttempts + real tracked openPositions is
+            // still enforced — the cap is not raised, just correctly counted.
+            val laneUnresolved = laneState.openPositions.size + laneState.reservedAttempts.size
             val bandUnresolved = bandState.openPositions.size + bandState.reservedAttempts.size
             if (laneUnresolved >= laneCap || bandUnresolved >= bandCap) {
                 emit("CAUSAL_EXEC_BLOCK_FEEDBACK_PENDING_6715", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band laneUnresolved=$laneUnresolved/$laneCap bandUnresolved=$bandUnresolved/$bandCap reason=UNRESOLVED_CAP")
