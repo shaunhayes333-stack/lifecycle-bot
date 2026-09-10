@@ -28,7 +28,12 @@ class Aate6713CausalLearningCoreTest {
             .substringBefore("private fun emitPolicy")
         assertTrue(fn.indexOf("recordOutcome6681(") >= 0)
         assertTrue(fn.indexOf("rewardedPositions.add(env.positionId)") > fn.indexOf("recordOutcome6681("))
-        assertTrue(fn.contains("AATE_POLICY_REWARD_RETRY_CAUSAL_BIND_6713"))
+        // V5.0.6717 §CAUSAL_LOOP_UNSEVERANCE — soft-miss counter replaces the
+        // V5.0.6713 hard-return-false. The rewardedPositions latch still
+        // enforces one-time delivery (asserted above by ordering), but a
+        // missing per-position binding no longer freezes the causal loop.
+        assertTrue(fn.contains("AATE_POLICY_REWARD_SOFT_MISS_6717"))
+        assertTrue(fn.contains("CausalFeedbackAuthority6715.markLearned(env.positionId)"))
     }
 
     @Test fun `sealed AATE decision is only fallback source for missing policy observation`() {

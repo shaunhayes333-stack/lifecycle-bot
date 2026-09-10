@@ -52,8 +52,14 @@ class Aate6681CausalPolicyLearningTest {
         assertEquals(ownerBefore + 1L, UnifiedPolicyHead.laneOwnHeadTrainedCount6605(owner))
         assertEquals(contributorBefore, UnifiedPolicyHead.laneOwnHeadTrainedCount6605(contributor))
 
-        // Idempotent terminal delivery: the same position cannot train twice.
-        assertFalse(UnifiedPolicyHead.recordOutcome6681(positionId, mint, owner, 25.0))
+        // V5.0.6717 §CAUSAL_LOOP_UNSEVERANCE — the second call for the same
+        // position now soft-ACKs (returns true) because pendingByPosition6681
+        // has already consumed the entry sample. The critical invariant is
+        // that no additional training occurs, which we assert below via
+        // trainedCount() staying at globalBefore + 1L. Previously this call
+        // returned false and cascaded up to hard-block the entire causal
+        // feedback loop, freezing every lane at trade #1.
+        assertTrue(UnifiedPolicyHead.recordOutcome6681(positionId, mint, owner, 25.0))
         assertEquals(globalBefore + 1L, UnifiedPolicyHead.trainedCount())
     }
 
