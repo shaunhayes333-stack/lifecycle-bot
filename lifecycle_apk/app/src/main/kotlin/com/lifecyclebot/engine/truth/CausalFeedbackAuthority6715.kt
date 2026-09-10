@@ -150,14 +150,14 @@ object CausalFeedbackAuthority6715 {
     fun admit(attemptId: String, mint: String, mode: String, lane: String, score: Int): Admission {
         if (!isMemeOwnerLane(lane)) return Admission(true, "NON_MEME_FAIL_OPEN")
         val nm = normMode(mode); val nl = normLane(lane); val admitBand = scoreBand(score)
-        // V5.0.6720 §CAUSAL_RESERVATION_LIFECYCLE — sweep abandoned reservations
-        // before every admit so leaked reservations (sized-but-not-ticketed,
-        // ticket-expired, mint-aliased, superseded attempts) cannot inflate the
-        // cap forever. TTL is generous (60s — well past normal ticket-open of
-        // ~5s) so we never yank a live reservation. This is what unfroze the
-        // 1524 UNRESOLVED_FEEDBACK_CAP_6715 blocks in the 5.0.6719 dump.
-        synchronized(lock) { sweepStaleReservationsLocked(System.currentTimeMillis()) }
         synchronized(lock) {
+            // V5.0.6720 §CAUSAL_RESERVATION_LIFECYCLE — sweep abandoned
+            // reservations INSIDE this lock so no other thread can re-insert
+            // between sweep and cap check. TTL is generous (60s — well past
+            // normal ticket-open of ~5s) so we never yank a live reservation.
+            // This is what unfroze the 1524 UNRESOLVED_FEEDBACK_CAP_6715
+            // blocks in the 5.0.6719 dump.
+            sweepStaleReservationsLocked(System.currentTimeMillis())
             var stamp = ticketStamps[attemptId]
             // V5.0.6719 §CAUSAL_STATE_ACCOUNTING — the stamp's scoreBand is the
             // decision-time band. `entryScore` legitimately drifts between the

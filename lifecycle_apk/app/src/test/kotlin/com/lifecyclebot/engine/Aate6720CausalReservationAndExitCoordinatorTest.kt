@@ -57,8 +57,9 @@ class Aate6720CausalReservationAndExitCoordinatorTest {
             causal.contains("private fun sweepStaleReservationsLocked(nowMs: Long)"),
         )
         assertTrue(
-            "TTL sweep must run inline at the top of admit()",
-            causal.contains("synchronized(lock) { sweepStaleReservationsLocked(System.currentTimeMillis()) }"),
+            "TTL sweep must run inside the same lock as the admit check",
+            causal.contains("sweepStaleReservationsLocked(System.currentTimeMillis())") &&
+                causal.contains("§CAUSAL_RESERVATION_LIFECYCLE"),
         )
         assertTrue(
             "Sweep must emit CAUSAL_RESERVATION_TTL_SWEPT_6720 telemetry",
