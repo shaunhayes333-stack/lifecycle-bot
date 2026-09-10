@@ -418,6 +418,27 @@ object SpecialistCausalFunnel6625 {
         .filter { it.key.mint == mint && it.key.lane.equals(lane, true) }
         .maxByOrNull { record -> synchronized(record) { record.stages.values.maxOrNull() ?: 0L } }
         ?.key
+
+    /** V5.0.6713 — exact OPEN causal record awaiting canonical terminal finality. */
+    fun latestUnfinalizedOpenKey6713(mint: String, lane: String): CausalKey? = records.values
+        .asSequence()
+        .filter { it.key.mint == mint && it.key.lane.equals(lane, true) }
+        .filter { record -> synchronized(record) {
+            Stage.OPEN in record.stages && Stage.FINALIZE !in record.stages
+        } }
+        .maxByOrNull { record -> synchronized(record) { record.stages[Stage.OPEN] ?: 0L } }
+        ?.key
+
+    /** V5.0.6713 — finalized causal record awaiting a real learner ACK. */
+    fun latestFinalizedUnlearnedKey6713(mint: String, lane: String): CausalKey? = records.values
+        .asSequence()
+        .filter { it.key.mint == mint && it.key.lane.equals(lane, true) }
+        .filter { record -> synchronized(record) {
+            Stage.FINALIZE in record.stages && Stage.LEARN !in record.stages
+        } }
+        .maxByOrNull { record -> synchronized(record) { record.stages[Stage.FINALIZE] ?: 0L } }
+        ?.key
+
     fun statusLine(): String = "records=${records.size}"
     internal fun resetForTest() { records.clear(); rejectedBlankIds.set(0L) }
 }

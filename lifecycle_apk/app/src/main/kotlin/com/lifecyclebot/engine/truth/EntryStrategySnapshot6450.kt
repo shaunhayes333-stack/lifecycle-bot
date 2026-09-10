@@ -201,7 +201,7 @@ object MemeCausalLearning6568 {
         ensureRestored()
         val snap = EntryStrategySnapshot6450.snapshot(env.positionId) ?: run {
             try { PipelineHealthCollector.labelInc("CAUSAL_ENTRY_SNAPSHOT_MISSING_6568") } catch (_:Throwable) {}
-            return true
+            return false
         }
         val row = Row(snap.entryLane, snap.entryTactic, env.realizedReturnPct > 0.5, snap.entryScore.toDouble(), snap.entryLiquidityUsd,
             snap.entryTokenAgeMs.toDouble(), snap.entryVolumeVelocity, snap.entryBuyPressurePct - snap.entrySellPressurePct,

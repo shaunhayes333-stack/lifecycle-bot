@@ -29,6 +29,16 @@ object FinalizedBusConsumerBridge6465 {
     private const val EXACT_EVENT_GRACE_MS_6699 = 120_000L
 
     fun deliver(consumer: String, env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
+        // V5.0.6713 — canonical terminal publication owns FINALIZE. This is
+        // independent of learner eligibility: a position can be economically
+        // finalized while deliberately excluded from training.
+        try {
+            SpecialistCausalFunnel6625.latestUnfinalizedOpenKey6713(env.mint, env.lane)?.let { key ->
+                SpecialistCausalFunnel6625.stamp6625(key, SpecialistCausalFunnel6625.Stage.FINALIZE, "CANONICAL_TERMINAL_6464")
+                PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_FINALIZE_CANONICAL_6713_${env.lane.uppercase().take(24)}")
+            }
+        } catch (_: Throwable) {}
+
         // Learning purity metadata applies only to actual learning consumers.
         // Dashboard must still observe the same canonical terminal cohort.
         if (!env.learningEligible && consumer !in NON_LEARNING_CONSUMERS) {
@@ -227,7 +237,16 @@ object FinalizedBusConsumerBridge6465 {
             val win = pnlPctLearn6707 > 0.5; val loss = pnlPctLearn6707 < -0.5
             com.lifecyclebot.engine.runtime.ColdStreakDamper.noteOutcome(env.lane, env.mode.equals("paper", true), win, loss)
             com.lifecyclebot.engine.runtime.DamageControlGate.noteOutcome(pnlPctLearn6707)
-            MemeCausalLearning6568.record(env)
+            val learned6713 = MemeCausalLearning6568.record(env)
+            if (learned6713) {
+                try {
+                    SpecialistCausalFunnel6625.latestFinalizedUnlearnedKey6713(env.mint, env.lane)?.let { key ->
+                        SpecialistCausalFunnel6625.stamp6625(key, SpecialistCausalFunnel6625.Stage.LEARN, "MEME_CAUSAL_ACK_6568")
+                        PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_LEARN_ACK_6713_${env.lane.uppercase().take(24)}")
+                    }
+                } catch (_: Throwable) {}
+            }
+            learned6713
         } else true
     } catch (_: Throwable) { false }
 

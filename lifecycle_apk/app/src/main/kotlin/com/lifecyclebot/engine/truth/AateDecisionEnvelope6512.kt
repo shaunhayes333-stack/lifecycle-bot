@@ -94,7 +94,7 @@ object AateDecisionFabric6512 {
         // BEFORE the AATE envelope lookup: envelope attribution can be missing
         // (specialistLearningMissing), but that must not poison/skip the primary
         // entry learner for an otherwise valid canonical position.
-        val policyBound6681 = try { UnifiedPolicyHead.bindPosition6681(positionId, mint, lane) } catch (_: Throwable) { false }
+        var policyBound6681 = try { UnifiedPolicyHead.bindPosition6681(positionId, mint, lane) } catch (_: Throwable) { false }
         try {
             PipelineHealthCollector.labelInc(if (policyBound6681) "AATE_POLICY_POSITION_BOUND_6681" else "AATE_POLICY_POSITION_BIND_MISSING_6681")
         } catch (_: Throwable) {}
@@ -107,13 +107,31 @@ object AateDecisionFabric6512 {
             try { PipelineHealthCollector.labelInc("AATE_POSITION_ATTRIBUTION_MISSING_6681") } catch (_: Throwable) {}
             return false
         }
+        if (!policyBound6681) {
+            val weight6713 = e.contributors.sumOf { it.weight }.coerceAtLeast(0.0001)
+            val effect6713 = e.contributors.sumOf {
+                ((it.effect + 1.0) * 0.5).coerceIn(0.0, 1.0) * it.weight
+            } / weight6713
+            policyBound6681 = try {
+                UnifiedPolicyHead.bindDecisionFallback6713(
+                    positionId = positionId,
+                    mint = mint,
+                    ownerLane = lane,
+                    scoreFinal = e.scoreFinal,
+                    pWin = e.pWin,
+                    expectedPnlPct = e.expectedPnlPct,
+                    rugP = e.rugP,
+                    contributorEffect01 = effect6713,
+                )
+            } catch (_: Throwable) { false }
+        }
         byPosition[positionId] = e.copy(positionId = positionId)
         try { PipelineHealthCollector.labelInc("AATE_POSITION_ATTRIBUTION_LINKED_6512") } catch (_: Throwable) {}
         return true
     }
 
     fun onFinalized(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean {
-        if (!rewardedPositions.add(env.positionId)) return true
+        if (rewardedPositions.contains(env.positionId)) return true
         val e = byPosition[env.positionId] ?: byAuthority.values.asSequence()
             .filter { it.context.mint == env.mint && it.context.primaryStrategy.equals(env.lane, true) }.maxByOrNull { it.revision }
         try { ToolkitSignalSheet.recordDeskStage(env.lane, "FINALIZED", env.positionId) } catch (_: Throwable) {}
@@ -122,11 +140,28 @@ object AateDecisionFabric6512 {
         }
         val contributors = e?.contributors.orEmpty(); val updated = mutableListOf<String>()
         val uphBefore = UnifiedPolicyHead.trainedCount()
-        // V5.0.6681 — canonical owner-bound learning. Do not call the legacy
-        // mint-wide recordOutcome path: one terminal trade must update global
-        // exactly once and only its actual execution owner lane.
-        try { UnifiedPolicyHead.recordOutcome6681(env.positionId, env.mint, env.lane, env.realizedReturnPct) } catch (_: Throwable) {}
-        if (UnifiedPolicyHead.trainedCount() > uphBefore) updated += "UnifiedPolicyHead"
+        // V5.0.6713 — exact owner-bound policy mutation is required before this
+        // consumer ACKs the canonical event. Failed/missing binds retry instead
+        // of permanently recording a false successful reward delivery.
+        val policyAck6713 = try {
+            UnifiedPolicyHead.recordOutcome6681(env.positionId, env.mint, env.lane, env.realizedReturnPct)
+        } catch (_: Throwable) { false }
+        val memeOwner6713 = env.lane.uppercase() in setOf(
+            "QUALITY","BLUECHIP","BLUE_CHIP","SHITCOIN","CYCLIC","EXPRESS","CORE",
+            "MOONSHOT","PROJECT_SNIPER","DIP_HUNTER","MANIPULATED","TREASURY","CASHGEN",
+        )
+        if (memeOwner6713 && !policyAck6713) {
+            try {
+                PipelineHealthCollector.labelInc("AATE_POLICY_REWARD_RETRY_CAUSAL_BIND_6713")
+                ForensicLogger.lifecycle(
+                    "AATE_POLICY_REWARD_RETRY_CAUSAL_BIND_6713",
+                    "positionId=${env.positionId.take(18)} lane=${env.lane} mint=${env.mint.take(10)} action=retry_no_false_ack",
+                )
+            } catch (_: Throwable) {}
+            return false
+        }
+        if (!rewardedPositions.add(env.positionId)) return true
+        if (policyAck6713 && UnifiedPolicyHead.trainedCount() > uphBefore) updated += "UnifiedPolicyHead"
         val metaBefore = AutonomousMetaPolicy.totalUpdateCount6512()
         try { AutonomousMetaPolicy.recordOutcome(env.mint, env.realizedReturnPct) } catch (_: Throwable) {}
         if (AutonomousMetaPolicy.totalUpdateCount6512() > metaBefore) updated += "AutonomousMetaPolicy"

@@ -354,6 +354,48 @@ object UnifiedPolicyHead {
         } catch (_: Throwable) { false }
     }
 
+    /**
+     * V5.0.6713 — deterministic recovery for a valid canonical OPEN whose
+     * transient UnifiedPolicy scratchpad observation was lost before position
+     * binding. Inputs come only from the immutable pre-open AATE decision.
+     */
+    fun bindDecisionFallback6713(
+        positionId: String,
+        mint: String,
+        ownerLane: String,
+        scoreFinal: Double,
+        pWin: Double,
+        expectedPnlPct: Double,
+        rugP: Double,
+        contributorEffect01: Double,
+    ): Boolean {
+        if (positionId.isBlank() || mint.isBlank() || ownerLane.isBlank()) return false
+        if (pendingByPosition6681.containsKey(positionId)) return true
+        return try {
+            val owner = normalizeLane(ownerLane)
+            val score01 = (scoreFinal / 100.0).coerceIn(0.0, 1.0)
+            val ev01 = (0.5 + expectedPnlPct / 200.0).coerceIn(0.0, 1.0)
+            val signals = Signals(
+                mlEntryConf = score01,
+                symGreenLight = (1.0 - rugP).coerceIn(0.0, 1.0),
+                evRatio = ev01,
+                metaConviction = contributorEffect01.coerceIn(0.0, 1.0),
+                fwdPWin = pWin.coerceIn(0.0, 1.0),
+                candConf = score01,
+            )
+            pendingByPosition6681[positionId] = BoundEntry6681(mint, owner, signals.toArray())
+            causalBoundCount6681.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("UNIFIED_POLICY_DECISION_FALLBACK_BOUND_6713")
+                ForensicLogger.lifecycle(
+                    "UNIFIED_POLICY_DECISION_FALLBACK_BOUND_6713",
+                    "positionId=$positionId mint=$mint ownerLane=$owner source=SEALED_AATE_DECISION",
+                )
+            } catch (_: Throwable) {}
+            true
+        } catch (_: Throwable) { false }
+    }
+
     private fun trainOneOutcome6681(lane: String, x: DoubleArray, pnlPct: Double) {
         val y = if (pnlPct > 0.0) 1.0 else 0.0
 
