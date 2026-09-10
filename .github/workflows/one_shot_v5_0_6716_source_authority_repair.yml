@@ -1,0 +1,195 @@
+name: V5.0.6716 One-Shot Source Authority Repair
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/one_shot_v5_0_6716_source_authority_repair.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  source-repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Consolidate executable authority at production source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          gate_path = Path('lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt')
+          gate = gate_path.read_text()
+
+          # 6716 SOURCE FIX A:
+          # candidateInvalidReason() only sees the local frozen snapshot and the
+          # active ExecutionIntent cache. It cannot see ticketAuthority6564 or
+          # immutableAuthority6513, even though the caller does and later 6673/6608
+          # explicitly accept those seals as authoritative. Returning here was a
+          # contradictory pre-emption that prevented the later source repair from
+          # ever running. Keep the diagnostic, but defer the final authority verdict
+          # to the caller where the complete seal set exists.
+          frozen_pattern = re.compile(
+              r'''                    if \(!intentAuthoritative6627\) \{\n.*?                        return "EXEC_OPEN_DROPPED_TOKEN_STATE_CHANGED" to\n                            "FROZEN_SNAPSHOT_NEEDS_REVALIDATION_6627"\n                    \}\n''',
+              re.S,
+          )
+          frozen_replacement = '''                    if (!intentAuthoritative6627) {
+                        try {
+                            PipelineHealthCollector.labelInc(
+                                "EXEC_FROZEN_SNAPSHOT_MISSING_INTENT_NEEDS_REVALIDATION_6627",
+                            )
+                            PipelineHealthCollector.labelInc(
+                                "EXEC_FROZEN_LOCAL_INTENT_DEFERRED_TO_CALLER_6716",
+                            )
+                            ForensicLogger.lifecycle(
+                                "EXEC_FROZEN_LOCAL_INTENT_DEFERRED_TO_CALLER_6716",
+                                "mint=${mint.take(10)} symbol=$symbol selected=$selected " +
+                                    "safety=$currentSafetyTier fdgVerdict=${sealedIntent6627?.fdgVerdict ?: \"null\"} " +
+                                    "executionAction=${sealedIntent6627?.executionAction ?: \"null\"} " +
+                                    "reason=FROZEN_SNAPSHOT_NEEDS_REVALIDATION_6627 " +
+                                    "action=defer_to_full_caller_seal_authority",
+                            )
+                        } catch (_: Throwable) {}
+                        // V5.0.6716 — DO NOT return from this helper. The caller owns
+                        // ticketAuthority6564 + immutableAuthority6513 and must decide
+                        // whether the sealed BUY can be reconstructed by 6673/6608.
+                        // If no valid seal exists, the caller's existing
+                        // FDG_ALLOW_WITHOUT_EXECUTION_INTENT invariant still blocks.
+                    }
+'''
+          gate, n_frozen = frozen_pattern.subn(frozen_replacement, gate, count=1)
+          if n_frozen != 1:
+              raise SystemExit(f'6716 frozen-source replacement count={n_frozen}, expected=1')
+
+          # 6716 SOURCE FIX B:
+          # 6715 introduced a second admission authority in front of the existing
+          # self-tuning execution/learning system. Runtime proof showed decisions and
+          # dispatched tickets but zero committed paper buys. Retire 6715 as an
+          # ECONOMIC BLOCKER. Its observation hooks may remain for diagnostics, but
+          # they may not overrule the already sealed FDG/ExecutionIntent path.
+          causal_pattern = re.compile(
+              r'''        // V5\.0\.6715 — TRADE-ONE CAUSAL FINALITY\..*?\n        val claimKey6487 = executableClaimKey6487''',
+              re.S,
+          )
+          causal_replacement = '''        // V5.0.6716 — SOURCE AUTHORITY CONSOLIDATION.
+        // CausalFeedbackAuthority6715 is no longer an economic admission gate.
+        // AATE already has owner-bound UnifiedPolicyHead learning, LanePolicy,
+        // RetrainingDecay, ExplorationBudget, tactic switching, cross-talk and the
+        // sealed FDG/ExecutionIntent chain. 6715 duplicated authority and could turn
+        // missing/delayed feedback bookkeeping into a trading choke. Keep provenance
+        // stamping elsewhere as diagnostics only; execution authority remains the
+        // sealed canonical decision plus hard safety/finality checks below.
+        try {
+            PipelineHealthCollector.labelInc("CAUSAL_FEEDBACK_GATE_RETIRED_6716")
+        } catch (_: Throwable) {}
+
+        val claimKey6487 = executableClaimKey6487'''
+          gate, n_causal = causal_pattern.subn(causal_replacement, gate, count=1)
+          if n_causal != 1:
+              raise SystemExit(f'6716 causal-gate replacement count={n_causal}, expected=1')
+
+          gate_path.write_text(gate)
+
+          # Update the 6715 source-contract test: the authority object can still be
+          # unit-tested internally, but production executable admission must no
+          # longer contain its blocking boundary.
+          t6715_path = Path('lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate6715TradeOneCausalAuthorityTest.kt')
+          t6715 = t6715_path.read_text()
+          old = '        assertTrue(gate.contains("EXEC_OPEN_BLOCKED_CAUSAL_FEEDBACK_6715"))\n'
+          new = '''        assertTrue(gate.contains("CAUSAL_FEEDBACK_GATE_RETIRED_6716"))
+        assertFalse("6715 feedback bookkeeping must not remain an economic execution blocker",
+            gate.contains("EXEC_OPEN_BLOCKED_CAUSAL_FEEDBACK_6715"))
+'''
+          if old not in t6715:
+              raise SystemExit('6716 expected 6715 gate assertion not found')
+          t6715 = t6715.replace(old, new, 1)
+          t6715_path.write_text(t6715)
+
+          # Strengthen the old 6627 test so it now checks the complete-source rule:
+          # local missing intent is diagnostic; the caller with all seal authorities
+          # owns final revalidation/blocking.
+          t6627_path = Path('lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate6627CausalAuthorityRepairCoverageTest.kt')
+          t6627 = t6627_path.read_text()
+          old = '''        assertTrue("V5.0.6627 §1: frozen snapshot fast-path must consult ExecutionIntent authority",
+            src.contains("EXEC_FROZEN_SNAPSHOT_MISSING_INTENT_NEEDS_REVALIDATION_6627") &&
+                src.contains("FROZEN_SNAPSHOT_NEEDS_REVALIDATION_6627"))
+'''
+          new = '''        assertTrue("V5.0.6716: frozen helper must surface missing local intent without pre-empting caller seal authority",
+            src.contains("EXEC_FROZEN_SNAPSHOT_MISSING_INTENT_NEEDS_REVALIDATION_6627") &&
+                src.contains("EXEC_FROZEN_LOCAL_INTENT_DEFERRED_TO_CALLER_6716") &&
+                src.contains("FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519"))
+'''
+          if old not in t6627:
+              raise SystemExit('6716 expected 6627 source assertion not found')
+          t6627 = t6627.replace(old, new, 1)
+          t6627_path.write_text(t6627)
+
+          # The old re-apply workflow is itself patch rot: manual dispatch could
+          # rewrite corrected source and restore the 6715 choke. Retire it in the
+          # same atomic source commit.
+          old_apply = Path('.github/workflows/apply_v5_0_6715.yml')
+          if old_apply.exists():
+              old_apply.unlink()
+
+          # Keep build metadata truthful about highest applied production source.
+          build_path = Path('.github/workflows/build.yml')
+          build = build_path.read_text()
+          build = build.replace(
+              '# V5.0.6715 — verified production-source rebuild trigger; source authority remains the highest applied V5.0.xxxx commit.',
+              '# V5.0.6716 — source-authority consolidation: existing intelligence/learning retained; contradictory execution blockers removed.',
+              1,
+          )
+          build_path.write_text(build)
+
+          # Static proof of the exact intended architecture before Gradle runs.
+          final_gate = gate_path.read_text()
+          assert 'CAUSAL_FEEDBACK_GATE_RETIRED_6716' in final_gate
+          assert 'EXEC_OPEN_BLOCKED_CAUSAL_FEEDBACK_6715' not in final_gate
+          assert 'EXEC_FROZEN_LOCAL_INTENT_DEFERRED_TO_CALLER_6716' in final_gate
+          assert 'EXEC_INTENT_SYNTHESIZED_FROM_SEAL_6673' in final_gate
+          assert 'EXEC_SEALED_ENVELOPE_HONOURED_6608' in final_gate
+          assert 'FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519' in final_gate
+          print('6716 source consolidation static proof: PASS')
+          PY
+
+      - name: Run authority contradiction and patch-rot scanners
+        working-directory: lifecycle_apk
+        run: |
+          python3 ci/golden_tape_literal_scan.py
+          python3 ci/authority_contradiction_scan.py
+          python3 ci/patch_rot_scan.py
+
+      - name: Run causal-learning and execution-authority tests
+        working-directory: lifecycle_apk
+        run: |
+          chmod +x gradlew || true
+          mkdir -p gradle/wrapper
+          curl -sL -o gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
+          ./gradlew testReleaseUnitTest --no-daemon --stacktrace \
+            -PbuildNumber=6716 -PaateVersionName=5.0.6716 \
+            --tests com.lifecyclebot.engine.Aate6627CausalAuthorityRepairCoverageTest \
+            --tests com.lifecyclebot.engine.Aate6681CausalPolicyLearningTest \
+            --tests com.lifecyclebot.engine.Aate6713CausalLearningCoreTest \
+            --tests com.lifecyclebot.engine.Aate6715TradeOneCausalAuthorityTest
+
+      - name: Commit production source and retire one-shot machinery
+        run: |
+          rm -f .github/workflows/one_shot_v5_0_6716_source_authority_repair.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git diff --cached --stat
+          git commit -m 'V5.0.6716 consolidate existing learning and execution authority'
+          git push origin HEAD:main
