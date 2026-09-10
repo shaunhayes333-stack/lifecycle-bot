@@ -195,8 +195,27 @@ object CausalFeedbackAuthority6715 {
                 return Admission(false, "STALE_FEEDBACK_EPOCH_REVALIDATE_6715", forceRevalidate = true)
             }
             if (currentStates.values.any { it.pendingLearning.isNotEmpty() }) {
-                emit("CAUSAL_EXEC_BLOCK_FEEDBACK_PENDING_6715", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band pending=${currentStates.values.sumOf { it.pendingLearning.size }}")
-                return Admission(false, "TERMINAL_FEEDBACK_NOT_LEARNED_6715")
+                // V5.0.6721 §CAUSAL_ALIGN_TO_CROSS_ASSET_PARITY — SOFT MODE.
+                // Triage of 5.0.6720 dumps proved this admission gate is the
+                // "unfair tax" applied only to the meme deck. Crypto/perps
+                // decks return Admission(true, "NON_MEME_FAIL_OPEN") at the
+                // top of admit() and trade at 57% WR with 22 healthy opens
+                // while the meme deck is stuck at 8% WR with EXEC_GATE 92.6%
+                // blocked. Same shared paper ledger, mark registry, exit
+                // coordinator. The only differentiator is this authority.
+                //
+                // Fix: keep all telemetry (stamp, reservation, supersede, TTL
+                // sweep, learning ACK, terminal ingestion, epoch churn) but
+                // stop BLOCKING. Every former hard-block emits a
+                // _SOFT_MISS_6721 counter and returns Admission(true, ...)
+                // so we can measure exactly which conditions the pipeline
+                // would have refused, WITHOUT starving the deck of flow.
+                // If the meme deck's winrate climbs to crypto-deck-parity
+                // (~40-60%), that proves the block layer was the choke; if
+                // it stays low, the diagnosis was wrong and we re-enable
+                // the specific gates with data.
+                emit("CAUSAL_EXEC_SOFT_MISS_FEEDBACK_PENDING_6721", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band pending=${currentStates.values.sumOf { it.pendingLearning.size }}")
+                // Fall through to reservation issuance so the loop keeps flowing.
             }
             reservations[attemptId]?.let {
                 return Admission(true, "IDEMPOTENT_CAUSAL_RESERVATION_6715")
@@ -207,22 +226,20 @@ object CausalFeedbackAuthority6715 {
             val laneCap = cap(laneState.cleanLearnedCloses, 6)
             val bandCap = cap(bandState.cleanLearnedCloses, 3)
             // V5.0.6719 §CAUSAL_STATE_ACCOUNTING — count only the causal
-            // authority's OWN tracked openPositions against the cap. Previously
-            // this used maxOf(openPositions.size, canonicalLaneOpen), which
-            // inflated the cap with GHOST positions from
-            // CanonicalPositionAuthority6441 that never called onPositionOpened
-            // on this authority (attachPosition failure, MEME_REGISTRY_RESTORE,
-            // pre-authority opens). Those ghosts can never reach onTerminal
-            // through this authority, so they'd inflate the cap FOREVER and
-            // block every fresh admit. The 663 UNRESOLVED_FEEDBACK_CAP_6715
-            // blocks (81.5% of all EXEC_GATE rejections) in the 5.0.6718 dump
-            // came from this. reservedAttempts + real tracked openPositions is
-            // still enforced — the cap is not raised, just correctly counted.
+            // authority's OWN tracked openPositions against the cap.
             val laneUnresolved = laneState.openPositions.size + laneState.reservedAttempts.size
             val bandUnresolved = bandState.openPositions.size + bandState.reservedAttempts.size
             if (laneUnresolved >= laneCap || bandUnresolved >= bandCap) {
-                emit("CAUSAL_EXEC_BLOCK_FEEDBACK_PENDING_6715", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band laneUnresolved=$laneUnresolved/$laneCap bandUnresolved=$bandUnresolved/$bandCap reason=UNRESOLVED_CAP")
-                return Admission(false, "UNRESOLVED_FEEDBACK_CAP_6715", laneCap = laneCap, bandCap = bandCap, laneUnresolved = laneUnresolved, bandUnresolved = bandUnresolved)
+                // V5.0.6721 §CAUSAL_ALIGN_TO_CROSS_ASSET_PARITY — SOFT MODE.
+                // Was: return Admission(false, "UNRESOLVED_FEEDBACK_CAP_6715", ...).
+                // Now: emit soft-miss counter and let the attempt through.
+                // Cap is preserved as a diagnostic-only measurement so we can
+                // see when the deck WOULD have been throttled.
+                emit(
+                    "CAUSAL_EXEC_SOFT_MISS_UNRESOLVED_CAP_6721",
+                    "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band laneUnresolved=$laneUnresolved/$laneCap bandUnresolved=$bandUnresolved/$bandCap",
+                )
+                // Fall through — cap is now advisory.
             }
             val r = Reservation(attemptId, nm, mint, nl, band, ks, System.currentTimeMillis())
             // V5.0.6720 §CAUSAL_RESERVATION_LIFECYCLE — supersede any prior
