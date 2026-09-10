@@ -670,6 +670,18 @@ object PipelineHealthCollector {
         if (eventMode == "PAPER") bump(labelCounts, "PAPER_JOURNAL_ROWS")
         if (sideUpper == "PARTIAL_SELL") bump(labelCounts, "TRADEJRNL_REC_PARTIAL")
         if (eventMode == "PAPER") {
+            // V5.0.6725 §COUNTER_PARITY_SIDE_BREAKDOWN — the 6724 dump
+            // showed paper parity FAIL paperOk=206 rows=345 (139-row
+            // divergence). Only `recordExec` emits TRADEJRNL_REC_PAPER +
+            // the ok atomics, and it does so paired inside this block,
+            // so the divergence can only originate when sideUpper is
+            // outside the {BUY, SELL, PARTIAL_SELL} switch below — hitting
+            // the else branch that bumps only the "unknown side" counter.
+            // This label captures the exact side that leaked so an
+            // operator dump reveals which callers are passing unmapped
+            // side values (BUY_PARTIAL, REBASE, ADMIT, etc.) allowing a
+            // targeted repair in the next push instead of shooting blind.
+            try { bump(labelCounts, "PAPER_JOURNAL_SIDE_${sideUpper.take(24).replace(Regex("[^A-Z0-9_]"), "_")}") } catch (_: Throwable) {}
             when (sideUpper) {
                 "BUY" -> { execPaperBuyOk.incrementAndGet(); bump(labelCounts, "PAPER_COUNTER_SIDE_MAPPED") }
                 "SELL" -> { execPaperSellOk.incrementAndGet(); bump(labelCounts, "PAPER_COUNTER_SIDE_MAPPED") }

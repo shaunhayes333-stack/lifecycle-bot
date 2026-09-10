@@ -3779,12 +3779,32 @@ class Executor(
                 if (sellQty > 0.0 && buyQty > 0.0) {
                     val ratio = maxOf(sellQty, buyQty) / minOf(sellQty, buyQty)
                     if (ratio > 10.0) {
+                        // V5.0.6725 §SKEW_QUARANTINE_RATIO_BREAKDOWN — 6724
+                        // dump showed 34 lots quarantined on this counter
+                        // without visibility into WHY (which decade of skew).
+                        // The three canonical bad shapes are 10x/100x
+                        // (single decimal drift), 1000x/10000x (missing
+                        // shift by 3-4 decimals — the CryptoAltTrader
+                        // stringly-typed decimals path), and 100000x+
+                        // (raw lamport vs UI amount confusion). This
+                        // ratio-bucketed counter tells the operator which
+                        // decade dominates so the next push can target
+                        // the actual conversion site.
+                        val ratioBucket6725 = when {
+                            ratio < 20.0 -> "10X"
+                            ratio < 200.0 -> "100X"
+                            ratio < 2_000.0 -> "1000X"
+                            ratio < 20_000.0 -> "10000X"
+                            ratio < 200_000.0 -> "100000X"
+                            else -> "GT_100000X"
+                        }
                         try {
                             ForensicLogger.lifecycle(
                                 "QTY_DECIMAL_SKEW_LEARNING_QUARANTINE_6310",
-                                "mint=${tradeWithMint.mint.take(10)} sym=${ts.symbol} side=${tradeWithMint.side} buyQty=${buyQty.fmt(6)} sellQty=${sellQty.fmt(6)} ratio=${ratio.fmt(1)}× reason=${tradeWithMint.reason} — decimals mismatch, excluded from learning fanout",
+                                "mint=${tradeWithMint.mint.take(10)} sym=${ts.symbol} side=${tradeWithMint.side} buyQty=${buyQty.fmt(6)} sellQty=${sellQty.fmt(6)} ratio=${ratio.fmt(1)}× bucket=$ratioBucket6725 reason=${tradeWithMint.reason} — decimals mismatch, excluded from learning fanout",
                             )
                             PipelineHealthCollector.labelInc("QTY_DECIMAL_SKEW_LEARNING_QUARANTINE_6310")
+                            PipelineHealthCollector.labelInc("QTY_DECIMAL_SKEW_QUARANTINE_BUCKET_6725_$ratioBucket6725")
                         } catch (_: Throwable) {}
                         true
                     } else false
@@ -5409,6 +5429,39 @@ class Executor(
         
         capitalRecoveryMultiple *= combinedAdjustment
         profitLockMultiple *= combinedAdjustment
+        
+        // V5.0.6725 §SMART_EXIT_TOOLS_WIRED — profit-lock previously
+        // consulted liq/mcap/volatility/phase/quality/tier/hold-time but
+        // was BLIND to the live vol-delta / holder-growth / whale-flow /
+        // buy-pressure the operator specifically flagged as required.
+        // A healthy runner (rising vol, growing holders, whale accum)
+        // should widen the profit-lock threshold so we do not clip a
+        // real parabolic move at 5x; a dying token should compress it
+        // so we bank before the collapse. Multiplier is bounded (0.6..1.8)
+        // so a single noisy tick cannot amputate a live runner or
+        // over-extend a rug.
+        val metricsSnap6725 = try {
+            com.lifecyclebot.engine.truth.CanonicalTokenMetricsSnapshot6725.snapshot(ts)
+        } catch (_: Throwable) { null }
+        if (metricsSnap6725 != null) {
+            val metricMult6725: Double = when (metricsSnap6725.healthTier) {
+                com.lifecyclebot.engine.truth.CanonicalTokenMetricsSnapshot6725.HealthTier.HEALTHY_RUNNER -> 1.60
+                com.lifecyclebot.engine.truth.CanonicalTokenMetricsSnapshot6725.HealthTier.HEALTHY_STABLE -> 1.20
+                com.lifecyclebot.engine.truth.CanonicalTokenMetricsSnapshot6725.HealthTier.NEUTRAL -> 1.00
+                com.lifecyclebot.engine.truth.CanonicalTokenMetricsSnapshot6725.HealthTier.WEAKENING -> 0.85
+                com.lifecyclebot.engine.truth.CanonicalTokenMetricsSnapshot6725.HealthTier.DYING -> 0.70
+                com.lifecyclebot.engine.truth.CanonicalTokenMetricsSnapshot6725.HealthTier.RUG_LIKE -> 0.60
+            }.coerceIn(0.60, 1.80)
+            capitalRecoveryMultiple *= metricMult6725
+            profitLockMultiple *= metricMult6725
+            if (metricMult6725 != 1.0) {
+                try {
+                    PipelineHealthCollector.labelInc(
+                        "PROFIT_LOCK_METRIC_ADJUST_6725_${metricsSnap6725.healthTier.name}"
+                    )
+                } catch (_: Throwable) {}
+            }
+        }
         
         val learnedRungs = try { WrRecoveryPartial.learnedExitRungs(pos.tradingMode.ifBlank { "STANDARD" }) } catch (_: Throwable) { Triple(50.0, 1000.0, 10000.0) }
         val learnedCapitalRecovery = 1.0 + (learnedRungs.second / 100.0)
@@ -7658,7 +7711,49 @@ class Executor(
             val slipAdjustedStop = if (predictedSlip > 1.0) {
                 (fluidStopNegative + predictedSlip).coerceAtMost(-3.0)
             } else fluidStopNegative
-            val hardFloor = slipAdjustedStop.coerceIn(-50.0, -3.0)
+            // V5.0.6725 §SMART_EXIT_TOOLS_WIRED — reads through
+            // CanonicalTokenMetricsSnapshot6725 (single source of truth
+            // consumed by every metric-aware tool in the exit stack) then
+            // feeds those metrics into FluidLearningAI.getDynamicExitParams
+            // (previously ZERO external callers) so the SL widens for
+            // healthy runners and tightens for dying tokens BEFORE the
+            // -3% floor clamp bites. The -20% catastrophic floor is
+            // preserved via the coerceIn below so runaway losses still
+            // clamp.
+            val metrics6725 = try {
+                com.lifecyclebot.engine.truth.CanonicalTokenMetricsSnapshot6725.snapshot(ts)
+            } catch (_: Throwable) { null }
+            val volChangePct6725 = metrics6725?.volumeChangePct ?: 0.0
+            val holderGrowth6725 = metrics6725?.holderGrowthPct ?: 0.0
+            val buyPressure6725 = metrics6725?.buyPressurePct ?: 50.0
+            val sellPressure6725 = metrics6725?.sellPressurePct ?: 50.0
+            val momentum6725 = metrics6725?.momentum ?: 0.0
+            val whaleAcc6725 = metrics6725?.isWhaleAccumulating ?: false
+            val whaleDmp6725 = metrics6725?.isWhaleDumping ?: false
+            val baseTpForMetrics6725 = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidTakeProfit(cfg().tpPct ?: 50.0, "")
+            } catch (_: Throwable) { 50.0 }
+            val dynamicParams6725 = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicExitParams(
+                    baseTpPct = baseTpForMetrics6725,
+                    baseSlPct = slipAdjustedStop,
+                    volumeChangePercent = volChangePct6725,
+                    holderGrowthPercent = holderGrowth6725,
+                    buyPressurePct = buyPressure6725,
+                    socialBuzzScore = 0,
+                    momentum = momentum6725,
+                    isWhaleAccumulating = whaleAcc6725,
+                    isWhaleDumping = whaleDmp6725,
+                )
+            } catch (_: Throwable) { null }
+            val metricAwareStop6725 = dynamicParams6725?.adjustedSlPct ?: slipAdjustedStop
+            // §SMART_EXIT_TOOLS_WIRED counter — surfaces when the wire bites
+            // (base slip stop vs metric-aware stop differs by >0.5%).
+            if (dynamicParams6725 != null && kotlin.math.abs(metricAwareStop6725 - slipAdjustedStop) > 0.5) {
+                try { PipelineHealthCollector.labelInc("SMART_EXIT_TOOL_SL_ADJUSTED_6725") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("SMART_EXIT_TOOL_SL_ADJUSTED_6725", "mint=${ts.mint.take(10)} sym=${ts.symbol} base=${slipAdjustedStop.fmt(2)} metric=${metricAwareStop6725.fmt(2)} reason=${dynamicParams6725.reason} tier=${metrics6725?.healthTier?.name ?: "?"} vol=${volChangePct6725.fmt(0)} hg=${holderGrowth6725.fmt(0)} bp=${buyPressure6725.fmt(0)} sp=${sellPressure6725.fmt(0)} mom=${momentum6725.fmt(1)}") } catch (_: Throwable) {}
+            }
+            val hardFloor = metricAwareStop6725.coerceIn(-50.0, -3.0)
             val pnlPctNowVerdict6038 = OpenPnlSanity.inspectPosition(pos, currentPrice, "Executor.dynamic_stop_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true, mint = ts.mint)
             val pnlPctNow = if (pnlPctNowVerdict6038.ok) pnlPctNowVerdict6038.pnlPct else 0.0
             if (currentPrice > 0.0 && pnlPctNow <= hardFloor) {
@@ -7688,6 +7783,29 @@ class Executor(
                     // the next hot-exit pass. If the brain's confidence drops
                     // or price falls to catastrophic territory, next pass
                     // will honor.
+                    return
+                }
+                // V5.0.6725 §SMART_EXIT_TOOLS_WIRED — FluidLearningAI.
+                // shouldExtendHoldTime was defined with ZERO external
+                // callers. Consumes the same live metrics the dynamic SL
+                // wire above uses. If it says "extend hold" (rising vol,
+                // strong buy pressure, healthy momentum at gain) AND the
+                // draw is not yet catastrophic (>-20% honors SL), we skip
+                // this SL tick — the position will be re-evaluated on the
+                // next hot-exit pass. Never widens beyond the -20% floor
+                // so a real rug still gets clamped.
+                val extendHold6725 = try {
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.shouldExtendHoldTime(
+                        volumeChangePercent = volChangePct6725,
+                        buyPressurePct = buyPressure6725,
+                        momentum = momentum6725,
+                        currentPnlPct = pnlPctNow,
+                    )
+                } catch (_: Throwable) { false }
+                if (extendHold6725 && pnlPctNow > -20.0) {
+                    try { PipelineHealthCollector.labelInc("SMART_EXIT_TOOL_HOLD_EXTEND_VETO_6725") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("SMART_EXIT_TOOL_HOLD_EXTEND_VETO_6725", "mint=${ts.mint.take(10)} sym=${ts.symbol} pnl=${pnlPctNow.fmt(2)} vol=${volChangePct6725.fmt(0)} bp=${buyPressure6725.fmt(0)} mom=${momentum6725.fmt(1)} lane=$agiLane") } catch (_: Throwable) {}
+                    onLog("🌡 EXTEND-HOLD (metrics): ${ts.symbol} pnl=${pnlPctNow.toInt()}% vol=${volChangePct6725.toInt()}% bp=${buyPressure6725.toInt()}% mom=${momentum6725.toInt()} — metrics say let it run", ts.mint)
                     return
                 }
                 onLog("🛑 STRICT SL: ${ts.symbol} pnl=${pnlPctNow.toInt()}% ≤ ${hardFloor.toInt()}% (trader=${

@@ -494,6 +494,34 @@ object CausalFeedbackAuthority6715 {
         }
     }
 
+    /**
+     * V5.0.6725 §COHORT_ADVISORY_PER_BAND — 6724 exposed advisory at
+     * lane granularity only, but the actual chronic-loser structure is
+     * per-band (EXPRESS|S61+ 0/11 alongside EXPRESS|S26-40 5/9 profitable).
+     * Sizing/tactic consumers with band context need to consult the
+     * EXACT band's advisory, not the lane-worst rollup. Returns non-null
+     * only when THIS specific (mode, lane, band) triple has crossed the
+     * chronic-loser threshold. Non-meme lanes still fail open (null).
+     */
+    fun cohortLoserAdvisoryForBand(mode: String, lane: String, band: String): CohortLoserAdvisory? {
+        if (!isMemeOwnerLane(lane)) return null
+        val nm = normMode(mode)
+        val nl = normLane(lane)
+        val nb = band.trim().uppercase()
+        if (nb.isBlank()) return null
+        synchronized(lock) {
+            val key = "BAND|$nm|$nl|$nb"
+            val s = scopes[key] ?: return null
+            val decided = s.wins + s.losses
+            if (decided < ADVISORY_MIN_DECIDED) return null
+            val wr = s.wins.toDouble() / decided.toDouble()
+            if (wr >= ADVISORY_WR_FLOOR) return null
+            val frac = (wr / ADVISORY_WR_FLOOR).coerceIn(0.0, 1.0)
+            val mult = (ADVISORY_MULT_FLOOR + (1.0 - ADVISORY_MULT_FLOOR) * frac).coerceIn(ADVISORY_MULT_FLOOR, 1.0)
+            return CohortLoserAdvisory(nb, wr * 100.0, decided, mult)
+        }
+    }
+
     internal fun resetForTest6715() = synchronized(lock) {
         scopes.clear(); ticketStamps.clear(); reservations.clear(); positionScopes.clear()
         earlyLearnAcks.clear(); terminalSeen.clear(); learnedSeen.clear()
