@@ -49,10 +49,15 @@ class Aate6692RuntimeRepairTest {
     }
 
     @Test
-    fun `paper ledger journal divergence globally quarantines learning`() {
+    fun `paper ledger journal divergence is telemetry only and per event purity remains hard`() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/EconomicPurityGate6504.kt").readText()
         assertTrue(src.contains("JournalEconomicReplay6619.latestLedgerDivergenceSol()"))
-        assertTrue(src.contains("ECONOMIC_PURITY_GLOBAL_PAPER_DIVERGENCE_6692"))
-        assertTrue(src.contains("unreconciledPaperAccount6692"))
+        assertTrue(src.contains("ECONOMIC_PURITY_ACCOUNT_REPLAY_DIVERGENCE_TELEMETRY_6712"))
+        assertFalse(src.contains("ECONOMIC_PURITY_GLOBAL_PAPER_DIVERGENCE_6692"))
+
+        val gate = src.substringAfter("fun shouldExcludeFromAnalytics")
+            .substringBefore("fun size()")
+        assertTrue(gate.contains("val excluded = local || invariantBroken || historical"))
+        assertFalse(gate.contains("|| unreconciledPaperAccount"))
     }
 }
