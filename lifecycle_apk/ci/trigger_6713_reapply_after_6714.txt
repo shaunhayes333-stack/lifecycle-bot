@@ -1,0 +1,1 @@
+Re-run the already-staged V5.0.6713 causal learning source repair after V5.0.6714 corrected the obsolete EconomicPurityGate regression test. This trigger is not runtime authority and must not remain as a production policy layer.
