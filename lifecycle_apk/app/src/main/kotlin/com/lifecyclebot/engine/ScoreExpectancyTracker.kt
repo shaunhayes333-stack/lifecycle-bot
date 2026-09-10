@@ -111,7 +111,22 @@ object ScoreExpectancyTracker {
         }
     }
 
-    /** Mean pnlPct for [layer]@[score] bucket, or null when under-sampled. */
+    /** Raw clean mean from the first recorded close; used only for bounded soft sizing. */
+    fun bucketRawMean6715(layer: String, score: Int): Double? {
+        val w = windows[keyOf(layer, score)] ?: return null
+        synchronized(w) {
+            if (w.isEmpty()) return null
+            val sane = w.map { when {
+                it.isNaN() || it.isInfinite() -> 0.0
+                it > 5000.0 -> 5000.0
+                it < -100.0 -> -100.0
+                else -> it
+            } }
+            return sane.sum() / sane.size
+        }
+    }
+
+    /** Mean pnlPct for [layer]@[score] bucket, or null when under-sampled for HARD decisions. */
     fun bucketMean(layer: String, score: Int): Double? {
         val w = windows[keyOf(layer, score)] ?: return null
         synchronized(w) {
@@ -217,13 +232,18 @@ object ScoreExpectancyTracker {
         if (try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }) {
             return 1.0
         }
-        val mean = bucketMean(layer, score) ?: return 1.0   // null = too few samples → no shaping
-        return when {
+        val samples = bucketSamples(layer, score)
+        val mean = bucketRawMean6715(layer, score) ?: return 1.0
+        // V5.0.6715 — trade-one soft evidence. The hard shouldReject() contract
+        // remains MIN_SAMPLES_FOR_REJECT=15; only size reacts immediately.
+        val raw = when {
             mean >= 0.0    -> 1.0
             mean >= -8.0   -> 0.70
             mean >= -15.0  -> 0.45
             else           -> 0.25
         }
+        val evidence = (samples.toDouble() / (samples.toDouble() + 3.0)).coerceIn(0.0, 1.0)
+        return (1.0 + (raw - 1.0) * evidence).coerceIn(0.25, 1.0)
     }
 
     /** One-line snapshot for [layer], or all layers if null. */

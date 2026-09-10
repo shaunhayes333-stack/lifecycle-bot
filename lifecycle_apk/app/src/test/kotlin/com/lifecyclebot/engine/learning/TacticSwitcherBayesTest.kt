@@ -48,10 +48,10 @@ class TacticSwitcherBayesTest {
         repeat(8) { TacticSwitcher.onTradeClosed(lane, band, pnlPct = -6.0) }
         assertEquals(TacticSwitcher.Tactic.PULLBACK, TacticSwitcher.currentTactic(lane, band))
 
-        repeat(4) { TacticSwitcher.onTradeClosed(lane, band, pnlPct = -48.0) }
+        TacticSwitcher.onTradeClosed(lane, band, pnlPct = -48.0)
 
         assertEquals(
-            "A post-pivot tactic that immediately goes 0/4 badly must pivot again, not disable the lane",
+            "V5.0.6715: one severe clean post-pivot loss must pivot again immediately, never disable the lane",
             TacticSwitcher.Tactic.REACCUMULATION,
             TacticSwitcher.currentTactic(lane, band),
         )

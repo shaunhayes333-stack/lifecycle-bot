@@ -80,7 +80,7 @@ object CanonicalFinalizedTradeBus6464 {
     private val CANONICAL_CONSUMERS_6485 = listOf(
         "RewardPurity", "LearnerRewardBridge", "LosingStreakReflex", "GrowthRewardShaper", "TacticSwitcher",
         "Governor", "CapitalCreed", "EVEstimator", "AatePolicyReward", "StrategyHypothesisEngine", "MemeCausalLearning6568",
-        "ForwardOutcomeModel", "UnifiedExitPolicyHead", "Dashboard",
+        "ForwardOutcomeModel", "UnifiedExitPolicyHead", "CausalFeedback6715", "Dashboard",
     )
     fun ensureCanonicalConsumers6485() { CANONICAL_CONSUMERS_6485.forEach(::registerConsumer) }
 

@@ -111,11 +111,12 @@ object TacticSwitcher {
     // These are catastrophic single-close losses that never rotated because
     // the tactic had already pivoted from MOMENTUM and n<MAGNITUDE_MIN_SAMPLES.
     // TRADE_ONE_CATASTROPHIC bypasses BOTH restrictions: any tactic that takes
-    // a single close with |pnl| >= 90% rotates immediately. This is only a
-    // rotation (never a disable), and 90% is deliberately tight so real market
-    // rugs (which are usually >=95% wipe) still trigger while day-to-day
-    // volatility (typically <30%) does not.
-    private const val TRADE_ONE_CATASTROPHIC_PNL = -90.0
+    // a single severe CLEAN canonical close rotates immediately. V5.0.6715
+    // moves this from rug-only (-90%) to policy-failure magnitude (-25%). Ordinary
+    // first losses do NOT panic-rotate: the trade-one score/lane soft shapers trim
+    // the next exposure instead. A <=-25% clean close is already beyond normal
+    // stop intent and is strong evidence that this tactic/context is wrong NOW.
+    private const val TRADE_ONE_CATASTROPHIC_PNL = -25.0
     private const val MAGNITUDE_MIN_SAMPLES = 2
     private const val MAGNITUDE_MEAN_PNL    = -25.0
     private const val MAGNITUDE_LOSS_RATE   = 0.80

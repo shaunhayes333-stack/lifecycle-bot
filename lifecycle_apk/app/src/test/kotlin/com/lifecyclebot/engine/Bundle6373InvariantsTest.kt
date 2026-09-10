@@ -29,8 +29,8 @@ class Bundle6373InvariantsTest {
     fun tacticSwitcher_rotates_on_single_catastrophic_trade() {
         val txt = File("src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt").readText()
         assertTrue(
-            "V5.0.6373: TRADE_ONE_CATASTROPHIC_PNL constant must be present at -90.0",
-            txt.contains("private const val TRADE_ONE_CATASTROPHIC_PNL = -90.0"),
+            "V5.0.6715 supersedes the 6373 rug-only threshold: trade-one policy failure must pivot at -25.0",
+            txt.contains("private const val TRADE_ONE_CATASTROPHIC_PNL = -25.0"),
         )
         assertTrue(
             "V5.0.6373: onTradeClosed must rotate on tradesIn==1 && pnlPct <= TRADE_ONE_CATASTROPHIC_PNL regardless of pivoted state",

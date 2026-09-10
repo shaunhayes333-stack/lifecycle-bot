@@ -245,6 +245,17 @@ object ExecutableOpenGate {
             }
         } ?: return null
         executionTickets[authoritative.attemptId] = authoritative
+        // V5.0.6715 — stamp the actual FDG/intent creation epoch. Never stamp at
+        // terminal/report time: this is the decision provenance trade N+1 must prove.
+        try {
+            val causalScore6715 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510
+                .currentForMint(authoritative.mint, authoritative.candidateVersion, authoritative.mode)
+                ?.score?.toInt() ?: states[authoritative.mint]?.entryScore ?: -1
+            com.lifecyclebot.engine.truth.CausalFeedbackAuthority6715.stampDecision(
+                authoritative.attemptId, authoritative.mint, authoritative.mode,
+                authoritative.canonicalLane, causalScore6715,
+            )
+        } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("EXEC_INTENT_CREATED")
             ForensicLogger.lifecycle("EXEC_INTENT_CREATED", "attemptId=${authoritative.attemptId} candidateId=${authoritative.candidateId} mint=${authoritative.mint.take(10)} mode=${authoritative.mode} lane=${authoritative.canonicalLane} fdg=${authoritative.fdgVerdict} allowed=${authoritative.fdgAllowed} authority=${authoritative.authorityVersion} size=${authoritative.resolvedSize}")
         } catch (_: Throwable) {}
@@ -328,6 +339,19 @@ object ExecutableOpenGate {
 
     private fun revalidateAndResealExpired6613(intent: ExecutionIntent): ExecutionIntent? {
         if (!resealedTickets6613.add(intent.attemptId)) return null
+        // V5.0.6715 — time expiry can be refreshed; learning-state expiry cannot.
+        // If a terminal/owner-learning revision changed after this ticket was sealed,
+        // the candidate must re-enter FDG instead of being cosmetically resealed.
+        if (!com.lifecyclebot.engine.truth.CausalFeedbackAuthority6715.isDecisionCurrent(
+                intent.attemptId, intent.mode, intent.canonicalLane,
+            )) {
+            try {
+                PipelineHealthCollector.labelInc("EXPIRED_TICKET_FEEDBACK_EPOCH_REJECT_6715")
+                ForensicLogger.lifecycle("EXPIRED_TICKET_FEEDBACK_EPOCH_REJECT_6715", "attemptId=${intent.attemptId.take(28)} mint=${intent.mint.take(10)} lane=${intent.canonicalLane} action=reenter_fdg")
+            } catch (_: Throwable) {}
+            com.lifecyclebot.engine.truth.CausalFeedbackAuthority6715.releaseAttempt(intent.attemptId)
+            return null
+        }
         val decision = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(
             intent.mint, intent.candidateVersion, intent.mode,
         )
@@ -380,6 +404,7 @@ object ExecutableOpenGate {
             markTimestampMs6614 = refreshedMark6614?.timestampMs ?: intent.markTimestampMs6614,
         )
         executionTickets.remove(intent.attemptId, intent)
+        com.lifecyclebot.engine.truth.CausalFeedbackAuthority6715.transferStamp(intent.attemptId, replacement.attemptId)
         executionTickets[replacement.attemptId] = replacement
         activeExecutionIntents6519[intentKey6519(replacement.mode, replacement.mint, replacement.candidateVersion)] = replacement
         try {
@@ -495,6 +520,7 @@ object ExecutableOpenGate {
 
     fun terminalizeAttempt6514(attemptId: String, mint: String, lane: String) {
         revokeAttempt6514(attemptId, mint, lane)
+        try { com.lifecyclebot.engine.truth.CausalFeedbackAuthority6715.releaseAttempt(attemptId) } catch (_: Throwable) {}
         // Terminal outcomes clear the retry-pending owner as well.
         retryPending6548.remove(mint.trim())
     }
@@ -884,6 +910,7 @@ object ExecutableOpenGate {
     private const val ALLOWED_ATTEMPT_TTL_MS = 60_000L
 
     fun resetForTests() {
+        try { com.lifecyclebot.engine.truth.CausalFeedbackAuthority6715.resetForTest6715() } catch (_: Throwable) {}
         states.clear()
         allowedAttempts.clear()
         executionTickets.clear()
@@ -2404,9 +2431,43 @@ object ExecutableOpenGate {
             } catch (_: Throwable) {}
             synthesized
         }
+        // V5.0.6715 — TRADE-ONE CAUSAL FINALITY. This is intentionally
+        // immediately before executable-claim publication: all safety/FDG/size
+        // checks have passed, but no economic-open residue exists yet.
+        if (fdgIntent6519.attemptId != execKey) {
+            try { com.lifecyclebot.engine.truth.CausalFeedbackAuthority6715.transferStamp(fdgIntent6519.attemptId, execKey) } catch (_: Throwable) {}
+        }
+        val causalScore6715 = state?.entryScore
+            ?: immutableAuthority6513?.score?.toInt()
+            ?: try {
+                com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510
+                    .currentForMint(mint, candidateVersion, modeUpper)?.score?.toInt()
+            } catch (_: Throwable) { null }
+            ?: -1
+        val causalAdmission6715 = try {
+            com.lifecyclebot.engine.truth.CausalFeedbackAuthority6715.admit(
+                execKey, mint, modeUpper, canonicalSelectedLane, causalScore6715,
+            )
+        } catch (_: Throwable) {
+            com.lifecyclebot.engine.truth.CausalFeedbackAuthority6715.Admission(false, "CAUSAL_AUTHORITY_EXCEPTION_6715", forceRevalidate = true)
+        }
+        if (!causalAdmission6715.allowed) {
+            if (causalAdmission6715.forceRevalidate) {
+                executionTickets.remove(fdgIntent6519.attemptId)
+                executionTickets.remove(execKey)
+                activeExecutionIntents6519.entries.removeIf { it.value.attemptId == fdgIntent6519.attemptId || it.value.attemptId == execKey }
+            }
+            return blocked(
+                "EXEC_OPEN_BLOCKED_CAUSAL_FEEDBACK_6715",
+                causalAdmission6715.reason,
+                shadow = modeUpper == "PAPER",
+            )
+        }
+
         val claimKey6487 = executableClaimKey6487(modeUpper, mint, candidateVersion)
         val priorClaim6487 = executableBuyClaim6487.putIfAbsent(claimKey6487, execKey)
         if (priorClaim6487 != null && priorClaim6487 != execKey) {
+            try { com.lifecyclebot.engine.truth.CausalFeedbackAuthority6715.releaseAttempt(execKey) } catch (_: Throwable) {}
             try {
                 PipelineHealthCollector.labelInc("EXEC_BUY_MINT_VERSION_DUPLICATE_SUPPRESSED_6487")
                 ForensicLogger.lifecycle("EXEC_BUY_MINT_VERSION_DUPLICATE_SUPPRESSED_6487", "mint=${mint.take(10)} symbol=$symbol lane=$lane version=$candidateVersion winner=$priorClaim6487 loser=$execKey")
@@ -2439,6 +2500,7 @@ object ExecutableOpenGate {
                 ForensicLogger.lifecycle("EXEC_OPEN_DUPLICATE_SUPPRESSED", detail)
                 ForensicLogger.phase(ForensicLogger.PHASE.EXEC_GATE, symbol, "EXEC_GATE_DUPLICATE_SUPPRESSED $detail")
             } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.CausalFeedbackAuthority6715.releaseAttempt(execKey) } catch (_: Throwable) {}
             return OpenVerdict(false, "DUPLICATE_EXECUTION_KEY_SUPPRESSED", shadowOnly = true, logName = "EXEC_OPEN_DUPLICATE_SUPPRESSED", attemptId = execKey)
         }
         try {

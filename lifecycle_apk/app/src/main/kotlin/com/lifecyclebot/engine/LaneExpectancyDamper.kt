@@ -101,7 +101,7 @@ object LaneExpectancyDamper {
     fun statusLine(): String = try {
         val map = snapshot()
         val env6679 = try { if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "LIVE" }
-        if (map.isEmpty()) "LaneExpectancyDamper[$env6679]: no shaped lanes (all lanes ≥ ${BLEEDER_MEAN_PCT}% or < $MIN_TRADES trades)"
+        if (map.isEmpty()) "LaneExpectancyDamper[$env6679]: no shaped lanes (no same-mode terminal edge requiring a soft shape)"
         else "LaneExpectancyDamper[$env6679]: " + map.entries.sortedBy { it.value }
             .joinToString(" · ") { "${it.key}×${"%.2f".format(it.value)}" }
     } catch (_: Throwable) {
@@ -133,7 +133,12 @@ object LaneExpectancyDamper {
         }
         val out = HashMap<String, Double>()
         for (m in board) {
-            if (m.trades < MIN_TRADES) continue
+            if (m.trades < 1) continue
+            // V5.0.6715 — evidence is continuous from trade one. One outcome may
+            // nudge size, never dominate it; confidence grows smoothly instead of
+            // being exactly zero until the old n=8 cliff.
+            val evidence6715 = (m.trades.toDouble() / (m.trades.toDouble() + 3.0)).coerceIn(0.0, 1.0)
+            fun blend6715(raw: Double): Double = (1.0 + (raw - 1.0) * evidence6715).coerceIn(0.05, 1.60)
 
             // Proven profitable asymmetric runners may be pressed, but only when
             // the same-mode terminal ledger is actually net positive.
@@ -141,7 +146,7 @@ object LaneExpectancyDamper {
                 val earlyEdge = ((m.winRatePct - EARLY_WINNER_MIN_WR_PCT) / 45.0).coerceIn(0.0, 1.0)
                 val solEdge = (m.totalSolPnl / 0.08).coerceIn(0.0, 1.0)
                 val boost = (1.08 + earlyEdge * 0.14 + solEdge * 0.13).coerceIn(1.08, 1.35)
-                out[m.strategy.trim().uppercase()] = maxOf(out[m.strategy.trim().uppercase()] ?: 1.0, boost)
+                out[m.strategy.trim().uppercase()] = maxOf(out[m.strategy.trim().uppercase()] ?: 1.0, blend6715(boost))
                 continue
             }
 
@@ -167,7 +172,7 @@ object LaneExpectancyDamper {
                 val base = if (winner) WINNER_START_MULT else 1.08
                 val cap = if (winner) WINNER_MAX_MULT else 1.28
                 val boost = (base + (edge * 0.18) + (wrEdge * 0.10) + (solEdge * 0.10)).coerceIn(1.0, cap)
-                out[m.strategy.trim().uppercase()] = maxOf(out[m.strategy.trim().uppercase()] ?: 1.0, boost)
+                out[m.strategy.trim().uppercase()] = maxOf(out[m.strategy.trim().uppercase()] ?: 1.0, blend6715(boost))
                 continue
             }
 
@@ -202,7 +207,7 @@ object LaneExpectancyDamper {
                 val frac = edgeDepth / PF_FLOOR_PP
                 (PF_START_MULT - frac * (PF_START_MULT - MIN_MULT)).coerceIn(MIN_MULT, 1.0)
             }
-            out[m.strategy.trim().uppercase()] = mult
+            out[m.strategy.trim().uppercase()] = blend6715(mult)
         }
         return out
     }

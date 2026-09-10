@@ -161,6 +161,9 @@ object AateDecisionFabric6512 {
             return false
         }
         if (!rewardedPositions.add(env.positionId)) return true
+        if (policyAck6713) {
+            try { CausalFeedbackAuthority6715.markLearned(env.positionId) } catch (_: Throwable) {}
+        }
         if (policyAck6713 && UnifiedPolicyHead.trainedCount() > uphBefore) updated += "UnifiedPolicyHead"
         val metaBefore = AutonomousMetaPolicy.totalUpdateCount6512()
         try { AutonomousMetaPolicy.recordOutcome(env.mint, env.realizedReturnPct) } catch (_: Throwable) {}

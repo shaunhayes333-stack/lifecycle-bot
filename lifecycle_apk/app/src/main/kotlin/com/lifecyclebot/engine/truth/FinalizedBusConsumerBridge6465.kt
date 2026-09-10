@@ -127,6 +127,7 @@ object FinalizedBusConsumerBridge6465 {
             "MemeCausalLearning6568" -> deliverToMemeCausalLearning6568(env)
             "ForwardOutcomeModel" -> deliverToForwardOutcomeModel6696(env)
             "UnifiedExitPolicyHead" -> deliverToUnifiedExitPolicyHead6696(env)
+            "CausalFeedback6715"  -> deliverToCausalFeedback6715(env)
             "Dashboard"           -> deliverToDashboard(env)
             else -> false
         }
@@ -141,7 +142,11 @@ object FinalizedBusConsumerBridge6465 {
     }
 
     /** Consumers that are NOT learning targets — quarantine does not gate them. */
-    private val NON_LEARNING_CONSUMERS = setOf("Dashboard")
+    private val NON_LEARNING_CONSUMERS = setOf("Dashboard", "CausalFeedback6715")
+
+    private fun deliverToCausalFeedback6715(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
+        CausalFeedbackAuthority6715.onTerminal(env)
+    } catch (_: Throwable) { false }
 
     private fun deliverToRewardPurity(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean =
         RewardPurityGate6441.acceptFinalizedClose(

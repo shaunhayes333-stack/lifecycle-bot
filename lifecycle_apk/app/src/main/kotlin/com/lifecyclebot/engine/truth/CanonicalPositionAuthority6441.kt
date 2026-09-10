@@ -159,6 +159,11 @@ object CanonicalPositionAuthority6441 {
      */
     private fun lockEntryMetricsAtOpen6636(position: Position) {
         if (position.lifecycle != Lifecycle.OPEN && position.lifecycle != Lifecycle.PARTIALLY_CLOSED) return
+        try {
+            CausalFeedbackAuthority6715.onPositionOpened(
+                position.positionId, position.mode, position.mint, position.lane,
+            )
+        } catch (_: Throwable) {}
         val qtyTokens = try {
             if (position.quantityScale in 0..18)
                 position.originalQtyRaw.toBigDecimal().movePointLeft(position.quantityScale).toDouble()
