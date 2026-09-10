@@ -35,14 +35,11 @@ import java.util.concurrent.atomic.AtomicLong
  *   • LearningQuarantineGate6470.isQuarantined(mint) == true
  *   • FillLotLedger6504 assertMatches() fails (repair pending)
  *
- * Consumers should call `shouldExcludeFromAnalytics(mint)` BEFORE
- * feeding a terminal-close row into:
- *   • RewardPurityGate6441 (already gates its own; this is defence-in-depth)
- *   • StrategyTelemetry.recordTerminal
- *   • MathematicalEdgeEngine.captureTerminal
- *   • GrowthAlignedRewardShaper6439.shape
- *   • GovernorRecovery6388 signals
- *   • HypothesisEngine ingress
+ * V5.0.6712 SOURCE AUTHORITY REPAIR:
+ * Account-wide JournalEconomicReplay divergence is diagnostic/rebuild state,
+ * not evidence that an unrelated exact terminal event is impure. It is
+ * therefore telemetry only here. Per-mint / per-position purity remains hard.
+ * This prevents one historical replay mismatch from starving every learner.
  */
 object EconomicPurityGate6504 {
 
@@ -57,11 +54,6 @@ object EconomicPurityGate6504 {
         val markedAtMs: Long,
     )
 
-    /**
-     * Mark a mint economically untrusted. Idempotent — first reason
-     * wins. Called from the sell/exit path when RUNNER_EXIT_BASIS_UNTRUSTED
-     * fires or the FillLot invariant fails post-mutation.
-     */
     fun markUntrusted(mint: String, reason: String) {
         if (mint.isBlank()) return
         val trimmed = reason.take(64)
@@ -79,7 +71,6 @@ object EconomicPurityGate6504 {
         }
     }
 
-    /** Clear the untrusted mark ONCE the mint is fully reconciled. */
     fun clearUntrusted(mint: String) {
         if (mint.isBlank()) return
         if (untrusted.remove(mint) != null) {
@@ -93,17 +84,10 @@ object EconomicPurityGate6504 {
         }
     }
 
-    /**
-     * Fast-path read consulted by learners / analytics before ingesting
-     * a terminal-close row. Combines the local untrusted set with the
-     * upstream quarantines (Quantity + Historical).
-     *
-     * `emit=false` for hot paths to avoid log spam; the aggregate
-     * `exclusions` counter still ticks.
-     */
     fun shouldExcludeFromAnalytics(mint: String, emit: Boolean = false): Boolean {
         queries.incrementAndGet()
         if (mint.isBlank()) return false
+
         val local = untrusted.containsKey(mint)
         val invariantBroken = try {
             QuantityInvariantAuthority6500.isQuarantined(mint)
@@ -111,22 +95,36 @@ object EconomicPurityGate6504 {
         val historical = try {
             LearningQuarantineGate6470.isQuarantined(positionId = null, mint = mint)
         } catch (_: Throwable) { false }
-        val unreconciledPaperAccount6692 = try {
+
+        // V5.0.6712 — diagnostic only. Never convert an account-level replay
+        // mismatch into a blanket terminal-learning veto for every mint.
+        val unreconciledPaperAccount = try {
             com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() &&
                 kotlin.math.abs(JournalEconomicReplay6619.latestLedgerDivergenceSol()) > 0.001
         } catch (_: Throwable) { false }
-        val excluded = local || invariantBroken || historical || unreconciledPaperAccount6692
+        if (unreconciledPaperAccount) {
+            globalPaperExclusions6692.incrementAndGet()
+            if (emit) {
+                try {
+                    PipelineHealthCollector.labelInc("ECONOMIC_PURITY_ACCOUNT_REPLAY_DIVERGENCE_TELEMETRY_6712")
+                    ForensicLogger.lifecycle(
+                        "ECONOMIC_PURITY_ACCOUNT_REPLAY_DIVERGENCE_TELEMETRY_6712",
+                        "mint=${mint.take(10)} action=diagnostic_only_per_terminal_purity_authoritative",
+                    )
+                } catch (_: Throwable) {}
+            }
+        }
+
+        val excluded = local || invariantBroken || historical
         if (excluded) {
             exclusions.incrementAndGet()
-            if (unreconciledPaperAccount6692) globalPaperExclusions6692.incrementAndGet()
             if (emit) {
                 try {
                     ForensicLogger.lifecycle(
                         "ECONOMIC_PURITY_EXCLUSION_6504",
-                        "mint=${mint.take(10)} local=$local invariant=$invariantBroken historical=$historical paperAccountDiverged=$unreconciledPaperAccount6692",
+                        "mint=${mint.take(10)} local=$local invariant=$invariantBroken historical=$historical accountReplayDiagnostic=$unreconciledPaperAccount",
                     )
                     PipelineHealthCollector.labelInc("ECONOMIC_PURITY_EXCLUSION_6504")
-                    if (unreconciledPaperAccount6692) PipelineHealthCollector.labelInc("ECONOMIC_PURITY_GLOBAL_PAPER_DIVERGENCE_6692")
                 } catch (_: Throwable) {}
             }
         }
@@ -136,11 +134,12 @@ object EconomicPurityGate6504 {
     fun size(): Int = untrusted.size
 
     fun statusLine(): String =
-        "untrustedMints=${untrusted.size} queries=${queries.get()} exclusions=${exclusions.get()} globalPaper=${globalPaperExclusions6692.get()}"
+        "untrustedMints=${untrusted.size} queries=${queries.get()} exclusions=${exclusions.get()} globalPaperTelemetry=${globalPaperExclusions6692.get()}"
 
     internal fun clearForTest() {
         untrusted.clear()
         queries.set(0L)
-        exclusions.set(0L); globalPaperExclusions6692.set(0L)
+        exclusions.set(0L)
+        globalPaperExclusions6692.set(0L)
     }
 }
