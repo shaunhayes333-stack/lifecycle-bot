@@ -150,6 +150,13 @@ object CausalFeedbackAuthority6715 {
     fun admit(attemptId: String, mint: String, mode: String, lane: String, score: Int): Admission {
         if (!isMemeOwnerLane(lane)) return Admission(true, "NON_MEME_FAIL_OPEN")
         val nm = normMode(mode); val nl = normLane(lane); val admitBand = scoreBand(score)
+        // V5.0.6720 §CAUSAL_RESERVATION_LIFECYCLE — sweep abandoned reservations
+        // before every admit so leaked reservations (sized-but-not-ticketed,
+        // ticket-expired, mint-aliased, superseded attempts) cannot inflate the
+        // cap forever. TTL is generous (60s — well past normal ticket-open of
+        // ~5s) so we never yank a live reservation. This is what unfroze the
+        // 1524 UNRESOLVED_FEEDBACK_CAP_6715 blocks in the 5.0.6719 dump.
+        synchronized(lock) { sweepStaleReservationsLocked(System.currentTimeMillis()) }
         synchronized(lock) {
             var stamp = ticketStamps[attemptId]
             // V5.0.6719 §CAUSAL_STATE_ACCOUNTING — the stamp's scoreBand is the
@@ -218,11 +225,56 @@ object CausalFeedbackAuthority6715 {
                 return Admission(false, "UNRESOLVED_FEEDBACK_CAP_6715", laneCap = laneCap, bandCap = bandCap, laneUnresolved = laneUnresolved, bandUnresolved = bandUnresolved)
             }
             val r = Reservation(attemptId, nm, mint, nl, band, ks, System.currentTimeMillis())
+            // V5.0.6720 §CAUSAL_RESERVATION_LIFECYCLE — supersede any prior
+            // live reservations for the same (mode, mint, lane) triple. When
+            // a fresher attempt gets admitted, the older ones are dead by
+            // definition (they lost owner election) and MUST NOT continue
+            // consuming the cap. This alone would have killed most of the
+            // 1524 blocks in the 5.0.6719 dump because the same mint kept
+            // rebooking attempts every 5-10s while old reservations lingered.
+            val superseded = reservations.values
+                .filter { it.mode == nm && it.mint == mint && it.lane == nl && it.attemptId != attemptId }
+                .toList()
+            if (superseded.isNotEmpty()) {
+                superseded.forEach { old ->
+                    old.scopeKeys.forEach { state(it).reservedAttempts.remove(old.attemptId) }
+                    reservations.remove(old.attemptId)
+                    ticketStamps.remove(old.attemptId)
+                }
+                emit(
+                    "CAUSAL_RESERVATION_SUPERSEDED_6720",
+                    "newAttemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl count=${superseded.size}",
+                )
+            }
             reservations[attemptId] = r
             ks.forEach { state(it).reservedAttempts.add(attemptId) }
             emit("CAUSAL_EXEC_ADMITTED_6715", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band lane=$laneUnresolved->$laneCap band=$bandUnresolved->$bandCap")
             return Admission(true, "CAUSAL_FRESH_6715", laneCap = laneCap, bandCap = bandCap, laneUnresolved = laneUnresolved, bandUnresolved = bandUnresolved)
         }
+    }
+
+    /**
+     * V5.0.6720 §CAUSAL_RESERVATION_LIFECYCLE — TTL sweep for abandoned
+     * reservations. An attempt should either reach onPositionOpened or die
+     * via releaseAttempt within ~5s of admit under any normal path. 60s TTL
+     * is generous enough to never yank a live reservation, but tight enough
+     * that leaked reservations from sized-but-not-ticketed / ticket-expired
+     * / mint-aliased / caller-forgot-to-release paths can't inflate the cap
+     * forever. Must be invoked inside `synchronized(lock)`.
+     */
+    private fun sweepStaleReservationsLocked(nowMs: Long) {
+        val ttlMs = 60_000L
+        val stale = reservations.values.filter { nowMs - it.reservedAtMs > ttlMs }.toList()
+        if (stale.isEmpty()) return
+        stale.forEach { r ->
+            r.scopeKeys.forEach { state(it).reservedAttempts.remove(r.attemptId) }
+            reservations.remove(r.attemptId)
+            ticketStamps.remove(r.attemptId)
+        }
+        emit(
+            "CAUSAL_RESERVATION_TTL_SWEPT_6720",
+            "count=${stale.size} ttlMs=$ttlMs oldestAgeMs=${stale.maxOf { nowMs - it.reservedAtMs }}",
+        )
     }
 
     /** Exact canonical OPEN boundary; converts a pending decision reservation into exposure. */

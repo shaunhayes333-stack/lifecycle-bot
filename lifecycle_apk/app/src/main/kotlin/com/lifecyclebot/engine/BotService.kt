@@ -17769,20 +17769,49 @@ if (hotExitHandledSweep) {
 
     /** A Job may be active while still queued.  A request with no actual
      * coroutine start heartbeat after two completed bot cycles is cancelled
-     * and relaunched on the isolated exit executor. */
+     * and relaunched on the isolated exit executor.
+     *
+     * V5.0.6720 §EXIT_COORDINATOR_LIFECYCLE — original semantics compared
+     * `heartbeat >= requestedAt`. But every new sweep request bumps
+     * `requestedAt` to now(), while `heartbeat` only updates each loop
+     * iteration of the running coordinator. During the coordinator's own
+     * delay(coordinatorDelayMs) sleep, any fresh sweep request instantly
+     * makes requestedAt > heartbeat, tripping the deadline check → cancel
+     * & relaunch. Operator dump showed 117 relaunches in 119 bot cycles —
+     * a live coordinator killed almost every tick.
+     *
+     * Fixed: the coordinator is considered healthy if its Job is active
+     * AND its heartbeat updated within the last HEARTBEAT_STALENESS_MS.
+     * That decouples liveness from request timing entirely. Only a truly
+     * stuck (no heartbeat) or dead coordinator relaunches.
+     */
     private fun enforceExitStartDeadline6647() {
         if (!fullExitSweepPending.get() && !universalSlSweepPending.get()) return
         val requestedCycle = exitCoordinatorRequestedCycle6647.get()
         if (requestedCycle < 0L || executionSpineCycle6647.get() - requestedCycle < 2L) return
         val requestedAt = exitCoordinatorRequestedAtMs6647.get()
+        // If the coordinator Job is active AND its heartbeat is fresh, it's
+        // alive and processing (or about to). No relaunch needed.
+        val heartbeatStalenessMs = 15_000L
+        val now = System.currentTimeMillis()
+        val jobAlive = exitSweepCoordinatorJob?.isActive == true
+        val heartbeatFresh = (now - exitCoordinatorStartHeartbeatMs6647.get()) < heartbeatStalenessMs
+        if (jobAlive && heartbeatFresh) return
+        // Only a truly stuck coordinator gets here.
         if (exitCoordinatorStartHeartbeatMs6647.get() >= requestedAt) return
         synchronized(exitSweepCoordinatorLock) {
+            val stillAlive = exitSweepCoordinatorJob?.isActive == true
+            val stillFresh = (System.currentTimeMillis() - exitCoordinatorStartHeartbeatMs6647.get()) < heartbeatStalenessMs
+            if (stillAlive && stillFresh) return
             if (exitCoordinatorStartHeartbeatMs6647.get() >= requestedAt) return
             exitSweepCoordinatorJob?.cancel()
             exitSweepCoordinatorJob = null
             try {
                 PipelineHealthCollector.labelInc("EXIT_COORDINATOR_NO_START_RELAUNCHED_6647")
-                ForensicLogger.lifecycle("EXIT_COORDINATOR_NO_START_RELAUNCHED_6647", "requestedAt=$requestedAt requestedCycle=$requestedCycle currentCycle=${executionSpineCycle6647.get()} dispatcher=dedicated_exit")
+                ForensicLogger.lifecycle(
+                    "EXIT_COORDINATOR_NO_START_RELAUNCHED_6647",
+                    "requestedAt=$requestedAt requestedCycle=$requestedCycle currentCycle=${executionSpineCycle6647.get()} jobAlive=$jobAlive heartbeatAgeMs=${System.currentTimeMillis() - exitCoordinatorStartHeartbeatMs6647.get()} dispatcher=dedicated_exit",
+                )
             } catch (_: Throwable) {}
         }
         ensureExitSweepCoordinator()
