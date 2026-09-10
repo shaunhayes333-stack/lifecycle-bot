@@ -1,3 +1,4 @@
+# V5.0.6715 — verified production-source rebuild trigger; source authority remains the highest applied V5.0.xxxx commit.
 name: Build AATE APK
 
 on:
