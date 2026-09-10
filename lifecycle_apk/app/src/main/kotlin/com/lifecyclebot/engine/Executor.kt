@@ -7731,7 +7731,7 @@ class Executor(
             val whaleAcc6725 = metrics6725?.isWhaleAccumulating ?: false
             val whaleDmp6725 = metrics6725?.isWhaleDumping ?: false
             val baseTpForMetrics6725 = try {
-                com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidTakeProfit(cfg().tpPct ?: 50.0, "")
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidTakeProfit(50.0, "")
             } catch (_: Throwable) { 50.0 }
             val dynamicParams6725 = try {
                 com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicExitParams(
