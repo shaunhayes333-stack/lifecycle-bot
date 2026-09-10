@@ -130,6 +130,19 @@ object ExecutableOpenGate {
         if (m.startsWith("unresolved:", true) || m.startsWith("perps:", true) || m.startsWith("multichain:", true)) {
             return "ASSET_${m.hashCode().toUInt().toString(16)}"
         }
+        // V5.0.6722 §CROSS_ASSET_IDENTITY_SANITIZE — canonical cross-asset
+        // identities use `chain|token` (e.g. bsc|0x..., eth|0x...,
+        // robinhood|AAPL). Diagnostic dump 5.0.6720 showed non-Solana opens
+        // being redacted to INVALID_MINT_REDACTED, which downstream keyed
+        // as identity-drift and starved every cross-asset exit path (mark
+        // updates + exit-quote lookups keyed on the redacted string, not
+        // the real identity). We now accept the canonical shape and pass
+        // through the hashed ASSET_ token — same secret-safety contract
+        // as the perps/multichain branch above.
+        val crossAsset = Regex("^[a-z0-9]{2,16}\\|[A-Za-z0-9_\\-.:/@]{1,100}$")
+        if (crossAsset.matches(m)) {
+            return "ASSET_${m.hashCode().toUInt().toString(16)}"
+        }
         return "INVALID_MINT_REDACTED"
     }
 

@@ -17853,9 +17853,9 @@ if (hotExitHandledSweep) {
                             val perMintCooldownMs = 5_000L
                             val opens = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
                             for (p in opens) {
-                                val mark = com.lifecyclebot.engine.truth.CanonicalPriceMark6522.get(
+                                val mark = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(
                                     p.mint,
-                                    com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_EXIT_QUOTE,
+                                    com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXIT_ECONOMIC,
                                 )
                                 val markAge = if (mark == null) Long.MAX_VALUE else now - mark.timestampMs
                                 if (markAge < stalenessLimitMs) continue
@@ -17863,7 +17863,7 @@ if (hotExitHandledSweep) {
                                 if (now - last < perMintCooldownMs) continue
                                 staleMarkRefreshCooldown6721[p.mint] = now
                                 try {
-                                    com.lifecyclebot.engine.truth.CanonicalPriceMark6522.promoteObservationToExecutable6613(p.mint, now)
+                                    com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.promoteObservationToExecutable6613(p.mint, now)
                                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("STALE_MARK_REFRESH_TRIGGERED_6721")
                                 } catch (_: Throwable) {}
                             }
