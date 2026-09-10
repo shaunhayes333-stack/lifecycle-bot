@@ -1,3 +1,21 @@
+## V5.0.6727 — §RUNTIME_AUTHORITY_10_ITEM_COVERAGE (Build GREEN — 16m57s)
+
+Full source-level authority coverage of the 10-item root-cause map from the 6726 runtime diagnostic. None change trading heuristics; they establish canonical single-source-of-truth surfaces plus hard-block tiers where advisory-only was proven insufficient.
+
+- **#1 §EXIT_THROUGHPUT_BACK_PRESSURE** (`ExitThroughputAuthority6727`): hard-blocks buy admission when open>=180 OR (open>=100 AND cash<5% equity). Wired into `ExecutableOpenGate` BEFORE size-resolver.
+- **#2 §CLOSE_LEDGER_REJECTED_REASON_BREAKDOWN**: per-tag counter `POSITION_CLOSE_LEDGER_REJECTED_6727_<TAG>` at every deny-list branch reveals which reason (STARTUP_GHOST_RECONCILE / CLOSED_UNVERIFIED / BALANCE_UNKNOWN etc) is preventing the CLOSED stamp.
+- **#3 §COHORT_TERMINAL_SUPPRESSOR** (`CausalFeedbackAuthority6715.terminalCohortSuppressionForBand`): HARD-blocks admission when a specific (mode, lane, band) has decided N>=20 AND WR<5%. Non-meme lanes fail open. Wired into `ExecutableOpenGate` at admit path.
+- **#4 §PERFORMANCE_DOCTRINE_50_TARGET** (`PerformanceDoctrine6727`): reads runtime WR, emits `PERFORMANCE_BELOW_50_TARGET_6727` when WR<50% at 20+ decided. Overwrites the old 20-35% doctrine band.
+- **#5 §SOURCE_COHORT_ADVISORY** (`SourceCohortAdvisory6727`): per-source WR damper (1.0 winners → 0.30 chronic losers) so intake reallocates toward CoinGecko Trending 75% WR away from Pump Portal 12-24% WR.
+- **#6 §MARK_RATIO_SANITY_QUARANTINE** (`CanonicalPriceMark6522.publish`): >100× ratio-from-current clamp with per-decade bucket counter (`CANONICAL_MARK_RATIO_QUARANTINE_BUCKET_6727_<100X/1000X/10000X/100000X/GT_1M_X>`) so decimal-shift errors quarantine before corrupting the learning surface.
+- **#7 §FDG_ALLOW_WITHOUT_EXEC_INTENT_LANE_BREAKDOWN**: `FDG_ALLOW_WITHOUT_EXEC_INTENT_LANE_6727_<LANE>` counter at invariant-failure emit site.
+- **#8 §PROVIDER_INFERENCE_HEALTH** (`ProviderInferenceHealth6727`): tracks per-provider ACTUAL inference success/failure ratio (not HTTP-200 checks). Groq et al. can now report false-healthy under rate-limiting.
+- **#9 §CROSS_ASSET_UNIVERSE_DIAGNOSTIC** (`CrossAssetUniverseDiagnostic6727`): per-track (CRYPTO_ALT/STOCKS/FOREX/COMMODITIES/METALS/PERPS) producer liveness + funnel drops + terminal reasons.
+- **#10 §ANR_INVARIANT_PERF** (`QuantityInvariantAuthority6500.checkCanonical6635`): perf-timing wrapper with `QUANTITY_INVARIANT_CHECK_SLOW_5MS_6727` / `_SLOW_50MS_6727` counters surfacing the 707ms main-thread load.
+- **Regression**: `Aate6727RuntimeAuthoritiesTest` — 11 cases across the six new/extended authorities lock in fail-open semantics, threshold engagement, and funnel accounting.
+
+---
+
 ## V5.0.6726 — §CI_GREEN_6726 (Build GREEN)
 - Single-line compile fix on top of 6725: `cfg().tpPct` referenced a non-existent BotConfig field. Replaced with the 50.0 pre-fluid mode default (the value FluidLearningAI already treats as the base for its lerp).
 - All 6725 metric-aware wire changes carry through cleanly.
