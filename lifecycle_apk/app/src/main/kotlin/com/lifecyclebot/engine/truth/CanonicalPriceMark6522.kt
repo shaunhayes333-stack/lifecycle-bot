@@ -62,6 +62,43 @@ object CanonicalPriceMarkRegistry6522 {
             if (!observationOk) return false
         }
         val key = mark.mint to mark.purpose
+        // V5.0.6727 §MARK_RATIO_SANITY_QUARANTINE — 6726 dump showed mark
+        // quarantines with absurd raw-valuation ratios (276×, 2,405×,
+        // 19,687× and even 1,522,635× cost basis). Those ratios are not
+        // legitimate market moves; they are decimal-shift / provenance
+        // errors that corrupt the learning surface if allowed into the
+        // registry. If we have a previously published mark for this
+        // (mint, purpose) tuple, any new mark that diverges by >100×
+        // from it is a mechanical impossibility inside the freshness
+        // window and must quarantine. The 100× threshold cleanly
+        // separates legitimate parabolic moves (rare 3-4×) from the
+        // 3-6-decade skews the operator observed.
+        val currentMark6727 = marks[key]
+        if (currentMark6727 != null) {
+            val currentP6727 = try { currentMark6727.priceUsd.value.toDouble() } catch (_: Throwable) { 0.0 }
+            val newP6727 = rawPrice6697
+            if (currentP6727 > 0.0 && newP6727 > 0.0 && newP6727.isFinite()) {
+                val ratio6727 = kotlin.math.max(newP6727 / currentP6727, currentP6727 / newP6727)
+                if (ratio6727 > 100.0) {
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_MARK_RATIO_QUARANTINE_6727")
+                        val bucket6727 = when {
+                            ratio6727 < 1_000.0 -> "100X"
+                            ratio6727 < 10_000.0 -> "1000X"
+                            ratio6727 < 100_000.0 -> "10000X"
+                            ratio6727 < 1_000_000.0 -> "100000X"
+                            else -> "GT_1M_X"
+                        }
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_MARK_RATIO_QUARANTINE_BUCKET_6727_$bucket6727")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "CANONICAL_MARK_RATIO_QUARANTINE_6727",
+                            "mint=${mark.mint.take(18)} purpose=${mark.purpose} currentP=$currentP6727 newP=$newP6727 ratio=${"%.1f".format(ratio6727)}x bucket=$bucket6727 source=${mark.source.take(40)} action=reject_absurd_ratio",
+                        )
+                    } catch (_: Throwable) {}
+                    return false
+                }
+            }
+        }
         marks.compute(key) { _, current -> if (current == null || mark.timestampMs >= current.timestampMs) mark else current }
         return marks[key] == mark
     }

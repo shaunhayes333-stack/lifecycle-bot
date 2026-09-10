@@ -59,7 +59,35 @@ object PositionCloseLedger {
     fun markClosed(mint: String, reason: String, pnlPct: Int): String {
         if (mint.isBlank()) return ""
         if (isRejectedCloseReason(reason)) {
-            try { ForensicLogger.lifecycle("POSITION_CLOSE_LEDGER_REJECTED", "mint=${mint.take(10)} reason=$reason") } catch (_: Throwable) {}
+            // V5.0.6727 §CLOSE_LEDGER_REJECTED_REASON_BREAKDOWN — 6726
+            // dump: "slot-health close ledger says 0 mints stamped CLOSED,
+            // despite 181 completed sells". Root: this early-return
+            // silently rejects any reason matching the deny-list, which
+            // includes STARTUP_GHOST_RECONCILE / CLOSED_UNVERIFIED /
+            // BALANCE_UNKNOWN and several other reap-shaped tags that
+            // paper sells sometimes propagate. Emit a per-reason-tag
+            // counter so the operator dump reveals which specific tag
+            // is preventing the stamp, so the caller in the next push
+            // can be repaired to pass a canonical stamp-eligible reason.
+            val rejTag6727 = try {
+                val r = reason.uppercase()
+                when {
+                    r.contains("BALANCE_UNKNOWN") -> "BALANCE_UNKNOWN"
+                    r.contains("RPC_EMPTY_MAP") -> "RPC_EMPTY_MAP"
+                    r.contains("SELL_ROUTE_FAILED_NO_SIGNATURE") -> "SELL_ROUTE_FAILED_NO_SIGNATURE"
+                    r.contains("NO_SIGNATURE_UNLOCKED") -> "NO_SIGNATURE_UNLOCKED"
+                    r.contains("CLOSED_UNVERIFIED") -> "CLOSED_UNVERIFIED"
+                    r.contains("STARTUP_GHOST_RECONCILE") -> "STARTUP_GHOST_RECONCILE"
+                    r.contains("GHOST_REAP_ZERO_BALANCE") -> "GHOST_REAP_ZERO_BALANCE"
+                    r.contains("UNKNOWN_RECONCILE_STALE_REAP") -> "UNKNOWN_RECONCILE_STALE_REAP"
+                    r.contains("RECONCILER_REAP_NOSIG") -> "RECONCILER_REAP_NOSIG"
+                    else -> "OTHER"
+                }
+            } catch (_: Throwable) { "OTHER" }
+            try {
+                PipelineHealthCollector.labelInc("POSITION_CLOSE_LEDGER_REJECTED_6727_$rejTag6727")
+                ForensicLogger.lifecycle("POSITION_CLOSE_LEDGER_REJECTED", "mint=${mint.take(10)} reason=$reason tag6727=$rejTag6727")
+            } catch (_: Throwable) {}
             return ""
         }
         val now = System.currentTimeMillis()

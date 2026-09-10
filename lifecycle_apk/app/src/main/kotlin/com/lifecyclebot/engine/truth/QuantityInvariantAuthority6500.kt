@@ -80,6 +80,29 @@ object QuantityInvariantAuthority6500 {
      * at the canonical layer.
      */
     fun checkCanonical6635(canonical: CanonicalPositionAuthority6441.Position): InvariantCheck {
+        // V5.0.6727 §ANR_INVARIANT_PERF — 6726 dump: this method blocked
+        // the main thread 707ms in a single frame. Cheap perf-timing
+        // wrapper so the operator dump surfaces per-call and cumulative
+        // main-thread cost, enabling a targeted offload to a worker
+        // dispatcher in the next push. Wrapping stays hot-path-safe:
+        // System.nanoTime is monotonic and O(1), and the label bumps
+        // are non-blocking.
+        val t06727 = System.nanoTime()
+        val result6727 = checkCanonicalCore6727(canonical)
+        val elapsedMicros6727 = (System.nanoTime() - t06727) / 1_000L
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("QUANTITY_INVARIANT_CHECK_CALLS_6727")
+            if (elapsedMicros6727 >= 5_000L) {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("QUANTITY_INVARIANT_CHECK_SLOW_5MS_6727")
+            }
+            if (elapsedMicros6727 >= 50_000L) {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("QUANTITY_INVARIANT_CHECK_SLOW_50MS_6727")
+            }
+        } catch (_: Throwable) {}
+        return result6727
+    }
+
+    private fun checkCanonicalCore6727(canonical: CanonicalPositionAuthority6441.Position): InvariantCheck {
         val scale = canonical.quantityScale
         if (scale !in 0..18 || canonical.remainingQtyRaw <= java.math.BigInteger.ZERO) {
             return InvariantCheck(false, Double.POSITIVE_INFINITY, 0.0, canonical.entryCostSol,

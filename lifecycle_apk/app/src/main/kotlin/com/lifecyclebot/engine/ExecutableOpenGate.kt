@@ -2186,6 +2186,7 @@ object ExecutableOpenGate {
                 // counter.  Previously the violation only appeared as a gate
                 // reason, so smoke acceptance could report a false clean zero.
                 PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT")
+                try { PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT_LANE_6727_${canonicalSelectedLane.uppercase()}") } catch (_: Throwable) {}
                 ForensicLogger.lifecycle("AUTHORITY_INVARIANT_FAILURE", "attemptId=$attemptId mint=${mint.take(10)} candidateVersion=$candidateVersion currentVersion=$currentCandidateVersion requestedLane=$requestedLane selectedLane=$canonicalSelectedLane preFdg=$preFdgVerdict reason=FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519")
             } catch (_: Throwable) {}
             return blocked("AUTHORITY_INVARIANT_FAILURE", "FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519", shadow = mode == "PAPER")
@@ -2332,6 +2333,65 @@ object ExecutableOpenGate {
         // allowed to cross this boundary.
         val minExecutable6491 = if (modeUpper == "PAPER")
             com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol() else 0.001
+        // V5.0.6727 §EXIT_THROUGHPUT_BACK_PRESSURE — 6726 dump: 200 opens,
+        // cash 0.0040 SOL, 19 min of exec silence while SCAN and FDG
+        // continued churning. Root: buy admission had no hard back-
+        // pressure on saturation. Consult the canonical authority BEFORE
+        // any allocation math so the pipeline short-circuits cleanly
+        // instead of spamming EXEC_DEFERRED_SLOT_HEALTH / MEME_TURNOVER_
+        // PRESSURE_DEFER thousands of times per cycle. Exits are not
+        // touched — the coordinator continues to drain inventory —
+        // admission just pauses until it's safe to open again.
+        val throughputVerdict6727 = try {
+            com.lifecyclebot.engine.truth.ExitThroughputAuthority6727.evaluate(modeUpper)
+        } catch (_: Throwable) { null }
+        if (throughputVerdict6727 != null && !throughputVerdict6727.allow) {
+            try {
+                PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCK_TAXONOMY_${throughputVerdict6727.reason}")
+                ForensicLogger.lifecycle(
+                    "EXEC_OPEN_BLOCKED_EXIT_THROUGHPUT_6727",
+                    "attemptId=$execKey mint=${mint.take(10)} sym=$symbol mode=$modeUpper lane=$lane reason=${throughputVerdict6727.reason} open=${throughputVerdict6727.openPositions} cash=${throughputVerdict6727.cashSol} equity=${throughputVerdict6727.equitySol} cashRatio=${throughputVerdict6727.cashRatio}",
+                )
+            } catch (_: Throwable) {}
+            return blocked(
+                "EXEC_OPEN_BLOCKED_EXIT_THROUGHPUT_6727",
+                "reason=${throughputVerdict6727.reason} open=${throughputVerdict6727.openPositions} cashRatio=${"%.4f".format(throughputVerdict6727.cashRatio)}",
+                shadow = true,
+            )
+        }
+        // V5.0.6727 §COHORT_TERMINAL_SUPPRESSOR — 6726 dump: EXPRESS 4.3%
+        // WR with 39 admissions, MOONSHOT 0% WR still executable. The
+        // 6725 soft-advisory tier is not enough — advisory is being seen
+        // and not acted on with sufficient force. This tier HARD-blocks
+        // admission for terminal (N>=20, WR<5%) cohorts at the specific
+        // (mode, lane, band) triple. Non-meme lanes fail open (crypto/
+        // perps parity contract preserved — cross-asset never hard-blocks
+        // at admission).
+        val entryScoreForBand6727 = try {
+            states[mint]?.entryScore ?: -1
+        } catch (_: Throwable) { -1 }
+        if (entryScoreForBand6727 >= 0) {
+            val band6727 = com.lifecyclebot.engine.truth.CausalFeedbackAuthority6715.scoreBand(entryScoreForBand6727)
+            val terminalBlock6727 = try {
+                com.lifecyclebot.engine.truth.CausalFeedbackAuthority6715
+                    .terminalCohortSuppressionForBand(modeUpper, lane, band6727)
+            } catch (_: Throwable) { null }
+            if (terminalBlock6727 != null) {
+                try {
+                    PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCK_TAXONOMY_TERMINAL_COHORT_SUPPRESSED_6727")
+                    PipelineHealthCollector.labelInc("COHORT_TERMINAL_SUPPRESSED_6727_${lane.uppercase()}_${band6727}")
+                    ForensicLogger.lifecycle(
+                        "EXEC_OPEN_BLOCKED_TERMINAL_COHORT_6727",
+                        "attemptId=$execKey mint=${mint.take(10)} sym=$symbol mode=$modeUpper lane=$lane score=$entryScoreForBand6727 band=$band6727 wr=${"%.1f".format(terminalBlock6727.winRatePct)}% n=${terminalBlock6727.decidedCount} reason=chronic_cohort_under_5pct_wr_over_20_decided",
+                    )
+                } catch (_: Throwable) {}
+                return blocked(
+                    "EXEC_OPEN_BLOCKED_TERMINAL_COHORT_6727",
+                    "lane=$lane band=$band6727 wr=${"%.1f".format(terminalBlock6727.winRatePct)}% n=${terminalBlock6727.decidedCount}",
+                    shadow = true,
+                )
+            }
+        }
         // V5.0.6497 §1 — SEALED ORDER SIZE AUTHORITY. If the canonical
         // OrderSizeResolver has sealed a larger executable size for
         // this mint, use it. This prevents a stale/duplicated caller

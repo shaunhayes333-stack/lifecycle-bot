@@ -522,6 +522,52 @@ object CausalFeedbackAuthority6715 {
         }
     }
 
+    /**
+     * V5.0.6727 §COHORT_TERMINAL_SUPPRESSOR — the 6726 dump proved the
+     * 6725 soft-advisory tier is not enough: EXPRESS was still executing
+     * at 4.3% WR with a ×0.19 damper (39 admissions) and MOONSHOT at 0%.
+     * The user diagnostic: "self-tuning layer is learning, but it is not
+     * governing hard enough" — advisory is being seen and NOT acted on
+     * with sufficient force.
+     *
+     * This second tier is HARD-block, not advisory. When a specific
+     * (mode, lane, band) has decided N >= TERMINAL_MIN_DECIDED AND its
+     * winrate is under TERMINAL_WR_FLOOR (5%), the authority returns a
+     * non-null block reason. Callers at admission time MUST reject the
+     * admission. This overrides the advisory tier — you can't recover
+     * from a chronic 5% WR sample by widening TP; you have to stop
+     * feeding the cohort.
+     *
+     * Deliberately stricter thresholds than the advisory tier so this
+     * only fires on genuinely-terminal cohorts. Non-meme lanes still
+     * fail open (crypto/perps parity — never hard-block cross-asset).
+     */
+    private const val TERMINAL_MIN_DECIDED = 20
+    private const val TERMINAL_WR_FLOOR = 0.05
+
+    data class TerminalSuppression(
+        val band: String,
+        val winRatePct: Double,
+        val decidedCount: Int,
+    )
+
+    fun terminalCohortSuppressionForBand(mode: String, lane: String, band: String): TerminalSuppression? {
+        if (!isMemeOwnerLane(lane)) return null
+        val nm = normMode(mode)
+        val nl = normLane(lane)
+        val nb = band.trim().uppercase()
+        if (nb.isBlank()) return null
+        synchronized(lock) {
+            val key = "BAND|$nm|$nl|$nb"
+            val s = scopes[key] ?: return null
+            val decided = s.wins + s.losses
+            if (decided < TERMINAL_MIN_DECIDED) return null
+            val wr = s.wins.toDouble() / decided.toDouble()
+            if (wr >= TERMINAL_WR_FLOOR) return null
+            return TerminalSuppression(nb, wr * 100.0, decided)
+        }
+    }
+
     internal fun resetForTest6715() = synchronized(lock) {
         scopes.clear(); ticketStamps.clear(); reservations.clear(); positionScopes.clear()
         earlyLearnAcks.clear(); terminalSeen.clear(); learnedSeen.clear()
