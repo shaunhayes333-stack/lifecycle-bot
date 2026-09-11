@@ -1,3 +1,15 @@
+## V5.0.6729 — §GOLDEN_TAPE_STRING_PRESERVE (Build GREEN — 14m21s)
+- 6728 changed Sentience forensic action string from `ignored_no_hard_veto` to `advisory_raised_to_consensus_6728`, breaking `GoldenTapeRegressionTest.external_llm_must_be_advisory_not_hard_buy_veto` which asserts the exact substring. 6729 restores the phrase (`action=ignored_no_hard_veto raised_to_consensus_6728=true`) so both the test contract AND the consensus wire-live indicator satisfy simultaneously. Raise() call semantics unchanged.
+
+---
+## V5.0.6728 — §ADAPTIVE_VETO_CONSENSUS + §MARK_SENTINEL_SHAPE_QUARANTINE (Build RED test-fail — superseded by 6729)
+Operator 6727 diagnostic: three root faults post-plumbing-repair.
+- **§ADAPTIVE_VETO_CONSENSUS** (`AdaptiveVetoConsensusAuthority6728`): tracks 7 signals (Brain Consensus / Unified Policy / LLM / Sentience / Losing Streak / Capital Creed / Performance-below-50), returns `hardVeto=true` at quorum >=3 within 5min decay. Raise() sites wired into `PerformanceDoctrine6727` (below-target), `Executor` (Sentience + LLM advisories), `FinalExecutionPermit` (LosingStreakCohort). `ExecutableOpenGate` HARD-blocks admission with `EXEC_OPEN_BLOCKED_ADAPTIVE_CONSENSUS_6728` at quorum.
+- **§MARK_SENTINEL_SHAPE_QUARANTINE** (`CanonicalPriceMark6522.publish`): rejects any mark tuple where price ∈ {0.05/0.10/0.50/1/5/10} AND liq ∈ {1M/5M/10M/50M/100M}. Counter `CANONICAL_MARK_SENTINEL_SHAPE_QUARANTINE_6728` per rejection. Directly addresses the operator finding: "unrelated tokens are repeatedly being admitted with exactly price=0.05, liq=5,000,000, then bought at 0.050250000 with $50,000,000 mcap".
+- **Regression**: `Aate6728AdaptiveConsensusTest` — 5 cases lock in quorum engagement, decay/clear semantics, diagnostic serialization.
+
+---
+
 ## V5.0.6727 — §RUNTIME_AUTHORITY_10_ITEM_COVERAGE (Build GREEN — 16m57s)
 
 Full source-level authority coverage of the 10-item root-cause map from the 6726 runtime diagnostic. None change trading heuristics; they establish canonical single-source-of-truth surfaces plus hard-block tiers where advisory-only was proven insufficient.
