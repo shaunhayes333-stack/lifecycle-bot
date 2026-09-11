@@ -29,9 +29,19 @@ object RejectTaxonomy {
         val normalizedReason: String,
     )
 
+    fun temporaryResourceDeferral6737(reason: String): Boolean {
+        val r = reason.uppercase()
+        if (listOf("RUG", "BANNED", "HARD_SAFETY", "LP_UNLOCK", "ZERO_LIQUIDITY", "NO_LIQUIDITY")
+                .any { r.contains(it) }) return false
+        return listOf("EXIT_THROUGHPUT_6727", "INVENTORY_VELOCITY_", "CAPITAL_SNAPSHOT_UNAVAILABLE_6737",
+            "RISK_BELOW_MIN_EXECUTABLE_6737", "EXIT_QUOTE_OR_FX_UNAVAILABLE_6737").any { r.contains(it) }
+    }
+
     fun classify(reason: String, blockLevel: TradeAuthorizer.BlockLevel? = null): Classification {
         val r = reason.uppercase()
+        val resourceDeferral6737 = blockLevel != TradeAuthorizer.BlockLevel.PERMANENT && temporaryResourceDeferral6737(r)
         val category = when {
+            resourceDeferral6737 -> Category.PENALTY
             r.contains("ZERO_LIQUIDITY") || r.contains("NO_LIQUIDITY") -> Category.HARD_SAFETY
             r.contains("LOW_LIQ") || r.contains("LOW LIQ") || r.contains("LIQUIDITY") || r.startsWith("LIQ=") -> Category.LOW_LIQ_SIZE_REDUCTION
             r.contains("UNPROFITABLE") || r.contains("COST") || r.contains("SLIPPAGE") || r.contains("FEE") -> Category.COST_REJECT
@@ -45,7 +55,7 @@ object RejectTaxonomy {
         }
         return Classification(
             category = category,
-            trainable = category != Category.HARD_SAFETY && category != Category.UNKNOWN_REVIEW,
+            trainable = !resourceDeferral6737 && category != Category.HARD_SAFETY && category != Category.UNKNOWN_REVIEW,
             hardSafety = category == Category.HARD_SAFETY,
             normalizedReason = r.take(96),
         )

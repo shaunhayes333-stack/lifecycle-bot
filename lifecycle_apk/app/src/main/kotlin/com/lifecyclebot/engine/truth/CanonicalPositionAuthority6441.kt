@@ -227,8 +227,9 @@ object CanonicalPositionAuthority6441 {
                 ?: if (paperMode) "paper" else "live"
             val existingSameMint6490 = positions.values.firstOrNull {
                 it.mode == canonicalMode6490 && it.mint == mint &&
-                    it.lifecycle in setOf(Lifecycle.PENDING_ENTRY, Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED) &&
-                    (it.lifecycle == Lifecycle.PENDING_ENTRY || it.remainingQtyRaw > BigInteger.ZERO)
+                    (it.lifecycle == Lifecycle.PENDING_ENTRY ||
+                        (it.lifecycle in setOf(Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED, Lifecycle.QUARANTINED) &&
+                            (it.remainingQtyRaw > BigInteger.ZERO || it.entryCostSol > it.soldCostBasisSol)))
             }
             if (existingSameMint6490 != null && existingSameMint6490.positionId != positionId) {
                 duplicates.incrementAndGet()
@@ -716,6 +717,18 @@ object CanonicalPositionAuthority6441 {
      * source of "canonical valid open inventory" per operator §L.
      */
     fun openPositions(): List<Position> = positions.values.filter { isEconomicallyValidOpen6631(it) }
+
+    /** Funded inventory never disappears because a quote or quantity proof is quarantined.
+     * This is an exposure/occupancy view, NOT permission to mark, sell, or train on bad data. */
+    fun fundedPositions6737(mode: String? = null): List<Position> = positions.values.filter { p ->
+        (mode == null || p.mode.equals(mode, true)) &&
+            p.lifecycle in setOf(Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED, Lifecycle.QUARANTINED) &&
+            p.entryCostSol.isFinite() && p.soldCostBasisSol.isFinite() &&
+            p.entryCostSol > p.soldCostBasisSol
+    }
+
+    fun hasFundedMint6737(mode: String, mint: String): Boolean = fundedPositions6737(mode).any { it.mint == mint }
+
     fun closedPositions(): List<Position> = positions.values.filter { it.lifecycle == Lifecycle.CLOSED }
     fun openCount(): Int = openPositions().size
     fun hasOpenMint(mint: String): Boolean = positions.values.any {

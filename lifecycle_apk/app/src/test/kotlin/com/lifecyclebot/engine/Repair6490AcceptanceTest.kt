@@ -9,13 +9,8 @@ import org.junit.Test
 
 class Repair6490AcceptanceTest {
     @Test
-    fun sub_minimum_request_is_promoted_once_to_min_when_caps_can_fund_6600() = synchronized(PaperAccountLedger6430) {
-        // V5.0.6600 — restore canonical executable-minimum semantics.
-        // Operator directive Feb 2026: "If final BUY risk budget can
-        // afford the minimum executable notional: clamp the executable
-        // order to canonical minimum." Sub-minimum requests are promoted
-        // exactly once to minExec when the authoritative cash and lane
-        // hard cap can fund it.
+    fun sub_minimum_learned_risk_is_not_overwritten_by_executable_floor_6737() = synchronized(PaperAccountLedger6430) {
+        // Spendable cash and a lane cap cannot manufacture a larger learned risk budget.
         PaperAccountLedger6430.resetForTest()
         PaperAccountLedger6430.initialize(0.0583)
         val r = OrderSizeResolver6441.resolve(
@@ -26,9 +21,9 @@ class Repair6490AcceptanceTest {
             laneRiskCapSol = 0.05,
             laneMinExecutableSol = 0.05,
         )
-        assertTrue(r.executable)
-        assertEquals(0.05, r.finalSizeSol, 1e-9)
-        assertEquals("OK_MIN_PROMOTED_6600", r.reason)
+        assertFalse(r.executable)
+        assertEquals(0.0, r.finalSizeSol, 1e-9)
+        assertEquals("RISK_BELOW_MIN_EXECUTABLE_6737", r.reason)
     }
 
     @Test

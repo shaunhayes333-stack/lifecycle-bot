@@ -391,6 +391,9 @@ object TreasuryManager {
      * amount from the wallet credit so accounting stays consistent.
      */
     fun contributeFullyFromTreasuryScalp(realizedProfitSol: Double, solPrice: Double, isPaper: Boolean = false): Double {
+        // PAPER has one canonical cash account. Profit is not withdrawn into
+        // an independently mutable treasury; no live transfer can occur here.
+        if (isPaper) return 0.0
         if (realizedProfitSol <= 0.0) return 0.0
         if (realizedProfitSol < 1e-6) return 0.0
         val safePx = if (solPrice > 0.0) solPrice else 0.0
@@ -427,15 +430,14 @@ object TreasuryManager {
      * @return amount actually moved to treasury (0 if profit was non-positive)
      */
     fun contributeFromMemeSell(realizedProfitSol: Double, solPrice: Double, isPaper: Boolean = false): Double {
+        // PAPER has one canonical cash account. Profit is not withdrawn into
+        // an independently mutable treasury; no live transfer can occur here.
+        if (isPaper) return 0.0
         if (realizedProfitSol <= 0.0) return 0.0
         // V5.9.495z17 — operator: skip dust splits below ~$0.40 USD so the
         // treasury ledger doesn't fill with rounding-error events.
         // V5.9.663b — paper mode uses a 30x lower floor because there's no
         // gas cost. See MEME_SELL_MIN_PROFIT_SOL_PAPER doc.
-        val isPaper = try {
-            val svc = BotService.instance
-            if (svc != null) com.lifecyclebot.data.ConfigStore.load(svc.applicationContext).paperMode else true
-        } catch (_: Throwable) { true }  // default to paper-floor on error
         val floor = if (isPaper) MEME_SELL_MIN_PROFIT_SOL_PAPER else MEME_SELL_MIN_PROFIT_SOL
         if (realizedProfitSol < floor) {
             ErrorLogger.debug("Treasury",

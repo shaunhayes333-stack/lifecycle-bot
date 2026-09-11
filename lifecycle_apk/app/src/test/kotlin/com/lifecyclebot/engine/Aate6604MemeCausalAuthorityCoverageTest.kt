@@ -71,16 +71,16 @@ class Aate6604MemeCausalAuthorityCoverageTest {
             "src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalCapitalAuthority6450.kt"
         ).readText()
         assertTrue(
-            "V5.0.6604: capital snapshot must quarantine per-position marks that exceed cost basis by SANITY_MULT_6604",
-            capitalSrc.contains("perPositionInflated6604") &&
+            "6737 per-mint marked inventory must reject implausible values without erasing paid basis",
+            capitalSrc.contains("value <= basis * 100.0") &&
                 capitalSrc.contains("HERO_OPENMV_PER_POSITION_QUARANTINE_6604") &&
-                capitalSrc.contains("SANITY_MULT_6604 = 100.0") &&
-                capitalSrc.contains("fresh > costBasis6604 * SANITY_MULT_6604")
+                capitalSrc.contains("unpricedBasis += basis")
         )
         assertTrue(
-            "V5.0.6604: aggregate 6602 clamp must remain as the second-line safety net",
-            capitalSrc.contains("HERO_OPENMV_SANITY_CLAMP_6602") &&
-                capitalSrc.contains("SANITY_MULT_6602 = 100.0")
+            "6737 sum must include unpriced funded basis, with a separately labelled validated subset",
+            capitalSrc.contains("val openMv = markedValue + missingProjectedBasis") &&
+                capitalSrc.contains("authoritativeOpenMarketValueSol = authoritativeMv") &&
+                capitalSrc.contains("valuationComplete = complete")
         )
     }
 

@@ -120,6 +120,7 @@ object CanonicalPaperTerminalBridge6469 {
         terminal: Boolean,
         directPositionMutation6486: Boolean = false,
         suppressLearningFanout6490: Boolean = false,
+        executionPriceUsd6737: Double? = null,
     ): Result {
         val canonicalBefore6522 = CanonicalPositionAuthority6441.getPosition(positionId)
         val sellDecimals6522 = canonicalBefore6522?.quantityScale ?: -1
@@ -157,8 +158,10 @@ object CanonicalPaperTerminalBridge6469 {
             mode = "paper", lane = lane,
             side = if (terminal) CanonicalEconomicEvent6635.Side.SELL else CanonicalEconomicEvent6635.Side.PARTIAL_SELL,
             timestampMs = System.currentTimeMillis(), qtyRaw = soldQtyRaw,
-            decimals = sellDecimals6522, executionPriceUsd = 0.0,
-            executionPriceSol = 0.0, notionalSol = grossProceedsSol, feeSol = feesSol,
+            decimals = sellDecimals6522,
+            executionPriceUsd = executionPriceUsd6737?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
+            executionPriceSol = PaperFillMath6737.priceSol(grossProceedsSol, soldQtyRaw, sellDecimals6522) ?: 0.0,
+            notionalSol = grossProceedsSol, feeSol = feesSol,
             cashDeltaSol = grossProceedsSol - feesSol, positionQtyDeltaRaw = soldQtyRaw.negate(),
             realizedPnlDeltaSol = grossProceedsSol - soldCostBasisSol - feesSol,
             terminalFillIndex = if (terminal) 1 else 0,

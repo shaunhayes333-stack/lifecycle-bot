@@ -1106,6 +1106,11 @@ class BotService : Service() {
             hotExitStaleEpisodeActive = false
             return false
         }
+        if (com.lifecyclebot.engine.truth.ExitCoordinatorHealth6737.healthy(
+                exitSweepCoordinatorJob?.isActive == true, exitCoordinatorStartHeartbeatMs6647.get(), nowMs)) {
+            hotExitStaleEpisodeActive = false
+            return false
+        }
         val staleMs = nowMs - lastTickExitSweepMs
         // V5.9.1318 (Item 1) — operator doctrine: if hot exit is stale > 10s, force-reset
         // and run the universal-SL backup INDEPENDENTLY. Threshold lowered 12s → 10s.
@@ -4564,83 +4569,16 @@ class BotService : Service() {
         try {
             com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.installMarkProvider { mint ->
                 try {
-                    val ts = status.tokens[mint] ?: return@installMarkProvider 0.0
-                    val pos = ts.position
-                    val px = ts.lastPrice
-                    if (!px.isFinite() || px <= 0.0 || !pos.isOpen) 0.0
-                    else if (try {
-                        !com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
-                            .isRuntimeOpenEligible6636(mint, pos)
-                    } catch (_: Throwable) { true }) {
-                        // V5.0.6636 — the mark provider and UI now consume the
-                        // same canonical projection verdict. A row that fails
-                        // identity/qty/cost/entry/lock contributes zero market
-                        // value immediately; it cannot inflate equity during
-                        // the interval before a separate quarantine sweep.
-                        0.0
-                    }
-                    else {
-                        // V5.0.6496 §1 — MARK AUTHORITY INTEGRITY GATE. Fallback /
-                        // sentinel / synthetic marks (per MarketDataProvenance6471)
-                        // may DISPLAY in the UI but MUST NOT flow into
-                        // openMarketValueSol / unrealizedPnl / EconomicOutcome6472
-                        // / learners. Return 0.0 on non-authoritative → snapshot
-                        // falls back to costBasis so unrealized reads 0 (never a
-                        // phantom +525 SOL / $926M inflation). Only the economic
-                        // path is gated; ts.lastPrice for UI is untouched.
-                        val provOk = try {
-                            // V5.0.6625 §P6 — UI-off-main audit wrapper. If this
-                            // evaluation is running on the Main thread and takes
-                            // ≥32 ms it surfaces a UI_MAIN_THREAD_LONG_RUN counter
-                            // so the operator can grep the exact snapshot cost.
-                            val t0_6625 = android.os.SystemClock.uptimeMillis()
-                            val out_6625 = com.lifecyclebot.engine.truth.MarkAuthorityIntegrityGate6496.isAuthoritative(
-                                mint = mint,
-                                priceUsd = ts.lastPrice,
-                                mcapUsd = ts.lastMcap,
-                                liquidityUsd = ts.lastLiquidityUsd,
-                                source = ts.lastPriceSource.ifBlank { "UNKNOWN" },
-                                poolAddress = ts.lastPricePoolAddr.ifBlank { "MINT_ROUTE:${mint.take(8)}" },
-                                // V5.0.6596 §MARK_AUTHORITY_MINT_ROUTE_FOR_KNOWN_OPEN — this
-                                // callsite is the exit-mark / openMV recompute path for
-                                // KNOWN OPEN canonical positions (pos was fetched from the
-                                // canonical authority via positionsByMint). The mint identity
-                                // is therefore proven; MINT_ROUTE:* pool prefix is treated
-                                // as acceptable for pool identity on this path only. New-
-                                // entry paths continue to reject MINT_ROUTE:* as before.
-                                isKnownOpenMint6596 = true,
-                            )
-                            try {
-                                com.lifecyclebot.engine.truth.UiOffMainAudit6625.recordMainThreadWork6625(
-                                    site = "MarkAuthorityIntegrityGate6496.isAuthoritative",
-                                    durationMs = android.os.SystemClock.uptimeMillis() - t0_6625,
-                                )
-                            } catch (_: Throwable) {}
-                            out_6625
-                        } catch (_: Throwable) { false }
-                        if (!provOk) 0.0
-                        else {
-                            // V5.0.6496 SOURCE-FIX — ts.lastPrice is USD-per-token
-                            // (DexScreener / Jupiter both publish priceUsd).
-                            // CanonicalCapitalAuthority6450 documents the mark
-                            // provider must return WHOLE-MINT VALUE IN SOL. Return-
-                            // ing USD here caused equity/openMV to be recorded as
-                            // 'SOL' and then multiplied by solPrice for dashboard
-                            // USD display — a double-USD scaling that produced the
-                            // observed $956M equity on a $94 starting balance.
-                            //
-                            // Convert USD→SOL at the provider boundary using the
-                            // authoritative SOL/USD price. If the SOL price cache
-                            // is missing or absurd, return 0.0 so the snapshot
-                            // falls back to costBasis (unrealized reads 0, never
-                            // a phantom -100%).
-                            val solUsd = try {
-                                com.lifecyclebot.engine.EfficiencyLayer.getCachedPrice()?.solPriceUsd
-                                    ?: com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
-                            } catch (_: Throwable) { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice }
-                            if (!solUsd.isFinite() || solUsd <= 50.0 || solUsd >= 5000.0) 0.0
-                            else (px * pos.qtyToken.coerceAtLeast(0.0)) / solUsd
-                        }
+                    val mark = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522
+                        .freshEconomicExit6737(mint) ?: return@installMarkProvider 0.0
+                    val solUsd = WalletManager.lastKnownSolPrice
+                    if (!solUsd.isFinite() || solUsd <= 0.0) return@installMarkProvider 0.0
+                    val positions = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                        .filter { it.mode == "paper" && it.mint == mint }
+                    positions.sumOf { p ->
+                        com.lifecyclebot.engine.truth.PaperFillMath6737.grossProceeds(
+                            p.remainingQtyRaw, p.quantityScale, mark.priceUsd.value.toDouble(), solUsd,
+                        ) ?: 0.0
                     }
                 } catch (_: Throwable) { 0.0 }
             }
@@ -13380,6 +13318,7 @@ class BotService : Service() {
     // signalled at once, the single-flight gates thrashed and produced hundreds
     // of COALESCED/FORCE_RESET events. These atomics feed one coordinator loop
     // instead. The coordinator owns heavy sweeps; requesters only set flags.
+    private val exitCoordinatorGeneration6737 = java.util.concurrent.atomic.AtomicLong(0L)
     @Volatile private var exitSweepCoordinatorJob: kotlinx.coroutines.Job? = null
     private val exitSweepCoordinatorLock = Any()
     private val fullExitSweepPending = AtomicBoolean(false)
@@ -17796,18 +17735,16 @@ if (hotExitHandledSweep) {
         val requestedAt = exitCoordinatorRequestedAtMs6647.get()
         // If the coordinator Job is active AND its heartbeat is fresh, it's
         // alive and processing (or about to). No relaunch needed.
-        val heartbeatStalenessMs = 15_000L
         val now = System.currentTimeMillis()
         val jobAlive = exitSweepCoordinatorJob?.isActive == true
-        val heartbeatFresh = (now - exitCoordinatorStartHeartbeatMs6647.get()) < heartbeatStalenessMs
+        val heartbeatFresh = com.lifecyclebot.engine.truth.ExitCoordinatorHealth6737.healthy(jobAlive, exitCoordinatorStartHeartbeatMs6647.get(), now)
         if (jobAlive && heartbeatFresh) return
         // Only a truly stuck coordinator gets here.
-        if (exitCoordinatorStartHeartbeatMs6647.get() >= requestedAt) return
         synchronized(exitSweepCoordinatorLock) {
             val stillAlive = exitSweepCoordinatorJob?.isActive == true
-            val stillFresh = (System.currentTimeMillis() - exitCoordinatorStartHeartbeatMs6647.get()) < heartbeatStalenessMs
+            val stillFresh = com.lifecyclebot.engine.truth.ExitCoordinatorHealth6737.healthy(stillAlive, exitCoordinatorStartHeartbeatMs6647.get(), System.currentTimeMillis())
             if (stillAlive && stillFresh) return
-            if (exitCoordinatorStartHeartbeatMs6647.get() >= requestedAt) return
+                exitCoordinatorGeneration6737.incrementAndGet()
             exitSweepCoordinatorJob?.cancel()
             exitSweepCoordinatorJob = null
             try {
@@ -17827,14 +17764,17 @@ if (hotExitHandledSweep) {
         synchronized(exitSweepCoordinatorLock) {
             val again = exitSweepCoordinatorJob
             if (again?.isActive == true) return
+            val generation6737 = exitCoordinatorGeneration6737.incrementAndGet()
             exitSweepCoordinatorJob = exitScope6647.launch {
+                currentCoroutineContext().ensureActive()
                 val start6647 = System.currentTimeMillis()
                 exitCoordinatorStartedAtMs6647.set(start6647)
                 exitCoordinatorStartHeartbeatMs6647.set(start6647)
                 com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onCoordinatorStarted(executionSpineCycle6647.get())
                 try { ForensicLogger.lifecycle("EXIT_COORDINATOR_STARTED", "thread=dedicated_exit requestedAt=${exitCoordinatorRequestedAtMs6647.get()} startDelayMs=${start6647 - exitCoordinatorRequestedAtMs6647.get()}") } catch (_: Throwable) {}
-                while (status.running) {
+                while (status.running && isActive && generation6737 == exitCoordinatorGeneration6737.get()) {
                     try {
+                        currentCoroutineContext().ensureActive()
                         exitCoordinatorStartHeartbeatMs6647.set(System.currentTimeMillis())
                         com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onCoordinatorStarted(executionSpineCycle6647.get())
                         val now = System.currentTimeMillis()
@@ -17849,7 +17789,7 @@ if (hotExitHandledSweep) {
                         // whose mark is >60s old. Rate-limited to at most
                         // once per 5s per mint to avoid provider spam.
                         try {
-                            val stalenessLimitMs = 60_000L
+                            val stalenessLimitMs = 20_000L
                             val perMintCooldownMs = 5_000L
                             // V5.0.6724 §STALE_MARK_REFRESH_SOLANA_SCOPED —
                             // CanonicalPriceMark6522 is Solana-mint-scoped
@@ -17919,11 +17859,12 @@ if (hotExitHandledSweep) {
                                         com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onExitSweepStarted()
                                         try { ForensicLogger.lifecycle("EXIT_COORDINATOR_FULL_START", "ageMs=$age sweepId=$fullSweepId") } catch (_: Throwable) {}
                                         try { sweepUniversalExits(snap.cfg, snap.wallet, snap.balance) }
+                                        catch (ce: kotlinx.coroutines.CancellationException) { throw ce }
                                         catch (t: Throwable) { ErrorLogger.warn("BotService", "exit coordinator full sweep error: ${t.message}") }
                                     } finally {
                                         com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onExitSweepDone()
-                                        exitCoordinatorCompletedAtMs6647.set(System.currentTimeMillis())
-                                        if (!fullExitSweepPending.get() && !universalSlSweepPending.get()) exitCoordinatorRequestedCycle6647.set(-1L)
+                                        if (generation6737 == exitCoordinatorGeneration6737.get()) exitCoordinatorCompletedAtMs6647.set(System.currentTimeMillis())
+                                        if (generation6737 == exitCoordinatorGeneration6737.get() && !fullExitSweepPending.get() && !universalSlSweepPending.get()) exitCoordinatorRequestedCycle6647.set(-1L)
                                         try { ForensicLogger.lifecycle("EXIT_COORDINATOR_FULL_DONE", "ageMs=$age sweepId=$fullSweepId") } catch (_: Throwable) {}
                                         try { com.lifecyclebot.engine.truth.UniversalSlLeaseRegistry6402.release(fullSweepId) } catch (_: Throwable) {}
                                     }
@@ -17944,6 +17885,8 @@ if (hotExitHandledSweep) {
                             }
                         }
 
+                        currentCoroutineContext().ensureActive()
+                        if (generation6737 != exitCoordinatorGeneration6737.get()) break
                         if (wantsUniversal) {
                             val age = now - exitCoordinatorLastUniversalMs.get()
                             if (age >= EXIT_COORDINATOR_UNIVERSAL_MIN_MS) {
@@ -17966,11 +17909,12 @@ if (hotExitHandledSweep) {
                                         com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onExitSweepStarted()
                                         try { ForensicLogger.lifecycle("EXIT_COORDINATOR_UNIVERSAL_START", "ageMs=$age sweepId=$sweepId") } catch (_: Throwable) {}
                                         try { runUniversalSlSafetyNetSweep(snap.cfg, snap.wallet) }
+                                        catch (ce: kotlinx.coroutines.CancellationException) { throw ce }
                                         catch (t: Throwable) { ErrorLogger.warn("BotService", "exit coordinator universal sweep error: ${t.message}") }
                                     } finally {
                                         com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onExitSweepDone()
-                                        exitCoordinatorCompletedAtMs6647.set(System.currentTimeMillis())
-                                        if (!fullExitSweepPending.get() && !universalSlSweepPending.get()) exitCoordinatorRequestedCycle6647.set(-1L)
+                                        if (generation6737 == exitCoordinatorGeneration6737.get()) exitCoordinatorCompletedAtMs6647.set(System.currentTimeMillis())
+                                        if (generation6737 == exitCoordinatorGeneration6737.get() && !fullExitSweepPending.get() && !universalSlSweepPending.get()) exitCoordinatorRequestedCycle6647.set(-1L)
                                         try { ForensicLogger.lifecycle("EXIT_COORDINATOR_UNIVERSAL_DONE", "ageMs=$age sweepId=$sweepId") } catch (_: Throwable) {}
                                         try { com.lifecyclebot.engine.truth.UniversalSlLeaseRegistry6402.release(sweepId) } catch (_: Throwable) {}
                                     }
@@ -19331,7 +19275,7 @@ if (hotExitHandledSweep) {
             if (!old.isOpen || old.positionId != cp.positionId || kotlin.math.abs(old.qtyToken - qty) > 1e-12 || !old.tradingMode.equals(cp.lane, true) || old.entryPrice <= 0.0) {
                 ts.position = old.copy(
                     qtyToken = qty,
-                    entryPrice = old.entryPrice.takeIf { it > 0.0 } ?: canonicalEntryPrice6513,
+                    entryPrice = canonicalEntryPrice6513,
                     entryTime = cp.openedAtMs, costSol = basis,
                     isPaperPosition = cp.mode.equals("paper", true), tradingMode = cp.lane,
                     positionId = cp.positionId,
@@ -19348,9 +19292,9 @@ if (hotExitHandledSweep) {
             val markAgeMs6651 = ts.lastPriceUpdate.takeIf { it > 0L }
                 ?.let { (System.currentTimeMillis() - it).coerceAtLeast(0L) }
                 ?: Long.MAX_VALUE
-            val stateMarkStale6651 = markAgeMs6651 > 60_000L
+            val stateMarkStale6651 = markAgeMs6651 > 20_000L
             val provenanceFresh6651 = try {
-                com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.isFresh(cp.mint, 60_000L)
+                com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.isFresh(cp.mint, 20_000L)
             } catch (_: Throwable) { false }
             val refreshNeeded6651 = ts.position.entryPrice <= 0.0 || ts.lastPrice <= 0.0 ||
                 stateMarkStale6651 || !provenanceFresh6651
@@ -19407,8 +19351,11 @@ if (hotExitHandledSweep) {
                         try {
                             val refreshed6594 = when (effectiveMarkClass6592) {
                                 com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN -> {
+                                    val beforePriceStamp6737 = ts.lastPriceUpdate
                                     tryFallbackPriceData(cp.mint, ts)
-                                    ts.lastPrice > 0.0
+                                    ts.lastPrice.isFinite() && ts.lastPrice > 0.0 &&
+                                        ts.lastPriceUpdate > beforePriceStamp6737 &&
+                                        System.currentTimeMillis() - ts.lastPriceUpdate in -5_000L..30_000L
                                 }
                                 com.lifecyclebot.engine.truth.AssetClass.UNKNOWN -> {
                                     // V5.0.6592 — refuse to guess a provider for

@@ -951,6 +951,9 @@ object ExecutableOpenGate {
     }
 
     private fun cooldownMsFor(log: String, reason: String): Long {
+        // Resource pressure is re-evaluated on the next normal loop, not a
+        // persistent token safety ban. The recheck still performs every gate.
+        if (RejectTaxonomy.temporaryResourceDeferral6737(reason)) return 5_000L
         val r = reason.uppercase()
         return when {
             log.contains("RUNTIME") || r.contains("CIRCUIT") || r.contains("LOCKDOWN") -> 120_000L

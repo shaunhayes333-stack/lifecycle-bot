@@ -98,8 +98,8 @@ class Aate6612BoundedContributorMergeCoverageTest {
         )
         // The nudge must be applied BEFORE the runner ladder so subsequent
         // hard caps still clip it.
-        val nudgeIdx = src.indexOf("val nudgedRisk = (risk * contribMult6612)")
-        val ladderIdx = src.indexOf("val laddered = if (ladderTarget.isFinite()")
+        val nudgeIdx = src.indexOf("val risk = (baseRisk * contribution).coerceAtMost(laneCap)")
+        val ladderIdx = src.indexOf("val laddered = nudgedRisk")
         assertTrue(
             "V5.0.6612: nudgedRisk must be computed BEFORE the runner ladder so hard caps still clip it (nudge=$nudgeIdx ladder=$ladderIdx)",
             nudgeIdx > 0 && ladderIdx > nudgeIdx

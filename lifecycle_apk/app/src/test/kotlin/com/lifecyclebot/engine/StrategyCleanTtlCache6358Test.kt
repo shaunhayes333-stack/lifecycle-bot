@@ -25,11 +25,12 @@ class StrategyCleanTtlCache6358Test {
     )
 
     @Test
-    fun cache_hit_returns_same_result_instance_within_ttl() {
+    fun cache_hit_returns_equal_but_detached_result_within_ttl() {
         val rows = (1..5).map { sellRow("M$it", ts = 1_000_000L + it) }
         val a = StrategyTruthLedger.clean(rows)
         val b = StrategyTruthLedger.clean(rows)
-        assertSame("second call inside TTL must return the cached Result", a, b)
+        assertEquals("cached cohort values must be stable", a, b)
+        assertNotSame("consumers must not mutate a shared cached result", a, b)
     }
 
     @Test

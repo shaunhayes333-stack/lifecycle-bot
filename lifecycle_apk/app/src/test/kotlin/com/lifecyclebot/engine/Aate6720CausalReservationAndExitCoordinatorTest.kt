@@ -88,7 +88,7 @@ class Aate6720CausalReservationAndExitCoordinatorTest {
         assertTrue(
             "Deadline check must consult Job.isActive AND heartbeat freshness",
             botService.contains("val jobAlive = exitSweepCoordinatorJob?.isActive == true") &&
-                botService.contains("val heartbeatFresh = (now - exitCoordinatorStartHeartbeatMs6647.get()) < heartbeatStalenessMs") &&
+                botService.contains("ExitCoordinatorHealth6737.healthy(jobAlive, exitCoordinatorStartHeartbeatMs6647.get(), now)") &&
                 botService.contains("if (jobAlive && heartbeatFresh) return"),
         )
         assertFalse(

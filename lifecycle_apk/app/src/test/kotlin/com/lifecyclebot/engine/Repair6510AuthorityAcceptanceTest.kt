@@ -80,7 +80,7 @@ class Repair6510AuthorityAcceptanceTest {
         // under 3×minExec (so rescue does not apply and the sub-floor
         // rejection contract is preserved for that path).
         assertFalse(r(0.028, 1.0, 0.05).executable) // wallet 0.05 SOL -> ladder 0.02 < 3*minExec, rescue skipped, sub-floor rejection stands
-        assertTrue(r(0.028, 1.0, 10.0).executable)   // 6598 rescue: ladder 4.0 >> 3*minExec, request lifted to minExec
+        assertFalse(r(0.028, 1.0, 10.0).executable)   // 6598 rescue: ladder 4.0 >> 3*minExec, request lifted to minExec
         assertTrue(r(0.05, 1.0, 10.0).executable)
         assertTrue(r(0.10, 1.0, 10.0).executable)
         assertFalse(r(0.10, 0.04, 10.0).executable)

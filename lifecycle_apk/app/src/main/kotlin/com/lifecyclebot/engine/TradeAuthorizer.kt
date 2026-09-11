@@ -183,11 +183,14 @@ object TradeAuthorizer {
             canRetry: Boolean = false,
             attemptIdForResult: String = "",
         ): AuthorizationResult {
+            val resourceDeferral6737 = blockLevel != BlockLevel.PERMANENT &&
+                RejectTaxonomy.temporaryResourceDeferral6737(reason)
+            val effectiveRetry6737 = canRetry || resourceDeferral6737
             val result = AuthorizationResult(
                 verdict = ExecutionVerdict.REJECT,
                 reason = reason,
-                blockLevel = blockLevel,
-                canRetry = canRetry,
+                blockLevel = if (resourceDeferral6737) BlockLevel.SOFT else blockLevel,
+                canRetry = effectiveRetry6737,
                 attemptId = attemptIdForResult,
             )
             val taxonomy = result.rejectTaxonomy
@@ -197,7 +200,7 @@ object TradeAuthorizer {
                 try {
                     ForensicLogger.lifecycle(
                         "TRADE_AUTH_REJECT_TAXONOMY_4424",
-                        "mint=${mint.take(10)} symbol=$symbol lane=${requestedBook.name} reason=${reason.take(90)} taxonomy=${taxonomy.category.name} retry=$canRetry hardSafety=${taxonomy.hardSafety} ledger=RejectTaxonomyLedger"
+                        "mint=${mint.take(10)} symbol=$symbol lane=${requestedBook.name} reason=${reason.take(90)} taxonomy=${taxonomy.category.name} retry=$effectiveRetry6737 hardSafety=${taxonomy.hardSafety} ledger=RejectTaxonomyLedger"
                     )
                 } catch (_: Throwable) {}
             }
