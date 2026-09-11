@@ -2333,6 +2333,35 @@ object ExecutableOpenGate {
         // allowed to cross this boundary.
         val minExecutable6491 = if (modeUpper == "PAPER")
             com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol() else 0.001
+        // V5.0.6731 §PAPER_LEDGER_DIVERGENCE_HARD_STOP — operator report:
+        // "accounting drift across the trading decks. balances no longer
+        // align." Deferred Fault #3 from 6727 that has now spread across
+        // meme/crypto/perps. Reconciliation surgery has been reverted
+        // twice (Fire-A) because paper journal replay uses multiple
+        // internal decimal representations. Rather than attempt state
+        // healing (proven high-risk), this hard-stop BLOCKS new
+        // admissions when parity diverges beyond threshold — exits are
+        // NOT touched so the coordinator drains and ledger converges
+        // naturally as sells complete.
+        if (modeUpper == "PAPER") {
+            val ledgerVerdict6731 = try {
+                com.lifecyclebot.engine.truth.PaperLedgerDivergenceGuard6731.evaluate()
+            } catch (_: Throwable) { null }
+            if (ledgerVerdict6731 != null && !ledgerVerdict6731.allow) {
+                try {
+                    PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCK_TAXONOMY_${ledgerVerdict6731.reason}")
+                    ForensicLogger.lifecycle(
+                        "EXEC_OPEN_BLOCKED_PAPER_LEDGER_DIVERGENCE_6731",
+                        "attemptId=$execKey mint=${mint.take(10)} sym=$symbol reason=${ledgerVerdict6731.reason} cashΔ=${ledgerVerdict6731.cashDelta} openCostΔ=${ledgerVerdict6731.openCostDelta} realizedΔ=${ledgerVerdict6731.realizedDelta} posGap=${ledgerVerdict6731.positionCountGap} tag=${ledgerVerdict6731.divergenceTag} action=block_until_ledger_reconciles",
+                    )
+                } catch (_: Throwable) {}
+                return blocked(
+                    "EXEC_OPEN_BLOCKED_PAPER_LEDGER_DIVERGENCE_6731",
+                    "reason=${ledgerVerdict6731.reason} cashΔ=${"%.4f".format(ledgerVerdict6731.cashDelta)}",
+                    shadow = true,
+                )
+            }
+        }
         // V5.0.6727 §EXIT_THROUGHPUT_BACK_PRESSURE — 6726 dump: 200 opens,
         // cash 0.0040 SOL, 19 min of exec silence while SCAN and FDG
         // continued churning. Root: buy admission had no hard back-

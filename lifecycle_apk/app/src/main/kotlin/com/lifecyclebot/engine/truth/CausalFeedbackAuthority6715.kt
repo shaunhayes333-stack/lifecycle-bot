@@ -198,25 +198,9 @@ object CausalFeedbackAuthority6715 {
             }
             val stale = stamp.scopes.any { (k, v) -> state(k).let { it.terminalEpoch != v.terminalEpoch || it.learningRevision != v.learningRevision } }
             if (stale) {
-                // V5.0.6730 §LEARNER_REVISION_RACE_GRACE — 6729 fresh-boot
-                // dump: STALE_FEEDBACK_EPOCH_REVALIDATE_6715 = 63 in 207s,
-                // EXEC_OPEN_BLOCKED_CAUSAL_FEEDBACK_6715 = 64. Root cause:
-                // the learner revision moves BETWEEN stamp and execute for
-                // unrelated cohorts (another trade closes → revision++),
-                // invalidating pending decisions that are already sealed.
-                // In-flight decisions should NOT be invalidated by unrelated
-                // terminal learning inside a short grace window; only if
-                // the stamp is stale beyond LEARNER_REVISION_GRACE_MS is
-                // the racing revision a genuine correctness signal.
-                val stampAge6730 = System.currentTimeMillis() - stamp.stampedAtMs
-                if (stampAge6730 < LEARNER_REVISION_GRACE_MS) {
-                    try { emit("LEARNER_REVISION_RACE_GRACE_ADMITTED_6730", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} stampAgeMs=$stampAge6730 graceMs=$LEARNER_REVISION_GRACE_MS reason=in_flight_race_grace") } catch (_: Throwable) {}
-                    // Fall through — treat as fresh and allow admission.
-                } else {
-                    releaseAttemptLocked(attemptId, removeStamp = true)
-                    emit("CAUSAL_EXEC_STALE_EPOCH_6715", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band stampAgeMs=$stampAge6730 reason=LEARNER_REVISION_CHANGED_beyond_grace")
-                    return Admission(false, "STALE_FEEDBACK_EPOCH_REVALIDATE_6715", forceRevalidate = true)
-                }
+                releaseAttemptLocked(attemptId, removeStamp = true)
+                emit("CAUSAL_EXEC_STALE_EPOCH_6715", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band reason=LEARNER_REVISION_CHANGED")
+                return Admission(false, "STALE_FEEDBACK_EPOCH_REVALIDATE_6715", forceRevalidate = true)
             }
             if (currentStates.values.any { it.pendingLearning.isNotEmpty() }) {
                 // V5.0.6721 §CAUSAL_ALIGN_TO_CROSS_ASSET_PARITY — SOFT MODE.
