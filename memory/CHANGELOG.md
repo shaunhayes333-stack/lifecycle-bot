@@ -1,3 +1,16 @@
+## V5.0.6732 — §LANE_SCOPED_CAPITAL_FAIRNESS + §MARK_OBSERVATION_FALLBACK + §EXIT_TELEMETRY_STAMPER (PENDING CI)
+
+Operator diagnostic of 5.0.6731: the choke moved past FDG (672 allow / 164 block) but 91.3% of EXEC-gate decisions now die downstream (62 allows vs 652 blocks). `INVENTORY_VELOCITY_OPM_6730` accounts for 313 and `CASH_STARVED_EXIT_THROUGHPUT_6727` another 300 — together 94% of blocks. Simultaneously every specialist lane reports `capitalStarved=false`. Executable-mark conversion is broken (1,277 `VALID_SOURCE_NO_EXECUTABLE_MARK`, 166 `EXECUTION_BLOCKED_NO_CANONICAL_MARK`, BLUECHIP 146 FDG allows → 0 marks). 33 real paper sells landed but exit-gate counters remain 0/0 and every `StopLatencyClasses6464` bucket at n=0.
+
+- **§LANE_SCOPED_CAPITAL_FAIRNESS** (new `LaneCapitalFairness6732`): single canonical answer for "does this specific lane still have budget headroom?" Uses the same target-allocation weight formula as `ToolkitSignalSheet.specialistCapitalReport6599` but with a flat opportunity weight (traffic must not shift fairness). A lane with `used < 90% of target` has headroom. Non-meme lanes fail open (cross-asset parity preserved).
+- **§EXIT_THROUGHPUT_LANE_BYPASS**: `ExitThroughputAuthority6727.evaluate()` now takes `lane` parameter (backward-compat overload). When lane has fairness headroom, portfolio-wide CASH_STARVED_* and INVENTORY_VELOCITY_* checks are bypassed and the verdict returns `LANE_HEADROOM_FAIRNESS_6732`. `POSITION_HARD_CAP` remains unconditional (portfolio sanity). `ExecutableOpenGate` updated to pass lane.
+- **§MARK_OBSERVATION_FALLBACK** (`CanonicalPriceMarkRegistry6522.resolveExecutableFromSourceEvidence6616`): when liquidity is zero/null but price / identity / freshness / provenance are all provable, fall through to `resolveObservationFromSourceEvidence6628` instead of hard-rejecting. Paper accepts observation marks; live still requires the strict executable slot (which we don't publish here). Counter `CANONICAL_MARK_FALLBACK_OBSERVATION_6732` surfaces the rescued count. Directly addresses BLUECHIP 146→0 collapse.
+- **§EXIT_TELEMETRY_STAMPER** (new `ExitTelemetryStamper6732`): pairs an exit-intent stamp (`noteExitIntent(positionId, class)`) with the mirror's terminal-sell (`noteExitCompleted(positionId, reason)`). Wired into `ExecutorCanonicalMirror6442.mirrorSell` at the CLOSED-lifecycle branch. Reason string is heuristically classified when intent wasn't previously stamped (CATASTROPHIC / HARD_STOP / TRAILING / NORMAL) so per-class `StopLatencyClasses6464` buckets and `EXIT_GATE_ALLOWED_*_6732` counters now populate on every real sell.
+- **Regression**: `Aate6732ExecPipelineFairnessTest` — 9 cases lock in lane-fairness fail-open for non-meme, lane-name normalization, throughput lane-bypass reason, mark observation fallback path, executable slot preservation on healthy liquidity, and the three exit-telemetry stamping paths.
+
+---
+
+
 ## V5.0.6731 — §PAPER_LEDGER_DIVERGENCE_HARD_STOP + §LEARNER_GRACE_REVERT (Build GREEN — 15m52s)
 
 Operator: "accounting drift across the trading decks. balances no longer align." Deferred Fault #3 from the 6727 diagnostic (cash divergence 11.71 SOL + 43-position gap) has now spread across meme, crypto, perps.

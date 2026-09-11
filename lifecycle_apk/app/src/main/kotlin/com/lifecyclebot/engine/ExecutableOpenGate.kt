@@ -2372,7 +2372,7 @@ object ExecutableOpenGate {
         // touched — the coordinator continues to drain inventory —
         // admission just pauses until it's safe to open again.
         val throughputVerdict6727 = try {
-            com.lifecyclebot.engine.truth.ExitThroughputAuthority6727.evaluate(modeUpper)
+            com.lifecyclebot.engine.truth.ExitThroughputAuthority6727.evaluate(modeUpper, lane)
         } catch (_: Throwable) { null }
         if (throughputVerdict6727 != null && !throughputVerdict6727.allow) {
             try {

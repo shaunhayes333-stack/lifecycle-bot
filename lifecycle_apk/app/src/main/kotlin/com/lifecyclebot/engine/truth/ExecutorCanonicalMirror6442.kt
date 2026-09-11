@@ -329,6 +329,14 @@ object ExecutorCanonicalMirror6442 {
                     try { PositionStateLedger6427.confirmTerminalSell(canonicalMint(mint)) } catch (_: Throwable) {}
                     try { LaneAttributionLedger6427.recordExitPolicy(positionId, lane.ifBlank { posAfter.lane }, reason, if (paperMode) "PAPER" else "LIVE", "ExecutorCanonicalMirror6448") } catch (_: Throwable) {}
                     try { IdempotencyKeyStore6437.markTerminal(idem, "SELL_CONFIRMED") } catch (_: Throwable) {}
+                    // V5.0.6732 §EXIT_TELEMETRY_STAMPER — 6731 dump showed
+                    // 33 real paper sells but exit-gate allow/block=0/0 and
+                    // every StopLatencyClasses6464 bucket at n=0. The classes
+                    // existed but nothing invoked `record`. Wire the terminal
+                    // sell here so per-class latency and terminal counters
+                    // actually populate. Idempotency reservation above guards
+                    // against duplicate stamping.
+                    try { ExitTelemetryStamper6732.noteExitCompleted(positionId, reason) } catch (_: Throwable) {}
                     // V5.0.6651 — reward purity is delivered only after the
                     // exact canonical economic event reaches COMMITTED. The
                     // mirror runs before journal durability and must not race it.

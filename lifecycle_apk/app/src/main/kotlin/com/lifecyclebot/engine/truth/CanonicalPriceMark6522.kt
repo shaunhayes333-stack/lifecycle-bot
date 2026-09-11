@@ -202,8 +202,34 @@ object CanonicalPriceMarkRegistry6522 {
             return PromotionResult6613(null, "SOURCE_PRICE_INVALID", source, priceUsd, ageMs = ageMs, identity = mint)
         if (MarketDataProvenance6471.isKnownStandaloneSentinelPrice6658(priceUsd))
             return PromotionResult6613(null, "SOURCE_PRICE_SENTINEL_6697", source, priceUsd, ageMs = ageMs, identity = mint)
-        if (!liquidityUsd.isFinite() || liquidityUsd <= 0.0)
-            return PromotionResult6613(null, "SOURCE_LIQUIDITY_INVALID", source, priceUsd, ageMs = ageMs, identity = mint)
+        // V5.0.6732 §MARK_OBSERVATION_FALLBACK_ON_INVALID_LIQUIDITY —
+        // Operator diagnostic from 5.0.6731: 1,277 VALID_SOURCE_NO_
+        // EXECUTABLE_MARK / 166 EXECUTION_BLOCKED_NO_CANONICAL_MARK.
+        // BLUECHIP recorded 146 FDG allows → 0 marks. Root cause was
+        // this liquidity rejection: many valid-price/valid-identity
+        // sources arrive with liquidity=0 or null (bonding-curve boot,
+        // stale liquidity metric, provider degradation), which killed
+        // both the executable AND observation slots. Paper accepts
+        // observation marks (see Executor.kt paperMarkOk6579 path), so
+        // populating the observation slot from otherwise-valid source
+        // evidence keeps admission possible without conjuring an
+        // executable mark on unknown depth. Live still requires the
+        // strict executable slot, which we DO NOT publish here.
+        if (!liquidityUsd.isFinite() || liquidityUsd <= 0.0) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_MARK_FALLBACK_OBSERVATION_6732")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "CANONICAL_MARK_FALLBACK_OBSERVATION_6732",
+                    "mint=${mint.take(18)} price=$priceUsd source=${source.take(40)} action=publish_observation_only reason=SOURCE_LIQUIDITY_INVALID",
+                )
+            } catch (_: Throwable) {}
+            return resolveObservationFromSourceEvidence6628(
+                mint = mint, observedBaseMint = observedBaseMint,
+                pairOrPool = pairOrPool, quoteMint = quoteMint,
+                source = source, priceUsd = priceUsd,
+                evidenceTimestampMs = evidenceTimestampMs, nowMs = nowMs,
+            )
+        }
         val normalizedPair = pairOrPool.ifBlank { "MINT_ROUTE:$mint" }
         val normalizedQuote = quoteMint.ifBlank { "USD" }
         val observation = CanonicalPriceMark6522(

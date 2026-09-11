@@ -62,12 +62,21 @@ object ExitThroughputAuthority6727 {
     /**
      * Query the current back-pressure state for buy admission.
      * @param mode "paper" or "live" (case-insensitive).
+     * @param lane the canonical lane this admission is scoped to. When
+     *   supplied, the guard consults `LaneCapitalFairness6732` before
+     *   emitting a CASH_STARVED_* or INVENTORY_VELOCITY_* block. A lane
+     *   with headroom is NEVER blocked by portfolio-wide throughput —
+     *   it is fair per-lane, not fair global. Blank lane preserves
+     *   legacy portfolio-wide behaviour.
      * @return Verdict with .allow = true when admission is unblocked;
      *         .allow = false when the guard is engaged. Reason is one of:
      *         "OK", "CASH_STARVED_EXIT_THROUGHPUT_6727",
-     *         "POSITION_HARD_CAP_EXIT_THROUGHPUT_6727".
+     *         "POSITION_HARD_CAP_EXIT_THROUGHPUT_6727",
+     *         "INVENTORY_VELOCITY_OPM_6730",
+     *         "INVENTORY_VELOCITY_RATIO_6730".
      */
-    fun evaluate(mode: String): Verdict {
+    @JvmOverloads
+    fun evaluate(mode: String, lane: String = ""): Verdict {
         val m = mode.trim().lowercase()
         val cash: Double
         val open: Double
@@ -96,6 +105,23 @@ object ExitThroughputAuthority6727 {
         if (openCount >= POSITION_HARD_CAP) {
             try { PipelineHealthCollector.labelInc("EXIT_THROUGHPUT_BLOCKED_POSITION_HARD_CAP_6727") } catch (_: Throwable) {}
             return Verdict(false, "POSITION_HARD_CAP_EXIT_THROUGHPUT_6727", openCount, cash, equity, cashRatio)
+        }
+
+        // V5.0.6732 §LANE_SCOPED_CAPITAL_FAIRNESS — if this admission
+        // targets a specific lane and that lane still has budget
+        // headroom under its target allocation, DON'T let the global
+        // portfolio-wide gates (cash-starved / inventory-velocity)
+        // hard-block it. The 6731 dump proved these portfolio-wide
+        // gates were choking 613/652 EXEC blocks while individual
+        // lanes reported capitalStarved=false. This deferral restores
+        // per-lane fairness. Position hard cap above is preserved as
+        // an unconditional sanity ceiling.
+        val laneHeadroom6732 = try {
+            if (lane.isNotBlank()) LaneCapitalFairness6732.hasHeadroom(m, lane) else false
+        } catch (_: Throwable) { false }
+        if (laneHeadroom6732) {
+            try { PipelineHealthCollector.labelInc("EXIT_THROUGHPUT_LANE_FAIRNESS_BYPASS_6732") } catch (_: Throwable) {}
+            return Verdict(true, "LANE_HEADROOM_FAIRNESS_6732", openCount, cash, equity, cashRatio)
         }
 
         // Compound guard: cash starved AND we're already carrying real
