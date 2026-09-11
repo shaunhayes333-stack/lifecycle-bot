@@ -16,7 +16,7 @@ if hashlib.sha256(raw).hexdigest() != EXPECTED:
 manifest = json.loads(raw)
 assert manifest['version'] == '5.0.6734'
 contracts_raw = (PARTS / 'contracts.json').read_bytes()
-if hashlib.sha256(contracts_raw).hexdigest() != 'f0fb2a1cbbf019a6116efdc5815f35239e2d6a22a4a88d0a983efbb2bc2c77c6':
+if hashlib.sha256(contracts_raw).hexdigest() != 'a54f3ee884d273885275c9827046cafd50bdc722e10793da82a19e1c96f8da1d':
     raise SystemExit('Contract amendment digest mismatch; no source written')
 contracts = json.loads(contracts_raw)
 assert contracts['version'] == manifest['version']
