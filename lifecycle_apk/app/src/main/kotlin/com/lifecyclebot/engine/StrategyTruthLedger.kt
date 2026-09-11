@@ -15,30 +15,27 @@ import kotlin.math.abs
 object StrategyTruthLedger {
     const val VERSION = "V5.0.4151_STRATEGY_TRUTH_LEDGER"
 
-    // V5.0.6358 — TTL cache in front of clean(). Operator's V5.0.6308
-    // emergency dump showed STRATEGY_CLEAN_TERMINAL_ROWS = 624,180 in
-    // 3243s uptime (~192/sec). Each call sorts/iterates all raw rows
-    // and dedup-tests every one. Two callers (LiveProbabilityEngine,
-    // leaderboard) hit this per lane_eval; a third-party learning
-    // aggregator loops through it too. Adding a 3s TTL cache keyed by
-    // (rawRows.size | newest ts | limit) makes the second and third
-    // reader in a short window return the same Result instance instead
-    // of redoing 200-row terminal-dedup work, without breaking
-    // correctness — the cache invalidates as soon as a new SELL row
-    // lands in the journal.
-    // V5.0.6378 — bump TTL 3s→10s. Operator's V5.0.6308-format emergency dump
-    // showed STRATEGY_CLEAN_TERMINAL_ROWS = 433,607 in 40 min with cache
-    // hits=1326 / misses=1104 (only ~55% hit rate). The cache fingerprint
-    // (rawRows.size | newestTs | limit) already invalidates on every new SELL
-    // row landing, so extending the TTL to 10s cannot serve stale data — it
-    // only prevents the second-and-third readers in the SAME 10-second window
-    // (LiveProbabilityEngine + leaderboard + strategy aggregator) from
-    // redoing the O(N log N) sort + dedupe pass 3× per journal state.
+    // Cache only an exact immutable cohort snapshot. Count/time buckets can alias
+    // different lanes or modes, and Trade.pnlPct is mutable. Quarantine state is
+    // part of the key so both exclusions and releases invalidate immediately.
     private const val CLEAN_CACHE_TTL_MS: Long = 10_000L
     private val cleanCacheLock = Any()
-    @Volatile private var cleanCacheKey: String = ""
-    @Volatile private var cleanCacheValue: Result? = null
-    @Volatile private var cleanCacheStampMs: Long = 0L
+    private data class CleanInput6737(
+        val rows: List<Trade>, val limit: Int, val quarantined: List<Boolean>,
+    )
+    private var cleanCacheKey: CleanInput6737? = null
+    private var cleanCacheValue: Result? = null
+    private var cleanCacheStampMs: Long = 0L
+
+    private fun quarantined6737(row: Trade): Boolean = try { row.mint.isNotBlank() && (
+        com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500.isQuarantined(row.mint) ||
+            com.lifecyclebot.engine.truth.LearningQuarantineGate6470.isQuarantined(
+                positionId = row.positionId.takeIf { it.isNotBlank() }, mint = row.mint,
+            )
+        ) } catch (_: Throwable) { true }
+
+    private fun detached6737(value: Result): Result =
+        value.copy(rows = value.rows.map { it.copy() })
 
     // V5.0.6404 §A — LIFETIME TERMINAL COUNTER DEDUPER.
     // Operator's V5.0.6404 emergency dump showed STRATEGY_CLEAN_TERMINAL_ROWS
@@ -87,31 +84,13 @@ object StrategyTruthLedger {
     fun clean(rawRows: List<Trade>, limit: Int = rawRows.size): Result {
         if (rawRows.isEmpty()) return Result(emptyList(), Audit(0, 0, 0, 0, 0, 0))
 
-        // V5.0.6378 — TTL cache check. Fingerprint the input by size, newest
-        // row timestamp and the requested limit; if the fingerprint matches
-        // a fresh cache stamp, return the cached Result. Never blocks or
-        // fails hot path — synchronized block is O(1) and the fallback
-        // (cache miss) is identical to the pre-6358 behaviour.
-        //
-        // V5.0.6379 — CACHE BUCKETING to survive rapid-fire new-row churn.
-        // Operator's second V5.0.6308-format emergency dump showed the
-        // fingerprint invalidating on EVERY new SELL row landing:
-        //   STRATEGY_CLEAN_TERMINAL_ROWS = 2,099,412 in 3.5h uptime
-        //   MISS=4015 / HIT=3216  (55% miss rate)
-        // With ~2M output-row emissions and only 55% hit rate the cache
-        // was doing nothing because `newestTs` bumps on every incoming row.
-        // Bucket the fingerprint to `size / 10` and `newestTs / 30_000`
-        // (30-second buckets) so back-to-back callers within the SAME
-        // 10-row batch and 30-second window all hit the same cache slot.
-        // Correctness envelope: outputs may lag a real journal by at most
-        // 10 rows OR 30s (whichever comes first) — well inside the tolerances
-        // strategy learning already runs at (TRIAL_WINDOW=25, PERSIST=40).
         val now = System.currentTimeMillis()
-        val newestTs = rawRows.firstOrNull()?.ts ?: 0L
-        val key = "${rawRows.size / 10}|${newestTs / 30_000}|$limit"
+        val inputRows6737 = rawRows.map { it.copy() }
+        val key = CleanInput6737(inputRows6737, limit, inputRows6737.map { quarantined6737(it) })
         val cached = synchronized(cleanCacheLock) {
-            val v = cleanCacheValue
-            if (v != null && cleanCacheKey == key && now - cleanCacheStampMs < CLEAN_CACHE_TTL_MS) v else null
+            cleanCacheValue?.takeIf {
+                cleanCacheKey == key && now - cleanCacheStampMs in 0 until CLEAN_CACHE_TTL_MS
+            }?.let { detached6737(it) }
         }
         if (cached != null) {
             try { PipelineHealthCollector.labelInc("STRATEGY_CLEAN_CACHE_HIT_6358") } catch (_: Throwable) {}
@@ -119,7 +98,7 @@ object StrategyTruthLedger {
         }
         try { PipelineHealthCollector.labelInc("STRATEGY_CLEAN_CACHE_MISS_6358") } catch (_: Throwable) {}
 
-        val newestFirst = rawRows.sortedByDescending { it.ts }
+        val newestFirst = inputRows6737.sortedByDescending { it.ts }
         val seenTerminalKeys = LinkedHashSet<String>()
         val seenGenerationKeys = LinkedHashSet<String>()
         val seenMintCloseWindows = LinkedHashMap<String, Long>()
@@ -186,7 +165,7 @@ object StrategyTruthLedger {
                 }
                 val historicalQuarantined = try {
                     com.lifecyclebot.engine.truth.LearningQuarantineGate6470.isQuarantined(
-                        positionId = null, mint = row.mint,
+                        positionId = row.positionId.takeIf { it.isNotBlank() }, mint = row.mint,
                     )
                 } catch (_: Throwable) { false }
                 if (historicalQuarantined) {
@@ -200,7 +179,7 @@ object StrategyTruthLedger {
             val generationKey = generationKey(row)
             val mintWindowKey = mintCloseWindowKey(row)
             val priorCloseTs = seenMintCloseWindows[mintWindowKey]
-            val sameMintCloseDuplicate = priorCloseTs != null && row.ts > 0L && kotlin.math.abs(priorCloseTs - row.ts) <= SAME_MINT_TERMINAL_DEDUP_WINDOW_MS
+            val sameMintCloseDuplicate = row.positionId.isBlank() && row.entryTsMs <= 0L && priorCloseTs != null && row.ts > 0L && kotlin.math.abs(priorCloseTs - row.ts) <= SAME_MINT_TERMINAL_DEDUP_WINDOW_MS
             if (!seenTerminalKeys.add(terminalKey) || !seenGenerationKeys.add(generationKey) || sameMintCloseDuplicate) {
                 deduped++
                 // V5.0.6404 §A — gate STRATEGY_TERMINAL_DEDUPED +
@@ -232,7 +211,7 @@ object StrategyTruthLedger {
         // so races produce identical Result contents for the same key.
         synchronized(cleanCacheLock) {
             cleanCacheKey = key
-            cleanCacheValue = result
+            cleanCacheValue = detached6737(result)
             cleanCacheStampMs = System.currentTimeMillis()
         }
         return result
@@ -275,7 +254,8 @@ object StrategyTruthLedger {
         val side = t.side.trim().uppercase()
         if (side != "SELL" && side != "PARTIAL_SELL") return null
         val terminalReason = t.reason.trim().uppercase()
-        if (terminalReason.contains("STALE_FEED") || terminalReason.contains("DATA_QUALITY")) {
+        if (terminalReason.contains("STALE_FEED") || terminalReason.contains("DATA_QUALITY") ||
+            terminalReason.contains("STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP")) {
             return "DATA_QUALITY_EXIT"
         }
         val mode = t.mode.trim().uppercase()

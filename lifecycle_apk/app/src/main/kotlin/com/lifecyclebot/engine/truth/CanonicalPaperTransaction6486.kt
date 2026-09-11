@@ -189,7 +189,9 @@ object CanonicalPaperTransaction6486 {
             qtyRaw = position.originalQtyRaw,
             decimals = position.quantityScale,
             executionPriceUsd = position.entryPriceUsd,
-            executionPriceSol = position.entryPriceUsd,
+            executionPriceSol = PaperFillMath6737.priceSol(
+                position.entryCostSol, position.originalQtyRaw, position.quantityScale,
+            ) ?: 0.0,
             notionalSol = position.entryCostSol,
             feeSol = position.feesSol,
             cashDeltaSol = -(position.entryCostSol + position.feesSol),
@@ -357,7 +359,7 @@ object CanonicalPaperTransaction6486 {
     }
 
     fun open(positionId: String, mint: String, symbol: String, lane: String, source: String,
-             costSol: Double, feeSol: Double = 0.0, qtyRaw: BigInteger = syntheticUnit,
+             costSol: Double, feeSol: Double = 0.0, qtyRaw: BigInteger? = null,
              decimals: Int = 9, entryScore: Int = 0, tactic: String = lane,
              quantityScale: Int = decimals,
              // V5.0.6525 §ASSET_CLASS_AXIS + §ENTRY_PRICE_PROPAGATION —
@@ -375,7 +377,8 @@ object CanonicalPaperTransaction6486 {
              entryPriceSource: String = "",
              entryPoolAddress: String = "",
              entryDex: String = "",
-             executionIntent: com.lifecyclebot.engine.ExecutableOpenGate.ExecutionIntent? = null): Result = lock.withLock {
+             executionIntent: com.lifecyclebot.engine.ExecutableOpenGate.ExecutionIntent? = null,
+             solUsdAtEntry6737: Double = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice): Result = lock.withLock {
         // V5.0.6551 — every non-Solana paper open must be authorized before
         // debit. Missing/mismatched intent is rejected without mutation.
         if (assetClass != AssetClass.SOLANA_TOKEN) {
@@ -389,14 +392,20 @@ object CanonicalPaperTransaction6486 {
                 return@withLock Result(false, positionId, "CANONICAL_EXECUTION_INTENT_MISMATCH")
             CanonicalEntryAuthority6551.markDispatch(intent)
         }
+        // A default one-token lot made non-Solana positions fail the quantity
+        // invariant after their cash had already been debited. Derive the paper
+        // accounting units from the exact entry notional before any mutation.
+        val openedQtyRaw6737 = qtyRaw ?: PaperFillMath6737.quantityFromCost(
+            costSol, entryPriceUsd, solUsdAtEntry6737, quantityScale,
+        ) ?: return@withLock Result(false, positionId, "ENTRY_QUANTITY_OR_FX_UNAVAILABLE_6737")
         if (positionId.isBlank() || mint.isBlank() || !costSol.isFinite() || costSol <= 0.0 ||
-            !feeSol.isFinite() || feeSol < 0.0 || qtyRaw <= BigInteger.ZERO)
+            !feeSol.isFinite() || feeSol < 0.0 || openedQtyRaw6737 <= BigInteger.ZERO || quantityScale !in 0..18)
             return@withLock Result(false, positionId, "INVALID_OPEN")
         if (CanonicalPositionAuthority6441.getPosition(positionId) != null)
             return@withLock Result(false, positionId, "POSITION_EXISTS")
         val incomingMode6605 = "paper"
         val duplicateOpenSameMode6605 = try {
-            CanonicalPositionAuthority6441.openPositions().any { p ->
+            CanonicalPositionAuthority6441.fundedPositions6737(incomingMode6605).any { p ->
                 p.mint == mint && p.mode.equals(incomingMode6605, ignoreCase = true)
             }
         } catch (_: Throwable) { false }
@@ -417,7 +426,7 @@ object CanonicalPaperTransaction6486 {
         val opened = CanonicalPositionAuthority6441.openPosition(
             idempotencyKey = idem, positionId = positionId, mint = mint, symbol = symbol,
             lane = lane, runId = positionId.substringAfterLast(':', positionId),
-            entryCostSol = costSol, openedQtyRaw = qtyRaw, tokenDecimals = decimals,
+            entryCostSol = costSol, openedQtyRaw = openedQtyRaw6737, tokenDecimals = decimals,
             feesSol = feeSol, paperMode = false, modeOverride = "paper", quantityScale = quantityScale,
             entryPriceUsd = entryPriceUsd, entryPriceSource = entryPriceSource,
             entryPoolAddress = entryPoolAddress, entryDex = entryDex,
@@ -426,11 +435,11 @@ object CanonicalPaperTransaction6486 {
             PaperAccountLedger6430.rollbackBuy(costSol, feeSol, "PAPER6486_OPEN_$opened")
             return@withLock Result(false, positionId, "POSITION_$opened")
         }
-        CanonicalLotQuantity6464.onBuyFilled(positionId, mint, qtyRaw)
+        CanonicalLotQuantity6464.onBuyFilled(positionId, mint, openedQtyRaw6737)
         PositionStateLedger6454.onEntry(positionId)
-        SellQtyBoundaryClamp6427.syncAuthoritativeRaw(positionId, qtyRaw, qtyRaw)
+        SellQtyBoundaryClamp6427.syncAuthoritativeRaw(positionId, openedQtyRaw6737, openedQtyRaw6737)
         EconomicEventSchema6464.recordBuy("paper", positionId, mint, symbol, idem, costSol,
-            qtyRaw, costSol / qtyRaw.toDouble(), feeSol, decimals, quantityScale)
+            openedQtyRaw6737, entryPriceUsd, feeSol, decimals, quantityScale)
         EntryStrategySnapshot6450.setEntry(EntryStrategySnapshot6450.Snapshot(
             positionId, mint, lane, "", tactic, "", "", source, entryScore, 0.0, 0.0,
             System.currentTimeMillis(), "",
@@ -536,7 +545,8 @@ object CanonicalPaperTransaction6486 {
     fun close(positionId: String, mint: String, symbol: String, grossProceedsSol: Double,
               soldQtyRaw: BigInteger? = null, soldCostBasisSol: Double? = null,
               sellFeeSol: Double = 0.0, exitReason: String, terminalSequence: Long,
-              expectedRealizedPnlSol6569: Double? = null, leveragedReturnPct6569: Double? = null): Result = lock.withLock {
+              expectedRealizedPnlSol6569: Double? = null, leveragedReturnPct6569: Double? = null,
+              exitPriceUsd6737: Double? = null): Result = lock.withLock {
         val eligibility6570 = CanonicalPositionAuthority6441.exitEligibility6570(positionId, mint, expectedMode = "paper")
         val pos = eligibility6570.position
             ?: return@withLock Result(false, positionId, eligibility6570.reason)
@@ -547,20 +557,13 @@ object CanonicalPaperTransaction6486 {
             grossProceedsSol < 0.0 || !basis.isFinite() || basis < 0.0)
             return@withLock Result(false, positionId, "INVALID_CLOSE")
         val terminal = qty >= pos.remainingQtyRaw
-        val staleEmergencyExit6692 = exitReason.startsWith("STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP", ignoreCase = true)
-        val effectiveGrossProceeds6692 = if (staleEmergencyExit6692) {
-            val boundedGross6692 = (basis * 0.75).coerceAtLeast(0.0)
-            val effective6692 = minOf(grossProceedsSol, boundedGross6692)
-            EconomicPurityGate6504.markUntrusted(mint, "STALE_QUOTE_UNVERIFIED_EXIT_6692")
-            if (kotlin.math.abs(effective6692 - grossProceedsSol) > 1e-9) try {
-                PipelineHealthCollector.labelInc("STALE_QUOTE_PAPER_PROCEEDS_CLAMPED_6692")
-                ForensicLogger.lifecycle(
-                    "STALE_QUOTE_PAPER_PROCEEDS_CLAMPED_6692",
-                    "positionId=$positionId mint=${mint.take(10)} basis=$basis proposedGross=$grossProceedsSol boundedGross=$boundedGross6692 effectiveGross=$effective6692 action=synthetic_backstop_cannot_create_profit",
-                )
-            } catch (_: Throwable) {}
-            effective6692
-        } else grossProceedsSol
+        // Missing quotes do not authorize an invented -25% loss. A real exit
+        // must be retried with fresh evidence; no cash, quantity or learning moves.
+        if (exitReason.startsWith("STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP", true)) {
+            try { PipelineHealthCollector.labelInc("PAPER_STALE_EXIT_AWAITING_QUOTE_6737") } catch (_: Throwable) {}
+            return@withLock Result(false, positionId, "FRESH_EXIT_QUOTE_REQUIRED_6737")
+        }
+        val effectiveGrossProceeds6692 = grossProceedsSol
         val canonicalRealizedPnl6569 = effectiveGrossProceeds6692 - basis - sellFeeSol
         val expected6569 = expectedRealizedPnlSol6569
         val return6569 = leveragedReturnPct6569
@@ -594,9 +597,10 @@ object CanonicalPaperTransaction6486 {
             grossProceedsSol = effectiveGrossProceeds6692, soldCostBasisSol = basis,
             feesSol = sellFeeSol, lane = pos.lane, exitReason = exitReason,
             terminal = terminal, directPositionMutation6486 = true,
+            executionPriceUsd6737 = exitPriceUsd6737,
         )
         if (!r.applied) return@withLock Result(false, positionId, r.reason)
-        recordCloseProjection6659(pos, r, exitReason, terminal)
+        recordCloseProjection6659(pos, r, exitReason, terminal, exitPriceUsd6737)
         if (terminal) CanonicalMintOccupancyRegistry6464.markClosed("paper", mint)
         try { PipelineHealthCollector.labelInc(if (terminal) "PAPER_TRANSACTION_CLOSE_COMMITTED_6486" else "PAPER_TRANSACTION_PARTIAL_COMMITTED_6486") } catch (_: Throwable) {}
         Result(
@@ -619,6 +623,7 @@ object CanonicalPaperTransaction6486 {
         receipt: CanonicalPaperTerminalBridge6469.Result,
         exitReason: String,
         terminal: Boolean,
+        observedExitPriceUsd6737: Double? = null,
     ) {
         if (receipt.economicEventId.isBlank()) return
         val scale = receipt.tokenDecimals.takeIf { it in 0..18 }
@@ -632,7 +637,8 @@ object CanonicalPaperTransaction6486 {
         val realized = gross - basis - fee
         val pnlPct = if (basis > 0.0) realized * 100.0 / basis else 0.0
         val soldQty = tokenQty(receipt.canonicalConsumedRaw)
-        val exitPrice = if (soldQty > 0.0) gross / soldQty else position.entryPriceUsd
+        // Unknown USD quotes remain unknown; gross / quantity is SOL/token.
+        val exitPrice = observedExitPriceUsd6737?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         TradeHistoryStore.recordTrade(
             Trade(
                 side = if (terminal) "SELL" else "PARTIAL_SELL",

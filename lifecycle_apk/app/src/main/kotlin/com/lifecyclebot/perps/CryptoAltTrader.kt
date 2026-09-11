@@ -3207,6 +3207,7 @@ object CryptoAltTrader {
                 exitReason = reason, terminalSequence = System.currentTimeMillis(),
                 expectedRealizedPnlSol6569 = pos.sizeSol * (pos.getPnlPct() / 100.0),
                 leveragedReturnPct6569 = pos.getPnlPct(),
+                exitPriceUsd6737 = pos.currentPrice,
             )
             if (!canonicalClose6486.applied) {
                 ErrorLogger.warn(TAG, "PAPER CLOSE REJECTED: $mktSym ${canonicalClose6486.reason}")

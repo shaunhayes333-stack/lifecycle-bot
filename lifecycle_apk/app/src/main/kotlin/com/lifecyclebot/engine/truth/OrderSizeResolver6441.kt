@@ -127,8 +127,9 @@ object OrderSizeResolver6441 {
             com.lifecyclebot.engine.AdaptiveLaneReproof6684.sizeMultiplierForLane(laneName)
         } catch (_: Throwable) { 1.0 }
         val adaptiveMult6684 = (ssiMult6684 * labMult6684).coerceIn(0.35, 2.50)
-        val requested = (requestedSol.coerceAtLeast(0.0) * adaptiveMult6684).coerceAtLeast(0.0)
-        val risk = requested.coerceAtMost(laneRiskCapSol)
+        val requested = (requestedSol * adaptiveMult6684).takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+        val laneCap = laneRiskCapSol.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+        val baseRisk = requested.coerceAtMost(laneCap)
         if (kotlin.math.abs(adaptiveMult6684 - 1.0) > 0.001) {
             try {
                 PipelineHealthCollector.labelInc("CANONICAL_ADAPTIVE_SIZE_6684")
@@ -145,93 +146,46 @@ object OrderSizeResolver6441 {
                     .boundedSizeMultiplier6612(mint)
             else 1.0
         } catch (_: Throwable) { 1.0 }
-        val nudgedRisk = (risk * contribMult6612).coerceAtMost(laneRiskCapSol)
+        val contribution = contribMult6612.takeIf { it.isFinite() && it > 0.0 }?.coerceIn(0.35, 2.50) ?: 1.0
+        val risk = (baseRisk * contribution).coerceAtMost(laneCap)
+        val nudgedRisk = risk
 
-        // V5.0.6552 — the runner ladder is an authorized target input. It may
-        // lift a positive proposal, but can never bypass hard risk/cash caps.
-        val ladderTarget = try {
-            RunnerCompoundingLadder6440.recommendedSizeSol(walletSol)
-        } catch (_: Throwable) { 0.0 }
-        val laddered = if (ladderTarget.isFinite() && ladderTarget > 0.0) kotlin.math.max(nudgedRisk, ladderTarget) else nudgedRisk
+        // Compounding is a proposal input, never authority to reverse the final
+        // learned risk reduction. Its recommendation is retained in telemetry.
+        val ladderTarget = try { RunnerCompoundingLadder6440.recommendedSizeSol(walletSol) }
+            catch (_: Throwable) { 0.0 }
+        val laddered = nudgedRisk
 
         // 3. wallet / cash cap — final hard cap is supplied by the dynamic
         // wallet-percent/portfolio policy, not a lane's static SOL map.
         // V5.0.6448: PAPER affordability reads PaperAccountLedger6430, not the
         // canonical-position mirror cash facade, so all executor/runner/UI/report
         // balance consumers can converge on one transactional paper account.
-        val authoritativeCash = if (paperMode) PaperCapitalAuthority6577.cashSol().coerceAtLeast(0.0) else walletSol
+        val authoritativeCash = if (paperMode) PaperCapitalAuthority6577.cashSol().coerceAtLeast(0.0) else walletSol.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         val cashCap = authoritativeCash
         val feeAwareAvailable6490 = if (paperMode) {
             authoritativeCash / (1.0 + PAPER_ENTRY_FEE_RESERVE_RATE_6490)
         } else authoritativeCash
-        val cashClamped = laddered.coerceAtMost(cashCap)
-
-        // 4. lane cap
-        val laneClamped = cashClamped.coerceAtMost(laneRiskCapSol)
-
-        // 5. minimum executable — V5.0.6490 source repair.
-        // The 25%-cash percentage is an advisory risk cap, not permission to
-        // manufacture an impossible sub-minimum order. If the authoritative
-        // account and lane can genuinely fund the minimum, preserve that floor;
-        // otherwise resolve non-executable BEFORE an execution ticket exists.
-        val minExecRaw6491 = when {
-            paperMode && applyPaperMemeMinimum -> maxOf(laneMinExecutableSol, PAPER_EXECUTABLE_MINIMUM_SOL)
-            else -> laneMinExecutableSol.coerceAtLeast(ABS_MIN_EXECUTABLE_SOL)
-        }
-        val minExecLamports6491 = toLamports6491(minExecRaw6491)
-        val minExec = fromLamports6491(minExecLamports6491)
-        val requestedLamports6491 = toLamports6491(requested)
-        val availableLamports6491 = toLamports6491(feeAwareAvailable6490)
-        val laneCapLamports6491 = toLamports6491(laneRiskCapSol)
-        val laneClampedLamports6491 = toLamports6491(laneClamped)
-        // V5.0.6601 §ADAPTIVE_SIZE_HONORED_WITH_MIN_PROMOTION — operator
-        // directive Feb 2026:
-        //   > "If final BUY risk budget can afford the minimum executable
-        //   >  notional: clamp the executable order to canonical minimum."
-        // V5.0.6600 restored min-promotion for sub-min requests but also
-        // let the runner ladder promote LEGAL adaptive requests above the
-        // caller's intent (0.08 became 0.10 because ladderTarget=0.10 →
-        // laneClamped=0.10). Fix: when the request is at or above minExec,
-        // honor it as the ceiling (never promote a legal adaptive size).
-        // Sub-minimum requests are still promoted once to minExec when the
-        // hard caps can fund it. Otherwise non-executable.
-        val canFundMinimum6600 = requestedLamports6491 > 0L &&
-            availableLamports6491 >= minExecLamports6491 && laneCapLamports6491 >= minExecLamports6491
-        val shapedOrMinimumLamports6600 = when {
-            requestedLamports6491 >= minExecLamports6491 ->
-                minOf(requestedLamports6491, laneClampedLamports6491)
-            canFundMinimum6600 -> minExecLamports6491
-            else -> 0L
-        }
-        // V5.0.6601 §GOLDEN_TAPE_LEXICAL_ALIAS — preserve legacy variable
-        // names (authorityCapLamports6498, effectiveShapedLamports6506)
-        // that historical GoldenTape / regression tests string-match against.
-        // These are pure aliases; the actual logic is in shapedOrMinimumLamports6600
-        // and boundedExecutableLamports6498 below. Removing them would break
-        // 4 GoldenTape rows without any semantic gain.
-        @Suppress("UNUSED_VARIABLE")
-        val authorityCapLamports6498 = minOf(shapedOrMinimumLamports6600, availableLamports6491, laneCapLamports6491)
-        @Suppress("UNUSED_VARIABLE")
-        val effectiveShapedLamports6506 = laneClampedLamports6491
-        val boundedExecutableLamports6498 = minOf(shapedOrMinimumLamports6600, availableLamports6491, laneCapLamports6491)
-        val executable = boundedExecutableLamports6498 >= minExecLamports6491
-        val finalSize = if (executable) fromLamports6491(boundedExecutableLamports6498) else 0.0
+        // The paper venue floor is retained, but a floor may not manufacture risk.
+        // A sub-minimum learned budget is a retryable sizing result, not a larger BUY.
+        val laneMinimum = laneMinExecutableSol.takeIf { it.isFinite() && it > 0.0 } ?: ABS_MIN_EXECUTABLE_SOL
+        val minExec = if (paperMode && applyPaperMemeMinimum)
+            maxOf(laneMinimum, PAPER_EXECUTABLE_MINIMUM_SOL) else maxOf(laneMinimum, ABS_MIN_EXECUTABLE_SOL)
+        val finalSize = PaperFillMath6737.boundedNotional(risk, feeAwareAvailable6490, laneCap, minExec)
+        val actuallyExec = finalSize > 0.0
         val reason = when {
-            !executable && authoritativeCash <= 0.0 -> "NO_WALLET"
-            !executable && availableLamports6491 < minExecLamports6491 -> "CAPITAL_BELOW_MIN_EXECUTABLE_6490"
-            !executable && laneCapLamports6491 < minExecLamports6491 -> "LANE_CAP_BELOW_MIN_EXECUTABLE_6490"
-            !executable -> "BELOW_MIN_EXECUTABLE"
-            paperMode && authoritativeCash + 1e-12 < finalSize * (1.0 + PAPER_ENTRY_FEE_RESERVE_RATE_6490) -> "PAPER_CASH_INSUFFICIENT_WITH_FEE_6490"
-            canFundMinimum6600 && requestedLamports6491 < minExecLamports6491 -> "OK_MIN_PROMOTED_6600"
+            authoritativeCash <= 0.0 -> "NO_WALLET"
+            laneCap < minExec -> "LANE_CAP_BELOW_MIN_EXECUTABLE_6490"
+            feeAwareAvailable6490 < minExec -> "CAPITAL_BELOW_MIN_EXECUTABLE_6490"
+            !actuallyExec -> "RISK_BELOW_MIN_EXECUTABLE_6737"
             else -> "OK"
         }
-        val actuallyExec = executable && reason in setOf("OK", "OK_MIN_PROMOTED_6600")
         val res = Resolution(
             requestedSol = requested,
             riskSol = risk,
             ladderSol = laddered,
             cashCapSol = cashCap,
-            laneCapSol = laneRiskCapSol,
+            laneCapSol = laneCap,
             finalSizeSol = if (actuallyExec) finalSize else 0.0,
             executable = actuallyExec,
             reason = reason,
@@ -242,7 +196,7 @@ object OrderSizeResolver6441 {
         try {
             ForensicLogger.lifecycle(
                 "ORDER_SIZE_RESOLVED_6441",
-                "lane=$laneName paper=$paperMode ${res.trace()}",
+                "lane=$laneName paper=$paperMode ${res.trace()} ladderTarget=$ladderTarget",
             )
         } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("ORDER_SIZE_RESOLVED_6441") } catch (_: Throwable) {}

@@ -60,6 +60,12 @@ object CanonicalCapitalAuthority6450 {
         // to avoid training on manufactured PnL from fallback marks.
         val authoritativeOpenMarketValueSol: Double = 0.0,
         val authoritativeEquitySol: Double = 0.0,
+        val unpricedOpenCostBasisSol: Double = 0.0,
+        val inventoryCostDeltaSol: Double = 0.0,
+        val fundedPositionCount: Int = 0,
+        val economicallyValidMintCount: Int = 0,
+        val valuationComplete: Boolean = false,
+        val ledgerOperation: Long = 0L,
     )
 
     private val invariantChecks = AtomicLong(0L)
@@ -87,138 +93,74 @@ object CanonicalCapitalAuthority6450 {
      * costBasis fallback so unrealized reads as 0 rather than -100%).
      */
     fun snapshot(markProvider: (String) -> Double = markProviderRef.get() ?: { 0.0 }): Snapshot {
-        // V5.0.6487 — PaperAccountLedger is the sole capital read authority.
-        // Replay is parity diagnostics only and may never replace wallet surfaces.
-        val startingCash = PaperCapitalAuthority6577.startingCashSol()
-        val cash = PaperCapitalAuthority6577.cashSol()
-        val realized = PaperCapitalAuthority6577.realizedPnlSol()
-        val fees = PaperCapitalAuthority6577.feesSol()
-        // V5.0.6489 — the mark provider returns WHOLE-MINT market value from
-        // TokenState.position. Canonical storage may contain multiple economic lots
-        // for one mint, so value each mint once; summing one provider value per lot
-        // multiplied equity whenever historical same-mint lots coexisted.
-        val activeMints = try { CanonicalPositionAuthority6441.activeMintProjections6490("paper") } catch (_: Throwable) { emptyList() }
-        val reserved = 0.0 // no reserved event currently exists; remains explicit
-        val openCost = PaperCapitalAuthority6577.openCostBasisSol()
-        var staleMarkMints6492 = 0
-        var fallbackMarkMints6492 = 0
-        // V5.0.6508 §P0-3 — TRACK AUTHORITATIVE MARK VALUE SEPARATELY.
-        // Operator mandate: fallback/stale marks MUST NOT manufacture
-        // PnL for learning/reward. Sum only the fresh-marked slice so
-        // downstream consumers can gate WR/EV/tactic training on
-        // authoritativeOpenMv rather than the fallback-inflated total.
-        var authoritativeOpenMv6508 = 0.0
-        var authoritativeOpenCost6508 = 0.0
-        val activeMintSet6492 = activeMints.map { it.mint }.toSet()
-        lastGoodMark6492.keys.removeIf { it !in activeMintSet6492 }
-        val markedValue6492 = activeMints.sumOf { aggregate ->
-            val fresh = try { markProvider(aggregate.mint) } catch (_: Throwable) { 0.0 }
-            // V5.0.6604 §PER_POSITION_MARK_QUARANTINE (operator P1 fix).
-            //   The 6602 aggregate clamp masked the inflation but never
-            //   located WHICH position's mark was corrupt. Add a per-mint
-            //   forensic quarantine: if a single fresh mark exceeds the
-            //   position's remainingCostBasis by more than SANITY_MULT_6602
-            //   (100×), treat that mint as fallback (hold at cost basis),
-            //   emit HERO_OPENMV_PER_POSITION_QUARANTINE_6604 so operator
-            //   can see the mint / raw mark / ratio, and count it as a
-            //   fallback mark rather than authoritative. Rotation-safe:
-            //   the next tick reads the mark again — if it comes back
-            //   sane, position resumes authoritative marking.
-            val costBasis6604 = aggregate.remainingCostBasisSol
-            val SANITY_MULT_6604 = 100.0
-            val perPositionInflated6604 = fresh.isFinite() && fresh > 0.0 &&
-                costBasis6604 > 0.0 && fresh > costBasis6604 * SANITY_MULT_6604
-            if (perPositionInflated6604) {
-                try {
+        // One account revision: never combine cash before a SELL with basis after it.
+        val account = PaperAccountLedger6430.snapshotAtomic6643()
+        val startingCash = account.startingCashSol
+        val cash = account.cashSol
+        val realized = account.realizedPnlSol
+        val fees = account.feesSol
+        val reserved = account.reservedCashSol
+        val openCost = account.openCostBasisSol
+        val funded = CanonicalPositionAuthority6441.fundedPositions6737("paper")
+        val activeMints = CanonicalPositionAuthority6441.activeMintProjections6490("paper")
+        val projectedCost = activeMints.sumOf { it.remainingCostBasisSol }
+        val fundedCost = funded.sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
+        val missingProjectedBasis = (openCost - projectedCost).coerceAtLeast(0.0)
+        val inventoryDelta = openCost - fundedCost
+        var fallback = 0
+        var stale = 0
+        var unpricedBasis = missingProjectedBasis
+        var authoritativeMv = 0.0
+        var authoritativeCost = 0.0
+        val activeMintSet = activeMints.map { it.mint }.toSet()
+        lastGoodMark6492.keys.removeIf { it !in activeMintSet }
+        val markedValue = activeMints.sumOf { aggregate ->
+            val value = try { markProvider(aggregate.mint) } catch (_: Throwable) { 0.0 }
+            val basis = aggregate.remainingCostBasisSol
+            val valid = value.isFinite() && value > 0.0 && basis > 0.0 && value <= basis * 100.0
+            if (valid) {
+                authoritativeMv += value
+                authoritativeCost += basis
+                lastGoodMark6492[aggregate.mint] = GoodMark6492(value, System.currentTimeMillis())
+                value
+            } else {
+                if (lastGoodMark6492.containsKey(aggregate.mint)) stale++
+                fallback++
+                unpricedBasis += basis
+                // An unavailable mark cannot erase paid principal or preserve a stale
+                // whole-position profit after a partial close. Basis is an explicitly
+                // UNPRICED estimate, never a realized fill or a training reward.
+                if (value.isFinite() && basis > 0.0 && value > basis * 100.0) try {
                     PipelineHealthCollector.labelInc("HERO_OPENMV_PER_POSITION_QUARANTINE_6604")
-                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                        "HERO_OPENMV_PER_POSITION_QUARANTINE_6604",
-                        "mint=${aggregate.mint.take(10)} costBasis=${"%.6f".format(costBasis6604)} " +
-                            "rawMark=${"%.6f".format(fresh)} ratio=${"%.1f".format(fresh / costBasis6604)}x " +
-                            "action=treat_as_fallback_mark",
-                    )
                 } catch (_: Throwable) {}
-                fallbackMarkMints6492++
-                return@sumOf costBasis6604
-            }
-            when {
-                fresh.isFinite() && fresh > 0.0 -> {
-                    lastGoodMark6492[aggregate.mint] = GoodMark6492(fresh, System.currentTimeMillis())
-                    authoritativeOpenMv6508 += fresh
-                    authoritativeOpenCost6508 += aggregate.remainingCostBasisSol
-                    fresh
-                }
-                lastGoodMark6492[aggregate.mint] != null -> {
-                    staleMarkMints6492++
-                    try { PipelineHealthCollector.labelInc("PAPER_MARK_STALE_LAST_GOOD_6508") } catch (_: Throwable) {}
-                    lastGoodMark6492.getValue(aggregate.mint).wholeMintValueSol
-                }
-                else -> {
-                    fallbackMarkMints6492++
-                    // Position held at entry basis, UNPRICED authoritatively.
-                    try { PipelineHealthCollector.labelInc("PAPER_MARK_UNPRICED_6508") } catch (_: Throwable) {}
-                    aggregate.remainingCostBasisSol
-                }
+                basis
             }
         }
-        // A non-zero paper open cost with no paper position projection is an
-        // explicit lifecycle mismatch, not a real -100% mark. Keep equity at
-        // basis while the reconciler restores carry positions and surface it.
-        val openMvRaw6602 = if (activeMints.isEmpty() && openCost > 0.0) {
-            fallbackMarkMints6492++
-            try { PipelineHealthCollector.labelInc("CAPITAL_MARK_FALLBACK_NO_CANON_POSITION_6492") } catch (_: Throwable) {}
-            openCost
-        } else markedValue6492
-        // V5.0.6602 §HERO_OPENMV_SANITY_CLAMP — operator directive Feb 2026:
-        // hero was showing $9,595 equity on a wallet with journal +$33.57
-        // realized P&L on ~0.5 SOL of cost basis (~200× inflation). Trail
-        // stops fire at peak +25% so no legitimate paper position could
-        // sustain 100×+ market value vs cost basis before exiting. When
-        // openMv exceeds openCost by more than a sane meme-run ceiling
-        // (100×), the mark provider is misreporting — clamp to openCost and
-        // emit HERO_OPENMV_SANITY_CLAMP_6602 so operator can see the raw
-        // divergence in a pipeline dump. UI shows honest cost-basis equity
-        // rather than a fantasy $9k figure.
-        val SANITY_MULT_6602 = 100.0
-        val openMv = if (openCost > 0.0 && openMvRaw6602 > openCost * SANITY_MULT_6602) {
+        if (missingProjectedBasis > 1e-9) {
+            fallback++
             try {
-                PipelineHealthCollector.labelInc("HERO_OPENMV_SANITY_CLAMP_6602")
-                com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                    "HERO_OPENMV_SANITY_CLAMP_6602",
-                    "openCost=${"%.4f".format(openCost)} openMvRaw=${"%.4f".format(openMvRaw6602)} " +
-                        "ratio=${"%.1f".format(openMvRaw6602 / openCost)}x mints=${activeMints.size} " +
-                        "action=clamp_to_costBasis",
-                )
+                PipelineHealthCollector.labelInc("CAPITAL_UNPRICED_FUNDED_BASIS_6737")
             } catch (_: Throwable) {}
-            openCost
-        } else openMvRaw6602
-        if (staleMarkMints6492 > 0) try { PipelineHealthCollector.labelInc("CAPITAL_STALE_LAST_GOOD_MARK_6492") } catch (_: Throwable) {}
-        // Only fresh, authoritative marks may produce unrealized profit.
-        // Stale/fallback positions remain UNPRICED COST and contribute zero
-        // to growth, compounding, sizing, or learning rewards.
-        val unrealized = authoritativeOpenMv6508 - authoritativeOpenCost6508
+        }
+        // Include missing basis even when SOME valid positions remain. The previous
+        // all-or-nothing fallback dropped 4.0581 SOL from the supplied 6735 snapshot.
+        val openMv = markedValue + missingProjectedBasis
         val equity = cash + reserved + openMv
-        val expected = startingCash + realized - fees
-        val actual = cash + reserved + openCost
+        val accountStable = PaperAccountLedger6430.snapshotAtomic6643().operationCount == account.operationCount
+        val complete = fallback == 0 && stale == 0 && kotlin.math.abs(inventoryDelta) <= 1e-7 &&
+            kotlin.math.abs(projectedCost - openCost) <= 1e-7 && accountStable
         return Snapshot(
-            startingCashSol = startingCash,
-            cashSol = cash,
-            reservedSol = reserved,
-            openCostBasisSol = openCost,
-            openMarketValueSol = openMv,
-            unrealizedPnlSol = unrealized,
-            realizedPnlSol = realized,
-            feesSol = fees,
-            totalEquitySol = equity,
-            conservationDeltaSol = actual - expected,
-            staleMarkMints = staleMarkMints6492,
-            fallbackMarkMints = fallbackMarkMints6492,
-            authoritativeOpenMarketValueSol = authoritativeOpenMv6508,
-            // V5.0.6508a — authoritative equity: cash + reserved +
-            // AUTHORITATIVE openMV only (excludes stale/fallback marks).
-            // Main UI hero uses this to avoid the +28400% start
-            // impossibility that stale entry-basis marks manufactured.
-            authoritativeEquitySol = cash + reserved + authoritativeOpenMv6508,
+            startingCashSol = startingCash, cashSol = cash, reservedSol = reserved,
+            openCostBasisSol = openCost, openMarketValueSol = openMv,
+            unrealizedPnlSol = openMv - openCost,
+            realizedPnlSol = realized, feesSol = fees, totalEquitySol = equity,
+            conservationDeltaSol = cash + reserved + openCost - (startingCash + realized - fees),
+            staleMarkMints = stale, fallbackMarkMints = fallback,
+            authoritativeOpenMarketValueSol = authoritativeMv,
+            authoritativeEquitySol = cash + reserved + authoritativeMv,
+            unpricedOpenCostBasisSol = unpricedBasis, inventoryCostDeltaSol = inventoryDelta,
+            fundedPositionCount = funded.size, economicallyValidMintCount = activeMints.size,
+            valuationComplete = complete, ledgerOperation = account.operationCount,
         )
     }
 
@@ -253,6 +195,8 @@ object CanonicalCapitalAuthority6450 {
             "realized=${"%.4f".format(s.realizedPnlSol)} fees=${"%.4f".format(s.feesSol)} " +
             "equity=${"%.4f".format(s.totalEquitySol)} delta=${"%.6f".format(s.conservationDeltaSol)} " +
             "staleMarks=${s.staleMarkMints} fallbackMarks=${s.fallbackMarkMints} " +
+            "unpricedBasis=${"%.6f".format(s.unpricedOpenCostBasisSol)} inventoryDelta=${"%.6f".format(s.inventoryCostDeltaSol)} " +
+            "funded=${s.fundedPositionCount} pricedEligibleMints=${s.economicallyValidMintCount} valuationComplete=${s.valuationComplete} ledgerOp=${s.ledgerOperation} " +
             "checks=${invariantChecks.get()} violations=${invariantViolations.get()}"
     }
 }

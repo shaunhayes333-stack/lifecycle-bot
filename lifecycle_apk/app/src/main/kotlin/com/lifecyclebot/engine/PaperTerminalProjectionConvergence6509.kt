@@ -13,7 +13,7 @@ object PaperTerminalProjectionConvergence6509 {
 
     fun canonicalClosedNoActive(mint: String): Boolean {
         val closed = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.closedPositions().any { it.mode == "paper" && it.mint == mint } } catch (_: Throwable) { false }
-        val active = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().any { it.mode == "paper" && it.mint == mint } } catch (_: Throwable) { false }
+        val active = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.fundedPositions6737("paper").any { it.mint == mint } } catch (_: Throwable) { true }
         return closed && !active
     }
 

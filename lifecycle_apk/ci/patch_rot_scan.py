@@ -237,5 +237,9 @@ def main() -> int:
     return 0
 
 
+# Read-only contracts run alongside the existing source gate.
+import runpy
+runpy.run_path(str(Path(__file__).resolve().with_name('pipeline_integrity_6737_scan.py')))
+
 if __name__ == "__main__":
     raise SystemExit(main())

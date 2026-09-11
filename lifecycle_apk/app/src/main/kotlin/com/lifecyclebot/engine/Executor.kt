@@ -1134,7 +1134,31 @@ class Executor(
      */
     fun getActualPricePublic(ts: TokenState): Double = getActualPrice(ts)
     
+    private fun paperExitWitness6737(ts: TokenState): com.lifecyclebot.engine.truth.CanonicalPriceMark6522? {
+        val now = System.currentTimeMillis()
+        val map = ts.tokenMap
+        val evidence = listOf(
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.SourceEvidence6734(
+                map.baseMint.ifBlank { map.canonicalTargetMint }, map.poolAddress.ifBlank { map.pairAddress },
+                map.quoteMint, map.sourceScanner, map.priceUsd ?: 0.0, map.liquidityUsd ?: 0.0, map.updatedAtMs,
+            ),
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.SourceEvidence6734(
+                ts.mint, ts.lastPricePoolAddr.ifBlank { ts.pairAddress }, "USD", ts.lastPriceSource,
+                ts.lastPrice, ts.lastLiquidityUsd, ts.lastPriceUpdate,
+            ),
+        ).filter { it.baseMint == ts.mint && it.timestampMs > 0L && now - it.timestampMs in -5_000L..30_000L }
+        try {
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.resolveBestSourceEvidence6734(ts.mint, evidence, now)
+        } catch (_: Throwable) { }
+        return com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.freshEconomicExit6737(ts.mint, now)
+    }
+
     private fun getActualPrice(ts: TokenState): Double {
+        // Paid PAPER entry basis is immutable. The legacy decimal/source rebase
+        // below is not an exit fill authority and must never rewrite that basis.
+        if (ts.position.isPaperPosition && ts.position.hasTokens) {
+            return paperExitWitness6737(ts)?.priceUsd?.value?.toDouble() ?: 0.0
+        }
         // V5.0.6453 §P0-#7 — REAL PRICE CONTRACT. Stamp the freshness
         // guard with whichever provenance we can attribute. Consumers
         // (riskCheck, learners) can then interrogate isFresh() before
@@ -12220,7 +12244,11 @@ class Executor(
         val ctx = try { com.lifecyclebot.AATEApp.appContextOrNull() } catch (_: Throwable) { null } ?: return false
         val cached = try { TokenMetaCache.get(ctx).lookup(ts.mint) } catch (_: Throwable) { null } ?: return false
         var changed = false
-        if (ts.lastPrice <= 0.0 && cached.lastPrice > 0.0) { ts.lastPrice = cached.lastPrice; changed = true }
+        if (ts.lastPrice <= 0.0 && cached.lastPrice > 0.0) {
+            ts.lastPrice = cached.lastPrice
+            ts.lastPriceUpdate = 0L // legacy cache has no price-observation timestamp
+            changed = true
+        }
         if (ts.lastMcap <= 0.0 && cached.lastMcap > 0.0) { ts.lastMcap = cached.lastMcap; changed = true }
         if (ts.lastLiquidityUsd <= 0.0 && cached.lastLiquidityUsd > 0.0) { ts.lastLiquidityUsd = cached.lastLiquidityUsd; changed = true }
         if (ts.lastFdv <= 0.0 && cached.lastFdv > 0.0) { ts.lastFdv = cached.lastFdv; changed = true }
@@ -12234,7 +12262,7 @@ class Executor(
             }
         }
         if (changed) {
-            ts.lastPriceUpdate = System.currentTimeMillis()
+            // Metadata hydration cannot renew a price observation.
             try {
                 ForensicLogger.lifecycle(
                     "MINT_ENTRY_MARKET_SNAPSHOT_CACHE_HYDRATED",
@@ -20536,27 +20564,22 @@ class Executor(
         // in QTY_DIVERGES_FROM_CANONICAL can rebind after copying with
         // lot-truth qty (see line ~19460).
         var pos   = ts.position
-        val price = getActualPrice(ts)
-        if (!pos.isOpen) {
-            PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_NOT_OPEN:$reason")
-            return SellResult.ALREADY_CLOSED
+        val exitWitness6737 = paperExitWitness6737(ts)
+        val solUsdAtExit6737 = WalletManager.lastKnownSolPrice
+        val price = exitWitness6737?.priceUsd?.value?.toDouble() ?: 0.0
+        if (exitWitness6737 == null || !solUsdAtExit6737.isFinite() || solUsdAtExit6737 <= 0.0) {
+            PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "EXIT_QUOTE_OR_FX_UNAVAILABLE_6737:$reason")
+            try { PipelineHealthCollector.labelInc("PAPER_EXIT_WAIT_FRESH_ECONOMIC_QUOTE_6737") } catch (_: Throwable) {}
+            return SellResult.FAILED_RETRYABLE
         }
+        val exitLiquidityUsd6737 = exitWitness6737.liquidityUsd!!.toDouble()
         if (price == 0.0) {
             PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_NO_PRICE:$reason")
             return SellResult.FAILED_RETRYABLE
         }
-        // V5.9.1470 (spec item 2) — CLOSE IDEMPOTENCY. If this mint already has a live
-        // close stamp, a previous paperSell already finalized it. Suppress the duplicate
-        // SELL: do NOT journal, train, or re-occupy the slot. Fixes the same-mint
-        // multi-sell storm (Fsnx8Y / 7AUvsp) the operator observed.
-        run {
-            val existingCloseId = com.lifecyclebot.engine.PositionCloseLedger.closeIdOf(ts.mint)
-            if (existingCloseId != null) {
-                PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "LEDGER_ALREADY_CLOSED:$reason", existingCloseId)
-                try { ForensicLogger.lifecycle("PAPER_SELL_DUPLICATE_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalCloseId=$existingCloseId reason=$reason") } catch (_: Throwable) {}
-                return SellResult.ALREADY_CLOSED
-            }
-        }
+        // A mutable zero quantity or an old mint-level close stamp cannot
+        // erase a newer funded generation. The exact canonical position and
+        // terminal CAS below are the only close/idempotency authorities.
         // V5.0.6455 §SELL_DOOR_MIGRATION — reserveTerminalSell CAS BEFORE
         // the paper sell lock (which is a legacy in-flight guard) so any
         // duplicate/concurrent terminal SELL for the SAME positionId is
@@ -20577,13 +20600,15 @@ class Executor(
                 .filter { it.mode == "paper" }
         } catch (_: Throwable) { emptyList() }
         val canonicalTerminalPosition6492 = if (requestedPidForSell6635.isNotBlank()) {
-            val byPid6635 = allOpenPapers6635.firstOrNull { it.positionId == requestedPidForSell6635 }
+            val byPid6635 = allOpenPapers6635.firstOrNull { it.positionId == requestedPidForSell6635 && it.mint == ts.mint }
             if (byPid6635 != null) {
                 try { PipelineHealthCollector.labelInc("PAPER_SELL_RESOLVED_BY_POSITIONID_6635") } catch (_: Throwable) {}
                 byPid6635
             } else {
                 // Fallback: (mode, canonicalMint) — but ONLY when unique.
-                val bySameMint6635 = allOpenPapers6635.filter { it.mint == ts.mint }
+                val bySameMint6635 = allOpenPapers6635.filter {
+                    it.mint == ts.mint && it.positionId == requestedPidForSell6635
+                }
                 when (bySameMint6635.size) {
                     0 -> null
                     1 -> {
@@ -20613,7 +20638,7 @@ class Executor(
         } else {
             // Legacy: no positionId attached. Retain old mint-scan but count separately.
             try { PipelineHealthCollector.labelInc("PAPER_SELL_LOOKUP_MISSING_PID_6635") } catch (_: Throwable) {}
-            allOpenPapers6635.firstOrNull { it.mint == ts.mint }
+            allOpenPapers6635.singleOrNull { it.mint == ts.mint }
         }
         if (canonicalTerminalPosition6492 == null) {
             if (reconcileCanonicalClosed6509()) return SellResult.ALREADY_CLOSED
@@ -20638,16 +20663,11 @@ class Executor(
         // V5.0.6567 — PAPER lot integers use canonical quantityScale, which is
         // independent of on-chain mint decimals. Using tokenDecimals here produced
         // exact ×10^12 SELL journal corruption when paper scale=12 and mint metadata=0.
-        val terminalDecimals6492 = canonicalTerminalPosition6492.quantityScale.coerceIn(0, 18)
-        val terminalRemainingRaw6492 = canonicalTerminalPosition6492?.remainingQtyRaw
-            ?.takeIf { it > java.math.BigInteger.ZERO }
-            ?: try {
-                java.math.BigDecimal.valueOf(pos.qtyToken.coerceAtLeast(0.0))
-                    .multiply(java.math.BigDecimal.TEN.pow(terminalDecimals6492))
-                    .setScale(0, java.math.RoundingMode.HALF_UP).toBigInteger()
-            } catch (_: Throwable) { java.math.BigInteger.ZERO }
-        val terminalRemainingCost6492 = canonicalTerminalPosition6492?.let { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
-            ?.takeIf { it.isFinite() && it > 0.0 } ?: pos.costSol.coerceAtLeast(0.0)
+        val terminalDecimals6492 = canonicalTerminalPosition6492.quantityScale
+        val terminalRemainingRaw6492 = canonicalTerminalPosition6492.remainingQtyRaw
+        val terminalRemainingCost6492 = canonicalTerminalPosition6492.entryCostSol - canonicalTerminalPosition6492.soldCostBasisSol
+        if (terminalDecimals6492 !in 0..18 || terminalRemainingRaw6492 <= java.math.BigInteger.ZERO ||
+            !terminalRemainingCost6492.isFinite() || terminalRemainingCost6492 <= 0.0) return SellResult.FAILED_RETRYABLE
         val reserveResult6455 = com.lifecyclebot.engine.truth.PositionStateLedger6454
             .reserveTerminalSell(terminalPid6455, reason)
         if (reserveResult6455 != com.lifecyclebot.engine.truth.PositionStateLedger6454.ReserveResult.RESERVED) {
@@ -20696,7 +20716,8 @@ class Executor(
                 val projectionDrift6600 = pos.positionId != canonicalTerminalPosition6492.positionId ||
                     !pos.tradingMode.equals(canonicalTerminalPosition6492.lane, true) ||
                     kotlin.math.abs(pos.qtyToken - canonicalQtyToken6600) > maxOf(1e-9, canonicalQtyToken6600 * 0.000001) ||
-                    kotlin.math.abs(pos.costSol - canonicalCost6600) > maxOf(1e-9, canonicalCost6600 * 0.000001)
+                    kotlin.math.abs(pos.costSol - canonicalCost6600) > maxOf(1e-9, canonicalCost6600 * 0.000001) ||
+                    kotlin.math.abs(pos.entryPrice - canonicalEntry6600) > maxOf(1e-18, canonicalEntry6600 * 0.000001)
                 if (projectionDrift6600) {
                     pos = pos.copy(
                         qtyToken = canonicalQtyToken6600, entryPrice = canonicalEntry6600,
@@ -20761,10 +20782,10 @@ class Executor(
         // (typical ~1%). Tier shape preserved. Live execution untouched —
         // real Jupiter slippage IS the real cost there.
         val simulatedSlippagePct = when {
-            ts.lastLiquidityUsd < 5_000.0   -> 5.0   // dust pump.fun bonding curve (was 18)
-            ts.lastLiquidityUsd < 20_000.0  -> 3.0   // small post-grad pool (was 10)
-            ts.lastLiquidityUsd < 50_000.0  -> 2.0   // (was 6)
-            ts.lastLiquidityUsd < 250_000.0 -> 1.0   // (was 3)
+            exitLiquidityUsd6737 < 5_000.0   -> 5.0   // dust pump.fun bonding curve (was 18)
+            exitLiquidityUsd6737 < 20_000.0  -> 3.0   // small post-grad pool (was 10)
+            exitLiquidityUsd6737 < 50_000.0  -> 2.0   // (was 6)
+            exitLiquidityUsd6737 < 250_000.0 -> 1.0   // (was 3)
             else -> 0.5                               // (was 1.5)
         }
         val slippageMultiplier = 1.0 - (simulatedSlippagePct / 100.0)
@@ -20784,37 +20805,22 @@ class Executor(
         // gross paper edge, so readiness/lane memory promote only trades that can
         // survive real fees/slip.
         val expectedRouteSlipPct = try {
-            com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.expectedExtraSlipPct(ts.lastLiquidityUsd)
+            com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.expectedExtraSlipPct(exitLiquidityUsd6737)
         } catch (_: Throwable) { 0.0 }
         val simulatedFeePct = (1.6 + expectedRouteSlipPct.coerceIn(0.0, 8.0)).coerceIn(1.6, 9.6)
 
-        val priceDerivedPnlPct = pct(pos.entryPrice, effectivePrice).coerceIn(-100.0, 1000.0)
-        val rawValue = terminalRemainingCost6492 * (1.0 + priceDerivedPnlPct / 100.0) * (1.0 - simulatedFeePct / 100.0)
-        // (3) Cost-basis paper proceeds — paper has no real token balance. Do
-        // NOT book proceeds from qtyToken * price; a stale qty or source-basis
-        // mismatch creates impossible million-SOL rows. We already have the
-        // correct comparable entry/exit price after getActualPrice() rebase and
-        // optional reason clamp, so proceeds are cost basis × price return.
-        val cappedValue = run {
-            val solPriceUsd = WalletManager.lastKnownSolPrice
-            if (ts.lastLiquidityUsd > 0.0 && solPriceUsd > 0.0) {
-                val maxValueSol = (ts.lastLiquidityUsd * 0.5) / solPriceUsd
-                if (rawValue > maxValueSol) {
-                    try {
-                        ForensicLogger.lifecycle(
-                            "PAPER_PNL_LIQUIDITY_CAPPED",
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} rawValueSol=${"%.6f".format(rawValue)} capSol=${"%.6f".format(maxValueSol)} liqUsd=${"%.0f".format(ts.lastLiquidityUsd)}",
-                        )
-                    } catch (_: Throwable) {}
-                    maxValueSol
-                } else rawValue
-            } else rawValue
-        }
-        val value = cappedValue.coerceAtLeast(0.0)
-        val grossNoFrictionValue = (terminalRemainingCost6492 * (1.0 + priceDerivedPnlPct / 100.0)).coerceAtLeast(0.0)
-        val simulatedFeeSol = (grossNoFrictionValue - value).coerceAtLeast(0.0)
-        val pnl   = value - terminalRemainingCost6492
-        val pnlP  = pct(terminalRemainingCost6492, value)
+        // Fill units are canonical remaining tokens × USD/token ÷ USD/SOL.
+        // Neither mutable entryPrice nor a reason-dependent PnL clamp creates money.
+        val quotedGross6737 = com.lifecyclebot.engine.truth.PaperFillMath6737.grossProceeds(
+            terminalRemainingRaw6492, terminalDecimals6492, effectivePrice, solUsdAtExit6737,
+        ) ?: return SellResult.FAILED_RETRYABLE
+        val grossNoFrictionValue = minOf(quotedGross6737, exitLiquidityUsd6737 * 0.5 / solUsdAtExit6737)
+        effectivePrice = grossNoFrictionValue * solUsdAtExit6737 /
+            com.lifecyclebot.engine.truth.PaperFillMath6737.tokens(terminalRemainingRaw6492, terminalDecimals6492)!!.toDouble()
+        val simulatedFeeSol = grossNoFrictionValue * simulatedFeePct / 100.0
+        val value = (grossNoFrictionValue - simulatedFeeSol).coerceAtLeast(0.0)
+        val pnl = value - terminalRemainingCost6492
+        val pnlP = pct(terminalRemainingCost6492, value)
         // V5.0.6449 §3 SELL QTY SOURCE LOCK. Operator KMNo3n snapshot showed
         // buy=10.495 sell=19.535 — 2x oversell. Root cause: journal Trade row
         // was reading pos.qtyToken which had drifted (alias-merge/double-count).
@@ -20843,9 +20849,10 @@ class Executor(
             // "98% loss in seconds for no reason". It also fed cost basis
             // into CanonicalLearning.exitSol = trade.sol — corrupt learning.
             sol = value,
-            price = price,
+            price = effectivePrice,
             ts = System.currentTimeMillis(),
-            reason = reason,
+            reason = if (reason.contains("STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP", true))
+                "FRESH_QUOTE_EMERGENCY_EXIT_6737" else reason,
             pnlSol = pnl,
             pnlPct = pnlP,
             // V5.9.1205 — close rows must preserve entry score for
@@ -20898,26 +20905,9 @@ class Executor(
         // canonical paper close reducer below commits. A successful SELL row
         // without canonical cash/openCost/finalized fanout is a money-path lie.
         
-        // V5.9.428 — treasury split BEFORE wallet credit (was double-counting).
-        // Previously: wallet got `value` (principal + 100% profit) AND treasury
-        // got 30% on top — inflating both balances and leaving treasury a
-        // phantom counter. Now: compute treasuryShare first, credit wallet
-        // with (value - treasuryShare) so capital accounting is honest.
-        //   • Losing/scratch sells           → treasuryShare = 0 (unchanged)
-        //   • Treasury-scalp wins            → 100% of profit → treasury
-        //   • All other meme wins            → 30% of profit  → treasury
-        val treasuryShare = if (pnl > 0) {
-            try {
-                if (pos.isTreasuryPosition || pos.tradingMode == "TREASURY") {
-                    TreasuryManager.contributeFullyFromTreasuryScalp(pnl, WalletManager.lastKnownSolPrice, isPaper = true)
-                } else {
-                    TreasuryManager.contributeFromMemeSell(pnl, WalletManager.lastKnownSolPrice, isPaper = true)
-                }
-            } catch (e: Exception) {
-                ErrorLogger.debug("Executor", "Treasury split error (paper): ${e.message}")
-                0.0
-            }
-        } else 0.0
+        // Paper proceeds stay in the one canonical account. A virtual treasury
+        // side effect is not a settlement fee or an authorised account transfer.
+        val treasuryShare = 0.0
 
         var canonicalPaperSellCommitted6474 = false
         try {
@@ -20931,6 +20921,9 @@ class Executor(
             val sellGeneration6474 = canonicalTerminalPosition6492.openedAtMs
             val pid6474 = terminalPid6455
             val terminalId6474 = "paper_full_${pid6474}_${sellGeneration6474}"
+            if (!com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.validEconomicExit6737(exitWitness6737, ts.mint)) {
+                return SellResult.FAILED_RETRYABLE
+            }
             val close6474 = com.lifecyclebot.engine.truth.CanonicalPaperTerminalBridge6469.finalizeSell(
                 positionId = pid6474,
                 mint = tradeId.mint,
@@ -20946,8 +20939,10 @@ class Executor(
                 soldCostBasisSol = terminalRemainingCost6492,
                 feesSol = simulatedFeeSol.coerceAtLeast(0.0),
                 lane = pos.tradingMode.ifBlank { tradeId.symbol },
-                exitReason = reason,
+                exitReason = if (reason.contains("STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP", true))
+                    "FRESH_QUOTE_EMERGENCY_EXIT_6737" else reason,
                 terminal = true,
+                executionPriceUsd6737 = effectivePrice,
                 suppressLearningFanout6490 = reason.contains("stale_feed", ignoreCase = true) ||
                     reason.contains("data_quality", ignoreCase = true),
             )

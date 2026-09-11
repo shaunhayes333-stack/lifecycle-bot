@@ -36,6 +36,19 @@ object CanonicalPriceMarkRegistry6522 {
                 it.priceUsd.value.signum() > 0 && nowMs - it.timestampMs in -5_000L..120_000L
         }
 
+    /** A valuation/exit witness never borrows freshness from a later metadata write. */
+    fun freshEconomicExit6737(mint: String, nowMs: Long = System.currentTimeMillis()): CanonicalPriceMark6522? =
+        CanonicalMarkPurpose6570.values().mapNotNull { marks[mint to it] }
+            .filter { validEconomicExit6737(it, mint, nowMs) }.maxByOrNull { it.timestampMs }
+
+    fun validEconomicExit6737(mark: CanonicalPriceMark6522, mint: String,
+                              nowMs: Long = System.currentTimeMillis()): Boolean =
+        mint.isNotBlank() && mark.mint == mint && mark.baseMint == mint &&
+            mark.source.isNotBlank() && mark.pairId.isNotBlank() && mark.quoteMint.isNotBlank() &&
+            mark.timestampMs > 0L && nowMs - mark.timestampMs in -5_000L..30_000L &&
+            mark.priceUsd.value.toDouble().let { it.isFinite() && it > 0.0 } &&
+            mark.liquidityUsd?.toDouble()?.let { it.isFinite() && it > 0.0 } == true
+
     /** Try complete provider tuples newest-first. Rejection may try another real provider,
      * never splice its timestamp/source onto the rejected provider's price. */
     fun resolveBestSourceEvidence6734(mint: String, evidence: List<SourceEvidence6734>,
@@ -136,7 +149,14 @@ object CanonicalPriceMarkRegistry6522 {
         // separates legitimate parabolic moves (rare 3-4×) from the
         // 3-6-decade skews the operator observed.
         val currentMark6727 = marks[key]
-        if (currentMark6727 != null) {
+        // A stale baseline cannot veto every future refresh. A fresh tuple from
+        // the same provider/pool has the same USD denomination: a real collapse
+        // must not be turned into a permanently stale, apparently healthy mark.
+        val sameSourceAndPool6737 = currentMark6727 != null &&
+            currentMark6727.source.equals(mark.source, true) &&
+            currentMark6727.pairId == mark.pairId && currentMark6727.baseMint == mark.baseMint
+        if (currentMark6727 != null && !sameSourceAndPool6737 &&
+            mark.timestampMs - currentMark6727.timestampMs in 0L..120_000L) {
             val currentP6727 = try { currentMark6727.priceUsd.value.toDouble() } catch (_: Throwable) { 0.0 }
             val newP6727 = rawPrice6697
             if (currentP6727 > 0.0 && newP6727 > 0.0 && newP6727.isFinite()) {

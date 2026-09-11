@@ -108,9 +108,12 @@ object QuantityInvariantAuthority6500 {
             return InvariantCheck(false, Double.POSITIVE_INFINITY, 0.0, canonical.entryCostSol,
                 "canonical_qty_or_scale_invalid")
         }
+        // Match the remaining units with their remaining principal. Comparing
+        // remaining units with the full original cost quarantined healthy partials.
+        // This pairing also remains valid when a partial is followed by a top-up.
         val qtyToken = try { canonical.remainingQtyRaw.toBigDecimal().movePointLeft(scale).toDouble() } catch (_: Throwable) { 0.0 }
         val entry = canonical.entryPriceUsd
-        val cost = canonical.entryCostSol.coerceAtLeast(0.0)
+        val cost = (canonical.entryCostSol - canonical.soldCostBasisSol).coerceAtLeast(0.0)
         // Only run the economic invariant when all three fields carry
         // real values.  A partially-populated canonical row (e.g.
         // freshly opened, entry not yet stamped) is allowed to pass

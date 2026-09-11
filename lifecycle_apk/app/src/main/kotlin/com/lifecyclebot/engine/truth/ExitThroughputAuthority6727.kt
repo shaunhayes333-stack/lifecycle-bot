@@ -78,24 +78,28 @@ object ExitThroughputAuthority6727 {
     @JvmOverloads
     fun evaluate(mode: String, lane: String = ""): Verdict {
         val m = mode.trim().lowercase()
+        if (m !in setOf("paper", "live")) return Verdict(false, "INVALID_CAPITAL_MODE_6737", 0, 0.0, 0.0, 0.0)
         val cash: Double
         val open: Double
         try {
             if (m == "live") {
-                val cap = CanonicalCapitalAuthority6450.snapshot()
-                cash = cap.cashSol
-                open = cap.openMarketValueSol
+                // The 6450 snapshot is PAPER-only. Never apply paper cash to live admission.
+                cash = com.lifecyclebot.engine.WalletManager.cachedSolBalance()
+                open = CanonicalPositionAuthority6441.fundedPositions6737("live")
+                    .sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
             } else {
                 val cap = PaperCapitalAuthority6577.snapshot()
                 cash = cap.availableCashSol
                 open = cap.openMarketValueSol
             }
         } catch (_: Throwable) {
-            return Verdict(true, "OK_FAIL_OPEN", 0, 0.0, 0.0, 1.0)
+            return Verdict(false, "CAPITAL_SNAPSHOT_UNAVAILABLE_6737", 0, 0.0, 0.0, 0.0)
         }
+        if (!cash.isFinite() || cash < 0.0 || !open.isFinite() || open < 0.0)
+            return Verdict(false, "CAPITAL_SNAPSHOT_UNAVAILABLE_6737", 0, 0.0, 0.0, 0.0)
         val equity = cash + open
         val openCount = try {
-            CanonicalPositionAuthority6441.openPositions().count { it.mode == m }
+            CanonicalPositionAuthority6441.fundedPositions6737(m).size
         } catch (_: Throwable) { 0 }
         val cashRatio = if (equity > 0.0) cash / equity else 1.0
 
@@ -119,7 +123,7 @@ object ExitThroughputAuthority6727 {
         val laneHeadroom6732 = try {
             if (lane.isNotBlank()) LaneCapitalFairness6732.hasHeadroom(m, lane) else false
         } catch (_: Throwable) { false }
-        if (laneHeadroom6732) {
+        if (laneHeadroom6732 && !(cashRatio < CASH_STARVE_RATIO && openCount >= POSITION_CAP_HINT)) {
             try { PipelineHealthCollector.labelInc("EXIT_THROUGHPUT_LANE_FAIRNESS_BYPASS_6732") } catch (_: Throwable) {}
             return Verdict(true, "LANE_HEADROOM_FAIRNESS_6732", openCount, cash, equity, cashRatio)
         }

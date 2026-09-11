@@ -37,14 +37,14 @@ class Aate6600SpecialistAuthorityRestorationTest {
             registry.contains("resolveExecutableFromSourceEvidence6616"))
     }
 
-    @Test fun approved_subminimum_order_promotes_once_when_hard_caps_fund_minimum() {
+    @Test fun subminimum_learned_risk_is_not_promoted_by_unrelated_wallet_headroom() {
         val r = OrderSizeResolver6441.resolve(
             requestedSol = 0.00154, laneName = "EXPRESS", walletSol = 1.0,
             paperMode = false, laneRiskCapSol = 0.50, laneMinExecutableSol = 0.05,
         )
-        assertTrue(r.executable)
-        assertEquals(0.05, r.finalSizeSol, 1e-9)
-        assertEquals("OK_MIN_PROMOTED_6600", r.reason)
+        assertTrue(!r.executable)
+        assertEquals(0.0, r.finalSizeSol, 1e-9)
+        assertEquals("RISK_BELOW_MIN_EXECUTABLE_6737", r.reason)
     }
 
     @Test fun canonical_position_heals_projection_and_legacy_history_cannot_veto_sell() {

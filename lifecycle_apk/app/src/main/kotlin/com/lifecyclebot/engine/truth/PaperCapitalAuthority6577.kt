@@ -37,8 +37,8 @@ import java.util.concurrent.atomic.AtomicLong
  *
  *   snapshot()           → immutable PaperAccountSnapshot (cash / open / equity)
  *   availableCashSol()   → what a new reservation may spend
- *   openMarketValueSol() → cost basis of live positions
- *   totalEquitySol()     → cash + open
+ *   openMarketValueSol() → canonical marked estimate (unpriced basis explicitly reported)
+ *   totalEquitySol()     → cash + reserved + marked estimate
  *   probeUiCash(...)     → invariant check: any UI-computed cash that
  *                          diverges from the ledger by > toleranceSol emits
  *                          PAPER_UI_CASH_DIVERGENCE_6577 (target = 0).
@@ -58,6 +58,9 @@ object PaperCapitalAuthority6577 {
         val totalEquitySol: Double,
         val startingCashSol: Double,
         val timestampMs: Long,
+        val openCostBasisSol: Double = 0.0,
+        val unpricedOpenCostBasisSol: Double = 0.0,
+        val valuationComplete: Boolean = false,
     ) {
         /** True when this snapshot represents a live authority (initialized ledger). */
         val initialized: Boolean get() = startingCashSol > 0.0
@@ -70,25 +73,25 @@ object PaperCapitalAuthority6577 {
     private val equityConservationViolations = AtomicLong(0L)
 
     fun snapshot(): PaperAccountSnapshot {
-        val ledger = try { PaperAccountLedger6430.snapshotAtomic6643() } catch (_: Throwable) { null }
-        val cash = ledger?.cashSol ?: 0.0
-        val open = ledger?.openCostBasisSol ?: 0.0
-        val realized = ledger?.realizedPnlSol ?: 0.0
-        val fees = ledger?.feesSol ?: 0.0
-        val start = ledger?.startingCashSol ?: 0.0
+        val capital = CanonicalCapitalAuthority6450.snapshot()
         return PaperAccountSnapshot(
             accountId = ACCOUNT_ID,
-            availableCashSol = cash,
-            openMarketValueSol = open,
-            realizedPnlSol = realized,
-            feesSol = fees,
-            totalEquitySol = cash + open,
-            startingCashSol = start,
-            timestampMs = ledger?.capturedAtMs ?: System.currentTimeMillis(),
+            availableCashSol = capital.cashSol,
+            openMarketValueSol = capital.openMarketValueSol,
+            realizedPnlSol = capital.realizedPnlSol,
+            feesSol = capital.feesSol,
+            totalEquitySol = capital.totalEquitySol,
+            startingCashSol = capital.startingCashSol,
+            timestampMs = System.currentTimeMillis(),
+            openCostBasisSol = capital.openCostBasisSol,
+            unpricedOpenCostBasisSol = capital.unpricedOpenCostBasisSol,
+            valuationComplete = capital.valuationComplete,
         )
     }
 
-    fun availableCashSol(): Double = snapshot().availableCashSol
+    // Hot affordability reads never run mark providers, scan positions or recurse
+    // through the marked-capital facade. They use the same atomic cash authority.
+    fun availableCashSol(): Double = PaperAccountLedger6430.snapshotAtomic6643().cashSol
     fun openMarketValueSol(): Double = snapshot().openMarketValueSol
     fun totalEquitySol(): Double = snapshot().totalEquitySol
     fun accountId(): String = ACCOUNT_ID
@@ -101,11 +104,11 @@ object PaperCapitalAuthority6577 {
     //   so every non-write caller can converge on the facade without
     //   changing behaviour. Writes (onBuy / onSell / rollback / repair /
     //   invariant assert) remain on the ledger — the facade is READ-ONLY.
-    fun cashSol(): Double = snapshot().availableCashSol
-    fun openCostBasisSol(): Double = snapshot().openMarketValueSol
-    fun realizedPnlSol(): Double = snapshot().realizedPnlSol
-    fun feesSol(): Double = snapshot().feesSol
-    fun startingCashSol(): Double = snapshot().startingCashSol
+    fun cashSol(): Double = availableCashSol()
+    fun openCostBasisSol(): Double = PaperAccountLedger6430.snapshotAtomic6643().openCostBasisSol
+    fun realizedPnlSol(): Double = PaperAccountLedger6430.snapshotAtomic6643().realizedPnlSol
+    fun feesSol(): Double = PaperAccountLedger6430.snapshotAtomic6643().feesSol
+    fun startingCashSol(): Double = PaperAccountLedger6430.snapshotAtomic6643().startingCashSol
     fun isAuthorityInitialized6489(): Boolean = try {
         PaperAccountLedger6430.isAuthorityInitialized6489()
     } catch (_: Throwable) { false }
@@ -175,6 +178,7 @@ object PaperCapitalAuthority6577 {
         val s = snapshot()
         return "acct=${s.accountId} cash=${"%.4f".format(s.availableCashSol)} " +
             "open=${"%.4f".format(s.openMarketValueSol)} equity=${"%.4f".format(s.totalEquitySol)} " +
+            "openCost=${"%.4f".format(s.openCostBasisSol)} unpricedBasis=${"%.4f".format(s.unpricedOpenCostBasisSol)} valuationComplete=${s.valuationComplete} " +
             "uiDivergence=${uiDivergenceHits.get()} debitNoResv=${debitWithoutReservation.get()} " +
             "equityViol=${equityConservationViolations.get()}"
     }

@@ -72,11 +72,12 @@ object LaneCapitalFairness6732 {
                 val cap = PaperCapitalAuthority6577.snapshot()
                 cap.availableCashSol to cap.totalEquitySol
             } else {
-                val cap = CanonicalCapitalAuthority6450.snapshot()
-                val eq = cap.cashSol + cap.openMarketValueSol
-                cap.cashSol to eq
+                val cash = com.lifecyclebot.engine.WalletManager.cachedSolBalance()
+                val basis = CanonicalPositionAuthority6441.fundedPositions6737("live")
+                    .sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
+                cash to (cash + basis)
             }
-            val positions = CanonicalPositionAuthority6441.openPositions()
+            val positions = CanonicalPositionAuthority6441.fundedPositions6737(mode)
             val laneOwned = positions.filter {
                 it.mode.equals(mode, true) && (
                     it.lane.equals(nl, true) || (nl == "BLUECHIP" && it.lane.equals("BLUE_CHIP", true))
@@ -85,7 +86,8 @@ object LaneCapitalFairness6732 {
             val used = laneOwned.sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
             val targetSol = laneTargetSol(nl, sharedEquity)
             val util = if (targetSol > 0.0) used / targetSol else 0.0
-            val ok = util < LANE_HEADROOM_RATIO
+            val minimum = if (paperMode) OrderSizeResolver6441.paperExecutableMinimumSol() * 1.005 else 0.001
+            val ok = sharedCash.isFinite() && sharedCash >= minimum && targetSol > 0.0 && util < LANE_HEADROOM_RATIO
             if (ok) {
                 try { PipelineHealthCollector.labelInc("LANE_HEADROOM_OK_6732_${nl}") } catch (_: Throwable) {}
             } else {
@@ -93,7 +95,7 @@ object LaneCapitalFairness6732 {
             }
             Headroom(ok, nl, used, targetSol, util)
         } catch (_: Throwable) {
-            Headroom(true, nl, 0.0, 0.0, 0.0)
+            Headroom(false, nl, 0.0, 0.0, 0.0)
         }
     }
 
