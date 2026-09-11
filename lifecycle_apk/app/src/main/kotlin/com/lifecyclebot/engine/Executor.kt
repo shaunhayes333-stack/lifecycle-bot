@@ -7753,7 +7753,23 @@ class Executor(
                 try { PipelineHealthCollector.labelInc("SMART_EXIT_TOOL_SL_ADJUSTED_6725") } catch (_: Throwable) {}
                 try { ForensicLogger.lifecycle("SMART_EXIT_TOOL_SL_ADJUSTED_6725", "mint=${ts.mint.take(10)} sym=${ts.symbol} base=${slipAdjustedStop.fmt(2)} metric=${metricAwareStop6725.fmt(2)} reason=${dynamicParams6725.reason} tier=${metrics6725?.healthTier?.name ?: "?"} vol=${volChangePct6725.fmt(0)} hg=${holderGrowth6725.fmt(0)} bp=${buyPressure6725.fmt(0)} sp=${sellPressure6725.fmt(0)} mom=${momentum6725.fmt(1)}") } catch (_: Throwable) {}
             }
-            val hardFloor = metricAwareStop6725.coerceIn(-50.0, -3.0)
+            // V5.0.6730 §HARD_FLOOR_METRIC_CEILING — 6729 fresh-boot dump
+            // STILL showed uniform STRICT_SL_-4 pattern despite the 6725
+            // §SMART_EXIT_TOOLS_WIRED metric-aware widening. Root cause
+            // isolated: `.coerceIn(-50.0, -3.0)` was defeating the wire —
+            // the metric widening returned e.g. -6% for healthy runners
+            // but the -3% upper clamp coerced it right back. Ceiling is
+            // now tier-aware: HEALTHY_RUNNER gets a -6% ceiling (real
+            // room to run), HEALTHY_STABLE -4%, NEUTRAL -3% (original
+            // behavior preserved), WEAKENING/DYING/RUG_LIKE keep the
+            // tight -3% ceiling so a dying token still tightens. The
+            // -50% catastrophic floor is unchanged.
+            val floorCeiling6730 = when (metrics6725?.healthTier) {
+                com.lifecyclebot.engine.truth.CanonicalTokenMetricsSnapshot6725.HealthTier.HEALTHY_RUNNER -> -6.0
+                com.lifecyclebot.engine.truth.CanonicalTokenMetricsSnapshot6725.HealthTier.HEALTHY_STABLE -> -4.0
+                else -> -3.0
+            }
+            val hardFloor = metricAwareStop6725.coerceIn(-50.0, floorCeiling6730)
             val pnlPctNowVerdict6038 = OpenPnlSanity.inspectPosition(pos, currentPrice, "Executor.dynamic_stop_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true, mint = ts.mint)
             val pnlPctNow = if (pnlPctNowVerdict6038.ok) pnlPctNowVerdict6038.pnlPct else 0.0
             if (currentPrice > 0.0 && pnlPctNow <= hardFloor) {

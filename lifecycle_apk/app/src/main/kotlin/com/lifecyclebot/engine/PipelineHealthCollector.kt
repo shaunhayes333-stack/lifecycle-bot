@@ -683,8 +683,19 @@ object PipelineHealthCollector {
             // targeted repair in the next push instead of shooting blind.
             try { bump(labelCounts, "PAPER_JOURNAL_SIDE_${sideUpper.take(24).replace(Regex("[^A-Z0-9_]"), "_")}") } catch (_: Throwable) {}
             when (sideUpper) {
-                "BUY" -> { execPaperBuyOk.incrementAndGet(); bump(labelCounts, "PAPER_COUNTER_SIDE_MAPPED") }
-                "SELL" -> { execPaperSellOk.incrementAndGet(); bump(labelCounts, "PAPER_COUNTER_SIDE_MAPPED") }
+                "BUY" -> {
+                    execPaperBuyOk.incrementAndGet()
+                    bump(labelCounts, "PAPER_COUNTER_SIDE_MAPPED")
+                    // V5.0.6730 §PROACTIVE_INVENTORY_VELOCITY wire — every
+                    // successful paper buy pushes into the velocity counter
+                    // so the throughput guard can pre-empt future floods.
+                    try { com.lifecyclebot.engine.truth.InventoryVelocityCounters6730.recordBuy("paper") } catch (_: Throwable) {}
+                }
+                "SELL" -> {
+                    execPaperSellOk.incrementAndGet()
+                    bump(labelCounts, "PAPER_COUNTER_SIDE_MAPPED")
+                    try { com.lifecyclebot.engine.truth.InventoryVelocityCounters6730.recordSell("paper") } catch (_: Throwable) {}
+                }
                 "PARTIAL_SELL" -> { execPaperPartialOk.incrementAndGet(); bump(labelCounts, "PAPER_COUNTER_SIDE_MAPPED") }
                 else -> bump(labelCounts, "PAPER_COUNTER_SKIPPED_UNKNOWN_SIDE")
             }

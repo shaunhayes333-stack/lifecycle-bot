@@ -36,11 +36,19 @@ import com.lifecyclebot.engine.PipelineHealthCollector
 object ExitThroughputAuthority6727 {
 
     /** Fraction of equity below which cash is considered starved. */
-    private const val CASH_STARVE_RATIO = 0.05        // 5% of equity
+    private const val CASH_STARVE_RATIO = 0.20        // 20% — was 5%. Proactive: engage BEFORE saturation.
     /** Position-count threshold above which the guard engages. */
-    private const val POSITION_CAP_HINT = 100
+    private const val POSITION_CAP_HINT = 40          // was 100. Proactive: engage BEFORE saturation.
     /** Extreme threshold — at this open count admission blocks regardless of cash ratio. */
-    private const val POSITION_HARD_CAP = 180
+    private const val POSITION_HARD_CAP = 100         // was 180. Proactive: cap total inventory before the flood.
+    /** Rolling-window sample for the velocity guard. */
+    private const val VELOCITY_SAMPLE_WINDOW_MS = 60_000L
+    /** Position-open velocity above which the guard engages. */
+    private const val VELOCITY_OPEN_PER_MIN_MAX = 20
+    /** Ratio of opens-to-sells above which the guard engages (imbalance). */
+    private const val VELOCITY_OPEN_TO_SELL_MAX = 3.0
+    /** Minimum sells within the window before ratio can engage. */
+    private const val VELOCITY_MIN_SELLS = 5
 
     data class Verdict(
         val allow: Boolean,
@@ -98,6 +106,78 @@ object ExitThroughputAuthority6727 {
             return Verdict(false, "CASH_STARVED_EXIT_THROUGHPUT_6727", openCount, cash, equity, cashRatio)
         }
 
+        // V5.0.6730 §PROACTIVE_INVENTORY_VELOCITY — 6729 fresh-boot
+        // dump: 158 opens / 43 sells / 158 open positions in 207
+        // seconds. The 6727 level-based guard fires AFTER saturation;
+        // this velocity guard fires DURING the flood, when the rate
+        // of admissions clearly exceeds exit capacity. Two triggers,
+        // either engages: (a) opens-per-minute above the sustainable
+        // rate, or (b) open-to-sell ratio inside a rolling window
+        // above the healthy round-trip imbalance. Never blocks when
+        // the pipeline is quiet or when sells are keeping up.
+        val vel6730 = try { InventoryVelocityCounters6730.snapshot(m) } catch (_: Throwable) { null }
+        if (vel6730 != null && vel6730.opensPerMinute >= VELOCITY_OPEN_PER_MIN_MAX) {
+            try { PipelineHealthCollector.labelInc("EXIT_THROUGHPUT_BLOCKED_INVENTORY_VELOCITY_OPM_6730") } catch (_: Throwable) {}
+            return Verdict(false, "INVENTORY_VELOCITY_OPM_6730", openCount, cash, equity, cashRatio)
+        }
+        if (vel6730 != null && vel6730.sellsInWindow >= VELOCITY_MIN_SELLS &&
+            vel6730.opensInWindow.toDouble() / vel6730.sellsInWindow.toDouble() >= VELOCITY_OPEN_TO_SELL_MAX) {
+            try { PipelineHealthCollector.labelInc("EXIT_THROUGHPUT_BLOCKED_INVENTORY_VELOCITY_RATIO_6730") } catch (_: Throwable) {}
+            return Verdict(false, "INVENTORY_VELOCITY_RATIO_6730", openCount, cash, equity, cashRatio)
+        }
+
         return Verdict(true, "OK", openCount, cash, equity, cashRatio)
+    }
+}
+
+/**
+ * V5.0.6730 §PROACTIVE_INVENTORY_VELOCITY — companion counter object.
+ * The exit-coordinator's terminal handler calls `recordBuy(mode)` on
+ * each admission and `recordSell(mode)` on each close. This object
+ * maintains a small rolling ring buffer and returns per-mode velocity
+ * so the throughput guard can pre-empt saturation.
+ */
+object InventoryVelocityCounters6730 {
+    private const val WINDOW_MS = 60_000L
+    private val buysByMode = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentLinkedDeque<Long>>()
+    private val sellsByMode = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentLinkedDeque<Long>>()
+
+    data class Snapshot(
+        val opensPerMinute: Int,
+        val opensInWindow: Int,
+        val sellsInWindow: Int,
+    )
+
+    private fun norm(mode: String) = mode.trim().lowercase().ifBlank { "paper" }
+
+    fun recordBuy(mode: String) {
+        val m = norm(mode)
+        val q = buysByMode.computeIfAbsent(m) { java.util.concurrent.ConcurrentLinkedDeque() }
+        q.addLast(System.currentTimeMillis())
+        pruneLocked(q)
+    }
+
+    fun recordSell(mode: String) {
+        val m = norm(mode)
+        val q = sellsByMode.computeIfAbsent(m) { java.util.concurrent.ConcurrentLinkedDeque() }
+        q.addLast(System.currentTimeMillis())
+        pruneLocked(q)
+    }
+
+    private fun pruneLocked(q: java.util.concurrent.ConcurrentLinkedDeque<Long>) {
+        val cutoff = System.currentTimeMillis() - WINDOW_MS
+        while (true) {
+            val head = q.peekFirst() ?: break
+            if (head < cutoff) q.pollFirst() else break
+        }
+    }
+
+    fun snapshot(mode: String): Snapshot {
+        val m = norm(mode)
+        val bq = buysByMode[m]?.also { pruneLocked(it) }
+        val sq = sellsByMode[m]?.also { pruneLocked(it) }
+        val opens = bq?.size ?: 0
+        val sells = sq?.size ?: 0
+        return Snapshot(opensPerMinute = opens, opensInWindow = opens, sellsInWindow = sells)
     }
 }
