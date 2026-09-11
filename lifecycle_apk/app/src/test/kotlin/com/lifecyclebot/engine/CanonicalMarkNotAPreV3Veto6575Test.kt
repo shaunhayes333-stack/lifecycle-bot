@@ -104,12 +104,14 @@ class CanonicalMarkNotAPreV3Veto6575Test {
         // Any paperBuy path must contain the P0-2 mark gate + counter.
         assertTrue(
             "Executor.paperBuy must probe the strict EXECUTABLE_ENTRY_QUOTE mark",
-            execSrc.contains("CanonicalPriceMarkRegistry6522.get(") &&
+            execSrc.contains("CanonicalPriceMarkRegistry6522.getFresh6734(") &&
                 execSrc.contains("CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE")
         )
         assertTrue(
             "Executor must emit EXECUTION_WITH_PROVISIONAL_MARK_6575 and refuse when the mark is missing",
-            execSrc.contains("promoteObservationToExecutable6613") &&
+            execSrc.contains("resolveBestSourceEvidence6734") &&
+                File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPriceMark6522.kt")
+                    .readText().contains("return promoteObservationToExecutable6613(mint, nowMs)") &&
                 execSrc.contains("EXECUTION_BLOCKED_NO_CANONICAL_MARK_6613")
         )
     }

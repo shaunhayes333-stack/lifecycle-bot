@@ -89,7 +89,7 @@ class Aate6607RepairCFCoverageTest {
             exec.contains("WINDOW_MS_6616 = 300_000L") &&
                 exec.contains("tokenMapFresh6616") &&
                 exec.contains("stateFresh6616") &&
-                exec.contains("resolveExecutableFromSourceEvidence6616")
+                exec.contains("resolveBestSourceEvidence6734")
         )
         assertTrue(
             "V5.0.6616: stale evidence must not be timestamp-rewritten into a fresh executable mark",

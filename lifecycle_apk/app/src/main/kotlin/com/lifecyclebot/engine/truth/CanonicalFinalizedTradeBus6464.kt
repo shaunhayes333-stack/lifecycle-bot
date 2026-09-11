@@ -88,7 +88,8 @@ object CanonicalFinalizedTradeBus6464 {
     fun registerConsumer(name: String) {
         val acks = consumerAcks.computeIfAbsent(name) { java.util.Collections.synchronizedSet(HashSet()) }
         consumerExcluded.computeIfAbsent(name) { java.util.Collections.synchronizedSet(HashSet()) }
-        acks.addAll(CanonicalFinalityPersistence6486.ackedIds6486(name))
+            .addAll(CanonicalFinalityPersistence6486.excludedIds6734(name))
+        acks.addAll(CanonicalFinalityPersistence6486.ackedIds6486(name).filterNot { isExcluded(name, it) })
     }
 
     /** Mark a canonical event as intentionally excluded for one consumer.
@@ -100,6 +101,7 @@ object CanonicalFinalizedTradeBus6464 {
         consumerExcluded[consumer]?.add(tradeId)
         consumerAcks[consumer]?.remove(tradeId)
         exclusionReasons["$consumer|$tradeId"] = reason
+        CanonicalFinalityPersistence6486.recordExclusion6734(consumer, tradeId, reason)
         try {
             PipelineHealthCollector.labelInc("FINALIZED_BUS_CONSUMER_EXCLUDED_${consumer}_6697".take(60))
             ForensicLogger.lifecycle(
@@ -142,46 +144,47 @@ object CanonicalFinalizedTradeBus6464 {
      * a `false` return means the consumer refused the delivery unless it
      * explicitly marked the trade EXCLUDED. Only TRUE creates an ACK.
      */
-    fun deliverToConsumers(env: Envelope, deliver: (String, Envelope) -> Boolean) {
-        if (env.tradeId.isBlank()) return
-        for ((name, acks) in consumerAcks) {
-            if (isExcluded(name, env.tradeId)) continue
+    private val deliveryInFlight6734 = ConcurrentHashMap.newKeySet<Pair<String, String>>()
+
+    private fun deliverOne6734(name: String, env: Envelope, deliver: (String, Envelope) -> Boolean) {
+        val key = name to env.tradeId
+        if (!deliveryInFlight6734.add(key)) return
+        try {
+            val acks = consumerAcks[name] ?: return
+            if (isExcluded(name, env.tradeId)) return
             if (env.tradeId in acks || CanonicalFinalityPersistence6486.hasAck6486(name, env.tradeId)) {
                 acks.add(env.tradeId)
-                continue
+                return
             }
             val ok = try { deliver(name, env) } catch (_: Throwable) { false }
             when {
+                isExcluded(name, env.tradeId) -> acks.remove(env.tradeId)
                 ok -> {
                     acks.add(env.tradeId)
                     CanonicalFinalityPersistence6486.recordAck6486(name, env.tradeId)
                     try { PipelineHealthCollector.labelInc("FINALIZED_BUS_CONSUMER_ACKED_${name}_6475") } catch (_: Throwable) {}
-                }
-                isExcluded(name, env.tradeId) -> {
-                    acks.remove(env.tradeId)
-                    try { PipelineHealthCollector.labelInc("FINALIZED_BUS_CONSUMER_EXCLUSION_TERMINAL_6697") } catch (_: Throwable) {}
                 }
                 else -> {
                     acks.remove(env.tradeId)
                     try { PipelineHealthCollector.labelInc("FINALIZED_BUS_CONSUMER_DELIVERY_FAILED_${name}_6465") } catch (_: Throwable) {}
                 }
             }
+        } finally {
+            deliveryInFlight6734.remove(key)
         }
     }
 
+    fun deliverToConsumers(env: Envelope, deliver: (String, Envelope) -> Boolean) {
+        if (env.tradeId.isBlank()) return
+        val canonical = canonicalSeen[env.tradeId] ?: return
+        // A retry must deliver the exact first-published immutable envelope.
+        for (name in consumerAcks.keys) deliverOne6734(name, canonical, deliver)
+    }
+
     fun redeliverPending6486() {
-        for ((name, acks) in consumerAcks) {
-            for ((tradeId, env) in canonicalSeen) {
-                if (isExcluded(name, tradeId)) continue
-                if (tradeId in acks || CanonicalFinalityPersistence6486.hasAck6486(name, tradeId)) {
-                    acks.add(tradeId)
-                    continue
-                }
-                val ok = try { FinalizedBusConsumerBridge6465.deliver(name, env) } catch (_: Throwable) { false }
-                if (ok) {
-                    acks.add(tradeId)
-                    CanonicalFinalityPersistence6486.recordAck6486(name, tradeId)
-                }
+        for (env in canonicalSeen.values) {
+            for (name in consumerAcks.keys) {
+                deliverOne6734(name, env, FinalizedBusConsumerBridge6465::deliver)
             }
         }
     }
@@ -217,8 +220,10 @@ object CanonicalFinalizedTradeBus6464 {
     }
 
     fun canonicalUnique(): Int = canonicalSeen.size
-    fun consumerUnique(name: String): Int = consumerAcks[name]?.size ?: 0
-    fun consumerExcludedUnique(name: String): Int = consumerExcluded[name]?.size ?: 0
+    fun consumerUnique(name: String): Int = canonicalSeen.keys.count {
+        consumerAcks[name]?.contains(it) == true && !isExcluded(name, it)
+    }
+    fun consumerExcludedUnique(name: String): Int = canonicalSeen.keys.count { isExcluded(name, it) }
 
     data class Parity(
         val canonicalUnique: Int,
@@ -229,8 +234,8 @@ object CanonicalFinalizedTradeBus6464 {
     )
 
     fun parity(): Parity {
-        val perConsumer = consumerAcks.mapValues { it.value.size }
-        val excludedCounts = consumerExcluded.mapValues { it.value.size }
+        val perConsumer = consumerAcks.keys.associateWith(::consumerUnique)
+        val excludedCounts = consumerExcluded.keys.associateWith(::consumerExcludedUnique)
         val missing = consumerAcks.mapValues { (name, acks) ->
             val excluded = consumerExcluded[name] ?: emptySet<String>()
             canonicalSeen.keys.filter { it !in acks && it !in excluded }.take(10).map { it.take(20) }
@@ -264,6 +269,6 @@ object CanonicalFinalizedTradeBus6464 {
 
     internal fun resetForTest() {
         canonicalSeen.clear(); consumerAcks.clear(); consumerExcluded.clear(); exclusionReasons.clear()
-        publishes.set(0L); duplicates.set(0L); retryRunning6486.set(false)
+        publishes.set(0L); duplicates.set(0L); retryRunning6486.set(false); deliveryInFlight6734.clear()
     }
 }

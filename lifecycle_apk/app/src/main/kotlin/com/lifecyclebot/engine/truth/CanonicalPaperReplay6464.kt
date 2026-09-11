@@ -90,6 +90,10 @@ object CanonicalPaperReplay6464 {
         val perMintQty = HashMap<String, BigInteger>(carry6489.perMintQty)
         val perMintCost = HashMap<String, Double>(carry6489.perMintCostSol)
 
+        val positionQty6734 = HashMap<String, BigInteger>()
+        val positionMint6734 = HashMap<String, String>()
+        val trackedMintQty6734 = HashMap<String, BigInteger>()
+
         // Oldest-first — events deque adds to head, so reverse.
         for (e in events.asReversed()) {
             if (e.mode != "paper") continue
@@ -102,6 +106,13 @@ object CanonicalPaperReplay6464 {
                         e.filledQty <= BigInteger.ZERO) { invalid++; continue }
                     val totalDebit = e.executedCostSol + e.entryFeesSol.coerceAtLeast(0.0)
                     if (cash - totalDebit < -1e-6) { invalid++; continue }
+                    if (e.positionId.isBlank() ||
+                        (positionMint6734[e.positionId] != null && positionMint6734[e.positionId] != e.mint)) {
+                        invalid++; continue
+                    }
+                    positionMint6734[e.positionId] = e.mint
+                    positionQty6734.merge(e.positionId, e.filledQty) { a, b -> a + b }
+                    trackedMintQty6734.merge(e.mint, e.filledQty) { a, b -> a + b }
                     cash -= totalDebit
                     openCost += e.executedCostSol
                     fees += e.entryFeesSol.coerceAtLeast(0.0)
@@ -115,7 +126,15 @@ object CanonicalPaperReplay6464 {
                     // V5.0.6487 — derive canonical GROSS realized from typed fields.
                     // 6486 rows stored net realized, so trusting the aggregate would
                     // import exit fees twice and reproduce the wallet/ledger delta.
-                    val currentRaw6522 = perMintQty[e.mint] ?: BigInteger.ZERO
+                    if (positionMint6734[e.positionId] != null && positionMint6734[e.positionId] != e.mint) {
+                        invalid++; continue
+                    }
+                    // A terminal close closes this lot, not all positions in this mint.
+                    // Unattributed legacy carry may use only the untracked remainder.
+                    val currentRaw6522 = positionQty6734[e.positionId] ?: (
+                        (perMintQty[e.mint] ?: BigInteger.ZERO) -
+                            (trackedMintQty6734[e.mint] ?: BigInteger.ZERO)
+                    )
                     if (e.soldQty > currentRaw6522 || (!e.partial && e.soldQty != currentRaw6522)) {
                         invalid++
                         try {
@@ -126,6 +145,10 @@ object CanonicalPaperReplay6464 {
                     }
                     val canonicalGrossRealized6487 = e.grossProceedsSol - e.allocatedCostBasisSol
                     if (kotlin.math.abs(canonicalGrossRealized6487) > 30.0) { invalid++; continue }
+                    if (positionQty6734.containsKey(e.positionId)) {
+                        positionQty6734[e.positionId] = currentRaw6522 - e.soldQty
+                        trackedMintQty6734.merge(e.mint, e.soldQty.negate()) { a, b -> a + b }
+                    }
                     cash += e.netProceedsSol
                     openCost = (openCost - e.allocatedCostBasisSol).coerceAtLeast(0.0)
                     realized += canonicalGrossRealized6487

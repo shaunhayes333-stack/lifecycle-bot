@@ -915,22 +915,18 @@ class GoldenTapeRegressionTest {
 
     @Test
     fun ci_apk_version_name_matches_operator_patch_sequence() {
-        val activeRootWorkflow = java.io.File("../../.github/workflows/build.yml").readText()
-        val nestedWorkflow = java.io.File("../.github/workflows/build.yml").readText()
-        for (workflow in listOf(activeRootWorkflow, nestedWorkflow)) {
-            assertTrue(workflow.contains("id: aate_build"))
-            // V5.0.4135 — workflow now composes VERSION_NAME from BASE + BUILD_NUMBER
-            // (operator override 2026-06-25 — see apk_version_patch_derived_from_ci_run_number).
-            assertTrue("Workflow must read major.minor base from AATE_VERSION", workflow.contains("BASE=\"\$(cat AATE_VERSION)\""))
-            assertTrue("Workflow must compose VERSION_NAME from base + build number", workflow.contains("VERSION_NAME=\"\${BASE}.\${BUILD_NUMBER}\""))
-            assertTrue(workflow.contains("version_name=\$VERSION_NAME"))
-            assertTrue(workflow.contains("-PbuildNumber=\$AATE_BUILD_NUMBER -PaateVersionName=\$AATE_VERSION_NAME"))
-            assertTrue(workflow.contains("AATE_v\${{ steps.aate_build.outputs.version_name }}"))
-            assertFalse("APK artifact must not directly reference github.run_number expression", workflow.contains("AATE_v5.0.\${{ github.run_number }}"))
-            assertFalse("Gradle buildNumber must not use raw GitHub run number expression", workflow.contains("-PbuildNumber=\${{ github.run_number }}"))
-        }
+        // Only the root .github/workflows directory executes on GitHub. A staged
+        // commit title or CI run count must not relabel unchanged production code.
+        val workflow = java.io.File("../../.github/workflows/build.yml").readText()
+        assertTrue(workflow.contains("id: aate_build"))
+        assertTrue(workflow.contains("< ../AATE_VERSION"))
+        assertTrue(workflow.contains("BUILD_NUMBER=\"\${BASH_REMATCH[1]}\""))
+        assertTrue(workflow.contains("version_name=\$VERSION_NAME"))
+        assertTrue(workflow.contains("-PbuildNumber=\$AATE_BUILD_NUMBER -PaateVersionName=\$AATE_VERSION_NAME"))
+        assertTrue(workflow.contains("AATE_v\${{ steps.aate_build.outputs.version_name }}"))
+        assertFalse(workflow.contains("git log -1 --pretty=%s"))
+        assertFalse(workflow.contains("GITHUB_RUN_NUMBER"))
     }
-
 
     @Test
     fun parked_supervisor_timeout_band_must_throttle_before_fifty() {
@@ -3950,23 +3946,18 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun apk_version_patch_derived_from_ci_run_number() {
-        // V5.0.4135 — Operator override (2026-06-25). The previous invariant
-        // ("don't derive patch from CI run number") caused four consecutive
-        // builds to ship as v5.0.4132 because the AATE_VERSION file was static.
-        // Now the file holds only the major.minor prefix and the workflow
-        // appends ${BUILD_NUMBER} (= GITHUB_RUN_NUMBER + 1) so every push
-        // produces a uniquely-named APK aligned with the CI run number.
+    fun apk_version_patch_matches_committed_production_source() {
         val gradle = java.io.File("build.gradle.kts").readText()
-        val workflow = java.io.File("../.github/workflows/build.yml").readText()
-        val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("AATE_VERSION must hold the major.minor prefix only", "5.0", version)
-        assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
-        assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
-        assertTrue("Workflow must compose VERSION_NAME from BASE + BUILD_NUMBER", workflow.contains("VERSION_NAME=\"\${BASE}.\${BUILD_NUMBER}\""))
-        assertTrue("BUILD_NUMBER must be derived from GITHUB_RUN_NUMBER", workflow.contains("BUILD_NUMBER=\$((GITHUB_RUN_NUMBER + 1))"))
+        val workflow = java.io.File("../../.github/workflows/build.yml").readText()
+        val version = java.io.File("../../AATE_VERSION").readText().trim()
+        val gradleVersion = java.io.File("../AATE_VERSION").readText().trim()
+        assertTrue("Production version must include the explicit patch", Regex("5[.]0[.][0-9]+").matches(version))
+        assertEquals("Root and Gradle production versions must agree", version, gradleVersion)
+        assertTrue(gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
+        assertTrue(workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
+        assertTrue("Invalid source versions must fail CI", workflow.contains("Invalid production AATE_VERSION") && workflow.contains("exit 1"))
+        assertFalse("Repeated CI runs must not invent source revisions", workflow.contains("BUILD_NUMBER=\$((GITHUB_RUN_NUMBER + 1))"))
     }
-
 
     @Test
     fun live_probability_engine_unifies_forward_policy_and_sizer_probability() {
@@ -9172,7 +9163,8 @@ class GoldenTapeRegressionTest {
             marks.contains("SOURCE_BASE_IDENTITY_MISMATCH") && marks.contains("SOURCE_EVIDENCE_STALE") &&
             marks.contains("return promoteObservationToExecutable6613(mint, nowMs)"))
         assertTrue(bot.contains("resolveExecutableFromSourceEvidence6616") &&
-            executor.contains("resolveExecutableFromSourceEvidence6616"))
+            executor.contains("resolveBestSourceEvidence6734") &&
+            marks.contains("last = resolveExecutableFromSourceEvidence6616("))
         assertTrue(bot.contains("startedMonotonicMs") && bot.contains("SystemClock.elapsedRealtime()") &&
             bot.contains("sinceProgress >= SUPERVISOR_LEASE_PROGRESS_TTL_MS") &&
             bot.contains("job?.isActive == true") && bot.contains("SUPERVISOR_FORCE_RELEASE_DEFERRED_YOUNG_6616"))

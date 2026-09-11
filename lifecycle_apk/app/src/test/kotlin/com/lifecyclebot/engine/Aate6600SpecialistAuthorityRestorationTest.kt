@@ -31,7 +31,10 @@ class Aate6600SpecialistAuthorityRestorationTest {
             purpose = CanonicalMarkPurpose6570.OBSERVATION_SCORING,
         )))
         assertNotNull(CanonicalPriceMarkRegistry6522.get(mint, CanonicalMarkPurpose6570.OBSERVATION_SCORING))
-        assertTrue(source("engine/Executor.kt").contains("resolveExecutableFromSourceEvidence6616"))
+        assertTrue(source("engine/Executor.kt").contains("resolveBestSourceEvidence6734"))
+        val registry = source("engine/truth/CanonicalPriceMark6522.kt")
+        assertTrue(registry.contains("resolveBestSourceEvidence6734") &&
+            registry.contains("resolveExecutableFromSourceEvidence6616"))
     }
 
     @Test fun approved_subminimum_order_promotes_once_when_hard_caps_fund_minimum() {

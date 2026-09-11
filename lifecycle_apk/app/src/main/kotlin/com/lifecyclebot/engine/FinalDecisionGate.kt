@@ -137,6 +137,8 @@ object FinalDecisionGate {
             ts.safety.rugcheckScore,
             ts.safety.hardBlockReasons.sorted().joinToString(","),
             if (ts.lastLiquidityUsd > 0.0) "LIQUID" else "NO_LIQ",
+            ts.lastLiquidityUsd, ts.lastPriceUpdate, ts.lastPriceSource,
+            candidate.aiConfidence, candidate.edgeVeto,
         ).joinToString("|")
     }
 
@@ -145,7 +147,7 @@ object FinalDecisionGate {
     } catch (_: Throwable) { "0" }
 
     private fun fdgCacheKey(ts: TokenState, candidate: CandidateDecision, lane: String, side: String, laneScore: Double): String =
-        "${runtimeGenerationKey()}|${ts.mint}|${candidateVersionOf(ts, candidate, laneScore)}|${lane.uppercase()}|${side.uppercase()}"
+        "${runtimeGenerationKey()}|${ts.mint}|${RuntimeModeAuthority.isPaper()}|${candidateVersionOf(ts, candidate, laneScore)}|${lane.uppercase()}|${side.uppercase()}"
 
     private fun cachedFdgVerdict(key: String): FinalDecision? {
         val now = System.currentTimeMillis()
@@ -165,6 +167,11 @@ object FinalDecisionGate {
             fdgVerdictCache.entries.removeIf { it.value.tsMs < cutoff }
         }
         return verdict
+    }
+
+    fun invalidateCandidate6734(mint: String) {
+        fdgVerdictCache.keys.removeIf { it.startsWith("${runtimeGenerationKey()}|$mint|") }
+        FdgReEvalThrottle.invalidate(mint)
     }
 
     private const val FEEDBACK_EMA_ALPHA = 0.15

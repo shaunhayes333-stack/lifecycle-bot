@@ -10968,6 +10968,13 @@ class Executor(
         }
         val score = execScore4578
 
+        val advisoryMode6734 = if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
+        val advisoryVersion6734 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
+        val advisoryLane6734 = ExecutableOpenGate.activeExecutionIntent6519(
+            advisoryMode6734, ts.mint, advisoryVersion6734,
+        )?.canonicalLane ?: ts.position.tradingMode
+        val advisoryAt6734 = System.currentTimeMillis()
+
         // V5.0.4189 — Sentience pre-trade is ADVISORY ONLY.
         // Cached LLM vetoes were able to return before any live buy, violating the
         // no-hot-path-LLM/no-new-hard-veto doctrine and parking otherwise-executable
@@ -10983,7 +10990,10 @@ class Executor(
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SENTIENCE_VETO_ADVISORY_4189")
                 try {
                     com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.raise(
-                        com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.Signal.SENTIENCE_VETO_ADVISORY
+                        com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.Signal.SENTIENCE_VETO_ADVISORY,
+                        mode = advisoryMode6734, lane = advisoryLane6734, mint = ts.mint,
+                        evidenceId = "$advisoryMode6734:${ts.mint}:$advisoryVersion6734",
+                        observedAtMs = advisoryAt6734,
                     )
                 } catch (_: Throwable) {}
                 com.lifecyclebot.engine.ForensicLogger.lifecycle("SENTIENCE_VETO_ADVISORY_4189", "mint=${ts.mint.take(10)} symbol=${ts.symbol} source=${ts.source.take(80)} action=ignored_no_hard_veto raised_to_consensus_6728=true")
@@ -11020,7 +11030,10 @@ class Executor(
                                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EMERGENT_LLM_BLOCK_ADVISORY_4189")
                                 try {
                                     com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.raise(
-                                        com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.Signal.LLM_BLOCK_ADVISORY
+                                        com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.Signal.LLM_BLOCK_ADVISORY,
+                                        mode = advisoryMode6734, lane = advisoryLane6734, mint = ts.mint,
+                                        evidenceId = "$advisoryMode6734:${ts.mint}:$advisoryVersion6734",
+                                        observedAtMs = advisoryAt6734,
                                     )
                                 } catch (_: Throwable) {}
                                 com.lifecyclebot.engine.ForensicLogger.lifecycle("EMERGENT_LLM_BLOCK_ADVISORY_4189", "mint=${ts.mint.take(10)} symbol=${ts.symbol} verdict=${verdict.take(120)} action=advisory_raised_to_consensus_6728")
@@ -12520,44 +12533,37 @@ class Executor(
         val WINDOW_MS_6616 = 300_000L
         val tokenMapFresh6616 = ts.tokenMap.updatedAtMs > 0L && now6616 - ts.tokenMap.updatedAtMs <= WINDOW_MS_6616
         val stateFresh6616 = ts.lastPriceUpdate > 0L && now6616 - ts.lastPriceUpdate <= WINDOW_MS_6616
-        val bootstrapPrice6616 = ts.tokenMap.priceUsd?.takeIf { tokenMapFresh6616 && it.isFinite() && it > 0.0 }
-            ?: ts.lastPrice.takeIf { stateFresh6616 && it.isFinite() && it > 0.0 }
-        val bootstrapSource6616 = ts.tokenMap.sourceScanner.takeIf { tokenMapFresh6616 && it.isNotBlank() }
-            ?: ts.lastPriceSource.takeIf { stateFresh6616 && it.isNotBlank() }
-            ?: ""
-        val bootstrapTimestamp6616 = maxOf(ts.tokenMap.updatedAtMs, ts.lastPriceUpdate)
-        val bootstrapPool6616 = ts.tokenMap.poolAddress.ifBlank { ts.tokenMap.pairAddress }
-            .ifBlank { ts.lastPricePoolAddr }.ifBlank { ts.pairAddress }
-        val promotion6613 = if (bootstrapPrice6616 != null && bootstrapSource6616.isNotBlank()) try {
-            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.resolveExecutableFromSourceEvidence6616(
-                mint = ts.mint,
-                observedBaseMint = ts.mint,
-                pairOrPool = bootstrapPool6616,
-                quoteMint = ts.tokenMap.quoteMint,
-                source = bootstrapSource6616,
-                priceUsd = bootstrapPrice6616,
-                liquidityUsd = ts.tokenMap.liquidityUsd ?: ts.lastLiquidityUsd,
-                evidenceTimestampMs = bootstrapTimestamp6616,
-                nowMs = now6616,
+        val sourceEvidence6734 = listOf(
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.SourceEvidence6734(
+                ts.mint, ts.tokenMap.poolAddress.ifBlank { ts.tokenMap.pairAddress },
+                ts.tokenMap.quoteMint, ts.tokenMap.sourceScanner,
+                ts.tokenMap.priceUsd ?: 0.0, ts.tokenMap.liquidityUsd ?: 0.0,
+                if (tokenMapFresh6616) ts.tokenMap.updatedAtMs else 0L,
+            ),
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.SourceEvidence6734(
+                ts.mint, ts.lastPricePoolAddr.ifBlank { ts.pairAddress }, "USD", ts.lastPriceSource,
+                ts.lastPrice, ts.lastLiquidityUsd, if (stateFresh6616) ts.lastPriceUpdate else 0L,
+            ),
+        )
+        val promotion6613 = try {
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522
+                .resolveBestSourceEvidence6734(ts.mint, sourceEvidence6734, now6616)
+        } catch (_: Throwable) {
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.PromotionResult6613(
+                null, "SOURCE_RESOLUTION_EXCEPTION", identity = ts.mint,
             )
-        } catch (_: Throwable) {
-            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.PromotionResult6613(null, "SOURCE_RESOLUTION_EXCEPTION", identity = ts.mint)
-        } else try {
-            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.promoteObservationToExecutable6613(ts.mint, now6616)
-        } catch (_: Throwable) {
-            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.PromotionResult6613(null, "PROMOTION_EXCEPTION", identity = ts.mint)
         }
         if (!promotion6613.promoted) try {
             PipelineHealthCollector.labelInc("VALID_SOURCE_NO_EXECUTABLE_MARK|${promotion6613.reason}")
             ForensicLogger.lifecycle("VALID_SOURCE_NO_EXECUTABLE_MARK", "mint=${ts.mint.take(10)} source=${promotion6613.source} price=${promotion6613.price} ageMs=${promotion6613.ageMs} identity=${promotion6613.identity.take(80)} unit=${promotion6613.unitState} reason=${promotion6613.reason}")
         } catch (_: Throwable) {}
         val strictMark6575 = try {
-            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.getFresh6734(
                 ts.mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
             )
         } catch (_: Throwable) { null }
         val observationMark6579 = try {
-            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.getFresh6734(
                 ts.mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING,
             )
         } catch (_: Throwable) { null }
@@ -20793,50 +20799,11 @@ class Executor(
         val slippageMultiplier = 1.0 - (simulatedSlippagePct / 100.0)
         var effectivePrice = price * slippageMultiplier
 
-        // (2) EXIT PRICE CLAMP — derive the strategy's intended exit band
-        // from the reason label. We honour the label rather than letting
-        // a stale price take us 100x past it.
-        // V5.9.1430 — realized-pct band bounds used only when entryPrice is
-        // missing (set by the no-entry branch below). null = no override.
-        var paperBandFloorPct: Double? = null
-        var paperBandCeilPct: Double? = null
-        val (clampLowPct, clampHighPct) = parsePaperExitClamp(reason)
-        if (pos.entryPrice > 0.0 && clampLowPct != null && clampHighPct != null) {
-            val low  = pos.entryPrice * (1.0 + clampLowPct / 100.0)
-            val high = pos.entryPrice * (1.0 + clampHighPct / 100.0)
-            val clamped = effectivePrice.coerceIn(minOf(low, high), maxOf(low, high))
-            if (clamped != effectivePrice) {
-                try {
-                    ForensicLogger.lifecycle(
-                        "PAPER_EXIT_PRICE_CLAMPED",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason fromPrice=${"%.10f".format(effectivePrice)} toPrice=${"%.10f".format(clamped)} entry=${"%.10f".format(pos.entryPrice)} band=[${clampLowPct}%,${clampHighPct}%]",
-                    )
-                } catch (_: Throwable) {}
-                effectivePrice = clamped
-            }
-        } else if (pos.entryPrice <= 0.0 && clampLowPct != null && clampHighPct != null) {
-            // V5.9.1430 — ENTRY-PRICE-MISSING GAP-THROUGH GUARD. When entryPrice
-            // is 0/missing the price-band clamp above is SKIPPED, so a stale paper
-            // quote books the raw gap (this is how FINDER SHITCOIN_STOP_LOSS booked
-            // -50.7% even though the SHITCOIN stop band is [-12%,-6%], and how a
-            // hard-floor exit could book past the unconditional -15% floor).
-            // Synthesise a valid entry from the current price + the band so the
-            // clamp can still apply: pin effectivePrice to the band's worst edge,
-            // honouring the strategy's stated trigger instead of the phantom gap.
-            // Hard-floor/HARD bands are [-17,-15] so this also re-enforces the
-            // operator's unconditional -15% floor on the gap-through case.
-            val worstPct = minOf(clampLowPct, clampHighPct)
-            val bestPct  = maxOf(clampLowPct, clampHighPct)
-            // Mark so the realized-pct clamp below knows to bound to [worst,best].
-            paperBandFloorPct = worstPct
-            paperBandCeilPct  = bestPct
-            try {
-                ForensicLogger.lifecycle(
-                    "PAPER_EXIT_BAND_NO_ENTRY",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason band=[${worstPct}%,${bestPct}%] — entryPrice missing, clamping realized pct to band",
-                )
-            } catch (_: Throwable) {}
-        }
+        // V5.0.6734 — a stop reason describes the decision, not an executable price.
+        // Retired PAPER_EXIT_PRICE_CLAMPED / PAPER_EXIT_BAND_NO_ENTRY: they could
+        // turn a verified -99% gap into a fabricated -15% fill, poisoning learning.
+        // The entry-basis and quote guards above remain mandatory. Only the
+        // observed price plus the existing explicit simulation costs determine money.
 
         // V5.0.3868 — executable-live paper friction.
         // Report: live MemeTrader buys/sells flow, but paper edge doesn't transfer;
@@ -20850,16 +20817,7 @@ class Executor(
         } catch (_: Throwable) { 0.0 }
         val simulatedFeePct = (1.6 + expectedRouteSlipPct.coerceIn(0.0, 8.0)).coerceIn(1.6, 9.6)
 
-        val priceDerivedPnlPct = run {
-            val base = pct(pos.entryPrice, effectivePrice).coerceIn(-100.0, 1000.0)
-            // V5.9.1430 — when entryPrice was missing, pct() is meaningless
-            // (division by ~0). Bound the realized pct to the strategy's stated
-            // band so a gap-through cannot book -50% on a [-12,-6] stop, nor
-            // breach the unconditional -15% floor on a hard-floor label.
-            if (paperBandFloorPct != null && paperBandCeilPct != null) {
-                base.coerceIn(paperBandFloorPct!!, paperBandCeilPct!!)
-            } else base
-        }
+        val priceDerivedPnlPct = pct(pos.entryPrice, effectivePrice).coerceIn(-100.0, 1000.0)
         val rawValue = terminalRemainingCost6492 * (1.0 + priceDerivedPnlPct / 100.0) * (1.0 - simulatedFeePct / 100.0)
         // (3) Cost-basis paper proceeds — paper has no real token balance. Do
         // NOT book proceeds from qtyToken * price; a stale qty or source-basis

@@ -1,110 +1,87 @@
 package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.engine.PipelineHealthCollector
-import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.ConcurrentHashMap
 
 /**
- * V5.0.6728 — §ADAPTIVE_VETO_CONSENSUS.
- *
- * Operator diagnostic from 6727: "the learning/risk brains detect toxic
- * behaviour but remain mostly advisory while BUY/WAIT overrides keep
- * trading." Direct evidence:
- *   Brain Consensus            82.2% SOFT_BLOCK, 0 HARD_BLOCK
- *   Unified Policy bias        -0.83 (strongly negative) — still executing
- *   LLM signal                 "BLOCK: Recent string of losses" → ignored_no_hard_veto
- *   LOSING_STREAK_COHORT_NO_GLOBAL_VETO   = 504
- *   SENTIENCE_VETO_ADVISORY              = 470
- *   EMERGENT_LLM_BLOCK_ADVISORY          = 524
- *   LANE_BUY_INTENT_OVERRIDES_BASE_WAIT  = 565
- *
- * Each subsystem correctly identifies the toxic state but publishes as
- * an ADVISORY. Nobody escalates the collection of advisories into a
- * HARD authority verdict, so BUY/WAIT overrides win by default.
- *
- * This authority owns the single-source-of-truth answer for "is the
- * cumulative advisory posture bad enough to hard-veto?" Each advisory
- * subsystem calls `raise(signal)` to publish its verdict. The authority
- * counts concurrent bad signals and returns `hardVeto=true` when
- * QUORUM (>=3 out of the tracked signals) are simultaneously bad.
- *
- * Consumer wire: ExecutableOpenGate consults at admit path. When
- * hardVeto=true, admission blocks with ADAPTIVE_CONSENSUS_HARD_VETO_6728.
- * This is the mechanism operator asked for: the adaptive layer detects
- * a toxic state, and the admission path is required to honor it.
- *
- * Signals decay after DECAY_MS so a stale bad signal from an hour ago
- * cannot indefinitely brick admission after recovery.
+ * Scoped advisory consensus. A repeated opinion is not independent evidence.
+ * Legacy unscoped publishers remain diagnostic and cannot veto scoped orders.
+ * Deterministic safety, capital, price and execution gates remain independent.
  */
 object AdaptiveVetoConsensusAuthority6728 {
-
     enum class Signal {
-        BRAIN_CONSENSUS_SOFT_BLOCK,  // Brain Consensus recommends block
-        UNIFIED_POLICY_BIAS_NEGATIVE, // Policy bias below strong-negative threshold
-        LLM_BLOCK_ADVISORY,           // LLM says BLOCK
-        SENTIENCE_VETO_ADVISORY,      // Sentience heuristic says veto
-        LOSING_STREAK_COHORT,         // Recent-streak cohort tagged
-        CAPITAL_CREED_BREACH,         // Streak/DD limits breached
-        PERFORMANCE_BELOW_50_TARGET,  // PerformanceDoctrine6727 belowTarget
+        BRAIN_CONSENSUS_SOFT_BLOCK, UNIFIED_POLICY_BIAS_NEGATIVE,
+        LLM_BLOCK_ADVISORY, SENTIENCE_VETO_ADVISORY, LOSING_STREAK_COHORT,
+        CAPITAL_CREED_BREACH, PERFORMANCE_BELOW_50_TARGET,
     }
-
-    /** Minimum simultaneously-active signals to escalate to HARD veto. */
+    private enum class Family { POLICY, ADVISOR, OUTCOME, CAPITAL }
+    private fun family(signal: Signal): Family = when (signal) {
+        Signal.BRAIN_CONSENSUS_SOFT_BLOCK, Signal.UNIFIED_POLICY_BIAS_NEGATIVE -> Family.POLICY
+        Signal.LLM_BLOCK_ADVISORY, Signal.SENTIENCE_VETO_ADVISORY -> Family.ADVISOR
+        Signal.LOSING_STREAK_COHORT, Signal.PERFORMANCE_BELOW_50_TARGET -> Family.OUTCOME
+        Signal.CAPITAL_CREED_BREACH -> Family.CAPITAL
+    }
     private const val QUORUM = 3
-    /** Age after which a raised signal is considered stale. */
     private const val DECAY_MS = 5 * 60_000L
+    private const val MAX_SIGNALS = 4096
+    private data class Key(val mode: String, val lane: String, val mint: String, val signal: Signal)
+    private data class Evidence(val id: String, val atMs: Long)
+    private val observations = ConcurrentHashMap<Key, Evidence>()
+    private fun normaliseLane(raw: String): String = when (val n = raw.trim().uppercase().replace('-', '_')) {
+        "BLUE_CHIP" -> "BLUECHIP"
+        "PRESALE_SNIPE" -> "PROJECT_SNIPER"
+        else -> n
+    }
+    data class Verdict(val hardVeto: Boolean, val activeSignals: List<Signal>, val quorum: Int)
 
-    data class Verdict(
-        val hardVeto: Boolean,
-        val activeSignals: List<Signal>,
-        val quorum: Int,
-    )
-
-    private val lastRaisedMs = java.util.concurrent.ConcurrentHashMap<Signal, AtomicLong>()
-
-    private fun ts(sig: Signal): AtomicLong =
-        lastRaisedMs.computeIfAbsent(sig) { AtomicLong(0L) }
-
-    /**
-     * Publish that the given advisory signal is currently bad. Called
-     * by the corresponding advisory subsystem whenever it evaluates and
-     * finds the toxic state present.
-     */
-    fun raise(signal: Signal) {
-        ts(signal).set(System.currentTimeMillis())
+    /** Re-reading the same evidence never refreshes its expiry. */
+    fun raise(signal: Signal, mode: String = "", lane: String = "", mint: String = "",
+              evidenceId: String = signal.name, observedAtMs: Long = System.currentTimeMillis()) {
+        val now = System.currentTimeMillis()
+        if (observedAtMs <= 0L || observedAtMs > now + 5_000L) return
+        val key = Key(mode.trim().uppercase(), normaliseLane(lane), mint.trim(), signal)
+        observations.compute(key) { _, old ->
+            when {
+                old == null -> Evidence(evidenceId, observedAtMs)
+                old.id == evidenceId -> old
+                observedAtMs >= old.atMs -> Evidence(evidenceId, observedAtMs)
+                else -> old
+            }
+        }
+        // Bound memory without allowing repeated polling to keep a veto alive.
+        if (observations.size > MAX_SIGNALS) {
+            observations.entries.removeIf { now - it.value.atMs > DECAY_MS }
+            if (observations.size > MAX_SIGNALS) observations.entries.sortedBy { it.value.atMs }
+                .take(observations.size - MAX_SIGNALS).forEach { observations.remove(it.key, it.value) }
+        }
         try { PipelineHealthCollector.labelInc("ADAPTIVE_VETO_SIGNAL_RAISED_6728_${signal.name}") } catch (_: Throwable) {}
     }
 
-    /** Explicit clear — call when the subsystem now considers the state resolved. */
-    fun clear(signal: Signal) {
-        ts(signal).set(0L)
+    fun clear(signal: Signal, mode: String = "", lane: String = "", mint: String = "") {
+        observations.remove(Key(mode.trim().uppercase(), normaliseLane(lane), mint.trim(), signal))
     }
 
-    /**
-     * Evaluate the current consensus. Returns a Verdict with hardVeto=true
-     * iff >=QUORUM signals are currently active (raised within DECAY_MS).
-     */
-    fun evaluate(): Verdict {
-        val now = System.currentTimeMillis()
-        val active = Signal.values().filter { s ->
-            val at = ts(s).get()
-            at > 0L && (now - at) <= DECAY_MS
-        }
-        val hard = active.size >= QUORUM
-        if (hard) {
-            try { PipelineHealthCollector.labelInc("ADAPTIVE_CONSENSUS_HARD_VETO_6728") } catch (_: Throwable) {}
-        }
-        return Verdict(hard, active, active.size)
+    /** No PAPER-to-LIVE, cross-lane or cross-mint vote contamination. */
+    fun evaluate(mode: String = "", lane: String = "", mint: String = "",
+                 nowMs: Long = System.currentTimeMillis()): Verdict {
+        val m = mode.trim().uppercase(); val l = normaliseLane(lane); val token = mint.trim()
+        val active = observations.entries.asSequence().filter { (k, v) ->
+            k.mode == m && (k.lane == l || (k.lane.isBlank() && k.signal == Signal.CAPITAL_CREED_BREACH)) &&
+                (k.mint.isBlank() || k.mint == token) && nowMs - v.atMs in -5_000L..DECAY_MS
+        }.map { it.key.signal }.distinct().sortedBy { it.ordinal }.toList()
+        val votes = active.map(::family).distinct().size
+        val hard = votes >= QUORUM
+        if (hard) try { PipelineHealthCollector.labelInc("ADAPTIVE_CONSENSUS_HARD_VETO_6728") } catch (_: Throwable) {}
+        else if (active.size >= QUORUM) try {
+            PipelineHealthCollector.labelInc("ADAPTIVE_CONSENSUS_CORRELATED_SOFT_ONLY_6734")
+        } catch (_: Throwable) {}
+        return Verdict(hard, active, votes)
     }
-
     fun isHardVeto(): Boolean = evaluate().hardVeto
-
-    /** Diagnostic snapshot for operator display. */
     fun diagnosticLine(): String {
         val v = evaluate()
-        return "ADAPTIVE_CONSENSUS_6728 hardVeto=${v.hardVeto} quorum=${v.quorum}/$QUORUM active=[${v.activeSignals.joinToString(",") { it.name }}]"
+        return "ADAPTIVE_CONSENSUS_6728 hardVeto=${v.hardVeto} quorum=${v.quorum}/$QUORUM " +
+            "rawSignals=${v.activeSignals.size} scope=LEGACY_DIAGNOSTIC active=[${v.activeSignals.joinToString(",") { it.name }}]"
     }
-
-    internal fun resetForTest6728() {
-        lastRaisedMs.clear()
-    }
+    internal fun resetForTest6728() { observations.clear() }
 }

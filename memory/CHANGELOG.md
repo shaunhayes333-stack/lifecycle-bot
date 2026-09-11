@@ -1,3 +1,11 @@
+## V5.0.6734 — scoped execution recovery and economic integrity
+
+Source repairs and regression boundaries: `lifecycle_apk/audits/v5_0_6734_verified_recovery.md`.
+
+Scoped advisory evidence; exact intent ownership; feedback/cache invalidation; complete fresh provider tuples; removal of fabricated stop-band fills; position-scoped paper replay; durable reward/exclusion population parity; single-flight learner delivery; CORE close-side learning; actual inference telemetry; committed-version and exact-SHA CI authority. Previous staged recovery script retired, not stacked. Twenty local component checks and all three static scans passed. Full-app results must be read from this revision's CI, not assumed.
+
+---
+
 ## V5.0.6733 — §LEARNER_REVISION_RACE_STAMP_ONLY_GRACE + §PARITY_STALENESS_FAIL_OPEN + §SKEW_QUARANTINE_RECORDEXEC_ROOT + §REGIME_DEGRADATION_EARLY_TRIGGER + Aate6616 test correction (PENDING CI)
 
 Same-batch continuation of the 6732 diagnostic. 6732 had failing tests (Aate6616 expected the old `SOURCE_LIQUIDITY_INVALID` reason and my 6732 tests referenced the non-whitelisted `Helius` source). 6733 corrects those and lands four additional root-cause fixes on top.

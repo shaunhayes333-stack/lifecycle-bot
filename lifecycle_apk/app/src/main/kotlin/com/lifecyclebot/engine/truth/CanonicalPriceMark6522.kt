@@ -24,6 +24,34 @@ object CanonicalPriceMarkRegistry6522 {
     // reads whichever slot has fresher data.
     private val marks = ConcurrentHashMap<Pair<String, CanonicalMarkPurpose6570>, CanonicalPriceMark6522>()
 
+    data class SourceEvidence6734(
+        val baseMint: String, val pair: String, val quoteMint: String, val source: String,
+        val priceUsd: Double, val liquidityUsd: Double, val timestampMs: Long,
+    )
+
+    fun getFresh6734(mint: String, purpose: CanonicalMarkPurpose6570,
+                     nowMs: Long = System.currentTimeMillis()): CanonicalPriceMark6522? =
+        marks[mint to purpose]?.takeIf {
+            it.baseMint == mint && it.priceUsd.value.toDouble().isFinite() &&
+                it.priceUsd.value.signum() > 0 && nowMs - it.timestampMs in -5_000L..120_000L
+        }
+
+    /** Try complete provider tuples newest-first. Rejection may try another real provider,
+     * never splice its timestamp/source onto the rejected provider's price. */
+    fun resolveBestSourceEvidence6734(mint: String, evidence: List<SourceEvidence6734>,
+                                     nowMs: Long = System.currentTimeMillis()): PromotionResult6613 {
+        var last = PromotionResult6613(null, "NO_FRESH_SOURCE_EVIDENCE_6734", identity = mint)
+        for (e in evidence.sortedByDescending { it.timestampMs }) {
+            if (nowMs - e.timestampMs !in -5_000L..120_000L || e.source.isBlank()) continue
+            last = resolveExecutableFromSourceEvidence6616(
+                mint, e.baseMint, e.pair, e.quoteMint, e.source, e.priceUsd,
+                e.liquidityUsd, e.timestampMs, nowMs,
+            )
+            if (last.promoted) return last
+        }
+        return last
+    }
+
     fun publish(mark: CanonicalPriceMark6522): Boolean {
         if (mark.mint.isBlank() || mark.baseMint != mark.mint) return false
         if (mark.pairId.isBlank()) return false
@@ -36,6 +64,7 @@ object CanonicalPriceMarkRegistry6522 {
         // could therefore preserve a known placeholder price and later satisfy
         // a paper entry. No purpose may persist a known sentinel fingerprint.
         val rawPrice6697 = try { mark.priceUsd.value.toDouble() } catch (_: Throwable) { Double.NaN }
+        if (!rawPrice6697.isFinite() || rawPrice6697 < 1e-18 || rawPrice6697 > 1e12) return false
         if (MarketDataProvenance6471.isKnownStandaloneSentinelPrice6658(rawPrice6697)) {
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_MARK_SENTINEL_REJECTED_6697")
@@ -172,8 +201,15 @@ object CanonicalPriceMarkRegistry6522 {
             purpose = CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
             identityProof6613 = if (obs.pairId.startsWith("MINT_ROUTE:", true)) "CANONICAL_MINT_SOURCE_MARK_6613" else obs.identityProof6613,
         )
-        return if (publish(promoted)) PromotionResult6613(promoted, reason, obs.source, price, age, "${obs.baseMint}->${obs.quoteMint}@${obs.pairId}", "scale=${obs.priceUsd.value.scale()}")
-        else PromotionResult6613(null, "REGISTRY_PUBLISH_REJECTED", obs.source, price, age, "${obs.baseMint}->${obs.quoteMint}@${obs.pairId}", "scale=${obs.priceUsd.value.scale()}")
+        val published = publish(promoted)
+        val admitted = if (published) promoted else
+            getFresh6734(mint, CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE, nowMs)
+                ?.takeIf { it.timestampMs >= promoted.timestampMs }
+        return if (admitted != null) PromotionResult6613(admitted, reason, admitted.source,
+            admitted.priceUsd.value.toDouble(), nowMs - admitted.timestampMs,
+            "${admitted.baseMint}->${admitted.quoteMint}@${admitted.pairId}", "scale=${admitted.priceUsd.value.scale()}")
+        else PromotionResult6613(null, "REGISTRY_PUBLISH_REJECTED", obs.source, price, age,
+            "${obs.baseMint}->${obs.quoteMint}@${obs.pairId}", "scale=${obs.priceUsd.value.scale()}")
     }
 
 
@@ -244,10 +280,14 @@ object CanonicalPriceMarkRegistry6522 {
             purpose = CanonicalMarkPurpose6570.OBSERVATION_SCORING,
             identityProof6613 = if (normalizedPair.startsWith("MINT_ROUTE:", true)) "CANONICAL_MINT_SOURCE_MARK_6613" else "",
         )
-        if (!publish(observation)) return PromotionResult6613(
-            null, "SOURCE_OBSERVATION_REJECTED", source, priceUsd, ageMs,
-            "$mint->$normalizedQuote@$normalizedPair", "scale=${observation.priceUsd.value.scale()}",
-        )
+        if (!publish(observation)) {
+            val newer = getFresh6734(mint, CanonicalMarkPurpose6570.OBSERVATION_SCORING, nowMs)
+                ?.takeIf { it.timestampMs >= observation.timestampMs }
+            if (newer == null) return PromotionResult6613(
+                null, "SOURCE_OBSERVATION_REJECTED", source, priceUsd, ageMs,
+                "$mint->$normalizedQuote@$normalizedPair", "scale=${observation.priceUsd.value.scale()}",
+            )
+        }
         return promoteObservationToExecutable6613(mint, nowMs)
     }
 
@@ -339,14 +379,21 @@ object CanonicalPriceMarkRegistry6522 {
             purpose = CanonicalMarkPurpose6570.OBSERVATION_SCORING,
             identityProof6613 = if (normalizedPair.startsWith("MINT_ROUTE:", true)) "CANONICAL_MINT_SOURCE_MARK_6613" else "",
         )
-        if (!publish(observation)) return PromotionResult6613(
-            null, "SOURCE_OBSERVATION_REJECTED", source, priceUsd, ageMs,
-            "$mint->$normalizedQuote@$normalizedPair", "scale=${observation.priceUsd.value.scale()}",
-        )
+        if (!publish(observation)) {
+            val newer = getFresh6734(mint, CanonicalMarkPurpose6570.OBSERVATION_SCORING, nowMs)
+                ?.takeIf { it.timestampMs >= observation.timestampMs }
+            if (newer == null) return PromotionResult6613(
+                null, "SOURCE_OBSERVATION_REJECTED", source, priceUsd, ageMs,
+                "$mint->$normalizedQuote@$normalizedPair", "scale=${observation.priceUsd.value.scale()}",
+            )
+        }
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_PRICE_MARK_OBSERVATION_ADMITTED_6628") } catch (_: Throwable) {}
+        val admitted = getFresh6734(mint, CanonicalMarkPurpose6570.OBSERVATION_SCORING, nowMs)
+            ?: return PromotionResult6613(null, "OBSERVATION_EXPIRED_6734", identity = mint)
         return PromotionResult6613(
-            observation, "OBSERVATION_ADMITTED_6628", source, priceUsd, ageMs,
-            "$mint->$normalizedQuote@$normalizedPair", "scale=${observation.priceUsd.value.scale()}",
+            admitted, "OBSERVATION_ADMITTED_6628", admitted.source, admitted.priceUsd.value.toDouble(),
+            nowMs - admitted.timestampMs, "${admitted.baseMint}->${admitted.quoteMint}@${admitted.pairId}",
+            "scale=${admitted.priceUsd.value.scale()}",
         )
     }
 

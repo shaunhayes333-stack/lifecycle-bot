@@ -66,7 +66,9 @@ class Aate6616CausalP0RepairTest {
         val executor = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val registry = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPriceMark6522.kt").readText()
         assertEquals(1, Regex("resolveExecutableFromSourceEvidence6616").findAll(bot).count())
-        assertEquals(1, Regex("resolveExecutableFromSourceEvidence6616").findAll(executor).count())
+        assertEquals(1, Regex("resolveBestSourceEvidence6734").findAll(executor).count())
+        assertTrue(registry.contains("fun resolveBestSourceEvidence6734") &&
+            registry.contains("last = resolveExecutableFromSourceEvidence6616("))
         assertTrue(registry.contains("resolveExecutableFromSourceEvidence6616"))
         assertTrue(registry.contains("return promoteObservationToExecutable6613(mint, nowMs)"))
     }

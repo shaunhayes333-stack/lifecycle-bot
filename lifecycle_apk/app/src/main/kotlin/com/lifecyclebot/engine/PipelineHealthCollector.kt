@@ -2692,9 +2692,16 @@ object PipelineHealthCollector {
         } catch (_: Throwable) { /* capability report never fails dumpText */ }
 
         try {
+            val inference6734 = com.lifecyclebot.engine.truth.ProviderInferenceHealth6727.snapshot()
+            if (inference6734.isNotEmpty()) {
+                sb.append("\n===== Actual parsed LLM inference outcomes (last 100 / 5 minutes) =====\n")
+                for (h in inference6734) sb.appendLine(
+                    "  ${h.provider} success=${h.successes} failure=${h.failures} capacity=${if (h.successes + h.failures == 0L) "UNKNOWN" else if (h.isHealthy) "AVAILABLE" else "DEGRADED"} lastAgeMs=${System.currentTimeMillis() - h.lastUpdateMs}",
+                )
+            }
             val keySnap = KeyValidator.snapshot()
             if (keySnap.isNotEmpty()) {
-                sb.append("\n===== Key verdicts (V5.9.915 KeyValidator) =====\n")
+                sb.append("\n===== Credential/connectivity verdicts (KeyValidator; not inference capacity) =====\n")
                 for ((svc, t) in keySnap.entries.sortedBy { it.key }) {
                     val (isLive, http, err) = t
                     val icon = if (isLive) "✅" else "🔴"

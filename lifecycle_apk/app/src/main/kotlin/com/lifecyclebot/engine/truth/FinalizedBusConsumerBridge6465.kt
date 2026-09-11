@@ -149,9 +149,10 @@ object FinalizedBusConsumerBridge6465 {
     } catch (_: Throwable) { false }
 
     private fun deliverToRewardPurity(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean =
-        RewardPurityGate6441.acceptFinalizedClose(
-            env.positionId, env.realizedPnlSol, env.economicEventId,
-        )
+        RewardPurityGate6441.outcomeOf(env.positionId) != null ||
+            RewardPurityGate6441.acceptFinalizedClose(
+                env.positionId, env.realizedPnlSol, env.economicEventId,
+            )
 
     private fun deliverToLearnerRewardBridge(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         com.lifecyclebot.engine.truth.LearnerRewardBridge6440.acceptFinalized6486(
@@ -204,7 +205,8 @@ object FinalizedBusConsumerBridge6465 {
     } catch (_: Throwable) { false }
 
     private fun deliverToMemeCausalLearning6568(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
-        val memeLane = env.lane.uppercase() in setOf("MEME","STANDARD","SHITCOIN","EXPRESS","MOONSHOT","BLUECHIP","BLUE_CHIP","QUALITY","MANIPULATED","CASHGEN","CYCLIC","DIP_HUNTER","TREASURY","PROJECT_SNIPER")
+        val memeLane = CausalFeedbackAuthority6715.isMemeOwnerLane(env.lane) ||
+            env.lane.uppercase() in setOf("MEME", "STANDARD")
         if (memeLane) {
             // V5.0.6707 — restore the original V3 close-side attribution
             // consumers at the canonical terminal source. 6485+ moved terminal

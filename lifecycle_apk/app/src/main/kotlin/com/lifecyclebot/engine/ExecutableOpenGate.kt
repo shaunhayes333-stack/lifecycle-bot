@@ -249,10 +249,12 @@ object ExecutableOpenGate {
         // A preliminary FDG pass can seal the decision before the canonical
         // size resolver runs. When that same immutable attempt returns with a
         // positive size, upgrade it instead of retaining a zero-sized shell.
+        var created6734 = false
         val authoritative = activeExecutionIntents6519.compute(key) { _, existing ->
             when {
-                existing == null -> intent
-                existing.resolvedSize <= 0.0 && intent.resolvedSize > 0.0 ->
+                existing == null -> intent.also { created6734 = true }
+                sameDecisionContract6734(existing, intent) &&
+                    existing.resolvedSize <= 0.0 && intent.resolvedSize.isFinite() && intent.resolvedSize > 0.0 ->
                     existing.copy(resolvedSize = intent.resolvedSize)
                 else -> existing
             }
@@ -269,11 +271,19 @@ object ExecutableOpenGate {
                 authoritative.canonicalLane, causalScore6715,
             )
         } catch (_: Throwable) {}
-        try { PipelineHealthCollector.labelInc("EXEC_INTENT_CREATED")
-            ForensicLogger.lifecycle("EXEC_INTENT_CREATED", "attemptId=${authoritative.attemptId} candidateId=${authoritative.candidateId} mint=${authoritative.mint.take(10)} mode=${authoritative.mode} lane=${authoritative.canonicalLane} fdg=${authoritative.fdgVerdict} allowed=${authoritative.fdgAllowed} authority=${authoritative.authorityVersion} size=${authoritative.resolvedSize}")
+        try { if (created6734) PipelineHealthCollector.labelInc("EXEC_INTENT_CREATED")
+            else PipelineHealthCollector.labelInc("EXEC_INTENT_REUSED_6734")
+            ForensicLogger.lifecycle(if (created6734) "EXEC_INTENT_CREATED" else "EXEC_INTENT_REUSED_6734", "attemptId=${authoritative.attemptId} candidateId=${authoritative.candidateId} mint=${authoritative.mint.take(10)} mode=${authoritative.mode} lane=${authoritative.canonicalLane} fdg=${authoritative.fdgVerdict} allowed=${authoritative.fdgAllowed} authority=${authoritative.authorityVersion} size=${authoritative.resolvedSize}")
         } catch (_: Throwable) {}
         return authoritative
     }
+
+    internal fun sameDecisionContract6734(a: ExecutionIntent, b: ExecutionIntent): Boolean =
+        a.mint == b.mint && a.mode.equals(b.mode, true) && a.candidateVersion == b.candidateVersion &&
+            canonicalLane(a.canonicalLane) == canonicalLane(b.canonicalLane) &&
+            a.finalDecision6613 == b.finalDecision6613 && a.fdgVerdict == b.fdgVerdict &&
+            a.safetyTier == b.safetyTier && a.hardNoReasons == b.hardNoReasons &&
+            a.requiresSolanaTokenMap == b.requiresSolanaTokenMap && a.action == b.action && a.direction == b.direction
 
     private fun publishFdgIntent6519(intent: ExecutionIntent, fallbackSizeSol6556: Double = 0.0) {
         val sizedIntent = if (intent.resolvedSize > 0.0 || fallbackSizeSol6556 <= 0.0) intent
@@ -387,13 +397,16 @@ object ExecutableOpenGate {
         val size = sealedSize?.takeIf { it.isFinite() && it > 0.0 } ?: intent.resolvedSize.takeIf { it.isFinite() && it > 0.0 }
         val refreshedMark6614 = if (!intent.requiresSolanaTokenMap) null else try {
             val promoted = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.promoteObservationToExecutable6613(intent.mint)
-            promoted.mark ?: com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(
+            promoted.mark ?: com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.getFresh6734(
                 intent.mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
-            )
+            ) ?: if (intent.mode.equals("PAPER", true))
+                com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.getFresh6734(
+                    intent.mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING,
+                ) else null
         } catch (_: Throwable) { null }
         val markCurrent = !intent.requiresSolanaTokenMap || (refreshedMark6614 != null &&
-            System.currentTimeMillis() - refreshedMark6614.timestampMs in -5_000L..300_000L &&
-            refreshedMark6614.liquidityUsd?.signum() == 1)
+            System.currentTimeMillis() - refreshedMark6614.timestampMs in -5_000L..120_000L &&
+            (intent.mode.equals("PAPER", true) || refreshedMark6614.liquidityUsd?.signum() == 1))
         if (!decisionCurrent || occupied || size == null || !markCurrent) {
             try {
                 val reason = when { !decisionCurrent -> "AUTHORITY_EXPIRED"; occupied -> "CANONICAL_OCCUPIED"; size == null -> "SIZE_INVALID"; else -> "MARK_INVALID" }
@@ -411,6 +424,9 @@ object ExecutableOpenGate {
                 // V5.0.6626 §RUNTIME_LOOP_UNCHOKE §2 — adaptive TTL on re-seal.
                 com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626()
             else LIVE_EXECUTION_TICKET_TTL_MS,
+            executableMarkSource6613 = refreshedMark6614?.source ?: intent.executableMarkSource6613,
+            executableMarkTimestampMs6613 = refreshedMark6614?.timestampMs ?: intent.executableMarkTimestampMs6613,
+            executableMarkPriceUsd6613 = refreshedMark6614?.priceUsd?.value?.toDouble() ?: intent.executableMarkPriceUsd6613,
             liquidityUsd = refreshedMark6614?.liquidityUsd?.toDouble() ?: intent.liquidityUsd,
             markId6614 = refreshedMark6614?.let { "${it.mint}:${it.pairId}:${it.timestampMs}" } ?: intent.markId6614,
             markVersion6614 = refreshedMark6614?.timestampMs ?: intent.markVersion6614,
@@ -2398,7 +2414,7 @@ object ExecutableOpenGate {
         // and returns hardVeto=true when >=3 subsystems agree. Wire
         // it here so admission actually honors the collective verdict.
         val adaptiveVeto6728 = try {
-            com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.evaluate()
+            com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.evaluate(modeUpper, canonicalSelectedLane, mint)
         } catch (_: Throwable) { null }
         if (adaptiveVeto6728 != null && adaptiveVeto6728.hardVeto) {
             try {
@@ -2581,6 +2597,10 @@ object ExecutableOpenGate {
         }
         if (!causalAdmission6715.allowed) {
             if (causalAdmission6715.forceRevalidate) {
+                // Re-evaluate the owner policy, not the previously cached verdict.
+                FinalDecisionGate.invalidateCandidate6734(mint)
+                clearRetryPending6548(mint, "CAUSAL_REVALIDATION_6734")
+                allowedAttempts.entries.removeIf { it.value.first == execKey || it.value.first == fdgIntent6519.attemptId }
                 executionTickets.remove(fdgIntent6519.attemptId)
                 executionTickets.remove(execKey)
                 activeExecutionIntents6519.entries.removeIf { it.value.attemptId == fdgIntent6519.attemptId || it.value.attemptId == execKey }

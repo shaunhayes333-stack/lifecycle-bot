@@ -67,22 +67,9 @@ object PerformanceDoctrine6727 {
         if (below) {
             belowTargetEmits.incrementAndGet()
             try { PipelineHealthCollector.labelInc("PERFORMANCE_BELOW_50_TARGET_6727") } catch (_: Throwable) {}
-            // V5.0.6728 §ADAPTIVE_CONSENSUS wire — publish the "we're
-            // below the 50% target" signal into the collective veto
-            // authority so the consensus can escalate advisory subsystems
-            // agreeing simultaneously into a HARD veto.
-            try {
-                AdaptiveVetoConsensusAuthority6728.raise(
-                    AdaptiveVetoConsensusAuthority6728.Signal.PERFORMANCE_BELOW_50_TARGET
-                )
-            } catch (_: Throwable) {}
         } else if (decided >= MIN_DECIDED) {
             try { PipelineHealthCollector.labelInc("PERFORMANCE_AT_OR_ABOVE_50_TARGET_6727") } catch (_: Throwable) {}
-            try {
-                AdaptiveVetoConsensusAuthority6728.clear(
-                    AdaptiveVetoConsensusAuthority6728.Signal.PERFORMANCE_BELOW_50_TARGET
-                )
-            } catch (_: Throwable) {}
+
         }
         return Verdict(
             measuredWinRatePct = wr * 100.0,

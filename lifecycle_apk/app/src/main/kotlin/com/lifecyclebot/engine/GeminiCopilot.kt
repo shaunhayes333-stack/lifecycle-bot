@@ -1048,6 +1048,9 @@ Not one sentence unless the moment truly calls for it.
                     if (!response.isSuccessful) {
                         val errorBody = response.body?.string().orEmpty().take(300)
 
+                        com.lifecyclebot.engine.truth.ProviderInferenceHealth6727.recordFailure(
+                            validatorService(provider), "HTTP_${response.code}",
+                        )
                         when (response.code) {
                             429 -> {
                                 recordRateLimit(provider.name)
@@ -1106,6 +1109,7 @@ Not one sentence unless the moment truly calls for it.
                         val body = response.body?.string().orEmpty().trim()
                         if (body.isBlank()) {
                             lastTransient = provider.name + ":empty_body"
+                            com.lifecyclebot.engine.truth.ProviderInferenceHealth6727.recordFailure(validatorService(provider), "EMPTY_BODY")
                             shouldRetry = true
                         } else {
                             val json = JSONObject(body)
@@ -1117,6 +1121,7 @@ Not one sentence unless the moment truly calls for it.
 
                             if (extractedText.isNullOrBlank()) {
                                 lastTransient = provider.name + ":content_null"
+                                com.lifecyclebot.engine.truth.ProviderInferenceHealth6727.recordFailure(validatorService(provider), "EMPTY_CONTENT")
                                 shouldRetry = true
                             }
                         }
@@ -1124,10 +1129,12 @@ Not one sentence unless the moment truly calls for it.
                 }
             } catch (e: Exception) {
                 lastTransient = provider.name + ":" + (e.message ?: e.javaClass.simpleName)
+                com.lifecyclebot.engine.truth.ProviderInferenceHealth6727.recordFailure(validatorService(provider), "TRANSPORT_OR_PARSE")
                 shouldRetry = true
             }
 
             if (!extractedText.isNullOrBlank()) {
+                com.lifecyclebot.engine.truth.ProviderInferenceHealth6727.recordSuccess(validatorService(provider))
                 return extractedText
             }
 

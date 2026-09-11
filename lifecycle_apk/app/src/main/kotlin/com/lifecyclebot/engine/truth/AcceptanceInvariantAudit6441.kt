@@ -63,7 +63,8 @@ object AcceptanceInvariantAudit6441 {
         //   canonical CLOSED == RewardPurity processed + RewardPurity excluded
         // while W/L/BE itself remains processed-only and unpolluted.
         val (w, l, b) = RewardPurityGate6441.canonicalCounts()
-        val rewardProcessed6699 = (w + l + b).toInt()
+        val sessionRewardProcessed6734 = (w + l + b).toInt()
+        val rewardProcessed6699 = CanonicalFinalizedTradeBus6464.consumerUnique("RewardPurity")
         val rewardExcluded6699 = try {
             CanonicalFinalizedTradeBus6464.consumerExcludedUnique("RewardPurity")
         } catch (_: Throwable) { 0 }
@@ -73,7 +74,7 @@ object AcceptanceInvariantAudit6441 {
         val rewardParity6699 = closedCount == 0 ||
             (busCanonical6699 == closedCount && rewardHandled6699 == closedCount)
         if (rewardParity6699) {
-            passed.add("reward_terminal_pop==closed(processed=$rewardProcessed6699,excluded=$rewardExcluded6699)")
+            passed.add("reward_terminal_pop==closed(processed=$rewardProcessed6699,excluded=$rewardExcluded6699,session=$sessionRewardProcessed6734)")
         } else {
             failed.add(
                 "reward_pop_mismatch:closed=$closedCount,bus=$busCanonical6699," +

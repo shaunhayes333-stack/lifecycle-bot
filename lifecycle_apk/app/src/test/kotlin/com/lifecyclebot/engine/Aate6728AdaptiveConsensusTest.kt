@@ -12,7 +12,7 @@ import org.junit.Test
  * V5.0.6728 — §ADAPTIVE_VETO_CONSENSUS.
  *
  * Locks in the mechanism that hardens the collective advisory posture
- * into a real hard-veto when >=3 subsystems agree. This is the
+ * into a real hard-veto when >=3 independent evidence families agree. This is the
  * escalation the operator flagged as missing in the 6727 dump: the
  * learning/risk brains detect the toxic state but publish as advisories
  * that BUY/WAIT overrides ignore.
@@ -38,18 +38,18 @@ class Aate6728AdaptiveConsensusTest {
         AdaptiveVetoConsensusAuthority6728.raise(Signal.SENTIENCE_VETO_ADVISORY)
         val v = AdaptiveVetoConsensusAuthority6728.evaluate()
         assertFalse("two signals below quorum of 3 must not escalate", v.hardVeto)
-        assertEquals(2, v.quorum)
+        assertEquals("LLM and Sentience are correlated advisor evidence", 1, v.quorum)
     }
 
     @Test
-    fun `three simultaneous signals trigger hard veto`() {
+    fun `three raw correlated signals do not form independent quorum`() {
         AdaptiveVetoConsensusAuthority6728.raise(Signal.LLM_BLOCK_ADVISORY)
         AdaptiveVetoConsensusAuthority6728.raise(Signal.SENTIENCE_VETO_ADVISORY)
         AdaptiveVetoConsensusAuthority6728.raise(Signal.LOSING_STREAK_COHORT)
         val v = AdaptiveVetoConsensusAuthority6728.evaluate()
-        assertTrue("three concurrent advisories must escalate to hard veto", v.hardVeto)
-        assertEquals(3, v.quorum)
-        assertTrue(AdaptiveVetoConsensusAuthority6728.isHardVeto())
+        assertFalse("correlated advisories must not escalate to a hard veto", v.hardVeto)
+        assertEquals(2, v.quorum)
+        assertFalse(AdaptiveVetoConsensusAuthority6728.isHardVeto())
     }
 
     @Test
@@ -57,8 +57,10 @@ class Aate6728AdaptiveConsensusTest {
         AdaptiveVetoConsensusAuthority6728.raise(Signal.LLM_BLOCK_ADVISORY)
         AdaptiveVetoConsensusAuthority6728.raise(Signal.SENTIENCE_VETO_ADVISORY)
         AdaptiveVetoConsensusAuthority6728.raise(Signal.LOSING_STREAK_COHORT)
+        AdaptiveVetoConsensusAuthority6728.raise(Signal.BRAIN_CONSENSUS_SOFT_BLOCK)
         assertTrue(AdaptiveVetoConsensusAuthority6728.isHardVeto())
         AdaptiveVetoConsensusAuthority6728.clear(Signal.LLM_BLOCK_ADVISORY)
+        AdaptiveVetoConsensusAuthority6728.clear(Signal.SENTIENCE_VETO_ADVISORY)
         assertFalse("clear must pull below quorum", AdaptiveVetoConsensusAuthority6728.isHardVeto())
     }
 

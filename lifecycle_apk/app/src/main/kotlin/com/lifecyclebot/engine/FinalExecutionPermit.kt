@@ -290,19 +290,30 @@ object FinalExecutionPermit {
         // lane/mode shaping immediately before reservation. Never zero-size or
         // globally block an unrelated profitable lane from this broad permit.
         val cohortCooldown6488 = try {
-            com.lifecyclebot.engine.truth.LosingStreakReflex6439.cooldownRemainingSec(requestingLayer)
+            com.lifecyclebot.engine.truth.LosingStreakReflex6439.cooldownRemainingSec(requestingLayer, if (isPaperMode) "PAPER" else "LIVE")
         } catch (_: Throwable) { 0L }
         if (cohortCooldown6488 > 0L) {
             try {
                 PipelineHealthCollector.labelInc("LOSING_STREAK_COHORT_NO_GLOBAL_VETO_6488")
                 com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.raise(
-                    com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.Signal.LOSING_STREAK_COHORT
+                    com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.Signal.LOSING_STREAK_COHORT,
+                    mode = if (isPaperMode) "PAPER" else "LIVE", lane = requestingLayer,
+                    evidenceId = com.lifecyclebot.engine.truth.LosingStreakReflex6439.consecutiveLossesNow(
+                        requestingLayer, if (isPaperMode) "PAPER" else "LIVE",
+                    ).toString(),
                 )
                 ForensicLogger.lifecycle(
                     "LOSING_STREAK_COHORT_NO_GLOBAL_VETO_6488",
                     "layer=$requestingLayer symbol=$symbol mint=${mint.take(10)} cooldownRemSec=$cohortCooldown6488 action=advisory_raised_to_consensus_6728",
                 )
             } catch (_: Throwable) {}
+        }
+
+        if (cohortCooldown6488 <= 0L) {
+            com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.clear(
+                com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.Signal.LOSING_STREAK_COHORT,
+                mode = if (isPaperMode) "PAPER" else "LIVE", lane = requestingLayer,
+            )
         }
 
         if (RuntimeConfigOverlay.isLaneDisabled(requestingLayer)) {

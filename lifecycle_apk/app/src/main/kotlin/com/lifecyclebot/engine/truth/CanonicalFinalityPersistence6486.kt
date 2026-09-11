@@ -15,6 +15,7 @@ object CanonicalFinalityPersistence6486 {
     // forensic history and write/read only the versioned namespace below.
     private const val ACK_PREFIX_6486_RETIRED_FORENSIC = "ack:"
     private const val ACK_PREFIX_6697 = "ack6697:"
+    private const val EXCLUDED_PREFIX_6734 = "excluded6734:"
     @Volatile private var prefs: SharedPreferences? = null
     @Volatile private var initialized = false
 
@@ -43,7 +44,20 @@ object CanonicalFinalityPersistence6486 {
 
     fun recordAck6486(consumer: String, positionId: String) {
         if (consumer.isBlank() || positionId.isBlank()) return
-        prefs?.edit()?.putBoolean(ACK_PREFIX_6697 + consumer + ":" + positionId, true)?.apply()
+        prefs?.edit()?.remove(EXCLUDED_PREFIX_6734 + consumer + ":" + positionId)
+            ?.putBoolean(ACK_PREFIX_6697 + consumer + ":" + positionId, true)?.apply()
+    }
+
+    fun recordExclusion6734(consumer: String, tradeId: String, reason: String) {
+        if (consumer.isBlank() || tradeId.isBlank()) return
+        prefs?.edit()?.remove(ACK_PREFIX_6697 + consumer + ":" + tradeId)
+            ?.putString(EXCLUDED_PREFIX_6734 + consumer + ":" + tradeId, reason)?.apply()
+    }
+
+    fun excludedIds6734(consumer: String): Set<String> {
+        val prefix = EXCLUDED_PREFIX_6734 + consumer + ":"
+        return prefs?.all?.asSequence()?.filter { it.key.startsWith(prefix) && it.value is String }
+            ?.map { it.key.removePrefix(prefix) }?.toSet() ?: emptySet()
     }
 
     fun hasAck6486(consumer: String, positionId: String): Boolean =
