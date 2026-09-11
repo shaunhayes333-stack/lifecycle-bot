@@ -43,11 +43,33 @@ jobs:
           python3 ci/authority_contradiction_scan.py
           python3 ci/patch_rot_scan.py
 
-      - name: Targeted recovery regression tests
+      - name: Test adaptive consensus
         working-directory: lifecycle_apk
-        run: |
-          chmod +x gradlew || true
-          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=6734 -PaateVersionName=5.0.6734 --tests com.lifecyclebot.engine.Aate6728AdaptiveConsensusTest --tests com.lifecyclebot.engine.Aate6733LedgerParityAndSkewTest --tests com.lifecyclebot.engine.Aate6733LearnerRevisionRaceGraceTest --tests com.lifecyclebot.engine.Aate6734RecoveryAuthorityTest --tests com.lifecyclebot.engine.Repair6533ExecutionAuthorityAcceptanceTest --tests com.lifecyclebot.engine.BuildRepair6579CoverageTest --tests com.lifecyclebot.engine.Aate6616CausalP0RepairTest
+        run: ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=6734 -PaateVersionName=5.0.6734 --tests com.lifecyclebot.engine.Aate6728AdaptiveConsensusTest
+
+      - name: Test ledger parity and skew
+        working-directory: lifecycle_apk
+        run: ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=6734 -PaateVersionName=5.0.6734 --tests com.lifecyclebot.engine.Aate6733LedgerParityAndSkewTest
+
+      - name: Test learner revision race
+        working-directory: lifecycle_apk
+        run: ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=6734 -PaateVersionName=5.0.6734 --tests com.lifecyclebot.engine.Aate6733LearnerRevisionRaceGraceTest
+
+      - name: Test recovery authority
+        working-directory: lifecycle_apk
+        run: ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=6734 -PaateVersionName=5.0.6734 --tests com.lifecyclebot.engine.Aate6734RecoveryAuthorityTest
+
+      - name: Test execution authority
+        working-directory: lifecycle_apk
+        run: ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=6734 -PaateVersionName=5.0.6734 --tests com.lifecyclebot.engine.Repair6533ExecutionAuthorityAcceptanceTest
+
+      - name: Test paper mark compatibility
+        working-directory: lifecycle_apk
+        run: ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=6734 -PaateVersionName=5.0.6734 --tests com.lifecyclebot.engine.BuildRepair6579CoverageTest
+
+      - name: Test causal mark repair
+        working-directory: lifecycle_apk
+        run: ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=6734 -PaateVersionName=5.0.6734 --tests com.lifecyclebot.engine.Aate6616CausalP0RepairTest
 
       - name: Commit repaired source to main
         run: |
