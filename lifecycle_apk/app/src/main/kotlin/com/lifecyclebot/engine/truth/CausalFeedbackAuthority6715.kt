@@ -196,11 +196,57 @@ object CausalFeedbackAuthority6715 {
                 emit("CAUSAL_EXEC_STALE_EPOCH_6715", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} expected=$nm/$nl stamped=${stamp.mode}/${stamp.lane} reason=IDENTITY_DRIFT_MODE_OR_LANE")
                 return Admission(false, "FEEDBACK_IDENTITY_DRIFT_REVALIDATE_6715", forceRevalidate = true)
             }
-            val stale = stamp.scopes.any { (k, v) -> state(k).let { it.terminalEpoch != v.terminalEpoch || it.learningRevision != v.learningRevision } }
+            val staleByTerminal = stamp.scopes.any { (k, v) -> state(k).terminalEpoch != v.terminalEpoch }
+            val staleByRevision = stamp.scopes.any { (k, v) -> state(k).learningRevision != v.learningRevision }
+            val stale = staleByTerminal || staleByRevision
             if (stale) {
-                releaseAttemptLocked(attemptId, removeStamp = true)
-                emit("CAUSAL_EXEC_STALE_EPOCH_6715", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band reason=LEARNER_REVISION_CHANGED")
-                return Admission(false, "STALE_FEEDBACK_EPOCH_REVALIDATE_6715", forceRevalidate = true)
+                // V5.0.6732 §LEARNER_REVISION_RACE_STAMP_ONLY_GRACE — 6731
+                // ran the pipeline into recurring learner-revision churn.
+                // The 6730 blanket grace was reverted because it violated
+                // the Aate6715 integrity contract (fresh terminal MUST
+                // invalidate pending stamps).
+                //
+                // Correct discriminator:
+                //   staleByTerminal → a real close landed in this scope.
+                //     The pending decision was made without knowledge of
+                //     that outcome. Integrity contract: MUST hard-block.
+                //   staleByRevision only → a learner ACK landed on an
+                //     ALREADY-terminalized position (markLearned path).
+                //     No new market truth arrived. Whether the pending
+                //     stamp saw the ACK or not is a self-tuning race, not
+                //     an integrity violation.
+                //
+                // Grace applies only when:
+                //   1. NOT stale by terminal (integrity preserved), AND
+                //   2. NO reservation exists yet (this is first admit —
+                //      the stamp was made pre-bump but no work has yet
+                //      committed under the old revision), AND
+                //   3. stamp is within LEARNER_REVISION_GRACE_MS.
+                val hasReservation = reservations[attemptId] != null
+                val stampAgeMs = System.currentTimeMillis() - stamp.stampedAtMs
+                val withinGrace = stampAgeMs in 0..LEARNER_REVISION_GRACE_MS
+                if (!staleByTerminal && !hasReservation && withinGrace) {
+                    val refreshedSnap = ks.associateWith { k ->
+                        state(k).let { ScopeStamp(it.terminalEpoch, it.learningRevision) }
+                    }
+                    ticketStamps[attemptId] = stamp.copy(
+                        scopes = refreshedSnap,
+                        stampedAtMs = System.currentTimeMillis(),
+                    )
+                    emit(
+                        "CAUSAL_STAMP_REFRESHED_ON_REVISION_RACE_6732",
+                        "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band stampAgeMs=$stampAgeMs",
+                    )
+                    // Fall through to reservation issuance under the fresh stamp.
+                } else {
+                    releaseAttemptLocked(attemptId, removeStamp = true)
+                    val why = if (staleByTerminal) "TERMINAL_EPOCH_CHANGED" else "LEARNER_REVISION_CHANGED"
+                    emit(
+                        "CAUSAL_EXEC_STALE_EPOCH_6715",
+                        "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band reason=$why hasReservation=$hasReservation stampAgeMs=$stampAgeMs",
+                    )
+                    return Admission(false, "STALE_FEEDBACK_EPOCH_REVALIDATE_6715", forceRevalidate = true)
+                }
             }
             if (currentStates.values.any { it.pendingLearning.isNotEmpty() }) {
                 // V5.0.6721 §CAUSAL_ALIGN_TO_CROSS_ASSET_PARITY — SOFT MODE.

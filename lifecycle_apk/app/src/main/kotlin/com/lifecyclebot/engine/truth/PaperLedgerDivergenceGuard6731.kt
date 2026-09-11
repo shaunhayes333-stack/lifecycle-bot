@@ -36,6 +36,12 @@ object PaperLedgerDivergenceGuard6731 {
     private const val OPEN_COST_DELTA_HARD_STOP_SOL = 5.0
     /** Position-count discrepancy threshold. */
     private const val POSITION_COUNT_GAP_HARD_STOP = 10
+    /** V5.0.6732 §PARITY_STALENESS_TOLERANCE — parity snapshot must be
+     *  younger than this to authoritatively hard-stop admission. The
+     *  maintenance worker refreshes every ~10s in production; anything
+     *  older than 15s is likely referencing a ledger state that has
+     *  already re-converged and would produce false-positive stops. */
+    private const val PARITY_MAX_AGE_MS = 15_000L
 
     data class Verdict(
         val allow: Boolean,
@@ -51,6 +57,19 @@ object PaperLedgerDivergenceGuard6731 {
         val parity = try { CanonicalPaperReplay6464.lastParity() } catch (_: Throwable) { null }
         if (parity == null) {
             return Verdict(true, "OK_NO_PARITY", 0.0, 0.0, 0.0, 0, "NO_PARITY")
+        }
+        // V5.0.6732 §PARITY_STALENESS_GUARD — if the parity snapshot is
+        // older than PARITY_MAX_AGE_MS, do NOT hard-stop admission. The
+        // 6731 dump showed 282 divergence events but the canonical
+        // ledger simultaneously reported conservation OK and the next
+        // replay reported zero delta — a stale snapshot was choking new
+        // admissions long after the ledger reconverged. Fail-open on
+        // stale reads; the maintenance worker will refresh shortly and
+        // real drift will re-engage the guard once evidence is current.
+        val parityAge = try { CanonicalPaperReplay6464.lastParityAgeMs() } catch (_: Throwable) { 0L }
+        if (parityAge > PARITY_MAX_AGE_MS) {
+            try { PipelineHealthCollector.labelInc("PAPER_LEDGER_DIVERGENCE_STALE_PARITY_FAIL_OPEN_6732") } catch (_: Throwable) {}
+            return Verdict(true, "OK_STALE_PARITY_6732", parity.cashDelta, parity.openCostDelta, parity.realizedDelta, parity.orphanLotCount, "STALE_${parityAge}ms")
         }
         val cashΔ = kotlin.math.abs(parity.cashDelta)
         val openΔ = kotlin.math.abs(parity.openCostDelta)

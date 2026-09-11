@@ -83,7 +83,7 @@ class Aate6732ExecPipelineFairnessTest {
             observedBaseMint = mint,
             pairOrPool = "MINT_ROUTE:$mint",
             quoteMint = "USD",
-            source = "Helius",
+            source = "DEXSCREENER_PAIR_POLL",
             priceUsd = 1.2345,
             liquidityUsd = 0.0,           // ← formerly killed both slots
             evidenceTimestampMs = System.currentTimeMillis(),
@@ -113,7 +113,7 @@ class Aate6732ExecPipelineFairnessTest {
             observedBaseMint = mint,
             pairOrPool = "MINT_ROUTE:$mint",
             quoteMint = "USD",
-            source = "Helius",
+            source = "DEXSCREENER_PAIR_POLL",
             priceUsd = 1.2345,
             liquidityUsd = 25_000.0,
             evidenceTimestampMs = System.currentTimeMillis(),

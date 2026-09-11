@@ -90,6 +90,19 @@ object RegimeDetector {
             wr in 25.0..44.99 && abs(meanPnl) < 3.0                         -> Regime.NORMAL
             wr in 15.0..24.99 && meanPnl < 0.0                              -> Regime.CHOP
             wr < 15.0 && meanPnl <= -3.0                                    -> Regime.DUMP
+            // V5.0.6733 §REGIME_DEGRADATION_EARLY_TRIGGER — 6731 dump: 25
+            // trades, 3W/22L (12% WR), PF 0.97, longest loss streak 16.
+            // The pre-6733 else branch fell through to NORMAL because
+            // meanPnl narrowly exceeded -3% (position sizing kept losses
+            // shallow, but the WR was terminal). The regime detector
+            // never downgraded, so scoreFloorDelta stayed at 0 and
+            // sizeMult at 1.00. Add an explicit early-degradation trigger:
+            // sample-size >= 20 AND WR < 25% => CHOP downgrade. This
+            // routes the size-mult haircut (0.35) and floor delta (+10)
+            // to fire on the actual toxic-sample condition the operator
+            // observed, without needing to wait for the meanPnl to also
+            // collapse to -3%.
+            recentSells.size >= 20 && wr < 25.0                             -> Regime.CHOP
             else                                                             -> Regime.NORMAL
         }
 

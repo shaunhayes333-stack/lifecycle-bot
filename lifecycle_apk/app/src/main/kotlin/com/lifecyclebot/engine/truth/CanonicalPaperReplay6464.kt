@@ -65,6 +65,13 @@ object CanonicalPaperReplay6464 {
     private val replays = AtomicLong(0L)
     private val lastSnapshot = AtomicReference<Snapshot?>(null)
     private val lastParity = AtomicReference<Parity?>(null)
+    // V5.0.6732 §PARITY_STALENESS_TIMESTAMP — the divergence guard reads
+    // `lastParity` on every admission, but `compareToLedger` runs from
+    // MaintenanceWorker6448 periodically (not sync-on-demand). A stale
+    // parity snapshot can hard-stop admissions while the ledger has
+    // already re-converged. Stamp the last-computed-at timestamp so the
+    // guard can fail-open on stale reads.
+    private val lastParityAtMs = AtomicLong(0L)
 
     fun replay(startingCashSol: Double): Snapshot {
         replays.incrementAndGet()
@@ -252,6 +259,7 @@ object CanonicalPaperReplay6464 {
             orphanLotCount = snap.orphanLotCount,
         )
         lastParity.set(parity)
+        lastParityAtMs.set(System.currentTimeMillis())
         val diverged = kotlin.math.abs(cashDelta) > toleranceSol ||
                        kotlin.math.abs(realizedDelta) > toleranceSol ||
                        kotlin.math.abs(openDelta) > toleranceSol ||
@@ -305,6 +313,15 @@ object CanonicalPaperReplay6464 {
     }
     fun lastParity(): Parity? = lastParity.get()
 
+    /** V5.0.6732 — millis since the last compareToLedger call ran, or
+     *  Long.MAX_VALUE if no parity has ever been computed. Consulted by
+     *  the divergence guard so a stale parity snapshot doesn't hard-stop
+     *  admission after the ledger has re-converged. */
+    fun lastParityAgeMs(nowMs: Long = System.currentTimeMillis()): Long {
+        val at = lastParityAtMs.get()
+        return if (at <= 0L) Long.MAX_VALUE else (nowMs - at).coerceAtLeast(0L)
+    }
+
     fun statusLine(): String {
         val p = lastParity.get()
         return if (p == null) "no_parity_yet replays=${replays.get()}"
@@ -315,6 +332,6 @@ object CanonicalPaperReplay6464 {
     }
 
     internal fun resetForTest() {
-        replays.set(0L); lastSnapshot.set(null); lastParity.set(null)
+        replays.set(0L); lastSnapshot.set(null); lastParity.set(null); lastParityAtMs.set(0L)
     }
 }

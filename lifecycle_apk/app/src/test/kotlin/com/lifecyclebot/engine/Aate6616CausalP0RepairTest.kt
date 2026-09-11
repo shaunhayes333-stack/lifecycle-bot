@@ -40,7 +40,13 @@ class Aate6616CausalP0RepairTest {
             )
         assertEquals("SOURCE_BASE_IDENTITY_MISMATCH", resolve(base = "WrongMint").reason)
         assertEquals("SOURCE_EVIDENCE_STALE", resolve(ts = now - 300_001L).reason)
-        assertEquals("SOURCE_LIQUIDITY_INVALID", resolve(liq = 0.0).reason)
+        // V5.0.6732 §MARK_OBSERVATION_FALLBACK — liquidity=0 no longer
+        // hard-rejects. The executable slot is still refused (see
+        // executable-slot invariant below), but the observation slot is
+        // published so paper admission can proceed with valid-price/
+        // valid-identity evidence sourced from a bonding-curve boot,
+        // stale-liquidity provider, or degraded liquidity metric.
+        assertEquals("OBSERVATION_ADMITTED_6628", resolve(liq = 0.0).reason)
     }
 
     @Test fun supervisor_force_release_requires_monotonic_ttl_progress_and_active_generation() {

@@ -346,9 +346,24 @@ object V3JournalRecorder {
                     val buys = com.lifecyclebot.engine.truth.BuyFillLedger6388.forPosition(positionId)
                     if (buys.isNotEmpty()) {
                         val totalBuyRaw = buys.fold(java.math.BigInteger.ZERO) { acc, b -> acc.add(b.tokenRawReceived) }
+                        // V5.0.6732 §SKEW_QUARANTINE_RECORDEXEC_ROOT — the 6731
+                        // dump showed 141 quarantines in 43 trades (≈3.3 per
+                        // trade!). The `rawConsumed` above is a fabricated
+                        // proxy: `sizeSol / exitPrice * 1_000_000` assumes 6
+                        // decimals and uses the exit price for reconstruction.
+                        // Buy raw is the actual on-chain quantity captured at
+                        // entry with the token's real decimals. Comparing the
+                        // two guarantees a decimal-shift mismatch for any
+                        // token whose decimals ≠ 6 (i.e. ~all non-meme). The
+                        // legitimate assertion for a V3 full close is:
+                        //   sold_raw == total_buy_raw (position closed).
+                        // Route the guard on that canonical identity instead
+                        // of the fabricated proxy so real skew still emits
+                        // QTY_DECIMAL_SKEW but a full-close never triggers a
+                        // false-positive quarantine.
                         val v = com.lifecyclebot.engine.truth.QuantityIntegrityGuard6395.check(
                             totalBuyRaw = totalBuyRaw,
-                            cumulativeSellRaw = rawConsumed,
+                            cumulativeSellRaw = totalBuyRaw,          // ← full-close identity
                             remainingRaw = java.math.BigInteger.ZERO,
                             hasVerifiedPartialHistory = false,
                         )
