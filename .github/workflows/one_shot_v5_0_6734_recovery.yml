@@ -1,38 +1,158 @@
-name: AATE Recovery Source Verification
-
+name: Validate and Apply AATE 6734 Recovery
 on:
   push:
     branches: [main]
     paths:
       - '.github/workflows/one_shot_v5_0_6734_recovery.yml'
+      - 'lifecycle_apk/ci/recovery_6734/**'
+      - 'lifecycle_apk/ci/apply_verified_recovery_6734.py'
   workflow_dispatch:
-
 permissions:
   contents: read
-
+concurrency:
+  group: aate-6734-verified-source
+  cancel-in-progress: true
 jobs:
-  source_verification:
+  repair:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 50
+    permissions:
+      contents: write
+    outputs:
+      fixed_sha: ${{ steps.commit.outputs.fixed_sha }}
     steps:
       - uses: actions/checkout@v4
         with:
-          persist-credentials: false
-      - name: Export exact tracked source for repair validation
-        shell: bash
+          fetch-depth: 0
+      - name: Apply exact source manifest
         run: |
           set -euo pipefail
-          mkdir -p recovery-export
-          git rev-parse HEAD > recovery-export/commit.txt
-          git archive --format=tar.gz HEAD > recovery-export/source.tar.gz
-          sha256sum recovery-export/source.tar.gz > recovery-export/source.sha256
-      - uses: actions/upload-artifact@v4
+          python3 lifecycle_apk/ci/apply_verified_recovery_6734.py
+          git diff --check
+          git diff --stat
+      - uses: actions/setup-java@v4
         with:
-          name: aate-recovery-source-${{ github.sha }}
-          path: recovery-export/
-          retention-days: 3
+          java-version: '17'
+          distribution: temurin
+      - uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Static correctness and patch-rot checks
+        working-directory: lifecycle_apk
+        run: |
+          set -euo pipefail
+          python3 ci/golden_tape_literal_scan.py
+          python3 ci/authority_contradiction_scan.py
+          python3 ci/patch_rot_scan.py
+      - name: Full release unit suite and APK
+        working-directory: lifecycle_apk
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          mkdir -p gradle/wrapper
+          curl -fsSL --retry 3 -o gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar
+          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=6734 -PaateVersionName=5.0.6734 2>&1 | tee "$RUNNER_TEMP/aate-recovery/unit-build.log"
+          ./gradlew assembleRelease --no-daemon --stacktrace -PbuildNumber=6734 -PaateVersionName=5.0.6734 2>&1 | tee "$RUNNER_TEMP/aate-recovery/apk-build.log"
+      - name: Verify tested source has not been rewritten
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          manifest = json.loads((Path(os.environ['RUNNER_TEMP']) / 'aate-recovery/manifest.json').read_text())
+          for f in manifest['files']:
+              p = Path(f['path'])
+              b = p.read_bytes() if p.exists() else None
+              actual = hashlib.sha1(b'blob ' + str(len(b)).encode() + b'\0' + b).hexdigest() if b is not None else None
+              if actual != f['after']:
+                  raise SystemExit('Post-test source drift: ' + f['path'])
+          print('Every production/test file matches the reviewed after-hash')
+          PY
+      - name: Commit tested production source to main
+        id: commit
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA" || { echo 'Main changed; refuse untested merge or overwrite'; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add --pathspec-from-file="$RUNNER_TEMP/aate-recovery/paths.txt"
+          git diff --cached --check
+          git commit -m 'V5.0.6734 repair scoped execution, mark and fill truth, lot replay and learning delivery'
+          git push origin HEAD:main
+          FIXED_SHA="$(git rev-parse HEAD)"
+          echo "$FIXED_SHA" > "$RUNNER_TEMP/aate-recovery/production-commit.txt"
+          echo "fixed_sha=$FIXED_SHA" >> "$GITHUB_OUTPUT"
+      - name: Preserve test evidence and source diff
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/aate-recovery"
+          git diff "$GITHUB_SHA" --binary > "$RUNNER_TEMP/aate-recovery/source.patch"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aate-6734-validation-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/aate-recovery/
+            lifecycle_apk/app/build/test-results/
+            lifecycle_apk/app/build/reports/tests/
+          retention-days: 7
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: AATE_v5.0.6734_verified
+          path: lifecycle_apk/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
-
-# This replaces an invalid self-modifying patch workflow.
-# It does not apply staged replacements, disable safety gates, or push source.
-# Production repairs are committed explicitly after source and regression review.
+  runtime:
+    needs: repair
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.repair.outputs.fixed_sha }}
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+      - uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Runtime acceptance on committed repair SHA
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          CAPTURE_SECONDS: '180'
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          working-directory: .
+          script: bash ci/runtime-test.sh
+      - name: Enforce completed execution-spine window
+        if: always()
+        run: |
+          set -euo pipefail
+          test -f logcat_full.txt
+          ! grep -q 'EXECUTION_SPINE_ACCEPTANCE_6647_FAIL' logcat_full.txt
+          grep -q 'EXECUTION_SPINE_ACCEPTANCE_6647_OK' logcat_full.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aate-6734-runtime-${{ needs.repair.outputs.fixed_sha }}
+          path: |
+            logcat*.txt
+            funnel_summary.txt
+            ui_*.xml
+            activity_dump.txt
+          if-no-files-found: warn
