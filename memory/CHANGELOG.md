@@ -1,3 +1,17 @@
+## V5.0.6731 — §PAPER_LEDGER_DIVERGENCE_HARD_STOP + §LEARNER_GRACE_REVERT (Build GREEN — 15m52s)
+
+Operator: "accounting drift across the trading decks. balances no longer align." Deferred Fault #3 from the 6727 diagnostic (cash divergence 11.71 SOL + 43-position gap) has now spread across meme, crypto, perps.
+
+- **§PAPER_LEDGER_DIVERGENCE_HARD_STOP**: new `PaperLedgerDivergenceGuard6731` reads `CanonicalPaperReplay6464.lastParity()` and BLOCKS new paper admissions when `|cashΔ| >= 3.0 SOL` OR `|openCostΔ| >= 5.0 SOL` OR `orphanLotCount >= 10`. Wired into `ExecutableOpenGate` paper admit path with `EXEC_OPEN_BLOCKED_PAPER_LEDGER_DIVERGENCE_6731` taxonomy. Exits are NOT touched — the coordinator continues draining so the ledger reconverges naturally as sells complete. Per-bucket counters (LT_5SOL / LT_10SOL / LT_20SOL / LT_50SOL / GT_50SOL) surface drift magnitude. Safer alternative to the twice-reverted Fire-A reconciliation heal.
+- **§LEARNER_GRACE_REVERT** (`CausalFeedbackAuthority6715`): 6730 introduced a 3s learner-revision race grace to reduce 63/207s STALE_FEEDBACK spam. It broke the Aate6715 integrity contract (stamp-made-before-terminal must hard-block). Reverted to pre-6730 semantics until a scope-aware grace discriminator lands.
+
+### V5.0.6730 (RED test-fail — superseded)
+- §LEARNER_REVISION_RACE_GRACE — reverted in 6731 (see above).
+- **§PROACTIVE_INVENTORY_VELOCITY** (`ExitThroughputAuthority6727` + new `InventoryVelocityCounters6730`): lowered thresholds to engage BEFORE saturation (open≥40 AND cash<20%; hard cap open≥100). Added rolling 60s velocity guard: blocks when opens/min ≥ 20 OR opens/sells ratio ≥ 3 (with ≥5 sells). Wired from `PipelineHealthCollector.recordExec` paper BUY/SELL branches.
+- **§HARD_FLOOR_METRIC_CEILING** (`Executor.kt` SL trigger): the `.coerceIn(-50.0, -3.0)` was defeating the 6725 metric widening (returned -6% for healthy runners, clamped right back to -3%). Ceiling now tier-aware — HEALTHY_RUNNER gets -6% ceiling, HEALTHY_STABLE -4%, else -3%. -50% catastrophic floor unchanged.
+
+---
+
 ## V5.0.6729 — §GOLDEN_TAPE_STRING_PRESERVE (Build GREEN — 14m21s)
 - 6728 changed Sentience forensic action string from `ignored_no_hard_veto` to `advisory_raised_to_consensus_6728`, breaking `GoldenTapeRegressionTest.external_llm_must_be_advisory_not_hard_buy_veto` which asserts the exact substring. 6729 restores the phrase (`action=ignored_no_hard_veto raised_to_consensus_6728=true`) so both the test contract AND the consensus wire-live indicator satisfy simultaneously. Raise() call semantics unchanged.
 
