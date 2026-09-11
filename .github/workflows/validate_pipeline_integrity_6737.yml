@@ -1,0 +1,133 @@
+name: Validate pipeline integrity 6737
+
+on:
+  push:
+    branches: ['repair/6737-pipeline-integrity-20260912']
+    paths: ['.github/workflows/validate_pipeline_integrity_6737.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pipeline-integrity-6737-validation
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply exact source edits and publish the reviewable source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/6737-evidence
+          python3 - <<'PY'
+          import base64, gzip, hashlib, json
+          from pathlib import Path
+          encoded = ''.join(Path(f'.github/repair6737/part{i}.b64').read_text().strip() for i in range(1, 5))
+          raw = gzip.decompress(base64.b64decode(encoded, validate=True))
+          assert hashlib.sha256(raw).hexdigest() == 'cfe35936ef77830650debc1b72c48bbb62ba8a2d9fae21a689f77cb003576e7c', 'manifest transport mismatch'
+          manifest = json.loads(raw)
+          changes = []
+          for item in manifest['files']:
+              path = Path(item['path'])
+              assert not path.is_absolute() and '..' not in path.parts and '.git' not in path.parts
+              if item['before'] is None:
+                  assert not path.exists(), f'new-file conflict: {path}'
+                  before = b''
+              else:
+                  before = path.read_bytes()
+                  assert hashlib.sha256(before).hexdigest() == item['before'], f'concurrent source change: {path}'
+              lines = before.decode('utf-8').splitlines(keepends=True)
+              for start, end, replacement in reversed(item['edits']):
+                  assert 0 <= start <= end <= len(lines)
+                  lines[start:end] = replacement.splitlines(keepends=True)
+              after = ''.join(lines).encode('utf-8')
+              assert hashlib.sha256(after).hexdigest() == item['after'], f'edit result mismatch: {path}'
+              changes.append((path, after))
+          for path, after in changes:
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_bytes(after)
+          Path('/tmp/6737-evidence/manifest.json').write_bytes(raw)
+          Path('/tmp/6737-evidence/changed-paths.txt').write_text('\n'.join(str(path) for path, _ in changes) + '\n')
+          print(f'Applied {len(changes)} files, all original and resulting hashes verified')
+          PY
+          git diff --check
+          git add --pathspec-from-file=/tmp/6737-evidence/changed-paths.txt
+          git rm .github/repair6737/part1.b64 .github/repair6737/part2.b64 .github/repair6737/part3.b64 .github/repair6737/part4.b64 .github/workflows/validate_pipeline_integrity_6737.yml
+          git diff --cached --check
+          git diff --cached --stat > /tmp/6737-evidence/source-stat.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'V5.0.6737 repair funded inventory, quantity-based exits and learned risk authority'
+          SOURCE_SHA=$(git rev-parse HEAD)
+          printf '%s\n' "$SOURCE_SHA" > /tmp/6737-evidence/source-sha.txt
+          git push origin "HEAD:refs/heads/repair/6737-pipeline-integrity-20260912"
+          echo "Review source: $SOURCE_SHA; main is unchanged by this job." >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+      - uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+      - name: Source authority and patch-rot regression checks
+        working-directory: lifecycle_apk
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ci/golden_tape_literal_scan.py
+          python3 ci/authority_contradiction_scan.py
+          python3 ci/patch_rot_scan.py
+      - name: Full release unit-test suite
+        working-directory: lifecycle_apk
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          mkdir -p gradle/wrapper
+          curl --fail --retry 3 -sSL -o gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar
+          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=6737 -PaateVersionName=5.0.6737 2>&1 | tee /tmp/6737-evidence/unit.log
+      - name: Assemble exact reviewed source
+        working-directory: lifecycle_apk
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew assembleRelease --no-daemon --stacktrace -PbuildNumber=6737 -PaateVersionName=5.0.6737 2>&1 | tee /tmp/6737-evidence/build.log
+          python3 ci/build_gate_summary.py
+      - name: Detect build-time source overwrites
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          manifest = json.loads(Path('/tmp/6737-evidence/manifest.json').read_text())
+          bad = [item['path'] for item in manifest['files'] if hashlib.sha256(Path(item['path']).read_bytes()).hexdigest() != item['after']]
+          Path('/tmp/6737-evidence/source-overwrites.txt').write_text('\n'.join(bad) if bad else 'No reviewed source files were overwritten by build transforms.\n')
+          assert not bad, f'Build-time source overwrite: {bad}'
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aate-6737-validation-${{ github.run_id }}
+          path: |
+            /tmp/6737-evidence/
+            lifecycle_apk/app/build/test-results/
+            lifecycle_apk/app/build/reports/tests/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: AATE_v5.0.6737_validated
+          path: lifecycle_apk/app/build/outputs/apk/release/AATE_v5.0.6737.apk
+          if-no-files-found: error
