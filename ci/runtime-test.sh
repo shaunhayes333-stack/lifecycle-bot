@@ -1,28 +1,19 @@
 #!/usr/bin/env bash
-# V5.9.657 — Runtime Smoke Test on-emulator script.
-# Called from .github/workflows/runtime-test.yml inside the
-# reactivecircus/android-emulator-runner@v2 emulator-running step.
-#
-# The action runs each line of its `script:` parameter as a separate
-# `sh -c` invocation, which breaks line continuations and loses `set -e`
-# state. So all logic that needs persistent shell state lives here.
 
+# Runtime smoke: real UI Start/Stop/Start with persisted history.
+# Liveness does not replace the separate canonical acceptance-window gate.
 set -euo pipefail
 
 CAPTURE_SECONDS="${CAPTURE_SECONDS:-180}"
 WS="${GITHUB_WORKSPACE:-$(pwd)}"
+
+python3 -m unittest discover -s "$WS/ci" -p "test_runtime_liveness.py" -v
 
 cd lifecycle_apk
 
 echo "::group::Build debug APK"
 chmod +x gradlew || true
 mkdir -p gradle/wrapper
-# V5.0.6549 §RUNTIME_SMOKE_GRADLE_FLAKE_FIX — the smoke workflow was
-# consistently failing with "Downloading from https://services.gradle.org
-# /distributions/gradle-8.7-bin.zip failed: timeout (10000ms)". Emulator
-# step gets a shorter default network budget than the build workflow.
-# Mirror the build.yml retry-with-backoff loop so a single transient
-# 504/timeout on the gradle CDN no longer kills the smoke test.
 curl -sL --retry 5 --retry-delay 15 --retry-connrefused -o gradle/wrapper/gradle-wrapper.jar \
   "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
 export GRADLE_OPTS="-Dorg.gradle.internal.http.connectionTimeout=60000 -Dorg.gradle.internal.http.socketTimeout=60000 ${GRADLE_OPTS:-}"
@@ -50,18 +41,12 @@ echo "::endgroup::"
 
 echo "::group::Wait for emulator boot"
 adb wait-for-device
-# shellcheck disable=SC2016
 adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
 sleep 5
 adb devices
 echo "::endgroup::"
 
 echo "::group::Install APK + grant runtime perms"
-# V5.9.657 — cached AVD may already have a com.lifecyclebot.aate
-# install signed by a different debug keystore (previous CI run from
-# a different runner image). adb install -r refuses to update across
-# signature mismatches, so uninstall first. -k preserves data; we
-# don't want that here (we want a clean slate every run anyway).
 adb uninstall com.lifecyclebot.aate || true
 adb install -r -t "$APK"
 DEVICE_SDK=$(adb shell getprop ro.build.version.sdk | tr -d '\r')
@@ -71,10 +56,6 @@ fi
 adb shell appops set com.lifecyclebot.aate RUN_IN_BACKGROUND allow || true
 echo "::endgroup::"
 
-# V5.0.6516a — persisted-device startup pressure. The old smoke always
-# uninstalled/cleaned the app, so BotService.onCreate() never saw the large
-# histories that fatal-ANR'd the operator's real install. Seed the exact
-# canonical SharedPreferences schema at its hard cap before launching.
 echo "::group::Seed max persisted canonical history (8192 valid events)"
 SEED_XML="$WS/canonical_economic_events_6486.xml"
 python3 - "$SEED_XML" <<'PYSEED'
@@ -121,18 +102,6 @@ echo "::endgroup::"
 
 echo "::group::Clear logcat + launch LAUNCHER activity"
 adb logcat -c
-# V5.9.657 — first runtime-test run failed with:
-#   "Activity class {com.lifecyclebot.aate/com.lifecyclebot.aate.ui.MainActivity}
-#    does not exist."
-# Two issues:
-#   1. The kotlin namespace is `com.lifecyclebot` while applicationId is
-#      `com.lifecyclebot.aate`. `am start -n PKG/.cls` uses PKG as the
-#      class prefix (would yield com.lifecyclebot.aate.ui.MainActivity)
-#      but the actual class lives under com.lifecyclebot.ui.MainActivity.
-#   2. MainActivity is android:exported="false" — only SecurityActivity
-#      has the MAIN/LAUNCHER intent-filter and exported=true. Use the
-#      `monkey -c LAUNCHER` form so we always hit the LAUNCHER target
-#      regardless of which class it points to.
 adb shell monkey -p com.lifecyclebot.aate -c android.intent.category.LAUNCHER 1 || true
 sleep 4
 adb shell uiautomator dump /sdcard/ui.xml 2>/dev/null || true
@@ -140,22 +109,6 @@ adb pull /sdcard/ui.xml "$WS/ui_dump.xml" || true
 echo "::endgroup::"
 
 echo "::group::V5.0.6517 — UI-only Start → Stop → Start-again acceptance"
-# Receiver performs DEBUG-only PIN setup and opens MainActivity, but MUST NOT
-# start BotService. Every runtime command below comes from a real btnToggle tap.
-# V5.0.6549b — the receiver-initiated startActivity() gets refused by
-# Android 10+ background-activity-start restrictions on the smoke
-# emulator (ui_start_1.xml consistently captured the LAUNCHER rather
-# than MainActivity, so btnToggle was never resolvable). Fix: keep the
-# broadcast for PIN/paper-mode SharedPreferences setup, but launch
-# MainActivity directly via `adb shell am start` — adb shell has the
-# START_ACTIVITIES_FROM_BACKGROUND privilege and can open exported=false
-# activities in the same package.
-# V5.0.6637b — the initial LAUNCHER probe leaves SecurityActivity as the
-# task root. Starting MainActivity over that unauthenticated Activity makes
-# SecurityActivity.onPause() correctly call finishAndRemoveTask(), which
-# removes the just-started MainActivity and returns CI to the launcher. The
-# receiver commits its debug-only prefs synchronously; force-stop then closes
-# the stale auth task before a clean explicit MainActivity launch.
 adb shell am broadcast \
     -a com.lifecyclebot.aate.SMOKE_AUTOSTART \
     -n com.lifecyclebot.aate/com.lifecyclebot.engine.SmokeTestReceiver \
@@ -210,16 +163,14 @@ wait_log_marker() {
     local marker="$1" timeout="$2" label="$3"
     local deadline=$((SECONDS + timeout))
     while [ "$SECONDS" -lt "$deadline" ]; do
-        if adb logcat -d | grep -q "$marker"; then
+        adb logcat -d -v time > "$WS/runtime_marker_probe.txt" || return 1
+        if python3 "$WS/ci/runtime_liveness.py" has-marker "$WS/runtime_marker_probe.txt" "$marker"; then
             echo "$label marker reached: $marker"
             return 0
         fi
         sleep 2
     done
     echo "::error::$label timed out waiting for $marker"
-    # Preserve the device state before `set -e` tears down the emulator. The
-    # previous timeout uploaded only UI XML, which made a genuine bootstrap
-    # stall impossible to distinguish from a crash or rejected Start intent.
     adb logcat -d -v time > "$WS/logcat_full.txt" || true
     adb shell dumpsys activity activities > "$WS/activity_dump.txt" || true
     adb shell dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' || true
@@ -234,7 +185,8 @@ wait_log_marker_any() {
     local markers="$1" timeout="$2" label="$3"
     local deadline=$((SECONDS + timeout))
     while [ "$SECONDS" -lt "$deadline" ]; do
-        if adb logcat -d | grep -Eq "$markers"; then
+        adb logcat -d -v time > "$WS/runtime_marker_probe.txt" || return 1
+        if python3 "$WS/ci/runtime_liveness.py" has-marker "$WS/runtime_marker_probe.txt" "$markers"; then
             echo "$label proof reached: $markers"
             return 0
         fi
@@ -246,11 +198,6 @@ wait_log_marker_any() {
     return 1
 }
 
-# A clean install legitimately shows the non-cancelable risk agreement before
-# the runtime controls. Exercise the real consent button in CI instead of
-# teaching the debug receiver to forge acceptance in SharedPreferences. This
-# keeps the smoke path aligned with a user's first launch while still making
-# the Start -> Stop -> Start test deterministic.
 if grep -q 'text="I AGREE"' "$WS/ui_after_launch.xml" 2>/dev/null; then
     echo "First-run risk disclaimer detected; accepting through the UI"
     ui_tap text "I AGREE" ui_disclaimer_accept.xml
@@ -263,24 +210,13 @@ if grep -q 'text="I AGREE"' "$WS/ui_after_launch.xml" 2>/dev/null; then
     fi
 fi
 
-# First real UI Start from a cold service + max persisted state.
 ui_tap id btnToggle ui_start_1.xml
 wait_log_marker "UI_RUNTIME_TOGGLE_TAP_6517" 20 "first UI tap"
 wait_log_marker "UI_START_DISPATCHED_6517" 20 "first UI dispatch"
-# The one-shot SERVICE_BOOTSTRAP marker can roll out of Android's finite log
-# buffer while a max-history emulator is producing scan traffic. BOT_LOOP_TICK
-# is a stronger later-phase witness: botLoop cannot execute until service and
-# canonical bootstrap have both completed. Accept either marker here, then
-# retain the dedicated loop check below so launch and liveness stay independent.
 wait_log_marker_any "SERVICE_BOOTSTRAP_READY_6516|BOT_LOOP_TICK" 360 "persisted bootstrap"
 FIRST_BOOTSTRAP_CONFIRMED=1
 wait_log_marker "BOT_LOOP_TICK" 60 "first runtime loop"
 
-# V5.0.6659a — Android 11 may put its own battery-optimization permission
-# Activity in front of AATE immediately after the first Start. The prior smoke
-# then searched that Settings dialog for btnToggle and failed even though the
-# service bootstrap and runtime loop had both passed. Accept the real platform
-# prompt, wait for MainActivity to regain focus, and only then exercise Stop.
 adb shell uiautomator dump /sdcard/ui_post_start_system.xml >/dev/null 2>&1 || true
 adb pull /sdcard/ui_post_start_system.xml "$WS/ui_post_start_system.xml" >/dev/null 2>&1 || true
 if grep -q 'package="com.android.settings"' "$WS/ui_post_start_system.xml" 2>/dev/null &&
@@ -290,7 +226,6 @@ if grep -q 'package="com.android.settings"' "$WS/ui_post_start_system.xml" 2>/de
     sleep 2
 fi
 
-# Real UI Stop, including the confirmation dialog.
 sleep 3
 ui_tap id btnToggle ui_stop_button.xml
 sleep 1
@@ -301,7 +236,6 @@ FIRST_STARTS=$(adb logcat -d | grep -c "UI_START_DISPATCHED_6517" || true)
 FIRST_STOPS=$(adb logcat -d | grep -c "LIFECYCLE_STOP_COMPLETE" || true)
 adb logcat -d -v time > "$WS/ui_first_cycle_logcat.txt"
 
-# Second real UI Start proves Stop did not poison the latch or listener.
 adb logcat -c
 sleep 3
 ui_tap id btnToggle ui_start_2.xml
@@ -320,7 +254,6 @@ cat "$WS/ui_first_cycle_logcat.txt" "$WS/logcat_second_start.txt" > "$WS/logcat_
 echo "::endgroup::"
 
 echo "::group::Filter logcat to forensic + trader lines"
-# Mirror the operator's exported-error-log filter shape.
 grep -E "FORENSIC|BotService|FDG|FluidLearn|SAFETY|V3Engine|CryptoAlt|MemeT|ShitCoin|Moonshot|BlueChip|Quality|Treasury|Pump|Birdeye|Jupiter|Executor|TradeAuth|TokenLifecycle" \
   "$WS/logcat_full.txt" \
   > "$WS/logcat_filtered.txt" || true
@@ -332,9 +265,6 @@ tail -n 60 "$WS/logcat_filtered.txt" || true
 echo "::endgroup::"
 
 echo "::group::Pipeline funnel summary"
-# V5.9.657 — counts of each forensic phase. `grep -c` exits 1 when zero
-# matches but still prints "0", so `... || echo 0` would emit "0\n0".
-# Use `|| true` to swallow the non-zero exit and keep grep's own "0".
 FN_INTAKE=$(grep -c "INTAKE\]"      "$WS/logcat_full.txt" || true)
 FN_SAFETY=$(grep -c "SAFETY\]"      "$WS/logcat_full.txt" || true)
 FN_V3=$(    grep -c "V3\]"          "$WS/logcat_full.txt" || true)
@@ -342,31 +272,13 @@ FN_LANE=$(  grep -c "LANE_EVAL\]"   "$WS/logcat_full.txt" || true)
 FN_NOPAIR=$(grep -c "NO_PAIR_NO_FALLBACK" "$WS/logcat_full.txt" || true)
 FN_BUY=$(   grep -cE "EXECUTE|DynScan EXECUTE|paperBuy|liveBuy" "$WS/logcat_full.txt" || true)
 FN_SELL=$(  grep -cE "liveSell|paperSell|EXIT_FILLED" "$WS/logcat_full.txt" || true)
-# V5.9.661 — heartbeats added for the new operator-facing markers so
-# we can tell the loop is actually running (not just that the APK
-# launched). BOT_LOOP_TICK proves botLoop is iterating; SCAN_CB
-# proves processTokenCycle is being called; TRADEJRNL_REC proves
-# Executor is journalling. SMOKE proves the receiver fired.
-FN_LOOP=$(    grep -c "BOT_LOOP_TICK" "$WS/logcat_full.txt" || true)
+FN_LOOP=$(python3 "$WS/ci/runtime_liveness.py" count-loop "$WS/logcat_full.txt")
 FN_SCANCB=$(  grep -c "SCAN_CB"       "$WS/logcat_full.txt" || true)
 FN_JRNL=$(    grep -c "TRADEJRNL_REC" "$WS/logcat_full.txt" || true)
 FN_SMOKE=$(   grep -c "SMOKE_AUTOSTART" "$WS/logcat_full.txt" || true)
 FN_UI_TAP=$(  grep -c "UI_RUNTIME_TOGGLE_TAP_6517" "$WS/logcat_full.txt" || true)
 FN_UI_START=$(grep -c "UI_START_DISPATCHED_6517" "$WS/logcat_full.txt" || true)
 FN_UI_STOP=$( grep -c "LIFECYCLE_STOP_COMPLETE" "$WS/logcat_full.txt" || true)
-# V5.0.6549 §END_TO_END_TRADE_PROCESSING_PROOF — operator directive:
-# "ensure trades are actually processing end to end". The prior smoke
-# summary stopped at LANE_EVAL, so it could not tell an execution
-# stall (76 EXEC_OPEN_ALLOWED → 0 committed, per V5.0.6547 forensic)
-# from a healthy pipeline. These counters expose the ownership +
-# commit path introduced in V5.0.6548:
-#   PAPER_TICKET_RESUMED_6548 — same immutable attemptId picked back
-#     up after a nonterminal defer (proves ownership survives).
-#   PAPER_TICKET_RETRY_PENDING_6548 — defer stamped into per-mint slot.
-#   PAPER_TICKET_COMMITTED_6548 — terminal OPEN, i.e. paper buy did
-#     commit end-to-end (fill lot + cash mutation + journal row).
-#   PAPER_BUY_OK — legacy 6488 confirmation counter.
-#   PAPER_SELL_OK — legacy sell-side counterpart.
 FN_TICKET_DISPATCHED=$(grep -c "PAPER_TICKET_DISPATCHED_6514"  "$WS/logcat_full.txt" || true)
 FN_TICKET_RESUMED=$(   grep -c "PAPER_TICKET_RESUMED_6548"     "$WS/logcat_full.txt" || true)
 FN_TICKET_RETRY=$(     grep -c "PAPER_TICKET_RETRY_PENDING_6548" "$WS/logcat_full.txt" || true)
@@ -411,8 +323,6 @@ cat > "$WS/funnel_summary.txt" <<SUMMARY
   DISPATCHED>0 COMMITTED=0 RETRY_PENDING=0 -> hard reject path — check terminal blocks
   DISPATCHED==COMMITTED (roughly) -> ✅ end-to-end paper buy pipeline is committing
 SUMMARY
-# V5.0.6516a — hard persisted-start gates. A clean emulator launch is not
-# sufficient: require both bootstrap barriers, a living process, and an active loop.
 FN_CANON_READY=$(grep -c "CANONICAL_BOOTSTRAP_READY_6515" "$WS/logcat_full.txt" || true)
 FN_SERVICE_READY=$(grep -c "SERVICE_BOOTSTRAP_READY_6516" "$WS/logcat_full.txt" || true)
 FN_PROCESS_DEATH=$(grep -c "Process: com.lifecyclebot.aate" "$WS/logcat_full.txt" || true)
