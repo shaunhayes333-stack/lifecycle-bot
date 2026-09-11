@@ -53,6 +53,57 @@ jobs:
               [290, 290, '            if (baseline !== start) return null // A later start owns the current window.\n'],
               [295, 295, '        } finally {\n            closing6735.set(false)\n'],
           ]
+          # The 2489-test run had one remaining failure: snapshot capture lost
+          # the existing mint-route metadata diagnostic. Restore the real event
+          # at both actual fallback paths; keep the original assertion intact.
+          item = next(x for x in manifest['files'] if x['path'].endswith('/Executor.kt'))
+          old = '        if (canonical != null) return canonical\n'
+          new = '''        if (canonical != null) {
+                      if (canonical.poolAddress.startsWith("MINT_ROUTE:")) {
+                          try {
+                              PipelineHealthCollector.labelInc("MINT_ENTRY_MARKET_SNAPSHOT_POOL_SENTINEL")
+                              ForensicLogger.lifecycle("MINT_ENTRY_MARKET_SNAPSHOT_POOL_SENTINEL",
+                                  "mint=${ts.mint.take(10)} source=${canonical.priceSource} action=retain_full_mint_route_metadata")
+                          } catch (_: Throwable) {}
+                      }
+                      return canonical
+                  }
+          '''
+          # Kotlin indentation is part of the reviewed output hash.
+          new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.split('\n'))
+          index = next(i for i, edit in enumerate(item['edits']) if old in edit[2])
+          if item['edits'][index][2].count(old) != 1:
+              raise SystemExit('Canonical snapshot return anchor changed')
+          item['edits'][index][2] = item['edits'][index][2].replace(old, new, 1)
+          index = next(i for i, edit in enumerate(item['edits']) if edit[2].startswith('        val snap = MintEntryMarketSnapshot('))
+          prefix = '''        if (rawPool.isBlank()) {
+                      try {
+                          PipelineHealthCollector.labelInc("MINT_ENTRY_MARKET_SNAPSHOT_POOL_SENTINEL")
+                          ForensicLogger.lifecycle("MINT_ENTRY_MARKET_SNAPSHOT_POOL_SENTINEL",
+                              "mint=${ts.mint.take(10)} source=${ts.lastPriceSource} action=retain_full_mint_route_metadata")
+                      } catch (_: Throwable) {}
+                  }
+          '''
+          prefix = '\n'.join(line[10:] if line.startswith('          ') else line for line in prefix.split('\n'))
+          item['edits'][index][2] = prefix + item['edits'][index][2]
+          item['after'] = '0f654ae7bbb798a59465ce8ac423b0b2ee2282d1'
+          item = next(x for x in manifest['files'] if x['path'].endswith('/Aate6735EntryAndWitnessRecoveryTest.kt'))
+          anchor = '    @Test fun `stale future and unstamped prices cannot become entry snapshots`() {'
+          test = '''    @Test fun `mint route metadata preserves full canonical identity`() {
+                  val m = mark().copy(pairId = "MINT_ROUTE:Entry6735",
+                      identityProof6613 = "CANONICAL_MINT_SOURCE_MARK_6613")
+                  val s = requireNotNull(snapshot(m))
+                  assertEquals("MINT_ROUTE:Entry6735", s.poolAddress)
+                  assertEquals(m.priceUsd.value.toDouble(), s.priceUsd, 0.0)
+                  assertEquals(m.timestampMs, s.capturedAtMs)
+              }
+
+          '''
+          test = '\n'.join(line[10:] if line.startswith('          ') else line for line in test.split('\n'))
+          if item['edits'][0][2].count(anchor) != 1:
+              raise SystemExit('Snapshot regression test anchor changed')
+          item['edits'][0][2] = item['edits'][0][2].replace(anchor, test + anchor, 1)
+          item['after'] = 'b4d79a82b0c2184b9ff1d517a26857ae6b1d7fdf'
           def blob(data):
               return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
           planned = []
