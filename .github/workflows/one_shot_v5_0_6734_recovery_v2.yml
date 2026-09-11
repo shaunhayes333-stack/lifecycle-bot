@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: aate-v5-0-6734-recovery-v2
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   recovery_repair:
@@ -35,6 +35,30 @@ jobs:
       - name: Apply guarded source repair
         working-directory: lifecycle_apk
         run: python3 ci/v5_0_6734_recovery.py
+
+      - name: Preserve consensus diagnostic compatibility
+        working-directory: lifecycle_apk
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          src = Path('app/src/main/kotlin/com/lifecyclebot/engine/truth/AdaptiveVetoConsensusAuthority6728.kt')
+          text = src.read_text()
+          old = 'return "ADAPTIVE_CONSENSUS_6728 hardVeto=${v.hardVeto} independentFamilies=${v.quorum}/$QUORUM rawSignals=${v.activeSignals.size} active=[${v.activeSignals.joinToString(",") { it.name }}]"'
+          new = 'return "ADAPTIVE_CONSENSUS_6728 hardVeto=${v.hardVeto} quorum=${v.quorum}/$QUORUM independentFamilies=${v.quorum} rawSignals=${v.activeSignals.size} active=[${v.activeSignals.joinToString(",") { it.name }}]"'
+          if text.count(old) != 1:
+              raise SystemExit(f'consensus diagnostic source anchor count={text.count(old)}')
+          src.write_text(text.replace(old, new, 1))
+
+          # Keep the retained repair script consistent with the tested production source.
+          script = Path('ci/v5_0_6734_recovery.py')
+          st = script.read_text()
+          old_script = "new_diag = 'return \"ADAPTIVE_CONSENSUS_6728 hardVeto=${v.hardVeto} independentFamilies=${v.quorum}/$QUORUM rawSignals=${v.activeSignals.size} active=[${v.activeSignals.joinToString(\",\") { it.name }}]\"'"
+          new_script = "new_diag = 'return \"ADAPTIVE_CONSENSUS_6728 hardVeto=${v.hardVeto} quorum=${v.quorum}/$QUORUM independentFamilies=${v.quorum} rawSignals=${v.activeSignals.size} active=[${v.activeSignals.joinToString(\",\") { it.name }}]\"'"
+          if st.count(old_script) != 1:
+              raise SystemExit(f'consensus diagnostic repair-script anchor count={st.count(old_script)}')
+          script.write_text(st.replace(old_script, new_script, 1))
+          PY
 
       - name: Static contradiction and patch-rot checks
         working-directory: lifecycle_apk
