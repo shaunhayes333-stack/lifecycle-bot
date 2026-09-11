@@ -175,7 +175,7 @@ object AcceptanceInvariantAudit6441 {
         )
 
         // J. Mandatory execution-spine window.
-        val spineRead6647 = runCatching { ExecutionSpineAcceptanceWindow6647.closeCompletedWindow() }
+        val spineRead6647 = runCatching { ExecutionSpineAcceptanceWindow6647.lastCompletedResult6735() }
         val spine6647 = spineRead6647.getOrNull()
         if (spineRead6647.isFailure) failed.add("J_execution_spine_collector_failed")
         else if (spine6647 == null) passed.add("J_execution_spine_window_warming")

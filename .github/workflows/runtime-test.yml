@@ -100,6 +100,16 @@ jobs:
           working-directory: .
           script: bash ci/runtime-test.sh
 
+      - name: Enforce current 120-second execution-spine witness
+        if: always()
+        working-directory: .
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s ci -p test_runtime_evidence.py
+          python3 ci/runtime_evidence.py "$GITHUB_WORKSPACE/logcat_full.txt" \
+            --output "$GITHUB_WORKSPACE/runtime_evidence.json" \
+            --summary "$GITHUB_WORKSPACE/funnel_summary.txt"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -113,25 +123,4 @@ jobs:
             activity_dump.txt
             ui_first_cycle_logcat.txt
             logcat_second_start.txt
-
-      - name: Enforce 120-second execution-spine acceptance
-        if: always()
-        # Hard gate: if INTAKE>0 but SAFETY+V3+LANE_EVAL all zero, the
-        # pipeline is silently choked. Mark the job as failed so the
-        # operator gets a red X (and the artifact for diagnosis).
-        run: |
-          if [ ! -f "$GITHUB_WORKSPACE/funnel_summary.txt" ]; then
-            echo "No summary produced — emulator step likely failed."
-            exit 1
-          fi
-          if grep -q 'EXECUTION_SPINE_ACCEPTANCE_6647_FAIL' "$GITHUB_WORKSPACE/logcat_full.txt"; then
-            grep 'EXECUTION_SPINE_ACCEPTANCE_6647_FAIL' "$GITHUB_WORKSPACE/logcat_full.txt" | tail -5
-            echo "::error::Mandatory execution-spine acceptance reported a failed invariant."
-            exit 1
-          fi
-          if ! grep -q 'EXECUTION_SPINE_ACCEPTANCE_6647_OK' "$GITHUB_WORKSPACE/logcat_full.txt"; then
-            echo "::error::No completed passing 120-second execution-spine window was observed."
-            exit 1
-          fi
-          echo "Mandatory 120-second execution-spine acceptance passed."
-        working-directory: .
+            runtime_evidence.json

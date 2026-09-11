@@ -49,7 +49,11 @@ class Aate6662JournalOrphanSettlementCoverageTest {
         assertTrue(scheduler.contains("acceptanceWindowExecutor6668.schedule"))
         assertTrue(!scheduler.contains("scope.launch"))
         assertTrue(service.contains("acceptanceWindowExecutor6668.shutdownNow()"))
-        assertTrue(acceptance.contains("CanonicalPaperTransaction6486.reconcileForensicBoundary6666()"))
+        // Reconciliation remains independently wired below. Reading acceptance
+        // must observe its committed evidence, not replay/mutate it for a pass.
+        assertTrue(!acceptance.contains("CanonicalPaperTransaction6486.reconcileForensicBoundary6666()"))
+        assertTrue(acceptance.contains("ForensicReconciliation6635.deltas6647()"))
+        assertTrue(acceptance.contains("android.util.Log.i(\"AATE.ACCEPTANCE\""))
         val transaction = File(root,
             "src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()
         assertTrue(transaction.contains("forcePublish(\"JOURNAL_AUTHORITY_RECONCILED_6667\")"))

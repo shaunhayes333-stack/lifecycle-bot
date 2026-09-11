@@ -91,6 +91,10 @@ object ExecutionSpineAcceptanceWindow6647 {
     private val requestedCycle = java.util.concurrent.atomic.AtomicLong(-1L)
     private val maxStartDelayCycles = java.util.concurrent.atomic.AtomicLong(0L)
     @Volatile private var baseline: Baseline? = null
+    @Volatile private var completedResult6735: ExecutionSpineAcceptance6647.Result? = null
+
+    /** Read-only: a dashboard/audit must not close or restart the witness window. */
+    fun lastCompletedResult6735(): ExecutionSpineAcceptance6647.Result? = completedResult6735
 
     private val watchedLabels = listOf(
         "BG_SPLIT_RUNTIME_INTAKE_ZOMBIE_6579",
@@ -151,15 +155,23 @@ object ExecutionSpineAcceptanceWindow6647 {
         )
     }
 
-    private fun emitFailure6689(durationMs: Long, failures: List<String>, error: Throwable? = null) {
-        try {
-            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_ACCEPTANCE_6647_FAIL")
-            com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                "EXECUTION_SPINE_ACCEPTANCE_6647_FAIL",
-                "durationMs=$durationMs failures=${failures.joinToString("|")}" +
-                    (error?.let { " err=${it.javaClass.simpleName}:${it.message?.take(120)}" } ?: ""),
-            )
-        } catch (_: Throwable) {}
+    /** One low-frequency witness bypasses the lossy forensic queue. Never infer
+     * success from an absent log: emit the exact evaluated result independently
+     * of telemetry attachment, forensic logging settings, and queue pressure. */
+    private fun emitResult6735(label: String, fields: String) {
+        try { android.util.Log.i("AATE.ACCEPTANCE", "$label $fields") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(label) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.ForensicLogger.lifecycle(label, fields) } catch (_: Throwable) {}
+    }
+
+    private fun emitFailure6689(
+        durationMs: Long, failures: List<String>, error: Throwable? = null, windowStartMs: Long = 0L,
+    ) {
+        emitResult6735(
+            "EXECUTION_SPINE_ACCEPTANCE_6647_FAIL",
+            "windowStartMs=$windowStartMs durationMs=$durationMs failures=${failures.joinToString("|")}" +
+                (error?.let { " err=${it.javaClass.simpleName}:${it.message?.take(120)}" } ?: ""),
+        )
     }
 
     /**
@@ -173,13 +185,11 @@ object ExecutionSpineAcceptanceWindow6647 {
         // Emit the start witness BEFORE touching optional runtime registries.
         // Even if a future capture regression reappears, CI gets a precise
         // start marker rather than an unexplained missing acceptance window.
-        try {
-            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_WINDOW_STARTED_6662")
-            com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                "EXECUTION_SPINE_WINDOW_STARTED_6662",
-                "atMs=$nowMs source=accepted_runtime_start",
-            )
-        } catch (_: Throwable) {}
+        emitResult6735(
+            "EXECUTION_SPINE_WINDOW_STARTED_6662",
+            "atMs=$nowMs source=accepted_runtime_start",
+        )
+        completedResult6735 = null
         baseline = capture(nowMs)
         requestedCycle.set(-1L)
         maxStartDelayCycles.set(0L)
@@ -205,10 +215,11 @@ object ExecutionSpineAcceptanceWindow6647 {
         if (duration < ExecutionSpineAcceptance6647.MIN_WINDOW_MS) return null
 
         return try {
-            // Close against durable economic truth, not a stale periodic sample.
-            // This also settles stop/restart journal lots which no longer have a
-            // canonical owner before enforcing exact scalar and quantity parity.
-            try { CanonicalPaperTransaction6486.reconcileForensicBoundary6666() } catch (_: Throwable) {}
+            // V5.0.6735: acceptance is an observer, not a journal writer. The
+            // independent reconciler owns settlement/replay. Calling it here
+            // held this monitor across the paper transaction lock and replayed
+            // journal rows merely because CI or a dashboard requested a verdict.
+            // Unknown/unreconciled evidence below still FAILS; never heal it to pass.
             val end = capture(nowMs)
             val delta: (String) -> Long = { key -> ((end.labels[key] ?: 0L) - (start.labels[key] ?: 0L)).coerceAtLeast(0L) }
             val desks = try { com.lifecyclebot.engine.ToolkitSignalSheet.configuredMemeDesks6647() } catch (_: Throwable) { emptyList() }
@@ -263,23 +274,22 @@ object ExecutionSpineAcceptanceWindow6647 {
                     delta("LEARNING_INVALID_ACCOUNT_UPDATE_6647"),
             )
             val result = ExecutionSpineAcceptance6647.evaluate(observation)
+            completedResult6735 = result
             baseline = end
             maxStartDelayCycles.set(0L)
-            try {
-                if (result.passed) {
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_ACCEPTANCE_6647_OK")
-                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                        "EXECUTION_SPINE_ACCEPTANCE_6647_OK",
-                        "durationMs=$duration safety=${observation.safety} v3=${observation.v3} workers=${observation.currentWorkerHeartbeats}/${observation.configuredWorkers} dispatches=${observation.dispatches} cryptoOpen=${observation.cryptoOpenConfirmed} exit=${observation.exitStart}/${observation.exitDone} canonicalOpen=${observation.canonicalOpen} exitEval=${observation.exitEvaluations}",
-                    )
-                } else {
-                    emitFailure6689(duration, result.failures)
-                }
-            } catch (_: Throwable) {}
+            if (result.passed) {
+                emitResult6735(
+                    "EXECUTION_SPINE_ACCEPTANCE_6647_OK",
+                    "windowStartMs=${start.atMs} durationMs=$duration safety=${observation.safety} v3=${observation.v3} workers=${observation.currentWorkerHeartbeats}/${observation.configuredWorkers} dispatches=${observation.dispatches} cryptoOpen=${observation.cryptoOpenConfirmed} exit=${observation.exitStart}/${observation.exitDone} canonicalOpen=${observation.canonicalOpen} exitEval=${observation.exitEvaluations}",
+                )
+            } else {
+                emitFailure6689(duration, result.failures, windowStartMs = start.atMs)
+            }
             result
         } catch (t: Throwable) {
             val result = ExecutionSpineAcceptance6647.Result(listOf("ACCEPTANCE_CAPTURE_EXCEPTION_6689"))
-            emitFailure6689(duration, result.failures, t)
+            completedResult6735 = result
+            emitFailure6689(duration, result.failures, t, windowStartMs = start.atMs)
             baseline = try { capture(nowMs) } catch (_: Throwable) { null }
             maxStartDelayCycles.set(0L)
             result
