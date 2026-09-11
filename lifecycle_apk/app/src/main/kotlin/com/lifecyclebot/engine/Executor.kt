@@ -10970,7 +10970,7 @@ class Executor(
                         com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.Signal.SENTIENCE_VETO_ADVISORY
                     )
                 } catch (_: Throwable) {}
-                com.lifecyclebot.engine.ForensicLogger.lifecycle("SENTIENCE_VETO_ADVISORY_4189", "mint=${ts.mint.take(10)} symbol=${ts.symbol} source=${ts.source.take(80)} action=advisory_raised_to_consensus_6728")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle("SENTIENCE_VETO_ADVISORY_4189", "mint=${ts.mint.take(10)} symbol=${ts.symbol} source=${ts.source.take(80)} action=ignored_no_hard_veto raised_to_consensus_6728=true")
             } catch (_: Throwable) {}
         }
 
