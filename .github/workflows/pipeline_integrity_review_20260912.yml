@@ -1,0 +1,37 @@
+name: Pipeline integrity source review 20260912
+
+on:
+  push:
+    branches: ['repair/6735-pipeline-integrity-20260912']
+    paths: ['.github/workflows/pipeline_integrity_review_20260912.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export the exact reviewed production source
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=b8a47aaa03ea4fbfeb2092c43f749bdccb3e317f
+          mkdir -p /tmp/aate-source-review
+          test "$(git rev-parse "$BASE^{commit}")" = "$BASE"
+          git archive --format=tar.gz "$BASE" > /tmp/aate-source-review/source.tar.gz
+          printf '%s\n' "$BASE" > /tmp/aate-source-review/source-sha.txt
+          git log -30 --format=fuller "$BASE" > /tmp/aate-source-review/recent-history.txt
+          git log -8 --format=fuller --stat "$BASE" > /tmp/aate-source-review/recent-changes.txt
+          sha256sum /tmp/aate-source-review/source.tar.gz > /tmp/aate-source-review/source-sha256.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aate-source-review-b8a47aaa
+          path: /tmp/aate-source-review/
+          retention-days: 3
+          if-no-files-found: error
