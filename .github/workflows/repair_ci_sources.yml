@@ -33,10 +33,21 @@ jobs:
           import hashlib, json, subprocess
           from pathlib import Path
           manifest = json.loads(Path('.github/recovery6735/source-repair.json').read_text())
-          # Complete the explicit JUnit import alongside its newly added assertion.
-          item = next(x for x in manifest['files'] if x['path'].endswith('Aate6662JournalOrphanSettlementCoverageTest.kt'))
-          item['edits'].insert(0, [2, 2, 'import org.junit.Assert.assertFalse\n'])
-          item['after'] = 'af6cbb5ff6d23b2c4ba42f6d03e8e5a5c976c3bd'
+          # Preserve the newer read-only audit test and direct runtime witness.
+          manifest['files'] = [x for x in manifest['files'] if not x['path'].endswith('Aate6662JournalOrphanSettlementCoverageTest.kt')]
+          item = next(x for x in manifest['files'] if x['path'].endswith('ExecutionSpineAcceptance6647.kt'))
+          item['before'] = '0a40172d96e1c563909a96485e8f25b08504d1d4'
+          item['after'] = '195b6a78d38ac47394ce0cde4d6b99444ff90cd1'
+          item['edits'] = [
+              [92, 92, '    private val closing6735 = java.util.concurrent.atomic.AtomicBoolean(false)\n'],
+              [137, 138, '        val health = try { com.lifecyclebot.engine.PipelineHealthCollector.executionSpineCounters6735(watchedLabels) } catch (_: Throwable) { null }\n'],
+              [144, 147, '            phaseSafety = health?.safety ?: 0L,\n            phaseV3 = health?.v3 ?: 0L,\n            labels = watchedLabels.associateWith { key -> health?.labels?.get(key) ?: 0L },\n'],
+              [182, 183, ''], [198, 199, ''],
+              [216, 216, '        if (!closing6735.compareAndSet(false, true)) return null\n'],
+              [276, 276, '            if (baseline !== start) return null // A later start owns the current window.\n'],
+              [290, 290, '            if (baseline !== start) return null // A later start owns the current window.\n'],
+              [295, 295, '        } finally {\n            closing6735.set(false)\n'],
+          ]
           def blob(data):
               return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
           planned = []
@@ -80,7 +91,6 @@ jobs:
           Path('/tmp/repair6735/paths.txt').write_text('\n'.join(paths) + '\n')
           subprocess.run(['git', 'add', '--', *paths], check=True)
           PY
-          # Remove the failed superseded transport; no old patch runs during builds.
           git rm --ignore-unmatch .github/recovery6735/source-repair.json .github/recovery6735/part1.b64 .github/recovery6735/part2.b64 .github/recovery6735/part3.b64 .github/recovery6735/overlay.b64 .github/workflows/recovery_6735_validated.yml .github/workflows/repair_ci_sources.yml lifecycle_apk/ci/v5_0_6734_recovery.py
           git diff --cached --check
           git diff --cached --stat
