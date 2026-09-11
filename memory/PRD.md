@@ -1,3 +1,49 @@
+# AATE PRD — V5.0.6735 (Aug/Sep 2026 rolling)
+
+**Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.
+
+## V5.0.6732 → 6735 rolling (Sep 2026 fork continuation)
+
+Post-6731 diagnostic showed the choke moved *past* FDG (91.3% of EXEC decisions dying downstream). Attacked in five overlapping builds:
+
+**V5.0.6732** — Lane-scoped capital fairness + Mark observation fallback + Exit telemetry stamper (RED CI, superseded)
+- `LaneCapitalFairness6732` — canonical "does this lane still have budget headroom?" Non-meme fails open.
+- `ExitThroughputAuthority6727.evaluate(mode, lane)` — bypass portfolio-wide cash-starved / velocity blocks when the lane still has headroom. `POSITION_HARD_CAP` remains unconditional.
+- `CanonicalPriceMarkRegistry6522.resolveExecutableFromSourceEvidence6616` — fall through to observation-only publish when liquidity is zero/null (paper accepts observation; live still requires the strict slot).
+- `ExitTelemetryStamper6732` + `ExecutorCanonicalMirror6442.mirrorSell` wiring — populates `StopLatencyClasses6464` buckets and `EXIT_GATE_ALLOWED_*_6732` counters on every real sell.
+
+**V5.0.6733** — Learner race grace + Parity staleness + Skew root fix + Regime early trigger (RED CI)
+- `CausalFeedbackAuthority6715` — CI-compliant stamp-only-grace. Terminal-epoch NEVER graces; learner-revision-only bumps grace ONLY when no reservation exists yet.
+- `CanonicalPaperReplay6464` — `lastParityAtMs` timestamped. `PaperLedgerDivergenceGuard6731.evaluate()` fails open when parity > 15s old.
+- `V3JournalRecorder.kt` — full-close skew check uses `cumulativeSellRaw = totalBuyRaw` identity (was fabricated 6-decimal proxy).
+- `RegimeDetector.recompute` — `N>=20 && WR<25.0 → Regime.CHOP` early trigger.
+- `Aate6616CausalP0RepairTest` updated to expect `OBSERVATION_ADMITTED_6628` for `liq=0.0`.
+
+**V5.0.6734** — Scoped execution recovery + economic integrity (remote agent authored)
+- Scoped advisory evidence, exact intent ownership, feedback/cache invalidation, complete fresh provider tuples, removal of fabricated stop-band fills, position-scoped paper replay, durable reward/exclusion population parity, single-flight learner delivery, CORE close-side learning, actual inference telemetry, committed-version and exact-SHA CI authority.
+- Preserved 6732/6733 features and tests. Previous staged recovery script retired, not stacked.
+
+**V5.0.6735** — Acceptance witness + receipt-derived runtime smoke evidence (remote agent authored)
+- Mandatory acceptance start/results independent of the lossy forensic queue; audit reads the completed result. Count unique committed paper tickets, require the current complete 120s window, keep explicit invariant failures red.
+
+## Pending / In-flight
+
+- CI verification of V5.0.6735 on GitHub Actions (in progress at time of PRD update).
+- Cross-Asset STOCK dispatch reporting inconsistency (51 dispatches → open=0 despite journal showing STOCK_SPOT rows).
+- FDG_ALLOW_WITHOUT_EXEC_INTENT invariant reduction (P2, deferred).
+- Perps Neural Bridge · LLM Lab sandbox · Per-brain causal audit widget (backlog).
+- Provider degradation (Birdeye 0%/401, CoinGecko 1% with 269 5xx, Groq validator).
+
+## Constraints (unchanged)
+
+- No local compiler. Every push must bump `/app/AATE_VERSION` (5.0.NNNN); regex `^5\.0\.(\d+)$`.
+- No threshold tuning — only architectural plumbing / authority convergence.
+- Paper trading only.
+- All test files added or modified alongside the gate/authority they cover, so CI stays green.
+
+---
+
+
 # AATE PRD — V5.0.6632 (P0-A→M SOURCE-LEVEL AUTHORITY CONVERGENCE)
 
 **Status:** PAPER TRADING ONLY.
