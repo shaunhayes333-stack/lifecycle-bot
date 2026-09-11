@@ -1,8 +1,12 @@
-## V5.0.6734 — scoped execution recovery and economic integrity
+## V5.0.6734 — scoped execution recovery and economic integrity (CI trigger)
 
 Source repairs and regression boundaries: `lifecycle_apk/audits/v5_0_6734_verified_recovery.md`.
 
 Scoped advisory evidence; exact intent ownership; feedback/cache invalidation; complete fresh provider tuples; removal of fabricated stop-band fills; position-scoped paper replay; durable reward/exclusion population parity; single-flight learner delivery; CORE close-side learning; actual inference telemetry; committed-version and exact-SHA CI authority. Previous staged recovery script retired, not stacked. Twenty local component checks and all three static scans passed. Full-app results must be read from this revision's CI, not assumed.
+
+**Preserved from 6732/6733**: LaneCapitalFairness6732 · ExitTelemetryStamper6732 · MARK_OBSERVATION_FALLBACK · LEARNER_REVISION_RACE_STAMP_ONLY_GRACE · PARITY_STALENESS_FAIL_OPEN · SKEW_QUARANTINE_RECORDEXEC_ROOT · REGIME_DEGRADATION_EARLY_TRIGGER · Aate6732ExecPipelineFairnessTest · Aate6733LearnerRevisionRaceGraceTest · Aate6733LedgerParityAndSkewTest.
+
+**CI note**: previous head commit was authored by `github-actions[bot]`, so GitHub did not auto-trigger the `Build AATE APK` workflow. This commit re-triggers the pipeline on the exact 6734 recovery tree so we get a green/red signal instead of an unknown state.
 
 ---
 
