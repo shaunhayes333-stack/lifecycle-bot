@@ -15,6 +15,13 @@ if hashlib.sha256(raw).hexdigest() != EXPECTED:
     raise SystemExit('Recovery manifest digest mismatch; no source written')
 manifest = json.loads(raw)
 assert manifest['version'] == '5.0.6734'
+contracts_raw = (PARTS / 'contracts.json').read_bytes()
+if hashlib.sha256(contracts_raw).hexdigest() != 'f0fb2a1cbbf019a6116efdc5815f35239e2d6a22a4a88d0a983efbb2bc2c77c6':
+    raise SystemExit('Contract amendment digest mismatch; no source written')
+contracts = json.loads(contracts_raw)
+assert contracts['version'] == manifest['version']
+manifest['files'].extend(contracts['files'])
+raw = json.dumps(manifest, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
 
 def blob(data):
     return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
