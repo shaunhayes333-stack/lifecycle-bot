@@ -174,11 +174,12 @@ object OrderSizeResolver6441 {
         val finalSize = PaperFillMath6737.boundedNotional(risk, feeAwareAvailable6490, laneCap, minExec)
         val actuallyExec = finalSize > 0.0
         val reason = when {
+            // Quantized authority already handled whole-lamport floating-point noise.
+            actuallyExec -> "OK"
             authoritativeCash <= 0.0 -> "NO_WALLET"
             laneCap < minExec -> "LANE_CAP_BELOW_MIN_EXECUTABLE_6490"
             feeAwareAvailable6490 < minExec -> "CAPITAL_BELOW_MIN_EXECUTABLE_6490"
-            !actuallyExec -> "RISK_BELOW_MIN_EXECUTABLE_6737"
-            else -> "OK"
+            else -> "RISK_BELOW_MIN_EXECUTABLE_6737"
         }
         val res = Resolution(
             requestedSol = requested,
