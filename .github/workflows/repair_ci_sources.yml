@@ -69,8 +69,6 @@ jobs:
                       return canonical
                   }
           '''
-          # Kotlin indentation is part of the reviewed output hash.
-          new = '\n'.join(line[10:] if line.startswith('          ') else line for line in new.split('\n'))
           index = next(i for i, edit in enumerate(item['edits']) if old in edit[2])
           if item['edits'][index][2].count(old) != 1:
               raise SystemExit('Canonical snapshot return anchor changed')
@@ -84,7 +82,6 @@ jobs:
                       } catch (_: Throwable) {}
                   }
           '''
-          prefix = '\n'.join(line[10:] if line.startswith('          ') else line for line in prefix.split('\n'))
           item['edits'][index][2] = prefix + item['edits'][index][2]
           item['after'] = '0f654ae7bbb798a59465ce8ac423b0b2ee2282d1'
           item = next(x for x in manifest['files'] if x['path'].endswith('/Aate6735EntryAndWitnessRecoveryTest.kt'))
@@ -99,7 +96,6 @@ jobs:
               }
 
           '''
-          test = '\n'.join(line[10:] if line.startswith('          ') else line for line in test.split('\n'))
           if item['edits'][0][2].count(anchor) != 1:
               raise SystemExit('Snapshot regression test anchor changed')
           item['edits'][0][2] = item['edits'][0][2].replace(anchor, test + anchor, 1)
