@@ -1,0 +1,218 @@
+name: Verify and publish source-contract repair
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/repair_ci_sources.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aate-source-contract-repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      source_sha: ${{ steps.commit.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply reviewed source changes with before-and-after hash checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/repair6735
+          python3 - <<'PY'
+          import hashlib, json, subprocess
+          from pathlib import Path
+          manifest = json.loads(Path('.github/recovery6735/source-repair.json').read_text())
+          # Complete the explicit JUnit import alongside its newly added assertion.
+          item = next(x for x in manifest['files'] if x['path'].endswith('Aate6662JournalOrphanSettlementCoverageTest.kt'))
+          item['edits'].insert(0, [2, 2, 'import org.junit.Assert.assertFalse\n'])
+          item['after'] = 'af6cbb5ff6d23b2c4ba42f6d03e8e5a5c976c3bd'
+          def blob(data):
+              return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+          planned = []
+          for item in manifest['files']:
+              p = Path(item['path'])
+              if not str(p).startswith('lifecycle_apk/app/src/') or '..' in p.parts:
+                  raise SystemExit('Unexpected source path')
+              data = p.read_bytes() if p.exists() else b''
+              if (blob(data) if p.exists() else None) != item['before']:
+                  raise SystemExit(f'Source changed since review: {p}; refusing overwrite')
+              lines = data.decode().splitlines(keepends=True)
+              for start, end, replacement in reversed(item['edits']):
+                  if not 0 <= start <= end <= len(lines):
+                      raise SystemExit(f'Invalid edit range: {p}')
+                  lines[start:end] = replacement.splitlines(keepends=True)
+              result = ''.join(lines).encode()
+              if blob(result) != item['after']:
+                  raise SystemExit(f'Reviewed output hash mismatch: {p}')
+              planned.append((p, result))
+          for p, data in planned:
+              p.parent.mkdir(parents=True, exist_ok=True)
+              p.write_bytes(data)
+          for name in ['AATE_VERSION', 'lifecycle_apk/AATE_VERSION']:
+              p = Path(name)
+              if p.read_text().strip() != '5.0.6734':
+                  raise SystemExit(f'Production version advanced: {name}')
+              p.write_text('5.0.6735\n')
+          runtime = Path('ci/runtime-test.sh')
+          if blob(runtime.read_bytes()) != 'b9ff1552f89980c99d18b9c22834dbb5ae874a91':
+              raise SystemExit('Runtime script changed since review')
+          text = runtime.read_text()
+          old = '$GRADLE_CMD assembleDebug --no-daemon --stacktrace -PbuildNumber="${GITHUB_RUN_NUMBER:-0}"'
+          new = '''PRODUCTION_VERSION="$(tr -d '[:space:]' < ../AATE_VERSION)"
+          [[ "$PRODUCTION_VERSION" =~ ^5[.]0[.]([0-9]+)$ ]] || { echo "Invalid source version"; exit 1; }
+          $GRADLE_CMD assembleDebug --no-daemon --stacktrace -PbuildNumber="${BASH_REMATCH[1]}" -PaateVersionName="$PRODUCTION_VERSION"'''
+          if text.count(old) != 1:
+              raise SystemExit('Runtime version command not unique')
+          runtime.write_text(text.replace(old, new, 1))
+          paths = [str(p) for p, _ in planned] + ['AATE_VERSION', 'lifecycle_apk/AATE_VERSION', str(runtime)]
+          Path('/tmp/repair6735/manifest.json').write_text(json.dumps(manifest, indent=2))
+          Path('/tmp/repair6735/paths.txt').write_text('\n'.join(paths) + '\n')
+          subprocess.run(['git', 'add', '--', *paths], check=True)
+          PY
+          # Remove the failed superseded transport; no old patch runs during builds.
+          git rm --ignore-unmatch .github/recovery6735/source-repair.json .github/recovery6735/part1.b64 .github/recovery6735/part2.b64 .github/recovery6735/part3.b64 .github/recovery6735/overlay.b64 .github/workflows/recovery_6735_validated.yml .github/workflows/repair_ci_sources.yml lifecycle_apk/ci/v5_0_6734_recovery.py
+          git diff --cached --check
+          git diff --cached --stat
+          git diff --cached > /tmp/repair6735/source.patch
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+      - uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Static source and contradiction checks
+        working-directory: lifecycle_apk
+        run: |
+          set -euo pipefail
+          python3 ci/golden_tape_literal_scan.py
+          python3 ci/authority_contradiction_scan.py
+          python3 ci/patch_rot_scan.py
+      - name: Full release unit-test suite
+        working-directory: lifecycle_apk
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          mkdir -p gradle/wrapper
+          curl --fail --retry 3 -sSL -o gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar
+          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=6735 -PaateVersionName=5.0.6735 2>&1 | tee /tmp/repair6735/unit.log
+      - name: Commit exactly the tested source
+        id: commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          for item in json.loads(Path('/tmp/repair6735/manifest.json').read_text())['files']:
+              data = Path(item['path']).read_bytes()
+              actual = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+              if actual != item['after']:
+                  raise SystemExit('Build rewrote reviewed source: ' + item['path'])
+          PY
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'V5.0.6735 repair exact entry provenance and nonblocking runtime witness'
+          SOURCE_SHA=$(git rev-parse HEAD)
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$SOURCE_SHA" > /tmp/repair6735/source-sha.txt
+          git archive --format=tar.gz -o /tmp/repair6735/source.tar.gz HEAD
+      - name: Assemble the exact source commit
+        working-directory: lifecycle_apk
+        run: |
+          set -euo pipefail
+          ./gradlew assembleRelease --no-daemon --stacktrace -PbuildNumber=6735 -PaateVersionName=5.0.6735 2>&1 | tee /tmp/repair6735/build.log
+          python3 ci/build_gate_summary.py
+      - name: Publish tested production source without force
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push origin "HEAD:refs/heads/repair/6735-source-${GITHUB_RUN_ID}"
+          git push origin HEAD:main
+          echo "Production source: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Unit suite and APK assembly passed; runtime result is reported separately." >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: source-contract-validation-${{ github.run_id }}
+          path: |
+            /tmp/repair6735/
+            lifecycle_apk/app/build/test-results/
+            lifecycle_apk/app/build/reports/tests/
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: AATE_v5.0.6735_source_verified
+          path: lifecycle_apk/app/build/outputs/apk/release/AATE_v5.0.6735.apk
+          if-no-files-found: error
+
+  runtime:
+    needs: repair
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.repair.outputs.source_sha }}
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Exercise exact committed source on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          CAPTURE_SECONDS: '180'
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash ci/runtime-test.sh
+      - name: Enforce genuine runtime evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          test -s funnel_summary.txt
+          test -s logcat_full.txt
+          if grep -q 'EXECUTION_SPINE_ACCEPTANCE_6647_FAIL' logcat_full.txt; then
+            grep 'EXECUTION_SPINE_ACCEPTANCE_6647_FAIL' logcat_full.txt | tail -10
+            echo '::error::Execution-spine invariants failed; do not label runtime healthy.'
+            exit 1
+          fi
+          grep -q 'EXECUTION_SPINE_ACCEPTANCE_6647_OK' logcat_full.txt || { echo '::error::No passing completed acceptance window'; exit 1; }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: source-contract-runtime-${{ github.run_id }}
+          path: |
+            funnel_summary.txt
+            logcat_full.txt
+            logcat_filtered.txt
+            logcat_second_start.txt
+            ui_*.xml
+          if-no-files-found: warn
