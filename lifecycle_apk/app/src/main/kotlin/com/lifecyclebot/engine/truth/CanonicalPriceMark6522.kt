@@ -46,6 +46,39 @@ object CanonicalPriceMarkRegistry6522 {
             } catch (_: Throwable) {}
             return false
         }
+        // V5.0.6728 §MARK_SENTINEL_SHAPE_QUARANTINE — 6727 diagnostic:
+        // "unrelated tokens are repeatedly being admitted with exactly
+        // price=0.05, liq=5,000,000, then bought at 0.050250000 with
+        // $50,000,000 mcap. That pattern is extremely suspicious and
+        // looks like a sentinel/fallback economic shape being treated
+        // as executable market truth." The existing sentinel filter
+        // above catches KNOWN standalone prices; this catches the
+        // SHAPE combination (round-price + round-liq + round-mcap
+        // tuples that no organic market emits). Any of the shape
+        // families below force quarantine.
+        val liq6728 = try { mark.liquidityUsd?.toDouble() ?: 0.0 } catch (_: Throwable) { 0.0 }
+        val price6728 = rawPrice6697
+        // Family 1: exact round price (0.05, 0.10, 0.5, 1.0) paired
+        // with round-million liquidity (5M, 10M, 50M, 100M).
+        val roundPrice6728 = price6728 > 0.0 && price6728.isFinite() && (
+            price6728 == 0.05 || price6728 == 0.10 || price6728 == 0.50 ||
+            price6728 == 1.00 || price6728 == 5.00 || price6728 == 10.00
+        )
+        val roundLiq6728 = liq6728 > 0.0 && (
+            liq6728 == 1_000_000.0 || liq6728 == 5_000_000.0 ||
+            liq6728 == 10_000_000.0 || liq6728 == 50_000_000.0 ||
+            liq6728 == 100_000_000.0
+        )
+        if (roundPrice6728 && roundLiq6728) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_MARK_SENTINEL_SHAPE_QUARANTINE_6728")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "CANONICAL_MARK_SENTINEL_SHAPE_QUARANTINE_6728",
+                    "mint=${mark.mint.take(18)} purpose=${mark.purpose} price=$price6728 liq=$liq6728 source=${mark.source.take(40)} pair=${mark.pairId.take(32)} action=reject_fallback_economic_shape",
+                )
+            } catch (_: Throwable) {}
+            return false
+        }
 
         val mintRoute = mark.pairId.startsWith("MINT_ROUTE:", true)
         val sourceGroundedMintIdentity6613 = mintRoute &&

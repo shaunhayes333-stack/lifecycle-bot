@@ -10965,7 +10965,12 @@ class Executor(
             try {
                 onLog("🧠 LLM SENTIENCE ADVISORY: ${ts.symbol} veto suggested but ignored for live-throughput doctrine", tradeId.mint)
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SENTIENCE_VETO_ADVISORY_4189")
-                com.lifecyclebot.engine.ForensicLogger.lifecycle("SENTIENCE_VETO_ADVISORY_4189", "mint=${ts.mint.take(10)} symbol=${ts.symbol} source=${ts.source.take(80)} action=ignored_no_hard_veto")
+                try {
+                    com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.raise(
+                        com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.Signal.SENTIENCE_VETO_ADVISORY
+                    )
+                } catch (_: Throwable) {}
+                com.lifecyclebot.engine.ForensicLogger.lifecycle("SENTIENCE_VETO_ADVISORY_4189", "mint=${ts.mint.take(10)} symbol=${ts.symbol} source=${ts.source.take(80)} action=advisory_raised_to_consensus_6728")
             } catch (_: Throwable) {}
         }
 
@@ -10997,7 +11002,12 @@ class Executor(
                             onLog("🧠 LLM BLOCK ADVISORY: ${ts.symbol} | ${verdict.removePrefix("BLOCK:").trim().take(60)} — ignored for live-throughput doctrine", tradeId.mint)
                             try {
                                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EMERGENT_LLM_BLOCK_ADVISORY_4189")
-                                com.lifecyclebot.engine.ForensicLogger.lifecycle("EMERGENT_LLM_BLOCK_ADVISORY_4189", "mint=${ts.mint.take(10)} symbol=${ts.symbol} verdict=${verdict.take(120)} action=ignored_no_hard_veto")
+                                try {
+                                    com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.raise(
+                                        com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.Signal.LLM_BLOCK_ADVISORY
+                                    )
+                                } catch (_: Throwable) {}
+                                com.lifecyclebot.engine.ForensicLogger.lifecycle("EMERGENT_LLM_BLOCK_ADVISORY_4189", "mint=${ts.mint.take(10)} symbol=${ts.symbol} verdict=${verdict.take(120)} action=advisory_raised_to_consensus_6728")
                             } catch (_: Throwable) {}
                         }
                         verdict.startsWith("CAUTION", ignoreCase = true) -> {

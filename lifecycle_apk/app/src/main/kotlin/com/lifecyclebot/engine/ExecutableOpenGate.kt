@@ -2359,6 +2359,32 @@ object ExecutableOpenGate {
                 shadow = true,
             )
         }
+        // V5.0.6728 §ADAPTIVE_CONSENSUS_HARD_VETO — 6727 diagnostic:
+        // LLM says BLOCK: Recent string of losses detected → action=
+        // ignored_no_hard_veto. Brain Consensus 82.2% SOFT_BLOCK, zero
+        // HARD_BLOCK. Unified Policy bias -0.83, still executing.
+        // Every advisory subsystem correctly identifies the toxic state
+        // and publishes an advisory; nobody hard-blocks. The 6728
+        // consensus authority reads the aggregate of raised signals
+        // and returns hardVeto=true when >=3 subsystems agree. Wire
+        // it here so admission actually honors the collective verdict.
+        val adaptiveVeto6728 = try {
+            com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.evaluate()
+        } catch (_: Throwable) { null }
+        if (adaptiveVeto6728 != null && adaptiveVeto6728.hardVeto) {
+            try {
+                PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCK_TAXONOMY_ADAPTIVE_CONSENSUS_HARD_VETO_6728")
+                ForensicLogger.lifecycle(
+                    "EXEC_OPEN_BLOCKED_ADAPTIVE_CONSENSUS_6728",
+                    "attemptId=$execKey mint=${mint.take(10)} sym=$symbol mode=$modeUpper lane=$lane quorum=${adaptiveVeto6728.quorum} active=[${adaptiveVeto6728.activeSignals.joinToString(",") { it.name }}]",
+                )
+            } catch (_: Throwable) {}
+            return blocked(
+                "EXEC_OPEN_BLOCKED_ADAPTIVE_CONSENSUS_6728",
+                "quorum=${adaptiveVeto6728.quorum} signals=${adaptiveVeto6728.activeSignals.size}",
+                shadow = true,
+            )
+        }
         // V5.0.6727 §COHORT_TERMINAL_SUPPRESSOR — 6726 dump: EXPRESS 4.3%
         // WR with 39 admissions, MOONSHOT 0% WR still executable. The
         // 6725 soft-advisory tier is not enough — advisory is being seen

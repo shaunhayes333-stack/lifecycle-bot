@@ -295,9 +295,12 @@ object FinalExecutionPermit {
         if (cohortCooldown6488 > 0L) {
             try {
                 PipelineHealthCollector.labelInc("LOSING_STREAK_COHORT_NO_GLOBAL_VETO_6488")
+                com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.raise(
+                    com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.Signal.LOSING_STREAK_COHORT
+                )
                 ForensicLogger.lifecycle(
                     "LOSING_STREAK_COHORT_NO_GLOBAL_VETO_6488",
-                    "layer=$requestingLayer symbol=$symbol mint=${mint.take(10)} cooldownRemSec=$cohortCooldown6488 action=defer_to_executable_entry_authority",
+                    "layer=$requestingLayer symbol=$symbol mint=${mint.take(10)} cooldownRemSec=$cohortCooldown6488 action=advisory_raised_to_consensus_6728",
                 )
             } catch (_: Throwable) {}
         }
