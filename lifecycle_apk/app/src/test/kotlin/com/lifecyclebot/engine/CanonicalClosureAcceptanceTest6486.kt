@@ -84,6 +84,8 @@ class CanonicalClosureAcceptanceTest6486 {
         val mint = "REFUNDMINT6486${System.nanoTime()}"
         assertTrue(CanonicalPaperTransaction6486.open(
             id, mint, "R48", "TEST", "refund-test", 0.20, 0.01,
+            qtyRaw = BigInteger.valueOf(10_000_000_000L), decimals = 9,
+            entryPriceUsd = 2.0, solUsdAtEntry6737 = 100.0,
         ).applied)
         assertTrue(CanonicalPaperTransaction6486.refund(id, "startup_orphan").applied)
         assertEquals(CanonicalPositionAuthority6441.Lifecycle.CLOSED,

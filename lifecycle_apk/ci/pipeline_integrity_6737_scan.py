@@ -6,6 +6,8 @@ ROOT = Path(__file__).resolve().parents[1] / 'app/src/main/kotlin/com/lifecycleb
 def source(path):
     return (ROOT / path).read_text()
 checks = {
+    'resource retry reaches authorization result': 'val effectiveRetry6737 = canRetry || resourceDeferral6737' in source('engine/TradeAuthorizer.kt') and 'canRetry = effectiveRetry6737' in source('engine/TradeAuthorizer.kt'),
+    'resource cooldown reevaluates without bypassing gates': 'if (RejectTaxonomy.temporaryResourceDeferral6737(reason)) return 5_000L' in source('engine/ExecutableOpenGate.kt'),
     'learned risk is not promoted by venue floor': 'OK_MIN_PROMOTED_6600' not in source('engine/truth/OrderSizeResolver6441.kt'),
     'exact learning cohort cache': 'CleanInput6737(inputRows6737, limit' in source('engine/StrategyTruthLedger.kt') and 'rawRows.size / 10' not in source('engine/StrategyTruthLedger.kt'),
     'no token-count dust threshold': 'if (qtyToken <= 1.0)' not in source('data/Models.kt'),

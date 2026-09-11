@@ -11,12 +11,8 @@ import java.io.File
 
 class Repair6511PaperExecutionSourceTest {
     @Test
-    fun sub_floor_adaptive_buys_promoted_once_to_min_6600() = synchronized(PaperAccountLedger6430) {
-        // V5.0.6600 — restore canonical executable-minimum semantics.
-        // Operator directive Feb 2026: sub-min requests with hard caps
-        // that can fund minExec are promoted exactly once, so the
-        // specialist can execute at trade #1 (was: silently collapsed to
-        // BELOW_MIN_EXECUTABLE, blocking the learning loop entirely).
+    fun sub_floor_adaptive_risk_is_not_inflated_6737() = synchronized(PaperAccountLedger6430) {
+        // The executable minimum cannot override the final adaptive risk budget.
         PaperAccountLedger6430.resetForTest()
         PaperAccountLedger6430.initialize(0.1)  // fund at minimum
         OrderSizeResolver6441.updatePaperExecutableMinimumSol(
@@ -31,8 +27,9 @@ class Repair6511PaperExecutionSourceTest {
             mintForSeal = "6511-test-mint",
         )
         assertEquals(0.02419, resolved.requestedSol, 1e-9)
-        assertTrue(resolved.executable)
-        assertEquals("OK_MIN_PROMOTED_6600", resolved.reason)
+        assertFalse(resolved.executable)
+        assertEquals(0.0, resolved.finalSizeSol, 0.0)
+        assertEquals("RISK_BELOW_MIN_EXECUTABLE_6737", resolved.reason)
     }
 
     @Test

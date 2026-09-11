@@ -41,10 +41,21 @@ object PaperFillMath6737 {
     fun boundedNotional(riskSol: Double, cashAfterFeeReserveSol: Double, laneCapSol: Double, minimumSol: Double): Double {
         if (!positive(riskSol) || !positive(cashAfterFeeReserveSol) || !positive(laneCapSol) || !positive(minimumSol)) return 0.0
         val cap = listOf(riskSol, cashAfterFeeReserveSol, laneCapSol).minOf {
-            BigDecimal.valueOf(it).movePointRight(9).setScale(0, RoundingMode.DOWN)
+            quantizedLamports(it, RoundingMode.DOWN)
         }
-        val minimum = BigDecimal.valueOf(minimumSol).movePointRight(9).setScale(0, RoundingMode.UP)
+        val minimum = quantizedLamports(minimumSol, RoundingMode.UP)
         return if (cap >= minimum) cap.movePointLeft(9).toDouble() else 0.0
+    }
+
+    // Snap only IEEE-754 noise around an exact whole lamport. A genuine
+    // fractional-lamport deficit (e.g. 0.0499999999 SOL) still rounds DOWN.
+    private fun quantizedLamports(sol: Double, rounding: RoundingMode): BigDecimal {
+        val scaled = sol * 1_000_000_000.0
+        val nearest = Math.rint(scaled)
+        val ulp = Math.ulp(scaled)
+        return if (scaled.isFinite() && ulp < 0.25 && kotlin.math.abs(scaled - nearest) <= 2.0 * ulp)
+            BigDecimal.valueOf(nearest).setScale(0, RoundingMode.UNNECESSARY)
+        else BigDecimal.valueOf(sol).movePointRight(9).setScale(0, rounding)
     }
 
     private fun positive(value: Double) = value.isFinite() && value > 0.0

@@ -54,10 +54,9 @@ class Aate6597MarkAuthorityAndTreasuryCoverageTest {
             "src/main/kotlin/com/lifecyclebot/engine/BotService.kt"
         ).readText()
         assertTrue(
-            "V5.0.6597: the openMV recompute path must pass isKnownOpenMint6596=true " +
-                "(the mint identity is proven by the canonical open position)",
-            botSrc.contains("§MARK_AUTHORITY_MINT_ROUTE_FOR_KNOWN_OPEN") &&
-                botSrc.contains("isKnownOpenMint6596 = true")
+            "6737 wallet marks require a fresh exact-identity quote and canonical units, not a known-mint bypass",
+            botSrc.contains(".freshEconomicExit6737(mint) ?: return@installMarkProvider 0.0") &&
+                botSrc.contains("PaperFillMath6737.grossProceeds(")
         )
     }
 

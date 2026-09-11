@@ -126,6 +126,10 @@ class PipelineIntegrity6737Test {
         assertEquals(0.0, PaperFillMath6737.boundedNotional(0.0499999999, 1.0, 1.0, 0.05), 0.0)
         assertEquals(0.050000001, PaperFillMath6737.boundedNotional(0.0500000019, 1.0, 1.0, 0.05), 1e-12)
     }
+    @Test fun whole_lamport_ieee_noise_does_not_create_an_unexecutable_order() {
+        assertEquals(0.05, PaperFillMath6737.boundedNotional(0.05, 1.0, 0.049999999999999996, 0.05), 0.0)
+        assertEquals(0.0, PaperFillMath6737.boundedNotional(0.0499999999, 1.0, 1.0, 0.05), 0.0)
+    }
     @Test fun nan_or_infinite_sizing_inputs_are_not_executable() {
         assertEquals(0.0, PaperFillMath6737.boundedNotional(Double.NaN, 1.0, 1.0, 0.05), 0.0)
         assertEquals(0.0, PaperFillMath6737.boundedNotional(0.1, 1.0, Double.POSITIVE_INFINITY, 0.05), 0.0)
@@ -160,6 +164,7 @@ class PipelineIntegrity6737Test {
     @Test fun real_safety_rejection_is_not_weakened_by_resource_label() {
         assertTrue(RejectTaxonomy.classify("RUG_FINALITY_CASH_STARVED_EXIT_THROUGHPUT_6727").hardSafety)
         assertTrue(RejectTaxonomy.classify("ZERO_LIQUIDITY").hardSafety)
+        assertTrue(RejectTaxonomy.classify("CASH_STARVED_EXIT_THROUGHPUT_6727", TradeAuthorizer.BlockLevel.PERMANENT).hardSafety)
     }
 
     private fun funded(id: String, basis: Double, raw: BigInteger, price: Double): CanonicalPositionAuthority6441.Position {

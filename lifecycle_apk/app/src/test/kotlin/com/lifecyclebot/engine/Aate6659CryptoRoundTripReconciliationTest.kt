@@ -81,7 +81,7 @@ class Aate6659CryptoRoundTripReconciliationTest {
         val reducerClose = transaction.substringAfter("fun close(positionId: String")
             .substringBefore("fun refund(positionId: String")
         val terminalMutation = reducerClose.indexOf("CanonicalPaperTerminalBridge6469.finalizeSell(")
-        val canonicalJournal = reducerClose.indexOf("recordCloseProjection6659(pos, r, exitReason, terminal)")
+        val canonicalJournal = reducerClose.indexOf("recordCloseProjection6659(pos, r, exitReason, terminal, exitPriceUsd6737)")
         val reducerReturn = reducerClose.indexOf("applied = true", canonicalJournal)
         assertTrue("canonical reducer must journal after terminal mutation", terminalMutation in 1 until canonicalJournal)
         assertTrue("canonical reducer must journal before returning to any trader", canonicalJournal in 1 until reducerReturn)

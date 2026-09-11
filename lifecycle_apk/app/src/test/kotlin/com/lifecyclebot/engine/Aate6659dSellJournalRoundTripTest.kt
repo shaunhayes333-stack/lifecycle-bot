@@ -84,7 +84,7 @@ class Aate6659dSellJournalRoundTripTest {
             "src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt"
         ).readText()
         assertTrue(source.contains("private fun recordCloseProjection6659("))
-        assertTrue(source.contains("recordCloseProjection6659(pos, r, exitReason, terminal)"))
+        assertTrue(source.contains("recordCloseProjection6659(pos, r, exitReason, terminal, exitPriceUsd6737)"))
         assertTrue(source.contains("sol = gross"))
         assertTrue(source.contains("economicEventId = receipt.economicEventId"))
     }

@@ -39,7 +39,7 @@ object RejectTaxonomy {
 
     fun classify(reason: String, blockLevel: TradeAuthorizer.BlockLevel? = null): Classification {
         val r = reason.uppercase()
-        val resourceDeferral6737 = temporaryResourceDeferral6737(r)
+        val resourceDeferral6737 = blockLevel != TradeAuthorizer.BlockLevel.PERMANENT && temporaryResourceDeferral6737(r)
         val category = when {
             resourceDeferral6737 -> Category.PENALTY
             r.contains("ZERO_LIQUIDITY") || r.contains("NO_LIQUIDITY") -> Category.HARD_SAFETY

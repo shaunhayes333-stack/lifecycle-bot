@@ -42,7 +42,7 @@ class Repair6492AcceptanceTest {
         assertTrue(CanonicalLotQuantity6464.hasFundedOpenLot6485(pid))
     }
 
-    @Test fun missing_quote_keeps_last_good_mark_then_basis_never_zero() {
+    @Test fun missing_quote_retains_explicit_unpriced_basis_not_stale_profit() {
         val mint = "MarkMint6492111111111111111111111111111"
         PaperAccountLedger6430.initialize(5.0)
         assertTrue(PaperAccountLedger6430.onBuy(1.0, 0.0))
@@ -57,7 +57,10 @@ class Repair6492AcceptanceTest {
         val fresh = CanonicalCapitalAuthority6450.snapshot { 1.4 }
         val stale = CanonicalCapitalAuthority6450.snapshot { 0.0 }
         assertEquals(1.4, fresh.openMarketValueSol, 1e-9)
-        assertEquals(1.4, stale.openMarketValueSol, 1e-9)
+        assertEquals(1.0, stale.openMarketValueSol, 1e-9)
+        assertEquals(1.0, stale.unpricedOpenCostBasisSol, 1e-9)
+        assertEquals(0.0, stale.authoritativeOpenMarketValueSol, 1e-9)
+        assertFalse(stale.valuationComplete)
         assertEquals(1, stale.staleMarkMints)
         assertTrue(stale.totalEquitySol > stale.cashSol)
     }

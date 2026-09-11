@@ -65,7 +65,7 @@ class V5_0_6569AcceptanceTest {
         assertTrue(paper.contains("LEVERAGED_TERMINAL_ARITHMETIC_DIVERGENCE_6569"))
         assertTrue(paper.contains("PaperLearningEligibility6519.record"))
         assertTrue(paper.contains("val canonicalRealizedPnl6569 = effectiveGrossProceeds6692 - basis - sellFeeSol"))
-        assertTrue(paper.contains("STALE_QUOTE_PAPER_PROCEEDS_CLAMPED_6692"))
-        assertTrue(paper.contains("minOf(grossProceedsSol, boundedGross6692)"))
+        assertTrue(paper.contains("FRESH_EXIT_QUOTE_REQUIRED_6737"))
+        assertFalse(paper.contains("minOf(grossProceedsSol, boundedGross6692)"))
     }
 }

@@ -1188,7 +1188,8 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("Live keeps the existing"))
         assertTrue(exec.contains("SCRATCH"))
         assertFalse("Exit labels must not synthesize fill prices", exec.contains("fun parsePaperExitClamp("))
-        assertTrue(exec.contains("val priceDerivedPnlPct = pct(pos.entryPrice, effectivePrice)"))
+        assertTrue(exec.contains("PaperFillMath6737.grossProceeds("))
+        assertTrue(exec.contains("validEconomicExit6737(exitWitness6737, ts.mint)"))
     }
 
 
@@ -7588,11 +7589,12 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6487: replay derives gross realized from typed fields instead of stale net aggregate", replay.contains("canonicalGrossRealized6487") && replay.contains("e.grossProceedsSol - e.allocatedCostBasisSol"))
         assertFalse("V5.0.6487: replay cannot periodically overwrite authoritative ledger", replay.contains("repairLedgerIfClean") || ledger.contains("replaceFromCanonicalReplay"))
         assertTrue("V5.0.6487: only one-time legacy migration may seed missing durable ledger", replay.contains("migrateLegacyLedgerOnce6487") && ledger.contains("initPersistent6487") && ledger.contains("persistCurrent6487"))
-        assertTrue("V5.0.6487: capital snapshot reads ledger cash/open/realized/fees directly (post-6604 may read via PaperCapitalAuthority6577 facade — same authority)",
-            (capital.contains("PaperAccountLedger6430.cashSol()") || capital.contains("PaperCapitalAuthority6577.cashSol()")) &&
-                (capital.contains("PaperAccountLedger6430.openCostBasisSol()") || capital.contains("PaperCapitalAuthority6577.openCostBasisSol()")) &&
-                (capital.contains("PaperAccountLedger6430.realizedPnlSol()") || capital.contains("PaperCapitalAuthority6577.realizedPnlSol()")) &&
-                (capital.contains("PaperAccountLedger6430.feesSol()") || capital.contains("PaperCapitalAuthority6577.feesSol()")))
+        assertTrue("6737 capital fields must come from one atomic ledger revision",
+            capital.contains("val account = PaperAccountLedger6430.snapshotAtomic6643()") &&
+                capital.contains("val cash = account.cashSol") &&
+                capital.contains("val openCost = account.openCostBasisSol") &&
+                capital.contains("val realized = account.realizedPnlSol") &&
+                capital.contains("val fees = account.feesSol"))
         assertFalse("V5.0.6487: capital snapshot cannot prefer replay totals", capital.contains("CanonicalPaperReplay6464.lastSnapshot()") || capital.contains("replay?.openCostBasisSol"))
         assertTrue("V5.0.6487: wallet surfaces are synchronized from ledger authority", bot.contains("syncPaperCapitalAuthority6448") && bot.contains("PaperWalletStore.persist(applicationContext, ledgerCash)"))
     }
@@ -8026,7 +8028,7 @@ class GoldenTapeRegressionTest {
         val slot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt").readText()
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         assertTrue("6490 resolver must preserve the executable floor only when fee-aware capital and lane cap can fund it",
-            resolver.contains("authorityCapLamports" + "6498") && resolver.contains("PAPER_ENTRY_FEE_RESERVE_RATE_6490") &&
+            resolver.contains("PaperFillMath6737.boundedNotional(risk, feeAwareAvailable6490, laneCap, minExec)") && resolver.contains("PAPER_ENTRY_FEE_RESERVE_RATE_6490") &&
                 resolver.contains("CAPITAL_BELOW_MIN_EXECUTABLE_6490") && !resolver.contains("minimumFundable6490"))
         assertTrue("6491 precheck must not authorize before canonical size resolution",
             openGate.contains("EXEC_OPEN_PRECHECK_SIZE_PENDING_6491") &&
@@ -8069,8 +8071,8 @@ class GoldenTapeRegressionTest {
 
         assertTrue("6491 sizing boundary must compare integer lamports, including exact equality",
             resolver.contains("SOL_LAMPORTS_6491") && resolver.contains("toLamports6491") &&
-                resolver.contains("boundedExecutableLamports6498 >= minExecLamports6491") &&
-                resolver.contains("OK_MIN_PROMOTED_6600") && invariant.contains("Cash and lane cap are"))
+                resolver.contains("PaperFillMath6737.boundedNotional(") &&
+                resolver.contains("RISK_BELOW_MIN_EXECUTABLE_6737") && invariant.contains("res.finalSizeSol > res.riskSol"))
         val sizePrecheck = openGate.indexOf("EXEC_OPEN_PRECHECK_SIZE_PENDING_6491")
         val mintClaim = openGate.indexOf("executableBuyClaim6487.putIfAbsent")
         val allowed = openGate.indexOf("ForensicLogger.lifecycle(" + '"' + "EXEC_OPEN_ALLOWED" + '"')
@@ -8108,8 +8110,9 @@ class GoldenTapeRegressionTest {
                 position.contains("POSITION_STATE_PROJECTED_FROM_CANONICAL_" + "6492") &&
                 lot.contains("CANONICAL_CARRY_LOT_RESTORED_" + "6492"))
         assertTrue("6492 missing quote must retain last-good mark or basis, never zero-value open inventory",
-            capital.contains("lastGoodMark" + "6492") && capital.contains("CAPITAL_STALE_LAST_GOOD_MARK_" + "6492") &&
-                capital.contains("CAPITAL_MARK_FALLBACK_NO_CANON_POSITION_" + "6492"))
+            capital.contains("val openMv = markedValue + missingProjectedBasis") &&
+                capital.contains("unpricedOpenCostBasisSol = unpricedBasis") &&
+                capital.contains("valuationComplete = complete"))
         assertTrue("6492 TokenMap must publish shared mint result and retry pending maps on short TTL",
             tokenMap.contains("canonicalResultByMint" + "6492") && tokenMap.contains("PENDING_RESULT_RETRY_MS_" + "6492") &&
                 tokenMap.contains("TOKEN_MAP_SHARED_RESULT_HIT_" + "6492") && executor.contains("PAPER_BUY_DEFERRED_TOKEN_MAP_RETRY_" + "6492"))
@@ -8243,11 +8246,12 @@ class GoldenTapeRegressionTest {
         assertTrue(parity.contains("canonicalStateByMint" + "6498") && parity.contains("c=$" + "expectedState6498"))
         assertTrue(registry.contains("state = p.state") && registry.contains("PARTIALLY_CLOSED"))
         assertTrue(
-            "V5.0.6498+6612: laddered must remain the MAX of risk-derived and ladderTarget — accept either `risk` or `nudgedRisk` (bounded contributor merge preserves the doctrine)",
-            (sizing.contains("kotlin.math.max(risk, ladderTarget)") || sizing.contains("kotlin.math.max(nudgedRisk, ladderTarget)")) &&
-                !sizing.contains("kotlin.math.min(risk, ladderFloor)")
+            "6737 compounding cannot reverse the final learned risk reduction",
+            sizing.contains("val laddered = nudgedRisk") &&
+                sizing.contains("PaperFillMath6737.boundedNotional(risk, feeAwareAvailable6490, laneCap, minExec)") &&
+                !sizing.contains("kotlin.math.max(nudgedRisk, ladderTarget)")
         )
-        assertTrue(sizing.contains("authorityCapLamports" + "6498"))
+        assertTrue(sizing.contains("RISK_BELOW_MIN_EXECUTABLE_6737"))
         assertTrue(groq.contains("openai/gpt-oss-20b"))
     }
 
@@ -8954,7 +8958,7 @@ class GoldenTapeRegressionTest {
         assertTrue(executor.contains("canonicalTerminalPosition6492.quantityScale.coerceIn(0, 18)"))
         assertFalse(executor.contains("canonicalTerminalPosition6492.tokenDecimals.takeIf"))
         assertTrue(sizing.contains("applyPaperMemeMinimum") && sizingBridge.contains("applyPaperMemeMinimum = assetClass == AssetClass.SOLANA_TOKEN"))
-        assertTrue(sizing.contains("val effectiveShapedLamports6506 = laneClampedLamports6491"))
+        assertTrue(sizing.contains("PaperFillMath6737.boundedNotional(risk, feeAwareAvailable6490, laneCap, minExec)"))
         assertFalse(sizing.contains("ORDER_SIZE_PROMOTED_TO_MIN_EXECUTABLE_6506"))
         assertFalse(executor.contains("floorPromotionRequested6511"))
 

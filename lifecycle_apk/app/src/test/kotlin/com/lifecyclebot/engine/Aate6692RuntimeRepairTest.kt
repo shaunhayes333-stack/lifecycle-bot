@@ -43,9 +43,10 @@ class Aate6692RuntimeRepairTest {
         val close = src.substringAfter("fun close(positionId: String")
             .substringBefore("private fun recordCloseProjection6659")
         assertTrue(close.contains("STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP"))
-        assertTrue(close.contains("minOf(grossProceedsSol, boundedGross6692)"))
-        assertTrue(close.contains("grossProceedsSol = effectiveGrossProceeds6692"))
-        assertTrue(close.contains("EconomicPurityGate6504.markUntrusted"))
+        assertTrue(close.contains("FRESH_EXIT_QUOTE_REQUIRED_6737"))
+        assertFalse(close.contains("minOf(grossProceedsSol, boundedGross6692)"))
+        assertTrue("Unknown economics must return before the ledger mutation",
+            close.indexOf("FRESH_EXIT_QUOTE_REQUIRED_6737") < close.indexOf("CanonicalPaperTerminalBridge6469.finalizeSell"))
     }
 
     @Test
