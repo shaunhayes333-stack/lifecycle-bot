@@ -14,6 +14,10 @@ concurrency:
   group: aate-source-contract-repair
   cancel-in-progress: false
 
+env:
+  REPAIR_VERSION: '5.0.6736'
+  REPAIR_BUILD: '6736'
+
 jobs:
   repair:
     runs-on: ubuntu-latest
@@ -28,11 +32,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/repair6735
+          mkdir -p /tmp/repair6736
           python3 - <<'PY'
-          import hashlib, json, subprocess
+          import hashlib, json, os, subprocess
           from pathlib import Path
           manifest = json.loads(Path('.github/recovery6735/source-repair.json').read_text())
+          manifest['version'] = os.environ['REPAIR_VERSION']
           # Preserve the newer read-only audit test and direct runtime witness.
           manifest['files'] = [x for x in manifest['files'] if not x['path'].endswith('Aate6662JournalOrphanSettlementCoverageTest.kt')]
           item = next(x for x in manifest['files'] if x['path'].endswith('ExecutionSpineAcceptance6647.kt'))
@@ -67,14 +72,11 @@ jobs:
               if blob(result) != item['after']:
                   raise SystemExit(f'Reviewed output hash mismatch: {p}')
               planned.append((p, result))
-          for p, data in planned:
-              p.parent.mkdir(parents=True, exist_ok=True)
-              p.write_bytes(data)
           for name in ['AATE_VERSION', 'lifecycle_apk/AATE_VERSION']:
               p = Path(name)
-              if p.read_text().strip() != '5.0.6734':
-                  raise SystemExit(f'Production version advanced: {name}')
-              p.write_text('5.0.6735\n')
+              if p.read_text().strip() != '5.0.6735':
+                  raise SystemExit(f'Production version changed since review: {name}')
+              planned.append((p, (os.environ['REPAIR_VERSION'] + '\n').encode()))
           runtime = Path('ci/runtime-test.sh')
           if blob(runtime.read_bytes()) != 'b9ff1552f89980c99d18b9c22834dbb5ae874a91':
               raise SystemExit('Runtime script changed since review')
@@ -85,16 +87,17 @@ jobs:
           $GRADLE_CMD assembleDebug --no-daemon --stacktrace -PbuildNumber="${BASH_REMATCH[1]}" -PaateVersionName="$PRODUCTION_VERSION"'''
           if text.count(old) != 1:
               raise SystemExit('Runtime version command not unique')
-          runtime.write_text(text.replace(old, new, 1))
-          paths = [str(p) for p, _ in planned] + ['AATE_VERSION', 'lifecycle_apk/AATE_VERSION', str(runtime)]
-          Path('/tmp/repair6735/manifest.json').write_text(json.dumps(manifest, indent=2))
-          Path('/tmp/repair6735/paths.txt').write_text('\n'.join(paths) + '\n')
-          subprocess.run(['git', 'add', '--', *paths], check=True)
+          planned.append((runtime, text.replace(old, new, 1).encode()))
+          for p, data in planned:
+              p.parent.mkdir(parents=True, exist_ok=True)
+              p.write_bytes(data)
+          Path('/tmp/repair6736/manifest.json').write_text(json.dumps(manifest, indent=2))
+          subprocess.run(['git', 'add', '--', *[str(p) for p, _ in planned]], check=True)
           PY
           git rm --ignore-unmatch .github/recovery6735/source-repair.json .github/recovery6735/part1.b64 .github/recovery6735/part2.b64 .github/recovery6735/part3.b64 .github/recovery6735/overlay.b64 .github/workflows/recovery_6735_validated.yml .github/workflows/repair_ci_sources.yml lifecycle_apk/ci/v5_0_6734_recovery.py
           git diff --cached --check
           git diff --cached --stat
-          git diff --cached > /tmp/repair6735/source.patch
+          git diff --cached > /tmp/repair6736/source.patch
       - uses: actions/setup-java@v4
         with:
           java-version: '17'
@@ -118,7 +121,7 @@ jobs:
           chmod +x gradlew
           mkdir -p gradle/wrapper
           curl --fail --retry 3 -sSL -o gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar
-          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=6735 -PaateVersionName=5.0.6735 2>&1 | tee /tmp/repair6735/unit.log
+          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=$REPAIR_BUILD -PaateVersionName=$REPAIR_VERSION 2>&1 | tee /tmp/repair6736/unit.log
       - name: Commit exactly the tested source
         id: commit
         shell: bash
@@ -127,7 +130,7 @@ jobs:
           python3 - <<'PY'
           import hashlib, json
           from pathlib import Path
-          for item in json.loads(Path('/tmp/repair6735/manifest.json').read_text())['files']:
+          for item in json.loads(Path('/tmp/repair6736/manifest.json').read_text())['files']:
               data = Path(item['path']).read_bytes()
               actual = hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
               if actual != item['after']:
@@ -136,22 +139,22 @@ jobs:
           git diff --cached --check
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'V5.0.6735 repair exact entry provenance and nonblocking runtime witness'
+          git commit -m "V${REPAIR_VERSION} repair exact entry provenance and nonblocking runtime witness"
           SOURCE_SHA=$(git rev-parse HEAD)
           echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
-          printf '%s\n' "$SOURCE_SHA" > /tmp/repair6735/source-sha.txt
-          git archive --format=tar.gz -o /tmp/repair6735/source.tar.gz HEAD
+          printf '%s\n' "$SOURCE_SHA" > /tmp/repair6736/source-sha.txt
+          git archive --format=tar.gz -o /tmp/repair6736/source.tar.gz HEAD
       - name: Assemble the exact source commit
         working-directory: lifecycle_apk
         run: |
           set -euo pipefail
-          ./gradlew assembleRelease --no-daemon --stacktrace -PbuildNumber=6735 -PaateVersionName=5.0.6735 2>&1 | tee /tmp/repair6735/build.log
+          ./gradlew assembleRelease --no-daemon --stacktrace -PbuildNumber=$REPAIR_BUILD -PaateVersionName=$REPAIR_VERSION 2>&1 | tee /tmp/repair6736/build.log
           python3 ci/build_gate_summary.py
       - name: Publish tested production source without force
         shell: bash
         run: |
           set -euo pipefail
-          git push origin "HEAD:refs/heads/repair/6735-source-${GITHUB_RUN_ID}"
+          git push origin "HEAD:refs/heads/repair/6736-source-${GITHUB_RUN_ID}"
           git push origin HEAD:main
           echo "Production source: $(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
           echo "Unit suite and APK assembly passed; runtime result is reported separately." >> "$GITHUB_STEP_SUMMARY"
@@ -160,15 +163,15 @@ jobs:
         with:
           name: source-contract-validation-${{ github.run_id }}
           path: |
-            /tmp/repair6735/
+            /tmp/repair6736/
             lifecycle_apk/app/build/test-results/
             lifecycle_apk/app/build/reports/tests/
           if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         if: success()
         with:
-          name: AATE_v5.0.6735_source_verified
-          path: lifecycle_apk/app/build/outputs/apk/release/AATE_v5.0.6735.apk
+          name: AATE_v5.0.6736_source_verified
+          path: lifecycle_apk/app/build/outputs/apk/release/AATE_v5.0.6736.apk
           if-no-files-found: error
 
   runtime:
