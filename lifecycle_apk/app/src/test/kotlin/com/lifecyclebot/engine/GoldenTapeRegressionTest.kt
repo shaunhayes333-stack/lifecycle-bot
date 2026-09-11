@@ -1178,7 +1178,7 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun paper_stale_price_timeout_closes_scratch_instead_of_zombie_holding() {
+    fun paper_stale_price_timeout_does_not_fabricate_a_scratch_fill() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(bot.contains("PAPER_STALE_ZOMBIE_SCRATCH_EXIT"))
@@ -1187,7 +1187,8 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("cfg.paperMode && livePriceAgeMs > paperStaleTimeoutMs"))
         assertTrue(bot.contains("Live keeps the existing"))
         assertTrue(exec.contains("SCRATCH"))
-        assertTrue(exec.contains("return Pair(-3.0, +3.0)"))
+        assertFalse("Exit labels must not synthesize fill prices", exec.contains("fun parsePaperExitClamp("))
+        assertTrue(exec.contains("val priceDerivedPnlPct = pct(pos.entryPrice, effectivePrice)"))
     }
 
 

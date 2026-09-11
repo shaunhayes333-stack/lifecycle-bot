@@ -86,6 +86,11 @@ object CanonicalPaperTransaction6486 {
         reconciled
     }
 
+    /** Modern receipts already own their raw deltas. A lagging journal is not
+     * permission to subtract a partial twice when its real receipt arrives. */
+    internal fun permitsLegacyQuantityRepair6736(seed: Trade): Boolean =
+        seed.economicEventId.isBlank() && seed.operationId.isBlank()
+
     /** Append an immutable raw-quantity correction for old split close paths.
      * It carries no cash, basis, fee or PnL and therefore cannot conceal an
      * economic mismatch; it only makes the journal lot equal the canonical
@@ -101,6 +106,12 @@ object CanonicalPaperTransaction6486 {
             val seed = rows.firstOrNull {
                 it.mode.equals("paper", true) && it.side.equals("BUY", true) && it.positionId == positionId
             } ?: return@forEach
+            if (!permitsLegacyQuantityRepair6736(seed)) {
+                // Leave the mismatch visible to reconciliation until the exact
+                // receipt arrives; do not manufacture a second quantity event.
+                try { PipelineHealthCollector.labelInc("JOURNAL_TYPED_RECEIPT_PENDING_NO_QTY_REWRITE_6736") } catch (_: Throwable) {}
+                return@forEach
+            }
             val subtract = (currentRaw - targetRaw).coerceAtLeast(BigInteger.ZERO)
             val add = (targetRaw - currentRaw).coerceAtLeast(BigInteger.ZERO)
             val eventId = "PAPER6486:QTY_RECONCILE:$positionId:$currentRaw:$targetRaw"

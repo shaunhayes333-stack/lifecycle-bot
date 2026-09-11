@@ -1015,6 +1015,18 @@ object PipelineHealthCollector {
         } catch (_: Throwable) { false }
     }
 
+    data class ExecutionSpineCounters6735(
+        val safety: Long, val v3: Long, val labels: Map<String, Long>,
+    )
+
+    /** Pure counter sample: no journal, wallet, trade-count or reconciliation reads. */
+    fun executionSpineCounters6735(keys: List<String>): ExecutionSpineCounters6735 =
+        ExecutionSpineCounters6735(
+            phaseCounts["SAFETY"]?.get() ?: 0L,
+            phaseCounts["V3"]?.get() ?: 0L,
+            keys.associateWith { labelCounts[it]?.get() ?: 0L },
+        )
+
     fun snapshot(): Snapshot {
         val events = ring.toList()
         val revision6522 = reportRevision6522.incrementAndGet()

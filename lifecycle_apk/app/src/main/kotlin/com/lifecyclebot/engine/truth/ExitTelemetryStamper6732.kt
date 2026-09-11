@@ -35,7 +35,7 @@ object ExitTelemetryStamper6732 {
     fun noteExitIntent(positionId: String, cls: StopLatencyClasses6464.Class) {
         if (positionId.isBlank()) return
         try {
-            intents[positionId] = Intent(cls, System.currentTimeMillis())
+            intents.putIfAbsent(positionId, Intent(cls, System.currentTimeMillis()))
             PipelineHealthCollector.labelInc("EXIT_INTENT_STAMPED_6732_${cls.name}")
             PipelineHealthCollector.labelInc("EXIT_GATE_ALLOWED_${cls.name}_6732")
         } catch (_: Throwable) {}
@@ -43,22 +43,21 @@ object ExitTelemetryStamper6732 {
 
     /**
      * Called from the terminal sell path (ExecutorCanonicalMirror6442.mirrorSell)
-     * when a sell confirms. `reason` is the mirror's reason string; it maps
-     * to a Class heuristic so the operator sees per-class latency even when
-     * upstream forgot to stamp `noteExitIntent`.
+     * when a sell confirms. The reason may identify a class, but only a real
+     * intent timestamp can supply latency. Missing timestamps remain visible
+     * as unknown rather than manufactured zero-millisecond measurements.
      */
     fun noteExitCompleted(positionId: String, reason: String) {
         if (positionId.isBlank()) return
         try {
             val intent = intents.remove(positionId)
             val cls = intent?.cls ?: classify(reason)
-            val elapsedMs = if (intent != null)
-                (System.currentTimeMillis() - intent.atMs).coerceAtLeast(0L)
-            else 0L
             if (intent == null) {
                 PipelineHealthCollector.labelInc("EXIT_TERMINAL_NO_INTENT_STAMP_6732_${cls.name}")
+            } else {
+                val elapsedMs = (System.currentTimeMillis() - intent.atMs).coerceAtLeast(0L)
+                StopLatencyClasses6464.record(cls, elapsedMs)
             }
-            StopLatencyClasses6464.record(cls, elapsedMs)
             PipelineHealthCollector.labelInc("EXIT_TERMINAL_STAMPED_6732_${cls.name}")
         } catch (_: Throwable) {}
     }

@@ -90,6 +90,7 @@ object ExecutionSpineAcceptanceWindow6647 {
     private val exitEvaluations = java.util.concurrent.atomic.AtomicLong(0L)
     private val requestedCycle = java.util.concurrent.atomic.AtomicLong(-1L)
     private val maxStartDelayCycles = java.util.concurrent.atomic.AtomicLong(0L)
+    private val closing6735 = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile private var baseline: Baseline? = null
     @Volatile private var completedResult6735: ExecutionSpineAcceptance6647.Result? = null
 
@@ -135,16 +136,16 @@ object ExecutionSpineAcceptanceWindow6647 {
      * at the closing boundary instead of silently deleting the witness.
      */
     private fun capture(nowMs: Long): Baseline {
-        val health = try { com.lifecyclebot.engine.PipelineHealthCollector.snapshot() } catch (_: Throwable) { null }
+        val health = try { com.lifecyclebot.engine.PipelineHealthCollector.executionSpineCounters6735(watchedLabels) } catch (_: Throwable) { null }
         val desks = try { com.lifecyclebot.engine.ToolkitSignalSheet.configuredMemeDesks6647() } catch (_: Throwable) { emptyList() }
         val phantom = try {
             desks.sumOf { SpecialistCausalFunnel6625.laneSnapshot6647(it).phantomSizedOnly }.toLong()
         } catch (_: Throwable) { 0L }
         return Baseline(
             atMs = nowMs,
-            phaseSafety = health?.phaseCounts?.get("SAFETY") ?: 0L,
-            phaseV3 = health?.phaseCounts?.get("V3") ?: 0L,
-            labels = watchedLabels.associateWith { key -> health?.labelCounts?.get(key) ?: 0L },
+            phaseSafety = health?.safety ?: 0L,
+            phaseV3 = health?.v3 ?: 0L,
+            labels = watchedLabels.associateWith { key -> health?.labels?.get(key) ?: 0L },
             cryptoOpen = try {
                 CanonicalEntryAuthority6540.snapshot(CanonicalEntryAuthority6540.Venue.CRYPTO).opensConfirmed
             } catch (_: Throwable) { 0L },
@@ -180,7 +181,6 @@ object ExecutionSpineAcceptanceWindow6647 {
      * lazily creating the baseline on its first audit meant a healthy
      * three-minute smoke could finish before any 120-second window closed.
      */
-    @Synchronized
     fun beginWindow6662(nowMs: Long = System.currentTimeMillis()) {
         // Emit the start witness BEFORE touching optional runtime registries.
         // Even if a future capture regression reappears, CI gets a precise
@@ -196,7 +196,6 @@ object ExecutionSpineAcceptanceWindow6647 {
     }
 
     /** Returns null while the mandatory window is still warming. */
-    @Synchronized
     fun closeCompletedWindow(nowMs: Long = System.currentTimeMillis()): ExecutionSpineAcceptance6647.Result? {
         val start = baseline
         if (start == null) {
@@ -214,6 +213,7 @@ object ExecutionSpineAcceptanceWindow6647 {
         val duration = nowMs - start.atMs
         if (duration < ExecutionSpineAcceptance6647.MIN_WINDOW_MS) return null
 
+        if (!closing6735.compareAndSet(false, true)) return null
         return try {
             // V5.0.6735: acceptance is an observer, not a journal writer. The
             // independent reconciler owns settlement/replay. Calling it here
@@ -274,6 +274,7 @@ object ExecutionSpineAcceptanceWindow6647 {
                     delta("LEARNING_INVALID_ACCOUNT_UPDATE_6647"),
             )
             val result = ExecutionSpineAcceptance6647.evaluate(observation)
+            if (baseline !== start) return null // A later start owns the current window.
             completedResult6735 = result
             baseline = end
             maxStartDelayCycles.set(0L)
@@ -288,11 +289,14 @@ object ExecutionSpineAcceptanceWindow6647 {
             result
         } catch (t: Throwable) {
             val result = ExecutionSpineAcceptance6647.Result(listOf("ACCEPTANCE_CAPTURE_EXCEPTION_6689"))
+            if (baseline !== start) return null // A later start owns the current window.
             completedResult6735 = result
             emitFailure6689(duration, result.failures, t, windowStartMs = start.atMs)
             baseline = try { capture(nowMs) } catch (_: Throwable) { null }
             maxStartDelayCycles.set(0L)
             result
+        } finally {
+            closing6735.set(false)
         }
     }
 }

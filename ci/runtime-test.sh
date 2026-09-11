@@ -40,7 +40,9 @@ if ! ./gradlew --version --no-daemon; then
   GRADLE_CMD="gradle"
   gradle --version
 fi
-$GRADLE_CMD assembleDebug --no-daemon --stacktrace -PbuildNumber="${GITHUB_RUN_NUMBER:-0}"
+PRODUCTION_VERSION="$(tr -d '[:space:]' < ../AATE_VERSION)"
+[[ "$PRODUCTION_VERSION" =~ ^5[.]0[.]([0-9]+)$ ]] || { echo "Invalid source version"; exit 1; }
+$GRADLE_CMD assembleDebug --no-daemon --stacktrace -PbuildNumber="${BASH_REMATCH[1]}" -PaateVersionName="$PRODUCTION_VERSION"
 APK="$(find app/build/outputs/apk/debug -name '*.apk' | head -1)"
 echo "APK=$APK"
 [ -n "$APK" ] || { echo "No APK produced"; exit 1; }

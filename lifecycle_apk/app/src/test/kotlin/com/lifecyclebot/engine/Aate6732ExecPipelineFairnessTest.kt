@@ -137,18 +137,18 @@ class Aate6732ExecPipelineFairnessTest {
     }
 
     @Test
-    fun `terminal without intent stamp still records class heuristically`() {
-        // 6731 produced 33 real sells with 0 latency samples — most exits
-        // didn't publish an intent-phase stamp. The stamper must classify
-        // from the reason string as a fallback so buckets still populate.
+    fun `terminal without intent records unknown latency not zero`() {
+        // A terminal reason identifies its class, not when its decision began.
+        // Missing timestamps must never inflate the zero-millisecond population.
         ExitTelemetryStamper6732.noteExitCompleted("pos-2", "CATASTROPHIC_STOP_LOSS_OVERRUN_-47pct_FROM_RAPID")
         val snap = StopLatencyClasses6464.snapshot()
         val (count, _, _) = snap.getValue(StopLatencyClasses6464.Class.CATASTROPHIC_EXIT)
-        assertEquals("catastrophic bucket must classify from reason", 1L, count)
+        assertEquals("unknown latency must not appear as a measured zero", 0L, count)
     }
 
     @Test
     fun `trailing reason routes to trailing-stop bucket`() {
+        ExitTelemetryStamper6732.noteExitIntent("pos-3", StopLatencyClasses6464.Class.TRAILING_STOP)
         ExitTelemetryStamper6732.noteExitCompleted("pos-3", "PROFIT_LOCK_TRAIL_TIGHTENED")
         val snap = StopLatencyClasses6464.snapshot()
         val (count, _, _) = snap.getValue(StopLatencyClasses6464.Class.TRAILING_STOP)

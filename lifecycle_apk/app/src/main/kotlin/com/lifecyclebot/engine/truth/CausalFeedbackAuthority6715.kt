@@ -191,6 +191,11 @@ object CausalFeedbackAuthority6715 {
             // V5.0.6719 §CAUSAL_STATE_ACCOUNTING — identity drift now only
             // trips on mode/lane mismatch. Score-band drift is expected and
             // absorbed by using the stamped band above.
+            if (stamp.mint != mint) {
+                releaseAttemptLocked(attemptId, removeStamp = true)
+                emit("CAUSAL_EXEC_STALE_EPOCH_6715", "attemptId=${attemptId.take(28)} reason=IDENTITY_DRIFT_MINT")
+                return Admission(false, "FEEDBACK_IDENTITY_DRIFT_REVALIDATE_6715", forceRevalidate = true)
+            }
             if (stamp.mode != nm || stamp.lane != nl) {
                 releaseAttemptLocked(attemptId, removeStamp = true)
                 emit("CAUSAL_EXEC_STALE_EPOCH_6715", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} expected=$nm/$nl stamped=${stamp.mode}/${stamp.lane} reason=IDENTITY_DRIFT_MODE_OR_LANE")

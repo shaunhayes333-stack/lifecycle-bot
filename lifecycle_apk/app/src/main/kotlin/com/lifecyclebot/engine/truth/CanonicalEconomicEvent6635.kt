@@ -6,7 +6,6 @@ import java.math.BigInteger
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.locks.ReentrantLock
 
 /**
  * V5.0.6635 §CANONICAL_ECONOMIC_EVENT — the single event authority.
@@ -83,6 +82,7 @@ object CanonicalEconomicEvent6635 {
 
     private data class CommitState(
         val event: Event,
+        val listeners: MutableList<() -> Unit> = mutableListOf(),
         @Volatile var positionCommitted: Boolean = false,
         @Volatile var ledgerCommitted: Boolean = false,
         @Volatile var journalCommitted: Boolean = false,
@@ -104,10 +104,8 @@ object CanonicalEconomicEvent6635 {
     }
 
     private val events = ConcurrentHashMap<String, CommitState>()
-    private val commitListeners = ConcurrentHashMap<String, java.util.concurrent.ConcurrentLinkedQueue<() -> Unit>>()
     private val positionIndex = ConcurrentHashMap<String, String>() // positionId → last-opening event
     private val byMint = ConcurrentHashMap<String, MutableList<String>>() // canonicalMint → eventIds
-    private val lock = ReentrantLock()
     private const val CAP = 8192
 
     private val opened = AtomicLong(0L)
@@ -115,29 +113,29 @@ object CanonicalEconomicEvent6635 {
     private val pending = AtomicLong(0L)
     private val stuck = AtomicLong(0L)
 
-    /** Queue learning/analytics until every economic store has committed. */
+    /** Register against the same event monitor as the final commit. Listener
+     * registration cannot race removal of a detached queue. Callbacks run only
+     * after all five real stores committed, and never under this monitor. */
     fun afterCommitted(economicEventId: String, listener: () -> Unit): Boolean {
-        if (economicEventId.isBlank() || !events.containsKey(economicEventId)) return false
-        val queue = commitListeners.computeIfAbsent(economicEventId) {
-            java.util.concurrent.ConcurrentLinkedQueue()
+        if (economicEventId.isBlank()) return false
+        val state = events[economicEventId] ?: return false
+        val runNow = synchronized(state) {
+            when (state.terminal) {
+                Terminal.FAILED -> return false
+                Terminal.COMMITTED -> true
+                else -> { state.listeners.add(listener); false }
+            }
         }
-        queue.add(listener)
-        if (events[economicEventId]?.terminal == Terminal.COMMITTED) {
-            drainCommitListeners(economicEventId)
-        }
+        if (runNow) runCommitListener6736(listener)
         return true
     }
 
     fun isCommitted(economicEventId: String): Boolean =
         events[economicEventId]?.terminal == Terminal.COMMITTED
 
-    private fun drainCommitListeners(economicEventId: String) {
-        val queue = commitListeners.remove(economicEventId) ?: return
-        while (true) {
-            val listener = queue.poll() ?: break
-            try { listener() } catch (_: Throwable) {
-                try { PipelineHealthCollector.labelInc("CANONICAL_POST_COMMIT_LISTENER_FAILED_6643") } catch (_: Throwable) {}
-            }
+    private fun runCommitListener6736(listener: () -> Unit) {
+        try { listener() } catch (_: Throwable) {
+            try { PipelineHealthCollector.labelInc("CANONICAL_POST_COMMIT_LISTENER_FAILED_6643") } catch (_: Throwable) {}
         }
     }
 
@@ -199,12 +197,19 @@ object CanonicalEconomicEvent6635 {
             } catch (_: Throwable) {}
             return false
         }
-        val already = when (store) {
-            Store.POSITION -> state.positionCommitted.also { state.positionCommitted = true }
-            Store.LEDGER -> state.ledgerCommitted.also { state.ledgerCommitted = true }
-            Store.JOURNAL -> state.journalCommitted.also { state.journalCommitted = true }
-            Store.FILL_LOT -> state.fillLotCommitted.also { state.fillLotCommitted = true }
-            Store.TERMINAL_EXEC -> state.terminalExecCommitted.also { state.terminalExecCommitted = true }
+        // Each store receipt is accepted exactly once even with concurrent
+        // journal/ledger writers. PENDING records may complete from late real
+        // receipts; the sweeper is not authority to invent a missing receipt.
+        val (already, ready) = synchronized(state) {
+            if (state.terminal == Terminal.FAILED) return false
+            val duplicate = when (store) {
+                Store.POSITION -> state.positionCommitted.also { state.positionCommitted = true }
+                Store.LEDGER -> state.ledgerCommitted.also { state.ledgerCommitted = true }
+                Store.JOURNAL -> state.journalCommitted.also { state.journalCommitted = true }
+                Store.FILL_LOT -> state.fillLotCommitted.also { state.fillLotCommitted = true }
+                Store.TERMINAL_EXEC -> state.terminalExecCommitted.also { state.terminalExecCommitted = true }
+            }
+            duplicate to if (duplicate) null else finalizeIfComplete6635(state)
         }
         if (already) {
             try {
@@ -216,41 +221,43 @@ object CanonicalEconomicEvent6635 {
         try {
             PipelineHealthCollector.labelInc("CANONICAL_EVENT_STORE_COMMIT_6635")
             PipelineHealthCollector.labelInc("CANONICAL_EVENT_STORE_COMMIT_${store.name}_6635")
-        } catch (_: Throwable) {}
-        finalizeIfComplete6635(state)
-        return true
-    }
-
-    private fun finalizeIfComplete6635(state: CommitState) {
-        if (state.terminal != Terminal.OPEN) return
-        if (state.allCommitted()) {
-            state.terminal = Terminal.COMMITTED
-            state.completedAtMs = System.currentTimeMillis()
-            committed.incrementAndGet()
-            try {
+            if (ready != null) {
                 PipelineHealthCollector.labelInc("CANONICAL_EVENT_COMMITTED_6635")
                 PipelineHealthCollector.labelInc("CANONICAL_EVENT_COMMITTED_${state.event.side.name}_6635")
                 PipelineHealthCollector.labelInc("PAPER_ATOMIC_COMMIT_OK_6635")
-            } catch (_: Throwable) {}
-            drainCommitListeners(state.event.economicEventId)
-        }
+            }
+        } catch (_: Throwable) {}
+        ready?.forEach(::runCommitListener6736)
+        return true
     }
 
-    /**
-     * Called by the sweeper: any event OPEN longer than `ttlMs` and
-     * with partial commits is stamped `PENDING_RECONCILIATION`.  The
-     * event is NOT auto-healed; it awaits operator inspection.
-     */
+    /** Caller holds state. Null means incomplete; an empty list means committed
+     * with no listeners. Detach callbacks under lock, invoke them outside it. */
+    private fun finalizeIfComplete6635(state: CommitState): List<() -> Unit>? {
+        if (state.terminal == Terminal.COMMITTED || state.terminal == Terminal.FAILED ||
+            !state.allCommitted()) return null
+        state.completedAtMs = System.currentTimeMillis()
+        state.pendingSinceMs = 0L
+        state.terminal = Terminal.COMMITTED
+        committed.incrementAndGet()
+        return state.listeners.toList().also { state.listeners.clear() }
+    }
+
+    /** A timeout exposes a partial write; it does not finalize the event or
+     * permanently prevent completion when the actual remaining stores commit. */
     fun sweepPending6635(ttlMs: Long = 60_000L) {
         val now = System.currentTimeMillis()
         for ((_, s) in events) {
-            if (s.terminal != Terminal.OPEN) continue
             val age = now - s.event.timestampMs
-            if (age < ttlMs) continue
-            if (!s.anyCommitted()) continue // no commit at all — a lookup failure, not a partial write
-            s.terminal = Terminal.PENDING_RECONCILIATION
-            s.pendingSinceMs = now
-            pending.incrementAndGet()
+            val flags = synchronized(s) {
+                if (s.terminal != Terminal.OPEN || age < ttlMs || !s.anyCommitted()) null
+                else {
+                    s.terminal = Terminal.PENDING_RECONCILIATION
+                    s.pendingSinceMs = now
+                    pending.incrementAndGet()
+                    s.snapshotCommittedFlags()
+                }
+            } ?: continue
             try {
                 PipelineHealthCollector.labelInc("ACCOUNTING_RECONCILIATION_PENDING_6635")
                 PipelineHealthCollector.labelInc("ACCOUNTING_RECONCILIATION_PENDING_${s.event.side.name}_6635")
@@ -258,11 +265,9 @@ object CanonicalEconomicEvent6635 {
                     "ACCOUNTING_RECONCILIATION_PENDING_6635",
                     "economicEventId=${s.event.economicEventId.take(30)} side=${s.event.side} " +
                         "positionId=${s.event.positionId.take(24)} mint=${s.event.canonicalMint.take(12)} " +
-                        "flags=${s.snapshotCommittedFlags()} ageMs=$age " +
-                        "action=await_operator_no_auto_heal_no_hero_promotion",
+                        "flags=$flags ageMs=$age action=await_exact_missing_store_receipts",
                 )
             } catch (_: Throwable) {}
-            // Escalate stuck-pending after another 60s
             if (age > 2L * ttlMs && s.terminal == Terminal.PENDING_RECONCILIATION) {
                 stuck.incrementAndGet()
                 try { PipelineHealthCollector.labelInc("FORENSIC_ACCOUNTING_STUCK_PENDING_6635") } catch (_: Throwable) {}
@@ -351,7 +356,6 @@ object CanonicalEconomicEvent6635 {
             .minByOrNull { it.value.completedAtMs }
             ?.key ?: return
         events.remove(oldest)
-        commitListeners.remove(oldest)
     }
 
     fun statusLine6635(): String =
@@ -359,7 +363,7 @@ object CanonicalEconomicEvent6635 {
             "stuck=${stuck.get()} inRing=${events.size}"
 
     internal fun resetForTest() {
-        events.clear(); positionIndex.clear(); byMint.clear(); commitListeners.clear()
+        events.clear(); positionIndex.clear(); byMint.clear()
         opened.set(0L); committed.set(0L); pending.set(0L); stuck.set(0L)
     }
 }

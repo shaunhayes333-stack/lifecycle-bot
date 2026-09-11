@@ -86,6 +86,34 @@ data class MintEntryMarketSnapshot(
         marketCapUsd.isFinite() && marketCapUsd >= 0.0 &&
         liquidityUsd.isFinite() && liquidityUsd > 0.0 &&
         priceSource.isNotBlank()
+
+    companion object {
+        /** The provider timestamp, identity and price travel together. Reading a
+         * quote never refreshes it. The paper/live provenance gate still decides
+         * whether this tuple may create an economic position. */
+        internal fun fromCanonicalMark6735(
+            mint: String,
+            mark: com.lifecyclebot.engine.truth.CanonicalPriceMark6522,
+            marketCapUsd: Double,
+            dex: String,
+            nowMs: Long = System.currentTimeMillis(),
+        ): MintEntryMarketSnapshot? {
+            if (mark.mint != mint || mark.baseMint != mint || mark.timestampMs <= 0L ||
+                nowMs - mark.timestampMs !in -5_000L..120_000L ||
+                mark.purpose == com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXIT_ECONOMIC)
+                return null
+            val price = mark.priceUsd.value.toDouble()
+            if (com.lifecyclebot.engine.truth.MarketDataProvenance6471.isKnownStandaloneSentinelPrice6658(price))
+                return null
+            return MintEntryMarketSnapshot(
+                priceUsd = price,
+                marketCapUsd = marketCapUsd.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0,
+                liquidityUsd = mark.liquidityUsd?.toDouble() ?: 0.0,
+                poolAddress = mark.pairId, priceSource = mark.source, dex = dex,
+                capturedAtMs = mark.timestampMs,
+            ).takeIf { it.valid }
+        }
+    }
 }
 
 // V5.0.6052 — ROUTE-LOCK DOCTRINE: max staleness for a cached on-route
@@ -12219,33 +12247,31 @@ class Executor(
     }
 
     private fun mintEntryMarketSnapshot(ts: TokenState): MintEntryMarketSnapshot? {
-        if (ts.lastPrice <= 0.0 || ts.lastLiquidityUsd <= 0.0 || ts.lastPricePoolAddr.isBlank() || ts.lastPriceSource.isBlank()) {
-            hydrateMintEntryMarketSnapshotFromCache(ts)
-        }
-        val price = ts.lastPrice.takeIf { it.isFinite() && it > 0.0 }
-            ?: ts.history.lastOrNull { it.priceUsd.isFinite() && it.priceUsd > 0.0 }?.priceUsd
-            ?: return null
-        val mcap = ts.lastMcap.takeIf { it.isFinite() && it > 0.0 }
-            ?: ts.history.lastOrNull { it.marketCap.isFinite() && it.marketCap > 0.0 }?.marketCap
-            ?: ts.lastFdv.takeIf { it.isFinite() && it > 0.0 }
-            ?: 0.0
-        val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: return null
-        val source = ts.lastPriceSource.ifBlank { ts.source.ifBlank { "UNKNOWN" } }
+        val now = System.currentTimeMillis()
+        val paper = RuntimeModeAuthority.isPaper()
+        val purposes = if (paper) listOf(
+            com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
+            com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING,
+        ) else listOf(com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE)
+        val canonical = purposes.mapNotNull { purpose ->
+            com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.getFresh6734(ts.mint, purpose, now)
+                ?.let { MintEntryMarketSnapshot.fromCanonicalMark6735(
+                    ts.mint, it, ts.lastMcap, ts.lastPriceDex.ifBlank { "UNKNOWN" }, now,
+                ) }
+        }.maxByOrNull { it.capturedAtMs }
+        if (canonical != null) return canonical
+        // PAPER already resolved provider tuples before this boundary. Never
+        // validate a registry mark and debit a different mutable TokenState price.
+        if (paper) return null
+        // LIVE may receive a just-landed provider tick before registry publication.
+        // Preserve its observation time; do not re-date a cache/history fallback.
+        if (ts.lastPriceUpdate <= 0L || now - ts.lastPriceUpdate !in -5_000L..120_000L) return null
         val rawPool = ts.lastPricePoolAddr.ifBlank { ts.pairAddress }
-        // V5.0.3983 — do not let optional pool metadata kill real live entries.
-        // A mint-level Jupiter route can still execute with price+liquidity+source;
-        // the eventual tx/quote is the hard route proof. Stamp an explicit sentinel
-        // instead of leaving the field blank so journal/persistence can distinguish
-        // "mint route, pool pending" from a lost field.
-        val pool = rawPool.ifBlank { "MINT_ROUTE:${ts.mint.take(12)}" }
-        val dex = ts.lastPriceDex.ifBlank { if (rawPool.isBlank()) "MINT_ROUTE" else "UNKNOWN" }
-        val snap = MintEntryMarketSnapshot(price, mcap, liq, pool, source, dex)
-        if (rawPool.isBlank() && snap.valid) {
-            try {
-                ForensicLogger.lifecycle("MINT_ENTRY_MARKET_SNAPSHOT_POOL_SENTINEL", "mint=${ts.mint.take(10)} symbol=${ts.symbol} price=$price liq=$liq source=$source action=pool_metadata_optional")
-                PipelineHealthCollector.labelInc("MINT_ENTRY_MARKET_SNAPSHOT_POOL_SENTINEL")
-            } catch (_: Throwable) {}
-        }
+        val snap = MintEntryMarketSnapshot(
+            ts.lastPrice, ts.lastMcap.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0,
+            ts.lastLiquidityUsd, rawPool.ifBlank { "MINT_ROUTE:${ts.mint}" },
+            ts.lastPriceSource, ts.lastPriceDex.ifBlank { "UNKNOWN" }, ts.lastPriceUpdate,
+        )
         return snap.takeIf { it.valid }
     }
 
@@ -12257,6 +12283,15 @@ class Executor(
         ts.lastPriceSource = snap.priceSource
         ts.lastPriceDex = snap.dex
         ts.lastPriceUpdate = snap.capturedAtMs
+        if (snap.poolAddress.startsWith("MINT_ROUTE:", true)) {
+            try {
+                PipelineHealthCollector.labelInc("MINT_ENTRY_MARKET_SNAPSHOT_POOL_SENTINEL")
+                ForensicLogger.lifecycle(
+                    "MINT_ENTRY_MARKET_SNAPSHOT_POOL_SENTINEL",
+                    "mint=${ts.mint.take(10)} source=${snap.priceSource} action=pool_metadata_optional_route_proof_still_required",
+                )
+            } catch (_: Throwable) {}
+        }
         try {
             val ctx = com.lifecyclebot.AATEApp.appContextOrNull()
             if (ctx != null) TokenMetaCache.get(ctx).register(
@@ -20394,71 +20429,7 @@ class Executor(
      * Returns (lowPct, highPct) relative to entryPrice, or (null, null)
      * for unknown labels (no clamp applied).
      */
-    private fun parsePaperExitClamp(reason: String): Pair<Double?, Double?> {
-        val r = reason.uppercase()
-        val strictSl = Regex("""STRICT_SL_(-?\d+(?:\.\d+)?)""").find(r)
-        if (strictSl != null) {
-            val pct = strictSl.groupValues[1].toDoubleOrNull()
-            // V5.9.801 — operator audit Fix C: tightened paper realism on
-            // STRICT_SL exits. Pre-V5.9.801 used `pct - 5.0` → STRICT_SL_-10
-            // booked in [-15%, -10%]. Operator forensics on the deep
-            // performance report showed paper STRICT_SL exits routinely
-            // booking near -15% while live cannot reproduce that drift on
-            // a -10% trigger. Cap the band at 2% beyond the strategy's
-            // stated threshold so [-12%, -10%] on STRICT_SL_-10 etc.
-            if (pct != null) return Pair(pct - 2.0, pct)
-        }
-        val tp = Regex("""RAPID_TAKE_PROFIT_(\d+(?:\.\d+)?)""").find(r)
-        if (tp != null) {
-            val pct = tp.groupValues[1].toDoubleOrNull()
-            if (pct != null) return Pair(pct - 5.0, pct)
-        }
-        if (r.contains("RAPID_ENTRY_PROTECT_STOP")) return Pair(-13.0, -8.0)
-        // V5.9.1089 — paper realism for stop labels that do not encode a
-        // numeric threshold. 5.0.3056 still journaled TREASURY_STOP_LOSS_SWEEP
-        // at -75%/-90% and CASHGEN_STOP_LOSS at -72% because these labels fell
-        // through unclamped to stale/raw prices. These are soft stop labels, not
-        // rug/catastrophe labels; train the brain on the intended trigger band.
-        if (r.contains("TREASURY_STOP_LOSS") || r.contains("TREASURY_SL")) return Pair(-17.0, -15.0)
-        // V5.9.1225 — SELL_OPT stop labels were falling through unclamped.
-        // Runtime 5.0.3192 journaled [SELL_OPT] Stop Loss exits at -53/-61/-79%,
-        // training the brain on stale/raw paper prices even though SellOptimizationAI
-        // triggers its soft SL around -6..-10%. Clamp to the intended soft-stop band.
-        if (r.contains("SELL_OPT") && (r.contains("STOP_LOSS") || r.contains("STOP LOSS"))) return Pair(-12.0, -6.0)
-        if (r.contains("CASHGEN_STOP_LOSS") || r.contains("SHITCOIN_STOP_LOSS") || r.contains("QUALITY_STOP_LOSS") || r.contains("BLUECHIP_STOP_LOSS") || r.contains("MOONSHOT_STOP_LOSS")) return Pair(-12.0, -6.0)
-        // V5.9.1432 — MANIPULATED_STOP_LOSS was MISSING from the matcher, so every
-        // MANIP soft-stop fell through to Pair(null,null) = NO CLAMP = raw gap-through.
-        // Recent-Outcomes was full of MANIPULATED LOSS -84.5%/-92.0% — impossible under
-        // the -15% floor — crushing MANIP WR/net to 9%/-0.114 and poisoning learning.
-        if (r.contains("MANIPULATED_STOP_LOSS") || r.contains("MANIP_STOP_LOSS") || r.contains("DIP_HUNTER_STOP_LOSS") || r.contains("PROJECT_SNIPER_STOP_LOSS") || r.contains("CYCLIC_STOP_LOSS") || r.contains("CYCLIC_SL")) return Pair(-12.0, -6.0)
-        // V5.9.1086 — align paper hard-floor accounting with the operator's
-        // unconditional -15% floor. Old [-20,-9] made hard-floor exits look
-        // materially better/worse than the actual trigger band.
-        if (r.contains("RAPID_HARD_FLOOR_STOP") || r.contains("HARD_FLOOR")) return Pair(-17.0, -15.0)
-        // V5.9.795 — operator audit (build-2733 dump): catastrophe trigger
-        // was tightened from -25% to -14% in V5.9.791, but the paper clamp
-        // band was left at [-30%, -15%] — meaning every RAPID_CATASTROPHE
-        // exit was booking -15% to -30% realised even though the strategy
-        // pulled the trigger at -14%. Trade journal showed uniform -30.7%
-        // catastrophe exits, which was the paper sim lying to the AI
-        // layers about edge. V5.9.795 aligned to [-19%, -14%].
-        // V5.9.801 — operator audit Fix C: tightened further to [-16%, -14%].
-        // The deep-performance report still showed catastrophe paper
-        // exits booking ~-19% on a -14% trigger, a 5pp paper-vs-live
-        // drift. Live execution catastrophe drift is empirically 0–2pp;
-        // matching that ends the paper-edge fantasy entirely.
-        if (r.contains("RAPID_CATASTROPHE_STOP")) return Pair(-16.0, -14.0)
-        if (r.contains("TREASURY_TAKE_PROFIT")) return Pair(+5.0, +15.0)
-        if (r.contains("FLAT_EXIT") || r.contains("SCRATCH")) return Pair(-3.0, +3.0)
-        if (r.contains("TRAILING_STOP") || r.contains("TRAIL_STOP")) return Pair(-10.0, +5.0)
-        // V5.9.1432 — GENERIC SOFT-STOP FALLBACK. Any *_STOP_LOSS / *_SL label not
-        // matched above must NOT fall through unclamped (the structural hole that let
-        // -90% gap-throughs into the journal). A soft stop can never realistically book
-        // worse than the -15% hard floor; bound any remaining stop label to the floor
-        // band. Rug/catastrophe/gap-guard labels are matched explicitly above.
-        if (r.endsWith("_STOP_LOSS") || r.endsWith("_SL") || r.contains("STOP_LOSS")) return Pair(-15.0, -6.0)
-        return Pair(null, null)
-    }
+
 
     /**
      * V5.9.780 — EMERGENT MEME PAPER REALISM helper.
