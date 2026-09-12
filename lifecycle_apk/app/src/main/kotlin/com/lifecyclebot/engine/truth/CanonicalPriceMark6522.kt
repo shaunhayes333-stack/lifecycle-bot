@@ -30,23 +30,17 @@ object CanonicalPriceMarkRegistry6522 {
     )
 
     /**
-     * Freshness window callers should treat as authoritative when they
-     * stamp evidence timestamps. Registry-side rejection uses the same
-     * value so upstream ("evidence is fresh, admit it") and registry
-     * ("this timestamp is admissible") never disagree.
-     *
-     * V5.0.6739 §MARK_FRESHNESS_ALIGN — 5.0.6738 dump showed BLUECHIP
-     * FDG allow=664 → mark=14 (2.1% conversion). Root cause: Executor's
-     * upstream freshness gates used `WINDOW_MS_6616 = 300_000L`, but the
-     * registry's `resolveBestSourceEvidence6734` and `getFresh6734`
-     * enforced 120_000L. Evidence 121-300 seconds old passed the upstream
-     * gate and was submitted with a real timestamp, only for the registry
-     * to reject it silently. Establishing tokens (BLUECHIP watchlist,
-     * CoinGecko-established) poll every 60-180s and routinely land in
-     * that window. Aligning to the same value closes the gap without
-     * relaxing either side beyond what one caller already used.
+     * Read-side freshness window for `getFresh6734` and
+     * `resolveBestSourceEvidence6734`. Kept at 120 s because these paths
+     * gate EXECUTABLE_ENTRY_QUOTE consumption — an executable price
+     * older than 2 minutes must not drive a live trade
+     * (Aate6734RecoveryIntegrityTest.stale_strict_mark_cannot_be_reused_for_execution
+     * locks this contract). Callers that observed the 5.0.6738 BLUECHIP
+     * mark-conversion collapse must repair the upstream provider poll
+     * or route 121-300 s old evidence to OBSERVATION_SCORING, not widen
+     * the execution freshness contract.
      */
-    const val MARK_FRESHNESS_WINDOW_MS_6739 = 300_000L
+    const val MARK_FRESHNESS_WINDOW_MS_6739 = 120_000L
 
     fun getFresh6734(mint: String, purpose: CanonicalMarkPurpose6570,
                      nowMs: Long = System.currentTimeMillis()): CanonicalPriceMark6522? =

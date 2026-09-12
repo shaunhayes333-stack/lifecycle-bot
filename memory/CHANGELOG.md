@@ -1,3 +1,13 @@
+## V5.0.6740 — Course-correction on 6739 (registry stays 120 s, sealing defer is PAPER-only)
+
+- **§MARK_FRESHNESS_ALIGN retracted**: widening the registry to 300 s broke `Aate6734RecoveryIntegrityTest.stale_strict_mark_cannot_be_reused_for_execution` and `source_price_and_timestamp_are_not_spliced_between_providers`, and it violated the operator directive: "Do not let a real mismatch disappear merely because its TTL expires." Registry keeps 120 s. Named constant `MARK_FRESHNESS_WINDOW_MS_6739 = 120_000L` retained so future callers reference a symbol not a magic number. BLUECHIP mark path improvement must come from the upstream provider poll cadence or from a paper-only observation-slot route, not from relaxing the execution freshness contract.
+- **§SEALING_RACE_DEFER restricted to PAPER**: LIVE has no synthetic provisional-state path (line 1621 in ExecutableOpenGate.kt gates syntheticPaperState on `mode == "LIVE"` with liquidity/safety requirements). A LIVE arrival at the `fdgCan==true` with null authorities branch IS a real integrity violation — `RuntimePipelineGatesTest.direct_lane_synthesizes_missing_final_candidate_only_with_safe_liquid_context` locks that at line 1230-1231. PAPER-only guard (`paperMode && stateAgeMs in 0..500L`) preserves both contracts.
+- **Regression updates**: 6739 tests updated to lock the corrected reality — 120 s registry, 121 s evidence stays rejected, sealing defer PAPER-only.
+- **Preserved from 6739**: `COUNTER_PARITY_RESET_PAIR` fix stands (unrelated to the two rollbacks).
+
+---
+
+
 ## V5.0.6739 — §COUNTER_PARITY_RESET_PAIR + §MARK_FRESHNESS_ALIGN + §SEALING_RACE_DEFER (PENDING CI)
 
 Three source-grounded fixes derived from the 5.0.6738 runtime dump.

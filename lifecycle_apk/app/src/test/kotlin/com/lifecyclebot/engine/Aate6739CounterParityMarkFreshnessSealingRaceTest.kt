@@ -86,50 +86,34 @@ class Aate6739CounterParityMarkFreshnessSealingRaceTest {
         assertTrue(body.contains("execPaperPartialOk.set(0L)"))
     }
 
-    // ─── 2. Mark freshness alignment ──────────────────────────────
+    // ─── 2. Mark freshness alignment (retracted — see V5.0.6740 note) ─
 
     @Test
-    fun `registry freshness window equals upstream Executor freshness window`() {
-        // Executor uses 300_000L. Registry must match, otherwise evidence
-        // passed by Executor is dropped by the registry.
+    fun `registry freshness window is exposed as a named constant`() {
+        // V5.0.6740 course-correction: widening the registry to 300 s
+        // broke Aate6734RecoveryIntegrityTest and violated the operator
+        // directive contract "Do not let a real mismatch disappear
+        // merely because its TTL expires". Registry keeps 120 s; the
+        // upstream Executor freshness or provider poll cadence must be
+        // repaired instead. The constant survives for documentation so
+        // any caller referring to the read-side freshness reads a single
+        // symbol rather than a magic number.
         val regSrc = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPriceMark6522.kt").readText()
         assertTrue(
-            "Registry must publish MARK_FRESHNESS_WINDOW_MS_6739 = 300_000L",
-            regSrc.contains("MARK_FRESHNESS_WINDOW_MS_6739 = 300_000L") ||
-                regSrc.contains("MARK_FRESHNESS_WINDOW_MS_6739=300_000L"),
-        )
-        // Both call sites (resolveBestSourceEvidence6734 and getFresh6734)
-        // must reference the constant, not a hard-coded 120_000L.
-        assertFalse(
-            "Registry must NOT still use the 120_000L hard-code that dropped 121-300 s old evidence",
-            regSrc.contains("-5_000L..120_000L"),
+            "Registry must publish MARK_FRESHNESS_WINDOW_MS_6739",
+            regSrc.contains("MARK_FRESHNESS_WINDOW_MS_6739 = 120_000L") ||
+                regSrc.contains("MARK_FRESHNESS_WINDOW_MS_6739=120_000L"),
         )
         assertTrue(
-            "getFresh6734 must reference the aligned window",
+            "getFresh6734 references the named window",
             regSrc.contains("-5_000L..MARK_FRESHNESS_WINDOW_MS_6739"),
         )
     }
 
     @Test
-    fun `130 second old evidence with valid liquidity and price now promotes at registry`() {
-        val mint = "F".repeat(32)
-        val now = System.currentTimeMillis()
-        val e = CanonicalPriceMarkRegistry6522.SourceEvidence6734(
-            baseMint = mint, pair = "MINT_ROUTE:$mint", quoteMint = "USD",
-            source = "DEXSCREENER_PAIR_POLL",
-            priceUsd = 1.2345,
-            liquidityUsd = 25_000.0,
-            timestampMs = now - 130_000L,        // 130 s old — used to be rejected
-        )
-        val r = CanonicalPriceMarkRegistry6522.resolveBestSourceEvidence6734(mint, listOf(e), now)
-        assertTrue(
-            "130 s old fresh-per-Executor evidence must promote now, got reason=${r.reason}",
-            r.promoted,
-        )
-    }
-
-    @Test
-    fun `evidence older than 300 seconds still rejected (freshness contract preserved)`() {
+    fun `121 second old executable mark still stale (registry contract preserved)`() {
+        // Locks the Aate6734RecoveryIntegrityTest.stale_strict_mark_cannot_
+        // be_reused_for_execution invariant against future widening.
         val mint = "G".repeat(32)
         val now = System.currentTimeMillis()
         val e = CanonicalPriceMarkRegistry6522.SourceEvidence6734(
@@ -137,10 +121,10 @@ class Aate6739CounterParityMarkFreshnessSealingRaceTest {
             source = "DEXSCREENER_PAIR_POLL",
             priceUsd = 1.2345,
             liquidityUsd = 25_000.0,
-            timestampMs = now - 301_000L,
+            timestampMs = now - 121_000L,
         )
         val r = CanonicalPriceMarkRegistry6522.resolveBestSourceEvidence6734(mint, listOf(e), now)
-        assertFalse("evidence older than freshness window must NOT promote", r.promoted)
+        assertFalse("121 s old evidence must NOT promote (execution freshness contract)", r.promoted)
     }
 
     // ─── 3. Sealing race defer ────────────────────────────────────
@@ -148,8 +132,6 @@ class Aate6739CounterParityMarkFreshnessSealingRaceTest {
     @Test
     fun `sealing race deferral marker present in ExecutableOpenGate`() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
-        // The race-defer branch must fire BEFORE the invariant counter so
-        // routine sealing races do not bump AUTHORITY_INVARIANT_FAILURE.
         assertTrue(
             "SEALING_RACE_DEFER marker must be present",
             src.contains("SEALING_RACE_DEFER") ||
@@ -160,11 +142,13 @@ class Aate6739CounterParityMarkFreshnessSealingRaceTest {
             src.contains("stateAgeMs in 0..500L"),
         )
         assertTrue(
+            "Defer must be PAPER-only so LIVE retains the strict invariant",
+            src.contains("paperMode && stateAgeMs in 0..500L"),
+        )
+        assertTrue(
             "Defer must soft-block with the dedicated reason (not the invariant counter)",
             src.contains("EXEC_OPEN_DEFERRED_SEALING_RACE_6739"),
         )
-        // Existing invariant counter still fires OUTSIDE the race window
-        // so real integrity violations remain visible.
         assertTrue(
             "AUTHORITY_INVARIANT_FAILURE still fires outside the race window",
             src.contains("AUTHORITY_INVARIANT_FAILURE") &&

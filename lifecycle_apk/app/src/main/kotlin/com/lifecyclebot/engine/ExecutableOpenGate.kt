@@ -2202,22 +2202,22 @@ object ExecutableOpenGate {
             // existingState`) whose updatedAtMs was stamped by the FDG
             // notify path a few ms before ExecutionDecisionSnapshot6510
             // seals the immutable authority. When the gate runs inside
-            // that window, both authority slots are legitimately null
-            // and the counter fires an alarming AUTHORITY_INVARIANT_FAILURE.
+            // that window the counter fires an alarming
+            // AUTHORITY_INVARIANT_FAILURE for what is a routine race.
             //
-            // Discriminator: if the provisional state is very fresh
-            // (< 500ms since updatedAtMs), we are inside the sealing race
-            // window — soft-defer with a distinct counter so operator
-            // dashboards see the routine deferral separate from a real
-            // authority integrity break. Outside the window, the counter
-            // still fires as before (real invariant leak worth attention).
+            // Discriminator restricted to PAPER MODE. LIVE has no
+            // synthetic provisional-state path; if LIVE hits this branch,
+            // it is a real integrity violation and must remain visible
+            // (RuntimePipelineGatesTest.direct_lane_synthesizes_missing_
+            // final_candidate_only_with_safe_liquid_context locks this).
+            val paperMode = mode.equals("PAPER", true)
             val stateAgeMs = state?.updatedAtMs?.let { System.currentTimeMillis() - it } ?: Long.MAX_VALUE
-            if (stateAgeMs in 0..500L) {
+            if (paperMode && stateAgeMs in 0..500L) {
                 try {
                     PipelineHealthCollector.labelInc("FDG_ALLOW_SEALING_RACE_DEFERRED_6739")
                     ForensicLogger.lifecycle(
                         "FDG_ALLOW_SEALING_RACE_DEFERRED_6739",
-                        "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol lane=$canonicalSelectedLane stateAgeMs=$stateAgeMs action=soft_defer_await_snapshot_seal",
+                        "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol lane=$canonicalSelectedLane stateAgeMs=$stateAgeMs action=soft_defer_await_snapshot_seal paper=true",
                     )
                 } catch (_: Throwable) {}
                 return blocked(
