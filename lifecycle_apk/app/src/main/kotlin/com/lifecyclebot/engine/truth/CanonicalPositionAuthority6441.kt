@@ -826,10 +826,27 @@ object CanonicalPositionAuthority6441 {
         // <= 0 MUST be excluded. Legacy callers now derive
         // entryPriceUsd from entryCostSol/qtyToken at openPosition()
         // so legitimate reconstruction paths still admit as OPEN.
+        //
+        // V5.0.6741 §PARTIAL_3 — Section 3 of the operator directive:
+        // "An invalid price must not silently remove a funded lot from
+        // accounting. Preserve unresolved lots in exposure and
+        // recovery/risk-management views." When the carry rebuild
+        // could not recover a USD basis, §2 stamps
+        // `CARRY_USD_BASIS_UNKNOWN_6741` on entryPriceSource. Those lots
+        // are FUNDED (real cost + real qty) but their USD valuation is
+        // unknown. Route them through this gate so `openPositions()`
+        // returns them, keeping the funded exposure visible; downstream
+        // valuation code must treat entryPriceUsd=0 as "basis unknown"
+        // (§3, still open in a later build) rather than "zero valuation".
         val entry = p.entryPriceUsd
-        if (!entry.isFinite() || entry <= 0.0) {
+        val unresolvedBasis6741 = p.entryPriceSource.contains("CARRY_USD_BASIS_UNKNOWN_6741") ||
+            p.entryPriceSource.contains("UNRESOLVED_VALUATION_6741")
+        if (!entry.isFinite() || (entry <= 0.0 && !unresolvedBasis6741)) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_ZERO_ENTRY_PRICE_6631") } catch (_: Throwable) {}
             return false
+        }
+        if (unresolvedBasis6741) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_UNRESOLVED_BASIS_ADMITTED_6741") } catch (_: Throwable) {}
         }
         return true
     }
@@ -1106,15 +1123,13 @@ object CanonicalPositionAuthority6441 {
                     val pid = "PAPER:CARRY6492:$mint"
                     val carryScale6519 = carry6492.perMintQuantityScale[mint] ?: (carry6492.perMintTokenDecimals[mint] ?: 9)
                     val carryEntryPrice6519 = repairedEntryPrice6519(0.0, carryCost, qtyRaw, carryScale6519)
-                    // V5.0.6631d §B — strict-filter compliance: entryPriceUsd
-                    //   must be > 0 for a carry position to survive
-                    //   openPositions()'s economic-validity gate. When the
-                    //   durable carry lacks a USD-per-token price, derive
-                    //   the implied basis from (carryCost / qtyToken) —
-                    //   this is a SOL/token figure treated as the
-                    //   position's basis price. The `DERIVED_CARRY_COST_QTY_6631`
-                    //   stamp lets exit/mark logic identify it as
-                    //   basis-only (not a live USD quote).
+                    // V5.0.6741 §OWNER_LANE_RESTORE + §NO_SOL_PER_TOKEN_USD_FABRICATION
+                    //   — the carry-rebuild path now recovers the original
+                    //   owner lane from LaneAttributionLedger6427 (fallback
+                    //   UNRESOLVED_OWNER_6741) and NEVER stamps a SOL-per-
+                    //   token figure into the USD-per-token entryPriceUsd
+                    //   field. See the explicit comment on the entryPriceUsd
+                    //   assignment below for the §2 rationale.
                     positions[pid] = Position(
                         positionId = pid, mode = "paper", mint = mint, symbol = mint.take(8),
                         lane = com.lifecyclebot.engine.truth.LaneAttributionLedger6427.getEntryLane(pid) ?: "UNRESOLVED_OWNER_6741", runId = "RECOVERED_CARRY_6492",
