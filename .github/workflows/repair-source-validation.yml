@@ -1,0 +1,28 @@
+name: Repair source validation
+
+on:
+  push:
+    branches: ['repair/6737-exit-accounting']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Capture exact checked-out source
+        run: |
+          git rev-parse HEAD > SOURCE_COMMIT.txt
+          tar --exclude=.git --exclude=SOURCE_COMMIT.txt -czf "$RUNNER_TEMP/aate-repair-source.tar.gz" .
+          cp SOURCE_COMMIT.txt "$RUNNER_TEMP/SOURCE_COMMIT.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aate-repair-source
+          path: |
+            ${{ runner.temp }}/aate-repair-source.tar.gz
+            ${{ runner.temp }}/SOURCE_COMMIT.txt
+          retention-days: 3
