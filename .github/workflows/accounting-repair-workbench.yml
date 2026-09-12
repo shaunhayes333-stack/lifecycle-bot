@@ -1,0 +1,23 @@
+name: Accounting repair workbench
+on:
+  push:
+    branches: [repair/accounting-6743]
+    paths: [.github/workflows/accounting-repair-workbench.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 18d8f73af87a98999ecd289241e7a4e3b991a15d
+          persist-credentials: false
+      - name: Archive exact source revision for repair and local regression tests
+        run: git archive --format=zip HEAD -o source-18d8f73.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: accounting-repair-source-18d8f73
+          path: source-18d8f73.zip
+          retention-days: 1
