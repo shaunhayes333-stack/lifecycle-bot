@@ -1,0 +1,34 @@
+name: Replay repair source inspection
+on:
+  push:
+    branches: [repair/replay-shadow-ci-20260912]
+    paths: [.github/workflows/replay-repair-source-inspection.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Package tracked source for local regression testing
+        run: |
+          python3 - <<'PY'
+          import pathlib, subprocess, zipfile
+          paths = subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0')
+          with zipfile.ZipFile('replay-repair-source.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
+              for name in paths:
+                  p = pathlib.Path(name)
+                  if p.is_file() and (p.suffix in {'.kt', '.kts', '.gradle', '.py', '.sh', '.yml', '.yaml', '.properties'} or p.name in {'gradlew', 'AATE_VERSION'}):
+                      archive.write(p, name)
+                  if p.is_file() and ('Replay' in p.name or 'EpochBoundary' in p.name or 'CloseAuthority' in p.name):
+                      print(name)
+          print('source archive prepared')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: replay-repair-source
+          path: replay-repair-source.zip
+          retention-days: 1
+          if-no-files-found: error
