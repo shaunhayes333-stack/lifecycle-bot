@@ -15,6 +15,8 @@ class Aate6738ExitRecoveryTest {
         PaperExitEvidence6738.resetForTest()
         CanonicalPriceMarkRegistry6522.resetForTest()
         EconomicEventSchema6464.resetForTest()
+        CanonicalPositionAuthority6441.resetForTest()
+        PositionStateLedger6454.resetForTest()
         CanonicalPaperReplay6464.resetForTest()
     }
     private fun mint() = "Retry6738${System.nanoTime()}"
@@ -171,5 +173,75 @@ class Aate6738ExitRecoveryTest {
         assertFalse(fallback.contains("usd_market_cap")); assertFalse(fallback.contains("PAIR_FALLBACK"))
         assertTrue(fallback.contains("getQuoteByAddress(mint, \"solana\")"))
         assertFalse(bot.contains("ts.lastPrice = effectiveExitPrice"))
+    }
+
+    private fun openCanonical(id: String, token: String = id, paper: Boolean = true) {
+        CanonicalPositionAuthority6441.setPaperCash(10.0, "test6738")
+        assertEquals(CanonicalPositionAuthority6441.MutateResult.APPLIED,
+            CanonicalPositionAuthority6441.openPosition(
+                idempotencyKey = "open:$id", positionId = id, mint = token, symbol = "TEST",
+                lane = "QUALITY", runId = "test6738", entryCostSol = 1.0,
+                openedQtyRaw = BigInteger.valueOf(100), tokenDecimals = 0, feesSol = 0.0,
+                paperMode = paper, entryPriceUsd = 1.0, entryPriceSource = "TEST",
+            ))
+    }
+    @Test fun unknown_explicit_identity_does_not_fall_through_to_another_open_lot() {
+        openCanonical("actual6738", "same6738")
+        val g = CanonicalPositionAuthority6441.exitEligibility6570("stale6738", "same6738", "paper")
+        assertFalse(g.eligible); assertEquals("POSITION_ID_UNKNOWN", g.reason)
+        assertEquals(CanonicalPositionAuthority6441.Lifecycle.OPEN,
+            CanonicalPositionAuthority6441.getPosition("actual6738")!!.lifecycle)
+    }
+    @Test fun mismatched_mint_cannot_close_or_quarantine_the_named_position() {
+        openCanonical("identity6738", "right6738")
+        val g = CanonicalPositionAuthority6441.exitEligibility6570("identity6738", "wrong6738", "paper")
+        assertFalse(g.eligible); assertEquals("MINT_MISMATCH", g.reason)
+        assertEquals(CanonicalPositionAuthority6441.Lifecycle.OPEN,
+            CanonicalPositionAuthority6441.getPosition("identity6738")!!.lifecycle)
+    }
+    @Test fun wrong_mode_request_preserves_the_other_modes_position() {
+        openCanonical("paper6738", "shared6738")
+        val g = CanonicalPositionAuthority6441.exitEligibility6570("paper6738", "shared6738", "live")
+        assertFalse(g.eligible); assertEquals("MODE_MISMATCH", g.reason)
+        assertEquals(CanonicalPositionAuthority6441.Lifecycle.OPEN,
+            CanonicalPositionAuthority6441.getPosition("paper6738")!!.lifecycle)
+    }
+    @Test fun a_stale_exit_request_does_not_reclassify_closed_history_as_quarantined() {
+        openCanonical("closed6738")
+        assertEquals(CanonicalPositionAuthority6441.MutateResult.APPLIED,
+            CanonicalPositionAuthority6441.partialSell("close:closed6738", "closed6738",
+                BigInteger.valueOf(100), 1.0, 1.0, 0.0, true))
+        val before = CanonicalPositionAuthority6441.getPosition("closed6738")
+        val g = CanonicalPositionAuthority6441.exitEligibility6570("closed6738", "closed6738", "paper")
+        assertFalse(g.eligible); assertEquals("LIFECYCLE_CLOSED", g.reason)
+        assertEquals(before, CanonicalPositionAuthority6441.getPosition("closed6738"))
+    }
+    @Test fun mint_only_resolution_is_scoped_to_the_requested_mode() {
+        openCanonical("paper-mode6738", "both-modes6738", true)
+        openCanonical("live-mode6738", "both-modes6738", false)
+        assertEquals("live-mode6738", CanonicalPositionAuthority6441.exitEligibility6570(
+            mint = "both-modes6738", expectedMode = "live").position!!.positionId)
+        assertEquals("paper-mode6738", CanonicalPositionAuthority6441.exitEligibility6570(
+            mint = "both-modes6738", expectedMode = "paper").position!!.positionId)
+        assertFalse(CanonicalPositionAuthority6441.exitEligibility6570(mint = "both-modes6738").eligible)
+    }
+    @Test(timeout = 10000L) fun concurrent_retry_recovery_cannot_overwrite_confirmed_closed_state() {
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(4)
+        try {
+            repeat(50) {
+                val m = mint(); PaperPositionCloseAuthority.markClosing(mint = m)
+                val at = now + 3_000L
+                val start = java.util.concurrent.CountDownLatch(1)
+                val jobs = (0 until 4).map { i -> pool.submit {
+                    start.await()
+                    if (i == 0) PaperPositionCloseAuthority.markClosed(mint = m, reason = "CONFIRMED")
+                    else repeat(20) { PaperPositionCloseAuthority.preSellGuard(mint = m,
+                        reason = "STALE_PRICE", nowMs = at) }
+                } }
+                start.countDown()
+                jobs.forEach { it.get(3, java.util.concurrent.TimeUnit.SECONDS) }
+                assertEquals(PaperPositionCloseAuthority.State.CLOSED, PaperPositionCloseAuthority.stateOf(mint = m))
+            }
+        } finally { pool.shutdownNow() }
     }
 }
