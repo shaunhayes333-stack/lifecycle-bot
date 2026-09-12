@@ -1,0 +1,24 @@
+name: Accounting source verification 6743
+on:
+  push:
+    branches: [repair/accounting-lifecycle-6743]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Archive exact reviewed source
+        run: |
+          git rev-parse HEAD > source-revision.txt
+          git archive --format=tar HEAD > source.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: accounting-source-6743
+          path: |
+            source.tar
+            source-revision.txt
+          retention-days: 3
