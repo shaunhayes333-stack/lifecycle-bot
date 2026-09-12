@@ -1,0 +1,180 @@
+name: Validate and Apply AATE 6743 Source Completion
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one_shot_v5_0_6743_source_completion.yml'
+      - 'lifecycle_apk/ci/apply_verified_recovery_6743.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aate-6743-source-completion
+  cancel-in-progress: true
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    permissions:
+      contents: write
+    outputs:
+      fixed_sha: ${{ steps.commit.outputs.fixed_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply exact 6743 source repair
+        run: |
+          set -euo pipefail
+          python3 lifecycle_apk/ci/apply_verified_recovery_6743.py
+          git diff --check
+          git diff --stat
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Static contradiction and patch-rot scans
+        working-directory: lifecycle_apk
+        run: |
+          set -euo pipefail
+          python3 ci/golden_tape_literal_scan.py
+          python3 ci/authority_contradiction_scan.py
+          python3 ci/patch_rot_scan.py
+
+      - name: Full release unit suite
+        working-directory: lifecycle_apk
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          mkdir -p gradle/wrapper
+          if [ ! -s gradle/wrapper/gradle-wrapper.jar ]; then
+            curl -fsSL --retry 3 -o gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar
+          fi
+          mkdir -p "$RUNNER_TEMP/aate-6743"
+          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=6743 -PaateVersionName=5.0.6743 2>&1 | tee "$RUNNER_TEMP/aate-6743/unit-build.log"
+
+      - name: Assemble release APK
+        working-directory: lifecycle_apk
+        run: |
+          set -euo pipefail
+          ./gradlew assembleRelease --no-daemon --stacktrace -PbuildNumber=6743 -PaateVersionName=5.0.6743 2>&1 | tee "$RUNNER_TEMP/aate-6743/apk-build.log"
+
+      - name: Verify tested files did not drift
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          manifest = json.loads((Path(os.environ['RUNNER_TEMP']) / 'aate-6743/manifest.json').read_text())
+          for row in manifest['files']:
+              p = Path(row['path'])
+              actual = hashlib.sha256(p.read_bytes()).hexdigest()
+              if actual != row['sha256']:
+                  raise SystemExit(f"Post-test source drift: {row['path']}")
+          print('Every production/test/version file matches the tested after-hash')
+          PY
+
+      - name: Commit tested source to main
+        id: commit
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA" || { echo 'Main changed; refusing to push untested source over newer main'; exit 1; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add --pathspec-from-file="$RUNNER_TEMP/aate-6743/paths.txt"
+          # One-shot machinery must not become another permanent patch layer.
+          git rm .github/workflows/one_shot_v5_0_6743_source_completion.yml lifecycle_apk/ci/apply_verified_recovery_6743.py
+          git diff --cached --check
+          git commit -m 'V5.0.6743 complete source authority, parity and round-trip repair'
+          git push origin HEAD:main
+          FIXED_SHA="$(git rev-parse HEAD)"
+          echo "fixed_sha=$FIXED_SHA" >> "$GITHUB_OUTPUT"
+          echo "$FIXED_SHA" > "$RUNNER_TEMP/aate-6743/production-commit.txt"
+
+      - name: Preserve validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aate-6743-validation-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/aate-6743/
+            lifecycle_apk/app/build/test-results/
+            lifecycle_apk/app/build/reports/tests/
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Upload verified APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AATE_v5.0.6743_verified
+          path: lifecycle_apk/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+  runtime:
+    needs: repair
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.repair.outputs.fixed_sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Runtime acceptance on committed 6743 SHA
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          CAPTURE_SECONDS: '180'
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          working-directory: .
+          script: bash ci/runtime-test.sh
+
+      - name: Preserve runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aate-6743-runtime-${{ needs.repair.outputs.fixed_sha }}
+          path: |
+            logcat*.txt
+            funnel_summary.txt
+            ui_*.xml
+            activity_dump.txt
+          retention-days: 7
+          if-no-files-found: warn
