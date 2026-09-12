@@ -19313,6 +19313,7 @@ class Executor(
         if (!skip6501) {
             val exitEligibility6570 = try {
                 com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.exitEligibility6570(
+                    positionId = ts.position.positionId.takeIf { it.isNotBlank() },
                     mint = ts.mint,
                     expectedMode = if (ts.position.isPaperPosition) "paper" else "live",
                 )
@@ -19325,7 +19326,9 @@ class Executor(
                     )
                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_REJECTED_NO_CANONICAL_POSITION_6501")
                 } catch (_: Throwable) {}
-                return SellResult.ALREADY_CLOSED
+                return if (ts.position.isPaperPosition &&
+                    PaperTerminalProjectionConvergence6509.canonicalClosedNoActive(ts.mint)) SellResult.ALREADY_CLOSED
+                else SellResult.FAILED_RETRYABLE
             }
         }
         val requestReason = if (reason.isBlank() || reason.equals("exit", ignoreCase = true)) {
@@ -19333,13 +19336,6 @@ class Executor(
             val closeState = try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.stateOf(ts.mint)?.name ?: "OPEN" } catch (_: Throwable) { "OPEN" }
             "EXIT_ROUTE_RETRY_${trackerStatus}_${closeState}"
         } else reason
-        try { SellDecisionMatrixReport.recordIntent(ts.mint, ts.symbol ?: "?", requestReason, ts.position.isPaperPosition, ts.position.tradingMode.ifBlank { "UNKNOWN" }) } catch (_: Throwable) {}
-        val edgeExitPx4532 = try { ts.lastPrice.takeIf { it > 0.0 } ?: ts.position.entryPrice } catch (_: Throwable) { 0.0 }
-        val edgeExitPnl4532 = try { if (ts.position.entryPrice > 0.0 && edgeExitPx4532 > 0.0) ((edgeExitPx4532 - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else 0.0 } catch (_: Throwable) { 0.0 }
-        val edgeExitPeak4532 = try { ts.position.peakGainPct.coerceAtLeast(edgeExitPnl4532) } catch (_: Throwable) { edgeExitPnl4532 }
-        val edgeExitHoldMs4532 = try { (System.currentTimeMillis() - ts.position.entryTime).coerceAtLeast(0L) } catch (_: Throwable) { 0L }
-        val edgeExitLane4532 = try { ts.position.tradingMode.ifBlank { resolveExecutionLane(ts, fallback = "STANDARD") } } catch (_: Throwable) { "STANDARD" }
-        try { LearningLifecycleBus.exitDecision("requestSell.intent", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "INTENT", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Throwable) {}
         // V5.0.3801 — PAPER source guard before any executor activity.
         // requestSell() has many upstream callers (main loop, backup sweeps,
         // stale/rug escape paths). If a paper mint already has CLOSE_REQUESTED /
@@ -19348,10 +19344,17 @@ class Executor(
         if (ts.position.isPaperPosition) {
             val guard = try { PaperPositionCloseAuthority.preSellGuard("PAPER", ts.mint, ts.symbol, requestReason) } catch (_: Throwable) { null }
             if (guard?.blocked == true) {
-                return SellResult.ALREADY_CLOSED
+                return PaperSellOutcome6738.blocked(guard)
             }
         }
 
+        try { SellDecisionMatrixReport.recordIntent(ts.mint, ts.symbol ?: "?", requestReason, ts.position.isPaperPosition, ts.position.tradingMode.ifBlank { "UNKNOWN" }) } catch (_: Throwable) {}
+        val edgeExitPx4532 = try { ts.lastPrice.takeIf { it > 0.0 } ?: ts.position.entryPrice } catch (_: Throwable) { 0.0 }
+        val edgeExitPnl4532 = try { if (ts.position.entryPrice > 0.0 && edgeExitPx4532 > 0.0) ((edgeExitPx4532 - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else 0.0 } catch (_: Throwable) { 0.0 }
+        val edgeExitPeak4532 = try { ts.position.peakGainPct.coerceAtLeast(edgeExitPnl4532) } catch (_: Throwable) { edgeExitPnl4532 }
+        val edgeExitHoldMs4532 = try { (System.currentTimeMillis() - ts.position.entryTime).coerceAtLeast(0L) } catch (_: Throwable) { 0L }
+        val edgeExitLane4532 = try { ts.position.tradingMode.ifBlank { resolveExecutionLane(ts, fallback = "STANDARD") } } catch (_: Throwable) { "STANDARD" }
+        try { LearningLifecycleBus.exitDecision("requestSell.intent", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "INTENT", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Throwable) {}
         // V5.9.1411 — Settle-in and duplicate-suppress guards moved into doSell()
         // so that direct doSell() calls from riskCheck/UltraFastRugDetector are caught too.
         val isLivePositionEarly = !ts.position.isPaperPosition
@@ -20231,9 +20234,8 @@ class Executor(
         if (paperCloseAuthorityActive) {
             val guard = PaperPositionCloseAuthority.preSellGuard("PAPER", ts.mint, ts.symbol, reason)
             if (guard.blocked) {
-                return SellResult.ALREADY_CLOSED
+                return PaperSellOutcome6738.blocked(guard)
             }
-            PaperPositionCloseAuthority.markCloseRequested("PAPER", ts.mint, ts.symbol, reason)
         }
         ExecutionRootCauseTrace.sell("DO_SELL_ENTRY", ts, "reason=$reason walletLoaded=${wallet != null} walletSol=$walletSol identity=${identity?.source ?: "-"} posQty=${ts.position.qtyToken} entry=${ts.position.entryPrice} high=${ts.position.highestPrice}")
         // V5.9.1411 — Move paper settle-in delay guard directly into doSell.
@@ -20247,7 +20249,8 @@ class Executor(
                 reasonUpper.contains("RUG_SAFETY") ||
                 reasonUpper.contains("MANUAL")
             val closedAgoMs = System.currentTimeMillis() - (BotService.recentlyClosedMs[ts.mint] ?: 0L)
-            if (!hardFloorOrEmergency && closedAgoMs in 0L..60_000L) {
+            if (!hardFloorOrEmergency && closedAgoMs in 0L..60_000L &&
+                PaperTerminalProjectionConvergence6509.canonicalClosedNoActive(ts.mint)) {
                 try { ForensicLogger.lifecycle("PAPER_SELL_DUPLICATE_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason closedAgoMs=$closedAgoMs stage=pre_sell_lock") } catch (_: Throwable) {}
                 return SellResult.ALREADY_CLOSED
             }
@@ -20272,10 +20275,11 @@ class Executor(
         // V5.9.756 — TTL-backed acquire (20 s stale-release watchdog).
         if (!acquireSellLock(ts.mint)) {
             onLog("⚠️ SELL SKIPPED: sell already in-progress for ${ts.symbol}", tradeId.mint)
-            return SellResult.ALREADY_CLOSED
+            return SellResult.FAILED_RETRYABLE
         }
 
         try {
+        if (paperCloseAuthorityActive) PaperPositionCloseAuthority.markCloseRequested("PAPER", ts.mint, ts.symbol, reason)
 
         // V5.9.475 — REHYDRATE before the isOpen check so sub-trader positions
         // (Treasury, ShitCoin, Quality, BlueChip, Moonshot) that never wrote
@@ -20536,13 +20540,23 @@ class Executor(
         // in QTY_DIVERGES_FROM_CANONICAL can rebind after copying with
         // lot-truth qty (see line ~19460).
         var pos   = ts.position
-        val price = getActualPrice(ts)
+        val exitMark6738 = com.lifecyclebot.engine.truth.PaperExitEvidence6738.freshMark(ts.mint)
+        val exitFx6738 = com.lifecyclebot.engine.truth.PaperExitEvidence6738.freshFx()
+        val price = exitMark6738?.priceUsd?.value?.toDouble() ?: 0.0
         if (!pos.isOpen) {
-            PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_NOT_OPEN:$reason")
-            return SellResult.ALREADY_CLOSED
+            PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "PAPER_PROJECTION_NOT_OPEN:$reason")
+            return SellResult.FAILED_RETRYABLE
         }
-        if (price == 0.0) {
-            PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_NO_PRICE:$reason")
+        if (exitMark6738 == null || exitFx6738 == null || !price.isFinite() || price <= 0.0 ||
+            (exitMark6738.liquidityUsd?.toDouble() ?: 0.0) <= 0.0) {
+            val missing6738 = when {
+                exitMark6738 == null -> "TOKEN_MARK"
+                !price.isFinite() || price <= 0.0 -> "TOKEN_PRICE"
+                (exitMark6738.liquidityUsd?.toDouble() ?: 0.0) <= 0.0 -> "LIQUIDITY"
+                else -> "SOL_USD_FX"
+            }
+            PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol,
+                "EXIT_QUOTE_OR_FX_UNAVAILABLE_6738:$missing6738:$reason")
             return SellResult.FAILED_RETRYABLE
         }
         // V5.9.1470 (spec item 2) — CLOSE IDEMPOTENCY. If this mint already has a live
@@ -20613,7 +20627,7 @@ class Executor(
         } else {
             // Legacy: no positionId attached. Retain old mint-scan but count separately.
             try { PipelineHealthCollector.labelInc("PAPER_SELL_LOOKUP_MISSING_PID_6635") } catch (_: Throwable) {}
-            allOpenPapers6635.firstOrNull { it.mint == ts.mint }
+            allOpenPapers6635.singleOrNull { it.mint == ts.mint }
         }
         if (canonicalTerminalPosition6492 == null) {
             if (reconcileCanonicalClosed6509()) return SellResult.ALREADY_CLOSED
@@ -20658,11 +20672,8 @@ class Executor(
                 )
                 PipelineHealthCollector.labelInc("PAPER_SELL_TERMINAL_RESERVE_REJECTED_6455")
             } catch (_: Throwable) {}
-            try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "TERMINAL_RESERVE_REJECTED_6485") } catch (_: Throwable) {}
-            try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "TERMINAL_RESERVE_REJECTED_6485") } catch (_: Throwable) {}
-            try { com.lifecyclebot.engine.sell.SellExecutionLocks.forceRelease(ts.mint) } catch (_: Throwable) {}
-            try { releasePaperSellLock(ts.mint) } catch (_: Throwable) {}
-            return SellResult.ALREADY_CLOSED
+            // Another close may own the reservation; this caller owns none of its locks.
+            return if (reconcileCanonicalClosed6509()) SellResult.ALREADY_CLOSED else SellResult.FAILED_RETRYABLE
         }
         // V5.9.719: acquire paper sell lock to prevent double-exit race.
         // If another sell request is already in-flight for this mint, reject this one.
@@ -20671,7 +20682,8 @@ class Executor(
             try { com.lifecyclebot.engine.truth.PositionStateLedger6454.abandonTerminalSell(terminalPid6455, "paper_lock_not_acquired_6485") } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "PAPER_LOCK_NOT_ACQUIRED_6485") } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "PAPER_LOCK_NOT_ACQUIRED_6485") } catch (_: Throwable) {}
-            return SellResult.ALREADY_CLOSED
+            PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "PAPER_LOCK_BUSY:$reason")
+            return SellResult.FAILED_RETRYABLE
         }
         PaperPositionCloseAuthority.markClosing("PAPER", ts.mint, ts.symbol, reason)
         // V5.9.720: try/finally ensures lock is ALWAYS released — even on exception.
@@ -20734,26 +20746,8 @@ class Executor(
         val holdTimeMins = (System.currentTimeMillis() - entryTimeSafe) / 60_000.0
         val holdMinutes = holdTimeMins
         
-        // V5.9.780 — EMERGENT MEME PAPER REALISM.
-        // Operator forensics: STRICT_SL_-10 exits booked at -94%; +30% TP
-        // exits booked at +8234%. Paper sim was using getActualPrice(ts)
-        // verbatim with no clamp + only 0.5–4% slippage. Live execution
-        // CANNOT reproduce those returns — Jupiter slippage on meme dust
-        // is 8–25%. So paper has been LYING to the AI layers about edge,
-        // sending the bot into LIVE with a fantasy +37%/trade prior.
-        //
-        // Six corrections applied below:
-        //  (1) realistic slippage curve based on liquidity tier
-        //  (2) exit-price clamp around the strategy's stated threshold
-        //      so STRICT_SL_-10 books in [-10%, -15%], not -94%
-        //      and RAPID_TAKE_PROFIT_30 books in [+25%, +30%], not +8234%
-        //  (3) liquidity-aware return cap (single trade pnl bounded by
-        //      `liq / costSol * 0.5` — you can't extract +8000% from a
-        //      $4k pool with a $1 position because exit liquidity is
-        //      capped by the same pool)
-        //  (5) SCRATCH/FLAT exits flagged so RunTracker30D can exclude
-        //      them from learning counts (zero-information trades were
-        //      inflating the bootstrap milestone).
+        // Paper simulation uses canonical raw quantity and an indivisible current
+        // USD mark plus observed SOL/USD. Stop labels never choose the fill price.
         // V5.9.1436 — REALISTIC PAPER SLIPPAGE (exit side). See entry-side
         // note: the old 18%/10%/6% exit tax was the dominant driver of the
         // identical SHITCOIN_STOP_LOSS loss clusters and phantom catastrophe
@@ -20761,14 +20755,12 @@ class Executor(
         // (typical ~1%). Tier shape preserved. Live execution untouched —
         // real Jupiter slippage IS the real cost there.
         val simulatedSlippagePct = when {
-            ts.lastLiquidityUsd < 5_000.0   -> 5.0   // dust pump.fun bonding curve (was 18)
-            ts.lastLiquidityUsd < 20_000.0  -> 3.0   // small post-grad pool (was 10)
-            ts.lastLiquidityUsd < 50_000.0  -> 2.0   // (was 6)
-            ts.lastLiquidityUsd < 250_000.0 -> 1.0   // (was 3)
+            (exitMark6738.liquidityUsd?.toDouble() ?: 0.0) < 5_000.0   -> 5.0   // dust pump.fun bonding curve (was 18)
+            (exitMark6738.liquidityUsd?.toDouble() ?: 0.0) < 20_000.0  -> 3.0   // small post-grad pool (was 10)
+            (exitMark6738.liquidityUsd?.toDouble() ?: 0.0) < 50_000.0  -> 2.0   // (was 6)
+            (exitMark6738.liquidityUsd?.toDouble() ?: 0.0) < 250_000.0 -> 1.0   // (was 3)
             else -> 0.5                               // (was 1.5)
         }
-        val slippageMultiplier = 1.0 - (simulatedSlippagePct / 100.0)
-        var effectivePrice = price * slippageMultiplier
 
         // V5.0.6734 — a stop reason describes the decision, not an executable price.
         // Retired PAPER_EXIT_PRICE_CLAMPED / PAPER_EXIT_BAND_NO_ENTRY: they could
@@ -20784,37 +20776,25 @@ class Executor(
         // gross paper edge, so readiness/lane memory promote only trades that can
         // survive real fees/slip.
         val expectedRouteSlipPct = try {
-            com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.expectedExtraSlipPct(ts.lastLiquidityUsd)
+            com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.expectedExtraSlipPct((exitMark6738.liquidityUsd?.toDouble() ?: 0.0))
         } catch (_: Throwable) { 0.0 }
         val simulatedFeePct = (1.6 + expectedRouteSlipPct.coerceIn(0.0, 8.0)).coerceIn(1.6, 9.6)
 
-        val priceDerivedPnlPct = pct(pos.entryPrice, effectivePrice).coerceIn(-100.0, 1000.0)
-        val rawValue = terminalRemainingCost6492 * (1.0 + priceDerivedPnlPct / 100.0) * (1.0 - simulatedFeePct / 100.0)
-        // (3) Cost-basis paper proceeds — paper has no real token balance. Do
-        // NOT book proceeds from qtyToken * price; a stale qty or source-basis
-        // mismatch creates impossible million-SOL rows. We already have the
-        // correct comparable entry/exit price after getActualPrice() rebase and
-        // optional reason clamp, so proceeds are cost basis × price return.
-        val cappedValue = run {
-            val solPriceUsd = WalletManager.lastKnownSolPrice
-            if (ts.lastLiquidityUsd > 0.0 && solPriceUsd > 0.0) {
-                val maxValueSol = (ts.lastLiquidityUsd * 0.5) / solPriceUsd
-                if (rawValue > maxValueSol) {
-                    try {
-                        ForensicLogger.lifecycle(
-                            "PAPER_PNL_LIQUIDITY_CAPPED",
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} rawValueSol=${"%.6f".format(rawValue)} capSol=${"%.6f".format(maxValueSol)} liqUsd=${"%.0f".format(ts.lastLiquidityUsd)}",
-                        )
-                    } catch (_: Throwable) {}
-                    maxValueSol
-                } else rawValue
-            } else rawValue
+        val settlement6738 = com.lifecyclebot.engine.truth.PaperExitEvidence6738.settle(
+            quantity = terminalRemainingRaw6492.toBigDecimal().movePointLeft(terminalDecimals6492),
+            costSol = terminalRemainingCost6492, priceUsd = price, fx = exitFx6738,
+            slippagePct = simulatedSlippagePct, feePct = simulatedFeePct,
+            liquidityUsd = exitMark6738.liquidityUsd?.toDouble() ?: 0.0,
+        )
+        if (settlement6738 == null) {
+            PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "EXIT_ECONOMICS_INVALID_6738:$reason")
+            return SellResult.FAILED_RETRYABLE
         }
-        val value = cappedValue.coerceAtLeast(0.0)
-        val grossNoFrictionValue = (terminalRemainingCost6492 * (1.0 + priceDerivedPnlPct / 100.0)).coerceAtLeast(0.0)
-        val simulatedFeeSol = (grossNoFrictionValue - value).coerceAtLeast(0.0)
-        val pnl   = value - terminalRemainingCost6492
-        val pnlP  = pct(terminalRemainingCost6492, value)
+        val value = settlement6738.proceedsSol
+        val grossNoFrictionValue = settlement6738.grossSol
+        val simulatedFeeSol = settlement6738.frictionSol
+        val pnl = settlement6738.pnlSol
+        val pnlP = pct(terminalRemainingCost6492, value)
         // V5.0.6449 §3 SELL QTY SOURCE LOCK. Operator KMNo3n snapshot showed
         // buy=10.495 sell=19.535 — 2x oversell. Root cause: journal Trade row
         // was reading pos.qtyToken which had drifted (alias-merge/double-count).

@@ -75,11 +75,10 @@ object CanonicalPaperReplay6464 {
 
     fun replay(startingCashSol: Double): Snapshot {
         replays.incrementAndGet()
-        val eventVersion = try { EconomicEventSchema6464.version() } catch (_: Throwable) { 0L }
-        val events = try { EconomicEventSchema6464.snapshot() } catch (_: Throwable) { emptyList() }
-
-        val carry6489 = try { EconomicEventSchema6464.replayCarry6489() }
-            catch (_: Throwable) { EconomicEventSchema6464.ReplayCarry6489() }
+        val replayInput6738 = EconomicEventSchema6464.replayInput6738()
+        val eventVersion = replayInput6738.version
+        val events = replayInput6738.events
+        val carry6489 = replayInput6738.carry
         var cash = startingCashSol.coerceAtLeast(0.0) + carry6489.cashDeltaSol
         var openCost = carry6489.openCostSol
         var realized = carry6489.realizedPnlSol
@@ -144,7 +143,12 @@ object CanonicalPaperReplay6464 {
                         continue
                     }
                     val canonicalGrossRealized6487 = e.grossProceedsSol - e.allocatedCostBasisSol
-                    if (kotlin.math.abs(canonicalGrossRealized6487) > 30.0) { invalid++; continue }
+                    if (!canonicalGrossRealized6487.isFinite() || !e.grossProceedsSol.isFinite() ||
+                        !e.exitFeesSol.isFinite() || e.grossProceedsSol < 0.0 || e.exitFeesSol < 0.0 ||
+                        e.netProceedsSol < 0.0 || e.allocatedCostBasisSol < 0.0 ||
+                        kotlin.math.abs(e.grossProceedsSol - e.exitFeesSol - e.netProceedsSol) > 1e-6) {
+                        invalid++; continue
+                    }
                     if (positionQty6734.containsKey(e.positionId)) {
                         positionQty6734[e.positionId] = currentRaw6522 - e.soldQty
                         trackedMintQty6734.merge(e.mint, e.soldQty.negate()) { a, b -> a + b }
@@ -211,10 +215,11 @@ object CanonicalPaperReplay6464 {
 
     fun compareToLedger(startingCashSol: Double, toleranceSol: Double = 0.01): Parity {
         var snap = replay(startingCashSol)
-        val ledgerCash = try { PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { Double.NaN }
-        val ledgerRealized = try { PaperCapitalAuthority6577.realizedPnlSol() } catch (_: Throwable) { Double.NaN }
-        val ledgerOpen = try { PaperCapitalAuthority6577.openCostBasisSol() } catch (_: Throwable) { Double.NaN }
-        val ledgerFees = try { PaperCapitalAuthority6577.feesSol() } catch (_: Throwable) { Double.NaN }
+        val ledgerSnapshot6738 = PaperAccountLedger6430.snapshotAtomic6643()
+        val ledgerCash = ledgerSnapshot6738.cashSol
+        val ledgerRealized = ledgerSnapshot6738.realizedPnlSol
+        val ledgerOpen = ledgerSnapshot6738.openCostBasisSol
+        val ledgerFees = ledgerSnapshot6738.feesSol
         // V5.0.6489 — one explicit migration from pre-event-authority state.
         // This does not mutate money or lots: it checkpoints the historical
         // prefix missing from the typed event window. Once established it is

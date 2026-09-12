@@ -466,59 +466,48 @@ object BirdeyeOracle {
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 object DexScreenerOracle {
-    
     private const val TAG = "📊DexScreener"
     private const val DEXSCREENER_API = "https://api.dexscreener.com/latest/dex/tokens/"
-    
     private val client = SharedHttpClient.builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.SECONDS)
+        .connectTimeout(2, TimeUnit.SECONDS)
+        .readTimeout(2, TimeUnit.SECONDS)
+        .callTimeout(3, TimeUnit.SECONDS)
         .build()
-    
-    /**
-     * Get price from DexScreener by token address
-     */
-    suspend fun getPriceByAddress(address: String): Double? = withContext(Dispatchers.IO) {
-        try {
-            val request = Request.Builder()
-                .url("${DEXSCREENER_API}${address}")
-                .header("User-Agent", "Mozilla/5.0")
-                .build()
-            
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                val body = response.body?.string()
-                if (body != null) {
-                    val json = JSONObject(body)
-                    val pairs = json.optJSONArray("pairs")
-                    
-                    if (pairs != null && pairs.length() > 0) {
-                        // Get the pair with highest liquidity
-                        var bestPrice = 0.0
-                        var bestLiquidity = 0.0
-                        
-                        for (i in 0 until pairs.length()) {
-                            val pair = pairs.getJSONObject(i)
-                            val price = pair.optString("priceUsd", "0").toDoubleOrNull() ?: 0.0
-                            val liquidity = pair.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
-                            
-                            if (price > 0 && liquidity > bestLiquidity) {
-                                bestPrice = price
-                                bestLiquidity = liquidity
-                            }
-                        }
-                        
-                        if (bestPrice > 0) {
-                            ErrorLogger.debug(TAG, "📊 DexScreener: $address = \$${bestPrice}")
-                            return@withContext bestPrice
-                        }
+
+    suspend fun getPriceByAddress(address: String): Double? = getQuoteByAddress(address)?.priceUsd
+
+    suspend fun getQuoteByAddress(address: String, expectedChain: String? = null): DexTokenQuote6738? =
+        withContext(Dispatchers.IO) {
+            if (address.isBlank() || address.any { !it.isLetterOrDigit() }) return@withContext null
+            try {
+                val request = Request.Builder().url("$DEXSCREENER_API$address")
+                    .header("Accept", "application/json").build()
+                val started = System.currentTimeMillis()
+                client.newCall(request).execute().use { response ->
+                    try { com.lifecyclebot.engine.ApiHealthMonitor.record("dexscreener", response.code, System.currentTimeMillis() - started) } catch (_: Throwable) {}
+                    if (!response.isSuccessful) return@withContext null
+                    val body = response.body?.string() ?: return@withContext null
+                    val pairs = JSONObject(body).optJSONArray("pairs") ?: return@withContext null
+                    val observedAt = System.currentTimeMillis()
+                    val rows = (0 until pairs.length()).mapNotNull { index ->
+                        val pair = pairs.optJSONObject(index) ?: return@mapNotNull null
+                        DexTokenQuote6738(
+                            chainId = pair.optString("chainId"),
+                            baseMint = pair.optJSONObject("baseToken")?.optString("address") ?: "",
+                            quoteMint = pair.optJSONObject("quoteToken")?.optString("address") ?: "",
+                            pairId = pair.optString("pairAddress"), dexId = pair.optString("dexId"),
+                            priceUsd = pair.optString("priceUsd", "").toDoubleOrNull() ?: Double.NaN,
+                            liquidityUsd = pair.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0,
+                            marketCapUsd = pair.optDouble("marketCap", 0.0), observedAtMs = observedAt,
+                        )
                     }
+                    DexTokenQuote6738.select(address, expectedChain, rows)
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "DexScreener error: ${e.message}")
+                null
             }
-            response.close()
-        } catch (e: Exception) {
-            ErrorLogger.debug(TAG, "DexScreener error: ${e.message}")
         }
-        return@withContext null
-    }
 }

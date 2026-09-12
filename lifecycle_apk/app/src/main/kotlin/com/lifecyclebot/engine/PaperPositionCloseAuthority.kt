@@ -69,11 +69,11 @@ object PaperPositionCloseAuthority {
         return states[key(mode, mint)]?.state
     }
 
-    fun preSellGuard(mode: String = "PAPER", mint: String, symbol: String = "", reason: String = ""): Guard {
+    fun preSellGuard(mode: String = "PAPER", mint: String, symbol: String = "", reason: String = "", nowMs: Long = System.currentTimeMillis()): Guard {
         if (mint.isBlank()) return Guard(false, null, "blank")
         val k = key(mode, mint)
         syncLedger(mode, mint, symbol)
-        val now = System.currentTimeMillis()
+        val now = nowMs
         val st = states[k]
         if (st != null) {
             // V5.0.6702 — ONE-SHOT EMERGENCY EXIT LIVENESS.
@@ -121,6 +121,8 @@ object PaperPositionCloseAuthority {
                     } catch (_: Throwable) {}
                     return Guard(false, st.state, "retryable_after_failed", st.closeId)
                 }
+                // A read must not restart the deadline or turn a transient failure into CLOSED.
+                return Guard(true, st.state, "retry_backoff", st.closeId)
             }
 
             if ((st.state == State.CLOSE_REQUESTED || st.state == State.CLOSING) &&
@@ -284,12 +286,15 @@ object PaperPositionCloseAuthority {
         } catch (_: Throwable) {}
     }
 
-    fun markFailed(mode: String = "PAPER", mint: String, symbol: String = "", reason: String = "") {
+    fun markFailed(mode: String = "PAPER", mint: String, symbol: String = "", reason: String = "", nowMs: Long = System.currentTimeMillis()) {
         if (mint.isBlank()) return
         val k = key(mode, mint)
-        val now = System.currentTimeMillis()
+        val now = nowMs
         states.compute(k) { _, old ->
             val s = old ?: CloseState(k, mint, normMode(mode), symbol = symbol)
+            // Late failures must never reopen a confirmed terminal close. Repeated
+            // observations of the same failed attempt must not extend its retry TTL.
+            if (s.state == State.CLOSED || s.state == State.FAILED || s.state == State.REJECTED) return@compute s
             s.state = State.FAILED
             s.symbol = symbol.ifBlank { s.symbol }
             s.reason = reason

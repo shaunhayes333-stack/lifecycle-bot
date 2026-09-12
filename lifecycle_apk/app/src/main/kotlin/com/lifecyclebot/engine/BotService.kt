@@ -4259,8 +4259,8 @@ class BotService : Service() {
                 ErrorLogger.info("BotService",
                     "👆 MANUAL SELL [main]: ${ts.symbol} | qty=${ts.position.qtyToken} | mode=${if (isPaper) "PAPER" else "LIVE"}")
                 addLog("👆 Manual SELL: ${ts.symbol} ${if (isPaper) "(paper)" else "(LIVE)"}")
-                val result = executor.doSell(ts, "MANUAL", w, walletSol)
-                true to "Sell submitted (${result.name})"
+                val result = executor.requestSell(ts, "MANUAL", w, walletSol)
+                PaperSellOutcome6738.isTerminal(result) to "Sell result: ${result.name}"
             } catch (e: Exception) {
                 ErrorLogger.error("BotService", "manualSell error for ${ts.symbol}", e)
                 false to "Error: ${e.message ?: e.javaClass.simpleName}"
@@ -4278,12 +4278,12 @@ class BotService : Service() {
                     ?: tp.entryPrice
                 ErrorLogger.info("BotService", "👆 MANUAL SELL [Treasury]: ${tp.symbol} @ \$${price}")
                 addLog("👆 Manual SELL (Treasury): ${tp.symbol}")
-                // If we also have a TokenState, run the swap; close the
-                // treasury bookkeeping regardless so the card disappears.
-                val realTs = ts
-                val sellResult = if (realTs != null) {
-                    try { executor.doSell(realTs, "MANUAL_TREASURY", w, walletSol).name } catch (_: Exception) { "TREASURY_BOOKKEEP_ONLY" }
-                } else "TREASURY_BOOKKEEP_ONLY (no TokenState)"
+                val realTs = ts ?: canonicalExitTokenSnapshot6512().firstOrNull { it.mint == mint }
+                    ?: return false to "Treasury position retained: canonical position unavailable"
+                val sellResult = try { executor.requestSell(realTs, "MANUAL_TREASURY", w, walletSol) }
+                    catch (_: Exception) { Executor.SellResult.FAILED_RETRYABLE }
+                if (!PaperSellOutcome6738.isTerminal(sellResult))
+                    return false to "Treasury position retained: ${sellResult.name}"
                 com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
                     mint, price, com.lifecyclebot.v3.scoring.CashGenerationAI.ExitSignal.TAKE_PROFIT)
                 return true to "Treasury position closed ($sellResult)"
@@ -8881,10 +8881,15 @@ class BotService : Service() {
             val ethFeed = "ff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace"
             com.lifecyclebot.network.PythHermesStream.subscribe(
                 feedHexIds = listOf(solFeed, btcFeed, ethFeed),
-            ) { feedId, priceUsd, _, _ ->
+            ) { feedId, priceUsd, _, publishTime ->
                 try {
                     when (feedId) {
-                        solFeed -> com.lifecyclebot.engine.WalletManager.lastKnownSolPrice = priceUsd
+                        solFeed -> {
+                            if (com.lifecyclebot.engine.truth.PaperExitEvidence6738.observeSolUsd(
+                                priceUsd, "PYTH_SOL_USD", publishTime * 1000L)) {
+                                com.lifecyclebot.engine.WalletManager.lastKnownSolPrice = priceUsd
+                            }
+                        }
                     }
                 } catch (_: Exception) {}
             }
@@ -9181,12 +9186,15 @@ class BotService : Service() {
                                                     )
                                                     PipelineHealthCollector.labelInc("PAPER_STALE_ZOMBIE_SCRATCH_EXIT_ONESHOT_6504")
                                                 } catch (_: Throwable) {}
-                                                executor.requestSell(
-                                                    ts = ts,
-                                                    reason = "PAPER_STALE_PRICE_TIMEOUT_SCRATCH",
-                                                    wallet = wallet,
-                                                    walletSol = effectiveBalance,
-                                                )
+                                                var terminal6738 = false
+                                                try {
+                                                    terminal6738 = PaperSellOutcome6738.isTerminal(executor.requestSell(
+                                                        ts = ts, reason = "PAPER_STALE_PRICE_TIMEOUT_SCRATCH",
+                                                        wallet = wallet, walletSol = effectiveBalance,
+                                                    ))
+                                                } finally {
+                                                    if (!terminal6738) paperStaleZombieLatch6504.remove(zombieLatchKey6504)
+                                                }
                                             } else {
                                                 try { PipelineHealthCollector.labelInc("PAPER_STALE_ZOMBIE_SCRATCH_EXIT_SUPPRESSED_6504") } catch (_: Throwable) {}
                                             }
@@ -19328,17 +19336,20 @@ if (hotExitHandledSweep) {
                 cacheHydrated++
             }
             val old = ts.position
-            if (!old.isOpen || old.positionId != cp.positionId || kotlin.math.abs(old.qtyToken - qty) > 1e-12 || !old.tradingMode.equals(cp.lane, true) || old.entryPrice <= 0.0) {
+            if (!old.isOpen || old.positionId != cp.positionId || kotlin.math.abs(old.qtyToken - qty) > 1e-12 ||
+                !old.tradingMode.equals(cp.lane, true) || old.entryPrice <= 0.0 ||
+                kotlin.math.abs(old.costSol - basis) > 1e-9 ||
+                (canonicalEntryPrice6513 > 0.0 && kotlin.math.abs(old.entryPrice - canonicalEntryPrice6513) > maxOf(1e-18, canonicalEntryPrice6513 * 1e-6))) {
                 ts.position = old.copy(
                     qtyToken = qty,
-                    entryPrice = old.entryPrice.takeIf { it > 0.0 } ?: canonicalEntryPrice6513,
+                    entryPrice = canonicalEntryPrice6513,
                     entryTime = cp.openedAtMs, costSol = basis,
                     isPaperPosition = cp.mode.equals("paper", true), tradingMode = cp.lane,
                     positionId = cp.positionId,
-                    entryPriceSource = old.entryPriceSource.ifBlank { cp.entryPriceSource },
-                    entryPoolAddress = old.entryPoolAddress.ifBlank { cp.entryPoolAddress },
-                    entryDex = old.entryDex.ifBlank { cp.entryDex },
-                    highestPrice = maxOf(old.highestPrice, old.entryPrice.takeIf { it > 0.0 } ?: canonicalEntryPrice6513),
+                    entryPriceSource = cp.entryPriceSource,
+                    entryPoolAddress = cp.entryPoolAddress,
+                    entryDex = cp.entryDex,
+                    highestPrice = if (old.positionId == cp.positionId) maxOf(old.highestPrice, canonicalEntryPrice6513) else canonicalEntryPrice6513,
                 )
                 projected++
             }
@@ -19408,7 +19419,6 @@ if (hotExitHandledSweep) {
                             val refreshed6594 = when (effectiveMarkClass6592) {
                                 com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN -> {
                                     tryFallbackPriceData(cp.mint, ts)
-                                    ts.lastPrice > 0.0
                                 }
                                 com.lifecyclebot.engine.truth.AssetClass.UNKNOWN -> {
                                     // V5.0.6592 — refuse to guess a provider for
@@ -26591,46 +26601,22 @@ if (hotExitHandledSweep) {
             val rugDetected = deadFeedRug || crashedRug
 
             if (rugDetected) {
-                // V5.9.302: PAPER-MODE LOSS CAP — avoid poisoning learning with -100% outliers.
-                // In paper mode, force the recorded exit price to entry × 0.75 (= -25% loss)
-                // so the bot learns from a realistic worst-case rug rather than catastrophic noise.
-                val isPaper = try { ConfigStore.load(applicationContext).paperMode } catch (_: Exception) { true }
-                val effectiveExitPrice = if (isPaper) {
-                    pos.entryPrice * 0.75  // -25% paper rug cap
-                } else {
-                    bestPrice.coerceAtLeast(pos.entryPrice * 0.001)  // live: tiny floor to avoid div-by-zero
-                }
                 val triggerKind = if (deadFeedRug) "DEAD_FEED" else "CRASH"
-                ErrorLogger.warn(
-                    "BotService",
-                    "🚨 RUG SAFETY NET ($triggerKind): ${ts.symbol} mint=${ts.mint.take(8)} | " +
-                    "entry=${pos.entryPrice} lastPrice=$rawPrice histPrice=$histPrice age=${entryAgeMs / 1000}s | " +
-                    "${if (isPaper) "PAPER cap @ -25%" else "LIVE bestPrice=$bestPrice"} — FORCE SELL"
-                )
-                addLog("🚨 RUG SAFETY ($triggerKind): ${ts.symbol} ${if (isPaper) "(paper -25% cap)" else "price≈0"} — forcing exit", ts.mint)
-                // Push the capped price into ts so downstream close-recorders use it
-                if (isPaper) {
-                    try {
-                        ts.lastPrice = effectiveExitPrice
-                        ts.lastPriceSource = "RUG_SAFETY_CAPPED_EXIT"  // V5.9.744
-                    } catch (_: Exception) {}
-                }
-                try {
-                    executor.requestSell(
-                        ts = ts,
-                        reason = "RUG_SAFETY_NET",
-                        wallet = wallet,
-                        walletSol = effectiveBalance,
-                    )
+                addLog("🚨 RUG SAFETY ($triggerKind): ${ts.symbol} — requesting evidenced exit", ts.mint)
+                val result = try {
+                    executor.requestSell(ts, "RUG_SAFETY_NET", wallet, effectiveBalance)
                 } catch (e: Exception) {
                     ErrorLogger.error("BotService", "RUG_SAFETY_NET sell error: ${e.message}", e)
+                    Executor.SellResult.FAILED_RETRYABLE
                 }
-                // Also wipe layer-store position trackers immediately so the
-                // UI stops displaying the rugged position on next refresh.
-                try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, effectiveExitPrice,
+                // A dark feed is not a fill price. Keep the strategy and position
+                // until a canonical close is confirmed; never forge entry * 0.75.
+                if (PaperSellOutcome6738.isTerminal(result)) {
+                    try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.closePosition(ts.mint, bestPrice,
                         com.lifecyclebot.v3.scoring.MoonshotTraderAI.ExitSignal.RUG_DETECTED) } catch (_: Exception) {}
-                try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, effectiveExitPrice,
+                    try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(ts.mint, bestPrice,
                         com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ExitSignal.RUG_DETECTED) } catch (_: Exception) {}
+                }
                 return
             }
         } catch (e: Exception) {
@@ -26884,7 +26870,7 @@ if (hotExitHandledSweep) {
                 // V5.9.706 FIX: if rapid monitor already closed ts.position, requestSell
                 // returns ALREADY_CLOSED — still clean up sub-trader state so UI ghosts clear.
                 // Only bail on FAILED_RETRYABLE (will retry next tick with fresh price/balance).
-                if (sellResult == Executor.SellResult.FAILED_RETRYABLE) return
+                if (!PaperSellOutcome6738.isTerminal(sellResult)) return
                 com.lifecyclebot.v3.scoring.CashGenerationAI.closePosition(
                     ts.mint, currentPrice, exitSignal
                 )
@@ -27068,7 +27054,7 @@ if (hotExitHandledSweep) {
 
                 // V5.9.706 FIX: ALREADY_CLOSED means rapid monitor already exited this position.
                 // Still clean up ShitCoinTraderAI state so the UI tile disappears.
-                if (sellResult == Executor.SellResult.FAILED_RETRYABLE) return
+                if (!PaperSellOutcome6738.isTerminal(sellResult)) return
                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.closePosition(
                     ts.mint, currentPrice, exitSignal
                 )
@@ -27136,7 +27122,7 @@ if (hotExitHandledSweep) {
                 )
                 
                 // V5.9.706 FIX: clean up sub-trader state even if ALREADY_CLOSED
-                if (sellResult == Executor.SellResult.FAILED_RETRYABLE) return
+                if (!PaperSellOutcome6738.isTerminal(sellResult)) return
                 com.lifecyclebot.v3.scoring.ShitCoinExpress.exitRide(ts.mint, currentPrice, exitSignal)
                 com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
                 addLog("$exitEmoji EXPRESS SELL: ${ts.symbol} | ${exitSignal.name} | " +
@@ -27181,7 +27167,7 @@ if (hotExitHandledSweep) {
                 )
                 
                 // V5.9.706 FIX: clean up sub-trader state even if ALREADY_CLOSED
-                if (sellResult == Executor.SellResult.FAILED_RETRYABLE) return
+                if (!PaperSellOutcome6738.isTerminal(sellResult)) return
                 com.lifecyclebot.v3.scoring.ManipulatedTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
                 com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
                 addLog("☠️ MANIP EXIT: ${ts.symbol} | ${exitSignal.name} | " +
@@ -28436,144 +28422,58 @@ if (hotExitHandledSweep) {
     }
 
     private fun tryFallbackPriceData(mint: String, ts: TokenState): Boolean {
-        // Try Birdeye first
-        try {
-            val cfg2 = ConfigStore.load(applicationContext)
-            val ov = com.lifecyclebot.network.BirdeyeApi(cfg2.birdeyeApiKey).getTokenOverview(mint)
-            if (ov != null && ov.priceUsd > 0) {
-                synchronized(ts) {
-                    ts.lastPrice = ov.priceUsd
-                    ts.lastPriceUpdate = System.currentTimeMillis()
-                    ts.lastPriceSource = "BIRDEYE_OVERVIEW"  // V5.9.744
-                    ts.lastLiquidityUsd = ov.liquidity
-                    ts.lastMcap = ov.marketCap
-                    ts.lastFdv = ov.marketCap
-                    val syntheticCandle = com.lifecyclebot.data.Candle(
-                        ts = System.currentTimeMillis(), priceUsd = ov.priceUsd,
-                        marketCap = ov.marketCap, volumeH1 = 0.0, volume24h = 0.0,
-                        buysH1 = 0, sellsH1 = 0, highUsd = ov.priceUsd,
-                        lowUsd = ov.priceUsd, openUsd = ov.priceUsd,
-                    )
-                    synchronized(ts.history) {
-                        ts.history.addLast(syntheticCandle)
-                        if (ts.history.size > 300) ts.history.removeFirst()
-                    }
-                }
-                broadcastFallbackPrice(mint, ov.priceUsd)   // V5.9.423
-                addLog("📡 Birdeye: ${ts.symbol} \$${ov.priceUsd}", mint)
-                return true
+        fun accept(price: Double, liquidity: Double, mcap: Double, source: String,
+                   pair: String, quote: String, dex: String, at: Long): Boolean {
+            val result = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522
+                .resolveExecutableFromSourceEvidence6616(mint, mint, pair, quote, source, price, liquidity, at)
+            val mark = result.mark ?: run {
+                try { ForensicLogger.lifecycle("EXIT_MARK_EVIDENCE_REJECTED_6738",
+                    "mint=${mint.take(12)} source=$source reason=${result.reason}") } catch (_: Throwable) {}
+                return false
             }
-        } catch (_: Exception) {}
-
-        // V5.9.423 — DexScreenerOracle (separate code path from dex.getBestPair,
-        // different endpoint, different cache). When the pair-based call fails
-        // this token-address call often still returns — DexScreener caches
-        // token-level and pair-level data independently.
-        if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
-            try {
-                val priceUsd = kotlinx.coroutines.runBlocking {
-                    kotlinx.coroutines.withTimeoutOrNull(2000L) {
-                        com.lifecyclebot.perps.DexScreenerOracle.getPriceByAddress(mint)
-                    }
+            // Publication may return newer evidence. Never splice that evidence's
+            // timestamp/identity onto this response's older price or liquidity.
+            synchronized(ts) {
+                ts.lastPrice = mark.priceUsd.value.toDouble()
+                ts.lastPriceUpdate = mark.timestampMs
+                ts.lastPriceSource = mark.source
+                ts.lastPricePoolAddr = mark.pairId
+                ts.lastPriceDex = if (mark.source == source && mark.timestampMs == at) dex else ""
+                ts.lastLiquidityUsd = mark.liquidityUsd?.toDouble() ?: 0.0
+                if (mark.source == source && mark.timestampMs == at && mcap.isFinite() && mcap > 0.0) {
+                    ts.lastMcap = mcap
+                    ts.lastFdv = mcap
                 }
-                if (priceUsd != null && priceUsd > 0) {
-                    synchronized(ts) {
-                        ts.lastPrice = priceUsd
-                        ts.lastPriceUpdate = System.currentTimeMillis()
-                        ts.lastPriceSource = "PAIR_FALLBACK"  // V5.9.744
-                    }
-                    broadcastFallbackPrice(mint, priceUsd)
-                    addLog("📊 DexScreener(token): ${ts.symbol} \$${priceUsd}", mint)
-                    return true
-                }
-            } catch (_: Throwable) {}
+            }
+            com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.note(
+                mint, mark.priceUsd.value.toDouble(),
+                com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.Provenance.REST_LIVE,
+                (System.currentTimeMillis() - mark.timestampMs).coerceAtLeast(0L),
+            )
+            broadcastFallbackPrice(mint, mark.priceUsd.value.toDouble())
+            return true
         }
-
-        // V5.9.423 — BirdeyeOracle token-address API (different from BirdeyeApi
-        // used above, which is overview-focused; this one is price-focused and
-        // hits a separate rate-limit bucket).
-        if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
-            try {
-                val priceUsd = kotlinx.coroutines.runBlocking {
-                    kotlinx.coroutines.withTimeoutOrNull(2000L) {
-                        com.lifecyclebot.perps.BirdeyeOracle.getPriceByAddress(mint)
-                    }
-                }
-                if (priceUsd != null && priceUsd > 0) {
-                    synchronized(ts) {
-                        ts.lastPrice = priceUsd
-                        ts.lastPriceUpdate = System.currentTimeMillis()
-                        ts.lastPriceSource = "PAIR_FALLBACK"  // V5.9.744
-                    }
-                    broadcastFallbackPrice(mint, priceUsd)
-                    addLog("🐦 BirdeyeOracle: ${ts.symbol} \$${priceUsd}", mint)
-                    return true
-                }
-            } catch (_: Throwable) {}
-        }
-
-        // Try pump.fun API
-        // V5.9.423 — also retry pump.fun if the last successful price is >120s
-        // stale. Previously the `if (ts.lastPrice <= 0)` guard meant pump.fun
-        // was only consulted on brand-new holds that had never been priced.
-        if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
-            try {
-                val client = com.lifecyclebot.network.SharedHttpClient.builder()
-                    .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS).build()
-                // V5.9.861 — health-aware execute: auto-migrate dead hosts + record telemetry
-                val originalUrl = "https://frontend-api-v3.pump.fun/coins/$mint"
-                val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(originalUrl) } catch (_: Throwable) { originalUrl }
-                val request = okhttp3.Request.Builder()
-                    .url(effectiveUrl)
-                    .header("Accept", "application/json").build()
-                val pumpStart = System.currentTimeMillis()
-                val response = try {
-                    client.newCall(request).execute()
-                } catch (e: Exception) {
-                    try { com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError("pumpfun", e.message) } catch (_: Throwable) {}
-                    throw e
-                }
-                try { com.lifecyclebot.engine.ApiHealthMonitor.record("pumpfun", response.code, System.currentTimeMillis() - pumpStart) } catch (_: Throwable) {}
-                if (response.isSuccessful) {
-                    val body = response.body?.string()
-                    if (body != null) {
-                        val json = org.json.JSONObject(body)
-                        val mcap = json.optDouble("usd_market_cap", 0.0)
-                        // NOTE: pump.fun API's "price" field is in SOL (not USD), so we
-                        // compute a correct USD price from usd_market_cap / total_supply.
-                        // Pump.fun tokens always have 1B token supply as their standard.
-                        val totalSupply = json.optDouble("total_supply", 1_000_000_000.0)
-                            .let { if (it <= 0) 1_000_000_000.0 else it }
-                        val priceUsd = if (mcap > 0 && totalSupply > 0) mcap / totalSupply else 0.0
-                        if (mcap > 0) {
-                            synchronized(ts) {
-                                ts.lastPrice = priceUsd
-                                ts.lastPriceUpdate = System.currentTimeMillis()
-                                ts.lastPriceSource = "PUMP_FUN_FRONTEND_API"  // V5.9.744
-                                ts.lastPriceDex = "PUMP_FUN"
-                                ts.lastMcap = mcap
-                                ts.lastFdv = mcap
-                                ts.lastLiquidityUsd = mcap * 0.1
-                                val syntheticCandle = com.lifecyclebot.data.Candle(
-                                    ts = System.currentTimeMillis(), priceUsd = priceUsd,
-                                    marketCap = mcap, volumeH1 = 0.0, volume24h = 0.0,
-                                    buysH1 = 0, sellsH1 = 0, highUsd = priceUsd,
-                                    lowUsd = priceUsd, openUsd = priceUsd,
-                                )
-                                synchronized(ts.history) {
-                                    ts.history.addLast(syntheticCandle)
-                                    if (ts.history.size > 300) ts.history.removeFirst()
-                                }
-                            }
-                            addLog("🎯 Pump.fun: ${ts.symbol} mcap=\$${mcap.toInt()} priceUsd=\$${String.format("%.10f", priceUsd)}", mint)
-                            broadcastFallbackPrice(mint, priceUsd)   // V5.9.423
-                            return true
-                        }
-                    }
-                }
-            } catch (_: Exception) {}
-        }
+        // The healthy exact-identity provider runs first. An invalid Birdeye key
+        // must not spend the refresh budget before this independent provider.
+        try {
+            val q = kotlinx.coroutines.runBlocking {
+                com.lifecyclebot.perps.DexScreenerOracle.getQuoteByAddress(mint, "solana")
+            }
+            if (q != null && accept(q.priceUsd, q.liquidityUsd, q.marketCapUsd,
+                "DEXSCREENER_PAIR_POLL", q.pairId, q.quoteMint, q.dexId, q.observedAtMs)) return true
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+          catch (_: Exception) {}
+        try {
+            val key = ConfigStore.load(applicationContext).birdeyeApiKey
+            if (key.isNotBlank()) {
+                val ov = com.lifecyclebot.network.BirdeyeApi(key).getTokenOverview(mint)
+                if (ov != null && accept(ov.priceUsd, ov.liquidity, ov.marketCap,
+                    "BIRDEYE_OVERVIEW", "", "USD", "", System.currentTimeMillis())) return true
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+          catch (_: Exception) {}
+        // Missing supply/decimals/liquidity is not executable evidence. The former
+        // pump.fun market-cap/default-supply calculation invented both price and liquidity.
         return false
     }
 
