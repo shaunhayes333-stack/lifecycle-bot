@@ -1,3 +1,17 @@
+## V5.0.6737 — §PROVENANCE_AUTHORITY_6737 · Pillars 1-3 landed (PENDING CI)
+
+Operator directive: (1) make REPLAY_6486 strictly shadow-only at the *mutation boundary*; (2) idempotent migration that isolates proven synthetic records while preserving genuine positions and losses; (3) reconciler must exclude quarantined events by immutable id when computing cash/openCost/realized deltas.
+
+- **§PROVENANCE_AUTHORITY** (`ProvenanceAuthority6737`): canonical origin registry — `GENUINE_PAPER`, `GENUINE_LIVE`, `REPLAY_RESTORE` (real event replay to rebuild positions on restart — preserves owner lane & mode), `REPLAY_SHADOW` (sandbox/what-if — hard-refused on authoritative surfaces), `QUARANTINE_AMBIGUOUS` (missing evidence — refused with an explicit reason). `guardMutation()` is the boundary. `classifyOnce()` is idempotent by immutable event id.
+- **§PROVENANCE_MUTATION_BOUNDARY** (`PaperAccountLedger6430`): new `onBuyProvenanced6737` / `onSellProvenanced6737` overloads that consult `guardMutation` BEFORE touching cash / openCost / realized. Legacy `onBuy` / `onSell` remain and continue to be treated as `GENUINE_PAPER` by contract — no regression.
+- **§CONTAMINATION_ISOLATION_MIGRATION** (`ContaminationIsolationMigration6737`): idempotent scanner. Classification decision: explicit `SHADOW_` / `SANDBOX_` / `WHATIF_` tag → `REPLAY_SHADOW`; `REPLAY_6486` + complete restoration evidence (positionId, mode, lane, verified fill) → `REPLAY_RESTORE`; `REPLAY_*` with missing evidence → `QUARANTINE_AMBIGUOUS` with reason `REPLAY_MISSING_RESTORATION_EVIDENCE_6737`; otherwise mode-based routing to `GENUINE_PAPER` / `GENUINE_LIVE`; missing mode → quarantine with `MODE_MISSING_OR_UNKNOWN_6737`. No fabricated sells, refunds, invented prices, deletions, or relabelling.
+- **§RECONCILER_EXCLUDES_QUARANTINE** (`CanonicalPaperReplay6464.replay`): consult `isExcludedFromParity(idempotencyKey)` before folding each event. Legitimate `REPLAY_RESTORE` is NOT excluded — it produced a real mutation. Counter `PAPER_REPLAY_EXCLUDED_QUARANTINE_6737` surfaces the excluded count.
+- **Regression**: `Aate6737ReplayIsolationAndReconciliationTest` — 12 cases covering shadow refusal, genuine + replay-restore admission, quarantine ambiguous refusal, source-level ledger overload existence, idempotent classification, migration classification (genuine paper / replay-restore / quarantined replay / shadow tag), migration idempotency across two runs, reconciler exclusion set semantics, replay source-level gate presence.
+- **Explicit non-goals for this batch**: pillars 4 (round-trip repair), 5 (exit recovery), 6 (regression suite for round-trip + APK green) remain OPEN.
+
+---
+
+
 ## V5.0.6734 — scoped execution recovery and economic integrity (CI trigger)
 
 Source repairs and regression boundaries: `lifecycle_apk/audits/v5_0_6734_verified_recovery.md`.

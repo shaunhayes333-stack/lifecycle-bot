@@ -97,6 +97,16 @@ object CanonicalPaperReplay6464 {
         // Oldest-first — events deque adds to head, so reverse.
         for (e in events.asReversed()) {
             if (e.mode != "paper") continue
+            // V5.0.6737 §RECONCILER_EXCLUDES_QUARANTINE — Pillar 3.
+            // If the provenance authority has tagged this event as
+            // REPLAY_SHADOW or QUARANTINE_AMBIGUOUS, exclude it from
+            // parity computation entirely. Legitimate REPLAY_RESTORE
+            // is NOT excluded — it produced a real mutation and must
+            // be reflected in the replay.
+            if (ProvenanceAuthority6737.isExcludedFromParity(e.idempotencyKey)) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_REPLAY_EXCLUDED_QUARANTINE_6737") } catch (_: Throwable) {}
+                continue
+            }
             val replayIdentity6522 = if (e is EconomicEventSchema6464.Sell && !e.partial)
                 "paper|${e.positionId}|FULL_CLOSE" else e.idempotencyKey
             if (!seen.add(replayIdentity6522)) { dup++; continue }

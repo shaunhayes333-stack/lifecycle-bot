@@ -208,6 +208,26 @@ object PaperAccountLedger6430 {
     }
 
     /**
+     * V5.0.6737 §PROVENANCE_MUTATION_BOUNDARY — the single authoritative
+     * paper-ledger mutation entry point that accepts a provenance origin.
+     * REPLAY_SHADOW is HARD-refused (Pillar 1). REPLAY_RESTORE is allowed
+     * so real event replay after restart rebuilds actual positions with
+     * their original owner lane and mode. Legacy callers keep calling the
+     * blank-origin `onBuy` above and continue to be treated as GENUINE_PAPER.
+     */
+    @Synchronized
+    fun onBuyProvenanced6737(
+        costSol: Double,
+        feeSol: Double,
+        origin: ProvenanceAuthority6737.Origin,
+        callSite: String,
+    ): Boolean {
+        val v = ProvenanceAuthority6737.guardMutation(origin, callSite)
+        if (!v.allow) return false
+        return onBuyAtomic6632(costSol, feeSol, mint = "", attemptKey = "")
+    }
+
+    /**
      * V5.0.6632 §P0-A — attempt-keyed BUY. Wired to
      * PaperEconomicAtomicCommit6632 so every ledger mutation is
      * witnessed against the paired journal write. Legacy callers
@@ -342,6 +362,26 @@ object PaperAccountLedger6430 {
 
     @Synchronized
     fun onSell(grossProceedsSol: Double, costBasisSoldSol: Double, feeSol: Double = 0.0, mint: String = ""): Boolean {
+        return onSellAtomic6632(grossProceedsSol, costBasisSoldSol, feeSol, mint, attemptKey = "")
+    }
+
+    /**
+     * V5.0.6737 §PROVENANCE_MUTATION_BOUNDARY — provenance-aware SELL.
+     * REPLAY_SHADOW is HARD-refused; the ledger cannot record a shadow
+     * exit. REPLAY_RESTORE is allowed so genuine event replay preserves
+     * verified fills.
+     */
+    @Synchronized
+    fun onSellProvenanced6737(
+        grossProceedsSol: Double,
+        costBasisSoldSol: Double,
+        feeSol: Double,
+        mint: String,
+        origin: ProvenanceAuthority6737.Origin,
+        callSite: String,
+    ): Boolean {
+        val v = ProvenanceAuthority6737.guardMutation(origin, callSite)
+        if (!v.allow) return false
         return onSellAtomic6632(grossProceedsSol, costBasisSoldSol, feeSol, mint, attemptKey = "")
     }
 
