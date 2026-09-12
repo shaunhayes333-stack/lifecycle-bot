@@ -1,0 +1,50 @@
+name: Repair identity source commit
+on:
+  push:
+    branches: ['repair/6737-exit-accounting']
+permissions:
+  contents: write
+concurrency:
+  group: repair-6738-identity
+  cancel-in-progress: false
+jobs:
+  apply:
+    if: github.ref == 'refs/heads/repair/6737-exit-accounting'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Decode and verify exact follow-up source diff
+        env:
+          PATCH_B64: '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'
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor 4a5b00530b1434b6f5442af9c16369e139649e75 HEAD
+          python3 - <<'PY'
+          import os, base64, lzma, hashlib, pathlib
+          patch = lzma.decompress(base64.b64decode(os.environ['PATCH_B64'], validate=True))
+          assert hashlib.sha256(patch).hexdigest() == 'ebea7974019b17ee832dfd4012d998971c6d48d1c5ae1e1f8dc0135fb5b7a5f4'
+          assert len(patch) == 20117
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'identity.patch').write_bytes(patch)
+          PY
+          git apply --check "$RUNNER_TEMP/identity.patch"
+          git apply "$RUNNER_TEMP/identity.patch"
+          git diff --check
+          cd lifecycle_apk
+          python3 ci/golden_tape_literal_scan.py
+          python3 ci/authority_contradiction_scan.py
+          python3 ci/patch_rot_scan.py
+      - name: Commit the actual source and six additional regression tests
+        run: |
+          set -euo pipefail
+          git fetch origin repair/6737-exit-accounting
+          test "$(git rev-parse origin/repair/6737-exit-accounting)" = "$GITHUB_SHA"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate6738ExitRecoveryTest.kt
+          test "$(git diff --cached --name-only | wc -l)" -eq 3
+          git commit -m 'fix: preserve exact exit identity and atomic retry-to-terminal state transitions' -m 'Reject unknown explicit IDs and wrong mint/mode/class without mutating another position or closed history. Make paper retry recovery share the per-key write lock with terminal updates. Add six regression tests; full Android validation required.'
+          git push origin HEAD:repair/6737-exit-accounting
+          git rev-parse HEAD
