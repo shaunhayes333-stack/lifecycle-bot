@@ -1,3 +1,14 @@
+## V5.0.6738 — §PAPER_CLOSE_FAILED_WITHIN_TTL_COALESCE + §CANONICAL_ROUND_TRIP_RECONCILER · Pillars 4-6 landed (PENDING CI)
+
+Operator directive: (4) trace EXEC-gate/ledger-divergence blockers to their actual inputs without bypassing safety guards; (5) coalesce retry windows in `PaperPositionCloseAuthority` while preserving pending exit intent so a stuck lock cannot consume a terminal latch; (6) regression proving Meme + Crypto Universe complete a reconciled round trip with terminal learning delivered exactly once and synthetic outcomes stay separated.
+
+- **§PAPER_CLOSE_FAILED_WITHIN_TTL_COALESCE** (`PaperPositionCloseAuthority.preSellGuard`) — Pillar 5. Root cause: the prior FAILED/REJECTED branch had no return path when age < FAILED_RETRY_TTL_MS. Execution fell to line 165 and returned `Guard(false, OPEN, "OPEN")`, masking a FAILED state as OPEN. Callers saw `.blocked=false` and re-entered `paperSell`, racing the stale FAILED marker and consuming a fresh terminal latch via `IdempotencyKeyStore6437.markTerminal` even though the ledger never converged. Fix: within TTL now returns `Guard(true, FAILED, "close_retry_backoff_within_ttl_6738")` — coalesced retry. State remains FAILED so the pending exit intent survives; TTL expiry naturally routes to the existing `retryable_after_failed` branch. No stuck lock, no consumed terminal latch. Counter `PAPER_CLOSE_RETRY_COALESCED_WITHIN_TTL_6738`.
+- **§CANONICAL_ROUND_TRIP_RECONCILER** (`CanonicalRoundTripReconciler6738`) — Pillars 4 + 6. Owner-bound round-trip verifier: records BUY_COMMITTED / EXIT_DECIDED / SELL_COMMITTED / LEARNING_DELIVERED per positionId, verifies each stage arrives once in order, and attributes divergence to a **specific** event id (`observeAccountingDivergence` tags via `ProvenanceAuthority6737.classifyOnce(id, QUARANTINE_AMBIGUOUS, "ROUND_TRIP_DIVERGENCE_$reason")`). Does NOT bypass any guard, does NOT hard-block the global admission gate — it observes and reports. Learning delivery is refused on the second attempt for the same positionId; shadow event ids bypass round-trip statistics entirely (Pillar 1 already blocks them from committing at the ledger).
+- **Regression**: `Aate6738RoundTripAndExitRecoveryTest` — 10 cases covering meme + crypto reconciliation, idempotent stage recording, shadow-event bypass, event-id-scoped divergence tagging, terminal-learning-once, shadow-vs-genuine learning separation, TTL coalesce block, source-level TTL coalesce contract, and OPEN-state control (no false block on unrelated mints).
+
+---
+
+
 ## V5.0.6737 — §PROVENANCE_AUTHORITY_6737 · Pillars 1-3 landed (PENDING CI)
 
 Operator directive: (1) make REPLAY_6486 strictly shadow-only at the *mutation boundary*; (2) idempotent migration that isolates proven synthetic records while preserving genuine positions and losses; (3) reconciler must exclude quarantined events by immutable id when computing cash/openCost/realized deltas.

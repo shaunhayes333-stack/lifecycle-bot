@@ -121,6 +121,40 @@ object PaperPositionCloseAuthority {
                     } catch (_: Throwable) {}
                     return Guard(false, st.state, "retryable_after_failed", st.closeId)
                 }
+                // V5.0.6738 §PAPER_CLOSE_FAILED_WITHIN_TTL_COALESCE — Pillar 5.
+                // Root cause of the operator's "FAILED/REJECTED retry-window
+                // fall-through" and "consumed terminal latches": the prior
+                // code left this branch WITHOUT returning when age < TTL, so
+                // the flow fell to line 165 and returned Guard(false, OPEN,
+                // "OPEN"). Callers saw .blocked=false and immediately re-
+                // entered paperSell, races the stale FAILED marker, and
+                // consumed the idempotency terminal latch before the ledger
+                // actually converged.
+                //
+                // Correct behaviour: coalesce all retries inside the TTL by
+                // blocking explicitly. The FAILED state is preserved (the
+                // pending exit intent survives with it), and the next tick
+                // after TTL expiry falls into the retry branch above. No
+                // stuck lock — the state's own timestamp is the retry clock.
+                val ageMs = now - st.updatedAtMs
+                try {
+                    PipelineHealthCollector.labelInc("PAPER_CLOSE_RETRY_COALESCED_WITHIN_TTL_6738")
+                    if (ageMs < ALREADY_PENDING_LOG_MS ||
+                        now - st.lastAlreadyPendingLogMs >= ALREADY_PENDING_LOG_MS) {
+                        st.lastAlreadyPendingLogMs = now
+                        ForensicLogger.lifecycle(
+                            "PAPER_CLOSE_RETRY_COALESCED_WITHIN_TTL_6738",
+                            "mint=${mint.take(10)} symbol=$symbol state=${st.state} " +
+                                "ageMs=$ageMs ttlMs=$FAILED_RETRY_TTL_MS reason=$reason " +
+                                "action=preserve_pending_exit_intent_await_ttl_expiry",
+                        )
+                    }
+                } catch (_: Throwable) {}
+                return Guard(
+                    true, st.state,
+                    "close_retry_backoff_within_ttl_6738",
+                    st.closeId,
+                )
             }
 
             if ((st.state == State.CLOSE_REQUESTED || st.state == State.CLOSING) &&
