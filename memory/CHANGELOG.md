@@ -1,3 +1,15 @@
+## V5.0.6741 — §1 owner-lane restore + §2 SOL/token USD fabrication removed (PENDING CI)
+
+Directive Section 1 and Section 2 landed at the actual code source.
+
+- **§1 §OWNER_LANE_RESTORE_AT_WRITE_SITES** (`CanonicalPositionAuthority6441.kt`, 4 write-sites at lines 931, 993, 1031, 1053, plus carry-rebuild at 1120): every `lane = "REPLAY_6486"` in the paper rebuild path now recovers the original owner via `LaneAttributionLedger6427.getEntryLane(positionId)`. Fallback `"UNRESOLVED_OWNER_6741"` is used ONLY when the attribution ledger has no entry (preserves exposure, reports unresolved ownership per directive: "Where identity remains unknown, retain the exposure and report unresolved ownership; do not guess QUALITY, STANDARD or another specialist"). Recovery provenance is recorded separately from ownerLane via `runId = "REPLAY_RESTORE_${e.idempotencyKey}"`, so learners/reports can distinguish "genuine restored trade" from strategy identity.
+- **§2 §NO_SOL_PER_TOKEN_USD_FABRICATION** (`CanonicalPositionAuthority6441.kt` carry-rebuild path, lines ~1130-1138): the fallback `entryPriceUsd = carryCost / qtyToken6631` — a SOL-per-token figure stored in a USD-per-token field — is REMOVED. When the durable carry has a unit-verified USD basis (`repairedEntryPrice6519 > 0.0`), it is kept; otherwise `entryPriceUsd = 0.0` with `entryPriceSource = "CARRY_USD_BASIS_UNKNOWN_6741"`. The exposure remains funded and visible; the USD valuation is represented as unknown, never invented. Consumer-side classifier (`InvariantProjectionClosure6636Test.sol_token_carry_basis_never_authorizes_numeric_open_pnl`) continues to defensively reject `DERIVED_CARRY_COST_QTY_6631` if any legacy row is loaded from an older durable state.
+- **Regression**: `Aate6741ProvenanceOwnerAndBasisSourceTest` — 3 source-level cases lock the removals (`lane = "REPLAY_6486"` count == 0, `carryCost / qtyToken6631` removed, `DERIVED_CARRY_COST_QTY_6631` producer removed) AND the replacements (`LaneAttributionLedger6427.getEntryLane` at both `e.positionId` and `pid` sites, `UNRESOLVED_OWNER_6741`, `REPLAY_RESTORE_`, `CARRY_USD_BASIS_UNKNOWN_6741`).
+- **Explicit OPEN for next builds**: §3 funded-exposure separation, §4 revision-consistent parity, §5 exit-coordinator (only Pillar 5 backoff shipped), §6 capital-gate input repair, §7 wire round-trip reconciler to real producers, §8 remaining regression cases A-L.
+
+---
+
+
 ## V5.0.6740 — Course-correction on 6739 (registry stays 120 s, sealing defer is PAPER-only)
 
 - **§MARK_FRESHNESS_ALIGN retracted**: widening the registry to 300 s broke `Aate6734RecoveryIntegrityTest.stale_strict_mark_cannot_be_reused_for_execution` and `source_price_and_timestamp_are_not_spliced_between_providers`, and it violated the operator directive: "Do not let a real mismatch disappear merely because its TTL expires." Registry keeps 120 s. Named constant `MARK_FRESHNESS_WINDOW_MS_6739 = 120_000L` retained so future callers reference a symbol not a magic number. BLUECHIP mark path improvement must come from the upstream provider poll cadence or from a paper-only observation-slot route, not from relaxing the execution freshness contract.

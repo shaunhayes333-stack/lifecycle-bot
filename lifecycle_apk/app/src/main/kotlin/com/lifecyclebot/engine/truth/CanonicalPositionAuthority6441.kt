@@ -928,7 +928,7 @@ object CanonicalPositionAuthority6441 {
                         if (e.executedCostSol <= 0.0 || e.filledQty <= BigInteger.ZERO) {
                             positions[e.positionId] = Position(
                                 positionId = e.positionId, mode = "paper", mint = e.mint, symbol = e.symbol,
-                                lane = "REPLAY_6486", runId = e.idempotencyKey, openedAtMs = e.atMs,
+                                lane = com.lifecyclebot.engine.truth.LaneAttributionLedger6427.getEntryLane(e.positionId) ?: "UNRESOLVED_OWNER_6741", runId = "REPLAY_RESTORE_${e.idempotencyKey}", openedAtMs = e.atMs,
                                 entryCostSol = e.executedCostSol, remainingQtyRaw = e.filledQty,
                                 originalQtyRaw = e.filledQty, soldCostBasisSol = 0.0,
                                 realizedPnlSol = 0.0, realizedProceedsSol = 0.0, feesSol = e.entryFeesSol,
@@ -990,7 +990,7 @@ object CanonicalPositionAuthority6441 {
                             if (!migrationAuthorized6630) {
                                 positions[e.positionId] = Position(
                                     positionId = e.positionId, mode = "paper", mint = e.mint, symbol = e.symbol,
-                                    lane = "REPLAY_6486", runId = e.idempotencyKey, openedAtMs = e.atMs,
+                                    lane = com.lifecyclebot.engine.truth.LaneAttributionLedger6427.getEntryLane(e.positionId) ?: "UNRESOLVED_OWNER_6741", runId = "REPLAY_RESTORE_${e.idempotencyKey}", openedAtMs = e.atMs,
                                     entryCostSol = e.executedCostSol, remainingQtyRaw = e.filledQty,
                                     originalQtyRaw = e.filledQty, soldCostBasisSol = 0.0,
                                     realizedPnlSol = 0.0, realizedProceedsSol = 0.0, feesSol = e.entryFeesSol,
@@ -1028,7 +1028,7 @@ object CanonicalPositionAuthority6441 {
                             } catch (_: Throwable) {}
                             positions[e.positionId] = Position(
                                 positionId = e.positionId, mode = "paper", mint = e.mint, symbol = e.symbol,
-                                lane = "REPLAY_6486", runId = e.idempotencyKey, openedAtMs = e.atMs,
+                                lane = com.lifecyclebot.engine.truth.LaneAttributionLedger6427.getEntryLane(e.positionId) ?: "UNRESOLVED_OWNER_6741", runId = "REPLAY_RESTORE_${e.idempotencyKey}", openedAtMs = e.atMs,
                                 entryCostSol = e.executedCostSol, remainingQtyRaw = e.filledQty,
                                 originalQtyRaw = e.filledQty, soldCostBasisSol = 0.0,
                                 realizedPnlSol = 0.0, realizedProceedsSol = 0.0, feesSol = e.entryFeesSol,
@@ -1050,7 +1050,7 @@ object CanonicalPositionAuthority6441 {
                         positions[e.positionId] = if (cur == null || cur.lifecycle == Lifecycle.CLOSED || cur.lifecycle == Lifecycle.QUARANTINED) {
                             Position(
                                 positionId = e.positionId, mode = "paper", mint = e.mint, symbol = e.symbol,
-                                lane = "REPLAY_6486", runId = e.idempotencyKey, openedAtMs = e.atMs,
+                                lane = com.lifecyclebot.engine.truth.LaneAttributionLedger6427.getEntryLane(e.positionId) ?: "UNRESOLVED_OWNER_6741", runId = "REPLAY_RESTORE_${e.idempotencyKey}", openedAtMs = e.atMs,
                                 entryCostSol = e.executedCostSol, remainingQtyRaw = e.filledQty,
                                 originalQtyRaw = e.filledQty, soldCostBasisSol = 0.0,
                                 realizedPnlSol = 0.0, realizedProceedsSol = 0.0,
@@ -1117,7 +1117,7 @@ object CanonicalPositionAuthority6441 {
                     //   basis-only (not a live USD quote).
                     positions[pid] = Position(
                         positionId = pid, mode = "paper", mint = mint, symbol = mint.take(8),
-                        lane = "RECOVERED_CARRY_6492", runId = "REPLAY_CARRY_6492",
+                        lane = com.lifecyclebot.engine.truth.LaneAttributionLedger6427.getEntryLane(pid) ?: "UNRESOLVED_OWNER_6741", runId = "RECOVERED_CARRY_6492",
                         openedAtMs = System.currentTimeMillis(), entryCostSol = carryCost,
                         remainingQtyRaw = qtyRaw, originalQtyRaw = qtyRaw,
                         soldCostBasisSol = 0.0, realizedPnlSol = 0.0, realizedProceedsSol = 0.0,
@@ -1127,19 +1127,20 @@ object CanonicalPositionAuthority6441 {
                         lifecycle = Lifecycle.OPEN,
                         lastMutationMs = System.currentTimeMillis(),
                         quarantineReason = "",
-                        entryPriceUsd = run {
-                            if (carryEntryPrice6519 > 0.0) return@run carryEntryPrice6519
-                            // Derive implied basis price from cost / qtyToken.
-                            val qtyToken6631 = try {
-                                val scale = carryScale6519.coerceIn(0, 18)
-                                qtyRaw.toBigDecimal(scale).toDouble()
-                            } catch (_: Throwable) { 0.0 }
-                            if (carryCost > 0.0 && qtyToken6631 > 0.0) carryCost / qtyToken6631 else 0.0
-                        },
+                        // V5.0.6741 §NO_SOL_PER_TOKEN_USD_FABRICATION — the
+                        // prior fallback `carryCost / qtyToken6631` stored a
+                        // SOL-per-token value in the USD-per-token field.
+                        // Operator directive §2 forbids this substitution.
+                        // When the durable carry has a unit-verified USD
+                        // basis (repairedEntryPrice6519), use it; otherwise
+                        // leave entryPriceUsd = 0.0 (basis unknown) and let
+                        // §3 exposure accounting keep the funded qty visible
+                        // without inventing a valuation.
+                        entryPriceUsd = if (carryEntryPrice6519 > 0.0) carryEntryPrice6519 else 0.0,
                         entryPriceSource = if (carryEntryPrice6519 > 0.0)
                             "DURABLE_CARRY_COST_QTY_REPAIR_6519"
                         else
-                            "DERIVED_CARRY_COST_QTY_6631",
+                            "CARRY_USD_BASIS_UNKNOWN_6741",
                     )
                     try { PositionStateLedger6454.onEntry(pid) } catch (_: Throwable) {}
                     try { PipelineHealthCollector.labelInc("CANONICAL_CARRY_POSITION_RESTORED_6492") } catch (_: Throwable) {}
