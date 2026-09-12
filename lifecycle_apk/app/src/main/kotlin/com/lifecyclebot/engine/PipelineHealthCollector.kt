@@ -2854,6 +2854,27 @@ object PipelineHealthCollector {
         phaseBlock.clear()
         verdictCounts.clear()
         labelCounts.clear()
+        // V5.0.6739 §COUNTER_PARITY_RESET_PAIR — 5.0.6738 runtime dump
+        // showed `Counter parity: FAIL paperOk=356 rows=113`. Root cause
+        // is in this method: `labelCounts.clear()` above wipes
+        // `TRADEJRNL_REC_PAPER` (the row-count denominator), but the
+        // paired paper-OK atomics (execPaperBuyOk / execPaperSellOk /
+        // execPaperPartialOk) survive the reset because the previous
+        // implementation only cleared them from `resetModeCountersForRuntime`.
+        // After an operator-triggered "fresh capture", the atomics keep
+        // their lifetime totals while the row-count restarts from zero,
+        // so parity fails forever until a mode-flip happens. Both sides
+        // of the parity check MUST reset together.
+        execPaperBuyOk.set(0L)
+        execPaperSellOk.set(0L)
+        execPaperPartialOk.set(0L)
+        // Live-side counters are paired with `TRADEJRNL_REC_LIVE` in the
+        // same way — reset them here too so live parity checks (added by
+        // 6647 acceptance windows) survive a "fresh capture".
+        execLiveBuyOk.set(0L); execLiveSellOk.set(0L)
+        execLiveBuyFail.set(0L); execLiveSellFail.set(0L)
+        execLiveAttempt.set(0L); execPaperAttempt.set(0L)
+        execLiveSellPendingFinality.set(0L)
         intakeBySource.clear()
         laneEvalCounts.clear()
         laneEvalShadowReadOnlyCounts.clear()

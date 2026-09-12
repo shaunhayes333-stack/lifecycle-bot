@@ -2195,6 +2195,37 @@ object ExecutableOpenGate {
         }
         if (fdgCan == true && hardNoReasons.isEmpty() && immutableTicket == null &&
             ticketAuthority6564 == null && immutableAuthority6513 == null) {
+            // V5.0.6739 §SEALING_RACE_DEFER — 5.0.6738 dump surfaced
+            // FDG_ALLOW_WITHOUT_EXEC_INTENT = 8 (all PAPER, shadow-only).
+            // Root cause: `fdgCan` at line 1701 can be true from an
+            // existing provisional `state` (`provisionalState6513 =
+            // existingState`) whose updatedAtMs was stamped by the FDG
+            // notify path a few ms before ExecutionDecisionSnapshot6510
+            // seals the immutable authority. When the gate runs inside
+            // that window, both authority slots are legitimately null
+            // and the counter fires an alarming AUTHORITY_INVARIANT_FAILURE.
+            //
+            // Discriminator: if the provisional state is very fresh
+            // (< 500ms since updatedAtMs), we are inside the sealing race
+            // window — soft-defer with a distinct counter so operator
+            // dashboards see the routine deferral separate from a real
+            // authority integrity break. Outside the window, the counter
+            // still fires as before (real invariant leak worth attention).
+            val stateAgeMs = state?.updatedAtMs?.let { System.currentTimeMillis() - it } ?: Long.MAX_VALUE
+            if (stateAgeMs in 0..500L) {
+                try {
+                    PipelineHealthCollector.labelInc("FDG_ALLOW_SEALING_RACE_DEFERRED_6739")
+                    ForensicLogger.lifecycle(
+                        "FDG_ALLOW_SEALING_RACE_DEFERRED_6739",
+                        "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol lane=$canonicalSelectedLane stateAgeMs=$stateAgeMs action=soft_defer_await_snapshot_seal",
+                    )
+                } catch (_: Throwable) {}
+                return blocked(
+                    "EXEC_OPEN_DEFERRED_SEALING_RACE_6739",
+                    "FDG_ALLOW_SEALING_RACE_DEFERRED_6739",
+                    shadow = true,
+                )
+            }
             try {
                 PipelineHealthCollector.labelInc("AUTHORITY_INVARIANT_FAILURE")
                 PipelineHealthCollector.labelInc("EXEC_AUTHORITY_STATE_MISMATCH")
@@ -2203,7 +2234,7 @@ object ExecutableOpenGate {
                 // reason, so smoke acceptance could report a false clean zero.
                 PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT")
                 try { PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT_LANE_6727_${canonicalSelectedLane.uppercase()}") } catch (_: Throwable) {}
-                ForensicLogger.lifecycle("AUTHORITY_INVARIANT_FAILURE", "attemptId=$attemptId mint=${mint.take(10)} candidateVersion=$candidateVersion currentVersion=$currentCandidateVersion requestedLane=$requestedLane selectedLane=$canonicalSelectedLane preFdg=$preFdgVerdict reason=FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519")
+                ForensicLogger.lifecycle("AUTHORITY_INVARIANT_FAILURE", "attemptId=$attemptId mint=${mint.take(10)} candidateVersion=$candidateVersion currentVersion=$currentCandidateVersion requestedLane=$requestedLane selectedLane=$canonicalSelectedLane preFdg=$preFdgVerdict reason=FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519 stateAgeMs=$stateAgeMs")
             } catch (_: Throwable) {}
             return blocked("AUTHORITY_INVARIANT_FAILURE", "FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519", shadow = mode == "PAPER")
         }

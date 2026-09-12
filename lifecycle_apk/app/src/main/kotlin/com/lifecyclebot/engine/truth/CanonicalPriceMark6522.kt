@@ -29,11 +29,30 @@ object CanonicalPriceMarkRegistry6522 {
         val priceUsd: Double, val liquidityUsd: Double, val timestampMs: Long,
     )
 
+    /**
+     * Freshness window callers should treat as authoritative when they
+     * stamp evidence timestamps. Registry-side rejection uses the same
+     * value so upstream ("evidence is fresh, admit it") and registry
+     * ("this timestamp is admissible") never disagree.
+     *
+     * V5.0.6739 §MARK_FRESHNESS_ALIGN — 5.0.6738 dump showed BLUECHIP
+     * FDG allow=664 → mark=14 (2.1% conversion). Root cause: Executor's
+     * upstream freshness gates used `WINDOW_MS_6616 = 300_000L`, but the
+     * registry's `resolveBestSourceEvidence6734` and `getFresh6734`
+     * enforced 120_000L. Evidence 121-300 seconds old passed the upstream
+     * gate and was submitted with a real timestamp, only for the registry
+     * to reject it silently. Establishing tokens (BLUECHIP watchlist,
+     * CoinGecko-established) poll every 60-180s and routinely land in
+     * that window. Aligning to the same value closes the gap without
+     * relaxing either side beyond what one caller already used.
+     */
+    const val MARK_FRESHNESS_WINDOW_MS_6739 = 300_000L
+
     fun getFresh6734(mint: String, purpose: CanonicalMarkPurpose6570,
                      nowMs: Long = System.currentTimeMillis()): CanonicalPriceMark6522? =
         marks[mint to purpose]?.takeIf {
             it.baseMint == mint && it.priceUsd.value.toDouble().isFinite() &&
-                it.priceUsd.value.signum() > 0 && nowMs - it.timestampMs in -5_000L..120_000L
+                it.priceUsd.value.signum() > 0 && nowMs - it.timestampMs in -5_000L..MARK_FRESHNESS_WINDOW_MS_6739
         }
 
     /** Try complete provider tuples newest-first. Rejection may try another real provider,
@@ -42,7 +61,7 @@ object CanonicalPriceMarkRegistry6522 {
                                      nowMs: Long = System.currentTimeMillis()): PromotionResult6613 {
         var last = PromotionResult6613(null, "NO_FRESH_SOURCE_EVIDENCE_6734", identity = mint)
         for (e in evidence.sortedByDescending { it.timestampMs }) {
-            if (nowMs - e.timestampMs !in -5_000L..120_000L || e.source.isBlank()) continue
+            if (nowMs - e.timestampMs !in -5_000L..MARK_FRESHNESS_WINDOW_MS_6739 || e.source.isBlank()) continue
             last = resolveExecutableFromSourceEvidence6616(
                 mint, e.baseMint, e.pair, e.quoteMint, e.source, e.priceUsd,
                 e.liquidityUsd, e.timestampMs, nowMs,
