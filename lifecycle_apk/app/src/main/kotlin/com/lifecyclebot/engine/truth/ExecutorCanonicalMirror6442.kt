@@ -251,6 +251,15 @@ object ExecutorCanonicalMirror6442 {
             if (result == CanonicalPositionAuthority6441.MutateResult.APPLIED) {
                 try { IdempotencyKeyStore6437.markTerminal(buyIdempotencyKey(positionId), "BUY_CONFIRMED") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("CANONICAL_BUY_CONFIRMED_OPEN_6448") } catch (_: Throwable) {}
+                // V5.0.6742 §PILLAR_7_WIRE — the canonical BUY commit
+                // is the real production entry checkpoint for round-trip
+                // verification. Not a manual test helper.
+                try {
+                    CanonicalRoundTripReconciler6738.record(
+                        positionId = positionId, stage = CanonicalRoundTripReconciler6738.Stage.BUY_COMMITTED,
+                        lane = lane, mode = if (paperMode) "PAPER" else "LIVE",
+                    )
+                } catch (_: Throwable) {}
             }
             result == CanonicalPositionAuthority6441.MutateResult.APPLIED
         } catch (t: Throwable) {
@@ -337,6 +346,17 @@ object ExecutorCanonicalMirror6442 {
                     // actually populate. Idempotency reservation above guards
                     // against duplicate stamping.
                     try { ExitTelemetryStamper6732.noteExitCompleted(positionId, reason) } catch (_: Throwable) {}
+                    // V5.0.6742 §PILLAR_7_WIRE — canonical SELL_CONFIRMED
+                    // is the real production terminal checkpoint. Partial
+                    // sells route through the else branch below with the
+                    // dedicated PARTIAL_SELL stage marker (they must NOT
+                    // count as a completed round trip per directive).
+                    try {
+                        CanonicalRoundTripReconciler6738.record(
+                            positionId = positionId, stage = CanonicalRoundTripReconciler6738.Stage.SELL_COMMITTED,
+                            lane = lane.ifBlank { posAfter.lane }, mode = if (paperMode) "PAPER" else "LIVE",
+                        )
+                    } catch (_: Throwable) {}
                     // V5.0.6651 — reward purity is delivered only after the
                     // exact canonical economic event reaches COMMITTED. The
                     // mirror runs before journal durability and must not race it.
@@ -347,6 +367,16 @@ object ExecutorCanonicalMirror6442 {
                 } else {
                     try { PositionStateLedger6427.markPartial(canonicalMint(mint)) } catch (_: Throwable) {}
                     try { PipelineHealthCollector.labelInc("CANONICAL_PARTIAL_SELL_CONFIRMED_6448") } catch (_: Throwable) {}
+                    // V5.0.6742 §PILLAR_7_WIRE — partial sells stamp
+                    // EXIT_DECIDED (exit-decision recorded) but must NOT
+                    // stamp SELL_COMMITTED — directive: "Partial sells
+                    // must not count as completed round trips."
+                    try {
+                        CanonicalRoundTripReconciler6738.record(
+                            positionId = positionId, stage = CanonicalRoundTripReconciler6738.Stage.EXIT_DECIDED,
+                            lane = lane.ifBlank { posAfter.lane }, mode = if (paperMode) "PAPER" else "LIVE",
+                        )
+                    } catch (_: Throwable) {}
                 }
             }
             try { PipelineHealthCollector.labelInc("EXECUTOR_MIRROR_SELL_$result".take(60)) } catch (_: Throwable) {}

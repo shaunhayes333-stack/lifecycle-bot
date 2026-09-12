@@ -60,6 +60,18 @@ object CanonicalPaperReplay6464 {
         val invalidRowsQuarantined: Int,
         val orphanOpenCostSol: Double = 0.0,
         val orphanLotCount: Int = 0,
+        // V5.0.6742 §DIRECTIVE_4 — economic-parity revision consistency.
+        // The event-stream revision the replay observed (from
+        // EconomicEventSchema6464.version()) and the journal-economic
+        // revision (JournalEconomicAuthority6616.revision()) captured
+        // before AND after the ledger read. If the pre/post ledger
+        // revisions differ a mutation raced the compare; the parity is
+        // stamped `revisionRaceObserved=true` and the divergence guard
+        // MUST fail-open on it.
+        val eventSchemaRevision: Long = 0L,
+        val journalRevisionAtStart: Long = 0L,
+        val journalRevisionAtEnd: Long = 0L,
+        val revisionRaceObserved: Boolean = false,
     )
 
     private val replays = AtomicLong(0L)
@@ -220,6 +232,12 @@ object CanonicalPaperReplay6464 {
     }
 
     fun compareToLedger(startingCashSol: Double, toleranceSol: Double = 0.01): Parity {
+        // V5.0.6742 §DIRECTIVE_4 — capture the journal-economic revision
+        // BEFORE the ledger read starts. The ledger and event-schema both
+        // expose monotonic revisions; the compare is only economically
+        // consistent when the revision the replay observed matches the
+        // revision at which the ledger totals were sampled.
+        val journalRevisionAtStart = try { JournalEconomicAuthority6616.revision() } catch (_: Throwable) { 0L }
         var snap = replay(startingCashSol)
         val ledgerCash = try { PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { Double.NaN }
         val ledgerRealized = try { PaperCapitalAuthority6577.realizedPnlSol() } catch (_: Throwable) { Double.NaN }
@@ -283,6 +301,13 @@ object CanonicalPaperReplay6464 {
             }
         }
         val qtyMismatches = snap.perMintRemainingQty.values.count { it < BigInteger.ZERO }
+        // V5.0.6742 §DIRECTIVE_4 — sample journal revision AGAIN after
+        // the ledger read + any carry reconcile. If it drifted, a real
+        // economic mutation raced the compare and the parity we just
+        // computed is a mixed-revision read. The guard treats a race as
+        // fail-open (equivalent to stale parity).
+        val journalRevisionAtEnd = try { JournalEconomicAuthority6616.revision() } catch (_: Throwable) { 0L }
+        val revisionRaceObserved = journalRevisionAtEnd != journalRevisionAtStart
         val parity = Parity(
             cashDelta = cashDelta, realizedDelta = realizedDelta, openCostDelta = openDelta,
             qtyMismatchCount = qtyMismatches,
@@ -290,9 +315,22 @@ object CanonicalPaperReplay6464 {
             invalidRowsQuarantined = snap.invalidRowsQuarantined,
             orphanOpenCostSol = snap.orphanOpenCostSol,
             orphanLotCount = snap.orphanLotCount,
+            eventSchemaRevision = snap.eventVersion,
+            journalRevisionAtStart = journalRevisionAtStart,
+            journalRevisionAtEnd = journalRevisionAtEnd,
+            revisionRaceObserved = revisionRaceObserved,
         )
         lastParity.set(parity)
         lastParityAtMs.set(System.currentTimeMillis())
+        if (revisionRaceObserved) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_REPLAY_PARITY_REVISION_RACE_6742")
+                ForensicLogger.lifecycle(
+                    "PAPER_REPLAY_PARITY_REVISION_RACE_6742",
+                    "eventRev=${snap.eventVersion} journalRevStart=$journalRevisionAtStart journalRevEnd=$journalRevisionAtEnd action=stamp_race_guard_fail_open",
+                )
+            } catch (_: Throwable) {}
+        }
         val diverged = kotlin.math.abs(cashDelta) > toleranceSol ||
                        kotlin.math.abs(realizedDelta) > toleranceSol ||
                        kotlin.math.abs(openDelta) > toleranceSol ||

@@ -468,6 +468,21 @@ object CausalFeedbackAuthority6715 {
             learnedSeen.add(positionId)
             positionScopes.remove(positionId)
             emit("CAUSAL_OWNER_LEARN_ACK_6715", "positionId=${positionId.take(24)} scopes=${ks.joinToString(",")}")
+            // V5.0.6742 §PILLAR_7_WIRE — the owner-bound policy mutation
+            // just committed is the real production learning checkpoint
+            // for round-trip verification. `markLearned` is NEVER called
+            // outside of a real terminal-consumer path, so this cannot
+            // fabricate learning stages for shadow replays or partial
+            // sells. Guarded try/catch keeps the reconciler purely
+            // observational — never blocking a successful learning ack.
+            try {
+                CanonicalRoundTripReconciler6738.record(
+                    positionId = positionId,
+                    stage = CanonicalRoundTripReconciler6738.Stage.LEARNING_DELIVERED,
+                    lane = "",
+                    mode = "",
+                )
+            } catch (_: Throwable) {}
             return true
         }
     }

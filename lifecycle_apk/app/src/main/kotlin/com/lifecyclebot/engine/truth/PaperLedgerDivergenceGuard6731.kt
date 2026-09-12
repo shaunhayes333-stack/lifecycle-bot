@@ -51,12 +51,41 @@ object PaperLedgerDivergenceGuard6731 {
         val realizedDelta: Double,
         val positionCountGap: Int,
         val divergenceTag: String,
+        // V5.0.6742 §DIRECTIVE_4 — revision consistency stamp. When
+        // `revisionRaceObserved=true` the parity we're reading spanned a
+        // real economic mutation; the guard treats it as fail-open and
+        // callers can attribute a soft-allow to the specific revision
+        // race (never a fabricated hard-stop from a mixed read).
+        val eventSchemaRevision: Long = 0L,
+        val journalRevisionAtStart: Long = 0L,
+        val journalRevisionAtEnd: Long = 0L,
+        val revisionRaceObserved: Boolean = false,
     )
 
     fun evaluate(): Verdict {
         val parity = try { CanonicalPaperReplay6464.lastParity() } catch (_: Throwable) { null }
         if (parity == null) {
             return Verdict(true, "OK_NO_PARITY", 0.0, 0.0, 0.0, 0, "NO_PARITY")
+        }
+        // V5.0.6742 §DIRECTIVE_4 — revision race fail-open. If the
+        // parity we're about to consult spanned a real economic mutation
+        // (journal revision changed between ledger reads), the deltas
+        // are mixed-revision reads and CANNOT authoritatively hard-stop
+        // admission. Emit the observation and fail-open. The next
+        // reconcile pass will produce a same-revision parity and, if
+        // real drift remains, that pass will hard-stop.
+        if (parity.revisionRaceObserved) {
+            try { PipelineHealthCollector.labelInc("PAPER_LEDGER_DIVERGENCE_REVISION_RACE_FAIL_OPEN_6742") } catch (_: Throwable) {}
+            return Verdict(
+                allow = true, reason = "OK_REVISION_RACE_6742",
+                cashDelta = parity.cashDelta, openCostDelta = parity.openCostDelta,
+                realizedDelta = parity.realizedDelta, positionCountGap = parity.orphanLotCount,
+                divergenceTag = "REVISION_RACE_${parity.journalRevisionAtStart}_${parity.journalRevisionAtEnd}",
+                eventSchemaRevision = parity.eventSchemaRevision,
+                journalRevisionAtStart = parity.journalRevisionAtStart,
+                journalRevisionAtEnd = parity.journalRevisionAtEnd,
+                revisionRaceObserved = true,
+            )
         }
         // V5.0.6732 §PARITY_STALENESS_GUARD — if the parity snapshot is
         // older than PARITY_MAX_AGE_MS, do NOT hard-stop admission. The
@@ -67,9 +96,25 @@ object PaperLedgerDivergenceGuard6731 {
         // stale reads; the maintenance worker will refresh shortly and
         // real drift will re-engage the guard once evidence is current.
         val parityAge = try { CanonicalPaperReplay6464.lastParityAgeMs() } catch (_: Throwable) { 0L }
+        // V5.0.6742 §DIRECTIVE_4 — stamp all verdicts with the compared
+        // economic revisions so downstream can attribute a stop/allow
+        // to a specific ledger revision pair. Helper closure to keep
+        // the existing return sites compact.
+        fun stamped(
+            allow: Boolean, reason: String, cashDelta: Double, openCostDelta: Double,
+            realizedDelta: Double, positionCountGap: Int, tag: String,
+        ) = Verdict(
+            allow = allow, reason = reason, cashDelta = cashDelta,
+            openCostDelta = openCostDelta, realizedDelta = realizedDelta,
+            positionCountGap = positionCountGap, divergenceTag = tag,
+            eventSchemaRevision = parity.eventSchemaRevision,
+            journalRevisionAtStart = parity.journalRevisionAtStart,
+            journalRevisionAtEnd = parity.journalRevisionAtEnd,
+            revisionRaceObserved = false,
+        )
         if (parityAge > PARITY_MAX_AGE_MS) {
             try { PipelineHealthCollector.labelInc("PAPER_LEDGER_DIVERGENCE_STALE_PARITY_FAIL_OPEN_6732") } catch (_: Throwable) {}
-            return Verdict(true, "OK_STALE_PARITY_6732", parity.cashDelta, parity.openCostDelta, parity.realizedDelta, parity.orphanLotCount, "STALE_${parityAge}ms")
+            return stamped(true, "OK_STALE_PARITY_6732", parity.cashDelta, parity.openCostDelta, parity.realizedDelta, parity.orphanLotCount, "STALE_${parityAge}ms")
         }
         val cashΔ = kotlin.math.abs(parity.cashDelta)
         val openΔ = kotlin.math.abs(parity.openCostDelta)
@@ -81,7 +126,7 @@ object PaperLedgerDivergenceGuard6731 {
                 PipelineHealthCollector.labelInc("PAPER_LEDGER_DIVERGENCE_HARD_STOP_CASH_6731")
                 PipelineHealthCollector.labelInc("PAPER_LEDGER_DIVERGENCE_HARD_STOP_CASH_6731_${bucketFor(cashΔ)}")
             } catch (_: Throwable) {}
-            return Verdict(false, "PAPER_LEDGER_DIVERGENCE_CASH_6731",
+            return stamped(false, "PAPER_LEDGER_DIVERGENCE_CASH_6731",
                 parity.cashDelta, parity.openCostDelta, parity.realizedDelta, posGap, tag)
         }
         if (openΔ >= OPEN_COST_DELTA_HARD_STOP_SOL) {
@@ -89,15 +134,15 @@ object PaperLedgerDivergenceGuard6731 {
                 PipelineHealthCollector.labelInc("PAPER_LEDGER_DIVERGENCE_HARD_STOP_OPEN_COST_6731")
                 PipelineHealthCollector.labelInc("PAPER_LEDGER_DIVERGENCE_HARD_STOP_OPEN_COST_6731_${bucketFor(openΔ)}")
             } catch (_: Throwable) {}
-            return Verdict(false, "PAPER_LEDGER_DIVERGENCE_OPEN_COST_6731",
+            return stamped(false, "PAPER_LEDGER_DIVERGENCE_OPEN_COST_6731",
                 parity.cashDelta, parity.openCostDelta, parity.realizedDelta, posGap, tag)
         }
         if (posGap >= POSITION_COUNT_GAP_HARD_STOP) {
             try { PipelineHealthCollector.labelInc("PAPER_LEDGER_DIVERGENCE_HARD_STOP_POS_GAP_6731") } catch (_: Throwable) {}
-            return Verdict(false, "PAPER_LEDGER_DIVERGENCE_POS_GAP_6731",
+            return stamped(false, "PAPER_LEDGER_DIVERGENCE_POS_GAP_6731",
                 parity.cashDelta, parity.openCostDelta, parity.realizedDelta, posGap, tag)
         }
-        return Verdict(true, "OK", parity.cashDelta, parity.openCostDelta, parity.realizedDelta, posGap, tag)
+        return stamped(true, "OK", parity.cashDelta, parity.openCostDelta, parity.realizedDelta, posGap, tag)
     }
 
     private fun bucketFor(delta: Double): String = when {
