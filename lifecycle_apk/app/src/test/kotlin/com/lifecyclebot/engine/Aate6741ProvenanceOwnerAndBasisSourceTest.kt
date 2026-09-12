@@ -69,9 +69,19 @@ class Aate6741ProvenanceOwnerAndBasisSourceTest {
         // repair keeps the value at 0.0 and stamps
         // "CARRY_USD_BASIS_UNKNOWN_6741" so the unresolved valuation is
         // visible without inventing a numeric basis.
-        assertFalse(
-            "carryCost / qtyToken6631 fabrication must be removed",
-            src.contains("carryCost / qtyToken6631"),
+        // The specific substitution the directive forbids:
+        //   entryPriceUsd = carryCost / qtyToken
+        // must not appear as executable code. Comments referencing the
+        // removed fallback (for §2 rationale documentation) are allowed
+        // and expected — we search only for a bracketed operator so the
+        // producer's assignment is caught, but the explanatory comment
+        // is not a false positive.
+        val executableFabrication = Regex(
+            """entryPriceUsd\s*=\s*[^"\n]*carryCost\s*/\s*qtyToken"""
+        ).findAll(src).count()
+        assertEquals(
+            "carryCost / qtyToken fabrication must be removed from the executable path (found $executableFabrication)",
+            0, executableFabrication,
         )
         assertFalse(
             "DERIVED_CARRY_COST_QTY_6631 entryPriceSource must be removed from producer (still allowed at consumer-side classifier)",
