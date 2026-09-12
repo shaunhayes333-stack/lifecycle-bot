@@ -6,23 +6,70 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: repair-6737-source-application
+  cancel-in-progress: false
 
 jobs:
-  source:
+  apply-source:
+    if: github.ref == 'refs/heads/repair/6737-exit-accounting'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Capture exact checked-out source
-        run: |
-          git rev-parse HEAD > SOURCE_COMMIT.txt
-          tar --exclude=.git --exclude=SOURCE_COMMIT.txt -czf "$RUNNER_TEMP/aate-repair-source.tar.gz" .
-          cp SOURCE_COMMIT.txt "$RUNNER_TEMP/SOURCE_COMMIT.txt"
-      - uses: actions/upload-artifact@v4
         with:
-          name: aate-repair-source
+          fetch-depth: 0
+      - name: Verify source ancestry and exact repair payload
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 06524e08fde6a77526f77de0cd8fed2add16283e HEAD
+          python3 - <<'PY'
+          import base64, hashlib, lzma, os, pathlib
+          root = pathlib.Path('ci/repair6738')
+          encoded = ''.join((root / f'source.patch.xz.b64.{i}').read_text().strip() for i in (1, 2, 3))
+          compressed = base64.b64decode(encoded, validate=True)
+          assert hashlib.sha256(compressed).hexdigest() == 'ac723639222fb18e37b91eb58d8609e86f80f42bdda7dbf5dec61c96d9be0673', 'compressed payload checksum mismatch'
+          patch = lzma.decompress(compressed)
+          assert hashlib.sha256(patch).hexdigest() == '6ff44ae54c912322406a486bd6a0f286ac68f5598d7844e9a0137dc8d823c348', 'source patch checksum mismatch'
+          assert len(patch) == 69717
+          (pathlib.Path(os.environ['RUNNER_TEMP']) / 'source-repair.patch').write_bytes(patch)
+          print('Verified exact source repair: 69717 bytes')
+          PY
+          git apply --check "$RUNNER_TEMP/source-repair.patch"
+          git apply "$RUNNER_TEMP/source-repair.patch"
+          git diff --check
+      - name: Run existing mandatory source checks
+        working-directory: lifecycle_apk
+        run: |
+          set -euo pipefail
+          python3 ci/golden_tape_literal_scan.py
+          python3 ci/authority_contradiction_scan.py
+          python3 ci/patch_rot_scan.py
+      - name: Run runtime liveness regression tests
+        run: python3 -m unittest discover -s ci -p 'test_runtime_liveness.py' -v
+      - name: Commit actual application source without force-pushing
+        run: |
+          set -euo pipefail
+          git fetch origin repair/6737-exit-accounting
+          test "$(git rev-parse origin/repair/6737-exit-accounting)" = "$GITHUB_SHA"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add AATE_VERSION lifecycle_apk/AATE_VERSION lifecycle_apk/app/src
+          test "$(git diff --cached --name-only | wc -l)" -eq 14
+          git rm ci/repair6738/source.patch.xz.b64.1 ci/repair6738/source.patch.xz.b64.2 ci/repair6738/source.patch.xz.b64.3
+          git commit -m 'fix: restore evidenced paper exit recovery and canonical settlement (5.0.6738)' -m 'Commit the actual Kotlin source and regression tests. Preserve retryable positions, re-arm nonterminal exits, require identity-bound quote and USD FX evidence, and remove capped-return settlement and replay amount exclusions. Temporary transport payloads are removed. Full Android test and build validation remains required.'
+          git push origin HEAD:repair/6737-exit-accounting
+          git rev-parse HEAD | tee "$RUNNER_TEMP/SOURCE_COMMIT.txt"
+          git show --stat --oneline HEAD | tee "$RUNNER_TEMP/SOURCE_CHANGE_SUMMARY.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: repair-6738-source-commit
           path: |
-            ${{ runner.temp }}/aate-repair-source.tar.gz
             ${{ runner.temp }}/SOURCE_COMMIT.txt
-          retention-days: 3
+            ${{ runner.temp }}/SOURCE_CHANGE_SUMMARY.txt
+          if-no-files-found: warn
+          retention-days: 7
