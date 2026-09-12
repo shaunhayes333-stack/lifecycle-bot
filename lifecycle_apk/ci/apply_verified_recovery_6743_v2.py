@@ -48,8 +48,17 @@ if n != 1:
     raise SystemExit(f"6743 v2 expected one economicNotionalCheck6537 provenance bypass, got {n}")
 qia_path.write_text(qia2)
 
-# Complete source-level contract audit after BOTH invariant bypasses are gone.
+# Compiler-gate repair from the first v2 run: the 6741 -> 6743 unresolved-basis
+# variable was renamed at declaration but one later predicate still referenced
+# the old symbol. Require exactly one stale symbol so this cannot hide drift.
 CPA = ROOT / "lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt"
+cpa_text = CPA.read_text()
+stale_count = cpa_text.count("unresolvedBasis6741")
+if stale_count != 1:
+    raise SystemExit(f"6743 v2 expected exactly one stale unresolvedBasis6741 reference, got {stale_count}")
+CPA.write_text(cpa_text.replace("unresolvedBasis6741", "unresolvedBasis6743", 1))
+
+# Complete source-level contract audit after BOTH invariant bypasses are gone.
 CPR = ROOT / "lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperReplay6464.kt"
 RTR = ROOT / "lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalRoundTripReconciler6738.kt"
 PLG = ROOT / "lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/PaperLedgerDivergenceGuard6731.kt"
@@ -57,6 +66,8 @@ PLG = ROOT / "lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/Pa
 cpa = CPA.read_text(); qia = qia_path.read_text(); cpr = CPR.read_text(); rt = RTR.read_text(); guard = PLG.read_text()
 if "entryCostSol / qtyToken6631" in cpa or "OPEN_POSITION_DERIVED_FROM_COST_QTY_6631" in cpa:
     raise SystemExit("6743 v2 audit: SOL/token -> USD/token producer remains")
+if "unresolvedBasis6741" in cpa:
+    raise SystemExit("6743 v2 audit: stale unresolved-basis symbol remains")
 if "carry_or_derived_basis_skipped" in qia or "OPEN_POSITION_DERIVED_FROM_COST_QTY_6631" in qia:
     raise SystemExit("6743 v2 audit: provenance-name economic invariant bypass remains")
 compare = cpr.split("fun compareToLedger(", 1)[1].split("fun lastSnapshot()", 1)[0]
