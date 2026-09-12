@@ -69,100 +69,111 @@ object PaperPositionCloseAuthority {
         return states[key(mode, mint)]?.state
     }
 
-    fun preSellGuard(mode: String = "PAPER", mint: String, symbol: String = "", reason: String = ""): Guard {
+    fun preSellGuard(mode: String = "PAPER", mint: String, symbol: String = "", reason: String = "", nowMs: Long = System.currentTimeMillis()): Guard {
         if (mint.isBlank()) return Guard(false, null, "blank")
         val k = key(mode, mint)
         syncLedger(mode, mint, symbol)
-        val now = System.currentTimeMillis()
-        val st = states[k]
-        if (st != null) {
-            // V5.0.6702 — ONE-SHOT EMERGENCY EXIT LIVENESS.
-            // BotService's stale/zombie emergency path deliberately latches after
-            // one request. Before this repair, that single request could hit an old
-            // CLOSE_REQUESTED/CLOSING row, return ALREADY_CLOSED, and never get a
-            // second chance even though the position remained economically OPEN.
-            //
-            // Give an in-flight close two seconds to finish. If it is still only a
-            // transient state after that grace window, reset the transient marker
-            // and allow this emergency attempt through. This is PAPER only at this
-            // authority; paperSell's mint lock and canonical reducer still prevent
-            // duplicate economic closes. CLOSED is never bypassed.
-            val transientAge6702 = now - st.updatedAtMs
-            if (isEmergencyRetryReason6702(reason) &&
-                (st.state == State.CLOSE_REQUESTED || st.state == State.CLOSING) &&
-                transientAge6702 >= EMERGENCY_TRANSIENT_RETRY_GRACE_MS_6702
-            ) {
-                val prior = st.state
-                val priorCloseId = st.closeId
-                st.state = State.OPEN
-                st.reason = ""
-                st.closeId = ""
-                st.stuckRetryCount = 0
-                st.updatedAtMs = now
-                try {
-                    PipelineHealthCollector.labelInc("PAPER_EMERGENCY_CLOSE_STALE_STATE_BYPASSED_6702")
-                    ForensicLogger.lifecycle(
-                        "PAPER_EMERGENCY_CLOSE_STALE_STATE_BYPASSED_6702",
-                        "mint=${mint.take(10)} symbol=$symbol prior=$prior ageMs=$transientAge6702 priorCloseId=$priorCloseId reason=$reason action=allow_emergency_retry",
-                    )
-                } catch (_: Throwable) {}
-                return Guard(false, State.OPEN, "emergency_stale_state_bypass_6702")
-            }
-
-            if (st.state == State.FAILED || st.state == State.REJECTED) {
-                if (now - st.updatedAtMs >= FAILED_RETRY_TTL_MS) {
+        val now = nowMs
+        // Decision and stale-state recovery share the per-key lock used by all writers.
+        // A concurrent canonical CLOSED update must never be overwritten by a retry reset.
+        fun evaluate(st: CloseState?): Guard {
+            if (st != null) {
+                // V5.0.6702 — ONE-SHOT EMERGENCY EXIT LIVENESS.
+                // BotService's stale/zombie emergency path deliberately latches after
+                // one request. Before this repair, that single request could hit an old
+                // CLOSE_REQUESTED/CLOSING row, return ALREADY_CLOSED, and never get a
+                // second chance even though the position remained economically OPEN.
+                //
+                // Give an in-flight close two seconds to finish. If it is still only a
+                // transient state after that grace window, reset the transient marker
+                // and allow this emergency attempt through. This is PAPER only at this
+                // authority; paperSell's mint lock and canonical reducer still prevent
+                // duplicate economic closes. CLOSED is never bypassed.
+                val transientAge6702 = now - st.updatedAtMs
+                if (isEmergencyRetryReason6702(reason) &&
+                    (st.state == State.CLOSE_REQUESTED || st.state == State.CLOSING) &&
+                    transientAge6702 >= EMERGENCY_TRANSIENT_RETRY_GRACE_MS_6702
+                ) {
+                    val prior = st.state
+                    val priorCloseId = st.closeId
+                    st.state = State.OPEN
+                    st.reason = ""
+                    st.closeId = ""
+                    st.stuckRetryCount = 0
+                    st.updatedAtMs = now
                     try {
+                        PipelineHealthCollector.labelInc("PAPER_EMERGENCY_CLOSE_STALE_STATE_BYPASSED_6702")
+                        ForensicLogger.lifecycle(
+                            "PAPER_EMERGENCY_CLOSE_STALE_STATE_BYPASSED_6702",
+                            "mint=${mint.take(10)} symbol=$symbol prior=$prior ageMs=$transientAge6702 priorCloseId=$priorCloseId reason=$reason action=allow_emergency_retry",
+                        )
+                    } catch (_: Throwable) {}
+                    return Guard(false, State.OPEN, "emergency_stale_state_bypass_6702")
+                }
+
+                if (st.state == State.FAILED || st.state == State.REJECTED) {
+                    if (now - st.updatedAtMs >= FAILED_RETRY_TTL_MS) {
+                        try {
+                            PipelineHealthCollector.labelInc("PAPER_CLOSE_RETRY_ATTEMPTED_6547")
+                            ForensicLogger.lifecycle(
+                                "PAPER_CLOSE_RETRY_ATTEMPTED_6547",
+                                "reason=$reason stage=preSellGuard.failedTtl mint=${mint.take(10)} " +
+                                    "prior=${st.state} ageMs=${now - st.updatedAtMs} closeId=${st.closeId} paper=true",
+                            )
+                        } catch (_: Throwable) {}
+                        return Guard(false, st.state, "retryable_after_failed", st.closeId)
+                    }
+                    // A read must not restart the deadline or turn a transient failure into CLOSED.
+                    return Guard(true, st.state, "retry_backoff", st.closeId)
+                }
+
+                if ((st.state == State.CLOSE_REQUESTED || st.state == State.CLOSING) &&
+                    now - st.updatedAtMs >= STUCK_CLOSE_TTL_MS
+                ) {
+                    st.stuckRetryCount += 1
+                    if (st.stuckRetryCount >= STUCK_RETRY_HARD_CAP) {
+                        try {
+                            ForensicLogger.lifecycle(
+                                "PAPER_CLOSE_FORCE_RESET_6360",
+                                "mint=${mint.take(10)} symbol=$symbol prior=${st.state} retries=${st.stuckRetryCount} ageMs=${now - st.updatedAtMs} reason=$reason action=reset_to_open_not_terminal_v6360",
+                            )
+                            PipelineHealthCollector.labelInc("PAPER_CLOSE_FORCE_RESET_6360")
+                        } catch (_: Throwable) {}
+                        st.state = State.OPEN
+                        st.stuckRetryCount = 0
+                        st.reason = ""
+                        st.closeId = ""
+                        st.updatedAtMs = now
+                        return Guard(false, State.OPEN, "force_reset_open_6360")
+                    }
+                    try {
+                        ForensicLogger.lifecycle(
+                            "PAPER_CLOSE_STUCK_TTL_RETRY_6071",
+                            "mint=${mint.take(10)} symbol=$symbol prior=${st.state} ageMs=${now - st.updatedAtMs} retryCount=${st.stuckRetryCount} reason=$reason action=allow_retry"
+                        )
                         PipelineHealthCollector.labelInc("PAPER_CLOSE_RETRY_ATTEMPTED_6547")
                         ForensicLogger.lifecycle(
                             "PAPER_CLOSE_RETRY_ATTEMPTED_6547",
-                            "reason=$reason stage=preSellGuard.failedTtl mint=${mint.take(10)} " +
-                                "prior=${st.state} ageMs=${now - st.updatedAtMs} closeId=${st.closeId} paper=true",
+                            "reason=$reason stage=preSellGuard.stuckTtl mint=${mint.take(10)} " +
+                                "prior=${st.state} ageMs=${now - st.updatedAtMs} closeId=${st.closeId} " +
+                                "retryCount=${st.stuckRetryCount} paper=true",
                         )
                     } catch (_: Throwable) {}
-                    return Guard(false, st.state, "retryable_after_failed", st.closeId)
+                    return Guard(false, st.state, "retryable_after_stuck_${st.state.name.lowercase()}", st.closeId)
+                }
+                if (st.state == State.CLOSE_REQUESTED || st.state == State.CLOSING || st.state == State.CLOSED) {
+                    maybeLogAlreadyPending(st, reason, now)
+                    return Guard(true, st.state, st.state.name, st.closeId)
                 }
             }
-
-            if ((st.state == State.CLOSE_REQUESTED || st.state == State.CLOSING) &&
-                now - st.updatedAtMs >= STUCK_CLOSE_TTL_MS
-            ) {
-                st.stuckRetryCount += 1
-                if (st.stuckRetryCount >= STUCK_RETRY_HARD_CAP) {
-                    try {
-                        ForensicLogger.lifecycle(
-                            "PAPER_CLOSE_FORCE_RESET_6360",
-                            "mint=${mint.take(10)} symbol=$symbol prior=${st.state} retries=${st.stuckRetryCount} ageMs=${now - st.updatedAtMs} reason=$reason action=reset_to_open_not_terminal_v6360",
-                        )
-                        PipelineHealthCollector.labelInc("PAPER_CLOSE_FORCE_RESET_6360")
-                    } catch (_: Throwable) {}
-                    st.state = State.OPEN
-                    st.stuckRetryCount = 0
-                    st.reason = ""
-                    st.closeId = ""
-                    st.updatedAtMs = now
-                    return Guard(false, State.OPEN, "force_reset_open_6360")
-                }
-                try {
-                    ForensicLogger.lifecycle(
-                        "PAPER_CLOSE_STUCK_TTL_RETRY_6071",
-                        "mint=${mint.take(10)} symbol=$symbol prior=${st.state} ageMs=${now - st.updatedAtMs} retryCount=${st.stuckRetryCount} reason=$reason action=allow_retry"
-                    )
-                    PipelineHealthCollector.labelInc("PAPER_CLOSE_RETRY_ATTEMPTED_6547")
-                    ForensicLogger.lifecycle(
-                        "PAPER_CLOSE_RETRY_ATTEMPTED_6547",
-                        "reason=$reason stage=preSellGuard.stuckTtl mint=${mint.take(10)} " +
-                            "prior=${st.state} ageMs=${now - st.updatedAtMs} closeId=${st.closeId} " +
-                            "retryCount=${st.stuckRetryCount} paper=true",
-                    )
-                } catch (_: Throwable) {}
-                return Guard(false, st.state, "retryable_after_stuck_${st.state.name.lowercase()}", st.closeId)
-            }
-            if (st.state == State.CLOSE_REQUESTED || st.state == State.CLOSING || st.state == State.CLOSED) {
-                maybeLogAlreadyPending(st, reason, now)
-                return Guard(true, st.state, st.state.name, st.closeId)
-            }
+            return Guard(false, st?.state ?: State.OPEN, "OPEN")
         }
-        return Guard(false, st?.state ?: State.OPEN, "OPEN")
+        var result = Guard(false, State.OPEN, "OPEN")
+        states.compute(k) { _, st ->
+            result = evaluate(st)
+            st
+        }
+        return result
     }
 
     fun markCloseRequested(mode: String = "PAPER", mint: String, symbol: String = "", reason: String = ""): String {
@@ -284,12 +295,15 @@ object PaperPositionCloseAuthority {
         } catch (_: Throwable) {}
     }
 
-    fun markFailed(mode: String = "PAPER", mint: String, symbol: String = "", reason: String = "") {
+    fun markFailed(mode: String = "PAPER", mint: String, symbol: String = "", reason: String = "", nowMs: Long = System.currentTimeMillis()) {
         if (mint.isBlank()) return
         val k = key(mode, mint)
-        val now = System.currentTimeMillis()
+        val now = nowMs
         states.compute(k) { _, old ->
             val s = old ?: CloseState(k, mint, normMode(mode), symbol = symbol)
+            // Late failures must never reopen a confirmed terminal close. Repeated
+            // observations of the same failed attempt must not extend its retry TTL.
+            if (s.state == State.CLOSED || s.state == State.FAILED || s.state == State.REJECTED) return@compute s
             s.state = State.FAILED
             s.symbol = symbol.ifBlank { s.symbol }
             s.reason = reason

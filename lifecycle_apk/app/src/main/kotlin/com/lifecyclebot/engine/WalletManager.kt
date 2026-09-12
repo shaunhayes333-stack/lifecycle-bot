@@ -476,32 +476,41 @@ class WalletManager private constructor(private val ctx: Context) {
     }
 
     internal fun fetchSolPrice(): Double {
-        // Try CoinGecko first (most reliable)
         val coinGeckoPrice = tryCoinGecko()
-        if (coinGeckoPrice > 50.0) {  // Sanity check: SOL should be > $50
+        if (coinGeckoPrice.isFinite() && coinGeckoPrice > 0.0) {
             lastKnownSolPrice = coinGeckoPrice
+            com.lifecyclebot.engine.truth.PaperExitEvidence6738.observeSolUsd(
+                coinGeckoPrice, "COINGECKO_SOL_USD", System.currentTimeMillis())
             return coinGeckoPrice
         }
-        
-        // Try Binance as second source
+        val jupiterPrice = tryJupiter()
+        if (jupiterPrice.isFinite() && jupiterPrice > 0.0) {
+            lastKnownSolPrice = jupiterPrice
+            com.lifecyclebot.engine.truth.PaperExitEvidence6738.observeSolUsd(
+                jupiterPrice, "JUPITER_SOL_USD", System.currentTimeMillis())
+            return jupiterPrice
+        }
+        val dexQuote6738 = try {
+            kotlinx.coroutines.runBlocking {
+                com.lifecyclebot.perps.DexScreenerOracle.getQuoteByAddress(
+                    "So11111111111111111111111111111111111111112", "solana")
+            }
+        } catch (_: Exception) { null }
+        if (dexQuote6738 != null && com.lifecyclebot.engine.truth.PaperExitEvidence6738.observeSolUsd(
+                dexQuote6738.priceUsd, "DEXSCREENER_SOL_USD", dexQuote6738.observedAtMs)) {
+            lastKnownSolPrice = dexQuote6738.priceUsd
+            return dexQuote6738.priceUsd
+        }
+        // SOL/USDT is an indicative display price, not an observed SOL/USD conversion.
         val binancePrice = tryBinance()
-        if (binancePrice > 50.0) {
+        if (binancePrice.isFinite() && binancePrice > 0.0) {
             lastKnownSolPrice = binancePrice
             return binancePrice
         }
-        
-        // Try Jupiter price API as third source
-        val jupiterPrice = tryJupiter()
-        if (jupiterPrice > 50.0) {
-            lastKnownSolPrice = jupiterPrice
-            return jupiterPrice
-        }
-        
-        // Last resort: use cached price or hardcoded fallback
-        ErrorLogger.warn("Wallet", "All SOL price sources failed! Using fallback: $${lastKnownSolPrice.takeIf { it > 50 } ?: 140.0}")
-        return lastKnownSolPrice.takeIf { it > 50.0 } ?: 140.0
+        ErrorLogger.warn("Wallet", "All SOL price sources failed; retaining unrefreshed display cache")
+        return lastKnownSolPrice.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
     }
-    
+
     private fun tryCoinGecko(): Double {
         return try {
             val http = com.lifecyclebot.network.SharedHttpClient.builder()

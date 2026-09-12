@@ -255,6 +255,7 @@ object EconomicEventSchema6464 {
         )
     } catch (_: Throwable) { null }
 
+    @Synchronized
     private fun appendBounded(e: Event, persist: Boolean = true): Boolean {
         val durableKey = "${e.mode}:${e.idempotencyKey}"
         if (!eventKeys.add(durableKey)) {
@@ -421,7 +422,11 @@ object EconomicEventSchema6464 {
         }
     } catch (_: Throwable) { null }
 
-    fun snapshot(): List<Event> = events.toList()
+    data class ReplayInput6738(val events: List<Event>, val carry: ReplayCarry6489, val version: Long)
+    @Synchronized
+    fun replayInput6738(): ReplayInput6738 = ReplayInput6738(events.toList(), replayCarry6489, eventVersion.get())
+
+    fun snapshot(): List<Event> = replayInput6738().events
     fun version(): Long = eventVersion.get()
 
     fun statusLine(): String =

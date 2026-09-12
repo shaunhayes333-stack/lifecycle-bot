@@ -1044,11 +1044,7 @@ object CyclicTradeEngine {
 
         // Execute sell. Economic/learning state may move only after the
         // canonical executor reports terminal confirmation.
-        val sellResult6566 = if (isLiveMode) {
-            executor.requestSell(ts, "CYCLIC_$reason", wallet, walletSol)
-        } else {
-            executor.paperSell(ts, "CYCLIC_$reason")
-        }
+        val sellResult6566 = executor.requestSell(ts, "CYCLIC_$reason", wallet, walletSol)
         when (sellResult6566) {
             Executor.SellResult.CONFIRMED, Executor.SellResult.PAPER_CONFIRMED -> Unit
             Executor.SellResult.ALREADY_CLOSED -> {
