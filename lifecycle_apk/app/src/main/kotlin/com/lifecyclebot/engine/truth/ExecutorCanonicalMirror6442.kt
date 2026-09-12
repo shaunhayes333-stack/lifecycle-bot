@@ -253,11 +253,15 @@ object ExecutorCanonicalMirror6442 {
                 try { PipelineHealthCollector.labelInc("CANONICAL_BUY_CONFIRMED_OPEN_6448") } catch (_: Throwable) {}
                 // V5.0.6742 §PILLAR_7_WIRE — the canonical BUY commit
                 // is the real production entry checkpoint for round-trip
-                // verification. Not a manual test helper.
+                // verification. Not a manual test helper. Lane is looked
+                // up from LaneAttributionLedger6427 (stamped at pending
+                // registration by registerPendingBuy) — mirrorBuyFill
+                // does not accept a lane parameter directly.
                 try {
+                    val laneAt = try { LaneAttributionLedger6427.getEntryLane(positionId) } catch (_: Throwable) { null } ?: ""
                     CanonicalRoundTripReconciler6738.record(
                         positionId = positionId, stage = CanonicalRoundTripReconciler6738.Stage.BUY_COMMITTED,
-                        lane = lane, mode = if (paperMode) "PAPER" else "LIVE",
+                        lane = laneAt, mode = if (paperMode) "PAPER" else "LIVE",
                     )
                 } catch (_: Throwable) {}
             }
