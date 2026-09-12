@@ -1,0 +1,25 @@
+name: Shadow replay source review
+on:
+  push:
+    branches: [repair/shadow-replay-isolation-6738]
+    paths: [.github/workflows/shadow-replay-source-review.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Export exact tracked source for local regression testing
+        run: |
+          git rev-parse HEAD > SOURCE_COMMIT.txt
+          git archive --format=tar.gz --output=source.tar.gz HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shadow-replay-source-${{ github.sha }}
+          path: |
+            source.tar.gz
+            SOURCE_COMMIT.txt
+          retention-days: 1
