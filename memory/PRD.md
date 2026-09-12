@@ -3348,3 +3348,30 @@ V5.0.6344 → V5.0.6364 all ✅ SUCCESS on GH Actions.
 All V5.0.6344 → V5.0.6362 ✅ SUCCESS on GH Actions.
 V5.0.6362 required a one-commit follow-up (`6362a`) to restore a golden-tape literal after refactoring the tier logic into a pure helper.
 
+
+## V5.0.6742 — Directive §4 Revision Parity + §7 Round-Trip Wiring (Feb 2026)
+
+Directive delivery status against the operator's 8-section mandate:
+
+- ✅ §1 Provenance Authority (V5.0.6737)
+- ✅ §2 SOL/USD fabrication removed (V5.0.6741)
+- ⏳ §3 Admit unresolved-basis carries — partial (V5.0.6741 followup)
+- ✅ §4 Economic-parity revision consistency (V5.0.6742) — parity
+  stamps event-schema + journal-start + journal-end revisions;
+  guard fail-opens on `revisionRaceObserved`; new telemetry:
+  `PAPER_REPLAY_PARITY_REVISION_RACE_6742`,
+  `PAPER_LEDGER_DIVERGENCE_REVISION_RACE_FAIL_OPEN_6742`.
+- ✅ §5 Round-Trip Reconciler (V5.0.6738)
+- ✅ §6 Terminal learning exactly once (V5.0.6738)
+- ✅ §7 Round-trip wired to real production lifecycle (V5.0.6742) —
+  `ExecutorCanonicalMirror6442.mirrorBuyFill` → `BUY_COMMITTED` on the
+  APPLIED branch (lane read from `LaneAttributionLedger6427`);
+  `mirrorSell` terminal → `SELL_COMMITTED`; partial → `EXIT_DECIDED`
+  (never `SELL_COMMITTED` — directive invariant);
+  `CausalFeedbackAuthority6715.markLearned` → `LEARNING_DELIVERED`
+  AFTER `CAUSAL_OWNER_LEARN_ACK_6715` emit.
+- ⏳ §8 Complete regression matrix — Aate6737/6738/6739/6741/6742
+  suites landed; several missing.
+
+Testing: Build AATE APK ✅ green at V5.0.6742. Runtime Smoke Test
+remains red on pre-existing ANR / cycle-time regression (Issue #1).

@@ -5938,3 +5938,46 @@ pre-fix leakage; sealed now at entry provenance + decimal-skew authority.
 Perps Neural Bridge P1 backlog — needs proper design pass.
 
 Coverage: Aate6670DataIntegrityGuardTest locks the convergence.
+
+## V5.0.6742 (Feb 2026) — Directive §4 Revision Parity + §7 Round-Trip Wiring
+Continued the operator's 8-section architectural directive. Two source-
+level correctness landings this push, both covered by a new regression
+suite (`Aate6742RevisionParityAndRoundTripWiringTest`).
+
+§4 — Economic-parity revision consistency:
+  • `CanonicalPaperReplay6464.Parity` now carries `eventSchemaRevision`,
+    `journalRevisionAtStart`, `journalRevisionAtEnd` and a boolean
+    `revisionRaceObserved`.
+  • `compareToLedger` samples `JournalEconomicAuthority6616.revision()`
+    before the ledger read and again after the carry-reconcile pass.
+    A change between samples marks the parity as spanning a mutation.
+  • `PaperLedgerDivergenceGuard6731.evaluate()` fail-opens on
+    `revisionRaceObserved=true` (`OK_REVISION_RACE_6742`) — no more
+    fabricated hard-stops from mixed-revision reads. All verdicts now
+    stamp the compared revisions so downstream attribution is exact.
+  • New telemetry: `PAPER_REPLAY_PARITY_REVISION_RACE_6742` and
+    `PAPER_LEDGER_DIVERGENCE_REVISION_RACE_FAIL_OPEN_6742`.
+
+§7 — Round-trip verification wired to real production events:
+  • `ExecutorCanonicalMirror6442.mirrorBuyFill` stamps
+    `CanonicalRoundTripReconciler6738.Stage.BUY_COMMITTED` inside the
+    `CANONICAL_BUY_CONFIRMED_OPEN_6448` APPLIED branch only. Lane is
+    read from `LaneAttributionLedger6427.getEntryLane(positionId)`
+    (mirrorBuyFill has no lane parameter — it was stamped at pending
+    registration by `registerPendingBuy`).
+  • `mirrorSell` terminal branch stamps `SELL_COMMITTED`. Partial
+    branch stamps `EXIT_DECIDED` only — per directive: "Partial sells
+    must NOT count as completed round trips."
+  • `CausalFeedbackAuthority6715.markLearned` stamps
+    `LEARNING_DELIVERED` after `CAUSAL_OWNER_LEARN_ACK_6715` emit —
+    the real owner-bound success path only, never shadow / early-ack.
+
+All wires are guarded try/catch → strictly observational, never
+blocks a legitimate commit. Regression suite includes source-level
+proximity assertions so any future edit that removes / reorders the
+wiring breaks CI.
+
+CI status: Build AATE APK green at V5.0.6742. Runtime Smoke Test is
+still red on the pre-existing ANR / cycle-time regression (Issue #1:
+`NO_COMPLETED_PASSING_CURRENT_WINDOW`) — carries from V5.0.6741;
+outside the scope of this push.
