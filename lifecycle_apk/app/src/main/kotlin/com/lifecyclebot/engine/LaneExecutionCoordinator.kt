@@ -45,11 +45,16 @@ object LaneExecutionCoordinator {
     private val affinities = ConcurrentHashMap<String, Set<String>>()
 
     // V5.9.1135 — lane election must be priority-based, not first-caller-wins.
+    // V5.0.6756 — CYCLIC is a real independent execution book and may not fall
+    // through to the anonymous default priority=50. It sits below MANIPULATED
+    // but above DIP_HUNTER while still yielding to the most specialized
+    // Moonshot/Shitcoin desks on genuinely shared candidates.
     private val lanePriority = mapOf(
         "MOONSHOT" to 100,
         "SHITCOIN" to 95,
         "EXPRESS" to 93,
         "MANIPULATED" to 90,
+        "CYCLIC" to 88,
         "DIP_HUNTER" to 85,
         "PROJECT_SNIPER" to 80,
         "CRYPTO" to 75,
@@ -75,7 +80,22 @@ object LaneExecutionCoordinator {
         val registryAffinity = try { GlobalTradeRegistry.getLaneAffinity(mint) } catch (_: Throwable) { emptySet() }
         val allAffinity = (affinities[mint] ?: emptySet()) + registryAffinity
         val boost = if (allAffinity.contains(laneUpper)) 30 else 0
-        return priority(laneUpper) + boost
+
+        // V5.0.6756 §EXPRESS_OWNER_RECOVERY — a badly bleeding EXPRESS lane
+        // must not keep winning ownership at static priority 93 and then die at
+        // a later execution gate, suppressing healthier lanes for the same mint.
+        // LaneExpectancyDamper is same-mode, clean-terminal and cached; use it
+        // only as an election penalty. It never disables EXPRESS: once the lane
+        // recovers, multiplier rises and the full static priority returns.
+        val learnedPenalty6756 = if (laneUpper == "EXPRESS") {
+            val mult = try { LaneExpectancyDamper.sizeMultiplier("EXPRESS") } catch (_: Throwable) { 1.0 }
+            when {
+                mult < 0.50 -> 45
+                mult < 0.80 -> 20
+                else -> 0
+            }
+        } else 0
+        return priority(laneUpper) + boost - learnedPenalty6756
     }
 
     // ── FAIR LANE ROTATION (V5.9.1335) ───────────────────────────────
@@ -174,22 +194,10 @@ object LaneExecutionCoordinator {
     /**
      * V5.0.6679 §SEALED_FDG_OWNER_BEFORE_CALLER_ORDER.
      *
-     * The V5.0.6614 implementation assumed canonicalCycleLaneFor had already
-     * elected the strongest specialist, but the coordinator did not actually
-     * consume that authority. On a fresh key it simply elected `listOf(laneUpper)`,
-     * making the first wrapper caller the immutable owner. Runtime 5.0.5720
-     * captured the failure directly: FDG sealed PROJECT_SNIPER, then a CORE
-     * TradeAuthorizer wrapper reached this method first, CORE won the election,
-     * claimed the mint/version, and the true PROJECT_SNIPER attempt was later
-     * suppressed by ONE_EXECUTABLE_BUY_PER_MINT_VERSION.
-     *
      * Once FDG has a canonical decision for this exact mint/version/mode, caller
      * order has zero authority. Bind the election to ExecutionDecisionSnapshot6510.
      * If no sealed FDG snapshot exists yet, preserve the legacy pre-seal behavior;
      * nothing is fabricated and no lane is disabled.
-     *
-     * Do not re-elect it here using static priority once a sealed FDG owner exists;
-     * the sealed specialist decision is the causal execution authority.
      */
     private fun sealedFdgOwnerLane6679(mint: String, candidateVersion: Long): String? = try {
         val mode6679 = if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
