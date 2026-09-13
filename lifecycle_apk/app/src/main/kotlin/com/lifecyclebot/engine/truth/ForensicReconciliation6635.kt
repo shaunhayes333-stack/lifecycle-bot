@@ -77,6 +77,38 @@ object ForensicReconciliation6635 {
         checks.incrementAndGet()
         val cashLedger = try { PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { Double.NaN }
         val replay6647 = precomputedReplay6699 ?: try { JournalEconomicReplay6619.replay() } catch (_: Throwable) { null }
+        // V5.0.6750 §ACCOUNTING_ERROR_UI_ROOT_CAUSE — operator screenshot
+        //   Feb 2026: "ACCOUNTING ERROR" / "ACCOUNT UNAVAILABLE"
+        //   painted across every hero surface even during otherwise
+        //   healthy runtime.
+        // Root cause: UnifiedAccountSnapshot6635.forSurface() calls
+        // this reconciler on the UI main thread. JournalEconomicReplay
+        // 6619 correctly declines to run its full replay on the main
+        // thread (it would block the frame) and returns a synthetic
+        // result with invariantFailures=[MAIN_THREAD_REPLAY_DEFERRED]
+        // and, on first boot before any background pass has completed,
+        // reconciled=false. That would drop lastReconciledStatus to
+        // FAILED even though the ledger is fine — we simply couldn't
+        // verify it from the UI thread.
+        // Fix: when the replay was intentionally deferred (not a real
+        // event-stream failure), skip the status downgrade. The next
+        // background reconciler pass (Executor/BotService cadence)
+        // supplies the real precomputedReplay6699 and drives the
+        // status normally. Deltas from the deferred sample are still
+        // recorded diagnostically but do NOT drive the failure flag.
+        val replayDeferredOnMainThread6750 = replay6647?.invariantFailures?.contains("MAIN_THREAD_REPLAY_DEFERRED") == true
+        // V5.0.6750 §BOOT_TRIVIAL_RECONCILED — before any trade has
+        // been recorded the ledger and journal are trivially in sync
+        // (both hold only the starting balance). Boot-time WARMUP
+        // must not paint ACCOUNTING ERROR on a hero that has never
+        // seen a trade.
+        val ledgerInitialized6750 = try { PaperCapitalAuthority6577.isAuthorityInitialized6489() } catch (_: Throwable) { false }
+        val noJournalActivity6750 = (replay6647?.paperRows ?: 0) == 0
+        if (ledgerInitialized6750 && noJournalActivity6750 && !replayDeferredOnMainThread6750) {
+            lastReconciledStatus.set("RECONCILED")
+            try { PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_BOOT_TRIVIAL_6750") } catch (_: Throwable) {}
+            return
+        }
         val cashJournal = replay6647?.cashSol ?: Double.NaN
         val realizedLedger = try { PaperCapitalAuthority6577.realizedPnlSol() } catch (_: Throwable) { 0.0 }
         val realizedJournal = replay6647?.realizedPnlSol ?: Double.NaN
@@ -150,6 +182,13 @@ object ForensicReconciliation6635 {
             cashDelta <= DELTA_TOLERANCE_SOL &&
             realizedDelta <= DELTA_TOLERANCE_SOL &&
             openCostDelta <= DELTA_TOLERANCE_SOL && quantityDeltaRaw6647 == java.math.BigInteger.ZERO
+        // V5.0.6750 — deferred-main-thread replays MUST NOT downgrade
+        // a prior RECONCILED status to FAILED. Preserve the last
+        // status when the current sample was not authoritative.
+        if (replayDeferredOnMainThread6750) {
+            try { PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_MAIN_THREAD_DEFERRED_PRESERVED_6750") } catch (_: Throwable) {}
+            return
+        }
         lastReconciledStatus.set(if (allZero) "RECONCILED" else "FAILED")
     }
 
