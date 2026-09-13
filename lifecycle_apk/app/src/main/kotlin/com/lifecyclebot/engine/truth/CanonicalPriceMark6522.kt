@@ -174,7 +174,12 @@ object CanonicalPriceMarkRegistry6522 {
         if (mark.purpose != CanonicalMarkPurpose6570.OBSERVATION_SCORING && mintRoute && !sourceGroundedMintIdentity6613) return false
         if (mark.purpose == CanonicalMarkPurpose6570.OBSERVATION_SCORING) {
             val ageMs = System.currentTimeMillis() - mark.timestampMs
-            if (ageMs !in -5_000L..120_000L) return false
+            // V5.0.6756 — 6743 widened OBSERVATION to 300s but this write
+            // barrier accidentally kept the old 120s literal, so the router
+            // successfully created 121-300s observations and publish() then
+            // rejected them. Use the named observation contract here. The
+            // EXECUTABLE_ENTRY_QUOTE path remains strict at 120s above.
+            if (ageMs !in -5_000L..OBSERVATION_FRESHNESS_WINDOW_MS_6743) return false
             val observationOk = MarkAuthorityIntegrityGate6496.isObservationAuthoritative6570(
                 mint = mark.mint, priceUsd = mark.priceUsd.value.toDouble(), source = mark.source,
                 poolAddress = mark.pairId, fresh = true,
@@ -223,7 +228,6 @@ object CanonicalPriceMarkRegistry6522 {
         return marks[key] == mark
     }
 
-
     data class PromotionResult6613(
         val mark: CanonicalPriceMark6522?, val reason: String,
         val source: String = "", val price: Double = 0.0, val ageMs: Long = -1L,
@@ -242,12 +246,12 @@ object CanonicalPriceMarkRegistry6522 {
         )
         val unitOk = price.isFinite() && price > 0.0 && price >= 1e-18 && price <= 1e12 && obs.priceUsd.value.scale() <= 30
         val sourceOk = MarkAuthorityIntegrityGate6496.isObservationAuthoritative6570(
-            mint, price, obs.source, obs.pairId, age in -5_000L..300_000L,
+            mint, price, obs.source, obs.pairId, age in -5_000L..OBSERVATION_FRESHNESS_WINDOW_MS_6743,
         )
         val liquidityOk = obs.liquidityUsd?.let { it.signum() > 0 } == true
         val reason = when {
             !exactIdentity -> "IDENTITY_MISMATCH"
-            age !in -5_000L..300_000L -> "STALE_SOURCE_MARK"
+            age !in -5_000L..OBSERVATION_FRESHNESS_WINDOW_MS_6743 -> "STALE_SOURCE_MARK"
             !unitOk -> "PRICE_UNIT_DECIMAL_INVALID"
             !sourceOk -> "SOURCE_PROVENANCE_REJECTED"
             !liquidityOk -> "LIQUIDITY_MISSING"
@@ -270,7 +274,6 @@ object CanonicalPriceMarkRegistry6522 {
             "${obs.baseMint}->${obs.quoteMint}@${obs.pairId}", "scale=${obs.priceUsd.value.scale()}")
     }
 
-
     /** V5.0.6616 — the one canonical source-evidence resolver used before V3
      * and again at execution. It synchronously publishes the observation and
      * promotes the exact same immutable evidence; no async TokenMap ordering
@@ -290,7 +293,7 @@ object CanonicalPriceMarkRegistry6522 {
         if (observedBaseMint.isNotBlank() && observedBaseMint != mint)
             return PromotionResult6613(null, "SOURCE_BASE_IDENTITY_MISMATCH", source, priceUsd, identity = "$observedBaseMint!=$mint")
         val ageMs = nowMs - evidenceTimestampMs
-        if (evidenceTimestampMs <= 0L || ageMs !in -5_000L..300_000L)
+        if (evidenceTimestampMs <= 0L || ageMs !in -5_000L..OBSERVATION_FRESHNESS_WINDOW_MS_6743)
             return PromotionResult6613(null, "SOURCE_EVIDENCE_STALE", source, priceUsd, ageMs = ageMs, identity = mint)
         if (!priceUsd.isFinite() || priceUsd <= 0.0 || priceUsd < 1e-18 || priceUsd > 1e12)
             return PromotionResult6613(null, "SOURCE_PRICE_INVALID", source, priceUsd, ageMs = ageMs, identity = mint)
@@ -389,19 +392,10 @@ object CanonicalPriceMarkRegistry6522 {
      *
      * The pre-existing `resolveExecutableFromSourceEvidence6616` refuses
      * to even publish an OBSERVATION_SCORING mark when liquidity is
-     * missing (line 114-115 rejects with SOURCE_LIQUIDITY_INVALID). That
-     * produced 116× CANONICAL_MARK_REJECTED_INFO_6575 hits in the
-     * V5.0.6626 dump, killing pre-V3 admittance for tokens whose TokenMap
-     * already proved PUMPFUN_BONDING_CURVE_EXECUTABLE.
-     *
-     * This variant publishes only an OBSERVATION_SCORING mark. It does
-     * NOT chain into `promoteObservationToExecutable6613`, so no strict
-     * executable mark is produced without liquidity — the execution
+     * missing. This variant publishes only an OBSERVATION_SCORING mark.
+     * It does NOT chain into `promoteObservationToExecutable6613`, so no
+     * strict executable mark is produced without liquidity — the execution
      * boundary still gates on the full canonical mark.
-     *
-     * Callers use this when they need V3/scoring/lifecycle/momentum
-     * evidence for a mint whose one source has invalid liquidity but
-     * whose price/identity/freshness are all provable.
      */
     fun resolveObservationFromSourceEvidence6628(
         mint: String,
@@ -417,7 +411,7 @@ object CanonicalPriceMarkRegistry6522 {
         if (observedBaseMint.isNotBlank() && observedBaseMint != mint)
             return PromotionResult6613(null, "SOURCE_BASE_IDENTITY_MISMATCH", source, priceUsd, identity = "$observedBaseMint!=$mint")
         val ageMs = nowMs - evidenceTimestampMs
-        if (evidenceTimestampMs <= 0L || ageMs !in -5_000L..300_000L)
+        if (evidenceTimestampMs <= 0L || ageMs !in -5_000L..OBSERVATION_FRESHNESS_WINDOW_MS_6743)
             return PromotionResult6613(null, "SOURCE_EVIDENCE_STALE", source, priceUsd, ageMs = ageMs, identity = mint)
         if (!priceUsd.isFinite() || priceUsd <= 0.0 || priceUsd < 1e-18 || priceUsd > 1e12)
             return PromotionResult6613(null, "SOURCE_PRICE_INVALID", source, priceUsd, ageMs = ageMs, identity = mint)
