@@ -46,10 +46,15 @@ class Aate6658HotLoopUnchokeTest {
             "firstOpenForMint accelerator must exist",
             src.contains("fun firstOpenForMint(mint: String): Position?"),
         )
+        // V5.0.6743 §CANONICAL_ENUMERATION_TRUTH — the accelerator now
+        // consults the truth predicate (isOpenLifecycleWithQty6743) so
+        // exit visibility matches openPositions(). The strict 6631
+        // filter still exists on openPositionsForValuation() for the
+        // hero-equity surface.
         assertTrue(
-            "accelerator must reuse isEconomicallyValidOpen6631 authority (no divergent filter)",
+            "accelerator must reuse the same open-truth authority as openPositions() (no divergent filter)",
             src.substringAfter("fun firstOpenForMint")
-                .substringBefore("\n    }\n").contains("isEconomicallyValidOpen6631(p)"),
+                .substringBefore("\n    }\n").contains("isOpenLifecycleWithQty6743(p)"),
         )
     }
 

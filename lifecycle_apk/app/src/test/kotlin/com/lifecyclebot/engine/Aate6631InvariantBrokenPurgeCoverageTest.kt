@@ -23,12 +23,17 @@ class Aate6631InvariantBrokenPurgeCoverageTest {
         val src = java.io.File(
             "src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt"
         ).readText()
-        // openPositions() must consult the economic-validity gate.
-        assertTrue("V5.0.6631 §B: openPositions must use the economic-validity gate",
-            src.contains("openPositions(): List<Position> = positions.values.filter { isEconomicallyValidOpen6631(it) }"))
-        assertTrue("V5.0.6631 §B: hasOpenMint must use the economic-validity gate",
+        // V5.0.6743 §CANONICAL_ENUMERATION_TRUTH — the strict 6631
+        // gate now lives on `openPositionsForValuation()` (the hero-
+        // equity surface). `openPositions()` returns truth so exit
+        // and reconciliation see all funded lots. The strict-filter
+        // authority itself and its rejection labels remain intact
+        // and gate the valuation surface exactly as 6631 required.
+        assertTrue("V5.0.6743 §B: valuation surface must use the economic-validity gate",
+            src.contains("openPositionsForValuation(): List<Position> = positions.values.filter { isEconomicallyValidOpen6631(it) }"))
+        assertTrue("V5.0.6743 §B: hasOpenMint must use the truth predicate (exit visibility)",
             src.contains("hasOpenMint(mint: String): Boolean = positions.values.any {") &&
-                src.contains("isEconomicallyValidOpen6631(it)"))
+                src.contains("isOpenLifecycleWithQty6743(it)"))
         // Gate must include the operator's required rejection reasons.
         assertTrue("V5.0.6631 §B: gate must reject quarantined rows",
             src.contains("CANONICAL_OPEN_FILTERED_QUARANTINED_6631"))
