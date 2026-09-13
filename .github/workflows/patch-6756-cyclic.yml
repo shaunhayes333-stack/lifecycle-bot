@@ -22,25 +22,29 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path('lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt')
           text = path.read_text()
-          old = '''                tradingModeTag = try { ModeSpecificGates.fromTradingMode("CYCLIC") } catch (_: Throwable) { null },
-            )'''
-          new = '''                tradingModeTag = try { ModeSpecificGates.fromTradingMode("CYCLIC") } catch (_: Throwable) { null },
-                // V5.0.6756 — the legacy TradingModeTag is diagnostic context,
-                // not specialist ownership. Seal CYCLIC explicitly so FDG,
-                // ExecutionDecisionSnapshot, TradeAuthorizer and the immutable
-                // execution ticket all carry the same owner lane.
-                specialistLane = "CYCLIC",
-            )'''
-          count = text.count(old)
-          if count != 1:
-              raise SystemExit(f'expected exactly one CYCLIC FDG call to patch, found {count}')
-          path.write_text(text.replace(old, new, 1))
+          pattern = re.compile(
+              r'^(?P<indent>\s*)tradingModeTag\s*=\s*try\s*\{\s*ModeSpecificGates\.fromTradingMode\("CYCLIC"\)\s*\}\s*catch\s*\(_:\s*Throwable\)\s*\{\s*null\s*\},\s*$',
+              re.MULTILINE,
+          )
+          matches = list(pattern.finditer(text))
+          if len(matches) != 1:
+              raise SystemExit(f'expected exactly one CYCLIC tradingModeTag in FDG path, found {len(matches)}')
+          m = matches[0]
+          indent = m.group('indent')
+          insert = m.group(0) + '\n' + (
+              indent + '// V5.0.6756 — TradingModeTag is diagnostic context, not specialist ownership.\n' +
+              indent + '// Seal CYCLIC explicitly so FDG, immutable intent and executor agree.\n' +
+              indent + 'specialistLane = "CYCLIC",'
+          )
+          text = text[:m.start()] + insert + text[m.end():]
+          path.write_text(text)
           PY
 
-          grep -n -A8 -B3 'specialistLane = "CYCLIC"' lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt
+          grep -n -A5 -B3 'specialistLane = "CYCLIC"' lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt
 
       - name: Commit causal repair and remove one-shot patch workflow
         shell: bash
