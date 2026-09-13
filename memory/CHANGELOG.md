@@ -1,4 +1,26 @@
-## V5.0.6741 — §1 owner-lane restore + §2 SOL/token USD fabrication removed (PENDING CI)
+## V5.0.6758 — §PHANTOM_DELTA_DIAG · additive acceptance-fail forensic breakdown
+
+- **§PHANTOM_DELTA_DIAG** (`ExecutionSpineAcceptance6647.closeCompletedWindow`): on any 120-second acceptance FAIL (`EXECUTION_SPINE_ACCEPTANCE_6647_FAIL`), emit a companion `EXECUTION_SPINE_ACCEPTANCE_6647_FAIL_DIAG_6758` forensic entry with a per-lane phantom breakdown (`EXPRESS=N,QUALITY=N,BLUECHIP=N,...`), forensic reconciliation snapshot (`reconciled=true|false cash=Δ basis=Δ realized=Δ qty=Δ`), and `openPositions`/`exitStart`/`exitDone` sample. This surfaces exactly which lane is producing PHANTOM_SIZED_ONLY and whether CASH_DELTA / BASIS_DELTA / REALIZED_DELTA / QUANTITY_DELTA are being read from an unreconciled forensic state. Additive telemetry only; no trading thresholds change.
+- **Regression**: `Aate6758AcceptanceFailDiagTest` locks the diagnostic emission block (per-lane breakdown, forensic snapshot fields, openPositions/exit sample, counter increment).
+- **Motivation**: Runtime Smoke Test on 6756/6757 emitted `PHANTOM_SIZED_ONLY|CASH_DELTA|BASIS_DELTA|REALIZED_DELTA|QUANTITY_DELTA` for the mandatory 120-second execution spine but the operator had no per-lane visibility inline. The next runtime capture now names the offending lane and forensic state without a manual grep of a 47k-line logcat.
+
+---
+
+
+## V5.0.6757 — repair 6756 regression fences vs new mark contract
+
+Fixed the four legacy regression locks that CI Build APK reported failing on the operator-uploaded `fix/6756-pipeline-recovery` branch, and restored a missing doctrine marker in `SlotHealthGate.kt`.
+
+- **`SlotHealthGate.kt`** — restored the `PAPER_FORCED_OPEN_FAIL_OPEN` docblock marker inside the paper forced-open advisory branch. Behaviour unchanged (advisory-only, no hard gate; 6709/6756 adaptive cadence remains the sole PAPER turnover control) but the `GoldenTapeRegressionTest.paper_slot_health_forced_open_fail_open` regression fence can now compile-lock the invariant.
+- **`Aate6734RecoveryIntegrityTest.source_price_and_timestamp_are_not_spliced_between_providers`** — locks the actual non-splicing invariant (winning tuple must have source + timestamp + price all from the SAME evidence row, and the executable slot must remain empty) instead of asserting no-promotion. 6743/6756 §OBSERVATION_FRESHNESS_ROUTING legitimately admits 150 s evidence as OBSERVATION_SCORING.
+- **`Aate6739CounterParityMarkFreshnessSealingRaceTest.\`121 second old executable mark still stale\`** — locks the correct 6756 contract: 121 s evidence may admit ONLY as OBSERVATION_SCORING; EXECUTABLE_ENTRY_QUOTE must remain null.
+- **`V5_0_6570AcceptanceTest.observation_mark_accepts_fresh_provider_mint_route_but_executable_mark_does_not`** — extended to lock both halves of the 6743/6756 routing: observation admits at 121 s, executable refuses at 121 s.
+- **CI status**: Build AATE APK ✅ green on 5.0.6757. Runtime Smoke Test still red with the pre-existing P1 phantom/economics deltas (see 6758 §PHANTOM_DELTA_DIAG).
+
+---
+
+
+
 
 Directive Section 1 and Section 2 landed at the actual code source.
 

@@ -1,3 +1,50 @@
+# AATE PRD — V5.0.6758 (Sep 2026 rolling)
+
+**Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.
+
+## V5.0.6756 → 6758 rolling (operator-uploaded PR + regression repair + phantom diag)
+
+**V5.0.6756** (operator-uploaded on `fix/6756-pipeline-recovery`) — pipeline recovery batch:
+- EXPRESS put into earned-recovery execution after severe same-mode bleed; sub-70 candidates stay shadow/train-only until recovery.
+- CYCLIC sealed as explicit FDG specialist owner so severely-damped EXPRESS cannot monopolize a mint and fail downstream.
+- Turnover cadence first band raised 48→64 opens to avoid stacked global throttles at normal inventory.
+- Mark propagation: `resolveBestSourceEvidence6734` routes 121–300 s evidence to OBSERVATION_SCORING; `publish(OBSERVATION_SCORING)` widened to 300 s using the named `OBSERVATION_FRESHNESS_WINDOW_MS_6743` constant. Executable slot stays strictly 120 s.
+- Paper UI economics collapsed to one immutable `JournalEconomicAuthority` snapshot.
+- Adds `Aate6756PipelineRecoveryTest`.
+
+**V5.0.6757** — regression fence repair (this fork). Build APK on 6756 initially failed 5 assertions; fixed them at the correct layer:
+- `SlotHealthGate.kt` — restored `PAPER_FORCED_OPEN_FAIL_OPEN` docblock marker for the paper forced-open advisory branch (behaviour unchanged).
+- `Aate6734RecoveryIntegrityTest.source_price_and_timestamp_are_not_spliced_between_providers` — updated to lock the actual non-splicing invariant (winning tuple must be intact + executable slot must remain empty) instead of blanket no-promotion.
+- `Aate6739CounterParityMarkFreshnessSealingRaceTest.\`121 second old executable mark still stale\`` — locks the 6756 contract: 121 s admits only as OBSERVATION_SCORING; EXECUTABLE_ENTRY_QUOTE stays null.
+- `V5_0_6570AcceptanceTest.observation_mark_accepts_fresh_provider_mint_route_but_executable_mark_does_not` — extended to lock both halves of the routing (observation admits at 121 s, executable refuses at 121 s).
+- **CI status**: Build AATE APK ✅ green on 5.0.6757. Runtime Smoke Test still red with pre-existing P1 phantom / accounting-delta failures.
+
+**V5.0.6758** — `§PHANTOM_DELTA_DIAG` (this fork):
+- `ExecutionSpineAcceptance6647.closeCompletedWindow` emits a companion `EXECUTION_SPINE_ACCEPTANCE_6647_FAIL_DIAG_6758` forensic entry on every 120-second FAIL. It includes:
+  - per-lane phantom breakdown (`EXPRESS=N,QUALITY=N,BLUECHIP=N,SHITCOIN=N,...`),
+  - forensic reconciliation snapshot (`reconciled=true|false cash=Δ basis=Δ realized=Δ qty=Δ`),
+  - `openPositions`, `exitStart`, `exitDone` sample.
+- Regression: `Aate6758AcceptanceFailDiagTest`.
+- Motivation: 6756/6757 Runtime Smoke Test emitted `PHANTOM_SIZED_ONLY|CASH_DELTA|BASIS_DELTA|REALIZED_DELTA|QUANTITY_DELTA` but the operator had no per-lane inline visibility. Next runtime capture names the offending lane and forensic state without grep of a 47k-line logcat. **Additive telemetry only — no trading thresholds change.**
+
+## Pending / In-flight
+
+- P1 (RECURRING, HIGH): PHANTOM_SIZED_ONLY + CASH/BASIS/REALIZED/QUANTITY deltas on the 120s acceptance witness. Runtime Smoke Test has been red on both `main` and the PR branch for hours across many commits. Root cause not yet reached; 6758 diagnostic will name the offending lane and reveal whether the ForensicReconciliation is `reconciled=false`. Next iteration needs the fresh 6758-annotated runtime capture from the operator.
+- P2: Provider degradation (Birdeye 0%/401, CoinGecko 1% with 269 5xx, Groq validator) — telemetry-based, not yet started.
+- P3: BotService.kt (29k lines) ANR / cycle-time investigation deferred — current runs sit at ~7.8 s cycle, below the 20 s overrun alarm; blind refactor of a coroutine state machine at this size risks breaking the Kotlin transformer contract (see line 1101 comment "Couldn't transform method node: botLoop").
+- CI status: PR #11 `fix/6756-pipeline-recovery` — Build AATE APK ✅ 5.0.6757+; Runtime Smoke Test ❌ on P1 phantoms (pre-existing, not caused by 6757/6758).
+- Backlog: Perps Neural Bridge · LLM Lab sandbox · Per-brain causal audit widget.
+
+## Constraints (unchanged)
+
+- No local compiler. Every push must bump `/app/AATE_VERSION` and `/app/lifecycle_apk/AATE_VERSION` (5.0.NNNN); regex `^5\.0\.(\d+)$`.
+- No threshold tuning — only architectural plumbing / authority convergence / additive telemetry.
+- Paper trading only.
+- All test files added or modified alongside the gate/authority they cover, so CI Build APK stays green.
+
+---
+
+
 # AATE PRD — V5.0.6735 (Aug/Sep 2026 rolling)
 
 **Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.
