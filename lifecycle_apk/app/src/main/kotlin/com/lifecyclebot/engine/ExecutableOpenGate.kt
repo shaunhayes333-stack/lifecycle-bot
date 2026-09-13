@@ -1023,7 +1023,14 @@ object ExecutableOpenGate {
     private const val FDG_DEDUP_TTL_MS_6743 = 750L
     private const val FDG_DEDUP_MAX_KEYS_6743 = 4096
 
-    private fun fdgDedupShouldSkip6743(mint: String, candidateVersion: Long, lane: String): Boolean {
+    private fun fdgDedupShouldSkip6743(mint: String, candidateVersion: Long, lane: String, resolvedSizeSol: Double): Boolean {
+        // V5.0.6745 §DEDUP_ALLOW_SIZING_UPGRADE — a sizing upgrade
+        // (resolvedSizeSol > 0) is an intentional second recordFdg
+        // call arriving AFTER the sizer resolves a preliminary
+        // 0.0-sized intent. Scanner-storm dedup must never block it,
+        // otherwise the immutable intent stays pinned at size=0.0
+        // (Repair6533ExecutionAuthorityAcceptanceTest G).
+        if (resolvedSizeSol.isFinite() && resolvedSizeSol > 0.0) return false
         val key = FdgDedupKey6743(mint, candidateVersion, canonicalLane(lane))
         val now = System.currentTimeMillis()
         val prev = fdgDedupLastMs6743[key]
@@ -1144,7 +1151,7 @@ object ExecutableOpenGate {
         // for the same (mint, candidateVersion, lane) within the dedup
         // TTL. Runs BEFORE any FDG work so scanner-storm hydrations
         // don't burn V3/FDG cycles on redundant proposals.
-        if (fdgDedupShouldSkip6743(mint, candidateVersion, lane)) {
+        if (fdgDedupShouldSkip6743(mint, candidateVersion, lane, resolvedSizeSol6558)) {
             try {
                 PipelineHealthCollector.labelInc("FDG_PRE_DECISION_DEDUP_SKIP_6743")
                 PipelineHealthCollector.labelInc("FDG_PRE_DECISION_DEDUP_SKIP_6743_${canonicalLane(lane).uppercase()}")
