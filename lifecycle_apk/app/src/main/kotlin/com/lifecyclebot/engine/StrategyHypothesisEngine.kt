@@ -46,6 +46,23 @@ object StrategyHypothesisEngine {
     private const val MUTATION_STEP = 0.10    // size-bias delta a hypothesis tests
     private const val PROMOTE_T     = 1.3     // V5.9.1265: slightly looser so clear winners promote, still noise-safe
 
+    // V5.0.6747 §PROMOTION_QUALITY_GATES — operator directive Feb 2026:
+    //   > "Change the optimisation target. A 17% pWin / 64% pRug
+    //   >  strategy should not receive a +10% size promotion solely
+    //   >  because of a few huge winners."
+    // Every promotion path now MUST pass these hit-rate / rug-rate
+    // floors on the arm being promoted. Rug rate is inherent to
+    // memecoin trading so the floor is intentionally loose (<= 50%);
+    // hit-rate floor (>= 25%) is enough to ensure the promoted
+    // strategy is not a pure fat-tail lottery.
+    private const val MIN_PWIN_PROMOTE_6747     = 0.25
+    private const val MAX_PRUG_PROMOTE_6747     = 0.50
+    // Rug threshold: -80% pnl or worse marks the trade as a rug for
+    // the promotion-quality gate. Not the same as the -95% clamp
+    // ceiling; we want to catch fills that went 4x underwater not
+    // just full liquidations.
+    private const val RUG_PNL_THRESHOLD_6747    = -80.0
+
     // V5.9.1286 — EXIT-PROFILE EVOLUTION. The engine now tests a second dimension:
     // a stop-WIDTH multiplier. The tuning console proved tight stops (BLUECHIP -4/-7%)
     // bleed on a lottery asset by cutting would-be runners. ×>1.0 = wider stop (let
@@ -60,9 +77,22 @@ object StrategyHypothesisEngine {
         @Volatile var n: Long = 0L,
         @Volatile var mean: Double = 0.0,
         @Volatile var m2: Double = 0.0,
+        // V5.0.6747 §PROMOTION_QUALITY_GATES — win/loss/rug counters
+        // let the promotion path enforce hit-rate and rug-rate
+        // floors instead of chasing arithmetic-mean EV alone.
+        @Volatile var wins: Long = 0L,
+        @Volatile var losses: Long = 0L,
+        @Volatile var rugs: Long = 0L,
     ) {
         val variance: Double get() = if (n > 1) m2 / (n - 1) else 0.0
-        fun update(x: Double) { synchronized(this) { n += 1; val d = x - mean; mean += d / n; m2 += d * (x - mean) } }
+        val pWin6747: Double get() = if (n > 0) wins.toDouble() / n.toDouble() else 0.0
+        val pRug6747: Double get() = if (n > 0) rugs.toDouble() / n.toDouble() else 0.0
+        fun update(x: Double) { synchronized(this) {
+            n += 1
+            val d = x - mean; mean += d / n; m2 += d * (x - mean)
+            if (x > 0.0) wins += 1L else losses += 1L
+            if (x <= RUG_PNL_THRESHOLD_6747) rugs += 1L
+        } }
     }
 
     private data class Hypothesis(
@@ -288,7 +318,24 @@ object StrategyHypothesisEngine {
         // is capped by lane SL and stop-baseline still governs stop width.
         val proveCtrlEdge = h.control.n >= MIN_ARM && h.control.mean >= 30.0 &&
             (h.control.mean / (sqrt(h.control.variance) + 1e-6)) > 0.6
-        if (proveCtrlEdge && (baseline[ctx] ?: 1.0) < 1.15) {
+        // V5.0.6747 §PROMOTION_QUALITY_GATES — hit-rate + rug-rate
+        // floor. A control arm with mean=+131% but pWin<25% is a
+        // fat-tail lottery, not an edge; refuse the +10% size bump.
+        val proveCtrlQualityOk6747 =
+            h.control.pWin6747 >= MIN_PWIN_PROMOTE_6747 && h.control.pRug6747 <= MAX_PRUG_PROMOTE_6747
+        if (proveCtrlEdge && !proveCtrlQualityOk6747) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HYPOTHESIS_PROVEN_BASELINE_REJECTED_QUALITY_6747")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "HYPOTHESIS_PROVEN_BASELINE_REJECTED_QUALITY_6747",
+                    "ctx=$ctx ctrl_n=${h.control.n} ctrl_mean=${"%.1f".format(h.control.mean)}% " +
+                        "pWin=${"%.2f".format(h.control.pWin6747)} pRug=${"%.2f".format(h.control.pRug6747)} " +
+                        "floors=pWin>=${MIN_PWIN_PROMOTE_6747} pRug<=${MAX_PRUG_PROMOTE_6747} action=refuse_size_bump",
+                )
+            } catch (_: Throwable) {}
+            return
+        }
+        if (proveCtrlEdge && proveCtrlQualityOk6747 && (baseline[ctx] ?: 1.0) < 1.15) {
             val newBase = ((baseline[ctx] ?: 1.0) + 0.10).coerceAtMost(SIZE_BIAS_MAX)
             baseline[ctx] = newBase
             promotions += 1
@@ -318,8 +365,12 @@ object StrategyHypothesisEngine {
         val variantPfBetter = (vv.mean / (sqrt(vv.variance) + 1e-6)) > (vc.mean / (sqrt(vc.variance) + 1e-6))
         val sampleOk = vv.n >= MIN_ARM && vc.n >= MIN_ARM
         val ddAcceptable = (vv.mean - sqrt(vv.variance)) > -25.0
+        // V5.0.6747 §PROMOTION_QUALITY_GATES — variant arm must also
+        // clear hit-rate + rug-rate floors before we bump size.
+        val variantQualityOk6747 =
+            vv.pWin6747 >= MIN_PWIN_PROMOTE_6747 && vv.pRug6747 <= MAX_PRUG_PROMOTE_6747
         val promoteOk = t >= PROMOTE_T && variantBetter && variantProfitable &&
-            variantNetPos && variantPfBetter && sampleOk && ddAcceptable
+            variantNetPos && variantPfBetter && sampleOk && ddAcceptable && variantQualityOk6747
         if (promoteOk) {
             // variant wins → promote BOTH dimensions to the new baseline, spawn next
             baseline[ctx] = h.variantSizeBias
@@ -331,7 +382,14 @@ object StrategyHypothesisEngine {
         } else if (t >= PROMOTE_T && !promoteOk) {
             // statistically distinguishable but NOT genuinely better/profitable
             // (e.g. both arms negative, variant only "less bad") — reject promotion.
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HYPOTHESIS_PROMOTION_REJECTED|reason=NEGATIVE_OR_WORSE_VARIANT") } catch (_: Throwable) {}
+            val why = when {
+                !variantQualityOk6747 ->
+                    "QUALITY_pWin=${"%.2f".format(vv.pWin6747)}_pRug=${"%.2f".format(vv.pRug6747)}"
+                !variantBetter || !variantProfitable || !variantNetPos ->
+                    "NEGATIVE_OR_WORSE_VARIANT"
+                else -> "OTHER"
+            }
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HYPOTHESIS_PROMOTION_REJECTED|reason=$why") } catch (_: Throwable) {}
             retirements += 1
             active[ctx] = spawn(ctx)
         } else if (t <= -PROMOTE_T) {

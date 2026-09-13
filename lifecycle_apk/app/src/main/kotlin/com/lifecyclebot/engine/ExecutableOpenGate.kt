@@ -14,6 +14,43 @@ import java.util.concurrent.atomic.AtomicLong
 object ExecutableOpenGate {
     enum class CanonicalFinalDecision6613 { BUY, PROBE_ONLY, UNKNOWN }
 
+    // V5.0.6747 §REGIME_FLOOR_AUTHORITATIVE — the operator's global
+    // execution authority reports minScore=15 at final admission. That
+    // is the base against which RegimeDetector.scoreFloorDelta() is
+    // added at the sealed admission check. Kept co-located with the
+    // gate itself so the two authorities cannot drift.
+    private const val REGIME_BASE_MIN_SCORE_6747 = 15
+
+    // V5.0.6747 §EXPLORATION_DAMPER_ON_WR_COLLAPSE — operator directive:
+    //   > "For a bot already sitting at 18.7% WR, probing WAIT/zero-
+    //   >  signal candidates needs to be extremely cheap and sparse."
+    // Sampled probe gate. Returns true to ADMIT the probe, false to
+    // SKIP. In a healthy regime probes are unrestricted; when regime
+    // reports CHOP (wr < 25%) or DUMP, only 1-in-N probes fire so the
+    // learner stops feeding on WAIT/zero-signal candidates while the
+    // policy is collapsed. Never used as a hard block on real BUY
+    // paths — only shapes exploration-only probe frequency.
+    private val probeStormCounter6747 = java.util.concurrent.atomic.AtomicLong(0L)
+    fun probeShouldEmit6747(kind: String): Boolean {
+        val regime = try { RegimeDetector.currentRegime() } catch (_: Throwable) { return true }
+        val sampleN = when (regime) {
+            RegimeDetector.Regime.CHOP -> 8L
+            RegimeDetector.Regime.DUMP -> 8L
+            RegimeDetector.Regime.DEAD -> 4L
+            else -> 1L
+        }
+        if (sampleN == 1L) return true
+        val n = probeStormCounter6747.incrementAndGet()
+        val emit = (n % sampleN) == 0L
+        if (!emit) {
+            try {
+                PipelineHealthCollector.labelInc("EXPLORATION_DAMPER_SKIPPED_6747")
+                PipelineHealthCollector.labelInc("EXPLORATION_DAMPER_SKIPPED_6747|${regime.name}|${kind.uppercase()}")
+            } catch (_: Throwable) {}
+        }
+        return emit
+    }
+
     data class EntryState(
         val mint: String,
         val symbol: String,
@@ -1618,6 +1655,77 @@ object ExecutableOpenGate {
                         )
                     }
                 }
+            }
+        }
+        // V5.0.6747 §REGIME_FLOOR_AUTHORITATIVE — operator directive
+        // Feb 2026:
+        //   > "CHOP scoreFloorDelta=+10 must survive all the way to
+        //   >  the sealed execution decision. It should not merely
+        //   >  decorate an upstream score."
+        // Apply RegimeDetector.scoreFloorDelta() at the FINAL admission
+        // check. A CHOP-classified regime pushes the effective floor
+        // by +10; a DUMP by +10; BULL_RIPPING by -10. Below the raised
+        // floor the entry is refused before it can burn a lane slot.
+        // Fail-open on any exception so upstream logic still runs.
+        run {
+            val modeUpper6747 = mode.uppercase()
+            if (modeUpper6747 == "LIVE" || modeUpper6747 == "PAPER") {
+                val entryScore6747 = try {
+                    ts.lastV3Score ?: states[ts.mint]?.entryScore ?: -1
+                } catch (_: Throwable) { -1 }
+                val floorDelta6747 = try { RegimeDetector.scoreFloorDelta() } catch (_: Throwable) { 0 }
+                if (entryScore6747 >= 0 && floorDelta6747 > 0) {
+                    val effectiveMinScore6747 = REGIME_BASE_MIN_SCORE_6747 + floorDelta6747
+                    if (entryScore6747 < effectiveMinScore6747) {
+                        try {
+                            val canonLane6747 = canonicalLane(lane)
+                            val regimeName6747 = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" }
+                            PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747")
+                            PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747|${canonLane6747}|${regimeName6747}")
+                            ForensicLogger.lifecycle(
+                                "EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747",
+                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} mode=$modeUpper6747 " +
+                                    "lane=$canonLane6747 regime=$regimeName6747 score=$entryScore6747 " +
+                                    "base=$REGIME_BASE_MIN_SCORE_6747 delta=+$floorDelta6747 " +
+                                    "effectiveFloor=$effectiveMinScore6747 attemptId=$attemptId " +
+                                    "action=regime_floor_authoritative_veto",
+                            )
+                        } catch (_: Throwable) {}
+                        return OpenVerdict(
+                            allowed = false,
+                            reason = "EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747:need>=${effectiveMinScore6747}",
+                            shadowOnly = modeUpper6747 == "PAPER",
+                            logName = "EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747",
+                            attemptId = attemptId,
+                        )
+                    }
+                }
+            }
+        }
+        // V5.0.6747 §BLEEDER_LANE_PROBATION — a lane whose sliding-
+        // window WR fell below 20% over the last 15+ trades enters
+        // probation. Only tiny probes (<= 0.02 SOL) may admit;
+        // regular size is refused so the learner can gather clean
+        // recovery evidence without the bleeder eating capital.
+        run {
+            val laneUpper6747b = canonicalLane(lane)
+            val effectiveSize6747b = if (preResolvedSizeSol6490.isFinite() && preResolvedSizeSol6490 > 0.0)
+                preResolvedSizeSol6490 else 0.03  // above probe cap → refused
+            val bleederReason6747b = try { com.lifecyclebot.engine.truth.BleederLaneProbation6747.evaluate(laneUpper6747b, effectiveSize6747b) } catch (_: Throwable) { null }
+            if (bleederReason6747b != null) {
+                try {
+                    PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_BLEEDER_PROBATION_6747")
+                    PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_BLEEDER_PROBATION_6747|$laneUpper6747b")
+                    ForensicLogger.lifecycle(
+                        "EXEC_OPEN_BLOCKED_BLEEDER_PROBATION_6747",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneUpper6747b " +
+                            "size=$effectiveSize6747b attemptId=$attemptId reason=$bleederReason6747b",
+                    )
+                } catch (_: Throwable) {}
+                return OpenVerdict(
+                    allowed = false, reason = bleederReason6747b, shadowOnly = mode.uppercase() == "PAPER",
+                    logName = "EXEC_OPEN_BLOCKED_BLEEDER_PROBATION_6747", attemptId = attemptId,
+                )
             }
         }
         return canOpenExecutablePositionInternal(

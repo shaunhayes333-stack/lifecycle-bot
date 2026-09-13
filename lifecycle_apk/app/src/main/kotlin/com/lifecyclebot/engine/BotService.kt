@@ -11060,6 +11060,13 @@ class BotService : Service() {
                 // the meme trader. If liquidity is exitable, send it through the existing
                 // PROBE_ONLY tiny-size path so learning gets real outcomes without spraying
                 // normal size. Thin liquidity stayed blocked above.
+                // V5.0.6747 §EXPLORATION_DAMPER_ON_WR_COLLAPSE — when
+                // regime reports CHOP/DUMP the WR is by definition
+                // collapsed; only 1-in-N zero-signal probes fire so the
+                // learner isn't fed WAIT candidates every cycle.
+                if (!com.lifecyclebot.engine.ExecutableOpenGate.probeShouldEmit6747("ZERO_SIGNAL")) {
+                    return laneBase.copy(signal = "WAIT", finalSignal = "WAIT", shouldTrade = false, blockReason = "EXPLORATION_DAMPED_ZERO_SIGNAL_6747")
+                }
                 try {
                     PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164")
                     PipelineHealthCollector.labelInc("FDG_ZERO_SCORE_DUST_PROBE_4164")
@@ -11161,6 +11168,13 @@ class BotService : Service() {
                     "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)}")
                 LearningLifecycleBus.preFdgProbe("DUST_PROBE", lane, sourceForChop, mintForProbe, edgeSymbol4529, baseBlock, laneBase.entryScore, laneBase.aiConfidence, liquidityUsd, edgeMcap4529, resolveProbeSizeMult(mintForProbe, liquidityUsd), edgeRegime4529)
             } catch (_: Throwable) {}
+            // V5.0.6747 §EXPLORATION_DAMPER_ON_WR_COLLAPSE — dust
+            // probes are cheap but at 18.7% WR the learner is drowning
+            // in them. Sample in CHOP/DUMP so the WAIT signal doesn't
+            // become the dominant learning input.
+            if (!com.lifecyclebot.engine.ExecutableOpenGate.probeShouldEmit6747("DUST_PROBE")) {
+                return laneBase.copy(signal = "WAIT", finalSignal = "WAIT", shouldTrade = false, blockReason = "EXPLORATION_DAMPED_DUST_PROBE_6747")
+            }
             return laneBase.copy(
                 signal = "BUY", finalSignal = "BUY", shouldTrade = true,
                 blockReason = "PROBE_ONLY",
