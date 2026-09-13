@@ -112,7 +112,7 @@ object StrategyHypothesisEngine {
     private val pending = ConcurrentHashMap<String, Pair<String, Boolean>>()  // mint -> (context, isVariant)
 
     /** V5.9.1353 — TRUE RESET: drop baselines, active hypotheses + pending. */
-    fun reset() { baseline.clear(); stopBaseline.clear(); active.clear(); pending.clear() }
+    fun reset() { baseline.clear(); stopBaseline.clear(); active.clear(); pending.clear(); settledOnceGuard6747.clear() }
     @Volatile private var promotions = 0L
     @Volatile private var outcomeUpdates6512 = 0L
     fun outcomeUpdateCount6512(): Long = outcomeUpdates6512
@@ -276,9 +276,31 @@ object StrategyHypothesisEngine {
         } catch (_: Throwable) { 1.0 }
     }
 
+    // V5.0.6747 §PER_CANDIDATE_LEARNING_COALESCE — operator directive:
+    //   > "The 6.3× FDG and 17.6× lane fanout can remain for
+    //   >  specialist comparison, but repeated evaluations of the same
+    //   >  candidate must not count as independent evidence during
+    //   >  policy adaptation."
+    // recordOutcome is already keyed by mint (pending map). The
+    // hazard is a settled trade being replayed through recordOutcome
+    // twice (recovery restore, canonical reconstruction). Guard with
+    // a per-mint session-dedup set that clears on reset()/loadState so
+    // one settled outcome per mint counts as exactly one arm sample.
+    // Fresh admissions replace the previous entry via `pending[mint]=`;
+    // the guard fires only on true second-settle attempts.
+    private val settledOnceGuard6747 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
     /** Feed settled PnL → accrue to the assigned arm, evaluate, maybe promote/retire. */
     fun recordOutcome(mint: String, pnlPct: Double) {
         try {
+            // V5.0.6747 — per-candidate dedup. A second settle event
+            // for the same mint (recovery replay, terminal reducer
+            // duplicate) must not double-count as new evidence.
+            if (!settledOnceGuard6747.add(mint)) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HYPOTHESIS_OUTCOME_DEDUPED_PER_CANDIDATE_6747") } catch (_: Throwable) {}
+                pending.remove(mint)
+                return
+            }
             val a = pending.remove(mint) ?: return
             val ctx = a.first; val variant = a.second
             val h = active[ctx] ?: return

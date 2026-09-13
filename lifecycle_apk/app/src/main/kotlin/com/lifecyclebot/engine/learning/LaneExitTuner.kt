@@ -238,16 +238,43 @@ object LaneExitTuner {
         st.slMult = sl.coerceIn(slFloor, slCap)
     }
 
+    /**
+     * V5.0.6747 §EXIT_TUNER_RESOLVED_AUTHORITY — operator directive:
+     *   > "This should ultimately become one resolved TP/SL policy
+     *   >  per position, rather than two independent multipliers
+     *   >  influencing the same trade."
+     *
+     * The closed-loop learner (LaneExitTuner) and the strategy
+     * replay bias (LaneStrategyReplay) used to multiply together, so
+     * for EXPRESS the two authorities were pushing tpMult 0.72 ×
+     * 1.10 in opposite directions and partially cancelling. Now:
+     *   • If closed-loop is MATURE (n ≥ MIN_SAMPLE): closed-loop is
+     *     authoritative; replay bias is IGNORED.
+     *   • Else (bootstrap): replay bias is authoritative (closed-loop
+     *     result would be neutral 1.0 anyway during bootstrap).
+     */
     fun getTpMult(lane: String): Double = try {
         refreshReplayBiasAsync("getTpMult")
         val key = canon(lane)
-        (lanes[key]?.tpMult ?: 1.0) * (replayBiasByLane[key]?.tpMult ?: 1.0)
+        val laneSt = lanes[key]
+        val closedLoopMature = laneSt != null && laneSt.window.size >= MIN_SAMPLE
+        if (closedLoopMature) {
+            laneSt!!.tpMult
+        } else {
+            replayBiasByLane[key]?.tpMult ?: 1.0
+        }
     } catch (_: Throwable) { 1.0 }
 
     fun getSlMult(lane: String): Double = try {
         refreshReplayBiasAsync("getSlMult")
         val key = canon(lane)
-        (lanes[key]?.slMult ?: 1.0) * (replayBiasByLane[key]?.slMult ?: 1.0)
+        val laneSt = lanes[key]
+        val closedLoopMature = laneSt != null && laneSt.window.size >= MIN_SAMPLE
+        if (closedLoopMature) {
+            laneSt!!.slMult
+        } else {
+            replayBiasByLane[key]?.slMult ?: 1.0
+        }
     } catch (_: Throwable) { 1.0 }
 
     fun formatForPipelineDump(): String {

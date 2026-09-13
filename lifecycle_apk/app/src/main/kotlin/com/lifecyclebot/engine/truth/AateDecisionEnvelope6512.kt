@@ -137,6 +137,41 @@ object AateDecisionFabric6512 {
         try { ToolkitSignalSheet.recordDeskStage(env.lane, "FINALIZED", env.positionId) } catch (_: Throwable) {}
         if (e == null && env.lane.uppercase() in setOf("QUALITY","BLUECHIP","BLUE_CHIP","SHITCOIN","CYCLIC","EXPRESS","CORE","MOONSHOT","PROJECT_SNIPER","DIP_HUNTER","MANIPULATED","TREASURY","CASHGEN")) {
             try { ToolkitSignalSheet.recordCausalIssue6600("specialistLearningMissing", env.lane, "positionId=${env.positionId.take(18)}") } catch (_: Throwable) {}
+            // V5.0.6747 §CAUSAL_OWNER_ATTRIBUTION_REPAIR — operator
+            // directive: "if a loser cannot reliably be attributed
+            // back to the exact lane + tactic + score band + regime
+            // + entry policy then the learner can identify 'something
+            // lost' without reliably learning what decision caused it".
+            // Repair: even when the AATE envelope is missing, consult
+            // LaneAttributionLedger6427 for the definitive owner-lane
+            // stamp (recorded at BUY-pending registration) and drive a
+            // fallback policy bind so the specialist head still
+            // trains against the real owner. Never fabricates score/
+            // pWin/rug; those stay null so the fallback bind path
+            // uses safe defaults.
+            try {
+                val ledgerLane6747 = LaneAttributionLedger6427.getEntryLane(env.positionId)
+                if (!ledgerLane6747.isNullOrBlank() && ledgerLane6747.equals(env.lane, true)) {
+                    val bound6747 = try {
+                        UnifiedPolicyHead.bindDecisionFallback6713(
+                            positionId = env.positionId, mint = env.mint,
+                            ownerLane = ledgerLane6747,
+                            scoreFinal = 0.0, pWin = 0.0,
+                            expectedPnlPct = 0.0, rugP = 0.0,
+                            contributorEffect01 = 0.5,
+                        )
+                    } catch (_: Throwable) { false }
+                    if (bound6747) {
+                        PipelineHealthCollector.labelInc("CAUSAL_OWNER_ATTRIBUTION_LEDGER_FALLBACK_6747")
+                        PipelineHealthCollector.labelInc("CAUSAL_OWNER_ATTRIBUTION_LEDGER_FALLBACK_6747|${ledgerLane6747.uppercase()}")
+                        ForensicLogger.lifecycle(
+                            "CAUSAL_OWNER_ATTRIBUTION_LEDGER_FALLBACK_6747",
+                            "positionId=${env.positionId.take(18)} envLane=${env.lane} ledgerLane=$ledgerLane6747 " +
+                                "action=fallback_bind_to_ledger_owner",
+                        )
+                    }
+                }
+            } catch (_: Throwable) {}
         }
         val contributors = e?.contributors.orEmpty(); val updated = mutableListOf<String>()
         val uphBefore = UnifiedPolicyHead.trainedCount()
