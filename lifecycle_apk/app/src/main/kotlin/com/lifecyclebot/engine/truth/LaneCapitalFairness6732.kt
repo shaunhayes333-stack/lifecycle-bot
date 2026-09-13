@@ -23,8 +23,7 @@ import com.lifecyclebot.engine.PipelineHealthCollector
  *
  * Contract:
  *  - Returns `hasHeadroom = true` when the lane's own used allocation
- *    plus pending intents is under LANE_HEADROOM_RATIO of its target
- *    allocation.
+ *    is under LANE_HEADROOM_RATIO of its target allocation.
  *  - Returns `hasHeadroom = false` when the lane has consumed at least
  *    LANE_HEADROOM_RATIO of its target — global throttling is fair.
  *
@@ -38,11 +37,22 @@ object LaneCapitalFairness6732 {
         "QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "EXPRESS", "CORE",
         "MOONSHOT", "PROJECT_SNIPER", "DIP_HUNTER", "MANIPULATED", "TREASURY", "CASHGEN",
     )
-    /** Fraction of a lane's target allocation below which the lane is
-     * considered to have headroom. 0.90 → a lane using <90% of its
-     * target share is protected from portfolio-wide throughput blocks.
-     * Above that, the global gate is fair. */
-    private const val LANE_HEADROOM_RATIO = 0.90
+
+    /**
+     * V5.0.6756 §HEADROOM_HYSTERESIS.
+     *
+     * 6732 used 0.90, which meant a lane at 91-99% of target was already treated
+     * as saturated and fell back into the portfolio-wide cash/velocity choke.
+     * That created a dead band: a healthy lane could not consume its final target
+     * allocation while unrelated lanes had already over-allocated the portfolio.
+     *
+     * Allow a small 10% hysteresis band around target. This is NOT permission to
+     * flood the account: lanes above 110% still lose the fairness bypass, and the
+     * unconditional portfolio hard cap remains in ExitThroughputAuthority6727.
+     * Empty/underweight lanes can therefore keep round-tripping while materially
+     * over-allocated or bleeding lanes remain throttled.
+     */
+    private const val LANE_HEADROOM_RATIO = 1.10
 
     data class Headroom(
         val hasHeadroom: Boolean,
@@ -68,13 +78,11 @@ object LaneCapitalFairness6732 {
         }
         return try {
             val paperMode = mode.trim().equals("PAPER", true)
-            val (sharedCash, sharedEquity) = if (paperMode) {
-                val cap = PaperCapitalAuthority6577.snapshot()
-                cap.availableCashSol to cap.totalEquitySol
+            val sharedEquity = if (paperMode) {
+                PaperCapitalAuthority6577.snapshot().totalEquitySol
             } else {
                 val cap = CanonicalCapitalAuthority6450.snapshot()
-                val eq = cap.cashSol + cap.openMarketValueSol
-                cap.cashSol to eq
+                cap.cashSol + cap.openMarketValueSol
             }
             val positions = CanonicalPositionAuthority6441.openPositions()
             val laneOwned = positions.filter {
