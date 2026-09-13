@@ -6098,3 +6098,37 @@ double-count as new evidence. Cleared on reset().
 ### V5.0.6749 — test fix (indexOf → lastIndexOf for private-function-definition ambiguity)
 
 Coverage: Aate6747TradeQualityBatchTest, Aate6748CausalOwnerExitPolicyAndOutcomeDedupeTest.
+
+## V5.0.6750 (Feb 2026) — ACCOUNTING_ERROR / ACCOUNT_UNAVAILABLE UI root cause
+
+Operator screenshot Feb 2026 showed 'ACCOUNTING ERROR' / 'ACCOUNT
+UNAVAILABLE' painted across every hero surface despite otherwise
+healthy runtime (real trades settled, WR = 64%, balance correct on
+surfaces that didn't gate on the flag).
+
+Root cause: UnifiedAccountSnapshot6635.forSurface() calls
+ForensicReconciliation6635.reconcile6635() on the UI main thread.
+JournalEconomicReplay6619 correctly declines its full replay on the
+main thread (would block the frame) and returns a synthetic result
+with invariantFailures=[MAIN_THREAD_REPLAY_DEFERRED]. That synthetic
+result had reconciled=false, so the reconciler downgraded
+lastReconciledStatus to FAILED on every UI read. The FAILED status
+propagated into healthLine6635 → Status → UI's !=RECONCILED check
+→ 'ACCOUNTING ERROR' label. The ledger was fine; the reconciler
+simply could not verify it from the UI thread.
+
+Fix (ForensicReconciliation6635.reconcile6635):
+  (a) MAIN_THREAD_DEFERRED_GUARD — detect the marker, early-return
+      without touching lastReconciledStatus. Next background pass
+      (Executor / BotService cadence) drives status normally.
+  (b) BOOT_TRIVIAL_RECONCILED — when the ledger is initialized and
+      the journal has 0 paper rows, fast-path to RECONCILED so a
+      fresh boot cannot paint ACCOUNTING ERROR on a hero that has
+      never seen a trade.
+
+Telemetry:
+  FORENSIC_RECONCILE_MAIN_THREAD_DEFERRED_PRESERVED_6750
+  FORENSIC_RECONCILE_BOOT_TRIVIAL_6750
+
+Coverage: Aate6750AccountingReconcileMainThreadGuardTest.
+Build AATE APK ✅ GREEN at V5.0.6750.
