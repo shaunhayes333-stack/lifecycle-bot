@@ -6174,3 +6174,52 @@ Deferred to future batches:
   - P1 lane execution stalls (BLUECHIP/SHITCOIN/CYCLIC → 0 post-FDG)
     needs per-stage pipeline instrumentation
   - P2 EXPRESS bleeder authority alignment tightening
+
+## V5.0.6753-6755 (Feb 2026) — Throughput unblock + autonomy-from-trade-5 + zero-qty root + per-lane stage visibility
+
+Operator screenshot Feb 2026: '50 trades in 1850s ... autonomous
+self-adjusting needs to happen from trade 1, not after 50 shit
+trades'. Analysis of the V5.0.6750 dump surfaced that my own
+V5.0.6747 changes had become the dominant throttles:
+  • EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747 = 1480 (top block)
+  • EXPLORATION_DAMPED_ZERO_SIGNAL_6747 = 1698
+  • EXPLORATION_DAMPED_DUST_PROBE_6747 = 517
+
+### V5.0.6753 — five landings
+§REGIME_FLOOR_RELAXED (RegimeDetector.scoreFloorDelta):
+  CHOP / DUMP delta halved from +10 to +5. Effective admission floor
+  is now 20 (still tighter than base 15) but no longer strangles
+  approved entries.
+
+§DAMPER_LOOSENED (ExecutableOpenGate.probeShouldEmit6747):
+  CHOP / DUMP sampling loosened from 1-in-8 to 1-in-3.
+  DEAD from 1-in-4 to 1-in-2. Storm suppression preserved without
+  starving the learner's evidence supply.
+
+§PROBATION_FROM_TRADE_5 (BleederLaneProbation6747):
+  MIN_WINDOW cut from 15 to 5 so a lane opening 5 straight losses
+  transitions to probe-only immediately. Autonomous adjustment
+  fires early — no more 50 losing trades before EXPRESS gets
+  throttled.
+
+§BUY_ZERO_QTY_FORCE_CLOSE (CanonicalPositionAuthority6441.applyBuyFill):
+  Root fix for 6752's phantom-slot purge. If actualQtyRaw <= 0 on
+  the promote branch, stamp Lifecycle.CLOSED immediately instead
+  of Lifecycle.OPEN. Never opens a slot that cannot generate
+  revenue and cannot be exited. Telemetry:
+  CANONICAL_BUY_ZERO_QTY_FORCE_CLOSE_6753.
+
+§PER_LANE_STAGE_INSTRUMENTATION (ExecutableOpenGate):
+  New STAGE_FDG_INTENT_*_6753 and STAGE_TICKET_REJECT_*_6753 labels
+  expose which stage kills BLUECHIP/SHITCOIN/CYCLIC admissions.
+  Coverage across: PUBLISHED_SIZED, PUBLISHED_ZERO_SIZE,
+  AUTHORITY_EXPIRED, CANONICAL_OCCUPIED, SIZE_INVALID, MARK_INVALID.
+
+### V5.0.6754-6755 — GoldenTapeRegressionTest updates
+Two hard-coded pre-6753 +10 assertions in GoldenTapeRegressionTest
+(lines 4291, 4296, 6634) updated to the new +5 contract. Rationale
+kept in assertion messages so a future regression sees the
+operator directive that drove the change.
+
+Coverage: Aate6753ThroughputAndAutonomyEarlyTest.
+Build AATE APK ✅ GREEN at V5.0.6755 (2562/2562 unit tests).
