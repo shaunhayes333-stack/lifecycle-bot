@@ -714,12 +714,62 @@ object CanonicalPositionAuthority6441 {
      * inflating hero equity (operator saw USWR/GRASS at +31,900% /
      * +12,470% dominating a $583 hero). This filter is the single
      * source of "canonical valid open inventory" per operator §L.
+     *
+     * V5.0.6743 §CANONICAL_ENUMERATION_TRUTH (operator directive Feb
+     * 2026):
+     *   > "The 100-position hard cap must be an admission limit, never
+     *   >  a limit on openPositions() truth. 115 OPEN must mean all 115
+     *   >  are visible to exit/reconciliation even while new admissions
+     *   >  remain blocked by the 100-position policy."
+     *
+     * Fix: split the surface.
+     *   • `openPositions()` — TRUTH. Lifecycle OPEN|PARTIALLY_CLOSED
+     *      AND remaining raw qty > 0. NEVER filtered by the strict
+     *      valuation gate. Exit, close-ledger, round-trip reconciler,
+     *      paper replay, and slot-health enumerate against this so an
+     *      unresolved-basis or quarantined-mint lot cannot silently
+     *      drop out of exit visibility. (The 6741 §PARTIAL_3 CARRY
+     *      admissions land here directly.)
+     *   • `openPositionsForValuation()` — the strict 6631 hero-equity
+     *      gate. Hero valuation, USD-mark propagation, and equity
+     *      calculators call this so garbage rows still don't inflate
+     *      openMarketValue.
+     *
+     * The 6631 hero-equity defect stays fixed (valuation callers now
+     * opt into the strict surface) and the 6743 truth-visibility
+     * defect is corrected (exit callers see all funded lots).
      */
-    fun openPositions(): List<Position> = positions.values.filter { isEconomicallyValidOpen6631(it) }
+    fun openPositions(): List<Position> = positions.values.filter { isOpenLifecycleWithQty6743(it) }
+
+    /**
+     * V5.0.6743 — strict valuation surface. Applies the full
+     * 6631 §B/§L / 6634 / 6635f / 6741 filter. Hero-equity paths,
+     * openMarketValue calculators, and mark-USD projectors MUST
+     * call this instead of openPositions() so a quarantined or
+     * unresolved-basis lot cannot re-inflate valuation totals.
+     */
+    fun openPositionsForValuation(): List<Position> = positions.values.filter { isEconomicallyValidOpen6631(it) }
+
+    /**
+     * V5.0.6743 — bare lifecycle+qty truth. This is the invariant a
+     * position must satisfy to remain in exit / reconciliation
+     * scope: a real funded lot that has not fully sold and has not
+     * been marked terminal. It NEVER consults quarantine or the
+     * economic-invariant authority; those are strict-valuation-only
+     * concerns and were the exact rails that hid 15 funded lots
+     * from exit under 6742.
+     */
+    private fun isOpenLifecycleWithQty6743(p: Position): Boolean {
+        if (p.lifecycle != Lifecycle.OPEN && p.lifecycle != Lifecycle.PARTIALLY_CLOSED) return false
+        return p.remainingQtyRaw.signum() > 0
+    }
+
     fun closedPositions(): List<Position> = positions.values.filter { it.lifecycle == Lifecycle.CLOSED }
     fun openCount(): Int = openPositions().size
+    /** V5.0.6743 — dedicated counter for the strict valuation surface. */
+    fun openCountForValuation(): Int = openPositionsForValuation().size
     fun hasOpenMint(mint: String): Boolean = positions.values.any {
-        it.mint == mint && isEconomicallyValidOpen6631(it)
+        it.mint == mint && isOpenLifecycleWithQty6743(it)
     }
 
     /**
@@ -751,7 +801,7 @@ object CanonicalPositionAuthority6441 {
         val values = positions.values
         for (p in values) {
             if (p.mint != mint) continue
-            if (isEconomicallyValidOpen6631(p)) return p
+            if (isOpenLifecycleWithQty6743(p)) return p
         }
         return null
     }

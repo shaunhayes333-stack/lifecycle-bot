@@ -18460,6 +18460,13 @@ if (hotExitHandledSweep) {
 
     private fun reapPaperForcedOpen(forcedOpenRaw: List<String>): List<String> {
         try { com.lifecyclebot.engine.PositionCloseLedger.prune() } catch (_: Throwable) {}
+        // V5.0.6743 §CLOSE_LEDGER_RECONSTRUCT — before we consult the
+        // ledger for forced-row cleanup, first backfill any canonical
+        // CLOSED positions whose ledger stamp was missed by the
+        // per-Executor projection path. The 6742 dump had 42 canonical
+        // closes with ZERO ledger stamps, which kept every forced-row
+        // "closed?" probe returning false and pinned forced=100/open=100.
+        try { com.lifecyclebot.engine.PositionCloseLedger.reconstructFromCanonical6743("paper") } catch (_: Throwable) {}
         val paperOpen = currentPaperOpenMintsFromLedger()
         val clean = forcedOpenRaw.filter { mint ->
             val closed = try { com.lifecyclebot.engine.PositionCloseLedger.isClosed(mint) } catch (_: Throwable) { false }

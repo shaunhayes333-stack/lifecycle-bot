@@ -225,6 +225,65 @@ object PositionCloseLedger {
         }
     }
 
+    /**
+     * V5.0.6743 §CLOSE_LEDGER_RECONSTRUCT_FROM_CANONICAL — operator
+     * directive Feb 2026:
+     *   > "Rebuild CLOSED stamps from canonical terminal state."
+     *
+     * The 6742 dump surfaced 42 canonical Lifecycle.CLOSED positions
+     * for which this ledger held ZERO stamps, which in turn kept
+     * slot-health at forced=100/open=100 and drove 460 CASH_STARVED_EXIT
+     * plus 111 POSITION_HARD_CAP_EXIT throttles. Root cause: the paper
+     * mirror stamps CLOSED lifecycle via `ExecutorCanonicalMirror6442`,
+     * but the projection convergence sites are per-Executor sell — a
+     * canonical close reached via a different path (recovery replay,
+     * OwnerLane restore, terminal reducer) leaves this ledger unstamped.
+     *
+     * Reconstructor pass: walk canonical `closedPositions()` for the
+     * given mode; for each mint whose `lastMutationMs` is inside the
+     * ledger TTL and which is NOT already stamped here, stamp it
+     * synthetically with a canonical-derived reason. NEVER mutates
+     * P&L, wallet, or lot ledgers — pure metadata reconstruction.
+     * Returns the number of newly-stamped mints so the caller can
+     * observe the reconstruction rate.
+     */
+    fun reconstructFromCanonical6743(mode: String = "paper"): Int {
+        val now = System.currentTimeMillis()
+        val recent = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.closedPositions()
+                .filter { it.mode.equals(mode, ignoreCase = true) }
+                .filter { (now - it.lastMutationMs) < CLOSE_TTL_MS }
+        } catch (_: Throwable) { emptyList() }
+        if (recent.isEmpty()) return 0
+        var stamped = 0
+        for (p in recent) {
+            val mint = p.mint
+            if (mint.isBlank()) continue
+            if (closed.containsKey(mint)) continue
+            // Synthesize a stamp-eligible reason so the reject deny-list
+            // does not swallow it. Carries the canonical positionId so
+            // downstream forensic tools can trace the reconstruction.
+            val reason = "CANONICAL_TERMINAL_RECONSTRUCT_6743:${p.positionId.take(12)}"
+            val id = "R${p.lastMutationMs}_${mint.take(6)}"
+            closed[mint] = CloseRecord(
+                mint = mint, closeId = id, closedAtMs = p.lastMutationMs,
+                reason = reason.take(40), pnlPct = 0,
+                source = "CANONICAL_RECONSTRUCT_6743",
+            )
+            try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed(mode.lowercase(), mint) } catch (_: Throwable) {}
+            stamped++
+        }
+        if (stamped > 0) try {
+            PipelineHealthCollector.labelInc("POSITION_CLOSE_LEDGER_RECONSTRUCTED_FROM_CANONICAL_6743")
+            repeat(stamped) { PipelineHealthCollector.labelInc("POSITION_CLOSE_LEDGER_RECONSTRUCTED_FROM_CANONICAL_STAMPS_6743") }
+            ForensicLogger.lifecycle(
+                "POSITION_CLOSE_LEDGER_RECONSTRUCTED_FROM_CANONICAL_6743",
+                "mode=${mode.lowercase()} newlyStamped=$stamped ttlWindowMs=$CLOSE_TTL_MS action=fill_missing_ledger_stamps_from_canonical_terminal",
+            )
+        } catch (_: Throwable) {}
+        return stamped
+    }
+
     fun size(): Int = closed.size
 
     /** Diagnostic snapshot for the health dump. */
