@@ -1,0 +1,53 @@
+name: V5.0.6756 Cyclic Source Patch
+
+on:
+  push:
+    branches:
+      - fix/6756-pipeline-recovery
+
+permissions:
+  contents: write
+
+jobs:
+  patch-cyclic-owner:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/6756-pipeline-recovery
+          fetch-depth: 0
+
+      - name: Patch CYCLIC FDG specialist ownership at source
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt')
+          text = path.read_text()
+          old = '''                tradingModeTag = try { ModeSpecificGates.fromTradingMode("CYCLIC") } catch (_: Throwable) { null },
+            )'''
+          new = '''                tradingModeTag = try { ModeSpecificGates.fromTradingMode("CYCLIC") } catch (_: Throwable) { null },
+                // V5.0.6756 — the legacy TradingModeTag is diagnostic context,
+                // not specialist ownership. Seal CYCLIC explicitly so FDG,
+                // ExecutionDecisionSnapshot, TradeAuthorizer and the immutable
+                // execution ticket all carry the same owner lane.
+                specialistLane = "CYCLIC",
+            )'''
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f'expected exactly one CYCLIC FDG call to patch, found {count}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+
+          grep -n -A8 -B3 'specialistLane = "CYCLIC"' lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt
+
+      - name: Commit causal repair and remove one-shot patch workflow
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt
+          git rm .github/workflows/patch-6756-cyclic.yml
+          git commit -m 'V5.0.6756: seal CYCLIC as explicit FDG specialist owner'
+          git push origin HEAD:fix/6756-pipeline-recovery
