@@ -12,7 +12,7 @@ import java.io.File
  *  - lane-local capital headroom must not collapse at 90% utilisation;
  *  - normal ~50-position inventory must not stack a global turnover choke;
  *  - collapsed EXPRESS must enter earned-recovery execution;
- *  - CYCLIC must have an explicit execution-election identity/priority;
+ *  - CYCLIC must publish an explicit specialist owner at FDG;
  *  - all paper UI economics must come from one immutable journal revision;
  *  - observation freshness may be 300s while executable freshness remains 120s.
  */
@@ -40,20 +40,22 @@ class Aate6756PipelineRecoveryTest {
     @Test
     fun `express collapsed lane must earn economic execution back`() {
         val bucket = src("engine/BucketExecutionState.kt")
-        val election = src("engine/LaneExecutionCoordinator.kt")
         assertTrue(bucket.contains("EXPRESS_RECOVERY_MIN_TRADES = 5"))
         assertTrue(bucket.contains("EXPRESS_RECOVERY_MAX_WR_PCT = 20.0"))
         assertTrue(bucket.contains("EXPRESS_RECOVERY_SCORE_FLOOR = 70"))
         assertTrue(bucket.contains("expressRecoveryShadow6756"))
-        assertTrue(election.contains("learnedPenalty6756"))
-        assertTrue(election.contains("LaneExpectancyDamper.sizeMultiplier(\"EXPRESS\")"))
+        assertTrue(bucket.contains("computeCleanPaperTerminalLeaderboard"))
+        assertTrue(bucket.contains("computeCleanLiveTerminalLeaderboard"))
     }
 
     @Test
-    fun `cyclic is explicit execution specialist not fallback lane`() {
-        val election = src("engine/LaneExecutionCoordinator.kt")
-        assertTrue(election.contains("\"CYCLIC\" to 88"))
-        assertFalse(election.contains("\"CYCLIC\" to 50"))
+    fun `cyclic FDG seals the real specialist owner before authorizer`() {
+        val cyclic = src("engine/CyclicTradeEngine.kt")
+        val fdgBlock = cyclic.substringAfter("val cyclicFdg = try")
+            .substringBefore("ExecutableOpenGate.recordFdg")
+        assertTrue(fdgBlock.contains("FinalDecisionGate.evaluate"))
+        assertTrue(fdgBlock.contains("specialistLane = \"CYCLIC\""))
+        assertTrue(cyclic.indexOf("FinalDecisionGate.evaluate") < cyclic.indexOf("TradeAuthorizer.authorize"))
     }
 
     @Test
