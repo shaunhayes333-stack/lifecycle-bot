@@ -19340,6 +19340,30 @@ class Executor(
         val edgeExitHoldMs4532 = try { (System.currentTimeMillis() - ts.position.entryTime).coerceAtLeast(0L) } catch (_: Throwable) { 0L }
         val edgeExitLane4532 = try { ts.position.tradingMode.ifBlank { resolveExecutionLane(ts, fallback = "STANDARD") } } catch (_: Throwable) { "STANDARD" }
         try { LearningLifecycleBus.exitDecision("requestSell.intent", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "INTENT", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Throwable) {}
+        // V5.0.6752 §EXIT_INTENT_STAMPING_WIRED — operator 6750 diagnostic:
+        //   > "formal exit gate shows only 6 allows ... specialist causal
+        //   >  funnels show almost no normal exit= transitions"
+        // Root: ExitTelemetryStamper6732.noteExitIntent was defined but
+        // NEVER called anywhere. The stamping surface existed for two
+        // versions with zero call sites, so every exit surfaced only
+        // as a NO_INTENT terminal — 174 real sells produced only 6 gate
+        // allows on the operator's dump. Wire the stamp here at
+        // requestSell.INTENT so every exit decision (protective / hard-
+        // stop / profit-lock / catastrophic / cross-asset) is visible
+        // on the formal EXIT_GATE_ALLOWED_* counters.
+        try {
+            val ru = requestReason.uppercase()
+            val cls6752 = when {
+                ru.contains("CATASTROPHIC") || ru.contains("PANIC") || ru.contains("RUG") ->
+                    com.lifecyclebot.engine.truth.StopLatencyClasses6464.Class.CATASTROPHIC_EXIT
+                ru.contains("HARD_FLOOR") || ru.contains("HARD_STOP") ->
+                    com.lifecyclebot.engine.truth.StopLatencyClasses6464.Class.HARD_STOP
+                ru.contains("TRAIL") ->
+                    com.lifecyclebot.engine.truth.StopLatencyClasses6464.Class.TRAILING_STOP
+                else -> com.lifecyclebot.engine.truth.StopLatencyClasses6464.Class.NORMAL_STOP
+            }
+            com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.noteExitIntent(ts.position.positionId, cls6752)
+        } catch (_: Throwable) {}
         // V5.0.3801 — PAPER source guard before any executor activity.
         // requestSell() has many upstream callers (main loop, backup sweeps,
         // stale/rug escape paths). If a paper mint already has CLOSE_REQUESTED /

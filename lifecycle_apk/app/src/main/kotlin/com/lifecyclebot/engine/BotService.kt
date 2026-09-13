@@ -18474,6 +18474,12 @@ if (hotExitHandledSweep) {
 
     private fun reapPaperForcedOpen(forcedOpenRaw: List<String>): List<String> {
         try { com.lifecyclebot.engine.PositionCloseLedger.prune() } catch (_: Throwable) {}
+        // V5.0.6752 §ZERO_QTY_LIFECYCLE_PURGE — before consulting canonical
+        // for close reconstruction, drain any lot whose remainingQtyRaw
+        // has collapsed to 0 while its lifecycle is still OPEN /
+        // PARTIALLY_CLOSED. Operator 6750 telemetry surfaced 8 such
+        // phantom rows pinning the count and blocking admission.
+        try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.purgeZeroQtyLifecycleOpens6752() } catch (_: Throwable) {}
         // V5.0.6743 §CLOSE_LEDGER_RECONSTRUCT — before we consult the
         // ledger for forced-row cleanup, first backfill any canonical
         // CLOSED positions whose ledger stamp was missed by the

@@ -1334,6 +1334,50 @@ object CanonicalPositionAuthority6441 {
         return LifecycleClassification(total = snapshot.size, byLifecycle = counts, unaccounted = unaccounted)
     }
 
+    /**
+     * V5.0.6752 §ZERO_QTY_LIFECYCLE_PURGE — operator diagnostic Feb 2026:
+     *   > "8 canonical opens with zero entry quantity"
+     * Positions with lifecycle in {OPEN, PARTIALLY_CLOSED} but a raw
+     * quantity of ZERO cannot generate revenue and cannot be exited;
+     * they're pure phantom slots pinning the count. Sweep any such
+     * row older than STALE_ZERO_QTY_MS to Lifecycle.CLOSED so the
+     * count converges with the real live-inventory truth surfaced
+     * by openPositions().
+     *
+     * Never touches raw quantity, price basis, realized P&L, or
+     * cash. Purely a lifecycle-flag reclassification for rows the
+     * position invariant has already declared drained.
+     */
+    private const val STALE_ZERO_QTY_MS_6752 = 60_000L
+    fun purgeZeroQtyLifecycleOpens6752(): Int {
+        val now = System.currentTimeMillis()
+        var purged = 0
+        lock.lock()
+        try {
+            val victims = positions.values.filter {
+                (it.lifecycle == Lifecycle.OPEN || it.lifecycle == Lifecycle.PARTIALLY_CLOSED) &&
+                    it.remainingQtyRaw.signum() <= 0 &&
+                    (now - it.lastMutationMs) >= STALE_ZERO_QTY_MS_6752
+            }.map { it.positionId }
+            for (pid in victims) {
+                val prior = positions[pid] ?: continue
+                positions[pid] = prior.copy(
+                    lifecycle = Lifecycle.CLOSED,
+                    lastMutationMs = now,
+                )
+                purged++
+            }
+        } finally { lock.unlock() }
+        if (purged > 0) try {
+            PipelineHealthCollector.labelInc("CANONICAL_ZERO_QTY_LIFECYCLE_PURGE_6752")
+            ForensicLogger.lifecycle(
+                "CANONICAL_ZERO_QTY_LIFECYCLE_PURGE_6752",
+                "purged=$purged staleMs=$STALE_ZERO_QTY_MS_6752 action=stamp_closed_on_drained_lots",
+            )
+        } catch (_: Throwable) {}
+        return purged
+    }
+
     internal fun resetForTest() {
         lock.lock()
         try {

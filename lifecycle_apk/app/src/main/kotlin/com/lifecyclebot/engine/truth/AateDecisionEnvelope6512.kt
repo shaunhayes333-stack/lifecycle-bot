@@ -151,7 +151,20 @@ object AateDecisionFabric6512 {
             // uses safe defaults.
             try {
                 val ledgerLane6747 = LaneAttributionLedger6427.getEntryLane(env.positionId)
-                if (!ledgerLane6747.isNullOrBlank() && ledgerLane6747.equals(env.lane, true)) {
+                if (!ledgerLane6747.isNullOrBlank()) {
+                    // V5.0.6752 §CAUSAL_OWNER_LEDGER_TRUTH — operator
+                    // 6750 diagnostic: UNRESOLVED_OWNER_6741=85 and
+                    // Strategy Expectancy / Math Edge disagree on the
+                    // same cohort (+689% mean vs -28.8% avg). Even
+                    // when env.lane disagrees with the ledger stamp,
+                    // LaneAttributionLedger6427 is the authoritative
+                    // owner recorded at BUY-pending registration — a
+                    // bind against the ledger owner is more correct
+                    // than a bind against the potentially-inferred
+                    // env.lane. Prefer the ledger owner UNCONDITIONALLY
+                    // when it exists; env.lane match is no longer a
+                    // gate, only a diagnostic.
+                    val laneAgree6752 = ledgerLane6747.equals(env.lane, true)
                     val bound6747 = try {
                         UnifiedPolicyHead.bindDecisionFallback6713(
                             positionId = env.positionId, mint = env.mint,
@@ -164,10 +177,14 @@ object AateDecisionFabric6512 {
                     if (bound6747) {
                         PipelineHealthCollector.labelInc("CAUSAL_OWNER_ATTRIBUTION_LEDGER_FALLBACK_6747")
                         PipelineHealthCollector.labelInc("CAUSAL_OWNER_ATTRIBUTION_LEDGER_FALLBACK_6747|${ledgerLane6747.uppercase()}")
+                        if (!laneAgree6752) {
+                            PipelineHealthCollector.labelInc("CAUSAL_OWNER_LEDGER_TRUTH_OVERRIDE_ENV_LANE_6752")
+                        }
                         ForensicLogger.lifecycle(
-                            "CAUSAL_OWNER_ATTRIBUTION_LEDGER_FALLBACK_6747",
+                            if (laneAgree6752) "CAUSAL_OWNER_ATTRIBUTION_LEDGER_FALLBACK_6747"
+                                else "CAUSAL_OWNER_LEDGER_TRUTH_OVERRIDE_ENV_LANE_6752",
                             "positionId=${env.positionId.take(18)} envLane=${env.lane} ledgerLane=$ledgerLane6747 " +
-                                "action=fallback_bind_to_ledger_owner",
+                                "laneAgree=$laneAgree6752 action=bind_specialist_to_ledger_owner",
                         )
                     }
                 }
