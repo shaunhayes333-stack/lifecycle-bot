@@ -6044,3 +6044,57 @@ after the sizer resolves the preliminary 0.0-sized intent) was hit by
 the dedup. Fix: dedup now bypasses immediately when resolvedSizeSol>0.
 Scanner-storm re-hydrations still fire with resolvedSizeSol=0.0 and
 remain deduped as designed.
+
+## V5.0.6747-6749 (Feb 2026) — Operator 6746 diagnostic: 7-action trade-quality tuning batch
+
+Operator diagnostic on V5.0.6746 identified 7 trade-quality tuning
+actions in ordered priority. All 7 landed across V5.0.6747-6749.
+Build AATE APK ✅ GREEN at V5.0.6749 with 2549/2549 unit tests
+passing. The runtime was declared healthy — no throughput / cadence
+changes; entirely trade-quality reward-surface repair.
+
+### V5.0.6747 — Batch #1-#4
+§PROMOTION_QUALITY_GATES (#1, StrategyHypothesisEngine): promotion
+paths now refuse a size-bump when pWin<25% or pRug>50%. Kills the
+smoking gun (17% pWin / 64% pRug → sizeBias 1.10). Arm now tracks
+wins/losses/rugs; rug threshold pnl <= -80%. Both proveCtrlEdge
+auto-promote and variant→baseline paths gated.
+
+§REGIME_FLOOR_AUTHORITATIVE (#2, ExecutableOpenGate): CHOP's +10
+score-floor delta now applied at the sealed admission check
+(base=15). CHOP/DUMP entries below the raised floor refused
+BEFORE canOpenExecutablePositionInternal.
+
+§EXPLORATION_DAMPER_ON_WR_COLLAPSE (#3, ExecutableOpenGate +
+BotService): probeShouldEmit6747 samples DUST_PROBE and
+ZERO_SIGNAL_PROBE 1-in-8 in CHOP/DUMP so the WR-collapsed learner
+stops drowning in WAIT candidates.
+
+§BLEEDER_LANE_PROBATION (#4, new BleederLaneProbation6747): per-lane
+sliding-window WR authority. Lanes with WR<20% over ≥15 trades
+enter probation → only ≤0.02 SOL probes admit; regular size
+refused. Recovery when window WR ≥30%. PROJECT_SNIPER, TREASURY,
+CASHGEN exempt. Wired into TacticSwitcher.onTradeClosed (feed) and
+ExecutableOpenGate (admission gate).
+
+### V5.0.6748 — Batch #5-#7
+§CAUSAL_OWNER_ATTRIBUTION_REPAIR (#5, AateDecisionEnvelope6512):
+when the AATE envelope is missing on onFinalized, fall back to
+LaneAttributionLedger6427.getEntryLane and drive
+UnifiedPolicyHead.bindDecisionFallback6713 against the ledger owner.
+Requires ledger-lane == env.lane match so no cross-lane
+misattribution. Kills specialistLearningMissing=92 root cause.
+
+§EXIT_TUNER_RESOLVED_AUTHORITY (#6, LaneExitTuner): getTpMult /
+getSlMult no longer multiply closed-loop × replay. Closed-loop
+authoritative once matured (n >= MIN_SAMPLE); replay only during
+bootstrap. Resolves the TP×0.72/×1.10 conflict.
+
+§PER_CANDIDATE_LEARNING_COALESCE (#7, StrategyHypothesisEngine):
+settledOnceGuard6747 dedups repeat recordOutcome calls for the
+same mint. Recovery replay / terminal reconstruction cannot
+double-count as new evidence. Cleared on reset().
+
+### V5.0.6749 — test fix (indexOf → lastIndexOf for private-function-definition ambiguity)
+
+Coverage: Aate6747TradeQualityBatchTest, Aate6748CausalOwnerExitPolicyAndOutcomeDedupeTest.
