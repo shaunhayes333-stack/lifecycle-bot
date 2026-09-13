@@ -303,7 +303,32 @@ object JournalEconomicReplay6619 {
             val ledgerCash = PaperCapitalAuthority6577.cashSol()
             val delta = ledgerCash - cash
             ledgerDivergenceLast.set(delta)
-            if (kotlin.math.abs(delta) > 0.001) {
+            // V5.0.6751 §LEGACY_DIVERGENCE_SUPERSEDED_BY_CANONICAL — operator
+            // diagnostic Feb 2026:
+            //   > "Canonical correctness balances exactly: replay has
+            //   >  cashΔ=0, realizedΔ=0, openCostΔ≈0. Yet the older
+            //   >  forensic reconciler reports wallet 20.376 vs
+            //   >  expected ≤15.263 ... 2,692 PAPER_LEDGER_VS_JOURNAL
+            //   >  _DIVERGENCE events ... six execution attempts were
+            //   >  still blocked by PAPER_LEDGER_DIVERGENCE_6731. So
+            //   >  stale/noncanonical accounting diagnostics are still
+            //   >  leaking into execution authority."
+            // The V5.0.6619 journal replay is a whole-history walk; a
+            // V5.0.6464 canonical replay is the authoritative same-
+            // revision snapshot. When the canonical replay reports
+            // clean (cash/realized/open-cost deltas all within tolerance
+            // AND no revision race), the older whole-history divergence
+            // is superseded — do NOT emit the divergence label or drive
+            // the guard from it. Emit a dedicated superseded label so
+            // the operator can measure the frequency.
+            val canonicalSupersedes6751 = try {
+                val p = com.lifecyclebot.engine.truth.CanonicalPaperReplay6464.lastParity()
+                p != null && !p.revisionRaceObserved &&
+                    kotlin.math.abs(p.cashDelta) <= 0.001 &&
+                    kotlin.math.abs(p.realizedDelta) <= 0.001 &&
+                    kotlin.math.abs(p.openCostDelta) <= 0.01
+            } catch (_: Throwable) { false }
+            if (kotlin.math.abs(delta) > 0.001 && !canonicalSupersedes6751) {
                 PipelineHealthCollector.labelInc("PAPER_LEDGER_VS_JOURNAL_DIVERGENCE_6619")
                 ForensicLogger.lifecycle(
                     "PAPER_LEDGER_VS_JOURNAL_DIVERGENCE_6619",
@@ -311,6 +336,8 @@ object JournalEconomicReplay6619 {
                         "delta=${"%.6f".format(delta)} paperRows=$totalRows buys=$buys sells=$sells partials=$partials " +
                         "action=fail_closed_retain_last_reconciled_account",
                 )
+            } else if (kotlin.math.abs(delta) > 0.001 && canonicalSupersedes6751) {
+                PipelineHealthCollector.labelInc("PAPER_LEDGER_VS_JOURNAL_DIVERGENCE_SUPERSEDED_BY_CANONICAL_6751")
             } else {
                 PipelineHealthCollector.labelInc("PAPER_LEDGER_JOURNAL_PARITY_HEALTHY_6619")
             }
