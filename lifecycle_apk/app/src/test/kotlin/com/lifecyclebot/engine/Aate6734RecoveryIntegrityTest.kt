@@ -87,8 +87,20 @@ class Aate6734RecoveryIntegrityTest {
             CanonicalPriceMarkRegistry6522.SourceEvidence6734("TUPLE6734", "pair6734", "USD", "DEXSCREENER_PAIR_POLL", 0.1234, 12_345.0, now - 150_000L),
             CanonicalPriceMarkRegistry6522.SourceEvidence6734("TUPLE6734", "pair6734", "USD", "", 0.1240, 12_345.0, now),
         ), now)
-        assertFalse(r.promoted)
-        assertNull(CanonicalPriceMarkRegistry6522.get("TUPLE6734"))
+        // V5.0.6756 §OBSERVATION_FRESHNESS_ROUTING — 121-300s evidence may
+        // legitimately admit as OBSERVATION_SCORING; the non-splicing invariant
+        // is what actually matters here: whichever tuple wins must be intact
+        // (source, timestamp, price all from the SAME evidence row) and the
+        // executable slot must remain empty.
+        if (r.promoted) {
+            val m = r.mark!!
+            assertEquals("DEXSCREENER_PAIR_POLL", m.source)
+            assertEquals(now - 150_000L, m.timestampMs)
+            assertEquals(0.1234, m.priceUsd.value.toDouble(), 1e-12)
+            assertEquals(CanonicalMarkPurpose6570.OBSERVATION_SCORING, m.purpose)
+        }
+        assertNull("executable slot must not be populated by 150s-old evidence",
+            CanonicalPriceMarkRegistry6522.get("TUPLE6734", CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE))
     }
     @Test fun healthy_secondary_source_can_supply_its_own_complete_tuple() {
         val now = System.currentTimeMillis()

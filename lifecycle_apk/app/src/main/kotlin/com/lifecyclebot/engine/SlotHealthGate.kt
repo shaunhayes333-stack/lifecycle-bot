@@ -200,8 +200,10 @@ object SlotHealthGate {
             val stuckSince = forcedStuckSinceMs.get()
             val stuckMs = if (stuckSince > 0L) System.currentTimeMillis() - stuckSince else 0L
             if (paperRuntime6692) {
-                // Forced PAPER count is diagnostic/cleanup state, not a hard gate.
-                // Continue into the independent adaptive cadence below.
+                // V5.0.6692 §PAPER_FORCED_OPEN_FAIL_OPEN — forced PAPER count is
+                // diagnostic/cleanup state, not a hard gate. Do not defer here;
+                // the independent adaptive cadence below is the only turnover
+                // control (see 6709/6756 docblock at file top).
                 try {
                     PipelineHealthCollector.labelInc("PAPER_FORCED_OPEN_ADVISORY_6709")
                 } catch (_: Throwable) {}
