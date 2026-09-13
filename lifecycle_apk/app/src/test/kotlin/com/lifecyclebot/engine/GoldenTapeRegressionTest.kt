@@ -4289,12 +4289,12 @@ class GoldenTapeRegressionTest {
             relaxer.contains("computeCleanLiveTerminalLeaderboard") && relaxer.contains("refreshLiveWrCache"))
 
         val regime = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RegimeDetector.kt").readText()
-        assertTrue("V5.0.4528: DUMP scoreFloorDelta must be recovery +10, not global starvation +20",
-            regime.contains("Regime.DUMP         -> +10"))
+        assertTrue("V5.0.6753: DUMP scoreFloorDelta relaxed from +10 to +5 (autonomous adjustment now via bleeder probation, not floor starvation)",
+            regime.contains("Regime.DUMP         -> +5"))
         assertTrue("V5.0.4528: DUMP sizeMultiplier must be recovery 0.35, not live dust 0.10",
             regime.contains("Regime.DUMP         -> 0.35"))
-        assertTrue("CHOP scoreFloorDelta must be +10 (was +5)",
-            regime.contains("Regime.CHOP         -> +10"))
+        assertTrue("V5.0.6753: CHOP scoreFloorDelta relaxed from +10 to +5",
+            regime.contains("Regime.CHOP         -> +5"))
         assertTrue("CHOP sizeMultiplier must be 0.35 (was 0.65)",
             regime.contains("Regime.CHOP         -> 0.35"))
         assertTrue("V5.0.4081: no bootstrap in live — low-sample path returns Regime.NORMAL (size×=1.0, no penalty)",
