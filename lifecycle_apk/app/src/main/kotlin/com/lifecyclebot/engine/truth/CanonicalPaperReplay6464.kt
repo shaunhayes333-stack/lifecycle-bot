@@ -301,6 +301,54 @@ object CanonicalPaperReplay6464 {
             }
         }
         val qtyMismatches = snap.perMintRemainingQty.values.count { it < BigInteger.ZERO }
+        // V5.0.6743 §OPEN_COST_SAME_LOT_SET (operator directive Feb
+        //   2026): "make journal replay operate on the same run/epoch/
+        //   mode/current-open lot set as the canonical ledger". The
+        //   6742 dump surfaced openCostΔ = 14.68 SOL from a replay that
+        //   was accumulating open-cost lines for mints CLOSED via
+        //   out-of-band paths (recovery replay, terminal reducer, owner-
+        //   lane restore) — the ledger no longer carries those lots but
+        //   the replay total does. Repair: recompute openCostDelta
+        //   SCOPED to the canonical live-open lot set. Mints that
+        //   canonical no longer holds contribute 0 to the parity
+        //   comparison. The raw historical open-cost is kept for
+        //   diagnostics via divergenceTag6724 but never used to
+        //   hard-stop the divergence guard.
+        val canonicalLiveMints6743 = try {
+            CanonicalPositionAuthority6441.activeMintProjections6490("paper")
+                .filter { it.remainingQtyRaw > BigInteger.ZERO }
+                .associateBy { it.mint }
+        } catch (_: Throwable) { emptyMap() }
+        val replayOpenCostScoped6743 = snap.perMintRemainingCostSol.entries
+            .filter { canonicalLiveMints6743.containsKey(it.key) }
+            .sumOf { it.value.coerceAtLeast(0.0) }
+        val ledgerOpenCostScoped6743 = canonicalLiveMints6743.values
+            .sumOf { it.remainingCostBasisSol.coerceAtLeast(0.0) }
+        // If the ledger reports the same open-cost we scope-computed
+        // (the canonical projection agrees with the ledger authority),
+        // the scoped delta IS the authoritative open-cost delta and the
+        // raw openDelta becomes a diagnostic. If they disagree it's a
+        // deeper canonical-vs-ledger drift and the raw openDelta stays
+        // authoritative for admission gating so we never soft-hide a
+        // real ledger drift.
+        val scopedLedgerAgreesLedger6743 =
+            ledgerOpen.isFinite() && kotlin.math.abs(ledgerOpenCostScoped6743 - ledgerOpen) <= toleranceSol
+        if (scopedLedgerAgreesLedger6743) {
+            val scopedOpenDelta6743 = replayOpenCostScoped6743 - ledgerOpenCostScoped6743
+            if (kotlin.math.abs(scopedOpenDelta6743) < kotlin.math.abs(openDelta)) {
+                try {
+                    PipelineHealthCollector.labelInc("PAPER_REPLAY_OPEN_COST_SCOPED_TO_LIVE_SET_6743")
+                    ForensicLogger.lifecycle(
+                        "PAPER_REPLAY_OPEN_COST_SCOPED_TO_LIVE_SET_6743",
+                        "rawOpenΔ=${"%.4f".format(openDelta)} scopedOpenΔ=${"%.4f".format(scopedOpenDelta6743)} " +
+                            "replayScoped=${"%.4f".format(replayOpenCostScoped6743)} " +
+                            "ledgerScoped=${"%.4f".format(ledgerOpenCostScoped6743)} " +
+                            "liveMints=${canonicalLiveMints6743.size} action=replace_raw_with_live_scoped_delta",
+                    )
+                } catch (_: Throwable) {}
+                openDelta = scopedOpenDelta6743
+            }
+        }
         // V5.0.6742 §DIRECTIVE_4 — sample journal revision AGAIN after
         // the ledger read + any carry reconcile. If it drifted, a real
         // economic mutation raced the compare and the parity we just

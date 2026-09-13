@@ -998,6 +998,45 @@ object ExecutableOpenGate {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.6743 §FDG_PRE_DECISION_DEDUP (operator directive Feb 2026):
+     *   > "dedupe a candidate generation BEFORE authoritative FDG
+     *   >  rather than after it."
+     *
+     * 6742 dump: SPECIALIST_ARBITER accepted=1974 dupLane=2834 —
+     * every scanner tick that re-hydrated an already-watching mint
+     * pushed a fresh FDG evaluation for the SAME (mint, candidateVersion,
+     * lane) triple. Only the arbiter's dupLane counter noticed; the
+     * expensive V3/FDG/mark/sizing work had already run.
+     *
+     * Cache keyed by (mint, candidateVersion, lane) → last-decision-ms.
+     * If a recordFdg() call arrives inside the dedup window for the
+     * same triple, short-circuit BEFORE we do any FDG work. TTL kept
+     * short (750ms) so a legitimately new evaluation cycle (>= ~1s
+     * apart) always re-runs; scanner storms firing 3-8 hits per second
+     * per mint get suppressed. Never applies to different candidate
+     * versions or different lanes — genuine parallel-lane submissions
+     * still land at the arbiter as designed.
+     */
+    private data class FdgDedupKey6743(val mint: String, val candidateVersion: Long, val lane: String)
+    private val fdgDedupLastMs6743 = ConcurrentHashMap<FdgDedupKey6743, Long>()
+    private const val FDG_DEDUP_TTL_MS_6743 = 750L
+    private const val FDG_DEDUP_MAX_KEYS_6743 = 4096
+
+    private fun fdgDedupShouldSkip6743(mint: String, candidateVersion: Long, lane: String): Boolean {
+        val key = FdgDedupKey6743(mint, candidateVersion, canonicalLane(lane))
+        val now = System.currentTimeMillis()
+        val prev = fdgDedupLastMs6743[key]
+        if (prev != null && (now - prev) < FDG_DEDUP_TTL_MS_6743) return true
+        fdgDedupLastMs6743[key] = now
+        if (fdgDedupLastMs6743.size > FDG_DEDUP_MAX_KEYS_6743) {
+            // Bounded prune: drop anything older than 2× TTL.
+            val cutoff = now - 2L * FDG_DEDUP_TTL_MS_6743
+            fdgDedupLastMs6743.entries.removeIf { it.value < cutoff }
+        }
+        return false
+    }
+
     fun recordFdgAndGetIntent6533(
         mint: String, symbol: String, lane: String, canExecute: Boolean, reason: String?,
         signal: String = "BUY", rugScore: Int = -1, safetyTier: String = "UNKNOWN",
@@ -1101,6 +1140,17 @@ object ExecutableOpenGate {
         resolvedSizeSol6558: Double = 0.0,
     ) {
         val paperRuntime = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        // V5.0.6743 §FDG_PRE_DECISION_DEDUP — skip repeat evaluations
+        // for the same (mint, candidateVersion, lane) within the dedup
+        // TTL. Runs BEFORE any FDG work so scanner-storm hydrations
+        // don't burn V3/FDG cycles on redundant proposals.
+        if (fdgDedupShouldSkip6743(mint, candidateVersion, lane)) {
+            try {
+                PipelineHealthCollector.labelInc("FDG_PRE_DECISION_DEDUP_SKIP_6743")
+                PipelineHealthCollector.labelInc("FDG_PRE_DECISION_DEDUP_SKIP_6743_${canonicalLane(lane).uppercase()}")
+            } catch (_: Throwable) {}
+            return
+        }
         if (isShadowReadOnlyLane6487(lane) && !allowTrunkExecutionHandoff6533) {
             try {
                 PipelineHealthCollector.labelInc("SHADOW_LANE_FDG_SUPPRESSED_6487_${lane.uppercase()}")

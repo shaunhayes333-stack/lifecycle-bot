@@ -41,13 +41,36 @@ object CanonicalPriceMarkRegistry6522 {
      * the execution freshness contract.
      */
     const val MARK_FRESHNESS_WINDOW_MS_6739 = 120_000L
+    /**
+     * V5.0.6743 §OBSERVATION_FRESHNESS_ROUTING — operator directive
+     * Feb 2026 diagnostic:
+     *   > "missingExecutableMarkWithValidSource=966, up from 262
+     *   >  yesterday. SHITCOIN/CYCLIC/PROJECT_SNIPER reach FDG then
+     *   >  die before ticket creation."
+     *
+     * Root: `resolveBestSourceEvidence6734` was rejecting evidence
+     * 121-300s stale outright even though the class comment already
+     * documented the intent as "route 121-300s old evidence to
+     * OBSERVATION_SCORING, not widen the execution freshness contract".
+     * `getFresh6734` also enforced 120s on the observation slot, so
+     * even a successfully-published observation was invisible to the
+     * paper mark-OK check the moment its underlying timestamp aged
+     * past 120s. Fix: keep EXECUTABLE_ENTRY_QUOTE strict at 120s
+     * (live execution never widens); widen OBSERVATION_SCORING to
+     * 300s so paper trades can proceed on provisional evidence when
+     * providers momentarily lag.
+     */
+    const val OBSERVATION_FRESHNESS_WINDOW_MS_6743 = 300_000L
 
     fun getFresh6734(mint: String, purpose: CanonicalMarkPurpose6570,
-                     nowMs: Long = System.currentTimeMillis()): CanonicalPriceMark6522? =
-        marks[mint to purpose]?.takeIf {
+                     nowMs: Long = System.currentTimeMillis()): CanonicalPriceMark6522? {
+        val window = if (purpose == CanonicalMarkPurpose6570.OBSERVATION_SCORING)
+            OBSERVATION_FRESHNESS_WINDOW_MS_6743 else MARK_FRESHNESS_WINDOW_MS_6739
+        return marks[mint to purpose]?.takeIf {
             it.baseMint == mint && it.priceUsd.value.toDouble().isFinite() &&
-                it.priceUsd.value.signum() > 0 && nowMs - it.timestampMs in -5_000L..MARK_FRESHNESS_WINDOW_MS_6739
+                it.priceUsd.value.signum() > 0 && nowMs - it.timestampMs in -5_000L..window
         }
+    }
 
     /** Try complete provider tuples newest-first. Rejection may try another real provider,
      * never splice its timestamp/source onto the rejected provider's price. */
@@ -55,12 +78,34 @@ object CanonicalPriceMarkRegistry6522 {
                                      nowMs: Long = System.currentTimeMillis()): PromotionResult6613 {
         var last = PromotionResult6613(null, "NO_FRESH_SOURCE_EVIDENCE_6734", identity = mint)
         for (e in evidence.sortedByDescending { it.timestampMs }) {
-            if (nowMs - e.timestampMs !in -5_000L..MARK_FRESHNESS_WINDOW_MS_6739 || e.source.isBlank()) continue
-            last = resolveExecutableFromSourceEvidence6616(
-                mint, e.baseMint, e.pair, e.quoteMint, e.source, e.priceUsd,
-                e.liquidityUsd, e.timestampMs, nowMs,
-            )
-            if (last.promoted) return last
+            val ageMs = nowMs - e.timestampMs
+            if (e.source.isBlank()) continue
+            if (ageMs !in -5_000L..OBSERVATION_FRESHNESS_WINDOW_MS_6743) continue
+            if (ageMs in -5_000L..MARK_FRESHNESS_WINDOW_MS_6739) {
+                // Fresh: attempt full executable promotion.
+                last = resolveExecutableFromSourceEvidence6616(
+                    mint, e.baseMint, e.pair, e.quoteMint, e.source, e.priceUsd,
+                    e.liquidityUsd, e.timestampMs, nowMs,
+                )
+                if (last.promoted) return last
+            } else {
+                // V5.0.6743 §OBSERVATION_FRESHNESS_ROUTING — 121-300s
+                // stale evidence routes to observation-only. Never
+                // widens the executable slot; paper can still admit on
+                // observation, live still requires strict executable.
+                last = resolveObservationFromSourceEvidence6628(
+                    mint = mint, observedBaseMint = e.baseMint,
+                    pairOrPool = e.pair, quoteMint = e.quoteMint,
+                    source = e.source, priceUsd = e.priceUsd,
+                    evidenceTimestampMs = e.timestampMs, nowMs = nowMs,
+                )
+                if (last.promoted) {
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_MARK_OBSERVATION_ROUTED_STALE_EVIDENCE_6743")
+                    } catch (_: Throwable) {}
+                    return last
+                }
+            }
         }
         return last
     }
