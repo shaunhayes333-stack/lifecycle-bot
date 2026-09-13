@@ -3375,3 +3375,30 @@ Directive delivery status against the operator's 8-section mandate:
 
 Testing: Build AATE APK ✅ green at V5.0.6742. Runtime Smoke Test
 remains red on pre-existing ANR / cycle-time regression (Issue #1).
+
+## V5.0.6743-6746 — Operator 6742 diagnostic follow-through (Feb 2026)
+
+All 5 defects the operator surfaced in the V5.0.6742 dump are landed
+at source. Build AATE APK ✅ GREEN at V5.0.6746 (2543/2543 unit tests).
+
+### Delivered:
+- ✅ Issue #1 canonical enumeration truth — openPositions() ↔ 115 OPEN
+- ✅ Issue #2 close ledger reconstruct — canonical CLOSED → ledger stamp
+- ✅ Issue #3 replay open-cost scoped to live lot set — 14.68 SOL Δ closes
+- ✅ Issue #4 FDG pre-decision dedup — accepted vs dupLane storm ends
+- ✅ Issue #5 mark observation freshness routing — 121-300s evidence lives
+
+### Still on the runtime side (unrelated to source-level correctness):
+- Runtime Smoke Test remains red on the pre-existing ANR / cycle-time
+  regression (NO_COMPLETED_PASSING_CURRENT_WINDOW). Carries from 6741;
+  needs BotService main-thread stall investigation (Issue #1 from
+  earlier handoff).
+
+### Files touched this batch:
+- lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt
+- lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/PositionCloseLedger.kt
+- lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/BotService.kt (reapPaperForcedOpen)
+- lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperReplay6464.kt
+- lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt
+- lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPriceMark6522.kt
+- test suites: Aate6743, Aate6744, Aate6631 (updated), Aate6658 (updated)

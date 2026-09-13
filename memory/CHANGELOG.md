@@ -5981,3 +5981,66 @@ CI status: Build AATE APK green at V5.0.6742. Runtime Smoke Test is
 still red on the pre-existing ANR / cycle-time regression (Issue #1:
 `NO_COMPLETED_PASSING_CURRENT_WINDOW`) — carries from V5.0.6741;
 outside the scope of this push.
+
+## V5.0.6743-6746 (Feb 2026) — Operator directive follow-up: 4-fault repair from the 6742 diagnostic
+
+Operator diagnostic on V5.0.6742 identified five defects. All five landed
+across V5.0.6743-6746. Build AATE APK ✅ GREEN at V5.0.6746 with
+2543/2543 unit tests passing.
+
+### V5.0.6743 — Canonical Enumeration Truth + Close Ledger Reconstruct
+§CANONICAL_ENUMERATION_TRUTH (Issue #1 — "115 OPEN but openPositions()=100"):
+  • Split CanonicalPositionAuthority6441's surface. openPositions() now
+    returns truth (Lifecycle.OPEN|PARTIALLY_CLOSED + remainingQtyRaw>0);
+    the strict 6631 §B/§L filter moved to openPositionsForValuation().
+    hasOpenMint / firstOpenForMint now consult the truth predicate.
+  • Exit, close-ledger, round-trip reconciler, paper replay, and slot-
+    health see all funded lots; only hero-equity / openMarketValue call
+    the strict surface.
+
+§CLOSE_LEDGER_RECONSTRUCT_FROM_CANONICAL (Issue #2 — 42 canonical
+CLOSED, 0 ledger stamps):
+  • New PositionCloseLedger.reconstructFromCanonical6743(mode) walks
+    canonical closedPositions() filtered to lastMutationMs within the
+    ledger TTL and stamps any missing mints with a canonical-derived
+    reason. Wired into BotService.reapPaperForcedOpen BEFORE the
+    isClosed probe so fresh stamps land in the same cycle.
+
+Coverage: Aate6743CanonicalTruthAndCloseReconstructTest.
+
+### V5.0.6744 — Replay Scope + FDG Dedup + Mark Observation Routing
+§OPEN_COST_SAME_LOT_SET (Issue #3 — openCostΔ 14.68 SOL replay defect):
+  • CanonicalPaperReplay6464 computes an authoritative openCostDelta
+    scoped to the canonical live-open lot set. Raw historical delta
+    preserved for diagnostics; scoped delta replaces it only when
+    abs(scoped) < abs(raw), preserving detection of genuine ledger drift.
+
+§FDG_PRE_DECISION_DEDUP (Issue #4 — accepted=1974 dupLane=2834):
+  • ExecutableOpenGate.recordFdg keyed (mint, candidateVersion, lane)
+    dedup with 750ms TTL. Short-circuits BEFORE any FDG work when a
+    scanner-storm re-hydration re-fires for the same triple.
+
+§OBSERVATION_FRESHNESS_ROUTING (Issue #5 — missingExecutableMark=966):
+  • CanonicalPriceMark6522 exposes OBSERVATION_FRESHNESS_WINDOW_MS_6743
+    (300s), used ONLY for OBSERVATION_SCORING reads. Executable slot
+    stays strict at 120s. resolveBestSourceEvidence6734 now routes
+    121-300s evidence to resolveObservationFromSourceEvidence6628
+    instead of dropping it. Paper trades proceed on provisional
+    evidence when providers momentarily lag; live still refuses.
+
+Coverage: Aate6744ReplayScopeFdgDedupAndMarkRoutingTest.
+
+### V5.0.6745 — legacy test updates
+Aate6631InvariantBrokenPurgeCoverageTest and Aate6658HotLoopUnchokeTest
+had hardcoded expectations against the pre-6743 surface. Updated to
+assert against the new truth/valuation split (strict 6631 filter still
+required on openPositionsForValuation(); truth predicate required on
+hasOpenMint / firstOpenForMint).
+
+### V5.0.6746 — FDG dedup must not block sizing upgrades
+Repair6533ExecutionAuthorityAcceptanceTest > G broke on V5.0.6744
+because the sizing-upgrade recordFdg call (resolvedSizeSol6558=0.0715
+after the sizer resolves the preliminary 0.0-sized intent) was hit by
+the dedup. Fix: dedup now bypasses immediately when resolvedSizeSol>0.
+Scanner-storm re-hydrations still fire with resolvedSizeSol=0.0 and
+remain deduped as designed.
