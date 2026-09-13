@@ -33,10 +33,18 @@ object ExecutableOpenGate {
     private val probeStormCounter6747 = java.util.concurrent.atomic.AtomicLong(0L)
     fun probeShouldEmit6747(kind: String): Boolean {
         val regime = try { RegimeDetector.currentRegime() } catch (_: Throwable) { return true }
+        // V5.0.6753 §DAMPER_LOOSENED — operator diagnostic Feb 2026:
+        //   > "EXPLORATION_DAMPED_ZERO_SIGNAL_6747=1698 +
+        //   >  EXPLORATION_DAMPED_DUST_PROBE_6747=517 ... my V5.0.6747
+        //   >  damper is killing 2,215 potential admissions."
+        // 1-in-8 was too aggressive. 1-in-3 in CHOP/DUMP still
+        // meaningfully suppresses storms but doesn't strangle the
+        // learner's evidence supply — bleeder probation now fires
+        // from trade 5, so exploration keeps a healthy sample.
         val sampleN = when (regime) {
-            RegimeDetector.Regime.CHOP -> 8L
-            RegimeDetector.Regime.DUMP -> 8L
-            RegimeDetector.Regime.DEAD -> 4L
+            RegimeDetector.Regime.CHOP -> 3L
+            RegimeDetector.Regime.DUMP -> 3L
+            RegimeDetector.Regime.DEAD -> 2L
             else -> 1L
         }
         if (sampleN == 1L) return true
@@ -325,6 +333,20 @@ object ExecutableOpenGate {
     private fun publishFdgIntent6519(intent: ExecutionIntent, fallbackSizeSol6556: Double = 0.0) {
         val sizedIntent = if (intent.resolvedSize > 0.0 || fallbackSizeSol6556 <= 0.0) intent
         else intent.copy(resolvedSize = fallbackSizeSol6556)
+        // V5.0.6753 §PER_LANE_STAGE_INSTRUMENTATION — operator directive
+        // Feb 2026: "add mint→sizer→ticket→executor visibility so
+        // BLUECHIP/SHITCOIN/CYCLIC stalls surface which stage kills
+        // them." Fires a per-lane label at each canonical stage
+        // transition so a lane with N FDG allows but 0 executions
+        // shows exactly where the funnel closes.
+        try {
+            val lane6753 = intent.canonicalLane.uppercase()
+            val stage6753 = when {
+                sizedIntent.resolvedSize <= 0.0 -> "PUBLISHED_ZERO_SIZE"
+                else -> "PUBLISHED_SIZED"
+            }
+            PipelineHealthCollector.labelInc("STAGE_FDG_INTENT_${stage6753}_6753|$lane6753")
+        } catch (_: Throwable) {}
         registerCanonicalIntent6554(sizedIntent)
     }
 
@@ -448,6 +470,11 @@ object ExecutableOpenGate {
             try {
                 val reason = when { !decisionCurrent -> "AUTHORITY_EXPIRED"; occupied -> "CANONICAL_OCCUPIED"; size == null -> "SIZE_INVALID"; else -> "MARK_INVALID" }
                 PipelineHealthCollector.labelInc("EXPIRED_TICKET_ECONOMIC_REJECT_6614|$reason")
+                // V5.0.6753 §PER_LANE_STAGE_INSTRUMENTATION — mint→sizer→
+                // ticket→executor visibility. Emits per-lane ticket-stage
+                // failure so BLUECHIP/SHITCOIN/CYCLIC stalls show exactly
+                // which stage kills them (size vs mark vs authority).
+                PipelineHealthCollector.labelInc("STAGE_TICKET_REJECT_${reason}_6753|${intent.canonicalLane.uppercase()}")
                 if (!decisionCurrent) PipelineHealthCollector.labelInc("TICKET_REFRESH_AUTHORITY_FAILURE")
                 ForensicLogger.lifecycle("EXPIRED_TICKET_ECONOMIC_REJECT_6614", "ticket=${intent.attemptId.take(28)} mint=${intent.mint.take(10)} lane=${intent.canonicalLane} reason=$reason sealed=$sealedProvenance6614 contradiction=$decisionContradicts6614 ageMs=$sealedRefreshAgeMs6614 action=explicit_economic_reject")
             } catch (_: Throwable) {}

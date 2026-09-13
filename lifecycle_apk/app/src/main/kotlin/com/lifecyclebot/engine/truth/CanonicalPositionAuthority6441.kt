@@ -488,7 +488,17 @@ object CanonicalPositionAuthority6441 {
                 feesSol = actualFeesSol,
                 tokenDecimals = tokenDecimals,
                 quantityScale = quantityScale,
-                lifecycle = Lifecycle.OPEN,
+                // V5.0.6753 §BUY_ZERO_QTY_FORCE_CLOSE — operator directive
+                // Feb 2026: trace where remainingQtyRaw transitions to 0
+                // without a lifecycle flip. Root: applyBuyFill CAN land
+                // an actualQtyRaw of 0 (executor path bug, decimal
+                // truncation edge, or degraded provider fill) and used
+                // to stamp Lifecycle.OPEN unconditionally — creating
+                // exactly the phantom slot the 6752 purge chases. Fix:
+                // if the fill has zero raw quantity, stamp CLOSED
+                // immediately with a diagnostic label. Never opens a
+                // slot that cannot generate revenue and cannot be exited.
+                lifecycle = if (actualQtyRaw.signum() > 0) Lifecycle.OPEN else Lifecycle.CLOSED,
                 lastMutationMs = System.currentTimeMillis(),
                 // The verified fill is the final entry authority. This is
                 // essential for LIVE, whose attempt is reserved before a
@@ -504,7 +514,17 @@ object CanonicalPositionAuthority6441 {
             // branch, so lock the final fill here, not only in openPosition().
             try { lockEntryMetricsAtOpen6636(promoted) } catch (_: Throwable) {}
             muts.incrementAndGet()
-            try { PipelineHealthCollector.labelInc("CANONICAL_POSITION_PROMOTED_6441") } catch (_: Throwable) {}
+            try {
+                PipelineHealthCollector.labelInc("CANONICAL_POSITION_PROMOTED_6441")
+                if (actualQtyRaw.signum() <= 0) {
+                    PipelineHealthCollector.labelInc("CANONICAL_BUY_ZERO_QTY_FORCE_CLOSE_6753")
+                    ForensicLogger.lifecycle(
+                        "CANONICAL_BUY_ZERO_QTY_FORCE_CLOSE_6753",
+                        "positionId=$positionId cost=$actualEntryCostSol fees=$actualFeesSol " +
+                            "action=stamp_closed_at_promote_no_phantom_slot",
+                    )
+                }
+            } catch (_: Throwable) {}
             return MutateResult.APPLIED
         } finally { lock.unlock() }
     }

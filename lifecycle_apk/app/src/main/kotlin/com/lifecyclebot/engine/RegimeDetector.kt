@@ -110,11 +110,18 @@ object RegimeDetector {
     }
 
     fun scoreFloorDelta(): Int {
+        // V5.0.6753 §REGIME_FLOOR_RELAXED — operator diagnostic Feb 2026:
+        //   > "50 trades in 1850s ... my own V5.0.6747 regime floor is
+        //   >  the dominant block (1480 entries), strangling throughput."
+        // The +10 CHOP/DUMP floor was too aggressive in combination
+        // with base minScore=15 (effective floor 25). Halved to +5 so
+        // CHOP/DUMP raises admission to 20 (still meaningfully tighter
+        // than 15) but doesn't murder throughput on approved entries.
         val regimeDelta = when (currentRegime()) {
             Regime.BULL_RIPPING -> -10
             Regime.NORMAL       ->   0
-            Regime.CHOP         -> +10
-            Regime.DUMP         -> +10
+            Regime.CHOP         -> +5
+            Regime.DUMP         -> +5
             Regime.DEAD         ->   0
             Regime.BOOTSTRAP    ->   0
         }
