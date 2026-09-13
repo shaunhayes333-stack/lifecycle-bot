@@ -100,8 +100,10 @@ class Aate6747TradeQualityBatchTest {
         )
         // Order matters: the veto must appear BEFORE the internal open call
         // so a floor-violating score cannot silently reach the sizing path.
+        // Use lastIndexOf to skip past the internal function DEFINITION and
+        // find the actual return call site.
         val floorIdx = src.indexOf("EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747")
-        val internalIdx = src.indexOf("return canOpenExecutablePositionInternal(")
+        val internalIdx = src.lastIndexOf("return canOpenExecutablePositionInternal(")
         assertTrue("floor veto MUST appear in source before the internal open call",
             floorIdx > 0 && internalIdx > 0 && floorIdx < internalIdx)
     }
