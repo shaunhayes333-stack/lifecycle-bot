@@ -22,28 +22,23 @@ import java.util.concurrent.atomic.AtomicReference
  * DESIGN
  * ──────
  * `UnifiedAccountSnapshot6635.read(mode, surface)` is the ONLY
- * function the UI is allowed to call.  It:
- *   1. Runs `ForensicReconciliation6635.reconcile6635()`
- *   2. Reads canonical event registry + ledger + journal + positions
- *   3. Returns an immutable `Snapshot` with two possible statuses:
- *      RECONCILED — the four stores agree; safe to render
- *      FAILED     — a delta exists; UI renders values BUT is REQUIRED
- *                    to display the FORENSIC_ACCOUNTING banner
- *   4. Emits `HERO_UNIFIED_SNAPSHOT_READ_6635` per surface
+ * function the UI is allowed to call. It is observational only.
  *
- * The status is authoritative — no screen may promote a FAILED
- * snapshot to RECONCILED via local computation.
+ * V5.0.6756 closes a remaining temporal split-brain: the three paper heroes
+ * all called this facade, but each read rebuilt economics from the mutable paper
+ * ledger at a different instant. A trade committing between screen refreshes
+ * could therefore make MEME / MARKETS / CRYPTO display different balances even
+ * though every caller used the "same" API.
  *
- * NOTE: This is the ONE place `PaperEconomicSnapshot6629` was already
- * wired to.  6635 adds the reconciliation gate + the operator-mandated
- * FORENSIC banner semantics on top; existing 6629 callers can be
- * migrated one-by-one to 6635 without changing rendering behaviour.
+ * Paper economics now come from JournalEconomicAuthority6616's immutable,
+ * revisioned, journal-replay snapshot. That snapshot is published only after
+ * journal/ledger/canonical reconciliation succeeds. Every UI read within a
+ * revision therefore receives the exact same cash/equity/realized tuple. The
+ * mutable execution ledger remains an execution authority, not a UI calculator.
  *
  * V5.0.6678 — READ PATH PURITY.
- * Account/UI reads are observational only. They must never schedule or execute
+ * Account/UI reads are observational only. They never schedule or execute
  * journal projection, canonical position mutation, refunds, or migration work.
- * Repair/migration belongs at controlled bootstrap boundaries where one writer
- * owns the economic transaction and stop/start cannot be starved by read churn.
  */
 object UnifiedAccountSnapshot6635 {
 
@@ -62,6 +57,8 @@ object UnifiedAccountSnapshot6635 {
         val openMarketValueSol: Double = 0.0,
         val accountAvailable: Boolean = true,
         val authoritativePrices: Boolean = true,
+        val economicRevision: Long = -1L,
+        val economicSource: String = "UNIFIED_ACCOUNT_SNAPSHOT_6635",
     )
 
     private val reads = AtomicLong(0L)
@@ -86,41 +83,66 @@ object UnifiedAccountSnapshot6635 {
         // canonical economic state as a side effect of rendering a balance.
         try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
 
+        val paperMode = mode.equals("paper", true)
+        val journal = if (paperMode) try { JournalEconomicAuthority6616.currentSnapshot() } catch (_: Throwable) { null } else null
         val capital = try { PaperCapitalAuthority6577.snapshot() } catch (_: Throwable) { null }
         val markAuthority = try { CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
-        val cashLedger = capital?.availableCashSol ?: 0.0
-        val realized = capital?.realizedPnlSol ?: 0.0
-        val openCost = capital?.openMarketValueSol ?: 0.0
-        val openPositions = try { CanonicalPositionAuthority6441.openPositions().count { it.mode == mode } } catch (_: Throwable) { 0 }
-        // Ledger currently carries cost-basis equity. Market marks remain
-        // diagnostic until they are captured in the same immutable account
-        // transaction; never splice a second-time snapshot into this read.
-        val unrealized = 0.0
-        val equity = cashLedger + openCost + unrealized
+
+        // V5.0.6756 — UI paper economics MUST be an immutable mutation revision.
+        // Do not reconstruct these values independently on every screen read.
+        val cash = if (paperMode && journal != null) journal.cashSol else capital?.availableCashSol ?: 0.0
+        val realized = if (paperMode && journal != null) journal.realizedPnlSol else capital?.realizedPnlSol ?: 0.0
+        val openCost = if (paperMode && journal != null) journal.openMarketValueSol else capital?.openMarketValueSol ?: 0.0
+        val equity = if (paperMode && journal != null) journal.equitySol else cash + openCost
+        val revision = if (paperMode) journal?.revision ?: -1L else -1L
+        val source = if (paperMode) journal?.source ?: "PAPER_LEDGER_WARMUP_FALLBACK" else "LIVE_CAPITAL_AUTHORITY"
+
+        val openPositions = try {
+            CanonicalPositionAuthority6441.openPositions().count { it.mode.equals(mode, true) }
+        } catch (_: Throwable) { 0 }
+
+        // Market marks remain diagnostic until they are captured in the same
+        // immutable account transaction; never splice a second-time mark into
+        // a paper hero revision.
+        val unrealized = if (paperMode) 0.0 else markAuthority?.unrealizedPnlSol ?: 0.0
 
         val forensicLine = try { ForensicReconciliation6635.healthLine6635() } catch (_: Throwable) { "" }
-        val status = when {
+        val reconciliationStatus = when {
             forensicLine.contains("status=RECONCILED") -> Status.RECONCILED
             forensicLine.contains("status=FAILED") -> Status.FAILED
             else -> Status.WARMUP
         }
+        // A paper hero is not truly reconciled until a journal revision exists.
+        val status = if (paperMode && journal == null && reconciliationStatus == Status.RECONCILED)
+            Status.WARMUP else reconciliationStatus
+
         val snap = Snapshot(
-            mode = mode, cashSol = cashLedger, equitySol = equity,
-            realizedPnlSol = realized, unrealizedPnlSol = unrealized,
-            openPositionsCount = openPositions, status = status,
-            forensicLine = forensicLine, readAtMs = System.currentTimeMillis(),
+            mode = mode,
+            cashSol = cash,
+            equitySol = equity,
+            realizedPnlSol = realized,
+            unrealizedPnlSol = unrealized,
+            openPositionsCount = openPositions,
+            status = status,
+            forensicLine = forensicLine,
+            readAtMs = System.currentTimeMillis(),
             openMarketValueSol = openCost,
             accountAvailable = status == Status.RECONCILED,
             authoritativePrices = status == Status.RECONCILED &&
                 (markAuthority?.fallbackMarkMints ?: Int.MAX_VALUE) == 0 &&
                 (markAuthority?.staleMarkMints ?: Int.MAX_VALUE) == 0,
+            economicRevision = revision,
+            economicSource = source,
         )
         if (status == Status.RECONCILED) {
-            lastReconciled[mode] = snap
+            lastReconciled[mode.lowercase()] = snap
             lastRead.set(snap)
             return snap
         }
-        val retained = lastReconciled[mode]?.copy(
+
+        // During an in-flight mutation all screens retain the SAME last
+        // reconciled revision. No screen is allowed to invent a newer balance.
+        val retained = lastReconciled[mode.lowercase()]?.copy(
             status = Status.FAILED,
             forensicLine = "$forensicLine accountAction=RETAIN_LAST_RECONCILED",
             readAtMs = System.currentTimeMillis(),
@@ -128,10 +150,11 @@ object UnifiedAccountSnapshot6635 {
         ) ?: Snapshot(
             mode = mode, cashSol = 0.0, equitySol = 0.0,
             realizedPnlSol = 0.0, unrealizedPnlSol = 0.0,
-            openPositionsCount = openPositions, status = Status.FAILED,
+            openPositionsCount = openPositions, status = status,
             forensicLine = "$forensicLine ACCOUNT_UNAVAILABLE",
             readAtMs = System.currentTimeMillis(), openMarketValueSol = 0.0,
             accountAvailable = false, authoritativePrices = false,
+            economicRevision = revision, economicSource = source,
         )
         lastRead.set(retained)
         return retained
@@ -139,7 +162,10 @@ object UnifiedAccountSnapshot6635 {
 
     fun lastSnapshot(): Snapshot = lastRead.get()
 
-    fun statusLine6635(): String = "reads=${reads.get()} lastStatus=${lastRead.get().status}"
+    fun statusLine6635(): String {
+        val s = lastRead.get()
+        return "reads=${reads.get()} lastStatus=${s.status} rev=${s.economicRevision} source=${s.economicSource}"
+    }
 
     internal fun resetForTest() {
         reads.set(0L)
