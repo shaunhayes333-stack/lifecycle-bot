@@ -6132,3 +6132,45 @@ Telemetry:
 
 Coverage: Aate6750AccountingReconcileMainThreadGuardTest.
 Build AATE APK ✅ GREEN at V5.0.6750.
+
+## V5.0.6751-6752 (Feb 2026) — Operator 6750 diagnostic: P0-P1 accounting/exit repair
+
+Operator diagnostic identified P0 (exit lifecycle saturation), P1 (lane
+execution stalls, legacy audit false alarms, causal owner split). This
+batch closes P0 + the tractable P1 items. Build AATE APK ✅ GREEN at
+V5.0.6752.
+
+### V5.0.6751 §LEGACY_DIVERGENCE_SUPERSEDED_BY_CANONICAL (P1)
+JournalEconomicReplay6619 whole-history divergence check now consults
+CanonicalPaperReplay6464.lastParity() before emitting the divergence
+label. When canonical same-revision replay is clean (all deltas ≤
+tolerance, no revision race), the older whole-history divergence is
+superseded. Kills the 2,692 noise events + 6 stale-accounting execution
+blocks. Telemetry: PAPER_LEDGER_VS_JOURNAL_DIVERGENCE_SUPERSEDED_BY_
+CANONICAL_6751.
+
+### V5.0.6752 — Zero-qty purge + exit-intent wire + ledger-truth owner
+§ZERO_QTY_LIFECYCLE_PURGE (P0, CanonicalPositionAuthority6441):
+purgeZeroQtyLifecycleOpens6752() sweeps OPEN/PARTIALLY_CLOSED rows
+with remainingQtyRaw <= 0 older than 60s to Lifecycle.CLOSED. Never
+mutates quantity/basis/pnl/cash. Wired into BotService.reapPaperForced
+Open before reconstructFromCanonical6743.
+Telemetry: CANONICAL_ZERO_QTY_LIFECYCLE_PURGE_6752.
+
+§EXIT_INTENT_STAMPING_WIRED (P0, Executor.requestSell):
+ExitTelemetryStamper6732.noteExitIntent was defined 2 versions ago
+with ZERO call sites. 174 real sells surfaced only as NO_INTENT
+terminals, producing the 6 gate-allows the operator observed. Wire
+the stamp at requestSell.INTENT with reason-based class resolution.
+
+§CAUSAL_OWNER_LEDGER_TRUTH (P1, AateDecisionEnvelope6512):
+LaneAttributionLedger6427 is authoritative whenever it holds an owner
+stamp; env.lane mismatch is now a diagnostic label
+(CAUSAL_OWNER_LEDGER_TRUTH_OVERRIDE_ENV_LANE_6752), not a gate.
+Specialist head trains on the true owner every time. Addresses the
+UNRESOLVED_OWNER_6741=85 + +689% vs -28.8% cohort-split defect.
+
+Deferred to future batches:
+  - P1 lane execution stalls (BLUECHIP/SHITCOIN/CYCLIC → 0 post-FDG)
+    needs per-stage pipeline instrumentation
+  - P2 EXPRESS bleeder authority alignment tightening
