@@ -65,6 +65,17 @@ android {
             storePassword = "aate2024bot"
             keyAlias = "aate_release"
             keyPassword = "aate2024bot"
+            // V5.0.6762 — enable v1 (JAR) signing alongside v2/v3. Without a
+            // v1 signature, some older/third-party ZIP extractors and APK
+            // inspectors interpret the APK Signing Block (which sits between
+            // the last local file header and the central directory) as
+            // stray archive bytes and report "archive is corrupted". Enable
+            // all three schemes so any tool — modern Android installer,
+            // classic JAR-based extractor, or online APK inspector — can
+            // verify and unpack the file cleanly.
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
         }
     }
 
