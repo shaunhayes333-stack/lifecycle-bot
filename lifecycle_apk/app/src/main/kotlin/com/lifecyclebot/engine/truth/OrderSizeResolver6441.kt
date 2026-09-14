@@ -252,39 +252,10 @@ object OrderSizeResolver6441 {
         // canonical-position mirror cash facade, so all executor/runner/UI/report
         // balance consumers can converge on one transactional paper account.
         val authoritativeCash = if (paperMode) PaperCapitalAuthority6577.cashSol().coerceAtLeast(0.0) else walletSol
-        // V5.0.6769 §GROWTH_RATCHET_AT_SOURCE — operator directive Feb 2026:
-        //   "starts at over $1000 dumps all of it into positions and doesn't
-        //    grow. I get it reinvests into new trades but its not increasing
-        //    the balance. member 5x growth targets!!!!"
-        //
-        // Root cause (source): every terminal SELL returns SOL to cash, then
-        // the NEXT queued admission in a 100-position book consumes it in the
-        // same tick. The sizing authority saw raw cash — no reserved floor —
-        // so realized wins were structurally impossible to retain. WR × edge
-        // was positive but equity churned flat because compounding requires
-        // dry powder that admissions cannot touch.
-        //
-        // Fix at source (this resolver, one file, no new authority): before
-        // sizing sees `cashCap`, subtract a growth-ratchet reserve equal to
-        // 30% of TOTAL EQUITY (cash + open market value). This reserve grows
-        // monotonically with equity — every winning SELL that lifts equity
-        // by 1 SOL lifts the untouchable dry powder by 0.30 SOL, so wins
-        // compound INTO the wallet balance instead of being immediately
-        // spent on position #101. Live mode is unaffected (paperMode gate).
-        val growthReserveSol6769 = if (paperMode) {
-            val equity = try { PaperCapitalAuthority6577.totalEquitySol() } catch (_: Throwable) { 0.0 }
-            (equity * 0.30).coerceAtLeast(0.0)
-        } else 0.0
-        val deployableCash6769 = (authoritativeCash - growthReserveSol6769).coerceAtLeast(0.0)
-        if (paperMode && growthReserveSol6769 > 0.0) {
-            try {
-                PipelineHealthCollector.labelInc("GROWTH_RATCHET_RESERVE_APPLIED_6769")
-            } catch (_: Throwable) {}
-        }
-        val cashCap = deployableCash6769
+        val cashCap = authoritativeCash
         val feeAwareAvailable6490 = if (paperMode) {
-            deployableCash6769 / (1.0 + PAPER_ENTRY_FEE_RESERVE_RATE_6490)
-        } else deployableCash6769
+            authoritativeCash / (1.0 + PAPER_ENTRY_FEE_RESERVE_RATE_6490)
+        } else authoritativeCash
         val cashClamped = laddered.coerceAtMost(cashCap)
 
         // 4. lane cap
