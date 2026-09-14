@@ -6798,7 +6798,10 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.4534: lifecycle bus must define source-level candidate/reject/probe/admit helpers", bus.contains("preFdgCandidate") && bus.contains("preFdgReject") && bus.contains("preFdgProbe") && bus.contains("preFdgAdmit"))
         assertTrue("V5.0.4534: lifecycle bus must feed MathematicalEdgeEngine and standardized PipelineHealth labels", bus.contains("MathematicalEdgeEngine.captureEntryOpportunity") && bus.contains("LEARNING_LIFECYCLE_") && bus.contains("LEARNING_LIFECYCLE_DECISION_"))
-        assertTrue("V5.0.4534: central lane-qualified pre-FDG source must use the lifecycle bus for candidate/reject/probe/admit labels", bot.contains("LearningLifecycleBus.preFdgCandidate") && bot.contains("LearningLifecycleBus.preFdgReject") && bot.contains("LearningLifecycleBus.preFdgProbe") && bot.contains("LearningLifecycleBus.preFdgAdmit"))
+        // V5.0.6786: probe calls from BotService were retired (canonical capital
+        // no longer funds PROBE_ONLY dust). The remaining candidate/reject/admit
+        // pathways are still required and drive shadow/counterfactual learning.
+        assertTrue("V5.0.6786: central lane-qualified pre-FDG source must use the lifecycle bus for candidate/reject/admit labels", bot.contains("LearningLifecycleBus.preFdgCandidate") && bot.contains("LearningLifecycleBus.preFdgReject") && bot.contains("LearningLifecycleBus.preFdgAdmit"))
         assertTrue("V5.0.4534: lifecycle bus must remain source-level/report-learning only without trade authority", bus.contains("no_trade_authority=true") && !bus.contains("executeBuy") && !bus.contains("requestSell("))
     }
 

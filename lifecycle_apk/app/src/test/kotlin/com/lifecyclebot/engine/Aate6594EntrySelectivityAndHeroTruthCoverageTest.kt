@@ -38,17 +38,19 @@ class Aate6594EntrySelectivityAndHeroTruthCoverageTest {
 
     @Test
     fun aate6594_wait_to_probe_is_lane_locally_shaped_when_authoritative_policy_negative() {
+        // V5.0.6786 §AUTHORITY_CONSOLIDATION — retitled but retained under
+        // new labels. The old "shape into a DUST_PROBE" doctrine is retired
+        // in favour of explicit WAIT rejects (learning still fires via
+        // preFdgReject shadow path).
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(
-            "V5.0.6613: learned policy must shape rather than terminal-veto lane evidence",
-            src.contains("LEARNED_POLICY_NEGATIVE_LANE_WAIT_SHAPED_6613") &&
+            "V5.0.6786: learned negative policy on an authoritative lane must lead to WAIT with shadow learning",
+            src.contains("LEARNED_POLICY_NEGATIVE_LANE_WAIT_6786") &&
                 src.contains("laneAuthoritativePolicyNegative6593") &&
-                src.contains("learnedWaitShape6613")
+                src.contains("LANE_WEAK_WAIT_REJECTED_6786"),
         )
         assertFalse(src.contains("LEARNED_POLICY_NEGATIVE_LANE_WAIT_PROMOTION_VETO_6593"))
-        val shapeIdx = src.indexOf("LEARNED_POLICY_NEGATIVE_LANE_WAIT_SHAPED_6613")
-        val dustProbeIdx = src.indexOf("LANE_WAIT_OVERRIDE_DUST_PROBE\")")
-        assertTrue(shapeIdx > 0 && dustProbeIdx > 0 && shapeIdx < dustProbeIdx)
+        assertFalse("PROBE_ONLY DUST fallback must be removed at source", src.contains("LANE_WAIT_OVERRIDE_DUST_PROBE\")"))
     }
 
     @Test
