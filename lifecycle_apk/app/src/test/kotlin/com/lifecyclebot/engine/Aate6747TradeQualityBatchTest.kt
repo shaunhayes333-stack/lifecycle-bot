@@ -88,7 +88,7 @@ class Aate6747TradeQualityBatchTest {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         assertTrue(
             "gate MUST expose REGIME_BASE_MIN_SCORE_6747 constant",
-            src.contains("REGIME_BASE_MIN_SCORE_6747 = 15"),
+            src.contains("REGIME_BASE_MIN_SCORE_6747 = 35"),
         )
         assertTrue(
             "gate MUST call RegimeDetector.scoreFloorDelta() at admission",
