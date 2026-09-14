@@ -5,31 +5,16 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * V5.9.1024 — REACTIVE PER-HOST BACKOFF.
+ * Reactive per-provider backoff.
  *
- * Operator V5.9.1023 snapshot showed:
- *   • dexscreener sr= 49%  4xx=406    (paid-tier rate limit storm)
- *   • groq        sr=  0%  4xx=13     (model-level rate limit reached)
- *   • SUPERVISOR_CHUNK_TIMEOUT firing every cycle, processed=0 deferred=96
+ * V5.0.6758 separates rate-limit/quota failures from transient upstream errors.
+ * A 429 is not a 2-second network wobble: retrying it every 30 seconds from many
+ * concurrent callers recreates the same provider storm and steals trading-loop
+ * time. 429s therefore receive a much longer exponential quiet period, while
+ * 5xx/network-style HTTP failures remain quick to half-open and recover.
  *
- * Existing RateLimiter is PROACTIVE only — counts our own requests in a
- * sliding window. It does NOT react to actual 429/403 responses from the
- * provider. When DexScreener returns 429, our limiter happily fires the
- * next request immediately, burning paid-tier credits and choking the
- * supervisor.
- *
- * This object adds REACTIVE backoff. On each 4xx response we increment a
- * per-host failure counter and set a "do-not-call-until" timestamp. The
- * backoff grows on consecutive failures (5s → 15s → 30s → 60s → 120s
- * capped at 300s). A single 2xx success resets the counter.
- *
- * Wired into HealthAwareHttp: every keyless REST call already routes
- * through that wrapper, so one edit covers DexScreener, PumpFun, Birdeye
- * (REST), Jupiter, and any future host that uses the same path.
- *
- * Doctrine: fail-open. If any internal state read/write throws we treat
- * the host as healthy so a buggy ApiBackoff can never *prevent* the bot
- * from making necessary calls.
+ * All methods are fail-open: a bookkeeping failure must never become a trading
+ * kill switch.
  */
 object ApiBackoff {
 
@@ -42,25 +27,26 @@ object ApiBackoff {
 
     private val state = ConcurrentHashMap<String, State>()
 
-    /** Backoff schedule for HARD rate-limit / auth signals (429, 403).
-     *  Index = consecutiveFailures-1, clamped. */
-    private val hardBackoffSchedule = longArrayOf(
-        5_000L,      // 1st failure → 5s
-        15_000L,     // 2nd → 15s
-        30_000L,     // 3rd → 30s
-        60_000L,     // 4th → 1 min
-        120_000L,    // 5th → 2 min
-        300_000L,    // 6th+ → 5 min cap
+    // V5.0.6758 — dedicated quota/rate schedule. A provider that explicitly
+    // answers 429 must be given time for its minute/token window to recover.
+    private val rateLimitSchedule = longArrayOf(
+        120_000L,    // 1st 429 -> 2 min
+        300_000L,    // 2nd -> 5 min
+        600_000L,    // 3rd -> 10 min
+        900_000L,    // 4th -> 15 min
+        1_800_000L,  // 5th+ -> 30 min
     )
 
-    /** V5.0.4020 — SOFT backoff schedule for TRANSIENT codes (5xx / 408
-     *  Request Timeout / 425 Too Early). The previous schedule treated a
-     *  flaky upstream the same as a paid-tier 429, which left dexscreener
-     *  and geckoterminal stuck in 5-min lockouts after a single boot
-     *  hiccup (snapshot sr=0% with only 5-17 attempts). Per operator P0
-     *  doctrine "use the whole api stack as its intended for", a single
-     *  503 must not silence a non-rate-limited provider for 5 minutes.
-     *  Soft schedule caps at 30s. */
+    // Auth/forbidden failures are generally configuration/quota state, not
+    // latency. Back off firmly without permanently disabling the provider.
+    private val authBackoffSchedule = longArrayOf(
+        60_000L,
+        120_000L,
+        300_000L,
+        600_000L,
+    )
+
+    // Transient 5xx/408/425/other HTTP failures recover aggressively.
     private val softBackoffSchedule = longArrayOf(
         2_000L,
         5_000L,
@@ -69,117 +55,85 @@ object ApiBackoff {
         30_000L,
     )
 
-    /** Legacy alias for any code reading the old `backoffSchedule`. */
-    private val backoffSchedule get() = hardBackoffSchedule
-
     private fun key(host: String): String = host.trim().lowercase()
-    private fun stateFor(host: String): State =
-        state.getOrPut(key(host)) { State() }
+    private fun stateFor(host: String): State = state.getOrPut(key(host)) { State() }
 
-    /**
-     * Mark a 4xx / 5xx failure. 429 and 403 are the strongest signals
-     * (paid-tier rate limit, auth refused). 5xx is also backed off because
-     * a flailing upstream is no better than a rate-limited one.
-     */
     fun markFailure(host: String, code: Int) {
         try {
-            if (host.isBlank()) return
-            // Only back off on response codes that signal "stop calling me".
-            // 4xx (client errors) and 5xx (server errors). 401/404 are
-            // included even though they aren't strict rate-limit signals —
-            // banging on the same dead URL serves nobody.
-            if (code !in 400..599) return
+            if (host.isBlank() || code !in 400..599) return
             val s = stateFor(host)
             val n = s.consecutiveFailures.incrementAndGet()
             s.lastFailureCode.set(code)
-            // V5.0.4020 — code-aware schedule selection.
-            //   429 / 403            → HARD schedule (5s..300s)
-            //   401 / 404            → MILD; treat as 1-step hard but cap at 30s
-            //   5xx / 408 / 425      → SOFT schedule (2s..30s, never 5min)
-            //   other 4xx            → SOFT to keep the provider in rotation
-            val isHard = (code == 429 || code == 403)
-            val schedule = if (isHard) hardBackoffSchedule else softBackoffSchedule
-            val idx = (n - 1).coerceIn(0, schedule.size - 1)
-            val baseDelay = schedule[idx]
-            val effectiveDelayMs = when (code) {
-                429, 403 -> maxOf(baseDelay, 30_000L)
-                401, 404 -> minOf(baseDelay, 30_000L)
-                else     -> baseDelay
+
+            val schedule = when (code) {
+                429 -> rateLimitSchedule
+                401, 403 -> authBackoffSchedule
+                else -> softBackoffSchedule
             }
-            val until = System.currentTimeMillis() + effectiveDelayMs
-            s.lockoutUntilMs.set(until)
+            val idx = (n - 1).coerceIn(0, schedule.lastIndex)
+            val delayMs = schedule[idx]
+            val until = System.currentTimeMillis() + delayMs
+            s.lockoutUntilMs.accumulateAndGet(until) { old, fresh -> maxOf(old, fresh) }
             s.totalLockouts.incrementAndGet()
+
             if (n == 1 || n % 5 == 0) {
                 try {
                     ForensicLogger.lifecycle(
                         "API_BACKOFF_ARMED",
-                        "host=${key(host)} code=$code n=$n untilSec=${effectiveDelayMs / 1000} mode=${if (isHard) "HARD" else "SOFT"}"
+                        "host=${key(host)} code=$code n=$n untilSec=${delayMs / 1000} " +
+                            "mode=${when (code) { 429 -> "RATE_LIMIT"; 401, 403 -> "AUTH"; else -> "SOFT" }}",
                     )
                 } catch (_: Throwable) {}
             }
         } catch (_: Throwable) { /* fail-open */ }
     }
 
-    /** Mark a 2xx success. Resets the consecutive-failure counter. */
     fun markSuccess(host: String) {
         try {
             if (host.isBlank()) return
             val s = state[key(host)] ?: return
-            if (s.consecutiveFailures.get() > 0) {
+            if (s.consecutiveFailures.get() > 0 || s.lockoutUntilMs.get() > 0L) {
                 s.consecutiveFailures.set(0)
                 s.lockoutUntilMs.set(0L)
-                try {
-                    ForensicLogger.lifecycle(
-                        "API_BACKOFF_CLEARED",
-                        "host=${key(host)}"
-                    )
-                } catch (_: Throwable) {}
+                s.lastFailureCode.set(0)
+                try { ForensicLogger.lifecycle("API_BACKOFF_CLEARED", "host=${key(host)}") } catch (_: Throwable) {}
             }
         } catch (_: Throwable) { /* fail-open */ }
     }
 
-    /** True if the host is currently in backoff lockout.
+    /**
+     * True while provider should not be called.
      *
-     *  V5.0.4020 — HALF-OPEN PROBE. When the lockout has been in effect
-     *  for ≥30s AND the schedule index suggests we're in the SOFT range,
-     *  return `false` for ONE call (the next caller) so a recovering
-     *  provider gets a chance to prove itself instead of staying frozen
-     *  for 5 minutes after a single transient blip. Hard (429/403) holds
-     *  always honor the full lockout. */
+     * RATE_LIMIT/AUTH states honour the full quiet window. Transient failures
+     * may half-open once so recovering free providers re-enter rotation quickly.
+     */
     fun isLockedOut(host: String): Boolean {
         return try {
             val s = state[key(host)] ?: return false
             val until = s.lockoutUntilMs.get()
             val now = System.currentTimeMillis()
             if (now >= until) return false
-            val remaining = until - now
+
             val lastCode = s.lastFailureCode.get()
-            // Hard signals (429/403) — honor full lockout.
-            if (lastCode == 429 || lastCode == 403) return true
-            // Soft signals — once the lockout has been live > 30s AND
-            // > 10s of remaining time, allow ONE probe by atomically
-            // clearing the lockout marker. The caller will record
-            // success/failure and the state will re-arm accordingly.
-            val totalDuration = remaining + 30_000L
-            if (remaining > 10_000L && totalDuration > 30_000L) {
-                // Use compareAndSet on the until value to ensure only one
-                // probe slips through. If we lose the race, stay locked.
+            if (lastCode == 429 || lastCode == 401 || lastCode == 403) return true
+
+            val remaining = until - now
+            if (remaining > 10_000L) {
+                // One soft half-open probe. CAS prevents a fan-out stampede.
                 if (s.lockoutUntilMs.compareAndSet(until, now + 5_000L)) {
                     try {
                         ForensicLogger.lifecycle(
                             "API_BACKOFF_HALF_OPEN_PROBE",
-                            "host=${key(host)} lastCode=$lastCode remainingMs=$remaining"
+                            "host=${key(host)} lastCode=$lastCode remainingMs=$remaining",
                         )
                     } catch (_: Throwable) {}
                     return false
                 }
-                return true
             }
             true
         } catch (_: Throwable) { false }
     }
 
-    /** ms remaining in lockout, or 0 if not locked out. */
     fun lockoutRemainingMs(host: String): Long {
         return try {
             val s = state[key(host)] ?: return 0L
@@ -187,15 +141,15 @@ object ApiBackoff {
         } catch (_: Throwable) { 0L }
     }
 
-    /** For the in-app diagnostic dump. */
     fun snapshot(): Map<String, Triple<Int, Long, Int>> {
         val out = HashMap<String, Triple<Int, Long, Int>>()
         val now = System.currentTimeMillis()
         state.forEach { (host, s) ->
-            val n = s.consecutiveFailures.get()
-            val remaining = (s.lockoutUntilMs.get() - now).coerceAtLeast(0L)
-            val totalLockouts = s.totalLockouts.get().toInt()
-            out[host] = Triple(n, remaining, totalLockouts)
+            out[host] = Triple(
+                s.consecutiveFailures.get(),
+                (s.lockoutUntilMs.get() - now).coerceAtLeast(0L),
+                s.totalLockouts.get().toInt(),
+            )
         }
         return out
     }
