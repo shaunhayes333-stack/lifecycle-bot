@@ -357,6 +357,22 @@ object JournalEconomicReplay6619 {
             // the guard from it. Emit a dedicated superseded label so
             // the operator can measure the frequency.
             val canonicalSupersedes6751 = try {
+                // V5.0.6770 §CANONICAL_PARITY_FRESHNESS — the supersession guard is
+                //   authoritative only when it reads fresh parity. `lastParity()` is
+                //   refreshed by MaintenanceWorker6448 every 30 loops (~5 min); in
+                //   a short-lived CI smoke run (or during any burst of divergence
+                //   events between maintenance ticks) `lastParity()` is stale/null,
+                //   so the legacy whole-history divergence fires unopposed even
+                //   though canonical events already reconcile clean. Refresh
+                //   inline before consulting so the supersession decision uses the
+                //   current revision, then read back the freshly-stamped parity.
+                val startCap6770 = try {
+                    PaperCapitalAuthority6577.startingCashSol().coerceAtLeast(0.0)
+                } catch (_: Throwable) { 0.0 }
+                try {
+                    com.lifecyclebot.engine.truth.CanonicalPaperReplay6464
+                        .compareToLedger(startCap6770)
+                } catch (_: Throwable) {}
                 val p = com.lifecyclebot.engine.truth.CanonicalPaperReplay6464.lastParity()
                 p != null && !p.revisionRaceObserved &&
                     kotlin.math.abs(p.cashDelta) <= 0.001 &&
