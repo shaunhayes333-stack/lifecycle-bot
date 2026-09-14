@@ -1027,72 +1027,43 @@ object FinalDecisionGate {
                 try { com.lifecyclebot.engine.SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_SAFETY_NOT_READY_REFRESH_REQUESTED") } catch (_: Throwable) {}
 
-                // V5.0.6341 — DEMOTE STALE TO SOFT-SHAPE. The 6308-era
-                // emergency snapshot showed 539 SAFETY_NOT_READY_STALE
-                // hard-blocks in a single session, with safety age up
-                // to 606 seconds because Birdeye rate limits (8823
-                // BIRDEYE_SEED_SKIPPED_BUDGET events) and Helius
-                // degradation stalled the refresh. Hard-blocking every
-                // candidate on stale-but-previously-valid data while
-                // the refresh path is throttled produced 52-204s bot
-                // loop cycles and zero visible trades.
-                //
-                // Doctrine: never hard-block on strategy bleed OR on
-                // provider degradation. STALE means we DID check
-                // safety at least once and it passed — the token
-                // fundamentals rarely change in the intervening 5-10
-                // minutes, and the refresh has been requested in the
-                // background. We proceed at reduced size (0.30× of
-                // normal) so:
-                //   - the candidate keeps flowing through the pipeline
-                //   - the sample keeps growing so learning improves
-                //   - if safety refreshes and reveals a real risk on
-                //     the next cycle, the collapse guard / stop-loss
-                //     catches it
-                //
-                // MISSING (never checked) stays a hard-block — that's
-                // a genuine data-integrity risk, not just staleness.
-                if (safetyStale && !safetyMissing) {
+                // V5.0.6783 §AUTHORITY_CONSOLIDATION — stale safety = WAIT.
+                // Directive §6: "WAIT when evidence is incomplete ...
+                // 'I DON'T KNOW' MUST MEAN WAIT. It must NOT mean 'buy tiny
+                // anyway.'" Stale safety data is incomplete evidence and
+                // therefore WAIT — not "shape to 0.3x and continue". The
+                // refresh has been queued above; the next scan cycle will
+                // re-evaluate with fresh evidence. Missing (never checked)
+                // stays a hard block for identical reasons.
+                if (shouldEmitSafetyReadyBlock(ts.mint)) {
                     try {
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_SAFETY_STALE_SOFT_SHAPED_6341")
                         ForensicLogger.lifecycle(
-                            "FDG_SAFETY_STALE_SOFT_SHAPED_6341",
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} ageSec=${safetyAgeMs / 1000} action=soft_shape_030x_and_continue reason=refresh_backlogged_provider_degraded",
+                            "FDG_BLOCKED_SAFETY_NOT_READY",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason ageSec=${safetyAgeMs / 1000} mode=LIVE",
                         )
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_SAFETY_WAIT_6783")
                     } catch (_: Throwable) {}
-                    // Fall through — no hard-block return. Downstream
-                    // pipeline continues and the sizing pass shrinks
-                    // via FDG_SAFETY_STALE_SOFT_SHAPE_6341 mult (0.30).
-                } else {
-                    if (shouldEmitSafetyReadyBlock(ts.mint)) {
-                        try {
-                            ForensicLogger.lifecycle(
-                                "FDG_BLOCKED_SAFETY_NOT_READY",
-                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason ageSec=${safetyAgeMs / 1000} mode=LIVE",
-                            )
-                        } catch (_: Throwable) {}
-                        ErrorLogger.info(
-                            "FDG",
-                            "🛡 UPSTREAM_SAFETY_GATE: ${ts.symbol} | $reason — candidate held back from executor",
-                        )
-                    }
-                    return FinalDecision(
-                        shouldTrade = false,
-                        mode = mode,
-                        approvalClass = ApprovalClass.BLOCKED,
-                        quality = candidate.setupQuality,
-                        confidence = candidate.aiConfidence,
-                        edge = EdgeVerdict.SKIP,
-                        blockReason = reason,
-                        blockLevel = BlockLevel.HARD,
-                        sizeSol = 0.0,
-                        tags = listOf("upstream_safety_gate", reason.lowercase()),
+                    ErrorLogger.info(
+                        "FDG",
+                        "🛡 UPSTREAM_SAFETY_GATE: ${ts.symbol} | $reason — WAIT for refresh (6783)",
+                    )
+                }
+                return FinalDecision(
+                    shouldTrade = false,
+                    mode = mode,
+                    approvalClass = ApprovalClass.BLOCKED,
+                    quality = candidate.setupQuality,
+                    confidence = candidate.aiConfidence,
+                    edge = EdgeVerdict.SKIP,
+                    blockReason = reason,
+                    blockLevel = BlockLevel.HARD,
+                    sizeSol = 0.0,
+                    tags = listOf("upstream_safety_gate", reason.lowercase()),
                     mint = ts.mint,
                     symbol = ts.symbol,
-                    approvalReason = "FDG upstream safety gate: $reason (live-mode hard block before executor)",
+                    approvalReason = "FDG upstream safety gate: $reason (WAIT for refresh, no shape-and-continue)",
                     gateChecks = listOf(GateCheck("safety_ready_upstream", false, reason)),
                 )
-                }
             }
         }
 
@@ -1128,35 +1099,31 @@ object FinalDecisionGate {
             if (symRegimeTrans) tags.add("sym_regime_trans")
             if (symLeadLagWarn) tags.add("sym_leadlag_warn")
         }
-        // V5.9.213: Symbolic universe block — LIVE only hard-block.
-        // In paper/bootstrap mode we only log + tag (no block) so the bot can keep
-        // learning even during a losing streak. The score penalty from SymbolicContext
-        // still applies (-8 symNudge), and DrawdownCircuitAI still score-penalises (-20).
-        // Hard block ONLY fires in live-money mode where real losses must be protected.
+        // V5.0.6783 §AUTHORITY_CONSOLIDATION — Symbolic universe block is
+        // authoritative in ALL modes. Prior code was LIVE-only ("paper keeps
+        // learning through panic"). Directive §12 forbids downgrading a
+        // HARD_BLOCK to advisory. If the symbolic universe circuit-breaker
+        // has tripped in a PANIC/FEARFUL context, canonical execution is
+        // rejected. Shadow/replay learners still receive the rejected
+        // candidate as counterfactual evidence downstream.
         if (symGreenLight < 0.20 && symMood in listOf("PANIC", "FEARFUL") && symCircuitBreaking) {
-            ErrorLogger.info("FDG", "🌌 SYMBOLIC_WARN: ${ts.symbol} | greenLight=${"%.2f".format(symGreenLight)} mood=$symMood circuit_breaking=true | mode=$mode")
-            if (mode == TradeMode.LIVE) {
-                // LIVE: Hard block — don't risk real money in panic+circuit-tripped state
-                return FinalDecision(
-                    shouldTrade = false,
-                    mode = mode,
-                    approvalClass = ApprovalClass.BLOCKED,
-                    quality = candidate.setupQuality,
-                    confidence = candidate.aiConfidence,
-                    edge = EdgeVerdict.SKIP,
-                    blockReason = "SYMBOLIC_UNIVERSE_BLOCK",
-                    blockLevel = BlockLevel.CONFIDENCE,
-                    sizeSol = 0.0,
-                    tags = tags + listOf("symbolic_block", "panic_mode"),
-                    mint = ts.mint,
-                    symbol = ts.symbol,
-                    approvalReason = "SYMBOLIC_BLOCK: greenLight<0.20 + PANIC/FEARFUL + circuit_breaking (LIVE)",
-                    gateChecks = listOf(GateCheck("symbolic_universe", false, "greenLight=${"%.2f".format(symGreenLight)} mood=$symMood"))
-                )
-            }
-            // PAPER: Tag it but allow through so learning continues. 
-            // EntryIntelligence symNudge + DrawdownCircuit score penalty already apply.
-            tags.add("sym_panic_paper_warn")
+            ErrorLogger.info("FDG", "🌌 SYMBOLIC_BLOCK: ${ts.symbol} | greenLight=${"%.2f".format(symGreenLight)} mood=$symMood circuit_breaking=true | mode=$mode")
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = candidate.aiConfidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = "SYMBOLIC_UNIVERSE_BLOCK",
+                blockLevel = BlockLevel.CONFIDENCE,
+                sizeSol = 0.0,
+                tags = tags + listOf("symbolic_block", "panic_mode"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "SYMBOLIC_BLOCK: greenLight<0.20 + PANIC/FEARFUL + circuit_breaking (authoritative in all modes)",
+                gateChecks = listOf(GateCheck("symbolic_universe", false, "greenLight=${"%.2f".format(symGreenLight)} mood=$symMood"))
+            )
         }
 
         if (candidate.aiConfidence <= 0.0) {
@@ -1229,23 +1196,21 @@ object FinalDecisionGate {
 
         val tradingModeStr = tradingModeTag?.name ?: ""
 
-        // V5.0.3947 — COPY/WHALE live growth alignment. These modes are part
-        // of the 14+ trader surface and must not be live-disabled at FDG just
-        // because confidence is soft. Confidence/whale weakness is now handled
-        // by the common low-confidence micro-probe and LiveGrowthDoctrine sizing
-        // downstream; true route/safety impossibilities still block elsewhere.
+        // V5.0.6783 §AUTHORITY_CONSOLIDATION — lanes are experts, not
+        // authorities. Directive §2: "Lane identity is evidence. Lane
+        // identity is not superior to learned outcome truth." A COPY/WHALE
+        // lane label cannot force execution when confidence is soft — the
+        // downstream FDG confidence/EV gates evaluate the sealed intelligence
+        // and reject if the evidence is insufficient. Prior "micro-probe
+        // sizing, not hard block" carve-outs were the exact throughput
+        // doctrine forbidden by §12 ("downgrade HARD_BLOCK to advisory").
+        // Kept as an informational log only.
         if (tradingModeStr.uppercase().contains("COPY")) {
-            if (mode == TradeMode.LIVE && candidate.aiConfidence < 50.0) {
-                tags.add("copy_trade_live_micro_probe")
-                checks.add(GateCheck("copy_conf", true, "LIVE COPY low confidence → micro-probe sizing, not hard block"))
-            }
-            ErrorLogger.info("FDG", "✅ COPY_TRADE: ${ts.symbol} | mode=$tradingModeStr | allowed for live-growth learning")
+            ErrorLogger.info("FDG", "COPY_TRADE lane observed: ${ts.symbol} conf=${candidate.aiConfidence.toInt()}% — decision follows sealed authority")
         }
 
         if (tradingModeStr.uppercase().contains("WHALE")) {
-            tags.add("whale_follow_live_growth_probe")
-            checks.add(GateCheck("whale_follow_growth", true, "WHALE_FOLLOW allowed through shared growth doctrine; no live-only hard disable"))
-            ErrorLogger.info("FDG", "🐋 WHALE_FOLLOW: ${ts.symbol} | mode=$tradingModeStr | shared live-growth sizing")
+            ErrorLogger.info("FDG", "WHALE_FOLLOW lane observed: ${ts.symbol} conf=${candidate.aiConfidence.toInt()}% — decision follows sealed authority")
         }
 
         val learningProgress = FluidLearningAI.getLearningProgress()

@@ -178,16 +178,59 @@ class Aate6782AuthorityConsolidationTest {
     // Lanes are experts, not authorities: they cannot force execution when
     // the sealed cognitive verdict is REJECT.
     // ────────────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────────────────────────────
+    // V5.0.6783 — Symbolic universe block is authoritative in ALL modes.
+    // Prior LIVE-only block was a §12 downgrade-to-advisory in paper mode.
+    // ────────────────────────────────────────────────────────────────────
     @Test
-    fun specialist_lanes_do_not_carry_final_execution_authority() {
-        val gate = file("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt")
-        // The FDG boolean authority is what turns preFdgVerdict BUY into an
-        // executable ticket. A lane label alone cannot make an intent valid.
+    fun symbolic_universe_block_authoritative_in_all_modes() {
+        val fdg = file("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt")
+        assertFalse(
+            "sym_panic_paper_warn passthrough must be removed",
+            fdg.contains("sym_panic_paper_warn") || fdg.contains("PAPER: Tag it but allow through"),
+        )
         assertTrue(
-            "ExecutionIntent authority requires fdgAllowed=true and validated sealed decision",
-            gate.contains("fdgAllowed == true") ||
-                gate.contains("fdgAllowed = fdgAllowed") ||
-                gate.contains("intent.fdgAllowed"),
+            "Symbolic universe block must be authoritative in all modes",
+            fdg.contains("authoritative in all modes") && fdg.contains("SYMBOLIC_UNIVERSE_BLOCK"),
+        )
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // V5.0.6783 — Stale safety = WAIT, not "shape to 0.3x and continue".
+    // ────────────────────────────────────────────────────────────────────
+    @Test
+    fun stale_safety_means_wait_not_soft_shape() {
+        val fdg = file("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt")
+        assertFalse(
+            "FDG_SAFETY_STALE_SOFT_SHAPED_6341 must be removed",
+            fdg.contains("FDG_SAFETY_STALE_SOFT_SHAPED_6341") ||
+                fdg.contains("soft_shape_030x_and_continue"),
+        )
+        assertTrue(
+            "Stale safety must return a WAIT/BLOCKED FinalDecision",
+            fdg.contains("FDG_SAFETY_WAIT_6783") && fdg.contains("WAIT for refresh"),
+        )
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // V5.0.6783 — COPY/WHALE lanes cannot force low-conf micro-probes.
+    // ────────────────────────────────────────────────────────────────────
+    @Test
+    fun copy_and_whale_lanes_are_not_execution_authorities() {
+        val fdg = file("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt")
+        assertFalse(
+            "COPY_TRADE lane-forced micro-probe must be removed",
+            fdg.contains("copy_trade_live_micro_probe") ||
+                fdg.contains("LIVE COPY low confidence → micro-probe sizing"),
+        )
+        assertFalse(
+            "WHALE_FOLLOW lane-forced growth probe must be removed",
+            fdg.contains("whale_follow_live_growth_probe") ||
+                fdg.contains("WHALE_FOLLOW allowed through shared growth doctrine"),
+        )
+        assertTrue(
+            "COPY/WHALE observation is informational only under 6783",
+            fdg.contains("decision follows sealed authority"),
         )
     }
 }

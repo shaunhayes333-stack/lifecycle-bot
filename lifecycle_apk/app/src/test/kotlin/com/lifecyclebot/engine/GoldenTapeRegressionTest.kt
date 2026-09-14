@@ -3709,7 +3709,13 @@ class GoldenTapeRegressionTest {
         assertTrue("Final live sizing authority must consume LiveGrowthDoctrine", exec.contains("LiveGrowthDoctrine.sizePolicy") && exec.contains("growthPolicy.reason") && exec.contains("doBuy.final") && exec.contains("liveBuy.final"))
         assertFalse("COPY_TRADE must not be a live hard confidence veto", fdg.contains("COPY_TRADE_LIVE_LOW_CONFIDENCE"))
         assertFalse("WHALE_FOLLOW must not be live-disabled at FDG", fdg.contains("WHALE_FOLLOW_LIVE_DISABLED"))
-        assertTrue("COPY/WHALE must become live-growth probes", fdg.contains("copy_trade_live_micro_probe") && fdg.contains("whale_follow_live_growth_probe"))
+        // V5.0.6783 §AUTHORITY_CONSOLIDATION — COPY/WHALE lanes are experts,
+        // not authorities. They cannot force a low-confidence micro-probe
+        // past the sealed cognitive verdict. §2 + §12 of the directive.
+        assertFalse(
+            "COPY/WHALE lane-forced live-growth micro-probes must be removed at source",
+            fdg.contains("copy_trade_live_micro_probe") || fdg.contains("whale_follow_live_growth_probe"),
+        )
     }
 
 
