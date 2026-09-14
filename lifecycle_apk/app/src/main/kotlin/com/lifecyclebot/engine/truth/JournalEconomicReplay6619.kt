@@ -257,19 +257,54 @@ object JournalEconomicReplay6619 {
                     if (nextBasis < -1e-9 || nextRaw < java.math.BigInteger.ZERO || nextDisplay < -1e-9) {
                         reject(t, eventId, "NEGATIVE_REMAINING_LOT"); continue
                     }
-                    if (side == "SELL" && (kotlin.math.abs(nextBasis) > 1e-9 ||
-                            (lot.rawQty > java.math.BigInteger.ZERO && nextRaw != java.math.BigInteger.ZERO))) {
-                        reject(t, eventId, "TERMINAL_SELL_INCOMPLETE_LOT"); continue
-                    }
+                    // V5.0.6768 §TERMINAL_SELL_LEDGER_PARITY_ROOT_CAUSE — the mutable
+                    //   PaperCapitalAuthority6577 ledger drains openCost/realized by the
+                    //   RECORDED basis on each fill (scalar accumulator, no per-lot state).
+                    //   The journal previously required a terminal SELL to zero the
+                    //   accumulated buy-side lot EXACTLY. Precision drift between the sum
+                    //   of BUY-side basis rows and the recorded terminal SELL basis (fee
+                    //   rounding, adaptive re-basis, partial-sell rebalances) caused every
+                    //   such terminal to be rejected, leaving the lot orphaned in the
+                    //   projection and driving CASH/BASIS/REALIZED/QUANTITY divergence
+                    //   deltas — which forced `accountAvailable=false` and painted every
+                    //   hero surface as ACCOUNT UNAVAILABLE / ACCOUNTING ERROR while the
+                    //   underlying account was healthy. The terminal record IS the
+                    //   authoritative closure; the journal must honor it and drain the
+                    //   residual so downstream projection matches the ledger byte-for-byte.
+                    val terminalResidualBasis6768 = if (side == "SELL") nextBasis else 0.0
+                    val terminalResidualRaw6768 = if (side == "SELL") nextRaw else java.math.BigInteger.ZERO
                     cash += (gross - fee)
                     openCost -= basis
                     realized += (gross - basis)
                     fees += fee
-                    lot.basisSol = nextBasis
-                    lot.rawQty = nextRaw
-                    lot.displayQty = nextDisplay
-                    if (side == "SELL" || lot.basisSol <= 1e-9) lots.remove(t.positionId)
-                    if (side == "SELL") sells++ else partials++
+                    if (side == "SELL") {
+                        // Sweep any residual so the journal's openCost matches the
+                        // ledger's scalar semantics exactly. Residual is not a P&L
+                        // event — the ledger already reconciled cash on the BUY leg.
+                        if (kotlin.math.abs(terminalResidualBasis6768) > 1e-9) {
+                            openCost -= terminalResidualBasis6768
+                            try {
+                                PipelineHealthCollector.labelInc("JOURNAL_TERMINAL_SELL_RESIDUAL_SWEPT_6768")
+                                if (reportedInvariantFailures6653.add("TERMINAL_RESIDUAL:$eventId")) {
+                                    ForensicLogger.lifecycle(
+                                        "JOURNAL_TERMINAL_SELL_RESIDUAL_SWEPT_6768",
+                                        "economicEventId=${eventId.take(48)} positionId=${t.positionId.take(24)} " +
+                                            "residualBasisSol=${"%.9f".format(terminalResidualBasis6768)} " +
+                                            "residualRaw=$terminalResidualRaw6768 " +
+                                            "action=drain_residual_match_ledger_scalar",
+                                    )
+                                }
+                            } catch (_: Throwable) {}
+                        }
+                        lots.remove(t.positionId)
+                        sells++
+                    } else {
+                        lot.basisSol = nextBasis
+                        lot.rawQty = nextRaw
+                        lot.displayQty = nextDisplay
+                        if (lot.basisSol <= 1e-9) lots.remove(t.positionId)
+                        partials++
+                    }
                 }
             }
         }
