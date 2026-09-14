@@ -1,3 +1,15 @@
+## V5.0.6763 — ECONOMIC_TRUTH_REPAIR (operator V5.0.6761 P0)
+
+Operator V5.0.6761 diagnostic exposed three distinct truth defects that the earlier plumbing repairs left in place:
+
+- **§DNA_TAXONOMY_FIX** (`LiveWinDNAStore.kt`): `LIVE_WIN_DNA_CAPTURED_6238` fired on `pnl=-100.0% mode=PAPER` — the V5.0.6258 rewire journals both winners and losers but the telemetry label still said WIN. Split label by pnl sign: `LIVE_TRADE_DNA_${WIN|LOSS|BREAKEVEN}_CAPTURED_6763`. Legacy `LIVE_WIN_DNA_CAPTURED_6238` now emitted ONLY on `pnlPct > 0.0`.
+- **§EXIT_REASON_ECONOMIC_TRUTH** (`Executor.kt` STRICT_SL path): reason label `STRICT_SL_-3` was producing realized losses of -10% to -16% because the mark that computed `pnlPctNow` was stale by the time `doSell()` fetched the actual pool price. When mark age > 15 s, reason is now annotated as `STRICT_SL_-3_MARK_STALE_<age>s` and a diagnostic `STRICT_SL_MARK_STALE_ECONOMIC_TRUTH_6763` fires. Downstream DNA / learner-bridge / edge engine now see distinct cohorts for stale-mark exits vs clean stop-loss.
+- **§CATASTROPHIC_LANE_AUTO_VETO** (new `CatastrophicLaneAutoVeto6763`): operator's own snapshot admitted "no strategy is auto-disabled — operator decides what to retire", but LaneExpectancyDamper's size-only design let PROJECT_SNIPER / CORE / EXPRESS keep feeding entries at 0-7.7% WR despite ×0.33-0.47 dampers. New authority hard-vetoes any lane at ≥20 clean same-mode closes with WR ≤ 8% AND meanPnl ≤ -20%. Self-heals when recent-10 WR ≥ 15%. Wired into `ExecutableOpenGate.canOpenExecutablePosition` BEFORE FDG evaluation. Reason `SAFETY_HARD_VETO_LANE_CATASTROPHIC_6763` — the `SAFETY_` prefix keeps it authoritative post-FDG-allow via `PostSealAuthorityInvariants6760`. LaneExpectancyDamper stays size-only per operator doctrine #86; the new authority ADDS the veto path.
+- **Regression**: `Aate6763EconomicTruthRepairTest` — 5 tests fencing all three source changes plus the post-seal allowlist wire-up.
+
+---
+
+
 ## V5.0.6760 — DIRECT SOURCE REPAIR BLOCK (operator directive V5.0.6759)
 
 Ships five source-level repairs on the canonical execution paths. NO new overlay/bypass. NO threshold tuning. NO rewrite of any healthy authority. Operator directive: "Repair the execution-state choke without changing the now-healthy canonical accounting/reconciliation authority. Fix the authoritative source paths and remove/neutralize contradictory legacy gates that execute after canonical authorization."

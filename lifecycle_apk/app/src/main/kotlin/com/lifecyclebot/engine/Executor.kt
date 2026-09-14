@@ -7860,7 +7860,38 @@ class Executor(
                         else -> "DEFAULT"
                     }
                 }) — force-exit", ts.mint)
-                doSell(ts, "STRICT_SL_${hardFloor.toInt()}", wallet, walletSol)
+                // V5.0.6763 §EXIT_REASON_ECONOMIC_TRUTH — annotate the terminal
+                // reason with the mark-freshness at decision time. Operator
+                // dump on V5.0.6761 showed STRICT_SL_-3 producing realized
+                // losses of -10% to -16% because the mark that computed
+                // pnlPctNow was already stale by the time doSell() fetched
+                // the actual pool price. The reason label lied about the
+                // economic result and downstream DNA / learner-bridge / edge
+                // engine received contradictory truth. Encoding mark age
+                // into the reason keeps the terminal record honest so:
+                //   • CausalLearning sees the true exit conditions
+                //   • DNA store bucket "STRICT_SL_-3_MARK_STALE_30s" is a
+                //     distinct cohort from clean "STRICT_SL_-3"
+                //   • MathematicalEdgeEngine won't classify a stale-mark
+                //     exit as a clean stop-loss expectancy sample.
+                val markAgeMs6763 = try {
+                    (System.currentTimeMillis() - ts.lastPriceUpdate).coerceAtLeast(0L)
+                } catch (_: Throwable) { 0L }
+                val strictSlReason6763 = if (markAgeMs6763 > 15_000L) {
+                    try {
+                        PipelineHealthCollector.labelInc("STRICT_SL_MARK_STALE_ECONOMIC_TRUTH_6763")
+                        ForensicLogger.lifecycle(
+                            "STRICT_SL_MARK_STALE_ECONOMIC_TRUTH_6763",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} pnl=${pnlPctNow.fmt(2)} " +
+                                "floor=${hardFloor.fmt(2)} markAgeMs=$markAgeMs6763 currentPrice=$currentPrice " +
+                                "lastPriceUpdate=${ts.lastPriceUpdate} action=annotate_reason_with_mark_age",
+                        )
+                    } catch (_: Throwable) {}
+                    "STRICT_SL_${hardFloor.toInt()}_MARK_STALE_${markAgeMs6763 / 1000}s"
+                } else {
+                    "STRICT_SL_${hardFloor.toInt()}"
+                }
+                doSell(ts, strictSlReason6763, wallet, walletSol)
                 return
             }
             // V5.0.4079 — STRICT_SL STALE-PRICE BACKSTOP (operator P0: -48% leak

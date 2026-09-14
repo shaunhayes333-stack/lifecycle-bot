@@ -1507,6 +1507,37 @@ object ExecutableOpenGate {
         // V5.0.6506 §P0-2 — canonical lane alias fold at boundary.
         @Suppress("NAME_SHADOWING") val lane = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane)
         @Suppress("NAME_SHADOWING") val electedLane6494 = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(electedLane6494)
+        // V5.0.6763 §CATASTROPHIC_LANE_AUTO_VETO — a lane with statistically
+        // proven catastrophic evidence (≥20 clean same-mode closes, WR ≤ 8%,
+        // meanPnl ≤ -20%) is hard-vetoed here. LaneExpectancyDamper alone
+        // proved insufficient in V5.0.6761 (88 entries in 235s at 4.3% WR
+        // despite ×0.33-0.47 dampers). Self-heals on recovery signal.
+        run {
+            val veto6763 = try {
+                com.lifecyclebot.engine.truth.CatastrophicLaneAutoVeto6763.evaluate(mode, lane)
+            } catch (_: Throwable) { null }
+            if (veto6763 != null && veto6763.vetoed) {
+                try {
+                    PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_LANE_CATASTROPHIC_6763")
+                    PipelineHealthCollector.labelInc(
+                        "EXEC_OPEN_BLOCKED_LANE_CATASTROPHIC_6763|${veto6763.lane}",
+                    )
+                    ForensicLogger.lifecycle(
+                        "EXEC_OPEN_BLOCKED_LANE_CATASTROPHIC_6763",
+                        "mint=${mint.take(10)} symbol=$symbol mode=$mode lane=${veto6763.lane} " +
+                            "reason=${veto6763.reason} attemptId=$attemptId " +
+                            "action=hard_veto_catastrophic_evidence",
+                    )
+                } catch (_: Throwable) {}
+                return OpenVerdict(
+                    allowed = false,
+                    reason = veto6763.reason,
+                    shadowOnly = mode.equals("PAPER", true),
+                    logName = "EXEC_OPEN_BLOCKED_LANE_CATASTROPHIC_6763",
+                    attemptId = attemptId,
+                )
+            }
+        }
         return canOpenExecutablePositionInternal(
             mint = mint,
             symbol = symbol,
