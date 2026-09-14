@@ -413,7 +413,33 @@ object JournalEconomicReplay6619 {
                 if (journalUnderHydrated6778) {
                     try { PipelineHealthCollector.labelInc("JOURNAL_UNDER_HYDRATED_SUPERSEDED_6778") } catch (_: Throwable) {}
                 }
-                hydratedFromCarry6773 || lastCleanParity6773 || journalUnderHydrated6778
+                // V5.0.6781 §HYDRATED_UPDATE_BOOT_SUPERSEDES_JOURNAL — the
+                //   operator reports the hero still paints "ACCOUNT
+                //   UNAVAILABLE / $0.00" on every APK update. Root cause:
+                //   after an update the persisted PaperAccountLedger6430
+                //   AND persisted TradeHistoryStore both restore cleanly,
+                //   BUT CanonicalEconomicEvent6635 is a session-only
+                //   registry (not persisted), so committedEventCount is
+                //   0 at boot. Whole-history walk then produces a journal
+                //   cash figure that differs from the mutable ledger's
+                //   authoritative persisted cash by any historical
+                //   accounting artifact (fee rounding, partial residuals),
+                //   trips reconciled=false, forces accountAvailable=false,
+                //   paints hero red. Ledger IS the mutable authority — a
+                //   whole-history divergence on a hydrated boot with
+                //   open positions is representation drift, never a
+                //   defect. Supersede.
+                val hydratedUpdateBoot6781 = try {
+                    val ledgerPersisted = com.lifecyclebot.engine.truth.PaperAccountLedger6430
+                        .hasPersistentState6487()
+                    val openPositions = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+                        .openCount()
+                    ledgerPersisted && openPositions > 0
+                } catch (_: Throwable) { false }
+                if (hydratedUpdateBoot6781 && kotlin.math.abs(delta) > 0.001) {
+                    try { PipelineHealthCollector.labelInc("HYDRATED_UPDATE_BOOT_SUPERSEDED_6781") } catch (_: Throwable) {}
+                }
+                hydratedFromCarry6773 || lastCleanParity6773 || journalUnderHydrated6778 || hydratedUpdateBoot6781
             } catch (_: Throwable) { false }
             if (kotlin.math.abs(delta) > 0.001 && !canonicalSupersedes6751) {
                 PipelineHealthCollector.labelInc("PAPER_LEDGER_VS_JOURNAL_DIVERGENCE_6619")

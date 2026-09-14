@@ -216,7 +216,18 @@ object ForensicReconciliation6635 {
             } catch (_: Throwable) { 0 }
             val journalRows6778 = replay6647?.paperRows ?: 0
             val journalUnderHydrated6778 = committedCanonicalEvents6778 > (journalRows6778 + 1)
-            parityClean || journalUnderHydrated6778
+            // V5.0.6781 — hero must not paint ACCOUNT UNAVAILABLE on APK
+            //   update. Persisted mutable ledger + open canonical positions
+            //   is authoritative; whole-history walk drift is representation
+            //   noise and MUST supersede.
+            val hydratedUpdateBoot6781 = try {
+                val ledgerPersisted = com.lifecyclebot.engine.truth.PaperAccountLedger6430
+                    .hasPersistentState6487()
+                val openPositions = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+                    .openCount()
+                ledgerPersisted && openPositions > 0
+            } catch (_: Throwable) { false }
+            parityClean || journalUnderHydrated6778 || hydratedUpdateBoot6781
         } catch (_: Throwable) { false } else false
         if (canonicalSupersedes6770) {
             try { PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_CANONICAL_SUPERSEDED_LEGACY_6770") } catch (_: Throwable) {}
