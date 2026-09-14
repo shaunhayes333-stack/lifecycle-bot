@@ -543,6 +543,13 @@ object PaperAccountLedger6430 {
         feesPico.addAndGet(toPico(fee))
         opCount.incrementAndGet()
         persistCurrent6487()
+        // V5.0.6780 — terminal SELL clears the per-mint provider lock so the
+        //   next BUY on the same mint may pick a different (healthy) source.
+        //   Partial sells do not clear (position still open); only terminal
+        //   side==SELL triggers clear.
+        if (mint.isNotBlank() && side == PaperEconomicAtomicCommit6632.Side.SELL) {
+            try { com.lifecyclebot.engine.truth.PositionMarkProviderLock6780.clear(mint) } catch (_: Throwable) {}
+        }
         // V5.0.6616 §JOURNAL_BALANCE_HERO_SINGLE_AUTHORITY_REPAIR —
         //   Sell is the primary mutation that must fan out one causal
         //   chain to every hero surface. Increment revision + republish

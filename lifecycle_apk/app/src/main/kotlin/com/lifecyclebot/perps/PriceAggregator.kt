@@ -160,8 +160,20 @@ object PriceAggregator {
         // Determine asset type if AUTO
         val type = if (assetType == AssetType.AUTO) detectAssetType(symbol) else assetType
         
-        // Get sources for this asset type
-        val sources = getSourcesForType(type, symbol)
+        // V5.0.6780 §STICKY_PROVIDER_FOR_LOCKED_MINT — if a canonical Solana
+        //   mint already has a provider lock from its BUY fill, try that
+        //   source FIRST so the sell/mark path reads compatible decimals.
+        //   Other providers still available as fallback if the sticky source
+        //   fails. Prevents the F6-v1 decimal-skew regression (V5.0.6779).
+        val stickyMint6780 = com.lifecyclebot.perps.PriceAggregator.resolveSolanaMint(symbol)
+        val stickySource6780 = try {
+            com.lifecyclebot.engine.truth.PositionMarkProviderLock6780.preferredSource(stickyMint6780)
+        } catch (_: Throwable) { null }
+        val defaultSources = getSourcesForType(type, symbol)
+        val sources = if (stickySource6780 != null) {
+            val pinned = defaultSources.firstOrNull { it.name == stickySource6780 }
+            if (pinned != null) listOf(pinned) + defaultSources.filter { it != pinned } else defaultSources
+        } else defaultSources
         
         // Try each source
         for (source in sources) {
@@ -172,6 +184,17 @@ object PriceAggregator {
                     priceCache[symbol] = CachedPrice(result.price, result.change24h, result.source)
                     trackSuccess(result.source)
                     consecutiveFails.remove(symbol)  // V5.9.25: reset fail counter on success
+                    // V5.0.6780 — record the first successful source for this
+                    //   mint so all downstream mark/sell reads consult the
+                    //   same provider (buy locks the source for the position
+                    //   lifecycle; terminal SELL clears via
+                    //   PositionMarkProviderLock6780.clear).
+                    if (stickyMint6780 != null) {
+                        try {
+                            com.lifecyclebot.engine.truth.PositionMarkProviderLock6780
+                                .record(stickyMint6780, source.name)
+                        } catch (_: Throwable) {}
+                    }
                     return@withContext result
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -924,7 +947,7 @@ object PriceAggregator {
      *      PORTAL, BABYDOGE, WOJAK, etc). Entries prefixed with `cg:` or `static:`
      *      are NOT real on-chain mints and are skipped.
      */
-    private fun resolveSolanaMint(symbol: String): String? {
+    internal fun resolveSolanaMint(symbol: String): String? {
         xStockMints[symbol]?.let { return it }
         return try {
             val tokMint = com.lifecyclebot.perps.DynamicAltTokenRegistry
