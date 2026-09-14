@@ -5000,6 +5000,23 @@ object FinalDecisionGate {
                     PaperPreTicketSizeFloor6511.boundedMinimum(config.minLiveBuySol)
                 else 0.001
                 val sizingCash6653 = try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { 0.0 }
+                // V5.0.6775 §FDG_LANE_CAP_READS_EQUITY_NOT_CASH — operator
+                //   diagnostic Feb 2026: "PROJECT_SNIPER: 85 markReady -> 0
+                //   sizedExecutable -> 0 exec despite 294 FDG allows". Root
+                //   cause at this seal point: laneRiskCapSol = cash * 0.12.
+                //   With 100 positions open cash is starved to ~0.6 SOL, so
+                //   cap collapses to 0.072 SOL, below several lanes' minimum
+                //   executable ticket size for PROJECT_SNIPER. Same failure
+                //   pattern as V5.0.6772 ladder cash bug: sizing gates that
+                //   read CASH become progressively tighter as the bot
+                //   deploys, guaranteeing that runners can never scale up.
+                //   Fix: read TOTAL EQUITY (cash + open market value) so the
+                //   lane cap scales with the growth signal, not the dry
+                //   powder residual. Live mode unchanged.
+                val sizingEquity6775 = if (config.paperMode) try {
+                    com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.totalEquitySol()
+                        .takeIf { it.isFinite() && it > 0.0 } ?: sizingCash6653
+                } catch (_: Throwable) { sizingCash6653 } else sizingCash6653
                 val sealed6552 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.resolve(
                     requestedSol = finalSize,
                     laneName = canonicalPrimaryLane6658,
@@ -5009,7 +5026,7 @@ object FinalDecisionGate {
                     // cap are mutually impossible.  Fund the minimum only when
                     // canonical cash can afford it; all portfolio/slot/safety
                     // gates remain upstream and unchanged.
-                    laneRiskCapSol = maxOf(sizingCash6653 * 0.12, paperMinimum6653),
+                    laneRiskCapSol = maxOf(sizingEquity6775 * 0.12, paperMinimum6653),
                     laneMinExecutableSol = paperMinimum6653,
                     // V5.0.6651 — telemetry identity only: SIZE must join
                     // the same candidate record as intent/FDG/mark.

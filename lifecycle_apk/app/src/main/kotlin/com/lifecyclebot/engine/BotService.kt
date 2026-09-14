@@ -13415,8 +13415,17 @@ class BotService : Service() {
     // refresh in the exit sweep loop doesn't pound the mark registry for the
     // same mint every 200ms while the observation is genuinely offline.
     private val staleMarkRefreshCooldown6721 = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private val EXIT_COORDINATOR_FULL_MIN_MS: Long = 30_000L
-    private val EXIT_COORDINATOR_UNIVERSAL_MIN_MS: Long = 30_000L
+    private val EXIT_COORDINATOR_FULL_MIN_MS: Long = 5_000L
+    private val EXIT_COORDINATOR_UNIVERSAL_MIN_MS: Long = 5_000L
+    // V5.0.6775 §EXIT_COORDINATOR_TURNOVER — operator diagnostic Feb 2026:
+    //   normal-stop avg latency 15.2s (worst 91.2s) with 100 positions saturating
+    //   the hard cap. The old 30s minimum interval between full/universal exit
+    //   coordinator runs was designed to protect against thrash when the book
+    //   was small; at hard-cap saturation it becomes the primary throttle on
+    //   inventory recycling and blocks the compounding cycle. Catastrophic and
+    //   hard exits are ~5ms and unchanged. Reducing normal cadence 30s -> 5s
+    //   lets the bot recycle 6x more inventory per minute without touching any
+    //   position/risk cap, which is exactly what the operator asked for.
 
     // V5.9.1009 — Exit sweeps must never block botLoop. A slow paperSell
     // learning/closeout fanout previously parked the main cycle in
