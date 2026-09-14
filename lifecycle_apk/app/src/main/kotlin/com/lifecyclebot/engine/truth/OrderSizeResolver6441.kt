@@ -241,8 +241,25 @@ object OrderSizeResolver6441 {
 
         // V5.0.6552 — the runner ladder is an authorized target input. It may
         // lift a positive proposal, but can never bypass hard risk/cash caps.
+        // V5.0.6771 §COMPOUND_LADDER_READS_EQUITY_NOT_CASH — operator directive
+        //   Feb 2026: "the bot is meant to target at least 2x - 5x daily wallet
+        //   growth minimum". Root cause of no compounding:
+        //   `RunnerCompoundingLadder6440` is a stepped SOL-per-trade schedule
+        //   (0.6→0.04, 6.0→0.40, 60→4.0, 300→20). Callers previously fed the
+        //   ladder `walletSol` = CASH. When the bot fills 100 positions, cash
+        //   drops to ~0.6 SOL even though equity is 6+ SOL, so the ladder
+        //   demotes size to 0.04 SOL. Wins realise into small cash bumps that
+        //   the ladder still reads at the low tier — compounding cannot express.
+        //   Fix: feed the ladder TOTAL EQUITY (paper: cash + openMarketValue).
+        //   Ladder tier now tracks the actual growth signal — as equity grows
+        //   6 → 15 → 30 → 60 SOL, per-trade size ratchets 0.40 → 1.00 → 2.00 →
+        //   4.00 SOL. No cap, no reserve, no throttle — a corrected input.
+        val ladderInputSol6771 = if (paperMode) try {
+            val eq = PaperCapitalAuthority6577.totalEquitySol()
+            if (eq.isFinite() && eq > 0.0) eq else walletSol
+        } catch (_: Throwable) { walletSol } else walletSol
         val ladderTarget = try {
-            RunnerCompoundingLadder6440.recommendedSizeSol(walletSol)
+            RunnerCompoundingLadder6440.recommendedSizeSol(ladderInputSol6771)
         } catch (_: Throwable) { 0.0 }
         val laddered = if (ladderTarget.isFinite() && ladderTarget > 0.0) kotlin.math.max(nudgedRisk, ladderTarget) else nudgedRisk
 
