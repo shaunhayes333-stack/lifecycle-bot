@@ -361,11 +361,12 @@ object FinalDecisionGate {
         consecutiveBlockCount++
         lastBlockReason = reason
 
-        if (consecutiveBlockCount >= DANGER_ZONE_BYPASS_THRESHOLD && !adaptiveRelaxationActive) {
-            adaptiveRelaxationActive = true
-            relaxationTradesUsed = 0
-            ErrorLogger.warn("FDG", "🔓 ADAPTIVE RELAXATION ACTIVATED after $consecutiveBlockCount consecutive blocks")
-        }
+        // V5.0.6782 §AUTHORITY_CONSOLIDATION — do not auto-activate adaptive
+        // relaxation on consecutive blocks. Directive: "no forced trade-volume
+        // preservation ... keep trading so it can learn." A block streak is
+        // legitimate evidence that the intelligence is rejecting bad trades;
+        // it is NOT a signal to loosen thresholds. AntiChoke's forceAdaptive
+        // Relaxation() is now a no-op (see 6782 stub).
     }
 
     fun recordTradeExecuted() {
@@ -403,10 +404,15 @@ object FinalDecisionGate {
     fun isAdaptiveRelaxationActive(): Boolean = adaptiveRelaxationActive
 
     fun forceAdaptiveRelaxation(reason: String) {
-        if (adaptiveRelaxationActive) return
-        adaptiveRelaxationActive = true
-        relaxationTradesUsed = 0
-        ErrorLogger.warn("FDG", "🔓 ADAPTIVE RELAXATION FORCED by $reason — confidence floors dropped")
+        // V5.0.6782 §AUTHORITY_CONSOLIDATION — no-op. Prior throughput doctrine
+        // let AntiChokeManager force-drop confidence floors during "starvation"
+        // so more trades would fire and the bot could keep learning. Directive:
+        // "Lower volume is correct if intelligence is rejecting poor trades.
+        // Do NOT compensate for lower trade count by loosening thresholds."
+        // Kept as a callable stub so callers link; adaptive relaxation stays
+        // OFF here.
+        try { PipelineHealthCollector.labelInc("FORCE_ADAPTIVE_RELAXATION_NOOP_6782") } catch (_: Throwable) {}
+        try { ErrorLogger.info("FDG", "🔒 forceAdaptiveRelaxation ignored by 6782 authority consolidation (reason=$reason)") } catch (_: Throwable) {}
     }
 
     /**
@@ -1154,21 +1160,31 @@ object FinalDecisionGate {
         }
 
         if (candidate.aiConfidence <= 0.0) {
-            // V5.0.3950 — ZERO-CONF SOURCE ALIGNMENT.
-            // Runtime 3949 still showed FDG/LOW_CONFIDENCE_0% even after the
-            // low-confidence block below was converted to live micro-probes. This
-            // early return bypassed that new doctrine. A 0% confidence candidate
-            // with route/liquidity/safety still gets shaped to a tiny live probe;
-            // malformed/mechanical failures are blocked by the real safety/route
-            // gates downstream, not by this confidence shortcut.
-            if (mode == TradeMode.LIVE) {
-                tags.add("live_zero_conf_micro_probe")
-                checks.add(GateCheck("confidence", true, "conf=0% → LIVE micro-probe sizing, not hard block"))
-                ErrorLogger.info("FDG", "🔬 ZERO_CONF_MICRO_PROBE (LIVE): ${ts.symbol} | quality=${candidate.setupQuality} edge=${candidate.edgeQuality} conf=0%")
-            } else {
-                ErrorLogger.info("FDG", "ℹ️ ZERO_CONF_PASSTHRU (PAPER): ${ts.symbol} | quality=${candidate.setupQuality} edge=${candidate.edgeQuality} → continue with min-size for learning")
-                tags.add("zero_conf_paper_learn")
-            }
+            // V5.0.6782 §AUTHORITY_CONSOLIDATION — ZERO CONFIDENCE = REJECT.
+            // Directive: "'I DON'T KNOW' MUST MEAN WAIT. It must NOT mean
+            // 'buy tiny anyway.'" Prior throughput doctrine converted a
+            // zero-conf candidate into a live micro-probe or paper min-size
+            // passthrough so the bot could keep learning. That is exactly
+            // the resurrection path the authority-consolidation mandate
+            // forbids. Counterfactual/replay/lab paths still receive the
+            // rejected candidate as learning evidence, but canonical
+            // capital does not fund zero-signal buys.
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = candidate.aiConfidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = "ZERO_CONFIDENCE_REJECT_6782",
+                blockLevel = BlockLevel.CONFIDENCE,
+                sizeSol = 0.0,
+                tags = tags + listOf("zero_conf_reject_6782", "lane:$laneName"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "FDG rejected zero-confidence candidate; shadow/replay learners still receive counterfactual",
+                gateChecks = checks + GateCheck("confidence", false, "conf=0% → REJECT (source-level authority consolidation)"),
+            )
         }
 
         val earlyMemoryScore = try {

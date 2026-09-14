@@ -606,10 +606,13 @@ class GoldenTapeRegressionTest {
 
     @Test
     fun approved_live_handoff_survives_candidate_version_churn() {
+        // V5.0.6782 §AUTHORITY_CONSOLIDATION — stale candidate version must
+        // DROP, not soft-allow. Directive: "There must be ONE final cognitive
+        // truth per candidate version." Version churn → re-enter FDG.
         val openGate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
-        assertTrue(openGate.contains("LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW"))
-        assertTrue(openGate.contains("EXEC_GATE_ALLOW>0 but EXEC_LIVE_ATTEMPT=0"))
-        assertTrue(openGate.contains("latestAllows && safetyOk && liqOk") && openGate.contains("val liqOk = effectiveLiq > 0.0"))
+        assertFalse("Stale candidate soft-allow must be removed at source", openGate.contains("LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW"))
+        assertTrue("Stale candidate must drop and re-enter FDG", openGate.contains("EXEC_OPEN_DROPPED_STALE_CANDIDATE") && openGate.contains("STALE_CANDIDATE_VERSION_"))
+        assertTrue("Authority-consolidation banner must be present", openGate.contains("V5.0.6782 §AUTHORITY_CONSOLIDATION"))
     }
 
     @Test
@@ -2543,23 +2546,25 @@ class GoldenTapeRegressionTest {
 
     @Test
     fun live_fdg_allow_survives_missing_final_candidate_and_version_churn() {
+        // V5.0.6782 §AUTHORITY_CONSOLIDATION — missing/stale state must DROP,
+        // not soft-allow. The bot must re-enter FDG with a fresh sealed
+        // decision instead of reconstructing execution intent downstream.
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
-        assertTrue(
-            "FDG-approved live handoff must soft-restore when transient final candidate state is missing, instead of BUY_FAIL stale-ticket TOKEN_STATE_CHANGED spam",
-            gate.contains("LIVE_RESTORE_MISSING_FINAL_CANDIDATE_SOFT_ALLOW") &&
-                gate.contains("TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE") &&
-                gate.contains("state_missing_after_fdg_allow") &&
-                gate.contains("currentLiquidityUsd > 0.0") &&
-                gate.contains("currentSafetyOk") &&
-                gate.contains("restoredHardNoReasons.none { trueHardTicketKill(it) }")
+        assertFalse(
+            "Missing final-candidate soft-allow must be removed",
+            gate.contains("LIVE_RESTORE_MISSING_FINAL_CANDIDATE_SOFT_ALLOW"),
+        )
+        assertFalse(
+            "Stale candidate soft-allow must be removed",
+            gate.contains("LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW"),
         )
         assertTrue(
-            "Stale candidate version restore must not be hard-disabled with latestAllows=false; live approved handoff may restore across scanner version churn",
-            gate.contains("LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW") &&
-                gate.contains("approved_handoff_version_churn") &&
-                gate.contains("state.fdgCan == true") &&
-                !gate.contains("val latestAllows = false") &&
-                !gate.contains("val safetyOk = false")
+            "Missing final-candidate must drop with TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE",
+            gate.contains("TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE"),
+        )
+        assertTrue(
+            "Frozen-snapshot fast-path retains sealed FDG authority only",
+            gate.contains("validSealedDecision6613") && gate.contains("EXEC_STATE_RESTORED_FROM_FROZEN_SNAPSHOT_6499"),
         )
     }
 
@@ -3458,10 +3463,20 @@ class GoldenTapeRegressionTest {
 
     @Test
     fun live_finality_watch_and_empty_drain_safe_mode_must_not_choke_live_buys() {
+        // V5.0.6782 §AUTHORITY_CONSOLIDATION — WATCH cannot silently become
+        // BUY. If preFdgVerdict is WATCH/PROBE, ExecutableOpenGate drops and
+        // the candidate re-enters FDG. Empty stale drain jobs still do not
+        // globally block live buys — that assertion is retained.
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         val safe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellOnlySafeMode.kt").readText()
-        assertTrue("FDG-approved WATCH/PROBE must be restorable when current candidate is safe/liquid", gate.contains("verdictAllowedByFdg") && gate.contains("WATCH") && gate.contains("PROBE") && gate.contains("LIVE_RESTORE_STALE_WATCH_SOFT_ALLOW"))
-        assertTrue("WATCH restore must be backed by FDG/ticket authority, safety, liquidity, and no hardNo", gate.contains("verdictAllowedByFdg") && gate.contains("liqOk") && gate.contains("effectiveHardNoReasons.isEmpty()") && gate.contains("ExecutionIntent"))
+        assertFalse(
+            "WATCH restore soft-allow must be removed at source",
+            gate.contains("LIVE_RESTORE_STALE_WATCH_SOFT_ALLOW") || gate.contains("verdictAllowedByFdg"),
+        )
+        assertTrue(
+            "WATCH/PROBE must drop back to PRE_FDG_NOT_BUY re-entry",
+            gate.contains("EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY"),
+        )
         assertTrue("SellOnlySafeMode must not let empty stale drain jobs globally block live buys", safe.contains("liveExposureToDrain") && safe.contains("liveExposureToDrain && pendingSellQueueSize > 0") && safe.contains("liveExposureToDrain && sellReconcilerActiveJobs > 0"))
         assertTrue("Real sell-only dangers must remain hard reasons", safe.contains("workerTimeoutStorm()") && safe.contains("orphanLivePositions > 0") && safe.contains("closedWithNonDustBalance > 1") && safe.contains("providerBackoffActive()"))
     }
@@ -3781,16 +3796,29 @@ class GoldenTapeRegressionTest {
 
     @Test
     fun live_growth_runtime_residues_zero_conf_watch_and_reconciler_are_source_aligned() {
+        // V5.0.6782 §AUTHORITY_CONSOLIDATION — zero-conf REJECTS, WATCH DROPS.
+        // Directive: "'I DON'T KNOW' MUST MEAN WAIT. It must NOT mean 'buy tiny
+        // anyway.'" Reconciler sell reason routing is unchanged.
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        val zeroBlock = fdg.substring(fdg.indexOf("ZERO-CONF SOURCE ALIGNMENT"), fdg.indexOf("val earlyMemoryScore", fdg.indexOf("ZERO-CONF SOURCE ALIGNMENT")))
-        assertTrue("live zero-confidence must become a micro-probe tag", zeroBlock.contains("live_zero_conf_micro_probe") && zeroBlock.contains("conf=0% → LIVE micro-probe"))
-        assertFalse("live zero-confidence must not return a FinalDecision before the micro-probe path", zeroBlock.contains("return FinalDecision"))
-        val watchRestore = gate.substring(gate.indexOf("verdictAllowedByFdg"), gate.indexOf("""return "EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY"""", gate.indexOf("verdictAllowedByFdg")))
-        assertTrue("FDG-approved WATCH restore must use current live safety/liquidity", watchRestore.contains("currentSafetyTier.equals") && watchRestore.contains("currentLiq") && watchRestore.contains("LIVE_RESTORE_STALE_WATCH_SOFT_ALLOW"))
-        assertFalse("WATCH restore safetyOk must not require currentStateVersion equality", watchRestore.contains("currentStateVersion && (currentSafetyTier"))
+        assertTrue(
+            "Zero-confidence must produce a hard REJECT FinalDecision",
+            fdg.contains("ZERO_CONFIDENCE_REJECT_6782") && fdg.contains("zero_conf_reject_6782"),
+        )
+        assertFalse(
+            "Zero-confidence must not be shaped to a micro-probe or paper passthrough",
+            fdg.contains("live_zero_conf_micro_probe") || fdg.contains("zero_conf_paper_learn"),
+        )
+        assertFalse(
+            "WATCH soft-allow must be removed at source",
+            gate.contains("LIVE_RESTORE_STALE_WATCH_SOFT_ALLOW"),
+        )
+        assertTrue(
+            "WATCH must drop back to PRE_FDG_NOT_BUY re-entry",
+            gate.contains("EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY"),
+        )
         assertTrue("reconciler-triggered sells must carry tracker lifecycle reason, not generic learning poison", bot.contains("RECONCILER_REQUEUE_${'$'}{trackerStatus}") && bot.contains("trackerStatus=") && bot.contains("reason=${'$'}") && bot.contains("requeueReason"))
         assertTrue("executor suppressor must cover prefixed reconciler maintenance reasons", exec.contains("""reason.startsWith("RECONCILER_REQUEUE", ignoreCase = true)"""))
     }

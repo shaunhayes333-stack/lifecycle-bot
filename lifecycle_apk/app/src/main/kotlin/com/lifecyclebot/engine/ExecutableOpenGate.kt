@@ -745,34 +745,18 @@ object ExecutableOpenGate {
             }
         }
         if (state == null) {
-            // V5.0.4003 — SOURCE FIX: final-candidate state can be swept or
-            // overwritten between FDG_ALLOW and liveBuy handoff during scanner storms.
-            // Runtime 5.0.4002: FDG allow=110, EXEC_GATE allow=586, BUY ok=0,
-            // BUY fail=90 with TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE. That is not
-            // market rejection; it is missing transient state after an approved ticket.
-            // Restore ONLY when the caller carries a real execution lane, current
-            // liquidity is positive, SAFE/CAUTION safety is present, and no true-hard
-            // safety reason is present. Missing-state restore has no FDG state to
-            // prove provider-blind approval, so UNKNOWN safety remains blocked.
-            val restoredHardNoReasons = hardNoReasons.filterNot { hn ->
-                ((hn.equals("ZERO_LIQUIDITY", true) || hn.equals("TRUE_ZERO_LIQUIDITY", true) || hn.equals("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", true)) && currentLiquidityUsd > 0.0) ||
-                    (hn.equals("PRE_FDG_SAFETY_CONTEXT_MISSING", true) &&
-                        currentSafetyTier.isNotBlank() && !currentSafetyTier.equals("UNKNOWN", true))
-            }
-            val currentSafetyOk = currentSafetyTier.equals("SAFE", true) || currentSafetyTier.equals("CAUTION", true)
-            val liveExecutableContext = mode.equals("LIVE", true) && isRealExecutionLane(selected) &&
-                currentLiquidityUsd > 0.0 && currentSafetyOk && restoredHardNoReasons.none { trueHardTicketKill(it) } &&
-                preFdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY", "WATCH", "PROBE")
-            if (liveExecutableContext) {
-                try {
-                    ForensicLogger.lifecycle(
-                        "LIVE_RESTORE_MISSING_FINAL_CANDIDATE_SOFT_ALLOW",
-                        "mint=${mint.take(10)} symbol=$symbol selected=$selected requested=$requested preFdg=$preFdgVerdict currentVersion=$currentVersion liq=${currentLiquidityUsd.toInt()} safety=$currentSafetyTier reason=state_missing_after_fdg_allow"
-                    )
-                    PipelineHealthCollector.labelInc("LIVE_RESTORE_MISSING_FINAL_CANDIDATE_SOFT_ALLOW")
-                } catch (_: Throwable) {}
-                return null
-            }
+            // V5.0.6782 §AUTHORITY_CONSOLIDATION — MISSING FDG STATE = DROP.
+            // Previously the code carried a "LIVE_RESTORE_MISSING_FINAL_
+            // CANDIDATE_SOFT_ALLOW" soft-allow path that let a candidate
+            // execute even after the transient FDG state row was swept.
+            // Directive: "There must be ONE final cognitive truth per
+            // candidate version." If the state row is gone, the cognitive
+            // truth is gone — the candidate must re-enter FDG on the next
+            // scan and produce a fresh sealed decision, not be reconstructed
+            // downstream from partial context. The frozen-snapshot fast-path
+            // below is retained ONLY because it carries a full sealed FDG
+            // authority (validated by validSealedDecision6613); it is not a
+            // reconstruction.
             // V5.0.6499 §5 — SNAPSHOT EXECUTION RACE. If ExecutionSnapshotAuthority6496
             // has a frozen tuple for this mint (primaryLane +
             // safetyAuthorityTier + canonicalOccupancy + resolvedOrderSizeSol
@@ -937,73 +921,26 @@ object ExecutableOpenGate {
                     return "EXEC_OPEN_DEFERRED_$canon" to canon
                 }
             }
-            val currentStateVersion = state?.candidateVersion == currentVersion && candidateVersion == currentVersion
-            // V5.0.3911 — FDG-approved WATCH/PROBE is a stale string verdict, not
-            // a terminal live veto, when the boolean FDG authority allowed the same
-            // current candidate and live safety/liquidity are resolved. Report 3909
-            // still showed FINALITY_BLOCK:WATCH after FDG live allow. The later
-            // staleApprovedVerdict branch could not fire because this function returned
-            // WATCH first. Keep HARD_NO/true NO_BUY blocked; restore only FDG-approved
-            // WATCH/PROBE/PROBE_ONLY/BUY with no hardNo.
-            val verdictAllowedByFdg = state?.fdgCan == true && verdictUpper in setOf("BUY", "PROBE_ONLY", "WATCH", "PROBE")
-            val latestAllows = (currentStateVersion || mode.equals("LIVE", true)) && verdictAllowedByFdg
-            val safetyKnownOk = currentSafetyTier.equals("SAFE", true) || currentSafetyTier.equals("CAUTION", true) ||
-                state?.safetyTier.equals("SAFE", true) || state?.safetyTier.equals("CAUTION", true)
-            // V5.0.3955 — FDG-approved provider-blind/UNKNOWN safety is a penalty,
-            // not a WATCH finality veto, when liquidity is nonzero and hardNo is empty.
-            // Confirmed rugs and zero-liquidity still block later in the gate.
-            val safetyBlindSoftAllow = mode.equals("LIVE", true) && state?.fdgCan == true && effectiveHardNoReasons.isEmpty()
-            val safetyOk = safetyKnownOk || safetyBlindSoftAllow
-            // V5.9.1559 — LIVE finality restore must use the CURRENT candidate
-            // liquidity, not the stale EntryState liquidity. Operator log showed
-            // current liq=$1599 but cached finality liq=0 → preFdg WATCH dropped
-            // a lane-approved live candidate.
-            val effectiveLiq = maxOf(currentLiquidityUsd, state?.liquidityUsd ?: 0.0)
-            // V5.0.3952 — LOW-LIQ WATCH RESTORE ALIGNMENT.
-            // Low but nonzero liquidity is a sizing/quote penalty, not an
-            // executable-open finality block. Runtime 3951 still showed one
-            // FINALITY_BLOCK:WATCH while TokenSafetyChecker correctly emitted
-            // LOW_LIQUIDITY_SIZE_REDUCED. Restore the FDG-approved WATCH and let
-            // LiveRestoreExecutionPolicy/realisticLiveEntrySize clamp size.
-            val liqOk = effectiveLiq > 0.0
-            if (mode.equals("LIVE", true) && latestAllows && safetyOk && liqOk && effectiveHardNoReasons.isEmpty()) {
-                try {
-                    ForensicLogger.lifecycle(
-                        "LIVE_RESTORE_STALE_WATCH_SOFT_ALLOW",
-                        "mint=${mint.take(10)} symbol=$symbol preFdg=$preFdgVerdict fdgCan=${state?.fdgCan} stateVersion=${state?.candidateVersion} currentVersion=$currentVersion stateLiq=${(state?.liquidityUsd ?: 0.0).toInt()} currentLiq=${currentLiquidityUsd.toInt()} currentSafety=$currentSafetyTier stateSafety=${state?.safetyTier} safetyKnownOk=$safetyKnownOk safetyBlindSoftAllow=$safetyBlindSoftAllow penalty=WATCH_FINALITY_SOFT_ALLOW"
-                    )
-                } catch (_: Throwable) {}
-                return null
-            }
+            // V5.0.6782 §AUTHORITY_CONSOLIDATION — WATCH/PROBE cannot silently
+            // become BUY at ExecutableOpenGate. Directive: "WAIT cannot silently
+            // become BUY without a new candidate version." Prior code let a
+            // stale WATCH/PROBE preFdgVerdict pass through as long as safety+liq
+            // looked ok — that is exactly the downstream resurrection the
+            // authority-consolidation mandate forbids. If preFdg is not BUY/
+            // PROBE_ONLY, the candidate must re-enter FDG and produce a fresh
+            // sealed decision.
             return "EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY" to preFdgVerdict
         }
         if (effectiveHardNoReasons.isNotEmpty()) return "EXEC_OPEN_DROPPED_HARD_NO_BUY" to effectiveHardNoReasons.joinToString("+")
         if (candidateVersion != currentVersion) {
-            // V5.0.4003 — restore approved live handoff across version churn.
-            // Historical invariant: EXEC_GATE_ALLOW>0 but EXEC_LIVE_ATTEMPT=0 must
-            // not recur from approved candidate-version churn.
-            // 5.0.3861 disabled this with literal false/false, which was safe for
-            // preventing stale buys but fatal under current scanner churn: tickets age
-            // out as STALE_CANDIDATE_VERSION even though the same mint still has an
-            // FDG-approved BUY/PROBE, real liquidity, and no true hard safety kill.
-            val verdictUpper = preFdgVerdict.uppercase()
-            val latestAllows = mode.equals("LIVE", true) && state.fdgCan == true &&
-                verdictUpper in setOf("BUY", "PROBE_ONLY", "WATCH", "PROBE")
-            val safetyOk = currentSafetyTier.equals("SAFE", true) || currentSafetyTier.equals("CAUTION", true) ||
-                state.safetyTier.equals("SAFE", true) || state.safetyTier.equals("CAUTION", true) ||
-                (mode.equals("LIVE", true) && state.fdgCan == true && effectiveHardNoReasons.none { trueHardTicketKill(it) })
-            val effectiveLiq = maxOf(currentLiquidityUsd, state.liquidityUsd)
-            val liqOk = effectiveLiq > 0.0
-            if (latestAllows && safetyOk && liqOk && effectiveHardNoReasons.none { trueHardTicketKill(it) }) {
-                try {
-                    ForensicLogger.lifecycle(
-                        "LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW",
-                        "mint=${mint.take(10)} symbol=$symbol candidateVersion=$candidateVersion currentVersion=$currentVersion stateVersion=${state.candidateVersion} liq=${effectiveLiq.toInt()} safety=$currentSafetyTier stateSafety=${state.safetyTier} reason=approved_handoff_version_churn"
-                    )
-                    PipelineHealthCollector.labelInc("LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW")
-                } catch (_: Throwable) {}
-                return null
-            }
+            // V5.0.6782 §AUTHORITY_CONSOLIDATION — STALE CANDIDATE VERSION = DROP.
+            // Directive: "There must be ONE final cognitive truth per candidate
+            // version." When the candidate version churns, the sealed cognitive
+            // decision belongs to a superseded version. The bot must re-enter
+            // FDG with the current market context, not resurrect an approved
+            // handoff from an obsolete version. Prior LIVE_RESTORE_STALE_
+            // CANDIDATE_SOFT_ALLOW path directly resurrected across version
+            // churn — removed at source.
             return "EXEC_OPEN_DROPPED_STALE_CANDIDATE" to "STALE_CANDIDATE_VERSION_$candidateVersion"
         }
         return null
