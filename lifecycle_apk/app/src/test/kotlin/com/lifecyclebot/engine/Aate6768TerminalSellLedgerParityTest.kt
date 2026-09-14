@@ -100,12 +100,12 @@ class Aate6768TerminalSellLedgerParityTest {
     fun aate6768_canonical_event_registry_still_fails_on_pending_partial_commit() {
         // Regression: a real partial-commit defect (only one store stamped, TTL
         // elapsed, promoted to PENDING) must still surface as status=FAILED.
-        val events = com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635
-        events.resetForTest()
-        val id = events.mintEventId()
-        val evt = events.Event(
+        com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.resetForTest()
+        val id = com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.mintEventId()
+        val evt = com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.Event(
             economicEventId = id, positionId = "pid-6768", mint = "M", canonicalMint = "M",
-            symbol = "SYM", mode = "paper", lane = "MEME", side = events.Side.BUY,
+            symbol = "SYM", mode = "paper", lane = "MEME",
+            side = com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.Side.BUY,
             timestampMs = System.currentTimeMillis() - 120_000L,
             qtyRaw = java.math.BigInteger.ONE, decimals = 0,
             executionPriceUsd = 0.001, executionPriceSol = 0.0000005,
@@ -113,13 +113,15 @@ class Aate6768TerminalSellLedgerParityTest {
             positionQtyDeltaRaw = java.math.BigInteger.ONE,
             realizedPnlDeltaSol = 0.0, terminalFillIndex = 0,
         )
-        assertTrue(events.openEvent(evt))
-        events.markCommitted(id, events.Store.LEDGER, "test.only")
-        events.sweepPending6635(ttlMs = 60_000L)
-        val line = events.forensicReconciliationLine6635()
+        assertTrue(com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.openEvent(evt))
+        com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.markCommitted(
+            id, com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.Store.LEDGER, "test.only"
+        )
+        com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.sweepPending6635(ttlMs = 60_000L)
+        val line = com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.forensicReconciliationLine6635()
         assertTrue("Partial commit still FAILS: $line", line.contains("status=FAILED"))
         assertTrue("Partial commit records pending=1: $line", line.contains("pending=1"))
-        events.resetForTest()
+        com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.resetForTest()
     }
 
     @Test
