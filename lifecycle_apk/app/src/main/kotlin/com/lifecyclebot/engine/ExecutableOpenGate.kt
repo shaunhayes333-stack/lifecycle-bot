@@ -2457,18 +2457,26 @@ object ExecutableOpenGate {
             val paperMode = mode.equals("PAPER", true)
             val stateAgeMs = state?.updatedAtMs?.let { System.currentTimeMillis() - it } ?: Long.MAX_VALUE
             if (paperMode && stateAgeMs in 0..500L) {
-                try {
-                    PipelineHealthCollector.labelInc("FDG_ALLOW_SEALING_RACE_DEFERRED_6739")
-                    ForensicLogger.lifecycle(
-                        "FDG_ALLOW_SEALING_RACE_DEFERRED_6739",
-                        "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol lane=$canonicalSelectedLane stateAgeMs=$stateAgeMs action=soft_defer_await_snapshot_seal paper=true",
+                val reason6763 = "FDG_ALLOW_SEALING_RACE_DEFERRED_6739"
+                val extra6763 = "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol lane=$canonicalSelectedLane stateAgeMs=$stateAgeMs paper=true"
+                // V5.0.6763 §POST_SEAL_ADVISORY_ONLY_6760 — the 500 ms
+                // sealing-race defer runs POST FDG_ALLOW but is a soft
+                // paper-side snapshot-seal wait, not a hard-safety veto.
+                // Demote per operator §7. Sealed FDG path proceeds; the
+                // race is left to the next tick's fresh snapshot.
+                if (com.lifecyclebot.engine.truth.PostSealAuthorityInvariants6760.mayBlockAfterFdgAllow(reason6763)) {
+                    try {
+                        PipelineHealthCollector.labelInc(reason6763)
+                        ForensicLogger.lifecycle(reason6763, "$extra6763 action=soft_defer_await_snapshot_seal")
+                    } catch (_: Throwable) {}
+                    return blocked(
+                        "EXEC_OPEN_DEFERRED_SEALING_RACE_6739",
+                        reason6763,
+                        shadow = true,
                     )
-                } catch (_: Throwable) {}
-                return blocked(
-                    "EXEC_OPEN_DEFERRED_SEALING_RACE_6739",
-                    "FDG_ALLOW_SEALING_RACE_DEFERRED_6739",
-                    shadow = true,
-                )
+                } else {
+                    com.lifecyclebot.engine.truth.PostSealAuthorityInvariants6760.emitAdvisory6760(reason6763, extra6763)
+                }
             }
             try {
                 PipelineHealthCollector.labelInc("AUTHORITY_INVARIANT_FAILURE")

@@ -1,4 +1,15 @@
-## V5.0.6763 — ECONOMIC_TRUTH_REPAIR (operator V5.0.6761 P0)
+## V5.0.6764 — POST_SEAL_SECOND_SWEEP (partial)
+
+- Routes `FDG_ALLOW_SEALING_RACE_DEFERRED_6739` through `PostSealAuthorityInvariants6760`. This 500 ms paper-side snapshot-seal wait is soft, not a hard-safety veto — the demotion allows the sealed FDG path to proceed and the race is left to the next tick's fresh snapshot.
+- **NOT demoted** (kept authoritative per the operator's own code comments): `STALE_FEEDBACK_EPOCH_REVALIDATE_6715`, `MISSING_FEEDBACK_STAMP_REVALIDATE_6715` are documented at `CausalFeedbackAuthority6715` line ~204 as MUST HARD-BLOCK integrity guards. Demoting them would break the Aate6715 integrity contract ("fresh terminal MUST invalidate pending stamps").
+- **NOT demoted** (kept as revalidation drop-and-refresh): `EXEC_OPEN_DROPPED_TOKEN_STATE_CHANGED`, `EXEC_FROZEN_SNAPSHOT_MISSING_INTENT_NEEDS_REVALIDATION_6627` — these drop back into the "no final candidate" path so the mint re-enters FDG on the next cycle with fresh authority. Demoting to advisory would proceed on stale intent snapshots.
+- `EXEC_RESTORED_TICKET_VERSION_DRIFT_6692` is already telemetry-only (no block), no demotion needed.
+- Regression: `Aate6764PostSealSecondSweepTest`.
+
+---
+
+
+
 
 Operator V5.0.6761 diagnostic exposed three distinct truth defects that the earlier plumbing repairs left in place:
 
