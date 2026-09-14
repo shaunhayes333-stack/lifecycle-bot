@@ -375,7 +375,18 @@ object SpecialistCausalFunnel6625 {
         val outcomes: Map<String, Int>,
         val phantomSizedOnly: Int,
     )
-    fun laneSnapshot6647(lane: String): LaneSnapshot6647 {
+    fun laneSnapshot6647(lane: String): LaneSnapshot6647 = laneSnapshot6647(lane, System.currentTimeMillis())
+
+    /**
+     * V5.0.6760 §PHANTOM_SIZED_AT_SOURCE — TTL-aware overload. A record is
+     * counted as `phantomSizedOnly` only when it has a SIZE outcome, has
+     * NO terminal outcome, AND its newest stage stamp is older than
+     * [PHANTOM_TTL_MS_6760]. Records sized within the TTL are legitimately
+     * in-flight and are NOT phantoms — the reap authority terminalizes
+     * them if they exceed the TTL. This aligns the acceptance witness
+     * with the operator spec ("phantomSizedOnly = 0 in steady state").
+     */
+    fun laneSnapshot6647(lane: String, nowMs: Long): LaneSnapshot6647 {
         val counts = mutableMapOf<Stage, Int>()
         val outcomes = mutableMapOf<String, Int>()
         var phantom = 0
@@ -386,25 +397,19 @@ object SpecialistCausalFunnel6625 {
                 val executableSize = "SIZED_EXECUTABLE" in r.outcomes || "SIZE" in r.outcomes
                 val fdgAllowed = "FDG_ALLOW" in r.outcomes || "FDG" in r.outcomes
                 val markReady = "MARK_READY" in r.outcomes || "MARK" in r.outcomes
-                // V5.0.6760 §PHANTOM_SIZED_AT_SOURCE — phantom is now defined
-                // as a sized candidate that has NO terminal disposition on
-                // the same causal record. Previous definition inspected only
-                // the causal predecessors (DISCOVER / INTENT / MARK) which
-                // conflated attribution defects with genuine phantoms — a
-                // record could be sized, get its ticket sealed and execute
-                // OK, and still count as phantom because the DISCOVER stage
-                // outcome hadn't been stamped on the same causal key.
-                // Operator spec (V5.0.6759 §1): "every sizedExecutable > 0
-                // state must end in exactly one terminal transition". So
-                // phantom = sized WITHOUT any terminal outcome.
+                // V5.0.6760 §PHANTOM_SIZED_AT_SOURCE — see docblock above.
                 val hasTerminal6760 = r.outcomes.any { out ->
                     out == "TICKET" || out == "TICKET_CREATED" || out == "TICKET_SEALED" ||
                         out.startsWith("TERMINAL_REJECT") || out.startsWith("REJECTED_TERMINAL") ||
                         out.startsWith("SUPERSEDED") || out.startsWith("STALE_") ||
                         out.startsWith("FINALIZED") || out == "EXEC" || out == "OPEN" ||
-                        out == "SELL" || out.startsWith("STALE_SIZED_TERMINAL_6760")
+                        out == "SELL"
                 }
-                if (executableSize && !hasTerminal6760) phantom++
+                if (executableSize && !hasTerminal6760) {
+                    val newestStage = r.stages.values.maxOrNull() ?: nowMs
+                    val age = nowMs - newestStage
+                    if (age >= PHANTOM_TTL_MS_6760) phantom++
+                }
                 for (stage in r.stages.keys) {
                     // Later stages are executable telemetry only when the
                     // same keyed record contains its causal predecessors.
@@ -425,6 +430,15 @@ object SpecialistCausalFunnel6625 {
     }
 
     /**
+     * V5.0.6760 §PHANTOM_SIZED_AT_SOURCE — TTL used both by the reap
+     * authority and by `laneSnapshot6647` when deciding whether a sized
+     * candidate is genuinely in-flight (young enough) or a phantom
+     * (older than TTL without terminal). Aligned with the BotService
+     * pump cadence which calls `reapStaleSizedReservations6760(30_000L)`.
+     */
+    const val PHANTOM_TTL_MS_6760 = 30_000L
+
+    /**
      * V5.0.6760 §1 — terminalize stale sized reservations.
      *
      * Operator spec: "on reject/defer after sizing: clear sizing reservation,
@@ -442,7 +456,7 @@ object SpecialistCausalFunnel6625 {
      *
      * @return the number of records that were terminalized in this sweep.
      */
-    fun reapStaleSizedReservations6760(ttlMs: Long = 30_000L, nowMs: Long = System.currentTimeMillis()): Int {
+    fun reapStaleSizedReservations6760(ttlMs: Long = PHANTOM_TTL_MS_6760, nowMs: Long = System.currentTimeMillis()): Int {
         var swept = 0
         for (r in records.values) {
             synchronized(r) {

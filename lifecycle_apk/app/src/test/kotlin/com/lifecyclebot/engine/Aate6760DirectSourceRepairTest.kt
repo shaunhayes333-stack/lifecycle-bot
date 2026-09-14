@@ -33,20 +33,42 @@ class Aate6760DirectSourceRepairTest {
             runId = runId, mode = mode, mint = "MEMESIZED6760",
             lane = "SHITCOIN6760", authorityVersion = 1L, intentId = "INTENT:1",
         )
-        // Sized without any terminal — must count as phantom.
+        // Sized without any terminal — but must age past PHANTOM_TTL_MS_6760
+        // to be counted as phantom (records younger than TTL are in-flight,
+        // not phantoms — see §PHANTOM_SIZED_AT_SOURCE docblock).
         SpecialistCausalFunnel6625.stamp6625(fresh, Stage.SIZE, "SIZED_EXECUTABLE")
-        val snap1 = SpecialistCausalFunnel6625.laneSnapshot6647(fresh.lane)
+        val agedNow = System.currentTimeMillis() + SpecialistCausalFunnel6625.PHANTOM_TTL_MS_6760 + 1_000L
+        val snap1 = SpecialistCausalFunnel6625.laneSnapshot6647(fresh.lane, agedNow)
         assertTrue(
-            "sized-without-terminal must appear in phantomSizedOnly (got ${snap1.phantomSizedOnly})",
+            "sized-without-terminal past TTL must appear in phantomSizedOnly (got ${snap1.phantomSizedOnly})",
             snap1.phantomSizedOnly >= 1,
         )
         // Now emit a TICKET terminal on the SAME causal record — phantom
         // must drop to below the prior count.
         SpecialistCausalFunnel6625.stamp6625(fresh, Stage.TICKET, "TICKET_CREATED")
-        val snap2 = SpecialistCausalFunnel6625.laneSnapshot6647(fresh.lane)
+        val snap2 = SpecialistCausalFunnel6625.laneSnapshot6647(fresh.lane, agedNow)
         assertTrue(
             "TICKET terminal must reduce phantom count (before=${snap1.phantomSizedOnly} after=${snap2.phantomSizedOnly})",
             snap2.phantomSizedOnly < snap1.phantomSizedOnly,
+        )
+    }
+
+    @Test fun fresh_sized_records_are_in_flight_not_phantoms() {
+        // §PHANTOM_SIZED_AT_SOURCE — a candidate sized in the current
+        // pump cadence tick is legitimately in-flight; the reap
+        // authority terminalizes it if it exceeds TTL.
+        val runId = "aate6760-runId-fresh"
+        val mode = "paper"
+        val fresh = SpecialistCausalFunnel6625.CausalKey(
+            runId = runId, mode = mode, mint = "MEMEFRESH6760",
+            lane = "MOONSHOT6760", authorityVersion = 1L, intentId = "INTENT:fresh",
+        )
+        SpecialistCausalFunnel6625.stamp6625(fresh, Stage.SIZE, "SIZED_EXECUTABLE")
+        // Immediate snapshot — under TTL, must NOT count as phantom.
+        val snap = SpecialistCausalFunnel6625.laneSnapshot6647(fresh.lane, System.currentTimeMillis())
+        assertEquals(
+            "fresh sized record must not be counted as phantom (still within TTL)",
+            0, snap.phantomSizedOnly,
         )
     }
 
@@ -58,7 +80,9 @@ class Aate6760DirectSourceRepairTest {
             lane = "CYCLIC6760", authorityVersion = 1L, intentId = "INTENT:reap",
         )
         SpecialistCausalFunnel6625.stamp6625(key, Stage.SIZE, "SIZED_EXECUTABLE")
-        val phantomBefore = SpecialistCausalFunnel6625.laneSnapshot6647(key.lane).phantomSizedOnly
+        val phantomBefore = SpecialistCausalFunnel6625.laneSnapshot6647(
+            key.lane, System.currentTimeMillis() + SpecialistCausalFunnel6625.PHANTOM_TTL_MS_6760 + 1_000L,
+        ).phantomSizedOnly
         assertTrue("must have at least one phantom before reap", phantomBefore >= 1)
         // Advance nowMs beyond TTL — the reservation must be terminalized.
         val sweptCount = SpecialistCausalFunnel6625.reapStaleSizedReservations6760(
@@ -66,7 +90,9 @@ class Aate6760DirectSourceRepairTest {
             nowMs = System.currentTimeMillis() + 10_000L,
         )
         assertTrue("reap must terminalize at least one stale sized reservation", sweptCount >= 1)
-        val snapAfter = SpecialistCausalFunnel6625.laneSnapshot6647(key.lane)
+        val snapAfter = SpecialistCausalFunnel6625.laneSnapshot6647(
+            key.lane, System.currentTimeMillis() + SpecialistCausalFunnel6625.PHANTOM_TTL_MS_6760 + 1_000L,
+        )
         assertTrue(
             "STALE_SIZED_TERMINAL_6760 must appear in the causal outcomes",
             snapAfter.outcomes.keys.any { it == "STALE_SIZED_TERMINAL_6760" },
