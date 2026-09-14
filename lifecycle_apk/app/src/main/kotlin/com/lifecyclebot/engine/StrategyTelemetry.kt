@@ -324,6 +324,15 @@ object StrategyTelemetry {
         val raw = try { TradeHistoryStore.getRecentValidClosedTradesRaw(limit = limit, includePartials = true) } catch (_: Throwable) { emptyList() }
         val cleanRows = try { StrategyTruthLedger.clean(raw, limit).rows } catch (_: Throwable) { raw }
             .filter { it.mode.equals("paper", true) && it.side.equals("SELL", true) }
+            // V5.0.6766 §PROBE_CONTAMINATION_FILTER — triage agent Feb 2026:
+            // 150 probe-style events (79 dust + 71 zero-signal) at 0.04 SOL
+            // were polluting the WR/PF stats. Probes exist to feed the
+            // learner exploration signal, not to be counted as real trades.
+            // Filter dust closes (< 0.05 SOL entry cost) out of the
+            // clean-paper leaderboard so LaneExpectancyDamper and
+            // CatastrophicLaneAutoVeto6763 read from real production trades
+            // only. Probes still reach the learner via the raw path.
+            .filter { (it.entryCostSol.takeIf { c -> c > 0.0 } ?: kotlin.math.abs(it.pnlSol)) >= 0.05 }
         return if (cleanRows.isEmpty()) emptyList() else cleanRows
             .groupBy {
                 val rawMode = it.tradingMode.ifBlank { "STANDARD" }

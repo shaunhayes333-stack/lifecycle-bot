@@ -19,7 +19,17 @@ object ExecutableOpenGate {
     // is the base against which RegimeDetector.scoreFloorDelta() is
     // added at the sealed admission check. Kept co-located with the
     // gate itself so the two authorities cannot drift.
-    private const val REGIME_BASE_MIN_SCORE_6747 = 15
+    // V5.0.6766 §RAISE_ENTRY_FLOOR — triage agent Feb 2026: pre-FDG scoring
+    // floor of 15 was the primary admission failure. A candidate scoring
+    // 16 cleared regime-adjusted floor (max effective 20 in CHOP/DUMP)
+    // and reached the sizer. Operator dump V5.0.6761 showed 47 closes at
+    // 4.3% WR — the floor was letting garbage through. Raised at source
+    // to 35 (baseline) so effective floor in CHOP/DUMP becomes 40, and
+    // in a healthy regime stays at 35 — matches the actual score
+    // distribution of historically winning entries. This is the ONE
+    // source-level knob the FDG stack uses as its hard veto; no new
+    // authority layer needed.
+    private const val REGIME_BASE_MIN_SCORE_6747 = 35
 
     // V5.0.6747 §EXPLORATION_DAMPER_ON_WR_COLLAPSE — operator directive:
     //   > "For a bot already sitting at 18.7% WR, probing WAIT/zero-
