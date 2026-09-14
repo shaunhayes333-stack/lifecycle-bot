@@ -124,6 +124,16 @@ object OrderSizeResolver6441 {
         // back-pressure here so no specialist can seal a positive entry size while
         // exits are saturated. Exits do not use this entry resolver, so drain paths
         // remain untouched. Fail-open only if the throughput authority itself faults.
+        //
+        // V5.0.6759 §MEME_UNCHOKE_SAFETY — explicit re-check of
+        // LaneCapitalFairness6732 at the gate boundary. `ExitThroughputAuthority6727`
+        // already respects lane fairness internally, but when it does block the
+        // reason is either `POSITION_HARD_CAP_EXIT_THROUGHPUT_6727` (portfolio-wide
+        // sanity ceiling, honoured for every lane) or
+        // `CASH_STARVED_EXIT_THROUGHPUT_6727` / `INVENTORY_VELOCITY_*` (portfolio-wide
+        // gates). We re-consult lane fairness here so any meme lane that still has
+        // headroom cannot be starved by a portfolio-wide velocity/cash block, and we
+        // emit a per-lane telemetry label so meme choke points are visible inline.
         val throughput6758 = try {
             ExitThroughputAuthority6727.evaluate(
                 mode = if (paperMode) "paper" else "live",
@@ -131,38 +141,72 @@ object OrderSizeResolver6441 {
             )
         } catch (_: Throwable) { null }
         if (throughput6758 != null && !throughput6758.allow) {
-            val minExec6758 = when {
-                paperMode && applyPaperMemeMinimum -> maxOf(laneMinExecutableSol, PAPER_EXECUTABLE_MINIMUM_SOL)
-                else -> laneMinExecutableSol.coerceAtLeast(ABS_MIN_EXECUTABLE_SOL)
+            val laneHeadroom6759 = try {
+                LaneCapitalFairness6732.hasHeadroom(
+                    if (paperMode) "paper" else "live", laneName,
+                )
+            } catch (_: Throwable) { false }
+            val hardCap6759 = throughput6758.reason == "POSITION_HARD_CAP_EXIT_THROUGHPUT_6727"
+            // Meme unchoke: skip the block for any lane that still has fairness
+            // headroom UNLESS the portfolio-wide hard cap has been breached. The
+            // hard cap is an unconditional inventory ceiling and must fire for
+            // every lane, meme included.
+            if (laneHeadroom6759 && !hardCap6759) {
+                try {
+                    PipelineHealthCollector.labelInc(
+                        "ORDER_SIZE_MEME_UNCHOKE_LANE_HEADROOM_6759",
+                    )
+                    PipelineHealthCollector.labelInc(
+                        "ORDER_SIZE_MEME_UNCHOKE_LANE_HEADROOM_6759_${laneName.uppercase().take(24)}",
+                    )
+                    ForensicLogger.lifecycle(
+                        "ORDER_SIZE_MEME_UNCHOKE_LANE_HEADROOM_6759",
+                        "lane=$laneName paper=$paperMode blockedReason=${throughput6758.reason} " +
+                            "cash=${throughput6758.cashSol} equity=${throughput6758.equitySol} " +
+                            "cashRatio=${throughput6758.cashRatio} action=bypass_portfolio_gate",
+                    )
+                } catch (_: Throwable) {}
+                // Fall through to normal sizing.
+            } else {
+                val minExec6758 = when {
+                    paperMode && applyPaperMemeMinimum -> maxOf(laneMinExecutableSol, PAPER_EXECUTABLE_MINIMUM_SOL)
+                    else -> laneMinExecutableSol.coerceAtLeast(ABS_MIN_EXECUTABLE_SOL)
+                }
+                val blocked6758 = Resolution(
+                    requestedSol = requestedSol.coerceAtLeast(0.0),
+                    riskSol = 0.0,
+                    ladderSol = 0.0,
+                    cashCapSol = throughput6758.cashSol.coerceAtLeast(0.0),
+                    laneCapSol = laneRiskCapSol,
+                    finalSizeSol = 0.0,
+                    executable = false,
+                    reason = throughput6758.reason,
+                    minimumExecutableSol = minExec6758,
+                )
+                lastResolution.set(blocked6758)
+                skippedCount.incrementAndGet()
+                try {
+                    PipelineHealthCollector.labelInc("ORDER_SIZE_BLOCKED_EXIT_THROUGHPUT_6758")
+                    // V5.0.6759 — per-lane block label so meme choke points
+                    // are visible in the funnel snapshot without a grep.
+                    PipelineHealthCollector.labelInc(
+                        "ORDER_SIZE_BLOCKED_EXIT_THROUGHPUT_6758_${laneName.uppercase().take(24)}",
+                    )
+                    ForensicLogger.lifecycle(
+                        "ORDER_SIZE_BLOCKED_EXIT_THROUGHPUT_6758",
+                        "lane=$laneName paper=$paperMode open=${throughput6758.openPositions} " +
+                            "cash=${throughput6758.cashSol} equity=${throughput6758.equitySol} " +
+                            "cashRatio=${throughput6758.cashRatio} reason=${throughput6758.reason} " +
+                            "hardCap=$hardCap6759 laneHeadroom=$laneHeadroom6759",
+                    )
+                } catch (_: Throwable) {}
+                if (causalEventId.isNotBlank()) try {
+                    com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(
+                        laneName, "SIZE_REJECT", causalEventId,
+                    )
+                } catch (_: Throwable) {}
+                return blocked6758
             }
-            val blocked6758 = Resolution(
-                requestedSol = requestedSol.coerceAtLeast(0.0),
-                riskSol = 0.0,
-                ladderSol = 0.0,
-                cashCapSol = throughput6758.cashSol.coerceAtLeast(0.0),
-                laneCapSol = laneRiskCapSol,
-                finalSizeSol = 0.0,
-                executable = false,
-                reason = throughput6758.reason,
-                minimumExecutableSol = minExec6758,
-            )
-            lastResolution.set(blocked6758)
-            skippedCount.incrementAndGet()
-            try {
-                PipelineHealthCollector.labelInc("ORDER_SIZE_BLOCKED_EXIT_THROUGHPUT_6758")
-                ForensicLogger.lifecycle(
-                    "ORDER_SIZE_BLOCKED_EXIT_THROUGHPUT_6758",
-                    "lane=$laneName paper=$paperMode open=${throughput6758.openPositions} " +
-                        "cash=${throughput6758.cashSol} equity=${throughput6758.equitySol} " +
-                        "cashRatio=${throughput6758.cashRatio} reason=${throughput6758.reason}",
-                )
-            } catch (_: Throwable) {}
-            if (causalEventId.isNotBlank()) try {
-                com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(
-                    laneName, "SIZE_REJECT", causalEventId,
-                )
-            } catch (_: Throwable) {}
-            return blocked6758
         }
 
         // 1. requested -> adaptive strategy/risk -> hard caps.

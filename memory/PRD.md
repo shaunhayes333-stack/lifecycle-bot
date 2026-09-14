@@ -1,3 +1,36 @@
+# AATE PRD — V5.0.6759 (Sep 2026 rolling)
+
+**Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.
+
+## V5.0.6756 → 6759 rolling (operator-uploaded PR + regression repair + phantom diag + meme unchoke)
+
+**V5.0.6759** — finish `fix/exit-api-reliability-6758` + §MEME_UNCHOKE_SAFETY (this fork):
+- Consolidated the 3 GPT-authored commits from PR #12 onto `fix/6756-pipeline-recovery` (which already carries 6756+6757+6758). PR #12 had no version bump, no regression tests, and its new size-resolver gate could starve MEME lanes on portfolio-wide velocity/cash blocks.
+- `HostCircuitInterceptor`: provider label map extended to every hot host (dexscreener, birdeye, coingecko, dexpaprika, geckoterminal, jupiter, groq, pumpfun). Birdeye path hard-stops on `BirdeyeBudgetGate.canAfford(1) == false`. Every mapped provider consults `ApiBackoff.isLockedOut` at the shared HTTP boundary.
+- `ApiBackoff`: 429 → dedicated `rateLimitSchedule` (2 min → 30 min); 401/403 → `authBackoffSchedule` (1 min → 10 min); 5xx/408/425 → `softBackoffSchedule` (2 s → 30 s). Fixes both the "single 503 silences a provider for 5 min" and the "429 re-hit every 30 s" storms.
+- `OrderSizeResolver6441` — `ExitThroughputAuthority6727` gate at the mandatory sizer + §MEME_UNCHOKE_SAFETY: lane with fairness headroom bypasses portfolio-wide velocity/cash blocks; only `POSITION_HARD_CAP` remains unconditional. Per-lane block AND bypass telemetry.
+- Regression: `Aate6759HostCircuitProviderMapAndBirdeyeQuotaTest`, `Aate6759ApiBackoffRateVsTransientSchedulesTest`, `Aate6759OrderSizeResolverThroughputGateTest`.
+
+**V5.0.6756 → 6758** — see earlier section below (mark propagation, CYCLIC ownership, paper UI economics, test fence repair, phantom-fail diagnostic).
+
+## Pending / In-flight
+
+- P1 (RECURRING, HIGH): PHANTOM_SIZED_ONLY + CASH/BASIS/REALIZED/QUANTITY deltas on the 120s acceptance witness. 6758 diagnostic now surfaces the offending lane inline. 6759 unchokes meme lanes at the mandatory sizer — the next runtime capture will show whether meme fill rate lifts.
+- P2: Provider degradation (Birdeye 0%/401, CoinGecko 1% with 269 5xx, Groq rate-limit) — **addressed at source in 6759** (HostCircuitInterceptor + ApiBackoff). Awaiting fresh runtime capture to confirm.
+- P3: BotService.kt (29k lines) ANR / cycle-time — cycle sits at ~7.8 s, under the 20 s overrun alarm. Deferred pending profile capture.
+- CI status: `fix/6756-pipeline-recovery` includes 6756+6757+6758+6759. Build AATE APK: watch after push. Runtime Smoke Test: watched for meme unchoke effect.
+- Backlog: Perps Neural Bridge · LLM Lab sandbox · Per-brain causal audit widget.
+
+## Constraints (unchanged)
+
+- No local compiler. Every push must bump `/app/AATE_VERSION` and `/app/lifecycle_apk/AATE_VERSION` (5.0.NNNN); regex `^5\.0\.(\d+)$`.
+- No threshold tuning — only architectural plumbing / authority convergence / additive telemetry.
+- Paper trading only.
+- All test files added or modified alongside the gate/authority they cover, so CI Build APK stays green.
+
+---
+
+
 # AATE PRD — V5.0.6758 (Sep 2026 rolling)
 
 **Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.

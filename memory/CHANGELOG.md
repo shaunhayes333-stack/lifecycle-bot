@@ -1,4 +1,20 @@
-## V5.0.6758 — §PHANTOM_DELTA_DIAG · additive acceptance-fail forensic breakdown
+## V5.0.6759 — finish `fix/exit-api-reliability-6758` + §MEME_UNCHOKE_SAFETY
+
+Operator note: the GPT-authored WIP branch shipped 3 useful commits and stopped ~3 hours in without version bump, regression tests, or a lane-fairness safety on the new sizer gate. Consolidated the 3 commits onto `fix/6756-pipeline-recovery` (which already carries 6756+6757+6758), added regression fences, and hardened the sizer gate against MEME choke.
+
+- **HostCircuitInterceptor** (`94ac08b9e`, kept): provider-label map now covers dexscreener, birdeye, coingecko, dexpaprika, geckoterminal, jupiter, groq, pumpfun (was dexscreener-only). Birdeye path hard-stops when `BirdeyeBudgetGate.canAfford(1) == false` (150000/150000 CU dump). Every mapped provider consults `ApiBackoff.isLockedOut` at the shared HTTP boundary, closing the raw `SharedHttpClient` bypass.
+- **ApiBackoff** (`f3400e8f3`, kept): dedicated `rateLimitSchedule` (2 min → 30 min) for 429 quota storms; `authBackoffSchedule` (1 min → 10 min) for 401/403; `softBackoffSchedule` (2 s → 30 s) for 5xx/408/425. A single 503 no longer silences a healthy provider for 5 minutes; a 429 no longer gets re-hit every 30 s.
+- **OrderSizeResolver6441** (`9047451cb`, kept + hardened): `ExitThroughputAuthority6727.evaluate(mode, lane)` gate at the mandatory sizer. Cross-asset `CanonicalEntryAuthority6551` admissions cannot bypass it. **§MEME_UNCHOKE_SAFETY (new)**: re-checks `LaneCapitalFairness6732.hasHeadroom(mode, lane)` at the gate boundary; any lane with fairness headroom bypasses the block unless the reason is `POSITION_HARD_CAP_EXIT_THROUGHPUT_6727` (portfolio-wide sanity ceiling honoured for every lane). Per-lane block AND bypass telemetry (`ORDER_SIZE_BLOCKED_EXIT_THROUGHPUT_6758_<LANE>`, `ORDER_SIZE_MEME_UNCHOKE_LANE_HEADROOM_6759_<LANE>`) surfaces meme choke points in the funnel snapshot without a grep. Fail-open on any authority exception.
+- **Regression** (all three source changes are now fenced):
+  - `Aate6759HostCircuitProviderMapAndBirdeyeQuotaTest` — provider map coverage, Birdeye budget bypass, shared-lockout wiring, fail-open behaviour.
+  - `Aate6759ApiBackoffRateVsTransientSchedulesTest` — rate-limit vs transient vs auth schedules kept separate, monotonic ascending, fail-open on exceptions.
+  - `Aate6759OrderSizeResolverThroughputGateTest` — gate present at the mandatory sizer, meme-unchoke bypass fires on lane headroom, hard-cap short-circuits the bypass, per-lane telemetry on both paths, blocked resolution never smuggles a positive size.
+- **CI status**: bumps AATE_VERSION to 5.0.6759, cherry-picked from `fix/exit-api-reliability-6758` c8fbf3612 + 2d21f8777 + 64319852b onto `fix/6756-pipeline-recovery`. PR #12 can now be closed as consumed.
+
+---
+
+
+
 
 - **§PHANTOM_DELTA_DIAG** (`ExecutionSpineAcceptance6647.closeCompletedWindow`): on any 120-second acceptance FAIL (`EXECUTION_SPINE_ACCEPTANCE_6647_FAIL`), emit a companion `EXECUTION_SPINE_ACCEPTANCE_6647_FAIL_DIAG_6758` forensic entry with a per-lane phantom breakdown (`EXPRESS=N,QUALITY=N,BLUECHIP=N,...`), forensic reconciliation snapshot (`reconciled=true|false cash=Δ basis=Δ realized=Δ qty=Δ`), and `openPositions`/`exitStart`/`exitDone` sample. This surfaces exactly which lane is producing PHANTOM_SIZED_ONLY and whether CASH_DELTA / BASIS_DELTA / REALIZED_DELTA / QUANTITY_DELTA are being read from an unreconciled forensic state. Additive telemetry only; no trading thresholds change.
 - **Regression**: `Aate6758AcceptanceFailDiagTest` locks the diagnostic emission block (per-lane breakdown, forensic snapshot fields, openPositions/exit sample, counter increment).
