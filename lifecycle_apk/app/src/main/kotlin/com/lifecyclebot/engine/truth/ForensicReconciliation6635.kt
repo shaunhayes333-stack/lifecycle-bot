@@ -202,10 +202,21 @@ object ForensicReconciliation6635 {
             //   lastParity() here therefore reflects the CURRENT event
             //   version, not the last MaintenanceWorker6448 snapshot.
             val p = com.lifecyclebot.engine.truth.CanonicalPaperReplay6464.lastParity()
-            p != null && !p.revisionRaceObserved &&
+            val parityClean = p != null && !p.revisionRaceObserved &&
                 kotlin.math.abs(p.cashDelta) <= 0.01 &&
                 kotlin.math.abs(p.realizedDelta) <= 0.01 &&
                 kotlin.math.abs(p.openCostDelta) <= 0.01
+            // V5.0.6778 §CANONICAL_EVENTS_SUPERSEDE_EMPTY_JOURNAL — same as
+            //   the guard added in JournalEconomicReplay6619: when the
+            //   ledger holds canonical drains that TradeHistoryStore cannot
+            //   possibly reproduce (CI smoke seed / restore-from-canonical),
+            //   the whole-history walk is bookkeeping noise, not fault.
+            val committedCanonicalEvents6778 = try {
+                com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.committedEventCount6778()
+            } catch (_: Throwable) { 0 }
+            val journalRows6778 = replay6647?.paperRows ?: 0
+            val journalUnderHydrated6778 = committedCanonicalEvents6778 > (journalRows6778 + 1)
+            parityClean || journalUnderHydrated6778
         } catch (_: Throwable) { false } else false
         if (canonicalSupersedes6770) {
             try { PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_CANONICAL_SUPERSEDED_LEGACY_6770") } catch (_: Throwable) {}

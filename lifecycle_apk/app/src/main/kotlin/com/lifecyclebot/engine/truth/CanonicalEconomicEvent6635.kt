@@ -279,6 +279,19 @@ object CanonicalEconomicEvent6635 {
      * FORENSIC RECONCILIATION HEALTH LINE — operator directive §10.
      * Called by the health-report emitter every cadence tick.
      */
+    /**
+     * V5.0.6778 §CI_SEED_DETECTION — number of events in Terminal.COMMITTED.
+     * Used by JournalEconomicReplay6619 to detect the CI-seed / restore-from-
+     * canonical-events scenario: when the ledger reflects canonical drains but
+     * TradeHistoryStore is empty, the whole-history walk MUST supersede rather
+     * than fail-close the hero snapshot.
+     */
+    fun committedEventCount6778(): Int {
+        var comm = 0
+        for ((_, s) in events) if (s.terminal == Terminal.COMMITTED) comm++
+        return comm
+    }
+
     fun forensicReconciliationLine6635(): String {
         var open = 0; var comm = 0; var pend = 0; var stuckN = 0
         var missingJournal = 0; var missingLedger = 0

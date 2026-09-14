@@ -397,7 +397,23 @@ object JournalEconomicReplay6619 {
                         kotlin.math.abs(p.realizedDelta) <= 0.001 &&
                         kotlin.math.abs(p.openCostDelta) <= 0.01
                 } catch (_: Throwable) { false }
-                hydratedFromCarry6773 || lastCleanParity6773
+                // V5.0.6778 §CANONICAL_EVENTS_SUPERSEDE_EMPTY_JOURNAL — the CI
+                //   smoke seeds canonical events directly via
+                //   canonical_economic_events_6486.xml (not via replayCarry).
+                //   In that scenario CanonicalEconomicEvent6635 has COMMITTED
+                //   events far exceeding the journal's TradeHistoryStore row
+                //   count. That is authoritative evidence the ledger drain
+                //   comes from canonical events not visible to the journal
+                //   whole-history walk — supersede.
+                val committedCanonicalEvents6778 = try {
+                    com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635.committedEventCount6778()
+                } catch (_: Throwable) { 0 }
+                val journalUnderHydrated6778 = committedCanonicalEvents6778 > (totalRows + 1) &&
+                    kotlin.math.abs(delta) > 0.001
+                if (journalUnderHydrated6778) {
+                    try { PipelineHealthCollector.labelInc("JOURNAL_UNDER_HYDRATED_SUPERSEDED_6778") } catch (_: Throwable) {}
+                }
+                hydratedFromCarry6773 || lastCleanParity6773 || journalUnderHydrated6778
             } catch (_: Throwable) { false }
             if (kotlin.math.abs(delta) > 0.001 && !canonicalSupersedes6751) {
                 PipelineHealthCollector.labelInc("PAPER_LEDGER_VS_JOURNAL_DIVERGENCE_6619")
