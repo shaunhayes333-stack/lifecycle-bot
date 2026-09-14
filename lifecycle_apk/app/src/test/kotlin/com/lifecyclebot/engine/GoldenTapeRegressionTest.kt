@@ -3780,11 +3780,19 @@ class GoldenTapeRegressionTest {
 
     @Test
     fun runtime_3955_finality_orphan_and_balance_wait_faults_are_source_scoped() {
+        // V5.0.6782 §AUTHORITY_CONSOLIDATION — safetyBlindSoftAllow / WATCH
+        // soft-allow paths are removed at source. WATCH must re-enter FDG,
+        // not be resurrected downstream. Orphan/reconciler/doctor assertions
+        // remain the same because they are unrelated to authority topology.
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         val snap = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt").readText()
         val doctor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt").readText()
         val wait = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/BalanceProofWaitState.kt").readText()
-        assertTrue("FDG-approved safety-blind WATCH must soft-allow with nonzero liquidity/no hardNo", gate.contains("safetyBlindSoftAllow") && gate.contains("safetyKnownOk || safetyBlindSoftAllow") && gate.contains("Confirmed rugs and zero-liquidity still block later"))
+        assertFalse(
+            "safetyBlindSoftAllow WATCH restore must be removed at source",
+            gate.contains("safetyBlindSoftAllow") ||
+                gate.contains("safetyKnownOk || safetyBlindSoftAllow"),
+        )
         assertTrue("orphan live accounting must subtract reconciler GRACE from managed desync, not wallet extras", snap.contains("positionReconSnapshot?.grace") && snap.contains("val graceAllowance = maxOf(1, reconcilerGrace)") && snap.contains("orphanLive must mean managed-state desync") && snap.contains("managedDesync"))
         assertTrue("balance-proof waits must release close leases", wait.contains("BALANCE_PROOF_WAIT_NO_ACTIVE_CLOSE") && wait.contains("CloseLease.release"))
         assertTrue("doctor noSig fault must use actionable noSig after active proof waits", doctor.contains("val actionableNoSig = (noSig - waitStateSize).coerceAtLeast(0L)") && doctor.contains("rawNoSig=${'$'}") && doctor.contains("actionableNoSig > 0L"))
@@ -3792,11 +3800,21 @@ class GoldenTapeRegressionTest {
 
     @Test
     fun low_liq_fdg_approved_watch_is_size_penalty_not_finality_block() {
+        // V5.0.6782 §AUTHORITY_CONSOLIDATION — WATCH cannot silently become
+        // BUY. Low-liq WATCH-restore alignment is retired; a WATCH candidate
+        // drops and re-enters FDG on the next scan. Retained assertions on
+        // canonicalization of retry reasons still apply.
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("FDG-approved WATCH restore must allow nonzero low liquidity", gate.contains("val liqOk = effectiveLiq > 0.0") && gate.contains("LOW-LIQ WATCH RESTORE ALIGNMENT"))
-        assertFalse("ExecutableOpenGate must not require USD 1200 liquidity for FDG-approved WATCH restore", gate.contains("latestAllows && safetyOk && effectiveLiq >= 1200.0") || gate.contains("liquidityUsd >= 1200.0"))
-        assertTrue("thin-liq restored entries must still be clamped economically", gate.contains("LiveRestoreExecutionPolicy.fromRuntimeDrift") && exec.contains("realisticLiveEntrySize"))
+        assertFalse(
+            "LOW-LIQ WATCH restore doctrine must be removed at source",
+            gate.contains("LOW-LIQ WATCH RESTORE ALIGNMENT") ||
+                gate.contains("LIVE_RESTORE_STALE_WATCH_SOFT_ALLOW"),
+        )
+        assertTrue(
+            "WATCH must drop back to PRE_FDG_NOT_BUY re-entry",
+            gate.contains("EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY"),
+        )
         assertTrue("generic exit reasons must be canonicalized before queue/journal poisoning", exec.contains("EXIT_ROUTE_RETRY_${'$'}{trackerStatus}_${'$'}{closeState}") && exec.contains("requestReason") && exec.contains("return doSell(ts, requestReason, wallet, walletSol)") && exec.contains("PendingSellQueue.add(ts.mint, ts.symbol, reason)"))
     }
 
