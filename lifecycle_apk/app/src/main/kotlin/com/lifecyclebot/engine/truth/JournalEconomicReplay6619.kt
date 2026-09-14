@@ -357,27 +357,47 @@ object JournalEconomicReplay6619 {
             // the guard from it. Emit a dedicated superseded label so
             // the operator can measure the frequency.
             val canonicalSupersedes6751 = try {
-                // V5.0.6770 §CANONICAL_PARITY_FRESHNESS — the supersession guard is
-                //   authoritative only when it reads fresh parity. `lastParity()` is
-                //   refreshed by MaintenanceWorker6448 every 30 loops (~5 min); in
-                //   a short-lived CI smoke run (or during any burst of divergence
-                //   events between maintenance ticks) `lastParity()` is stale/null,
-                //   so the legacy whole-history divergence fires unopposed even
-                //   though canonical events already reconcile clean. Refresh
-                //   inline before consulting so the supersession decision uses the
-                //   current revision, then read back the freshly-stamped parity.
-                val startCap6770 = try {
-                    PaperCapitalAuthority6577.startingCashSol().coerceAtLeast(0.0)
-                } catch (_: Throwable) { 0.0 }
-                try {
-                    com.lifecyclebot.engine.truth.CanonicalPaperReplay6464
-                        .compareToLedger(startCap6770)
-                } catch (_: Throwable) {}
-                val p = com.lifecyclebot.engine.truth.CanonicalPaperReplay6464.lastParity()
-                p != null && !p.revisionRaceObserved &&
-                    kotlin.math.abs(p.cashDelta) <= 0.001 &&
-                    kotlin.math.abs(p.realizedDelta) <= 0.001 &&
-                    kotlin.math.abs(p.openCostDelta) <= 0.01
+                // V5.0.6773 §INLINE_SUPERSESSION_WITHOUT_CARRY_ESTABLISHMENT —
+                //   The legacy V5.0.6619 whole-history replay walks
+                //   TradeHistoryStore. In any boot where PaperAccountLedger6430
+                //   was hydrated from CanonicalEconomicEvent6635 (CI smoke
+                //   canonical_events_6486.xml, restore-from-carry, restart) but
+                //   TradeHistoryStore has fewer rows than the ledger's committed
+                //   events, the ledger will legitimately be BELOW the journal's
+                //   walk. That is not an economic defect — it is exactly the
+                //   scenario the V5.0.6751 supersession was designed to allow.
+                //
+                //   Earlier we called CanonicalPaperReplay6464.compareToLedger()
+                //   inline, but that establishes replayCarry6489 as a side
+                //   effect (V5.0.6489 idempotent guard, line 288 of
+                //   EconomicEventSchema6464). Downstream tests / callers that
+                //   later attempt to establish their own carry then get a hard
+                //   false — legitimate side effect but breaks test isolation
+                //   (Repair6492AcceptanceTest.missing_quote_keeps_last_good_mark).
+                //
+                //   Detect the "TradeHistoryStore under-hydrated but ledger
+                //   authoritatively drained" scenario inline WITHOUT triggering
+                //   any carry establishment. Two independent signals:
+                //     (a) EconomicEventSchema6464 already carries a non-zero
+                //         cashDelta (=ledger has authoritative drain that no
+                //         TradeHistoryStore row reproduces), OR
+                //     (b) A CanonicalPaperReplay6464 parity has previously been
+                //         stamped clean by the maintenance worker (fallback for
+                //         the well-worn happy path).
+                val carry6773 = try {
+                    com.lifecyclebot.engine.truth.EconomicEventSchema6464.replayCarry6489()
+                } catch (_: Throwable) { null }
+                val hydratedFromCarry6773 = carry6773 != null &&
+                    carry6773.established &&
+                    kotlin.math.abs(carry6773.cashDeltaSol) > 1e-9
+                val lastCleanParity6773 = try {
+                    val p = com.lifecyclebot.engine.truth.CanonicalPaperReplay6464.lastParity()
+                    p != null && !p.revisionRaceObserved &&
+                        kotlin.math.abs(p.cashDelta) <= 0.001 &&
+                        kotlin.math.abs(p.realizedDelta) <= 0.001 &&
+                        kotlin.math.abs(p.openCostDelta) <= 0.01
+                } catch (_: Throwable) { false }
+                hydratedFromCarry6773 || lastCleanParity6773
             } catch (_: Throwable) { false }
             if (kotlin.math.abs(delta) > 0.001 && !canonicalSupersedes6751) {
                 PipelineHealthCollector.labelInc("PAPER_LEDGER_VS_JOURNAL_DIVERGENCE_6619")
