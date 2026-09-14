@@ -65,8 +65,31 @@ object PaperAccountLedger6430 {
     @Synchronized
     fun initPersistent6487(context: Context, startingCashSol: Double): Boolean {
         prefs6487 = context.applicationContext.getSharedPreferences(PREFS_6487, Context.MODE_PRIVATE)
+        // V5.0.6765 §STARTING_CASH_FLOOR — operator report Feb 2026: "updates
+        // force the wallet cash balance to zero". Root cause: any path that
+        // supplies `startingCashSol <= 0.0` (a legacy prefs read that fell
+        // back to 0, a corrupted config, or a read race before ConfigStore
+        // was loaded) reaches `initialize()` at the bottom of this function
+        // and sets cash to 0 for the whole session. Guard here: any non-
+        // positive fresh-start value falls back to the canonical
+        // $1000 USD (~11.7647 SOL) baseline so a boot can never zero the
+        // wallet. Persisted state below is UNAFFECTED — real restored
+        // balances (including a legitimately drained wallet during trading)
+        // pass through the JSON path unchanged.
+        val safeStartingCashSol6765 = if (startingCashSol.isFinite() && startingCashSol > 0.0) {
+            startingCashSol
+        } else {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_LEDGER_ZERO_STARTING_CASH_FLOOR_6765")
+                ForensicLogger.lifecycle(
+                    "PAPER_LEDGER_ZERO_STARTING_CASH_FLOOR_6765",
+                    "requested=$startingCashSol floor=11.7647 reason=boot_zero_guard",
+                )
+            } catch (_: Throwable) {}
+            11.7647
+        }
         val raw = prefs6487?.getString(STATE_6487, null) ?: run {
-            initialize(startingCashSol)
+            initialize(safeStartingCashSol6765)
             return false
         }
         return try {
@@ -90,10 +113,58 @@ object PaperAccountLedger6430 {
             try { JournalEconomicAuthority6616.forcePublish("TRADE_JOURNAL_REPLAY_RESTORE_6487") } catch (_: Throwable) {}
             true
         } catch (t: Throwable) {
-            initialize(startingCashSol)
-            try { ForensicLogger.lifecycle("PAPER_LEDGER_AUTHORITY_RESTORE_REJECTED_6487", "reason=${t.message?.take(100)}") } catch (_: Throwable) {}
+            initialize(safeStartingCashSol6765)
+            try { ForensicLogger.lifecycle("PAPER_LEDGER_AUTHORITY_RESTORE_REJECTED_6487", "reason=${t.message?.take(100)} fallbackStartSol=$safeStartingCashSol6765") } catch (_: Throwable) {}
             false
         }
+    }
+
+    /**
+     * V5.0.6765 §ADD_PAPER_FUNDS — additive top-up. Operator report Feb 2026:
+     * "fix why you can't add more funds in paper mode via the toggle in
+     * tuning". The pre-6765 UI only exposed a full-reset button
+     * (`resetToFreshBalance6618`) which wipes learning attribution alongside
+     * cash. This authority CREDITS cash without touching realized pnl,
+     * open cost basis, fees, positions, or the trade history.
+     *
+     * The added amount is folded into `startingCashPico` too so all
+     * downstream conservation checks (`start + realized - fees == cash +
+     * reserved + open`) stay perfectly balanced — the top-up is treated
+     * as an operator-authorised addition of principal, not a phantom
+     * realized gain.
+     *
+     * @param sol amount of SOL to add (must be positive and finite).
+     * @param reason short human-readable justification for the forensic log.
+     * @return the new authoritative cash balance in SOL, or -1.0 if the
+     *         input was rejected.
+     */
+    @Synchronized
+    fun addPaperFundsSafe6765(sol: Double, reason: String): Double {
+        if (!sol.isFinite() || sol <= 0.0) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_ADD_FUNDS_REJECTED_INVALID_INPUT_6765")
+                ForensicLogger.lifecycle(
+                    "PAPER_ADD_FUNDS_REJECTED_INVALID_INPUT_6765",
+                    "sol=$sol reason=${reason.take(80)}",
+                )
+            } catch (_: Throwable) {}
+            return -1.0
+        }
+        val addPico = toPico(sol)
+        startingCashPico.addAndGet(addPico)
+        cashPico.addAndGet(addPico)
+        persistCurrent6487()
+        try {
+            PipelineHealthCollector.labelInc("PAPER_ADD_FUNDS_APPLIED_6765")
+            ForensicLogger.lifecycle(
+                "PAPER_ADD_FUNDS_APPLIED_6765",
+                "addSol=${"%.4f".format(sol)} newCashSol=${"%.4f".format(fromPico(cashPico.get()))} " +
+                    "newStartingCashSol=${"%.4f".format(fromPico(startingCashPico.get()))} " +
+                    "reason=${reason.take(80)}",
+            )
+        } catch (_: Throwable) {}
+        try { JournalEconomicAuthority6616.notifyEconomicMutation("ADD_FUNDS_6765") } catch (_: Throwable) {}
+        return fromPico(cashPico.get())
     }
 
     @Synchronized
