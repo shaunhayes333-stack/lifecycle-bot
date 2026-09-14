@@ -194,16 +194,13 @@ object ForensicReconciliation6635 {
         //   When it reports clean AND no revision race, the legacy
         //   whole-history divergence is bookkeeping noise, not a fault.
         val canonicalSupersedes6770 = if (!allZero) try {
-            val startCap = try {
-                PaperCapitalAuthority6577.startingCashSol().coerceAtLeast(0.0)
-            } catch (_: Throwable) { 0.0 }
-            // Refresh inline so the guard consults CURRENT-revision parity,
-            // not the last MaintenanceWorker6448 snapshot which is refreshed
-            // only every 30 loops (~5 min).
-            try {
-                com.lifecyclebot.engine.truth.CanonicalPaperReplay6464
-                    .compareToLedger(startCap)
-            } catch (_: Throwable) {}
+            // V5.0.6770/6772 — read the CURRENT-revision parity. Freshness
+            //   is guaranteed because JournalEconomicReplay6619.replay()
+            //   (already invoked at the top of this reconcile at line 79)
+            //   triggers CanonicalPaperReplay6464.compareToLedger() inline
+            //   whenever it observes a whole-history divergence. Reading
+            //   lastParity() here therefore reflects the CURRENT event
+            //   version, not the last MaintenanceWorker6448 snapshot.
             val p = com.lifecyclebot.engine.truth.CanonicalPaperReplay6464.lastParity()
             p != null && !p.revisionRaceObserved &&
                 kotlin.math.abs(p.cashDelta) <= 0.01 &&

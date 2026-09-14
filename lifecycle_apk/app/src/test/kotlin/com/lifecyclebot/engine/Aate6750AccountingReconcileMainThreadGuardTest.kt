@@ -51,7 +51,7 @@ class Aate6750AccountingReconcileMainThreadGuardTest {
         )
         // The status downgrade line must appear AFTER the deferred guard.
         val guardIdx = src.indexOf("if (replayDeferredOnMainThread6750)")
-        val downgradeIdx = src.indexOf("lastReconciledStatus.set(if (allZero)")
+        val downgradeIdx = src.indexOf("lastReconciledStatus.set(if (allZero")
         assertTrue("deferred-guard MUST appear in source before the status downgrade",
             guardIdx > 0 && downgradeIdx > 0 && guardIdx < downgradeIdx)
     }
