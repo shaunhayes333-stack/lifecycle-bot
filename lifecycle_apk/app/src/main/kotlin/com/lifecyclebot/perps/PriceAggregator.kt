@@ -296,26 +296,27 @@ object PriceAggregator {
     private fun getSourcesForType(type: AssetType, symbol: String): List<DataSource> {
         return when (type) {
             AssetType.CRYPTO -> if (resolveSolanaMint(symbol) != null) listOf(
-                // V5.0.6776 §DEXSCREENER_PRIMARY_ON_PROVIDER_DEGRADATION —
-                //   operator forensic Feb 2026: Birdeye effectively dead,
-                //   CoinGecko 1%, DexPaprika 26%, Groq rate-limited, Jupiter
-                //   ~70%, while DexScreener holds 100%. The old ordering
-                //   spent request budget on degraded providers before
-                //   reaching the one healthy source. Promote DexScreener +
-                //   GeckoTerminal + Jupiter to primaries; demote Birdeye
-                //   and CoinGecko to late fallbacks. When Birdeye / CG
-                //   recover the aggregator will still consult them once
-                //   the primaries fail — no coverage lost.
-                DataSource.DEXSCREENER,
-                DataSource.GECKO_TERMINAL,
+                // V5.0.6779 §REVERT_F6_DECIMAL_SKEW — operator forensic on V5.0.6777
+                //   showed WR collapse 42%->4.3% with Skew learning quarantine=105
+                //   and explicit QTY_DECIMAL_SKEW_6309 evidence (Bgm57x buyQty=1.675e+05
+                //   sellQty=1.153e+04). Root cause: promoting DexScreener to primary
+                //   changed the token-decimal handling on the sell path vs the buy
+                //   path (buy hit Birdeye-native decimals, sell hit DexScreener-native
+                //   decimals -> 14x qty mismatch -> phantom -99% catastrophic exits).
+                //   Restore the original ordering. Provider health monitoring remains
+                //   at the aggregator level; DexScreener still services fallback when
+                //   Birdeye is genuinely down. Zero code change to decimal handling —
+                //   we simply do not change the mark provider mid-position.
+                DataSource.DEXPAPRIKA,
+                DataSource.RAYDIUM_V3,
                 DataSource.JUPITER,
                 DataSource.JUPITER_LITE,
-                DataSource.RAYDIUM_V3,
-                DataSource.DEXPAPRIKA,
                 DataSource.BINANCE,
                 DataSource.KRAKEN,
                 DataSource.COINPAPRIKA,
+                DataSource.GECKO_TERMINAL,
                 DataSource.COINBASE,
+                DataSource.DEXSCREENER,
                 DataSource.BIRDEYE,
                 DataSource.COINGECKO,
                 DataSource.DIA_DATA,

@@ -67,10 +67,7 @@ class Repair6512ExecutionAuthorityTest {
         val quorum = File("src/main/kotlin/com/lifecyclebot/engine/LiveProviderQuorum.kt").readText()
         assertTrue(agg.contains("https://api.dexpaprika.com/networks/solana/tokens/"))
         assertTrue(agg.contains("https://data-api.binance.vision/api/v3/ticker/24hr"))
-        // V5.0.6776: DexScreener promoted to primary on operator provider-degradation
-        //   evidence (Birdeye dead, CoinGecko 1%). DexPaprika demoted below
-        //   DexScreener but remains an early source (not tail).
-        assertTrue(agg.indexOf("DataSource.DEXSCREENER") < agg.indexOf("DataSource.DEXPAPRIKA"))
+        assertTrue(agg.indexOf("DataSource.DEXPAPRIKA") < agg.indexOf("DataSource.DEXSCREENER"))
         assertTrue(dex.contains("fetchDexPaprikaToken6512") && dex.contains("baseTokenAddress = mint"))
         assertTrue(quorum.contains("DEXSCREENER_ENRICHMENT") && quorum.contains("JUPITER_ROUTE") && quorum.contains("HELIUS_ONCHAIN"))
     }
