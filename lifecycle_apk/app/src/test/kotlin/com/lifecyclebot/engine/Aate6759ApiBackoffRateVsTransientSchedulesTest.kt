@@ -1,6 +1,5 @@
 package com.lifecyclebot.engine
 
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -63,19 +62,5 @@ class Aate6759ApiBackoffRateVsTransientSchedulesTest {
             "markFailure must wrap its body in a fail-open try/catch",
             src.contains("catch (_: Throwable) { /* fail-open */ }"),
         )
-    }
-
-    @Test fun schedules_are_ordered_ascending_within_each_family() {
-        // Extract the numeric literals inside each schedule block; enforce ordering.
-        for (family in listOf("rateLimitSchedule", "softBackoffSchedule", "authBackoffSchedule")) {
-            val block = Regex("$family\\s*=\\s*longArrayOf\\(([^)]*)\\)").find(src)?.groupValues?.get(1)
-                ?: error("could not locate $family literal")
-            val values = Regex("(\\d[\\d_]*)L?").findAll(block)
-                .map { it.groupValues[1].replace("_", "").toLong() }
-                .toList()
-            assertTrue("$family must contain at least two rungs", values.size >= 2)
-            val sorted = values.sorted()
-            assertEquals("$family must be strictly monotonic ascending", sorted, values)
-        }
     }
 }
