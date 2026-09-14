@@ -300,7 +300,19 @@ object CanonicalEconomicEvent6635 {
             if (s.pendingSinceMs > 0 && System.currentTimeMillis() - s.pendingSinceMs > 60_000L) stuckN++
         }
         val eventParity = (pend == 0 && stuckN == 0)
-        val status = if (eventParity && open == 0) "RECONCILED" else "FAILED"
+        // V5.0.6768 §GLOBAL_RECONCILIATION_STATUS_ROOT_CAUSE — an event stays in
+        //   Terminal.OPEN from the moment openEvent() is called until all five
+        //   stores have called markCommitted(). Under real trade throughput
+        //   there is ALWAYS at least one in-flight commit in the registry when
+        //   ForensicReconciliation samples — that made status permanently
+        //   "FAILED", made JournalEconomicAuthority6616's publish gate refuse
+        //   every snapshot (JOURNAL_ECONOMIC_PUBLISH_BLOCKED_FAILED_REPLAY_6647
+        //   with replayOk=true failures=[]), and left the hero without a
+        //   RECONCILED snapshot to bind to — so UnifiedAccountSnapshot6635
+        //   painted ACCOUNT UNAVAILABLE / ACCOUNTING ERROR on a healthy account.
+        //   In-flight OPEN is NORMAL. Fault semantics are already fully covered
+        //   by PENDING_RECONCILIATION (>60s partial commit) and STUCK (>120s).
+        val status = if (eventParity) "RECONCILED" else "FAILED"
         return buildString {
             append("FORENSIC_ACCOUNTING_RECONCILIATION_6635 ")
             append("canonicalEconomicEvents=${events.size} ")

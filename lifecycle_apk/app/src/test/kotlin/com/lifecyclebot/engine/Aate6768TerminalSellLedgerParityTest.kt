@@ -75,6 +75,54 @@ class Aate6768TerminalSellLedgerParityTest {
     }
 
     @Test
+    fun aate6768_canonical_event_registry_status_does_not_block_on_transient_open() {
+        // Second-layer fix: CanonicalEconomicEvent6635.forensicReconciliationLine6635()
+        // previously required (eventParity && open == 0) → any in-flight commit made
+        // the registry report status=FAILED, which forced
+        // JournalEconomicAuthority6616 to refuse EVERY publish
+        // (JOURNAL_ECONOMIC_PUBLISH_BLOCKED_FAILED_REPLAY_6647 with replayOk=true
+        // and failures=[]). Fault semantics remain fully expressed via PENDING /
+        // STUCK; in-flight OPEN is normal commit activity, not a fault.
+        val eventSrc = java.io.File(
+            "src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEconomicEvent6635.kt"
+        ).readText()
+        assertFalse(
+            "V5.0.6768: `open == 0` must no longer gate global reconciliation status",
+            eventSrc.contains("eventParity && open == 0")
+        )
+        assertTrue(
+            "V5.0.6768: reconciliation status is defined by pending + stuck (event parity)",
+            eventSrc.contains("val status = if (eventParity) \"RECONCILED\" else \"FAILED\"")
+        )
+    }
+
+    @Test
+    fun aate6768_canonical_event_registry_still_fails_on_pending_partial_commit() {
+        // Regression: a real partial-commit defect (only one store stamped, TTL
+        // elapsed, promoted to PENDING) must still surface as status=FAILED.
+        val events = com.lifecyclebot.engine.truth.CanonicalEconomicEvent6635
+        events.resetForTest()
+        val id = events.mintEventId()
+        val evt = events.Event(
+            economicEventId = id, positionId = "pid-6768", mint = "M", canonicalMint = "M",
+            symbol = "SYM", mode = "paper", lane = "MEME", side = events.Side.BUY,
+            timestampMs = System.currentTimeMillis() - 120_000L,
+            qtyRaw = java.math.BigInteger.ONE, decimals = 0,
+            executionPriceUsd = 0.001, executionPriceSol = 0.0000005,
+            notionalSol = 0.05, feeSol = 0.001, cashDeltaSol = -0.051,
+            positionQtyDeltaRaw = java.math.BigInteger.ONE,
+            realizedPnlDeltaSol = 0.0, terminalFillIndex = 0,
+        )
+        assertTrue(events.openEvent(evt))
+        events.markCommitted(id, events.Store.LEDGER, "test.only")
+        events.sweepPending6635(ttlMs = 60_000L)
+        val line = events.forensicReconciliationLine6635()
+        assertTrue("Partial commit still FAILS: $line", line.contains("status=FAILED"))
+        assertTrue("Partial commit records pending=1: $line", line.contains("pending=1"))
+        events.resetForTest()
+    }
+
+    @Test
     fun aate6768_replay_of_empty_journal_stays_reconciled() {
         // Regression: the fix must not accidentally break the trivial zero-history
         // reconciled state that hero cards on cold-open depend on.
