@@ -33,8 +33,18 @@ object EarlyLaunchBypass6396 {
     data class Decision(val allow: Boolean, val sizeMultiplier: Double, val reason: String)
 
     /**
-     * V5.0.6396 live-buy entry point. Derives scout tier from
-     * SmartMoneyFeed6394 (≥2 whale buys in 60s == HIGH_CONVICTION_EARLY).
+     * V5.0.6784 §AUTHORITY_CONSOLIDATION — score-floor bypass is retired.
+     *
+     * Prior doctrine let a below-floor candidate enter as a 0.30× micro-
+     * probe when SmartMoneyFeed6394 saw ≥2 whale buys in 60s. Directive §2
+     * ("Lane identity is evidence. Lane identity is not superior to learned
+     * outcome truth.") and §7 ("Learning must change the decision, not just
+     * size") forbid this pattern: a specialist scout tier cannot override
+     * the learned score floor by clamping size to 0.30×.
+     *
+     * Smart-money observation continues to inform score/features upstream
+     * and to fund shadow/counterfactual learners downstream. Canonical
+     * capital does NOT execute below the learned floor.
      */
     fun evaluateForLiveBuy(
         mint: String,
@@ -43,23 +53,9 @@ object EarlyLaunchBypass6396 {
         sameMintAlreadyOpen: Boolean,
         reentryLockout: Boolean,
     ): Decision {
-        if (liveScore < ABSOLUTE_MIN_SCORE)
-            return Decision(false, 0.0, "BELOW_ABSOLUTE_MIN_6396")
         if (liveScore >= STANDARD_LIVE_SCORE_FLOOR)
             return Decision(false, 1.0, "SCORE_AT_OR_ABOVE_FLOOR_6396")   // caller uses normal path
-        if (sameMintAlreadyOpen)
-            return Decision(false, 0.0, "SAME_MINT_ALREADY_OPEN_6396")
-        if (reentryLockout)
-            return Decision(false, 0.0, "REENTRY_LOCKOUT_6396")
-        // Score in [ABSOLUTE_MIN, BASELINE) — check smart money.
-        val whaleBuys = try { SmartMoneyFeed6394.smartMoneyBuysLast60s(mint) } catch (_: Throwable) { 0 }
-        if (whaleBuys < 2)
-            return Decision(false, 0.0, "INSUFFICIENT_WHALE_ACTIVITY_6396")
-        if (liquidityUsd < 3_000.0)
-            return Decision(false, 0.0, "LIQ_BELOW_EXECUTABLE_6396")
-        earlyLaunchProbesAuthorized.incrementAndGet()
-        return Decision(true, PROBE_SIZE_MULTIPLIER,
-            "EARLY_LAUNCH_MICRO_PROBE_6396 whales=$whaleBuys liq=${liquidityUsd.toInt()}")
+        return Decision(false, 0.0, "EARLY_LAUNCH_BYPASS_RETIRED_6784")
     }
 
     internal fun clearForTest() { earlyLaunchProbesAuthorized.set(0L) }
