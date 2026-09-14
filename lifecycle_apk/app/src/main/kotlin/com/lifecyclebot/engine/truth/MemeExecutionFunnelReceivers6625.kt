@@ -386,7 +386,25 @@ object SpecialistCausalFunnel6625 {
                 val executableSize = "SIZED_EXECUTABLE" in r.outcomes || "SIZE" in r.outcomes
                 val fdgAllowed = "FDG_ALLOW" in r.outcomes || "FDG" in r.outcomes
                 val markReady = "MARK_READY" in r.outcomes || "MARK" in r.outcomes
-                if (executableSize && (Stage.DISCOVER !in r.stages || Stage.INTENT !in r.stages || !markReady)) phantom++
+                // V5.0.6760 §PHANTOM_SIZED_AT_SOURCE — phantom is now defined
+                // as a sized candidate that has NO terminal disposition on
+                // the same causal record. Previous definition inspected only
+                // the causal predecessors (DISCOVER / INTENT / MARK) which
+                // conflated attribution defects with genuine phantoms — a
+                // record could be sized, get its ticket sealed and execute
+                // OK, and still count as phantom because the DISCOVER stage
+                // outcome hadn't been stamped on the same causal key.
+                // Operator spec (V5.0.6759 §1): "every sizedExecutable > 0
+                // state must end in exactly one terminal transition". So
+                // phantom = sized WITHOUT any terminal outcome.
+                val hasTerminal6760 = r.outcomes.any { out ->
+                    out == "TICKET" || out == "TICKET_CREATED" || out == "TICKET_SEALED" ||
+                        out.startsWith("TERMINAL_REJECT") || out.startsWith("REJECTED_TERMINAL") ||
+                        out.startsWith("SUPERSEDED") || out.startsWith("STALE_") ||
+                        out.startsWith("FINALIZED") || out == "EXEC" || out == "OPEN" ||
+                        out == "SELL" || out.startsWith("STALE_SIZED_TERMINAL_6760")
+                }
+                if (executableSize && !hasTerminal6760) phantom++
                 for (stage in r.stages.keys) {
                     // Later stages are executable telemetry only when the
                     // same keyed record contains its causal predecessors.
@@ -404,6 +422,62 @@ object SpecialistCausalFunnel6625 {
             }
         }
         return LaneSnapshot6647(lane, counts, outcomes, phantom)
+    }
+
+    /**
+     * V5.0.6760 §1 — terminalize stale sized reservations.
+     *
+     * Operator spec: "on reject/defer after sizing: clear sizing reservation,
+     * clear pending lane ownership, clear execution lease/reservation,
+     * emit one canonical terminal reason. Never leave a sized candidate
+     * resident without terminal ownership."
+     *
+     * The bot cadence calls this once per pump-cycle. Any causal record
+     * that has a SIZE/SIZED_EXECUTABLE outcome, does NOT already have a
+     * terminal outcome, AND whose most recent stage stamp is older than
+     * [ttlMs] gets a `STALE_SIZED_TERMINAL_6760` outcome stamped on the
+     * same immutable causal record. This is the ONLY terminal path that
+     * this authority may write on its own behalf — every other terminal
+     * is stamped by the pipeline stage that actually made the decision.
+     *
+     * @return the number of records that were terminalized in this sweep.
+     */
+    fun reapStaleSizedReservations6760(ttlMs: Long = 30_000L, nowMs: Long = System.currentTimeMillis()): Int {
+        var swept = 0
+        for (r in records.values) {
+            synchronized(r) {
+                val executableSize = "SIZED_EXECUTABLE" in r.outcomes || "SIZE" in r.outcomes
+                if (!executableSize) return@synchronized
+                val hasTerminal = r.outcomes.any { out ->
+                    out == "TICKET" || out == "TICKET_CREATED" || out == "TICKET_SEALED" ||
+                        out.startsWith("TERMINAL_REJECT") || out.startsWith("REJECTED_TERMINAL") ||
+                        out.startsWith("SUPERSEDED") || out.startsWith("STALE_") ||
+                        out.startsWith("FINALIZED") || out == "EXEC" || out == "OPEN" ||
+                        out == "SELL"
+                }
+                if (hasTerminal) return@synchronized
+                val newestStage = r.stages.values.maxOrNull() ?: return@synchronized
+                if (nowMs - newestStage < ttlMs) return@synchronized
+                r.outcomes += "STALE_SIZED_TERMINAL_6760"
+                r.stages[Stage.LEARN] = nowMs
+                swept++
+                try {
+                    PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_STALE_SIZED_TERMINALIZED_6760")
+                    PipelineHealthCollector.labelInc(
+                        "SPECIALIST_CAUSAL_STALE_SIZED_TERMINALIZED_6760|${r.key.lane.uppercase().take(24)}",
+                    )
+                    ForensicLogger.lifecycle(
+                        "SPECIALIST_CAUSAL_STALE_SIZED_TERMINALIZED_6760",
+                        "lane=${r.key.lane} mint=${r.key.mint.take(10)} intentId=${r.key.intentId.take(24)} " +
+                            "ageMs=${nowMs - newestStage} ttlMs=$ttlMs",
+                    )
+                } catch (_: Throwable) {}
+            }
+        }
+        if (swept > 0) try {
+            PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_STALE_SIZED_SWEEP_6760")
+        } catch (_: Throwable) {}
+        return swept
     }
 
     /** Resolve position/finality telemetry back to the newest keyed record

@@ -1,3 +1,45 @@
+# AATE PRD — V5.0.6760 (Sep 2026 rolling)
+
+**Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.
+
+## V5.0.6760 — DIRECT SOURCE REPAIR BLOCK (operator directive)
+
+Operator directive V5.0.6759 DIRECT SOURCE REPAIR BLOCK: "Repair the execution-state choke without changing the now-healthy canonical accounting/reconciliation authority. Do not add another overlay patch. Fix the authoritative source paths and remove/neutralize contradictory legacy gates that execute after canonical authorization." User chose monolithic push (b) with caveat "be careful".
+
+Ships FIVE source-level repairs on the canonical execution paths, no new overlay/bypass, no threshold tuning, no rewrite of any healthy authority (CanonicalPositionAuthority, paper ledger, conservation accounting, terminal idempotency, reward bus, replay reconciliation, lane identity, buy/sell quantity accounting all untouched).
+
+- **§1 PHANTOM_SIZED_AT_SOURCE** (`SpecialistCausalFunnel6625`):
+  Redefine phantom = sized candidate WITHOUT terminal disposition on the same causal record (was: sized without DISCOVER/INTENT/MARK predecessors, which conflated attribution defects with genuine phantoms). Terminal outcomes: `TICKET`, `TICKET_CREATED`, `TICKET_SEALED`, `TERMINAL_REJECT*`, `REJECTED_TERMINAL*`, `SUPERSEDED*`, `STALE_*`, `FINALIZED*`, `EXEC`, `OPEN`, `SELL`, `STALE_SIZED_TERMINAL_6760`. New `reapStaleSizedReservations6760(ttlMs = 30_000L)` terminalizes any sized reservation older than TTL with reason `STALE_SIZED_TERMINAL_6760` and stamps `Stage.LEARN` on the same immutable record; called once per BotService pump cadence.
+- **§2 CASH_STARVED_AT_SOURCE** (`ExitThroughputAuthority6727`):
+  Retire the compound `cashRatio < 0.20 && openCount >= 40` gate. Cash-starve now requires `cash < paperExecutableMinimumSol` (0.05 SOL) AND `openCount >= 1`. Ratio-based signals demoted to advisory-only via existing `LaneCapitalFairness6732` and §MEME_UNCHOKE_SAFETY (V5.0.6759). Backpressure now decays immediately when authoritative cash rises above min-executable.
+- **§7 POST_SEAL_AUTHORITY_INVARIANTS** (new `PostSealAuthorityInvariants6760`):
+  Central allowlist. Hard-safety substrings (POSITION_HARD_CAP, CASH_STARVED, DUPLICATE_EXECUTION, TERMINAL_POSITION_STATE, STALE_ECONOMIC_VALIDITY, SAFETY_*, RUG_DETECTED_HARD_VETO, HONEYPOT_HARD_VETO, CANONICAL_FINALITY_*) remain authoritative post-FDG-allow; every other legacy reason emits `POST_SEAL_ADVISORY_ONLY_6760` telemetry and falls through. Demoted callsites (initial batch): `EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747`, `EXEC_OPEN_BLOCKED_SHADOW_TRAIN_ONLY_6683` in `ExecutableOpenGate.kt`; `PAPER_ENTRY_QUALITY_REJECTED_6663` in `Executor.kt`. Further gates (STALE_FEEDBACK_EPOCH_REVALIDATE_6715, MISSING_FEEDBACK_STAMP_REVALIDATE_6715, EXEC_OPEN_DROPPED_TOKEN_STATE_CHANGED, EXEC_FROZEN_SNAPSHOT_MISSING_INTENT_NEEDS_REVALIDATION_6627, EXEC_RESTORED_TICKET_VERSION_DRIFT_6692, FDG_ALLOW_SEALING_RACE_DEFERRED_6739) already covered by the authority — callsites will be routed through it in follow-up when their runtime firing rate is observed.
+- **§6 FRESH_SOURCE_MARK_PROMOTION** (`Executor.kt`):
+  Split `VALID_SOURCE_NO_EXECUTABLE_MARK` into five sub-classes (`IDENTITY_UNIT_OR_DECIMAL`, `PAIR_OR_ROUTE_INVALID`, `STALE_QUOTE_ONLY`, `SOURCE_ADVISORY_ONLY`, `SOURCE_RESOLUTION_EXCEPTION`, else `OTHER_<truncated>`). Emitted as `VALID_SOURCE_NO_EXECUTABLE_MARK_6760|<subClass>` alongside the legacy label. Provider degradation on ONE provider now shows as sub-class, not a systemic mark failure.
+- **§8 REPLAY/SHADOW STAY NON-AUTHORITATIVE**: preserved — `CanonicalPositionAuthority.openPositions()` filters strictly on `Lifecycle.OPEN || PARTIALLY_CLOSED` + `remainingQtyRaw > 0` (canonical truth), never touched. Shadow-mode positions never enter the exit-throughput occupancy calculation because they don't have canonical `Position` records.
+- **§9 EXPRESS NOT AN INFRASTRUCTURE CHOKE**: no change — EXPRESS retains its healthy `ticket → exec → finalized` path; its poor WR is treated as a strategy-quality / expectancy-damper problem elsewhere, not touched here.
+- **§10 HEALTHY AUTHORITIES PRESERVED**: no edits to CanonicalPositionAuthority, canonical paper ledger, conservation accounting, terminal idempotency, finalized reward bus, canonical replay/reconciliation, lane identity invariants, buy/sell quantity accounting.
+- **Regression**: `Aate6760DirectSourceRepairTest` — 8 tests locking:
+  1. phantom counts only sized records without terminal
+  2. reap terminalizes orphans and drops phantom count
+  3. cash-starve no longer uses compound ratio+count gate
+  4. `PostSealAuthorityInvariants6760.mayBlockAfterFdgAllow` allowlist matches spec
+  5. ExecutableOpenGate uses the authority for regime floor + shadow train
+  6. Executor uses the authority for paper-entry-quality
+  7. VALID_SOURCE_NO_EXECUTABLE_MARK split into sub-classes
+  8. BotService pump cadence calls the reap authority
+  9. LaneSnapshot6647 still exposes the phantomSizedOnly field (external witness compat)
+
+## Pending / In-flight
+
+- P1 (RECURRING, HIGH): PHANTOM_SIZED_ONLY + accounting deltas — 6760 §1+§2+§7 land the source-level plumbing; awaiting fresh runtime capture to measure phantom-count decay and false-CASH_STARVED elimination.
+- P2: Provider degradation — 6759 HostCircuitInterceptor + ApiBackoff + 6760 §6 sub-class classifier ship the source fixes; awaiting runtime capture.
+- P3: BotService.kt (29k lines) ANR / cycle-time — deferred pending profile capture. Cycle sits ~7.8s, below 20s alarm.
+- Follow-ups from operator §7 audit that need the same demotion pass once callsite firing rate is observed: STALE_FEEDBACK_EPOCH_REVALIDATE_6715 · MISSING_FEEDBACK_STAMP_REVALIDATE_6715 · EXEC_OPEN_DROPPED_TOKEN_STATE_CHANGED · EXEC_FROZEN_SNAPSHOT_MISSING_INTENT_NEEDS_REVALIDATION_6627 · EXEC_RESTORED_TICKET_VERSION_DRIFT_6692 · FDG_ALLOW_SEALING_RACE_DEFERRED_6739. All ALREADY consult the shared authority — they only need their callsite return path routed through it. Do this in 6761.
+
+---
+
+
 # AATE PRD — V5.0.6759 (Sep 2026 rolling)
 
 **Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.

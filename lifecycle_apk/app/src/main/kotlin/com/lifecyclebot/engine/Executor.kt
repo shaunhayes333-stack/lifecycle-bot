@@ -12589,8 +12589,42 @@ class Executor(
             )
         }
         if (!promotion6613.promoted) try {
+            // V5.0.6760 §FRESH_SOURCE_MARK_PROMOTION — split the observed
+            // failure reasons into distinct classes so provider degradation
+            // on ONE provider cannot masquerade as a systemic mark failure.
+            // Operator spec §6:
+            //   "Separate: bad unit/decimal identity, invalid pair identity,
+            //    stale quote, source-only advisory observation, executable
+            //    canonical mark. A fresh routable correctly-identified quote
+            //    must not be rejected merely because another provider is
+            //    degraded."
+            //
+            // The under-count knob:
+            //   `missingExecutableMarkWithValidSource` should approach zero.
+            // We stamp a sub-class alongside the generic label so operator
+            // triage can identify the actual constraint at a glance.
+            val reasonUpper6760 = promotion6613.reason.uppercase()
+            val subClass6760 = when {
+                reasonUpper6760.contains("IDENTITY_MISMATCH") || reasonUpper6760.contains("UNIT") || reasonUpper6760.contains("DECIMAL") ->
+                    "IDENTITY_UNIT_OR_DECIMAL"
+                reasonUpper6760.contains("PAIR") || reasonUpper6760.contains("MINT_ROUTE") ->
+                    "PAIR_OR_ROUTE_INVALID"
+                reasonUpper6760.contains("STALE") || reasonUpper6760.contains("AGE") ->
+                    "STALE_QUOTE_ONLY"
+                reasonUpper6760.contains("OBSERVATION") || reasonUpper6760.contains("SOURCE_ADVISORY") ->
+                    "SOURCE_ADVISORY_ONLY"
+                reasonUpper6760.contains("EXCEPTION") ->
+                    "SOURCE_RESOLUTION_EXCEPTION"
+                else -> "OTHER_${promotion6613.reason.take(24)}"
+            }
             PipelineHealthCollector.labelInc("VALID_SOURCE_NO_EXECUTABLE_MARK|${promotion6613.reason}")
-            ForensicLogger.lifecycle("VALID_SOURCE_NO_EXECUTABLE_MARK", "mint=${ts.mint.take(10)} source=${promotion6613.source} price=${promotion6613.price} ageMs=${promotion6613.ageMs} identity=${promotion6613.identity.take(80)} unit=${promotion6613.unitState} reason=${promotion6613.reason}")
+            PipelineHealthCollector.labelInc("VALID_SOURCE_NO_EXECUTABLE_MARK_6760|$subClass6760")
+            ForensicLogger.lifecycle(
+                "VALID_SOURCE_NO_EXECUTABLE_MARK",
+                "mint=${ts.mint.take(10)} source=${promotion6613.source} price=${promotion6613.price} " +
+                    "ageMs=${promotion6613.ageMs} identity=${promotion6613.identity.take(80)} " +
+                    "unit=${promotion6613.unitState} reason=${promotion6613.reason} subClass6760=$subClass6760",
+            )
         } catch (_: Throwable) {}
         val strictMark6575 = try {
             com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.getFresh6734(
@@ -12826,11 +12860,26 @@ class Executor(
             // weak BLUECHIP/SHITCOIN/EXPRESS entries lose money while the
             // self-tuner saw no terminal sample. Keep the candidate visible in
             // telemetry, but do not open a canonical position.
-            try { PipelineHealthCollector.labelInc("PAPER_ENTRY_QUALITY_REJECTED_6663") } catch (_: Throwable) {}
-            try { ForensicLogger.lifecycle("PAPER_ENTRY_QUALITY_REJECTED_6663", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$why learningEligible=false openTrade=false") } catch (_: Throwable) {}
-            ErrorLogger.debug("Executor", "🧪 PAPER_ENTRY_QUALITY_REJECTED_6663: ${ts.symbol} | $why")
-            markPaperBuyNotOpened("LEARNING_QUALITY_REJECTED_6663")
-            return
+            //
+            // V5.0.6760 §POST_SEAL_ADVISORY_ONLY_6760 — learning-quality is a
+            // pre-seal signal, not a hard-safety veto. Operator spec §7:
+            // "learning quality must run BEFORE authoritative sealing or
+            // become advisory only". Demote here; the paper trade proceeds
+            // and the learner still consumes the outcome (that IS the point
+            // of paper training). The candidate stays visible in telemetry.
+            val reason6760 = "PAPER_ENTRY_QUALITY_REJECTED_6663"
+            val extra6760 = "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$why"
+            if (com.lifecyclebot.engine.truth.PostSealAuthorityInvariants6760.mayBlockAfterFdgAllow(reason6760)) {
+                try { PipelineHealthCollector.labelInc(reason6760) } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle(reason6760, "$extra6760 learningEligible=false openTrade=false") } catch (_: Throwable) {}
+                ErrorLogger.debug("Executor", "🧪 $reason6760: ${ts.symbol} | $why")
+                markPaperBuyNotOpened("LEARNING_QUALITY_REJECTED_6663")
+                return
+            } else {
+                com.lifecyclebot.engine.truth.PostSealAuthorityInvariants6760.emitAdvisory6760(reason6760, extra6760)
+                // fall through — paper trade proceeds, learner will still
+                // consume the terminal outcome as evidence.
+            }
         }
         // V5.9.1129 — route authority must run before open authority for direct
         // paperBuy() callers. In LIVE mode with shadowPaperEnabled=true this is

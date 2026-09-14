@@ -1704,27 +1704,36 @@ object ExecutableOpenGate {
                 if (entryScore6747 >= 0 && floorDelta6747 > 0) {
                     val effectiveMinScore6747 = REGIME_BASE_MIN_SCORE_6747 + floorDelta6747
                     if (entryScore6747 < effectiveMinScore6747) {
-                        try {
-                            val canonLane6747 = canonicalLane(lane)
-                            val regimeName6747 = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" }
-                            PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747")
-                            PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747|${canonLane6747}|${regimeName6747}")
-                            ForensicLogger.lifecycle(
-                                "EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747",
-                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} mode=$modeUpper6747 " +
-                                    "lane=$canonLane6747 regime=$regimeName6747 score=$entryScore6747 " +
-                                    "base=$REGIME_BASE_MIN_SCORE_6747 delta=+$floorDelta6747 " +
-                                    "effectiveFloor=$effectiveMinScore6747 attemptId=$attemptId " +
-                                    "action=regime_floor_authoritative_veto",
+                        val reason6760 = "EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747"
+                        val canonLane6747 = canonicalLane(lane)
+                        val regimeName6747 = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" }
+                        val extra6760 = "mint=${ts.mint.take(10)} symbol=${ts.symbol} mode=$modeUpper6747 " +
+                            "lane=$canonLane6747 regime=$regimeName6747 score=$entryScore6747 " +
+                            "base=$REGIME_BASE_MIN_SCORE_6747 delta=+$floorDelta6747 " +
+                            "effectiveFloor=$effectiveMinScore6747 attemptId=$attemptId"
+                        // V5.0.6760 §POST_SEAL_ADVISORY_ONLY_6760 — regime floor is a
+                        // pre-seal quality signal, not a hard-safety veto. Operator
+                        // spec §7: "regime floor must run BEFORE authoritative sealing
+                        // or become advisory only". Demote here; regime shaping still
+                        // participates via RegimeDetector.scoreFloorDelta() inside
+                        // upstream FDG scoring, so a truly weak entry is filtered
+                        // pre-seal by the specialist FDG rather than re-vetoed here.
+                        if (com.lifecyclebot.engine.truth.PostSealAuthorityInvariants6760.mayBlockAfterFdgAllow(reason6760)) {
+                            try {
+                                PipelineHealthCollector.labelInc(reason6760)
+                                PipelineHealthCollector.labelInc("${reason6760}|${canonLane6747}|${regimeName6747}")
+                                ForensicLogger.lifecycle(reason6760, "$extra6760 action=regime_floor_authoritative_veto")
+                            } catch (_: Throwable) {}
+                            return OpenVerdict(
+                                allowed = false,
+                                reason = "$reason6760:need>=${effectiveMinScore6747}",
+                                shadowOnly = modeUpper6747 == "PAPER",
+                                logName = reason6760,
+                                attemptId = attemptId,
                             )
-                        } catch (_: Throwable) {}
-                        return OpenVerdict(
-                            allowed = false,
-                            reason = "EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747:need>=${effectiveMinScore6747}",
-                            shadowOnly = modeUpper6747 == "PAPER",
-                            logName = "EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747",
-                            attemptId = attemptId,
-                        )
+                        } else {
+                            com.lifecyclebot.engine.truth.PostSealAuthorityInvariants6760.emitAdvisory6760(reason6760, extra6760)
+                        }
                     }
                 }
             }
@@ -2104,23 +2113,35 @@ object ExecutableOpenGate {
         // Keep discovery, qualification, tactic rotation and NoTradeObservation
         // learning alive, but do not turn this already-proven toxic bucket into a
         // canonical BUY until its learned bucket state recovers.
+        //
+        // V5.0.6760 §POST_SEAL_ADVISORY_ONLY_6760 — BucketExecutionState is a
+        // learning-quality signal, not a hard-safety veto. Per operator spec §7
+        // ("learning quality must run BEFORE authoritative sealing, or become
+        // advisory only"), demote this to advisory. The learned toxicity is
+        // still recorded on the causal record and continues to shape
+        // LaneAdaptiveDamping / expectancy multipliers downstream; it just no
+        // longer contradicts a sealed FDG decision.
         run {
             val gateScore = state?.entryScore ?: -1
             if (gateScore >= 0 && isRealExecutionLane(canonicalSelectedLane)) {
                 if (BucketExecutionState.isShadowTrainOnly(canonicalSelectedLane, gateScore)) {
-                    try {
-                        PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_SHADOW_TRAIN_ONLY_6683")
-                        PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_SHADOW_TRAIN_ONLY_6683|${canonicalSelectedLane.uppercase().take(24)}")
-                        ForensicLogger.lifecycle(
-                            "EXEC_OPEN_BLOCKED_SHADOW_TRAIN_ONLY_6683",
-                            "lane=$canonicalSelectedLane score=$gateScore mode=$modeUpper ${BucketExecutionState.describe(canonicalSelectedLane, gateScore)} attemptId=$attemptId action=shadow_train_counterfactual_no_economic_open"
+                    val reason6760 = "EXEC_OPEN_BLOCKED_SHADOW_TRAIN_ONLY_6683"
+                    val extra6760 = "lane=$canonicalSelectedLane score=$gateScore mode=$modeUpper ${BucketExecutionState.describe(canonicalSelectedLane, gateScore)} attemptId=$attemptId"
+                    if (com.lifecyclebot.engine.truth.PostSealAuthorityInvariants6760.mayBlockAfterFdgAllow(reason6760)) {
+                        try {
+                            PipelineHealthCollector.labelInc(reason6760)
+                            PipelineHealthCollector.labelInc("${reason6760}|${canonicalSelectedLane.uppercase().take(24)}")
+                            ForensicLogger.lifecycle(reason6760, "$extra6760 action=shadow_train_counterfactual_no_economic_open")
+                        } catch (_: Throwable) {}
+                        return blocked(
+                            reason6760,
+                            "SHADOW_TRAIN_ONLY_6683 $extra6760",
+                            shadow = true,
                         )
-                    } catch (_: Throwable) {}
-                    return blocked(
-                        "EXEC_OPEN_BLOCKED_SHADOW_TRAIN_ONLY_6683",
-                        "SHADOW_TRAIN_ONLY_6683 lane=$canonicalSelectedLane score=$gateScore mode=$modeUpper ${BucketExecutionState.describe(canonicalSelectedLane, gateScore)}",
-                        shadow = true,
-                    )
+                    } else {
+                        // Advisory: demote to telemetry, fall through, sealed path wins.
+                        com.lifecyclebot.engine.truth.PostSealAuthorityInvariants6760.emitAdvisory6760(reason6760, extra6760)
+                    }
                 }
             }
         }

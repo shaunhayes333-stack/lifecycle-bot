@@ -124,10 +124,31 @@ object ExitThroughputAuthority6727 {
             return Verdict(true, "LANE_HEADROOM_FAIRNESS_6732", openCount, cash, equity, cashRatio)
         }
 
-        // Compound guard: cash starved AND we're already carrying real
-        // inventory. Either condition alone can be recovered; the
-        // combination is the saturation state we saw in the dump.
-        if (cashRatio < CASH_STARVE_RATIO && openCount >= POSITION_CAP_HINT) {
+        // V5.0.6760 §CASH_STARVED_AT_SOURCE — cash-starve must be a real
+        // inability to fund the smallest executable ticket, not merely a
+        // ratio-based signal. Operator spec (V5.0.6759 §2):
+        //
+        //   "Do not classify the account as cash-starved when
+        //    canonical cash > minimum executable notional, capital
+        //    conservation is valid, and no reserved cash deficit exists."
+        //
+        // We block only when:
+        //   • cash < paperExecutableMinimumSol (or ABS_MIN_EXECUTABLE_SOL
+        //     when the runtime cannot resolve the paper minimum), AND
+        //   • openCount >= 1 (a genuine open lot exists — a fresh boot
+        //     with cash=0 and no positions should not flag "starved").
+        //
+        // The old compound `cashRatio < 0.20 && openCount >= 40` gate is
+        // retired: on a 20-position portfolio at 40% cash the pipeline
+        // was blocking hundreds of valid entries because the ratio was
+        // treated as authoritative starvation. Ratio-based signals are
+        // now advisory only via LaneCapitalFairness6732 and the
+        // §MEME_UNCHOKE_SAFETY re-check in OrderSizeResolver6441.
+        val paperMinExec6760 = try {
+            OrderSizeResolver6441.paperExecutableMinimumSol()
+        } catch (_: Throwable) { 0.05 }
+        val cashBelowMinExec6760 = cash < paperMinExec6760
+        if (cashBelowMinExec6760 && openCount >= 1) {
             try { PipelineHealthCollector.labelInc("EXIT_THROUGHPUT_BLOCKED_CASH_STARVED_6727") } catch (_: Throwable) {}
             return Verdict(false, "CASH_STARVED_EXIT_THROUGHPUT_6727", openCount, cash, equity, cashRatio)
         }

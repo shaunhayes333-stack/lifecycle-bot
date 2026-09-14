@@ -759,6 +759,10 @@ class BotService : Service() {
                 // must not depend on the operator opening/copying a report.
                 try { com.lifecyclebot.engine.truth.PendingIntentBacklog6625.reap6625(30_000L) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.reap6627(30_000L) } catch (_: Throwable) {}
+                // V5.0.6760 §PHANTOM_SIZED_AT_SOURCE — canonical terminalization
+                // of stale sized reservations. See SpecialistCausalFunnel6625
+                // docblock. Fires once per pump cadence tick.
+                try { com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.reapStaleSizedReservations6760(30_000L) } catch (_: Throwable) {}
                 ToolkitSignalSheet.configuredMemeDesks6647().forEach { lane ->
                     val current = specialistWorkerJobs6647[lane]
                     if (current?.isActive == true || now < (specialistRestartAfterMs6647[lane] ?: 0L)) return@forEach

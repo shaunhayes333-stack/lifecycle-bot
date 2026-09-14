@@ -1,4 +1,18 @@
-## V5.0.6759 — finish `fix/exit-api-reliability-6758` + §MEME_UNCHOKE_SAFETY
+## V5.0.6760 — DIRECT SOURCE REPAIR BLOCK (operator directive V5.0.6759)
+
+Ships five source-level repairs on the canonical execution paths. NO new overlay/bypass. NO threshold tuning. NO rewrite of any healthy authority. Operator directive: "Repair the execution-state choke without changing the now-healthy canonical accounting/reconciliation authority. Fix the authoritative source paths and remove/neutralize contradictory legacy gates that execute after canonical authorization."
+
+- **§1 PHANTOM_SIZED_AT_SOURCE** (`SpecialistCausalFunnel6625`): phantom = sized WITHOUT terminal disposition (was: sized without DISCOVER/INTENT/MARK predecessors — conflated attribution with phantoms). `reapStaleSizedReservations6760(ttlMs=30_000L)` terminalizes orphans with `STALE_SIZED_TERMINAL_6760`; called every BotService pump cadence.
+- **§2 CASH_STARVED_AT_SOURCE** (`ExitThroughputAuthority6727`): retire compound `cashRatio && openCount` gate. Cash-starve now requires `cash < paperExecutableMinimumSol` AND `openCount >= 1`. Ratio-based signals live only in `LaneCapitalFairness6732` + `§MEME_UNCHOKE_SAFETY`.
+- **§7 POST_SEAL_AUTHORITY_INVARIANTS** (new `PostSealAuthorityInvariants6760`): central hard-safety allowlist; every legacy post-FDG-allow gate emits `POST_SEAL_ADVISORY_ONLY_6760` and falls through unless the reason is hard-safety. First batch demoted: `REGIME_FLOOR_6747`, `SHADOW_TRAIN_ONLY_6683`, `PAPER_ENTRY_QUALITY_REJECTED_6663`.
+- **§6 FRESH_SOURCE_MARK_PROMOTION** (`Executor.kt`): `VALID_SOURCE_NO_EXECUTABLE_MARK` split into 5 sub-classes (`IDENTITY_UNIT_OR_DECIMAL`, `PAIR_OR_ROUTE_INVALID`, `STALE_QUOTE_ONLY`, `SOURCE_ADVISORY_ONLY`, `SOURCE_RESOLUTION_EXCEPTION`). Provider degradation on ONE provider no longer masquerades as systemic.
+- Preserved: replay/lab/shadow stays non-authoritative; EXPRESS untouched (its poor WR is a strategy-quality problem, not an infra choke); CanonicalPositionAuthority / paper ledger / conservation / reward bus untouched.
+- **Regression**: `Aate6760DirectSourceRepairTest` — 9 tests fencing the entire block (phantom terminal ownership, reap wiring, cash-starve source change, post-seal allowlist, three callsite fences, sub-class emission, snapshot field compat).
+
+---
+
+
+
 
 Operator note: the GPT-authored WIP branch shipped 3 useful commits and stopped ~3 hours in without version bump, regression tests, or a lane-fairness safety on the new sizer gate. Consolidated the 3 commits onto `fix/6756-pipeline-recovery` (which already carries 6756+6757+6758), added regression fences, and hardened the sizer gate against MEME choke.
 
