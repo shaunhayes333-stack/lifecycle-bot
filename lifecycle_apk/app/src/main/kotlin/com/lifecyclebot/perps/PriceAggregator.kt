@@ -296,16 +296,26 @@ object PriceAggregator {
     private fun getSourcesForType(type: AssetType, symbol: String): List<DataSource> {
         return when (type) {
             AssetType.CRYPTO -> if (resolveSolanaMint(symbol) != null) listOf(
-                DataSource.DEXPAPRIKA,
-                DataSource.RAYDIUM_V3,
+                // V5.0.6776 §DEXSCREENER_PRIMARY_ON_PROVIDER_DEGRADATION —
+                //   operator forensic Feb 2026: Birdeye effectively dead,
+                //   CoinGecko 1%, DexPaprika 26%, Groq rate-limited, Jupiter
+                //   ~70%, while DexScreener holds 100%. The old ordering
+                //   spent request budget on degraded providers before
+                //   reaching the one healthy source. Promote DexScreener +
+                //   GeckoTerminal + Jupiter to primaries; demote Birdeye
+                //   and CoinGecko to late fallbacks. When Birdeye / CG
+                //   recover the aggregator will still consult them once
+                //   the primaries fail — no coverage lost.
+                DataSource.DEXSCREENER,
+                DataSource.GECKO_TERMINAL,
                 DataSource.JUPITER,
                 DataSource.JUPITER_LITE,
+                DataSource.RAYDIUM_V3,
+                DataSource.DEXPAPRIKA,
                 DataSource.BINANCE,
                 DataSource.KRAKEN,
                 DataSource.COINPAPRIKA,
-                DataSource.GECKO_TERMINAL,
                 DataSource.COINBASE,
-                DataSource.DEXSCREENER,
                 DataSource.BIRDEYE,
                 DataSource.COINGECKO,
                 DataSource.DIA_DATA,

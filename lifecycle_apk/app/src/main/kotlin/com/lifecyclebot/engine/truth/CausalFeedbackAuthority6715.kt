@@ -543,7 +543,18 @@ object CausalFeedbackAuthority6715 {
      * stamp→exec latency (~1s) but short enough that a genuinely
      * stale decision beyond this window still triggers revalidation.
      */
-    private const val LEARNER_REVISION_GRACE_MS = 3_000L
+    // V5.0.6776 §GRACE_MUST_COVER_LOOP_CYCLE — operator forensic Feb 2026:
+    //   CORE causal funnel showed 65 sizedExecutable -> 2 exec (98% attrition
+    //   post-sizing) while bot loop cycle was 5.1s avg (max 12.5s). The
+    //   original 3s grace was tuned when loop cycles were <1s; at 5-8s
+    //   cycles the stamp is legitimately still fresh when the executor
+    //   reads it, but the grace window says otherwise and rejects with
+    //   STALE_FEEDBACK_EPOCH_REVALIDATE_6715. Root cause of CORE post-
+    //   sizing choke.
+    //   Fix: raise to 10s so grace strictly dominates the observed loop
+    //   cycle. Integrity guards (staleByTerminal, hasReservation) are
+    //   unchanged — this only widens the "first admit within grace" window.
+    private const val LEARNER_REVISION_GRACE_MS = 10_000L
 
     fun cohortLoserAdvisoryForLane(mode: String, lane: String): CohortLoserAdvisory? {
         if (!isMemeOwnerLane(lane)) return null
