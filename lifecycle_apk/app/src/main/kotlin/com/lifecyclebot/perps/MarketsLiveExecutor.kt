@@ -601,38 +601,34 @@ object MarketsLiveExecutor {
             val feeWallet1 = feeAmountSol * 0.5
             val feeWallet2 = feeAmountSol * 0.5
 
-            // V5.0.3946 — CORE FEE POOL ALIGNMENT.
-            // Markets/perps used to send each fee share immediately, or enqueue
-            // failed/tiny sends directly into FeeRetryQueue. That bypassed the
-            // V5.0.3920 pooled-fee architecture used by meme trades and recreated
-            // the exact micro-transfer problem the accumulator was built to solve.
-            // Accrue both shares into the shared per-destination FeeAccumulator;
-            // BotService flushes buckets once per live scan cycle when they cross
-            // the threshold. This makes all live trading tools/traders use the
-            // same pooled-send path instead of per-trade fee TX spam.
-            var accruedAny = false
+            // V5.0.6786 §PER_TRADE_FEE_SEND — send both shares directly to
+            // the two coded fee wallets on every trade (no accumulator).
+            // Failed sends go to FeeRetryQueue for immediate retry.
+            var sentAny = false
             if (feeWallet1 >= MIN_FEE_SOL) {
                 try {
-                    com.lifecyclebot.engine.FeeAccumulator.accrue(FEE_WALLET_1, feeWallet1, "markets_${tradeAction}_w1")
-                    accruedAny = true
+                    wallet.sendSol(FEE_WALLET_1, feeWallet1)
+                    sentAny = true
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_FEE_PER_TRADE_SENT_6786_w1") } catch (_: Throwable) {}
                 } catch (e: Exception) {
-                    ErrorLogger.warn(TAG, "  Fee wallet 1 pool failed: ${e.message}")
-                    try { com.lifecyclebot.engine.FeeRetryQueue.enqueue(FEE_WALLET_1, feeWallet1, "markets_${tradeAction}_w1_pool_fail") } catch (_: Exception) {}
+                    ErrorLogger.warn(TAG, "  Fee wallet 1 direct send failed: ${e.message}")
+                    try { com.lifecyclebot.engine.FeeRetryQueue.enqueue(FEE_WALLET_1, feeWallet1, "markets_${tradeAction}_w1_direct_fail") } catch (_: Exception) {}
                 }
             }
             if (feeWallet2 >= MIN_FEE_SOL) {
                 try {
-                    com.lifecyclebot.engine.FeeAccumulator.accrue(FEE_WALLET_2, feeWallet2, "markets_${tradeAction}_w2")
-                    accruedAny = true
+                    wallet.sendSol(FEE_WALLET_2, feeWallet2)
+                    sentAny = true
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_FEE_PER_TRADE_SENT_6786_w2") } catch (_: Throwable) {}
                 } catch (e: Exception) {
-                    ErrorLogger.warn(TAG, "  Fee wallet 2 pool failed: ${e.message}")
-                    try { com.lifecyclebot.engine.FeeRetryQueue.enqueue(FEE_WALLET_2, feeWallet2, "markets_${tradeAction}_w2_pool_fail") } catch (_: Exception) {}
+                    ErrorLogger.warn(TAG, "  Fee wallet 2 direct send failed: ${e.message}")
+                    try { com.lifecyclebot.engine.FeeRetryQueue.enqueue(FEE_WALLET_2, feeWallet2, "markets_${tradeAction}_w2_direct_fail") } catch (_: Exception) {}
                 }
             }
-            if (accruedAny) {
-                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_FEE_ACCUMULATED") } catch (_: Throwable) {}
+            if (sentAny) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_FEE_PER_TRADE_SENT_6786") } catch (_: Throwable) {}
                 totalFeesCollectedSol += feeAmountSol
-                ErrorLogger.info(TAG, "💸 MARKETS FEE POOLED ($tradeAction $symbol): ${feeAmountSol.fmt(6)} SOL accrued for batched flush")
+                ErrorLogger.info(TAG, "💸 MARKETS FEE SENT ($tradeAction $symbol): ${feeAmountSol.fmt(6)} SOL → 2-wallet split (per-trade 6786)")
             }
             
         } catch (e: Exception) {

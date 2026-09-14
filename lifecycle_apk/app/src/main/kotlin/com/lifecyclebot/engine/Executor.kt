@@ -879,26 +879,29 @@ class Executor(
         private const val TRADING_FEE_WALLET_2 = "82CAPB9HxXKZK97C12pqkWcjvnkbpMLCg2Ex2hPrhygA"
 
         /**
-         * V5.9.1504 — SELF-LOOP FEE FIX. Operator's trading wallet is
-         * A8QPQr…kkpd, which is identical to TRADING_FEE_WALLET_1, so every
-         * fee_w1 send was a transfer-to-self → "Account loaded twice" failure
-         * on EVERY sell, the fee share permanently stuck in the retry queue.
-         * This sender resolves the real destination per share: if a fee wallet
-         * equals the sending wallet's own address, that share is REDIRECTED to
-         * the other fee wallet (so the fee is still collected, not lost). If
-         * BOTH equal self, the share is skipped cleanly (no failed tx, no
-         * endless queue). Returns true if at least one transfer was attempted.
+         * V5.0.6786 §PER_TRADE_FEE_SEND (operator directive Feb 2026: "ensure
+         * the live trading fee mechanism is still wired to send to the two
+         * wallets please on all trades. no accumulated fees just send on
+         * all trades.").
          *
-         * V5.0.3919 — FEE-MIN THRESHOLD LOWERED to 0.000005 SOL.
+         * Behaviour under 6786:
+         *   1. Each fee share is sent DIRECTLY to its destination wallet
+         *      at trade time via wallet.sendSol(). Two-wallet 50/50 split
+         *      (TRADING_FEE_WALLET_1, TRADING_FEE_WALLET_2) is preserved.
+         *   2. Self-loop guard retained — a share whose destination equals
+         *      the sending wallet is redirected to the other fee wallet.
+         *   3. On send failure (network / balance / rent) the share is
+         *      queued to FeeRetryQueue for immediate retry, NOT bucketed
+         *      into FeeAccumulator (accumulator is retired as an accrual
+         *      target under 6786; it stays live only to drain any pre-6786
+         *      residue that persisted from earlier builds).
+         *   4. Sub-FEE_SEND_MIN_SOL dust is still logged but skipped —
+         *      Solana base fee makes those uneconomic to send.
          *
-         * V5.0.3920 — FEE ACCUMULATOR. Instead of attempting a network tx
-         * per micro fee (Solana base fee + priority fee + rent checks make
-         * sub-$0.10 fees uneconomic and most fail), accrue each share to a
-         * persisted per-destination bucket. The next FeeRetryQueue drain
-         * (once per scan cycle) calls FeeAccumulator.tryFlush(wallet)
-         * which flushes/distributes all destination buckets once total onboard
-         * accrued fees cross 1.0 SOL. Result: large batched transfers, no
-         * micro-fee tx spam, no fees silently lost.
+         * Two-wallet contract verified: TRADING_FEE_WALLET_1 =
+         *   A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd
+         * TRADING_FEE_WALLET_2 =
+         *   82CAPB9HxXKZK97C12pqkWcjvnkbpMLCg2Ex2hPrhygA
          */
         private const val FEE_SEND_MIN_SOL = 0.000005
         private fun sendFeeSplit(
@@ -913,41 +916,41 @@ class Executor(
                 !fallback.equals(self, false) -> fallback   // redirect self→other
                 else -> null                                 // both self — skip
             }
-            var accrued = false
+            var sentAny = false
+
+            fun sendShare(amount: Double, primary: String, fallback: String, laneTag: String) {
+                if (amount < FEE_SEND_MIN_SOL) {
+                    if (amount > 0.0) ErrorLogger.debug("Executor", "🪙 $laneTag ($tag) dust-skipped: $amount SOL < $FEE_SEND_MIN_SOL")
+                    return
+                }
+                val d = dest(primary, fallback)
+                if (d == null) {
+                    ErrorLogger.warn("Executor", "🪙 $laneTag ($tag) skipped: both fee wallets == self")
+                    return
+                }
+                try { com.lifecyclebot.engine.truth.FeeAccrualObservability6439.noteAccrue(d, amount, "${tag}_$laneTag", false) } catch (_: Throwable) {}
+                try {
+                    // V5.0.6786 direct per-trade send — no accumulator.
+                    wallet.sendSol(d, amount)
+                    sentAny = true
+                    try {
+                        PipelineHealthCollector.labelInc("FEE_PER_TRADE_SENT_6786")
+                        PipelineHealthCollector.labelInc("FEE_PER_TRADE_SENT_6786_$laneTag")
+                    } catch (_: Throwable) {}
+                    ErrorLogger.info("Executor", "✅ fee $laneTag ($tag) sent ${"%.6f".format(amount)} SOL → ${d.take(6)}…")
+                } catch (e: Exception) {
+                    ErrorLogger.warn("Executor", "❌ fee $laneTag ($tag) send failed: ${e.message} — enqueued for retry")
+                    try { FeeRetryQueue.enqueue(d, amount, "${tag}_${laneTag}_direct_fail") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("FEE_PER_TRADE_RETRY_6786_$laneTag") } catch (_: Throwable) {}
+                }
+            }
+
             // share 1 → wallet1, falling back to wallet2 if wallet1 is self
-            if (amount1 >= FEE_SEND_MIN_SOL) {
-                val d = dest(TRADING_FEE_WALLET_1, TRADING_FEE_WALLET_2)
-                if (d != null) {
-                    // V5.0.6439 — observability. Prove the fee actually reached the pipe.
-                    try { com.lifecyclebot.engine.truth.FeeAccrualObservability6439.noteAccrue(d, amount1, "${tag}_w1", false) } catch (_: Throwable) {}
-                    try { FeeAccumulator.accrue(d, amount1, "${tag}_w1"); accrued = true }
-                    catch (e: Exception) {
-                        // Accumulator persistence failed — fall back to immediate retry queue
-                        FeeRetryQueue.enqueue(d, amount1, "${tag}_w1_acc_fail")
-                    }
-                } else {
-                    ErrorLogger.warn("Executor", "🪙 fee_w1 ($tag) skipped: both fee wallets == self")
-                }
-            } else if (amount1 > 0.0) {
-                ErrorLogger.debug("Executor", "🪙 fee_w1 ($tag) dust-skipped: ${amount1} SOL < ${FEE_SEND_MIN_SOL}")
-            }
+            sendShare(amount1, TRADING_FEE_WALLET_1, TRADING_FEE_WALLET_2, "w1")
             // share 2 → wallet2, falling back to wallet1 if wallet2 is self
-            if (amount2 >= FEE_SEND_MIN_SOL) {
-                val d = dest(TRADING_FEE_WALLET_2, TRADING_FEE_WALLET_1)
-                if (d != null) {
-                    // V5.0.6439 — observability.
-                    try { com.lifecyclebot.engine.truth.FeeAccrualObservability6439.noteAccrue(d, amount2, "${tag}_w2", false) } catch (_: Throwable) {}
-                    try { FeeAccumulator.accrue(d, amount2, "${tag}_w2"); accrued = true }
-                    catch (e: Exception) {
-                        FeeRetryQueue.enqueue(d, amount2, "${tag}_w2_acc_fail")
-                    }
-                } else {
-                    ErrorLogger.warn("Executor", "🪙 fee_w2 ($tag) skipped: both fee wallets == self")
-                }
-            } else if (amount2 > 0.0) {
-                ErrorLogger.debug("Executor", "🪙 fee_w2 ($tag) dust-skipped: ${amount2} SOL < ${FEE_SEND_MIN_SOL}")
-            }
-            return accrued
+            sendShare(amount2, TRADING_FEE_WALLET_2, TRADING_FEE_WALLET_1, "w2")
+
+            return sentAny
         }
         
         // V5.7.3: Fee percentages

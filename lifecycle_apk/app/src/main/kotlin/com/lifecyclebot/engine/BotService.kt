@@ -11060,25 +11060,23 @@ class BotService : Service() {
                 )
             }
             if (zeroSignal) {
-                // V5.0.4164 — zero-signal is not full live capital, but it must not park
-                // the meme trader. If liquidity is exitable, send it through the existing
-                // PROBE_ONLY tiny-size path so learning gets real outcomes without spraying
-                // normal size. Thin liquidity stayed blocked above.
-                // V5.0.6747 §EXPLORATION_DAMPER_ON_WR_COLLAPSE — when
-                // regime reports CHOP/DUMP the WR is by definition
-                // collapsed; only 1-in-N zero-signal probes fire so the
-                // learner isn't fed WAIT candidates every cycle.
-                if (!com.lifecyclebot.engine.ExecutableOpenGate.probeShouldEmit6747("ZERO_SIGNAL")) {
-                    return laneBase.copy(signal = "WAIT", finalSignal = "WAIT", shouldTrade = false, blockReason = "EXPLORATION_DAMPED_ZERO_SIGNAL_6747")
-                }
+                // V5.0.6786 §AUTHORITY_CONSOLIDATION — zero-signal = WAIT.
+                // Directive: "'I DON'T KNOW' MUST MEAN WAIT. It must NOT mean
+                // 'buy tiny anyway.'" and §12: "convert NO_TRADE into
+                // PROBE_ONLY" is a resurrection pattern. Learning still fires
+                // via LearningLifecycleBus.preFdgReject (shadow/counterfactual)
+                // without spending canonical capital on a dust probe.
                 try {
-                    PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164")
-                    PipelineHealthCollector.labelInc("FDG_ZERO_SCORE_DUST_PROBE_4164")
+                    PipelineHealthCollector.labelInc("LANE_ZERO_SIGNAL_WAIT_6786")
                     PipelineHealthCollector.labelInc("PREFDG_ZERO_SIGNAL_${lane.uppercase()}")
-                    ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164",
-                        "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} action=probe_only_live_learning")
-                    LearningLifecycleBus.preFdgProbe("ZERO_SIGNAL_PROBE", lane, sourceForChop, mintForProbe, edgeSymbol4529, baseBlock, laneBase.entryScore, laneBase.aiConfidence, liquidityUsd, edgeMcap4529, resolveProbeSizeMult(mintForProbe, liquidityUsd), edgeRegime4529)
+                    ForensicLogger.lifecycle("LANE_ZERO_SIGNAL_WAIT_6786",
+                        "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} action=shadow_learn_only_no_capital")
+                    LearningLifecycleBus.preFdgReject("ZERO_SIGNAL_SHADOW_ONLY_6786", lane, sourceForChop, mintForProbe, edgeSymbol4529, baseBlock, laneBase.entryScore, laneBase.aiConfidence, liquidityUsd, edgeMcap4529, edgeRegime4529)
                 } catch (_: Throwable) {}
+                return laneBase.copy(
+                    signal = "WAIT", finalSignal = "WAIT", shouldTrade = false,
+                    blockReason = "ZERO_SIGNAL_WAIT_6786",
+                )
             }
             // V5.0.6593 §ENTRY_SELECTIVITY — operator directive Feb 2026:
             //   > "Lane evidence MAY overcome weak generic scoring only when
@@ -11099,52 +11097,33 @@ class BotService : Service() {
             // AUTHORITATIVE with a missing lane head only shapes/advises, it
             // never terminal-rejects. Cold lanes must be allowed to open
             // their first candidates to collect the sample the head needs.
-            var learnedWaitShape6613 = 1.0
+            // V5.0.6786 §AUTHORITY_CONSOLIDATION — the local shape multipliers
+            // (learnedWaitShape6613 / tacticWaitShape6613) fed the retired
+            // PROBE_ONLY fallback. They are kept for documentation trace but
+            // no longer control any execution decision. TacticSwitcher rotation
+            // continues to inform learning; it does not resurrect a weak WAIT.
+            @Suppress("unused") var learnedWaitShape6613 = 1.0
             val laneOwnHeadAuthoritative6596 = try {
                 com.lifecyclebot.engine.UnifiedPolicyHead.laneHasOwnAuthoritativeHead(lane)
             } catch (_: Throwable) { false }
             val laneAuthoritativePolicyNegative6593 = laneOwnHeadAuthoritative6596 &&
                 !authoritativePolicyPositive6568
             if (laneAuthoritativePolicyNegative6593) {
-                // V5.0.6613 — learned opinion shapes; it is not hard safety.
-                // Continue into the existing lane-local TacticSwitcher/probe composer
-                // below so the lane can pivot timing/style and collect bounded evidence.
                 try {
-                    PipelineHealthCollector.labelInc("LEARNED_POLICY_NEGATIVE_LANE_WAIT_SHAPED_6613")
-                    PipelineHealthCollector.labelInc("PREFDG_LEARNED_SHAPE_${lane.uppercase()}")
+                    PipelineHealthCollector.labelInc("LEARNED_POLICY_NEGATIVE_LANE_WAIT_6786")
+                    PipelineHealthCollector.labelInc("PREFDG_LEARNED_REJECT_${lane.uppercase()}")
                     val pivot6613 = com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(lane, laneBase.entryScore.toInt()).name
                     ForensicLogger.lifecycle(
-                        "LEARNED_POLICY_NEGATIVE_LANE_WAIT_SHAPED_6613",
-                        "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} tactic=$pivot6613 action=shape_probability_size_confirmation_then_fdg"
+                        "LEARNED_POLICY_NEGATIVE_LANE_WAIT_6786",
+                        "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} tactic=$pivot6613 action=shadow_learn_only_no_capital"
                     )
-                    LearningLifecycleBus.preFdgProbe(
-                        "LEARNED_POLICY_SHAPED_6613", lane, sourceForChop, mintForProbe,
+                    LearningLifecycleBus.preFdgReject(
+                        "LEARNED_POLICY_NEGATIVE_6786", lane, sourceForChop, mintForProbe,
                         edgeSymbol4529, baseBlock, laneBase.entryScore, laneBase.aiConfidence,
-                        liquidityUsd, edgeMcap4529, 0.55, edgeRegime4529,
+                        liquidityUsd, edgeMcap4529, edgeRegime4529,
                     )
                 } catch (_: Throwable) {}
             }
-            // Liquidity OK but still weak → DUST-PROBE only (explicit + tiny size).
-            // V5.0.6604 §TACTIC_CAUSAL_AUTHORITY (troubleshoot_agent P0 fix).
-            //   Root cause slice of the <10% MemeTrader WR: TacticSwitcher was
-            //   correctly rotating catastrophic tactics (MOMENTUM→PULLBACK→
-            //   REACCUMULATION→BREAKOUT) but BotService's weakWait branch
-            //   promoted candidates to a DUST-PROBE buy regardless of the
-            //   current tactic. Rotation was cosmetic — the same weak signal
-            //   fired the same probe. Fix: honor the rotator's authority.
-            //   • MOMENTUM (default / initial): probe as before — momentum
-            //     tactic is satisfied by any positive intake velocity, which
-            //     the upstream lane already asserted before reaching here.
-            //   • Non-MOMENTUM (PULLBACK / REACCUMULATION / BREAKOUT /
-            //     LAB_PROPOSED): the rotator has said "the current shape
-            //     doesn't work; wait for a specific structural signal." A
-            //     weak-WAIT probe categorically does NOT satisfy any of
-            //     those signals, so block the probe until either the tactic
-            //     rotates back OR the primary path produces a normal-strength
-            //     BUY (which bypasses this weakWait branch entirely).
-            //   This is a rotation-gated block, never a lane disable —
-            //   TacticSwitcher continues rotating on outcomes so the block
-            //   self-heals when the rotator finds a working shape.
             val tacticGateActive6604 = try {
                 val laneUpper6604 = lane.uppercase()
                 val currentTactic6604 = com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(
@@ -11152,41 +11131,37 @@ class BotService : Service() {
                 )
                 currentTactic6604 != com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.MOMENTUM
             } catch (_: Throwable) { false }
-            val tacticWaitShape6613 = if (tacticGateActive6604) 0.60 else 1.0
+            @Suppress("unused") val tacticWaitShape6613 = if (tacticGateActive6604) 0.60 else 1.0
             if (tacticGateActive6604) {
                 try {
                     val currentTacticName6604 = com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(
                         lane.uppercase(), laneBase.entryScore.toInt(),
                     ).name
-                    PipelineHealthCollector.labelInc("TACTIC_ROTATED_WEAK_WAIT_SHAPED_6613_${lane.uppercase()}")
+                    PipelineHealthCollector.labelInc("TACTIC_ROTATED_WEAK_WAIT_6786_${lane.uppercase()}")
                     ForensicLogger.lifecycle(
-                        "TACTIC_ROTATED_WEAK_WAIT_SHAPED_6613",
-                        "lane=$lane tactic=$currentTacticName6604 score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} action=require_confirmation_and_shape_size_then_fdg",
+                        "TACTIC_ROTATED_WEAK_WAIT_6786",
+                        "lane=$lane tactic=$currentTacticName6604 score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} action=weak_wait_rejected_shadow_only",
                     )
                 } catch (_: Throwable) {}
             }
             try {
-                PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_DUST_PROBE")
-                PipelineHealthCollector.labelInc("PREFDG_DUST_PROBE_${lane.uppercase()}")
-                ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_DUST_PROBE",
-                    "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)}")
-                LearningLifecycleBus.preFdgProbe("DUST_PROBE", lane, sourceForChop, mintForProbe, edgeSymbol4529, baseBlock, laneBase.entryScore, laneBase.aiConfidence, liquidityUsd, edgeMcap4529, resolveProbeSizeMult(mintForProbe, liquidityUsd), edgeRegime4529)
+                // V5.0.6786 §AUTHORITY_CONSOLIDATION — weakWait = WAIT.
+                // Directive §12: "convert NO_TRADE into PROBE_ONLY" is a
+                // resurrection pattern. The prior LANE_WAIT_OVERRIDE_DUST_
+                // PROBE fallback promoted a weak-signal candidate to a
+                // BUY with blockReason=PROBE_ONLY at 0.05-1.18x size. That
+                // is exactly the "trade SMALL, never zero" throughput
+                // doctrine now retired. Shadow/counterfactual learners
+                // still receive the rejected candidate.
+                PipelineHealthCollector.labelInc("LANE_WEAK_WAIT_REJECTED_6786")
+                PipelineHealthCollector.labelInc("PREFDG_WEAK_WAIT_REJECT_${lane.uppercase()}")
+                ForensicLogger.lifecycle("LANE_WEAK_WAIT_REJECTED_6786",
+                    "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} action=shadow_learn_only_no_capital")
+                LearningLifecycleBus.preFdgReject("WEAK_WAIT_SHADOW_ONLY_6786", lane, sourceForChop, mintForProbe, edgeSymbol4529, baseBlock, laneBase.entryScore, laneBase.aiConfidence, liquidityUsd, edgeMcap4529, edgeRegime4529)
             } catch (_: Throwable) {}
-            // V5.0.6747 §EXPLORATION_DAMPER_ON_WR_COLLAPSE — dust
-            // probes are cheap but at 18.7% WR the learner is drowning
-            // in them. Sample in CHOP/DUMP so the WAIT signal doesn't
-            // become the dominant learning input.
-            if (!com.lifecyclebot.engine.ExecutableOpenGate.probeShouldEmit6747("DUST_PROBE")) {
-                return laneBase.copy(signal = "WAIT", finalSignal = "WAIT", shouldTrade = false, blockReason = "EXPLORATION_DAMPED_DUST_PROBE_6747")
-            }
             return laneBase.copy(
-                signal = "BUY", finalSignal = "BUY", shouldTrade = true,
-                blockReason = "PROBE_ONLY",
-                edgeVeto = false,
-                edgeQuality = if (laneBase.edgeQuality == "SKIP") "C" else laneBase.edgeQuality,
-                finalQuality = "C",
-                qualityPenalty = (resolveProbeSizeMult(mintForProbe, liquidityUsd) * crossTalkSizeMult4262 * learnedWaitShape6613 * tacticWaitShape6613).coerceIn(0.05, 1.18),
-                aiConfidence = laneBase.aiConfidence.coerceAtLeast(entryScoreTightenedFloor4591),
+                signal = "WAIT", finalSignal = "WAIT", shouldTrade = false,
+                blockReason = "WEAK_WAIT_REJECT_6786",
             )
         }
         try {

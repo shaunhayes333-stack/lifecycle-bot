@@ -1594,25 +1594,48 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun all_live_trading_fee_paths_pool_before_sending() {
+    fun all_live_trading_fee_paths_send_per_trade_to_two_wallets() {
+        // V5.0.6786 §PER_TRADE_FEE_SEND — operator directive Feb 2026:
+        //   "ensure the live trading fee mechanism is still wired to send
+        //    to the two wallets please on all trades. no accumulated fees
+        //    just send on all trades."
+        // Meme executor and markets/perps executor both send both shares
+        // directly per trade to the two coded fee wallets. FeeRetryQueue
+        // owns any transient failures. FeeAccumulator remains linked only
+        // to drain any pre-6786 residue.
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val markets = java.io.File("src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt").readText()
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        val accumulator = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FeeAccumulator.kt").readText()
-        assertTrue("meme fee helper must accrue to FeeAccumulator, not send every micro fee", exec.contains("FeeAccumulator.accrue") && exec.contains("FEE ACCUMULATOR"))
-        // V5.0.6060 — operator directive: revert daily batching, transfer fees per-cycle live.
-        // FeeAccumulator still exists as a per-cycle safety net (transient send failures fall
-        // into FeeRetryQueue) but the threshold is now sub-cent so tryFlush() drains every
-        // scan cycle rather than holding to 1 SOL. Golden tape must assert the LIVE behaviour.
-        assertTrue("fee accumulator must be configured for live per-cycle transfer (V5.0.6060 revert)",
-            accumulator.contains("DEFAULT_FLUSH_THRESHOLD_SOL = 0.0001") &&
-            accumulator.contains("val totalPending") &&
-            accumulator.contains("totalPending < flushThresholdSol") &&
-            accumulator.contains("LIVE PER-CYCLE TRANSFER"))
-        assertTrue("markets/perps fee collection must use the same pooled accumulator", markets.contains("CORE FEE POOL ALIGNMENT") && markets.contains("FeeAccumulator.accrue") && markets.contains("MARKETS_FEE_ACCUMULATED"))
-        val marketsFeeFn = markets.substring(markets.indexOf("private suspend fun collectTradingFee"), markets.indexOf("totalFeesCollectedSol", markets.indexOf("private suspend fun collectTradingFee")))
-        assertFalse("markets/perps fee collection must not send micro-fee transfers directly", marketsFeeFn.contains("wallet.sendSol"))
-        assertTrue("bot loop must drain retry queue and flush accumulated fee buckets in live mode", bot.contains("FeeRetryQueue.drainFeeQueue(liveWallet)") && bot.contains("FeeAccumulator.tryFlush(liveWallet)"))
+        assertTrue(
+            "Meme executor must send fee shares directly per-trade via wallet.sendSol",
+            exec.contains("V5.0.6786 §PER_TRADE_FEE_SEND") &&
+                exec.contains("wallet.sendSol(d, amount)") &&
+                exec.contains("FEE_PER_TRADE_SENT_6786"),
+        )
+        assertTrue(
+            "Meme executor must retain both coded fee wallets",
+            exec.contains("TRADING_FEE_WALLET_1 = \"A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd\"") &&
+                exec.contains("TRADING_FEE_WALLET_2 = \"82CAPB9HxXKZK97C12pqkWcjvnkbpMLCg2Ex2hPrhygA\""),
+        )
+        assertFalse(
+            "Meme executor must not accumulate per-trade fees under 6786",
+            exec.contains("FeeAccumulator.accrue"),
+        )
+        assertTrue(
+            "Markets/perps must send per-trade to both coded fee wallets",
+            markets.contains("V5.0.6786 §PER_TRADE_FEE_SEND") &&
+                markets.contains("wallet.sendSol(FEE_WALLET_1, feeWallet1)") &&
+                markets.contains("wallet.sendSol(FEE_WALLET_2, feeWallet2)") &&
+                markets.contains("MARKETS_FEE_PER_TRADE_SENT_6786"),
+        )
+        assertFalse(
+            "Markets/perps must not accumulate fees under 6786",
+            markets.contains("FeeAccumulator.accrue"),
+        )
+        assertTrue(
+            "Bot loop must still drain the retry queue for any transient send failures",
+            bot.contains("FeeRetryQueue.drainFeeQueue(liveWallet)"),
+        )
     }
 
     @Test
@@ -4068,9 +4091,21 @@ class GoldenTapeRegressionTest {
 
     @Test
     fun live_zero_signal_v3_execute_cannot_bypass_as_standard_buy() {
+        // V5.0.6786 §AUTHORITY_CONSOLIDATION — zero-signal is now WAIT (not
+        // PROBE_ONLY). Directive: "'I DON'T KNOW' MUST MEAN WAIT." The
+        // metadata / sizing / compounding assertions below still apply to
+        // the higher-signal V3 execute path.
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val v3 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/V3EngineManager.kt").readText()
-        assertTrue("laneQualifiedBuyDecision must convert zero-score/zero-conf with exitable liquidity into PROBE_ONLY, not park live", bot.contains("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164") && bot.contains("FDG_ZERO_SCORE_DUST_PROBE_4164") && bot.contains("""blockReason = "PROBE_ONLY"""") && !bot.contains("ZERO_SIGNAL_DEFERRED_NO_LIVE_CAPITAL"))
+        assertTrue(
+            "Zero-signal must WAIT under 6786 (LANE_ZERO_SIGNAL_WAIT_6786)",
+            bot.contains("LANE_ZERO_SIGNAL_WAIT_6786") && bot.contains("ZERO_SIGNAL_WAIT_6786"),
+        )
+        assertFalse(
+            "PROBE_ONLY block-reason must no longer be emitted from the zero-signal fallback",
+            bot.contains("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164") ||
+                bot.contains("FDG_ZERO_SCORE_DUST_PROBE_4164"),
+        )
         assertTrue("V3 ExecuteRequest must carry score/conf/band metadata", v3.contains("val score: Int? = null") && v3.contains("val confidence: Int? = null") && v3.contains("val band: String? = null") && v3.contains("score = decision.finalScore") && v3.contains("confidence = decision.effectiveConfidence"))
         val v3ExecBlock = bot.substring(bot.indexOf("fun runV3Execution"), bot.indexOf("fun manualBuy"))
         assertTrue("V5.0.6018: runV3Execution must floor live zero-signal entries for compounding, not dollar-size dust", v3ExecBlock.contains("V3_ZERO_SIGNAL_COMPOUND_FLOOR_6018") && v3ExecBlock.contains("v3ZeroSignalProbe = reqScore <= 0 && reqConf <= 10") && v3ExecBlock.contains("LiveSizingProfile.lastMileEntryFloor") && v3ExecBlock.contains("sol = if (!isPaper && v3ZeroSignalProbe) execSol else req.sizeSol"))
@@ -6923,7 +6958,10 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4553: risk overlay parser must detect single-holder/unverified/high-holder-concentration manipulation", safety.contains("singleHolderOwnershipRisk") && safety.contains("unverifiedTokenRisk") && safety.contains("highHolderConcentrationRisk"))
         assertTrue("V5.0.4553: TokenSafetyChecker must stamp MANIPULATED_ONLY_OVERLAY_4553 for live manipulation overlays", safety.contains("MANIPULATED_ONLY_OVERLAY_4553") && safety.contains("action=manipulated_lane_only"))
         assertTrue("V5.0.4553: shared pre-FDG lane gate must reject manipulated overlays from every non-MANIPULATED lane", bot.contains("manipulatedOnlyOverlayActive4553") && bot.contains("MANIPULATED_ONLY_NON_MANIPULATED_LANE_REJECTED_4553") && bot.contains("MANIPULATED_ONLY_OVERLAY_NON_MANIPULATED_LANE_4553"))
-        assertTrue("V5.0.4553: manipulated-only rejection must happen before weak WAIT/dust-probe override can turn it into a live buy", bot.indexOf("MANIPULATED_ONLY_NON_MANIPULATED_LANE_REJECTED_4553") < bot.indexOf("LANE_WAIT_OVERRIDE_DUST_PROBE"))
+        assertTrue(
+            "V5.0.4553 + 6786: manipulated-only rejection must happen before the weak-wait REJECT path",
+            bot.indexOf("MANIPULATED_ONLY_NON_MANIPULATED_LANE_REJECTED_4553") < bot.indexOf("LANE_WEAK_WAIT_REJECTED_6786"),
+        )
     }
 
 
@@ -9158,7 +9196,10 @@ class GoldenTapeRegressionTest {
         assertTrue(sheet.contains("INTENT_CHOKED") && sheet.contains("MARK_CHOKED") && sheet.contains("EXEC_CHOKED") && sheet.contains("LEARNING_CHOKED"))
         assertFalse(sheet.contains("""TELEMETRY_ONLY"""))
         assertTrue(partial.contains("TierState6613") && partial.contains("QUANTITY_RESERVED") && partial.contains("ACCOUNTED") && partial.contains("COMPLETE"))
-        assertTrue(bot.contains("LEARNED_POLICY_NEGATIVE_LANE_WAIT_SHAPED_6613") && bot.contains("TACTIC_ROTATED_WEAK_WAIT_SHAPED_6613"))
+        assertTrue(
+            "V5.0.6786 §AUTHORITY_CONSOLIDATION — 6613 shape labels replaced by 6786 hard-reject labels",
+            bot.contains("LEARNED_POLICY_NEGATIVE_LANE_WAIT_6786") && bot.contains("TACTIC_ROTATED_WEAK_WAIT_6786"),
+        )
         assertFalse(bot.contains("""blockReason = "LEARNED_POLICY_VETO_6593""""))
         val candidateStamp = crypto.indexOf("""AssetClass.CRYPTO_ALT, "CANDIDATE"""")
         val canonicalSubmit = crypto.indexOf("CanonicalEntryAuthority6551.submit", candidateStamp)
