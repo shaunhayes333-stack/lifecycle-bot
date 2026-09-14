@@ -117,6 +117,54 @@ object OrderSizeResolver6441 {
     ): Resolution {
         totalResolves.incrementAndGet()
 
+        // V5.0.6758 — source-level admission invariant. This resolver is the
+        // mandatory sizing authority for EVERY executable entry, including the
+        // cross-asset CanonicalEntryAuthority6551 path that bypassed the earlier
+        // ExecutableOpenGate-only throughput check. Put the hard inventory/cash
+        // back-pressure here so no specialist can seal a positive entry size while
+        // exits are saturated. Exits do not use this entry resolver, so drain paths
+        // remain untouched. Fail-open only if the throughput authority itself faults.
+        val throughput6758 = try {
+            ExitThroughputAuthority6727.evaluate(
+                mode = if (paperMode) "paper" else "live",
+                lane = laneName,
+            )
+        } catch (_: Throwable) { null }
+        if (throughput6758 != null && !throughput6758.allow) {
+            val minExec6758 = when {
+                paperMode && applyPaperMemeMinimum -> maxOf(laneMinExecutableSol, PAPER_EXECUTABLE_MINIMUM_SOL)
+                else -> laneMinExecutableSol.coerceAtLeast(ABS_MIN_EXECUTABLE_SOL)
+            }
+            val blocked6758 = Resolution(
+                requestedSol = requestedSol.coerceAtLeast(0.0),
+                riskSol = 0.0,
+                ladderSol = 0.0,
+                cashCapSol = throughput6758.cashSol.coerceAtLeast(0.0),
+                laneCapSol = laneRiskCapSol,
+                finalSizeSol = 0.0,
+                executable = false,
+                reason = throughput6758.reason,
+                minimumExecutableSol = minExec6758,
+            )
+            lastResolution.set(blocked6758)
+            skippedCount.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("ORDER_SIZE_BLOCKED_EXIT_THROUGHPUT_6758")
+                ForensicLogger.lifecycle(
+                    "ORDER_SIZE_BLOCKED_EXIT_THROUGHPUT_6758",
+                    "lane=$laneName paper=$paperMode open=${throughput6758.openPositions} " +
+                        "cash=${throughput6758.cashSol} equity=${throughput6758.equitySol} " +
+                        "cashRatio=${throughput6758.cashRatio} reason=${throughput6758.reason}",
+                )
+            } catch (_: Throwable) {}
+            if (causalEventId.isNotBlank()) try {
+                com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(
+                    laneName, "SIZE_REJECT", causalEventId,
+                )
+            } catch (_: Throwable) {}
+            return blocked6758
+        }
+
         // 1. requested -> adaptive strategy/risk -> hard caps.
         // V5.0.6684 restores the severed SSI sizing hand and exact Lab-proven
         // replacement at the ONE mandatory size authority.
