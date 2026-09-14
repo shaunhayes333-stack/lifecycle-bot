@@ -29,7 +29,7 @@ class Aate6702ExitLivenessRepairTest {
         assertTrue(src.contains("PAPER_CLOSING_DUPLICATE_TIMESTAMP_FROZEN_6702"))
         assertTrue(src.contains("State.CLOSE_REQUESTED, State.CLOSING ->"))
         assertTrue(src.contains("State.CLOSING ->"))
-        assertTrue(src.contains("STUCK_CLOSE_TTL_MS = 30_000L"))
+        assertTrue(src.contains("STUCK_CLOSE_TTL_MS = 10_000L"))
     }
 
     @Test

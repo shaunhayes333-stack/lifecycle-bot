@@ -18,10 +18,12 @@ import java.io.File
 class PaperCloseRetryDrain6350Test {
 
     @Test
-    fun stuck_close_ttl_tightened_to_thirty_seconds() {
+    fun stuck_close_ttl_tightened_to_match_exit_coordinator_cadence() {
         val txt = File("src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").readText()
-        assertTrue("STUCK_CLOSE_TTL_MS must be 30_000L (30s)",
-            txt.contains("STUCK_CLOSE_TTL_MS = 30_000L"))
+        // V5.0.6776: tightened again from 30s -> 10s to match V5.0.6775
+        // EXIT_COORDINATOR_FULL_MIN_MS=5s (2x coordinator cadence).
+        assertTrue("STUCK_CLOSE_TTL_MS must be 10_000L (10s, 2x coordinator cadence)",
+            txt.contains("STUCK_CLOSE_TTL_MS = 10_000L"))
     }
 
     @Test
