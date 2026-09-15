@@ -84,8 +84,11 @@ class Repair6510AuthorityAcceptanceTest {
         // separates authoritative micro-notional from stacked-multiplier
         // suppression. 0.028 is above 0.005 so it is authoritative and
         // gets promoted to min when caps can fund it.
-        assertFalse(r(0.028, 1.0, 0.05).executable) // ladder cannot fund min → sub-floor rejection stands
-        assertTrue(r(0.028, 1.0, 10.0).executable)  // 6797: authoritative micro-notional → promote
+        // V5.0.6809 §KILL_MIN_SIZE_PROMOTION — supersedes 6797/6598. Sub-min
+        // requests are NEVER promoted upward, regardless of cash headroom.
+        // Only requests at or above minExec are executable.
+        assertFalse(r(0.028, 1.0, 0.05).executable)  // sub-min → non-executable
+        assertFalse(r(0.028, 1.0, 10.0).executable)  // sub-min → non-executable even with plenty of cash
         assertTrue(r(0.05, 1.0, 10.0).executable)
         assertTrue(r(0.10, 1.0, 10.0).executable)
         assertFalse(r(0.10, 0.04, 10.0).executable)

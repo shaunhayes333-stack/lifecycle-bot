@@ -11,12 +11,12 @@ import java.io.File
 
 class Repair6511PaperExecutionSourceTest {
     @Test
-    fun sub_floor_adaptive_buys_promoted_once_to_min_6600() = synchronized(PaperAccountLedger6430) {
-        // V5.0.6600 — restore canonical executable-minimum semantics.
-        // Operator directive Feb 2026: sub-min requests with hard caps
-        // that can fund minExec are promoted exactly once, so the
-        // specialist can execute at trade #1 (was: silently collapsed to
-        // BELOW_MIN_EXECUTABLE, blocking the learning loop entirely).
+    fun sub_floor_adaptive_buys_never_promoted_to_min_6809() = synchronized(PaperAccountLedger6430) {
+        // V5.0.6809 §KILL_MIN_SIZE_PROMOTION — supersedes 6600. Sub-minimum
+        // requests remain non-executable regardless of whether cash caps
+        // could fund minExec. Operator mandate Feb 2026: "Final size must
+        // never exceed the adaptive/risk-authorized size because of a
+        // minimum-order floor."
         PaperAccountLedger6430.resetForTest()
         PaperAccountLedger6430.initialize(0.1)  // fund at minimum
         OrderSizeResolver6441.updatePaperExecutableMinimumSol(
@@ -30,14 +30,9 @@ class Repair6511PaperExecutionSourceTest {
             overrideLaneRiskCapSol = 1.0,
             mintForSeal = "6511-test-mint",
         )
-        // V5.0.6797 §REMOVE_MIN_NOTIONAL_RESURRECTION_V2 — 0.02419 is above
-        // the 10% deliberate-suppression floor (0.005 = 10% of 0.05), so
-        // this is authoritative micro-notional and gets promoted to
-        // min-exec 0.05. The stricter 6791 90% band was zeroing legitimate
-        // FDG-approved entries per operator diagnosis Feb 2026.
         assertEquals(0.02419, resolved.requestedSol, 1e-9)
-        assertTrue(resolved.executable)
-        assertEquals("OK_MIN_PROMOTED_6600", resolved.reason)
+        assertFalse(resolved.executable)
+        assertEquals("SUB_MIN_ADAPTIVE_HELD_6809", resolved.reason)
     }
 
     @Test

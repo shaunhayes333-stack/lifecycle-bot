@@ -6,11 +6,10 @@ import org.junit.Test
 
 class V5_0_6567AcceptanceTest {
     @Test
-    fun adaptive_subminimum_size_is_promoted_once_to_min() {
-        // V5.0.6600 — sub-minimum requests are promoted exactly once to
-        // minExec when hard caps can fund it (operator directive Feb 2026:
-        // "If final BUY risk budget can afford the minimum executable
-        // notional: clamp the executable order to canonical minimum.").
+    fun adaptive_subminimum_size_never_promoted_6809() {
+        // V5.0.6809 §KILL_MIN_SIZE_PROMOTION — supersedes 6600. Sub-minimum
+        // requests are never promoted upward: the learning stack's downward
+        // shaping is authoritative.
         val r = OrderSizeResolver6441.resolve(
             requestedSol = 0.03,
             laneName = "CRYPTO_ALT",
@@ -20,12 +19,9 @@ class V5_0_6567AcceptanceTest {
             laneMinExecutableSol = 0.05,
             applyPaperMemeMinimum = false,
         )
-        // V5.0.6797 §REMOVE_MIN_NOTIONAL_RESURRECTION_V2 — 0.03 is above
-        // the 10% deliberate-suppression floor (0.005). Authoritative
-        // micro-notional → promote to min per operator diagnosis Feb 2026.
-        assertTrue(r.executable)
-        assertEquals(0.05, r.finalSizeSol, 1e-9)
-        assertEquals("OK_MIN_PROMOTED_6600", r.reason)
+        assertFalse(r.executable)
+        assertEquals(0.0, r.finalSizeSol, 1e-9)
+        assertEquals("SUB_MIN_ADAPTIVE_HELD_6809", r.reason)
     }
 
     @Test

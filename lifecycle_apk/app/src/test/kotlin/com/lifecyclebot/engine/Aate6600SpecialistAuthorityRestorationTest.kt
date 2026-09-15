@@ -38,20 +38,18 @@ class Aate6600SpecialistAuthorityRestorationTest {
             registry.contains("resolveExecutableFromSourceEvidence6616"))
     }
 
-    @Test fun approved_subminimum_order_promotes_once_when_hard_caps_fund_minimum() {
+    @Test fun subminimum_order_never_promotes_6809() {
         val r = OrderSizeResolver6441.resolve(
             requestedSol = 0.00154, laneName = "EXPRESS", walletSol = 1.0,
             paperMode = false, laneRiskCapSol = 0.50, laneMinExecutableSol = 0.05,
         )
-        // V5.0.6799 §ADVISORY_MUST_NOT_ZERO — operator diagnosis Feb 2026
-        // retires the 6797 10% "deliberate suppression" discriminator: an
-        // advisory multiplier stack cannot be permitted to zero an FDG-
-        // approved intent. A caller wanting a hard veto MUST return
-        // requested = 0 at the source. Any strictly positive request that
-        // the caps can fund is promoted once to min-exec.
-        assertTrue(r.executable)
-        assertEquals(0.05, r.finalSizeSol, 1e-9)
-        assertEquals("OK_MIN_PROMOTED_6600", r.reason)
+        // V5.0.6809 §KILL_MIN_SIZE_PROMOTION — supersedes 6799/6600. An
+        // adaptive stack that reduces requested notional below minExec is
+        // authoritative learning output; never re-inflated by the resolver
+        // just to make it executable.
+        assertFalse(r.executable)
+        assertEquals(0.0, r.finalSizeSol, 1e-9)
+        assertEquals("SUB_MIN_ADAPTIVE_HELD_6809", r.reason)
     }
 
     @Test fun zero_request_resolves_as_below_min_never_promoted() {
