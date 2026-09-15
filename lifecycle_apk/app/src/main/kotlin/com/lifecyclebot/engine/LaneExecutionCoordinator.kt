@@ -37,7 +37,13 @@ object LaneExecutionCoordinator {
         val authorityVersion: Long = 0L,
     )
 
-    private const val TTL_MS = 30_000L
+    // V5.0.6790 §TTL_SINGLE_SOURCE — lane elections must respect the
+    // canonical AdaptiveTicketTtl6626 floor (default 180_000L). Prior
+    // 30_000L hard-coded here caused early election expiry while the
+    // adaptive TTL still allowed the sized intent to execute.
+    private val TTL_MS: Long get() = try {
+        com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626()
+    } catch (_: Throwable) { 180_000L }
     private val versionSeq = AtomicLong(0L)
     private val authoritySeq6494 = AtomicLong(0L)
     private val elections = ConcurrentHashMap<String, Election>()

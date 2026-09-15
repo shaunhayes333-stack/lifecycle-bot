@@ -54,7 +54,15 @@ object ExpressHandoffFunnel6625 {
     private val superseded6627 = AtomicLong(0L)
     private val terminalRejected6653 = AtomicLong(0L)
     private val invariantAlarms6627 = AtomicLong(0L)
-    private const val INTENT_TTL_MS_6627 = 30_000L
+    // V5.0.6790 §TTL_SINGLE_SOURCE — the specialist 30_000L constant is
+    // retired. Every ticket/reservation must consume AdaptiveTicketTtl6626
+    // authority so stale terminalization never fires at 30s while the
+    // canonical adaptive TTL reports 180s. Legacy const retained for
+    // callers that pin their own TTL explicitly (only rare test paths).
+    private const val INTENT_TTL_MS_6627_LEGACY = 30_000L
+    private fun adaptiveIntentTtlMs6790(): Long = try {
+        com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626()
+    } catch (_: Throwable) { INTENT_TTL_MS_6627_LEGACY }
 
     fun onIntentSeen6625(mint: String) {
         intentSeen.incrementAndGet()
@@ -142,7 +150,7 @@ object ExpressHandoffFunnel6625 {
      * operator can grep the exact count. Returns the number reaped.
      * Called by BotService maintenance; reports remain read-only.
      */
-    fun reap6627(maxAgeMs: Long = INTENT_TTL_MS_6627): Long {
+    fun reap6627(maxAgeMs: Long = adaptiveIntentTtlMs6790()): Long {
         if (liveIntents6627.isEmpty()) return 0L
         val nowMs = System.currentTimeMillis()
         var n = 0L
@@ -210,7 +218,7 @@ object PendingIntentBacklog6625 {
         consumed.incrementAndGet()
         try { PipelineHealthCollector.labelInc("PENDING_INTENT_CONSUMED_${e.lane}_6625") } catch (_: Throwable) {}
     }
-    fun reap6625(maxAgeMs: Long = 30_000L): Int {
+    fun reap6625(maxAgeMs: Long = adaptivePhantomTtlMs6790()): Int {
         val now = System.currentTimeMillis()
         var reaped = 0
         val expired = pending.entries.filter { now - it.value.bornAtMs > maxAgeMs }
@@ -408,7 +416,7 @@ object SpecialistCausalFunnel6625 {
                 if (executableSize && !hasTerminal6760) {
                     val newestStage = r.stages.values.maxOrNull() ?: nowMs
                     val age = nowMs - newestStage
-                    if (age >= PHANTOM_TTL_MS_6760) phantom++
+                    if (age >= adaptivePhantomTtlMs6790()) phantom++
                 }
                 for (stage in r.stages.keys) {
                     // Later stages are executable telemetry only when the
@@ -436,7 +444,17 @@ object SpecialistCausalFunnel6625 {
      * (older than TTL without terminal). Aligned with the BotService
      * pump cadence which calls `reapStaleSizedReservations6760(30_000L)`.
      */
+    /**
+     * V5.0.6790 §TTL_SINGLE_SOURCE — the specialist 30_000L constant is
+     * retired. Every reservation now consumes AdaptiveTicketTtl6626 so
+     * stale terminalization respects the canonical 180s adaptive floor.
+     * Legacy 30_000L retained as an override for explicit test paths.
+     */
     const val PHANTOM_TTL_MS_6760 = 30_000L
+
+    private fun adaptivePhantomTtlMs6790(): Long = try {
+        com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626()
+    } catch (_: Throwable) { PHANTOM_TTL_MS_6760 }
 
     /**
      * V5.0.6760 §1 — terminalize stale sized reservations.
@@ -456,7 +474,7 @@ object SpecialistCausalFunnel6625 {
      *
      * @return the number of records that were terminalized in this sweep.
      */
-    fun reapStaleSizedReservations6760(ttlMs: Long = PHANTOM_TTL_MS_6760, nowMs: Long = System.currentTimeMillis()): Int {
+    fun reapStaleSizedReservations6760(ttlMs: Long = adaptivePhantomTtlMs6790(), nowMs: Long = System.currentTimeMillis()): Int {
         var swept = 0
         for (r in records.values) {
             synchronized(r) {
