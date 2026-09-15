@@ -260,3 +260,54 @@ health.
 
 ## Test Credentials
 See `/app/memory/test_credentials.md` (none used — standalone bot).
+
+## V5.0.6809 — SOURCE-LEVEL AUTHORITY CONVERGENCE (2026-02)
+
+Operator mandate: "Learning must control capital. Throughput must never
+overrule proven negative expectancy."
+
+- **BOOTSTRAP retired as an execution authority.** `AuthorityTier.BOOTSTRAP`
+  remains as a wire/DB compat value but `UnifiedPolicyHead.currentAuthority`
+  and `ScannerSourceBrain.authority` never return it at runtime — cold heads
+  return `ADVISORY` (neutral learned prior). `BOOTSTRAP_FLOOR_PAPER_BYPASS`,
+  `BOOTSTRAP_MIN_CONFIDENCE_SOFT`, `BOOTSTRAP_OVERRIDE`, and the
+  `PAPER BOOTSTRAP PROBE` warm-up bypasses in `FinalDecisionGate` are
+  removed. `canBypassConfidenceFloors`, `isBootstrapPhase`, and
+  `isBootstrap` collapsed to `false` at source.
+- **True non-executable shadow/train verdicts restored.** `FdgRouteVerdict`
+  now maps `SHADOW_TRACK_ONLY → ROUTE_SHADOW_TRACK` (non-exec, trainable)
+  and `TRAIN_ONLY_NO_OPEN → ROUTE_TRAIN_ONLY` (non-exec, trainable). The
+  V5.9.1325 collapse to `ALLOW_PAPER_MICRO` is deleted.
+- **Negative-EV veto is final.** `AateDecisionEnvelope6512` policy synth
+  downgrades any BUY-like action with weighted EV ≤ -3% to
+  `POLICY_NEG_EV_BLOCK_6801`. `FinalDecisionGate` now honours both `BLOCK`
+  and `POLICY_NEG_EV_BLOCK_6801` as hard vetoes (was: `BLOCK` only), with
+  telemetry `FDG_HONORED_AATE_NEG_EV_VETO_6809`.
+- **Execution intent finality.** `ExecutableOpenGate.registerCanonicalIntent6554`
+  evicts any prior sealed intent whose `authorityVersion` / `fdgAllowed` /
+  `finalDecision6613` / `action` has been superseded via new helper
+  `intentSupersedes6809`. Telemetry: `EXEC_INTENT_INVALIDATED_ON_POLICY_CHANGE_6809`.
+- **Min-size promotion killed.** `OrderSizeResolver6441.OK_MIN_PROMOTED_6600`
+  and `canFundMinimum6600` removed. Sub-minimum adaptive requests resolve
+  as `SUB_MIN_ADAPTIVE_HELD_6809` (non-executable); the caller routes to
+  shadow/train observation instead of capital-floor manufacture.
+- **Bleeder / source admission.** `ScannerSourceBrain.sourceCapitalExecutionSuppressed6809`
+  and `LaneExpectancyDamper.laneCapitalExecutionSuppressed6809` now feed
+  actual admission authority in `ExecutableEntryAuthority6450` — a source
+  whose settled avg PnL ≤ -3% (n ≥ 40) or a lane whose damper multiplier
+  ≤ 0.20 hard-denies capital, reproof probes still flow.
+- **Acceptance tests.** New `AuthorityConvergenceAcceptanceTest6809.kt`
+  locks 11 invariants: SHADOW/TRAIN never open, neg-EV never becomes
+  BUY, min-size promotion retired, `AuthorityTier.BOOTSTRAP` never
+  returned at runtime, hard-safety precedes lane policy, mode/operator
+  block precedes all lane logic.
+- **Doctrine artefacts.** Bumped to `5.0.6809`. Aligned:
+  `Repair6490AcceptanceTest`, `Repair6510AuthorityAcceptanceTest`,
+  `Repair6511PaperExecutionSourceTest`, `Aate6600SpecialistAuthorityRestorationTest`,
+  `V5_0_6567AcceptanceTest`, `GoldenTapeRegressionTest` (rows 2645 and
+  7429).
+- **CI status:** `Build AATE APK` **succeeds** for V5.0.6809 (13m48s).
+  `Runtime Smoke Test` still fails on the pre-existing
+  `NO_COMPLETED_PASSING_CURRENT_WINDOW` window — unchanged from prior
+  session (known issue in `ci/runtime-test.sh` / `ci/runtime_evidence.py`).
+
