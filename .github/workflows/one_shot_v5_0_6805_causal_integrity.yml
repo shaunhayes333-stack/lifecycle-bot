@@ -42,11 +42,16 @@ jobs:
           from pathlib import Path
           p = Path('ci/apply_6805_additional_authority_repairs.py')
           s = p.read_text()
-          bad = '        val source = if (paperMode) journal?.source ?: "PAPER_LEDGER_WARMUP_FALLBACK" else "LIVE_CAPITAL_AUTHORITY""""'
-          good = '        val source = if (paperMode) journal?.source ?: "PAPER_LEDGER_WARMUP_FALLBACK" else "LIVE_CAPITAL_AUTHORITY\\""""'
-          if bad in s:
-              s = s.replace(bad, good, 1)
-              p.write_text(s)
+          fixes = {
+              '        val source = if (paperMode) journal?.source ?: "PAPER_LEDGER_WARMUP_FALLBACK" else "LIVE_CAPITAL_AUTHORITY""""':
+                  '        val source = if (paperMode) journal?.source ?: "PAPER_LEDGER_WARMUP_FALLBACK" else "LIVE_CAPITAL_AUTHORITY"\n"""',
+              '        val source = "CANONICAL_CAPITAL_AUTHORITY_6450""""':
+                  '        val source = "CANONICAL_CAPITAL_AUTHORITY_6450"\n"""',
+          }
+          for bad, good in fixes.items():
+              if bad in s:
+                  s = s.replace(bad, good, 1)
+          p.write_text(s)
           compile(p.read_text(), str(p), 'exec')
           for other in ('ci/apply_6805_causal_integrity.py', 'ci/apply_6805_build_contract_fixes.py'):
               compile(Path(other).read_text(), other, 'exec')
