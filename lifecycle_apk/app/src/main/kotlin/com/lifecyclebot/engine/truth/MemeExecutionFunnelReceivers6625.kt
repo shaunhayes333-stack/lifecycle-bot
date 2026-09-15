@@ -209,6 +209,13 @@ object PendingIntentBacklog6625 {
     private val agedOut = AtomicLong(0L)
     private val consumed = AtomicLong(0L)
 
+    // V5.0.6790 §TTL_SINGLE_SOURCE — this object's reap default now
+    // reads the canonical AdaptiveTicketTtl6626 authority instead of a
+    // private 30_000L constant. Legacy 30s retained as fallback.
+    private fun adaptivePendingTtlMs6790(): Long = try {
+        com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626()
+    } catch (_: Throwable) { 30_000L }
+
     fun record6625(attemptId: String, lane: String, mint: String) {
         pending[attemptId] = PendingEntry(System.currentTimeMillis(), lane, mint)
         try { PipelineHealthCollector.labelInc("PENDING_INTENT_RECORDED_${lane}_6625") } catch (_: Throwable) {}
@@ -218,7 +225,7 @@ object PendingIntentBacklog6625 {
         consumed.incrementAndGet()
         try { PipelineHealthCollector.labelInc("PENDING_INTENT_CONSUMED_${e.lane}_6625") } catch (_: Throwable) {}
     }
-    fun reap6625(maxAgeMs: Long = adaptivePhantomTtlMs6790()): Int {
+    fun reap6625(maxAgeMs: Long = adaptivePendingTtlMs6790()): Int {
         val now = System.currentTimeMillis()
         var reaped = 0
         val expired = pending.entries.filter { now - it.value.bornAtMs > maxAgeMs }
