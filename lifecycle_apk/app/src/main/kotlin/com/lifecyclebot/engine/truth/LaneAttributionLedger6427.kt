@@ -96,6 +96,26 @@ object LaneAttributionLedger6427 {
     fun getEntryLane(positionId: String): String? = entries[positionId]?.lane
 
     /**
+     * V5.0.6792 §LEARNING_PURITY — gate for terminal learning.
+     *
+     * Returns true when this position was opened with a full 6789 provenance
+     * stamp (laneOwner + candidateVersion + sealedFdgId + intentId). Terminal
+     * learning bridges must consult this before crediting a reward: a close
+     * without full provenance was opened by a pre-6789 code path or through
+     * a hydration/replay restore, and its owner is inferred rather than
+     * immutably known. Directive:
+     *   "Do not train lane heads from unresolved-owner or economically
+     *    invalid closes. Attribute every reward to immutable entry
+     *    provenance."
+     */
+    fun hasFullProvenance6789(positionId: String): Boolean {
+        val e = entries[positionId] ?: return false
+        return e.lane.isNotBlank() &&
+            e.lane != "UNRESOLVED_OWNER_6741" &&
+            (e.candidateVersion > 0L || e.sealedFdgId.isNotBlank() || e.intentId.isNotBlank())
+    }
+
+    /**
      * Record the EXIT policy separately. Multiple exits per position
      * (partials) are allowed; only the terminal exit's policy is
      * kept (last write wins for exits, as that reflects the final

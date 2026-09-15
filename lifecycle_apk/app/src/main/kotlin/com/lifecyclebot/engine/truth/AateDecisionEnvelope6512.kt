@@ -192,6 +192,26 @@ object AateDecisionFabric6512 {
         }
         val contributors = e?.contributors.orEmpty(); val updated = mutableListOf<String>()
         val uphBefore = UnifiedPolicyHead.trainedCount()
+        // V5.0.6792 §LEARNING_PURITY — do NOT train lane heads from an
+        // unresolved-owner close. Directive: "Attribute every reward to
+        // immutable entry provenance." Positions opened prior to 6789
+        // provenance stamping have no verifiable owner; training against
+        // an inferred owner poisons the specialist head. Downstream
+        // mint-scoped learners (AutonomousMetaPolicy / StrategyHypothesis /
+        // etc.) do not carry owner attribution and still run below.
+        val hasProvenance6792 = try {
+            LaneAttributionLedger6427.hasFullProvenance6789(env.positionId)
+        } catch (_: Throwable) { false }
+        if (!hasProvenance6792) {
+            try {
+                PipelineHealthCollector.labelInc("LEARNING_PURITY_SKIP_UNRESOLVED_OWNER_6792")
+                PipelineHealthCollector.labelInc("LEARNING_PURITY_SKIP_UNRESOLVED_OWNER_6792_${env.lane.uppercase()}")
+                ForensicLogger.lifecycle(
+                    "LEARNING_PURITY_SKIP_UNRESOLVED_OWNER_6792",
+                    "positionId=${env.positionId.take(18)} envLane=${env.lane} mint=${env.mint.take(10)} realizedPct=${env.realizedReturnPct} action=skip_lane_head_training_downstream_still_runs",
+                )
+            } catch (_: Throwable) {}
+        }
         // V5.0.6713 — exact owner-bound policy mutation is required before this
         // consumer ACKs the canonical event. Failed/missing binds retry instead
         // of permanently recording a false successful reward delivery.
@@ -210,9 +230,13 @@ object AateDecisionFabric6512 {
         // StrategyHypothesisEngine) all learn from mint/lane paths that don't
         // require the UnifiedPolicyHead per-position observation, so they MUST
         // still run. rewardedPositions still enforces one-time delivery.
-        val policyAck6713 = try {
-            UnifiedPolicyHead.recordOutcome6681(env.positionId, env.mint, env.lane, env.realizedReturnPct)
-        } catch (_: Throwable) { false }
+        val policyAck6713 = if (hasProvenance6792) {
+            try {
+                UnifiedPolicyHead.recordOutcome6681(env.positionId, env.mint, env.lane, env.realizedReturnPct)
+            } catch (_: Throwable) { false }
+        } else {
+            false
+        }
         val memeOwner6713 = env.lane.uppercase() in setOf(
             "QUALITY","BLUECHIP","BLUE_CHIP","SHITCOIN","CYCLIC","EXPRESS","CORE",
             "MOONSHOT","PROJECT_SNIPER","DIP_HUNTER","MANIPULATED","TREASURY","CASHGEN",

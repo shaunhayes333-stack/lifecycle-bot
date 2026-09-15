@@ -171,6 +171,18 @@ object BrainConsensusGate {
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_PROVEN_DEAD_HARD_VETO_6782")
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_NORMAL_ENTRY_VETO")
+                // V5.0.6791 §LEARNED_BLEEDER_AUTHORITY — feed the shadow
+                // exploration stream. Every proven-dead candidate is emitted
+                // to the learning bus as a counterfactual so the bucket can
+                // still relearn without consuming canonical capital.
+                // Directive: "Keep a small bounded exploration stream for
+                // relearning."
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PROVEN_DEAD_SHADOW_EXPLORATION_6791")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PROVEN_DEAD_SHADOW_EXPLORATION_6791_${tradingMode.uppercase()}")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "PROVEN_DEAD_SHADOW_EXPLORATION_6791",
+                    "bucket=$pdKey mint=${ts.mint.take(10)} symbol=${ts.symbol} score=$v3 confidence=${candidate.aiConfidence} action=shadow_only_no_canonical_capital",
+                )
             } catch (_: Throwable) {}
         }
 
