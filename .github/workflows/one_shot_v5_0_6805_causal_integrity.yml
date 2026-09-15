@@ -40,21 +40,8 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          p = Path('ci/apply_6805_additional_authority_repairs.py')
-          s = p.read_text()
-          fixes = {
-              '        val source = if (paperMode) journal?.source ?: "PAPER_LEDGER_WARMUP_FALLBACK" else "LIVE_CAPITAL_AUTHORITY""""':
-                  '        val source = if (paperMode) journal?.source ?: "PAPER_LEDGER_WARMUP_FALLBACK" else "LIVE_CAPITAL_AUTHORITY"\n"""',
-              '        val source = "CANONICAL_CAPITAL_AUTHORITY_6450""""':
-                  '        val source = "CANONICAL_CAPITAL_AUTHORITY_6450"\n"""',
-          }
-          for bad, good in fixes.items():
-              if bad in s:
-                  s = s.replace(bad, good, 1)
-          p.write_text(s)
-          compile(p.read_text(), str(p), 'exec')
-          for other in ('ci/apply_6805_causal_integrity.py', 'ci/apply_6805_build_contract_fixes.py'):
-              compile(Path(other).read_text(), other, 'exec')
+          for f in ('ci/apply_6805_causal_integrity.py', 'ci/apply_6805_additional_authority_repairs.py', 'ci/apply_6805_build_contract_fixes.py'):
+              compile(Path(f).read_text(), f, 'exec')
           print('6805 generator syntax: PASS')
           PY
 
@@ -129,6 +116,8 @@ jobs:
           git config user.email "aate@bot"
           git add AATE_VERSION lifecycle_apk/AATE_VERSION ci/runtime-test.sh \
             ci/apply_6805_additional_authority_repairs.py \
+            ci/apply_6805_build_contract_fixes.py \
+            lifecycle_apk/ci/patch_rot_scan.py \
             lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt \
             lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt \
             lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/ExitCoordinatorHeartbeat.kt \
