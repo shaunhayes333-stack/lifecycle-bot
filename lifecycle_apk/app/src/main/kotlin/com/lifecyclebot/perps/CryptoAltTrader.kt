@@ -3151,10 +3151,76 @@ object CryptoAltTrader {
 
     /** A missing DYN mark must not be converted into invented PnL, but it also
      * must not make a paper position immortal.  After the exact-mark freshness
-     * window expires, return canonical cost basis through the one paper
-     * authority and remove the local execution projection. */
+     * window expires, close via the one paper authority.
+     *
+     * V5.0.6808 §STALE_MARK_CLOSE_IS_ECONOMIC_NOT_REFUND — operator diagnosis
+     *   Feb 2026: "the balance isn't building. every recent SELL is
+     *   REFUND:UNTRUSTED_DYNAMIC_MARK_ADMIN_REFUND_6663 at pnl=+0.000."
+     *   The refund path was designed as a safety net for genuine data-
+     *   integrity failures (identity unresolved, price never observed)
+     *   but with 15k+ stale/missing marks it became the dominant exit
+     *   path — every close short-circuits to net-zero and the trader
+     *   can never realise gains or losses.
+     *
+     *   New contract: if the position has a valid last-observed mark
+     *   (currentPrice > 0, markAssetKey matches, entry price valid),
+     *   use it to compute a real economic close. That mark is stale by
+     *   the freshness clock but it is the last real price the market
+     *   quoted for this asset — a strictly better economic estimate
+     *   than assuming zero movement. IDENTITY_UNRESOLVED and no-mark-
+     *   ever-observed cases still refund; that's the true safety net.
+     */
     private fun settleUntrustedDynamicPaperPosition6663(pos: AltPosition, cause: String): Boolean {
         if (!pos.isPaper || !pos.isDynamic) return false
+        val identityOk6808 = pos.canonicalAssetKey.trim().isNotBlank() &&
+            pos.markAssetKey.trim().equals(pos.canonicalAssetKey.trim(), ignoreCase = true)
+        val entryOk6808 = pos.entryPrice.isFinite() && pos.entryPrice > 0.0
+        val lastMarkOk6808 = pos.currentPrice.isFinite() && pos.currentPrice > 0.0 && pos.markUpdatedAtMs > 0L
+        val identityUnresolved6808 = cause.startsWith("IDENTITY_UNRESOLVED")
+        val canEconomicClose6808 = !identityUnresolved6808 && identityOk6808 && entryOk6808 && lastMarkOk6808
+        if (canEconomicClose6808) {
+            val dir = if (pos.direction == PerpsDirection.LONG) 1.0 else -1.0
+            val pnlPct6808 = (pos.currentPrice - pos.entryPrice) / pos.entryPrice * 100.0 * dir * pos.leverage
+            val boundedPnlPct6808 = pnlPct6808.coerceIn(-100.0 * pos.leverage, 10_000.0)
+            val settlementPnl6808 = pos.sizeSol * (boundedPnlPct6808 / 100.0)
+            val grossProceeds6808 = (pos.sizeSol + settlementPnl6808).coerceAtLeast(0.0)
+            val staleAgeMs6808 = (System.currentTimeMillis() - pos.markUpdatedAtMs).coerceAtLeast(0L)
+            val reason6808 = "STALE_MARK_ECONOMIC_CLOSE_6808:$cause:staleAgeMs=$staleAgeMs6808:lastMark=${"%.10f".format(pos.currentPrice)}"
+            val economicClose6808 = try {
+                com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.close(
+                    positionId = pos.id, mint = pos.canonicalAssetKey, symbol = pos.marketSymbol,
+                    grossProceedsSol = grossProceeds6808,
+                    exitReason = reason6808,
+                    terminalSequence = System.currentTimeMillis(),
+                    expectedRealizedPnlSol6569 = settlementPnl6808,
+                    leveragedReturnPct6569 = boundedPnlPct6808,
+                )
+            } catch (_: Throwable) { null }
+            if (economicClose6808?.applied == true) {
+                positions.remove(pos.id); spotPositions.remove(pos.id); leveragePositions.remove(pos.id)
+                momentumSnapshots.remove(pos.id); partialLadderHit.remove(pos.id); trailPeakPct.remove(pos.id)
+                try { com.lifecyclebot.collective.LocalOrphanStore.clear(pos.id) } catch (_: Throwable) {}
+                try {
+                    val bucket = com.lifecyclebot.engine.CryptoPositionState.Bucket.PAPER
+                    com.lifecyclebot.engine.CryptoPositionState.release(pos.marketSymbol, bucket)
+                } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.WalletPositionLock.recordClose("CryptoAlt", pos.sizeSol) } catch (_: Throwable) {}
+                persistAltPositions()
+                try {
+                    PipelineHealthCollector.labelInc("CRYPTO_DYN_STALE_MARK_ECONOMIC_CLOSE_6808")
+                    ForensicLogger.lifecycle(
+                        "CRYPTO_DYN_STALE_MARK_ECONOMIC_CLOSE_6808",
+                        "positionId=${pos.id} asset=${pos.canonicalAssetKey.take(32)} symbol=${pos.marketSymbol} " +
+                            "cause=$cause staleAgeMs=$staleAgeMs6808 entry=${"%.10f".format(pos.entryPrice)} " +
+                            "lastMark=${"%.10f".format(pos.currentPrice)} pnlPct=${"%.2f".format(boundedPnlPct6808)} " +
+                            "settlementSol=${"%.6f".format(settlementPnl6808)} action=economic_close_on_last_observed_mark",
+                    )
+                } catch (_: Throwable) {}
+                return true
+            }
+            // If the economic close failed to apply, fall through to the
+            // legacy refund path below so the position still retires.
+        }
         val receipt = try {
             com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.refund(
                 positionId = pos.id,
