@@ -10996,10 +10996,39 @@ class Executor(
             val snapshotExecutable6512 = decision6512?.verdict in setOf("BUY", "PROBE_ONLY") &&
                 normalizeExecutionLane(decision6512?.executionLane).isNotBlank()
             if (nonBuySignal && snapshotExecutable6512) {
+                // V5.0.6801 §FROZEN_DECISION_MUST_YIELD_TO_NEWER_SIGNAL —
+                //   operator diagnosis Feb 2026: "Freezing execution
+                //   provenance makes sense for identity/accounting, but it
+                //   must not freeze the economic decision when materially
+                //   newer pre-fill evidence changes BUY → WAIT/NO_BUY. Yet
+                //   this happened 199 times this run (FDG_MUTABLE_SIGNAL_
+                //   IGNORED_6512 verdict=BUY mutableSignal=WAIT action=
+                //   continue_frozen_pre_execution_authority)."
+                //
+                //   The economic decision now yields to the newer signal:
+                //   release the sealed election and defer for one cycle so
+                //   the next FDG evaluation can reprove or fully rescind.
+                //   Only the PROVENANCE (candidateVersion + lane identity)
+                //   stays sealed via LaneExecutionCoordinator; that's the
+                //   identity/accounting guarantee. The economic BUY does
+                //   not survive newer WAIT evidence.
+                val released6801 = try {
+                    LaneExecutionCoordinator.releaseIfPrimary(
+                        ts.mint, frozenLane6512,
+                        "FDG_MUTABLE_SIGNAL_UNFROZEN_6801", frozenVersion6512,
+                    )
+                } catch (_: Throwable) { false }
                 try {
-                    PipelineHealthCollector.labelInc("FDG_MUTABLE_SIGNAL_IGNORED_6512")
-                    ForensicLogger.lifecycle("FDG_MUTABLE_SIGNAL_IGNORED_6512", "mint=${ts.mint.take(10)} candidateVersion=${decision6512?.candidateVersion} verdict=${decision6512?.verdict} lane=${decision6512?.executionLane} mutableSignal=$signal6504 action=continue_frozen_pre_execution_authority")
+                    PipelineHealthCollector.labelInc("FDG_MUTABLE_SIGNAL_UNFROZEN_6801")
+                    ForensicLogger.lifecycle(
+                        "FDG_MUTABLE_SIGNAL_UNFROZEN_6801",
+                        "mint=${ts.mint.take(10)} candidateVersion=${decision6512?.candidateVersion} " +
+                            "verdict=${decision6512?.verdict} lane=${decision6512?.executionLane} " +
+                            "mutableSignal=$signal6504 electionReleased=$released6801 " +
+                            "action=defer_re_elect_newer_wait_wins_over_frozen_buy",
+                    )
                 } catch (_: Throwable) {}
+                return
             } else if (nonBuySignal) {
                 val released6512 = try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, frozenLane6512, "EXEC_AUTHORITY_MISSING_6512", frozenVersion6512) } catch (_: Throwable) { false }
                 try {
@@ -13688,6 +13717,7 @@ class Executor(
                 candidateVersion = candidateVersion6789,
                 sealedFdgId = sealedFdgId6789,
                 intentId = entryFinalityId6497,
+                discoverySource = ts.source,
             )
             if (!canonicalCreated6485) {
                 rollbackPaperEntry6485("CANONICAL_RESERVATION_REJECTED")
@@ -15201,6 +15231,7 @@ class Executor(
                 candidateVersion = liveCandidateVersion6789,
                 sealedFdgId = liveSealedFdgId6789,
                 intentId = liveSealedFdgId6789,
+                discoverySource = ts.source,
             )
         } catch (_: Throwable) {}
 

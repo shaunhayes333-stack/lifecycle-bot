@@ -4883,6 +4883,49 @@ object FinalDecisionGate {
             } catch (_: Throwable) {}
         }
 
+        // V5.0.6801 §ZERO_QUALITY_HARD_VETO — operator diagnosis Feb 2026:
+        //   "FDG is authorizing zero-quality BUYs. FDG_ALLOW lane=BLUECHIP
+        //    DEC/FDG/BUY score=0 conf=0 BUY for both ZCAT and OTC. A score 0
+        //    / confidence 0 candidate should not become an executable BUY
+        //    merely because an older sealed decision or fallback policy
+        //    exists." This is the last chance to hard-veto before the
+        //    FDG_ALLOW/FDG_BLOCK stamp is recorded. Only downgrade path —
+        //    can never turn a block into an allow. Zero score AND zero on
+        //    every trainable confidence surface is a strict source-level
+        //    veto; a single non-zero signal is enough to keep the decision.
+        //    A single objective is enough to keep an allow because the
+        //    upstream authorities (learner, tactic, edge) already tuned it
+        //    for a reason. This targets the pathological "everything is
+        //    zero" case only.
+        try {
+            if (shouldTradeFinal) {
+                val laneScore6801 = laneScore
+                val entryScore6801 = candidate.entryScore
+                val aiConf6801 = candidate.aiConfidence
+                val edgeConf6801 = candidate.edgeConfidence
+                val allZeroQuality6801 =
+                    laneScore6801 <= 0.0 && entryScore6801 <= 0.0 &&
+                    aiConf6801 <= 0.0 && edgeConf6801 <= 0.0
+                if (allZeroQuality6801) {
+                    shouldTradeFinal = false
+                    blockReasonFinal = "FDG_ZERO_QUALITY_HARD_VETO_6801:laneScore=0 entryScore=0 aiConf=0 edgeConf=0"
+                    blockLevelFinal = BlockLevel.HARD
+                    checks.add(GateCheck("fdg_zero_quality_hard_veto_6801", false,
+                        "all trainable scores are zero; source-level BUY refused"))
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_ZERO_QUALITY_HARD_VETO_6801")
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_ZERO_QUALITY_HARD_VETO_6801_${canonicalPrimaryLane6658.uppercase()}")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "FDG_ZERO_QUALITY_HARD_VETO_6801",
+                            "mint=${ts.mint.take(10)} lane=$canonicalPrimaryLane6658 mode=${if (config.paperMode) "PAPER" else "LIVE"} " +
+                                "laneScore=$laneScore6801 entryScore=$entryScore6801 aiConf=$aiConf6801 edgeConf=$edgeConf6801 " +
+                                "action=hard_block_zero_quality_never_becomes_buy",
+                        )
+                    } catch (_: Throwable) {}
+                }
+            }
+        } catch (_: Throwable) { /* veto must never break FDG */ }
+
         try { com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(canonicalPrimaryLane6658, if (shouldTradeFinal) "FDG_ALLOW" else "FDG_BLOCK", "${ts.mint}:${com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") } catch (_: Throwable) {}
         // V5.0.6657 §FDG_STAMP_FANOUT — operator dump Feb 2026:
         //   QUALITY buyIntent=287 fdg=0 (FDG_CHOKED). Root cause:

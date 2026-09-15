@@ -90,6 +90,116 @@ object CausalFeedbackAuthority6715 {
     private val terminalSeen = HashSet<String>()
     private val learnedSeen = HashSet<String>()
 
+    // V5.0.6801 §SOURCE_AWARE_LEARNING — operator diagnosis Feb 2026:
+    //   "Your entry learner should learn lane × source × score × regime
+    //    rather than primarily lane × score-band, because Pump Portal is
+    //    flooding poor outcomes while some scanner-derived cohorts are
+    //    producing most of the winners."
+    //
+    //   Adding the source dimension to the primary ticket lifecycle would
+    //   be a large plumbing refactor (stampDecision/admit/resolveTerminal
+    //   all key on (mode, lane, band)). Instead this adds a PARALLEL
+    //   read-only source-cohort accumulator that observes terminal outcomes
+    //   and exposes a SourceLoserAdvisory the admission gate can consult.
+    //   Non-disruptive to the ticket lifecycle; ticket admission continues
+    //   on the existing (mode, lane, band) keys. Source keys are trimmed/
+    //   uppercased so `pump_portal` and `PUMP_PORTAL` collapse.
+    private data class SourceOutcome(var wins: Int = 0, var losses: Int = 0)
+    private val sourceScopes = HashMap<String, SourceOutcome>()
+
+    private fun normSource6801(raw: String?): String =
+        raw?.trim()?.uppercase()?.replace('-', '_')?.replace(' ', '_')
+            ?.takeIf { it.isNotBlank() } ?: "UNKNOWN_SOURCE"
+
+    private fun sourceKey6801(mode: String, source: String): String =
+        "SOURCE|${normMode(mode)}|${normSource6801(source)}"
+
+    /**
+     * V5.0.6801 §SOURCE_AWARE_LEARNING — record a terminal outcome against
+     * a discovery-source cohort. Fail-open on blank source. Idempotent
+     * against the caller's own positionId gating; this method itself
+     * doesn't dedupe (the caller resolves terminal once per position).
+     */
+    fun recordSourceOutcome6801(mode: String, source: String, isWin: Boolean) {
+        val key = sourceKey6801(mode, source)
+        synchronized(lock) {
+            val s = sourceScopes.getOrPut(key) { SourceOutcome() }
+            if (isWin) s.wins++ else s.losses++
+        }
+        try {
+            PipelineHealthCollector.labelInc(
+                if (isWin) "CAUSAL_SOURCE_WIN_RECORDED_6801" else "CAUSAL_SOURCE_LOSS_RECORDED_6801"
+            )
+        } catch (_: Throwable) {}
+    }
+
+    data class SourceLoserAdvisory(val source: String, val winRatePct: Double, val decidedCount: Int, val sizeMultiplier: Double)
+
+    /**
+     * V5.0.6801 — return a source-cohort advisory ONLY when the source has
+     * decided >= ADVISORY_MIN_DECIDED and WR is below ADVISORY_WR_FLOOR.
+     * ADMISSION gate reads this to route toxic sources to SHADOW_ONLY
+     * (mirrors the lane advisory contract in cohortLoserAdvisoryForLane).
+     */
+    fun sourceLoserAdvisory6801(mode: String, source: String): SourceLoserAdvisory? {
+        val key = sourceKey6801(mode, source)
+        synchronized(lock) {
+            val s = sourceScopes[key] ?: return null
+            val decided = s.wins + s.losses
+            if (decided < ADVISORY_MIN_DECIDED) return null
+            val wr = s.wins.toDouble() / decided.toDouble()
+            if (wr >= ADVISORY_WR_FLOOR) return null
+            val frac = (wr / ADVISORY_WR_FLOOR).coerceIn(0.0, 1.0)
+            val mult = (ADVISORY_MULT_FLOOR + (1.0 - ADVISORY_MULT_FLOOR) * frac).coerceIn(ADVISORY_MULT_FLOOR, 1.0)
+            return SourceLoserAdvisory(normSource6801(source), wr * 100.0, decided, mult)
+        }
+    }
+
+    /**
+     * V5.0.6801 §SOURCE_AWARE_TELEMETRY — expose the whole source-cohort
+     * table so operator dumps and dashboards can see the source split
+     * that drove the lane×source×score×regime learning.
+     */
+    fun sourceCohortStatusLine6801(): String = synchronized(lock) {
+        if (sourceScopes.isEmpty()) return "sources=0"
+        val rows = sourceScopes.entries.map { (k, s) ->
+            val decided = s.wins + s.losses
+            val wr = if (decided == 0) 0.0 else s.wins.toDouble() / decided.toDouble() * 100.0
+            "${k.substringAfterLast('|')}[n=$decided wr=${"%.1f".format(wr)}%]"
+        }.sortedBy { it }
+        "sources=${sourceScopes.size} " + rows.joinToString(",")
+    }
+
+    // V5.0.6801 §SOURCE_AWARE_LEARNING — subscribe once to the canonical
+    //   terminal bus and route each outcome to the source cohort. The
+    //   source is looked up on LaneAttributionLedger6427 (stamped at
+    //   OPEN commit). Blank source stamps quietly skip so hydrated/
+    //   legacy positions are not mis-attributed. BREAKEVEN closes are
+    //   deliberately excluded — the source damper mirrors the lane
+    //   advisory contract which trains on decided WIN/LOSS only.
+    private val sourceBusInstalled6801 = java.util.concurrent.atomic.AtomicBoolean(false)
+    init {
+        try {
+            if (sourceBusInstalled6801.compareAndSet(false, true)) {
+                CanonicalTradeFinalizedBus6450.subscribe { e ->
+                    try {
+                        val src6801 = com.lifecyclebot.engine.truth.LaneAttributionLedger6427
+                            .getEntrySource6801(e.positionId)
+                        if (src6801.isBlank()) return@subscribe
+                        when (e.outcome) {
+                            CanonicalTradeFinalizedBus6450.Outcome.WIN ->
+                                recordSourceOutcome6801(e.mode, src6801, isWin = true)
+                            CanonicalTradeFinalizedBus6450.Outcome.LOSS ->
+                                recordSourceOutcome6801(e.mode, src6801, isWin = false)
+                            CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN -> Unit
+                        }
+                    } catch (_: Throwable) {}
+                }
+            }
+        } catch (_: Throwable) {}
+    }
+
+
     private fun normMode(mode: String): String = mode.trim().uppercase().ifBlank { "UNKNOWN" }
     private fun normLane(raw: String): String = raw.trim().uppercase().replace('-', '_').replace(' ', '_').let {
         when (it) { "BLUE_CHIP" -> "BLUECHIP"; "PRESALE_SNIPE" -> "PROJECT_SNIPER"; else -> it }
@@ -670,6 +780,7 @@ object CausalFeedbackAuthority6715 {
     internal fun resetForTest6715() = synchronized(lock) {
         scopes.clear(); ticketStamps.clear(); reservations.clear(); positionScopes.clear()
         earlyLearnAcks.clear(); terminalSeen.clear(); learnedSeen.clear()
+        sourceScopes.clear()
     }
 
     private fun emit(label: String, detail: String) {

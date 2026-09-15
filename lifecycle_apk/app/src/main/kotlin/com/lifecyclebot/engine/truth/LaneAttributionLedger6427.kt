@@ -35,6 +35,13 @@ object LaneAttributionLedger6427 {
         val candidateVersion: Long = 0L,
         val sealedFdgId: String = "",
         val intentId: String = "",
+        // V5.0.6801 §SOURCE_AWARE_LEARNING — discovery source (PUMP_FUN_NEW,
+        // SOLANA_BLUECHIP_WATCHLIST, PUMP_PORTAL, ...) is captured at open
+        // so the terminal-side learner can attribute the outcome to the
+        // exact source cohort. Blank source is preserved so hydrated /
+        // legacy entries remain visibly source-unknown and are excluded
+        // from source-cohort learning.
+        val discoverySource: String = "",
     )
 
     data class ExitPolicy(
@@ -66,10 +73,12 @@ object LaneAttributionLedger6427 {
         candidateVersion: Long = 0L,
         sealedFdgId: String = "",
         intentId: String = "",
+        discoverySource: String = "",
     ): Boolean {
         if (positionId.isBlank()) return false
         val fresh = Entry(lane, strategy, profile, tactic, System.currentTimeMillis(),
-            candidateVersion = candidateVersion, sealedFdgId = sealedFdgId, intentId = intentId)
+            candidateVersion = candidateVersion, sealedFdgId = sealedFdgId, intentId = intentId,
+            discoverySource = discoverySource)
         val prior = entries.putIfAbsent(positionId, fresh)
         if (prior != null) {
             if (prior.lane != lane) {
@@ -94,6 +103,16 @@ object LaneAttributionLedger6427 {
     fun getEntry(positionId: String): Entry? = entries[positionId]
 
     fun getEntryLane(positionId: String): String? = entries[positionId]?.lane
+
+    /**
+     * V5.0.6801 §SOURCE_AWARE_LEARNING — read the discovery source
+     * captured at open commit. Blank when the caller did not stamp
+     * one (hydrated / legacy restore). Terminal learners consume this
+     * to route the outcome into the source cohort accumulator in
+     * CausalFeedbackAuthority6715.
+     */
+    fun getEntrySource6801(positionId: String): String =
+        entries[positionId]?.discoverySource?.trim().orEmpty()
 
     /**
      * V5.0.6792 §LEARNING_PURITY — gate for terminal learning.

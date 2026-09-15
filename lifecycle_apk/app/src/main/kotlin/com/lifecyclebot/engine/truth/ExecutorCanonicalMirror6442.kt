@@ -152,6 +152,13 @@ object ExecutorCanonicalMirror6442 {
         candidateVersion: Long = 0L,
         sealedFdgId: String = "",
         intentId: String = "",
+        // V5.0.6801 §SOURCE_AWARE_LEARNING — discovery source captured at
+        // buy attempt so the terminal-side learner can attribute the
+        // outcome to the exact source cohort (PUMP_FUN_NEW,
+        // SOLANA_BLUECHIP_WATCHLIST, PUMP_PORTAL, ...). Blank is fine —
+        // legacy / hydrated callers stay source-unknown and are excluded
+        // from source-cohort learning rather than mis-attributed.
+        discoverySource: String = "",
     ): Boolean {
         return try {
             if (SlotHealthGate.isMemeLane6689(lane)) {
@@ -219,6 +226,8 @@ object ExecutorCanonicalMirror6442 {
                         candidateVersion = candidateVersion,
                         sealedFdgId = sealedFdgId.ifBlank { attemptId },
                         intentId = intentId.ifBlank { attemptId },
+                        // V5.0.6801 §SOURCE_AWARE_LEARNING — stamp discovery source
+                        discoverySource = discoverySource,
                     )
                 } catch (_: Throwable) {}
                 try { PositionStateLedger6427.registerOpen(canonicalMint(mint)) } catch (_: Throwable) {}

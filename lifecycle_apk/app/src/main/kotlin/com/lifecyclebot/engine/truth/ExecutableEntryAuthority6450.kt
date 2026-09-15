@@ -95,13 +95,109 @@ object ExecutableEntryAuthority6450 {
      * V5.0.6488: learned streaks soft-shape only. True hard safety remains in
      * rug/raw-floor/route/finality authorities; strategy history cannot emit a
      * zero-size or cross-lane shutdown.
+     *
+     * V5.0.6801 §LEARNING_MUST_CONTROL_ADMISSION — operator diagnosis Feb 2026:
+     *   "Bad learned signals are still allowed to become BUYs. Entry authority
+     *    gates=3162 allows=3162 denies=0. The system correctly identifies
+     *    EXPRESS 5.3% WR, SHITCOIN 0% WR, PROJECT_SNIPER 13.1% WR and then
+     *    simply reduces their sizing while continuing to feed them trades.
+     *    Route toxic cohorts to SHADOW_ONLY except reproof probes."
+     *
+     *   The self-learning stack was intentionally soft-shape-only, but the
+     *   operator's rebuttal is that the system now describes how badly it
+     *   trades better than it stops taking those trades. Add a hard-block
+     *   surface driven by CausalFeedbackAuthority6715.cohortLoserAdvisoryForLane
+     *   (LANE-level, band-agnostic; the band-level 6727 TERMINAL suppressor
+     *   already exists but only fires with band context which the caller
+     *   here does not always have). Reproof probes bypass so the system
+     *   continues to learn / reprove without being locked out.
+     *
+     *   isReproofProbe6801 = true → PROBE_SIZE_SOL admission, no denial.
+     *   otherwise a lane with cohortLoserAdvisoryForLane returning
+     *   ADVISORY_MULT_FLOOR (chronic terminal loser) hard-denies.
      */
-    fun gate(lane: String, mint: String, requestedSizeSol: Double): Decision {
+    @JvmOverloads
+    fun gate(lane: String, mint: String, requestedSizeSol: Double, isReproofProbe6801: Boolean = false, discoverySource6801: String = ""): Decision {
         gates.incrementAndGet()
         val mode = currentMode()
         val key = cohortKey(mode, lane)
         val streak = cohortLosses[key]?.get() ?: 0L
         val cooling = (cohortCooldownMs[key] ?: 0L) > System.currentTimeMillis()
+
+        // V5.0.6801 §LEARNING_MUST_CONTROL_ADMISSION — hard-block toxic lane
+        // cohorts unless the caller is an explicit reproof probe. This does
+        // NOT permanently disable a lane: reproof probes keep flowing so
+        // recovery can be observed and the block auto-clears once WR
+        // recovers past the advisory floor.
+        val loserAdvisory6801 = try {
+            com.lifecyclebot.engine.truth.CausalFeedbackAuthority6715
+                .cohortLoserAdvisoryForLane(mode, lane)
+        } catch (_: Throwable) { null }
+        val laneIsTerminalLoser6801 = loserAdvisory6801 != null &&
+            loserAdvisory6801.sizeMultiplier <= 0.55 // ADVISORY_MULT_FLOOR=0.40 + shaping headroom; catches WR under ~7.5% with adequate sample
+
+        // V5.0.6801 §SOURCE_AWARE_ADMISSION — parallel source-cohort veto.
+        // A source whose settled outcomes are catastrophic (PUMP_PORTAL
+        // flood in the operator diagnosis) is admission-blocked here even
+        // if the LANE cohort is currently clean, and vice versa. Reproof
+        // probes still get PROBE-size admission so recovery is observable.
+        val sourceAdvisory6801 = try {
+            if (discoverySource6801.isBlank()) null
+            else com.lifecyclebot.engine.truth.CausalFeedbackAuthority6715
+                .sourceLoserAdvisory6801(mode, discoverySource6801)
+        } catch (_: Throwable) { null }
+        val sourceIsTerminalLoser6801 = sourceAdvisory6801 != null &&
+            sourceAdvisory6801.sizeMultiplier <= 0.55
+
+        if ((laneIsTerminalLoser6801 || sourceIsTerminalLoser6801) && !isReproofProbe6801) {
+            denies.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_TOXIC_LANE_SHADOW_ONLY_6801")
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_TOXIC_LANE_SHADOW_ONLY_6801_${normalizedLane(lane)}")
+                if (sourceIsTerminalLoser6801) {
+                    PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_TOXIC_SOURCE_SHADOW_ONLY_6801")
+                    PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_TOXIC_SOURCE_SHADOW_ONLY_6801_${sourceAdvisory6801!!.source}")
+                }
+                ForensicLogger.lifecycle(
+                    "EXECUTABLE_ENTRY_TOXIC_LANE_SHADOW_ONLY_6801",
+                    "mode=$mode lane=${normalizedLane(lane)} mint=${mint.take(10)} " +
+                        "laneWr=${loserAdvisory6801?.winRatePct?.let { "%.2f".format(it) } ?: "n/a"}% laneN=${loserAdvisory6801?.decidedCount ?: 0} " +
+                        "srcAdvisory=${sourceAdvisory6801?.source ?: "n/a"} srcWr=${sourceAdvisory6801?.winRatePct?.let { "%.2f".format(it) } ?: "n/a"}% srcN=${sourceAdvisory6801?.decidedCount ?: 0} " +
+                        "action=hard_deny_admission_reproof_only",
+                )
+            } catch (_: Throwable) {}
+            return Decision(
+                Verdict.DENY_LOSING_STREAK,
+                0.0,
+                "mode=$mode lane=${normalizedLane(lane)} " +
+                    "laneWr=${loserAdvisory6801?.winRatePct?.let { "%.1f".format(it) } ?: "n/a"}% " +
+                    "srcWr=${sourceAdvisory6801?.winRatePct?.let { "%.1f".format(it) } ?: "n/a"}% " +
+                    "action=SHADOW_ONLY_REPROOF_REQUIRED_6801",
+            )
+        }
+        if ((laneIsTerminalLoser6801 || sourceIsTerminalLoser6801) && isReproofProbe6801) {
+            probes.incrementAndGet()
+            val probeSize6801 = PROBE_SIZE_SOL.coerceAtMost(requestedSizeSol.coerceAtLeast(PROBE_SIZE_SOL))
+            try {
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_TOXIC_LANE_REPROOF_PROBE_6801")
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_TOXIC_LANE_REPROOF_PROBE_6801_${normalizedLane(lane)}")
+                ForensicLogger.lifecycle(
+                    "EXECUTABLE_ENTRY_TOXIC_LANE_REPROOF_PROBE_6801",
+                    "mode=$mode lane=${normalizedLane(lane)} mint=${mint.take(10)} " +
+                        "laneWr=${loserAdvisory6801?.winRatePct?.let { "%.2f".format(it) } ?: "n/a"}% " +
+                        "srcAdvisory=${sourceAdvisory6801?.source ?: "n/a"} " +
+                        "requestedSol=$requestedSizeSol probeSol=$probeSize6801 action=probe_only_no_normal_admission",
+                )
+            } catch (_: Throwable) {}
+            return Decision(
+                Verdict.ALLOW_PROBE,
+                probeSize6801,
+                "mode=$mode lane=${normalizedLane(lane)} " +
+                    "laneWr=${loserAdvisory6801?.winRatePct?.let { "%.1f".format(it) } ?: "n/a"}% " +
+                    "srcWr=${sourceAdvisory6801?.winRatePct?.let { "%.1f".format(it) } ?: "n/a"}% action=REPROOF_PROBE_6801",
+            )
+        }
+
         val mult = when {
             streak >= STREAK_HARD_LIMIT || cooling -> 0.35
             streak >= STREAK_TIGHTEN_TWO -> 0.35

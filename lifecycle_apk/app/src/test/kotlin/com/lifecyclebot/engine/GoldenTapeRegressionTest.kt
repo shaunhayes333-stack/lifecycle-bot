@@ -8385,7 +8385,7 @@ class GoldenTapeRegressionTest {
 
         assertTrue(identity.contains("var executionLane: String") && identity.contains("var fdgCandidateVersion: Long"))
         assertFalse("discovery provenance must never resolve execution lane", exec.contains("normalizeExecutionLane(identity?.source)") || exec.contains("normalizeExecutionLane(ts.source)"))
-        assertTrue(exec.contains("EXEC_LANE_IDENTITY_INVARIANT_FAILED") && exec.contains("FDG_MUTABLE_SIGNAL_IGNORED_6512"))
+        assertTrue(exec.contains("EXEC_LANE_IDENTITY_INVARIANT_FAILED") && exec.contains("FDG_MUTABLE_SIGNAL_UNFROZEN_6801"))
         assertTrue(gate.contains("ExecutionDecisionSnapshot6510.record") && decision.contains("byAuthorityKey") && decision.contains("runtimeGeneration") && decision.contains("mode"))
         assertTrue(mark.contains("val priceAuthoritative") && mark.contains("val routeExecutable"))
         assertTrue(partial.contains("""val operationId = """") && partial.contains("positionId") && partial.contains("sequence") && partial.contains("CanonicalPaperTerminalBridge6469.finalizeSell"))
@@ -8531,7 +8531,7 @@ class GoldenTapeRegressionTest {
         assertTrue(decision.contains("byAuthorityKey") && decision.contains("runtimeGeneration") && decision.contains("candidateVersion") && decision.contains("executionLane"))
         assertFalse(snapshot.contains("add(" + "\"primaryLane("))
         assertTrue(gate.contains("canonicalOccupancy =") && gate.contains("mode.uppercase()}:" + "$" + "mint") && gate.contains("PAPER") && gate.contains("LIVE"))
-        assertTrue(exec.contains("FDG_MUTABLE_SIGNAL_IGNORED_6512") && exec.contains("EXEC_AUTHORITY_MISSING_DEFERRED_6512") && exec.contains("releaseIfPrimary"))
+        assertTrue(exec.contains("FDG_MUTABLE_SIGNAL_UNFROZEN_6801") && exec.contains("EXEC_AUTHORITY_MISSING_DEFERRED_6512") && exec.contains("releaseIfPrimary"))
         assertFalse(exec.contains("ENTRY_BRIDGE_NON_BUY_GUARD_6504"))
         assertTrue(aggregator.contains("DataSource.DEXPAPRIKA") && aggregator.contains("data-api.binance.vision"))
         assertTrue(dex.contains("fetchDexPaprikaToken6512") && provider.contains("DEXPAPRIKA") && provider.contains("ProviderConfig"))

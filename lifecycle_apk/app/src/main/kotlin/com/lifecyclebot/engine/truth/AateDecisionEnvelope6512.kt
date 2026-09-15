@@ -46,7 +46,40 @@ object PolicySynthesizer6512 {
         val ev = if (we.isEmpty()) 0.0 else we.sumOf { it.first * it.second } / we.sumOf { it.second }.coerceAtLeast(0.0001)
         val moon = bounded.mapNotNull { c -> c.moonshotP?.let { it to c.weight } }.maxOfOrNull { it.first } ?: 0.0
         val rug = bounded.mapNotNull { c -> c.rugP?.let { it to c.weight } }.maxOfOrNull { it.first } ?: 0.0
-        val action = if (hardSafety.isNotEmpty()) "BLOCK" else proposedAction.uppercase()
+        // V5.0.6801 §POLICY_NEGATIVE_EV_HARD_VETO — operator diagnosis Feb 2026:
+        //   "Policy action=BUY while EV=-5.0 is happening. Negative EV going to
+        //    BUY is a source-level authority failure. The AATE policy stamp
+        //    must not authorise BUY when its own contributors report a
+        //    materially negative expected value with real evidence."
+        //   Preserve BLOCK from hardSafety (existing invariant). If the
+        //   proposed action is BUY-like AND the weighted EV surface is
+        //   materially negative AND at least one contributor supplied an
+        //   EV signal (we.isNotEmpty prevents blocking on the default 0.0
+        //   when no contributor scored EV), the synthesiser downgrades the
+        //   action to POLICY_NEG_EV_BLOCK_6801. -3% weighted EV is the
+        //   authority floor: casual noise stays neutral, but an authority-
+        //   confident -3% or worse cannot become an executable BUY.
+        val proposedUpper6801 = proposedAction.uppercase()
+        val isBuyLike6801 = proposedUpper6801 in setOf("BUY", "PROBE", "PROBE_ONLY", "EXECUTE")
+        val evVetoFires6801 = isBuyLike6801 && we.isNotEmpty() && ev <= -3.0
+        val action = when {
+            hardSafety.isNotEmpty() -> "BLOCK"
+            evVetoFires6801 -> "POLICY_NEG_EV_BLOCK_6801"
+            else -> proposedUpper6801
+        }
+        if (evVetoFires6801) {
+            try {
+                PipelineHealthCollector.labelInc("AATE_POLICY_NEGATIVE_EV_HARD_VETO_6801")
+                ForensicLogger.lifecycle(
+                    "AATE_POLICY_NEGATIVE_EV_HARD_VETO_6801",
+                    "candidateId=${context.candidateId} mint=${context.mint.take(10)} " +
+                        "lane=${context.primaryStrategy} proposedAction=$proposedUpper6801 " +
+                        "weightedEv=${"%.2f".format(ev)} pWin=${"%.2f".format(pWin)} rugP=${"%.2f".format(rug)} " +
+                        "contributors=${bounded.size} evContributors=${we.size} " +
+                        "action=downgrade_to_POLICY_NEG_EV_BLOCK_6801_never_becomes_buy",
+                )
+            } catch (_: Throwable) {}
+        }
         val rev = revisions.incrementAndGet()
         return AateDecisionEnvelope6512(
             envelopeId = "${context.runtimeGeneration}:${context.mode}:${context.mint}:${context.candidateVersion}:$rev",
