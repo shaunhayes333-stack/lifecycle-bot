@@ -6,6 +6,8 @@ on:
       - repair/6805-causal-integrity
     paths:
       - ci/apply_6805_causal_integrity.py
+      - ci/apply_6805_additional_authority_repairs.py
+      - .github/workflows/one_shot_v5_0_6805_causal_integrity.yml
   workflow_dispatch:
 
 permissions:
@@ -32,8 +34,10 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Apply 6805 source repair
-        run: python3 ci/apply_6805_causal_integrity.py
+      - name: Apply 6805 source repairs
+        run: |
+          python3 ci/apply_6805_causal_integrity.py
+          python3 ci/apply_6805_additional_authority_repairs.py
 
       - name: Static regression gates
         working-directory: lifecycle_apk
@@ -56,6 +60,8 @@ jobs:
           ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=6805 -PaateVersionName=5.0.6805 \
             --tests com.lifecyclebot.engine.Aate6805CausalIntegrityRepairTest \
             --tests com.lifecyclebot.engine.Build6324InvariantsTest \
+            --tests com.lifecyclebot.engine.Aate6735AcceptanceWitnessTest \
+            --tests com.lifecyclebot.engine.ExecutionSpineAcceptance6647Test \
             --tests com.lifecyclebot.engine.GoldenTapeRegressionTest
 
       - name: Full release tests and APK compile
@@ -74,9 +80,14 @@ jobs:
             lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt \
             lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt \
             lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/ExitCoordinatorHeartbeat.kt \
+            lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/LaneCapitalFairness6732.kt \
+            lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/UnifiedAccountSnapshot6635.kt \
+            lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionSpineAcceptance6647.kt \
+            lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/AcceptanceInvariantAudit6441.kt \
+            lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/CausalFeedbackAuthority6715.kt \
             lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Build6324InvariantsTest.kt \
             lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate6805CausalIntegrityRepairTest.kt \
             lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt
           git diff --cached --check
-          git commit -m "V5.0.6805 fix causal entry and exit integrity"
+          git commit -m "V5.0.6805 repair causal authority and capital concentration"
           git push origin HEAD:repair/6805-causal-integrity
