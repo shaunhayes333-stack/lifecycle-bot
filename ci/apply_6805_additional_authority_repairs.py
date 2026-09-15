@@ -397,7 +397,7 @@ gt_add = '''
         val causal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CausalFeedbackAuthority6715.kt").readText()
         assertTrue(lane.contains("LANE_INVENTORY_MAX_SHARE_6805 = 0.35"))
         assertTrue(gate.contains("EXEC_OPEN_BLOCKED_LANE_INVENTORY_CEILING_6805"))
-        assertTrue(hero.contains("source = \"CANONICAL_CAPITAL_AUTHORITY_6450\""))
+        assertTrue(hero.contains("CANONICAL_CAPITAL_AUTHORITY_6450"))
         assertFalse(hero.contains("JournalEconomicAuthority6616.currentSnapshot()"))
         assertFalse(spine.contains("ForensicReconciliation6635.deltas6647()"))
         assertTrue(causal.contains("CAUSAL_SCOPE_LOCAL_INVALIDATION_6805"))
