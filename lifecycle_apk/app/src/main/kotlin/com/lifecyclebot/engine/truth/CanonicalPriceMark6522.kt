@@ -106,15 +106,34 @@ object CanonicalPriceMarkRegistry6522 {
             liq6728 == 10_000_000.0 || liq6728 == 50_000_000.0 ||
             liq6728 == 100_000_000.0
         )
-        if (roundPrice6728 && roundLiq6728) {
+        // V5.0.6788 §CANONICAL_MARK_AUTHORITY — the sentinel-shape quarantine
+        // only fires on marks WITHOUT identity provenance. A mark that carries
+        // a canonical identity proof (TOKEN_MAP-verified DEX/pump route) has
+        // already proved routable; rejecting it because its price+liquidity
+        // pair happens to hit a round-number fingerprint is a false positive
+        // that starves execution of legitimate executable marks. Directive:
+        //   "A fresh, identity-valid DEX/pump executable route with nonzero
+        //    price/liquidity MUST produce an executable mark."
+        val identityProven6788 = mark.identityProof6613.isNotBlank() &&
+            mark.identityProof6613 != "UNKNOWN"
+        if (roundPrice6728 && roundLiq6728 && !identityProven6788) {
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_MARK_SENTINEL_SHAPE_QUARANTINE_6728")
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
                     "CANONICAL_MARK_SENTINEL_SHAPE_QUARANTINE_6728",
-                    "mint=${mark.mint.take(18)} purpose=${mark.purpose} price=$price6728 liq=$liq6728 source=${mark.source.take(40)} pair=${mark.pairId.take(32)} action=reject_fallback_economic_shape",
+                    "mint=${mark.mint.take(18)} purpose=${mark.purpose} price=$price6728 liq=$liq6728 source=${mark.source.take(40)} pair=${mark.pairId.take(32)} action=reject_fallback_economic_shape_no_identity",
                 )
             } catch (_: Throwable) {}
             return false
+        }
+        if (roundPrice6728 && roundLiq6728 && identityProven6788) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_MARK_SENTINEL_SHAPE_ADMITTED_IDENTITY_PROVEN_6788")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "CANONICAL_MARK_SENTINEL_SHAPE_ADMITTED_IDENTITY_PROVEN_6788",
+                    "mint=${mark.mint.take(18)} purpose=${mark.purpose} price=$price6728 liq=$liq6728 identityProof=${mark.identityProof6613} action=admit_route_proven",
+                )
+            } catch (_: Throwable) {}
         }
 
         val mintRoute = mark.pairId.startsWith("MINT_ROUTE:", true)
