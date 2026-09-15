@@ -43,13 +43,27 @@ class Aate6600SpecialistAuthorityRestorationTest {
             requestedSol = 0.00154, laneName = "EXPRESS", walletSol = 1.0,
             paperMode = false, laneRiskCapSol = 0.50, laneMinExecutableSol = 0.05,
         )
-        // V5.0.6797 §REMOVE_MIN_NOTIONAL_RESURRECTION_V2 — 0.00154 is
-        // below the 10% deliberate-suppression floor (0.005 = 10% of 0.05).
-        // This is EXACTLY the operator's stacked-multiplier suppression
-        // example (\"0.002 stack into 0.050 exposure\"). NO_TRADE.
+        // V5.0.6799 §ADVISORY_MUST_NOT_ZERO — operator diagnosis Feb 2026
+        // retires the 6797 10% "deliberate suppression" discriminator: an
+        // advisory multiplier stack cannot be permitted to zero an FDG-
+        // approved intent. A caller wanting a hard veto MUST return
+        // requested = 0 at the source. Any strictly positive request that
+        // the caps can fund is promoted once to min-exec.
+        assertTrue(r.executable)
+        assertEquals(0.05, r.finalSizeSol, 1e-9)
+        assertEquals("OK_MIN_PROMOTED_6600", r.reason)
+    }
+
+    @Test fun zero_request_resolves_as_below_min_never_promoted() {
+        val r = OrderSizeResolver6441.resolve(
+            requestedSol = 0.0, laneName = "EXPRESS", walletSol = 1.0,
+            paperMode = false, laneRiskCapSol = 0.50, laneMinExecutableSol = 0.05,
+        )
+        // V5.0.6799 — a zero request is the caller's hard veto surface.
+        // It NEVER gets promoted regardless of capital.
         assertFalse(r.executable)
         assertEquals(0.0, r.finalSizeSol, 1e-9)
-        assertEquals("SUPPRESSED_BELOW_MIN_NO_PROMOTION_6791", r.reason)
+        assertEquals("BELOW_MIN_EXECUTABLE", r.reason)
     }
 
     @Test fun canonical_position_heals_projection_and_legacy_history_cannot_veto_sell() {

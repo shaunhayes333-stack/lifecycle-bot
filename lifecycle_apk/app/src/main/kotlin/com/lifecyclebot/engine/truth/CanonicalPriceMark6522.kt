@@ -322,6 +322,37 @@ object CanonicalPriceMarkRegistry6522 {
             ?: marks[mint to CanonicalMarkPurpose6570.EXIT_ECONOMIC]
             ?: marks[mint to CanonicalMarkPurpose6570.OBSERVATION_SCORING]
 
+    /**
+     * V5.0.6799 §FALLBACK_MARK_NEVER_FOR_ECONOMIC_MATH — operator diagnosis
+     *   Feb 2026: "A fallback observation mark (published via
+     *   CANONICAL_MARK_FALLBACK_OBSERVATION_6732 when the source has no
+     *   liquidity data) must not leak into hard-stop / refund math.
+     *   Downstream consumers reject fallback marks for economic events."
+     *
+     * Fallback observations are stored with `liquidityUsd == null` and are
+     * useful for paper scoring / observation only. This helper is the
+     * canonical read surface for any exit-economic / refund / hard-stop
+     * calculation. It returns null unless the executable/exit slot holds
+     * a mark with positive liquidity; a bare observation slot is never
+     * enough to price a real capital event.
+     *
+     * Callers that need a mark for pure display / observation must continue
+     * using [get(mint)] or [get(mint, purpose)] directly.
+     */
+    fun getForEconomicMath6799(mint: String, nowMs: Long = System.currentTimeMillis()): CanonicalPriceMark6522? {
+        val exec = getFresh6734(mint, CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE, nowMs)
+            ?.takeIf { it.liquidityUsd?.let { l -> l.signum() > 0 } == true }
+        if (exec != null) return exec
+        val exit = getFresh6734(mint, CanonicalMarkPurpose6570.EXIT_ECONOMIC, nowMs)
+            ?.takeIf { it.liquidityUsd?.let { l -> l.signum() > 0 } == true }
+        if (exit != null) return exit
+        // Deliberately NO fall-through to OBSERVATION_SCORING. A fallback
+        // observation cannot price a real economic event even if it is the
+        // only mark we have — the correct action is to defer, not to fake.
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_MARK_ECONOMIC_DEFERRED_NO_LIQUID_MARK_6799") } catch (_: Throwable) {}
+        return null
+    }
+
     /** Publish observation-only evidence without claiming executable liquidity. */
     fun resolveObservationFromSourceEvidence6628(
         mint: String,

@@ -72,6 +72,25 @@ object ProtectiveExitScheduler6450 {
     ): TriggerKind? {
         lastHeartbeatMs.set(System.currentTimeMillis())
         evaluations.incrementAndGet()
+        // V5.0.6799 §EXIT_FUNNEL_TELEMETRY — operator diagnosis Feb 2026:
+        //   "EXIT=0 is a telemetry defect. The wall-clock/background exit
+        //    path is functioning (BG_EXIT=1840, paper sells=78, canonical
+        //    finalized=113) but the top-funnel EXIT counter is wired to
+        //    the obsolete PHASE.EXIT_GATE emit-site in runFallbackSafetyExit
+        //    only, so operator dumps show EXIT=0 even when many positions
+        //    are being evaluated. Wire the canonical exit evaluator itself
+        //    so every real evaluation increments the funnel counter."
+        //   This is a diagnostic write only; no behaviour change. Heartbeat
+        //   pings (markPx <= 0) are still counted because the scheduler
+        //   IS evaluating — the caller just had no fresh mark yet, which
+        //   is itself operationally significant.
+        try {
+            com.lifecyclebot.engine.ForensicLogger.phase(
+                com.lifecyclebot.engine.ForensicLogger.PHASE.EXIT_GATE,
+                mint.take(10),
+                "positionId=${positionId.take(18)} mark=${"%.8f".format(markPx)} stop=${"%.8f".format(stopPx)} tp=${"%.8f".format(tpPx)} trail=${"%.8f".format(trailPx)} cata=${"%.8f".format(catastrophePx)} quoteAgeMs=$quoteAgeMs source=ProtectiveExitScheduler6450_6799"
+            )
+        } catch (_: Throwable) {}
         if (positionId.isBlank()) return null
         // V5.0.6452 §P0-#9 — markPx=0 is a heartbeat-only ping (caller has
         // no fresh mark). Bump heartbeat above but skip trigger logic —

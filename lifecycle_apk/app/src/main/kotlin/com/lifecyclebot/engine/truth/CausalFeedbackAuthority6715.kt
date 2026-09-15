@@ -629,8 +629,20 @@ object CausalFeedbackAuthority6715 {
      * only fires on genuinely-terminal cohorts. Non-meme lanes still
      * fail open (crypto/perps parity — never hard-block cross-asset).
      */
-    private const val TERMINAL_MIN_DECIDED = 20
-    private const val TERMINAL_WR_FLOOR = 0.05
+    // V5.0.6799 §OWNERSHIP_ADAPTIVE_SELECTION — operator diagnosis Feb
+    //   2026: "Make adaptive lane performance affect ownership probability,
+    //   not merely size. A 0/7, -61.8%-EV PROJECT_SNIPER cohort should
+    //   rapidly surrender primary ownership while remaining observable /
+    //   shadow-testable." The 6727 thresholds (N>=20, WR<5%) never fired
+    //   on PROJECT_SNIPER (7 decided) even though its outcome was
+    //   catastrophic. Lower the threshold so a cohort proves terminal
+    //   quickly: N>=6 decided is enough evidence to yank the ownership
+    //   election, and 15% WR is the cross-asset-parity floor observed on
+    //   healthy crypto lanes. Below that we surrender primary ownership.
+    //   Sample floor stays >= 6 so a 0/1 or 0/2 unlucky streak cannot
+    //   suppress a live lane.
+    private const val TERMINAL_MIN_DECIDED = 6
+    private const val TERMINAL_WR_FLOOR = 0.15
 
     data class TerminalSuppression(
         val band: String,

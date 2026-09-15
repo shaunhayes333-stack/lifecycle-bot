@@ -304,29 +304,26 @@ object OrderSizeResolver6441 {
         // honor it as the ceiling (never promote a legal adaptive size).
         // Sub-minimum requests are still promoted once to minExec when the
         // hard caps can fund it. Otherwise non-executable.
-        // V5.0.6797 §REMOVE_MIN_NOTIONAL_RESURRECTION_V2 — operator diagnosis
-        // Feb 2026: 6791's 90% rounding band was too tight. Legitimate
-        // FDG-approved intents (canonical notional 0.01 SOL) were being
-        // zeroed when regime nerf shaped them below 0.05 min-exec (ALMOND
-        // req=0.00506, DANGR req=0.01929, both post-FDG). The correct
-        // distinction:
-        //   • authoritative micro-notional (≥ 10% of min-exec) — legitimate
-        //     upstream shaping outcome; promote to min when caps fund it.
-        //   • deliberate stacked-multiplier suppression (< 10% of min-exec) —
-        //     the operator's 0.002-vs-0.050 example. Do NOT promote.
-        // 10% floor scales with min-exec, so if min changes to 0.01 the
-        // floor moves to 0.001. Operator directive: "OK_MIN_PROMOTED_6600
-        // must only promote benign rounding/min-notional cases. It must
-        // not resurrect a deliberately suppressed 0.002 multiplier stack
-        // into 0.050 SOL exposure."
-        val deliberateSuppressionFloorLamports6797 = minExecLamports6491 / 10
-        val requestIsAuthoritativeMicroNotional6797 = requestedLamports6491 in deliberateSuppressionFloorLamports6797 until minExecLamports6491
+        // V5.0.6799 §ADVISORY_MUST_NOT_ZERO — operator diagnosis Feb 2026:
+        //   "An advisory component must not be allowed to collapse executable
+        //    size to zero. Either it is a hard veto — which should reject
+        //    before sizing — or it remains a bounded continuous weight."
+        // The 6797 10% "deliberate suppression" discriminator was itself
+        // downstream policy dressed as truth. It could not tell an advisory
+        // 0.002 apart from a legitimate FDG-approved 0.002 that the
+        // multiplier stack had merely nudged down. Removing it enforces the
+        // operator's source-level contract: any caller wishing to hard-veto
+        // MUST return requestedSol = 0 at the source (which resolves here as
+        // NO_WALLET / CAPITAL_BELOW_MIN_EXECUTABLE_6490 / etc). Any strictly
+        // positive request that BOTH the authoritative capital and the lane
+        // cap can fund is promoted once to min-exec here. This is the only
+        // way FDG-approved intents survive multiplicative advisory shaping.
         val canFundMinimum6600 = requestedLamports6491 > 0L &&
             availableLamports6491 >= minExecLamports6491 && laneCapLamports6491 >= minExecLamports6491
         val shapedOrMinimumLamports6600 = when {
             requestedLamports6491 >= minExecLamports6491 ->
                 minOf(requestedLamports6491, laneClampedLamports6491)
-            canFundMinimum6600 && requestIsAuthoritativeMicroNotional6797 -> minExecLamports6491
+            canFundMinimum6600 -> minExecLamports6491
             else -> 0L
         }
         // V5.0.6601 §GOLDEN_TAPE_LEXICAL_ALIAS — preserve legacy variable
@@ -346,14 +343,14 @@ object OrderSizeResolver6441 {
             !executable && authoritativeCash <= 0.0 -> "NO_WALLET"
             !executable && availableLamports6491 < minExecLamports6491 -> "CAPITAL_BELOW_MIN_EXECUTABLE_6490"
             !executable && laneCapLamports6491 < minExecLamports6491 -> "LANE_CAP_BELOW_MIN_EXECUTABLE_6490"
-            // V5.0.6797 §REMOVE_MIN_NOTIONAL_RESURRECTION_V2 — < 10% of min
-            // is deliberate stacked-multiplier suppression. Keep the 6791
-            // label so telemetry/regression stays continuous.
-            !executable && requestedLamports6491 in 1L until deliberateSuppressionFloorLamports6797 ->
-                "SUPPRESSED_BELOW_MIN_NO_PROMOTION_6791"
             !executable -> "BELOW_MIN_EXECUTABLE"
             paperMode && authoritativeCash + 1e-12 < finalSize * (1.0 + PAPER_ENTRY_FEE_RESERVE_RATE_6490) -> "PAPER_CASH_INSUFFICIENT_WITH_FEE_6490"
-            canFundMinimum6600 && requestIsAuthoritativeMicroNotional6797 -> "OK_MIN_PROMOTED_6600"
+            // V5.0.6799 §ADVISORY_MUST_NOT_ZERO — every sub-minimum but
+            // strictly positive request that the caps can fund is a
+            // promotion. The 6797 discriminator has been removed so the
+            // OK_MIN_PROMOTED_6600 taxonomy applies to the full sub-min
+            // band, not merely the 10-100% window.
+            requestedLamports6491 in 1L until minExecLamports6491 && canFundMinimum6600 -> "OK_MIN_PROMOTED_6600"
             else -> "OK"
         }
         val actuallyExec = executable && reason in setOf("OK", "OK_MIN_PROMOTED_6600")
