@@ -1,0 +1,253 @@
+name: One-shot V5.0.6805 causal integrity repair
+
+on:
+  push:
+    branches: [ repair/6805-causal-integrity ]
+    paths: [ '.github/workflows/one_shot_v5_0_6805_causal_integrity.yml' ]
+
+permissions:
+  contents: write
+
+jobs:
+  repair-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: lifecycle_apk
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: repair/6805-causal-integrity
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Apply source repair + regression contracts
+        working-directory: .
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          ROOT = Path('lifecycle_apk')
+          entry = ROOT / 'app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt'
+          gate = ROOT / 'app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt'
+          exitc = ROOT / 'app/src/main/kotlin/com/lifecyclebot/engine/ExitCoordinatorHeartbeat.kt'
+          inv = ROOT / 'app/src/test/kotlin/com/lifecyclebot/engine/Build6324InvariantsTest.kt'
+          golden = ROOT / 'app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt'
+          smoke = Path('ci/runtime-test.sh')
+
+          def replace_once(path, old, new, label):
+              text = path.read_text()
+              n = text.count(old)
+              if n != 1:
+                  raise SystemExit(f'{label}: expected exactly one match in {path}, found {n}')
+              path.write_text(text.replace(old, new, 1))
+
+          # 1) 6803 root fix: one loss must NOT arm a hard-veto cooldown.
+          replace_once(
+              entry,
+              '''                        cohortLosses.computeIfAbsent(key) { AtomicLong(0L) }.incrementAndGet()\n                        cohortLastLossMs[key] = e.settledAtMs\n                        cohortCooldownMs[key] = e.settledAtMs + 60_000L''',
+              '''                        val streakAfterLoss6805 = cohortLosses.computeIfAbsent(key) { AtomicLong(0L) }.incrementAndGet()\n                        cohortLastLossMs[key] = e.settledAtMs\n                        // V5.0.6805: cooldown is a consequence of an ACTUAL creed breach,\n                        // not of an ordinary first/second loss. 6803 armed cooling on\n                        // every loss and then treated cooling itself as a hard veto.\n                        if (streakAfterLoss6805 >= STREAK_HARD_LIMIT) {\n                            cohortCooldownMs[key] = maxOf(cohortCooldownMs[key] ?: 0L, e.settledAtMs + 60_000L)\n                        }''',
+              'loss cooldown threshold',
+          )
+          replace_once(
+              entry,
+              '''                    CanonicalTradeFinalizedBus6450.Outcome.WIN ->\n                        cohortLosses.computeIfAbsent(key) { AtomicLong(0L) }.set(0L)''',
+              '''                    CanonicalTradeFinalizedBus6450.Outcome.WIN -> {\n                        cohortLosses.computeIfAbsent(key) { AtomicLong(0L) }.set(0L)\n                        cohortCooldownMs.remove(key)\n                        lossStreakVetoLatched6805.remove(key)\n                    }''',
+              'win clears streak latch',
+          )
+          replace_once(
+              entry,
+              '    private val bypassAttempts = AtomicLong(0L)\n',
+              '    private val bypassAttempts = AtomicLong(0L)\n    // V5.0.6805 — emit the hard-veto lifecycle once per breached cohort, not once per candidate.\n    private val lossStreakVetoLatched6805 = ConcurrentHashMap<String, Boolean>()\n',
+              'veto telemetry latch',
+          )
+          replace_once(
+              entry,
+              '        val streakBreached6803 = streak >= STREAK_HARD_LIMIT || cooling',
+              '        // V5.0.6805: only the canonical consecutive-loss count can breach the creed.\n        // `cooling` is telemetry/recovery timing; it must never turn loss #1 into a hard veto.\n        val streakBreached6803 = streak >= STREAK_HARD_LIMIT',
+              'streak breach predicate',
+          )
+          replace_once(
+              entry,
+              '''            denies.incrementAndGet()\n            try {\n                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_HARD_VETO_6803")\n                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_HARD_VETO_6803_${normalizedLane(lane)}")''',
+              '''            denies.incrementAndGet()\n            val firstVetoForCohort6805 = lossStreakVetoLatched6805.putIfAbsent(key, true) == null\n            if (firstVetoForCohort6805) try {\n                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_HARD_VETO_6803")\n                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_HARD_VETO_6803_${normalizedLane(lane)}")\n                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_COHORT_VETO_6805")\n                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_COHORT_VETO_6805_${normalizedLane(lane)}")''',
+              'dedupe hard-veto telemetry',
+          )
+          replace_once(
+              entry,
+              '        cohortLosses.clear(); cohortLastLossMs.clear(); cohortCooldownMs.clear()\n',
+              '        cohortLosses.clear(); cohortLastLossMs.clear(); cohortCooldownMs.clear(); lossStreakVetoLatched6805.clear()\n',
+              'test reset latch',
+          )
+
+          # 2) Paper FDG allow without an immutable seal is a nonterminal handoff race.
+          text = gate.read_text()
+          pat = re.compile(
+              r'''            if \(paperMode && stateAgeMs in 0\.\.500L\) \{.*?            \}\n            try \{\n                PipelineHealthCollector\.labelInc\("AUTHORITY_INVARIANT_FAILURE"\)''',
+              re.S,
+          )
+          repl = '''            if (paperMode) {\n                val staleUnsealedPaper6805 = stateAgeMs > 5_000L\n                try {\n                    PipelineHealthCollector.labelInc("FDG_ALLOW_AWAITING_EXEC_INTENT_6805")\n                    if (staleUnsealedPaper6805) PipelineHealthCollector.labelInc("FDG_ALLOW_STALE_UNSEALED_PAPER_6805")\n                    ForensicLogger.lifecycle(\n                        "FDG_ALLOW_AWAITING_EXEC_INTENT_6805",\n                        "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol lane=$canonicalSelectedLane " +\n                            "stateAgeMs=$stateAgeMs stale=$staleUnsealedPaper6805 action=defer_and_revalidate_no_economic_open",\n                    )\n                } catch (_: Throwable) {}\n                // A stale provisional PAPER state is discarded so the next tick must\n                // obtain a fresh FDG+intent seal. LIVE still falls through to the hard\n                // authority invariant below.\n                if (staleUnsealedPaper6805 && state != null) {\n                    try { states.remove(mint, state) } catch (_: Throwable) {}\n                }\n                return OpenVerdict(\n                    allowed = false,\n                    reason = if (staleUnsealedPaper6805) "FDG_ALLOW_STALE_UNSEALED_PAPER_6805" else "FDG_ALLOW_AWAITING_EXEC_INTENT_6805",\n                    shadowOnly = true,\n                    logName = "EXEC_OPEN_DEFERRED_FDG_INTENT_6805",\n                    attemptId = attemptId,\n                )\n            }\n            try {\n                PipelineHealthCollector.labelInc("AUTHORITY_INVARIANT_FAILURE")'''
+          text2, n = pat.subn(repl, text, count=1)
+          if n != 1:
+              raise SystemExit(f'paper FDG defer replacement expected 1, found {n}')
+          gate.write_text(text2)
+
+          # 3) staleReset itself must prove staleness; callers cannot reset healthy work.
+          replace_once(
+              exitc,
+              '''    fun staleReset(mint: String, reason: String): State? {\n        val prev = states.remove(mint) ?: return null''',
+              '''    fun staleReset(mint: String, reason: String, force: Boolean = false): State? {\n        val observed = states[mint] ?: return null\n        if (!force && !shouldStaleReset(mint)) {\n            try {\n                PipelineHealthCollector.labelInc("EXIT_COORDINATOR_UNJUSTIFIED_RESET_BLOCKED_6805")\n                ForensicLogger.lifecycle(\n                    "EXIT_COORDINATOR_UNJUSTIFIED_RESET_BLOCKED_6805",\n                    "mint=${mint.take(10)} sweepId=${observed.sweepId} phase=${observed.phase} owner=${observed.owner} generation=${observed.generation} reason=$reason action=keep_healthy_generation",\n                )\n            } catch (_: Throwable) {}\n            return null\n        }\n        // Compare-and-remove fences a heartbeat that lands after the stale check.\n        val prev = if (force) {\n            states.remove(mint) ?: return null\n        } else {\n            if (!states.remove(mint, observed)) {\n                try { PipelineHealthCollector.labelInc("EXIT_COORDINATOR_RESET_RACE_PREVENTED_6805") } catch (_: Throwable) {}\n                return null\n            }\n            observed\n        }''',
+              'self-guard stale reset',
+          )
+          replace_once(
+              inv,
+              '        ExitCoordinatorHeartbeat.staleReset(mint, "TEST_FORCE")',
+              '        ExitCoordinatorHeartbeat.staleReset(mint, "TEST_FORCE", force = true)',
+              '6324 forced-reset test',
+          )
+
+          # Dedicated behavioural + source regression suite.
+          test = ROOT / 'app/src/test/kotlin/com/lifecyclebot/engine/Aate6805CausalIntegrityRepairTest.kt'
+          test.write_text(r'''package com.lifecyclebot.engine
+
+import com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class Aate6805CausalIntegrityRepairTest {
+    @After fun cleanup() { ExecutableEntryAuthority6450.resetForTest6487() }
+
+    @Test fun oneLossShapesButDoesNotHardVetoTheCohort() {
+        ExecutableEntryAuthority6450.resetForTest6487()
+        ExecutableEntryAuthority6450.recordLossForTest6487(1, lane = "CORE", mode = "PAPER")
+        val d = ExecutableEntryAuthority6450.gate("CORE", "Mint6805OneLoss", 0.10)
+        assertEquals(ExecutableEntryAuthority6450.Verdict.ALLOW, d.verdict)
+        assertTrue(d.recommendedSizeSol > 0.0)
+    }
+
+    @Test fun threeCanonicalLossesStillHardVetoNormalAdmission() {
+        ExecutableEntryAuthority6450.resetForTest6487()
+        ExecutableEntryAuthority6450.recordLossForTest6487(3, lane = "CORE", mode = "PAPER")
+        val d = ExecutableEntryAuthority6450.gate("CORE", "Mint6805ThreeLoss", 0.10)
+        assertEquals(ExecutableEntryAuthority6450.Verdict.DENY_LOSING_STREAK, d.verdict)
+        assertEquals(0.0, d.recommendedSizeSol, 0.0)
+    }
+
+    @Test fun healthyExitCoordinatorCannotBeStaleResetByCaller() {
+        val mint = "Exit6805_" + System.nanoTime()
+        val owner = "worker-6805"
+        ExitCoordinatorHeartbeat.startSweep(mint, owner, ExitCoordinatorHeartbeat.Phase.FINALITY_WAIT)
+        ExitCoordinatorHeartbeat.heartbeat(mint, owner, ExitCoordinatorHeartbeat.Phase.FINALITY_WAIT, activeWorkers = 1)
+        assertNull(ExitCoordinatorHeartbeat.staleReset(mint, "caller_mistake"))
+        assertNotNull(ExitCoordinatorHeartbeat.snapshot()[mint])
+        assertNotNull(ExitCoordinatorHeartbeat.staleReset(mint, "test_cleanup", force = true))
+        assertNull(ExitCoordinatorHeartbeat.snapshot()[mint])
+    }
+
+    @Test fun sourceContractsKeepPaperDeferredAndLiveFailClosed() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val entry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt").readText()
+        val exit = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExitCoordinatorHeartbeat.kt").readText()
+        assertTrue(gate.contains("EXEC_OPEN_DEFERRED_FDG_INTENT_6805"))
+        assertTrue(gate.contains("FDG_ALLOW_STALE_UNSEALED_PAPER_6805"))
+        assertTrue(gate.contains("FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519")) // LIVE invariant retained
+        assertTrue(entry.contains("streakAfterLoss6805 >= STREAK_HARD_LIMIT"))
+        assertFalse(entry.contains("streak >= STREAK_HARD_LIMIT || cooling"))
+        assertTrue(entry.contains("EXECUTABLE_ENTRY_LOSS_STREAK_COHORT_VETO_6805"))
+        assertTrue(exit.contains("EXIT_COORDINATOR_UNJUSTIFIED_RESET_BLOCKED_6805"))
+        assertTrue(exit.contains("states.remove(mint, observed)"))
+    }
+}
+''')
+
+          # Golden Tape must pin all three repairs.
+          gt = golden.read_text()
+          marker = '\n}\n'
+          if not gt.endswith(marker):
+              raise SystemExit('GoldenTapeRegressionTest unexpected ending')
+          addition = r'''
+
+    @Test
+    fun V5_0_6805_causal_integrity_repairs_are_pinned() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val entry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt").readText()
+        val exit = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExitCoordinatorHeartbeat.kt").readText()
+        val smoke = java.io.File("../ci/runtime-test.sh").readText()
+        assertTrue(entry.contains("streakAfterLoss6805 >= STREAK_HARD_LIMIT"))
+        assertTrue(entry.contains("EXECUTABLE_ENTRY_LOSS_STREAK_COHORT_VETO_6805"))
+        assertFalse(entry.contains("streak >= STREAK_HARD_LIMIT || cooling"))
+        assertTrue(gate.contains("EXEC_OPEN_DEFERRED_FDG_INTENT_6805"))
+        assertTrue(gate.contains("FDG_ALLOW_STALE_UNSEALED_PAPER_6805"))
+        assertTrue(gate.contains("FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519"))
+        assertTrue(exit.contains("EXIT_COORDINATOR_UNJUSTIFIED_RESET_BLOCKED_6805"))
+        assertTrue(exit.contains("EXIT_COORDINATOR_RESET_RACE_PREVENTED_6805"))
+        assertTrue(smoke.contains("6805 causal-integrity source contract"))
+    }
+'''
+          golden.write_text(gt[:-len(marker)] + addition + marker)
+
+          # Runtime smoke must explicitly verify the new source contracts before APK boot.
+          s = smoke.read_text()
+          anchor = 'WS="${GITHUB_WORKSPACE:-$(pwd)}"\n\n'
+          if anchor not in s:
+              raise SystemExit('runtime smoke anchor missing')
+          preflight = '''WS="${GITHUB_WORKSPACE:-$(pwd)}"\n\necho "::group::6805 causal-integrity source contract"\ngrep -q "EXECUTABLE_ENTRY_LOSS_STREAK_COHORT_VETO_6805" "$WS/lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt"\ngrep -q "EXEC_OPEN_DEFERRED_FDG_INTENT_6805" "$WS/lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt"\ngrep -q "EXIT_COORDINATOR_UNJUSTIFIED_RESET_BLOCKED_6805" "$WS/lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/ExitCoordinatorHeartbeat.kt"\necho "6805 causal-integrity source contract: PASS"\necho "::endgroup::"\n\n'''
+          smoke.write_text(s.replace(anchor, preflight, 1))
+
+          Path('AATE_VERSION').write_text('5.0.6805\n')
+          print('6805 repair applied')
+          PY
+
+      - name: Static regression gates
+        run: |
+          python3 ci/golden_tape_literal_scan.py
+          python3 ci/authority_contradiction_scan.py
+          python3 ci/patch_rot_scan.py
+
+      - name: Bootstrap Gradle
+        run: |
+          chmod +x gradlew || true
+          mkdir -p gradle/wrapper
+          curl -sL --retry 5 --retry-delay 10 -o gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
+          ./gradlew --version --no-daemon
+
+      - name: Targeted 6805 + Golden Tape tests
+        run: |
+          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=6805 -PaateVersionName=5.0.6805 \
+            --tests com.lifecyclebot.engine.Aate6805CausalIntegrityRepairTest \
+            --tests com.lifecyclebot.engine.Build6324InvariantsTest \
+            --tests com.lifecyclebot.engine.GoldenTapeRegressionTest
+
+      - name: Full release tests + APK compile
+        run: |
+          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=6805 -PaateVersionName=5.0.6805
+          ./gradlew assembleRelease --no-daemon --stacktrace -PbuildNumber=6805 -PaateVersionName=5.0.6805
+          python3 ci/build_gate_summary.py
+          test -f app/build/outputs/apk/release/AATE_v5.0.6805.apk
+
+      - name: Commit tested repair to branch
+        working-directory: .
+        run: |
+          git config user.name "aate-builder"
+          git config user.email "aate@bot"
+          git add AATE_VERSION ci/runtime-test.sh lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/ExitCoordinatorHeartbeat.kt lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Build6324InvariantsTest.kt lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate6805CausalIntegrityRepairTest.kt lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt
+          git diff --cached --check
+          git commit -m "V5.0.6805 fix causal entry and exit integrity"
+          git push origin HEAD:repair/6805-causal-integrity
