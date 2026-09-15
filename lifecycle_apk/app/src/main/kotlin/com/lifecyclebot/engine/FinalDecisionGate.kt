@@ -842,15 +842,13 @@ object FinalDecisionGate {
                 } catch (_: Throwable) {}
                 return FinalDecision(
                     shouldTrade = false,
-                    mode = tradingModeTag?.let {
-                        if (it == ModeSpecificGates.TradingModeTag.PAPER) TradeMode.PAPER else TradeMode.LIVE
-                    } ?: if (fdgMode6811 == "PAPER") TradeMode.PAPER else TradeMode.LIVE,
+                    mode = if (fdgMode6811 == "PAPER") TradeMode.PAPER else TradeMode.LIVE,
                     approvalClass = ApprovalClass.BLOCKED,
                     quality = candidate.finalQuality,
                     confidence = candidate.aiConfidence,
                     edge = EdgeVerdict.SKIP,
                     blockReason = "FDG_SHADOW_OBSERVATION_6811",
-                    blockLevel = BlockLevel.EARLY,
+                    blockLevel = BlockLevel.MODE,
                     sizeSol = 0.0,
                     tags = listOf("fdg_shadow_observation_6811", "canonical_owner_${existingSeal6811.canonicalLane.lowercase()}"),
                     mint = ts.mint,
@@ -5186,7 +5184,7 @@ object FinalDecisionGate {
                     confidence = adjustedConfidence,
                     edge = edgeVerdict,
                     blockReason = "FDG_SHADOW_OBSERVATION_6811",
-                    blockLevel = BlockLevel.EARLY,
+                    blockLevel = BlockLevel.MODE,
                     sizeSol = 0.0,
                     tags = tags + "fdg_shadow_observation_6811" + "canonical_owner_${claim6811.existing.canonicalLane.lowercase()}",
                     mint = ts.mint,
