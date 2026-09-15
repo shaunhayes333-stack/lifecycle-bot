@@ -86,14 +86,52 @@ through GitHub Actions CI (no local compiler). Operator mandates:
      emits PHASE.EXIT_GATE on every real canonical exit evaluation.
      Top-funnel EXIT counter now reflects reality (was: 0 while
      BG_EXIT=1840).
+- **6800** §DOWNSTREAM_CHOKE_REPAIR — operator diagnosis of 6799
+  identified the failure has moved from entry gating to exit-path
+  health + inventory turnover (176 buys / 83 completed / 93 open,
+  0.0064 SOL cash, forcedSlots=75, 137k exit evaluations with
+  mark=0 rows, MOONSHOT EXIT_CHOKED):
+  1. MARK_WAIT_EXPOSED_AS_ITS_OWN_STATE — ProtectiveExitScheduler
+     6450.evaluate() branches non-finite / <=0 marks to a distinct
+     MARK_WAIT_6800 taxonomy with its own phase label, priority-
+     refresh notification, and NO threshold comparison. Fixes the
+     `mark=0 stop=0 tp=0 trail=0` funnel pollution introduced by
+     6799 telemetry. Optional listener hook
+     installPriorityRefreshListener6800 lets a future mark subsystem
+     wire up authoritative priority refresh without the scheduler
+     taking a hard dependency.
+  2. INVENTORY_BACKPRESSURE — SlotHealthGate.shouldDeferBuy now has
+     a pre-existing hard-defer surface reading three canonical
+     authorities BEFORE FDG/sizing:
+       - CanonicalCapitalAuthority6450 cashSol < 0.05 SOL
+       - forcedOpenCount > 40 (distress; separate from the 20 dirty
+         cleanup threshold)
+       - ProtectiveExitScheduler6450.latchedCount6800() >= 8
+         (exit backlog material)
+     Confirmed-high-edge probes still admitted so cohort reproof
+     and strong signals aren't starved. Every authority read fails
+     OPEN so a diagnostic outage cannot masquerade as inventory
+     distress. snapshotLine gains backpressure6800[cash|forced|
+     exitBacklog|highEdge] telemetry.
 
 ## CI Status
-Last build **V5.0.6799 Build AATE APK = SUCCESS** (both gradle
-builds completed BUILD SUCCESSFUL; unit tests passed). Runtime
-Smoke Test remains red on its pre-existing brittle script
+Last build **V5.0.6800 Build AATE APK = SUCCESS** (16m33s, both
+Gradle builds completed BUILD SUCCESSFUL; unit tests passed).
+Runtime Smoke Test remains red on its pre-existing brittle script
 assertion — unrelated to build health / codebase correctness.
 
 ## Remaining Backlog (from operator diagnosis)
+- **P1**: Learning-controlled admission — EXPRESS 1W/12L WR 7.7% EV
+  −53% and SHITCOIN 0W/11L WR 0% must route to SHADOW_ONLY except
+  reproof probes; do NOT permanently disable them (system architecture
+  is supposed to adapt).
+- **P1**: Source-aware learning — lane × source × score × regime.
+  PUMP_FUN_NEW / SOLANA_BLUECHIP_WATCHLIST cohorts producing most
+  winners while PUMP_PORTAL floods poor outcomes. Currently only lane
+  × score-band is learned.
+- **P2**: Reconcile 2 sign-flipped PnL sells; keep them quarantined
+  from learning until repaired. Keep the 149 decimal-skew quarantines
+  in place (do not remove to increase throughput).
 - Runtime smoke test brittleness (`NO_COMPLETED_PASSING_CURRENT_WINDOW`
   in `ci/runtime_evidence.py`) — blocks a fully-green pipeline.
 - Retire Journal Replay as accounting authority for UI/hero/audit
