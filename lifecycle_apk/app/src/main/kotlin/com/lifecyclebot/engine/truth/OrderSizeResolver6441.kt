@@ -304,12 +304,26 @@ object OrderSizeResolver6441 {
         // honor it as the ceiling (never promote a legal adaptive size).
         // Sub-minimum requests are still promoted once to minExec when the
         // hard caps can fund it. Otherwise non-executable.
+        // V5.0.6791 §REMOVE_MIN_NOTIONAL_RESURRECTION — the min-promotion
+        // path was resurrecting deliberately suppressed sizes (e.g., a
+        // 0.002 SOL request from a stacked negative-edge multiplier chain
+        // was being promoted to the full 0.050 SOL minimum). Directive:
+        //   "If learned/regime/risk shaping reduces requested size below
+        //    executable minimum because edge is weak, return NO_TRADE.
+        //    OK_MIN_PROMOTED_6600 must only promote benign rounding/min-
+        //    notional cases."
+        // Fix: only promote when the requested size is within a 10% band
+        // of the min executable (benign rounding). A request that is more
+        // than 10% below the minimum is a deliberate suppression signal —
+        // honour it as NO_TRADE.
+        val minPromotionRoundingBandLamports6791 = (minExecLamports6491 * 90) / 100
+        val requestIsBenignRounding6791 = requestedLamports6491 in minPromotionRoundingBandLamports6791 until minExecLamports6491
         val canFundMinimum6600 = requestedLamports6491 > 0L &&
             availableLamports6491 >= minExecLamports6491 && laneCapLamports6491 >= minExecLamports6491
         val shapedOrMinimumLamports6600 = when {
             requestedLamports6491 >= minExecLamports6491 ->
                 minOf(requestedLamports6491, laneClampedLamports6491)
-            canFundMinimum6600 -> minExecLamports6491
+            canFundMinimum6600 && requestIsBenignRounding6791 -> minExecLamports6491
             else -> 0L
         }
         // V5.0.6601 §GOLDEN_TAPE_LEXICAL_ALIAS — preserve legacy variable
@@ -329,9 +343,14 @@ object OrderSizeResolver6441 {
             !executable && authoritativeCash <= 0.0 -> "NO_WALLET"
             !executable && availableLamports6491 < minExecLamports6491 -> "CAPITAL_BELOW_MIN_EXECUTABLE_6490"
             !executable && laneCapLamports6491 < minExecLamports6491 -> "LANE_CAP_BELOW_MIN_EXECUTABLE_6490"
+            // V5.0.6791 §REMOVE_MIN_NOTIONAL_RESURRECTION — a deliberately
+            // suppressed size (requested < 90% of min) must NOT be promoted.
+            // Emit a distinct reason so learning + telemetry can see it.
+            !executable && requestedLamports6491 in 1L until minPromotionRoundingBandLamports6791 ->
+                "SUPPRESSED_BELOW_MIN_NO_PROMOTION_6791"
             !executable -> "BELOW_MIN_EXECUTABLE"
             paperMode && authoritativeCash + 1e-12 < finalSize * (1.0 + PAPER_ENTRY_FEE_RESERVE_RATE_6490) -> "PAPER_CASH_INSUFFICIENT_WITH_FEE_6490"
-            canFundMinimum6600 && requestedLamports6491 < minExecLamports6491 -> "OK_MIN_PROMOTED_6600"
+            canFundMinimum6600 && requestIsBenignRounding6791 -> "OK_MIN_PROMOTED_6600"
             else -> "OK"
         }
         val actuallyExec = executable && reason in setOf("OK", "OK_MIN_PROMOTED_6600")

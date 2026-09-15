@@ -6,6 +6,7 @@ import com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522
 import com.lifecyclebot.engine.truth.OrderSizeResolver6441
 import com.lifecyclebot.engine.truth.PriceUsd
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -42,9 +43,14 @@ class Aate6600SpecialistAuthorityRestorationTest {
             requestedSol = 0.00154, laneName = "EXPRESS", walletSol = 1.0,
             paperMode = false, laneRiskCapSol = 0.50, laneMinExecutableSol = 0.05,
         )
-        assertTrue(r.executable)
-        assertEquals(0.05, r.finalSizeSol, 1e-9)
-        assertEquals("OK_MIN_PROMOTED_6600", r.reason)
+        // V5.0.6791 §REMOVE_MIN_NOTIONAL_RESURRECTION — 0.00154 is 3% of
+        // min 0.05 (well below the 10% rounding band); this is exactly
+        // the stacked-multiplier suppression the directive forbids
+        // (\"deliberately suppressed 0.002 multiplier stack into 0.050 SOL
+        // exposure\"). Now returns NO_TRADE.
+        assertFalse(r.executable)
+        assertEquals(0.0, r.finalSizeSol, 1e-9)
+        assertEquals("SUPPRESSED_BELOW_MIN_NO_PROMOTION_6791", r.reason)
     }
 
     @Test fun canonical_position_heals_projection_and_legacy_history_cannot_veto_sell() {

@@ -20,9 +20,13 @@ class V5_0_6567AcceptanceTest {
             laneMinExecutableSol = 0.05,
             applyPaperMemeMinimum = false,
         )
-        assertTrue(r.executable)
-        assertEquals(0.05, r.finalSizeSol, 1e-9)
-        assertEquals("OK_MIN_PROMOTED_6600", r.reason)
+        // V5.0.6791 §REMOVE_MIN_NOTIONAL_RESURRECTION — 0.03 is 60% of
+        // min 0.05 (below the 10% rounding band); deliberate suppression.
+        // Directive: return NO_TRADE, do not resurrect stacked negative
+        // multipliers into full min-notional exposure.
+        assertFalse(r.executable)
+        assertEquals(0.0, r.finalSizeSol, 1e-9)
+        assertEquals("SUPPRESSED_BELOW_MIN_NO_PROMOTION_6791", r.reason)
     }
 
     @Test
