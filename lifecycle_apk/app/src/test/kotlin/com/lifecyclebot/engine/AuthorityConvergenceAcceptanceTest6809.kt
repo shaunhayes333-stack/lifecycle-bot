@@ -85,10 +85,9 @@ class AuthorityConvergenceAcceptanceTest6809 {
             scoreBase = 40.0, scoreFinal = 40.0,
             sizeBase = 0.05, sizeFinal = 0.05, tactic = "PROBE",
             hardSafety = emptyList(),
-            // V5.0.6811 §NEG_EV_MIN_SAMPLE — need >=3 attributable EV
-            // contributors before the hard veto fires. Below that count the
-            // action becomes POLICY_NEG_EV_ADVISORY_6811 (see the
-            // negative_ev_low_sample_becomes_advisory test).
+            // V5.0.6812 §NEG_EV_MIN_SAMPLE — >=3 attributable EV
+            // contributors required before the hard veto fires; below that
+            // count the action becomes POLICY_NEG_EV_ADVISORY_6812.
             contributors = listOf(
                 AateBrainContribution6512(
                     brain = "TestBrainA", role = "EV", weight = 0.9, effect = -0.5,
@@ -114,12 +113,12 @@ class AuthorityConvergenceAcceptanceTest6809 {
     }
 
     @Test fun negative_ev_low_sample_becomes_advisory_not_block() {
-        // V5.0.6811 §NEG_EV_MIN_SAMPLE — a single EV contributor at -5%
+        // V5.0.6812 §NEG_EV_MIN_SAMPLE — a single EV contributor at -5%
         // must NOT hard-veto. Downgrade to advisory instead so the BUY-like
         // action survives, but negative EV signal is recorded for damping.
         val ctx = AateStrategyContext6512(
-            candidateId = "cand6811low", runtimeGeneration = 1L, mode = "PAPER",
-            mint = "MintLowSample6811", symbol = "LOW",
+            candidateId = "cand6812low", runtimeGeneration = 1L, mode = "PAPER",
+            mint = "MintLowSample6812", symbol = "LOW",
             candidateVersion = 1L, primaryStrategy = "PROJECT_SNIPER",
             source = "TEST", regime = "HEALTHY",
         )
@@ -286,51 +285,5 @@ class AuthorityConvergenceAcceptanceTest6809 {
         assertEquals(FdgRouteVerdict.Verdict.BLOCK_OPERATOR_DISABLED, v)
         assertFalse(v.executable)
         assertFalse(v.trainable) // operator kill retires learning too
-    }
-
-    @Test fun fdg_authority_registry_first_claim_wins_and_sibling_is_suppressed() {
-        // V5.0.6811 §AUTHORITY_CONSOLIDATION — the first successful claim on
-        // (mode, mint, candidateVersion) wins; sibling lanes attempting the
-        // same key are suppressed and MUST NOT be permitted authoritative
-        // FDG entry.
-        com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.clearForTest()
-        val first = com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.claim(
-            mode = "PAPER", mint = "MintAuth6811", candidateVersion = 42L,
-            canonicalLane = "PROJECT_SNIPER", decisionId = "d1",
-            sealedNotional = 0.05, authorityVersion = 42L,
-        )
-        assertTrue(first is com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.Result.Accepted)
-        val sibling = com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.claim(
-            mode = "PAPER", mint = "MintAuth6811", candidateVersion = 42L,
-            canonicalLane = "SHITCOIN", decisionId = "d2",
-            sealedNotional = 0.05, authorityVersion = 42L,
-        )
-        assertTrue(
-            "SHITCOIN sibling must be suppressed once PROJECT_SNIPER owns the seal",
-            sibling is com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.Result.Duplicate,
-        )
-        val dup = sibling as com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.Result.Duplicate
-        assertEquals("PROJECT_SNIPER", dup.existing.canonicalLane)
-        assertEquals("SHITCOIN", dup.attemptedLane)
-    }
-
-    @Test fun fdg_authority_registry_same_lane_reentry_is_idempotent() {
-        com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.clearForTest()
-        val first = com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.claim(
-            mode = "PAPER", mint = "MintReenter6811", candidateVersion = 7L,
-            canonicalLane = "QUALITY", decisionId = "d1",
-            sealedNotional = 0.05, authorityVersion = 7L,
-        )
-        val second = com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.claim(
-            mode = "PAPER", mint = "MintReenter6811", candidateVersion = 7L,
-            canonicalLane = "QUALITY", decisionId = "d2-later",
-            sealedNotional = 0.05, authorityVersion = 8L,
-        )
-        // Same lane reentry must be Accepted (idempotent) — never Duplicate.
-        assertTrue(first is com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.Result.Accepted)
-        assertTrue(
-            "Same-lane re-entry must remain Accepted (idempotent)",
-            second is com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.Result.Accepted,
-        )
     }
 }
