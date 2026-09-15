@@ -2,6 +2,7 @@ from pathlib import Path
 
 GOLDEN = Path("lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt")
 PATCH_ROT = Path("lifecycle_apk/ci/patch_rot_scan.py")
+SPINE = Path("lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionSpineAcceptance6647.kt")
 ROOT_VERSION = Path("AATE_VERSION")
 GRADLE_VERSION = Path("lifecycle_apk/AATE_VERSION")
 
@@ -27,6 +28,33 @@ if old_rot in rot:
 elif new_rot not in rot:
     raise SystemExit("6805 patch-rot unified-account anchor missing")
 PATCH_ROT.write_text(rot)
+
+# The 6758 failure diagnostic used the old ForensicReconciliation snapshot even
+# after the 6805 acceptance calculation was moved to canonical capital. That left
+# an unresolved variable and, more importantly, preserved a replay dependency in
+# the acceptance path. Report the already-captured canonical capital snapshot.
+spine = SPINE.read_text()
+old_diag = '''                    val forensicStr = forensic?.let {
+                        "reconciled=${it.reconciled} cash=${it.cashSol} basis=${it.basisSol} realized=${it.realizedSol} qty=${it.quantityRaw}"
+                    } ?: "reconciled=UNKNOWN"
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "EXECUTION_SPINE_ACCEPTANCE_6647_FAIL_DIAG_6758",
+                        "windowStartMs=${start.atMs} durationMs=$duration failures=${result.failures.joinToString("|")} phantomBreakdown=[$laneBreakdown] forensic=$forensicStr openPositions=${canonicalOpenPositions.size} exitStart=${observation.exitStart} exitDone=${observation.exitDone}",
+                    )'''
+new_diag = '''                    val canonicalCapitalStr6805 = canonicalCapital6805?.let {
+                        "source=CANONICAL_CAPITAL_AUTHORITY_6450 cash=${it.cashSol} openMV=${it.openMarketValueSol} realized=${it.realizedPnlSol} fees=${it.feesSol} equity=${it.totalEquitySol} delta=${it.conservationDeltaSol}"
+                    } ?: "source=CANONICAL_CAPITAL_AUTHORITY_6450 status=UNAVAILABLE"
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "EXECUTION_SPINE_ACCEPTANCE_6647_FAIL_DIAG_6758",
+                        "windowStartMs=${start.atMs} durationMs=$duration failures=${result.failures.joinToString("|")} phantomBreakdown=[$laneBreakdown] canonical=$canonicalCapitalStr6805 openPositions=${canonicalOpenPositions.size} exitStart=${observation.exitStart} exitDone=${observation.exitDone}",
+                    )'''
+if old_diag in spine:
+    spine = spine.replace(old_diag, new_diag, 1)
+elif new_diag not in spine:
+    raise SystemExit("6805 acceptance diagnostic anchor missing")
+if "forensic?.let" in spine:
+    raise SystemExit("6805 acceptance still contains stale forensic variable reference")
+SPINE.write_text(spine)
 
 version = ROOT_VERSION.read_text().strip()
 if version != "5.0.6805":
