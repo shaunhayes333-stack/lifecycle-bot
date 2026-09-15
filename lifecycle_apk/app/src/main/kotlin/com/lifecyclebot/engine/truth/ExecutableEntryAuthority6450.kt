@@ -161,7 +161,7 @@ object ExecutableEntryAuthority6450 {
                 ForensicLogger.lifecycle(
                     "EXECUTABLE_ENTRY_TOXIC_LANE_SHADOW_ONLY_6801",
                     "mode=$mode lane=${normalizedLane(lane)} mint=${mint.take(10)} " +
-                        "laneWr=${loserAdvisory6801?.winRatePct?.let { "%.2f".format(it) } ?: "n/a"}% laneN=${loserAdvisory6801?.decidedCount ?: 0} " +
+                        "laneWr=${loserAdvisory6801?.worstWinRatePct?.let { "%.2f".format(it) } ?: "n/a"}% laneN=${loserAdvisory6801?.worstDecidedCount ?: 0} " +
                         "srcAdvisory=${sourceAdvisory6801?.source ?: "n/a"} srcWr=${sourceAdvisory6801?.winRatePct?.let { "%.2f".format(it) } ?: "n/a"}% srcN=${sourceAdvisory6801?.decidedCount ?: 0} " +
                         "action=hard_deny_admission_reproof_only",
                 )
@@ -170,7 +170,7 @@ object ExecutableEntryAuthority6450 {
                 Verdict.DENY_LOSING_STREAK,
                 0.0,
                 "mode=$mode lane=${normalizedLane(lane)} " +
-                    "laneWr=${loserAdvisory6801?.winRatePct?.let { "%.1f".format(it) } ?: "n/a"}% " +
+                    "laneWr=${loserAdvisory6801?.worstWinRatePct?.let { "%.1f".format(it) } ?: "n/a"}% " +
                     "srcWr=${sourceAdvisory6801?.winRatePct?.let { "%.1f".format(it) } ?: "n/a"}% " +
                     "action=SHADOW_ONLY_REPROOF_REQUIRED_6801",
             )
@@ -184,7 +184,7 @@ object ExecutableEntryAuthority6450 {
                 ForensicLogger.lifecycle(
                     "EXECUTABLE_ENTRY_TOXIC_LANE_REPROOF_PROBE_6801",
                     "mode=$mode lane=${normalizedLane(lane)} mint=${mint.take(10)} " +
-                        "laneWr=${loserAdvisory6801?.winRatePct?.let { "%.2f".format(it) } ?: "n/a"}% " +
+                        "laneWr=${loserAdvisory6801?.worstWinRatePct?.let { "%.2f".format(it) } ?: "n/a"}% " +
                         "srcAdvisory=${sourceAdvisory6801?.source ?: "n/a"} " +
                         "requestedSol=$requestedSizeSol probeSol=$probeSize6801 action=probe_only_no_normal_admission",
                 )
@@ -193,7 +193,7 @@ object ExecutableEntryAuthority6450 {
                 Verdict.ALLOW_PROBE,
                 probeSize6801,
                 "mode=$mode lane=${normalizedLane(lane)} " +
-                    "laneWr=${loserAdvisory6801?.winRatePct?.let { "%.1f".format(it) } ?: "n/a"}% " +
+                    "laneWr=${loserAdvisory6801?.worstWinRatePct?.let { "%.1f".format(it) } ?: "n/a"}% " +
                     "srcWr=${sourceAdvisory6801?.winRatePct?.let { "%.1f".format(it) } ?: "n/a"}% action=REPROOF_PROBE_6801",
             )
         }
