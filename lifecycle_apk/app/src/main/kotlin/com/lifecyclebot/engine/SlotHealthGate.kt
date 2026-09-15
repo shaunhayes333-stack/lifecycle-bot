@@ -54,6 +54,23 @@ object SlotHealthGate {
     private const val FORCED_OPEN_DIRTY = 20
     // 12 is telemetry/priority context only; it is not an entry cap.
     private const val ENTRY_SOFT_CAP = 12
+    // V5.0.6800 §INVENTORY_BACKPRESSURE — operator diagnosis Feb 2026:
+    //   "93 open + 0.0064 cash + forcedSlots=75 = admission distress. Stop
+    //    producing normal entry tickets while: free cash < executable
+    //    minimum OR forced-slot count > threshold OR exit backlog is
+    //    materially elevated." The 6709 paper-turnover cadence is a
+    //    fractional 1/N brake and never activates when the top choke is
+    //    capital exhaustion. This band gives shouldDeferBuy an authoritative
+    //    hard-defer surface (still 1-cycle retryable) driven by canonical
+    //    capital + forced-slot distress + protective-exit backlog, so
+    //    hundreds of doomed tickets no longer traverse FDG/sizing.
+    private const val FORCED_OPEN_DISTRESS_6800 = 40
+    private const val CANONICAL_FREE_CASH_FLOOR_SOL_6800 = 0.05
+    private const val EXIT_LATCH_BACKLOG_MATERIAL_6800 = 8
+    private val capitalStarvationDefers6800 = AtomicLong(0L)
+    private val forcedDistressDefers6800 = AtomicLong(0L)
+    private val exitBacklogDefers6800 = AtomicLong(0L)
+    private val backpressureHighEdgeBypass6800 = AtomicLong(0L)
 
     // V5.0.6709 / 6756 — adaptive PAPER turnover pressure. These are cadence
     // bands, never hard inventory ceilings. Below 64 opens ordinary execution
@@ -185,6 +202,66 @@ object SlotHealthGate {
             return DeferDecision(false, "stale_snapshot_fail_open")
         }
 
+        // V5.0.6800 §INVENTORY_BACKPRESSURE — operator P0 mandate Feb 2026:
+        //   "Stop producing normal entry tickets while free cash < executable
+        //    minimum OR forcedSlots > distress threshold OR exit backlog is
+        //    materially elevated. Do this BEFORE FDG/sizing. Crucially this
+        //    should prevent generating hundreds of doomed tickets rather than
+        //    allowing them all the way to sizing/execution."
+        //   Confirmed-high-edge probes are still admitted so the system can
+        //   continue to reproof cohorts and follow strong signals. Every
+        //   canonical read is defensive: failure to read any of the three
+        //   authoritative sources fails OPEN so a diagnostic outage cannot
+        //   masquerade as inventory distress.
+        if (paperRuntime6692) {
+            val canonicalCashSol6800 = try {
+                com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.snapshot().cashSol
+            } catch (_: Throwable) { Double.NaN }
+            val cashStarved6800 = canonicalCashSol6800.isFinite() &&
+                canonicalCashSol6800 < CANONICAL_FREE_CASH_FLOOR_SOL_6800
+            val forcedNow6800 = forcedOpenCount.get()
+            val forcedDistressed6800 = forcedNow6800 > FORCED_OPEN_DISTRESS_6800
+            val exitLatched6800 = try {
+                com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.latchedCount6800()
+            } catch (_: Throwable) { 0 }
+            val exitBacklogged6800 = exitLatched6800 >= EXIT_LATCH_BACKLOG_MATERIAL_6800
+
+            if (cashStarved6800 || forcedDistressed6800 || exitBacklogged6800) {
+                if (candidateConfirmedHighEdge) {
+                    backpressureHighEdgeBypass6800.incrementAndGet()
+                    try {
+                        PipelineHealthCollector.labelInc("INVENTORY_BACKPRESSURE_HIGH_EDGE_BYPASS_6800")
+                    } catch (_: Throwable) {}
+                } else {
+                    when {
+                        cashStarved6800 -> capitalStarvationDefers6800.incrementAndGet()
+                        forcedDistressed6800 -> forcedDistressDefers6800.incrementAndGet()
+                        exitBacklogged6800 -> exitBacklogDefers6800.incrementAndGet()
+                    }
+                    val label6800 = when {
+                        cashStarved6800 -> "INVENTORY_BACKPRESSURE_CASH_STARVED_6800"
+                        forcedDistressed6800 -> "INVENTORY_BACKPRESSURE_FORCED_DISTRESS_6800"
+                        else -> "INVENTORY_BACKPRESSURE_EXIT_BACKLOG_6800"
+                    }
+                    try {
+                        PipelineHealthCollector.labelInc(label6800)
+                        ForensicLogger.lifecycle(
+                            label6800,
+                            "cash=${"%.6f".format(canonicalCashSol6800)} floor=$CANONICAL_FREE_CASH_FLOOR_SOL_6800 " +
+                                "forced=$forcedNow6800 distress=$FORCED_OPEN_DISTRESS_6800 " +
+                                "exitLatched=$exitLatched6800 material=$EXIT_LATCH_BACKLOG_MATERIAL_6800 " +
+                                "action=defer_pre_fdg_admission_backpressure",
+                        )
+                    } catch (_: Throwable) {}
+                    return DeferDecision(
+                        true,
+                        "INVENTORY_BACKPRESSURE_6800 cash=${"%.4f".format(canonicalCashSol6800)} " +
+                            "forced=$forcedNow6800 exitLatched=$exitLatched6800",
+                    )
+                }
+            }
+        }
+
         val ghosts = ghostOpenCount.get()
         if (ghosts > 0) {
             val stuckSince = ghostStuckSinceMs.get()
@@ -270,5 +347,6 @@ object SlotHealthGate {
         "ghost=${ghostOpenCount.get()} forced=${forcedOpenCount.get()} open=${openPositionCount.get()} " +
         "sup=${supervisorActive.get()}/${supervisorCap.get()} exitPending=${exitPending.get()} " +
         "memeTurnoverCap=SHARED_CAPITAL_6692 cadence=1/${turnoverCadenceNow6709.get()} " +
-        "turnover6709[admit=${turnoverAdmitted6709.get()} defer=${turnoverDeferred6709.get()} highEdge=${turnoverHighEdgeBypass6709.get()}]"
+        "turnover6709[admit=${turnoverAdmitted6709.get()} defer=${turnoverDeferred6709.get()} highEdge=${turnoverHighEdgeBypass6709.get()}] " +
+        "backpressure6800[cash=${capitalStarvationDefers6800.get()} forced=${forcedDistressDefers6800.get()} exitBacklog=${exitBacklogDefers6800.get()} highEdge=${backpressureHighEdgeBypass6800.get()}]"
 }

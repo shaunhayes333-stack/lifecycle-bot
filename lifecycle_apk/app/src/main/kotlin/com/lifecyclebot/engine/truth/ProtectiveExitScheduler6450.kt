@@ -59,6 +59,24 @@ object ProtectiveExitScheduler6450 {
     private val trailingsTriggered = AtomicLong(0L)
     private val starvations = AtomicLong(0L)
     private val untriggerAttempts = AtomicLong(0L)
+    // V5.0.6800 §MARK_WAIT_EXPOSED_AS_ITS_OWN_STATE — operator diagnosis
+    //   Feb 2026: exit traces are polluted with `mark=0 stop=0 tp=0 trail=0
+    //   FINAL_NO_TRIGGER` rows. A zero mark is not a real exit evaluation
+    //   and must NEVER appear alongside SL/TP/TRAIL numbers as if it were
+    //   one. This counter tracks how often the scheduler was asked to
+    //   evaluate a position that has no fresh executable canonical mark
+    //   yet. The scheduler's job in that state is to demand a priority
+    //   refresh, not to fabricate a comparison against zero thresholds.
+    private val markWaitEvaluations6800 = AtomicLong(0L)
+    // Optional listener callback the mark authority can register so the
+    // scheduler can request a priority refresh WITHOUT taking a hard
+    // dependency on the mark subsystem. Missing listener is fail-open —
+    // we still return MARK_WAIT so callers can gate their own logic.
+    @Volatile private var priorityRefreshListener6800: ((positionId: String, mint: String) -> Unit)? = null
+    fun installPriorityRefreshListener6800(listener: (String, String) -> Unit) {
+        priorityRefreshListener6800 = listener
+        try { PipelineHealthCollector.labelInc("EXIT_MARK_PRIORITY_REFRESH_LISTENER_INSTALLED_6800") } catch (_: Throwable) {}
+    }
 
     fun evaluate(
         positionId: String,
@@ -72,30 +90,43 @@ object ProtectiveExitScheduler6450 {
     ): TriggerKind? {
         lastHeartbeatMs.set(System.currentTimeMillis())
         evaluations.incrementAndGet()
-        // V5.0.6799 §EXIT_FUNNEL_TELEMETRY — operator diagnosis Feb 2026:
-        //   "EXIT=0 is a telemetry defect. The wall-clock/background exit
-        //    path is functioning (BG_EXIT=1840, paper sells=78, canonical
-        //    finalized=113) but the top-funnel EXIT counter is wired to
-        //    the obsolete PHASE.EXIT_GATE emit-site in runFallbackSafetyExit
-        //    only, so operator dumps show EXIT=0 even when many positions
-        //    are being evaluated. Wire the canonical exit evaluator itself
-        //    so every real evaluation increments the funnel counter."
-        //   This is a diagnostic write only; no behaviour change. Heartbeat
-        //   pings (markPx <= 0) are still counted because the scheduler
-        //   IS evaluating — the caller just had no fresh mark yet, which
-        //   is itself operationally significant.
+        if (positionId.isBlank()) return null
+        // V5.0.6800 §MARK_WAIT_EXPOSED_AS_ITS_OWN_STATE — operator diagnosis
+        //   Feb 2026: "A zero mark must never be treated as an ordinary
+        //   exit evaluation. Never emit an ordinary FINAL_NO_TRIGGER from a
+        //   zero-mark comparison. Expose MARK_WAIT separately from
+        //   FINAL_NO_TRIGGER." The 6799 exit-funnel telemetry patch fed
+        //   every heartbeat ping into PHASE.EXIT_GATE, so operator dumps
+        //   were flooded with `mark=0 stop=0 tp=0 trail=0` rows that look
+        //   like real evaluations. Zero-mark inputs are now branched to
+        //   the MARK_WAIT taxonomy: a distinct phase label, a priority-
+        //   refresh notification (fail-open if no listener), and NO
+        //   comparison against thresholds at all.
+        val markInvalid6800 = !markPx.isFinite() || markPx <= 0.0
+        if (markInvalid6800) {
+            markWaitEvaluations6800.incrementAndGet()
+            try {
+                ForensicLogger.phase(
+                    ForensicLogger.PHASE.EXIT_GATE,
+                    mint.take(10),
+                    "positionId=${positionId.take(18)} state=MARK_WAIT_6800 markPx=$markPx quoteAgeMs=$quoteAgeMs source=ProtectiveExitScheduler6450 action=priority_refresh_requested",
+                )
+                PipelineHealthCollector.labelInc("EXIT_MARK_WAIT_6800")
+            } catch (_: Throwable) {}
+            try { priorityRefreshListener6800?.invoke(positionId, mint) } catch (_: Throwable) {}
+            return null
+        }
+        // V5.0.6799 §EXIT_FUNNEL_TELEMETRY — real evaluations only.
+        //   Only emit PHASE.EXIT_GATE with real numbers so the top-funnel
+        //   counter reflects actual protective-exit evaluations and
+        //   operator traces are no longer polluted with zero-mark rows.
         try {
-            com.lifecyclebot.engine.ForensicLogger.phase(
-                com.lifecyclebot.engine.ForensicLogger.PHASE.EXIT_GATE,
+            ForensicLogger.phase(
+                ForensicLogger.PHASE.EXIT_GATE,
                 mint.take(10),
-                "positionId=${positionId.take(18)} mark=${"%.8f".format(markPx)} stop=${"%.8f".format(stopPx)} tp=${"%.8f".format(tpPx)} trail=${"%.8f".format(trailPx)} cata=${"%.8f".format(catastrophePx)} quoteAgeMs=$quoteAgeMs source=ProtectiveExitScheduler6450_6799"
+                "positionId=${positionId.take(18)} mark=${"%.8f".format(markPx)} stop=${"%.8f".format(stopPx)} tp=${"%.8f".format(tpPx)} trail=${"%.8f".format(trailPx)} cata=${"%.8f".format(catastrophePx)} quoteAgeMs=$quoteAgeMs source=ProtectiveExitScheduler6450_6799",
             )
         } catch (_: Throwable) {}
-        if (positionId.isBlank()) return null
-        // V5.0.6452 §P0-#9 — markPx=0 is a heartbeat-only ping (caller has
-        // no fresh mark). Bump heartbeat above but skip trigger logic —
-        // NEVER latch on a zero/placeholder price.
-        if (markPx <= 0.0) return null
         if (latches.containsKey(positionId)) return latches[positionId]?.kind
         val kind: TriggerKind? = when {
             catastrophePx > 0.0 && markPx <= catastrophePx -> TriggerKind.CATASTROPHE
@@ -137,6 +168,16 @@ object ProtectiveExitScheduler6450 {
     fun latch(positionId: String): Latch? = latches[positionId]
 
     /**
+     * V5.0.6800 §INVENTORY_BACKPRESSURE support — SlotHealthGate uses this
+     * as an authoritative read of exit-backlog pressure for pre-FDG
+     * admission control. Latched positions are protective exits waiting
+     * for the paperSell/liveSell path to consume them; a large latch pool
+     * is a real turnover backlog and admitting more buys will make it
+     * worse.
+     */
+    fun latchedCount6800(): Int = latches.size
+
+    /**
      * Attempt to untrigger — always denied. Records the attempt as a red-
      * flag so operator can see if any code path is trying to reverse a
      * latched STOP.
@@ -175,6 +216,7 @@ object ProtectiveExitScheduler6450 {
         val hb = if (lastHeartbeatMs.get() == 0L) "never" else "${heartbeatAgeMs()}ms ago"
         return "hb=$hb eval=${evaluations.get()} SL=${stopsTriggered.get()} CATA=${catastrophesTriggered.get()} " +
             "TP=${tpTriggered.get()} TRAIL=${trailingsTriggered.get()} latched=${latches.size} " +
+            "markWait6800=${markWaitEvaluations6800.get()} " +
             "starvations=${starvations.get()} untriggerDenied=${untriggerAttempts.get()}"
     }
 }
