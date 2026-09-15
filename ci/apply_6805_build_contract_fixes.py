@@ -1,6 +1,7 @@
 from pathlib import Path
 
 GOLDEN = Path("lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt")
+AATE_TEST = Path("lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate6805CausalIntegrityRepairTest.kt")
 PATCH_ROT = Path("lifecycle_apk/ci/patch_rot_scan.py")
 SPINE = Path("lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionSpineAcceptance6647.kt")
 ROOT_VERSION = Path("AATE_VERSION")
@@ -14,6 +15,18 @@ if old not in text and new not in text:
 if old in text:
     text = text.replace(old, new, 1)
 GOLDEN.write_text(text)
+
+# The additional-authority generator emits this source-pin assertion inside a
+# Kotlin string. Python consumes the generator's backslashes, so normalize the
+# generated Kotlin to retain escaped inner quotes before Kotlin compilation.
+test_text = AATE_TEST.read_text()
+bad_assert = '        assertTrue(causal.contains("terminalScopeKeys6805 = ks.filter { it.startsWith("BAND|") }"))'
+good_assert = '        assertTrue(causal.contains("terminalScopeKeys6805 = ks.filter { it.startsWith(\\"BAND|\\") }"))'
+if bad_assert in test_text:
+    test_text = test_text.replace(bad_assert, good_assert, 1)
+elif good_assert not in test_text:
+    raise SystemExit("6805 causal source-pin assertion anchor missing")
+AATE_TEST.write_text(test_text)
 
 # V5.0.6805 retires journal/forensic replay as an account authority. The
 # patch-rot guard must protect the replacement architecture rather than require
