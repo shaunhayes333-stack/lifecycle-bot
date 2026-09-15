@@ -7,6 +7,7 @@ on:
     paths:
       - ci/apply_6805_causal_integrity.py
       - ci/apply_6805_additional_authority_repairs.py
+      - ci/apply_6805_build_contract_fixes.py
       - .github/workflows/one_shot_v5_0_6805_causal_integrity.yml
   workflow_dispatch:
 
@@ -16,6 +17,7 @@ permissions:
 jobs:
   repair-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,6 +40,7 @@ jobs:
         run: |
           python3 ci/apply_6805_causal_integrity.py
           python3 ci/apply_6805_additional_authority_repairs.py
+          python3 ci/apply_6805_build_contract_fixes.py
 
       - name: Static regression gates
         working-directory: lifecycle_apk
@@ -72,11 +75,37 @@ jobs:
           python3 ci/build_gate_summary.py
           test -f app/build/outputs/apk/release/AATE_v5.0.6805.apk
 
-      - name: Commit tested repair
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Runtime smoke on uncommitted tested repair
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          CAPTURE_SECONDS: '180'
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          working-directory: .
+          script: bash ci/runtime-test.sh
+
+      - name: Enforce runtime acceptance window
+        run: |
+          set -euo pipefail
+          test -f logcat_full.txt
+          ! grep -q 'EXECUTION_SPINE_ACCEPTANCE_6647_FAIL' logcat_full.txt
+          grep -q 'EXECUTION_SPINE_ACCEPTANCE_6647_OK' logcat_full.txt
+
+      - name: Commit and push only after all gates pass
         run: |
           git config user.name "aate-builder"
           git config user.email "aate@bot"
-          git add AATE_VERSION ci/runtime-test.sh \
+          git add AATE_VERSION lifecycle_apk/AATE_VERSION ci/runtime-test.sh \
             lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt \
             lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt \
             lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/ExitCoordinatorHeartbeat.kt \
@@ -89,5 +118,13 @@ jobs:
             lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/Aate6805CausalIntegrityRepairTest.kt \
             lifecycle_apk/app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt
           git diff --cached --check
+          git status --short
           git commit -m "V5.0.6805 repair causal authority and capital concentration"
           git push origin HEAD:repair/6805-causal-integrity
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: AATE_v5.0.6805_verified
+          path: lifecycle_apk/app/build/outputs/apk/release/AATE_v5.0.6805.apk
+          if-no-files-found: error
