@@ -115,9 +115,34 @@ through GitHub Actions CI (no local compiler). Operator mandates:
      exitBacklog|highEdge] telemetry.
 
 ## CI Status
-Last build **V5.0.6802 Build AATE APK = SUCCESS** (17m22s; unit
+Last build **V5.0.6804 Build AATE APK = SUCCESS** (10m40s; unit
 tests passed). Runtime Smoke Test remains red on its pre-existing
 brittle script assertion — unrelated to build health.
+
+## Feb 2026 Slice Log (6803–6804)
+- **6803** §HEARTBEAT_IS_NOT_MARK_WAIT + §CLOSED_STAYS_STICKY +
+  §LOSS_STREAK_HARD_CREED_ENFORCEMENT. Fixes the three dominant
+  6802 downstream defects the operator surfaced:
+  1. ProtectiveExitScheduler6450 gained a dedicated `heartbeat()`
+     surface that bumps the eval + watchdog counters without
+     emitting MARK_WAIT_6800 / PHASE.EXIT_GATE. Both wall-clock and
+     bot-loop cadence heartbeats now call heartbeat() instead of
+     evaluate(markPx=0). MARK_WAIT_6800 now fires only when a
+     caller genuinely believed it had a mark. Fake `~100% mark-wait`
+     alarm from 6802 dumps eliminated.
+  2. PositionCloseLedger.clearIfCanonicallyReopened6699 now honours
+     a 5-second reentry grace window past the close stamp. The
+     SELL-confirm race that was zapping 776 legitimate close stamps
+     against 65 canonical closed positions is resolved — canonical
+     CLOSED remains sticky until propagation completes.
+  3. ExecutableEntryAuthority6450.gate upgrades STREAK_HARD_LIMIT
+     (3 consecutive losses) from a size shaper (0.35) to a hard
+     DENY_LOSING_STREAK / LOSS_STREAK_HARD_VETO_6803 with reproof-
+     probe carve-out. Cool-down (existing STREAK_COOLDOWN_MS) still
+     enforces observation. Sub-limit streaks continue on the shaper
+     ladder. Retires the '10-streak while shrinking size' regression.
+- **6804** hotfix: Golden Tape 6488 shaper-ladder assertion updated
+  to attest the 6803 hard-veto evolution.
 
 ## Feb 2026 Slice Log (6801–6802)
 - **6801** §LEARNING_MUST_CONTROL_ADMISSION + §SOURCE_AWARE_LEARNING
