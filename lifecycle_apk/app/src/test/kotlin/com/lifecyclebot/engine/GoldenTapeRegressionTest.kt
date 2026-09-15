@@ -7945,9 +7945,11 @@ class GoldenTapeRegressionTest {
         assertTrue("6487 defensive WAIT and zero-signal probes remain shadow-only",
             bot.contains("DEFENSIVE_WAIT_PROBE_SUPPRESSED_6487") && bot.contains("DEFENSIVE_WAIT_SHADOW_ONLY_6487") &&
                 bot.contains("signal = " + '"' + "WAIT" + '"') && bot.contains("shouldTrade = false"))
-        assertTrue("6488 streak shaping is mode-lane scoped and bounded above zero",
+        assertTrue("6803 streak authority upgrades STREAK_HARD_LIMIT to hard-deny (LOSS_STREAK_HARD_VETO_6803) with reproof-probe carve-out; sub-limit streaks still ride the shaper ladder (supersedes 6488 soft-shape-only at hard limit)",
             entry.contains("cohortKey(e.mode, e.entryLane)") && entry.contains("sizeMultiplierFor6488") &&
-                entry.contains("streak >= STREAK_HARD_LIMIT || cooling -> 0.35") &&
+                entry.contains("EXECUTABLE_ENTRY_LOSS_STREAK_HARD_VETO_6803") &&
+                entry.contains("streak >= STREAK_TIGHTEN_TWO -> 0.35") &&
+                entry.contains("streak >= STREAK_TIGHTEN_ONE -> 0.65") &&
                 !entry.contains("streak >= STREAK_HARD_LIMIT -> 0.0"))
         assertTrue("6488 global regime no longer consumes streak state while executors retain final lane sizing",
             !regime.contains("scoreFloorDelta6487()") && !regime.contains("sizeMultiplier6487()") &&
