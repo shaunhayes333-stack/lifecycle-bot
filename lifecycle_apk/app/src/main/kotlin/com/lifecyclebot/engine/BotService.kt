@@ -10828,7 +10828,7 @@ class BotService : Service() {
         // lanes that should produce early samples. Score floors are soft at BOOTSTRAP,
         // tighten briefly during ADVISORY calibration, then fade as the AGI/SSI policy
         // head reaches LEARNED/AUTHORITATIVE authority.
-        val agiAuthority6020 = try { com.lifecyclebot.engine.UnifiedPolicyHead.currentAuthority(laneUpperForFloor4591) } catch (_: Throwable) { com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.BOOTSTRAP }
+        val agiAuthority6020 = try { com.lifecyclebot.engine.UnifiedPolicyHead.currentAuthority(laneUpperForFloor4591) } catch (_: Throwable) { com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.ADVISORY }
         val structuralFloor6020 = if (!isProvenLane4591) (shapedConfidenceFloor4262 + 10.0).coerceAtMost(90.0) else shapedConfidenceFloor4262
         val entryScoreTightenedFloor4591Base = when (agiAuthority6020) {
             com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.BOOTSTRAP -> (structuralFloor6020 - 18.0).coerceAtLeast(25.0)

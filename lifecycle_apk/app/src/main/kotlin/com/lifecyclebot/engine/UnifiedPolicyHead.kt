@@ -122,12 +122,15 @@ object UnifiedPolicyHead {
         return when {
             n >= AUTHORITY_AUTHORITATIVE -> AuthorityTier.AUTHORITATIVE
             n >= AUTHORITY_LEARNED       -> AuthorityTier.LEARNED
-            n >= AUTHORITY_ADVISORY      -> AuthorityTier.ADVISORY
-            else                          -> AuthorityTier.BOOTSTRAP
+            else                          -> AuthorityTier.ADVISORY  // V5.0.6809: BOOTSTRAP tier removed as an execution authority; cold heads use neutral advisory priors
         }
     }
 
     enum class AuthorityTier(val minSamples: Long) {
+        // V5.0.6809 §BOOTSTRAP_REMOVED_AS_AUTHORITY — enum value retained for
+        // wire/DB backwards compatibility and dead when-branches, but NO
+        // runtime path returns BOOTSTRAP as an admission authority. Callers
+        // see ADVISORY at minimum with neutral learned priors.
         BOOTSTRAP(0L),
         ADVISORY(AUTHORITY_ADVISORY),
         LEARNED(AUTHORITY_LEARNED),
@@ -204,18 +207,19 @@ object UnifiedPolicyHead {
         return h.trained >= AUTHORITY_AUTHORITATIVE
     }
 
-    /** Per-lane authority tier — calibration-aware. */
+    /** Per-lane authority tier — calibration-aware.
+     *  V5.0.6809: BOOTSTRAP removed as a runtime authority; cold heads
+     *  return ADVISORY with neutral learned priors. */
     fun currentAuthority(lane: String): AuthorityTier {
         val h = laneHeads[normalizeLane(lane)] ?: return globalAuthority()
         val rawTier = when {
             h.trained >= AUTHORITY_AUTHORITATIVE -> AuthorityTier.AUTHORITATIVE
             h.trained >= AUTHORITY_LEARNED       -> AuthorityTier.LEARNED
-            h.trained >= AUTHORITY_ADVISORY      -> AuthorityTier.ADVISORY
-            else                                  -> AuthorityTier.BOOTSTRAP
+            else                                  -> AuthorityTier.ADVISORY
         }
         if (h.brierN >= 20L) {
             val brier = h.brierSum / h.brierN
-            if (brier > BRIER_DRIFTING_MAX && rawTier != AuthorityTier.BOOTSTRAP) {
+            if (brier > BRIER_DRIFTING_MAX && rawTier != AuthorityTier.ADVISORY) {
                 calibrationDemoteCount.incrementAndGet()
                 try { com.lifecyclebot.engine.SentienceOrchestrator.noteRuntimeEvent(
                     "AGI_BRAIN_DEMOTED",
@@ -228,8 +232,8 @@ object UnifiedPolicyHead {
                 return when (rawTier) {
                     AuthorityTier.AUTHORITATIVE -> AuthorityTier.LEARNED
                     AuthorityTier.LEARNED       -> AuthorityTier.ADVISORY
-                    AuthorityTier.ADVISORY      -> AuthorityTier.BOOTSTRAP
-                    AuthorityTier.BOOTSTRAP     -> AuthorityTier.BOOTSTRAP
+                    AuthorityTier.ADVISORY      -> AuthorityTier.ADVISORY
+                    AuthorityTier.BOOTSTRAP     -> AuthorityTier.ADVISORY
                 }
             }
         }
@@ -239,8 +243,7 @@ object UnifiedPolicyHead {
     private fun globalAuthority(): AuthorityTier = when {
         trained >= AUTHORITY_AUTHORITATIVE -> AuthorityTier.AUTHORITATIVE
         trained >= AUTHORITY_LEARNED       -> AuthorityTier.LEARNED
-        trained >= AUTHORITY_ADVISORY      -> AuthorityTier.ADVISORY
-        else                                -> AuthorityTier.BOOTSTRAP
+        else                                -> AuthorityTier.ADVISORY  // V5.0.6809: neutral floor, never BOOTSTRAP
     }
 
     fun conviction(s: Signals): Double = conviction("STANDARD", s)
@@ -250,13 +253,14 @@ object UnifiedPolicyHead {
             val h = laneHeads[laneKey]
             val auth = currentAuthority(laneKey)
             val trainedForRamp6077 = h?.trained ?: trained
-            if (trainedForRamp6077 <= 0L && auth == AuthorityTier.BOOTSTRAP) return 1.0
+            // V5.0.6809: neutral prior (mult 1.0) when no samples yet — no
+            // BOOTSTRAP bypass, no capital-floor multiplier. ADVISORY tier
+            // simply passes learned/global logistic output through the standard
+            // bounded conviction curve.
+            if (trainedForRamp6077 <= 0L) return 1.0
             val p = if (h != null && h.trained >= 1L) rawProbLane(h, s.toArray()) else rawProbGlobal(s.toArray())
             advisoryUsageCount.incrementAndGet()
-            val trade1Ramp6077 = if (auth == AuthorityTier.BOOTSTRAP)
-                (trainedForRamp6077.toDouble() / AUTHORITY_ADVISORY.toDouble()).coerceIn(0.25, 1.0)
-            else 1.0
-            (1.0 + (p - 0.5) * 1.6 * trade1Ramp6077).coerceIn(MULT_FLOOR, MULT_CAP)
+            (1.0 + (p - 0.5) * 1.6).coerceIn(MULT_FLOOR, MULT_CAP)
         } catch (_: Throwable) { 1.0 }
     }
 
@@ -265,7 +269,7 @@ object UnifiedPolicyHead {
         return try {
             val laneKey = normalizeLane(lane)
             val auth = currentAuthority(laneKey)
-            if (auth == AuthorityTier.BOOTSTRAP || auth == AuthorityTier.ADVISORY) return null
+            if (auth == AuthorityTier.ADVISORY) return null  // V5.0.6809: BOOTSTRAP removed; ADVISORY is the neutral cold floor
             val h = laneHeads[laneKey]
             val p = if (h != null && h.trained >= 8L) rawProbLane(h, s.toArray()) else rawProbGlobal(s.toArray())
             val slope = if (auth == AuthorityTier.AUTHORITATIVE) 2.6 else 1.6

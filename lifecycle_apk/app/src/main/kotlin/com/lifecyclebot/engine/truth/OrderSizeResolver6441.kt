@@ -318,12 +318,20 @@ object OrderSizeResolver6441 {
         // positive request that BOTH the authoritative capital and the lane
         // cap can fund is promoted once to min-exec here. This is the only
         // way FDG-approved intents survive multiplicative advisory shaping.
-        val canFundMinimum6600 = requestedLamports6491 > 0L &&
-            availableLamports6491 >= minExecLamports6491 && laneCapLamports6491 >= minExecLamports6491
+        // V5.0.6809 §KILL_MIN_SIZE_PROMOTION — operator mandate Feb 2026:
+        //   "If learned final size is below executable minimum: never increase
+        //    an adaptively reduced risk size simply to make the order executable.
+        //    Final size must never exceed the adaptive/risk-authorized size
+        //    because of a minimum-order floor."
+        // The 6600 min-promotion was a throughput hack that violated learning
+        // authority: an adaptive risk shaper deliberately cutting size below
+        // minExec was being overruled by capital-floor manufacture. Removed:
+        // sub-minimum learned size resolves NON-EXECUTABLE. Caller may route to
+        // shadow/train-only observation; capital never opens below adaptive
+        // authority.
         val shapedOrMinimumLamports6600 = when {
             requestedLamports6491 >= minExecLamports6491 ->
                 minOf(requestedLamports6491, laneClampedLamports6491)
-            canFundMinimum6600 -> minExecLamports6491
             else -> 0L
         }
         // V5.0.6601 §GOLDEN_TAPE_LEXICAL_ALIAS — preserve legacy variable
@@ -343,17 +351,12 @@ object OrderSizeResolver6441 {
             !executable && authoritativeCash <= 0.0 -> "NO_WALLET"
             !executable && availableLamports6491 < minExecLamports6491 -> "CAPITAL_BELOW_MIN_EXECUTABLE_6490"
             !executable && laneCapLamports6491 < minExecLamports6491 -> "LANE_CAP_BELOW_MIN_EXECUTABLE_6490"
+            !executable && requestedLamports6491 in 1L until minExecLamports6491 -> "SUB_MIN_ADAPTIVE_HELD_6809"
             !executable -> "BELOW_MIN_EXECUTABLE"
             paperMode && authoritativeCash + 1e-12 < finalSize * (1.0 + PAPER_ENTRY_FEE_RESERVE_RATE_6490) -> "PAPER_CASH_INSUFFICIENT_WITH_FEE_6490"
-            // V5.0.6799 §ADVISORY_MUST_NOT_ZERO — every sub-minimum but
-            // strictly positive request that the caps can fund is a
-            // promotion. The 6797 discriminator has been removed so the
-            // OK_MIN_PROMOTED_6600 taxonomy applies to the full sub-min
-            // band, not merely the 10-100% window.
-            requestedLamports6491 in 1L until minExecLamports6491 && canFundMinimum6600 -> "OK_MIN_PROMOTED_6600"
             else -> "OK"
         }
-        val actuallyExec = executable && reason in setOf("OK", "OK_MIN_PROMOTED_6600")
+        val actuallyExec = executable && reason == "OK"
         val res = Resolution(
             requestedSol = requested,
             riskSol = risk,

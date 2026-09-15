@@ -591,7 +591,8 @@ object FinalDecisionGate {
         val adaptive = getAdaptiveConfidence(isPaperMode)
         val diff = adaptive - fluidBase
         val sign = if (diff >= 0) "+" else ""
-        val isBootstrap = isPaperMode && learningProgress < 0.40  // V5.0.4021: paper-only bootstrap display; live adapts from trade 1
+        // V5.0.6809: BOOTSTRAP label removed from FluidConf render — no
+        // runtime BOOTSTRAP tag emitted anywhere in health snapshot.
 
         val tierLabel = try {
             val solPrice = WalletManager.lastKnownSolPrice
@@ -610,7 +611,7 @@ object FinalDecisionGate {
 
         return buildString {
             append("FluidConf: base=${fluidBase.toInt()}% ${sign}${diff.toInt()}% = ${adaptive.toInt()}% ")
-            append("[learning=${(learningProgress * 100).toInt()}%${if (isBootstrap) " BOOTSTRAP" else ""} ")
+            append("[learning=${(learningProgress * 100).toInt()}% ")
             append("vol=${currentConditions.avgVolatility.toInt()}% ")
             append("wr=${currentConditions.recentWinRate.toInt()}% ")
             append("buy=${currentConditions.buyPressureTrend.toInt()}% ")
@@ -649,7 +650,7 @@ object FinalDecisionGate {
             append("🧠 AI Learning: ${learningProgressPct}% ")
             append("($totalTradesLearned trades) | ")
             append("Conf: Paper≥${paperConfThreshold}% Live≥${liveConfThreshold}% ")
-            if (isBootstrap) append("[BOOTSTRAP]")
+            // V5.0.6809: BOOTSTRAP tag intentionally omitted (deprecated runtime label).
         }
     }
 
@@ -1222,9 +1223,11 @@ object FinalDecisionGate {
         // bootstrap bypass window lines up with golden learning velocity.
         val isPaperMode = mode == TradeMode.PAPER
         val classicMode = try { com.lifecyclebot.v3.scoring.UnifiedScorer.classicMode } catch (_: Exception) { true }
-        // V5.0.4021 — bootstrap phase is paper-only. Live mode is real capital
-        // from trade 1 and must not get confidence-floor bypass from global learning progress.
-        val isBootstrapPhase = isPaperMode && (if (classicMode) learningProgress < 0.25 else learningProgress < 0.40)
+        // V5.0.6809 §ISBOOTSTRAPPHASE_RETIRED — the phased bootstrap window
+        // was a static warm-up bypass. Retired to `false` so all downstream
+        // guards evaluate the learned-authority path directly. Variable is
+        // kept only for legacy telemetry strings that reference it.
+        val isBootstrapPhase = false
         // V5.9.616 — UNCHOKE BRIDGE.
         // The confidence-floor bypass must STAY TRUE in any of these cases:
         //   1. We're still inside bootstrap (learningProgress < 0.40) — the
@@ -1259,13 +1262,15 @@ object FinalDecisionGate {
         } catch (_: Throwable) { 1.0 }
         val lowWrBypass = false  // V5.9.809: revoked (was: systemWrForBypass < 0.30)
 
-        val canBypassConfidenceFloors = isBootstrapPhase ||
-            (isPaperMode && totalTradesForBypass < 500) ||  // V5.0.4021: cold-start bypass is paper-only; live adapts from trade 1
-            antiChokeRelaxing ||
-            adaptiveRelaxationActive ||
-            lowWrBypass
-        // V5.9.683-FIX + V5.9.721: surface bypass state so operator can audit 22%-floor trips
-        ErrorLogger.debug("FDG", "FDG_BYPASS=${canBypassConfidenceFloors}: bypass=$totalTradesForBypass/500 paperBootstrap=$isBootstrapPhase liveAdaptiveFromTrade1=${!isPaperMode} antiChoke=$antiChokeRelaxing adaptive=$adaptiveRelaxationActive lowWR=${(systemWrForBypass*100).toInt()}%(revoked)")
+        // V5.0.6809 §BOOTSTRAP_BYPASS_REMOVED — `canBypassConfidenceFloors`
+        // was a bootstrap warm-up bypass that let the first 500 paper trades
+        // (or isBootstrapPhase, antiChoke, adaptive) skip confidence floors.
+        // Operator mandate: "Do not replace bootstrap with another static
+        // warm-up bypass." Removed entirely; sub-floor confidence is now a
+        // hard veto (see MIN_CONFIDENCE_FLOOR_6809 below). Retained as
+        // `false` constant so no downstream reference has to change.
+        val canBypassConfidenceFloors = false
+        ErrorLogger.debug("FDG", "FDG_BYPASS_REMOVED_6809 (was: paperBootstrap=$isBootstrapPhase antiChoke=$antiChokeRelaxing adaptive=$adaptiveRelaxationActive totalTrades=$totalTradesForBypass systemWr=${(systemWrForBypass*100).toInt()}%)")
 
         // ══════════════════════════════════════════════════════════════════════
         // V5.6: ML Engine Prediction Check
@@ -1416,39 +1421,50 @@ object FinalDecisionGate {
             }
         } catch (_: Throwable) { /* recovery gate is best-effort; never block on internal error */ }
 
-        // V5.9.343 — CLASSIC uses 1.0 floor (even lower than golden 3.0) so the
-        // bot trades from first start per user directive. Modern keeps 8.0.
-        val BOOTSTRAP_MIN_CONFIDENCE = if (classicMode) 1.0 else 8.0
-        if (confidence < BOOTSTRAP_MIN_CONFIDENCE) {
-            // V5.9.693 — Paper-mode bypass. In paper mode the bot MUST trade
-            // to accumulate learning volume. A sub-1% confidence on a paper
-            // entry is a nuisance filter, not a safety gate — real safety
-            // (rug detection, liquidity collapse, ML rug probability) fires
-            // downstream. Blocking here in paper mode starved Moonshot /
-            // Manip / Express of entries while FDG allow=0 showed in the
-            // funnel. LIVE mode keeps the hard floor.
-            if (isPaperMode) {
-                ErrorLogger.debug("FDG", "ℹ️ BOOTSTRAP_FLOOR_PAPER_BYPASS: ${ts.symbol} | conf=${confidence.toInt()}% < ${BOOTSTRAP_MIN_CONFIDENCE.toInt()}% → paper learn")
-                tags.add("bootstrap_floor_paper_bypass")
-                // fall through to normal scoring
-            } else {
-                // V5.0.4157 — fluid gate doctrine: bootstrap confidence is a size
-                // penalty while the AGI/lane brains are compiling, not a hard freezer.
-                ErrorLogger.info("FDG", "🟡 BOOTSTRAP_MIN_CONFIDENCE_SOFT: ${ts.symbol} | conf=${confidence.toInt()}% < ${BOOTSTRAP_MIN_CONFIDENCE.toInt()}% | soft-size, continue")
-                tags.add("bootstrap_min_confidence_soft")
-                try {
-                    com.lifecyclebot.engine.LiveSizingProfile.markGateSoftShape(ts.mint, "BOOTSTRAP_MIN_CONFIDENCE_SOFT")
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_BOOTSTRAP_MIN_CONFIDENCE_SOFT_SHAPED")
-                } catch (_: Throwable) {}
-            }
+        // V5.0.6809 §BOOTSTRAP_BYPASS_REMOVED — operator mandate Feb 2026:
+        //   "Remove BOOTSTRAP as an execution/scoring/policy authority
+        //    everywhere. New/untrained contexts must use neutral learned/
+        //    default priors and immediately transition through the normal
+        //    adaptive policy. Do not replace bootstrap with another static
+        //    warm-up bypass."
+        // The BOOTSTRAP_FLOOR_PAPER_BYPASS + BOOTSTRAP_MIN_CONFIDENCE_SOFT
+        // pair was a static warm-up bypass — paper trades below the
+        // confidence floor were admitted "to learn", but the same admission
+        // path routed capital opens. The operator diagnosis: throughput
+        // doctrine was overriding learned confidence. The floor is now
+        // authoritative: sub-floor confidence → hard non-executable veto,
+        // regardless of paper/live mode. Learning still occurs via the
+        // NoTradeObservation stream and the ShadowLearningEngine.
+        val MIN_CONFIDENCE_FLOOR_6809 = if (classicMode) 1.0 else 8.0
+        if (confidence < MIN_CONFIDENCE_FLOOR_6809) {
+            ErrorLogger.info("FDG", "🛑 CONFIDENCE_FLOOR_HARD_6809: ${ts.symbol} | conf=${confidence.toInt()}% < ${MIN_CONFIDENCE_FLOOR_6809.toInt()}% | non-executable veto (learning via shadow)")
+            tags.add("confidence_floor_hard_6809")
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_CONFIDENCE_FLOOR_HARD_6809")
+            } catch (_: Throwable) {}
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = candidate.aiConfidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = "CONFIDENCE_FLOOR_HARD_6809",
+                blockLevel = BlockLevel.CONFIDENCE,
+                sizeSol = 0.0,
+                tags = tags + listOf("confidence_floor_hard_6809"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "CONFIDENCE_FLOOR_HARD_6809: conf=${confidence.toInt()}% < ${MIN_CONFIDENCE_FLOOR_6809.toInt()}% (V5.0.6809: BOOTSTRAP bypass removed)",
+                gateChecks = checks + GateCheck("confidence_floor_hard_6809", false, "conf=${confidence.toInt()}% < ${MIN_CONFIDENCE_FLOOR_6809.toInt()}% — hard veto, learning still fires via shadow"),
+            )
         }
 
-        if (canBypassConfidenceFloors && confidence < 22.0) {
-            ErrorLogger.info("FDG", "🎓 BOOTSTRAP_OVERRIDE: ${ts.symbol} | conf=${confidence.toInt()}% | Bypassing confidence floor for learning (progress=${(learningProgress * 100).toInt()}%)")
-            tags.add("bootstrap_learning")
-        } else if (confidence < 22.0) {
-            // V5.0.4157 — confidence <22 is a bootstrap/adaptive penalty, not a hard
-            // veto. True hard safety still happens in rug/LP/route/entry-price checks.
+        if (confidence < 22.0) {
+            // V5.0.6809: removed the BOOTSTRAP_OVERRIDE bypass. Confidence
+            // is authoritative — sub-22 confidence stays a size penalty
+            // (soft-shape), not a learning bypass. Hard safety continues
+            // downstream in rug/LP/route/executor gates.
             ErrorLogger.info("FDG", "🟡 CONFIDENCE_FLOOR_22_SOFT: ${ts.symbol} | conf=${confidence.toInt()}% < 22% | soft-size, continue")
             tags.add("confidence_floor_22_soft")
             try {
@@ -1521,15 +1537,15 @@ object FinalDecisionGate {
         // mildly-negative memory — choking volume exactly the user
         // complained about. At 4/4 it's genuinely toxic: C-grade AND
         // low confidence AND deeply negative memory AND AI degraded.
-        if (toxicPatternFlags.size >= 4 && !canBypassConfidenceFloors) {
+        // V5.0.6809: removed BOOTSTRAP_OVERRIDE bypass path. Toxic-pattern
+        // check is now authoritative: 4-of-4 flags → soft-shape (probe
+        // size), never a learning bypass to full-size execution.
+        if (toxicPatternFlags.size >= 4) {
             preFdgNonSafetySizeMult4297 *= 0.25
             tags.add("toxic_pattern_soft_shape_4297")
             tags.addAll(toxicPatternFlags.map { "tox_$it" })
             checks.add(GateCheck("toxic_pattern", true, "Kris 4-flag toxicity (${toxicPatternFlags.joinToString(",")}) → 0.25x probe, true safety still hard-blocks"))
             ErrorLogger.info("FDG", "☣️ TOXIC_PATTERN_SOFT_PROBE_4297: ${ts.symbol} | flags=${toxicPatternFlags.joinToString(",")} size×0.25 no_hard_block=true")
-        } else if (toxicPatternFlags.size >= 4 && canBypassConfidenceFloors) {
-            ErrorLogger.info("FDG", "🎓 BOOTSTRAP_OVERRIDE: ${ts.symbol} | Bypassing toxic pattern check for learning (flags=${toxicPatternFlags.joinToString(",")})")
-            tags.add("bootstrap_toxic_bypass")
         }
 
         val WATCHLIST_FLOOR_RAW = FluidLearningAI.getWatchlistFloor()
@@ -2534,23 +2550,25 @@ object FinalDecisionGate {
                             )
                         )
                         tags.add("behavior_paper_full_bypass")
-                    } else if (isReliable100PctLoss && !isBootstrapPhase) {
+                    } else if (isReliable100PctLoss) {
+                        // V5.0.6809: reliable 100% loss is ALWAYS a hard block.
+                        // The prior isBootstrapPhase soft-shape branch was a
+                        // static warm-up bypass letting learned-loser patterns
+                        // still open paper capital during the first 25-40% of
+                        // learning progress. Removed. Learned negative-EV
+                        // patterns are authoritative from trade 1.
                         blockReason = "BEHAVIOR_BLOCK_100PCT_LOSS"
                         blockLevel = BlockLevel.HARD
                         checks.add(GateCheck("behavior_learning", false, "$behaviorBlock (reliable: $sampleCount samples)"))
                         tags.add("behavior_100pct_loss_blocked")
-                    } else if (is100PctLoss && isBootstrapPhase) {
-                        behaviorPenalty = if (sampleCount >= 3) 15 else 8
-                        behaviorSizeMultiplier = 0.3
-                        behaviorProbe = true
-                        checks.add(
-                            GateCheck(
-                                "behavior_learning",
-                                true,
-                                "BEHAVIOR 100% LOSS → PENALTY (bootstrap: -${behaviorPenalty}pts, n=$sampleCount)"
-                            )
-                        )
-                        tags.add("behavior_penalized")
+                    } else if (is100PctLoss) {
+                        // V5.0.6809: same treatment for non-reliable 100% loss
+                        // buckets — never open capital, no bootstrap-phase
+                        // exemption.
+                        blockReason = "BEHAVIOR_BLOCK_100PCT_LOSS_SPARSE"
+                        blockLevel = BlockLevel.HARD
+                        checks.add(GateCheck("behavior_learning", false, "$behaviorBlock (sparse 100% loss: n=$sampleCount)"))
+                        tags.add("behavior_100pct_loss_sparse_blocked")
                     } else {
                         blockReason = behaviorBlock
                         blockLevel = BlockLevel.HARD
@@ -2660,32 +2678,26 @@ object FinalDecisionGate {
                 )
 
                 if (memoryMult <= 0.82) {
-                    if (isBootstrapPhase) {
+                    // V5.0.6809: removed isBootstrapPhase branch. Bootstrap-phase
+                    // memory penalty was a warm-up bypass. The soft-shape path
+                    // below is now authoritative for all learning phases.
+                    val shouldBypass = shouldBypassSoftBlock("MEMORY_NEGATIVE_BLOCK")
+                    if (shouldBypass) {
+                        checks.add(GateCheck("memory_negative", true, "MEMORY BLOCK BYPASSED (adaptive: ${getAdaptiveFilterStatus()})"))
+                        tags.add("memory_bypassed_adaptive")
+                    } else {
+                        // V5.0.4298 — live report showed MEMORY_NEGATIVE_BLOCK as
+                        // the #2 FDG block. Memory is advisory/learned signal; old
+                        // poisoned history must not amputate live exploration. Keep
+                        // the penalty, but allow tiny terminal samples to retrain it.
                         memoryPenalty = 10
-                        sizeMultiplier *= 0.5
+                        val memorySizeMult4298 = if (config.paperMode) 0.50 else 0.45
+                        sizeMultiplier *= memorySizeMult4298
                         softPenaltyScore += memoryPenalty
                         isProbeCandidate = true
-                        checks.add(GateCheck("memory_negative", true, "MEMORY_NEG → PENALTY (bootstrap: -${memoryPenalty}pts, size×0.5, mult=$memoryMult)"))
-                        tags.add("memory_penalized")
-                    } else {
-                        val shouldBypass = shouldBypassSoftBlock("MEMORY_NEGATIVE_BLOCK")
-                        if (shouldBypass) {
-                            checks.add(GateCheck("memory_negative", true, "MEMORY BLOCK BYPASSED (adaptive: ${getAdaptiveFilterStatus()})"))
-                            tags.add("memory_bypassed_adaptive")
-                        } else {
-                            // V5.0.4298 — live report showed MEMORY_NEGATIVE_BLOCK as
-                            // the #2 FDG block. Memory is advisory/learned signal; old
-                            // poisoned history must not amputate live exploration. Keep
-                            // the penalty, but allow tiny terminal samples to retrain it.
-                            memoryPenalty = 10
-                            val memorySizeMult4298 = if (config.paperMode) 0.50 else 0.45
-                            sizeMultiplier *= memorySizeMult4298
-                            softPenaltyScore += memoryPenalty
-                            isProbeCandidate = true
-                            checks.add(GateCheck("memory_negative", true, "MEMORY_NEGATIVE_SOFT_SHAPE_4298: mult=$memoryMult, -${memoryPenalty}pts, size×${memorySizeMult4298.format(2)}"))
-                            tags.add("memory_negative_soft_shape_4298")
-                            ErrorLogger.info("FDG", "🧠 MEMORY_NEGATIVE_SOFT_PROBE_4298: ${ts.symbol} | memMult=$memoryMult size×${memorySizeMult4298.format(2)} no_hard_block=true")
-                        }
+                        checks.add(GateCheck("memory_negative", true, "MEMORY_NEGATIVE_SOFT_SHAPE_4298: mult=$memoryMult, -${memoryPenalty}pts, size×${memorySizeMult4298.format(2)}"))
+                        tags.add("memory_negative_soft_shape_4298")
+                        ErrorLogger.info("FDG", "🧠 MEMORY_NEGATIVE_SOFT_PROBE_4298: ${ts.symbol} | memMult=$memoryMult size×${memorySizeMult4298.format(2)} no_hard_block=true")
                     }
                 } else if (memoryMult < 0.90) {
                     memoryPenalty = 5
@@ -2905,17 +2917,15 @@ object FinalDecisionGate {
                 val edgePhaseStr = candidate.edgeQuality.uppercase()
                 val isDistribution = edgePhaseStr.contains("DIST") || edgePhaseStr.contains("SKIP")
 
-                if (isDistribution && !isBootstrapPhase) {
+                if (isDistribution) {
+                    // V5.0.6809: removed BOOTSTRAP-phase probe-through for
+                    // DISTRIBUTION edge. Learning from distribution dumps
+                    // is a shadow/train-only observation, not a capital
+                    // opener regardless of trade count.
                     blockReason = "EDGE_DISTRIBUTION_PAPER"
                     blockLevel = BlockLevel.EDGE
                     checks.add(GateCheck("edge", false, "PAPER: DISTRIBUTION detected (edge=${candidate.edgeQuality}) - not learning from dumps"))
                     tags.add("edge_distribution_blocked")
-                } else if (isDistribution && isBootstrapPhase) {
-                    softPenaltyScore += 15
-                    sizeMultiplier *= 0.25
-                    isProbeCandidate = true
-                    checks.add(GateCheck("edge", true, "PAPER BOOTSTRAP PROBE: DISTRIBUTION (edge=${candidate.edgeQuality}) → -15pts, size×0.25"))
-                    tags.add("edge_distribution_probe")
                 } else {
                     softPenaltyScore += 5
                     checks.add(GateCheck("edge", true, "PAPER: edge veto soft-bypassed (edge=${candidate.edgeQuality}) → -5pts"))
@@ -3154,65 +3164,26 @@ object FinalDecisionGate {
         // ModeLeniency so proven-edge live runs get the same leniency.
         val fdgLenient = ModeLeniency.useLenientGates(config.paperMode)
         val confidenceThreshold = getAdaptiveConfidence(fdgLenient, ts)
-        val isBootstrap = isPaperMode && currentConditions.totalSessionTrades < 30
-        val bootstrapTag = if (isBootstrap) " [PAPER_BOOTSTRAP]" else ""
+        // V5.0.6809 §PAPER_BOOTSTRAP_PROBE_REMOVED — the bootstrap probe was a
+        // static warm-up bypass that admitted sub-confidence entries during
+        // the first 30 session trades based on memory heuristics. Operator
+        // mandate: "Do not replace bootstrap with another static warm-up
+        // bypass." Removed. The bootstrap display tag is intentionally empty
+        // now.
+        val bootstrapTag = ""
         val adjustedConfidence = ((confidence + narrativeAdjustment + orthogonalBonus) * wrRecoveryQualityPenaltyMult).coerceIn(0.0, 100.0)
         val narrativeTag = if (narrativeAdjustment != 0) " [NAR:$narrativeAdjustment]" else ""
         val orthoTag = if (orthogonalBonus != 0) " [ORTHO:$orthogonalBonus]" else ""
 
         var confidenceProbe = false
-        var confidenceProbeSizeMultiplier = 1.0
+        @Suppress("UNUSED_VARIABLE") var confidenceProbeSizeMultiplier = 1.0
 
         if (blockReason == null && adjustedConfidence < confidenceThreshold) {
-            val hasPositiveMemory = try {
-                val memMult = TokenWinMemory.getConfidenceMultiplier(
-                    ts.mint,
-                    ts.symbol,
-                    ts.name,
-                    ts.lastMcap,
-                    ts.lastLiquidityUsd,
-                    50.0,
-                    ts.phase,
-                    ts.source
-                )
-                memMult >= 1.0
-            } catch (_: Exception) {
-                false
-            }
-
-            val isRepeatWinner = try {
-                TokenWinMemory.isKnownWinner(ts.mint)
-            } catch (_: Exception) {
-                false
-            }
-            val hasNoHardBlocks = blockReason == null
-            val hasMinLiquidity = ts.lastLiquidityUsd >= 3000.0
-
-            if (isPaperMode && isBootstrap && fdgLenient && hasNoHardBlocks && hasMinLiquidity && (isRepeatWinner || hasPositiveMemory)) {
-                confidenceProbe = true
-                isProbeCandidate = true
-
-                val confidenceGap = confidenceThreshold - adjustedConfidence
-                confidenceProbeSizeMultiplier = when {
-                    isRepeatWinner -> 0.4
-                    confidenceGap < 10 -> 0.35
-                    else -> 0.25
-                }
-                sizeMultiplier *= confidenceProbeSizeMultiplier
-
-                val probeReason = if (isRepeatWinner) "REPEAT_WINNER" else "POSITIVE_MEMORY"
-                checks.add(
-                    GateCheck(
-                        "confidence",
-                        true,
-                        "PAPER BOOTSTRAP PROBE: conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% BUT $probeReason → size×${confidenceProbeSizeMultiplier.format(2)}"
-                    )
-                )
-                tags.add("paper_bootstrap_confidence_probe")
-                tags.add("probe_reason:$probeReason")
-
-                ErrorLogger.info("FDG", "🔬 PAPER BOOTSTRAP PROBE: ${ts.symbol} | conf=${adjustedConfidence.toInt()}% | $probeReason | size×${confidenceProbeSizeMultiplier.format(2)}")
-            } else {
+            // V5.0.6809: PAPER_BOOTSTRAP_PROBE removed. Sub-confidence entries
+            // no longer receive a memory-based bootstrap exemption. Every
+            // candidate falls through to the ADAPTIVE_SIZE dust-probe branch
+            // where the confidence penalty shapes size (not admission).
+            run {
                 // V5.0.3676 — operator TUNING patch (recovery). LOW_CONFIDENCE in
                 // PAPER mode is now a SIZE/SCORE PENALTY (dust probe), not a
                 // hard veto. The previous hard block was a top FDG choke reason
@@ -3242,7 +3213,6 @@ object FinalDecisionGate {
                 )
                 tags.add(if (mode == TradeMode.PAPER) "paper_low_conf_dust_probe" else "live_low_conf_adaptive_size")
                 tags.add("adaptive_conf:${confidenceThreshold.toInt()}")
-                if (isBootstrap) tags.add("paper_bootstrap_phase")
                 ErrorLogger.info("FDG", "🔬 ${if (mode == TradeMode.PAPER) "PAPER" else "LIVE"} LOW-CONF ADAPTIVE_SIZE: ${ts.symbol} | conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% → size×${dustMult.format(2)}")
             }
         } else if (blockReason == null) {
@@ -3253,7 +3223,6 @@ object FinalDecisionGate {
                     "conf=${confidence.toInt()}%+nar=$narrativeAdjustment+ortho=$orthogonalBonus=${adjustedConfidence.toInt()}% >= ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"
                 )
             )
-            if (isBootstrap) tags.add("paper_bootstrap_phase")
         }
 
         if (blockReason == null && !config.paperMode) {
@@ -5062,21 +5031,35 @@ object FinalDecisionGate {
             } catch (_: Throwable) {}
         }
 
+        // V5.0.6809 §NEGATIVE_EV_HARD_VETO_FINAL — AATE envelope actions
+        // POLICY_NEG_EV_BLOCK_6801 and BLOCK must veto shouldTrade. Prior
+        // code only checked "BLOCK", letting the negative-EV downgrade slip
+        // through into an executable BUY when other gates said allow.
+        val aateBlocks6809 = aateEnvelope6512?.action?.let { a ->
+            a == "BLOCK" || a == "POLICY_NEG_EV_BLOCK_6801" || a.startsWith("POLICY_NEG_EV")
+        } == true
+        if (aateBlocks6809) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                    "FDG_HONORED_AATE_NEG_EV_VETO_6809"
+                )
+            } catch (_: Throwable) {}
+        }
         return rememberFdgVerdict(fdgCacheKey, FinalDecision(
-            shouldTrade = shouldTradeFinal && aateEnvelope6512?.action != "BLOCK",
+            shouldTrade = shouldTradeFinal && !aateBlocks6809,
             mode = mode,
-            approvalClass = approvalClass,
+            approvalClass = if (aateBlocks6809) ApprovalClass.BLOCKED else approvalClass,
             quality = candidate.finalQuality,
             confidence = adjustedConfidence,
             edge = edgeVerdict,
-            blockReason = blockReasonFinal,
-            blockLevel = blockLevelFinal,
-            sizeSol = finalSize,
-            tags = tags,
+            blockReason = if (aateBlocks6809) (aateEnvelope6512?.action ?: "AATE_BLOCK") else blockReasonFinal,
+            blockLevel = if (aateBlocks6809) BlockLevel.HARD else blockLevelFinal,
+            sizeSol = if (aateBlocks6809) 0.0 else finalSize,
+            tags = if (aateBlocks6809) tags + "aate_neg_ev_veto_6809" else tags,
             mint = ts.mint,
             symbol = ts.symbol,
-            approvalReason = approvalReason,
-            gateChecks = checks,
+            approvalReason = if (aateBlocks6809) "AATE_NEG_EV_VETO_6809: ${aateEnvelope6512?.action}" else approvalReason,
+            gateChecks = if (aateBlocks6809) checks + GateCheck("aate_neg_ev_veto_6809", false, "AATE action=${aateEnvelope6512?.action} EV=${"%.2f".format(aateEnvelope6512?.expectedPnlPct ?: 0.0)}% — hard veto") else checks,
         ))
     }
 

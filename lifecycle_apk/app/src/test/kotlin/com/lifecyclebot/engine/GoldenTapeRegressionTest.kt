@@ -2642,7 +2642,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Live buy path keeps explicit below-floor telemetry while allowing configured micro probes", exec.contains("LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE") && exec.contains("LIVE_BUY_SIZE_RAISED_TO_MIN_NON_MICRO") && !exec.contains("LIVE_BUY_SIZE_RAISED_TO_MIN_EXECUTABLE"))
         assertTrue("TradingCopilot must not relax live confidence/size under bootstrap", copilot.contains("no live bootstrap thresholds") && copilot.contains("TradeMood.EMERGENCY_BRAKE -> 25.0") && copilot.contains("TradeMood.EMERGENCY_BRAKE -> 0.25") && !copilot.contains("bootstrapProg") && !copilot.contains("tradesObserved < 50"))
         assertTrue("SmartSizer must consume lane feedback from trade 1 without exploration bootstrap ramp", sizer.contains("minTrades = 1") && sizer.contains("sample-weighted") && sizer.contains("No live bootstrap/exploration size ramp") && !sizer.contains("FreeRangeMode.explorationSizeMultiplier()"))
-        assertTrue("FDG bootstrap confidence bypass must be paper-only; live uses adaptive state from trade 1", fdg.contains("isBootstrapPhase = isPaperMode") && fdg.contains("(isPaperMode && totalTradesForBypass < 500)") && fdg.contains("liveAdaptiveFromTrade1"))
+        assertTrue("V5.0.6809 §BOOTSTRAP_BYPASS_REMOVED — FDG must not maintain a bootstrap-phase confidence bypass", fdg.contains("val isBootstrapPhase = false") && fdg.contains("§ISBOOTSTRAPPHASE_RETIRED") && fdg.contains("val canBypassConfidenceFloors = false") && fdg.contains("§BOOTSTRAP_BYPASS_REMOVED") && !fdg.contains("liveAdaptiveFromTrade1"))
         assertTrue("BotService bootstrap force/score/size gates must be paper-only for live layers", bot.contains("RuntimeModeAuthority.isPaper() && forceBootstrapEntry") && bot.contains("PAPER_BOOTSTRAP_BLOCKED") && bot.contains("getBootstrapSizeMultiplier() else 1.0") && !bot.contains("SHITCOIN_BOOTSTRAP_FORCE_SUPPRESSED"))
         assertTrue("V3 scorer/orchestrator bootstrap bypass must exclude LIVE mode", unifiedScorer.contains("ctx.mode != com.lifecyclebot.v3.core.V3BotMode.LIVE && learningProgress < 0.40") && botOrch.contains("ctx.mode != V3BotMode.LIVE && learningProgress < 0.40"))
         assertTrue("Lifecycle cooldown/registry bootstrap speeds must be paper-only", tradeState.contains("RuntimeModeAuthority.isPaper()") && tradeLife.contains("RuntimeModeAuthority.isPaper()") && registry.contains("RuntimeModeAuthority.isPaper()"))
@@ -8166,7 +8166,7 @@ class GoldenTapeRegressionTest {
         assertTrue("6491 sizing boundary must compare integer lamports, including exact equality",
             resolver.contains("SOL_LAMPORTS_6491") && resolver.contains("toLamports6491") &&
                 resolver.contains("boundedExecutableLamports6498 >= minExecLamports6491") &&
-                resolver.contains("OK_MIN_PROMOTED_6600") && invariant.contains("Cash and lane cap are"))
+                resolver.contains("KILL_MIN_SIZE_PROMOTION") && invariant.contains("Cash and lane cap are"))
         val sizePrecheck = openGate.indexOf("EXEC_OPEN_PRECHECK_SIZE_PENDING_6491")
         val mintClaim = openGate.indexOf("executableBuyClaim6487.putIfAbsent")
         val allowed = openGate.indexOf("ForensicLogger.lifecycle(" + '"' + "EXEC_OPEN_ALLOWED" + '"')

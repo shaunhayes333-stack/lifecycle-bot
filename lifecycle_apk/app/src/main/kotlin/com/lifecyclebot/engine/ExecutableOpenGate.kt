@@ -301,6 +301,33 @@ object ExecutableOpenGate {
         if (!validSealedDecision6613(intent) ||
             intent.mint.isBlank() || intent.candidateVersion <= 0L) return null
         val key = intentKey6519(intent.mode, intent.mint, intent.candidateVersion)
+
+        // V5.0.6809 §EXECUTION_INTENT_FINALITY — invalidate any stale sealed
+        // intent whose authoritative FDG verdict / action / authority version
+        // has been superseded by the incoming intent. The prior compute()
+        // only upgraded resolvedSize; it would silently reuse a BUY intent
+        // whose newer authority-version had turned into BLOCK. Operator
+        // mandate: "EXEC_INTENT_REUSED_6734 must never preserve an obsolete
+        // BUY after policy changes to BLOCK/NO_BUY. If candidate authority/
+        // version/policy changes before execution, invalidate and revalidate
+        // the intent." A newer intent with a stronger BLOCK/PROBE_ONLY
+        // decision or a newer authorityVersion evicts any prior BUY.
+        val existing = activeExecutionIntents6519[key]
+        if (existing != null && intentSupersedes6809(intent, existing)) {
+            try {
+                PipelineHealthCollector.labelInc("EXEC_INTENT_INVALIDATED_ON_POLICY_CHANGE_6809")
+                ForensicLogger.lifecycle(
+                    "EXEC_INTENT_INVALIDATED_ON_POLICY_CHANGE_6809",
+                    "attemptId=${existing.attemptId} mint=${existing.mint.take(10)} " +
+                        "priorAuthority=${existing.authorityVersion} priorFdg=${existing.fdgVerdict} priorFinal=${existing.finalDecision6613} priorAction=${existing.action} " +
+                        "newAuthority=${intent.authorityVersion} newFdg=${intent.fdgVerdict} newFinal=${intent.finalDecision6613} newAction=${intent.action} " +
+                        "action=evict_stale_intent",
+                )
+            } catch (_: Throwable) {}
+            activeExecutionIntents6519.remove(key, existing)
+            executionTickets.remove(existing.attemptId, existing)
+        }
+
         // A preliminary FDG pass can seal the decision before the canonical
         // size resolver runs. When that same immutable attempt returns with a
         // positive size, upgrade it instead of retaining a zero-sized shell.
@@ -314,6 +341,16 @@ object ExecutableOpenGate {
                 else -> existing
             }
         } ?: return null
+
+        // V5.0.6809 — post-registration invariant: if the winning intent is
+        // BLOCK/PROBE_ONLY (i.e. final action is not a canonical BUY), it must
+        // NOT be surfaced as an executable ticket. Reject any resurrection
+        // path that tries to turn a non-BUY into a BUY.
+        if (authoritative.finalDecision6613 != CanonicalFinalDecision6613.BUY) {
+            try {
+                PipelineHealthCollector.labelInc("EXEC_INTENT_REGISTERED_NON_BUY_6809")
+            } catch (_: Throwable) {}
+        }
         executionTickets[authoritative.attemptId] = authoritative
         // V5.0.6715 — stamp the actual FDG/intent creation epoch. Never stamp at
         // terminal/report time: this is the decision provenance trade N+1 must prove.
@@ -331,6 +368,27 @@ object ExecutableOpenGate {
             ForensicLogger.lifecycle(if (created6734) "EXEC_INTENT_CREATED" else "EXEC_INTENT_REUSED_6734", "attemptId=${authoritative.attemptId} candidateId=${authoritative.candidateId} mint=${authoritative.mint.take(10)} mode=${authoritative.mode} lane=${authoritative.canonicalLane} fdg=${authoritative.fdgVerdict} allowed=${authoritative.fdgAllowed} authority=${authoritative.authorityVersion} size=${authoritative.resolvedSize}")
         } catch (_: Throwable) {}
         return authoritative
+    }
+
+    /**
+     * V5.0.6809 §INTENT_SUPERSEDES — returns true when the incoming intent
+     * carries newer authoritative policy that must evict any prior sealed
+     * intent for the same key.
+     *
+     * Supersession triggers:
+     *   • newer authorityVersion  (learning policy advanced)
+     *   • prior was BUY but new is not BUY (BLOCK-then-BUY paths cannot survive)
+     *   • prior FDG verdict allowed but new FDG verdict blocks
+     *   • different action string with the same key
+     */
+    internal fun intentSupersedes6809(incoming: ExecutionIntent, prior: ExecutionIntent): Boolean {
+        if (incoming.authorityVersion > prior.authorityVersion) return true
+        if (prior.finalDecision6613 == CanonicalFinalDecision6613.BUY &&
+            incoming.finalDecision6613 != CanonicalFinalDecision6613.BUY) return true
+        if (prior.fdgAllowed && !incoming.fdgAllowed) return true
+        if (!incoming.action.equals(prior.action, ignoreCase = true) &&
+            incoming.candidateVersion == prior.candidateVersion) return true
+        return false
     }
 
     internal fun sameDecisionContract6734(a: ExecutionIntent, b: ExecutionIntent): Boolean =

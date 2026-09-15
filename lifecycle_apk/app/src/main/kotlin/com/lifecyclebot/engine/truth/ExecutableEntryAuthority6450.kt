@@ -171,6 +171,66 @@ object ExecutableEntryAuthority6450 {
         val sourceIsTerminalLoser6801 = sourceAdvisory6801 != null &&
             sourceAdvisory6801.sizeMultiplier <= 0.55
 
+        // V5.0.6809 §SOURCE_BRAIN_ADMISSION_VETO — a second, independent
+        // authority: ScannerSourceBrain.sourceCapitalExecutionSuppressed6809
+        // returns true when a source's own settled PnL sample is materially
+        // negative (n≥40, avg PnL ≤ -3%). This must suppress capital
+        // execution even if the CausalFeedback advisory hasn't yet flagged
+        // it. Reproof probes still bypass so evidence can clear the state.
+        val sourceBrainSuppressed6809 = try {
+            discoverySource6801.isNotBlank() &&
+                com.lifecyclebot.engine.ScannerSourceBrain
+                    .sourceCapitalExecutionSuppressed6809(discoverySource6801)
+        } catch (_: Throwable) { false }
+        if (sourceBrainSuppressed6809 && !isReproofProbe6801) {
+            denies.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_SOURCE_BRAIN_SUPPRESSED_6809")
+                ForensicLogger.lifecycle(
+                    "EXECUTABLE_ENTRY_SOURCE_BRAIN_SUPPRESSED_6809",
+                    "mode=$mode lane=${normalizedLane(lane)} source=$discoverySource6801 " +
+                        "mint=${mint.take(10)} action=shadow_only_reproof_required",
+                )
+            } catch (_: Throwable) {}
+            return Decision(
+                Verdict.DENY_LOSING_STREAK,
+                0.0,
+                "SOURCE_BRAIN_NEGATIVE_EV_SUPPRESSED_6809: source=$discoverySource6801 " +
+                    "action=SHADOW_ONLY_REPROOF_REQUIRED_6809",
+            )
+        }
+
+        // V5.0.6809 §LANE_DAMPER_ADMISSION — LaneExpectancyDamper is no
+        // longer telemetry-only. When its damped multiplier for this lane
+        // collapses to a bleeder floor (<= 0.20) the lane is admission-
+        // suppressed for capital execution. Reproof probes still flow.
+        val laneDamperSuppressed6809 = try {
+            !isReproofProbe6801 &&
+                com.lifecyclebot.engine.LaneExpectancyDamper
+                    .laneCapitalExecutionSuppressed6809(lane)
+        } catch (_: Throwable) { false }
+        if (laneDamperSuppressed6809) {
+            denies.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LANE_DAMPER_SUPPRESSED_6809")
+                PipelineHealthCollector.labelInc(
+                    "EXECUTABLE_ENTRY_LANE_DAMPER_SUPPRESSED_6809_${normalizedLane(lane)}"
+                )
+                ForensicLogger.lifecycle(
+                    "EXECUTABLE_ENTRY_LANE_DAMPER_SUPPRESSED_6809",
+                    "mode=$mode lane=${normalizedLane(lane)} mint=${mint.take(10)} " +
+                        "damper=${com.lifecyclebot.engine.LaneExpectancyDamper.sizeMultiplier(lane)} " +
+                        "action=shadow_only_reproof_required",
+                )
+            } catch (_: Throwable) {}
+            return Decision(
+                Verdict.DENY_LOSING_STREAK,
+                0.0,
+                "LANE_DAMPER_BLEEDER_SUPPRESSED_6809: lane=${normalizedLane(lane)} " +
+                    "action=SHADOW_ONLY_REPROOF_REQUIRED_6809",
+            )
+        }
+
         if ((laneIsTerminalLoser6801 || sourceIsTerminalLoser6801) && !isReproofProbe6801) {
             denies.incrementAndGet()
             try {
