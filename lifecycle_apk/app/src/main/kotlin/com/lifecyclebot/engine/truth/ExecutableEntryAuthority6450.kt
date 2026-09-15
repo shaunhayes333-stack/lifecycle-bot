@@ -57,6 +57,11 @@ object ExecutableEntryAuthority6450 {
     private val probes = AtomicLong(0L)
     private val denies = AtomicLong(0L)
     private val bypassAttempts = AtomicLong(0L)
+    // V5.0.6805 §HARD_VETO_IS_A_COHORT_TRANSITION — hard-veto telemetry is
+    // a cohort transition (first-veto-after-entering-hard-limit), not a
+    // per-candidate event. Keeps counters causal and bounded. Cleared on
+    // WIN so a recovered lane can re-arm cleanly on the next breach.
+    private val lossStreakVetoLatched6805 = ConcurrentHashMap<String, Boolean>()
 
     private fun normalizedMode(raw: String?): String = when {
         raw.equals("live", true) -> "LIVE"
@@ -79,12 +84,29 @@ object ExecutableEntryAuthority6450 {
                 val key = cohortKey(e.mode, e.entryLane)
                 when (e.outcome) {
                     CanonicalTradeFinalizedBus6450.Outcome.LOSS -> {
-                        cohortLosses.computeIfAbsent(key) { AtomicLong(0L) }.incrementAndGet()
+                        val streakAfterLoss6805 = cohortLosses.computeIfAbsent(key) { AtomicLong(0L) }.incrementAndGet()
                         cohortLastLossMs[key] = e.settledAtMs
-                        cohortCooldownMs[key] = e.settledAtMs + 60_000L
+                        // V5.0.6805 §COOLDOWN_ONLY_AT_CREED_BREACH — an ordinary
+                        //   loss #1/#2 may shape risk but MUST NOT arm the
+                        //   hard-veto cooldown. Cooldown arms only when the
+                        //   canonical mode×lane streak actually breaches the
+                        //   3-loss creed. Previously every loss re-armed a
+                        //   60s cooldown, so a single loss could hold the
+                        //   veto surface alive indefinitely via cooling=true.
+                        if (streakAfterLoss6805 >= STREAK_HARD_LIMIT) {
+                            cohortCooldownMs[key] = maxOf(cohortCooldownMs[key] ?: 0L, e.settledAtMs + 60_000L)
+                        }
                     }
-                    CanonicalTradeFinalizedBus6450.Outcome.WIN ->
+                    CanonicalTradeFinalizedBus6450.Outcome.WIN -> {
                         cohortLosses.computeIfAbsent(key) { AtomicLong(0L) }.set(0L)
+                        // V5.0.6805 §WIN_CLEARS_ALL_STREAK_STATE — a canonical
+                        //   WIN must clear cohortCooldownMs and the veto latch
+                        //   too, otherwise a recovered cohort remains under
+                        //   cooldown until natural expiry and cannot re-arm
+                        //   the latch on a future genuine breach.
+                        cohortCooldownMs.remove(key)
+                        lossStreakVetoLatched6805.remove(key)
+                    }
                     CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN -> Unit
                 }
             }
@@ -209,18 +231,32 @@ object ExecutableEntryAuthority6450 {
         //   The existing cooling logic already tracks the STREAK_COOLDOWN_
         //   MS window; this simply upgrades hard-limit from a size shaper
         //   to a hard vetoer.
-        val streakBreached6803 = streak >= STREAK_HARD_LIMIT || cooling
+        // V5.0.6805 §COOLING_IS_RECOVERY_TIMING_ONLY — cooling is recovery-
+        //   observation timing, not a hard-veto surface. A single loss cannot
+        //   convert into a hard veto merely because the 60s cooldown window
+        //   is still ticking. Only canonical consecutive losses trip veto.
+        val streakBreached6803 = streak >= STREAK_HARD_LIMIT
         if (streakBreached6803 && !isReproofProbe6801) {
             denies.incrementAndGet()
-            try {
+            // V5.0.6805 §HARD_VETO_LATCH — first veto after entering hard-
+            //   limit emits full telemetry; subsequent candidates within the
+            //   same cohort transition emit a single cohort-veto counter so
+            //   dashboards do not see thousands of per-candidate labels for
+            //   a single 3-loss creed breach.
+            val firstVetoForCohort6805 = lossStreakVetoLatched6805.putIfAbsent(key, true) == null
+            if (firstVetoForCohort6805) try {
                 PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_HARD_VETO_6803")
                 PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_HARD_VETO_6803_${normalizedLane(lane)}")
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_COHORT_VETO_6805")
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_COHORT_VETO_6805_${normalizedLane(lane)}")
                 ForensicLogger.lifecycle(
                     "EXECUTABLE_ENTRY_LOSS_STREAK_HARD_VETO_6803",
                     "mode=$mode lane=${normalizedLane(lane)} mint=${mint.take(10)} " +
                         "streak=$streak limit=$STREAK_HARD_LIMIT cooling=$cooling " +
                         "action=hard_deny_admission_reproof_only_cooldown_enforced",
                 )
+            } catch (_: Throwable) {} else try {
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_COHORT_VETO_LATCHED_6805")
             } catch (_: Throwable) {}
             return Decision(
                 Verdict.DENY_LOSING_STREAK,
@@ -310,7 +346,7 @@ object ExecutableEntryAuthority6450 {
     }
 
     internal fun resetForTest6487() {
-        cohortLosses.clear(); cohortLastLossMs.clear(); cohortCooldownMs.clear()
+        cohortLosses.clear(); cohortLastLossMs.clear(); cohortCooldownMs.clear(); lossStreakVetoLatched6805.clear()
         gates.set(0L); allows.set(0L); probes.set(0L); denies.set(0L); bypassAttempts.set(0L)
     }
 

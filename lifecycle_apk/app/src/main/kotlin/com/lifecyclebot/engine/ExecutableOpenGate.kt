@@ -2435,7 +2435,43 @@ object ExecutableOpenGate {
                 try { PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT_LANE_6727_${canonicalSelectedLane.uppercase()}") } catch (_: Throwable) {}
                 ForensicLogger.lifecycle("AUTHORITY_INVARIANT_FAILURE", "attemptId=$attemptId mint=${mint.take(10)} candidateVersion=$candidateVersion currentVersion=$currentCandidateVersion requestedLane=$requestedLane selectedLane=$canonicalSelectedLane preFdg=$preFdgVerdict reason=FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519 stateAgeMs=$stateAgeMs")
             } catch (_: Throwable) {}
-            return blocked("AUTHORITY_INVARIANT_FAILURE", "FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519", shadow = mode == "PAPER")
+            // V5.0.6805 §PAPER_FDG_WITHOUT_SEAL_IS_A_DEFERRAL — operator
+            //   diagnosis Feb 2026: The paper `fdgCan=true / immutable
+            //   seal=null` window past 500 ms is not an authority
+            //   integrity violation. It's a normal seal-lag: the
+            //   provisional state is old enough to be re-verified but
+            //   the caller is still racing the FDG snapshot sealing.
+            //   Downgrade the paper branch to a deferral (shadow-only)
+            //   so the next tick can obtain fresh FDG + immutable
+            //   execution-intent seals. Additionally, if the provisional
+            //   state is stale (>5s) it is destroyed here so the next
+            //   tick must obtain a completely fresh seal, not resurrect
+            //   an unsealed old snapshot. LIVE mode remains a hard fail:
+            //   there is no synthetic provisional-state path and this
+            //   window would be a real integrity violation.
+            val paperMode6805 = mode.equals("PAPER", true)
+            if (paperMode6805) {
+                val staleUnsealedPaper6805 = stateAgeMs > 5_000L
+                try {
+                    PipelineHealthCollector.labelInc("FDG_ALLOW_AWAITING_EXEC_INTENT_6805")
+                    if (staleUnsealedPaper6805) PipelineHealthCollector.labelInc("FDG_ALLOW_STALE_UNSEALED_PAPER_6805")
+                    ForensicLogger.lifecycle(
+                        "FDG_ALLOW_AWAITING_EXEC_INTENT_6805",
+                        "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol lane=$canonicalSelectedLane " +
+                            "stateAgeMs=$stateAgeMs stale=$staleUnsealedPaper6805 " +
+                            "action=defer_and_revalidate_no_economic_open",
+                    )
+                } catch (_: Throwable) {}
+                if (staleUnsealedPaper6805 && state != null) {
+                    try { states.remove(mint, state) } catch (_: Throwable) {}
+                }
+                return blocked(
+                    "EXEC_OPEN_DEFERRED_FDG_INTENT_6805",
+                    if (staleUnsealedPaper6805) "FDG_ALLOW_STALE_UNSEALED_PAPER_6805" else "FDG_ALLOW_AWAITING_EXEC_INTENT_6805",
+                    shadow = true,
+                )
+            }
+            return blocked("AUTHORITY_INVARIANT_FAILURE", "FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519", shadow = false)
         }
         if (immutableAuthority6513 != null && immutableTicket == null && (
                 immutableAuthority6513.authoritativeSignal != "BUY" ||
@@ -2617,6 +2653,38 @@ object ExecutableOpenGate {
         // PRESSURE_DEFER thousands of times per cycle. Exits are not
         // touched — the coordinator continues to drain inventory —
         // admission just pauses until it's safe to open again.
+        // V5.0.6805 §LANE_CONCENTRATION_CEILING — operator diagnosis Feb
+        //   2026: "PROJECT_SNIPER targetSol=1.5422 but usedAllocation=4.0886
+        //    and openPositions=69" (~69% of the meme book) while its
+        //    stated allocation is 11.5%. Capital target alone is
+        //    advisory-only; the concentration ceiling here is authoritative
+        //    at the executable-open boundary so a single lane cannot
+        //    silently monopolise open inventory even when profitable in
+        //    aggregate. LaneCapitalFairness6732.headroomFor reports
+        //    inventoryCapped=true when the projected book share would
+        //    exceed 35% (with book>=10 open and lane>4 absolute). Non-meme
+        //    lanes fail open above. Any read failure fails open.
+        val laneInventory6805 = try {
+            com.lifecyclebot.engine.truth.LaneCapitalFairness6732.headroomFor(modeUpper, lane)
+        } catch (_: Throwable) { null }
+        if (laneInventory6805?.inventoryCapped == true) {
+            try {
+                PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_LANE_INVENTORY_CEILING_6805")
+                PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_LANE_INVENTORY_CEILING_6805_${lane}")
+                ForensicLogger.lifecycle(
+                    "EXEC_OPEN_BLOCKED_LANE_INVENTORY_CEILING_6805",
+                    "attemptId=$execKey mint=${mint.take(10)} lane=$lane " +
+                        "open=${laneInventory6805.openPositions}/${laneInventory6805.totalMemeOpenPositions} " +
+                        "projectedShare=${"%.3f".format(laneInventory6805.projectedInventoryShare)} " +
+                        "cap=0.35 action=defer_until_other_lanes_or_exits_rebalance",
+                )
+            } catch (_: Throwable) {}
+            return blocked(
+                "EXEC_OPEN_BLOCKED_LANE_INVENTORY_CEILING_6805",
+                "lane=$lane projectedShare=${"%.3f".format(laneInventory6805.projectedInventoryShare)} cap=0.35",
+                shadow = modeUpper == "PAPER",
+            )
+        }
         val throughputVerdict6727 = try {
             com.lifecyclebot.engine.truth.ExitThroughputAuthority6727.evaluate(modeUpper, lane)
         } catch (_: Throwable) { null }

@@ -514,13 +514,31 @@ object CausalFeedbackAuthority6715 {
             val computed = keys(nm, nl, env.scoreBand.ifBlank { scoreBand(env.entryScore) })
             val ks = positionScopes[env.positionId] ?: computed
             val invalidated = linkedSetOf<String>()
-            ks.forEach { k ->
+            // V5.0.6805 §BAND_LOCAL_TERMINAL_INVALIDATION — operator diagnosis
+            //   Feb 2026: "authority version bumped 264 times, STALE_FEEDBACK_
+            //    EPOCH_REVALIDATE_6715=151, CAUSAL_EXEC_STALE_EPOCH_6715=155.
+            //    Too much authority-version churn between qualification and
+            //    execution." Previously a terminal outcome bumped
+            //    terminalEpoch on BOTH the aggregate lane scope AND the exact
+            //    BAND scope, so a fill in one score band invalidated
+            //    reserved tickets in unrelated bands of the same lane.
+            //   Now: only BAND-scoped keys advance terminalEpoch. Aggregate
+            //   lane counters (wins/losses/openPositions) still update so
+            //   dashboards + advisories see live truth, but freshness is
+            //   band-local. Reservations are also released only from the
+            //   exact-band cohort that learned new truth.
+            val terminalScopeKeys6805 = ks.filter { it.startsWith("BAND|") }
+            ks.forEach { k -> state(k).openPositions.remove(env.positionId) }
+            terminalScopeKeys6805.forEach { k ->
                 val s = state(k)
-                s.openPositions.remove(env.positionId)
                 invalidated.addAll(s.reservedAttempts)
                 s.terminalEpoch += 1L
             }
             invalidated.forEach { releaseAttemptLocked(it, removeStamp = true) }
+            emit(
+                "CAUSAL_SCOPE_LOCAL_INVALIDATION_6805",
+                "positionId=${env.positionId.take(24)} lane=$nl scopes=${terminalScopeKeys6805.joinToString(",")} invalidated=${invalidated.size}",
+            )
             if (invalidated.isNotEmpty()) {
                 emit("CAUSAL_PENDING_INVALIDATED_ON_TERMINAL_6715", "positionId=${env.positionId.take(24)} lane=$nl count=${invalidated.size}")
             }
@@ -529,7 +547,12 @@ object CausalFeedbackAuthority6715 {
             if (env.learningEligible) {
                 if (earlyAck) {
                     ks.forEach { k -> state(k).apply {
-                        learningRevision += 1L
+                        // V5.0.6805 §BAND_LOCAL_TERMINAL_INVALIDATION — only
+                        //   BAND scopes advance learningRevision; aggregate
+                        //   lane counters still update so cohort advisory
+                        //   sees fresh truth without invalidating unrelated
+                        //   score-band reservations.
+                        if (k.startsWith("BAND|")) learningRevision += 1L
                         cleanLearnedCloses += 1
                         if (isWin6721) wins += 1 else losses += 1
                     } }
@@ -572,7 +595,11 @@ object CausalFeedbackAuthority6715 {
             ks.forEach { k ->
                 val s = state(k)
                 s.pendingLearning.remove(positionId)
-                s.learningRevision += 1L
+                // V5.0.6805 §BAND_LOCAL_TERMINAL_INVALIDATION — same rule as
+                //   the terminal path: only BAND scopes advance learning
+                //   revision so unrelated bands of the same lane keep
+                //   their reservation freshness.
+                if (k.startsWith("BAND|")) s.learningRevision += 1L
                 s.cleanLearnedCloses += 1
             }
             learnedSeen.add(positionId)

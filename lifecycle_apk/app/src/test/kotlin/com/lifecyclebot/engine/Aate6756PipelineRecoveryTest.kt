@@ -59,13 +59,18 @@ class Aate6756PipelineRecoveryTest {
     }
 
     @Test
-    fun `paper heroes consume one immutable economic revision`() {
+    fun `paper heroes consume canonical capital only after 6805 retirement`() {
+        // V5.0.6805 §RETIRE_JOURNAL_REPLAY_ACCOUNTING — the 6756
+        //   immutable-journal doctrine has been retired. UI hero reads
+        //   CanonicalCapitalAuthority6450 ONLY; TRADE_JOURNAL_REPLAY_6619
+        //   is forensic history / recovery and cannot decide hero
+        //   availability, balances, equity, or reconciliation status.
         val account = src("engine/truth/UnifiedAccountSnapshot6635.kt")
-        assertTrue(account.contains("JournalEconomicAuthority6616.currentSnapshot()"))
-        assertTrue(account.contains("economicRevision"))
-        assertTrue(account.contains("RETAIN_LAST_RECONCILED"))
-        assertTrue(account.contains("journal.cashSol"))
-        assertTrue(account.contains("journal.equitySol"))
+        assertTrue(account.contains("CANONICAL_CAPITAL_AUTHORITY_6450"))
+        assertTrue(account.contains("markAuthority?.cashSol"))
+        assertTrue(account.contains("markAuthority?.totalEquitySol"))
+        assertFalse(account.contains("JournalEconomicAuthority6616.currentSnapshot()"))
+        assertFalse(account.contains("ForensicReconciliation6635.reconcile6635()"))
     }
 
     @Test

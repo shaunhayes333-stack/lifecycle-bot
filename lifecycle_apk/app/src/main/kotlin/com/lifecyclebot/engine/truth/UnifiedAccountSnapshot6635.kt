@@ -78,43 +78,50 @@ object UnifiedAccountSnapshot6635 {
         try { PipelineHealthCollector.labelInc("HERO_UNIFIED_SNAPSHOT_READ_6635") } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("HERO_UNIFIED_SNAPSHOT_READ_${surface.uppercase()}_6635") } catch (_: Throwable) {}
 
-        // Read-path purity: reconciliation may observe and report deltas, but
-        // this UI-facing method must never repair, project, refund, or mutate
-        // canonical economic state as a side effect of rendering a balance.
-        try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
+        // V5.0.6805 §RETIRE_JOURNAL_REPLAY_ACCOUNTING — operator diagnosis
+        //   Feb 2026: "UI hero + acceptance audits still consume TRADE_
+        //    JOURNAL_REPLAY_6619 → 3.44 vs -0.37 SOL divergence and 151/153
+        //    J_* audit failures. CanonicalCapitalAuthority6450 must become
+        //    the sole read surface."
+        //
+        //   UI is a pure renderer of canonical capital. Journal replay is
+        //   forensic history / recovery only; it can no longer decide hero
+        //   availability, balances, equity, or reconciliation status.
+        //   ForensicReconciliation6635.reconcile6635() is a side-effecting
+        //   observer and must not run in the render path.
 
         val paperMode = mode.equals("paper", true)
-        val journal = if (paperMode) try { JournalEconomicAuthority6616.currentSnapshot() } catch (_: Throwable) { null } else null
-        val capital = try { PaperCapitalAuthority6577.snapshot() } catch (_: Throwable) { null }
         val markAuthority = try { CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
-
-        // V5.0.6756 — UI paper economics MUST be an immutable mutation revision.
-        // Do not reconstruct these values independently on every screen read.
-        val cash = if (paperMode && journal != null) journal.cashSol else capital?.availableCashSol ?: 0.0
-        val realized = if (paperMode && journal != null) journal.realizedPnlSol else capital?.realizedPnlSol ?: 0.0
-        val openCost = if (paperMode && journal != null) journal.openMarketValueSol else capital?.openMarketValueSol ?: 0.0
-        val equity = if (paperMode && journal != null) journal.equitySol else cash + openCost
-        val revision = if (paperMode) journal?.revision ?: -1L else -1L
-        val source = if (paperMode) journal?.source ?: "PAPER_LEDGER_WARMUP_FALLBACK" else "LIVE_CAPITAL_AUTHORITY"
+        val cash = markAuthority?.cashSol ?: 0.0
+        val realized = markAuthority?.realizedPnlSol ?: 0.0
+        val openCost = markAuthority?.openMarketValueSol ?: 0.0
+        val equity = markAuthority?.totalEquitySol ?: (cash + openCost)
+        // Stable value-derived revision: identical canonical economics render
+        // the same revision across MEME / MARKETS / CRYPTO hero reads.
+        val revision = markAuthority?.hashCode()?.toLong() ?: -1L
+        val source = "CANONICAL_CAPITAL_AUTHORITY_6450"
 
         val openPositions = try {
             CanonicalPositionAuthority6441.openPositions().count { it.mode.equals(mode, true) }
         } catch (_: Throwable) { 0 }
 
-        // Market marks remain diagnostic until they are captured in the same
-        // immutable account transaction; never splice a second-time mark into
-        // a paper hero revision.
-        val unrealized = if (paperMode) 0.0 else markAuthority?.unrealizedPnlSol ?: 0.0
-
-        val forensicLine = try { ForensicReconciliation6635.healthLine6635() } catch (_: Throwable) { "" }
-        val reconciliationStatus = when {
-            forensicLine.contains("status=RECONCILED") -> Status.RECONCILED
-            forensicLine.contains("status=FAILED") -> Status.FAILED
-            else -> Status.WARMUP
+        val unrealized = markAuthority?.unrealizedPnlSol ?: 0.0
+        val canonicalDelta6805 = markAuthority?.conservationDeltaSol
+        val canonicalHealthy6805 = canonicalDelta6805 != null && canonicalDelta6805.isFinite() &&
+            kotlin.math.abs(canonicalDelta6805) <= 1e-4
+        val status = when {
+            markAuthority == null -> Status.WARMUP
+            canonicalHealthy6805 -> Status.RECONCILED
+            else -> Status.FAILED
         }
-        // A paper hero is not truly reconciled until a journal revision exists.
-        val status = if (paperMode && journal == null && reconciliationStatus == Status.RECONCILED)
-            Status.WARMUP else reconciliationStatus
+        val forensicLine = if (markAuthority == null) {
+            "source=CANONICAL_CAPITAL_AUTHORITY_6450 status=WARMUP"
+        } else {
+            "source=CANONICAL_CAPITAL_AUTHORITY_6450 status=${status.name} " +
+                "cash=${"%.6f".format(markAuthority.cashSol)} openMV=${"%.6f".format(markAuthority.openMarketValueSol)} " +
+                "realized=${"%.6f".format(markAuthority.realizedPnlSol)} fees=${"%.6f".format(markAuthority.feesSol)} " +
+                "equity=${"%.6f".format(markAuthority.totalEquitySol)} delta=${"%.9f".format(markAuthority.conservationDeltaSol)}"
+        }
 
         val snap = Snapshot(
             mode = mode,
