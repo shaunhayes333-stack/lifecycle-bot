@@ -304,14 +304,6 @@ object ExecutableOpenGate {
         // A preliminary FDG pass can seal the decision before the canonical
         // size resolver runs. When that same immutable attempt returns with a
         // positive size, upgrade it instead of retaining a zero-sized shell.
-        // V5.0.6789 §SINGLE_SEALED_ENTRY_AUTHORITY — one candidateVersion ×
-        // mint × mode must have exactly one sealed owner. Prior code kept the
-        // existing intent whenever the decision contract diverged (the else
-        // branch below fell through to `existing`), which meant a stale BUY
-        // intent could survive a later NO_BUY/WAIT evaluation and later
-        // execute. Directive: "A later lane evaluation must NEVER reuse an
-        // older BUY intent after producing NO_BUY/WAIT."
-        var supersededPrior6789 = false
         var created6734 = false
         val authoritative = activeExecutionIntents6519.compute(key) { _, existing ->
             when {
@@ -319,22 +311,7 @@ object ExecutableOpenGate {
                 sameDecisionContract6734(existing, intent) &&
                     existing.resolvedSize <= 0.0 && intent.resolvedSize.isFinite() && intent.resolvedSize > 0.0 ->
                     existing.copy(resolvedSize = intent.resolvedSize)
-                sameDecisionContract6734(existing, intent) -> existing
-                else -> {
-                    // Decision contract diverged (different fdgVerdict/finalDecision6613/
-                    // safety/route). The prior sealed intent is no longer authoritative
-                    // for this candidateVersion; the new evaluation supersedes it.
-                    supersededPrior6789 = true
-                    try {
-                        executionTickets.remove(existing.attemptId)
-                        PipelineHealthCollector.labelInc("EXEC_INTENT_SUPERSEDED_6789")
-                        ForensicLogger.lifecycle(
-                            "EXEC_INTENT_SUPERSEDED_6789",
-                            "mint=${existing.mint.take(10)} mode=${existing.mode} candidateVersion=${existing.candidateVersion} priorVerdict=${existing.fdgVerdict}(allowed=${existing.fdgAllowed}) priorAttempt=${existing.attemptId} newVerdict=${intent.fdgVerdict}(allowed=${intent.fdgAllowed}) newAttempt=${intent.attemptId} action=replace_stale_intent_no_reuse_across_verdict",
-                        )
-                    } catch (_: Throwable) {}
-                    intent
-                }
+                else -> existing
             }
         } ?: return null
         executionTickets[authoritative.attemptId] = authoritative
@@ -349,14 +326,9 @@ object ExecutableOpenGate {
                 authoritative.canonicalLane, causalScore6715,
             )
         } catch (_: Throwable) {}
-        try {
-            if (created6734) PipelineHealthCollector.labelInc("EXEC_INTENT_CREATED")
-            else if (supersededPrior6789) PipelineHealthCollector.labelInc("EXEC_INTENT_CREATED_AFTER_SUPERSESSION_6789")
+        try { if (created6734) PipelineHealthCollector.labelInc("EXEC_INTENT_CREATED")
             else PipelineHealthCollector.labelInc("EXEC_INTENT_REUSED_6734")
-            val label = if (created6734) "EXEC_INTENT_CREATED"
-                else if (supersededPrior6789) "EXEC_INTENT_CREATED_AFTER_SUPERSESSION_6789"
-                else "EXEC_INTENT_REUSED_6734"
-            ForensicLogger.lifecycle(label, "attemptId=${authoritative.attemptId} candidateId=${authoritative.candidateId} mint=${authoritative.mint.take(10)} mode=${authoritative.mode} lane=${authoritative.canonicalLane} fdg=${authoritative.fdgVerdict} allowed=${authoritative.fdgAllowed} authority=${authoritative.authorityVersion} size=${authoritative.resolvedSize}")
+            ForensicLogger.lifecycle(if (created6734) "EXEC_INTENT_CREATED" else "EXEC_INTENT_REUSED_6734", "attemptId=${authoritative.attemptId} candidateId=${authoritative.candidateId} mint=${authoritative.mint.take(10)} mode=${authoritative.mode} lane=${authoritative.canonicalLane} fdg=${authoritative.fdgVerdict} allowed=${authoritative.fdgAllowed} authority=${authoritative.authorityVersion} size=${authoritative.resolvedSize}")
         } catch (_: Throwable) {}
         return authoritative
     }
