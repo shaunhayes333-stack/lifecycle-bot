@@ -147,6 +147,11 @@ object ExecutorCanonicalMirror6442 {
         entryPoolAddress: String = "",
         entryDex: String = "",
         quantityScale: Int = tokenDecimals,
+        // V5.0.6789 §OWNER_ATTRIBUTION — full provenance carried into the
+        // position at open commit; terminal learning reads this only.
+        candidateVersion: Long = 0L,
+        sealedFdgId: String = "",
+        intentId: String = "",
     ): Boolean {
         return try {
             if (SlotHealthGate.isMemeLane6689(lane)) {
@@ -207,7 +212,15 @@ object ExecutorCanonicalMirror6442 {
             )
             buysMirrored.incrementAndGet()
             if (result == CanonicalPositionAuthority6441.MutateResult.APPLIED || result == CanonicalPositionAuthority6441.MutateResult.DUPLICATE) {
-                try { LaneAttributionLedger6427.recordEntry(positionId, lane, strategy = lane, profile = lane) } catch (_: Throwable) {}
+                try {
+                    LaneAttributionLedger6427.recordEntry(
+                        positionId = positionId, lane = lane, strategy = lane, profile = lane,
+                        // V5.0.6789 §OWNER_ATTRIBUTION — stamp full provenance
+                        candidateVersion = candidateVersion,
+                        sealedFdgId = sealedFdgId.ifBlank { attemptId },
+                        intentId = intentId.ifBlank { attemptId },
+                    )
+                } catch (_: Throwable) {}
                 try { PositionStateLedger6427.registerOpen(canonicalMint(mint)) } catch (_: Throwable) {}
             }
             try { PipelineHealthCollector.labelInc("EXECUTOR_MIRROR_BUY_$result".take(60)) } catch (_: Throwable) {}

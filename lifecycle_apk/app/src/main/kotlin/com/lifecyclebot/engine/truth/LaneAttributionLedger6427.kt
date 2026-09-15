@@ -29,6 +29,12 @@ object LaneAttributionLedger6427 {
         val profile: String,
         val tactic: String,
         val stampedAtMs: Long,
+        // V5.0.6789 §OWNER_ATTRIBUTION — bind full provenance at open
+        // commit. Terminal learning reads this immutable record only.
+        // Never infer owner at sell time.
+        val candidateVersion: Long = 0L,
+        val sealedFdgId: String = "",
+        val intentId: String = "",
     )
 
     data class ExitPolicy(
@@ -46,6 +52,10 @@ object LaneAttributionLedger6427 {
      * First write wins. Returns true if the entry was stored, false
      * if the positionId already had an entry attributed (in which
      * case the second attempt is recorded but ignored).
+     *
+     * V5.0.6789 §OWNER_ATTRIBUTION adds candidateVersion/sealedFdgId/
+     * intentId parameters so the position carries immutable full
+     * provenance from the moment of open commit.
      */
     fun recordEntry(
         positionId: String,
@@ -53,9 +63,13 @@ object LaneAttributionLedger6427 {
         strategy: String = "",
         profile: String = "",
         tactic: String = "",
+        candidateVersion: Long = 0L,
+        sealedFdgId: String = "",
+        intentId: String = "",
     ): Boolean {
         if (positionId.isBlank()) return false
-        val fresh = Entry(lane, strategy, profile, tactic, System.currentTimeMillis())
+        val fresh = Entry(lane, strategy, profile, tactic, System.currentTimeMillis(),
+            candidateVersion = candidateVersion, sealedFdgId = sealedFdgId, intentId = intentId)
         val prior = entries.putIfAbsent(positionId, fresh)
         if (prior != null) {
             if (prior.lane != lane) {
@@ -69,6 +83,11 @@ object LaneAttributionLedger6427 {
             }
             return false
         }
+        try {
+            if (candidateVersion > 0L || sealedFdgId.isNotBlank() || intentId.isNotBlank()) {
+                PipelineHealthCollector.labelInc("LANE_ATTRIBUTION_FULL_PROVENANCE_6789")
+            }
+        } catch (_: Throwable) {}
         return true
     }
 

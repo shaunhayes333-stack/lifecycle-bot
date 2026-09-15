@@ -13667,6 +13667,15 @@ class Executor(
                 }
             } catch (_: Throwable) {}
             val entryLane6485 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "STANDARD" }
+            // V5.0.6789 §OWNER_ATTRIBUTION — bind full provenance at open commit.
+            val candidateVersion6789 = try {
+                com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(tradeId.mint)
+            } catch (_: Throwable) { 0L }
+            val sealedFdgId6789 = try {
+                com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510
+                    .currentForMint(tradeId.mint, candidateVersion6789, "PAPER")
+                    ?.let { "FDG:${it.authorityVersion}" } ?: entryFinalityId6497
+            } catch (_: Throwable) { entryFinalityId6497 }
             canonicalCreated6485 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyAttempt(
                 mint = tradeId.mint, symbol = ts.symbol.ifBlank { tradeId.symbol }, lane = entryLane6485,
                 estimatedCostSol = actualSol, estimatedFeesSol = fee6485, paperMode = true,
@@ -13676,6 +13685,9 @@ class Executor(
                 entryPriceSource = entryMarketSnapshot?.priceSource ?: ts.lastPriceSource,
                 entryPoolAddress = entryMarketSnapshot?.poolAddress ?: ts.lastPricePoolAddr.ifBlank { ts.pairAddress },
                 entryDex = entryMarketSnapshot?.dex ?: ts.lastPriceDex,
+                candidateVersion = candidateVersion6789,
+                sealedFdgId = sealedFdgId6789,
+                intentId = entryFinalityId6497,
             )
             if (!canonicalCreated6485) {
                 rollbackPaperEntry6485("CANONICAL_RESERVATION_REJECTED")
@@ -15170,6 +15182,15 @@ class Executor(
         // trace with the SQLite idempotency key reserved. The mirror is
         // no-op on failure so a bug never breaks the live path.
         try {
+            // V5.0.6789 §OWNER_ATTRIBUTION — bind full provenance at open commit.
+            val liveCandidateVersion6789 = try {
+                com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)
+            } catch (_: Throwable) { 0L }
+            val liveSealedFdgId6789 = try {
+                com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510
+                    .currentForMint(ts.mint, liveCandidateVersion6789, "LIVE")
+                    ?.let { "FDG:${it.authorityVersion}" } ?: ""
+            } catch (_: Throwable) { "" }
             com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyAttempt(
                 mint = ts.mint,
                 symbol = ts.symbol.ifBlank { ts.mint.take(6) },
@@ -15177,6 +15198,9 @@ class Executor(
                 estimatedCostSol = entryAuthoritySol6487,
                 estimatedFeesSol = 0.0,
                 paperMode = false,
+                candidateVersion = liveCandidateVersion6789,
+                sealedFdgId = liveSealedFdgId6789,
+                intentId = liveSealedFdgId6789,
             )
         } catch (_: Throwable) {}
 
