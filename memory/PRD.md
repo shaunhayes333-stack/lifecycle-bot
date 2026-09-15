@@ -311,3 +311,52 @@ overrule proven negative expectancy."
   `NO_COMPLETED_PASSING_CURRENT_WINDOW` window — unchanged from prior
   session (known issue in `ci/runtime-test.sh` / `ci/runtime_evidence.py`).
 
+
+## V5.0.6810 — NARROW 4-ITEM CAUSAL CORRECTNESS (2026-02)
+
+Scope explicitly restricted by operator: DO NOT refactor canonical
+accounting, paper ledger, position authority, finalized reward fanout,
+sizing authority, or execution spine. This is a targeted correctness
+patch, NOT another global unchoke.
+
+- **#1 Executable mark propagation.** `FinalDecisionGate.evaluate` now
+  promotes fresh source evidence (TokenMap + last-price state) into
+  `CanonicalPriceMarkRegistry6522` BEFORE the FDG scoring path runs, so
+  downstream execution/exit calls always find a canonical mark. Same
+  synchronous promotion added to `BotService.buildExitVisiblePositionsCanonical`
+  before the async provider refresh — if in-memory evidence admits, the
+  network round-trip is skipped entirely. Counters:
+  `FDG_PRE_MARK_PROMOTED_6809`, `EXIT_MARK_SYNC_PROMOTED_6809`. No
+  fabrication, no sync-block on providers, dedup via registry identity
+  rules.
+- **#2 FDG_ALLOW → EXEC_INTENT sequencing.** `ExecutableOpenGate`
+  invariant emission gated: the paper deferral window (`stateAgeMs<5s`)
+  no longer double-counts as both `FDG_ALLOW_WITHOUT_EXEC_INTENT`
+  (invariant) AND `FDG_ALLOW_AWAITING_EXEC_INTENT_6805` (defer). The
+  invariant label is emitted only when the caller is LIVE or paper is
+  past the deferral horizon. Prior health dump showed
+  `FDG_ALLOW_WITHOUT_EXEC_INTENT=6` == `FDG_ALLOW_AWAITING_EXEC_INTENT_6805=6`;
+  post-6810 the paper race is classified DEFER only.
+- **#3 Policy version churn eviction.** `ExecutableOpenGate.intentSupersedes6809`
+  tightened. Previously any `authorityVersion` bump evicted the sealed
+  intent (1520 evictions per run with identical BUY/BUY/OPEN semantics).
+  Now eviction requires MATERIAL change: `BUY → non-BUY`, `fdgAllowed`
+  loss, different `action`, or different `canonicalLane`. Identical
+  executable semantics → preserve the existing immutable ticket;
+  telemetry-only differences do not rebuild.
+- **#4 Exit coordinator false stale reset.** `BotService.maybeHealHotExit`
+  now checks live heartbeat before declaring the coordinator stale:
+    • `hotExitJob?.isActive == true` (main coordinator alive), OR
+    • `exitSweepInFlight && exitSweepWorker.isActive && startedMs < HARD_MS`, OR
+    • `slSafetyNetInFlight && slSafetyNetWorker.isActive && startedMs < HARD_MS`
+  Any of these suppress the force-reset (`EXIT_COORDINATOR_STALE_SUPPRESSED_HEARTBEAT_6809`).
+  Genuinely dead workers past `EXIT_SWEEP_HARD_MS` still trigger the
+  emergency recovery path unchanged.
+- **CI status:** `Build AATE APK` **succeeds** for V5.0.6810 (16m59s).
+  Runtime Smoke Test still fails on the pre-existing
+  `NO_COMPLETED_PASSING_CURRENT_WINDOW` — unchanged, unrelated brittleness.
+- **NOT changed:** CanonicalPositionAuthority, paper ledger, finalized
+  trade bus, reward purity, replay isolation, inventory accounting,
+  lane identity sealing, strategy/expectancy dampers, lane inventory
+  ceiling, FDG negative-EV thresholds, global trading aggressiveness.
+
