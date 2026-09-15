@@ -30,11 +30,14 @@ import java.util.concurrent.atomic.AtomicReference
  * could therefore make MEME / MARKETS / CRYPTO display different balances even
  * though every caller used the "same" API.
  *
- * Paper economics now come from JournalEconomicAuthority6616's immutable,
- * revisioned, journal-replay snapshot. That snapshot is published only after
- * journal/ledger/canonical reconciliation succeeds. Every UI read within a
- * revision therefore receives the exact same cash/equity/realized tuple. The
- * mutable execution ledger remains an execution authority, not a UI calculator.
+ * Paper economics come from CanonicalCapitalAuthority6450 (V5.0.6805
+ * §RETIRE_JOURNAL_REPLAY_ACCOUNTING). Its snapshot is the single
+ * revisioned source consumed by every UI read across MEME / MARKETS /
+ * CRYPTO so all hero cards render the exact same cash/equity/realized
+ * tuple. Legacy journal-replay is forensic history only and no longer
+ * decides hero availability, balances, equity, or reconciliation
+ * status. The mutable execution ledger remains an execution authority,
+ * not a UI calculator.
  *
  * V5.0.6678 — READ PATH PURITY.
  * Account/UI reads are observational only. They never schedule or execute
@@ -86,9 +89,9 @@ object UnifiedAccountSnapshot6635 {
         //
         //   UI is a pure renderer of canonical capital. Journal replay is
         //   forensic history / recovery only; it can no longer decide hero
-        //   availability, balances, equity, or reconciliation status.
-        //   ForensicReconciliation6635.reconcile6635() is a side-effecting
-        //   observer and must not run in the render path.
+        //   availability, balances, equity, or reconciliation status. The
+        //   read path is now side-effect free — no reconciliation call is
+        //   scheduled from the render.
 
         val paperMode = mode.equals("paper", true)
         val markAuthority = try { CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
