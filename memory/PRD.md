@@ -115,10 +115,33 @@ through GitHub Actions CI (no local compiler). Operator mandates:
      exitBacklog|highEdge] telemetry.
 
 ## CI Status
-Last build **V5.0.6800 Build AATE APK = SUCCESS** (16m33s, both
-Gradle builds completed BUILD SUCCESSFUL; unit tests passed).
-Runtime Smoke Test remains red on its pre-existing brittle script
-assertion — unrelated to build health / codebase correctness.
+Last build **V5.0.6802 Build AATE APK = SUCCESS** (17m22s; unit
+tests passed). Runtime Smoke Test remains red on its pre-existing
+brittle script assertion — unrelated to build health.
+
+## Feb 2026 Slice Log (6801–6802)
+- **6801** §LEARNING_MUST_CONTROL_ADMISSION + §SOURCE_AWARE_LEARNING
+  + §FROZEN_DECISION_MUST_YIELD + §FDG_ZERO_QUALITY_HARD_VETO +
+  §POLICY_NEGATIVE_EV_HARD_VETO. Fixes all five smoking guns from
+  the operator's 6800 diagnosis:
+  1. ExecutableEntryAuthority6450.gate HARD-DENIES chronic terminal
+     loser lanes/sources (WR under ~7.5% with adequate sample).
+     Reproof probes still admitted at PROBE_SIZE_SOL.
+  2. Executor.kt:11000 renamed FDG_MUTABLE_SIGNAL_IGNORED_6512 →
+     FDG_MUTABLE_SIGNAL_UNFROZEN_6801 with release-and-defer. Newer
+     WAIT signals now yield the sealed election; provenance stays.
+  3. FinalDecisionGate.kt hard-vetos FDG BUY when laneScore=0 AND
+     entryScore=0 AND aiConfidence=0 AND edgeConfidence=0.
+  4. AateDecisionEnvelope6512.PolicySynthesizer refuses to stamp BUY
+     when weighted EV <= -3.0% (with at least one EV contributor).
+  5. New source-aware learning: LaneAttributionLedger6427.Entry
+     gains discoverySource; CausalFeedbackAuthority6715 subscribes
+     to the canonical terminal bus and accumulates per-source
+     outcomes; sourceLoserAdvisory6801 exposes admission-level veto
+     alongside lane advisory. Non-disruptive to ticket lifecycle.
+- **6802** hotfix compile: aligned CohortLoserAdvisory field names
+  (worstWinRatePct / worstDecidedCount vs SourceLoserAdvisory
+  winRatePct / decidedCount).
 
 ## Remaining Backlog (from operator diagnosis)
 - **P1**: Learning-controlled admission — EXPRESS 1W/12L WR 7.7% EV
