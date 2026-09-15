@@ -26,13 +26,12 @@ class Repair6490AcceptanceTest {
             laneRiskCapSol = 0.05,
             laneMinExecutableSol = 0.05,
         )
-        // V5.0.6791 §REMOVE_MIN_NOTIONAL_RESURRECTION — 0.021 is 42% of
-        // min 0.05 (below the 10% rounding band); this is a deliberate
-        // suppression signal from upstream shaping, not benign rounding.
-        // Directive: return NO_TRADE, do not resurrect.
-        assertFalse(r.executable)
-        assertEquals(0.0, r.finalSizeSol, 1e-9)
-        assertEquals("SUPPRESSED_BELOW_MIN_NO_PROMOTION_6791", r.reason)
+        // V5.0.6797 §REMOVE_MIN_NOTIONAL_RESURRECTION_V2 — 0.021 is above
+        // the 10% deliberate-suppression floor (0.005). Authoritative
+        // micro-notional → promote to min per operator diagnosis Feb 2026.
+        assertTrue(r.executable)
+        assertEquals(0.05, r.finalSizeSol, 1e-9)
+        assertEquals("OK_MIN_PROMOTED_6600", r.reason)
     }
 
     @Test

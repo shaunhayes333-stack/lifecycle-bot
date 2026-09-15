@@ -30,14 +30,14 @@ class Repair6511PaperExecutionSourceTest {
             overrideLaneRiskCapSol = 1.0,
             mintForSeal = "6511-test-mint",
         )
-        // V5.0.6791 §REMOVE_MIN_NOTIONAL_RESURRECTION — a request that is
-        // more than 10% below the min executable is a deliberate suppression
-        // signal. Prior code promoted this 0.02419 request to 0.05
-        // (2.06× promotion). Directive: only promote benign rounding, not
-        // multiplier-stack suppression. Now expects SUPPRESSED_BELOW_MIN.
+        // V5.0.6797 §REMOVE_MIN_NOTIONAL_RESURRECTION_V2 — 0.02419 is above
+        // the 10% deliberate-suppression floor (0.005 = 10% of 0.05), so
+        // this is authoritative micro-notional and gets promoted to
+        // min-exec 0.05. The stricter 6791 90% band was zeroing legitimate
+        // FDG-approved entries per operator diagnosis Feb 2026.
         assertEquals(0.02419, resolved.requestedSol, 1e-9)
-        assertFalse(resolved.executable)
-        assertEquals("SUPPRESSED_BELOW_MIN_NO_PROMOTION_6791", resolved.reason)
+        assertTrue(resolved.executable)
+        assertEquals("OK_MIN_PROMOTED_6600", resolved.reason)
     }
 
     @Test

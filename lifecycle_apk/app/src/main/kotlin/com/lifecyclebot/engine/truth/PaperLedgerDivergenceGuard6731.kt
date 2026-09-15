@@ -116,6 +116,23 @@ object PaperLedgerDivergenceGuard6731 {
             try { PipelineHealthCollector.labelInc("PAPER_LEDGER_DIVERGENCE_STALE_PARITY_FAIL_OPEN_6732") } catch (_: Throwable) {}
             return stamped(true, "OK_STALE_PARITY_6732", parity.cashDelta, parity.openCostDelta, parity.realizedDelta, parity.orphanLotCount, "STALE_${parityAge}ms")
         }
+        // V5.0.6797 §CANONICAL_LEDGER_AUTHORITY — operator diagnosis Feb
+        // 2026: canonical reconciler (mismatchesEver=0) simultaneously
+        // reports the authoritative ledger is balanced while the
+        // journal-scoped projection reports huge divergence. That is a
+        // stale / differently-scoped comparison. The canonical ledger is
+        // the authority; when it says clean, honour it and fail-open.
+        // Journal-projection divergence still emits telemetry so the
+        // maintenance path sees it, but it must not choke admissions.
+        val canonicalClean6797 = try {
+            com.lifecyclebot.engine.truth.CanonicalReconciler6441.mismatchesEver() == 0L
+        } catch (_: Throwable) { false }
+        if (canonicalClean6797) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_LEDGER_DIVERGENCE_CANONICAL_CLEAN_FAIL_OPEN_6797")
+            } catch (_: Throwable) {}
+            return stamped(true, "OK_CANONICAL_CLEAN_6797", parity.cashDelta, parity.openCostDelta, parity.realizedDelta, parity.orphanLotCount, "canonical_reconciler_clean")
+        }
         val cashΔ = kotlin.math.abs(parity.cashDelta)
         val openΔ = kotlin.math.abs(parity.openCostDelta)
         val realΔ = kotlin.math.abs(parity.realizedDelta)

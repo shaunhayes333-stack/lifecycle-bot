@@ -79,16 +79,13 @@ class Repair6510AuthorityAcceptanceTest {
         // req < minExec with a small wallet where the ladder ALSO stays
         // under 3×minExec (so rescue does not apply and the sub-floor
         // rejection contract is preserved for that path).
-        // V5.0.6791 §REMOVE_MIN_NOTIONAL_RESURRECTION — operator directive
-        //   > "OK_MIN_PROMOTED_6600 must only promote benign rounding/min-
-        //   >  notional cases. It must not resurrect a deliberately
-        //   >  suppressed 0.002 multiplier stack into 0.050 SOL exposure."
-        // 0.028 is 56% of min 0.05 (well below the 10% rounding band).
-        // This is a deliberate suppression signal from upstream shaping,
-        // NOT benign rounding, so both variants must be non-executable.
-        // The prior 6598 rescue doctrine is explicitly retired.
+        // V5.0.6797 §REMOVE_MIN_NOTIONAL_RESURRECTION_V2 — the 10%
+        // deliberate-suppression floor (min-exec 0.05 → floor 0.005)
+        // separates authoritative micro-notional from stacked-multiplier
+        // suppression. 0.028 is above 0.005 so it is authoritative and
+        // gets promoted to min when caps can fund it.
         assertFalse(r(0.028, 1.0, 0.05).executable) // ladder cannot fund min → sub-floor rejection stands
-        assertFalse(r(0.028, 1.0, 10.0).executable) // 6791: deliberate suppression is no longer promoted
+        assertTrue(r(0.028, 1.0, 10.0).executable)  // 6797: authoritative micro-notional → promote
         assertTrue(r(0.05, 1.0, 10.0).executable)
         assertTrue(r(0.10, 1.0, 10.0).executable)
         assertFalse(r(0.10, 0.04, 10.0).executable)

@@ -43,11 +43,10 @@ class Aate6600SpecialistAuthorityRestorationTest {
             requestedSol = 0.00154, laneName = "EXPRESS", walletSol = 1.0,
             paperMode = false, laneRiskCapSol = 0.50, laneMinExecutableSol = 0.05,
         )
-        // V5.0.6791 §REMOVE_MIN_NOTIONAL_RESURRECTION — 0.00154 is 3% of
-        // min 0.05 (well below the 10% rounding band); this is exactly
-        // the stacked-multiplier suppression the directive forbids
-        // (\"deliberately suppressed 0.002 multiplier stack into 0.050 SOL
-        // exposure\"). Now returns NO_TRADE.
+        // V5.0.6797 §REMOVE_MIN_NOTIONAL_RESURRECTION_V2 — 0.00154 is
+        // below the 10% deliberate-suppression floor (0.005 = 10% of 0.05).
+        // This is EXACTLY the operator's stacked-multiplier suppression
+        // example (\"0.002 stack into 0.050 exposure\"). NO_TRADE.
         assertFalse(r.executable)
         assertEquals(0.0, r.finalSizeSol, 1e-9)
         assertEquals("SUPPRESSED_BELOW_MIN_NO_PROMOTION_6791", r.reason)
