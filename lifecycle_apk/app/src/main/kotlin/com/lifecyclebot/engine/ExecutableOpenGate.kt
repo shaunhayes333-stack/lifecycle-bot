@@ -372,22 +372,40 @@ object ExecutableOpenGate {
 
     /**
      * V5.0.6809 §INTENT_SUPERSEDES — returns true when the incoming intent
-     * carries newer authoritative policy that must evict any prior sealed
-     * intent for the same key.
+     * carries newer authoritative policy that materially changes the
+     * executable semantics for the same key. Prior version (6809 initial)
+     * over-invalidated on any authorityVersion bump; 6810 tightens the
+     * check to material execution fields only. Operator diagnosis:
+     *   "priorFdg=BUY, priorFinal=BUY, priorAction=OPEN,
+     *    newFdg=BUY,   newFinal=BUY,   newAction=OPEN
+     *    yet the existing intent is invalidated" — this rebuild is exactly
+     *    what caused 1520 invalidations across a single run.
      *
-     * Supersession triggers:
-     *   • newer authorityVersion  (learning policy advanced)
-     *   • prior was BUY but new is not BUY (BLOCK-then-BUY paths cannot survive)
-     *   • prior FDG verdict allowed but new FDG verdict blocks
+     * Supersession triggers (material only):
+     *   • prior FDG allowed but new FDG blocks (BLOCK path must evict BUY)
+     *   • prior final decision was BUY but new final decision is not BUY
      *   • different action string with the same key
+     *   • different canonical lane owner (lane re-assignment is a material
+     *     execution change: sizing caps, cohort, inventory ceiling all change)
+     *
+     * Non-material (no eviction):
+     *   • authorityVersion bump alone, with identical executable semantics
+     *   • resolvedSize refinement (compute() handles size upgrade path)
+     *   • telemetry-only differences
      */
     internal fun intentSupersedes6809(incoming: ExecutionIntent, prior: ExecutionIntent): Boolean {
-        if (incoming.authorityVersion > prior.authorityVersion) return true
+        // 1. Prior was executable BUY → new is not: hard evict.
         if (prior.finalDecision6613 == CanonicalFinalDecision6613.BUY &&
             incoming.finalDecision6613 != CanonicalFinalDecision6613.BUY) return true
+        // 2. Prior FDG allowed → new FDG blocks: hard evict.
         if (prior.fdgAllowed && !incoming.fdgAllowed) return true
-        if (!incoming.action.equals(prior.action, ignoreCase = true) &&
-            incoming.candidateVersion == prior.candidateVersion) return true
+        // 3. Action string changed for the same candidate/version: evict.
+        if (incoming.candidateVersion == prior.candidateVersion &&
+            !incoming.action.equals(prior.action, ignoreCase = true)) return true
+        // 4. Canonical lane owner changed: material change in execution scope.
+        if (!incoming.canonicalLane.equals(prior.canonicalLane, ignoreCase = true)) return true
+        // 5. Otherwise: preserve the sealed immutable intent. authorityVersion
+        //    bump alone is metadata drift; do NOT rebuild.
         return false
     }
 
@@ -2483,16 +2501,34 @@ object ExecutableOpenGate {
                     com.lifecyclebot.engine.truth.PostSealAuthorityInvariants6760.emitAdvisory6760(reason6763, extra6763)
                 }
             }
-            try {
-                PipelineHealthCollector.labelInc("AUTHORITY_INVARIANT_FAILURE")
-                PipelineHealthCollector.labelInc("EXEC_AUTHORITY_STATE_MISMATCH")
-                // ExecutionSpineAcceptanceWindow6647 watches this exact
-                // counter.  Previously the violation only appeared as a gate
-                // reason, so smoke acceptance could report a false clean zero.
-                PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT")
-                try { PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT_LANE_6727_${canonicalSelectedLane.uppercase()}") } catch (_: Throwable) {}
-                ForensicLogger.lifecycle("AUTHORITY_INVARIANT_FAILURE", "attemptId=$attemptId mint=${mint.take(10)} candidateVersion=$candidateVersion currentVersion=$currentCandidateVersion requestedLane=$requestedLane selectedLane=$canonicalSelectedLane preFdg=$preFdgVerdict reason=FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519 stateAgeMs=$stateAgeMs")
-            } catch (_: Throwable) {}
+            // V5.0.6809 §FDG_ALLOW_LABEL_ATOMICITY — operator diagnosis Feb 2026:
+            // The paper race window (`stateAgeMs<5s, immutable seal pending`)
+            // is a DEFER, not an authority invariant violation. The prior
+            // code emitted BOTH `FDG_ALLOW_WITHOUT_EXEC_INTENT` and
+            // `FDG_ALLOW_AWAITING_EXEC_INTENT_6805` for the same paper case,
+            // inflating both counters simultaneously (health dump showed
+            // FDG_ALLOW_WITHOUT_EXEC_INTENT=6 == FDG_ALLOW_AWAITING_EXEC_INTENT_6805=6).
+            // Mandate: "Do not publish/count final FDG_ALLOW before intent
+            // creation succeeds. If intent creation is temporarily
+            // unavailable, classify as DEFER/PENDING, not FDG_ALLOW."
+            // The AUTHORITY_INVARIANT_FAILURE / FDG_ALLOW_WITHOUT_EXEC_INTENT
+            // labels are now emitted only when the caller is LIVE (real
+            // integrity violation) or paper is past the deferral horizon.
+            val paperMode6805 = mode.equals("PAPER", true)
+            val staleUnsealedPaper6805 = stateAgeMs > 5_000L
+            val isPaperDeferralWindow6809 = paperMode6805 && !staleUnsealedPaper6805
+            if (!isPaperDeferralWindow6809) {
+                try {
+                    PipelineHealthCollector.labelInc("AUTHORITY_INVARIANT_FAILURE")
+                    PipelineHealthCollector.labelInc("EXEC_AUTHORITY_STATE_MISMATCH")
+                    // ExecutionSpineAcceptanceWindow6647 watches this exact
+                    // counter.  Previously the violation only appeared as a gate
+                    // reason, so smoke acceptance could report a false clean zero.
+                    PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT")
+                    try { PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT_LANE_6727_${canonicalSelectedLane.uppercase()}") } catch (_: Throwable) {}
+                    ForensicLogger.lifecycle("AUTHORITY_INVARIANT_FAILURE", "attemptId=$attemptId mint=${mint.take(10)} candidateVersion=$candidateVersion currentVersion=$currentCandidateVersion requestedLane=$requestedLane selectedLane=$canonicalSelectedLane preFdg=$preFdgVerdict reason=FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519 stateAgeMs=$stateAgeMs")
+                } catch (_: Throwable) {}
+            }
             // V5.0.6805 §PAPER_FDG_WITHOUT_SEAL_IS_A_DEFERRAL — operator
             //   diagnosis Feb 2026: The paper `fdgCan=true / immutable
             //   seal=null` window past 500 ms is not an authority
@@ -2507,9 +2543,7 @@ object ExecutableOpenGate {
             //   an unsealed old snapshot. LIVE mode remains a hard fail:
             //   there is no synthetic provisional-state path and this
             //   window would be a real integrity violation.
-            val paperMode6805 = mode.equals("PAPER", true)
             if (paperMode6805) {
-                val staleUnsealedPaper6805 = stateAgeMs > 5_000L
                 try {
                     PipelineHealthCollector.labelInc("FDG_ALLOW_AWAITING_EXEC_INTENT_6805")
                     if (staleUnsealedPaper6805) PipelineHealthCollector.labelInc("FDG_ALLOW_STALE_UNSEALED_PAPER_6805")

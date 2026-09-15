@@ -1123,6 +1123,39 @@ class BotService : Service() {
             }
             return false
         }
+        // V5.0.6809 §EXIT_COORDINATOR_HEARTBEAT — operator diagnosis Feb 2026:
+        //   EXIT_COORDINATOR_STALE_RESET=27 while sweep start=done=44 and
+        //   timeout=0. A worker actively making progress must not be
+        //   declared stale. Mandate: "Stale reset should require: no
+        //   heartbeat/progress past timeout AND no active worker AND no
+        //   completed result waiting to publish."
+        //
+        //   Guards, evaluated in order:
+        //     • hotExitJob is active AND started within the sweep budget
+        //     • exitSweepInFlight true AND its worker started < HARD_MS ago
+        //     • slSafetyNetInFlight true AND worker started < HARD_MS ago
+        //   Any of these → the coordinator is progressing; skip force-reset.
+        //   Genuinely dead workers (past HARD_MS with no completion) still
+        //   fall through to the emergency recovery below.
+        val hotExitAlive6809 = try { hotExitJob?.isActive == true } catch (_: Throwable) { false }
+        val exitWorkerAlive6809 = try {
+            val startedMs = exitSweepStartedMs
+            exitSweepInFlight.get() && exitSweepWorker?.isActive == true &&
+                startedMs > 0L && (nowMs - startedMs) < EXIT_SWEEP_HARD_MS
+        } catch (_: Throwable) { false }
+        val slWorkerAlive6809 = try {
+            val startedMs = slSafetyNetStartedMs
+            slSafetyNetInFlight.get() && slSafetyNetWorker?.isActive == true &&
+                startedMs > 0L && (nowMs - startedMs) < EXIT_SWEEP_HARD_MS
+        } catch (_: Throwable) { false }
+        val coordinatorHeartbeat6809 = hotExitAlive6809 || exitWorkerAlive6809 || slWorkerAlive6809
+        if (coordinatorHeartbeat6809 && !neverRan) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("EXIT_COORDINATOR_STALE_SUPPRESSED_HEARTBEAT_6809")
+            } catch (_: Throwable) {}
+            return false
+        }
         // We are in a stale episode. Recovery work runs EVERY loop (positions must stay
         // protected), but the loud STALE_RESET log + counter fires ONCE per episode only.
         val firstInEpisode = !hotExitStaleEpisodeActive
@@ -19345,7 +19378,55 @@ if (hotExitHandledSweep) {
             val refreshNeeded6651 = ts.position.entryPrice <= 0.0 || ts.lastPrice <= 0.0 ||
                 stateMarkStale6651 || !provenanceFresh6651
             if (refreshNeeded6651) {
-                missingMark++
+                // V5.0.6809 §EXIT_MARK_SYNC_PROMOTE — before launching an async
+                // provider refresh, try to promote whatever fresh source
+                // evidence already lives in this TokenState into the canonical
+                // mark registry. If the promotion succeeds we neither miss
+                // this tick's mark nor spend a network round-trip. Pure
+                // registry publish; never fabricates, never blocks on
+                // providers, dedup is implicit via
+                // CanonicalPriceMarkRegistry6522 identity/timestamp
+                // acceptance rules.
+                val promoNow6809 = System.currentTimeMillis()
+                val WINDOW6809 = 300_000L
+                val tokenMapFresh6809 = ts.tokenMap.updatedAtMs > 0L &&
+                    promoNow6809 - ts.tokenMap.updatedAtMs <= WINDOW6809
+                val stateFresh6809 = ts.lastPriceUpdate > 0L &&
+                    promoNow6809 - ts.lastPriceUpdate <= WINDOW6809
+                val evidenceCarriesQuote6809 =
+                    (tokenMapFresh6809 && (ts.tokenMap.priceUsd ?: 0.0) > 0.0) ||
+                        (stateFresh6809 && ts.lastPrice > 0.0)
+                var syncPromoted6809 = false
+                if (evidenceCarriesQuote6809) try {
+                    val evidence6809 = listOf(
+                        com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.SourceEvidence6734(
+                            cp.mint,
+                            ts.tokenMap.poolAddress.ifBlank { ts.tokenMap.pairAddress },
+                            ts.tokenMap.quoteMint, ts.tokenMap.sourceScanner,
+                            ts.tokenMap.priceUsd ?: 0.0, ts.tokenMap.liquidityUsd ?: 0.0,
+                            if (tokenMapFresh6809) ts.tokenMap.updatedAtMs else 0L,
+                        ),
+                        com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.SourceEvidence6734(
+                            cp.mint, ts.lastPricePoolAddr.ifBlank { ts.pairAddress },
+                            "USD", ts.lastPriceSource, ts.lastPrice, ts.lastLiquidityUsd,
+                            if (stateFresh6809) ts.lastPriceUpdate else 0L,
+                        ),
+                    )
+                    val promo6809 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522
+                        .resolveBestSourceEvidence6734(cp.mint, evidence6809, promoNow6809)
+                    if (promo6809.promoted) {
+                        syncPromoted6809 = true
+                        PipelineHealthCollector.labelInc("EXIT_MARK_SYNC_PROMOTED_6809")
+                    }
+                } catch (_: Throwable) {}
+
+                if (syncPromoted6809) {
+                    // In-memory evidence cleared the missing-mark gap without
+                    // touching any provider; the exit evaluator will read
+                    // the just-published canonical mark.
+                    exitMarkRefreshLastSuccessMs6594[cp.mint] = promoNow6809
+                } else {
+                    missingMark++
                 // V5.0.6594 §MARK_REFRESH_DEDUP_TTL — enforce a per-mint TTL
                 // so the exit-feed 5s cadence cannot re-queue the same
                 // refresh 9× per position per tick as it did on 6591.
@@ -19419,6 +19500,7 @@ if (hotExitHandledSweep) {
                         } finally { exitMarkRefreshPending6513.remove(cp.mint) }
                     }
                 }
+                }  // V5.0.6809 §EXIT_MARK_SYNC_PROMOTE: close else-branch
             }
             ts
         }

@@ -797,6 +797,50 @@ object FinalDecisionGate {
         // was permanently 0 because no call site emitted the phase
         // beacon. Zero happy-path cost.
         try { PipelineHealthCollector.recordBackgroundProgress6544("FDG") } catch (_: Throwable) {}
+
+        // V5.0.6809 §PRE_FDG_MARK_PROMOTION — operator diagnosis Feb 2026:
+        //   missingExecutableMarkWithValidSource=23, EXECUTION_BLOCKED_NO_CANONICAL_MARK_6613=23.
+        // When a candidate has a fresh source quote (TokenMap or lastPrice),
+        // promote it into the canonical mark store BEFORE FDG runs so the
+        // subsequent execution or exit evaluation always finds a canonical
+        // mark. Dedup by mint (registry publish is idempotent by identity).
+        // Never fabricate; never sync-block on providers — the resolution is
+        // a pure registry read from evidence already carried in TokenState.
+        try {
+            val nowPromo6809 = System.currentTimeMillis()
+            val WINDOW6809 = 300_000L
+            val tokenMapFresh6809 = ts.tokenMap.updatedAtMs > 0L &&
+                nowPromo6809 - ts.tokenMap.updatedAtMs <= WINDOW6809
+            val stateFresh6809 = ts.lastPriceUpdate > 0L &&
+                nowPromo6809 - ts.lastPriceUpdate <= WINDOW6809
+            if (tokenMapFresh6809 || stateFresh6809) {
+                val evidence6809 = listOf(
+                    com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.SourceEvidence6734(
+                        ts.mint,
+                        ts.tokenMap.poolAddress.ifBlank { ts.tokenMap.pairAddress },
+                        ts.tokenMap.quoteMint, ts.tokenMap.sourceScanner,
+                        ts.tokenMap.priceUsd ?: 0.0, ts.tokenMap.liquidityUsd ?: 0.0,
+                        if (tokenMapFresh6809) ts.tokenMap.updatedAtMs else 0L,
+                    ),
+                    com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.SourceEvidence6734(
+                        ts.mint,
+                        ts.lastPricePoolAddr.ifBlank { ts.pairAddress },
+                        "USD", ts.lastPriceSource, ts.lastPrice, ts.lastLiquidityUsd,
+                        if (stateFresh6809) ts.lastPriceUpdate else 0L,
+                    ),
+                )
+                val promo6809 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522
+                    .resolveBestSourceEvidence6734(ts.mint, evidence6809, nowPromo6809)
+                if (promo6809.promoted) {
+                    PipelineHealthCollector.labelInc("FDG_PRE_MARK_PROMOTED_6809")
+                } else if (evidence6809.any { it.timestampMs > 0L && (it.priceUsd) > 0.0 }) {
+                    // Fresh evidence exists but promotion did not admit; the
+                    // registry already surfaces the reason via its own counters.
+                    PipelineHealthCollector.labelInc("FDG_PRE_MARK_EVIDENCE_HELD_6809")
+                }
+            }
+        } catch (_: Throwable) {}
+
         val checks = mutableListOf<GateCheck>()
         var blockReason: String? = null
         var blockLevel: BlockLevel? = null
