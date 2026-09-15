@@ -452,6 +452,11 @@ object SpecialistCausalFunnel6625 {
      */
     const val PHANTOM_TTL_MS_6760 = 30_000L
 
+    /** V5.0.6792 — public accessor for the currently effective adaptive
+     *  TTL (what the phantom/reap paths actually consume). Tests that
+     *  need to time-advance past the canonical TTL should use this. */
+    fun adaptivePhantomTtlMs6790Public(): Long = adaptivePhantomTtlMs6790()
+
     private fun adaptivePhantomTtlMs6790(): Long = try {
         com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626()
     } catch (_: Throwable) { PHANTOM_TTL_MS_6760 }

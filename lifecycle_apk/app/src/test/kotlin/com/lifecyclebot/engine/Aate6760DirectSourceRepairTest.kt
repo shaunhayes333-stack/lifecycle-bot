@@ -37,7 +37,8 @@ class Aate6760DirectSourceRepairTest {
         // to be counted as phantom (records younger than TTL are in-flight,
         // not phantoms — see §PHANTOM_SIZED_AT_SOURCE docblock).
         SpecialistCausalFunnel6625.stamp6625(fresh, Stage.SIZE, "SIZED_EXECUTABLE")
-        val agedNow = System.currentTimeMillis() + SpecialistCausalFunnel6625.PHANTOM_TTL_MS_6760 + 1_000L
+        // V5.0.6790 §TTL_SINGLE_SOURCE — reap now consumes AdaptiveTicketTtl6626.
+        val agedNow = System.currentTimeMillis() + SpecialistCausalFunnel6625.adaptivePhantomTtlMs6790Public() + 1_000L
         val snap1 = SpecialistCausalFunnel6625.laneSnapshot6647(fresh.lane, agedNow)
         assertTrue(
             "sized-without-terminal past TTL must appear in phantomSizedOnly (got ${snap1.phantomSizedOnly})",
@@ -81,7 +82,7 @@ class Aate6760DirectSourceRepairTest {
         )
         SpecialistCausalFunnel6625.stamp6625(key, Stage.SIZE, "SIZED_EXECUTABLE")
         val phantomBefore = SpecialistCausalFunnel6625.laneSnapshot6647(
-            key.lane, System.currentTimeMillis() + SpecialistCausalFunnel6625.PHANTOM_TTL_MS_6760 + 1_000L,
+            key.lane, System.currentTimeMillis() + SpecialistCausalFunnel6625.adaptivePhantomTtlMs6790Public() + 1_000L,
         ).phantomSizedOnly
         assertTrue("must have at least one phantom before reap", phantomBefore >= 1)
         // Advance nowMs beyond TTL — the reservation must be terminalized.
@@ -91,7 +92,7 @@ class Aate6760DirectSourceRepairTest {
         )
         assertTrue("reap must terminalize at least one stale sized reservation", sweptCount >= 1)
         val snapAfter = SpecialistCausalFunnel6625.laneSnapshot6647(
-            key.lane, System.currentTimeMillis() + SpecialistCausalFunnel6625.PHANTOM_TTL_MS_6760 + 1_000L,
+            key.lane, System.currentTimeMillis() + SpecialistCausalFunnel6625.adaptivePhantomTtlMs6790Public() + 1_000L,
         )
         assertTrue(
             "STALE_SIZED_TERMINAL_6760 must appear in the causal outcomes",
