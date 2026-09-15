@@ -15,83 +15,61 @@ mandates:
 
 ## Session February 2026 — Shipped Fixes
 
-**Prior slices (context):**
-- V5.0.6768 – V5.0.6781 — journal parity, sizing/compound math on equity,
-  exit turnover, sticky provider lock, APK-update hero fix.
+**Prior slices (context):** V5.0.6768 – V5.0.6781.
 
-**Authority-consolidation slices (this session):**
-- **V5.0.6782** slice 1: Sealed cognitive decision + downstream
-  resurrection removal — retired PROVEN_DEAD_PROBE canonical dust probe,
-  zero-conf → REJECT (paper+live), LIVE_RESTORE_STALE_WATCH_SOFT_ALLOW /
-  STALE_CANDIDATE_SOFT_ALLOW / MISSING_FINAL_CANDIDATE_SOFT_ALLOW removed,
-  forceAdaptiveRelaxation neutered.
-- **V5.0.6783** slice 2: Symbolic universe block authoritative in ALL modes
-  (removed paper-only advisory downgrade), stale safety = WAIT (removed
-  FDG_SAFETY_STALE_SOFT_SHAPED_6341 0.3× continuation), COPY_TRADE /
-  WHALE_FOLLOW lane-forced micro-probes retired.
-- **V5.0.6784** slice 3: EarlyLaunchBypass6394/6396 below-floor bypass
-  retired — scout tier no longer forces 0.30× micro-probe execution.
-- **V5.0.6785** — golden-tape test alignment for 6782/6783 removals.
-- **V5.0.6786** slice 4 + PER_TRADE_FEE_SEND:
-    - BotService lane-eval zero-signal + weak-wait now emit WAIT
-      (retired LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164 and
-      LANE_WAIT_OVERRIDE_DUST_PROBE PROBE_ONLY fallbacks).
-    - Executor.sendFeeSplit + MarketsLiveExecutor.collectTradingFee now
-      send each fee share DIRECTLY per trade to the two coded fee
-      wallets (A8QPQr…kkpd + 82CAPB…hygA) via wallet.sendSol —
-      no accumulator, no batching. FeeRetryQueue owns transient
-      failures. Two-wallet 50/50 split preserved.
-- **V5.0.6787** — 5 more brittle golden-tape tests aligned to 6786.
-- **V5.0.6788** §CANONICAL_MARK_AUTHORITY P0 (Feb 2026 directive):
-    - CANONICAL_MARK_SENTINEL_SHAPE_QUARANTINE_6728 now admits marks
-      that carry canonical identity provenance (TOKEN_MAP-verified DEX/
-      pump route). Round-shape fingerprint alone no longer starves
-      execution when route is proven.
+**First authority-consolidation wave (this session):**
+- **6782**: Sealed cognitive decision + downstream resurrection removal
+  (PROVEN_DEAD HARD_BLOCK, zero-conf REJECT, LIVE_RESTORE soft-allows
+  removed, forceAdaptiveRelaxation neutered).
+- **6783**: Symbolic universe block authoritative in ALL modes, stale
+  safety = WAIT, COPY/WHALE lane-forced probes retired.
+- **6784**: EarlyLaunchBypass below-floor bypass retired.
+- **6785 / 6787**: golden-tape test alignment.
+- **6786**: Zero-signal + weak-wait now emit WAIT (no more PROBE_ONLY
+  resurrection). **Per-trade fee send restored** — Executor +
+  MarketsLiveExecutor send 50/50 share DIRECTLY per trade to the two
+  coded fee wallets, no accumulator, FeeRetryQueue owns transients.
 
-## Remaining V5.0.6787+ Directive Backlog (P0 / P1 / P2)
+**Second wave — Feb 2026 SOURCE REPAIR PRIORITY (this session):**
+- **6788** P0 §CANONICAL_MARK_AUTHORITY: sentinel-shape quarantine
+  admits identity-proven marks.
+- **6789** P0 §SINGLE_SEALED_ENTRY_AUTHORITY: cross-verdict intent
+  supersession — a stale BUY intent cannot survive a later NO_BUY/WAIT
+  for the same (mode, mint, candidateVersion).
+- **6789** P0 §OWNER_ATTRIBUTION: full provenance (candidateVersion +
+  sealedFdgId + intentId) stamped into LaneAttributionLedger6427 at
+  every paper/live open commit.
+- **6790** P1 §TTL_SINGLE_SOURCE: 4 specialist 30s hardcodes retired,
+  every ticket/reservation now reads AdaptiveTicketTtl6626 (180s).
+- **6791** P1 §REMOVE_MIN_NOTIONAL_RESURRECTION: OrderSizeResolver6441
+  now only promotes benign rounding (within 10% of min). Deliberately
+  suppressed sizes emit SUPPRESSED_BELOW_MIN_NO_PROMOTION_6791 and
+  return NO_TRADE.
+- **6792** P1 §LEARNED_BLEEDER_AUTHORITY: shadow exploration stream
+  emits PROVEN_DEAD_SHADOW_EXPLORATION_6791 telemetry for every
+  hard-blocked catastrophic cohort candidate (no canonical capital).
+- **6792** P2 §LEARNING_PURITY: UnifiedPolicyHead.recordOutcome gated
+  on LaneAttributionLedger6427.hasFullProvenance6789 — no lane-head
+  training from unresolved-owner or pre-6789 hydrated closes.
+- **6793 / 6794 / 6795**: aligned brittle tests to the new doctrines.
 
-**P0**
-- SINGLE_SEALED_ENTRY_AUTHORITY — one candidateVersion × mint × mode
-  must have exactly one sealed owner / FDG outcome / executable intent.
-  Remove any EXEC_INTENT_REUSED_6734 crossing owner/verdict boundaries.
-  Target: FDG_ALLOW_WITHOUT_EXEC_INTENT = 0.
-- OWNER_ATTRIBUTION — eliminate UNRESOLVED_OWNER_6741. Bind
-  laneOwner + candidateVersion + sealedFdgId + intentId into
-  CanonicalPosition at open commit; never infer owner at sell time.
-
-**P1**
-- LEARNED_BLEEDER_AUTHORITY — statistically decisive catastrophic cohorts
-  (e.g., EXPRESS 0/29, PROJECT_SNIPER catastrophic score bands) must not
-  retain normal capital authority; convert to shadow exploration until
-  recovery criteria met.
-- REMOVE_MIN_NOTIONAL_RESURRECTION — OK_MIN_PROMOTED_6600 must only
-  promote benign rounding cases, never resurrect a deliberately
-  suppressed 0.002× multiplier stack into 0.050 SOL exposure.
-  Consolidate all size multipliers once, then clamp once.
-- TTL_SINGLE_SOURCE — remove specialist hard-coded 30s TTL; every
-  ticket/reservation must consume AdaptiveTicketTTL authority.
-
-**P2**
-- LEARNING_PURITY — do not train lane heads from unresolved-owner or
-  economically invalid closes; attribute every reward to immutable entry
-  provenance.
-- Runner Compound Widget (dashboard).
-- Perps Neural Bridge (perps↔stocks cross-learning).
-- LLM Lab sandbox.
-
-## Design Notes (Not Bugs)
+## Design Notes
 - 100-position hard cap (ExitThroughputAuthority6727) is intentional.
-  Sizing + exit turnover should keep pace so the cap is rarely hit.
-- Paper trading is the production mode. Live wiring kept but paper is
-  the operator's active target.
+- Paper trading is the production mode.
 
 ## Architecture
 - Native Kotlin Android app, event-sourced.
 - Canonical registries under `com.lifecyclebot.engine.truth.*`.
-- Build/test via GitHub Actions CI only. No local compiler.
-- Version bumped in BOTH `/app/AATE_VERSION` and
-  `/app/lifecycle_apk/AATE_VERSION` on every commit.
+- Build/test via GitHub Actions CI only.
+- Version bumped in BOTH `/app/AATE_VERSION` and `/app/lifecycle_apk/AATE_VERSION`.
+
+## Remaining Backlog
+- Runtime Smoke Test brittle assertion (`NO_COMPLETED_PASSING_CURRENT_
+  WINDOW`) still fails independently of build health; needs script
+  adjustment (P2).
+- Runner Compound Widget (dashboard).
+- Perps Neural Bridge (perps↔stocks cross-learning).
+- LLM Lab sandbox.
 
 ## Test Credentials
-See `/app/memory/test_credentials.md` (none used — bot is standalone,
-no auth). GitHub PAT authenticated via `gh` CLI.
+See `/app/memory/test_credentials.md` (none used — standalone bot).
