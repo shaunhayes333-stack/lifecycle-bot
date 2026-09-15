@@ -61,22 +61,52 @@ through GitHub Actions CI (no local compiler). Operator mandates:
   markLearned was false-ACKing 50/50 unresolved-owner closes. Now
   gated on hasFullProvenance6789; unresolved-owner closes skip the
   ACK entirely (label CAUSAL_ACK_SKIPPED_UNRESOLVED_OWNER_6798).
+- **6799** §OWNER_DIAGNOSIS_SOURCE_REPAIR (5-issue slice):
+  1. UNIVERSAL_OWNER_PROVENANCE — every canonical OPEN commit now
+     auto-stamps LaneAttributionLedger6427 with the caller's
+     idempotencyKey as intent seal. Cross-asset openings, perps/
+     markets executors, and paper rebuild paths no longer emit
+     LEARNING_PURITY_SKIP_UNRESOLVED_OWNER_6792. First-write-wins
+     preserves earlier full-provenance stamps.
+  2. ADVISORY_MUST_NOT_ZERO — removed the 6797 10% "deliberate
+     suppression" discriminator. Any strictly positive request the
+     caps can fund is promoted to min-exec via OK_MIN_PROMOTED_6600.
+     Callers wishing to hard-veto MUST return requestedSol=0.
+     Retired SUPPRESSED_BELOW_MIN_NO_PROMOTION_6791.
+  3. FALLBACK_MARK_NEVER_FOR_ECONOMIC_MATH — new
+     CanonicalPriceMarkRegistry6522.getForEconomicMath6799 refuses
+     to return CANONICAL_MARK_FALLBACK_OBSERVATION_6732 marks; hard-
+     stop / refund / catastrophe math now defers instead of pricing
+     off a bare observation.
+  4. OWNERSHIP_ADAPTIVE_SELECTION — TERMINAL_MIN_DECIDED 20→6,
+     TERMINAL_WR_FLOOR 0.05→0.15. PROJECT_SNIPER 0/7 at −61.8% EV
+     now surrenders primary ownership at admission instead of
+     collecting a size-only damper.
+  5. EXIT_FUNNEL_TELEMETRY — ProtectiveExitScheduler6450.evaluate()
+     emits PHASE.EXIT_GATE on every real canonical exit evaluation.
+     Top-funnel EXIT counter now reflects reality (was: 0 while
+     BG_EXIT=1840).
 
 ## CI Status
-Last build **V5.0.6798 Build AATE APK = SUCCESS**. Runtime Smoke Test
-still red on its pre-existing brittle script assertion — unrelated to
-build health.
+Last build **V5.0.6799 Build AATE APK = SUCCESS** (both gradle
+builds completed BUILD SUCCESSFUL; unit tests passed). Runtime
+Smoke Test remains red on its pre-existing brittle script
+assertion — unrelated to build health / codebase correctness.
 
 ## Remaining Backlog (from operator diagnosis)
-- HIGH: mark authority still admitting corrupted/fallback prices far
-  enough downstream to cause extreme exits/refunds
-  (CANONICAL_MARK_FALLBACK_OBSERVATION_6732: 2634).
-- HIGH: exit coordinator lifecycle detached from the actually-firing
-  background/risk-clock exit mechanism (`EXIT: 0` telemetry vs 468
-  background exits).
-- HIGH: PROJECT_SNIPER/restored-position poisoning quality metrics.
-- MEDIUM: 38 stale/expired execution blocks despite adaptive TTL.
-- MEDIUM: Birdeye 401 provider degradation (secondary choke).
+- Runtime smoke test brittleness (`NO_COMPLETED_PASSING_CURRENT_WINDOW`
+  in `ci/runtime_evidence.py`) — blocks a fully-green pipeline.
+- Retire Journal Replay as accounting authority for UI/hero/audit
+  (P1 §5): UI hero + acceptance audits still consume
+  TRADE_JOURNAL_REPLAY_6619 → 3.44 vs −0.37 SOL divergence and 151/153
+  J_* audit failures. CanonicalCapitalAuthority6450 must become the
+  sole read surface.
+- Runtime fan-out / staleness (P2 §7): coalesce shared intelligence
+  before specialist fan-out; kill superseded generation work earlier;
+  drop stale-generation candidates.
+- Ticket expiry stale/expired blocks (P2): 38 remaining stale/
+  expired execution blocks despite adaptive TTL.
+- Birdeye 401 provider degradation (secondary choke).
 
 ## Architecture
 - Native Kotlin Android app, event-sourced.
