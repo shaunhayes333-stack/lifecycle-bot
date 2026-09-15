@@ -798,6 +798,69 @@ object FinalDecisionGate {
         // beacon. Zero happy-path cost.
         try { PipelineHealthCollector.recordBackgroundProgress6544("FDG") } catch (_: Throwable) {}
 
+        // V5.0.6811 §AUTHORITY_CONSOLIDATION — the mandate is: one
+        // authoritative FDG per (mode, mint, candidateVersion). If a
+        // canonical seal already exists for a DIFFERENT lane, this caller
+        // is a sibling / shadow observer — it must not run the authoritative
+        // FDG body, must not create/reuse executable intent, and must not
+        // trigger sizing or ticket creation. Return a non-executable
+        // shadow verdict so downstream tap points (learning, scoring,
+        // observation) still see a FinalDecision but the shouldTrade
+        // flag stays off. The mint/candidateVersion identity is stable
+        // across all lanes; the incoming `specialistLane`/candidate-derived
+        // lane label is what differs — so lane-based key contention alone
+        // makes this shadow.
+        val siblingShadowLane6811 = specialistLane
+            ?.let { com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(it) }
+            .orEmpty()
+        val fdgCandidateVersion6811 = try {
+            com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)
+        } catch (_: Throwable) { 0L }
+        val fdgMode6811 = try {
+            if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
+        } catch (_: Throwable) { "PAPER" }
+        if (siblingShadowLane6811.isNotBlank() && fdgCandidateVersion6811 > 0L) {
+            val existingSeal6811 = com.lifecyclebot.engine.truth
+                .CanonicalFdgAuthorityRegistry6811
+                .peek(fdgMode6811, ts.mint, fdgCandidateVersion6811)
+            if (existingSeal6811 != null &&
+                !existingSeal6811.canonicalLane.equals(siblingShadowLane6811, ignoreCase = true)) {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector
+                        .labelInc("FDG_SHADOW_OBSERVATION_6811")
+                    com.lifecyclebot.engine.PipelineHealthCollector
+                        .labelInc("FDG_AUTH_DUPLICATE_SUPPRESSED_6811")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "FDG_AUTH_DUPLICATE_SUPPRESSED_6811",
+                        "mode=$fdgMode6811 mint=${ts.mint.take(10)} " +
+                            "candidateVersion=$fdgCandidateVersion6811 " +
+                            "canonicalLane=${existingSeal6811.canonicalLane} " +
+                            "attemptedLane=$siblingShadowLane6811 " +
+                            "existingDecisionId=${existingSeal6811.decisionId} " +
+                            "action=shadow_only_no_authoritative_fdg",
+                    )
+                } catch (_: Throwable) {}
+                return FinalDecision(
+                    shouldTrade = false,
+                    mode = tradingModeTag?.let {
+                        if (it == ModeSpecificGates.TradingModeTag.PAPER) TradeMode.PAPER else TradeMode.LIVE
+                    } ?: if (fdgMode6811 == "PAPER") TradeMode.PAPER else TradeMode.LIVE,
+                    approvalClass = ApprovalClass.BLOCKED,
+                    quality = candidate.finalQuality,
+                    confidence = candidate.aiConfidence,
+                    edge = EdgeVerdict.SKIP,
+                    blockReason = "FDG_SHADOW_OBSERVATION_6811",
+                    blockLevel = BlockLevel.EARLY,
+                    sizeSol = 0.0,
+                    tags = listOf("fdg_shadow_observation_6811", "canonical_owner_${existingSeal6811.canonicalLane.lowercase()}"),
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    approvalReason = "FDG_SHADOW_OBSERVATION_6811: canonical lane ${existingSeal6811.canonicalLane} owns candidateVersion=$fdgCandidateVersion6811; this lane is shadow-only",
+                    gateChecks = emptyList(),
+                )
+            }
+        }
+
         // V5.0.6809 §PRE_FDG_MARK_PROMOTION — operator diagnosis Feb 2026:
         //   missingExecutableMarkWithValidSource=23, EXECUTION_BLOCKED_NO_CANONICAL_MARK_6613=23.
         // When a candidate has a fresh source quote (TokenMap or lastPrice),
@@ -5089,8 +5152,54 @@ object FinalDecisionGate {
                 )
             } catch (_: Throwable) {}
         }
+        val finalShouldTrade6811 = shouldTradeFinal && !aateBlocks6809
+        // V5.0.6811 §AUTHORITY_CONSOLIDATION — claim canonical FDG ownership
+        // on the winning executable path. Same-lane replay is idempotent;
+        // sibling lanes that reached this point despite the early guard
+        // (race with a concurrent evaluation) are suppressed here as a
+        // second line of defence. The claim carries the sealed executable
+        // notional so ExecutableOpenGate + OrderSizeResolver can consume
+        // the exact sealed value without silent adaptive mutation.
+        if (finalShouldTrade6811 && ts.mint.isNotBlank() && fdgCandidateVersion6811 > 0L &&
+            siblingShadowLane6811.isNotBlank()) {
+            val decisionId6811 = "${ts.mint}:${fdgCandidateVersion6811}:${siblingShadowLane6811}"
+            val authorityVersion6811 = fdgCandidateVersion6811
+            val claim6811 = com.lifecyclebot.engine.truth
+                .CanonicalFdgAuthorityRegistry6811
+                .claim(
+                    mode = fdgMode6811,
+                    mint = ts.mint,
+                    candidateVersion = fdgCandidateVersion6811,
+                    canonicalLane = siblingShadowLane6811,
+                    decisionId = decisionId6811,
+                    sealedNotional = finalSize,
+                    authorityVersion = authorityVersion6811,
+                )
+            if (claim6811 is com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.Result.Duplicate) {
+                // A different lane already owns this candidateVersion. Race
+                // outcome: convert this decision to a shadow observation.
+                return rememberFdgVerdict(fdgCacheKey, FinalDecision(
+                    shouldTrade = false,
+                    mode = mode,
+                    approvalClass = ApprovalClass.BLOCKED,
+                    quality = candidate.finalQuality,
+                    confidence = adjustedConfidence,
+                    edge = edgeVerdict,
+                    blockReason = "FDG_SHADOW_OBSERVATION_6811",
+                    blockLevel = BlockLevel.EARLY,
+                    sizeSol = 0.0,
+                    tags = tags + "fdg_shadow_observation_6811" + "canonical_owner_${claim6811.existing.canonicalLane.lowercase()}",
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    approvalReason = "FDG_SHADOW_OBSERVATION_6811: canonical lane ${claim6811.existing.canonicalLane} already sealed candidateVersion=$fdgCandidateVersion6811",
+                    gateChecks = checks + GateCheck("fdg_shadow_observation_6811", false, "canonical owner=${claim6811.existing.canonicalLane}"),
+                ))
+            } else {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_AUTH_DECISION_6811") } catch (_: Throwable) {}
+            }
+        }
         return rememberFdgVerdict(fdgCacheKey, FinalDecision(
-            shouldTrade = shouldTradeFinal && !aateBlocks6809,
+            shouldTrade = finalShouldTrade6811,
             mode = mode,
             approvalClass = if (aateBlocks6809) ApprovalClass.BLOCKED else approvalClass,
             quality = candidate.finalQuality,

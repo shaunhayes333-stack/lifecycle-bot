@@ -85,20 +85,63 @@ class AuthorityConvergenceAcceptanceTest6809 {
             scoreBase = 40.0, scoreFinal = 40.0,
             sizeBase = 0.05, sizeFinal = 0.05, tactic = "PROBE",
             hardSafety = emptyList(),
+            // V5.0.6811 §NEG_EV_MIN_SAMPLE — need >=3 attributable EV
+            // contributors before the hard veto fires. Below that count the
+            // action becomes POLICY_NEG_EV_ADVISORY_6811 (see the
+            // negative_ev_low_sample_becomes_advisory test).
             contributors = listOf(
                 AateBrainContribution6512(
-                    brain = "TestBrain", role = "EV", weight = 0.9, effect = -0.5,
+                    brain = "TestBrainA", role = "EV", weight = 0.9, effect = -0.5,
                     expectedPnlPct = -8.0, pWin = 0.15,
+                ),
+                AateBrainContribution6512(
+                    brain = "TestBrainB", role = "EV", weight = 0.7, effect = -0.4,
+                    expectedPnlPct = -6.0, pWin = 0.18,
+                ),
+                AateBrainContribution6512(
+                    brain = "TestBrainC", role = "EV", weight = 0.6, effect = -0.5,
+                    expectedPnlPct = -7.0, pWin = 0.16,
                 ),
             ),
             learningState = "test",
         )
         assertEquals(
-            "AATE policy synthesizer must downgrade BUY-like actions with materially negative EV",
+            "AATE policy synthesizer must downgrade BUY-like actions with materially negative EV when sample >= 3",
             "POLICY_NEG_EV_BLOCK_6801",
             envelope.action,
         )
         assertNotEquals("BUY", envelope.action)
+    }
+
+    @Test fun negative_ev_low_sample_becomes_advisory_not_block() {
+        // V5.0.6811 §NEG_EV_MIN_SAMPLE — a single EV contributor at -5%
+        // must NOT hard-veto. Downgrade to advisory instead so the BUY-like
+        // action survives, but negative EV signal is recorded for damping.
+        val ctx = AateStrategyContext6512(
+            candidateId = "cand6811low", runtimeGeneration = 1L, mode = "PAPER",
+            mint = "MintLowSample6811", symbol = "LOW",
+            candidateVersion = 1L, primaryStrategy = "PROJECT_SNIPER",
+            source = "TEST", regime = "HEALTHY",
+        )
+        val envelope = PolicySynthesizer6512.synthesize(
+            context = ctx, proposedAction = "BUY",
+            scoreBase = 70.0, scoreFinal = 70.0,
+            sizeBase = 0.05, sizeFinal = 0.05, tactic = "PROBE",
+            hardSafety = emptyList(),
+            contributors = listOf(
+                AateBrainContribution6512(
+                    brain = "SoleEvBrain", role = "EV", weight = 0.9, effect = -0.5,
+                    expectedPnlPct = -5.0, pWin = 0.60,
+                ),
+            ),
+            learningState = "test",
+        )
+        assertNotEquals(
+            "Single low-sample negative EV must NOT hard-veto",
+            "POLICY_NEG_EV_BLOCK_6801",
+            envelope.action,
+        )
+        assertEquals("BUY", envelope.action)
     }
 
     @Test fun aate_hard_safety_takes_precedence_over_neg_ev() {
@@ -243,5 +286,51 @@ class AuthorityConvergenceAcceptanceTest6809 {
         assertEquals(FdgRouteVerdict.Verdict.BLOCK_OPERATOR_DISABLED, v)
         assertFalse(v.executable)
         assertFalse(v.trainable) // operator kill retires learning too
+    }
+
+    @Test fun fdg_authority_registry_first_claim_wins_and_sibling_is_suppressed() {
+        // V5.0.6811 §AUTHORITY_CONSOLIDATION — the first successful claim on
+        // (mode, mint, candidateVersion) wins; sibling lanes attempting the
+        // same key are suppressed and MUST NOT be permitted authoritative
+        // FDG entry.
+        com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.clearForTest()
+        val first = com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.claim(
+            mode = "PAPER", mint = "MintAuth6811", candidateVersion = 42L,
+            canonicalLane = "PROJECT_SNIPER", decisionId = "d1",
+            sealedNotional = 0.05, authorityVersion = 42L,
+        )
+        assertTrue(first is com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.Result.Accepted)
+        val sibling = com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.claim(
+            mode = "PAPER", mint = "MintAuth6811", candidateVersion = 42L,
+            canonicalLane = "SHITCOIN", decisionId = "d2",
+            sealedNotional = 0.05, authorityVersion = 42L,
+        )
+        assertTrue(
+            "SHITCOIN sibling must be suppressed once PROJECT_SNIPER owns the seal",
+            sibling is com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.Result.Duplicate,
+        )
+        val dup = sibling as com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.Result.Duplicate
+        assertEquals("PROJECT_SNIPER", dup.existing.canonicalLane)
+        assertEquals("SHITCOIN", dup.attemptedLane)
+    }
+
+    @Test fun fdg_authority_registry_same_lane_reentry_is_idempotent() {
+        com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.clearForTest()
+        val first = com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.claim(
+            mode = "PAPER", mint = "MintReenter6811", candidateVersion = 7L,
+            canonicalLane = "QUALITY", decisionId = "d1",
+            sealedNotional = 0.05, authorityVersion = 7L,
+        )
+        val second = com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.claim(
+            mode = "PAPER", mint = "MintReenter6811", candidateVersion = 7L,
+            canonicalLane = "QUALITY", decisionId = "d2-later",
+            sealedNotional = 0.05, authorityVersion = 8L,
+        )
+        // Same lane reentry must be Accepted (idempotent) — never Duplicate.
+        assertTrue(first is com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.Result.Accepted)
+        assertTrue(
+            "Same-lane re-entry must remain Accepted (idempotent)",
+            second is com.lifecyclebot.engine.truth.CanonicalFdgAuthorityRegistry6811.Result.Accepted,
+        )
     }
 }

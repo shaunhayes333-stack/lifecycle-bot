@@ -61,7 +61,20 @@ object PolicySynthesizer6512 {
         //   confident -3% or worse cannot become an executable BUY.
         val proposedUpper6801 = proposedAction.uppercase()
         val isBuyLike6801 = proposedUpper6801 in setOf("BUY", "PROBE", "PROBE_ONLY", "EXECUTE")
-        val evVetoFires6801 = isBuyLike6801 && we.isNotEmpty() && ev <= -3.0
+        // V5.0.6811 §NEG_EV_MIN_SAMPLE — operator diagnosis Feb 2026:
+        //   "POLICY_NEG_EV_BLOCK_6801 can hard-veto a candidate with high pWin,
+        //    rugP=0, many contributors, but only ONE EV contributor producing
+        //    weightedEv=-5. That is insufficient evidence for a hard veto."
+        //   Require at least MIN_EV_HARD_VETO_SAMPLE independent attributable
+        //   EV contributors before allowing the hard veto. Otherwise downgrade
+        //   to POLICY_NEG_EV_ADVISORY_6811 — the decision remains BUY-like but
+        //   the negative EV signal is recorded for size damping and future
+        //   authority tightening. Hard safety (rug, liquidity, scam, route) is
+        //   unaffected and continues to BLOCK regardless of EV sample count.
+        val MIN_EV_HARD_VETO_SAMPLE_6811 = 3
+        val evSampleQualifies6811 = we.size >= MIN_EV_HARD_VETO_SAMPLE_6811
+        val evVetoFires6801 = isBuyLike6801 && we.isNotEmpty() && ev <= -3.0 && evSampleQualifies6811
+        val evAdvisoryFires6811 = isBuyLike6801 && we.isNotEmpty() && ev <= -3.0 && !evSampleQualifies6811
         val action = when {
             hardSafety.isNotEmpty() -> "BLOCK"
             evVetoFires6801 -> "POLICY_NEG_EV_BLOCK_6801"
@@ -77,6 +90,19 @@ object PolicySynthesizer6512 {
                         "weightedEv=${"%.2f".format(ev)} pWin=${"%.2f".format(pWin)} rugP=${"%.2f".format(rug)} " +
                         "contributors=${bounded.size} evContributors=${we.size} " +
                         "action=downgrade_to_POLICY_NEG_EV_BLOCK_6801_never_becomes_buy",
+                )
+            } catch (_: Throwable) {}
+        }
+        if (evAdvisoryFires6811) {
+            try {
+                PipelineHealthCollector.labelInc("AATE_POLICY_NEG_EV_ADVISORY_6811")
+                ForensicLogger.lifecycle(
+                    "AATE_POLICY_NEG_EV_ADVISORY_6811",
+                    "candidateId=${context.candidateId} mint=${context.mint.take(10)} " +
+                        "lane=${context.primaryStrategy} proposedAction=$proposedUpper6801 " +
+                        "weightedEv=${"%.2f".format(ev)} pWin=${"%.2f".format(pWin)} " +
+                        "evContributors=${we.size}/${MIN_EV_HARD_VETO_SAMPLE_6811} " +
+                        "action=advisory_only_low_sample_no_hard_veto",
                 )
             } catch (_: Throwable) {}
         }
