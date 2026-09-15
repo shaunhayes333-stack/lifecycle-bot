@@ -166,7 +166,8 @@ replace_once(
         val openCost = if (paperMode && journal != null) journal.openMarketValueSol else capital?.openMarketValueSol ?: 0.0
         val equity = if (paperMode && journal != null) journal.equitySol else cash + openCost
         val revision = if (paperMode) journal?.revision ?: -1L else -1L
-        val source = if (paperMode) journal?.source ?: "PAPER_LEDGER_WARMUP_FALLBACK" else "LIVE_CAPITAL_AUTHORITY"""",
+        val source = if (paperMode) journal?.source ?: "PAPER_LEDGER_WARMUP_FALLBACK" else "LIVE_CAPITAL_AUTHORITY"
+""",
     """        // V5.0.6805 §RETIRE_JOURNAL_REPLAY_ACCOUNTING — UI is a pure
         // renderer of canonical capital. TRADE_JOURNAL_REPLAY_6619 is forensic
         // history/recovery only and can no longer decide hero availability,
@@ -180,7 +181,8 @@ replace_once(
         // Stable value-derived revision: identical canonical economics render the
         // same revision across MEME / MARKETS / CRYPTO hero reads.
         val revision = markAuthority?.hashCode()?.toLong() ?: -1L
-        val source = "CANONICAL_CAPITAL_AUTHORITY_6450"""",
+        val source = "CANONICAL_CAPITAL_AUTHORITY_6450"
+""",
     "hero canonical authority",
 )
 replace_once(
