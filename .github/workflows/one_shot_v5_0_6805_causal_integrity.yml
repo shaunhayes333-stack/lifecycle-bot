@@ -36,6 +36,23 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Repair and syntax-check 6805 generators
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('ci/apply_6805_additional_authority_repairs.py')
+          s = p.read_text()
+          bad = '        val source = if (paperMode) journal?.source ?: "PAPER_LEDGER_WARMUP_FALLBACK" else "LIVE_CAPITAL_AUTHORITY""""'
+          good = '        val source = if (paperMode) journal?.source ?: "PAPER_LEDGER_WARMUP_FALLBACK" else "LIVE_CAPITAL_AUTHORITY\\""""'
+          if bad in s:
+              s = s.replace(bad, good, 1)
+              p.write_text(s)
+          compile(p.read_text(), str(p), 'exec')
+          for other in ('ci/apply_6805_causal_integrity.py', 'ci/apply_6805_build_contract_fixes.py'):
+              compile(Path(other).read_text(), other, 'exec')
+          print('6805 generator syntax: PASS')
+          PY
+
       - name: Apply 6805 source repairs
         run: |
           python3 ci/apply_6805_causal_integrity.py
@@ -106,6 +123,7 @@ jobs:
           git config user.name "aate-builder"
           git config user.email "aate@bot"
           git add AATE_VERSION lifecycle_apk/AATE_VERSION ci/runtime-test.sh \
+            ci/apply_6805_additional_authority_repairs.py \
             lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt \
             lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt \
             lifecycle_apk/app/src/main/kotlin/com/lifecyclebot/engine/ExitCoordinatorHeartbeat.kt \
