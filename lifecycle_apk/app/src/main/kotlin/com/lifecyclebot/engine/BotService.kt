@@ -4834,25 +4834,13 @@ class BotService : Service() {
         } catch (_: Throwable) {}
         try {
             com.lifecyclebot.engine.truth.CanonicalRiskClock6454.start { positionId, mint ->
-                // V5.0.6454 heartbeat-only ping — the REAL per-tick
-                // evaluate(markPx=live) is wired in Executor.riskCheck
-                // which fires from every tick regardless of botLoop.
-                // This clock's job is to guarantee the scheduler
-                // heartbeat + starvation check run on wall-clock cadence
-                // even if botLoop is wedged 150s. Passing markPx=0 makes
-                // the scheduler treat the call as a heartbeat ping that
-                // never latches (§P0-#9 no fake mark).
+                // V5.0.6803 §HEARTBEAT_IS_NOT_MARK_WAIT — this is a wall-
+                // clock cadence heartbeat, not a real mark evaluation. Use
+                // the dedicated heartbeat() surface so it bumps the eval
+                // counter + watchdog without polluting MARK_WAIT_6800 /
+                // PHASE.EXIT_GATE telemetry.
                 try {
-                    com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.evaluate(
-                        positionId = positionId,
-                        mint = mint,
-                        markPx = 0.0,
-                        stopPx = 0.0,
-                        catastrophePx = 0.0,
-                        tpPx = 0.0,
-                        trailPx = 0.0,
-                        quoteAgeMs = 0L,
-                    )
+                    com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.heartbeat(positionId, mint)
                 } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {}
@@ -13962,25 +13950,12 @@ class BotService : Service() {
             try {
                 val open = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
                 for (p in open) {
-                    // V5.0.6452 §P0-#9 — DO NOT feed entryCostSol as a
-                    // current market price. Cycle-level heartbeat only
-                    // pumps ProtectiveExitScheduler6450 with a
-                    // markPx=0 no-op if no fresh mark is available.
-                    // Real per-tick evaluate() calls come from
-                    // Executor.riskCheck (§SL_HOT_PATH) which has the
-                    // actual price. Here we still emit a heartbeat via
-                    // the eval counter but with markPx=0 (the scheduler
-                    // ignores 0 and returns null, preserving latch state).
-                    com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.evaluate(
-                        positionId = p.positionId,
-                        mint = p.mint,
-                        markPx = 0.0,
-                        stopPx = 0.0,
-                        catastrophePx = 0.0,
-                        tpPx = 0.0,
-                        trailPx = 0.0,
-                        quoteAgeMs = 0L,
-                    )
+                    // V5.0.6803 §HEARTBEAT_IS_NOT_MARK_WAIT — dedicated
+                    // heartbeat surface so cycle-level pings do not
+                    // pollute MARK_WAIT_6800 telemetry. Real per-tick
+                    // evaluate() calls with fresh price come from
+                    // Executor.riskCheck (§SL_HOT_PATH).
+                    com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.heartbeat(p.positionId, p.mint)
                 }
             } catch (_: Throwable) {}
         }

@@ -50,6 +50,11 @@ object PositionCloseLedger {
      *  without carrying stale close metadata forever. 10 min is comfortably longer
      *  than any exit-coordinator / supervisor lease lifecycle. */
     private const val CLOSE_TTL_MS = 10 * 60_000L
+    // V5.0.6803 §CLOSED_STAYS_STICKY — 5s grace window past a close before
+    // allowing canonical-open evidence to zap the ledger stamp. Prevents
+    // the SELL-confirm race where the close stamp lands before the
+    // canonical remainingQtyRaw=0 propagation.
+    private const val MIN_REENTRY_GRACE_MS_6803 = 5_000L
 
     /**
      * Stamp a mint CLOSED. Returns the closeId. Idempotent: if already closed within
@@ -165,11 +170,28 @@ object PositionCloseLedger {
      * CLOSED for the full 10-minute TTL and be suppressed by paper/live exit
      * guards. Self-heal only when a canonical open position is newer than the
      * close stamp; an older held position can never erase a genuine close.
+     *
+     * V5.0.6803 §CLOSED_STAYS_STICKY — operator diagnosis Feb 2026: only 1
+     *   mint stamped CLOSED despite 65 canonical closed positions and 776
+     *   reopen events per run. Race: SELL confirms → close-ledger stamps
+     *   at t=T → CanonicalPositionAuthority6441 has not yet propagated the
+     *   remainingQtyRaw=0 transition → next isClosed() call sees the stale
+     *   open with openedAtMs > closedAtMs and zaps the stamp.
+     *
+     *   Fix: require a MIN_REENTRY_GRACE_MS_6803 window past the close
+     *   before allowing reopen. Inside that window we KEEP the stamp so
+     *   canonical terminal state stays authoritative during the propagation
+     *   race. After the grace window a real re-entry can still clear the
+     *   stamp exactly as before.
      */
     private fun clearIfCanonicallyReopened6699(mint: String, rec: CloseRecord): Boolean {
+        val nowMs = System.currentTimeMillis()
+        if (nowMs - rec.closedAtMs < MIN_REENTRY_GRACE_MS_6803) return false
         val freshOpen = try {
             com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().any { p ->
-                p.mint == mint && p.openedAtMs > rec.closedAtMs && p.remainingQtyRaw > java.math.BigInteger.ZERO
+                p.mint == mint &&
+                    p.openedAtMs > rec.closedAtMs + MIN_REENTRY_GRACE_MS_6803 &&
+                    p.remainingQtyRaw > java.math.BigInteger.ZERO
             }
         } catch (_: Throwable) { false }
         if (!freshOpen) return false

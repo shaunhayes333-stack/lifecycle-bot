@@ -8038,9 +8038,10 @@ class GoldenTapeRegressionTest {
             bot.contains("cycle_sanitize_6488") && bot.contains("scanner_health_6488") &&
                 bot.contains("project_sniper_sweep_6488") && bot.contains("markets_engine_watchdog_6488") &&
                 bot.contains("MaintenanceWorker6448.submit"))
-        assertTrue("6488 streak authority uses event-local mode and lane and never hard-denies strategy history",
+        assertTrue("6803 streak authority uses event-local mode and lane; hard-denies at STREAK_HARD_LIMIT with reproof-probe carve-out (supersedes 6488 soft-shape-only invariant per operator Feb 2026)",
             entry.contains("cohortKey(e.mode, e.entryLane)") && entry.contains("EXECUTABLE_ENTRY_COHORT_SHAPED_6488") &&
-                entry.contains("Verdict.ALLOW") && !entry.contains("Decision(Verdict.DENY_LOSING_STREAK, 0.0"))
+                entry.contains("Verdict.ALLOW") && entry.contains("EXECUTABLE_ENTRY_LOSS_STREAK_HARD_VETO_6803") &&
+                entry.contains("isReproofProbe6801"))
         val reflex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LosingStreakReflex6439.kt").readText()
         val permit = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalExecutionPermit.kt").readText()
         assertTrue("6488 duplicate losing-streak reflex is cohort telemetry only and cannot veto FinalExecutionPermit",

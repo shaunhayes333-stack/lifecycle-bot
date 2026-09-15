@@ -50,11 +50,20 @@ class Repair6487AcceptanceTest {
         assertEquals(0.0, capital.conservationDeltaSol, 1e-8)
     }
 
-    @Test fun streak_defence_is_mode_lane_scoped_and_never_zero_sizes() {
+    @Test fun streak_defence_is_mode_lane_scoped_and_hard_denies_at_limit_6803() {
+        // V5.0.6803 §LOSS_STREAK_HARD_CREED_ENFORCEMENT — operator diagnosis
+        //   Feb 2026 upgraded STREAK_HARD_LIMIT from a size shaper to a
+        //   hard deny. Three consecutive confirmed losses on a lane×mode
+        //   cohort now yields DENY_LOSING_STREAK / LOSS_STREAK_HARD_VETO_
+        //   6803 instead of merely 0.35 sizing. Reproof probes still get
+        //   PROBE_SIZE_SOL. Sub-limit streaks stay in the shaper ladder.
         ExecutableEntryAuthority6450.recordLossForTest6487(3, lane = "SHITCOIN", mode = "PAPER")
         val toxic = ExecutableEntryAuthority6450.gate("SHITCOIN", "M1", 1.0)
-        assertEquals(ExecutableEntryAuthority6450.Verdict.ALLOW, toxic.verdict)
-        assertEquals(0.35, toxic.recommendedSizeSol, 1e-9)
+        assertEquals(ExecutableEntryAuthority6450.Verdict.DENY_LOSING_STREAK, toxic.verdict)
+        assertEquals(0.0, toxic.recommendedSizeSol, 1e-9)
+        val reproof = ExecutableEntryAuthority6450.gate("SHITCOIN", "M1", 1.0, isReproofProbe6801 = true)
+        assertEquals(ExecutableEntryAuthority6450.Verdict.ALLOW_PROBE, reproof.verdict)
+        assertTrue(reproof.recommendedSizeSol > 0.0)
         assertEquals(15, ExecutableEntryAuthority6450.scoreFloorDeltaFor6488("SHITCOIN", "PAPER"))
         assertEquals(0.35, ExecutableEntryAuthority6450.sizeMultiplierFor6488("SHITCOIN", "PAPER"), 0.0)
 

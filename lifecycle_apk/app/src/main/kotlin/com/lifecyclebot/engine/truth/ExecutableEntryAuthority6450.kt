@@ -198,8 +198,51 @@ object ExecutableEntryAuthority6450 {
             )
         }
 
+        // V5.0.6803 §LOSS_STREAK_HARD_CREED_ENFORCEMENT — operator diagnosis
+        //   Feb 2026: "maxLossStreak=3 is currently more of a policy
+        //   declaration than an effective risk invariant. Actual streaks
+        //   reached 10." STREAK_HARD_LIMIT was firing but only shaped size
+        //   to 0.35. Turn it into a real hard-deny (reproof probes still
+        //   admitted): 3 consecutive confirmed losses on a lane×mode
+        //   cohort now yields a cool-down deny window instead of merely
+        //   shrinking size while continuing to feed the trader more losses.
+        //   The existing cooling logic already tracks the STREAK_COOLDOWN_
+        //   MS window; this simply upgrades hard-limit from a size shaper
+        //   to a hard vetoer.
+        val streakBreached6803 = streak >= STREAK_HARD_LIMIT || cooling
+        if (streakBreached6803 && !isReproofProbe6801) {
+            denies.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_HARD_VETO_6803")
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_HARD_VETO_6803_${normalizedLane(lane)}")
+                ForensicLogger.lifecycle(
+                    "EXECUTABLE_ENTRY_LOSS_STREAK_HARD_VETO_6803",
+                    "mode=$mode lane=${normalizedLane(lane)} mint=${mint.take(10)} " +
+                        "streak=$streak limit=$STREAK_HARD_LIMIT cooling=$cooling " +
+                        "action=hard_deny_admission_reproof_only_cooldown_enforced",
+                )
+            } catch (_: Throwable) {}
+            return Decision(
+                Verdict.DENY_LOSING_STREAK,
+                0.0,
+                "mode=$mode lane=${normalizedLane(lane)} streak=$streak limit=$STREAK_HARD_LIMIT cooling=$cooling action=LOSS_STREAK_HARD_VETO_6803",
+            )
+        }
+        if (streakBreached6803 && isReproofProbe6801) {
+            probes.incrementAndGet()
+            val probeSize6803 = PROBE_SIZE_SOL.coerceAtMost(requestedSizeSol.coerceAtLeast(PROBE_SIZE_SOL))
+            try {
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_REPROOF_PROBE_6803")
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_REPROOF_PROBE_6803_${normalizedLane(lane)}")
+            } catch (_: Throwable) {}
+            return Decision(
+                Verdict.ALLOW_PROBE,
+                probeSize6803,
+                "mode=$mode lane=${normalizedLane(lane)} streak=$streak limit=$STREAK_HARD_LIMIT action=LOSS_STREAK_REPROOF_PROBE_6803",
+            )
+        }
+
         val mult = when {
-            streak >= STREAK_HARD_LIMIT || cooling -> 0.35
             streak >= STREAK_TIGHTEN_TWO -> 0.35
             streak >= STREAK_TIGHTEN_ONE -> 0.65
             else -> 1.0

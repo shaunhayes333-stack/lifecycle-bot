@@ -78,6 +78,30 @@ object ProtectiveExitScheduler6450 {
         try { PipelineHealthCollector.labelInc("EXIT_MARK_PRIORITY_REFRESH_LISTENER_INSTALLED_6800") } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.6803 §HEARTBEAT_IS_NOT_MARK_WAIT — operator diagnosis Feb 2026:
+     *   "eval=190034 markWait6800=190033 means ~100% of exit evaluations
+     *    went into mark-wait." That reading is misleading: those calls
+     *    were CanonicalRiskClock6454 + botLoop heartbeat pings, DESIGNED
+     *    to pass markPx=0 (§P0-#9 "no fake mark"). The 6800 MARK_WAIT
+     *    taxonomy conflated real mark-wait with heartbeat pings and made
+     *    the operator dump look like exit-mark starvation.
+     *
+     *   Dedicated heartbeat surface: bumps the same watchdog + evaluation
+     *   counter (so starvation detection still works) but does NOT emit
+     *   PHASE.EXIT_GATE or MARK_WAIT_6800 telemetry. Real evaluate()
+     *   callers with a fresh mark continue as before; MARK_WAIT_6800
+     *   now fires only when a caller genuinely believed it had a mark
+     *   but ended up with a non-finite / <=0 value.
+     */
+    fun heartbeat(positionId: String, mint: String) {
+        lastHeartbeatMs.set(System.currentTimeMillis())
+        evaluations.incrementAndGet()
+        heartbeatPings6803.incrementAndGet()
+    }
+
+    private val heartbeatPings6803 = AtomicLong(0L)
+
     fun evaluate(
         positionId: String,
         mint: String,
@@ -217,6 +241,7 @@ object ProtectiveExitScheduler6450 {
         return "hb=$hb eval=${evaluations.get()} SL=${stopsTriggered.get()} CATA=${catastrophesTriggered.get()} " +
             "TP=${tpTriggered.get()} TRAIL=${trailingsTriggered.get()} latched=${latches.size} " +
             "markWait6800=${markWaitEvaluations6800.get()} " +
+            "heartbeat6803=${heartbeatPings6803.get()} " +
             "starvations=${starvations.get()} untriggerDenied=${untriggerAttempts.get()}"
     }
 }
