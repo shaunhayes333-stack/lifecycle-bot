@@ -360,3 +360,50 @@ patch, NOT another global unchoke.
   lane identity sealing, strategy/expectancy dampers, lane inventory
   ceiling, FDG negative-EV thresholds, global trading aggressiveness.
 
+
+## V5.0.6812 — CRASH-FIX SHIP: REVERT V5.0.6811, KEEP NEG-EV MIN-SAMPLE (2026-02)
+
+Operator report Feb 2026: **V5.0.6811 crashed on load.** V5.0.6810 was
+the last cleanly-booting build. Rolled back the entire 6811 batch and
+re-applied only the safe, isolated policy-synth tightening.
+
+- **Reverted (three commits)**:
+    • `ac11d38cd` V5.0.6811 §AUTHORITY_CONSOLIDATION — FDG.evaluate
+      entry/exit shadow guards + new `CanonicalFdgAuthorityRegistry6811`.
+      Root suspicion: an early-return `FinalDecision` from the new shadow
+      guard interacted badly with downstream callers on the hot path.
+      The file `CanonicalFdgAuthorityRegistry6811.kt` is deleted and the
+      FDG evaluate call-site is restored to its V5.0.6810 shape.
+    • `9073b2ce1` V5.0.6811 compile hotfix (BlockLevel.MODE).
+    • `042c42397` V5.0.6811 PRD changelog.
+- **Re-applied surgically (no execution/authority path change; pure
+  policy-synth input)**:
+    • `AateDecisionEnvelope6512.PolicySynthesizer6512.synthesize`:
+      hard-veto `POLICY_NEG_EV_BLOCK_6801` now requires
+      `MIN_EV_HARD_VETO_SAMPLE_6812 = 3` independent attributable EV
+      contributors. Below that count → `POLICY_NEG_EV_ADVISORY_6812`
+      (BUY-like preserved, damping-only telemetry). Hard safety
+      unchanged.
+- **Preserved untouched (V5.0.6810 fixes remain in place):**
+    • Executable mark propagation (pre-FDG + pre-exit-sweep sync
+      promote).
+    • FDG_ALLOW → EXEC_INTENT causal label atomicity (paper deferral no
+      longer double-counts).
+    • `intentSupersedes6809` material-change semantics.
+    • Exit coordinator heartbeat-aware stale detection.
+- **Acceptance tests updated**:
+    • `negative_ev_aate_veto_never_becomes_buy` now uses 3 EV
+      contributors (the invariant still holds at the required sample).
+    • New `negative_ev_low_sample_becomes_advisory_not_block`.
+- **CI status:** `Build AATE APK` **succeeds** for V5.0.6812 (16m41s).
+  Runtime Smoke Test unchanged (pre-existing brittleness).
+- **Deferred to a future ship**: authority consolidation at the FDG
+  boundary (items #1/2/5/6/7 of the operator mandate) — needs a redesign
+  that does not gate at the hot-path evaluate() entry. Candidate
+  approaches: (a) claim ownership only downstream in ExecutableOpenGate
+  where sibling attempts already surface as
+  `EXEC_INTENT_INVALIDATED_ON_POLICY_CHANGE_6809`, (b) publish a lane
+  ownership stamp at candidate-election time so FDG is only called by
+  the elected lane in the first place, or (c) make the shadow guard
+  opt-in via a caller-passed flag rather than a global hot-path check.
+
