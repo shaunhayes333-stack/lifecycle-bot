@@ -115,13 +115,13 @@ through GitHub Actions CI (no local compiler). Operator mandates:
      exitBacklog|highEdge] telemetry.
 
 ## CI Status
-Last build **V5.0.6807 Build AATE APK = SUCCESS** (18m47s; unit
+Last build **V5.0.6808 Build AATE APK = SUCCESS** (13m24s; unit
 tests + patch_rot_scan + golden_tape_literal_scan + authority_
 contradiction_scan all passed). Runtime Smoke Test remains red on
 its pre-existing brittle script assertion — unrelated to build
 health.
 
-## Feb 2026 Slice Log (6805–6807)
+## Feb 2026 Slice Log (6805–6808)
 - **6805** §CAUSAL_INTEGRITY + §RETIRE_JOURNAL_REPLAY_ACCOUNTING +
   §LANE_CONCENTRATION_CEILING. Six architectural authority repairs
   (direction cherry-picked from ChatGPT's repair/6805-causal-
@@ -163,6 +163,19 @@ health.
   OBSERVATION_6678 contract to UNIFIED_ACCOUNT_READ_PURITY_6805 +
   UNIFIED_ACCOUNT_CANONICAL_SOURCE_6805 (forbid the retired calls,
   require the canonical source markers).
+- **6808** §STALE_MARK_CLOSE_IS_ECONOMIC_NOT_REFUND — operator
+  live report Feb 2026: "the balance isn't building. every recent
+  SELL is REFUND:UNTRUSTED_DYNAMIC_MARK_ADMIN_REFUND_6663 at
+  pnl=+0.000." The 6663 refund path was a safety net for genuine
+  data-integrity failures but with 15k+ stale/missing marks it
+  became the dominant exit path so every close short-circuited to
+  net zero. CryptoAltTrader.settleUntrustedDynamicPaperPosition6663
+  now uses the last observed mark to compute a real economic close
+  when identity is verified and a mark was ever seen. PnL bounded
+  to [-100%*leverage, +10,000%]. Legacy refund retained for
+  IDENTITY_UNRESOLVED, no-mark-ever-observed, and economic-close-
+  apply-failed cases. Emits CRYPTO_DYN_STALE_MARK_ECONOMIC_
+  CLOSE_6808 with full economics.
 
 ## Feb 2026 Slice Log (6803–6804)
 - **6803** §HEARTBEAT_IS_NOT_MARK_WAIT + §CLOSED_STAYS_STICKY +
