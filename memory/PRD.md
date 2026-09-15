@@ -115,9 +115,54 @@ through GitHub Actions CI (no local compiler). Operator mandates:
      exitBacklog|highEdge] telemetry.
 
 ## CI Status
-Last build **V5.0.6804 Build AATE APK = SUCCESS** (10m40s; unit
-tests passed). Runtime Smoke Test remains red on its pre-existing
-brittle script assertion — unrelated to build health.
+Last build **V5.0.6807 Build AATE APK = SUCCESS** (18m47s; unit
+tests + patch_rot_scan + golden_tape_literal_scan + authority_
+contradiction_scan all passed). Runtime Smoke Test remains red on
+its pre-existing brittle script assertion — unrelated to build
+health.
+
+## Feb 2026 Slice Log (6805–6807)
+- **6805** §CAUSAL_INTEGRITY + §RETIRE_JOURNAL_REPLAY_ACCOUNTING +
+  §LANE_CONCENTRATION_CEILING. Six architectural authority repairs
+  (direction cherry-picked from ChatGPT's repair/6805-causal-
+  integrity branch, applied as direct source edits, no generator
+  layer):
+  1. LOSS_STREAK_CAUSALITY — cooldown arms only at STREAK_HARD_
+     LIMIT breach (not per loss); WIN clears cohortLosses AND
+     cohortCooldownMs AND the new lossStreakVetoLatched6805 map;
+     cooling no longer counts toward hard-veto; per-cohort veto
+     latch so telemetry is a cohort transition not per-candidate.
+  2. PAPER_FDG_WITHOUT_SEAL_IS_A_DEFERRAL — paper mode downgrades
+     the AUTHORITY_INVARIANT_FAILURE window (fdgCan=true, seal=null)
+     to FDG_ALLOW_AWAITING_EXEC_INTENT_6805; stale (>5s) unsealed
+     paper state also destroys the provisional state so the next
+     tick re-obtains a fresh seal. LIVE still hard-fails.
+  3. EXIT_COORDINATOR_STALE_RESET_SELF_GUARD — staleReset consults
+     shouldStaleReset at the destructive boundary and uses compare-
+     and-remove; force=true retained for legitimate cleanup callers.
+  4. LANE_CONCENTRATION_CEILING — LANE_INVENTORY_MAX_SHARE_6805 =
+     0.35. Book >= 10 open + lane > 4 absolute → veto with
+     EXEC_OPEN_BLOCKED_LANE_INVENTORY_CEILING_6805. Fixes PROJECT_
+     SNIPER at 69% of the book despite 11.5% capital target.
+  5. RETIRE_JOURNAL_REPLAY_ACCOUNTING — UI hero
+     (UnifiedAccountSnapshot6635) reads CanonicalCapitalAuthority
+     6450 ONLY. Removed JournalEconomicAuthority6616.currentSnapshot
+     () and ForensicReconciliation6635.reconcile6635() from render
+     path. Status = abs(conservationDeltaSol) ≤ 1e-4. Acceptance
+     InvariantAudit6441 gains canonical_capital_conserved_6450
+     pass criterion.
+  6. BAND_LOCAL_TERMINAL_INVALIDATION — CausalFeedbackAuthority
+     6715 advances terminalEpoch + learningRevision ONLY on BAND-
+     scoped keys. Aggregate lane wins/losses/openPositions still
+     update so advisories see live truth, but reservation freshness
+     is band-local. Emits CAUSAL_SCOPE_LOCAL_INVALIDATION_6805.
+- **6806** hotfix: stripped retired-authority literals from
+  UnifiedAccountSnapshot6635 docstring + veto comment so the
+  Aate6756PipelineRecoveryTest source-pin negative-assertion holds.
+- **6807** hotfix: flipped patch_rot_scan.py UNIFIED_ACCOUNT_
+  OBSERVATION_6678 contract to UNIFIED_ACCOUNT_READ_PURITY_6805 +
+  UNIFIED_ACCOUNT_CANONICAL_SOURCE_6805 (forbid the retired calls,
+  require the canonical source markers).
 
 ## Feb 2026 Slice Log (6803–6804)
 - **6803** §HEARTBEAT_IS_NOT_MARK_WAIT + §CLOSED_STAYS_STICKY +
