@@ -253,11 +253,25 @@ object AateDecisionFabric6512 {
             // so markLearned + downstream learners fire. See §CAUSAL_LOOP_UNSEVERANCE.
         }
         if (!rewardedPositions.add(env.positionId)) return true
-        // V5.0.6717 §CAUSAL_LOOP_UNSEVERANCE — always ACK the causal feedback
-        // authority regardless of whether per-position policy training bound.
-        // The canonical terminal happened; the admission gate MUST NOT stay
-        // stuck in pendingLearning. Downstream learners still get their outcome.
-        try { CausalFeedbackAuthority6715.markLearned(env.positionId) } catch (_: Throwable) {}
+        // V5.0.6717 §CAUSAL_LOOP_UNSEVERANCE — ACK the causal feedback
+        // authority regardless of whether per-position policy training
+        // bound, so the admission gate does not stay stuck in
+        // pendingLearning.
+        // V5.0.6798 §LEARNING_ACK_PURITY — but ONLY when we actually have
+        // immutable owner provenance. Prior code emitted CAUSAL_OWNER_
+        // LEARN_ACK_EARLY_6715 for every unresolved-owner close, giving
+        // the causal state a false "learned" signal for 50 out of 50
+        // trades in the operator's runtime dump. Without provenance we
+        // did not train any lane head and downstream learners cannot
+        // attribute the reward correctly either — a spurious ACK would
+        // mask real learning gaps. Skip the causal ACK; let the position
+        // stay pending until either provenance arrives or a maintenance
+        // sweep expires the pending entry.
+        if (hasProvenance6792) {
+            try { CausalFeedbackAuthority6715.markLearned(env.positionId) } catch (_: Throwable) {}
+        } else {
+            try { PipelineHealthCollector.labelInc("CAUSAL_ACK_SKIPPED_UNRESOLVED_OWNER_6798") } catch (_: Throwable) {}
+        }
         if (policyAck6713 && UnifiedPolicyHead.trainedCount() > uphBefore) updated += "UnifiedPolicyHead"
         val metaBefore = AutonomousMetaPolicy.totalUpdateCount6512()
         try { AutonomousMetaPolicy.recordOutcome(env.mint, env.realizedReturnPct) } catch (_: Throwable) {}
