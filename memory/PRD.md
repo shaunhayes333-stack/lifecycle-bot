@@ -2,6 +2,37 @@
 
 **Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.
 
+## V5.0.6833 → 6834 (Feb 2026) — Runtime tune: EXPRESS bleed + edge redistribution + inventory staircase ✅ CI GREEN (6833)
+
+Operator directive AATE 5.0.6832 RUNTIME TUNE — 8-section runtime plan enforced atop 6832. All rules additive/multiplicative; no global caps, CASH_STARVED, or bot-loop cadence changes.
+
+### V5.0.6833 (Build AATE APK success, 16m46s)
+
+- **New**: `com.lifecyclebot.engine.truth.RuntimeTune6833` — consolidated additive authority housing §§2–8 helpers.
+- **§2 EXPRESS BLEED CONTROL** — `expressAdmissionVerdict` / `expressAdmissionMultiplier` (helpers). Rules:
+  - `liveP < 0.30` → PROBE_ONLY (×0.25)
+  - `expectedPnl < 0 AND liveP < 0.30` → NO_BUY (×0.0 → terminal reject)
+  - Raw score `S41..S60` → LAB/PROBE_ONLY until reproven
+  - Raw score cannot override strongly negative learned edge
+- **§3 EDGE CAPACITY REDISTRIBUTION** — `laneCapacityMultiplier`: QUALITY ×1.125, CORE ×1.10, PROJECT_SNIPER ×1.10, MOONSHOT ×0.67. Wired into `OrderSizeResolver6441` adaptive chain BEFORE hard caps. Test alignment: `Repair6511PaperExecutionSourceTest` now tracks the QUALITY multiplier via `RuntimeTune6833.laneCapacityMultiplier("QUALITY")` so the exact-request assertion is stable against future retunes.
+- **§4 INVENTORY PRESSURE STAIRCASE** — extended `InventoryPressureGovernor6829` in place. Thresholds 25/40/55 → 35/45/55/70 with new `EXCEPTIONAL_6833` tier. Intake multipliers 1.00 / 0.75 / 0.50 / 0.25 / 0.15. `blockNewIntake()` lifted from CRITICAL to EXCEPTIONAL so CRITICAL becomes a HIGH_EDGE filter, not a hard block. HIGH_EDGE composite uses learned `pWin·EV·sourceQuality`, NOT lane score alone (per operator directive).
+- **§5 EXIT WORKER PRIORITY** — `exitWorkerShouldBoost(openPositions, cashRatio)` emits `EXIT_WORKER_PRIORITY_BOOST_REQUESTED_6833` when `opens>45 OR cashRatio<0.20`. Callable helper; exit-loop consumer to be wired next pass.
+- **§6 MARK → SIZE CONTRACT** — `markContractAllowsSizing6833` — phantom-sized-only paths emit `PHANTOM_SIZED_REJECTED_6833`. Advisory.
+- **§7 SHITCOIN TICKET HANDOFF** — `recordSized6833/recordTicket6833/recordExec6833/evaluateHandoffChoke6833` — emits `SHITCOIN_HANDOFF_STALLED_6833` when `sized>=5 AND ticket=0 AND exec=0`. No scoring changes.
+- **§8 ACCOUNTING BOUNDARY** — `assertForensicNotInSizingPath6833` — advisory violation counter for any code path that would leak forensic-journal delta into sizing/weighting/reasons.
+
+### V5.0.6834 (CI in flight)
+
+- **§2 wired at size authority** — `OrderSizeResolver6441` now reads `LiveProbabilityEngine.laneSnapshots()` for the EXPRESS terminal-outcome window, converts `(wrPct, meanPnlPct)` → `(liveP, expectedPnl)`, and applies `RuntimeTune6833.expressAdmissionMultiplier()` AFTER the `coerceIn(0.20, 2.50)` adaptive floor so PROBE_ONLY (×0.25) and NO_BUY (×0.0) can legally reach through the safety floor for EXPRESS only. `sample<20` grace = untouched. Non-EXPRESS lanes carry multiplier 1.0 and are byte-identical.
+
+### Remaining wiring for next iteration (V5.0.6835)
+
+- §5 raise real exit-worker thread priority (currently only the signal is published)
+- §6 wire `markContractAllowsSizing6833` at the mark→size decision surface (currently helpers only)
+- §7 hook `recordSized/Ticket/Exec` into the actual SHITCOIN funnel (currently helpers only)
+- §8 install `assertForensicNotInSizingPath6833` at every read of `V3JournalRecorder.forensicDeltaSol` in sizing/weighting/reasoning code paths
+
+
 ## V5.0.6832 (Feb 2026) — Mark-price freshness telemetry (advisory) ✅ CI GREEN
 
 Operator observed frozen unrealized %/$ on the Open Positions panel while the elapsed-time clock still ticked (screenshot: 9 rows, all pnl values static, 00:44–00:59 elapsed). Diagnosis: `monitorPositions()` ticks at 1Hz but `DynamicAltTokenRegistry.refreshPriceForMintBlocking()` only re-fetches when the registry entry is >60s old, and `carryForwardPrice6819()` silently touches `lastUpdatedMs` without changing the numeric value — so downstream PnL is computed from a stale carry-forward and the UI appears frozen even though the pipeline is live.
