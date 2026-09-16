@@ -9208,6 +9208,56 @@ class BotService : Service() {
                                             // (PositionCloseLedger.isClosed) — at which point the outer
                                             // exit sweep also drops the mint.
                                             val zombieLatchKey6504 = "${ts.mint}:${ts.position.entryTime}"
+                                            // V5.0.6818 §RUNNER_PROTECTION_BLOCK — operator directive
+                                            //   Feb 2026: "even the most successful lanes that were
+                                            //   previously returning 500% runners" are now being
+                                            //   scratch-closed within 60-90s of open, killing runners
+                                            //   before they express. Three source-level guards:
+                                            //
+                                            //   Guard A — MIN_HOLD_AFTER_BUY_MS: no stale scratch
+                                            //     within first 5 min of open. Feed goes dark right
+                                            //     after buy for a REAL runner too; the operator
+                                            //     mandate #1 says stale-alone must not synthesize a
+                                            //     losing close. Give the position time to breathe.
+                                            //
+                                            //   Guard B — WINNER_PROTECTION: if last-known pnl >= 0
+                                            //     the position is either at cost or in profit. Stale
+                                            //     scratch of a winner is exactly the "close 500%
+                                            //     runner at breakeven" bleed. HOLD indefinitely
+                                            //     until VALIDATED_MARK returns.
+                                            //
+                                            //   Guard C — WIDER_REFRESH_BUDGET: bump refresh budget
+                                            //     from the gate default (3) to 6 attempts so the
+                                            //     feed has ~90s to recover before diagnostic scratch
+                                            //     is even considered for confirmed-losing positions.
+                                            val holdSinceBuyMs6818 = (System.currentTimeMillis() - ts.position.entryTime)
+                                                .coerceAtLeast(0L)
+                                            val minHoldAfterBuy6818 = 5L * 60L * 1_000L // 5 minutes
+                                            if (holdSinceBuyMs6818 < minHoldAfterBuy6818) {
+                                                try {
+                                                    PipelineHealthCollector.labelInc("PAPER_STALE_MIN_HOLD_AFTER_BUY_6818")
+                                                    ForensicLogger.lifecycle(
+                                                        "PAPER_STALE_MIN_HOLD_AFTER_BUY_6818",
+                                                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} " +
+                                                            "heldMs=$holdSinceBuyMs6818 minHoldMs=$minHoldAfterBuy6818 " +
+                                                            "ageS=${livePriceAgeMs/1000} action=hold_runner_protection",
+                                                    )
+                                                } catch (_: Throwable) {}
+                                                continue
+                                            }
+                                            if (lastKnownPnlVerdict.ok && lastKnownPnlPct >= 0.0) {
+                                                try {
+                                                    PipelineHealthCollector.labelInc("PAPER_STALE_WINNER_PROTECTION_6818")
+                                                    ForensicLogger.lifecycle(
+                                                        "PAPER_STALE_WINNER_PROTECTION_6818",
+                                                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} " +
+                                                            "lastPnlPct=${"%.1f".format(lastKnownPnlPct)} " +
+                                                            "ageS=${livePriceAgeMs/1000} " +
+                                                            "action=hold_winner_never_scratch_at_breakeven_or_profit",
+                                                    )
+                                                } catch (_: Throwable) {}
+                                                continue
+                                            }
                                             // V5.0.6818 §STALE_MARK_EXIT_REFRESH_BUDGET — consult
                                             //   StaleMarkExitGate6817 BEFORE scratching. The gate
                                             //   requires REFRESH_BUDGET (=3) attempts before permitting
@@ -9218,6 +9268,23 @@ class BotService : Service() {
                                             //   continue holding until the budget expires.
                                             val refreshAttempts6818 = paperStaleRefreshAttempts6818
                                                 .compute(zombieLatchKey6504) { _, cur -> (cur ?: 0) + 1 }!!
+                                            // V5.0.6818 wider budget: paper feed regularly dark for
+                                            //   30-60s across DexScreener/GT/Birdeye. Six attempts
+                                            //   ~= 90s+ before we even enter the scratch decision.
+                                            val WIDE_REFRESH_BUDGET_6818 = 6
+                                            if (refreshAttempts6818 < WIDE_REFRESH_BUDGET_6818) {
+                                                try {
+                                                    PipelineHealthCollector.labelInc("PAPER_STALE_REFRESH_BUDGET_HOLD_6818")
+                                                    ForensicLogger.lifecycle(
+                                                        "PAPER_STALE_REFRESH_BUDGET_HOLD_6818",
+                                                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} " +
+                                                            "refreshAttempts=$refreshAttempts6818 " +
+                                                            "budget=$WIDE_REFRESH_BUDGET_6818 " +
+                                                            "ageS=${livePriceAgeMs/1000} action=hold_wider_budget",
+                                                    )
+                                                } catch (_: Throwable) {}
+                                                continue
+                                            }
                                             // Prefer the canonical position id so downstream
                                             // finalization matches on the same key the gate stamped.
                                             val stalePositionId6818 = ts.position.positionId
