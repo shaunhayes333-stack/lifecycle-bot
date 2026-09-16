@@ -6,10 +6,11 @@ import org.junit.Test
 
 class V5_0_6567AcceptanceTest {
     @Test
-    fun adaptive_subminimum_size_never_promoted_6809() {
-        // V5.0.6809 §KILL_MIN_SIZE_PROMOTION — supersedes 6600. Sub-minimum
-        // requests are never promoted upward: the learning stack's downward
-        // shaping is authoritative.
+    fun adaptive_subminimum_size_promoted_when_caps_fund_min_6813() {
+        // V5.0.6813 §CONDITIONAL_MIN_PROMOTION — sub-min request whose
+        // authoritative cash + lane cap can both fund minExec is
+        // promoted exactly once. Silent zero-sized survivors are never
+        // produced.
         val r = OrderSizeResolver6441.resolve(
             requestedSol = 0.03,
             laneName = "CRYPTO_ALT",
@@ -19,9 +20,9 @@ class V5_0_6567AcceptanceTest {
             laneMinExecutableSol = 0.05,
             applyPaperMemeMinimum = false,
         )
-        assertFalse(r.executable)
-        assertEquals(0.0, r.finalSizeSol, 1e-9)
-        assertEquals("SUB_MIN_ADAPTIVE_HELD_6809", r.reason)
+        assertTrue(r.executable)
+        assertEquals(0.05, r.finalSizeSol, 1e-9)
+        assertEquals("OK_MIN_PROMOTED_6600", r.reason)
     }
 
     @Test

@@ -11,14 +11,12 @@ import java.io.File
 
 class Repair6511PaperExecutionSourceTest {
     @Test
-    fun sub_floor_adaptive_buys_never_promoted_to_min_6809() = synchronized(PaperAccountLedger6430) {
-        // V5.0.6809 §KILL_MIN_SIZE_PROMOTION — supersedes 6600. Sub-minimum
-        // requests remain non-executable regardless of whether cash caps
-        // could fund minExec. Operator mandate Feb 2026: "Final size must
-        // never exceed the adaptive/risk-authorized size because of a
-        // minimum-order floor."
+    fun sub_floor_adaptive_buys_promoted_once_to_min_6813() = synchronized(PaperAccountLedger6430) {
+        // V5.0.6813 §CONDITIONAL_MIN_PROMOTION — sub-min adaptive request
+        // whose caps can fund minExec is promoted exactly once. Silent
+        // zero-sized survivors are never produced.
         PaperAccountLedger6430.resetForTest()
-        PaperAccountLedger6430.initialize(0.1)  // fund at minimum
+        PaperAccountLedger6430.initialize(0.1)
         OrderSizeResolver6441.updatePaperExecutableMinimumSol(
             PaperPreTicketSizeFloor6511.boundedMinimum(0.005),
         )
@@ -31,8 +29,8 @@ class Repair6511PaperExecutionSourceTest {
             mintForSeal = "6511-test-mint",
         )
         assertEquals(0.02419, resolved.requestedSol, 1e-9)
-        assertFalse(resolved.executable)
-        assertEquals("SUB_MIN_ADAPTIVE_HELD_6809", resolved.reason)
+        assertTrue(resolved.executable)
+        assertEquals("OK_MIN_PROMOTED_6600", resolved.reason)
     }
 
     @Test

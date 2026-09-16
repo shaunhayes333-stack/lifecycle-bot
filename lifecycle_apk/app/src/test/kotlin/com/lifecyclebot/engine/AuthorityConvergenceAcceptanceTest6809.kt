@@ -166,42 +166,33 @@ class AuthorityConvergenceAcceptanceTest6809 {
         assertEquals("BLOCK", envelope.action)
     }
 
-    @Test fun sub_minimum_learned_size_is_not_promoted_upward() {
-        // Simulate an adaptive request of 0.001 SOL (well below any executable
-        // minimum). The resolver must NOT promote this to the minimum. Instead
-        // it must return non-executable so the caller routes to shadow/train.
+    @Test fun sub_minimum_learned_size_promoted_when_caps_fund_min_6813() {
+        // V5.0.6813 §CONDITIONAL_MIN_PROMOTION reinstated on top of the
+        // V5.0.6812 authority baseline. A sub-min request whose caps can
+        // fund minExec is promoted once (never a silent zero-ticket).
         try {
             com.lifecyclebot.engine.truth.PaperAccountLedger6430.resetForTest()
             com.lifecyclebot.engine.truth.PaperAccountLedger6430.initialize(10.0)
         } catch (_: Throwable) {}
         val res = OrderSizeResolver6441.resolve(
             requestedSol = 0.001,
-            laneName = "TEST_LANE_6809",
+            laneName = "TEST_LANE_6813",
             walletSol = 10.0,
             paperMode = true,
             laneRiskCapSol = 0.10,
             laneMinExecutableSol = 0.05,
         )
-        assertFalse(
-            "Sub-minimum adaptive size must resolve non-executable (min-promotion killed)",
+        assertTrue(
+            "Sub-minimum request must promote when caps can fund minExec",
             res.executable,
         )
-        assertNotEquals(
-            "Reason must never be OK_MIN_PROMOTED_6600 (retired taxonomy)",
-            "OK_MIN_PROMOTED_6600",
-            res.reason,
-        )
-        assertEquals(0.0, res.finalSizeSol, 1e-12)
+        assertEquals("OK_MIN_PROMOTED_6600", res.reason)
+        assertEquals(0.05, res.finalSizeSol, 1e-12)
     }
 
     @Test fun final_size_never_exceeds_adaptive_authorized_size() {
-        // Adaptive/risk-authorised size is 0.03 SOL. In paper mode the
-        // resolver reads authoritative cash from PaperCapitalAuthority; we
-        // fund it so the branch reaches the sizing math. The invariant
-        // proven here: final size never inflates above the adaptive request
-        // due to a minimum-order floor. This is the source-level guarantee
-        // from the operator mandate: "Final size must never exceed the
-        // adaptive/risk-authorized size because of a minimum-order floor."
+        // With request=0.10 SOL and caps 0.15 SOL, the resolver clamps to
+        // min(request, laneClamped) = 0.10 — never above adaptive-approved.
         try {
             com.lifecyclebot.engine.truth.PaperAccountLedger6430.resetForTest()
             com.lifecyclebot.engine.truth.PaperAccountLedger6430.initialize(10.0)
@@ -214,18 +205,9 @@ class AuthorityConvergenceAcceptanceTest6809 {
             laneRiskCapSol = 0.15,
             laneMinExecutableSol = 0.05,
         )
-        // Regardless of executability (which depends on runtime throughput
-        // guards outside this authority), the invariant holds:
-        //   finalSizeSol <= requestedSol
-        // This is the source-level contract this test locks.
         assertTrue(
-            "final=${res.finalSizeSol} must never exceed requested=0.10 (no upward promotion)",
+            "final=${res.finalSizeSol} must never exceed requested=0.10 (no upward promotion above request)",
             res.finalSizeSol <= 0.10 + 1e-12,
-        )
-        assertNotEquals(
-            "Reason must never be OK_MIN_PROMOTED_6600 (retired taxonomy)",
-            "OK_MIN_PROMOTED_6600",
-            res.reason,
         )
     }
 

@@ -8166,7 +8166,7 @@ class GoldenTapeRegressionTest {
         assertTrue("6491 sizing boundary must compare integer lamports, including exact equality",
             resolver.contains("SOL_LAMPORTS_6491") && resolver.contains("toLamports6491") &&
                 resolver.contains("boundedExecutableLamports6498 >= minExecLamports6491") &&
-                resolver.contains("KILL_MIN_SIZE_PROMOTION") && invariant.contains("Cash and lane cap are"))
+                resolver.contains("CONDITIONAL_MIN_PROMOTION") && invariant.contains("Cash and lane cap are"))
         val sizePrecheck = openGate.indexOf("EXEC_OPEN_PRECHECK_SIZE_PENDING_6491")
         val mintClaim = openGate.indexOf("executableBuyClaim6487.putIfAbsent")
         val allowed = openGate.indexOf("ForensicLogger.lifecycle(" + '"' + "EXEC_OPEN_ALLOWED" + '"')

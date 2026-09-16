@@ -9,13 +9,12 @@ import org.junit.Test
 
 class Repair6490AcceptanceTest {
     @Test
-    fun sub_minimum_request_is_never_promoted_to_min_6809() = synchronized(PaperAccountLedger6430) {
-        // V5.0.6809 §KILL_MIN_SIZE_PROMOTION — supersedes V5.0.6600 min-promotion.
-        // Operator mandate Feb 2026: "Never increase an adaptively reduced
-        // risk size simply to make the order executable." A sub-minimum
-        // request resolves non-executable, regardless of whether cash/lane
-        // caps could theoretically fund the minimum; the caller must route
-        // to shadow/train observation instead.
+    fun sub_minimum_request_is_promoted_once_to_min_when_caps_can_fund_6813() = synchronized(PaperAccountLedger6430) {
+        // V5.0.6813 §CONDITIONAL_MIN_PROMOTION — supersedes both the
+        // V5.0.6600 unconditional promote and the V5.0.6809 kill-min-
+        // promotion. Sub-minimum requests are promoted exactly once when
+        // authoritative cash + lane hard cap can both fund minExec; the
+        // caller never receives a silent zero-sized order.
         PaperAccountLedger6430.resetForTest()
         PaperAccountLedger6430.initialize(0.0583)
         val r = OrderSizeResolver6441.resolve(
@@ -26,9 +25,9 @@ class Repair6490AcceptanceTest {
             laneRiskCapSol = 0.05,
             laneMinExecutableSol = 0.05,
         )
-        assertFalse(r.executable)
-        assertEquals(0.0, r.finalSizeSol, 1e-9)
-        assertEquals("SUB_MIN_ADAPTIVE_HELD_6809", r.reason)
+        assertTrue(r.executable)
+        assertEquals(0.05, r.finalSizeSol, 1e-9)
+        assertEquals("OK_MIN_PROMOTED_6600", r.reason)
     }
 
     @Test

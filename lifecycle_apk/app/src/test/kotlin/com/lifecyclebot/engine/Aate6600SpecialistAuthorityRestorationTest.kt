@@ -38,18 +38,16 @@ class Aate6600SpecialistAuthorityRestorationTest {
             registry.contains("resolveExecutableFromSourceEvidence6616"))
     }
 
-    @Test fun subminimum_order_never_promotes_6809() {
+    @Test fun subminimum_order_promoted_when_caps_fund_min_6813() {
         val r = OrderSizeResolver6441.resolve(
             requestedSol = 0.00154, laneName = "EXPRESS", walletSol = 1.0,
             paperMode = false, laneRiskCapSol = 0.50, laneMinExecutableSol = 0.05,
         )
-        // V5.0.6809 §KILL_MIN_SIZE_PROMOTION — supersedes 6799/6600. An
-        // adaptive stack that reduces requested notional below minExec is
-        // authoritative learning output; never re-inflated by the resolver
-        // just to make it executable.
-        assertFalse(r.executable)
-        assertEquals(0.0, r.finalSizeSol, 1e-9)
-        assertEquals("SUB_MIN_ADAPTIVE_HELD_6809", r.reason)
+        // V5.0.6813 §CONDITIONAL_MIN_PROMOTION — request is sub-min but
+        // cash and lane cap can both fund minExec; promote once.
+        assertTrue(r.executable)
+        assertEquals(0.05, r.finalSizeSol, 1e-9)
+        assertEquals("OK_MIN_PROMOTED_6600", r.reason)
     }
 
     @Test fun zero_request_resolves_as_below_min_never_promoted() {
