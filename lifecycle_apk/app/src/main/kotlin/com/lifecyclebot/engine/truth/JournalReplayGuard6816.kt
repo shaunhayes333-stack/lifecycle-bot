@@ -90,7 +90,12 @@ object JournalReplayGuard6816 {
                 return false
             }
             val openCost = try {
-                PaperAccountLedger6430.openCostBasisSol()
+                // V5.0.6817 §FACADE_UNIFICATION_6604 — read via the canonical
+                //   PaperCapitalAuthority6577 facade (the Aate6604 audit blocks
+                //   direct PaperAccountLedger6430 reads from any non-ledger,
+                //   non-facade file). The facade delegates to the ledger, so
+                //   the guard sees the exact same openCostBasis value.
+                PaperCapitalAuthority6577.openCostBasisSol()
             } catch (_: Throwable) { 0.0 }
             if (kotlin.math.abs(openCost) <= OPEN_COST_TOLERANCE_SOL) {
                 allowCount.incrementAndGet()

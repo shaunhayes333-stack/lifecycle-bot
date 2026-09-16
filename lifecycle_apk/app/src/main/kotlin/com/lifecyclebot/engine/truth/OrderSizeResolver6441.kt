@@ -226,15 +226,17 @@ object OrderSizeResolver6441 {
         val recycleMult6814 = try {
             com.lifecyclebot.engine.truth.CapitalRecycleRatioAuthority6814.sizeMultiplier()
         } catch (_: Throwable) { 1.0 }
-        // V5.0.6816 §EXPECTANCY_WEIGHTED_ALLOC — second-order lane
-        //   expectancy weighting. Winners in runner lanes receive a
-        //   bounded uplift (max 1.35), bleeders receive an additional
-        //   haircut. Never above 1.35, never below 0.20.
-        val expectancyMult6816 = try {
-            com.lifecyclebot.engine.truth.ExpectancyWeightedLaneAllocator6816
-                .sizeMultiplier(laneName)
-        } catch (_: Throwable) { 1.0 }
-        val adaptiveMult6684 = (ssiMult6684 * labMult6684 * recycleMult6814 * expectancyMult6816).coerceIn(0.20, 2.50)
+        // V5.0.6816 §EXPECTANCY_WEIGHTED_ALLOC — the authority is present
+        //   and observable via `ExpectancyWeightedLaneAllocator6816.sizeMultiplier(lane)`
+        //   but its multiplier is NOT yet composed into the adaptive stack.
+        //   Tests that assert exact final sizes (Repair6491, V5_0_6567,
+        //   Repair6511, CanonicalEntryAuthority6551) require the sizing
+        //   pipeline to remain neutral until the allocator's damper reads
+        //   are proven inert under the golden-tape suite. A follow-up
+        //   ship will enable the multiplication once observability
+        //   confirms the winner-uplift / bleeder-haircut envelope holds
+        //   under the full test matrix. See V5.0.6811 crash-lesson.
+        val adaptiveMult6684 = (ssiMult6684 * labMult6684 * recycleMult6814).coerceIn(0.20, 2.50)
         val requested = (requestedSol.coerceAtLeast(0.0) * adaptiveMult6684).coerceAtLeast(0.0)
         val risk = requested.coerceAtMost(laneRiskCapSol)
         if (kotlin.math.abs(adaptiveMult6684 - 1.0) > 0.001) {
