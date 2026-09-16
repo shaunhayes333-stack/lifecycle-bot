@@ -338,13 +338,6 @@ object PaperAccountLedger6430 {
         feesPico.addAndGet(toPico(feeSol.coerceAtLeast(0.0)))
         opCount.incrementAndGet()
         persistCurrent6487()
-        // V5.0.6816/6817 §RECYCLE_RATIO_OBSERVABILITY — record the entry
-        //   notional against the rolling 5-minute recycle ratio so
-        //   the existing size-damper in OrderSizeResolver has real
-        //   data to shape against. The damper stays neutral (1.0)
-        //   until the first realised close arrives (V5.0.6817
-        //   bootstrap-safety window). Never throws; fail-silent.
-        try { CapitalRecycleRatioAuthority6814.recordEntry(total) } catch (_: Throwable) {}
         // V5.0.6616 §JOURNAL_BALANCE_HERO_SINGLE_AUTHORITY_REPAIR —
         //   Every ledger mutation increments the monotonic
         //   journalEconomicRevision so the hero surfaces observe one
@@ -550,13 +543,6 @@ object PaperAccountLedger6430 {
         feesPico.addAndGet(toPico(fee))
         opCount.incrementAndGet()
         persistCurrent6487()
-        // V5.0.6816/6817 §RECYCLE_RATIO_OBSERVABILITY — record net realised
-        //   cash returned against the rolling 5-minute recycle ratio.
-        //   Realised cash = gross - fee (identical to the ledger cash
-        //   credit above). First non-zero cash-returned sample activates
-        //   the damper (V5.0.6817 bootstrap-safety window closes here).
-        //   Never throws; fail-silent.
-        try { CapitalRecycleRatioAuthority6814.recordCashReturned(gross - fee) } catch (_: Throwable) {}
         // V5.0.6780 — terminal SELL clears the per-mint provider lock so the
         //   next BUY on the same mint may pick a different (healthy) source.
         //   Partial sells do not clear (position still open); only terminal
