@@ -108,6 +108,15 @@ jobs:
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          # V5.0.6825 §KEYSTORE_MODERN_PBE — even after the keystore is
+          # converted to modern PBE in the prior step, AGP's :app:packageRelease
+          # spawns its own signing worker JVM which does not inherit the
+          # Gradle daemon's system properties. JAVA_TOOL_OPTIONS is honoured
+          # by every JVM subprocess (including AGP workers), so the legacy
+          # PBE flag is guaranteed to reach the signing worker as a
+          # belt-and-braces fallback if the source keystore is still
+          # legacy-formatted for any reason.
+          JAVA_TOOL_OPTIONS: "-Dkeystore.pkcs12.legacy -Dfile.encoding=UTF-8"
         run: |
           chmod +x gradlew
           echo "========================================"
