@@ -226,7 +226,15 @@ object OrderSizeResolver6441 {
         val recycleMult6814 = try {
             com.lifecyclebot.engine.truth.CapitalRecycleRatioAuthority6814.sizeMultiplier()
         } catch (_: Throwable) { 1.0 }
-        val adaptiveMult6684 = (ssiMult6684 * labMult6684 * recycleMult6814).coerceIn(0.20, 2.50)
+        // V5.0.6816 §EXPECTANCY_WEIGHTED_ALLOC — second-order lane
+        //   expectancy weighting. Winners in runner lanes receive a
+        //   bounded uplift (max 1.35), bleeders receive an additional
+        //   haircut. Never above 1.35, never below 0.20.
+        val expectancyMult6816 = try {
+            com.lifecyclebot.engine.truth.ExpectancyWeightedLaneAllocator6816
+                .sizeMultiplier(laneName)
+        } catch (_: Throwable) { 1.0 }
+        val adaptiveMult6684 = (ssiMult6684 * labMult6684 * recycleMult6814 * expectancyMult6816).coerceIn(0.20, 2.50)
         val requested = (requestedSol.coerceAtLeast(0.0) * adaptiveMult6684).coerceAtLeast(0.0)
         val risk = requested.coerceAtMost(laneRiskCapSol)
         if (kotlin.math.abs(adaptiveMult6684 - 1.0) > 0.001) {
@@ -298,7 +306,16 @@ object OrderSizeResolver6441 {
             paperMode && applyPaperMemeMinimum -> maxOf(laneMinExecutableSol, PAPER_EXECUTABLE_MINIMUM_SOL)
             else -> laneMinExecutableSol.coerceAtLeast(ABS_MIN_EXECUTABLE_SOL)
         }
-        val minExecLamports6491 = toLamports6491(minExecRaw6491)
+        // V5.0.6816 §PROJECT_SNIPER_UNCHOKE — for the PROJECT_SNIPER
+        //   lane specifically, clamp the minimum executable to the
+        //   sniper floor so it is never above the paper floor. This
+        //   releases the markReady=27, sizedExecutable=0 starvation
+        //   the operator dump captured. Non-sniper lanes are untouched.
+        val minExecRaw6816 = try {
+            com.lifecyclebot.engine.truth.ProjectSniperSizingChoke6816
+                .laneMinExecutableSol(laneName, minExecRaw6491)
+        } catch (_: Throwable) { minExecRaw6491 }
+        val minExecLamports6491 = toLamports6491(minExecRaw6816)
         val minExec = fromLamports6491(minExecLamports6491)
         val requestedLamports6491 = toLamports6491(requested)
         val availableLamports6491 = toLamports6491(feeAwareAvailable6490)
@@ -396,6 +413,19 @@ object OrderSizeResolver6441 {
         )
         lastResolution.set(res)
         if (actuallyExec) executableCount.incrementAndGet() else skippedCount.incrementAndGet()
+        // V5.0.6816 §PROJECT_SNIPER_UNCHOKE — starvation telemetry:
+        //   when the sniper lane sizes to zero with a positive request,
+        //   emit a labelled counter so the operator can see whether
+        //   the unchoke is releasing after this ship.
+        if (!actuallyExec && requestedLamports6491 > 0L) {
+            try {
+                val key = laneName.trim().uppercase()
+                if ("PROJECT_SNIPER" in key || "SNIPER" in key) {
+                    com.lifecyclebot.engine.truth.ProjectSniperSizingChoke6816
+                        .recordStarvation(reason)
+                }
+            } catch (_: Throwable) {}
+        }
         try {
             ForensicLogger.lifecycle(
                 "ORDER_SIZE_RESOLVED_6441",

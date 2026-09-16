@@ -112,6 +112,26 @@ object ExecutionTicketMachine6411 {
         decisionId: String,
         isMemeShort: Boolean,
     ): Ticket {
+        // V5.0.6816 §TICKET_FINALITY — advisory pre-condition audit.
+        //   We check that candidateVersion (decisionId), lane, and the
+        //   FDG/mark/size/epoch inferred flags are all present at the
+        //   ticket-seal boundary. Hard-block is DISABLED by default in
+        //   this ship (see ExecutionTicketFinalityGuard6816.setEnforcement);
+        //   the guard emits telemetry so the operator can observe how
+        //   often the seal would be blocked before we turn on the
+        //   enforcement in a later ship. Non-blank inputs are treated
+        //   as resolved for this observation pass.
+        try {
+            ExecutionTicketFinalityGuard6816.guardCreate(
+                candidateVersion = decisionId,
+                lane = lane,
+                fdgSealed = decisionId.isNotBlank(),
+                markResolved = mint.isNotBlank(),
+                sizeResolved = side.isNotBlank(),
+                epochResolved = wallet.isNotBlank(),
+                callSite = "ExecutionTicketMachine6411.create",
+            )
+        } catch (_: Throwable) {}
         val intent = intentId(wallet, mint, side, decisionId)
         val existingId = activeByIntent[intent]
         if (existingId != null) {

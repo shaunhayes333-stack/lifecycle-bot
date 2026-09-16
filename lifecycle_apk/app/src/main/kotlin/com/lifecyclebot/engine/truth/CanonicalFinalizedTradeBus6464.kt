@@ -121,6 +121,15 @@ object CanonicalFinalizedTradeBus6464 {
      */
     fun publish(env: Envelope): Boolean {
         if (env.tradeId.isBlank() || env.positionId.isBlank() || !env.terminal) return false
+        // V5.0.6816 §REPLAY_JOURNAL_PARITY — refuse to publish while the
+        //   paper ledger still has an unresolved openCostΔ during a
+        //   replay reconstruction. Closes the 226/218 finalized parity
+        //   gap identified in the V5.0.6812 forensic dump. Fail-open on
+        //   any exception so the guard cannot itself become a hot-path
+        //   fault (V5.0.6811 crash lesson).
+        if (JournalReplayGuard6816.shouldSkipPublish(env.tradeId, env.mint, env.mode)) {
+            return false
+        }
         val prev = canonicalSeen.putIfAbsent(env.tradeId, env)
         publishes.incrementAndGet()
         if (prev != null) {
