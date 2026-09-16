@@ -2947,6 +2947,16 @@ object CryptoAltTrader {
                     markAssetKey = validatedMarkKey,
                     markUpdatedAtMs = System.currentTimeMillis(),
                 )
+                // V5.0.6832 — advisory mark-freshness observation. Value-diff
+                // vs previous tick tells us whether this mark is genuinely
+                // moving or is a carry-forward touch. Zero economic effect;
+                // pipeline/UI read only.
+                try {
+                    com.lifecyclebot.engine.truth.MarkPriceFreshnessTelemetry6832.observe(
+                        mintKey = validatedMarkKey,
+                        price = markPrice,
+                    )
+                } catch (_: Throwable) {}
                 // Exit functions read the map. Publish the validated tick before
                 // any SL/TP/floor decision so settlement cannot use the old mark.
                 positions[id] = updated

@@ -739,6 +739,26 @@ class CryptoAltActivity : AppCompatActivity() {
                 if (solPrice > 0) {
                     rightCol.addView(tv("mark ≈\$${"%.2f".format(currentValueUsd)}", 9f, muted, mono=true).apply { gravity = Gravity.END })
                 }
+                // V5.0.6832 — advisory mark-freshness probe. Renders a
+                // per-row "quote LIVE / 15s / 2m FROZEN" tag so operator can
+                // see at a glance whether these prices are actually moving
+                // or whether the DEX route is silently carrying forward.
+                try {
+                    val markKey6832 = pos.canonicalAssetKey
+                    if (markKey6832.isNotBlank()) {
+                        val snap6832 = com.lifecyclebot.engine.truth
+                            .MarkPriceFreshnessTelemetry6832.snapshot(markKey6832)
+                        val probe6832 = snap6832.probe
+                        val col6832 = when (probe6832) {
+                            com.lifecyclebot.engine.truth.MarkPriceFreshnessTelemetry6832.Probe.FRESH -> green
+                            com.lifecyclebot.engine.truth.MarkPriceFreshnessTelemetry6832.Probe.MOVING -> amber
+                            com.lifecyclebot.engine.truth.MarkPriceFreshnessTelemetry6832.Probe.STALLING -> red
+                            com.lifecyclebot.engine.truth.MarkPriceFreshnessTelemetry6832.Probe.FROZEN -> red
+                            com.lifecyclebot.engine.truth.MarkPriceFreshnessTelemetry6832.Probe.UNSEEN -> muted
+                        }
+                        rightCol.addView(tv(snap6832.shortLabel, 8f, col6832, mono = true).apply { gravity = Gravity.END })
+                    }
+                } catch (_: Throwable) {}
                 row.addView(rightCol)
                 tile.addView(row)
 
