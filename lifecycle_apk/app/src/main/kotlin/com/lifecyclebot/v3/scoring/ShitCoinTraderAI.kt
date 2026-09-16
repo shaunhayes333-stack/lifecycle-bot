@@ -75,9 +75,11 @@ object ShitCoinTraderAI {
     private const val MAX_CONCURRENT_POSITIONS = 100  // V5.9.613: no hidden shitcoin lane choke
     private const val WALLET_SCALE_FACTOR = 0.02      // V5.6: 2% of wallet per shitcoin position
     
-    // V4.20: Removed daily loss limit - ShitCoin is now primary layer
-    // Loss prevention is handled by global stop-loss and position sizing
-    // private const val DAILY_MAX_LOSS_SOL = 0.5     // REMOVED - let it trade freely
+    // V5.0.6822: daily loss cap restored. ShitCoin is the highest-frequency lane
+    // with no hold-time minimum, so without a cap a bad streak can burn the wallet
+    // faster than any other lane. All other lanes (BlueChip, CashGen, DipHunter,
+    // ProjectSniper) enforce DAILY_MAX_LOSS_SOL — ShitCoin must too.
+    private const val DAILY_MAX_LOSS_SOL = 0.5       // 0.5 SOL daily loss ceiling
     
     // Take profit / Stop loss - FLUID (adapts as bot learns)
     // Bootstrap: Tighter exits (quick wins, tight stops)
@@ -2160,10 +2162,10 @@ object ShitCoinTraderAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     fun getCurrentMode(): ShitCoinMode {
-        // V4.20: Removed daily loss limit - always hunting unless positioned
+        val dailyPnl = dailyPnlSolBps.get() / 100.0
         val positionCount = activePositions.size
-        
         return when {
+            dailyPnl <= -DAILY_MAX_LOSS_SOL -> ShitCoinMode.PAUSED
             positionCount > 0 -> ShitCoinMode.POSITIONED
             else -> ShitCoinMode.HUNTING
         }

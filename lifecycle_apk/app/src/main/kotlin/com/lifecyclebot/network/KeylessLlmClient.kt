@@ -221,7 +221,7 @@ object KeylessLlmClient {
     // ── Anthropic (operator key) ───────────────────────────────────────────
     private fun callAnthropic(system: String, user: String, maxTokens: Int): String? {
         val payload = JSONObject().apply {
-            put("model", "claude-sonnet-4-5-20250929")
+            put("model", "claude-sonnet-4-5")
             put("max_tokens", maxTokens)
             put("system", system)
             put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", user)))
