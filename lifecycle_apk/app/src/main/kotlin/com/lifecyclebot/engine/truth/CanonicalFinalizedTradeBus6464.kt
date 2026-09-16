@@ -129,6 +129,24 @@ object CanonicalFinalizedTradeBus6464 {
             return false
         }
         try { PipelineHealthCollector.labelInc("FINALIZED_BUS_PUBLISHED_6464") } catch (_: Throwable) {}
+        // V5.0.6829 §SELECTION_QUALITY — feed the rolling WR authority on
+        //   every clean terminal publish so intake score-floor deltas
+        //   track actual lane performance. Only train from
+        //   learningEligible closes to avoid poisoning WR with stale-mark
+        //   scratches (V5.0.6829 §STALE_MARK_RUNNER_PROTECTION contract).
+        //   Fail-silent.
+        try {
+            if (env.learningEligible && env.lane.isNotBlank()) {
+                val won = env.realizedPnlSol > 0.0
+                SelectionQualityAuthority6829.recordTerminal(env.lane, won)
+            }
+        } catch (_: Throwable) {}
+        // V5.0.6829 — release CausalDedupGate6829 claim on terminal.
+        try {
+            if (env.lane.isNotBlank() && env.mint.isNotBlank()) {
+                CausalDedupGate6829.releaseIntent(env.mode, env.mint, env.lane, env.tradeId)
+            }
+        } catch (_: Throwable) {}
         // V5.0.6475 — never ACK at publish time. An ACK means the named
         // consumer actually accepted/processed this envelope. Delivery is
         // responsible for adding it; missing/unwired consumers must remain

@@ -112,6 +112,16 @@ object ExecutionTicketMachine6411 {
         decisionId: String,
         isMemeShort: Boolean,
     ): Ticket {
+        // V5.0.6829 §CAUSAL_DEDUP — observability tap: claim
+        //   (mode-agnostic, mint, lane, decisionId) so duplicate causal
+        //   branches surface as CAUSAL_DEDUP_DUPLICATE_6829 counters.
+        //   This is telemetry-only; the existing intent-level dedup at
+        //   line 116 remains authoritative.
+        try {
+            if (side.equals("BUY", ignoreCase = true) && mint.isNotBlank() && lane.isNotBlank()) {
+                CausalDedupGate6829.claimIntent(mode = "paper", mint = mint, lane = lane, candidateVersion = decisionId)
+            }
+        } catch (_: Throwable) {}
         val intent = intentId(wallet, mint, side, decisionId)
         val existingId = activeByIntent[intent]
         if (existingId != null) {

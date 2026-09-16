@@ -9163,23 +9163,40 @@ class BotService : Service() {
                                         // keeps moving without inventing a rug loss.
                                         val paperStaleTimeoutMs = staleLivePriceThreshMs + 60_000L
                                         if (cfg.paperMode && livePriceAgeMs > paperStaleTimeoutMs) {
-                                            // V5.0.6504 §5 — ONE-SHOT ZOMBIE LATCH.
-                                            // The exit loop was re-emitting PAPER_STALE_ZOMBIE_SCRATCH_EXIT
-                                            // every tick for the same mint because the sell terminal
-                                            // wasn't atomically clearing occupancy in time. Latch per
-                                            // (mint, generation) so the loud lifecycle line + requestSell
-                                            // fire EXACTLY ONCE per eligible position. Subsequent ticks
-                                            // short-circuit `continue` until the position is CLOSED
-                                            // (PositionCloseLedger.isClosed) — at which point the outer
-                                            // exit sweep also drops the mint.
                                             val zombieLatchKey6504 = "${ts.mint}:${ts.position.entryTime}"
+                                            // V5.0.6829 §STALE_MARK_RUNNER_PROTECTION — consult the
+                                            //   V5.0.6829 gate before scratching. Guards:
+                                            //     A) 5-min minimum hold after buy
+                                            //     B) never scratch a winner (lastKnownPnlPct >= 0)
+                                            //     C) require >= 6 refresh attempts
+                                            //   When all guards clear, scratch is stamped
+                                            //   trainable=false so learners exclude it.
+                                            val heldMsSinceBuy6829 = (System.currentTimeMillis() - ts.position.entryTime)
+                                                .coerceAtLeast(0L)
+                                            val stalePositionId6829 = ts.position.positionId
+                                                .ifBlank { zombieLatchKey6504 }
+                                            val runnerVerdict6829 = try {
+                                                com.lifecyclebot.engine.truth.StaleMarkRunnerProtection6829.evaluate(
+                                                    latchKey = zombieLatchKey6504,
+                                                    positionId = stalePositionId6829,
+                                                    heldMsSinceBuy = heldMsSinceBuy6829,
+                                                    lastKnownPnlPct = lastKnownPnlPct,
+                                                    lastKnownPnlOk = lastKnownPnlVerdict.ok,
+                                                )
+                                            } catch (_: Throwable) {
+                                                com.lifecyclebot.engine.truth.StaleMarkRunnerProtection6829.Verdict.HOLD_REFRESH_BUDGET
+                                            }
+                                            if (runnerVerdict6829 != com.lifecyclebot.engine.truth.StaleMarkRunnerProtection6829.Verdict.SCRATCH_ALLOWED) {
+                                                continue
+                                            }
                                             if (paperStaleZombieLatch6504.add(zombieLatchKey6504)) {
                                                 try {
                                                     ForensicLogger.lifecycle(
                                                         "PAPER_STALE_ZOMBIE_SCRATCH_EXIT",
-                                                        "symbol=${ts.symbol} lastPnlPct=${"%.1f".format(lastKnownPnlPct)} floor=${"%.1f".format(stalePnlFloor)} ageS=${livePriceAgeMs/1000} timeoutS=${paperStaleTimeoutMs/1000} — feed+oracle dark, closing scratch to prevent forcedOpen/WR poison (one-shot 6504)"
+                                                        "symbol=${ts.symbol} lastPnlPct=${"%.1f".format(lastKnownPnlPct)} floor=${"%.1f".format(stalePnlFloor)} ageS=${livePriceAgeMs/1000} timeoutS=${paperStaleTimeoutMs/1000} verdict=$runnerVerdict6829 — feed+oracle dark, closing scratch TRAINABLE=FALSE (6829)"
                                                     )
                                                     PipelineHealthCollector.labelInc("PAPER_STALE_ZOMBIE_SCRATCH_EXIT_ONESHOT_6504")
+                                                    PipelineHealthCollector.labelInc("PAPER_STALE_SCRATCH_NON_TRAINABLE_6829")
                                                 } catch (_: Throwable) {}
                                                 executor.requestSell(
                                                     ts = ts,

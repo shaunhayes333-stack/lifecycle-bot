@@ -802,7 +802,14 @@ object CanonicalPositionAuthority6441 {
     }
 
     fun closedPositions(): List<Position> = positions.values.filter { it.lifecycle == Lifecycle.CLOSED }
-    fun openCount(): Int = openPositions().size
+    fun openCount(): Int {
+        val n = openPositions().size
+        // V5.0.6829 §INVENTORY_PRESSURE — feed the governor on every read
+        //   of the canonical open count so intake gates always see fresh
+        //   pressure telemetry. Fail-silent.
+        try { InventoryPressureGovernor6829.setOpenPositions(n) } catch (_: Throwable) {}
+        return n
+    }
     /** V5.0.6743 — dedicated counter for the strict valuation surface. */
     fun openCountForValuation(): Int = openPositionsForValuation().size
     fun hasOpenMint(mint: String): Boolean = positions.values.any {
