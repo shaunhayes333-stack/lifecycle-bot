@@ -129,14 +129,44 @@ object CanonicalFinalizedTradeBus6464 {
             return false
         }
         try { PipelineHealthCollector.labelInc("FINALIZED_BUS_PUBLISHED_6464") } catch (_: Throwable) {}
+        // V5.0.6831 §EXPRESS_EXIT_PRICE_INTEGRITY — if the EXPRESS exit
+        //   integrity gate stamped this position non-trainable (bad quote,
+        //   epsilon fill, price discontinuity, unresolved decimals, etc.)
+        //   override learningEligible so the finalized envelope does not
+        //   poison EXPRESS expectancy / WR / LaneExpectancyDamper /
+        //   UnifiedPolicyHead. Reward-purity contract for item #6 of the
+        //   6828 diagnosis and the operator's Feb 2026 EXPRESS repair
+        //   directive.
+        val expressIntegrityNonTrainable6831 = try {
+            ExpressExitPriceIntegrity6831.isNonTrainable(env.positionId)
+        } catch (_: Throwable) { false }
+        val finalLearningEligible6831 = env.learningEligible && !expressIntegrityNonTrainable6831
+        if (expressIntegrityNonTrainable6831) {
+            try {
+                PipelineHealthCollector.labelInc("FINALIZED_LEARNING_EXCLUDED_EXPRESS_EXIT_INTEGRITY_6831")
+                val verdict = ExpressExitPriceIntegrity6831.verdictFor(env.positionId)
+                if (verdict != null) {
+                    PipelineHealthCollector.labelInc(
+                        "FINALIZED_LEARNING_EXCLUDED_EXPRESS_EXIT_INTEGRITY_6831_${verdict.name}"
+                    )
+                }
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "FINALIZED_LEARNING_EXCLUDED_EXPRESS_EXIT_INTEGRITY_6831",
+                    "positionId=${env.positionId.take(24)} mint=${env.mint.take(10)} " +
+                        "lane=${env.lane} exitReason=${env.exitReason.take(40)} " +
+                        "action=excluded_from_all_learners"
+                )
+            } catch (_: Throwable) {}
+        }
         // V5.0.6829 §SELECTION_QUALITY — feed the rolling WR authority on
         //   every clean terminal publish so intake score-floor deltas
         //   track actual lane performance. Only train from
         //   learningEligible closes to avoid poisoning WR with stale-mark
         //   scratches (V5.0.6829 §STALE_MARK_RUNNER_PROTECTION contract).
+        //   V5.0.6831 additionally gates on EXPRESS exit-price integrity.
         //   Fail-silent.
         try {
-            if (env.learningEligible && env.lane.isNotBlank()) {
+            if (finalLearningEligible6831 && env.lane.isNotBlank()) {
                 val won = env.realizedPnlSol > 0.0
                 SelectionQualityAuthority6829.recordTerminal(env.lane, won)
             }

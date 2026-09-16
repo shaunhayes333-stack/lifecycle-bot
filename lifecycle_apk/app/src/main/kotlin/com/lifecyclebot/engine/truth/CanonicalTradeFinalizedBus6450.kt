@@ -148,6 +148,39 @@ object CanonicalTradeFinalizedBus6450 {
             val learningEligibility6519 = PaperLearningEligibility6519.decision(event.positionId, event.mint)
             val entrySnap6567 = EntryStrategySnapshot6450.snapshot(event.positionId)
             val entryScore6567 = entrySnap6567?.entryScore ?: 0
+            // V5.0.6831 §EXPRESS_EXIT_PRICE_INTEGRITY — for EXPRESS lane
+            //   terminals, run the price-integrity validator against the
+            //   settled economic event. If the exit price / proceeds /
+            //   quote provenance is malformed, stamp positionId as
+            //   non-trainable so the finalized bus's downstream guard
+            //   overrides learningEligible=false. All other lanes pass
+            //   through the existing PaperLearningEligibility6519 flow.
+            try {
+                val laneKey6831 = event.entryLane.trim().uppercase()
+                if ("EXPRESS" in laneKey6831) {
+                    val exitPriceValid = event.priceIntegrity.equals("VALID", ignoreCase = true) ||
+                        event.priceIntegrity.equals("VALIDATED_MARK", ignoreCase = true)
+                    val dataOk = event.dataQuality.equals("GOOD", ignoreCase = true) ||
+                        event.dataQuality.equals("VALID", ignoreCase = true) ||
+                        event.dataQuality.equals("CLEAN", ignoreCase = true)
+                    if (!exitPriceValid || !dataOk) {
+                        ExpressExitPriceIntegrity6831.evaluate(
+                            ExpressExitPriceIntegrity6831.AuditInputs(
+                                positionId = event.positionId,
+                                mint = event.mint,
+                                lane = event.entryLane,
+                                entryRaw = 0.0, entryNormalized = 0.0,
+                                exitRaw = if (exitPriceValid) 1.0 else 0.0,
+                                exitNormalized = if (exitPriceValid) 1.0 else 0.0,
+                                triggerReason = event.exitReason,
+                                triggerPct = event.netReturnPct,
+                                proceeds = 0.0,
+                                quoteSource = event.priceIntegrity,
+                            )
+                        )
+                    }
+                }
+            } catch (_: Throwable) {}
             val env = CanonicalFinalizedTradeBus6464.Envelope(
                 tradeId = event.positionId,
                 atMs = event.settledAtMs,
