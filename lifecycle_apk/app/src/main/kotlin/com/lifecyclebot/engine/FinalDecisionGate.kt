@@ -4887,7 +4887,31 @@ object FinalDecisionGate {
             val rawShape6552 = (finalSize / proposedSizeSol).takeIf { it.isFinite() && it > 0.0 } ?: 1.0
             val boundedShape6552 = kotlin.math.exp(kotlin.math.ln(rawShape6552).coerceIn(kotlin.math.ln(0.35), kotlin.math.ln(1.50)))
             val beforeCanonical6552 = finalSize
-            finalSize = (proposedSizeSol * boundedShape6552).coerceAtLeast(0.005)
+            // V5.0.6827 §CANONICAL_NOTIONAL_OVERRODE_ABSOLUTE_CAPS — this block is
+            // algebraically proposedSizeSol * clamp(finalSize/proposedSizeSol, 0.35, 1.50),
+            // so re-deriving from the proposal discarded every ABSOLUTE size decision
+            // taken above and re-inflated it to at least 0.35x the proposal:
+            //   live cap (4261) 0.5 on a 2.0 proposal  -> 0.70 SOL, 40% OVER the live
+            //   ceiling, while the max_size check still logged as passed
+            //   train-first probe (3512/4529) 0.01 on a 0.40 proposal -> 0.14 SOL, 14x
+            //   the intended micro probe, on a lane BCG flagged as statistically bad
+            // The bounded shape exists to stop *relative* multipliers compounding into
+            // dust, so it may move size up toward the proposal but must never breach an
+            // absolute ceiling, nor re-inflate a size that was pinned deliberately.
+            val absoluteCeiling6827 = if (config.paperMode) 1.0 else 0.5
+            val sizePinnedAbsolute6827 = tags.any {
+                it == "size_capped" ||
+                    it == "train_first_micro_probe" ||
+                    it == "bcg_train_first_micro_probe" ||
+                    it == "bcg_proven_dead_normal_veto"
+            }
+            finalSize = (proposedSizeSol * boundedShape6552)
+                .coerceAtLeast(0.005)
+                .coerceAtMost(absoluteCeiling6827)
+            if (sizePinnedAbsolute6827 && finalSize > beforeCanonical6552) {
+                finalSize = beforeCanonical6552
+                tags.add("canonical_respected_absolute_pin_6827")
+            }
             checks.add(GateCheck("canonical_notional_6552", true,
                 "one bounded composite shape raw=${rawShape6552.format(3)} bounded=${boundedShape6552.format(3)} " +
                     "size ${beforeCanonical6552.format(4)}→${finalSize.format(4)}"))
@@ -4999,7 +5023,21 @@ object FinalDecisionGate {
                 val paperMinimum6653 = if (config.paperMode)
                     PaperPreTicketSizeFloor6511.boundedMinimum(config.minLiveBuySol)
                 else 0.001
-                val sizingCash6653 = try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { 0.0 }
+                // V5.0.6827 §LIVE_SIZE_SEALED_OFF_PAPER_LEDGER — PaperCapitalAuthority6577
+                // reads PaperAccountLedger6430 and never mirrors the live wallet, yet this
+                // value was used unconditionally as walletSol AND as the 12% lane risk cap.
+                // In live mode the resolver sets authoritativeCash = walletSol
+                // (OrderSizeResolver6441:210), so both caps came from paper cash:
+                //   paper 10 SOL / real wallet 0.4 SOL -> seals ~0.70 SOL and the executor
+                //   attempts a swap the wallet cannot fund
+                //   live-only run with an uninitialised paper ledger -> cash 0 -> NO_WALLET
+                //   and no seal is ever produced
+                // Size live off the live wallet, paper off the paper ledger.
+                val sizingCash6653 = if (config.paperMode) {
+                    try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { 0.0 }
+                } else {
+                    try { WalletManager.cachedSolBalance() } catch (_: Throwable) { 0.0 }
+                }
                 val sealed6552 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.resolve(
                     requestedSol = finalSize,
                     laneName = canonicalPrimaryLane6658,

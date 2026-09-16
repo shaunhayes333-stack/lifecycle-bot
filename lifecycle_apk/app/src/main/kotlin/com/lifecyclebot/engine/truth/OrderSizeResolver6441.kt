@@ -228,7 +228,17 @@ object OrderSizeResolver6441 {
         }
         val minExecLamports6491 = toLamports6491(minExecRaw6491)
         val minExec = fromLamports6491(minExecLamports6491)
-        val requestedLamports6491 = toLamports6491(requested)
+        // V5.0.6827 §CONTRIBUTOR_MERGE_WAS_SHRINK_ONLY — the ceiling selected below is
+        // min(requestedLamports6491, laneClampedLamports6491). laneClamped carries the
+        // contributor-nudged risk (nudgedRisk, line 196) but `requested` is the
+        // PRE-merge value, so the min() discarded every bullish merge (contribMult up
+        // to 1.25 raised only the losing side of the comparison) while every bearish
+        // merge (down to 0.75) still applied through laneClamped. Specialist consensus
+        // was therefore shrink-only. Carry the merge into the ceiling as well; the hard
+        // risk/cash/lane caps still clip via laneClamped, and the V5.0.6601 rule that
+        // the runner ladder must not promote a legal adaptive size is preserved because
+        // the ceiling is still the caller's intent, merely merge-adjusted.
+        val requestedLamports6491 = toLamports6491((requested * contribMult6612).coerceAtLeast(0.0))
         val availableLamports6491 = toLamports6491(feeAwareAvailable6490)
         val laneCapLamports6491 = toLamports6491(laneRiskCapSol)
         val laneClampedLamports6491 = toLamports6491(laneClamped)
