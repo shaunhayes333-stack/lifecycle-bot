@@ -56,6 +56,14 @@ object CapitalRecycleRatioAuthority6814 {
     /**
      * Prune samples older than the rolling window and return the
      * current recycle ratio. Idempotent, cheap.
+     *
+     * V5.0.6817 bootstrap safety: while entries have been recorded but
+     * NO sell has yet returned cash (a normal bootstrap or pure-open
+     * phase), the ratio is 1.0. Otherwise the damper would aggressively
+     * throttle every subsequent open before the first sell — including
+     * in unit tests that only exercise the buy path. Once at least one
+     * cash-returned sample is present, the ratio measures returned-vs-
+     * entered notional as originally designed.
      */
     fun currentRatio(): Double {
         return try {
@@ -64,10 +72,12 @@ object CapitalRecycleRatioAuthority6814 {
             while (cashReturned.peekFirst()?.let { it.atMs < cutoff } == true) cashReturned.pollFirst()
             val entrySum = entries.sumOf { it.notional }
             val returnSum = cashReturned.sumOf { it.notional }
-            // With no entries recorded yet, ratio is neutral (1.0). Once
-            // entries begin flowing, ratio measures how much cash has
-            // returned relative to notional put out.
-            val r = if (entrySum <= EPS) 1.0 else (returnSum / entrySum).coerceIn(0.0, 5.0)
+            // With no entries recorded yet, ratio is neutral (1.0). Also
+            // neutral while sells have not yet returned any cash — this
+            // is the V5.0.6817 bootstrap-safety window so the damper does
+            // not throttle every open before the first realised close.
+            val r = if (entrySum <= EPS || cashReturned.isEmpty()) 1.0
+                    else (returnSum / entrySum).coerceIn(0.0, 5.0)
             lastRatio.set(r)
             lastUpdatedMs.set(System.currentTimeMillis())
             r
