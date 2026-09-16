@@ -24808,6 +24808,25 @@ if (hotExitHandledSweep) {
                                 "🏷️ [SNIPER] ${ts.symbol} | DANGER_ZONE_TELEMETRY (score=$_sniperScore ≥30, allowed) | LosingPatternMemory flagged (PRESALE_SNIPE|S${(_sniperScore/10)*10}-${(_sniperScore/10)*10+10})")
                         }
                         if (assessment.shouldEngage && !_sniperBlocked6072) {
+                            // V5.0.6842 §SNIPER_CAUSAL_IDENTITY_FRAGMENTED — the standalone
+                            // sniper path left authorize()'s attemptId at its "" default, so
+                            // TradeAuthorizer minted a 3-part "mint:candidateVersion:LANE"
+                            // event id for INTENT while MARK and SIZE were stamped with the
+                            // canonical 7-part attemptId from the execution spine. The funnel
+                            // only counts a stage when DISCOVER, INTENT, MARK_READY and SIZE
+                            // all share ONE CausalKey (MemeExecutionFunnelReceivers6625:391),
+                            // and candidateVersion is a wall-clock 30s bucket captured at a
+                            // different moment, so the stages could never join.
+                            // That is why the operator saw PROJECT_SNIPER report
+                            // markReady=76 sizedExecutable=0 ticket=0 exec=0 with
+                            // phantomSizedOnly=42 and status=SIZING_CHOKED, while StrategyTruth
+                            // simultaneously reported n=20 WR=45% PnL=+2.7422 SOL. The lane was
+                            // trading and profitable the whole time — the funnel was
+                            // mis-joining its own telemetry, and the resulting "0 executions"
+                            // is what made the book's best lane look dead.
+                            val sniperAttemptId6842 = try {
+                                ExecutableOpenGate.nextAttemptId(ts.mint, "PROJECT_SNIPER")
+                            } catch (_: Throwable) { "" }
                             // Authorize with TradeAuthorizer
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
@@ -24821,6 +24840,7 @@ if (hotExitHandledSweep) {
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
                                 preResolvedSizeSol = assessment.positionSizeSol,
+                                attemptId = sniperAttemptId6842,
                             )
                             
                             if (authResult.isExecutable()) {
@@ -24869,6 +24889,24 @@ if (hotExitHandledSweep) {
                                     try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.PROJECT_SNIPER) } catch (_: Throwable) {}
                                     return
                                 }
+
+                                // V5.0.6842 — the buy opened, so bind the causal predecessors to
+                                // the same attemptId the execution spine already used for
+                                // MARK/SIZE/TICKET. Mirrors the coherent 5-stamp block the meme
+                                // spine runs, which the standalone sniper path never reached
+                                // because that block is guarded on specialistIntent6614 != null.
+                                // recordDeskStage dedupes on lane|stage|eventId, so re-stamping a
+                                // stage the spine already recorded is a no-op. Expect
+                                // phantomSizedOnly to fall to 0 and sizedExecutable / ticket /
+                                // exec to become non-zero for PROJECT_SNIPER; those counters were
+                                // undercounted, not the trades.
+                                try {
+                                    ToolkitSignalSheet.recordDeskStage("PROJECT_SNIPER", "POOL", projectSniperAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("PROJECT_SNIPER", "BUY_INTENT", projectSniperAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("PROJECT_SNIPER", "MARK_READY", projectSniperAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("PROJECT_SNIPER", "SIZED_EXECUTABLE", projectSniperAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("PROJECT_SNIPER", "TICKET", projectSniperAttemptId)
+                                } catch (_: Throwable) {}
 
                                 com.lifecyclebot.v3.scoring.ProjectSniperAI.engageMission(
                                     mint = ts.mint,
