@@ -1476,6 +1476,64 @@ object FinalDecisionGate {
             } catch (_: Throwable) {}
         }
 
+        // V5.0.6830 §SELECTION_QUALITY_FLOOR + INVENTORY_PRESSURE — wire the
+        //   V5.0.6829 authorities into the FDG decision. Both are ADDITIVE
+        //   score-floor deltas: they only fire when their underlying data
+        //   says quality is low OR the paper portfolio is saturated with
+        //   open positions. When neither has actionable data, both return
+        //   0.0 and the FDG behaviour is unchanged. Composition:
+        //     effectiveFloor = 22.0 + qualityDelta + pressureDelta
+        //   The block level is CONFIDENCE (recoverable) not HARD, so a
+        //   candidate can still probe when the operator raises size caps
+        //   or the WR/pressure improves.
+        if (blockReason == null) {
+            val laneKeyForFloor6830 = specialistLane?.trim()?.uppercase().orEmpty()
+                .ifBlank { tradingModeTag?.name?.trim()?.uppercase().orEmpty() }
+            val qualityDelta6830 = try {
+                com.lifecyclebot.engine.truth.SelectionQualityAuthority6829
+                    .scoreFloorDelta(laneKeyForFloor6830)
+            } catch (_: Throwable) { 0.0 }
+            val pressureDelta6830 = try {
+                com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.scoreFloorDelta()
+            } catch (_: Throwable) { 0.0 }
+            val effectiveFloor6830 = 22.0 + qualityDelta6830 + pressureDelta6830
+            if (effectiveFloor6830 > 22.0 && confidence < effectiveFloor6830 && !canBypassConfidenceFloors) {
+                blockReason = "SELECTION_QUALITY_FLOOR_6830 lane=$laneKeyForFloor6830 " +
+                    "conf=${confidence.toInt()}% floor=${"%.1f".format(effectiveFloor6830)} " +
+                    "qDelta=${"%.1f".format(qualityDelta6830)} pDelta=${"%.1f".format(pressureDelta6830)} " +
+                    "wr=${"%.1f".format(com.lifecyclebot.engine.truth.SelectionQualityAuthority6829.rollingWr(laneKeyForFloor6830))} " +
+                    "open=${com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.openPositions()}"
+                blockLevel = BlockLevel.CONFIDENCE
+                tags.add("selection_quality_floor_6830")
+                checks.add(GateCheck("selection_quality_floor_6830", false,
+                    "quality/pressure raised floor to ${"%.1f".format(effectiveFloor6830)} vs confidence ${confidence.toInt()}%"))
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SELECTION_QUALITY_FLOOR_BLOCKED_6830")
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                        "SELECTION_QUALITY_FLOOR_BLOCKED_6830_${laneKeyForFloor6830.take(24)}"
+                    )
+                } catch (_: Throwable) {}
+            }
+            // V5.0.6830 §INVENTORY_PRESSURE_HARD_INTAKE_BLOCK — CRITICAL
+            //   pressure (>= 55 open positions) hard-defers new intake.
+            //   Recoverable: this is CONFIDENCE-level, so as soon as
+            //   positions start closing the block clears automatically.
+            if (blockReason == null) {
+                val hardBlock6830 = try {
+                    com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.blockNewIntake()
+                } catch (_: Throwable) { false }
+                if (hardBlock6830 && !canBypassConfidenceFloors) {
+                    blockReason = "INVENTORY_PRESSURE_CRITICAL_6830 " +
+                        "open=${com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.openPositions()} " +
+                        "pressure=CRITICAL action=defer_new_intake_until_exit_recycles"
+                    blockLevel = BlockLevel.CONFIDENCE
+                    tags.add("inventory_pressure_critical_6830")
+                    checks.add(GateCheck("inventory_pressure_critical_6830", false,
+                        "CRITICAL open-position pressure — deferring new intake"))
+                }
+            }
+        }
+
         if (confidence < 27.0 && isCGrade && !canBypassConfidenceFloors) {
             // V5.0.4099 — gate→size: convert C_GRADE_CONFIDENCE_FLOOR_27%
             // from HARD_KILL to soft-shape. Trade is allowed but the

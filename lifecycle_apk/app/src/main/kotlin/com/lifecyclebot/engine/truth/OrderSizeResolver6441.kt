@@ -174,7 +174,15 @@ object OrderSizeResolver6441 {
         val labMult6684 = try {
             com.lifecyclebot.engine.AdaptiveLaneReproof6684.sizeMultiplierForLane(laneName)
         } catch (_: Throwable) { 1.0 }
-        val adaptiveMult6684 = (ssiMult6684 * labMult6684).coerceIn(0.35, 2.50)
+        // V5.0.6830 §INVENTORY_PRESSURE_DAMPER — operator directive: consume
+        //   InventoryPressureGovernor6829.intakeMultiplier() so 25+/40+/55+
+        //   open positions actually shrink new intake sizes (1.00/0.75/0.50/
+        //   0.20). At the base NONE pressure the multiplier is 1.0 and this
+        //   term is neutral.
+        val pressureMult6830 = try {
+            com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.intakeMultiplier()
+        } catch (_: Throwable) { 1.0 }
+        val adaptiveMult6684 = (ssiMult6684 * labMult6684 * pressureMult6830).coerceIn(0.20, 2.50)
         val requested = (requestedSol.coerceAtLeast(0.0) * adaptiveMult6684).coerceAtLeast(0.0)
         val risk = requested.coerceAtMost(laneRiskCapSol)
         if (kotlin.math.abs(adaptiveMult6684 - 1.0) > 0.001) {

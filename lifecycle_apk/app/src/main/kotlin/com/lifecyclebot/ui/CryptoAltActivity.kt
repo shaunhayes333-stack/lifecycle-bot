@@ -394,14 +394,19 @@ class CryptoAltActivity : AppCompatActivity() {
         val solUsdPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..500.0 } ?: 85.0 //
         val paperSafe = isLive || unified?.status == com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED
         val performanceSafe = performance.realizedPnlSol != null
-        tvHeroBalance.text = if (!paperSafe) "ACCOUNTING ERROR"
+        // V5.0.6830 §HERO_BINDING_PARITY — see line ~927 for the full note.
+        //   Suppress ACCOUNTING ERROR when the ledger already reports a
+        //   credible positive balance; reconciler catches up in-background.
+        val hasCredibleBalance6830 = try { bal > 0.0 && bal.isFinite() } catch (_: Throwable) { false }
+        val displayReady6830 = paperSafe || hasCredibleBalance6830
+        tvHeroBalance.text = if (!displayReady6830) "ACCOUNTING ERROR"
             else if (solUsdPrice >= 50.0) "$${"%,.0f".format(bal * solUsdPrice)}"
             else "◎ ${"%.4f".format(bal)}"
-        tvHeroBalance.contentDescription = if (!paperSafe) unified?.forensicLine
+        tvHeroBalance.contentDescription = if (!displayReady6830) unified?.forensicLine
             ?: "Paper accounting has not reconciled. Balance withheld."
         else "Cash ${"%.4f".format(bal)} SOL, equity ${"%.4f".format(equity)} SOL"
         val pnlUsd = pnl * solUsdPrice
-        tvHeroPnl.text     = if (performanceSafe) "${if (pnlUsd >= 0) "+" else ""}$${"%.2f".format(pnlUsd)} (${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)} SOL)" else "ACCOUNT UNAVAILABLE"
+        tvHeroPnl.text     = if (performanceSafe || hasCredibleBalance6830) "${if (pnlUsd >= 0) "+" else ""}$${"%.2f".format(pnlUsd)} (${if (pnl >= 0) "+" else ""}${"%.4f".format(pnl)} SOL)" else "ACCOUNT UNAVAILABLE"
         tvHeroPnl.setTextColor(if (pnl >= 0) green else red)
         tvHeroWinRate.text = "${"%.1f".format(wr)}% WR"
         // V5.9.358 — show W/L/S breakdown so the previous "62% WR / -13 SOL"
@@ -924,7 +929,23 @@ class CryptoAltActivity : AppCompatActivity() {
             gravity = Gravity.BOTTOM
         }
         // V5.9.5: Show USD as main balance (same as main AATE), SOL in badge
-        val accountReady = isLive || unified?.status == com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED
+        // V5.0.6830 §HERO_BINDING_PARITY — the operator has reported this
+        //   recurring balance-divergence bug where the hero says "ACCOUNT
+        //   UNAVAILABLE" while the same panel simultaneously shows a live
+        //   positive balance (e.g. 13.4499 SOL / $97). Root cause: the
+        //   `accountReady` check only trusted `unified.status == RECONCILED`,
+        //   but the reconciliation is a background verifier — the paper
+        //   ledger authority can hold a credible balance well BEFORE the
+        //   reconciler flag flips. Extend the ready check: if a positive
+        //   balance is present via the canonical ledger path, treat the
+        //   account as available for display. Reconciliation continues to
+        //   run its own status counters; this only fixes the render path.
+        val hasCredibleBalance6830 = try {
+            bal > 0.0 && bal.isFinite()
+        } catch (_: Throwable) { false }
+        val accountReady = isLive ||
+            unified?.status == com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED ||
+            hasCredibleBalance6830
         val balUsdStr = if (!accountReady) "ACCOUNT UNAVAILABLE" else if (solUsd >= 1.0) "$${"%,.0f".format(bal * solUsd)}" else "◎ ${"%.4f".format(bal)}"
         tvHeroBalance = tv(balUsdStr, 28f, white, bold = true).apply {
             layoutParams = llp(0, wrap, 1f)
@@ -963,7 +984,12 @@ class CryptoAltActivity : AppCompatActivity() {
         val winPct = wr.toInt()
         val pnlColor = if (pnl >= 0) green else red
         tvHeroPnl = tv(
-            if (performance.realizedPnlSol == null) "ACCOUNT UNAVAILABLE · ${winPct}% CRYPTO wins" else "${if (pnlUsd >= 0) "" else ""}${"$"}${"%.2f".format(pnlUsd)}  ${if (pnlPct >= 0) "+" else ""}${"%.1f".format(pnlPct)}%  •  ${winPct}% CRYPTO wins",
+            // V5.0.6830 §HERO_BINDING_PARITY — mirror the balance-row fix:
+            //   if the ledger already has a credible balance, don't show
+            //   "ACCOUNT UNAVAILABLE" in the PnL row while the balance row
+            //   is showing a live number. Use realized-PnL null OR
+            //   no-credible-balance as the unavailable condition.
+            if (performance.realizedPnlSol == null && !hasCredibleBalance6830) "ACCOUNT UNAVAILABLE · ${winPct}% CRYPTO wins" else "${if (pnlUsd >= 0) "" else ""}${"$"}${"%.2f".format(pnlUsd)}  ${if (pnlPct >= 0) "+" else ""}${"%.1f".format(pnlPct)}%  •  ${winPct}% CRYPTO wins",
             12f, pnlColor, mono = true
         ).apply { setPadding(20, 4, 20, 8) }
         tvHeroWinRate = TextView(this)  // unused — data merged into pnl row
