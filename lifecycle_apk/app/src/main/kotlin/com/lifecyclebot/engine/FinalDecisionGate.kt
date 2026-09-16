@@ -1017,7 +1017,7 @@ object FinalDecisionGate {
         //   modification is required.
         try {
             val cash6814 = try {
-                if (mode == TradeMode.PAPER) com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol()
+                if (mode == TradeMode.PAPER) com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol()
                 else 0.0
             } catch (_: Throwable) { 0.0 }
             val openCount6814 = try {
