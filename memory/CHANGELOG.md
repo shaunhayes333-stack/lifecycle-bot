@@ -1,4 +1,79 @@
-## V5.0.6741 — §1 owner-lane restore + §2 SOL/token USD fabrication removed (PENDING CI)
+## V5.0.6764 — POST_SEAL_SECOND_SWEEP (partial)
+
+- Routes `FDG_ALLOW_SEALING_RACE_DEFERRED_6739` through `PostSealAuthorityInvariants6760`. This 500 ms paper-side snapshot-seal wait is soft, not a hard-safety veto — the demotion allows the sealed FDG path to proceed and the race is left to the next tick's fresh snapshot.
+- **NOT demoted** (kept authoritative per the operator's own code comments): `STALE_FEEDBACK_EPOCH_REVALIDATE_6715`, `MISSING_FEEDBACK_STAMP_REVALIDATE_6715` are documented at `CausalFeedbackAuthority6715` line ~204 as MUST HARD-BLOCK integrity guards. Demoting them would break the Aate6715 integrity contract ("fresh terminal MUST invalidate pending stamps").
+- **NOT demoted** (kept as revalidation drop-and-refresh): `EXEC_OPEN_DROPPED_TOKEN_STATE_CHANGED`, `EXEC_FROZEN_SNAPSHOT_MISSING_INTENT_NEEDS_REVALIDATION_6627` — these drop back into the "no final candidate" path so the mint re-enters FDG on the next cycle with fresh authority. Demoting to advisory would proceed on stale intent snapshots.
+- `EXEC_RESTORED_TICKET_VERSION_DRIFT_6692` is already telemetry-only (no block), no demotion needed.
+- Regression: `Aate6764PostSealSecondSweepTest`.
+
+---
+
+
+
+
+Operator V5.0.6761 diagnostic exposed three distinct truth defects that the earlier plumbing repairs left in place:
+
+- **§DNA_TAXONOMY_FIX** (`LiveWinDNAStore.kt`): `LIVE_WIN_DNA_CAPTURED_6238` fired on `pnl=-100.0% mode=PAPER` — the V5.0.6258 rewire journals both winners and losers but the telemetry label still said WIN. Split label by pnl sign: `LIVE_TRADE_DNA_${WIN|LOSS|BREAKEVEN}_CAPTURED_6763`. Legacy `LIVE_WIN_DNA_CAPTURED_6238` now emitted ONLY on `pnlPct > 0.0`.
+- **§EXIT_REASON_ECONOMIC_TRUTH** (`Executor.kt` STRICT_SL path): reason label `STRICT_SL_-3` was producing realized losses of -10% to -16% because the mark that computed `pnlPctNow` was stale by the time `doSell()` fetched the actual pool price. When mark age > 15 s, reason is now annotated as `STRICT_SL_-3_MARK_STALE_<age>s` and a diagnostic `STRICT_SL_MARK_STALE_ECONOMIC_TRUTH_6763` fires. Downstream DNA / learner-bridge / edge engine now see distinct cohorts for stale-mark exits vs clean stop-loss.
+- **§CATASTROPHIC_LANE_AUTO_VETO** (new `CatastrophicLaneAutoVeto6763`): operator's own snapshot admitted "no strategy is auto-disabled — operator decides what to retire", but LaneExpectancyDamper's size-only design let PROJECT_SNIPER / CORE / EXPRESS keep feeding entries at 0-7.7% WR despite ×0.33-0.47 dampers. New authority hard-vetoes any lane at ≥20 clean same-mode closes with WR ≤ 8% AND meanPnl ≤ -20%. Self-heals when recent-10 WR ≥ 15%. Wired into `ExecutableOpenGate.canOpenExecutablePosition` BEFORE FDG evaluation. Reason `SAFETY_HARD_VETO_LANE_CATASTROPHIC_6763` — the `SAFETY_` prefix keeps it authoritative post-FDG-allow via `PostSealAuthorityInvariants6760`. LaneExpectancyDamper stays size-only per operator doctrine #86; the new authority ADDS the veto path.
+- **Regression**: `Aate6763EconomicTruthRepairTest` — 5 tests fencing all three source changes plus the post-seal allowlist wire-up.
+
+---
+
+
+## V5.0.6760 — DIRECT SOURCE REPAIR BLOCK (operator directive V5.0.6759)
+
+Ships five source-level repairs on the canonical execution paths. NO new overlay/bypass. NO threshold tuning. NO rewrite of any healthy authority. Operator directive: "Repair the execution-state choke without changing the now-healthy canonical accounting/reconciliation authority. Fix the authoritative source paths and remove/neutralize contradictory legacy gates that execute after canonical authorization."
+
+- **§1 PHANTOM_SIZED_AT_SOURCE** (`SpecialistCausalFunnel6625`): phantom = sized WITHOUT terminal disposition (was: sized without DISCOVER/INTENT/MARK predecessors — conflated attribution with phantoms). `reapStaleSizedReservations6760(ttlMs=30_000L)` terminalizes orphans with `STALE_SIZED_TERMINAL_6760`; called every BotService pump cadence.
+- **§2 CASH_STARVED_AT_SOURCE** (`ExitThroughputAuthority6727`): retire compound `cashRatio && openCount` gate. Cash-starve now requires `cash < paperExecutableMinimumSol` AND `openCount >= 1`. Ratio-based signals live only in `LaneCapitalFairness6732` + `§MEME_UNCHOKE_SAFETY`.
+- **§7 POST_SEAL_AUTHORITY_INVARIANTS** (new `PostSealAuthorityInvariants6760`): central hard-safety allowlist; every legacy post-FDG-allow gate emits `POST_SEAL_ADVISORY_ONLY_6760` and falls through unless the reason is hard-safety. First batch demoted: `REGIME_FLOOR_6747`, `SHADOW_TRAIN_ONLY_6683`, `PAPER_ENTRY_QUALITY_REJECTED_6663`.
+- **§6 FRESH_SOURCE_MARK_PROMOTION** (`Executor.kt`): `VALID_SOURCE_NO_EXECUTABLE_MARK` split into 5 sub-classes (`IDENTITY_UNIT_OR_DECIMAL`, `PAIR_OR_ROUTE_INVALID`, `STALE_QUOTE_ONLY`, `SOURCE_ADVISORY_ONLY`, `SOURCE_RESOLUTION_EXCEPTION`). Provider degradation on ONE provider no longer masquerades as systemic.
+- Preserved: replay/lab/shadow stays non-authoritative; EXPRESS untouched (its poor WR is a strategy-quality problem, not an infra choke); CanonicalPositionAuthority / paper ledger / conservation / reward bus untouched.
+- **Regression**: `Aate6760DirectSourceRepairTest` — 9 tests fencing the entire block (phantom terminal ownership, reap wiring, cash-starve source change, post-seal allowlist, three callsite fences, sub-class emission, snapshot field compat).
+
+---
+
+
+
+
+Operator note: the GPT-authored WIP branch shipped 3 useful commits and stopped ~3 hours in without version bump, regression tests, or a lane-fairness safety on the new sizer gate. Consolidated the 3 commits onto `fix/6756-pipeline-recovery` (which already carries 6756+6757+6758), added regression fences, and hardened the sizer gate against MEME choke.
+
+- **HostCircuitInterceptor** (`94ac08b9e`, kept): provider-label map now covers dexscreener, birdeye, coingecko, dexpaprika, geckoterminal, jupiter, groq, pumpfun (was dexscreener-only). Birdeye path hard-stops when `BirdeyeBudgetGate.canAfford(1) == false` (150000/150000 CU dump). Every mapped provider consults `ApiBackoff.isLockedOut` at the shared HTTP boundary, closing the raw `SharedHttpClient` bypass.
+- **ApiBackoff** (`f3400e8f3`, kept): dedicated `rateLimitSchedule` (2 min → 30 min) for 429 quota storms; `authBackoffSchedule` (1 min → 10 min) for 401/403; `softBackoffSchedule` (2 s → 30 s) for 5xx/408/425. A single 503 no longer silences a healthy provider for 5 minutes; a 429 no longer gets re-hit every 30 s.
+- **OrderSizeResolver6441** (`9047451cb`, kept + hardened): `ExitThroughputAuthority6727.evaluate(mode, lane)` gate at the mandatory sizer. Cross-asset `CanonicalEntryAuthority6551` admissions cannot bypass it. **§MEME_UNCHOKE_SAFETY (new)**: re-checks `LaneCapitalFairness6732.hasHeadroom(mode, lane)` at the gate boundary; any lane with fairness headroom bypasses the block unless the reason is `POSITION_HARD_CAP_EXIT_THROUGHPUT_6727` (portfolio-wide sanity ceiling honoured for every lane). Per-lane block AND bypass telemetry (`ORDER_SIZE_BLOCKED_EXIT_THROUGHPUT_6758_<LANE>`, `ORDER_SIZE_MEME_UNCHOKE_LANE_HEADROOM_6759_<LANE>`) surfaces meme choke points in the funnel snapshot without a grep. Fail-open on any authority exception.
+- **Regression** (all three source changes are now fenced):
+  - `Aate6759HostCircuitProviderMapAndBirdeyeQuotaTest` — provider map coverage, Birdeye budget bypass, shared-lockout wiring, fail-open behaviour.
+  - `Aate6759ApiBackoffRateVsTransientSchedulesTest` — rate-limit vs transient vs auth schedules kept separate, monotonic ascending, fail-open on exceptions.
+  - `Aate6759OrderSizeResolverThroughputGateTest` — gate present at the mandatory sizer, meme-unchoke bypass fires on lane headroom, hard-cap short-circuits the bypass, per-lane telemetry on both paths, blocked resolution never smuggles a positive size.
+- **CI status**: bumps AATE_VERSION to 5.0.6759, cherry-picked from `fix/exit-api-reliability-6758` c8fbf3612 + 2d21f8777 + 64319852b onto `fix/6756-pipeline-recovery`. PR #12 can now be closed as consumed.
+
+---
+
+
+
+
+- **§PHANTOM_DELTA_DIAG** (`ExecutionSpineAcceptance6647.closeCompletedWindow`): on any 120-second acceptance FAIL (`EXECUTION_SPINE_ACCEPTANCE_6647_FAIL`), emit a companion `EXECUTION_SPINE_ACCEPTANCE_6647_FAIL_DIAG_6758` forensic entry with a per-lane phantom breakdown (`EXPRESS=N,QUALITY=N,BLUECHIP=N,...`), forensic reconciliation snapshot (`reconciled=true|false cash=Δ basis=Δ realized=Δ qty=Δ`), and `openPositions`/`exitStart`/`exitDone` sample. This surfaces exactly which lane is producing PHANTOM_SIZED_ONLY and whether CASH_DELTA / BASIS_DELTA / REALIZED_DELTA / QUANTITY_DELTA are being read from an unreconciled forensic state. Additive telemetry only; no trading thresholds change.
+- **Regression**: `Aate6758AcceptanceFailDiagTest` locks the diagnostic emission block (per-lane breakdown, forensic snapshot fields, openPositions/exit sample, counter increment).
+- **Motivation**: Runtime Smoke Test on 6756/6757 emitted `PHANTOM_SIZED_ONLY|CASH_DELTA|BASIS_DELTA|REALIZED_DELTA|QUANTITY_DELTA` for the mandatory 120-second execution spine but the operator had no per-lane visibility inline. The next runtime capture now names the offending lane and forensic state without a manual grep of a 47k-line logcat.
+
+---
+
+
+## V5.0.6757 — repair 6756 regression fences vs new mark contract
+
+Fixed the four legacy regression locks that CI Build APK reported failing on the operator-uploaded `fix/6756-pipeline-recovery` branch, and restored a missing doctrine marker in `SlotHealthGate.kt`.
+
+- **`SlotHealthGate.kt`** — restored the `PAPER_FORCED_OPEN_FAIL_OPEN` docblock marker inside the paper forced-open advisory branch. Behaviour unchanged (advisory-only, no hard gate; 6709/6756 adaptive cadence remains the sole PAPER turnover control) but the `GoldenTapeRegressionTest.paper_slot_health_forced_open_fail_open` regression fence can now compile-lock the invariant.
+- **`Aate6734RecoveryIntegrityTest.source_price_and_timestamp_are_not_spliced_between_providers`** — locks the actual non-splicing invariant (winning tuple must have source + timestamp + price all from the SAME evidence row, and the executable slot must remain empty) instead of asserting no-promotion. 6743/6756 §OBSERVATION_FRESHNESS_ROUTING legitimately admits 150 s evidence as OBSERVATION_SCORING.
+- **`Aate6739CounterParityMarkFreshnessSealingRaceTest.\`121 second old executable mark still stale\`** — locks the correct 6756 contract: 121 s evidence may admit ONLY as OBSERVATION_SCORING; EXECUTABLE_ENTRY_QUOTE must remain null.
+- **`V5_0_6570AcceptanceTest.observation_mark_accepts_fresh_provider_mint_route_but_executable_mark_does_not`** — extended to lock both halves of the 6743/6756 routing: observation admits at 121 s, executable refuses at 121 s.
+- **CI status**: Build AATE APK ✅ green on 5.0.6757. Runtime Smoke Test still red with the pre-existing P1 phantom/economics deltas (see 6758 §PHANTOM_DELTA_DIAG).
+
+---
+
+
+
 
 Directive Section 1 and Section 2 landed at the actual code source.
 

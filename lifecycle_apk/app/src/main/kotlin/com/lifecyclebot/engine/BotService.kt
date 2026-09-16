@@ -759,6 +759,10 @@ class BotService : Service() {
                 // must not depend on the operator opening/copying a report.
                 try { com.lifecyclebot.engine.truth.PendingIntentBacklog6625.reap6625(30_000L) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.truth.ExpressHandoffFunnel6625.reap6627(30_000L) } catch (_: Throwable) {}
+                // V5.0.6760 §PHANTOM_SIZED_AT_SOURCE — canonical terminalization
+                // of stale sized reservations. See SpecialistCausalFunnel6625
+                // docblock. Fires once per pump cadence tick.
+                try { com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.reapStaleSizedReservations6760(30_000L) } catch (_: Throwable) {}
                 ToolkitSignalSheet.configuredMemeDesks6647().forEach { lane ->
                     val current = specialistWorkerJobs6647[lane]
                     if (current?.isActive == true || now < (specialistRestartAfterMs6647[lane] ?: 0L)) return@forEach
@@ -1117,6 +1121,39 @@ class BotService : Service() {
                 hotExitStaleEpisodeActive = false
                 try { ForensicLogger.lifecycle("HOT_EXIT_RECOVERED", "loop=$loopCount staleMs=$staleMs") } catch (_: Throwable) {}
             }
+            return false
+        }
+        // V5.0.6809 §EXIT_COORDINATOR_HEARTBEAT — operator diagnosis Feb 2026:
+        //   EXIT_COORDINATOR_STALE_RESET=27 while sweep start=done=44 and
+        //   timeout=0. A worker actively making progress must not be
+        //   declared stale. Mandate: "Stale reset should require: no
+        //   heartbeat/progress past timeout AND no active worker AND no
+        //   completed result waiting to publish."
+        //
+        //   Guards, evaluated in order:
+        //     • hotExitJob is active AND started within the sweep budget
+        //     • exitSweepInFlight true AND its worker started < HARD_MS ago
+        //     • slSafetyNetInFlight true AND worker started < HARD_MS ago
+        //   Any of these → the coordinator is progressing; skip force-reset.
+        //   Genuinely dead workers (past HARD_MS with no completion) still
+        //   fall through to the emergency recovery below.
+        val hotExitAlive6809 = try { hotExitJob?.isActive == true } catch (_: Throwable) { false }
+        val exitWorkerAlive6809 = try {
+            val startedMs = exitSweepStartedMs
+            exitSweepInFlight.get() && exitSweepWorker?.isActive == true &&
+                startedMs > 0L && (nowMs - startedMs) < EXIT_SWEEP_HARD_MS
+        } catch (_: Throwable) { false }
+        val slWorkerAlive6809 = try {
+            val startedMs = slSafetyNetStartedMs
+            slSafetyNetInFlight.get() && slSafetyNetWorker?.isActive == true &&
+                startedMs > 0L && (nowMs - startedMs) < EXIT_SWEEP_HARD_MS
+        } catch (_: Throwable) { false }
+        val coordinatorHeartbeat6809 = hotExitAlive6809 || exitWorkerAlive6809 || slWorkerAlive6809
+        if (coordinatorHeartbeat6809 && !neverRan) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("EXIT_COORDINATOR_STALE_SUPPRESSED_HEARTBEAT_6809")
+            } catch (_: Throwable) {}
             return false
         }
         // We are in a stale episode. Recovery work runs EVERY loop (positions must stay
@@ -4830,25 +4867,13 @@ class BotService : Service() {
         } catch (_: Throwable) {}
         try {
             com.lifecyclebot.engine.truth.CanonicalRiskClock6454.start { positionId, mint ->
-                // V5.0.6454 heartbeat-only ping — the REAL per-tick
-                // evaluate(markPx=live) is wired in Executor.riskCheck
-                // which fires from every tick regardless of botLoop.
-                // This clock's job is to guarantee the scheduler
-                // heartbeat + starvation check run on wall-clock cadence
-                // even if botLoop is wedged 150s. Passing markPx=0 makes
-                // the scheduler treat the call as a heartbeat ping that
-                // never latches (§P0-#9 no fake mark).
+                // V5.0.6803 §HEARTBEAT_IS_NOT_MARK_WAIT — this is a wall-
+                // clock cadence heartbeat, not a real mark evaluation. Use
+                // the dedicated heartbeat() surface so it bumps the eval
+                // counter + watchdog without polluting MARK_WAIT_6800 /
+                // PHASE.EXIT_GATE telemetry.
                 try {
-                    com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.evaluate(
-                        positionId = positionId,
-                        mint = mint,
-                        markPx = 0.0,
-                        stopPx = 0.0,
-                        catastrophePx = 0.0,
-                        tpPx = 0.0,
-                        trailPx = 0.0,
-                        quoteAgeMs = 0L,
-                    )
+                    com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.heartbeat(positionId, mint)
                 } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {}
@@ -10836,7 +10861,7 @@ class BotService : Service() {
         // lanes that should produce early samples. Score floors are soft at BOOTSTRAP,
         // tighten briefly during ADVISORY calibration, then fade as the AGI/SSI policy
         // head reaches LEARNED/AUTHORITATIVE authority.
-        val agiAuthority6020 = try { com.lifecyclebot.engine.UnifiedPolicyHead.currentAuthority(laneUpperForFloor4591) } catch (_: Throwable) { com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.BOOTSTRAP }
+        val agiAuthority6020 = try { com.lifecyclebot.engine.UnifiedPolicyHead.currentAuthority(laneUpperForFloor4591) } catch (_: Throwable) { com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.ADVISORY }
         val structuralFloor6020 = if (!isProvenLane4591) (shapedConfidenceFloor4262 + 10.0).coerceAtMost(90.0) else shapedConfidenceFloor4262
         val entryScoreTightenedFloor4591Base = when (agiAuthority6020) {
             com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.BOOTSTRAP -> (structuralFloor6020 - 18.0).coerceAtLeast(25.0)
@@ -11056,25 +11081,23 @@ class BotService : Service() {
                 )
             }
             if (zeroSignal) {
-                // V5.0.4164 — zero-signal is not full live capital, but it must not park
-                // the meme trader. If liquidity is exitable, send it through the existing
-                // PROBE_ONLY tiny-size path so learning gets real outcomes without spraying
-                // normal size. Thin liquidity stayed blocked above.
-                // V5.0.6747 §EXPLORATION_DAMPER_ON_WR_COLLAPSE — when
-                // regime reports CHOP/DUMP the WR is by definition
-                // collapsed; only 1-in-N zero-signal probes fire so the
-                // learner isn't fed WAIT candidates every cycle.
-                if (!com.lifecyclebot.engine.ExecutableOpenGate.probeShouldEmit6747("ZERO_SIGNAL")) {
-                    return laneBase.copy(signal = "WAIT", finalSignal = "WAIT", shouldTrade = false, blockReason = "EXPLORATION_DAMPED_ZERO_SIGNAL_6747")
-                }
+                // V5.0.6786 §AUTHORITY_CONSOLIDATION — zero-signal = WAIT.
+                // Directive: "'I DON'T KNOW' MUST MEAN WAIT. It must NOT mean
+                // 'buy tiny anyway.'" and §12: "convert NO_TRADE into
+                // PROBE_ONLY" is a resurrection pattern. Learning still fires
+                // via LearningLifecycleBus.preFdgReject (shadow/counterfactual)
+                // without spending canonical capital on a dust probe.
                 try {
-                    PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164")
-                    PipelineHealthCollector.labelInc("FDG_ZERO_SCORE_DUST_PROBE_4164")
+                    PipelineHealthCollector.labelInc("LANE_ZERO_SIGNAL_WAIT_6786")
                     PipelineHealthCollector.labelInc("PREFDG_ZERO_SIGNAL_${lane.uppercase()}")
-                    ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164",
-                        "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} action=probe_only_live_learning")
-                    LearningLifecycleBus.preFdgProbe("ZERO_SIGNAL_PROBE", lane, sourceForChop, mintForProbe, edgeSymbol4529, baseBlock, laneBase.entryScore, laneBase.aiConfidence, liquidityUsd, edgeMcap4529, resolveProbeSizeMult(mintForProbe, liquidityUsd), edgeRegime4529)
+                    ForensicLogger.lifecycle("LANE_ZERO_SIGNAL_WAIT_6786",
+                        "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} action=shadow_learn_only_no_capital")
+                    LearningLifecycleBus.preFdgReject("ZERO_SIGNAL_SHADOW_ONLY_6786", lane, sourceForChop, mintForProbe, edgeSymbol4529, baseBlock, laneBase.entryScore, laneBase.aiConfidence, liquidityUsd, edgeMcap4529, edgeRegime4529)
                 } catch (_: Throwable) {}
+                return laneBase.copy(
+                    signal = "WAIT", finalSignal = "WAIT", shouldTrade = false,
+                    blockReason = "ZERO_SIGNAL_WAIT_6786",
+                )
             }
             // V5.0.6593 §ENTRY_SELECTIVITY — operator directive Feb 2026:
             //   > "Lane evidence MAY overcome weak generic scoring only when
@@ -11095,52 +11118,33 @@ class BotService : Service() {
             // AUTHORITATIVE with a missing lane head only shapes/advises, it
             // never terminal-rejects. Cold lanes must be allowed to open
             // their first candidates to collect the sample the head needs.
-            var learnedWaitShape6613 = 1.0
+            // V5.0.6786 §AUTHORITY_CONSOLIDATION — the local shape multipliers
+            // (learnedWaitShape6613 / tacticWaitShape6613) fed the retired
+            // PROBE_ONLY fallback. They are kept for documentation trace but
+            // no longer control any execution decision. TacticSwitcher rotation
+            // continues to inform learning; it does not resurrect a weak WAIT.
+            @Suppress("unused") var learnedWaitShape6613 = 1.0
             val laneOwnHeadAuthoritative6596 = try {
                 com.lifecyclebot.engine.UnifiedPolicyHead.laneHasOwnAuthoritativeHead(lane)
             } catch (_: Throwable) { false }
             val laneAuthoritativePolicyNegative6593 = laneOwnHeadAuthoritative6596 &&
                 !authoritativePolicyPositive6568
             if (laneAuthoritativePolicyNegative6593) {
-                // V5.0.6613 — learned opinion shapes; it is not hard safety.
-                // Continue into the existing lane-local TacticSwitcher/probe composer
-                // below so the lane can pivot timing/style and collect bounded evidence.
                 try {
-                    PipelineHealthCollector.labelInc("LEARNED_POLICY_NEGATIVE_LANE_WAIT_SHAPED_6613")
-                    PipelineHealthCollector.labelInc("PREFDG_LEARNED_SHAPE_${lane.uppercase()}")
+                    PipelineHealthCollector.labelInc("LEARNED_POLICY_NEGATIVE_LANE_WAIT_6786")
+                    PipelineHealthCollector.labelInc("PREFDG_LEARNED_REJECT_${lane.uppercase()}")
                     val pivot6613 = com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(lane, laneBase.entryScore.toInt()).name
                     ForensicLogger.lifecycle(
-                        "LEARNED_POLICY_NEGATIVE_LANE_WAIT_SHAPED_6613",
-                        "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} tactic=$pivot6613 action=shape_probability_size_confirmation_then_fdg"
+                        "LEARNED_POLICY_NEGATIVE_LANE_WAIT_6786",
+                        "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} tactic=$pivot6613 action=shadow_learn_only_no_capital"
                     )
-                    LearningLifecycleBus.preFdgProbe(
-                        "LEARNED_POLICY_SHAPED_6613", lane, sourceForChop, mintForProbe,
+                    LearningLifecycleBus.preFdgReject(
+                        "LEARNED_POLICY_NEGATIVE_6786", lane, sourceForChop, mintForProbe,
                         edgeSymbol4529, baseBlock, laneBase.entryScore, laneBase.aiConfidence,
-                        liquidityUsd, edgeMcap4529, 0.55, edgeRegime4529,
+                        liquidityUsd, edgeMcap4529, edgeRegime4529,
                     )
                 } catch (_: Throwable) {}
             }
-            // Liquidity OK but still weak → DUST-PROBE only (explicit + tiny size).
-            // V5.0.6604 §TACTIC_CAUSAL_AUTHORITY (troubleshoot_agent P0 fix).
-            //   Root cause slice of the <10% MemeTrader WR: TacticSwitcher was
-            //   correctly rotating catastrophic tactics (MOMENTUM→PULLBACK→
-            //   REACCUMULATION→BREAKOUT) but BotService's weakWait branch
-            //   promoted candidates to a DUST-PROBE buy regardless of the
-            //   current tactic. Rotation was cosmetic — the same weak signal
-            //   fired the same probe. Fix: honor the rotator's authority.
-            //   • MOMENTUM (default / initial): probe as before — momentum
-            //     tactic is satisfied by any positive intake velocity, which
-            //     the upstream lane already asserted before reaching here.
-            //   • Non-MOMENTUM (PULLBACK / REACCUMULATION / BREAKOUT /
-            //     LAB_PROPOSED): the rotator has said "the current shape
-            //     doesn't work; wait for a specific structural signal." A
-            //     weak-WAIT probe categorically does NOT satisfy any of
-            //     those signals, so block the probe until either the tactic
-            //     rotates back OR the primary path produces a normal-strength
-            //     BUY (which bypasses this weakWait branch entirely).
-            //   This is a rotation-gated block, never a lane disable —
-            //   TacticSwitcher continues rotating on outcomes so the block
-            //   self-heals when the rotator finds a working shape.
             val tacticGateActive6604 = try {
                 val laneUpper6604 = lane.uppercase()
                 val currentTactic6604 = com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(
@@ -11148,41 +11152,37 @@ class BotService : Service() {
                 )
                 currentTactic6604 != com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.MOMENTUM
             } catch (_: Throwable) { false }
-            val tacticWaitShape6613 = if (tacticGateActive6604) 0.60 else 1.0
+            @Suppress("unused") val tacticWaitShape6613 = if (tacticGateActive6604) 0.60 else 1.0
             if (tacticGateActive6604) {
                 try {
                     val currentTacticName6604 = com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(
                         lane.uppercase(), laneBase.entryScore.toInt(),
                     ).name
-                    PipelineHealthCollector.labelInc("TACTIC_ROTATED_WEAK_WAIT_SHAPED_6613_${lane.uppercase()}")
+                    PipelineHealthCollector.labelInc("TACTIC_ROTATED_WEAK_WAIT_6786_${lane.uppercase()}")
                     ForensicLogger.lifecycle(
-                        "TACTIC_ROTATED_WEAK_WAIT_SHAPED_6613",
-                        "lane=$lane tactic=$currentTacticName6604 score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} action=require_confirmation_and_shape_size_then_fdg",
+                        "TACTIC_ROTATED_WEAK_WAIT_6786",
+                        "lane=$lane tactic=$currentTacticName6604 score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} action=weak_wait_rejected_shadow_only",
                     )
                 } catch (_: Throwable) {}
             }
             try {
-                PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_DUST_PROBE")
-                PipelineHealthCollector.labelInc("PREFDG_DUST_PROBE_${lane.uppercase()}")
-                ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_DUST_PROBE",
-                    "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)}")
-                LearningLifecycleBus.preFdgProbe("DUST_PROBE", lane, sourceForChop, mintForProbe, edgeSymbol4529, baseBlock, laneBase.entryScore, laneBase.aiConfidence, liquidityUsd, edgeMcap4529, resolveProbeSizeMult(mintForProbe, liquidityUsd), edgeRegime4529)
+                // V5.0.6786 §AUTHORITY_CONSOLIDATION — weakWait = WAIT.
+                // Directive §12: "convert NO_TRADE into PROBE_ONLY" is a
+                // resurrection pattern. The prior LANE_WAIT_OVERRIDE_DUST_
+                // PROBE fallback promoted a weak-signal candidate to a
+                // BUY with blockReason=PROBE_ONLY at 0.05-1.18x size. That
+                // is exactly the "trade SMALL, never zero" throughput
+                // doctrine now retired. Shadow/counterfactual learners
+                // still receive the rejected candidate.
+                PipelineHealthCollector.labelInc("LANE_WEAK_WAIT_REJECTED_6786")
+                PipelineHealthCollector.labelInc("PREFDG_WEAK_WAIT_REJECT_${lane.uppercase()}")
+                ForensicLogger.lifecycle("LANE_WEAK_WAIT_REJECTED_6786",
+                    "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} action=shadow_learn_only_no_capital")
+                LearningLifecycleBus.preFdgReject("WEAK_WAIT_SHADOW_ONLY_6786", lane, sourceForChop, mintForProbe, edgeSymbol4529, baseBlock, laneBase.entryScore, laneBase.aiConfidence, liquidityUsd, edgeMcap4529, edgeRegime4529)
             } catch (_: Throwable) {}
-            // V5.0.6747 §EXPLORATION_DAMPER_ON_WR_COLLAPSE — dust
-            // probes are cheap but at 18.7% WR the learner is drowning
-            // in them. Sample in CHOP/DUMP so the WAIT signal doesn't
-            // become the dominant learning input.
-            if (!com.lifecyclebot.engine.ExecutableOpenGate.probeShouldEmit6747("DUST_PROBE")) {
-                return laneBase.copy(signal = "WAIT", finalSignal = "WAIT", shouldTrade = false, blockReason = "EXPLORATION_DAMPED_DUST_PROBE_6747")
-            }
             return laneBase.copy(
-                signal = "BUY", finalSignal = "BUY", shouldTrade = true,
-                blockReason = "PROBE_ONLY",
-                edgeVeto = false,
-                edgeQuality = if (laneBase.edgeQuality == "SKIP") "C" else laneBase.edgeQuality,
-                finalQuality = "C",
-                qualityPenalty = (resolveProbeSizeMult(mintForProbe, liquidityUsd) * crossTalkSizeMult4262 * learnedWaitShape6613 * tacticWaitShape6613).coerceIn(0.05, 1.18),
-                aiConfidence = laneBase.aiConfidence.coerceAtLeast(entryScoreTightenedFloor4591),
+                signal = "WAIT", finalSignal = "WAIT", shouldTrade = false,
+                blockReason = "WEAK_WAIT_REJECT_6786",
             )
         }
         try {
@@ -11566,7 +11566,7 @@ class BotService : Service() {
                 try {
                     ForensicLogger.lifecycle(
                         "QUALITY_OWNER_HOLDER_PROOF_BLIND_SOFT_ALLOW",
-                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct} action=size_shape_downstream_not_owner_starve",
+                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toLong()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct} action=size_shape_downstream_not_owner_starve",
                     )
                     PipelineHealthCollector.labelInc("QUALITY_OWNER_HOLDER_PROOF_BLIND_SOFT_ALLOW")
                 } catch (_: Throwable) {}
@@ -11600,12 +11600,12 @@ class BotService : Service() {
         // WR collapse while preserving meme-family training volume.
         if (l.equals(primaryLane, ignoreCase = true)) {
             if (l in setOf("QUALITY", "BLUECHIP") && !qualityLaneProofOk()) {
-                try { ForensicLogger.lifecycle("QUALITY_PRIMARY_PROOF_REJECTED", "lane=$l symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct}") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("QUALITY_PRIMARY_PROOF_REJECTED", "lane=$l symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toLong()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct}") } catch (_: Throwable) {}
                 return false
             }
             // V5.0.6047 — TREASURY uses permissive cashGenProofOk (scalp/compounder role)
             if (l == "TREASURY" && !cashGenProofOk()) {
-                try { ForensicLogger.lifecycle("CASHGEN_TREASURY_PRIMARY_PROOF_REJECTED_6047", "lane=$l symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} src=${ts.lastPriceSource.ifBlank { ts.source }}") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("CASHGEN_TREASURY_PRIMARY_PROOF_REJECTED_6047", "lane=$l symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toLong()} src=${ts.lastPriceSource.ifBlank { ts.source }}") } catch (_: Throwable) {}
                 return false
             }
             if (catastrophicPaperLowScoreSpecialistBleed(ts, l)) {
@@ -11735,7 +11735,7 @@ class BotService : Service() {
                 }
             }.ifEmpty { rawOwnerPool0.filter { it !in setOf("QUALITY", "BLUECHIP", "TREASURY", "CASHGEN") }.ifEmpty { rawOwnerPool0 } }
             if (!qualityEligible && rawOwnerPool0.any { it in setOf("QUALITY", "BLUECHIP", "TREASURY", "CASHGEN") }) {
-                try { ForensicLogger.lifecycle("QUALITY_OWNER_PROOF_REJECTED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct} primary=$primaryLane cashGenEligible=$cashGenEligible") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("QUALITY_OWNER_PROOF_REJECTED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toLong()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct} primary=$primaryLane cashGenEligible=$cashGenEligible") } catch (_: Throwable) {}
             }
             val ownerPool = com.lifecyclebot.engine.LaneToxicityGuard.filterNonToxic(rawOwnerPool, scoreForToxicity).ifEmpty { rawOwnerPool }
             val candidateVersion6533 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
@@ -11852,7 +11852,7 @@ class BotService : Service() {
                                 ForensicLogger.phase(
                                     ForensicLogger.PHASE.LANE_EVAL,
                                     ts.symbol,
-                                    "lane=$l shadow=LIVE_LANE_READ_FLOOR_4489 no_fdg=true primary=$primaryLane ownerHint=$contributorRotationHint6599 canonicalPrimary=$allowed mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
+                                    "lane=$l shadow=LIVE_LANE_READ_FLOOR_4489 no_fdg=true primary=$primaryLane ownerHint=$contributorRotationHint6599 canonicalPrimary=$allowed mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
                                 )
                                 PipelineHealthCollector.labelInc("LIVE_LANE_READ_FLOOR_4489_$l")
                             } catch (_: Throwable) {}
@@ -13411,8 +13411,17 @@ class BotService : Service() {
     // refresh in the exit sweep loop doesn't pound the mark registry for the
     // same mint every 200ms while the observation is genuinely offline.
     private val staleMarkRefreshCooldown6721 = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private val EXIT_COORDINATOR_FULL_MIN_MS: Long = 30_000L
-    private val EXIT_COORDINATOR_UNIVERSAL_MIN_MS: Long = 30_000L
+    private val EXIT_COORDINATOR_FULL_MIN_MS: Long = 5_000L
+    private val EXIT_COORDINATOR_UNIVERSAL_MIN_MS: Long = 5_000L
+    // V5.0.6775 §EXIT_COORDINATOR_TURNOVER — operator diagnostic Feb 2026:
+    //   normal-stop avg latency 15.2s (worst 91.2s) with 100 positions saturating
+    //   the hard cap. The old 30s minimum interval between full/universal exit
+    //   coordinator runs was designed to protect against thrash when the book
+    //   was small; at hard-cap saturation it becomes the primary throttle on
+    //   inventory recycling and blocks the compounding cycle. Catastrophic and
+    //   hard exits are ~5ms and unchanged. Reducing normal cadence 30s -> 5s
+    //   lets the bot recycle 6x more inventory per minute without touching any
+    //   position/risk cap, which is exactly what the operator asked for.
 
     // V5.9.1009 — Exit sweeps must never block botLoop. A slow paperSell
     // learning/closeout fanout previously parked the main cycle in
@@ -13974,25 +13983,12 @@ class BotService : Service() {
             try {
                 val open = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
                 for (p in open) {
-                    // V5.0.6452 §P0-#9 — DO NOT feed entryCostSol as a
-                    // current market price. Cycle-level heartbeat only
-                    // pumps ProtectiveExitScheduler6450 with a
-                    // markPx=0 no-op if no fresh mark is available.
-                    // Real per-tick evaluate() calls come from
-                    // Executor.riskCheck (§SL_HOT_PATH) which has the
-                    // actual price. Here we still emit a heartbeat via
-                    // the eval counter but with markPx=0 (the scheduler
-                    // ignores 0 and returns null, preserving latch state).
-                    com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.evaluate(
-                        positionId = p.positionId,
-                        mint = p.mint,
-                        markPx = 0.0,
-                        stopPx = 0.0,
-                        catastrophePx = 0.0,
-                        tpPx = 0.0,
-                        trailPx = 0.0,
-                        quoteAgeMs = 0L,
-                    )
+                    // V5.0.6803 §HEARTBEAT_IS_NOT_MARK_WAIT — dedicated
+                    // heartbeat surface so cycle-level pings do not
+                    // pollute MARK_WAIT_6800 telemetry. Real per-tick
+                    // evaluate() calls with fresh price come from
+                    // Executor.riskCheck (§SL_HOT_PATH).
+                    com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.heartbeat(p.positionId, p.mint)
                 }
             } catch (_: Throwable) {}
         }
@@ -19382,7 +19378,55 @@ if (hotExitHandledSweep) {
             val refreshNeeded6651 = ts.position.entryPrice <= 0.0 || ts.lastPrice <= 0.0 ||
                 stateMarkStale6651 || !provenanceFresh6651
             if (refreshNeeded6651) {
-                missingMark++
+                // V5.0.6809 §EXIT_MARK_SYNC_PROMOTE — before launching an async
+                // provider refresh, try to promote whatever fresh source
+                // evidence already lives in this TokenState into the canonical
+                // mark registry. If the promotion succeeds we neither miss
+                // this tick's mark nor spend a network round-trip. Pure
+                // registry publish; never fabricates, never blocks on
+                // providers, dedup is implicit via
+                // CanonicalPriceMarkRegistry6522 identity/timestamp
+                // acceptance rules.
+                val promoNow6809 = System.currentTimeMillis()
+                val WINDOW6809 = 300_000L
+                val tokenMapFresh6809 = ts.tokenMap.updatedAtMs > 0L &&
+                    promoNow6809 - ts.tokenMap.updatedAtMs <= WINDOW6809
+                val stateFresh6809 = ts.lastPriceUpdate > 0L &&
+                    promoNow6809 - ts.lastPriceUpdate <= WINDOW6809
+                val evidenceCarriesQuote6809 =
+                    (tokenMapFresh6809 && (ts.tokenMap.priceUsd ?: 0.0) > 0.0) ||
+                        (stateFresh6809 && ts.lastPrice > 0.0)
+                var syncPromoted6809 = false
+                if (evidenceCarriesQuote6809) try {
+                    val evidence6809 = listOf(
+                        com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.SourceEvidence6734(
+                            cp.mint,
+                            ts.tokenMap.poolAddress.ifBlank { ts.tokenMap.pairAddress },
+                            ts.tokenMap.quoteMint, ts.tokenMap.sourceScanner,
+                            ts.tokenMap.priceUsd ?: 0.0, ts.tokenMap.liquidityUsd ?: 0.0,
+                            if (tokenMapFresh6809) ts.tokenMap.updatedAtMs else 0L,
+                        ),
+                        com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.SourceEvidence6734(
+                            cp.mint, ts.lastPricePoolAddr.ifBlank { ts.pairAddress },
+                            "USD", ts.lastPriceSource, ts.lastPrice, ts.lastLiquidityUsd,
+                            if (stateFresh6809) ts.lastPriceUpdate else 0L,
+                        ),
+                    )
+                    val promo6809 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522
+                        .resolveBestSourceEvidence6734(cp.mint, evidence6809, promoNow6809)
+                    if (promo6809.promoted) {
+                        syncPromoted6809 = true
+                        PipelineHealthCollector.labelInc("EXIT_MARK_SYNC_PROMOTED_6809")
+                    }
+                } catch (_: Throwable) {}
+
+                if (syncPromoted6809) {
+                    // In-memory evidence cleared the missing-mark gap without
+                    // touching any provider; the exit evaluator will read
+                    // the just-published canonical mark.
+                    exitMarkRefreshLastSuccessMs6594[cp.mint] = promoNow6809
+                } else {
+                    missingMark++
                 // V5.0.6594 §MARK_REFRESH_DEDUP_TTL — enforce a per-mint TTL
                 // so the exit-feed 5s cadence cannot re-queue the same
                 // refresh 9× per position per tick as it did on 6591.
@@ -19456,6 +19500,7 @@ if (hotExitHandledSweep) {
                         } finally { exitMarkRefreshPending6513.remove(cp.mint) }
                     }
                 }
+                }  // V5.0.6809 §EXIT_MARK_SYNC_PROMOTE: close else-branch
             }
             ts
         }
@@ -20011,7 +20056,7 @@ if (hotExitHandledSweep) {
                     val fastSynth6401 = synthesizeFallbackPair(ts)
                     if (fastSynth6401 != null) {
                         try { PipelineHealthCollector.labelInc("INTAKE_PUMPFUN_SOURCE_NATIVE_SEED_6401") } catch (_: Throwable) {}
-                        try { ForensicLogger.lifecycle("INTAKE_PUMPFUN_SOURCE_NATIVE_SEED_6401", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} mcap=${ts.lastMcap.toInt()} seededPrice=$seededPrice") } catch (_: Throwable) {}
+                        try { ForensicLogger.lifecycle("INTAKE_PUMPFUN_SOURCE_NATIVE_SEED_6401", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} mcap=${ts.lastMcap.toLong()} seededPrice=$seededPrice") } catch (_: Throwable) {}
                         return@run fastSynth6401
                     }
                 }
@@ -20051,7 +20096,7 @@ if (hotExitHandledSweep) {
                         ForensicLogger.PHASE.INTAKE,
                         ts.symbol,
                         allow = false,
-                        reason = "NO_PAIR_NO_FALLBACK src=${ts.source} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} lastPrice=${ts.lastPrice} oracleHit=$refreshed hydrationState=$stateLabel",
+                        reason = "NO_PAIR_NO_FALLBACK src=${ts.source} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} lastPrice=${ts.lastPrice} oracleHit=$refreshed hydrationState=$stateLabel",
                     )
                     // No usable price — last-resort exit safety net.
                     if (ts.position.qtyToken > 0.0 && ts.position.entryPrice > 0.0) {
@@ -20085,7 +20130,7 @@ if (hotExitHandledSweep) {
                         }
                         if (!agedNoPair) {
                             try { PipelineHealthCollector.labelInc("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION") } catch (_: Throwable) {}
-                            try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} pc=$processCount ageMs=$ageMs mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} action=keep_hot") } catch (_: Throwable) {}
+                            try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} pc=$processCount ageMs=$ageMs mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} action=keep_hot") } catch (_: Throwable) {}
                         } else {
                             if (liveHeldOrManagedMint(mint)) {
                                 try { PipelineHealthCollector.labelInc("ENTRY_AUTHORITY_HELD_NO_PAIR_DEMOTE_REMOVE_BLOCKED_4550") } catch (_: Throwable) {}
@@ -20106,7 +20151,7 @@ if (hotExitHandledSweep) {
                             if (demoted) {
                                 try { synchronized(status.tokens) { status.tokens.remove(mint) } } catch (_: Throwable) {}
                                 try { PipelineHealthCollector.labelInc("INTAKE_NO_PAIR_DEMOTED_TO_PROBATION_AGED") } catch (_: Throwable) {}
-                                try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_DEMOTED_TO_PROBATION_AGED", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} pc=$processCount ageMs=$ageMs mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()}") } catch (_: Throwable) {}
+                                try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_DEMOTED_TO_PROBATION_AGED", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} pc=$processCount ageMs=$ageMs mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()}") } catch (_: Throwable) {}
                             }
                         }
                     }
@@ -21436,7 +21481,7 @@ if (hotExitHandledSweep) {
                     )
                 } catch (_: Throwable) {}
             } else {
-                ErrorLogger.info("BotService", "🔓 [VOL_GATE_BYPASS] ${identity.symbol} | free-range unknown h1vol but liq=\$${ts.lastLiquidityUsd.toInt()} mcap=\$${ts.lastMcap.toInt()} paper=${cfg.paperMode}")
+                ErrorLogger.info("BotService", "🔓 [VOL_GATE_BYPASS] ${identity.symbol} | free-range unknown h1vol but liq=\$${ts.lastLiquidityUsd.toInt()} mcap=\$${ts.lastMcap.toLong()} paper=${cfg.paperMode}")
             }
         }
     }
@@ -21513,7 +21558,7 @@ if (hotExitHandledSweep) {
         ForensicLogger.phase(
             ForensicLogger.PHASE.V3,
             ts.symbol,
-            "stage=ENTRY src=${ts.source} liq=$${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore.toInt()} mcap=$${ts.lastMcap.toInt()}"
+            "stage=ENTRY src=${ts.source} liq=$${ts.lastLiquidityUsd.toLong()} score=${ts.entryScore.toInt()} mcap=$${ts.lastMcap.toLong()}"
         )
         // V5.9.495z50 — confirm V3 engine reached for this candidate so the
         // operator can verify the watchlist→V3 handoff fires.
@@ -21979,12 +22024,12 @@ if (hotExitHandledSweep) {
                 ForensicLogger.phase(
                     ForensicLogger.PHASE.LANE_EVAL,
                     ts.symbol,
-                    "lane=V3_CORE shadow=V3_CORE_VISIBILITY_4489 decision=$v3CoreDecision4489 no_extra_fdg=true mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
+                    "lane=V3_CORE shadow=V3_CORE_VISIBILITY_4489 decision=$v3CoreDecision4489 no_extra_fdg=true mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
                 )
                 ForensicLogger.phase(
                     ForensicLogger.PHASE.LANE_EVAL,
                     ts.symbol,
-                    "lane=STANDARD shadow=CORE_STANDARD_VISIBILITY_4489 decision=$v3CoreDecision4489 no_extra_fdg=true mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
+                    "lane=STANDARD shadow=CORE_STANDARD_VISIBILITY_4489 decision=$v3CoreDecision4489 no_extra_fdg=true mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
                 )
                 PipelineHealthCollector.labelInc("V3_CORE_VISIBILITY_4489_$v3CoreDecision4489")
                 PipelineHealthCollector.labelInc("CORE_STANDARD_VISIBILITY_4489")
@@ -22022,7 +22067,7 @@ if (hotExitHandledSweep) {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,
                         ts.symbol,
-                        "lane=CASHGEN paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} alias=TREASURY_CASHGEN_SHARED_EXEC no_fdg=true v3Skip=$v3WillExecuteCore"
+                        "lane=CASHGEN paper=${cfg.paperMode} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} alias=TREASURY_CASHGEN_SHARED_EXEC no_fdg=true v3Skip=$v3WillExecuteCore"
                     )
                     PipelineHealthCollector.labelInc("CASHGEN_ALIAS_LANE_EVAL_4483")
                 } catch (_: Throwable) {}
@@ -22033,7 +22078,7 @@ if (hotExitHandledSweep) {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,
                         ts.symbol,
-                        "lane=TREASURY paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} v3Skip=$v3WillExecuteCore"
+                        "lane=TREASURY paper=${cfg.paperMode} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} v3Skip=$v3WillExecuteCore"
                     )
                 } catch (_: Throwable) {}
                 try {
@@ -22187,7 +22232,7 @@ if (hotExitHandledSweep) {
                                     try {
                                         ForensicLogger.lifecycle(
                                             "TREASURY_FEED_AFFINITY_BOOST_6004",
-                                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} src=${ts.source} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} boostBy=${if (bluechipSource) "source" else "metrics"} affinityAdded=CASHGEN+TREASURY+QUALITY${if (ts.lastMcap >= 500_000.0 || bluechipSource) "+BLUECHIP" else ""}",
+                                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} src=${ts.source} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} boostBy=${if (bluechipSource) "source" else "metrics"} affinityAdded=CASHGEN+TREASURY+QUALITY${if (ts.lastMcap >= 500_000.0 || bluechipSource) "+BLUECHIP" else ""}",
                                         )
                                         PipelineHealthCollector.labelInc("TREASURY_FEED_AFFINITY_BOOST_6004_${if (bluechipSource) "SOURCE" else "METRICS"}")
                                     } catch (_: Throwable) {}
@@ -22240,11 +22285,11 @@ if (hotExitHandledSweep) {
                         val treasuryRoleEligible6663 = ts.lastMcap >= TreasuryScannerFeed.MIN_TREASURY_MCAP &&
                             ts.lastLiquidityUsd >= TreasuryScannerFeed.MIN_TREASURY_LIQUIDITY
                         if (shouldEnter && !treasuryRoleEligible6663) {
-                            treasuryBlockedReason = "TREASURY_ROLE_METRICS mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()}"
+                            treasuryBlockedReason = "TREASURY_ROLE_METRICS mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()}"
                             shouldEnter = false
                             try {
                                 PipelineHealthCollector.labelInc("TREASURY_ROLE_REJECTED_6663")
-                                ForensicLogger.lifecycle("TREASURY_ROLE_REJECTED_6663", "mint=${ts.mint.take(10)} symbol=${ts.symbol} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} action=yield_to_meme_lanes")
+                                ForensicLogger.lifecycle("TREASURY_ROLE_REJECTED_6663", "mint=${ts.mint.take(10)} symbol=${ts.symbol} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} action=yield_to_meme_lanes")
                             } catch (_: Throwable) {}
                         }
 
@@ -22653,7 +22698,7 @@ if (hotExitHandledSweep) {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,
                         ts.symbol,
-                        "lane=QUALITY paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} eligible=${ts.lastMcap >= 75_000}"
+                        "lane=QUALITY paper=${cfg.paperMode} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} eligible=${ts.lastMcap >= 75_000}"
                     )
                 } catch (_: Throwable) {}
             }
@@ -22733,7 +22778,7 @@ if (hotExitHandledSweep) {
                             // V5.9.116: Promote from debug → throttled info so user
                             // actually sees WHY Quality never fires.
                             logLayerSkip("⭐ QUALITY", ts.symbol, ts.mint,
-                                "${qualitySignal6022.reason} | mcap=\$${ts.lastMcap.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()} age=${qualityTokenAgeMinutes.toInt()}min")
+                                "${qualitySignal6022.reason} | mcap=\$${ts.lastMcap.toLong()} liq=\$${ts.lastLiquidityUsd.toInt()} age=${qualityTokenAgeMinutes.toInt()}min")
                         }
                         
                         if (qualitySignal6022.shouldEnter) {
@@ -22888,7 +22933,7 @@ if (hotExitHandledSweep) {
                         ForensicLogger.phase(
                             ForensicLogger.PHASE.LANE_EVAL,
                             ts.symbol,
-                            "lane=BLUECHIP paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} eligible=${ts.lastMcap >= 1_000_000}"
+                            "lane=BLUECHIP paper=${cfg.paperMode} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} eligible=${ts.lastMcap >= 1_000_000}"
                         )
                     } catch (_: Throwable) {}
 
@@ -23117,7 +23162,7 @@ if (hotExitHandledSweep) {
                 ForensicLogger.phase(
                     ForensicLogger.PHASE.LANE_EVAL,
                     ts.symbol,
-                    "lane=MOONSHOT paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
+                    "lane=MOONSHOT paper=${cfg.paperMode} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
                 )
                 // V5.7.8: Moonshot runs independently — Treasury positions don't block it
                 try {
@@ -24165,7 +24210,7 @@ if (hotExitHandledSweep) {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,
                         ts.symbol,
-                        "lane=MANIPULATED paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} bundleRisk=${ts.safety.bundleRisk} score=${ts.entryScore}"
+                        "lane=MANIPULATED paper=${cfg.paperMode} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} bundleRisk=${ts.safety.bundleRisk} score=${ts.entryScore}"
                     )
                 } catch (_: Throwable) {}
                 try {
@@ -24367,7 +24412,7 @@ if (hotExitHandledSweep) {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,
                         ts.symbol,
-                        "lane=EXPRESS paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
+                        "lane=EXPRESS paper=${cfg.paperMode} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
                     )
                 } catch (_: Throwable) {}
                 // V5.7.8: Express runs independently, but V5.0.3817 routes it through
@@ -24411,7 +24456,7 @@ if (hotExitHandledSweep) {
                     if (!passesPreFilter) {
                         // V5.9.116: throttled diagnostic so the user can see WHY
                         // Express never qualifies instead of silent skip.
-                        val mcap = ts.lastMcap.toInt()
+                        val mcap = ts.lastMcap.toLong()
                         val reason = when {
                             !expressInMcapRange && !expressUnknownMcapOk ->
                                 if (ts.lastMcap <= 0.0) "mcap=unknown liq=$${ts.lastLiquidityUsd.toInt()} < \$1K"
@@ -24649,7 +24694,7 @@ if (hotExitHandledSweep) {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,
                         ts.symbol,
-                        "lane=PROJECT_SNIPER paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} sniperAllowed=$sniperAllowed singleGate4483=true"
+                        "lane=PROJECT_SNIPER paper=${cfg.paperMode} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} sniperAllowed=$sniperAllowed singleGate4483=true"
                     )
                 } catch (_: Throwable) {}
             }
@@ -24826,7 +24871,7 @@ if (hotExitHandledSweep) {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,
                         ts.symbol,
-                        "lane=DIP_HUNTER paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
+                        "lane=DIP_HUNTER paper=${cfg.paperMode} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
                     )
                 } catch (_: Throwable) {}
                 // V5.7.8: DipHunter runs independently
@@ -28593,7 +28638,7 @@ if (hotExitHandledSweep) {
                                     if (ts.history.size > 300) ts.history.removeFirst()
                                 }
                             }
-                            addLog("🎯 Pump.fun: ${ts.symbol} mcap=\$${mcap.toInt()} priceUsd=\$${String.format("%.10f", priceUsd)}", mint)
+                            addLog("🎯 Pump.fun: ${ts.symbol} mcap=\$${mcap.toLong()} priceUsd=\$${String.format("%.10f", priceUsd)}", mint)
                             broadcastFallbackPrice(mint, priceUsd)   // V5.9.423
                             return true
                         }

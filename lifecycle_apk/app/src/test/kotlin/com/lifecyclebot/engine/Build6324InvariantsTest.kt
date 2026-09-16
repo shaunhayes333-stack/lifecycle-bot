@@ -147,7 +147,7 @@ class Build6324InvariantsTest {
         // We cannot travel time in a test — instead we exercise the API
         // shape by immediately resetting and confirming a prior-owner
         // completion is fenced off.
-        ExitCoordinatorHeartbeat.staleReset(mint, "TEST_FORCE")
+        ExitCoordinatorHeartbeat.staleReset(mint, "TEST_FORCE", force = true)
         ExitCoordinatorHeartbeat.startSweep(mint, "worker-B", ExitCoordinatorHeartbeat.Phase.WALLET_REFRESH)
         // Prior owner's complete() call must NOT drop the fresh generation.
         ExitCoordinatorHeartbeat.complete(mint, ownerA, "prior-generation-attempt")

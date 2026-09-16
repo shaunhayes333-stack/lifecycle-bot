@@ -57,6 +57,11 @@ object ExecutableEntryAuthority6450 {
     private val probes = AtomicLong(0L)
     private val denies = AtomicLong(0L)
     private val bypassAttempts = AtomicLong(0L)
+    // V5.0.6805 §HARD_VETO_IS_A_COHORT_TRANSITION — hard-veto telemetry is
+    // a cohort transition (first-veto-after-entering-hard-limit), not a
+    // per-candidate event. Keeps counters causal and bounded. Cleared on
+    // WIN so a recovered lane can re-arm cleanly on the next breach.
+    private val lossStreakVetoLatched6805 = ConcurrentHashMap<String, Boolean>()
 
     private fun normalizedMode(raw: String?): String = when {
         raw.equals("live", true) -> "LIVE"
@@ -79,12 +84,29 @@ object ExecutableEntryAuthority6450 {
                 val key = cohortKey(e.mode, e.entryLane)
                 when (e.outcome) {
                     CanonicalTradeFinalizedBus6450.Outcome.LOSS -> {
-                        cohortLosses.computeIfAbsent(key) { AtomicLong(0L) }.incrementAndGet()
+                        val streakAfterLoss6805 = cohortLosses.computeIfAbsent(key) { AtomicLong(0L) }.incrementAndGet()
                         cohortLastLossMs[key] = e.settledAtMs
-                        cohortCooldownMs[key] = e.settledAtMs + 60_000L
+                        // V5.0.6805 §COOLDOWN_ONLY_AT_CREED_BREACH — an ordinary
+                        //   loss #1/#2 may shape risk but MUST NOT arm the
+                        //   hard-veto cooldown. Cooldown arms only when the
+                        //   canonical mode×lane streak actually breaches the
+                        //   3-loss creed. Previously every loss re-armed a
+                        //   60s cooldown, so a single loss could hold the
+                        //   veto surface alive indefinitely via cooling=true.
+                        if (streakAfterLoss6805 >= STREAK_HARD_LIMIT) {
+                            cohortCooldownMs[key] = maxOf(cohortCooldownMs[key] ?: 0L, e.settledAtMs + 60_000L)
+                        }
                     }
-                    CanonicalTradeFinalizedBus6450.Outcome.WIN ->
+                    CanonicalTradeFinalizedBus6450.Outcome.WIN -> {
                         cohortLosses.computeIfAbsent(key) { AtomicLong(0L) }.set(0L)
+                        // V5.0.6805 §WIN_CLEARS_ALL_STREAK_STATE — a canonical
+                        //   WIN must clear cohortCooldownMs and the veto latch
+                        //   too, otherwise a recovered cohort remains under
+                        //   cooldown until natural expiry and cannot re-arm
+                        //   the latch on a future genuine breach.
+                        cohortCooldownMs.remove(key)
+                        lossStreakVetoLatched6805.remove(key)
+                    }
                     CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN -> Unit
                 }
             }
@@ -95,15 +117,228 @@ object ExecutableEntryAuthority6450 {
      * V5.0.6488: learned streaks soft-shape only. True hard safety remains in
      * rug/raw-floor/route/finality authorities; strategy history cannot emit a
      * zero-size or cross-lane shutdown.
+     *
+     * V5.0.6801 §LEARNING_MUST_CONTROL_ADMISSION — operator diagnosis Feb 2026:
+     *   "Bad learned signals are still allowed to become BUYs. Entry authority
+     *    gates=3162 allows=3162 denies=0. The system correctly identifies
+     *    EXPRESS 5.3% WR, SHITCOIN 0% WR, PROJECT_SNIPER 13.1% WR and then
+     *    simply reduces their sizing while continuing to feed them trades.
+     *    Route toxic cohorts to SHADOW_ONLY except reproof probes."
+     *
+     *   The self-learning stack was intentionally soft-shape-only, but the
+     *   operator's rebuttal is that the system now describes how badly it
+     *   trades better than it stops taking those trades. Add a hard-block
+     *   surface driven by CausalFeedbackAuthority6715.cohortLoserAdvisoryForLane
+     *   (LANE-level, band-agnostic; the band-level 6727 TERMINAL suppressor
+     *   already exists but only fires with band context which the caller
+     *   here does not always have). Reproof probes bypass so the system
+     *   continues to learn / reprove without being locked out.
+     *
+     *   isReproofProbe6801 = true → PROBE_SIZE_SOL admission, no denial.
+     *   otherwise a lane with cohortLoserAdvisoryForLane returning
+     *   ADVISORY_MULT_FLOOR (chronic terminal loser) hard-denies.
      */
-    fun gate(lane: String, mint: String, requestedSizeSol: Double): Decision {
+    @JvmOverloads
+    fun gate(lane: String, mint: String, requestedSizeSol: Double, isReproofProbe6801: Boolean = false, discoverySource6801: String = ""): Decision {
         gates.incrementAndGet()
         val mode = currentMode()
         val key = cohortKey(mode, lane)
         val streak = cohortLosses[key]?.get() ?: 0L
         val cooling = (cohortCooldownMs[key] ?: 0L) > System.currentTimeMillis()
+
+        // V5.0.6801 §LEARNING_MUST_CONTROL_ADMISSION — hard-block toxic lane
+        // cohorts unless the caller is an explicit reproof probe. This does
+        // NOT permanently disable a lane: reproof probes keep flowing so
+        // recovery can be observed and the block auto-clears once WR
+        // recovers past the advisory floor.
+        val loserAdvisory6801 = try {
+            com.lifecyclebot.engine.truth.CausalFeedbackAuthority6715
+                .cohortLoserAdvisoryForLane(mode, lane)
+        } catch (_: Throwable) { null }
+        val laneIsTerminalLoser6801 = loserAdvisory6801 != null &&
+            loserAdvisory6801.sizeMultiplier <= 0.55 // ADVISORY_MULT_FLOOR=0.40 + shaping headroom; catches WR under ~7.5% with adequate sample
+
+        // V5.0.6801 §SOURCE_AWARE_ADMISSION — parallel source-cohort veto.
+        // A source whose settled outcomes are catastrophic (PUMP_PORTAL
+        // flood in the operator diagnosis) is admission-blocked here even
+        // if the LANE cohort is currently clean, and vice versa. Reproof
+        // probes still get PROBE-size admission so recovery is observable.
+        val sourceAdvisory6801 = try {
+            if (discoverySource6801.isBlank()) null
+            else com.lifecyclebot.engine.truth.CausalFeedbackAuthority6715
+                .sourceLoserAdvisory6801(mode, discoverySource6801)
+        } catch (_: Throwable) { null }
+        val sourceIsTerminalLoser6801 = sourceAdvisory6801 != null &&
+            sourceAdvisory6801.sizeMultiplier <= 0.55
+
+        // V5.0.6809 §SOURCE_BRAIN_ADMISSION_VETO — a second, independent
+        // authority: ScannerSourceBrain.sourceCapitalExecutionSuppressed6809
+        // returns true when a source's own settled PnL sample is materially
+        // negative (n≥40, avg PnL ≤ -3%). This must suppress capital
+        // execution even if the CausalFeedback advisory hasn't yet flagged
+        // it. Reproof probes still bypass so evidence can clear the state.
+        val sourceBrainSuppressed6809 = try {
+            discoverySource6801.isNotBlank() &&
+                com.lifecyclebot.engine.ScannerSourceBrain
+                    .sourceCapitalExecutionSuppressed6809(discoverySource6801)
+        } catch (_: Throwable) { false }
+        if (sourceBrainSuppressed6809 && !isReproofProbe6801) {
+            denies.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_SOURCE_BRAIN_SUPPRESSED_6809")
+                ForensicLogger.lifecycle(
+                    "EXECUTABLE_ENTRY_SOURCE_BRAIN_SUPPRESSED_6809",
+                    "mode=$mode lane=${normalizedLane(lane)} source=$discoverySource6801 " +
+                        "mint=${mint.take(10)} action=shadow_only_reproof_required",
+                )
+            } catch (_: Throwable) {}
+            return Decision(
+                Verdict.DENY_LOSING_STREAK,
+                0.0,
+                "SOURCE_BRAIN_NEGATIVE_EV_SUPPRESSED_6809: source=$discoverySource6801 " +
+                    "action=SHADOW_ONLY_REPROOF_REQUIRED_6809",
+            )
+        }
+
+        // V5.0.6809 §LANE_DAMPER_ADMISSION — LaneExpectancyDamper is no
+        // longer telemetry-only. When its damped multiplier for this lane
+        // collapses to a bleeder floor (<= 0.20) the lane is admission-
+        // suppressed for capital execution. Reproof probes still flow.
+        val laneDamperSuppressed6809 = try {
+            !isReproofProbe6801 &&
+                com.lifecyclebot.engine.LaneExpectancyDamper
+                    .laneCapitalExecutionSuppressed6809(lane)
+        } catch (_: Throwable) { false }
+        if (laneDamperSuppressed6809) {
+            denies.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LANE_DAMPER_SUPPRESSED_6809")
+                PipelineHealthCollector.labelInc(
+                    "EXECUTABLE_ENTRY_LANE_DAMPER_SUPPRESSED_6809_${normalizedLane(lane)}"
+                )
+                ForensicLogger.lifecycle(
+                    "EXECUTABLE_ENTRY_LANE_DAMPER_SUPPRESSED_6809",
+                    "mode=$mode lane=${normalizedLane(lane)} mint=${mint.take(10)} " +
+                        "damper=${com.lifecyclebot.engine.LaneExpectancyDamper.sizeMultiplier(lane)} " +
+                        "action=shadow_only_reproof_required",
+                )
+            } catch (_: Throwable) {}
+            return Decision(
+                Verdict.DENY_LOSING_STREAK,
+                0.0,
+                "LANE_DAMPER_BLEEDER_SUPPRESSED_6809: lane=${normalizedLane(lane)} " +
+                    "action=SHADOW_ONLY_REPROOF_REQUIRED_6809",
+            )
+        }
+
+        if ((laneIsTerminalLoser6801 || sourceIsTerminalLoser6801) && !isReproofProbe6801) {
+            denies.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_TOXIC_LANE_SHADOW_ONLY_6801")
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_TOXIC_LANE_SHADOW_ONLY_6801_${normalizedLane(lane)}")
+                if (sourceIsTerminalLoser6801) {
+                    PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_TOXIC_SOURCE_SHADOW_ONLY_6801")
+                    PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_TOXIC_SOURCE_SHADOW_ONLY_6801_${sourceAdvisory6801!!.source}")
+                }
+                ForensicLogger.lifecycle(
+                    "EXECUTABLE_ENTRY_TOXIC_LANE_SHADOW_ONLY_6801",
+                    "mode=$mode lane=${normalizedLane(lane)} mint=${mint.take(10)} " +
+                        "laneWr=${loserAdvisory6801?.worstWinRatePct?.let { "%.2f".format(it) } ?: "n/a"}% laneN=${loserAdvisory6801?.worstDecidedCount ?: 0} " +
+                        "srcAdvisory=${sourceAdvisory6801?.source ?: "n/a"} srcWr=${sourceAdvisory6801?.winRatePct?.let { "%.2f".format(it) } ?: "n/a"}% srcN=${sourceAdvisory6801?.decidedCount ?: 0} " +
+                        "action=hard_deny_admission_reproof_only",
+                )
+            } catch (_: Throwable) {}
+            return Decision(
+                Verdict.DENY_LOSING_STREAK,
+                0.0,
+                "mode=$mode lane=${normalizedLane(lane)} " +
+                    "laneWr=${loserAdvisory6801?.worstWinRatePct?.let { "%.1f".format(it) } ?: "n/a"}% " +
+                    "srcWr=${sourceAdvisory6801?.winRatePct?.let { "%.1f".format(it) } ?: "n/a"}% " +
+                    "action=SHADOW_ONLY_REPROOF_REQUIRED_6801",
+            )
+        }
+        if ((laneIsTerminalLoser6801 || sourceIsTerminalLoser6801) && isReproofProbe6801) {
+            probes.incrementAndGet()
+            val probeSize6801 = PROBE_SIZE_SOL.coerceAtMost(requestedSizeSol.coerceAtLeast(PROBE_SIZE_SOL))
+            try {
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_TOXIC_LANE_REPROOF_PROBE_6801")
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_TOXIC_LANE_REPROOF_PROBE_6801_${normalizedLane(lane)}")
+                ForensicLogger.lifecycle(
+                    "EXECUTABLE_ENTRY_TOXIC_LANE_REPROOF_PROBE_6801",
+                    "mode=$mode lane=${normalizedLane(lane)} mint=${mint.take(10)} " +
+                        "laneWr=${loserAdvisory6801?.worstWinRatePct?.let { "%.2f".format(it) } ?: "n/a"}% " +
+                        "srcAdvisory=${sourceAdvisory6801?.source ?: "n/a"} " +
+                        "requestedSol=$requestedSizeSol probeSol=$probeSize6801 action=probe_only_no_normal_admission",
+                )
+            } catch (_: Throwable) {}
+            return Decision(
+                Verdict.ALLOW_PROBE,
+                probeSize6801,
+                "mode=$mode lane=${normalizedLane(lane)} " +
+                    "laneWr=${loserAdvisory6801?.worstWinRatePct?.let { "%.1f".format(it) } ?: "n/a"}% " +
+                    "srcWr=${sourceAdvisory6801?.winRatePct?.let { "%.1f".format(it) } ?: "n/a"}% action=REPROOF_PROBE_6801",
+            )
+        }
+
+        // V5.0.6803 §LOSS_STREAK_HARD_CREED_ENFORCEMENT — operator diagnosis
+        //   Feb 2026: "maxLossStreak=3 is currently more of a policy
+        //   declaration than an effective risk invariant. Actual streaks
+        //   reached 10." STREAK_HARD_LIMIT was firing but only shaped size
+        //   to 0.35. Turn it into a real hard-deny (reproof probes still
+        //   admitted): 3 consecutive confirmed losses on a lane×mode
+        //   cohort now yields a cool-down deny window instead of merely
+        //   shrinking size while continuing to feed the trader more losses.
+        //   The existing cooling logic already tracks the STREAK_COOLDOWN_
+        //   MS window; this simply upgrades hard-limit from a size shaper
+        //   to a hard vetoer.
+        // V5.0.6805 §COOLING_IS_RECOVERY_TIMING_ONLY — cooling is recovery-
+        //   observation timing, not a hard-veto surface. A single loss cannot
+        //   convert into a hard veto merely because the 60s cooldown window
+        //   is still ticking. Only canonical consecutive losses trip veto.
+        val streakBreached6803 = streak >= STREAK_HARD_LIMIT
+        if (streakBreached6803 && !isReproofProbe6801) {
+            denies.incrementAndGet()
+            // V5.0.6805 §HARD_VETO_LATCH — first veto after entering hard-
+            //   limit emits full telemetry; subsequent candidates within the
+            //   same cohort transition emit a single cohort-veto counter so
+            //   dashboards do not see thousands of per-candidate labels for
+            //   a single 3-loss creed breach.
+            val firstVetoForCohort6805 = lossStreakVetoLatched6805.putIfAbsent(key, true) == null
+            if (firstVetoForCohort6805) try {
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_HARD_VETO_6803")
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_HARD_VETO_6803_${normalizedLane(lane)}")
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_COHORT_VETO_6805")
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_COHORT_VETO_6805_${normalizedLane(lane)}")
+                ForensicLogger.lifecycle(
+                    "EXECUTABLE_ENTRY_LOSS_STREAK_HARD_VETO_6803",
+                    "mode=$mode lane=${normalizedLane(lane)} mint=${mint.take(10)} " +
+                        "streak=$streak limit=$STREAK_HARD_LIMIT cooling=$cooling " +
+                        "action=hard_deny_admission_reproof_only_cooldown_enforced",
+                )
+            } catch (_: Throwable) {} else try {
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_COHORT_VETO_LATCHED_6805")
+            } catch (_: Throwable) {}
+            return Decision(
+                Verdict.DENY_LOSING_STREAK,
+                0.0,
+                "mode=$mode lane=${normalizedLane(lane)} streak=$streak limit=$STREAK_HARD_LIMIT cooling=$cooling action=LOSS_STREAK_HARD_VETO_6803",
+            )
+        }
+        if (streakBreached6803 && isReproofProbe6801) {
+            probes.incrementAndGet()
+            val probeSize6803 = PROBE_SIZE_SOL.coerceAtMost(requestedSizeSol.coerceAtLeast(PROBE_SIZE_SOL))
+            try {
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_REPROOF_PROBE_6803")
+                PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_LOSS_STREAK_REPROOF_PROBE_6803_${normalizedLane(lane)}")
+            } catch (_: Throwable) {}
+            return Decision(
+                Verdict.ALLOW_PROBE,
+                probeSize6803,
+                "mode=$mode lane=${normalizedLane(lane)} streak=$streak limit=$STREAK_HARD_LIMIT action=LOSS_STREAK_REPROOF_PROBE_6803",
+            )
+        }
+
         val mult = when {
-            streak >= STREAK_HARD_LIMIT || cooling -> 0.35
             streak >= STREAK_TIGHTEN_TWO -> 0.35
             streak >= STREAK_TIGHTEN_ONE -> 0.65
             else -> 1.0
@@ -171,7 +406,7 @@ object ExecutableEntryAuthority6450 {
     }
 
     internal fun resetForTest6487() {
-        cohortLosses.clear(); cohortLastLossMs.clear(); cohortCooldownMs.clear()
+        cohortLosses.clear(); cohortLastLossMs.clear(); cohortCooldownMs.clear(); lossStreakVetoLatched6805.clear()
         gates.set(0L); allows.set(0L); probes.set(0L); denies.set(0L); bypassAttempts.set(0L)
     }
 

@@ -6,11 +6,11 @@ import org.junit.Test
 
 class V5_0_6567AcceptanceTest {
     @Test
-    fun adaptive_subminimum_size_is_promoted_once_to_min() {
-        // V5.0.6600 — sub-minimum requests are promoted exactly once to
-        // minExec when hard caps can fund it (operator directive Feb 2026:
-        // "If final BUY risk budget can afford the minimum executable
-        // notional: clamp the executable order to canonical minimum.").
+    fun adaptive_subminimum_size_promoted_when_caps_fund_min_6813() {
+        // V5.0.6813 §CONDITIONAL_MIN_PROMOTION — sub-min request whose
+        // authoritative cash + lane cap can both fund minExec is
+        // promoted exactly once. Silent zero-sized survivors are never
+        // produced.
         val r = OrderSizeResolver6441.resolve(
             requestedSol = 0.03,
             laneName = "CRYPTO_ALT",

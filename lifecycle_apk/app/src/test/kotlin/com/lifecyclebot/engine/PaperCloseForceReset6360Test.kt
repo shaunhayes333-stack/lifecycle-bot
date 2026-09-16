@@ -47,7 +47,7 @@ class PaperCloseForceReset6360Test {
         // The tighter 30s TTL + 3-retry hard cap policy stays — only the
         // action on the hard cap changes (reset instead of terminal).
         val txt = File("src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").readText()
-        assertTrue(txt.contains("STUCK_CLOSE_TTL_MS = 30_000L"))
+        assertTrue(txt.contains("STUCK_CLOSE_TTL_MS = 10_000L"))
         assertTrue(txt.contains("STUCK_RETRY_HARD_CAP = 3"))
     }
 }

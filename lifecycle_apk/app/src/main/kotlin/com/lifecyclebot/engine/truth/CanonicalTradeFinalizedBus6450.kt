@@ -148,6 +148,53 @@ object CanonicalTradeFinalizedBus6450 {
             val learningEligibility6519 = PaperLearningEligibility6519.decision(event.positionId, event.mint)
             val entrySnap6567 = EntryStrategySnapshot6450.snapshot(event.positionId)
             val entryScore6567 = entrySnap6567?.entryScore ?: 0
+            // V5.0.6813 §UNIT_INVALID_LEARNING_QUARANTINE — operator diagnosis Feb 2026:
+            //   "A quarantined absurd mark must NEVER be used to rebase entry
+            //    basis, calculate realised PNL, classify W/L, update EV, WR,
+            //    tactic μ, or trigger losing-streak learning." Canonical
+            //   position authority is intentionally untouched — this is a
+            //   pure learning-input filter. When the entry snapshot carries
+            //   an obviously unit-invalid price/mcap (e.g. entryPrice≈1109
+            //   on a token that trades near 1e-5, or entryMarketCapUsd
+            //   equal to Int.MAX_VALUE saturation 2147483647), we override
+            //   learningEligible → false with an explicit reason so every
+            //   downstream learner (EV, WR, tactic μ, losing-streak,
+            //   UnifiedPolicyHead) excludes this trade from training.
+            var unitInvariant6813Eligible = learningEligibility6519.eligible
+            var unitInvariant6813Reason = learningEligibility6519.reason
+            if (unitInvariant6813Eligible && entrySnap6567 != null) {
+                val entryPrice6813 = entrySnap6567.entryPriceUsd
+                val entryMcap6813 = entrySnap6567.entryMarketCapUsd
+                val mcapSaturated6813 = entryMcap6813 >= 2_147_483_646.0 &&
+                    entryMcap6813 <= 2_147_483_648.0
+                // Memecoin-class tokens trade far below $1; a persisted entry
+                // price above $1000 with a sub-$500k mcap is a decimal/unit
+                // corruption (real per-token price would be <$0.01). Blue
+                // chip tokens (SOL, BTC, ETH) legitimately trade above $1000
+                // but always with mcap >= $100M, so the joint predicate
+                // avoids false positives.
+                val decimalCorrupted6813 = entryPrice6813 > 1_000.0 &&
+                    entryMcap6813 in 1.0..500_000.0
+                if (mcapSaturated6813 || decimalCorrupted6813) {
+                    unitInvariant6813Eligible = false
+                    unitInvariant6813Reason = "UNIT_INVALID_QUARANTINE_6813" +
+                        (if (mcapSaturated6813) ":MCAP_INT_SATURATION" else "") +
+                        (if (decimalCorrupted6813) ":ENTRY_PRICE_DECIMAL_SKEW" else "")
+                    try {
+                        PipelineHealthCollector.labelInc("UNIT_INVALID_QUARANTINE_6813")
+                        if (mcapSaturated6813) PipelineHealthCollector.labelInc("UNIT_INVALID_QUARANTINE_6813_MCAP_INT_SATURATION")
+                        if (decimalCorrupted6813) PipelineHealthCollector.labelInc("UNIT_INVALID_QUARANTINE_6813_ENTRY_PRICE_DECIMAL_SKEW")
+                        ForensicLogger.lifecycle(
+                            "UNIT_INVALID_QUARANTINE_6813",
+                            "positionId=${event.positionId.take(16)} mint=${event.mint.take(10)} " +
+                                "lane=${event.entryLane} entryPriceUsd=$entryPrice6813 " +
+                                "entryMarketCapUsd=$entryMcap6813 mcapSaturated=$mcapSaturated6813 " +
+                                "decimalCorrupted=$decimalCorrupted6813 " +
+                                "action=exclude_from_learning_only_no_canonical_mutation",
+                        )
+                    } catch (_: Throwable) {}
+                }
+            }
             val env = CanonicalFinalizedTradeBus6464.Envelope(
                 tradeId = event.positionId,
                 atMs = event.settledAtMs,
@@ -165,8 +212,8 @@ object CanonicalTradeFinalizedBus6450 {
                 marketRegime = entrySnap6567?.entryMarketRegime ?: "",
                 scoreBand = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(entryScore6567),
                 terminal = true,
-                learningEligible = learningEligibility6519.eligible,
-                learningEligibilityReason = learningEligibility6519.reason,
+                learningEligible = unitInvariant6813Eligible,
+                learningEligibilityReason = unitInvariant6813Reason,
                 assetClassTag = event.assetClassTag.ifBlank { entrySnap6567?.assetClassTag ?: AssetClass.fromLane(event.entryLane).tag },
                 economicEventId = event.economicEventId,
                 exitReason = event.exitReason,

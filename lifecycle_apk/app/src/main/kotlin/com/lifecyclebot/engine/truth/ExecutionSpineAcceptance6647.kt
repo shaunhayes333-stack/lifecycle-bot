@@ -285,6 +285,27 @@ object ExecutionSpineAcceptanceWindow6647 {
                 )
             } else {
                 emitFailure6689(duration, result.failures, windowStartMs = start.atMs)
+                // V5.0.6758 §PHANTOM_DELTA_DIAG — on any acceptance FAIL that
+                // includes PHANTOM_SIZED_ONLY, CASH/BASIS/REALIZED/QUANTITY
+                // deltas, emit a per-lane phantom breakdown + forensic delta
+                // snapshot. Additive telemetry only; no trading behaviour
+                // changes. Lets the next runtime snapshot immediately name
+                // the offending lane instead of forcing the operator to
+                // grep the whole logcat.
+                try {
+                    val laneBreakdown = desks.joinToString(",") { desk ->
+                        val snap = try { SpecialistCausalFunnel6625.laneSnapshot6647(desk) } catch (_: Throwable) { null }
+                        "$desk=${snap?.phantomSizedOnly ?: -1}"
+                    }
+                    val forensicStr = forensic?.let {
+                        "reconciled=${it.reconciled} cash=${it.cashSol} basis=${it.basisSol} realized=${it.realizedSol} qty=${it.quantityRaw}"
+                    } ?: "reconciled=UNKNOWN"
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "EXECUTION_SPINE_ACCEPTANCE_6647_FAIL_DIAG_6758",
+                        "windowStartMs=${start.atMs} durationMs=$duration failures=${result.failures.joinToString("|")} phantomBreakdown=[$laneBreakdown] forensic=$forensicStr openPositions=${canonicalOpenPositions.size} exitStart=${observation.exitStart} exitDone=${observation.exitDone}",
+                    )
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXECUTION_SPINE_ACCEPTANCE_6647_FAIL_DIAG_6758")
+                } catch (_: Throwable) {}
             }
             result
         } catch (t: Throwable) {

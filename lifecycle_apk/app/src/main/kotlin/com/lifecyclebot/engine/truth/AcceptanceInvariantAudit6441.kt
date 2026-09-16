@@ -36,6 +36,22 @@ object AcceptanceInvariantAudit6441 {
         // 1. PAPER cash never negative.
         val cash = CanonicalPositionAuthority6441.paperCashSol()
         if (cash >= 0.0) passed.add("cash>=0") else failed.add("cash<0=$cash")
+        // V5.0.6805 §RETIRE_JOURNAL_REPLAY_ACCOUNTING — acceptance
+        //   accounting authority is canonical capital only. Operator
+        //   diagnosis Feb 2026: "runs=38 failures=34 with J_CASH_DELTA
+        //   J_BASIS_DELTA J_REALIZED_DELTA despite canonical accounting
+        //   reconciling correctly. Fix the audit semantics rather than
+        //   introducing another ledger." Add a canonical-capital-
+        //   conservation pass criterion alongside the existing checks
+        //   so the audit visibly acknowledges canonical health when the
+        //   forensic journal replay disagrees.
+        val capital6805 = try { CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
+        if (capital6805 != null && capital6805.conservationDeltaSol.isFinite() &&
+            kotlin.math.abs(capital6805.conservationDeltaSol) <= 1e-4) {
+            passed.add("canonical_capital_conserved_6450")
+        } else {
+            failed.add("canonical_capital_invalid_6450:${capital6805?.conservationDeltaSol ?: Double.NaN}")
+        }
 
         // 2. No oversold quantity + closed with residual.
         val allPositions = CanonicalPositionAuthority6441.openPositions() +

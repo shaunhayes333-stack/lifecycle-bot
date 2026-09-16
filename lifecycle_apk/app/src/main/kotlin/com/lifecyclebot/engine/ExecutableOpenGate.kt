@@ -19,7 +19,17 @@ object ExecutableOpenGate {
     // is the base against which RegimeDetector.scoreFloorDelta() is
     // added at the sealed admission check. Kept co-located with the
     // gate itself so the two authorities cannot drift.
-    private const val REGIME_BASE_MIN_SCORE_6747 = 15
+    // V5.0.6766 §RAISE_ENTRY_FLOOR — triage agent Feb 2026: pre-FDG scoring
+    // floor of 15 was the primary admission failure. A candidate scoring
+    // 16 cleared regime-adjusted floor (max effective 20 in CHOP/DUMP)
+    // and reached the sizer. Operator dump V5.0.6761 showed 47 closes at
+    // 4.3% WR — the floor was letting garbage through. Raised at source
+    // to 35 (baseline) so effective floor in CHOP/DUMP becomes 40, and
+    // in a healthy regime stays at 35 — matches the actual score
+    // distribution of historically winning entries. This is the ONE
+    // source-level knob the FDG stack uses as its hard veto; no new
+    // authority layer needed.
+    private const val REGIME_BASE_MIN_SCORE_6747 = 35
 
     // V5.0.6747 §EXPLORATION_DAMPER_ON_WR_COLLAPSE — operator directive:
     //   > "For a bot already sitting at 18.7% WR, probing WAIT/zero-
@@ -291,6 +301,33 @@ object ExecutableOpenGate {
         if (!validSealedDecision6613(intent) ||
             intent.mint.isBlank() || intent.candidateVersion <= 0L) return null
         val key = intentKey6519(intent.mode, intent.mint, intent.candidateVersion)
+
+        // V5.0.6809 §EXECUTION_INTENT_FINALITY — invalidate any stale sealed
+        // intent whose authoritative FDG verdict / action / authority version
+        // has been superseded by the incoming intent. The prior compute()
+        // only upgraded resolvedSize; it would silently reuse a BUY intent
+        // whose newer authority-version had turned into BLOCK. Operator
+        // mandate: "EXEC_INTENT_REUSED_6734 must never preserve an obsolete
+        // BUY after policy changes to BLOCK/NO_BUY. If candidate authority/
+        // version/policy changes before execution, invalidate and revalidate
+        // the intent." A newer intent with a stronger BLOCK/PROBE_ONLY
+        // decision or a newer authorityVersion evicts any prior BUY.
+        val existing = activeExecutionIntents6519[key]
+        if (existing != null && intentSupersedes6809(intent, existing)) {
+            try {
+                PipelineHealthCollector.labelInc("EXEC_INTENT_INVALIDATED_ON_POLICY_CHANGE_6809")
+                ForensicLogger.lifecycle(
+                    "EXEC_INTENT_INVALIDATED_ON_POLICY_CHANGE_6809",
+                    "attemptId=${existing.attemptId} mint=${existing.mint.take(10)} " +
+                        "priorAuthority=${existing.authorityVersion} priorFdg=${existing.fdgVerdict} priorFinal=${existing.finalDecision6613} priorAction=${existing.action} " +
+                        "newAuthority=${intent.authorityVersion} newFdg=${intent.fdgVerdict} newFinal=${intent.finalDecision6613} newAction=${intent.action} " +
+                        "action=evict_stale_intent",
+                )
+            } catch (_: Throwable) {}
+            activeExecutionIntents6519.remove(key, existing)
+            executionTickets.remove(existing.attemptId, existing)
+        }
+
         // A preliminary FDG pass can seal the decision before the canonical
         // size resolver runs. When that same immutable attempt returns with a
         // positive size, upgrade it instead of retaining a zero-sized shell.
@@ -304,6 +341,16 @@ object ExecutableOpenGate {
                 else -> existing
             }
         } ?: return null
+
+        // V5.0.6809 — post-registration invariant: if the winning intent is
+        // BLOCK/PROBE_ONLY (i.e. final action is not a canonical BUY), it must
+        // NOT be surfaced as an executable ticket. Reject any resurrection
+        // path that tries to turn a non-BUY into a BUY.
+        if (authoritative.finalDecision6613 != CanonicalFinalDecision6613.BUY) {
+            try {
+                PipelineHealthCollector.labelInc("EXEC_INTENT_REGISTERED_NON_BUY_6809")
+            } catch (_: Throwable) {}
+        }
         executionTickets[authoritative.attemptId] = authoritative
         // V5.0.6715 — stamp the actual FDG/intent creation epoch. Never stamp at
         // terminal/report time: this is the decision provenance trade N+1 must prove.
@@ -321,6 +368,45 @@ object ExecutableOpenGate {
             ForensicLogger.lifecycle(if (created6734) "EXEC_INTENT_CREATED" else "EXEC_INTENT_REUSED_6734", "attemptId=${authoritative.attemptId} candidateId=${authoritative.candidateId} mint=${authoritative.mint.take(10)} mode=${authoritative.mode} lane=${authoritative.canonicalLane} fdg=${authoritative.fdgVerdict} allowed=${authoritative.fdgAllowed} authority=${authoritative.authorityVersion} size=${authoritative.resolvedSize}")
         } catch (_: Throwable) {}
         return authoritative
+    }
+
+    /**
+     * V5.0.6809 §INTENT_SUPERSEDES — returns true when the incoming intent
+     * carries newer authoritative policy that materially changes the
+     * executable semantics for the same key. Prior version (6809 initial)
+     * over-invalidated on any authorityVersion bump; 6810 tightens the
+     * check to material execution fields only. Operator diagnosis:
+     *   "priorFdg=BUY, priorFinal=BUY, priorAction=OPEN,
+     *    newFdg=BUY,   newFinal=BUY,   newAction=OPEN
+     *    yet the existing intent is invalidated" — this rebuild is exactly
+     *    what caused 1520 invalidations across a single run.
+     *
+     * Supersession triggers (material only):
+     *   • prior FDG allowed but new FDG blocks (BLOCK path must evict BUY)
+     *   • prior final decision was BUY but new final decision is not BUY
+     *   • different action string with the same key
+     *   • different canonical lane owner (lane re-assignment is a material
+     *     execution change: sizing caps, cohort, inventory ceiling all change)
+     *
+     * Non-material (no eviction):
+     *   • authorityVersion bump alone, with identical executable semantics
+     *   • resolvedSize refinement (compute() handles size upgrade path)
+     *   • telemetry-only differences
+     */
+    internal fun intentSupersedes6809(incoming: ExecutionIntent, prior: ExecutionIntent): Boolean {
+        // 1. Prior was executable BUY → new is not: hard evict.
+        if (prior.finalDecision6613 == CanonicalFinalDecision6613.BUY &&
+            incoming.finalDecision6613 != CanonicalFinalDecision6613.BUY) return true
+        // 2. Prior FDG allowed → new FDG blocks: hard evict.
+        if (prior.fdgAllowed && !incoming.fdgAllowed) return true
+        // 3. Action string changed for the same candidate/version: evict.
+        if (incoming.candidateVersion == prior.candidateVersion &&
+            !incoming.action.equals(prior.action, ignoreCase = true)) return true
+        // 4. Canonical lane owner changed: material change in execution scope.
+        if (!incoming.canonicalLane.equals(prior.canonicalLane, ignoreCase = true)) return true
+        // 5. Otherwise: preserve the sealed immutable intent. authorityVersion
+        //    bump alone is metadata drift; do NOT rebuild.
+        return false
     }
 
     internal fun sameDecisionContract6734(a: ExecutionIntent, b: ExecutionIntent): Boolean =
@@ -735,34 +821,18 @@ object ExecutableOpenGate {
             }
         }
         if (state == null) {
-            // V5.0.4003 — SOURCE FIX: final-candidate state can be swept or
-            // overwritten between FDG_ALLOW and liveBuy handoff during scanner storms.
-            // Runtime 5.0.4002: FDG allow=110, EXEC_GATE allow=586, BUY ok=0,
-            // BUY fail=90 with TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE. That is not
-            // market rejection; it is missing transient state after an approved ticket.
-            // Restore ONLY when the caller carries a real execution lane, current
-            // liquidity is positive, SAFE/CAUTION safety is present, and no true-hard
-            // safety reason is present. Missing-state restore has no FDG state to
-            // prove provider-blind approval, so UNKNOWN safety remains blocked.
-            val restoredHardNoReasons = hardNoReasons.filterNot { hn ->
-                ((hn.equals("ZERO_LIQUIDITY", true) || hn.equals("TRUE_ZERO_LIQUIDITY", true) || hn.equals("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", true)) && currentLiquidityUsd > 0.0) ||
-                    (hn.equals("PRE_FDG_SAFETY_CONTEXT_MISSING", true) &&
-                        currentSafetyTier.isNotBlank() && !currentSafetyTier.equals("UNKNOWN", true))
-            }
-            val currentSafetyOk = currentSafetyTier.equals("SAFE", true) || currentSafetyTier.equals("CAUTION", true)
-            val liveExecutableContext = mode.equals("LIVE", true) && isRealExecutionLane(selected) &&
-                currentLiquidityUsd > 0.0 && currentSafetyOk && restoredHardNoReasons.none { trueHardTicketKill(it) } &&
-                preFdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY", "WATCH", "PROBE")
-            if (liveExecutableContext) {
-                try {
-                    ForensicLogger.lifecycle(
-                        "LIVE_RESTORE_MISSING_FINAL_CANDIDATE_SOFT_ALLOW",
-                        "mint=${mint.take(10)} symbol=$symbol selected=$selected requested=$requested preFdg=$preFdgVerdict currentVersion=$currentVersion liq=${currentLiquidityUsd.toInt()} safety=$currentSafetyTier reason=state_missing_after_fdg_allow"
-                    )
-                    PipelineHealthCollector.labelInc("LIVE_RESTORE_MISSING_FINAL_CANDIDATE_SOFT_ALLOW")
-                } catch (_: Throwable) {}
-                return null
-            }
+            // V5.0.6782 §AUTHORITY_CONSOLIDATION — MISSING FDG STATE = DROP.
+            // Previously the code carried a "LIVE_RESTORE_MISSING_FINAL_
+            // CANDIDATE_SOFT_ALLOW" soft-allow path that let a candidate
+            // execute even after the transient FDG state row was swept.
+            // Directive: "There must be ONE final cognitive truth per
+            // candidate version." If the state row is gone, the cognitive
+            // truth is gone — the candidate must re-enter FDG on the next
+            // scan and produce a fresh sealed decision, not be reconstructed
+            // downstream from partial context. The frozen-snapshot fast-path
+            // below is retained ONLY because it carries a full sealed FDG
+            // authority (validated by validSealedDecision6613); it is not a
+            // reconstruction.
             // V5.0.6499 §5 — SNAPSHOT EXECUTION RACE. If ExecutionSnapshotAuthority6496
             // has a frozen tuple for this mint (primaryLane +
             // safetyAuthorityTier + canonicalOccupancy + resolvedOrderSizeSol
@@ -927,73 +997,26 @@ object ExecutableOpenGate {
                     return "EXEC_OPEN_DEFERRED_$canon" to canon
                 }
             }
-            val currentStateVersion = state?.candidateVersion == currentVersion && candidateVersion == currentVersion
-            // V5.0.3911 — FDG-approved WATCH/PROBE is a stale string verdict, not
-            // a terminal live veto, when the boolean FDG authority allowed the same
-            // current candidate and live safety/liquidity are resolved. Report 3909
-            // still showed FINALITY_BLOCK:WATCH after FDG live allow. The later
-            // staleApprovedVerdict branch could not fire because this function returned
-            // WATCH first. Keep HARD_NO/true NO_BUY blocked; restore only FDG-approved
-            // WATCH/PROBE/PROBE_ONLY/BUY with no hardNo.
-            val verdictAllowedByFdg = state?.fdgCan == true && verdictUpper in setOf("BUY", "PROBE_ONLY", "WATCH", "PROBE")
-            val latestAllows = (currentStateVersion || mode.equals("LIVE", true)) && verdictAllowedByFdg
-            val safetyKnownOk = currentSafetyTier.equals("SAFE", true) || currentSafetyTier.equals("CAUTION", true) ||
-                state?.safetyTier.equals("SAFE", true) || state?.safetyTier.equals("CAUTION", true)
-            // V5.0.3955 — FDG-approved provider-blind/UNKNOWN safety is a penalty,
-            // not a WATCH finality veto, when liquidity is nonzero and hardNo is empty.
-            // Confirmed rugs and zero-liquidity still block later in the gate.
-            val safetyBlindSoftAllow = mode.equals("LIVE", true) && state?.fdgCan == true && effectiveHardNoReasons.isEmpty()
-            val safetyOk = safetyKnownOk || safetyBlindSoftAllow
-            // V5.9.1559 — LIVE finality restore must use the CURRENT candidate
-            // liquidity, not the stale EntryState liquidity. Operator log showed
-            // current liq=$1599 but cached finality liq=0 → preFdg WATCH dropped
-            // a lane-approved live candidate.
-            val effectiveLiq = maxOf(currentLiquidityUsd, state?.liquidityUsd ?: 0.0)
-            // V5.0.3952 — LOW-LIQ WATCH RESTORE ALIGNMENT.
-            // Low but nonzero liquidity is a sizing/quote penalty, not an
-            // executable-open finality block. Runtime 3951 still showed one
-            // FINALITY_BLOCK:WATCH while TokenSafetyChecker correctly emitted
-            // LOW_LIQUIDITY_SIZE_REDUCED. Restore the FDG-approved WATCH and let
-            // LiveRestoreExecutionPolicy/realisticLiveEntrySize clamp size.
-            val liqOk = effectiveLiq > 0.0
-            if (mode.equals("LIVE", true) && latestAllows && safetyOk && liqOk && effectiveHardNoReasons.isEmpty()) {
-                try {
-                    ForensicLogger.lifecycle(
-                        "LIVE_RESTORE_STALE_WATCH_SOFT_ALLOW",
-                        "mint=${mint.take(10)} symbol=$symbol preFdg=$preFdgVerdict fdgCan=${state?.fdgCan} stateVersion=${state?.candidateVersion} currentVersion=$currentVersion stateLiq=${(state?.liquidityUsd ?: 0.0).toInt()} currentLiq=${currentLiquidityUsd.toInt()} currentSafety=$currentSafetyTier stateSafety=${state?.safetyTier} safetyKnownOk=$safetyKnownOk safetyBlindSoftAllow=$safetyBlindSoftAllow penalty=WATCH_FINALITY_SOFT_ALLOW"
-                    )
-                } catch (_: Throwable) {}
-                return null
-            }
+            // V5.0.6782 §AUTHORITY_CONSOLIDATION — WATCH/PROBE cannot silently
+            // become BUY at ExecutableOpenGate. Directive: "WAIT cannot silently
+            // become BUY without a new candidate version." Prior code let a
+            // stale WATCH/PROBE preFdgVerdict pass through as long as safety+liq
+            // looked ok — that is exactly the downstream resurrection the
+            // authority-consolidation mandate forbids. If preFdg is not BUY/
+            // PROBE_ONLY, the candidate must re-enter FDG and produce a fresh
+            // sealed decision.
             return "EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY" to preFdgVerdict
         }
         if (effectiveHardNoReasons.isNotEmpty()) return "EXEC_OPEN_DROPPED_HARD_NO_BUY" to effectiveHardNoReasons.joinToString("+")
         if (candidateVersion != currentVersion) {
-            // V5.0.4003 — restore approved live handoff across version churn.
-            // Historical invariant: EXEC_GATE_ALLOW>0 but EXEC_LIVE_ATTEMPT=0 must
-            // not recur from approved candidate-version churn.
-            // 5.0.3861 disabled this with literal false/false, which was safe for
-            // preventing stale buys but fatal under current scanner churn: tickets age
-            // out as STALE_CANDIDATE_VERSION even though the same mint still has an
-            // FDG-approved BUY/PROBE, real liquidity, and no true hard safety kill.
-            val verdictUpper = preFdgVerdict.uppercase()
-            val latestAllows = mode.equals("LIVE", true) && state.fdgCan == true &&
-                verdictUpper in setOf("BUY", "PROBE_ONLY", "WATCH", "PROBE")
-            val safetyOk = currentSafetyTier.equals("SAFE", true) || currentSafetyTier.equals("CAUTION", true) ||
-                state.safetyTier.equals("SAFE", true) || state.safetyTier.equals("CAUTION", true) ||
-                (mode.equals("LIVE", true) && state.fdgCan == true && effectiveHardNoReasons.none { trueHardTicketKill(it) })
-            val effectiveLiq = maxOf(currentLiquidityUsd, state.liquidityUsd)
-            val liqOk = effectiveLiq > 0.0
-            if (latestAllows && safetyOk && liqOk && effectiveHardNoReasons.none { trueHardTicketKill(it) }) {
-                try {
-                    ForensicLogger.lifecycle(
-                        "LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW",
-                        "mint=${mint.take(10)} symbol=$symbol candidateVersion=$candidateVersion currentVersion=$currentVersion stateVersion=${state.candidateVersion} liq=${effectiveLiq.toInt()} safety=$currentSafetyTier stateSafety=${state.safetyTier} reason=approved_handoff_version_churn"
-                    )
-                    PipelineHealthCollector.labelInc("LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW")
-                } catch (_: Throwable) {}
-                return null
-            }
+            // V5.0.6782 §AUTHORITY_CONSOLIDATION — STALE CANDIDATE VERSION = DROP.
+            // Directive: "There must be ONE final cognitive truth per candidate
+            // version." When the candidate version churns, the sealed cognitive
+            // decision belongs to a superseded version. The bot must re-enter
+            // FDG with the current market context, not resurrect an approved
+            // handoff from an obsolete version. Prior LIVE_RESTORE_STALE_
+            // CANDIDATE_SOFT_ALLOW path directly resurrected across version
+            // churn — removed at source.
             return "EXEC_OPEN_DROPPED_STALE_CANDIDATE" to "STALE_CANDIDATE_VERSION_$candidateVersion"
         }
         return null
@@ -1507,6 +1530,37 @@ object ExecutableOpenGate {
         // V5.0.6506 §P0-2 — canonical lane alias fold at boundary.
         @Suppress("NAME_SHADOWING") val lane = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane)
         @Suppress("NAME_SHADOWING") val electedLane6494 = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(electedLane6494)
+        // V5.0.6763 §CATASTROPHIC_LANE_AUTO_VETO — a lane with statistically
+        // proven catastrophic evidence (≥20 clean same-mode closes, WR ≤ 8%,
+        // meanPnl ≤ -20%) is hard-vetoed here. LaneExpectancyDamper alone
+        // proved insufficient in V5.0.6761 (88 entries in 235s at 4.3% WR
+        // despite ×0.33-0.47 dampers). Self-heals on recovery signal.
+        run {
+            val veto6763 = try {
+                com.lifecyclebot.engine.truth.CatastrophicLaneAutoVeto6763.evaluate(mode, lane)
+            } catch (_: Throwable) { null }
+            if (veto6763 != null && veto6763.vetoed) {
+                try {
+                    PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_LANE_CATASTROPHIC_6763")
+                    PipelineHealthCollector.labelInc(
+                        "EXEC_OPEN_BLOCKED_LANE_CATASTROPHIC_6763|${veto6763.lane}",
+                    )
+                    ForensicLogger.lifecycle(
+                        "EXEC_OPEN_BLOCKED_LANE_CATASTROPHIC_6763",
+                        "mint=${mint.take(10)} symbol=$symbol mode=$mode lane=${veto6763.lane} " +
+                            "reason=${veto6763.reason} attemptId=$attemptId " +
+                            "action=hard_veto_catastrophic_evidence",
+                    )
+                } catch (_: Throwable) {}
+                return OpenVerdict(
+                    allowed = false,
+                    reason = veto6763.reason,
+                    shadowOnly = mode.equals("PAPER", true),
+                    logName = "EXEC_OPEN_BLOCKED_LANE_CATASTROPHIC_6763",
+                    attemptId = attemptId,
+                )
+            }
+        }
         return canOpenExecutablePositionInternal(
             mint = mint,
             symbol = symbol,
@@ -1704,27 +1758,36 @@ object ExecutableOpenGate {
                 if (entryScore6747 >= 0 && floorDelta6747 > 0) {
                     val effectiveMinScore6747 = REGIME_BASE_MIN_SCORE_6747 + floorDelta6747
                     if (entryScore6747 < effectiveMinScore6747) {
-                        try {
-                            val canonLane6747 = canonicalLane(lane)
-                            val regimeName6747 = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" }
-                            PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747")
-                            PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747|${canonLane6747}|${regimeName6747}")
-                            ForensicLogger.lifecycle(
-                                "EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747",
-                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} mode=$modeUpper6747 " +
-                                    "lane=$canonLane6747 regime=$regimeName6747 score=$entryScore6747 " +
-                                    "base=$REGIME_BASE_MIN_SCORE_6747 delta=+$floorDelta6747 " +
-                                    "effectiveFloor=$effectiveMinScore6747 attemptId=$attemptId " +
-                                    "action=regime_floor_authoritative_veto",
+                        val reason6760 = "EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747"
+                        val canonLane6747 = canonicalLane(lane)
+                        val regimeName6747 = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" }
+                        val extra6760 = "mint=${ts.mint.take(10)} symbol=${ts.symbol} mode=$modeUpper6747 " +
+                            "lane=$canonLane6747 regime=$regimeName6747 score=$entryScore6747 " +
+                            "base=$REGIME_BASE_MIN_SCORE_6747 delta=+$floorDelta6747 " +
+                            "effectiveFloor=$effectiveMinScore6747 attemptId=$attemptId"
+                        // V5.0.6760 §POST_SEAL_ADVISORY_ONLY_6760 — regime floor is a
+                        // pre-seal quality signal, not a hard-safety veto. Operator
+                        // spec §7: "regime floor must run BEFORE authoritative sealing
+                        // or become advisory only". Demote here; regime shaping still
+                        // participates via RegimeDetector.scoreFloorDelta() inside
+                        // upstream FDG scoring, so a truly weak entry is filtered
+                        // pre-seal by the specialist FDG rather than re-vetoed here.
+                        if (com.lifecyclebot.engine.truth.PostSealAuthorityInvariants6760.mayBlockAfterFdgAllow(reason6760)) {
+                            try {
+                                PipelineHealthCollector.labelInc(reason6760)
+                                PipelineHealthCollector.labelInc("${reason6760}|${canonLane6747}|${regimeName6747}")
+                                ForensicLogger.lifecycle(reason6760, "$extra6760 action=regime_floor_authoritative_veto")
+                            } catch (_: Throwable) {}
+                            return OpenVerdict(
+                                allowed = false,
+                                reason = "$reason6760:need>=${effectiveMinScore6747}",
+                                shadowOnly = modeUpper6747 == "PAPER",
+                                logName = reason6760,
+                                attemptId = attemptId,
                             )
-                        } catch (_: Throwable) {}
-                        return OpenVerdict(
-                            allowed = false,
-                            reason = "EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747:need>=${effectiveMinScore6747}",
-                            shadowOnly = modeUpper6747 == "PAPER",
-                            logName = "EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747",
-                            attemptId = attemptId,
-                        )
+                        } else {
+                            com.lifecyclebot.engine.truth.PostSealAuthorityInvariants6760.emitAdvisory6760(reason6760, extra6760)
+                        }
                     }
                 }
             }
@@ -2104,23 +2167,35 @@ object ExecutableOpenGate {
         // Keep discovery, qualification, tactic rotation and NoTradeObservation
         // learning alive, but do not turn this already-proven toxic bucket into a
         // canonical BUY until its learned bucket state recovers.
+        //
+        // V5.0.6760 §POST_SEAL_ADVISORY_ONLY_6760 — BucketExecutionState is a
+        // learning-quality signal, not a hard-safety veto. Per operator spec §7
+        // ("learning quality must run BEFORE authoritative sealing, or become
+        // advisory only"), demote this to advisory. The learned toxicity is
+        // still recorded on the causal record and continues to shape
+        // LaneAdaptiveDamping / expectancy multipliers downstream; it just no
+        // longer contradicts a sealed FDG decision.
         run {
             val gateScore = state?.entryScore ?: -1
             if (gateScore >= 0 && isRealExecutionLane(canonicalSelectedLane)) {
                 if (BucketExecutionState.isShadowTrainOnly(canonicalSelectedLane, gateScore)) {
-                    try {
-                        PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_SHADOW_TRAIN_ONLY_6683")
-                        PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_SHADOW_TRAIN_ONLY_6683|${canonicalSelectedLane.uppercase().take(24)}")
-                        ForensicLogger.lifecycle(
-                            "EXEC_OPEN_BLOCKED_SHADOW_TRAIN_ONLY_6683",
-                            "lane=$canonicalSelectedLane score=$gateScore mode=$modeUpper ${BucketExecutionState.describe(canonicalSelectedLane, gateScore)} attemptId=$attemptId action=shadow_train_counterfactual_no_economic_open"
+                    val reason6760 = "EXEC_OPEN_BLOCKED_SHADOW_TRAIN_ONLY_6683"
+                    val extra6760 = "lane=$canonicalSelectedLane score=$gateScore mode=$modeUpper ${BucketExecutionState.describe(canonicalSelectedLane, gateScore)} attemptId=$attemptId"
+                    if (com.lifecyclebot.engine.truth.PostSealAuthorityInvariants6760.mayBlockAfterFdgAllow(reason6760)) {
+                        try {
+                            PipelineHealthCollector.labelInc(reason6760)
+                            PipelineHealthCollector.labelInc("${reason6760}|${canonicalSelectedLane.uppercase().take(24)}")
+                            ForensicLogger.lifecycle(reason6760, "$extra6760 action=shadow_train_counterfactual_no_economic_open")
+                        } catch (_: Throwable) {}
+                        return blocked(
+                            reason6760,
+                            "SHADOW_TRAIN_ONLY_6683 $extra6760",
+                            shadow = true,
                         )
-                    } catch (_: Throwable) {}
-                    return blocked(
-                        "EXEC_OPEN_BLOCKED_SHADOW_TRAIN_ONLY_6683",
-                        "SHADOW_TRAIN_ONLY_6683 lane=$canonicalSelectedLane score=$gateScore mode=$modeUpper ${BucketExecutionState.describe(canonicalSelectedLane, gateScore)}",
-                        shadow = true,
-                    )
+                    } else {
+                        // Advisory: demote to telemetry, fall through, sealed path wins.
+                        com.lifecyclebot.engine.truth.PostSealAuthorityInvariants6760.emitAdvisory6760(reason6760, extra6760)
+                    }
                 }
             }
         }
@@ -2405,30 +2480,90 @@ object ExecutableOpenGate {
             val paperMode = mode.equals("PAPER", true)
             val stateAgeMs = state?.updatedAtMs?.let { System.currentTimeMillis() - it } ?: Long.MAX_VALUE
             if (paperMode && stateAgeMs in 0..500L) {
+                val reason6763 = "FDG_ALLOW_SEALING_RACE_DEFERRED_6739"
+                val extra6763 = "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol lane=$canonicalSelectedLane stateAgeMs=$stateAgeMs paper=true"
+                // V5.0.6763 §POST_SEAL_ADVISORY_ONLY_6760 — the 500 ms
+                // sealing-race defer runs POST FDG_ALLOW but is a soft
+                // paper-side snapshot-seal wait, not a hard-safety veto.
+                // Demote per operator §7. Sealed FDG path proceeds; the
+                // race is left to the next tick's fresh snapshot.
+                if (com.lifecyclebot.engine.truth.PostSealAuthorityInvariants6760.mayBlockAfterFdgAllow(reason6763)) {
+                    try {
+                        PipelineHealthCollector.labelInc(reason6763)
+                        ForensicLogger.lifecycle(reason6763, "$extra6763 action=soft_defer_await_snapshot_seal")
+                    } catch (_: Throwable) {}
+                    return blocked(
+                        "EXEC_OPEN_DEFERRED_SEALING_RACE_6739",
+                        reason6763,
+                        shadow = true,
+                    )
+                } else {
+                    com.lifecyclebot.engine.truth.PostSealAuthorityInvariants6760.emitAdvisory6760(reason6763, extra6763)
+                }
+            }
+            // V5.0.6809 §FDG_ALLOW_LABEL_ATOMICITY — operator diagnosis Feb 2026:
+            // The paper race window (`stateAgeMs<5s, immutable seal pending`)
+            // is a DEFER, not an authority invariant violation. The prior
+            // code emitted BOTH `FDG_ALLOW_WITHOUT_EXEC_INTENT` and
+            // `FDG_ALLOW_AWAITING_EXEC_INTENT_6805` for the same paper case,
+            // inflating both counters simultaneously (health dump showed
+            // FDG_ALLOW_WITHOUT_EXEC_INTENT=6 == FDG_ALLOW_AWAITING_EXEC_INTENT_6805=6).
+            // Mandate: "Do not publish/count final FDG_ALLOW before intent
+            // creation succeeds. If intent creation is temporarily
+            // unavailable, classify as DEFER/PENDING, not FDG_ALLOW."
+            // The AUTHORITY_INVARIANT_FAILURE / FDG_ALLOW_WITHOUT_EXEC_INTENT
+            // labels are now emitted only when the caller is LIVE (real
+            // integrity violation) or paper is past the deferral horizon.
+            val paperMode6805 = mode.equals("PAPER", true)
+            val staleUnsealedPaper6805 = stateAgeMs > 5_000L
+            val isPaperDeferralWindow6809 = paperMode6805 && !staleUnsealedPaper6805
+            if (!isPaperDeferralWindow6809) {
                 try {
-                    PipelineHealthCollector.labelInc("FDG_ALLOW_SEALING_RACE_DEFERRED_6739")
+                    PipelineHealthCollector.labelInc("AUTHORITY_INVARIANT_FAILURE")
+                    PipelineHealthCollector.labelInc("EXEC_AUTHORITY_STATE_MISMATCH")
+                    // ExecutionSpineAcceptanceWindow6647 watches this exact
+                    // counter.  Previously the violation only appeared as a gate
+                    // reason, so smoke acceptance could report a false clean zero.
+                    PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT")
+                    try { PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT_LANE_6727_${canonicalSelectedLane.uppercase()}") } catch (_: Throwable) {}
+                    ForensicLogger.lifecycle("AUTHORITY_INVARIANT_FAILURE", "attemptId=$attemptId mint=${mint.take(10)} candidateVersion=$candidateVersion currentVersion=$currentCandidateVersion requestedLane=$requestedLane selectedLane=$canonicalSelectedLane preFdg=$preFdgVerdict reason=FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519 stateAgeMs=$stateAgeMs")
+                } catch (_: Throwable) {}
+            }
+            // V5.0.6805 §PAPER_FDG_WITHOUT_SEAL_IS_A_DEFERRAL — operator
+            //   diagnosis Feb 2026: The paper `fdgCan=true / immutable
+            //   seal=null` window past 500 ms is not an authority
+            //   integrity violation. It's a normal seal-lag: the
+            //   provisional state is old enough to be re-verified but
+            //   the caller is still racing the FDG snapshot sealing.
+            //   Downgrade the paper branch to a deferral (shadow-only)
+            //   so the next tick can obtain fresh FDG + immutable
+            //   execution-intent seals. Additionally, if the provisional
+            //   state is stale (>5s) it is destroyed here so the next
+            //   tick must obtain a completely fresh seal, not resurrect
+            //   an unsealed old snapshot. LIVE mode remains a hard fail:
+            //   there is no synthetic provisional-state path and this
+            //   window would be a real integrity violation.
+            if (paperMode6805) {
+                try {
+                    PipelineHealthCollector.labelInc("FDG_ALLOW_AWAITING_EXEC_INTENT_6805")
+                    if (staleUnsealedPaper6805) PipelineHealthCollector.labelInc("FDG_ALLOW_STALE_UNSEALED_PAPER_6805")
                     ForensicLogger.lifecycle(
-                        "FDG_ALLOW_SEALING_RACE_DEFERRED_6739",
-                        "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol lane=$canonicalSelectedLane stateAgeMs=$stateAgeMs action=soft_defer_await_snapshot_seal paper=true",
+                        "FDG_ALLOW_AWAITING_EXEC_INTENT_6805",
+                        "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol lane=$canonicalSelectedLane " +
+                            "stateAgeMs=$stateAgeMs stale=$staleUnsealedPaper6805 " +
+                            "action=defer_and_revalidate_no_economic_open",
                     )
                 } catch (_: Throwable) {}
+                if (staleUnsealedPaper6805 && state != null) {
+                    try { states.remove(mint, state) } catch (_: Throwable) {}
+                }
                 return blocked(
-                    "EXEC_OPEN_DEFERRED_SEALING_RACE_6739",
-                    "FDG_ALLOW_SEALING_RACE_DEFERRED_6739",
+                    "EXEC_OPEN_DEFERRED_FDG_INTENT_6805",
+                    if (staleUnsealedPaper6805) "FDG_ALLOW_STALE_UNSEALED_PAPER_6805" else "FDG_ALLOW_AWAITING_EXEC_INTENT_6805",
                     shadow = true,
                 )
             }
-            try {
-                PipelineHealthCollector.labelInc("AUTHORITY_INVARIANT_FAILURE")
-                PipelineHealthCollector.labelInc("EXEC_AUTHORITY_STATE_MISMATCH")
-                // ExecutionSpineAcceptanceWindow6647 watches this exact
-                // counter.  Previously the violation only appeared as a gate
-                // reason, so smoke acceptance could report a false clean zero.
-                PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT")
-                try { PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT_LANE_6727_${canonicalSelectedLane.uppercase()}") } catch (_: Throwable) {}
-                ForensicLogger.lifecycle("AUTHORITY_INVARIANT_FAILURE", "attemptId=$attemptId mint=${mint.take(10)} candidateVersion=$candidateVersion currentVersion=$currentCandidateVersion requestedLane=$requestedLane selectedLane=$canonicalSelectedLane preFdg=$preFdgVerdict reason=FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519 stateAgeMs=$stateAgeMs")
-            } catch (_: Throwable) {}
-            return blocked("AUTHORITY_INVARIANT_FAILURE", "FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519", shadow = mode == "PAPER")
+            return blocked("AUTHORITY_INVARIANT_FAILURE", "FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519", shadow = false)
         }
         if (immutableAuthority6513 != null && immutableTicket == null && (
                 immutableAuthority6513.authoritativeSignal != "BUY" ||
@@ -2610,6 +2745,38 @@ object ExecutableOpenGate {
         // PRESSURE_DEFER thousands of times per cycle. Exits are not
         // touched — the coordinator continues to drain inventory —
         // admission just pauses until it's safe to open again.
+        // V5.0.6805 §LANE_CONCENTRATION_CEILING — operator diagnosis Feb
+        //   2026: "PROJECT_SNIPER targetSol=1.5422 but usedAllocation=4.0886
+        //    and openPositions=69" (~69% of the meme book) while its
+        //    stated allocation is 11.5%. Capital target alone is
+        //    advisory-only; the concentration ceiling here is authoritative
+        //    at the executable-open boundary so a single lane cannot
+        //    silently monopolise open inventory even when profitable in
+        //    aggregate. LaneCapitalFairness6732.headroomFor reports
+        //    inventoryCapped=true when the projected book share would
+        //    exceed 35% (with book>=10 open and lane>4 absolute). Non-meme
+        //    lanes fail open above. Any read failure fails open.
+        val laneInventory6805 = try {
+            com.lifecyclebot.engine.truth.LaneCapitalFairness6732.headroomFor(modeUpper, lane)
+        } catch (_: Throwable) { null }
+        if (laneInventory6805?.inventoryCapped == true) {
+            try {
+                PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_LANE_INVENTORY_CEILING_6805")
+                PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_LANE_INVENTORY_CEILING_6805_${lane}")
+                ForensicLogger.lifecycle(
+                    "EXEC_OPEN_BLOCKED_LANE_INVENTORY_CEILING_6805",
+                    "attemptId=$execKey mint=${mint.take(10)} lane=$lane " +
+                        "open=${laneInventory6805.openPositions}/${laneInventory6805.totalMemeOpenPositions} " +
+                        "projectedShare=${"%.3f".format(laneInventory6805.projectedInventoryShare)} " +
+                        "cap=0.35 action=defer_until_other_lanes_or_exits_rebalance",
+                )
+            } catch (_: Throwable) {}
+            return blocked(
+                "EXEC_OPEN_BLOCKED_LANE_INVENTORY_CEILING_6805",
+                "lane=$lane projectedShare=${"%.3f".format(laneInventory6805.projectedInventoryShare)} cap=0.35",
+                shadow = modeUpper == "PAPER",
+            )
+        }
         val throughputVerdict6727 = try {
             com.lifecyclebot.engine.truth.ExitThroughputAuthority6727.evaluate(modeUpper, lane)
         } catch (_: Throwable) { null }

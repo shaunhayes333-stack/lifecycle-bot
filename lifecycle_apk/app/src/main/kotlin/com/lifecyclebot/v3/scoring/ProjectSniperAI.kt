@@ -268,7 +268,7 @@ object ProjectSniperAI {
         
         // Market cap check
         if (ts.lastMcap < MIN_MCAP_USD) {
-            return noEngage("LOW_MCAP: \$${ts.lastMcap.toInt()}", tokenAgeSecs)
+            return noEngage("LOW_MCAP: \$${ts.lastMcap.toLong()}", tokenAgeSecs)
         }
         if (ts.lastMcap > MAX_MCAP_USD) {
             return noEngage("HIGH_MCAP: \$${(ts.lastMcap/1000).toInt()}K > \$${(MAX_MCAP_USD/1000).toInt()}K", tokenAgeSecs)

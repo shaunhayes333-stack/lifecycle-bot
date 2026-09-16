@@ -52,7 +52,7 @@ class Aate6653SevereChokeRepairTest {
         val executor = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(resolver.contains("private const val PAPER_EXECUTABLE_MINIMUM_SOL = 0.05"))
         assertFalse(resolver.contains("private val paperExecutableMinimum = AtomicReference"))
-        assertTrue(fdg.contains("laneRiskCapSol = maxOf(sizingCash6653 * 0.12, paperMinimum6653)"))
+        assertTrue(fdg.contains("laneRiskCapSol = maxOf(sizingEquity6775 * 0.12, paperMinimum6653)"))
         val minimumBlock = executor.substring(
             executor.indexOf("private fun minConfiguredPaperTradeSol"),
             executor.indexOf("private fun clampPaperTradeSol"),

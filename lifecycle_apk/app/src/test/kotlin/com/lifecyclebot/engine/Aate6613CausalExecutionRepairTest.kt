@@ -67,6 +67,6 @@ class Aate6613CausalExecutionRepairTest {
         val submit=crypto.indexOf("CanonicalEntryAuthority6551.submit", candidateStamp)
         assertTrue(candidateStamp >= 0 && submit > candidateStamp)
         assertTrue(crypto.contains("CRYPTO_LEARNED_SIZE_FLOORED_NONZERO_6613"))
-        assertTrue(bot.contains("LEARNED_POLICY_NEGATIVE_LANE_WAIT_SHAPED_6613"))
+        assertTrue(bot.contains("LEARNED_POLICY_NEGATIVE_LANE_WAIT_6786"))  // V5.0.6786 §AUTHORITY_CONSOLIDATION
     }
 }

@@ -606,10 +606,13 @@ class GoldenTapeRegressionTest {
 
     @Test
     fun approved_live_handoff_survives_candidate_version_churn() {
+        // V5.0.6782 §AUTHORITY_CONSOLIDATION — stale candidate version must
+        // DROP, not soft-allow. Directive: "There must be ONE final cognitive
+        // truth per candidate version." Version churn → re-enter FDG.
         val openGate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
-        assertTrue(openGate.contains("LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW"))
-        assertTrue(openGate.contains("EXEC_GATE_ALLOW>0 but EXEC_LIVE_ATTEMPT=0"))
-        assertTrue(openGate.contains("latestAllows && safetyOk && liqOk") && openGate.contains("val liqOk = effectiveLiq > 0.0"))
+        assertFalse("Stale candidate soft-allow must be removed at source", openGate.contains("LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW"))
+        assertTrue("Stale candidate must drop and re-enter FDG", openGate.contains("EXEC_OPEN_DROPPED_STALE_CANDIDATE") && openGate.contains("STALE_CANDIDATE_VERSION_"))
+        assertTrue("Authority-consolidation banner must be present", openGate.contains("V5.0.6782 §AUTHORITY_CONSOLIDATION"))
     }
 
     @Test
@@ -1591,25 +1594,48 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun all_live_trading_fee_paths_pool_before_sending() {
+    fun all_live_trading_fee_paths_send_per_trade_to_two_wallets() {
+        // V5.0.6786 §PER_TRADE_FEE_SEND — operator directive Feb 2026:
+        //   "ensure the live trading fee mechanism is still wired to send
+        //    to the two wallets please on all trades. no accumulated fees
+        //    just send on all trades."
+        // Meme executor and markets/perps executor both send both shares
+        // directly per trade to the two coded fee wallets. FeeRetryQueue
+        // owns any transient failures. FeeAccumulator remains linked only
+        // to drain any pre-6786 residue.
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val markets = java.io.File("src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt").readText()
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        val accumulator = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FeeAccumulator.kt").readText()
-        assertTrue("meme fee helper must accrue to FeeAccumulator, not send every micro fee", exec.contains("FeeAccumulator.accrue") && exec.contains("FEE ACCUMULATOR"))
-        // V5.0.6060 — operator directive: revert daily batching, transfer fees per-cycle live.
-        // FeeAccumulator still exists as a per-cycle safety net (transient send failures fall
-        // into FeeRetryQueue) but the threshold is now sub-cent so tryFlush() drains every
-        // scan cycle rather than holding to 1 SOL. Golden tape must assert the LIVE behaviour.
-        assertTrue("fee accumulator must be configured for live per-cycle transfer (V5.0.6060 revert)",
-            accumulator.contains("DEFAULT_FLUSH_THRESHOLD_SOL = 0.0001") &&
-            accumulator.contains("val totalPending") &&
-            accumulator.contains("totalPending < flushThresholdSol") &&
-            accumulator.contains("LIVE PER-CYCLE TRANSFER"))
-        assertTrue("markets/perps fee collection must use the same pooled accumulator", markets.contains("CORE FEE POOL ALIGNMENT") && markets.contains("FeeAccumulator.accrue") && markets.contains("MARKETS_FEE_ACCUMULATED"))
-        val marketsFeeFn = markets.substring(markets.indexOf("private suspend fun collectTradingFee"), markets.indexOf("totalFeesCollectedSol", markets.indexOf("private suspend fun collectTradingFee")))
-        assertFalse("markets/perps fee collection must not send micro-fee transfers directly", marketsFeeFn.contains("wallet.sendSol"))
-        assertTrue("bot loop must drain retry queue and flush accumulated fee buckets in live mode", bot.contains("FeeRetryQueue.drainFeeQueue(liveWallet)") && bot.contains("FeeAccumulator.tryFlush(liveWallet)"))
+        assertTrue(
+            "Meme executor must send fee shares directly per-trade via wallet.sendSol",
+            exec.contains("V5.0.6786 §PER_TRADE_FEE_SEND") &&
+                exec.contains("wallet.sendSol(d, amount)") &&
+                exec.contains("FEE_PER_TRADE_SENT_6786"),
+        )
+        assertTrue(
+            "Meme executor must retain both coded fee wallets",
+            exec.contains("TRADING_FEE_WALLET_1 = \"A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd\"") &&
+                exec.contains("TRADING_FEE_WALLET_2 = \"82CAPB9HxXKZK97C12pqkWcjvnkbpMLCg2Ex2hPrhygA\""),
+        )
+        assertFalse(
+            "Meme executor must not accumulate per-trade fees under 6786",
+            exec.contains("FeeAccumulator.accrue"),
+        )
+        assertTrue(
+            "Markets/perps must send per-trade to both coded fee wallets",
+            markets.contains("V5.0.6786 §PER_TRADE_FEE_SEND") &&
+                markets.contains("wallet.sendSol(FEE_WALLET_1, feeWallet1)") &&
+                markets.contains("wallet.sendSol(FEE_WALLET_2, feeWallet2)") &&
+                markets.contains("MARKETS_FEE_PER_TRADE_SENT_6786"),
+        )
+        assertFalse(
+            "Markets/perps must not accumulate fees under 6786",
+            markets.contains("FeeAccumulator.accrue"),
+        )
+        assertTrue(
+            "Bot loop must still drain the retry queue for any transient send failures",
+            bot.contains("FeeRetryQueue.drainFeeQueue(liveWallet)"),
+        )
     }
 
     @Test
@@ -2543,23 +2569,25 @@ class GoldenTapeRegressionTest {
 
     @Test
     fun live_fdg_allow_survives_missing_final_candidate_and_version_churn() {
+        // V5.0.6782 §AUTHORITY_CONSOLIDATION — missing/stale state must DROP,
+        // not soft-allow. The bot must re-enter FDG with a fresh sealed
+        // decision instead of reconstructing execution intent downstream.
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
-        assertTrue(
-            "FDG-approved live handoff must soft-restore when transient final candidate state is missing, instead of BUY_FAIL stale-ticket TOKEN_STATE_CHANGED spam",
-            gate.contains("LIVE_RESTORE_MISSING_FINAL_CANDIDATE_SOFT_ALLOW") &&
-                gate.contains("TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE") &&
-                gate.contains("state_missing_after_fdg_allow") &&
-                gate.contains("currentLiquidityUsd > 0.0") &&
-                gate.contains("currentSafetyOk") &&
-                gate.contains("restoredHardNoReasons.none { trueHardTicketKill(it) }")
+        assertFalse(
+            "Missing final-candidate soft-allow must be removed",
+            gate.contains("LIVE_RESTORE_MISSING_FINAL_CANDIDATE_SOFT_ALLOW"),
+        )
+        assertFalse(
+            "Stale candidate soft-allow must be removed",
+            gate.contains("LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW"),
         )
         assertTrue(
-            "Stale candidate version restore must not be hard-disabled with latestAllows=false; live approved handoff may restore across scanner version churn",
-            gate.contains("LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW") &&
-                gate.contains("approved_handoff_version_churn") &&
-                gate.contains("state.fdgCan == true") &&
-                !gate.contains("val latestAllows = false") &&
-                !gate.contains("val safetyOk = false")
+            "Missing final-candidate must drop with TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE",
+            gate.contains("TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE"),
+        )
+        assertTrue(
+            "Frozen-snapshot fast-path retains sealed FDG authority only",
+            gate.contains("validSealedDecision6613") && gate.contains("EXEC_STATE_RESTORED_FROM_FROZEN_SNAPSHOT_6499"),
         )
     }
 
@@ -2614,7 +2642,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Live buy path keeps explicit below-floor telemetry while allowing configured micro probes", exec.contains("LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE") && exec.contains("LIVE_BUY_SIZE_RAISED_TO_MIN_NON_MICRO") && !exec.contains("LIVE_BUY_SIZE_RAISED_TO_MIN_EXECUTABLE"))
         assertTrue("TradingCopilot must not relax live confidence/size under bootstrap", copilot.contains("no live bootstrap thresholds") && copilot.contains("TradeMood.EMERGENCY_BRAKE -> 25.0") && copilot.contains("TradeMood.EMERGENCY_BRAKE -> 0.25") && !copilot.contains("bootstrapProg") && !copilot.contains("tradesObserved < 50"))
         assertTrue("SmartSizer must consume lane feedback from trade 1 without exploration bootstrap ramp", sizer.contains("minTrades = 1") && sizer.contains("sample-weighted") && sizer.contains("No live bootstrap/exploration size ramp") && !sizer.contains("FreeRangeMode.explorationSizeMultiplier()"))
-        assertTrue("FDG bootstrap confidence bypass must be paper-only; live uses adaptive state from trade 1", fdg.contains("isBootstrapPhase = isPaperMode") && fdg.contains("(isPaperMode && totalTradesForBypass < 500)") && fdg.contains("liveAdaptiveFromTrade1"))
+        assertTrue("V5.0.6809 §BOOTSTRAP_BYPASS_REMOVED — FDG must not maintain a bootstrap-phase confidence bypass", fdg.contains("val isBootstrapPhase = false") && fdg.contains("§ISBOOTSTRAPPHASE_RETIRED") && fdg.contains("val canBypassConfidenceFloors = false") && fdg.contains("§BOOTSTRAP_BYPASS_REMOVED") && !fdg.contains("liveAdaptiveFromTrade1"))
         assertTrue("BotService bootstrap force/score/size gates must be paper-only for live layers", bot.contains("RuntimeModeAuthority.isPaper() && forceBootstrapEntry") && bot.contains("PAPER_BOOTSTRAP_BLOCKED") && bot.contains("getBootstrapSizeMultiplier() else 1.0") && !bot.contains("SHITCOIN_BOOTSTRAP_FORCE_SUPPRESSED"))
         assertTrue("V3 scorer/orchestrator bootstrap bypass must exclude LIVE mode", unifiedScorer.contains("ctx.mode != com.lifecyclebot.v3.core.V3BotMode.LIVE && learningProgress < 0.40") && botOrch.contains("ctx.mode != V3BotMode.LIVE && learningProgress < 0.40"))
         assertTrue("Lifecycle cooldown/registry bootstrap speeds must be paper-only", tradeState.contains("RuntimeModeAuthority.isPaper()") && tradeLife.contains("RuntimeModeAuthority.isPaper()") && registry.contains("RuntimeModeAuthority.isPaper()"))
@@ -3458,10 +3486,20 @@ class GoldenTapeRegressionTest {
 
     @Test
     fun live_finality_watch_and_empty_drain_safe_mode_must_not_choke_live_buys() {
+        // V5.0.6782 §AUTHORITY_CONSOLIDATION — WATCH cannot silently become
+        // BUY. If preFdgVerdict is WATCH/PROBE, ExecutableOpenGate drops and
+        // the candidate re-enters FDG. Empty stale drain jobs still do not
+        // globally block live buys — that assertion is retained.
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         val safe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellOnlySafeMode.kt").readText()
-        assertTrue("FDG-approved WATCH/PROBE must be restorable when current candidate is safe/liquid", gate.contains("verdictAllowedByFdg") && gate.contains("WATCH") && gate.contains("PROBE") && gate.contains("LIVE_RESTORE_STALE_WATCH_SOFT_ALLOW"))
-        assertTrue("WATCH restore must be backed by FDG/ticket authority, safety, liquidity, and no hardNo", gate.contains("verdictAllowedByFdg") && gate.contains("liqOk") && gate.contains("effectiveHardNoReasons.isEmpty()") && gate.contains("ExecutionIntent"))
+        assertFalse(
+            "WATCH restore soft-allow must be removed at source",
+            gate.contains("LIVE_RESTORE_STALE_WATCH_SOFT_ALLOW") || gate.contains("verdictAllowedByFdg"),
+        )
+        assertTrue(
+            "WATCH/PROBE must drop back to PRE_FDG_NOT_BUY re-entry",
+            gate.contains("EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY"),
+        )
         assertTrue("SellOnlySafeMode must not let empty stale drain jobs globally block live buys", safe.contains("liveExposureToDrain") && safe.contains("liveExposureToDrain && pendingSellQueueSize > 0") && safe.contains("liveExposureToDrain && sellReconcilerActiveJobs > 0"))
         assertTrue("Real sell-only dangers must remain hard reasons", safe.contains("workerTimeoutStorm()") && safe.contains("orphanLivePositions > 0") && safe.contains("closedWithNonDustBalance > 1") && safe.contains("providerBackoffActive()"))
     }
@@ -3694,7 +3732,13 @@ class GoldenTapeRegressionTest {
         assertTrue("Final live sizing authority must consume LiveGrowthDoctrine", exec.contains("LiveGrowthDoctrine.sizePolicy") && exec.contains("growthPolicy.reason") && exec.contains("doBuy.final") && exec.contains("liveBuy.final"))
         assertFalse("COPY_TRADE must not be a live hard confidence veto", fdg.contains("COPY_TRADE_LIVE_LOW_CONFIDENCE"))
         assertFalse("WHALE_FOLLOW must not be live-disabled at FDG", fdg.contains("WHALE_FOLLOW_LIVE_DISABLED"))
-        assertTrue("COPY/WHALE must become live-growth probes", fdg.contains("copy_trade_live_micro_probe") && fdg.contains("whale_follow_live_growth_probe"))
+        // V5.0.6783 §AUTHORITY_CONSOLIDATION — COPY/WHALE lanes are experts,
+        // not authorities. They cannot force a low-confidence micro-probe
+        // past the sealed cognitive verdict. §2 + §12 of the directive.
+        assertFalse(
+            "COPY/WHALE lane-forced live-growth micro-probes must be removed at source",
+            fdg.contains("copy_trade_live_micro_probe") || fdg.contains("whale_follow_live_growth_probe"),
+        )
     }
 
 
@@ -3759,11 +3803,19 @@ class GoldenTapeRegressionTest {
 
     @Test
     fun runtime_3955_finality_orphan_and_balance_wait_faults_are_source_scoped() {
+        // V5.0.6782 §AUTHORITY_CONSOLIDATION — safetyBlindSoftAllow / WATCH
+        // soft-allow paths are removed at source. WATCH must re-enter FDG,
+        // not be resurrected downstream. Orphan/reconciler/doctor assertions
+        // remain the same because they are unrelated to authority topology.
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         val snap = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt").readText()
         val doctor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt").readText()
         val wait = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/BalanceProofWaitState.kt").readText()
-        assertTrue("FDG-approved safety-blind WATCH must soft-allow with nonzero liquidity/no hardNo", gate.contains("safetyBlindSoftAllow") && gate.contains("safetyKnownOk || safetyBlindSoftAllow") && gate.contains("Confirmed rugs and zero-liquidity still block later"))
+        assertFalse(
+            "safetyBlindSoftAllow WATCH restore must be removed at source",
+            gate.contains("safetyBlindSoftAllow") ||
+                gate.contains("safetyKnownOk || safetyBlindSoftAllow"),
+        )
         assertTrue("orphan live accounting must subtract reconciler GRACE from managed desync, not wallet extras", snap.contains("positionReconSnapshot?.grace") && snap.contains("val graceAllowance = maxOf(1, reconcilerGrace)") && snap.contains("orphanLive must mean managed-state desync") && snap.contains("managedDesync"))
         assertTrue("balance-proof waits must release close leases", wait.contains("BALANCE_PROOF_WAIT_NO_ACTIVE_CLOSE") && wait.contains("CloseLease.release"))
         assertTrue("doctor noSig fault must use actionable noSig after active proof waits", doctor.contains("val actionableNoSig = (noSig - waitStateSize).coerceAtLeast(0L)") && doctor.contains("rawNoSig=${'$'}") && doctor.contains("actionableNoSig > 0L"))
@@ -3771,26 +3823,49 @@ class GoldenTapeRegressionTest {
 
     @Test
     fun low_liq_fdg_approved_watch_is_size_penalty_not_finality_block() {
+        // V5.0.6782 §AUTHORITY_CONSOLIDATION — WATCH cannot silently become
+        // BUY. Low-liq WATCH-restore alignment is retired; a WATCH candidate
+        // drops and re-enters FDG on the next scan. Retained assertions on
+        // canonicalization of retry reasons still apply.
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("FDG-approved WATCH restore must allow nonzero low liquidity", gate.contains("val liqOk = effectiveLiq > 0.0") && gate.contains("LOW-LIQ WATCH RESTORE ALIGNMENT"))
-        assertFalse("ExecutableOpenGate must not require USD 1200 liquidity for FDG-approved WATCH restore", gate.contains("latestAllows && safetyOk && effectiveLiq >= 1200.0") || gate.contains("liquidityUsd >= 1200.0"))
-        assertTrue("thin-liq restored entries must still be clamped economically", gate.contains("LiveRestoreExecutionPolicy.fromRuntimeDrift") && exec.contains("realisticLiveEntrySize"))
+        assertFalse(
+            "LOW-LIQ WATCH restore doctrine must be removed at source",
+            gate.contains("LOW-LIQ WATCH RESTORE ALIGNMENT") ||
+                gate.contains("LIVE_RESTORE_STALE_WATCH_SOFT_ALLOW"),
+        )
+        assertTrue(
+            "WATCH must drop back to PRE_FDG_NOT_BUY re-entry",
+            gate.contains("EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY"),
+        )
         assertTrue("generic exit reasons must be canonicalized before queue/journal poisoning", exec.contains("EXIT_ROUTE_RETRY_${'$'}{trackerStatus}_${'$'}{closeState}") && exec.contains("requestReason") && exec.contains("return doSell(ts, requestReason, wallet, walletSol)") && exec.contains("PendingSellQueue.add(ts.mint, ts.symbol, reason)"))
     }
 
     @Test
     fun live_growth_runtime_residues_zero_conf_watch_and_reconciler_are_source_aligned() {
+        // V5.0.6782 §AUTHORITY_CONSOLIDATION — zero-conf REJECTS, WATCH DROPS.
+        // Directive: "'I DON'T KNOW' MUST MEAN WAIT. It must NOT mean 'buy tiny
+        // anyway.'" Reconciler sell reason routing is unchanged.
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        val zeroBlock = fdg.substring(fdg.indexOf("ZERO-CONF SOURCE ALIGNMENT"), fdg.indexOf("val earlyMemoryScore", fdg.indexOf("ZERO-CONF SOURCE ALIGNMENT")))
-        assertTrue("live zero-confidence must become a micro-probe tag", zeroBlock.contains("live_zero_conf_micro_probe") && zeroBlock.contains("conf=0% → LIVE micro-probe"))
-        assertFalse("live zero-confidence must not return a FinalDecision before the micro-probe path", zeroBlock.contains("return FinalDecision"))
-        val watchRestore = gate.substring(gate.indexOf("verdictAllowedByFdg"), gate.indexOf("""return "EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY"""", gate.indexOf("verdictAllowedByFdg")))
-        assertTrue("FDG-approved WATCH restore must use current live safety/liquidity", watchRestore.contains("currentSafetyTier.equals") && watchRestore.contains("currentLiq") && watchRestore.contains("LIVE_RESTORE_STALE_WATCH_SOFT_ALLOW"))
-        assertFalse("WATCH restore safetyOk must not require currentStateVersion equality", watchRestore.contains("currentStateVersion && (currentSafetyTier"))
+        assertTrue(
+            "Zero-confidence must produce a hard REJECT FinalDecision",
+            fdg.contains("ZERO_CONFIDENCE_REJECT_6782") && fdg.contains("zero_conf_reject_6782"),
+        )
+        assertFalse(
+            "Zero-confidence must not be shaped to a micro-probe or paper passthrough",
+            fdg.contains("live_zero_conf_micro_probe") || fdg.contains("zero_conf_paper_learn"),
+        )
+        assertFalse(
+            "WATCH soft-allow must be removed at source",
+            gate.contains("LIVE_RESTORE_STALE_WATCH_SOFT_ALLOW"),
+        )
+        assertTrue(
+            "WATCH must drop back to PRE_FDG_NOT_BUY re-entry",
+            gate.contains("EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY"),
+        )
         assertTrue("reconciler-triggered sells must carry tracker lifecycle reason, not generic learning poison", bot.contains("RECONCILER_REQUEUE_${'$'}{trackerStatus}") && bot.contains("trackerStatus=") && bot.contains("reason=${'$'}") && bot.contains("requeueReason"))
         assertTrue("executor suppressor must cover prefixed reconciler maintenance reasons", exec.contains("""reason.startsWith("RECONCILER_REQUEUE", ignoreCase = true)"""))
     }
@@ -4016,9 +4091,21 @@ class GoldenTapeRegressionTest {
 
     @Test
     fun live_zero_signal_v3_execute_cannot_bypass_as_standard_buy() {
+        // V5.0.6786 §AUTHORITY_CONSOLIDATION — zero-signal is now WAIT (not
+        // PROBE_ONLY). Directive: "'I DON'T KNOW' MUST MEAN WAIT." The
+        // metadata / sizing / compounding assertions below still apply to
+        // the higher-signal V3 execute path.
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val v3 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/V3EngineManager.kt").readText()
-        assertTrue("laneQualifiedBuyDecision must convert zero-score/zero-conf with exitable liquidity into PROBE_ONLY, not park live", bot.contains("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164") && bot.contains("FDG_ZERO_SCORE_DUST_PROBE_4164") && bot.contains("""blockReason = "PROBE_ONLY"""") && !bot.contains("ZERO_SIGNAL_DEFERRED_NO_LIVE_CAPITAL"))
+        assertTrue(
+            "Zero-signal must WAIT under 6786 (LANE_ZERO_SIGNAL_WAIT_6786)",
+            bot.contains("LANE_ZERO_SIGNAL_WAIT_6786") && bot.contains("ZERO_SIGNAL_WAIT_6786"),
+        )
+        assertFalse(
+            "PROBE_ONLY block-reason must no longer be emitted from the zero-signal fallback",
+            bot.contains("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164") ||
+                bot.contains("FDG_ZERO_SCORE_DUST_PROBE_4164"),
+        )
         assertTrue("V3 ExecuteRequest must carry score/conf/band metadata", v3.contains("val score: Int? = null") && v3.contains("val confidence: Int? = null") && v3.contains("val band: String? = null") && v3.contains("score = decision.finalScore") && v3.contains("confidence = decision.effectiveConfidence"))
         val v3ExecBlock = bot.substring(bot.indexOf("fun runV3Execution"), bot.indexOf("fun manualBuy"))
         assertTrue("V5.0.6018: runV3Execution must floor live zero-signal entries for compounding, not dollar-size dust", v3ExecBlock.contains("V3_ZERO_SIGNAL_COMPOUND_FLOOR_6018") && v3ExecBlock.contains("v3ZeroSignalProbe = reqScore <= 0 && reqConf <= 10") && v3ExecBlock.contains("LiveSizingProfile.lastMileEntryFloor") && v3ExecBlock.contains("sol = if (!isPaper && v3ZeroSignalProbe) execSol else req.sizeSol"))
@@ -6711,7 +6798,10 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.4534: lifecycle bus must define source-level candidate/reject/probe/admit helpers", bus.contains("preFdgCandidate") && bus.contains("preFdgReject") && bus.contains("preFdgProbe") && bus.contains("preFdgAdmit"))
         assertTrue("V5.0.4534: lifecycle bus must feed MathematicalEdgeEngine and standardized PipelineHealth labels", bus.contains("MathematicalEdgeEngine.captureEntryOpportunity") && bus.contains("LEARNING_LIFECYCLE_") && bus.contains("LEARNING_LIFECYCLE_DECISION_"))
-        assertTrue("V5.0.4534: central lane-qualified pre-FDG source must use the lifecycle bus for candidate/reject/probe/admit labels", bot.contains("LearningLifecycleBus.preFdgCandidate") && bot.contains("LearningLifecycleBus.preFdgReject") && bot.contains("LearningLifecycleBus.preFdgProbe") && bot.contains("LearningLifecycleBus.preFdgAdmit"))
+        // V5.0.6786: probe calls from BotService were retired (canonical capital
+        // no longer funds PROBE_ONLY dust). The remaining candidate/reject/admit
+        // pathways are still required and drive shadow/counterfactual learning.
+        assertTrue("V5.0.6786: central lane-qualified pre-FDG source must use the lifecycle bus for candidate/reject/admit labels", bot.contains("LearningLifecycleBus.preFdgCandidate") && bot.contains("LearningLifecycleBus.preFdgReject") && bot.contains("LearningLifecycleBus.preFdgAdmit"))
         assertTrue("V5.0.4534: lifecycle bus must remain source-level/report-learning only without trade authority", bus.contains("no_trade_authority=true") && !bus.contains("executeBuy") && !bus.contains("requestSell("))
     }
 
@@ -6871,7 +6961,10 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4553: risk overlay parser must detect single-holder/unverified/high-holder-concentration manipulation", safety.contains("singleHolderOwnershipRisk") && safety.contains("unverifiedTokenRisk") && safety.contains("highHolderConcentrationRisk"))
         assertTrue("V5.0.4553: TokenSafetyChecker must stamp MANIPULATED_ONLY_OVERLAY_4553 for live manipulation overlays", safety.contains("MANIPULATED_ONLY_OVERLAY_4553") && safety.contains("action=manipulated_lane_only"))
         assertTrue("V5.0.4553: shared pre-FDG lane gate must reject manipulated overlays from every non-MANIPULATED lane", bot.contains("manipulatedOnlyOverlayActive4553") && bot.contains("MANIPULATED_ONLY_NON_MANIPULATED_LANE_REJECTED_4553") && bot.contains("MANIPULATED_ONLY_OVERLAY_NON_MANIPULATED_LANE_4553"))
-        assertTrue("V5.0.4553: manipulated-only rejection must happen before weak WAIT/dust-probe override can turn it into a live buy", bot.indexOf("MANIPULATED_ONLY_NON_MANIPULATED_LANE_REJECTED_4553") < bot.indexOf("LANE_WAIT_OVERRIDE_DUST_PROBE"))
+        assertTrue(
+            "V5.0.4553 + 6786: manipulated-only rejection must happen before the weak-wait REJECT path",
+            bot.indexOf("MANIPULATED_ONLY_NON_MANIPULATED_LANE_REJECTED_4553") < bot.indexOf("LANE_WEAK_WAIT_REJECTED_6786"),
+        )
     }
 
 
@@ -7333,7 +7426,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6077: AutonomousMetaPolicy must shape from the first settled context instead of returning neutral until MIN_SAMPLES", meta.contains("if (arm.samples <= 0) return 1.0") && meta.contains("TRADE1_RAMP_FLOOR") && meta.contains("trade1Ramp6077") && !meta.contains("if (arm.samples < MIN_SAMPLES) return 1.0"))
         assertTrue("V5.0.6077: LiveStrategyTuner must admit n=1..4 lanes through bounded trade-1 ramp instead of skipping all lanes under five closes", tuner.contains("if (m.trades <= 0) continue") && tuner.contains("if (n in 1 until MIN_TUNE_TRADES)") && tuner.contains("trade1_positive_ramp_6077") && tuner.contains("trade1_risk_ramp_6077") && !tuner.contains("if (m.trades < MIN_TUNE_TRADES) continue"))
         assertTrue("V5.0.6077: MetaCognition executor bridge must remove the 30-trade neutral cliff and ramp early trust multipliers", bridge.contains("if (analyzed6077 <= 0) return 1.0") && bridge.contains("trade1Ramp6077") && !bridge.contains("getTotalTradesAnalyzed() < 30) return 1.0"))
-        assertTrue("V5.0.6077: UnifiedPolicyHead and LiveProbabilityEngine must blend bootstrap policy signals from first training sample, not zero-weight bootstrap", uph.contains("trainedForRamp6077") && uph.contains("trade1Ramp6077") && prob.contains("policySamples6077") && !prob.contains("policyW = if (UnifiedPolicyHead.formatForPipelineDump()"))
+        assertTrue("V5.0.6809 §BOOTSTRAP_REMOVED_AS_AUTHORITY (supersedes V5.0.6077): UnifiedPolicyHead must not maintain a bootstrap ramp; cold heads use neutral learned priors via the ADVISORY floor", uph.contains("§BOOTSTRAP_REMOVED_AS_AUTHORITY") && uph.contains("V5.0.6809: neutral prior") && !uph.contains("trade1Ramp6077") && prob.contains("policySamples6077") && !prob.contains("policyW = if (UnifiedPolicyHead.formatForPipelineDump()"))
     }
 
 
@@ -7852,9 +7945,11 @@ class GoldenTapeRegressionTest {
         assertTrue("6487 defensive WAIT and zero-signal probes remain shadow-only",
             bot.contains("DEFENSIVE_WAIT_PROBE_SUPPRESSED_6487") && bot.contains("DEFENSIVE_WAIT_SHADOW_ONLY_6487") &&
                 bot.contains("signal = " + '"' + "WAIT" + '"') && bot.contains("shouldTrade = false"))
-        assertTrue("6488 streak shaping is mode-lane scoped and bounded above zero",
+        assertTrue("6803 streak authority upgrades STREAK_HARD_LIMIT to hard-deny (LOSS_STREAK_HARD_VETO_6803) with reproof-probe carve-out; sub-limit streaks still ride the shaper ladder (supersedes 6488 soft-shape-only at hard limit)",
             entry.contains("cohortKey(e.mode, e.entryLane)") && entry.contains("sizeMultiplierFor6488") &&
-                entry.contains("streak >= STREAK_HARD_LIMIT || cooling -> 0.35") &&
+                entry.contains("EXECUTABLE_ENTRY_LOSS_STREAK_HARD_VETO_6803") &&
+                entry.contains("streak >= STREAK_TIGHTEN_TWO -> 0.35") &&
+                entry.contains("streak >= STREAK_TIGHTEN_ONE -> 0.65") &&
                 !entry.contains("streak >= STREAK_HARD_LIMIT -> 0.0"))
         assertTrue("6488 global regime no longer consumes streak state while executors retain final lane sizing",
             !regime.contains("scoreFloorDelta6487()") && !regime.contains("sizeMultiplier6487()") &&
@@ -7945,9 +8040,10 @@ class GoldenTapeRegressionTest {
             bot.contains("cycle_sanitize_6488") && bot.contains("scanner_health_6488") &&
                 bot.contains("project_sniper_sweep_6488") && bot.contains("markets_engine_watchdog_6488") &&
                 bot.contains("MaintenanceWorker6448.submit"))
-        assertTrue("6488 streak authority uses event-local mode and lane and never hard-denies strategy history",
+        assertTrue("6803 streak authority uses event-local mode and lane; hard-denies at STREAK_HARD_LIMIT with reproof-probe carve-out (supersedes 6488 soft-shape-only invariant per operator Feb 2026)",
             entry.contains("cohortKey(e.mode, e.entryLane)") && entry.contains("EXECUTABLE_ENTRY_COHORT_SHAPED_6488") &&
-                entry.contains("Verdict.ALLOW") && !entry.contains("Decision(Verdict.DENY_LOSING_STREAK, 0.0"))
+                entry.contains("Verdict.ALLOW") && entry.contains("EXECUTABLE_ENTRY_LOSS_STREAK_HARD_VETO_6803") &&
+                entry.contains("isReproofProbe6801"))
         val reflex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LosingStreakReflex6439.kt").readText()
         val permit = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalExecutionPermit.kt").readText()
         assertTrue("6488 duplicate losing-streak reflex is cohort telemetry only and cannot veto FinalExecutionPermit",
@@ -8070,7 +8166,7 @@ class GoldenTapeRegressionTest {
         assertTrue("6491 sizing boundary must compare integer lamports, including exact equality",
             resolver.contains("SOL_LAMPORTS_6491") && resolver.contains("toLamports6491") &&
                 resolver.contains("boundedExecutableLamports6498 >= minExecLamports6491") &&
-                resolver.contains("OK_MIN_PROMOTED_6600") && invariant.contains("Cash and lane cap are"))
+                resolver.contains("CONDITIONAL_MIN_PROMOTION") && invariant.contains("Cash and lane cap are"))
         val sizePrecheck = openGate.indexOf("EXEC_OPEN_PRECHECK_SIZE_PENDING_6491")
         val mintClaim = openGate.indexOf("executableBuyClaim6487.putIfAbsent")
         val allowed = openGate.indexOf("ForensicLogger.lifecycle(" + '"' + "EXEC_OPEN_ALLOWED" + '"')
@@ -8292,7 +8388,7 @@ class GoldenTapeRegressionTest {
 
         assertTrue(identity.contains("var executionLane: String") && identity.contains("var fdgCandidateVersion: Long"))
         assertFalse("discovery provenance must never resolve execution lane", exec.contains("normalizeExecutionLane(identity?.source)") || exec.contains("normalizeExecutionLane(ts.source)"))
-        assertTrue(exec.contains("EXEC_LANE_IDENTITY_INVARIANT_FAILED") && exec.contains("FDG_MUTABLE_SIGNAL_IGNORED_6512"))
+        assertTrue(exec.contains("EXEC_LANE_IDENTITY_INVARIANT_FAILED") && exec.contains("FDG_MUTABLE_SIGNAL_UNFROZEN_6801"))
         assertTrue(gate.contains("ExecutionDecisionSnapshot6510.record") && decision.contains("byAuthorityKey") && decision.contains("runtimeGeneration") && decision.contains("mode"))
         assertTrue(mark.contains("val priceAuthoritative") && mark.contains("val routeExecutable"))
         assertTrue(partial.contains("""val operationId = """") && partial.contains("positionId") && partial.contains("sequence") && partial.contains("CanonicalPaperTerminalBridge6469.finalizeSell"))
@@ -8438,7 +8534,7 @@ class GoldenTapeRegressionTest {
         assertTrue(decision.contains("byAuthorityKey") && decision.contains("runtimeGeneration") && decision.contains("candidateVersion") && decision.contains("executionLane"))
         assertFalse(snapshot.contains("add(" + "\"primaryLane("))
         assertTrue(gate.contains("canonicalOccupancy =") && gate.contains("mode.uppercase()}:" + "$" + "mint") && gate.contains("PAPER") && gate.contains("LIVE"))
-        assertTrue(exec.contains("FDG_MUTABLE_SIGNAL_IGNORED_6512") && exec.contains("EXEC_AUTHORITY_MISSING_DEFERRED_6512") && exec.contains("releaseIfPrimary"))
+        assertTrue(exec.contains("FDG_MUTABLE_SIGNAL_UNFROZEN_6801") && exec.contains("EXEC_AUTHORITY_MISSING_DEFERRED_6512") && exec.contains("releaseIfPrimary"))
         assertFalse(exec.contains("ENTRY_BRIDGE_NON_BUY_GUARD_6504"))
         assertTrue(aggregator.contains("DataSource.DEXPAPRIKA") && aggregator.contains("data-api.binance.vision"))
         assertTrue(dex.contains("fetchDexPaprikaToken6512") && provider.contains("DEXPAPRIKA") && provider.contains("ProviderConfig"))
@@ -9106,7 +9202,10 @@ class GoldenTapeRegressionTest {
         assertTrue(sheet.contains("INTENT_CHOKED") && sheet.contains("MARK_CHOKED") && sheet.contains("EXEC_CHOKED") && sheet.contains("LEARNING_CHOKED"))
         assertFalse(sheet.contains("""TELEMETRY_ONLY"""))
         assertTrue(partial.contains("TierState6613") && partial.contains("QUANTITY_RESERVED") && partial.contains("ACCOUNTED") && partial.contains("COMPLETE"))
-        assertTrue(bot.contains("LEARNED_POLICY_NEGATIVE_LANE_WAIT_SHAPED_6613") && bot.contains("TACTIC_ROTATED_WEAK_WAIT_SHAPED_6613"))
+        assertTrue(
+            "V5.0.6786 §AUTHORITY_CONSOLIDATION — 6613 shape labels replaced by 6786 hard-reject labels",
+            bot.contains("LEARNED_POLICY_NEGATIVE_LANE_WAIT_6786") && bot.contains("TACTIC_ROTATED_WEAK_WAIT_6786"),
+        )
         assertFalse(bot.contains("""blockReason = "LEARNED_POLICY_VETO_6593""""))
         val candidateStamp = crypto.indexOf("""AssetClass.CRYPTO_ALT, "CANDIDATE"""")
         val canonicalSubmit = crypto.indexOf("CanonicalEntryAuthority6551.submit", candidateStamp)

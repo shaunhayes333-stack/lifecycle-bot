@@ -68,7 +68,7 @@ object TreasuryScannerFeed {
         try {
             ForensicLogger.lifecycle(
                 "TREASURY_CANDIDATE_PUBLISHED_4599",
-                "mint=${c.mint.take(10)} sym=${c.symbol} mcap=${c.mcap.toInt()} liq=${c.liquidityUsd.toInt()} vol24h=${c.vol24hUsd.toInt()} src=${c.source}",
+                "mint=${c.mint.take(10)} sym=${c.symbol} mcap=${c.mcap.toLong()} liq=${c.liquidityUsd.toLong()} vol24h=${c.vol24hUsd.toLong()} src=${c.source}",
             )
         } catch (_: Throwable) {}
         return true

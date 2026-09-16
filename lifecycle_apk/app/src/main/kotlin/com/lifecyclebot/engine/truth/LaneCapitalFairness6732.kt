@@ -23,8 +23,7 @@ import com.lifecyclebot.engine.PipelineHealthCollector
  *
  * Contract:
  *  - Returns `hasHeadroom = true` when the lane's own used allocation
- *    plus pending intents is under LANE_HEADROOM_RATIO of its target
- *    allocation.
+ *    is under LANE_HEADROOM_RATIO of its target allocation.
  *  - Returns `hasHeadroom = false` when the lane has consumed at least
  *    LANE_HEADROOM_RATIO of its target — global throttling is fair.
  *
@@ -38,11 +37,31 @@ object LaneCapitalFairness6732 {
         "QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "EXPRESS", "CORE",
         "MOONSHOT", "PROJECT_SNIPER", "DIP_HUNTER", "MANIPULATED", "TREASURY", "CASHGEN",
     )
-    /** Fraction of a lane's target allocation below which the lane is
-     * considered to have headroom. 0.90 → a lane using <90% of its
-     * target share is protected from portfolio-wide throughput blocks.
-     * Above that, the global gate is fair. */
-    private const val LANE_HEADROOM_RATIO = 0.90
+
+    /**
+     * V5.0.6756 §HEADROOM_HYSTERESIS.
+     *
+     * 6732 used 0.90, which meant a lane at 91-99% of target was already treated
+     * as saturated and fell back into the portfolio-wide cash/velocity choke.
+     * That created a dead band: a healthy lane could not consume its final target
+     * allocation while unrelated lanes had already over-allocated the portfolio.
+     *
+     * Allow a small 10% hysteresis band around target. This is NOT permission to
+     * flood the account: lanes above 110% still lose the fairness bypass, and the
+     * unconditional portfolio hard cap remains in ExitThroughputAuthority6727.
+     * Empty/underweight lanes can therefore keep round-tripping while materially
+     * over-allocated or bleeding lanes remain throttled.
+     */
+    private const val LANE_HEADROOM_RATIO = 1.10
+    // V5.0.6805 §LANE_CONCENTRATION_CEILING — capital target alone is not
+    //   enough. Once the meme book has enough inventory for diversification
+    //   to be meaningful, no single lane may silently own more than 35% of
+    //   open meme positions even when its expectancy multiplier is high.
+    //   Bootstrap carve-out: an absolute floor of 4 positions is always
+    //   allowed so a small book (<10 open) is not deadlocked by percentages.
+    private const val LANE_INVENTORY_MAX_SHARE_6805 = 0.35
+    private const val LANE_INVENTORY_SHARE_MIN_BOOK_6805 = 10
+    private const val LANE_INVENTORY_MIN_ABSOLUTE_6805 = 4
 
     data class Headroom(
         val hasHeadroom: Boolean,
@@ -50,6 +69,10 @@ object LaneCapitalFairness6732 {
         val usedSol: Double,
         val targetSol: Double,
         val utilization: Double,
+        val openPositions: Int = 0,
+        val totalMemeOpenPositions: Int = 0,
+        val projectedInventoryShare: Double = 0.0,
+        val inventoryCapped: Boolean = false,
     )
 
     private fun normLane(raw: String): String =
@@ -68,30 +91,51 @@ object LaneCapitalFairness6732 {
         }
         return try {
             val paperMode = mode.trim().equals("PAPER", true)
-            val (sharedCash, sharedEquity) = if (paperMode) {
-                val cap = PaperCapitalAuthority6577.snapshot()
-                cap.availableCashSol to cap.totalEquitySol
+            val sharedEquity = if (paperMode) {
+                PaperCapitalAuthority6577.snapshot().totalEquitySol
             } else {
                 val cap = CanonicalCapitalAuthority6450.snapshot()
-                val eq = cap.cashSol + cap.openMarketValueSol
-                cap.cashSol to eq
+                cap.cashSol + cap.openMarketValueSol
             }
             val positions = CanonicalPositionAuthority6441.openPositions()
-            val laneOwned = positions.filter {
-                it.mode.equals(mode, true) && (
-                    it.lane.equals(nl, true) || (nl == "BLUECHIP" && it.lane.equals("BLUE_CHIP", true))
-                )
+            val memeOwned6805 = positions.filter {
+                it.mode.equals(mode, true) && normLane(it.lane) in MEME_LANES
             }
+            val laneOwned = memeOwned6805.filter { normLane(it.lane) == nl }
             val used = laneOwned.sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
             val targetSol = laneTargetSol(nl, sharedEquity)
             val util = if (targetSol > 0.0) used / targetSol else 0.0
-            val ok = util < LANE_HEADROOM_RATIO
-            if (ok) {
+            // V5.0.6805 §LANE_CONCENTRATION_CEILING — projected-share
+            //   evaluation: if admitting one more position to this lane
+            //   would push its share of the meme book past 35% and the
+            //   book is diversified enough for the check to be meaningful
+            //   (book >= 10 open, lane already > 4 absolute), veto here.
+            //   Non-meme lanes still fail open above.
+            val projectedLaneOpen6805 = laneOwned.size + 1
+            val projectedBookOpen6805 = memeOwned6805.size + 1
+            val projectedShare6805 = if (projectedBookOpen6805 > 0)
+                projectedLaneOpen6805.toDouble() / projectedBookOpen6805.toDouble() else 0.0
+            val inventoryCapped6805 = projectedBookOpen6805 >= LANE_INVENTORY_SHARE_MIN_BOOK_6805 &&
+                projectedLaneOpen6805 > LANE_INVENTORY_MIN_ABSOLUTE_6805 &&
+                projectedShare6805 > LANE_INVENTORY_MAX_SHARE_6805
+            val ok = util < LANE_HEADROOM_RATIO && !inventoryCapped6805
+            if (inventoryCapped6805) {
+                try {
+                    PipelineHealthCollector.labelInc("LANE_INVENTORY_CONCENTRATION_CAPPED_6805")
+                    PipelineHealthCollector.labelInc("LANE_INVENTORY_CONCENTRATION_CAPPED_6805_${nl}")
+                } catch (_: Throwable) {}
+            } else if (ok) {
                 try { PipelineHealthCollector.labelInc("LANE_HEADROOM_OK_6732_${nl}") } catch (_: Throwable) {}
             } else {
                 try { PipelineHealthCollector.labelInc("LANE_HEADROOM_SATURATED_6732_${nl}") } catch (_: Throwable) {}
             }
-            Headroom(ok, nl, used, targetSol, util)
+            Headroom(
+                ok, nl, used, targetSol, util,
+                openPositions = laneOwned.size,
+                totalMemeOpenPositions = memeOwned6805.size,
+                projectedInventoryShare = projectedShare6805,
+                inventoryCapped = inventoryCapped6805,
+            )
         } catch (_: Throwable) {
             Headroom(true, nl, 0.0, 0.0, 0.0)
         }

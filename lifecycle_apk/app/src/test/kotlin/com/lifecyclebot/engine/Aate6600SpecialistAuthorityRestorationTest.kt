@@ -6,6 +6,7 @@ import com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522
 import com.lifecyclebot.engine.truth.OrderSizeResolver6441
 import com.lifecyclebot.engine.truth.PriceUsd
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -37,14 +38,28 @@ class Aate6600SpecialistAuthorityRestorationTest {
             registry.contains("resolveExecutableFromSourceEvidence6616"))
     }
 
-    @Test fun approved_subminimum_order_promotes_once_when_hard_caps_fund_minimum() {
+    @Test fun subminimum_order_promoted_when_caps_fund_min_6813() {
         val r = OrderSizeResolver6441.resolve(
             requestedSol = 0.00154, laneName = "EXPRESS", walletSol = 1.0,
             paperMode = false, laneRiskCapSol = 0.50, laneMinExecutableSol = 0.05,
         )
+        // V5.0.6813 §CONDITIONAL_MIN_PROMOTION — request is sub-min but
+        // cash and lane cap can both fund minExec; promote once.
         assertTrue(r.executable)
         assertEquals(0.05, r.finalSizeSol, 1e-9)
         assertEquals("OK_MIN_PROMOTED_6600", r.reason)
+    }
+
+    @Test fun zero_request_resolves_as_below_min_never_promoted() {
+        val r = OrderSizeResolver6441.resolve(
+            requestedSol = 0.0, laneName = "EXPRESS", walletSol = 1.0,
+            paperMode = false, laneRiskCapSol = 0.50, laneMinExecutableSol = 0.05,
+        )
+        // V5.0.6799 — a zero request is the caller's hard veto surface.
+        // It NEVER gets promoted regardless of capital.
+        assertFalse(r.executable)
+        assertEquals(0.0, r.finalSizeSol, 1e-9)
+        assertEquals("BELOW_MIN_EXECUTABLE", r.reason)
     }
 
     @Test fun canonical_position_heals_projection_and_legacy_history_cannot_veto_sell() {

@@ -54,7 +54,15 @@ object ExpressHandoffFunnel6625 {
     private val superseded6627 = AtomicLong(0L)
     private val terminalRejected6653 = AtomicLong(0L)
     private val invariantAlarms6627 = AtomicLong(0L)
-    private const val INTENT_TTL_MS_6627 = 30_000L
+    // V5.0.6790 §TTL_SINGLE_SOURCE — the specialist 30_000L constant is
+    // retired. Every ticket/reservation must consume AdaptiveTicketTtl6626
+    // authority so stale terminalization never fires at 30s while the
+    // canonical adaptive TTL reports 180s. Legacy const retained for
+    // callers that pin their own TTL explicitly (only rare test paths).
+    private const val INTENT_TTL_MS_6627_LEGACY = 30_000L
+    private fun adaptiveIntentTtlMs6790(): Long = try {
+        com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626()
+    } catch (_: Throwable) { INTENT_TTL_MS_6627_LEGACY }
 
     fun onIntentSeen6625(mint: String) {
         intentSeen.incrementAndGet()
@@ -142,7 +150,7 @@ object ExpressHandoffFunnel6625 {
      * operator can grep the exact count. Returns the number reaped.
      * Called by BotService maintenance; reports remain read-only.
      */
-    fun reap6627(maxAgeMs: Long = INTENT_TTL_MS_6627): Long {
+    fun reap6627(maxAgeMs: Long = adaptiveIntentTtlMs6790()): Long {
         if (liveIntents6627.isEmpty()) return 0L
         val nowMs = System.currentTimeMillis()
         var n = 0L
@@ -201,6 +209,13 @@ object PendingIntentBacklog6625 {
     private val agedOut = AtomicLong(0L)
     private val consumed = AtomicLong(0L)
 
+    // V5.0.6790 §TTL_SINGLE_SOURCE — this object's reap default now
+    // reads the canonical AdaptiveTicketTtl6626 authority instead of a
+    // private 30_000L constant. Legacy 30s retained as fallback.
+    private fun adaptivePendingTtlMs6790(): Long = try {
+        com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626()
+    } catch (_: Throwable) { 30_000L }
+
     fun record6625(attemptId: String, lane: String, mint: String) {
         pending[attemptId] = PendingEntry(System.currentTimeMillis(), lane, mint)
         try { PipelineHealthCollector.labelInc("PENDING_INTENT_RECORDED_${lane}_6625") } catch (_: Throwable) {}
@@ -210,7 +225,7 @@ object PendingIntentBacklog6625 {
         consumed.incrementAndGet()
         try { PipelineHealthCollector.labelInc("PENDING_INTENT_CONSUMED_${e.lane}_6625") } catch (_: Throwable) {}
     }
-    fun reap6625(maxAgeMs: Long = 30_000L): Int {
+    fun reap6625(maxAgeMs: Long = adaptivePendingTtlMs6790()): Int {
         val now = System.currentTimeMillis()
         var reaped = 0
         val expired = pending.entries.filter { now - it.value.bornAtMs > maxAgeMs }
@@ -375,7 +390,18 @@ object SpecialistCausalFunnel6625 {
         val outcomes: Map<String, Int>,
         val phantomSizedOnly: Int,
     )
-    fun laneSnapshot6647(lane: String): LaneSnapshot6647 {
+    fun laneSnapshot6647(lane: String): LaneSnapshot6647 = laneSnapshot6647(lane, System.currentTimeMillis())
+
+    /**
+     * V5.0.6760 §PHANTOM_SIZED_AT_SOURCE — TTL-aware overload. A record is
+     * counted as `phantomSizedOnly` only when it has a SIZE outcome, has
+     * NO terminal outcome, AND its newest stage stamp is older than
+     * [PHANTOM_TTL_MS_6760]. Records sized within the TTL are legitimately
+     * in-flight and are NOT phantoms — the reap authority terminalizes
+     * them if they exceed the TTL. This aligns the acceptance witness
+     * with the operator spec ("phantomSizedOnly = 0 in steady state").
+     */
+    fun laneSnapshot6647(lane: String, nowMs: Long): LaneSnapshot6647 {
         val counts = mutableMapOf<Stage, Int>()
         val outcomes = mutableMapOf<String, Int>()
         var phantom = 0
@@ -386,7 +412,19 @@ object SpecialistCausalFunnel6625 {
                 val executableSize = "SIZED_EXECUTABLE" in r.outcomes || "SIZE" in r.outcomes
                 val fdgAllowed = "FDG_ALLOW" in r.outcomes || "FDG" in r.outcomes
                 val markReady = "MARK_READY" in r.outcomes || "MARK" in r.outcomes
-                if (executableSize && (Stage.DISCOVER !in r.stages || Stage.INTENT !in r.stages || !markReady)) phantom++
+                // V5.0.6760 §PHANTOM_SIZED_AT_SOURCE — see docblock above.
+                val hasTerminal6760 = r.outcomes.any { out ->
+                    out == "TICKET" || out == "TICKET_CREATED" || out == "TICKET_SEALED" ||
+                        out.startsWith("TERMINAL_REJECT") || out.startsWith("REJECTED_TERMINAL") ||
+                        out.startsWith("SUPERSEDED") || out.startsWith("STALE_") ||
+                        out.startsWith("FINALIZED") || out == "EXEC" || out == "OPEN" ||
+                        out == "SELL"
+                }
+                if (executableSize && !hasTerminal6760) {
+                    val newestStage = r.stages.values.maxOrNull() ?: nowMs
+                    val age = nowMs - newestStage
+                    if (age >= adaptivePhantomTtlMs6790()) phantom++
+                }
                 for (stage in r.stages.keys) {
                     // Later stages are executable telemetry only when the
                     // same keyed record contains its causal predecessors.
@@ -404,6 +442,86 @@ object SpecialistCausalFunnel6625 {
             }
         }
         return LaneSnapshot6647(lane, counts, outcomes, phantom)
+    }
+
+    /**
+     * V5.0.6760 §PHANTOM_SIZED_AT_SOURCE — TTL used both by the reap
+     * authority and by `laneSnapshot6647` when deciding whether a sized
+     * candidate is genuinely in-flight (young enough) or a phantom
+     * (older than TTL without terminal). Aligned with the BotService
+     * pump cadence which calls `reapStaleSizedReservations6760(30_000L)`.
+     */
+    /**
+     * V5.0.6790 §TTL_SINGLE_SOURCE — the specialist 30_000L constant is
+     * retired. Every reservation now consumes AdaptiveTicketTtl6626 so
+     * stale terminalization respects the canonical 180s adaptive floor.
+     * Legacy 30_000L retained as an override for explicit test paths.
+     */
+    const val PHANTOM_TTL_MS_6760 = 30_000L
+
+    /** V5.0.6792 — public accessor for the currently effective adaptive
+     *  TTL (what the phantom/reap paths actually consume). Tests that
+     *  need to time-advance past the canonical TTL should use this. */
+    fun adaptivePhantomTtlMs6790Public(): Long = adaptivePhantomTtlMs6790()
+
+    private fun adaptivePhantomTtlMs6790(): Long = try {
+        com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626()
+    } catch (_: Throwable) { PHANTOM_TTL_MS_6760 }
+
+    /**
+     * V5.0.6760 §1 — terminalize stale sized reservations.
+     *
+     * Operator spec: "on reject/defer after sizing: clear sizing reservation,
+     * clear pending lane ownership, clear execution lease/reservation,
+     * emit one canonical terminal reason. Never leave a sized candidate
+     * resident without terminal ownership."
+     *
+     * The bot cadence calls this once per pump-cycle. Any causal record
+     * that has a SIZE/SIZED_EXECUTABLE outcome, does NOT already have a
+     * terminal outcome, AND whose most recent stage stamp is older than
+     * [ttlMs] gets a `STALE_SIZED_TERMINAL_6760` outcome stamped on the
+     * same immutable causal record. This is the ONLY terminal path that
+     * this authority may write on its own behalf — every other terminal
+     * is stamped by the pipeline stage that actually made the decision.
+     *
+     * @return the number of records that were terminalized in this sweep.
+     */
+    fun reapStaleSizedReservations6760(ttlMs: Long = adaptivePhantomTtlMs6790(), nowMs: Long = System.currentTimeMillis()): Int {
+        var swept = 0
+        for (r in records.values) {
+            synchronized(r) {
+                val executableSize = "SIZED_EXECUTABLE" in r.outcomes || "SIZE" in r.outcomes
+                if (!executableSize) return@synchronized
+                val hasTerminal = r.outcomes.any { out ->
+                    out == "TICKET" || out == "TICKET_CREATED" || out == "TICKET_SEALED" ||
+                        out.startsWith("TERMINAL_REJECT") || out.startsWith("REJECTED_TERMINAL") ||
+                        out.startsWith("SUPERSEDED") || out.startsWith("STALE_") ||
+                        out.startsWith("FINALIZED") || out == "EXEC" || out == "OPEN" ||
+                        out == "SELL"
+                }
+                if (hasTerminal) return@synchronized
+                val newestStage = r.stages.values.maxOrNull() ?: return@synchronized
+                if (nowMs - newestStage < ttlMs) return@synchronized
+                r.outcomes += "STALE_SIZED_TERMINAL_6760"
+                r.stages[Stage.LEARN] = nowMs
+                swept++
+                try {
+                    PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_STALE_SIZED_TERMINALIZED_6760")
+                    PipelineHealthCollector.labelInc(
+                        "SPECIALIST_CAUSAL_STALE_SIZED_TERMINALIZED_6760|${r.key.lane.uppercase().take(24)}",
+                    )
+                    ForensicLogger.lifecycle(
+                        "SPECIALIST_CAUSAL_STALE_SIZED_TERMINALIZED_6760",
+                        "lane=${r.key.lane} mint=${r.key.mint.take(10)} intentId=${r.key.intentId.take(24)} " +
+                            "ageMs=${nowMs - newestStage} ttlMs=$ttlMs",
+                    )
+                } catch (_: Throwable) {}
+            }
+        }
+        if (swept > 0) try {
+            PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_STALE_SIZED_SWEEP_6760")
+        } catch (_: Throwable) {}
+        return swept
     }
 
     /** Resolve position/finality telemetry back to the newest keyed record

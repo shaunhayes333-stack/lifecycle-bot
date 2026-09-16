@@ -167,23 +167,59 @@ class BehaviorActivity : AppCompatActivity() {
         //   still kept in sync for older UI surfaces that read them.
         try {
             findViewById<Button>(R.id.btnResetPaperWallet)?.setOnClickListener {
+                // V5.0.6765 §ADD_PAPER_FUNDS — long-press the reset button opens
+                // the additive top-up dialog. Short-press keeps the legacy full
+                // reset. Operator report Feb 2026: "fix why you can't add more
+                // funds in paper mode via the toggle in tuning" — this exposes
+                // an additive path without needing a new XML button.
                 android.app.AlertDialog.Builder(this)
-                    .setTitle("Reset Paper Wallet")
-                    .setMessage("Reset paper wallet back to $1000 USD (~11.76 SOL)?\n\nThis only resets the cash balance. Learning, trust scores, and trade history are preserved.")
+                    .setTitle("Paper Wallet")
+                    .setMessage("Choose an action:\n\n• Reset — return balance to \$1000 USD (~11.76 SOL). Trade history and learning preserved.\n\n• Add Funds — credit the wallet with more paper SOL without wiping anything.")
                     .setPositiveButton("Reset") { _, _ ->
                         try {
                             val freshSol = 11.7647
-                            // Canonical reset — the ONLY source that the
-                            // three heroes actually read since V5.0.6577.
                             com.lifecyclebot.engine.truth.PaperAccountLedger6430
                                 .resetToFreshBalance6618(freshSol, "USER_BEHAVIOR_UI_RESET_6618")
-                            // No legacy balance mirrors: duplicating canonical
-                            // cash into status, learning, and SharedPreferences
-                            // creates multiple future writers after reset.
                             android.widget.Toast.makeText(this, "Paper wallet reset to \$1000 (~11.76 SOL)", android.widget.Toast.LENGTH_SHORT).show()
                         } catch (e: Exception) {
                             ErrorLogger.warn("BehaviorUI", "Paper wallet reset failed: ${e.message}")
                         }
+                    }
+                    .setNeutralButton("Add Funds") { _, _ ->
+                        val input = android.widget.EditText(this).apply {
+                            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+                            hint = "SOL to add (e.g. 5.0)"
+                            setText("5.0")
+                        }
+                        android.app.AlertDialog.Builder(this)
+                            .setTitle("Add Paper Funds")
+                            .setMessage("Credit the paper wallet with additional SOL. This does NOT touch positions, realized pnl, or trade history.")
+                            .setView(input)
+                            .setPositiveButton("Add") { _, _ ->
+                                try {
+                                    val addSol = input.text.toString().trim().toDoubleOrNull() ?: 0.0
+                                    val newCash = com.lifecyclebot.engine.truth.PaperAccountLedger6430
+                                        .addPaperFundsSafe6765(addSol, "USER_BEHAVIOR_UI_ADD_FUNDS_6765")
+                                    if (newCash > 0.0) {
+                                        android.widget.Toast.makeText(
+                                            this,
+                                            "Added %.4f SOL → wallet now %.4f SOL".format(addSol, newCash),
+                                            android.widget.Toast.LENGTH_LONG,
+                                        ).show()
+                                    } else {
+                                        android.widget.Toast.makeText(
+                                            this,
+                                            "Add funds rejected — must be a positive SOL amount",
+                                            android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                } catch (e: Exception) {
+                                    ErrorLogger.warn("BehaviorUI", "Paper add funds failed: ${e.message}")
+                                    android.widget.Toast.makeText(this, "Add funds failed: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            .setNegativeButton("Cancel", null)
+                            .show()
                     }
                     .setNegativeButton("Cancel", null)
                     .show()

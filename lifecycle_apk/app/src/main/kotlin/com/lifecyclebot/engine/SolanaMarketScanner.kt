@@ -1789,7 +1789,7 @@ class SolanaMarketScanner(
                             ageHours < 6 -> "📈"
                             else -> "📊"
                         }
-                        onLog("$freshIcon PUMP: $symbol | ${(ageHours * 60).toInt()}m old | mcap=\$${mcap.toInt()}")
+                        onLog("$freshIcon PUMP: $symbol | ${(ageHours * 60).toInt()}m old | mcap=\$${mcap.toLong()}")
                     }
                 }
 

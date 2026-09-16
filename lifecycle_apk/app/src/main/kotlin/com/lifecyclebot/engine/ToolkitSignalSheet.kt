@@ -151,7 +151,7 @@ object ToolkitSignalSheet {
                 try {
                     InternetEdgeDesk.refreshAsync(
                         trigger = "toolkit_sheet",
-                        context = "symbol=${ts.symbol} source=${ts.source} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} score=${ts.lastV3Score ?: ts.entryScore.toInt()} confidence=${ts.lastV3Confidence ?: 0} classification=${classification?.tradeType}",
+                        context = "symbol=${ts.symbol} source=${ts.source} liq=${ts.lastLiquidityUsd.toLong()} mcap=${ts.lastMcap.toLong()} score=${ts.lastV3Score ?: ts.entryScore.toInt()} confidence=${ts.lastV3Confidence ?: 0} classification=${classification?.tradeType}",
                     )
                 } catch (_: Throwable) {}
                 val built = build(ts, classification)
@@ -341,7 +341,8 @@ object ToolkitSignalSheet {
             tp = 1.22,
             lanes = setOf("QUALITY", "BLUECHIP", "MOONSHOT"),
             tools = setOf("MAINSTREAM_CRYPTO", "WHALE", "QUALITY_DEPTH", "SWING"),
-            reasons = listOf("mainstream=$mainstream", "liq=${liq.toInt()}", "mcap=${mcap.toInt()}", "type=$tt")
+            // V5.0.6813 §MCAP_LONG_ARITHMETIC — mcap may exceed Int.MAX_VALUE (2.14e9). toLong() prevents Int saturation.
+            reasons = listOf("mainstream=$mainstream", "liq=${liq.toLong()}", "mcap=${mcap.toLong()}", "type=$tt")
         ))
 
         // Exhaustion quick flip: upper wicks + hot recent move = bank quickly, don't diamond-hand.
@@ -416,7 +417,7 @@ object ToolkitSignalSheet {
             tp = 1.18,
             lanes = setOf("QUALITY", "BLUECHIP", "TREASURY"),
             tools = setOf("LIQUIDITY_DEPTH", "QUALITY_DEPTH", "BLUECHIP", "MAINSTREAM_CRYPTO"),
-            reasons = listOf("liq=${liq.toInt()}", "mcap=${mcap.toInt()}", "sell=${sellPressure.toInt()}")
+            reasons = listOf("liq=${liq.toLong()}", "mcap=${mcap.toLong()}", "sell=${sellPressure.toInt()}")
         ))
 
         // Panic reversion / recovery: route dumps that stabilize into reclaim tooling.

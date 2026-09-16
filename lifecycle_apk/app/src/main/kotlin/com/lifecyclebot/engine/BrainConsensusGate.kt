@@ -54,7 +54,14 @@ object BrainConsensusGate {
     )
 
     // V5.9.1355 P1 — 1-in-25 probe cadence per proven-dead context.
+    // V5.0.6782 §AUTHORITY_CONSOLIDATION — the 1-in-25 canonical dust-probe
+    // cadence is retired. Proven-dead contexts now HARD_BLOCK; shadow/replay/
+    // counterfactual paths continue the learning without spending canonical
+    // capital. The constant and counter are kept for source-file continuity
+    // and are intentionally unused.
+    @Suppress("unused")
     private const val PROBE_EVERY = 25
+    @Suppress("unused")
     private val deadContextCounter = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
     // V5.0.4089 — RE-EDUCATE THE BLEEDERS (operator: "don't disable, re-educate
     // and succeed. 2x-5x daily wallet growth target"). Pre-4089 the proven-dead
@@ -144,29 +151,39 @@ object BrainConsensusGate {
             else                    -> Verdict.ALLOW
         }
 
-        // V5.9.1355 P1 — PROVEN-DEAD TRAINABLE VETO. A statistically dead context
-        // (losses>=20, wins<=1, mean<0) must stop taking NORMAL-size entries but
-        // must NEVER be permanently disabled. Allow a 1-in-25 dust-probe so the
-        // bucket keeps learning and can recover when metrics improve.
+        // V5.0.6782 §AUTHORITY_CONSOLIDATION — PROVEN-DEAD IS HARD REJECT.
+        // Prior doctrine let 1-in-25 "dust probes" through with canonical
+        // capital so a statistically dead bucket could "keep learning".
+        // Directive: "A proven losing strategy does NOT need real canonical
+        // capital to remain learnable." Continued learning is handled by
+        // shadow/replay/counterfactual paths that DO NOT touch the ledger.
+        // A proven-dead context now produces a HARD_BLOCK on every candidate
+        // for that bucket; the shadow learners still receive the rejected
+        // candidate as counterfactual evidence downstream.
         var provenDead = false
         var normalEntryBlocked = false
-        var probeAllowed = false
+        val probeAllowed = false
         if (isProvenDead(tradingMode, v3)) {
             provenDead = true
+            normalEntryBlocked = true
             val pdKey = "${tradingMode}|${LosingPatternMemory.scoreBand(v3)}"
-            val n = deadContextCounter.computeIfAbsent(pdKey) { java.util.concurrent.atomic.AtomicLong(0) }.incrementAndGet()
-            if (n % PROBE_EVERY == 0L) {
-                probeAllowed = true
-                objections += "PROVEN_DEAD_PROBE=$pdKey"
-                try {
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_PROBE_ALLOWED")
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PROVEN_DEAD_CONTEXT_PROBE_ONLY")
-                } catch (_: Throwable) {}
-            } else {
-                normalEntryBlocked = true
-                objections += "PROVEN_DEAD_NORMAL_VETO=$pdKey"
-                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_NORMAL_ENTRY_VETO") } catch (_: Throwable) {}
-            }
+            objections += "PROVEN_DEAD_HARD_VETO_6782=$pdKey"
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_PROVEN_DEAD_HARD_VETO_6782")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_NORMAL_ENTRY_VETO")
+                // V5.0.6791 §LEARNED_BLEEDER_AUTHORITY — feed the shadow
+                // exploration stream. Every proven-dead candidate is emitted
+                // to the learning bus as a counterfactual so the bucket can
+                // still relearn without consuming canonical capital.
+                // Directive: "Keep a small bounded exploration stream for
+                // relearning."
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PROVEN_DEAD_SHADOW_EXPLORATION_6791")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PROVEN_DEAD_SHADOW_EXPLORATION_6791_${tradingMode.uppercase()}")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "PROVEN_DEAD_SHADOW_EXPLORATION_6791",
+                    "bucket=$pdKey mint=${ts.mint.take(10)} symbol=${ts.symbol} score=$v3 confidence=${candidate.aiConfidence} action=shadow_only_no_canonical_capital",
+                )
+            } catch (_: Throwable) {}
         }
 
         return ConsensusReport(

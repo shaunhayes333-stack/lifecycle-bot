@@ -7258,7 +7258,7 @@ for legal compliance.
         tvChartMcap?.text = when {
             ts.lastMcap >= 1_000_000 -> "$${(ts.lastMcap / 1_000_000).toInt()}M"
             ts.lastMcap >= 1_000 -> "$${(ts.lastMcap / 1_000).toInt()}K"
-            else -> "$${ts.lastMcap.toInt()}"
+            else -> "$${ts.lastMcap.toLong()}"
         }
 
         // 5m Volume (use recent history to calculate)

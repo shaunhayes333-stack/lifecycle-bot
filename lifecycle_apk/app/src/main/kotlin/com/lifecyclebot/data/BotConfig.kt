@@ -587,7 +587,8 @@ object ConfigStore {
             shadowPaperEnabled          = p.getBoolean("shadow_paper_enabled", false),
             moonshotOverrideEnabled     = p.getBoolean("moonshot_override_enabled", true),
             fluidLearningEnabled        = p.getBoolean("fluid_learning_enabled", true),
-            paperSimulatedBalance       = p.getFloat("paper_simulated_balance", 11.76f).toDouble(),
+            paperSimulatedBalance       = p.getFloat("paper_simulated_balance", 11.76f).toDouble()
+                .let { v -> if (v.isFinite() && v > 0.0) v else 11.76 },  // V5.0.6765 §STARTING_CASH_FLOOR — never return zero
             autoTrade                   = p.getBoolean("auto_trade", true),
             autoPipelineAdvisorEnabled  = p.getBoolean("auto_pipeline_advisor_enabled", true),
             perpsSandboxEnabled         = p.getBoolean("perps_sandbox_enabled", true),
