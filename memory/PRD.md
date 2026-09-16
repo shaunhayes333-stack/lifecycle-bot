@@ -529,25 +529,100 @@ the V5.0.6811 crash lesson.
 - **6604 invariant respected.** Cash reads via
   `PaperCapitalAuthority6577.cashSol()` facade (not direct ledger call).
 
-### Deferred to dedicated ships
+### V5.0.6816 — Deferred P0/P1 items shipped (mega-commit)
+- **JournalReplayGuard6816** — new authority. Refuses to publish
+  finalized envelopes while paper `openCostΔ != 0` during replay
+  reconstruction (closes closed=226 vs finalized=218 gap surfaced in
+  V5.0.6812 forensic dump). Guard consulted at
+  `CanonicalFinalizedTradeBus6464.publish` entry. Reads openCostBasis
+  through `PaperCapitalAuthority6577.openCostBasisSol()` facade
+  (Aate6604 invariant respected).
+- **ProfitHarvestAuthority6816** — new advisory authority for adaptive
+  partial harvesting with 4-tier bank ladder (20%/30%/40%/50% at
+  40/90/180/400% unrealised). Advisory API only in this ship;
+  consumer wiring to PartialSellSizer lands in follow-up.
+- **ExecutionTicketFinalityGuard6816** — six-field pre-condition audit
+  wired at `ExecutionTicketMachine6411.create` (ENFORCE_HARD_BLOCK
+  OFF, advisory telemetry only). Fires
+  `EXEC_TICKET_FINALITY_INCOMPLETE_6816` with the missing field named.
+- **ExpectancyWeightedLaneAllocator6816** — second-order lane weighting
+  on top of LaneExpectancyDamper (winner uplift → 1.35 max for runner
+  lanes; bleeder haircut → 0.30 floor; non-runner cap at 1.00).
+  Observability-only in this ship (composition into
+  `OrderSizeResolver.adaptiveMult6684` deferred — see V5.0.6817 red
+  build fix below).
+- **ProjectSniperSizingChoke6816** — PROJECT_SNIPER lane min-executable
+  clamp + starvation telemetry. Wired into
+  `OrderSizeResolver.minExecRaw` path. For non-PROJECT_SNIPER lanes
+  the passthrough is a no-op.
+- **CapitalRecycleRatioAuthority6814 producer wiring (attempted, then
+  reverted)** — `recordEntry`/`recordCashReturned` are still not fed
+  from `PaperAccountLedger6430` because populating the deque leaked
+  cross-test state and dropped `sizeMultiplier()` below 1.0 in
+  buy-only tests. Authority + consumer live; producer wiring will
+  come via an out-of-hot-path BotService tick in a later ship.
 
-- **#4 Partial sells / profit harvesting** — needs exit-side design
-  work. Currently `partialSells = 0`.
-- **#5 Expectancy-weighted lane allocation** — needs a new allocator
-  authority that consumes `LaneExpectancyDamper` + WR + profit factor.
-- **#6 PROJECT_SNIPER sizing choke** — needs a targeted trace from
-  `markReady → CanonicalNotionalResolver → OrderSizeResolver → ticket`
-  to find the 0 sizedExecutable path when caps admit.
-- **#8-#10 hot-loop / fan-out / provider** — profiler-driven work.
-- **#11 provider degradation confidence** — partially covered by
-  V5.0.6810 mark propagation; formal circuit breaker deferred.
-- **#12 Growth objective configuration** — the aspirational target vs
-  reality-based EV separation needs a growth controller redesign.
-- **CI status:** V5.0.6814 built successfully (item #1 + #2). V5.0.6815
-  **Build AATE APK success** (17m23s, all 2632 tests pass). Runtime
-  Smoke Test unchanged (pre-existing brittleness).
-- **NOT touched (per operator DO-NOT-TOUCH list):** canonical
-  accounting/reconciliation, replay isolation, safety/rug checks,
-  max position count, hot-path executor. Item #7 producer wiring
-  pending — deliberately not shipped in this build.
+### V5.0.6817 — Targeted Source Repair block shipped
+Six new additive observability-first authorities. No hard blocks into
+existing hot paths — matches the V5.0.6811 crash-safe pattern.
+- **StaleMarkExitGate6817** — verdict path
+  `VALIDATED / HOLD_DEFER / SCRATCH_DIAGNOSTIC / DEAD_CLOSE` for close
+  paths. `isTrainable(positionId)` surfaces stale-mark closes as
+  non-trainable. `STALE_MARK_EXIT_*_6817` counters visible.
+- **UnresolvedOwnerLearningQuarantine6817** — name-list quarantine for
+  StrategyExpectancy / LaneExpectancyDamper / TacticSwitcher /
+  GrowthRewardShaper / LosingStreakReflex / UnifiedPolicyHead /
+  ForwardOutcomeModel / MetaPolicy / LaneExitTuner /
+  StrategyHypothesisEngine / source-lane WR. Diagnostics remain
+  visible. `resolveOwnerFromSealedEntry` rejects STANDARD/CORE
+  fallback defaults.
+- **FdgAuthoritativeElection6817** — one authoritative FDG outcome per
+  `(mode + canonicalMint + candidateVersion + epoch)`. Subsequent
+  lanes become `CONTRIBUTOR` or `SHADOW`. Exposes
+  `authoritativeToIntakeRatio()` for the operator's ≤ 1.5 target.
+- **AtomicFdgExecIntentBinder6817** — `sealFdgBuy` + `sealExecIntent`
+  atomic pair with 15s TTL. `sweepOrphans()` fires
+  `FDG_ALLOW_AWAITING_EXEC_INTENT_ORPHAN_6817` with immutable
+  six-tuple (candidateVersion, lane, entry snapshot ref, decision id,
+  epoch, mark authority) preserved through ticket + executor.
+- **PaperCommitOrderGuard6817** — witness for
+  cash/basis/quantity/realized/positionState/journal single-transaction
+  ordering. `recordBusPublish` fires
+  `FINALIZED_BUS_PUBLISHED_BEFORE_COMMIT_6817` on ordering violation.
+  `postCommitRevision()` for AcceptanceAudit consumers to read
+  post-commit only.
+- **RewardPurityAdmission6817** — pure predicate composing owner
+  quarantine, stale-mark trainable flag, entry basis / terminal mark
+  / economics reconciled. Diagnostic close remains in journal,
+  `trainable=false`.
+
+### CI status
+- V5.0.6817 **Build AATE APK: SUCCESS** (12m56s, artifact
+  `AATE_v5.0.6817` uploaded).
+- All 2636 tests pass (green after fixing the 6816
+  Aate6604MemeCausalAuthorityCoverageTest / Repair6491 / V5_0_6567 /
+  Repair6511 / CanonicalEntryAuthority6551 regressions).
+- Runtime Smoke Test remains pre-existingly failing
+  (`NO_COMPLETED_PASSING_CURRENT_WINDOW` — not touched in this ship).
+
+### Deferred to follow-up ships
+- **Producer wiring for CapitalRecycleRatioAuthority6814** — must run
+  out-of-hot-path (BotService periodic tick) to avoid the cross-test
+  state leak observed in V5.0.6816.
+- **Composition of ExpectancyWeightedLaneAllocator6816 into
+  `adaptiveMult6684`** — same reason.
+- **ExecutionTicketFinalityGuard6816 hard enforcement** — currently
+  ENFORCE OFF; turn on after telemetry proves it does not
+  false-positive.
+- **V5.0.6817 authority consumers** — each 6817 authority is a pure
+  API today. Wiring `StaleMarkExitGate6817.evaluate` into the exit
+  paths, `UnresolvedOwnerLearningQuarantine6817.isQuarantined` into
+  the ten learner admission gates, `FdgAuthoritativeElection6817`
+  into lane-vote publish, `AtomicFdgExecIntentBinder6817` into FDG
+  seal + intent creation, `PaperCommitOrderGuard6817` into the
+  ledger/position/journal mutation batch, and
+  `RewardPurityAdmission6817` into `LearnerRewardBridge` — each of
+  those is a targeted one-line consumer edit that can now be done
+  incrementally under the 6817 telemetry umbrella.
+- Runtime Smoke Test `NO_COMPLETED_PASSING_CURRENT_WINDOW`.
 
