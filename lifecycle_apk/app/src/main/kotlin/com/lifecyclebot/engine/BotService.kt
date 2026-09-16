@@ -19572,6 +19572,34 @@ if (hotExitHandledSweep) {
                         "UNIVERSAL_HARD_FLOOR_${pnlPct.toInt()}PCT"
                     else
                         "UNIVERSAL_PEAK_LOCK_peak${peakPct.toInt()}_now${pnlPct.toInt()}"
+                    // V5.0.6835 §MISSING_MARK_EXIT_VETO — refuse this
+                    // catastrophic terminal if the mark that produced
+                    // the -N% pnl is stale/missing/frozen. Prevents
+                    // poisoning learners with synthetic -99% closures
+                    // (operator diagnosis 5.0.6834).
+                    val vetoMarkPx6835 = when {
+                        exitPx4481.isFinite() && exitPx4481 > 0.0 -> exitPx4481
+                        last.isFinite() && last > 0.0 -> last
+                        else -> 0.0
+                    }
+                    val vetoMarkUpdatedAtMs6835 = ts.lastPriceUpdate
+                    val veto6835 = try {
+                        com.lifecyclebot.engine.truth.MissingMarkExitVeto6835.evaluate(
+                            mintKey = ts.mint,
+                            markPrice = vetoMarkPx6835,
+                            markUpdatedAtMs = vetoMarkUpdatedAtMs6835,
+                            exitReason = reason,
+                        )
+                    } catch (_: Throwable) {
+                        com.lifecyclebot.engine.truth.MissingMarkExitVeto6835.Verdict(true, "VETO_ERR_FALLBACK_ALLOW")
+                    }
+                    if (!veto6835.allow) {
+                        addLog(
+                            "🛡 [UNIVERSAL] ${ts.symbol}: EXIT_DEFERRED_MISSING_MARK_6835 " +
+                                "reason=$reason detail=${veto6835.reason6835} — holding for fresh mark"
+                        )
+                        return@forEach
+                    }
                     ErrorLogger.warn(
                         "BotService",
                         "🛡 UNIVERSAL_EXIT: ${ts.symbol} | pnl=${pnlPct.toInt()}% peak=${peakPct.toInt()}% | $reason",

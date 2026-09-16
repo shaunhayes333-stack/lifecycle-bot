@@ -7076,6 +7076,37 @@ class Executor(
             }
 
             if (worstPnl <= -25.0) {
+                // V5.0.6835 §MISSING_MARK_EXIT_VETO — refuse to
+                // materialise a synthetic -N% closure when the mark
+                // that would justify it is stale/missing/frozen.
+                // Poisons downstream learners as documented in the
+                // 5.0.6834 operator diagnosis (65k stale quotes, 71/83
+                // exit-visible positions with missing marks).
+                val markPriceForVeto6835 = when {
+                    currentPrice.isFinite() && currentPrice > 0.0 -> currentPrice
+                    cachedPx.isFinite() && cachedPx > 0.0 -> cachedPx
+                    else -> ts.lastPrice
+                }
+                val markUpdatedAtMs6835 = ts.lastPriceUpdate
+                val veto6835 = try {
+                    com.lifecyclebot.engine.truth.MissingMarkExitVeto6835.evaluate(
+                        mintKey = ts.mint,
+                        markPrice = markPriceForVeto6835,
+                        markUpdatedAtMs = markUpdatedAtMs6835,
+                        exitReason = "CATASTROPHIC_HARD_BACKSTOP_-25",
+                    )
+                } catch (_: Throwable) {
+                    com.lifecyclebot.engine.truth.MissingMarkExitVeto6835.Verdict(true, "VETO_ERR_FALLBACK_ALLOW")
+                }
+                if (!veto6835.allow) {
+                    onLog(
+                        "🛡 EXIT_DEFERRED_MISSING_MARK_6835: ${ts.symbol} " +
+                            "worstPnl=${worstPnl.toInt()}% reason=CATASTROPHIC_HARD_BACKSTOP_-25 " +
+                            "detail=${veto6835.reason6835} — holding until fresh mark",
+                        ts.mint,
+                    )
+                    return
+                }
                 // V5.0.6325 — CATASTROPHIC EXIT LATENCY TRACE onDetect.
                 // Records the fast-risk-price age + confirming source so
                 // the operator can see how quickly the exit reached each
