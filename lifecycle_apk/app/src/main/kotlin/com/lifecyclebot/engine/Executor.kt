@@ -7788,13 +7788,17 @@ class Executor(
             // the metric widening returned e.g. -6% for healthy runners
             // but the -3% upper clamp coerced it right back. Ceiling is
             // now tier-aware: HEALTHY_RUNNER gets a -6% ceiling (real
-            // room to run), HEALTHY_STABLE -4%, NEUTRAL -3% (original
-            // behavior preserved), WEAKENING/DYING/RUG_LIKE keep the
-            // tight -3% ceiling so a dying token still tightens. The
-            // -50% catastrophic floor is unchanged.
+            // room to run), HEALTHY_STABLE -4%, NEUTRAL -5% (V5.0.6820:
+            // raised from -3% — meme tokens in NEUTRAL health have normal
+            // noise of 2-4%, so -3% was stopping out winners before they
+            // had room to move; -5% matches configured ShitCoin/meme SL
+            // while still tighter than HEALTHY_RUNNER), WEAKENING/DYING/
+            // RUG_LIKE keep -3% so genuinely deteriorating tokens tighten.
+            // The -50% catastrophic floor is unchanged.
             val floorCeiling6730 = when (metrics6725?.healthTier) {
                 com.lifecyclebot.engine.truth.CanonicalTokenMetricsSnapshot6725.HealthTier.HEALTHY_RUNNER -> -6.0
                 com.lifecyclebot.engine.truth.CanonicalTokenMetricsSnapshot6725.HealthTier.HEALTHY_STABLE -> -4.0
+                com.lifecyclebot.engine.truth.CanonicalTokenMetricsSnapshot6725.HealthTier.NEUTRAL -> -5.0
                 else -> -3.0
             }
             val hardFloor = metricAwareStop6725.coerceIn(-50.0, floorCeiling6730)

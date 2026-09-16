@@ -27,14 +27,14 @@ object BleederLaneProbation6747 {
 
     private const val WR_THRESHOLD = 0.20      // enter probation
     private const val WR_RECOVERY  = 0.30      // exit probation
-    // V5.0.6753 §PROBATION_FROM_TRADE_5 — operator directive Feb 2026:
-    //   > "50 trades in 1850s. Autonomous self adjusting etc needs to
-    //   >  happen from trade 1, not after 50 shit trades."
-    // MIN_WINDOW=15 delayed probation past >30 losing trades before it
-    // could fire. Cut to 5 so a lane that opens 5 trades and all lose
-    // (or 4 of 5) instantly transitions to probe-only, well before the
-    // learner has burned through the operator's capital patience.
-    private const val MIN_WINDOW   = 5         // trades in the window before ruling
+    // V5.0.6820 §PROBATION_MIN_WINDOW_RESTORE — the MIN_WINDOW=5 introduced in
+    // V5.0.6753 fired too aggressively: any lane hitting 4/5 losses (e.g. from
+    // normal meme noise with the -3% SL ceiling) would immediately enter
+    // probe-only before accumulating meaningful evidence. This caused the meme
+    // trader WR to collapse from ~85% to ~20% because lanes got locked into
+    // 0.02 SOL probes after just 5 trades. Restored to 15 so probation requires
+    // a genuine sustained losing streak across a statistically meaningful window.
+    private const val MIN_WINDOW   = 15        // trades in the window before ruling
     private const val WINDOW_SIZE  = 30        // sliding window depth
     /** Max probe size that may bypass probation. Above this the lane is refused. */
     const val PROBE_SIZE_MAX_SOL = 0.02
