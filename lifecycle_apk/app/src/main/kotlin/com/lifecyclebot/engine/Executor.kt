@@ -8650,22 +8650,36 @@ class Executor(
             pos.profitFloorRegressionLogged = true
         }
 
-        if (heldSecs < 90.0) return null
-
+        // V5.0.6844 §METRIC_EXITS_UNREACHABLE_FOR_A_TYPICAL_HOLD — the liquidity
+        // checks below used to sit AFTER a blanket `if (heldSecs < 90.0) return null`.
+        // Operator analytics for 5.0.6835: winners are held 1.2 min (~72s) and losers
+        // 2.5 min. A 72-second winner therefore never reached the liquidity-collapse
+        // test at all, and neither did the whale/dev-dump tests further down. The
+        // intent to gate these individually is already visible immediately below,
+        // where the sell-pressure block carries its own `heldSecs >= 30` — a condition
+        // the 90s blanket return made permanently unreachable.
+        //
+        // A >50% liquidity drop is a rug signature, not entry noise: it is exactly the
+        // event that must not wait out a settle window, because by +90s the pool is
+        // gone. Hoisted above the gate with a short 10s guard against fill-time
+        // liquidity jitter; the softer "drain while losing" case keeps a 45s settle;
+        // everything else still waits the full 90s.
         val currentLiq = ts.lastLiquidityUsd
         val entryLiq = pos.entryLiquidityUsd
-        if (entryLiq > 0 && currentLiq > 0) {
+        if (entryLiq > 0 && currentLiq > 0 && heldSecs >= 10.0) {
             val liqDropPct = ((entryLiq - currentLiq) / entryLiq) * 100
             if (liqDropPct > 50) {
                 onLog("🚨 LIQ COLLAPSE: ${ts.symbol} liq dropped ${liqDropPct.toInt()}% | exit NOW", ts.mint)
                 return "liquidity_collapse"
             }
-            if (liqDropPct > 30 && gainPct < 0) {
+            if (liqDropPct > 30 && gainPct < 0 && heldSecs >= 45.0) {
                 onLog("⚠️ LIQ DRAIN: ${ts.symbol} liq dropped ${liqDropPct.toInt()}% while losing | exit", ts.mint)
                 return "liquidity_drain"
             }
         }
-        
+
+        if (heldSecs < 90.0) return null
+
         if (ts.history.size >= 3 && heldSecs >= 30) {
             val recentCandles = ts.history.takeLast(3)
             val totalSells = recentCandles.sumOf { it.sellsH1 }
