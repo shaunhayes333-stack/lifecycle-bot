@@ -30,7 +30,15 @@ class Repair6511PaperExecutionSourceTest {
             overrideLaneRiskCapSol = 1.0,
             mintForSeal = "6511-test-mint",
         )
-        assertEquals(0.02419, resolved.requestedSol, 1e-9)
+        // V5.0.6833 §EDGE_CAPACITY_REDISTRIBUTION — QUALITY carries a
+        //   RuntimeTune6833.laneCapacityMultiplier(...) of 1.125 which is
+        //   applied inside the adaptive chain. The exact-request assertion
+        //   is preserved by tracking the multiplier, not by hard-coding
+        //   the post-multiplier value, so the test remains stable if the
+        //   multiplier is retuned upstream.
+        val expectedRequested6833 = 0.02419 *
+            com.lifecyclebot.engine.truth.RuntimeTune6833.laneCapacityMultiplier("QUALITY")
+        assertEquals(expectedRequested6833, resolved.requestedSol, 1e-9)
         assertTrue(resolved.executable)
         assertEquals("OK_MIN_PROMOTED_6600", resolved.reason)
     }

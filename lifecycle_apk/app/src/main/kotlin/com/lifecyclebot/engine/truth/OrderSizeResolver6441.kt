@@ -182,7 +182,15 @@ object OrderSizeResolver6441 {
         val pressureMult6830 = try {
             com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.intakeMultiplier()
         } catch (_: Throwable) { 1.0 }
-        val adaptiveMult6684 = (ssiMult6684 * labMult6684 * pressureMult6830).coerceIn(0.20, 2.50)
+        // V5.0.6833 §EDGE_CAPACITY_REDISTRIBUTION — per-lane multiplier that
+        // shifts capital toward QUALITY/CORE/PROJECT_SNIPER while keeping
+        // MOONSHOT damped at 0.67 (per operator directive Feb 2026). Hard
+        // risk/cash/lane clamps below still bound the output, so this can
+        // never manufacture an oversized order.
+        val laneRedistMult6833 = try {
+            com.lifecyclebot.engine.truth.RuntimeTune6833.laneCapacityMultiplier(laneName)
+        } catch (_: Throwable) { 1.0 }
+        val adaptiveMult6684 = (ssiMult6684 * labMult6684 * pressureMult6830 * laneRedistMult6833).coerceIn(0.20, 2.50)
         val requested = (requestedSol.coerceAtLeast(0.0) * adaptiveMult6684).coerceAtLeast(0.0)
         val risk = requested.coerceAtMost(laneRiskCapSol)
         if (kotlin.math.abs(adaptiveMult6684 - 1.0) > 0.001) {
