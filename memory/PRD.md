@@ -473,3 +473,81 @@ canonical reconciler / hot-path ticket refresh loop.
   All acceptance tests pass. Runtime Smoke Test unchanged (pre-existing
   brittleness).
 
+
+## V5.0.6814 / V5.0.6815 — CAPITAL VELOCITY REPAIR (2026-02)
+
+Operator diagnosis Feb 2026, 13-item mandate: entry > exit imbalance,
+weak entries consuming wallet, non-profitable cohorts crowding out
+PROJECT_SNIPER, 5-second hot loop, negative expectancy still buying.
+Shipped 4 items in two builds (V5.0.6814 + V5.0.6815); deferred 7
+items to dedicated ships. **No hot-path early-return traps** after
+the V5.0.6811 crash lesson.
+
+### V5.0.6814
+
+- **#1 CAPITAL_RECOVERY mode.** New `CapitalRecoveryAuthority6814`
+  monitors cash/slot/buy-sell state and flips `isActive()` when any of:
+    • `cash < max($0.05, equity × 5%)`
+    • `openPositions ≥ 75% × slot capacity`
+    • `buys/sells > 1.35`
+  During recovery, `FinalDecisionGate.evaluate()` returns a proper
+  `FinalDecision` with `blockReason = "CAPITAL_RECOVERY_6814"` via the
+  standard blockReason path (NO hand-built early return). Exits (SELL/
+  TP/SL/catastrophic) never traverse this gate. Recovery exits with
+  hysteresis: `cash ≥ 15% equity` AND `open ≤ 55% slot capacity` AND
+  `buy/sell ≤ 1.20`. Self-triggering — no BotService hot-loop change.
+- **#2 EV authority tightened to 2 contributors.** Threshold dropped
+  from 3 → 2 (`MIN_EV_HARD_VETO_SAMPLE_6814 = 2`). Weighted EV < -3%
+  with ≥2 EV contributors → `POLICY_NEG_EV_BLOCK_6801` (hard veto).
+  Single-contributor negative EV → `AATE_POLICY_EV_INSUFFICIENT_ADVISORY_6811`
+  (advisory only). Structurally weak entries can no longer slip
+  through as "low sample".
+
+### V5.0.6815
+
+- **#3 WAIT override restriction.** Added two hard preconditions at
+  `BotService.processSpecialistLane()` before any `weakWait` branch
+  can convert WAIT → probe:
+    • `LaneExpectancyDamper.sizeMultiplier(lane) > 0.50` (else lane
+      is a learned bleeder — override rejected)
+    • `CapitalRecoveryAuthority6814.isActive() == false`
+  Rejects labelled `SPECIALIST_WAIT_OVERRIDE_REJECTED_6814` +
+  `..._BLEEDER_LANE_<lane>` / `..._CAPITAL_RECOVERY`. Aggressive
+  speculation into bleeders / cash-starved windows now stops at source.
+- **#7 Recycle-ratio size damper.** New `CapitalRecycleRatioAuthority6814`
+  rolls 5-minute entry-notional vs realised-cash-returned. Exposes
+  `sizeMultiplier()` in `[0.20, 1.0]`. `OrderSizeResolver6441`
+  multiplies this into the existing adaptive stack alongside SSI/Lab.
+  When cash returns fall behind entry throughput, new entries damp
+  proportionally. Never upsizes. Counters:
+  `CANONICAL_ADAPTIVE_SIZE_RECYCLE_DAMPED_6814`,
+  `RECYCLE_RATIO_ENTRY_RECORDED_6814`,
+  `RECYCLE_RATIO_CASH_RETURNED_6814`. **Follow-up ship needs to wire
+  `recordEntry(notional)` at ticket-creation and
+  `recordCashReturned(realised)` at finalized-close** — currently only
+  the size-multiplier consumer is live; producer wiring pending.
+- **6604 invariant respected.** Cash reads via
+  `PaperCapitalAuthority6577.cashSol()` facade (not direct ledger call).
+
+### Deferred to dedicated ships
+
+- **#4 Partial sells / profit harvesting** — needs exit-side design
+  work. Currently `partialSells = 0`.
+- **#5 Expectancy-weighted lane allocation** — needs a new allocator
+  authority that consumes `LaneExpectancyDamper` + WR + profit factor.
+- **#6 PROJECT_SNIPER sizing choke** — needs a targeted trace from
+  `markReady → CanonicalNotionalResolver → OrderSizeResolver → ticket`
+  to find the 0 sizedExecutable path when caps admit.
+- **#8-#10 hot-loop / fan-out / provider** — profiler-driven work.
+- **#11 provider degradation confidence** — partially covered by
+  V5.0.6810 mark propagation; formal circuit breaker deferred.
+- **#12 Growth objective configuration** — the aspirational target vs
+  reality-based EV separation needs a growth controller redesign.
+- **CI status:** V5.0.6814 built successfully (item #1 + #2). V5.0.6815
+  **Build AATE APK success** (17m23s, all 2632 tests pass). Runtime
+  Smoke Test unchanged (pre-existing brittleness).
+- **NOT touched (per operator DO-NOT-TOUCH list):** canonical
+  accounting/reconciliation, replay isolation, safety/rug checks,
+  max position count, hot-path executor. Item #7 producer wiring
+  pending — deliberately not shipped in this build.
+
