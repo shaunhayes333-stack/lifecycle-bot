@@ -1027,11 +1027,26 @@ object MoonshotTraderAI {
         synchronized(activePositions) { activePositions[mint] }?.lastSeenPrice = price
     }
 
-    // Returns the partial sell % for a PARTIAL_TAKE exit (default 50% — sell half, ride half)
-    fun getPartialSellPct(mint: String): Double {
-        val pos = synchronized(activePositions) { activePositions[mint] }
-        return if (pos != null && pos.partialSellPct > 0) pos.partialSellPct else 0.50
-    }
+    // V5.0.6826 §MOONSHOT_LADDER_SELF_TERMINATION — fraction of the REMAINING
+    // position to sell at one rung. Must never be the cumulative ledger.
+    //
+    // partialSellPct accumulates what has already been sold (see onPartialSell).
+    // Returning it here made the 7-rung ladder self-terminating:
+    //   +20%  -> ledger 0.00, sold 0.50           -> ledger 0.50
+    //   +50%  -> read 0.50, sold half the rest    -> ledger 1.00
+    //   +100% -> read 1.00  -> FULL LIQUIDATION AT 2x
+    // A lane whose ladder runs to +10000% could therefore never hold anything
+    // past 2x, which is why moonshot never rode a 10x/100x. The caller passes
+    // this straight to requestPartialSellConfirmed6566(sellPercentage=...).
+    //
+    // At 0.15 per rung the moonbag survives the whole ladder:
+    // (1 - 0.15)^7 ~= 0.32, so ~32% still rides into the +10000% rung, matching
+    // the same "de-risk on the way up, keep a real runner" reasoning as
+    // WrRecoveryPartial's 0.15-0.20 fractions.
+    private const val PARTIAL_RUNG_FRACTION = 0.15
+
+    /** Fraction of the remaining position to sell for one PARTIAL_TAKE rung. */
+    fun getPartialSellPct(mint: String): Double = PARTIAL_RUNG_FRACTION
 
     /**
      * V5.9.705 — Called by BotService after a PARTIAL_TAKE sell executes successfully.
