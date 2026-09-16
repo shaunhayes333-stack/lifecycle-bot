@@ -64,6 +64,12 @@ object CanonicalReconciler6441 {
     private val lastQuickReport = AtomicReference<QuickReport?>(null)
     private val lastFullReport = AtomicReference<FullReport?>(null)
 
+    /** V5.0.6797 §CANONICAL_LEDGER_AUTHORITY — public accessor so
+     *  PaperLedgerDivergenceGuard6731 can consult the authoritative
+     *  reconciler before hard-stopping admissions on stale/differently-
+     *  scoped journal projections. */
+    fun mismatchesEver(): Long = mismatchesEver.get()
+
     fun quickCheck(): QuickReport {
         quickCount.incrementAndGet()
         lastQuickMs.set(System.currentTimeMillis())

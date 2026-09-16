@@ -29,6 +29,19 @@ object LaneAttributionLedger6427 {
         val profile: String,
         val tactic: String,
         val stampedAtMs: Long,
+        // V5.0.6789 §OWNER_ATTRIBUTION — bind full provenance at open
+        // commit. Terminal learning reads this immutable record only.
+        // Never infer owner at sell time.
+        val candidateVersion: Long = 0L,
+        val sealedFdgId: String = "",
+        val intentId: String = "",
+        // V5.0.6801 §SOURCE_AWARE_LEARNING — discovery source (PUMP_FUN_NEW,
+        // SOLANA_BLUECHIP_WATCHLIST, PUMP_PORTAL, ...) is captured at open
+        // so the terminal-side learner can attribute the outcome to the
+        // exact source cohort. Blank source is preserved so hydrated /
+        // legacy entries remain visibly source-unknown and are excluded
+        // from source-cohort learning.
+        val discoverySource: String = "",
     )
 
     data class ExitPolicy(
@@ -46,6 +59,10 @@ object LaneAttributionLedger6427 {
      * First write wins. Returns true if the entry was stored, false
      * if the positionId already had an entry attributed (in which
      * case the second attempt is recorded but ignored).
+     *
+     * V5.0.6789 §OWNER_ATTRIBUTION adds candidateVersion/sealedFdgId/
+     * intentId parameters so the position carries immutable full
+     * provenance from the moment of open commit.
      */
     fun recordEntry(
         positionId: String,
@@ -53,9 +70,15 @@ object LaneAttributionLedger6427 {
         strategy: String = "",
         profile: String = "",
         tactic: String = "",
+        candidateVersion: Long = 0L,
+        sealedFdgId: String = "",
+        intentId: String = "",
+        discoverySource: String = "",
     ): Boolean {
         if (positionId.isBlank()) return false
-        val fresh = Entry(lane, strategy, profile, tactic, System.currentTimeMillis())
+        val fresh = Entry(lane, strategy, profile, tactic, System.currentTimeMillis(),
+            candidateVersion = candidateVersion, sealedFdgId = sealedFdgId, intentId = intentId,
+            discoverySource = discoverySource)
         val prior = entries.putIfAbsent(positionId, fresh)
         if (prior != null) {
             if (prior.lane != lane) {
@@ -69,12 +92,47 @@ object LaneAttributionLedger6427 {
             }
             return false
         }
+        try {
+            if (candidateVersion > 0L || sealedFdgId.isNotBlank() || intentId.isNotBlank()) {
+                PipelineHealthCollector.labelInc("LANE_ATTRIBUTION_FULL_PROVENANCE_6789")
+            }
+        } catch (_: Throwable) {}
         return true
     }
 
     fun getEntry(positionId: String): Entry? = entries[positionId]
 
     fun getEntryLane(positionId: String): String? = entries[positionId]?.lane
+
+    /**
+     * V5.0.6801 §SOURCE_AWARE_LEARNING — read the discovery source
+     * captured at open commit. Blank when the caller did not stamp
+     * one (hydrated / legacy restore). Terminal learners consume this
+     * to route the outcome into the source cohort accumulator in
+     * CausalFeedbackAuthority6715.
+     */
+    fun getEntrySource6801(positionId: String): String =
+        entries[positionId]?.discoverySource?.trim().orEmpty()
+
+    /**
+     * V5.0.6792 §LEARNING_PURITY — gate for terminal learning.
+     *
+     * Returns true when this position was opened with a full 6789 provenance
+     * stamp (laneOwner + candidateVersion + sealedFdgId + intentId). Terminal
+     * learning bridges must consult this before crediting a reward: a close
+     * without full provenance was opened by a pre-6789 code path or through
+     * a hydration/replay restore, and its owner is inferred rather than
+     * immutably known. Directive:
+     *   "Do not train lane heads from unresolved-owner or economically
+     *    invalid closes. Attribute every reward to immutable entry
+     *    provenance."
+     */
+    fun hasFullProvenance6789(positionId: String): Boolean {
+        val e = entries[positionId] ?: return false
+        return e.lane.isNotBlank() &&
+            e.lane != "UNRESOLVED_OWNER_6741" &&
+            (e.candidateVersion > 0L || e.sealedFdgId.isNotBlank() || e.intentId.isNotBlank())
+    }
 
     /**
      * Record the EXIT policy separately. Multiple exits per position

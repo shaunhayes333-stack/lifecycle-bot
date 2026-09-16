@@ -384,6 +384,34 @@ object CanonicalPositionAuthority6441 {
             try { AateDecisionFabric6512.attachPosition(positionId, canonicalMode6490, mint, lane) } catch (_: Throwable) {}
             // V5.0.6636 — direct OPEN and promoted OPEN share one commit hook.
             try { positions[positionId]?.let(::lockEntryMetricsAtOpen6636) } catch (_: Throwable) {}
+            // V5.0.6799 §UNIVERSAL_OWNER_PROVENANCE — operator diagnosis Feb
+            //   2026: "Repair terminal owner persistence first. Seal
+            //   mode+mint+candidateVersion+lane+intentId into the canonical
+            //   position at open and use that immutable owner when
+            //   finalizing." The Executor path already stamps
+            //   LaneAttributionLedger6427 with full provenance, but cross-
+            //   asset openings (perps/markets executors), CanonicalPaper
+            //   Transaction6486 rebuilds, and any legacy caller reach this
+            //   authority WITHOUT that stamp. Result: 78 finalized closes
+            //   in the 6796 dump landed as LEARNING_PURITY_SKIP_UNRESOLVED_
+            //   OWNER_6792. Fix at source: EVERY canonical OPEN commit
+            //   guarantees a ledger row exists (recordEntry is first-write-
+            //   wins so a prior full-provenance stamp is not overwritten).
+            //   idempotencyKey is used as the intentId when the caller did
+            //   not stamp its own — it is the exact seal string the caller
+            //   agreed to serialise through, so it is the immutable owner
+            //   witness by definition. lane == UNRESOLVED_OWNER_6741 is
+            //   preserved (do not fabricate provenance for legacy replay
+            //   restores; those must remain filterable by
+            //   hasFullProvenance6789).
+            if (lane != "UNRESOLVED_OWNER_6741" && lane.isNotBlank()) try {
+                LaneAttributionLedger6427.recordEntry(
+                    positionId = positionId, lane = lane,
+                    strategy = lane, profile = lane,
+                    intentId = idempotencyKey.ifBlank { positionId },
+                )
+                PipelineHealthCollector.labelInc("CANONICAL_OPEN_UNIVERSAL_PROVENANCE_STAMPED_6799")
+            } catch (_: Throwable) {}
             muts.incrementAndGet()
             try {
                 PipelineHealthCollector.labelInc(

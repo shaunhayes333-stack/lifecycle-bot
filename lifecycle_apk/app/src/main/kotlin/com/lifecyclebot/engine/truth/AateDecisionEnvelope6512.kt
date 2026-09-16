@@ -46,7 +46,79 @@ object PolicySynthesizer6512 {
         val ev = if (we.isEmpty()) 0.0 else we.sumOf { it.first * it.second } / we.sumOf { it.second }.coerceAtLeast(0.0001)
         val moon = bounded.mapNotNull { c -> c.moonshotP?.let { it to c.weight } }.maxOfOrNull { it.first } ?: 0.0
         val rug = bounded.mapNotNull { c -> c.rugP?.let { it to c.weight } }.maxOfOrNull { it.first } ?: 0.0
-        val action = if (hardSafety.isNotEmpty()) "BLOCK" else proposedAction.uppercase()
+        // V5.0.6801 §POLICY_NEGATIVE_EV_HARD_VETO — operator diagnosis Feb 2026:
+        //   "Policy action=BUY while EV=-5.0 is happening. Negative EV going to
+        //    BUY is a source-level authority failure. The AATE policy stamp
+        //    must not authorise BUY when its own contributors report a
+        //    materially negative expected value with real evidence."
+        //   Preserve BLOCK from hardSafety (existing invariant). If the
+        //   proposed action is BUY-like AND the weighted EV surface is
+        //   materially negative AND at least one contributor supplied an
+        //   EV signal (we.isNotEmpty prevents blocking on the default 0.0
+        //   when no contributor scored EV), the synthesiser downgrades the
+        //   action to POLICY_NEG_EV_BLOCK_6801. -3% weighted EV is the
+        //   authority floor: casual noise stays neutral, but an authority-
+        //   confident -3% or worse cannot become an executable BUY.
+        val proposedUpper6801 = proposedAction.uppercase()
+        val isBuyLike6801 = proposedUpper6801 in setOf("BUY", "PROBE", "PROBE_ONLY", "EXECUTE")
+        // V5.0.6814 §NEG_EV_AUTHORITY_TIGHTEN — operator diagnosis Feb 2026:
+        //   "EV_INSUFFICIENT is advisory only, that is allowing structurally
+        //    weak entries through. weightedEv < 0 with >=2 independent EV
+        //    contributors: block/defer BUY for that candidate epoch.
+        //    EV_INSUFFICIENT with only 1 contributor: max size multiplier =
+        //    0.25, require strong source + momentum/price confirmation."
+        //
+        //   V5.0.6813 required 3 contributors for the hard veto and left
+        //   1-2 contributor cases as EV_INSUFFICIENT advisory. 6814
+        //   drops the threshold to 2 (matching the operator's 2-contributor
+        //   rule) and keeps the 1-contributor case as advisory that
+        //   downstream sizing caps at 0.25× via
+        //   `evInsufficientSingleContributorSizeCap6814`.
+        val MIN_EV_HARD_VETO_SAMPLE_6814 = 2
+        val evNegativeFloor6813 = -3.0
+        val evidenceState6813 = when {
+            we.isEmpty() -> "EV_UNKNOWN"
+            we.size < MIN_EV_HARD_VETO_SAMPLE_6814 -> "EV_INSUFFICIENT"
+            ev <= evNegativeFloor6813 -> "EV_VALID_NEGATIVE"
+            else -> "EV_VALID_NEUTRAL"
+        }
+        val evVetoFires6801 = isBuyLike6801 && evidenceState6813 == "EV_VALID_NEGATIVE"
+        val evAdvisoryFires6813 = isBuyLike6801 && !evVetoFires6801 &&
+            (evidenceState6813 == "EV_INSUFFICIENT" || evidenceState6813 == "EV_UNKNOWN") &&
+            we.isNotEmpty() && ev <= evNegativeFloor6813
+        val action = when {
+            hardSafety.isNotEmpty() -> "BLOCK"
+            evVetoFires6801 -> "POLICY_NEG_EV_BLOCK_6801"
+            else -> proposedUpper6801
+        }
+        if (evVetoFires6801) {
+            try {
+                PipelineHealthCollector.labelInc("AATE_POLICY_NEGATIVE_EV_HARD_VETO_6801")
+                ForensicLogger.lifecycle(
+                    "AATE_POLICY_NEGATIVE_EV_HARD_VETO_6801",
+                    "candidateId=${context.candidateId} mint=${context.mint.take(10)} " +
+                        "lane=${context.primaryStrategy} proposedAction=$proposedUpper6801 " +
+                        "weightedEv=${"%.2f".format(ev)} pWin=${"%.2f".format(pWin)} rugP=${"%.2f".format(rug)} " +
+                        "contributors=${bounded.size} evContributors=${we.size} " +
+                        "evidenceState=$evidenceState6813 " +
+                        "action=downgrade_to_POLICY_NEG_EV_BLOCK_6801_never_becomes_buy",
+                )
+            } catch (_: Throwable) {}
+        }
+        if (evAdvisoryFires6813) {
+            try {
+                PipelineHealthCollector.labelInc("AATE_POLICY_EV_INSUFFICIENT_ADVISORY_6811")
+                ForensicLogger.lifecycle(
+                    "AATE_POLICY_EV_INSUFFICIENT_ADVISORY_6811",
+                    "candidateId=${context.candidateId} mint=${context.mint.take(10)} " +
+                        "lane=${context.primaryStrategy} proposedAction=$proposedUpper6801 " +
+                        "weightedEv=${"%.2f".format(ev)} pWin=${"%.2f".format(pWin)} " +
+                        "evContributors=${we.size}/${MIN_EV_HARD_VETO_SAMPLE_6814} " +
+                        "evidenceState=$evidenceState6813 " +
+                        "action=advisory_only_no_hard_veto",
+                )
+            } catch (_: Throwable) {}
+        }
         val rev = revisions.incrementAndGet()
         return AateDecisionEnvelope6512(
             envelopeId = "${context.runtimeGeneration}:${context.mode}:${context.mint}:${context.candidateVersion}:$rev",
@@ -192,6 +264,26 @@ object AateDecisionFabric6512 {
         }
         val contributors = e?.contributors.orEmpty(); val updated = mutableListOf<String>()
         val uphBefore = UnifiedPolicyHead.trainedCount()
+        // V5.0.6792 §LEARNING_PURITY — do NOT train lane heads from an
+        // unresolved-owner close. Directive: "Attribute every reward to
+        // immutable entry provenance." Positions opened prior to 6789
+        // provenance stamping have no verifiable owner; training against
+        // an inferred owner poisons the specialist head. Downstream
+        // mint-scoped learners (AutonomousMetaPolicy / StrategyHypothesis /
+        // etc.) do not carry owner attribution and still run below.
+        val hasProvenance6792 = try {
+            LaneAttributionLedger6427.hasFullProvenance6789(env.positionId)
+        } catch (_: Throwable) { false }
+        if (!hasProvenance6792) {
+            try {
+                PipelineHealthCollector.labelInc("LEARNING_PURITY_SKIP_UNRESOLVED_OWNER_6792")
+                PipelineHealthCollector.labelInc("LEARNING_PURITY_SKIP_UNRESOLVED_OWNER_6792_${env.lane.uppercase()}")
+                ForensicLogger.lifecycle(
+                    "LEARNING_PURITY_SKIP_UNRESOLVED_OWNER_6792",
+                    "positionId=${env.positionId.take(18)} envLane=${env.lane} mint=${env.mint.take(10)} realizedPct=${env.realizedReturnPct} action=skip_lane_head_training_downstream_still_runs",
+                )
+            } catch (_: Throwable) {}
+        }
         // V5.0.6713 — exact owner-bound policy mutation is required before this
         // consumer ACKs the canonical event. Failed/missing binds retry instead
         // of permanently recording a false successful reward delivery.
@@ -210,9 +302,13 @@ object AateDecisionFabric6512 {
         // StrategyHypothesisEngine) all learn from mint/lane paths that don't
         // require the UnifiedPolicyHead per-position observation, so they MUST
         // still run. rewardedPositions still enforces one-time delivery.
-        val policyAck6713 = try {
-            UnifiedPolicyHead.recordOutcome6681(env.positionId, env.mint, env.lane, env.realizedReturnPct)
-        } catch (_: Throwable) { false }
+        val policyAck6713 = if (hasProvenance6792) {
+            try {
+                UnifiedPolicyHead.recordOutcome6681(env.positionId, env.mint, env.lane, env.realizedReturnPct)
+            } catch (_: Throwable) { false }
+        } else {
+            false
+        }
         val memeOwner6713 = env.lane.uppercase() in setOf(
             "QUALITY","BLUECHIP","BLUE_CHIP","SHITCOIN","CYCLIC","EXPRESS","CORE",
             "MOONSHOT","PROJECT_SNIPER","DIP_HUNTER","MANIPULATED","TREASURY","CASHGEN",
@@ -229,11 +325,25 @@ object AateDecisionFabric6512 {
             // so markLearned + downstream learners fire. See §CAUSAL_LOOP_UNSEVERANCE.
         }
         if (!rewardedPositions.add(env.positionId)) return true
-        // V5.0.6717 §CAUSAL_LOOP_UNSEVERANCE — always ACK the causal feedback
-        // authority regardless of whether per-position policy training bound.
-        // The canonical terminal happened; the admission gate MUST NOT stay
-        // stuck in pendingLearning. Downstream learners still get their outcome.
-        try { CausalFeedbackAuthority6715.markLearned(env.positionId) } catch (_: Throwable) {}
+        // V5.0.6717 §CAUSAL_LOOP_UNSEVERANCE — ACK the causal feedback
+        // authority regardless of whether per-position policy training
+        // bound, so the admission gate does not stay stuck in
+        // pendingLearning.
+        // V5.0.6798 §LEARNING_ACK_PURITY — but ONLY when we actually have
+        // immutable owner provenance. Prior code emitted CAUSAL_OWNER_
+        // LEARN_ACK_EARLY_6715 for every unresolved-owner close, giving
+        // the causal state a false "learned" signal for 50 out of 50
+        // trades in the operator's runtime dump. Without provenance we
+        // did not train any lane head and downstream learners cannot
+        // attribute the reward correctly either — a spurious ACK would
+        // mask real learning gaps. Skip the causal ACK; let the position
+        // stay pending until either provenance arrives or a maintenance
+        // sweep expires the pending entry.
+        if (hasProvenance6792) {
+            try { CausalFeedbackAuthority6715.markLearned(env.positionId) } catch (_: Throwable) {}
+        } else {
+            try { PipelineHealthCollector.labelInc("CAUSAL_ACK_SKIPPED_UNRESOLVED_OWNER_6798") } catch (_: Throwable) {}
+        }
         if (policyAck6713 && UnifiedPolicyHead.trainedCount() > uphBefore) updated += "UnifiedPolicyHead"
         val metaBefore = AutonomousMetaPolicy.totalUpdateCount6512()
         try { AutonomousMetaPolicy.recordOutcome(env.mint, env.realizedReturnPct) } catch (_: Throwable) {}

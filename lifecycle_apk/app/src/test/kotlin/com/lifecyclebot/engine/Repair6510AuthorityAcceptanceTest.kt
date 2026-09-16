@@ -79,8 +79,15 @@ class Repair6510AuthorityAcceptanceTest {
         // req < minExec with a small wallet where the ladder ALSO stays
         // under 3×minExec (so rescue does not apply and the sub-floor
         // rejection contract is preserved for that path).
-        assertFalse(r(0.028, 1.0, 0.05).executable) // wallet 0.05 SOL -> ladder 0.02 < 3*minExec, rescue skipped, sub-floor rejection stands
-        assertTrue(r(0.028, 1.0, 10.0).executable)   // 6598 rescue: ladder 4.0 >> 3*minExec, request lifted to minExec
+        // V5.0.6797 §REMOVE_MIN_NOTIONAL_RESURRECTION_V2 — the 10%
+        // deliberate-suppression floor (min-exec 0.05 → floor 0.005)
+        // separates authoritative micro-notional from stacked-multiplier
+        // suppression. 0.028 is above 0.005 so it is authoritative and
+        // gets promoted to min when caps can fund it.
+        // V5.0.6813 §CONDITIONAL_MIN_PROMOTION — sub-min requests promote
+        // when both cash and lane cap admit minExec, else are non-executable.
+        assertFalse(r(0.028, 1.0, 0.05).executable)  // ladder=0.05 cannot fund min alone
+        assertTrue(r(0.028, 1.0, 10.0).executable)   // caps admit → promote once
         assertTrue(r(0.05, 1.0, 10.0).executable)
         assertTrue(r(0.10, 1.0, 10.0).executable)
         assertFalse(r(0.10, 0.04, 10.0).executable)

@@ -90,6 +90,116 @@ object CausalFeedbackAuthority6715 {
     private val terminalSeen = HashSet<String>()
     private val learnedSeen = HashSet<String>()
 
+    // V5.0.6801 §SOURCE_AWARE_LEARNING — operator diagnosis Feb 2026:
+    //   "Your entry learner should learn lane × source × score × regime
+    //    rather than primarily lane × score-band, because Pump Portal is
+    //    flooding poor outcomes while some scanner-derived cohorts are
+    //    producing most of the winners."
+    //
+    //   Adding the source dimension to the primary ticket lifecycle would
+    //   be a large plumbing refactor (stampDecision/admit/resolveTerminal
+    //   all key on (mode, lane, band)). Instead this adds a PARALLEL
+    //   read-only source-cohort accumulator that observes terminal outcomes
+    //   and exposes a SourceLoserAdvisory the admission gate can consult.
+    //   Non-disruptive to the ticket lifecycle; ticket admission continues
+    //   on the existing (mode, lane, band) keys. Source keys are trimmed/
+    //   uppercased so `pump_portal` and `PUMP_PORTAL` collapse.
+    private data class SourceOutcome(var wins: Int = 0, var losses: Int = 0)
+    private val sourceScopes = HashMap<String, SourceOutcome>()
+
+    private fun normSource6801(raw: String?): String =
+        raw?.trim()?.uppercase()?.replace('-', '_')?.replace(' ', '_')
+            ?.takeIf { it.isNotBlank() } ?: "UNKNOWN_SOURCE"
+
+    private fun sourceKey6801(mode: String, source: String): String =
+        "SOURCE|${normMode(mode)}|${normSource6801(source)}"
+
+    /**
+     * V5.0.6801 §SOURCE_AWARE_LEARNING — record a terminal outcome against
+     * a discovery-source cohort. Fail-open on blank source. Idempotent
+     * against the caller's own positionId gating; this method itself
+     * doesn't dedupe (the caller resolves terminal once per position).
+     */
+    fun recordSourceOutcome6801(mode: String, source: String, isWin: Boolean) {
+        val key = sourceKey6801(mode, source)
+        synchronized(lock) {
+            val s = sourceScopes.getOrPut(key) { SourceOutcome() }
+            if (isWin) s.wins++ else s.losses++
+        }
+        try {
+            PipelineHealthCollector.labelInc(
+                if (isWin) "CAUSAL_SOURCE_WIN_RECORDED_6801" else "CAUSAL_SOURCE_LOSS_RECORDED_6801"
+            )
+        } catch (_: Throwable) {}
+    }
+
+    data class SourceLoserAdvisory(val source: String, val winRatePct: Double, val decidedCount: Int, val sizeMultiplier: Double)
+
+    /**
+     * V5.0.6801 — return a source-cohort advisory ONLY when the source has
+     * decided >= ADVISORY_MIN_DECIDED and WR is below ADVISORY_WR_FLOOR.
+     * ADMISSION gate reads this to route toxic sources to SHADOW_ONLY
+     * (mirrors the lane advisory contract in cohortLoserAdvisoryForLane).
+     */
+    fun sourceLoserAdvisory6801(mode: String, source: String): SourceLoserAdvisory? {
+        val key = sourceKey6801(mode, source)
+        synchronized(lock) {
+            val s = sourceScopes[key] ?: return null
+            val decided = s.wins + s.losses
+            if (decided < ADVISORY_MIN_DECIDED) return null
+            val wr = s.wins.toDouble() / decided.toDouble()
+            if (wr >= ADVISORY_WR_FLOOR) return null
+            val frac = (wr / ADVISORY_WR_FLOOR).coerceIn(0.0, 1.0)
+            val mult = (ADVISORY_MULT_FLOOR + (1.0 - ADVISORY_MULT_FLOOR) * frac).coerceIn(ADVISORY_MULT_FLOOR, 1.0)
+            return SourceLoserAdvisory(normSource6801(source), wr * 100.0, decided, mult)
+        }
+    }
+
+    /**
+     * V5.0.6801 §SOURCE_AWARE_TELEMETRY — expose the whole source-cohort
+     * table so operator dumps and dashboards can see the source split
+     * that drove the lane×source×score×regime learning.
+     */
+    fun sourceCohortStatusLine6801(): String = synchronized(lock) {
+        if (sourceScopes.isEmpty()) return "sources=0"
+        val rows = sourceScopes.entries.map { (k, s) ->
+            val decided = s.wins + s.losses
+            val wr = if (decided == 0) 0.0 else s.wins.toDouble() / decided.toDouble() * 100.0
+            "${k.substringAfterLast('|')}[n=$decided wr=${"%.1f".format(wr)}%]"
+        }.sortedBy { it }
+        "sources=${sourceScopes.size} " + rows.joinToString(",")
+    }
+
+    // V5.0.6801 §SOURCE_AWARE_LEARNING — subscribe once to the canonical
+    //   terminal bus and route each outcome to the source cohort. The
+    //   source is looked up on LaneAttributionLedger6427 (stamped at
+    //   OPEN commit). Blank source stamps quietly skip so hydrated/
+    //   legacy positions are not mis-attributed. BREAKEVEN closes are
+    //   deliberately excluded — the source damper mirrors the lane
+    //   advisory contract which trains on decided WIN/LOSS only.
+    private val sourceBusInstalled6801 = java.util.concurrent.atomic.AtomicBoolean(false)
+    init {
+        try {
+            if (sourceBusInstalled6801.compareAndSet(false, true)) {
+                CanonicalTradeFinalizedBus6450.subscribe { e ->
+                    try {
+                        val src6801 = com.lifecyclebot.engine.truth.LaneAttributionLedger6427
+                            .getEntrySource6801(e.positionId)
+                        if (src6801.isBlank()) return@subscribe
+                        when (e.outcome) {
+                            CanonicalTradeFinalizedBus6450.Outcome.WIN ->
+                                recordSourceOutcome6801(e.mode, src6801, isWin = true)
+                            CanonicalTradeFinalizedBus6450.Outcome.LOSS ->
+                                recordSourceOutcome6801(e.mode, src6801, isWin = false)
+                            CanonicalTradeFinalizedBus6450.Outcome.BREAKEVEN -> Unit
+                        }
+                    } catch (_: Throwable) {}
+                }
+            }
+        } catch (_: Throwable) {}
+    }
+
+
     private fun normMode(mode: String): String = mode.trim().uppercase().ifBlank { "UNKNOWN" }
     private fun normLane(raw: String): String = raw.trim().uppercase().replace('-', '_').replace(' ', '_').let {
         when (it) { "BLUE_CHIP" -> "BLUECHIP"; "PRESALE_SNIPE" -> "PROJECT_SNIPER"; else -> it }
@@ -404,13 +514,31 @@ object CausalFeedbackAuthority6715 {
             val computed = keys(nm, nl, env.scoreBand.ifBlank { scoreBand(env.entryScore) })
             val ks = positionScopes[env.positionId] ?: computed
             val invalidated = linkedSetOf<String>()
-            ks.forEach { k ->
+            // V5.0.6805 §BAND_LOCAL_TERMINAL_INVALIDATION — operator diagnosis
+            //   Feb 2026: "authority version bumped 264 times, STALE_FEEDBACK_
+            //    EPOCH_REVALIDATE_6715=151, CAUSAL_EXEC_STALE_EPOCH_6715=155.
+            //    Too much authority-version churn between qualification and
+            //    execution." Previously a terminal outcome bumped
+            //    terminalEpoch on BOTH the aggregate lane scope AND the exact
+            //    BAND scope, so a fill in one score band invalidated
+            //    reserved tickets in unrelated bands of the same lane.
+            //   Now: only BAND-scoped keys advance terminalEpoch. Aggregate
+            //   lane counters (wins/losses/openPositions) still update so
+            //   dashboards + advisories see live truth, but freshness is
+            //   band-local. Reservations are also released only from the
+            //   exact-band cohort that learned new truth.
+            val terminalScopeKeys6805 = ks.filter { it.startsWith("BAND|") }
+            ks.forEach { k -> state(k).openPositions.remove(env.positionId) }
+            terminalScopeKeys6805.forEach { k ->
                 val s = state(k)
-                s.openPositions.remove(env.positionId)
                 invalidated.addAll(s.reservedAttempts)
                 s.terminalEpoch += 1L
             }
             invalidated.forEach { releaseAttemptLocked(it, removeStamp = true) }
+            emit(
+                "CAUSAL_SCOPE_LOCAL_INVALIDATION_6805",
+                "positionId=${env.positionId.take(24)} lane=$nl scopes=${terminalScopeKeys6805.joinToString(",")} invalidated=${invalidated.size}",
+            )
             if (invalidated.isNotEmpty()) {
                 emit("CAUSAL_PENDING_INVALIDATED_ON_TERMINAL_6715", "positionId=${env.positionId.take(24)} lane=$nl count=${invalidated.size}")
             }
@@ -419,7 +547,12 @@ object CausalFeedbackAuthority6715 {
             if (env.learningEligible) {
                 if (earlyAck) {
                     ks.forEach { k -> state(k).apply {
-                        learningRevision += 1L
+                        // V5.0.6805 §BAND_LOCAL_TERMINAL_INVALIDATION — only
+                        //   BAND scopes advance learningRevision; aggregate
+                        //   lane counters still update so cohort advisory
+                        //   sees fresh truth without invalidating unrelated
+                        //   score-band reservations.
+                        if (k.startsWith("BAND|")) learningRevision += 1L
                         cleanLearnedCloses += 1
                         if (isWin6721) wins += 1 else losses += 1
                     } }
@@ -462,7 +595,11 @@ object CausalFeedbackAuthority6715 {
             ks.forEach { k ->
                 val s = state(k)
                 s.pendingLearning.remove(positionId)
-                s.learningRevision += 1L
+                // V5.0.6805 §BAND_LOCAL_TERMINAL_INVALIDATION — same rule as
+                //   the terminal path: only BAND scopes advance learning
+                //   revision so unrelated bands of the same lane keep
+                //   their reservation freshness.
+                if (k.startsWith("BAND|")) s.learningRevision += 1L
                 s.cleanLearnedCloses += 1
             }
             learnedSeen.add(positionId)
@@ -543,7 +680,18 @@ object CausalFeedbackAuthority6715 {
      * stamp→exec latency (~1s) but short enough that a genuinely
      * stale decision beyond this window still triggers revalidation.
      */
-    private const val LEARNER_REVISION_GRACE_MS = 3_000L
+    // V5.0.6776 §GRACE_MUST_COVER_LOOP_CYCLE — operator forensic Feb 2026:
+    //   CORE causal funnel showed 65 sizedExecutable -> 2 exec (98% attrition
+    //   post-sizing) while bot loop cycle was 5.1s avg (max 12.5s). The
+    //   original 3s grace was tuned when loop cycles were <1s; at 5-8s
+    //   cycles the stamp is legitimately still fresh when the executor
+    //   reads it, but the grace window says otherwise and rejects with
+    //   STALE_FEEDBACK_EPOCH_REVALIDATE_6715. Root cause of CORE post-
+    //   sizing choke.
+    //   Fix: raise to 10s so grace strictly dominates the observed loop
+    //   cycle. Integrity guards (staleByTerminal, hasReservation) are
+    //   unchanged — this only widens the "first admit within grace" window.
+    private const val LEARNER_REVISION_GRACE_MS = 10_000L
 
     fun cohortLoserAdvisoryForLane(mode: String, lane: String): CohortLoserAdvisory? {
         if (!isMemeOwnerLane(lane)) return null
@@ -618,8 +766,20 @@ object CausalFeedbackAuthority6715 {
      * only fires on genuinely-terminal cohorts. Non-meme lanes still
      * fail open (crypto/perps parity — never hard-block cross-asset).
      */
-    private const val TERMINAL_MIN_DECIDED = 20
-    private const val TERMINAL_WR_FLOOR = 0.05
+    // V5.0.6799 §OWNERSHIP_ADAPTIVE_SELECTION — operator diagnosis Feb
+    //   2026: "Make adaptive lane performance affect ownership probability,
+    //   not merely size. A 0/7, -61.8%-EV PROJECT_SNIPER cohort should
+    //   rapidly surrender primary ownership while remaining observable /
+    //   shadow-testable." The 6727 thresholds (N>=20, WR<5%) never fired
+    //   on PROJECT_SNIPER (7 decided) even though its outcome was
+    //   catastrophic. Lower the threshold so a cohort proves terminal
+    //   quickly: N>=6 decided is enough evidence to yank the ownership
+    //   election, and 15% WR is the cross-asset-parity floor observed on
+    //   healthy crypto lanes. Below that we surrender primary ownership.
+    //   Sample floor stays >= 6 so a 0/1 or 0/2 unlucky streak cannot
+    //   suppress a live lane.
+    private const val TERMINAL_MIN_DECIDED = 6
+    private const val TERMINAL_WR_FLOOR = 0.15
 
     data class TerminalSuppression(
         val band: String,
@@ -647,6 +807,7 @@ object CausalFeedbackAuthority6715 {
     internal fun resetForTest6715() = synchronized(lock) {
         scopes.clear(); ticketStamps.clear(); reservations.clear(); positionScopes.clear()
         earlyLearnAcks.clear(); terminalSeen.clear(); learnedSeen.clear()
+        sourceScopes.clear()
     }
 
     private fun emit(label: String, detail: String) {

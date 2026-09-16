@@ -291,55 +291,9 @@ class Bundle6394CanonicalExecutionTruthTest {
 class Bundle6394EarlyLaunchBypassTest {
     @org.junit.Before fun setUp() { EarlyLaunchBypass6394.clearForTest() }
 
-    @org.junit.Test fun high_conviction_early_below_floor_becomes_micro_probe() {
-        val d = EarlyLaunchBypass6394.evaluate(
-            liveScore = 48.0,
-            scoutTier = EarlyEntryScout6390.Tier.HIGH_CONVICTION_EARLY,
-            hardSafetyPassed = true, mintPairResolved = true,
-            freshLiquidityProof = true, sellQuoteable = true,
-            sameMintOpen = false, reentryLockout = false,
-        )
-        org.junit.Assert.assertTrue(d.allow)
-        org.junit.Assert.assertEquals(0.30, d.sizeMultiplier, 1e-9)
-        org.junit.Assert.assertTrue(d.reason.contains("EARLY_LAUNCH_MICRO_PROBE"))
-    }
-
-    @org.junit.Test fun score_below_absolute_min_stays_blocked_even_with_high_conviction() {
-        val d = EarlyLaunchBypass6394.evaluate(
-            liveScore = 30.0,
-            scoutTier = EarlyEntryScout6390.Tier.HIGH_CONVICTION_EARLY,
-            hardSafetyPassed = true, mintPairResolved = true,
-            freshLiquidityProof = true, sellQuoteable = true,
-            sameMintOpen = false, reentryLockout = false,
-        )
-        org.junit.Assert.assertFalse(d.allow)
-        org.junit.Assert.assertTrue(d.reason.contains("BELOW_ABSOLUTE_MIN"))
-    }
-
-    @org.junit.Test fun hard_safety_failure_never_bypassed() {
-        val d = EarlyLaunchBypass6394.evaluate(
-            liveScore = 50.0,
-            scoutTier = EarlyEntryScout6390.Tier.HIGH_CONVICTION_EARLY,
-            hardSafetyPassed = false, mintPairResolved = true,
-            freshLiquidityProof = true, sellQuoteable = true,
-            sameMintOpen = false, reentryLockout = false,
-        )
-        org.junit.Assert.assertFalse(d.allow)
-        org.junit.Assert.assertEquals("HARD_SAFETY_FAILED", d.reason)
-    }
-
-    @org.junit.Test fun early_interest_tier_not_enough_to_bypass_score_floor() {
-        val d = EarlyLaunchBypass6394.evaluate(
-            liveScore = 48.0,
-            scoutTier = EarlyEntryScout6390.Tier.EARLY_INTEREST,
-            hardSafetyPassed = true, mintPairResolved = true,
-            freshLiquidityProof = true, sellQuoteable = true,
-            sameMintOpen = false, reentryLockout = false,
-        )
-        org.junit.Assert.assertFalse(d.allow)
-        org.junit.Assert.assertTrue(d.reason.contains("INSUFFICIENT_FOR_BYPASS"))
-    }
-
+    // V5.0.6784 §AUTHORITY_CONSOLIDATION — the internal `evaluate` staged
+    // decision for shadow/counterfactual reasoning is preserved. Live-buy
+    // canonical execution below the score floor is retired.
     @org.junit.Test fun above_floor_returns_normal_full_size() {
         val d = EarlyLaunchBypass6394.evaluate(
             liveScore = 65.0,
@@ -352,9 +306,9 @@ class Bundle6394EarlyLaunchBypassTest {
         org.junit.Assert.assertEquals(1.0, d.sizeMultiplier, 1e-9)
     }
 
-    /* -------- V5.0.6394c live-buy wire helper ---------------------------- */
+    /* -------- V5.0.6784 live-buy wire — bypass RETIRED --------------------- */
 
-    @org.junit.Test fun evaluateForLiveBuy_fires_when_two_whale_buys_present() {
+    @org.junit.Test fun evaluateForLiveBuy_never_fires_below_floor_after_6784() {
         SmartMoneyFeed6394.clearForTest()
         val now = System.currentTimeMillis()
         SmartMoneyFeed6394.onWhaleBuy("mintELB1", "whaleA", now)
@@ -364,21 +318,12 @@ class Bundle6394EarlyLaunchBypassTest {
             liquidityUsd = 6_000.0,
             sameMintAlreadyOpen = false, reentryLockout = false,
         )
-        org.junit.Assert.assertTrue(d.allow)
-        org.junit.Assert.assertEquals(0.30, d.sizeMultiplier, 1e-9)
-        org.junit.Assert.assertTrue(d.reason.contains("EARLY_LAUNCH_MICRO_PROBE"))
-        SmartMoneyFeed6394.clearForTest()
-    }
-
-    @org.junit.Test fun evaluateForLiveBuy_does_not_fire_without_whale_activity() {
-        SmartMoneyFeed6394.clearForTest()
-        val d = EarlyLaunchBypass6394.evaluateForLiveBuy(
-            mint = "mintELB2", liveScore = 48.0,
-            liquidityUsd = 6_000.0,
-            sameMintAlreadyOpen = false, reentryLockout = false,
+        org.junit.Assert.assertFalse(
+            "Even with whale activity the bypass must not resurrect a below-floor entry",
+            d.allow,
         )
-        org.junit.Assert.assertFalse(d.allow)
-        org.junit.Assert.assertTrue(d.reason.contains("INSUFFICIENT_FOR_BYPASS"))
+        org.junit.Assert.assertTrue(d.reason.contains("EARLY_LAUNCH_BYPASS_RETIRED_6784"))
+        SmartMoneyFeed6394.clearForTest()
     }
 
     @org.junit.Test fun evaluateForLiveBuy_returns_normal_full_size_when_above_floor() {

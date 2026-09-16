@@ -43,7 +43,15 @@ object PaperPositionCloseAuthority {
     private val states = ConcurrentHashMap<String, CloseState>()
     private const val ALREADY_PENDING_LOG_MS = 30_000L
     private const val FAILED_RETRY_TTL_MS = 20_000L
-    private const val STUCK_CLOSE_TTL_MS = 30_000L
+    // V5.0.6776 §STUCK_CLOSE_TTL_MATCH_EXIT_COORDINATOR — the stuck-close TTL
+    //   was 30s to match the OLD EXIT_COORDINATOR_FULL_MIN_MS (30s). V5.0.6775
+    //   reduced coordinator cadence to 5s to fix normal-stop turnover (avg
+    //   15.2s at 100-position saturation); the 30s stuck-close TTL now leaves
+    //   too long a gap before stuck SHITCOIN closes retry, driving
+    //   EXIT_CHOKED. Match the new coordinator cadence: 10s TTL gives 2x the
+    //   coordinator interval as a legitimate stuck detection window while
+    //   allowing 3x faster self-healing than before.
+    private const val STUCK_CLOSE_TTL_MS = 10_000L
     private const val STUCK_RETRY_HARD_CAP = 3
     private const val EMERGENCY_TRANSIENT_RETRY_GRACE_MS_6702 = 2_000L
 

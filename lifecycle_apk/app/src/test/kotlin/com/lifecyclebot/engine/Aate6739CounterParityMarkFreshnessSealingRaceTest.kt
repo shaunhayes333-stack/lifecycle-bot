@@ -112,8 +112,11 @@ class Aate6739CounterParityMarkFreshnessSealingRaceTest {
 
     @Test
     fun `121 second old executable mark still stale (registry contract preserved)`() {
-        // Locks the Aate6734RecoveryIntegrityTest.stale_strict_mark_cannot_
-        // be_reused_for_execution invariant against future widening.
+        // V5.0.6756 §OBSERVATION_FRESHNESS_ROUTING — 121-300s evidence
+        // legitimately routes to OBSERVATION_SCORING (paper learning may
+        // consume it). The invariant this test locks is that the EXECUTABLE
+        // slot never gains a mark from 121s-old evidence, and that any
+        // promotion emitted is scoped to OBSERVATION_SCORING only.
         val mint = "G".repeat(32)
         val now = System.currentTimeMillis()
         val e = CanonicalPriceMarkRegistry6522.SourceEvidence6734(
@@ -124,7 +127,17 @@ class Aate6739CounterParityMarkFreshnessSealingRaceTest {
             timestampMs = now - 121_000L,
         )
         val r = CanonicalPriceMarkRegistry6522.resolveBestSourceEvidence6734(mint, listOf(e), now)
-        assertFalse("121 s old evidence must NOT promote (execution freshness contract)", r.promoted)
+        if (r.promoted) {
+            assertEquals(
+                "121s evidence may only admit as OBSERVATION_SCORING",
+                com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.OBSERVATION_SCORING,
+                r.mark!!.purpose,
+            )
+        }
+        assertNull(
+            "EXECUTABLE_ENTRY_QUOTE must remain null for 121s-old evidence",
+            CanonicalPriceMarkRegistry6522.get(mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE),
+        )
     }
 
     // ─── 3. Sealing race defer ────────────────────────────────────

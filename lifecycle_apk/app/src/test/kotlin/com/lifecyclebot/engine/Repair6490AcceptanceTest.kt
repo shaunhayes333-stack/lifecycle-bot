@@ -9,13 +9,12 @@ import org.junit.Test
 
 class Repair6490AcceptanceTest {
     @Test
-    fun sub_minimum_request_is_promoted_once_to_min_when_caps_can_fund_6600() = synchronized(PaperAccountLedger6430) {
-        // V5.0.6600 — restore canonical executable-minimum semantics.
-        // Operator directive Feb 2026: "If final BUY risk budget can
-        // afford the minimum executable notional: clamp the executable
-        // order to canonical minimum." Sub-minimum requests are promoted
-        // exactly once to minExec when the authoritative cash and lane
-        // hard cap can fund it.
+    fun sub_minimum_request_is_promoted_once_to_min_when_caps_can_fund_6813() = synchronized(PaperAccountLedger6430) {
+        // V5.0.6813 §CONDITIONAL_MIN_PROMOTION — supersedes both the
+        // V5.0.6600 unconditional promote and the V5.0.6809 kill-min-
+        // promotion. Sub-minimum requests are promoted exactly once when
+        // authoritative cash + lane hard cap can both fund minExec; the
+        // caller never receives a silent zero-sized order.
         PaperAccountLedger6430.resetForTest()
         PaperAccountLedger6430.initialize(0.0583)
         val r = OrderSizeResolver6441.resolve(

@@ -29,13 +29,14 @@ class Aate6604MemeCausalAuthorityCoverageTest {
 
     @Test
     fun aate6604_tactic_rotation_shapes_weakwait_branch_before_fdg() {
+        // V5.0.6786 §AUTHORITY_CONSOLIDATION — TacticSwitcher still informs
+        // rotation observation; the "shape into a probe" fallback is retired.
         val botSrc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(
-            "V5.0.6613: weakWait must consult TacticSwitcher and apply lane-local bounded shaping",
+            "V5.0.6786: weakWait must still consult TacticSwitcher for rotation observation",
             botSrc.contains("tacticGateActive6604") &&
                 botSrc.contains("com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic(") &&
-                botSrc.contains("TACTIC_ROTATED_WEAK_WAIT_SHAPED_6613") &&
-                botSrc.contains("tacticWaitShape6613")
+                botSrc.contains("TACTIC_ROTATED_WEAK_WAIT_6786"),
         )
         assertFalse(botSrc.contains("TACTIC_ROTATED_WEAK_WAIT_BLOCKED_6604"))
     }

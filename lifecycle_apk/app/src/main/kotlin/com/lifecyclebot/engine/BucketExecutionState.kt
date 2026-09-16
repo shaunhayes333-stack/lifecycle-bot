@@ -37,6 +37,35 @@ object BucketExecutionState {
     const val MAX_LOSS_RATE = 0.75      // >= 75% loss rate => toxic
     const val MAX_MEAN_PNL_PCT = -10.0  // <= -10% mean pnl => toxic
 
+    // V5.0.6756 §EXPRESS_EARNED_RECOVERY.
+    // Runtime 5.0.6755: EXPRESS closed 12 trades at 9.1% WR / -29.2% mean and
+    // the S41-60 cohort was 1W/9L, yet MIN_SAMPLES=20 meant none of that evidence
+    // could stop normal economic execution. EXPRESS is deliberately the fastest
+    // lane, so a collapsed lane needs an EARLY recovery mode: learning continues
+    // on every candidate, but economic execution is reserved for unusually strong
+    // scores until same-mode terminal truth proves recovery. Nothing is persisted;
+    // the restriction self-clears immediately when the lane recovers.
+    private const val EXPRESS_RECOVERY_MIN_TRADES = 5
+    private const val EXPRESS_RECOVERY_MAX_WR_PCT = 20.0
+    private const val EXPRESS_RECOVERY_SCORE_FLOOR = 70
+
+    private fun expressRecoveryShadow6756(lane: String, score: Int): Boolean {
+        val laneU = lane.trim().uppercase().replace('-', '_').replace(' ', '_')
+        if (laneU != "EXPRESS" || score >= EXPRESS_RECOVERY_SCORE_FLOOR) return false
+        return try {
+            val board = if (RuntimeModeAuthority.isPaper())
+                StrategyTelemetry.computeCleanPaperTerminalLeaderboard()
+            else
+                StrategyTelemetry.computeCleanLiveTerminalLeaderboard()
+            val express = board.firstOrNull { it.strategy.trim().equals("EXPRESS", true) } ?: return false
+            express.trades >= EXPRESS_RECOVERY_MIN_TRADES &&
+                express.winRatePct < EXPRESS_RECOVERY_MAX_WR_PCT &&
+                express.totalSolPnl < 0.0
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     /**
      * Decide execution state for a (lane, score) bucket.
      *
@@ -51,6 +80,13 @@ object BucketExecutionState {
             if (AdaptiveLaneReproof6684.activeStrategy(lane, LosingPatternMemory.scoreBand(score)) != null) {
                 return State.EXECUTABLE
             }
+
+            // V5.0.6756 — lane-level early collapse protection for EXPRESS.
+            // High-score recovery attempts (S70+) remain executable so the lane
+            // can re-prove itself; lower-score candidates stay fully trainable but
+            // cannot keep dragging economic WR down while the lane is collapsed.
+            if (expressRecoveryShadow6756(lane, score)) return State.SHADOW_TRAIN_ONLY
+
             val samples = ScoreExpectancyTracker.bucketSamples(lane, score)
             if (samples < MIN_SAMPLES) return State.EXECUTABLE
 
@@ -76,7 +112,8 @@ object BucketExecutionState {
             val n = ScoreExpectancyTracker.bucketSamples(lane, score)
             val mean = ScoreExpectancyTracker.bucketMean(lane, score)
             val danger = LosingPatternMemory.isDangerZone(lane, score)
-            "lane=$lane score=$score n=$n mean=${mean?.let { "%.1f%%".format(it) } ?: "n/a"} danger=$danger state=${stateFor(lane, score)}"
+            val expressRecovery = expressRecoveryShadow6756(lane, score)
+            "lane=$lane score=$score n=$n mean=${mean?.let { "%.1f%%".format(it) } ?: "n/a"} danger=$danger expressRecovery=$expressRecovery state=${stateFor(lane, score)}"
         } catch (e: Throwable) {
             "lane=$lane score=$score state=EXECUTABLE(err:${e.message})"
         }

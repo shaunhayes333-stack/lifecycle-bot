@@ -106,7 +106,14 @@ def main() -> int:
         "CanonicalPaperTransaction6486.",
     ):
         forbid(errors, unified, mutation, "UNIFIED_ACCOUNT_READ_PURITY_6678")
-    require(errors, unified, "ForensicReconciliation6635.reconcile6635()", "UNIFIED_ACCOUNT_OBSERVATION_6678")
+    # V5.0.6805 §RETIRE_JOURNAL_REPLAY_ACCOUNTING — the UI hero must read
+    # CanonicalCapitalAuthority6450 ONLY. Reconciliation is a side-
+    # effecting observer and must never run in the render path. Journal
+    # replay is forensic history / recovery only.
+    forbid(errors, unified, "ForensicReconciliation6635.reconcile6635()", "UNIFIED_ACCOUNT_READ_PURITY_6805")
+    forbid(errors, unified, "JournalEconomicAuthority6616.currentSnapshot()", "UNIFIED_ACCOUNT_READ_PURITY_6805")
+    require(errors, unified, "CANONICAL_CAPITAL_AUTHORITY_6450", "UNIFIED_ACCOUNT_CANONICAL_SOURCE_6805")
+    require(errors, unified, "CanonicalCapitalAuthority6450.snapshot()", "UNIFIED_ACCOUNT_CANONICAL_SOURCE_6805")
 
     perps_store = (SRC / "com/lifecyclebot/perps/PerpsPositionStore.kt").read_text()
     forbid(errors, perps_store, "CanonicalJournalProjectionRepair6677", "PERPS_PERSISTENCE_READ_PURITY_6678")

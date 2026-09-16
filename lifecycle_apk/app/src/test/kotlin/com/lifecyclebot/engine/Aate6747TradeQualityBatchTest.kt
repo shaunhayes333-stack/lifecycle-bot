@@ -88,7 +88,7 @@ class Aate6747TradeQualityBatchTest {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         assertTrue(
             "gate MUST expose REGIME_BASE_MIN_SCORE_6747 constant",
-            src.contains("REGIME_BASE_MIN_SCORE_6747 = 15"),
+            src.contains("REGIME_BASE_MIN_SCORE_6747 = 35"),
         )
         assertTrue(
             "gate MUST call RegimeDetector.scoreFloorDelta() at admission",
@@ -112,6 +112,12 @@ class Aate6747TradeQualityBatchTest {
 
     @Test
     fun `probe emissions are sampled in CHOP and DUMP regimes`() {
+        // V5.0.6786 §AUTHORITY_CONSOLIDATION — the BotService DUST_PROBE /
+        // ZERO_SIGNAL_PROBE emitters have been retired (zero-signal and
+        // weak-wait now WAIT instead of resurrecting as PROBE_ONLY BUYs).
+        // The ExecutableOpenGate damper still exists and continues to sample
+        // any remaining probe emissions from other call sites, so its
+        // gate-level shape is retained.
         val src = File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         assertTrue(
             "gate MUST expose probeShouldEmit6747",
@@ -126,15 +132,18 @@ class Aate6747TradeQualityBatchTest {
             "damper MUST emit a dedicated skip label",
             src.contains("EXPLORATION_DAMPER_SKIPPED_6747"),
         )
-        // Call sites in BotService.
+        // V5.0.6786: BotService's DUST_PROBE / ZERO_SIGNAL_PROBE fallback
+        // paths were retired. Confirm they no longer resurrect WAIT into a
+        // PROBE_ONLY buy.
         val botSrc = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue(
-            "BotService DUST_PROBE emitter MUST consult the damper",
-            botSrc.contains("EXPLORATION_DAMPED_DUST_PROBE_6747"),
+        assertFalse(
+            "V5.0.6786: BotService must not resurrect WAIT into an EXPLORATION_DAMPED DUST_PROBE",
+            botSrc.contains("EXPLORATION_DAMPED_DUST_PROBE_6747") ||
+                botSrc.contains("EXPLORATION_DAMPED_ZERO_SIGNAL_6747"),
         )
         assertTrue(
-            "BotService ZERO_SIGNAL_PROBE emitter MUST consult the damper",
-            botSrc.contains("EXPLORATION_DAMPED_ZERO_SIGNAL_6747"),
+            "V5.0.6786: BotService must WAIT on zero-signal and weak-wait",
+            botSrc.contains("ZERO_SIGNAL_WAIT_6786") && botSrc.contains("WEAK_WAIT_REJECT_6786"),
         )
     }
 

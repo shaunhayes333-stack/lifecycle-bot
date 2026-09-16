@@ -92,6 +92,13 @@ class Repair6512ExecutionAuthorityTest {
         )
         assertNotNull(com.lifecyclebot.engine.truth.AateDecisionFabric6512.sealForExecution("attempt-$cv", "PAPER", mint, cv, lane))
         assertTrue(com.lifecyclebot.engine.truth.AateDecisionFabric6512.attachPosition("position-$cv", "paper", mint, lane))
+        // V5.0.6792 §LEARNING_PURITY — stamp full provenance so
+        // UnifiedPolicyHead.recordOutcome is not skipped by the new
+        // LaneAttributionLedger6427.hasFullProvenance6789 gate.
+        com.lifecyclebot.engine.truth.LaneAttributionLedger6427.recordEntry(
+            positionId = "position-$cv", lane = lane, strategy = lane, profile = lane,
+            candidateVersion = cv, sealedFdgId = "test-fdg-$cv", intentId = "attempt-$cv",
+        )
         val env = com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.Envelope(
             tradeId = "trade-$cv", positionId = "position-$cv", atMs = System.currentTimeMillis(),
             realizedPnlSol = 0.02, realizedReturnPct = 40.0, mint = mint, lane = lane,

@@ -869,6 +869,9 @@ object CyclicTradeEngine {
                 proposedSizeSol = sizeSol,
                 brain = executor.brain,
                 tradingModeTag = try { ModeSpecificGates.fromTradingMode("CYCLIC") } catch (_: Throwable) { null },
+                // V5.0.6756 — TradingModeTag is diagnostic context, not specialist ownership.
+                // Seal CYCLIC explicitly so FDG, immutable intent and executor agree.
+                specialistLane = "CYCLIC",
             )
         } catch (e: Throwable) {
             ErrorLogger.warn(TAG, "CYCLIC_FDG_ERROR ${best.symbol}: ${e.message} — fail-open to authorizer")

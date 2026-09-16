@@ -5,7 +5,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
-/** V5.0.6709 source locks for adaptive round-trip inventory pacing. */
+/** V5.0.6709/6756 source locks for adaptive round-trip inventory pacing. */
 class Aate6709AdaptiveTurnoverCycleTest {
 
     private fun slotHealthSource(): String =
@@ -22,7 +22,9 @@ class Aate6709AdaptiveTurnoverCycleTest {
     @Test
     fun `paper inventory pressure progressively paces entries instead of growing unbounded`() {
         val src = slotHealthSource()
-        assertTrue(src.contains("TURNOVER_SOFT_START_6709 = 48"))
+        // V5.0.6756: normal ~50-position inventory must not stack a global
+        // cadence on top of lane-local capital/finality gates.
+        assertTrue(src.contains("TURNOVER_SOFT_START_6709 = 64"))
         assertTrue(src.contains("TURNOVER_MEDIUM_START_6709 = 72"))
         assertTrue(src.contains("TURNOVER_HIGH_START_6709 = 96"))
         assertTrue(src.contains("TURNOVER_SEVERE_START_6709 = 120"))
@@ -59,4 +61,4 @@ class Aate6709AdaptiveTurnoverCycleTest {
     }
 }
 
-// V5.0.6709 retry marker: rerun guarded exit-authority transform from corrected test head.
+// V5.0.6756 retry marker: turnover pressure begins only above normal inventory.

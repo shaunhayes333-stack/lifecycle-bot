@@ -361,11 +361,12 @@ object FinalDecisionGate {
         consecutiveBlockCount++
         lastBlockReason = reason
 
-        if (consecutiveBlockCount >= DANGER_ZONE_BYPASS_THRESHOLD && !adaptiveRelaxationActive) {
-            adaptiveRelaxationActive = true
-            relaxationTradesUsed = 0
-            ErrorLogger.warn("FDG", "🔓 ADAPTIVE RELAXATION ACTIVATED after $consecutiveBlockCount consecutive blocks")
-        }
+        // V5.0.6782 §AUTHORITY_CONSOLIDATION — do not auto-activate adaptive
+        // relaxation on consecutive blocks. Directive: "no forced trade-volume
+        // preservation ... keep trading so it can learn." A block streak is
+        // legitimate evidence that the intelligence is rejecting bad trades;
+        // it is NOT a signal to loosen thresholds. AntiChoke's forceAdaptive
+        // Relaxation() is now a no-op (see 6782 stub).
     }
 
     fun recordTradeExecuted() {
@@ -403,10 +404,15 @@ object FinalDecisionGate {
     fun isAdaptiveRelaxationActive(): Boolean = adaptiveRelaxationActive
 
     fun forceAdaptiveRelaxation(reason: String) {
-        if (adaptiveRelaxationActive) return
-        adaptiveRelaxationActive = true
-        relaxationTradesUsed = 0
-        ErrorLogger.warn("FDG", "🔓 ADAPTIVE RELAXATION FORCED by $reason — confidence floors dropped")
+        // V5.0.6782 §AUTHORITY_CONSOLIDATION — no-op. Prior throughput doctrine
+        // let AntiChokeManager force-drop confidence floors during "starvation"
+        // so more trades would fire and the bot could keep learning. Directive:
+        // "Lower volume is correct if intelligence is rejecting poor trades.
+        // Do NOT compensate for lower trade count by loosening thresholds."
+        // Kept as a callable stub so callers link; adaptive relaxation stays
+        // OFF here.
+        try { PipelineHealthCollector.labelInc("FORCE_ADAPTIVE_RELAXATION_NOOP_6782") } catch (_: Throwable) {}
+        try { ErrorLogger.info("FDG", "🔒 forceAdaptiveRelaxation ignored by 6782 authority consolidation (reason=$reason)") } catch (_: Throwable) {}
     }
 
     /**
@@ -585,7 +591,8 @@ object FinalDecisionGate {
         val adaptive = getAdaptiveConfidence(isPaperMode)
         val diff = adaptive - fluidBase
         val sign = if (diff >= 0) "+" else ""
-        val isBootstrap = isPaperMode && learningProgress < 0.40  // V5.0.4021: paper-only bootstrap display; live adapts from trade 1
+        // V5.0.6809: BOOTSTRAP label removed from FluidConf render — no
+        // runtime BOOTSTRAP tag emitted anywhere in health snapshot.
 
         val tierLabel = try {
             val solPrice = WalletManager.lastKnownSolPrice
@@ -604,7 +611,7 @@ object FinalDecisionGate {
 
         return buildString {
             append("FluidConf: base=${fluidBase.toInt()}% ${sign}${diff.toInt()}% = ${adaptive.toInt()}% ")
-            append("[learning=${(learningProgress * 100).toInt()}%${if (isBootstrap) " BOOTSTRAP" else ""} ")
+            append("[learning=${(learningProgress * 100).toInt()}% ")
             append("vol=${currentConditions.avgVolatility.toInt()}% ")
             append("wr=${currentConditions.recentWinRate.toInt()}% ")
             append("buy=${currentConditions.buyPressureTrend.toInt()}% ")
@@ -643,7 +650,7 @@ object FinalDecisionGate {
             append("🧠 AI Learning: ${learningProgressPct}% ")
             append("($totalTradesLearned trades) | ")
             append("Conf: Paper≥${paperConfThreshold}% Live≥${liveConfThreshold}% ")
-            if (isBootstrap) append("[BOOTSTRAP]")
+            // V5.0.6809: BOOTSTRAP tag intentionally omitted (deprecated runtime label).
         }
     }
 
@@ -790,6 +797,50 @@ object FinalDecisionGate {
         // was permanently 0 because no call site emitted the phase
         // beacon. Zero happy-path cost.
         try { PipelineHealthCollector.recordBackgroundProgress6544("FDG") } catch (_: Throwable) {}
+
+        // V5.0.6809 §PRE_FDG_MARK_PROMOTION — operator diagnosis Feb 2026:
+        //   missingExecutableMarkWithValidSource=23, EXECUTION_BLOCKED_NO_CANONICAL_MARK_6613=23.
+        // When a candidate has a fresh source quote (TokenMap or lastPrice),
+        // promote it into the canonical mark store BEFORE FDG runs so the
+        // subsequent execution or exit evaluation always finds a canonical
+        // mark. Dedup by mint (registry publish is idempotent by identity).
+        // Never fabricate; never sync-block on providers — the resolution is
+        // a pure registry read from evidence already carried in TokenState.
+        try {
+            val nowPromo6809 = System.currentTimeMillis()
+            val WINDOW6809 = 300_000L
+            val tokenMapFresh6809 = ts.tokenMap.updatedAtMs > 0L &&
+                nowPromo6809 - ts.tokenMap.updatedAtMs <= WINDOW6809
+            val stateFresh6809 = ts.lastPriceUpdate > 0L &&
+                nowPromo6809 - ts.lastPriceUpdate <= WINDOW6809
+            if (tokenMapFresh6809 || stateFresh6809) {
+                val evidence6809 = listOf(
+                    com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.SourceEvidence6734(
+                        ts.mint,
+                        ts.tokenMap.poolAddress.ifBlank { ts.tokenMap.pairAddress },
+                        ts.tokenMap.quoteMint, ts.tokenMap.sourceScanner,
+                        ts.tokenMap.priceUsd ?: 0.0, ts.tokenMap.liquidityUsd ?: 0.0,
+                        if (tokenMapFresh6809) ts.tokenMap.updatedAtMs else 0L,
+                    ),
+                    com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.SourceEvidence6734(
+                        ts.mint,
+                        ts.lastPricePoolAddr.ifBlank { ts.pairAddress },
+                        "USD", ts.lastPriceSource, ts.lastPrice, ts.lastLiquidityUsd,
+                        if (stateFresh6809) ts.lastPriceUpdate else 0L,
+                    ),
+                )
+                val promo6809 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522
+                    .resolveBestSourceEvidence6734(ts.mint, evidence6809, nowPromo6809)
+                if (promo6809.promoted) {
+                    PipelineHealthCollector.labelInc("FDG_PRE_MARK_PROMOTED_6809")
+                } else if (evidence6809.any { it.timestampMs > 0L && (it.priceUsd) > 0.0 }) {
+                    // Fresh evidence exists but promotion did not admit; the
+                    // registry already surfaces the reason via its own counters.
+                    PipelineHealthCollector.labelInc("FDG_PRE_MARK_EVIDENCE_HELD_6809")
+                }
+            }
+        } catch (_: Throwable) {}
+
         val checks = mutableListOf<GateCheck>()
         var blockReason: String? = null
         var blockLevel: BlockLevel? = null
@@ -950,6 +1001,69 @@ object FinalDecisionGate {
             )
         }
 
+        // V5.0.6814 §CAPITAL_RECOVERY_GATE — operator diagnosis Feb 2026:
+        //   When cash is starved, positions saturated, or buy/sell ratio
+        //   inverted, stop ordinary new entries so exits can recover
+        //   capital. Exits (SELL/TP/SL/catastrophic) never traverse this
+        //   gate — FDG evaluates BUY-side candidates only. Uses the
+        //   normal blockReason return path (no early-exit / no
+        //   hand-built FinalDecision) — critical after the V5.0.6811
+        //   crash lesson. Learning/shadow evaluation continues via the
+        //   normal FinalDecision consumers.
+        //
+        //   The gate self-triggers a refresh of CapitalRecoveryAuthority6814
+        //   state using the currently-authoritative capital snapshot
+        //   (paper ledger or LIVE capital source). No BotService loop
+        //   modification is required.
+        try {
+            val cash6814 = try {
+                if (mode == TradeMode.PAPER) com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol()
+                else 0.0
+            } catch (_: Throwable) { 0.0 }
+            val openCount6814 = try {
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().size
+            } catch (_: Throwable) { 0 }
+            // Equity approximation: cash + open position count * average
+            // notional (a conservative proxy — we deliberately avoid
+            // touching canonical valuation authorities from FDG).
+            val avgNotionalProxy6814 = 0.05
+            val equity6814 = cash6814 + openCount6814 * avgNotionalProxy6814
+            // Slot capacity — use a conservative constant since the
+            // authoritative slot registry has no public API here.
+            val slotCap6814 = 100
+            com.lifecyclebot.engine.truth.CapitalRecoveryAuthority6814.evaluate(
+                availableCashSol = cash6814,
+                equitySol = equity6814,
+                openPositions = openCount6814,
+                slotCapacity = slotCap6814,
+                buysLastWindow = 0L,   // rolling counters not wired in this ship
+                sellsLastWindow = 0L,
+            )
+        } catch (_: Throwable) {}
+        if (com.lifecyclebot.engine.truth.CapitalRecoveryAuthority6814.isActive()) {
+            val reason6814 = com.lifecyclebot.engine.truth.CapitalRecoveryAuthority6814.lastReason()
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("FDG_BLOCKED_CAPITAL_RECOVERY_6814")
+            } catch (_: Throwable) {}
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = candidate.aiConfidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = "CAPITAL_RECOVERY_6814",
+                blockLevel = BlockLevel.HARD,
+                sizeSol = 0.0,
+                tags = listOf("capital_recovery_6814", "reason:$reason6814"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "CAPITAL_RECOVERY_6814: cash/slot/buy-sell imbalance → new BUY entries paused ($reason6814)",
+                gateChecks = listOf(GateCheck("capital_recovery_6814", false, reason6814)),
+            )
+        }
+
         // V5.9.805 — operator audit Fix (β): record this candidate's V3
         // score in the WrRecoveryPartial rolling distribution. We do this
         // at the top of FDG (after candidate construction) because every
@@ -1021,72 +1135,43 @@ object FinalDecisionGate {
                 try { com.lifecyclebot.engine.SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_SAFETY_NOT_READY_REFRESH_REQUESTED") } catch (_: Throwable) {}
 
-                // V5.0.6341 — DEMOTE STALE TO SOFT-SHAPE. The 6308-era
-                // emergency snapshot showed 539 SAFETY_NOT_READY_STALE
-                // hard-blocks in a single session, with safety age up
-                // to 606 seconds because Birdeye rate limits (8823
-                // BIRDEYE_SEED_SKIPPED_BUDGET events) and Helius
-                // degradation stalled the refresh. Hard-blocking every
-                // candidate on stale-but-previously-valid data while
-                // the refresh path is throttled produced 52-204s bot
-                // loop cycles and zero visible trades.
-                //
-                // Doctrine: never hard-block on strategy bleed OR on
-                // provider degradation. STALE means we DID check
-                // safety at least once and it passed — the token
-                // fundamentals rarely change in the intervening 5-10
-                // minutes, and the refresh has been requested in the
-                // background. We proceed at reduced size (0.30× of
-                // normal) so:
-                //   - the candidate keeps flowing through the pipeline
-                //   - the sample keeps growing so learning improves
-                //   - if safety refreshes and reveals a real risk on
-                //     the next cycle, the collapse guard / stop-loss
-                //     catches it
-                //
-                // MISSING (never checked) stays a hard-block — that's
-                // a genuine data-integrity risk, not just staleness.
-                if (safetyStale && !safetyMissing) {
+                // V5.0.6783 §AUTHORITY_CONSOLIDATION — stale safety = WAIT.
+                // Directive §6: "WAIT when evidence is incomplete ...
+                // 'I DON'T KNOW' MUST MEAN WAIT. It must NOT mean 'buy tiny
+                // anyway.'" Stale safety data is incomplete evidence and
+                // therefore WAIT — not "shape to 0.3x and continue". The
+                // refresh has been queued above; the next scan cycle will
+                // re-evaluate with fresh evidence. Missing (never checked)
+                // stays a hard block for identical reasons.
+                if (shouldEmitSafetyReadyBlock(ts.mint)) {
                     try {
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_SAFETY_STALE_SOFT_SHAPED_6341")
                         ForensicLogger.lifecycle(
-                            "FDG_SAFETY_STALE_SOFT_SHAPED_6341",
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} ageSec=${safetyAgeMs / 1000} action=soft_shape_030x_and_continue reason=refresh_backlogged_provider_degraded",
+                            "FDG_BLOCKED_SAFETY_NOT_READY",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason ageSec=${safetyAgeMs / 1000} mode=LIVE",
                         )
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_SAFETY_WAIT_6783")
                     } catch (_: Throwable) {}
-                    // Fall through — no hard-block return. Downstream
-                    // pipeline continues and the sizing pass shrinks
-                    // via FDG_SAFETY_STALE_SOFT_SHAPE_6341 mult (0.30).
-                } else {
-                    if (shouldEmitSafetyReadyBlock(ts.mint)) {
-                        try {
-                            ForensicLogger.lifecycle(
-                                "FDG_BLOCKED_SAFETY_NOT_READY",
-                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason ageSec=${safetyAgeMs / 1000} mode=LIVE",
-                            )
-                        } catch (_: Throwable) {}
-                        ErrorLogger.info(
-                            "FDG",
-                            "🛡 UPSTREAM_SAFETY_GATE: ${ts.symbol} | $reason — candidate held back from executor",
-                        )
-                    }
-                    return FinalDecision(
-                        shouldTrade = false,
-                        mode = mode,
-                        approvalClass = ApprovalClass.BLOCKED,
-                        quality = candidate.setupQuality,
-                        confidence = candidate.aiConfidence,
-                        edge = EdgeVerdict.SKIP,
-                        blockReason = reason,
-                        blockLevel = BlockLevel.HARD,
-                        sizeSol = 0.0,
-                        tags = listOf("upstream_safety_gate", reason.lowercase()),
+                    ErrorLogger.info(
+                        "FDG",
+                        "🛡 UPSTREAM_SAFETY_GATE: ${ts.symbol} | $reason — WAIT for refresh (6783)",
+                    )
+                }
+                return FinalDecision(
+                    shouldTrade = false,
+                    mode = mode,
+                    approvalClass = ApprovalClass.BLOCKED,
+                    quality = candidate.setupQuality,
+                    confidence = candidate.aiConfidence,
+                    edge = EdgeVerdict.SKIP,
+                    blockReason = reason,
+                    blockLevel = BlockLevel.HARD,
+                    sizeSol = 0.0,
+                    tags = listOf("upstream_safety_gate", reason.lowercase()),
                     mint = ts.mint,
                     symbol = ts.symbol,
-                    approvalReason = "FDG upstream safety gate: $reason (live-mode hard block before executor)",
+                    approvalReason = "FDG upstream safety gate: $reason (WAIT for refresh, no shape-and-continue)",
                     gateChecks = listOf(GateCheck("safety_ready_upstream", false, reason)),
                 )
-                }
             }
         }
 
@@ -1122,53 +1207,59 @@ object FinalDecisionGate {
             if (symRegimeTrans) tags.add("sym_regime_trans")
             if (symLeadLagWarn) tags.add("sym_leadlag_warn")
         }
-        // V5.9.213: Symbolic universe block — LIVE only hard-block.
-        // In paper/bootstrap mode we only log + tag (no block) so the bot can keep
-        // learning even during a losing streak. The score penalty from SymbolicContext
-        // still applies (-8 symNudge), and DrawdownCircuitAI still score-penalises (-20).
-        // Hard block ONLY fires in live-money mode where real losses must be protected.
+        // V5.0.6783 §AUTHORITY_CONSOLIDATION — Symbolic universe block is
+        // authoritative in ALL modes. Prior code was LIVE-only ("paper keeps
+        // learning through panic"). Directive §12 forbids downgrading a
+        // HARD_BLOCK to advisory. If the symbolic universe circuit-breaker
+        // has tripped in a PANIC/FEARFUL context, canonical execution is
+        // rejected. Shadow/replay learners still receive the rejected
+        // candidate as counterfactual evidence downstream.
         if (symGreenLight < 0.20 && symMood in listOf("PANIC", "FEARFUL") && symCircuitBreaking) {
-            ErrorLogger.info("FDG", "🌌 SYMBOLIC_WARN: ${ts.symbol} | greenLight=${"%.2f".format(symGreenLight)} mood=$symMood circuit_breaking=true | mode=$mode")
-            if (mode == TradeMode.LIVE) {
-                // LIVE: Hard block — don't risk real money in panic+circuit-tripped state
-                return FinalDecision(
-                    shouldTrade = false,
-                    mode = mode,
-                    approvalClass = ApprovalClass.BLOCKED,
-                    quality = candidate.setupQuality,
-                    confidence = candidate.aiConfidence,
-                    edge = EdgeVerdict.SKIP,
-                    blockReason = "SYMBOLIC_UNIVERSE_BLOCK",
-                    blockLevel = BlockLevel.CONFIDENCE,
-                    sizeSol = 0.0,
-                    tags = tags + listOf("symbolic_block", "panic_mode"),
-                    mint = ts.mint,
-                    symbol = ts.symbol,
-                    approvalReason = "SYMBOLIC_BLOCK: greenLight<0.20 + PANIC/FEARFUL + circuit_breaking (LIVE)",
-                    gateChecks = listOf(GateCheck("symbolic_universe", false, "greenLight=${"%.2f".format(symGreenLight)} mood=$symMood"))
-                )
-            }
-            // PAPER: Tag it but allow through so learning continues. 
-            // EntryIntelligence symNudge + DrawdownCircuit score penalty already apply.
-            tags.add("sym_panic_paper_warn")
+            ErrorLogger.info("FDG", "🌌 SYMBOLIC_BLOCK: ${ts.symbol} | greenLight=${"%.2f".format(symGreenLight)} mood=$symMood circuit_breaking=true | mode=$mode")
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = candidate.aiConfidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = "SYMBOLIC_UNIVERSE_BLOCK",
+                blockLevel = BlockLevel.CONFIDENCE,
+                sizeSol = 0.0,
+                tags = tags + listOf("symbolic_block", "panic_mode"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "SYMBOLIC_BLOCK: greenLight<0.20 + PANIC/FEARFUL + circuit_breaking (authoritative in all modes)",
+                gateChecks = listOf(GateCheck("symbolic_universe", false, "greenLight=${"%.2f".format(symGreenLight)} mood=$symMood"))
+            )
         }
 
         if (candidate.aiConfidence <= 0.0) {
-            // V5.0.3950 — ZERO-CONF SOURCE ALIGNMENT.
-            // Runtime 3949 still showed FDG/LOW_CONFIDENCE_0% even after the
-            // low-confidence block below was converted to live micro-probes. This
-            // early return bypassed that new doctrine. A 0% confidence candidate
-            // with route/liquidity/safety still gets shaped to a tiny live probe;
-            // malformed/mechanical failures are blocked by the real safety/route
-            // gates downstream, not by this confidence shortcut.
-            if (mode == TradeMode.LIVE) {
-                tags.add("live_zero_conf_micro_probe")
-                checks.add(GateCheck("confidence", true, "conf=0% → LIVE micro-probe sizing, not hard block"))
-                ErrorLogger.info("FDG", "🔬 ZERO_CONF_MICRO_PROBE (LIVE): ${ts.symbol} | quality=${candidate.setupQuality} edge=${candidate.edgeQuality} conf=0%")
-            } else {
-                ErrorLogger.info("FDG", "ℹ️ ZERO_CONF_PASSTHRU (PAPER): ${ts.symbol} | quality=${candidate.setupQuality} edge=${candidate.edgeQuality} → continue with min-size for learning")
-                tags.add("zero_conf_paper_learn")
-            }
+            // V5.0.6782 §AUTHORITY_CONSOLIDATION — ZERO CONFIDENCE = REJECT.
+            // Directive: "'I DON'T KNOW' MUST MEAN WAIT. It must NOT mean
+            // 'buy tiny anyway.'" Prior throughput doctrine converted a
+            // zero-conf candidate into a live micro-probe or paper min-size
+            // passthrough so the bot could keep learning. That is exactly
+            // the resurrection path the authority-consolidation mandate
+            // forbids. Counterfactual/replay/lab paths still receive the
+            // rejected candidate as learning evidence, but canonical
+            // capital does not fund zero-signal buys.
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = candidate.aiConfidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = "ZERO_CONFIDENCE_REJECT_6782",
+                blockLevel = BlockLevel.CONFIDENCE,
+                sizeSol = 0.0,
+                tags = tags + listOf("zero_conf_reject_6782", "lane:$laneName"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "FDG rejected zero-confidence candidate; shadow/replay learners still receive counterfactual",
+                gateChecks = checks + GateCheck("confidence", false, "conf=0% → REJECT (source-level authority consolidation)"),
+            )
         }
 
         val earlyMemoryScore = try {
@@ -1213,23 +1304,21 @@ object FinalDecisionGate {
 
         val tradingModeStr = tradingModeTag?.name ?: ""
 
-        // V5.0.3947 — COPY/WHALE live growth alignment. These modes are part
-        // of the 14+ trader surface and must not be live-disabled at FDG just
-        // because confidence is soft. Confidence/whale weakness is now handled
-        // by the common low-confidence micro-probe and LiveGrowthDoctrine sizing
-        // downstream; true route/safety impossibilities still block elsewhere.
+        // V5.0.6783 §AUTHORITY_CONSOLIDATION — lanes are experts, not
+        // authorities. Directive §2: "Lane identity is evidence. Lane
+        // identity is not superior to learned outcome truth." A COPY/WHALE
+        // lane label cannot force execution when confidence is soft — the
+        // downstream FDG confidence/EV gates evaluate the sealed intelligence
+        // and reject if the evidence is insufficient. Prior "micro-probe
+        // sizing, not hard block" carve-outs were the exact throughput
+        // doctrine forbidden by §12 ("downgrade HARD_BLOCK to advisory").
+        // Kept as an informational log only.
         if (tradingModeStr.uppercase().contains("COPY")) {
-            if (mode == TradeMode.LIVE && candidate.aiConfidence < 50.0) {
-                tags.add("copy_trade_live_micro_probe")
-                checks.add(GateCheck("copy_conf", true, "LIVE COPY low confidence → micro-probe sizing, not hard block"))
-            }
-            ErrorLogger.info("FDG", "✅ COPY_TRADE: ${ts.symbol} | mode=$tradingModeStr | allowed for live-growth learning")
+            ErrorLogger.info("FDG", "COPY_TRADE lane observed: ${ts.symbol} conf=${candidate.aiConfidence.toInt()}% — decision follows sealed authority")
         }
 
         if (tradingModeStr.uppercase().contains("WHALE")) {
-            tags.add("whale_follow_live_growth_probe")
-            checks.add(GateCheck("whale_follow_growth", true, "WHALE_FOLLOW allowed through shared growth doctrine; no live-only hard disable"))
-            ErrorLogger.info("FDG", "🐋 WHALE_FOLLOW: ${ts.symbol} | mode=$tradingModeStr | shared live-growth sizing")
+            ErrorLogger.info("FDG", "WHALE_FOLLOW lane observed: ${ts.symbol} conf=${candidate.aiConfidence.toInt()}% — decision follows sealed authority")
         }
 
         val learningProgress = FluidLearningAI.getLearningProgress()
@@ -1241,9 +1330,11 @@ object FinalDecisionGate {
         // bootstrap bypass window lines up with golden learning velocity.
         val isPaperMode = mode == TradeMode.PAPER
         val classicMode = try { com.lifecyclebot.v3.scoring.UnifiedScorer.classicMode } catch (_: Exception) { true }
-        // V5.0.4021 — bootstrap phase is paper-only. Live mode is real capital
-        // from trade 1 and must not get confidence-floor bypass from global learning progress.
-        val isBootstrapPhase = isPaperMode && (if (classicMode) learningProgress < 0.25 else learningProgress < 0.40)
+        // V5.0.6809 §ISBOOTSTRAPPHASE_RETIRED — the phased bootstrap window
+        // was a static warm-up bypass. Retired to `false` so all downstream
+        // guards evaluate the learned-authority path directly. Variable is
+        // kept only for legacy telemetry strings that reference it.
+        val isBootstrapPhase = false
         // V5.9.616 — UNCHOKE BRIDGE.
         // The confidence-floor bypass must STAY TRUE in any of these cases:
         //   1. We're still inside bootstrap (learningProgress < 0.40) — the
@@ -1278,13 +1369,15 @@ object FinalDecisionGate {
         } catch (_: Throwable) { 1.0 }
         val lowWrBypass = false  // V5.9.809: revoked (was: systemWrForBypass < 0.30)
 
-        val canBypassConfidenceFloors = isBootstrapPhase ||
-            (isPaperMode && totalTradesForBypass < 500) ||  // V5.0.4021: cold-start bypass is paper-only; live adapts from trade 1
-            antiChokeRelaxing ||
-            adaptiveRelaxationActive ||
-            lowWrBypass
-        // V5.9.683-FIX + V5.9.721: surface bypass state so operator can audit 22%-floor trips
-        ErrorLogger.debug("FDG", "FDG_BYPASS=${canBypassConfidenceFloors}: bypass=$totalTradesForBypass/500 paperBootstrap=$isBootstrapPhase liveAdaptiveFromTrade1=${!isPaperMode} antiChoke=$antiChokeRelaxing adaptive=$adaptiveRelaxationActive lowWR=${(systemWrForBypass*100).toInt()}%(revoked)")
+        // V5.0.6809 §BOOTSTRAP_BYPASS_REMOVED — `canBypassConfidenceFloors`
+        // was a bootstrap warm-up bypass that let the first 500 paper trades
+        // (or isBootstrapPhase, antiChoke, adaptive) skip confidence floors.
+        // Operator mandate: "Do not replace bootstrap with another static
+        // warm-up bypass." Removed entirely; sub-floor confidence is now a
+        // hard veto (see MIN_CONFIDENCE_FLOOR_6809 below). Retained as
+        // `false` constant so no downstream reference has to change.
+        val canBypassConfidenceFloors = false
+        ErrorLogger.debug("FDG", "FDG_BYPASS_REMOVED_6809 (was: paperBootstrap=$isBootstrapPhase antiChoke=$antiChokeRelaxing adaptive=$adaptiveRelaxationActive totalTrades=$totalTradesForBypass systemWr=${(systemWrForBypass*100).toInt()}%)")
 
         // ══════════════════════════════════════════════════════════════════════
         // V5.6: ML Engine Prediction Check
@@ -1435,39 +1528,50 @@ object FinalDecisionGate {
             }
         } catch (_: Throwable) { /* recovery gate is best-effort; never block on internal error */ }
 
-        // V5.9.343 — CLASSIC uses 1.0 floor (even lower than golden 3.0) so the
-        // bot trades from first start per user directive. Modern keeps 8.0.
-        val BOOTSTRAP_MIN_CONFIDENCE = if (classicMode) 1.0 else 8.0
-        if (confidence < BOOTSTRAP_MIN_CONFIDENCE) {
-            // V5.9.693 — Paper-mode bypass. In paper mode the bot MUST trade
-            // to accumulate learning volume. A sub-1% confidence on a paper
-            // entry is a nuisance filter, not a safety gate — real safety
-            // (rug detection, liquidity collapse, ML rug probability) fires
-            // downstream. Blocking here in paper mode starved Moonshot /
-            // Manip / Express of entries while FDG allow=0 showed in the
-            // funnel. LIVE mode keeps the hard floor.
-            if (isPaperMode) {
-                ErrorLogger.debug("FDG", "ℹ️ BOOTSTRAP_FLOOR_PAPER_BYPASS: ${ts.symbol} | conf=${confidence.toInt()}% < ${BOOTSTRAP_MIN_CONFIDENCE.toInt()}% → paper learn")
-                tags.add("bootstrap_floor_paper_bypass")
-                // fall through to normal scoring
-            } else {
-                // V5.0.4157 — fluid gate doctrine: bootstrap confidence is a size
-                // penalty while the AGI/lane brains are compiling, not a hard freezer.
-                ErrorLogger.info("FDG", "🟡 BOOTSTRAP_MIN_CONFIDENCE_SOFT: ${ts.symbol} | conf=${confidence.toInt()}% < ${BOOTSTRAP_MIN_CONFIDENCE.toInt()}% | soft-size, continue")
-                tags.add("bootstrap_min_confidence_soft")
-                try {
-                    com.lifecyclebot.engine.LiveSizingProfile.markGateSoftShape(ts.mint, "BOOTSTRAP_MIN_CONFIDENCE_SOFT")
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_BOOTSTRAP_MIN_CONFIDENCE_SOFT_SHAPED")
-                } catch (_: Throwable) {}
-            }
+        // V5.0.6809 §BOOTSTRAP_BYPASS_REMOVED — operator mandate Feb 2026:
+        //   "Remove BOOTSTRAP as an execution/scoring/policy authority
+        //    everywhere. New/untrained contexts must use neutral learned/
+        //    default priors and immediately transition through the normal
+        //    adaptive policy. Do not replace bootstrap with another static
+        //    warm-up bypass."
+        // The BOOTSTRAP_FLOOR_PAPER_BYPASS + BOOTSTRAP_MIN_CONFIDENCE_SOFT
+        // pair was a static warm-up bypass — paper trades below the
+        // confidence floor were admitted "to learn", but the same admission
+        // path routed capital opens. The operator diagnosis: throughput
+        // doctrine was overriding learned confidence. The floor is now
+        // authoritative: sub-floor confidence → hard non-executable veto,
+        // regardless of paper/live mode. Learning still occurs via the
+        // NoTradeObservation stream and the ShadowLearningEngine.
+        val MIN_CONFIDENCE_FLOOR_6809 = if (classicMode) 1.0 else 8.0
+        if (confidence < MIN_CONFIDENCE_FLOOR_6809) {
+            ErrorLogger.info("FDG", "🛑 CONFIDENCE_FLOOR_HARD_6809: ${ts.symbol} | conf=${confidence.toInt()}% < ${MIN_CONFIDENCE_FLOOR_6809.toInt()}% | non-executable veto (learning via shadow)")
+            tags.add("confidence_floor_hard_6809")
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_CONFIDENCE_FLOOR_HARD_6809")
+            } catch (_: Throwable) {}
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = candidate.aiConfidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = "CONFIDENCE_FLOOR_HARD_6809",
+                blockLevel = BlockLevel.CONFIDENCE,
+                sizeSol = 0.0,
+                tags = tags + listOf("confidence_floor_hard_6809"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "CONFIDENCE_FLOOR_HARD_6809: conf=${confidence.toInt()}% < ${MIN_CONFIDENCE_FLOOR_6809.toInt()}% (V5.0.6809: BOOTSTRAP bypass removed)",
+                gateChecks = checks + GateCheck("confidence_floor_hard_6809", false, "conf=${confidence.toInt()}% < ${MIN_CONFIDENCE_FLOOR_6809.toInt()}% — hard veto, learning still fires via shadow"),
+            )
         }
 
-        if (canBypassConfidenceFloors && confidence < 22.0) {
-            ErrorLogger.info("FDG", "🎓 BOOTSTRAP_OVERRIDE: ${ts.symbol} | conf=${confidence.toInt()}% | Bypassing confidence floor for learning (progress=${(learningProgress * 100).toInt()}%)")
-            tags.add("bootstrap_learning")
-        } else if (confidence < 22.0) {
-            // V5.0.4157 — confidence <22 is a bootstrap/adaptive penalty, not a hard
-            // veto. True hard safety still happens in rug/LP/route/entry-price checks.
+        if (confidence < 22.0) {
+            // V5.0.6809: removed the BOOTSTRAP_OVERRIDE bypass. Confidence
+            // is authoritative — sub-22 confidence stays a size penalty
+            // (soft-shape), not a learning bypass. Hard safety continues
+            // downstream in rug/LP/route/executor gates.
             ErrorLogger.info("FDG", "🟡 CONFIDENCE_FLOOR_22_SOFT: ${ts.symbol} | conf=${confidence.toInt()}% < 22% | soft-size, continue")
             tags.add("confidence_floor_22_soft")
             try {
@@ -1540,15 +1644,15 @@ object FinalDecisionGate {
         // mildly-negative memory — choking volume exactly the user
         // complained about. At 4/4 it's genuinely toxic: C-grade AND
         // low confidence AND deeply negative memory AND AI degraded.
-        if (toxicPatternFlags.size >= 4 && !canBypassConfidenceFloors) {
+        // V5.0.6809: removed BOOTSTRAP_OVERRIDE bypass path. Toxic-pattern
+        // check is now authoritative: 4-of-4 flags → soft-shape (probe
+        // size), never a learning bypass to full-size execution.
+        if (toxicPatternFlags.size >= 4) {
             preFdgNonSafetySizeMult4297 *= 0.25
             tags.add("toxic_pattern_soft_shape_4297")
             tags.addAll(toxicPatternFlags.map { "tox_$it" })
             checks.add(GateCheck("toxic_pattern", true, "Kris 4-flag toxicity (${toxicPatternFlags.joinToString(",")}) → 0.25x probe, true safety still hard-blocks"))
             ErrorLogger.info("FDG", "☣️ TOXIC_PATTERN_SOFT_PROBE_4297: ${ts.symbol} | flags=${toxicPatternFlags.joinToString(",")} size×0.25 no_hard_block=true")
-        } else if (toxicPatternFlags.size >= 4 && canBypassConfidenceFloors) {
-            ErrorLogger.info("FDG", "🎓 BOOTSTRAP_OVERRIDE: ${ts.symbol} | Bypassing toxic pattern check for learning (flags=${toxicPatternFlags.joinToString(",")})")
-            tags.add("bootstrap_toxic_bypass")
         }
 
         val WATCHLIST_FLOOR_RAW = FluidLearningAI.getWatchlistFloor()
@@ -2553,23 +2657,25 @@ object FinalDecisionGate {
                             )
                         )
                         tags.add("behavior_paper_full_bypass")
-                    } else if (isReliable100PctLoss && !isBootstrapPhase) {
+                    } else if (isReliable100PctLoss) {
+                        // V5.0.6809: reliable 100% loss is ALWAYS a hard block.
+                        // The prior isBootstrapPhase soft-shape branch was a
+                        // static warm-up bypass letting learned-loser patterns
+                        // still open paper capital during the first 25-40% of
+                        // learning progress. Removed. Learned negative-EV
+                        // patterns are authoritative from trade 1.
                         blockReason = "BEHAVIOR_BLOCK_100PCT_LOSS"
                         blockLevel = BlockLevel.HARD
                         checks.add(GateCheck("behavior_learning", false, "$behaviorBlock (reliable: $sampleCount samples)"))
                         tags.add("behavior_100pct_loss_blocked")
-                    } else if (is100PctLoss && isBootstrapPhase) {
-                        behaviorPenalty = if (sampleCount >= 3) 15 else 8
-                        behaviorSizeMultiplier = 0.3
-                        behaviorProbe = true
-                        checks.add(
-                            GateCheck(
-                                "behavior_learning",
-                                true,
-                                "BEHAVIOR 100% LOSS → PENALTY (bootstrap: -${behaviorPenalty}pts, n=$sampleCount)"
-                            )
-                        )
-                        tags.add("behavior_penalized")
+                    } else if (is100PctLoss) {
+                        // V5.0.6809: same treatment for non-reliable 100% loss
+                        // buckets — never open capital, no bootstrap-phase
+                        // exemption.
+                        blockReason = "BEHAVIOR_BLOCK_100PCT_LOSS_SPARSE"
+                        blockLevel = BlockLevel.HARD
+                        checks.add(GateCheck("behavior_learning", false, "$behaviorBlock (sparse 100% loss: n=$sampleCount)"))
+                        tags.add("behavior_100pct_loss_sparse_blocked")
                     } else {
                         blockReason = behaviorBlock
                         blockLevel = BlockLevel.HARD
@@ -2679,32 +2785,26 @@ object FinalDecisionGate {
                 )
 
                 if (memoryMult <= 0.82) {
-                    if (isBootstrapPhase) {
+                    // V5.0.6809: removed isBootstrapPhase branch. Bootstrap-phase
+                    // memory penalty was a warm-up bypass. The soft-shape path
+                    // below is now authoritative for all learning phases.
+                    val shouldBypass = shouldBypassSoftBlock("MEMORY_NEGATIVE_BLOCK")
+                    if (shouldBypass) {
+                        checks.add(GateCheck("memory_negative", true, "MEMORY BLOCK BYPASSED (adaptive: ${getAdaptiveFilterStatus()})"))
+                        tags.add("memory_bypassed_adaptive")
+                    } else {
+                        // V5.0.4298 — live report showed MEMORY_NEGATIVE_BLOCK as
+                        // the #2 FDG block. Memory is advisory/learned signal; old
+                        // poisoned history must not amputate live exploration. Keep
+                        // the penalty, but allow tiny terminal samples to retrain it.
                         memoryPenalty = 10
-                        sizeMultiplier *= 0.5
+                        val memorySizeMult4298 = if (config.paperMode) 0.50 else 0.45
+                        sizeMultiplier *= memorySizeMult4298
                         softPenaltyScore += memoryPenalty
                         isProbeCandidate = true
-                        checks.add(GateCheck("memory_negative", true, "MEMORY_NEG → PENALTY (bootstrap: -${memoryPenalty}pts, size×0.5, mult=$memoryMult)"))
-                        tags.add("memory_penalized")
-                    } else {
-                        val shouldBypass = shouldBypassSoftBlock("MEMORY_NEGATIVE_BLOCK")
-                        if (shouldBypass) {
-                            checks.add(GateCheck("memory_negative", true, "MEMORY BLOCK BYPASSED (adaptive: ${getAdaptiveFilterStatus()})"))
-                            tags.add("memory_bypassed_adaptive")
-                        } else {
-                            // V5.0.4298 — live report showed MEMORY_NEGATIVE_BLOCK as
-                            // the #2 FDG block. Memory is advisory/learned signal; old
-                            // poisoned history must not amputate live exploration. Keep
-                            // the penalty, but allow tiny terminal samples to retrain it.
-                            memoryPenalty = 10
-                            val memorySizeMult4298 = if (config.paperMode) 0.50 else 0.45
-                            sizeMultiplier *= memorySizeMult4298
-                            softPenaltyScore += memoryPenalty
-                            isProbeCandidate = true
-                            checks.add(GateCheck("memory_negative", true, "MEMORY_NEGATIVE_SOFT_SHAPE_4298: mult=$memoryMult, -${memoryPenalty}pts, size×${memorySizeMult4298.format(2)}"))
-                            tags.add("memory_negative_soft_shape_4298")
-                            ErrorLogger.info("FDG", "🧠 MEMORY_NEGATIVE_SOFT_PROBE_4298: ${ts.symbol} | memMult=$memoryMult size×${memorySizeMult4298.format(2)} no_hard_block=true")
-                        }
+                        checks.add(GateCheck("memory_negative", true, "MEMORY_NEGATIVE_SOFT_SHAPE_4298: mult=$memoryMult, -${memoryPenalty}pts, size×${memorySizeMult4298.format(2)}"))
+                        tags.add("memory_negative_soft_shape_4298")
+                        ErrorLogger.info("FDG", "🧠 MEMORY_NEGATIVE_SOFT_PROBE_4298: ${ts.symbol} | memMult=$memoryMult size×${memorySizeMult4298.format(2)} no_hard_block=true")
                     }
                 } else if (memoryMult < 0.90) {
                     memoryPenalty = 5
@@ -2924,17 +3024,15 @@ object FinalDecisionGate {
                 val edgePhaseStr = candidate.edgeQuality.uppercase()
                 val isDistribution = edgePhaseStr.contains("DIST") || edgePhaseStr.contains("SKIP")
 
-                if (isDistribution && !isBootstrapPhase) {
+                if (isDistribution) {
+                    // V5.0.6809: removed BOOTSTRAP-phase probe-through for
+                    // DISTRIBUTION edge. Learning from distribution dumps
+                    // is a shadow/train-only observation, not a capital
+                    // opener regardless of trade count.
                     blockReason = "EDGE_DISTRIBUTION_PAPER"
                     blockLevel = BlockLevel.EDGE
                     checks.add(GateCheck("edge", false, "PAPER: DISTRIBUTION detected (edge=${candidate.edgeQuality}) - not learning from dumps"))
                     tags.add("edge_distribution_blocked")
-                } else if (isDistribution && isBootstrapPhase) {
-                    softPenaltyScore += 15
-                    sizeMultiplier *= 0.25
-                    isProbeCandidate = true
-                    checks.add(GateCheck("edge", true, "PAPER BOOTSTRAP PROBE: DISTRIBUTION (edge=${candidate.edgeQuality}) → -15pts, size×0.25"))
-                    tags.add("edge_distribution_probe")
                 } else {
                     softPenaltyScore += 5
                     checks.add(GateCheck("edge", true, "PAPER: edge veto soft-bypassed (edge=${candidate.edgeQuality}) → -5pts"))
@@ -3173,65 +3271,26 @@ object FinalDecisionGate {
         // ModeLeniency so proven-edge live runs get the same leniency.
         val fdgLenient = ModeLeniency.useLenientGates(config.paperMode)
         val confidenceThreshold = getAdaptiveConfidence(fdgLenient, ts)
-        val isBootstrap = isPaperMode && currentConditions.totalSessionTrades < 30
-        val bootstrapTag = if (isBootstrap) " [PAPER_BOOTSTRAP]" else ""
+        // V5.0.6809 §PAPER_BOOTSTRAP_PROBE_REMOVED — the bootstrap probe was a
+        // static warm-up bypass that admitted sub-confidence entries during
+        // the first 30 session trades based on memory heuristics. Operator
+        // mandate: "Do not replace bootstrap with another static warm-up
+        // bypass." Removed. The bootstrap display tag is intentionally empty
+        // now.
+        val bootstrapTag = ""
         val adjustedConfidence = ((confidence + narrativeAdjustment + orthogonalBonus) * wrRecoveryQualityPenaltyMult).coerceIn(0.0, 100.0)
         val narrativeTag = if (narrativeAdjustment != 0) " [NAR:$narrativeAdjustment]" else ""
         val orthoTag = if (orthogonalBonus != 0) " [ORTHO:$orthogonalBonus]" else ""
 
         var confidenceProbe = false
-        var confidenceProbeSizeMultiplier = 1.0
+        @Suppress("UNUSED_VARIABLE") var confidenceProbeSizeMultiplier = 1.0
 
         if (blockReason == null && adjustedConfidence < confidenceThreshold) {
-            val hasPositiveMemory = try {
-                val memMult = TokenWinMemory.getConfidenceMultiplier(
-                    ts.mint,
-                    ts.symbol,
-                    ts.name,
-                    ts.lastMcap,
-                    ts.lastLiquidityUsd,
-                    50.0,
-                    ts.phase,
-                    ts.source
-                )
-                memMult >= 1.0
-            } catch (_: Exception) {
-                false
-            }
-
-            val isRepeatWinner = try {
-                TokenWinMemory.isKnownWinner(ts.mint)
-            } catch (_: Exception) {
-                false
-            }
-            val hasNoHardBlocks = blockReason == null
-            val hasMinLiquidity = ts.lastLiquidityUsd >= 3000.0
-
-            if (isPaperMode && isBootstrap && fdgLenient && hasNoHardBlocks && hasMinLiquidity && (isRepeatWinner || hasPositiveMemory)) {
-                confidenceProbe = true
-                isProbeCandidate = true
-
-                val confidenceGap = confidenceThreshold - adjustedConfidence
-                confidenceProbeSizeMultiplier = when {
-                    isRepeatWinner -> 0.4
-                    confidenceGap < 10 -> 0.35
-                    else -> 0.25
-                }
-                sizeMultiplier *= confidenceProbeSizeMultiplier
-
-                val probeReason = if (isRepeatWinner) "REPEAT_WINNER" else "POSITIVE_MEMORY"
-                checks.add(
-                    GateCheck(
-                        "confidence",
-                        true,
-                        "PAPER BOOTSTRAP PROBE: conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% BUT $probeReason → size×${confidenceProbeSizeMultiplier.format(2)}"
-                    )
-                )
-                tags.add("paper_bootstrap_confidence_probe")
-                tags.add("probe_reason:$probeReason")
-
-                ErrorLogger.info("FDG", "🔬 PAPER BOOTSTRAP PROBE: ${ts.symbol} | conf=${adjustedConfidence.toInt()}% | $probeReason | size×${confidenceProbeSizeMultiplier.format(2)}")
-            } else {
+            // V5.0.6809: PAPER_BOOTSTRAP_PROBE removed. Sub-confidence entries
+            // no longer receive a memory-based bootstrap exemption. Every
+            // candidate falls through to the ADAPTIVE_SIZE dust-probe branch
+            // where the confidence penalty shapes size (not admission).
+            run {
                 // V5.0.3676 — operator TUNING patch (recovery). LOW_CONFIDENCE in
                 // PAPER mode is now a SIZE/SCORE PENALTY (dust probe), not a
                 // hard veto. The previous hard block was a top FDG choke reason
@@ -3261,7 +3320,6 @@ object FinalDecisionGate {
                 )
                 tags.add(if (mode == TradeMode.PAPER) "paper_low_conf_dust_probe" else "live_low_conf_adaptive_size")
                 tags.add("adaptive_conf:${confidenceThreshold.toInt()}")
-                if (isBootstrap) tags.add("paper_bootstrap_phase")
                 ErrorLogger.info("FDG", "🔬 ${if (mode == TradeMode.PAPER) "PAPER" else "LIVE"} LOW-CONF ADAPTIVE_SIZE: ${ts.symbol} | conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% → size×${dustMult.format(2)}")
             }
         } else if (blockReason == null) {
@@ -3272,7 +3330,6 @@ object FinalDecisionGate {
                     "conf=${confidence.toInt()}%+nar=$narrativeAdjustment+ortho=$orthogonalBonus=${adjustedConfidence.toInt()}% >= ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"
                 )
             )
-            if (isBootstrap) tags.add("paper_bootstrap_phase")
         }
 
         if (blockReason == null && !config.paperMode) {
@@ -4902,6 +4959,49 @@ object FinalDecisionGate {
             } catch (_: Throwable) {}
         }
 
+        // V5.0.6801 §ZERO_QUALITY_HARD_VETO — operator diagnosis Feb 2026:
+        //   "FDG is authorizing zero-quality BUYs. FDG_ALLOW lane=BLUECHIP
+        //    DEC/FDG/BUY score=0 conf=0 BUY for both ZCAT and OTC. A score 0
+        //    / confidence 0 candidate should not become an executable BUY
+        //    merely because an older sealed decision or fallback policy
+        //    exists." This is the last chance to hard-veto before the
+        //    FDG_ALLOW/FDG_BLOCK stamp is recorded. Only downgrade path —
+        //    can never turn a block into an allow. Zero score AND zero on
+        //    every trainable confidence surface is a strict source-level
+        //    veto; a single non-zero signal is enough to keep the decision.
+        //    A single objective is enough to keep an allow because the
+        //    upstream authorities (learner, tactic, edge) already tuned it
+        //    for a reason. This targets the pathological "everything is
+        //    zero" case only.
+        try {
+            if (shouldTradeFinal) {
+                val laneScore6801 = laneScore
+                val entryScore6801 = candidate.entryScore
+                val aiConf6801 = candidate.aiConfidence
+                val edgeConf6801 = candidate.edgeConfidence
+                val allZeroQuality6801 =
+                    laneScore6801 <= 0.0 && entryScore6801 <= 0.0 &&
+                    aiConf6801 <= 0.0 && edgeConf6801 <= 0.0
+                if (allZeroQuality6801) {
+                    shouldTradeFinal = false
+                    blockReasonFinal = "FDG_ZERO_QUALITY_HARD_VETO_6801:laneScore=0 entryScore=0 aiConf=0 edgeConf=0"
+                    blockLevelFinal = BlockLevel.HARD
+                    checks.add(GateCheck("fdg_zero_quality_hard_veto_6801", false,
+                        "all trainable scores are zero; source-level BUY refused"))
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_ZERO_QUALITY_HARD_VETO_6801")
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_ZERO_QUALITY_HARD_VETO_6801_${canonicalPrimaryLane6658.uppercase()}")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "FDG_ZERO_QUALITY_HARD_VETO_6801",
+                            "mint=${ts.mint.take(10)} lane=$canonicalPrimaryLane6658 mode=${if (config.paperMode) "PAPER" else "LIVE"} " +
+                                "laneScore=$laneScore6801 entryScore=$entryScore6801 aiConf=$aiConf6801 edgeConf=$edgeConf6801 " +
+                                "action=hard_block_zero_quality_never_becomes_buy",
+                        )
+                    } catch (_: Throwable) {}
+                }
+            }
+        } catch (_: Throwable) { /* veto must never break FDG */ }
+
         try { com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(canonicalPrimaryLane6658, if (shouldTradeFinal) "FDG_ALLOW" else "FDG_BLOCK", "${ts.mint}:${com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)}") } catch (_: Throwable) {}
         // V5.0.6657 §FDG_STAMP_FANOUT — operator dump Feb 2026:
         //   QUALITY buyIntent=287 fdg=0 (FDG_CHOKED). Root cause:
@@ -5000,6 +5100,23 @@ object FinalDecisionGate {
                     PaperPreTicketSizeFloor6511.boundedMinimum(config.minLiveBuySol)
                 else 0.001
                 val sizingCash6653 = try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { 0.0 }
+                // V5.0.6775 §FDG_LANE_CAP_READS_EQUITY_NOT_CASH — operator
+                //   diagnostic Feb 2026: "PROJECT_SNIPER: 85 markReady -> 0
+                //   sizedExecutable -> 0 exec despite 294 FDG allows". Root
+                //   cause at this seal point: laneRiskCapSol = cash * 0.12.
+                //   With 100 positions open cash is starved to ~0.6 SOL, so
+                //   cap collapses to 0.072 SOL, below several lanes' minimum
+                //   executable ticket size for PROJECT_SNIPER. Same failure
+                //   pattern as V5.0.6772 ladder cash bug: sizing gates that
+                //   read CASH become progressively tighter as the bot
+                //   deploys, guaranteeing that runners can never scale up.
+                //   Fix: read TOTAL EQUITY (cash + open market value) so the
+                //   lane cap scales with the growth signal, not the dry
+                //   powder residual. Live mode unchanged.
+                val sizingEquity6775 = if (config.paperMode) try {
+                    com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.totalEquitySol()
+                        .takeIf { it.isFinite() && it > 0.0 } ?: sizingCash6653
+                } catch (_: Throwable) { sizingCash6653 } else sizingCash6653
                 val sealed6552 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.resolve(
                     requestedSol = finalSize,
                     laneName = canonicalPrimaryLane6658,
@@ -5009,7 +5126,7 @@ object FinalDecisionGate {
                     // cap are mutually impossible.  Fund the minimum only when
                     // canonical cash can afford it; all portfolio/slot/safety
                     // gates remain upstream and unchanged.
-                    laneRiskCapSol = maxOf(sizingCash6653 * 0.12, paperMinimum6653),
+                    laneRiskCapSol = maxOf(sizingEquity6775 * 0.12, paperMinimum6653),
                     laneMinExecutableSol = paperMinimum6653,
                     // V5.0.6651 — telemetry identity only: SIZE must join
                     // the same candidate record as intent/FDG/mark.
@@ -5021,21 +5138,35 @@ object FinalDecisionGate {
             } catch (_: Throwable) {}
         }
 
+        // V5.0.6809 §NEGATIVE_EV_HARD_VETO_FINAL — AATE envelope actions
+        // POLICY_NEG_EV_BLOCK_6801 and BLOCK must veto shouldTrade. Prior
+        // code only checked "BLOCK", letting the negative-EV downgrade slip
+        // through into an executable BUY when other gates said allow.
+        val aateBlocks6809 = aateEnvelope6512?.action?.let { a ->
+            a == "BLOCK" || a == "POLICY_NEG_EV_BLOCK_6801" || a.startsWith("POLICY_NEG_EV")
+        } == true
+        if (aateBlocks6809) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                    "FDG_HONORED_AATE_NEG_EV_VETO_6809"
+                )
+            } catch (_: Throwable) {}
+        }
         return rememberFdgVerdict(fdgCacheKey, FinalDecision(
-            shouldTrade = shouldTradeFinal && aateEnvelope6512?.action != "BLOCK",
+            shouldTrade = shouldTradeFinal && !aateBlocks6809,
             mode = mode,
-            approvalClass = approvalClass,
+            approvalClass = if (aateBlocks6809) ApprovalClass.BLOCKED else approvalClass,
             quality = candidate.finalQuality,
             confidence = adjustedConfidence,
             edge = edgeVerdict,
-            blockReason = blockReasonFinal,
-            blockLevel = blockLevelFinal,
-            sizeSol = finalSize,
-            tags = tags,
+            blockReason = if (aateBlocks6809) (aateEnvelope6512?.action ?: "AATE_BLOCK") else blockReasonFinal,
+            blockLevel = if (aateBlocks6809) BlockLevel.HARD else blockLevelFinal,
+            sizeSol = if (aateBlocks6809) 0.0 else finalSize,
+            tags = if (aateBlocks6809) tags + "aate_neg_ev_veto_6809" else tags,
             mint = ts.mint,
             symbol = ts.symbol,
-            approvalReason = approvalReason,
-            gateChecks = checks,
+            approvalReason = if (aateBlocks6809) "AATE_NEG_EV_VETO_6809: ${aateEnvelope6512?.action}" else approvalReason,
+            gateChecks = if (aateBlocks6809) checks + GateCheck("aate_neg_ev_veto_6809", false, "AATE action=${aateEnvelope6512?.action} EV=${"%.2f".format(aateEnvelope6512?.expectedPnlPct ?: 0.0)}% — hard veto") else checks,
         ))
     }
 

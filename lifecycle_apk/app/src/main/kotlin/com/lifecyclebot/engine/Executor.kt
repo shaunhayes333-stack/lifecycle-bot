@@ -879,26 +879,29 @@ class Executor(
         private const val TRADING_FEE_WALLET_2 = "82CAPB9HxXKZK97C12pqkWcjvnkbpMLCg2Ex2hPrhygA"
 
         /**
-         * V5.9.1504 — SELF-LOOP FEE FIX. Operator's trading wallet is
-         * A8QPQr…kkpd, which is identical to TRADING_FEE_WALLET_1, so every
-         * fee_w1 send was a transfer-to-self → "Account loaded twice" failure
-         * on EVERY sell, the fee share permanently stuck in the retry queue.
-         * This sender resolves the real destination per share: if a fee wallet
-         * equals the sending wallet's own address, that share is REDIRECTED to
-         * the other fee wallet (so the fee is still collected, not lost). If
-         * BOTH equal self, the share is skipped cleanly (no failed tx, no
-         * endless queue). Returns true if at least one transfer was attempted.
+         * V5.0.6786 §PER_TRADE_FEE_SEND (operator directive Feb 2026: "ensure
+         * the live trading fee mechanism is still wired to send to the two
+         * wallets please on all trades. no accumulated fees just send on
+         * all trades.").
          *
-         * V5.0.3919 — FEE-MIN THRESHOLD LOWERED to 0.000005 SOL.
+         * Behaviour under 6786:
+         *   1. Each fee share is sent DIRECTLY to its destination wallet
+         *      at trade time via wallet.sendSol(). Two-wallet 50/50 split
+         *      (TRADING_FEE_WALLET_1, TRADING_FEE_WALLET_2) is preserved.
+         *   2. Self-loop guard retained — a share whose destination equals
+         *      the sending wallet is redirected to the other fee wallet.
+         *   3. On send failure (network / balance / rent) the share is
+         *      queued to FeeRetryQueue for immediate retry, NOT bucketed
+         *      into FeeAccumulator (accumulator is retired as an accrual
+         *      target under 6786; it stays live only to drain any pre-6786
+         *      residue that persisted from earlier builds).
+         *   4. Sub-FEE_SEND_MIN_SOL dust is still logged but skipped —
+         *      Solana base fee makes those uneconomic to send.
          *
-         * V5.0.3920 — FEE ACCUMULATOR. Instead of attempting a network tx
-         * per micro fee (Solana base fee + priority fee + rent checks make
-         * sub-$0.10 fees uneconomic and most fail), accrue each share to a
-         * persisted per-destination bucket. The next FeeRetryQueue drain
-         * (once per scan cycle) calls FeeAccumulator.tryFlush(wallet)
-         * which flushes/distributes all destination buckets once total onboard
-         * accrued fees cross 1.0 SOL. Result: large batched transfers, no
-         * micro-fee tx spam, no fees silently lost.
+         * Two-wallet contract verified: TRADING_FEE_WALLET_1 =
+         *   A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd
+         * TRADING_FEE_WALLET_2 =
+         *   82CAPB9HxXKZK97C12pqkWcjvnkbpMLCg2Ex2hPrhygA
          */
         private const val FEE_SEND_MIN_SOL = 0.000005
         private fun sendFeeSplit(
@@ -913,41 +916,41 @@ class Executor(
                 !fallback.equals(self, false) -> fallback   // redirect self→other
                 else -> null                                 // both self — skip
             }
-            var accrued = false
+            var sentAny = false
+
+            fun sendShare(amount: Double, primary: String, fallback: String, laneTag: String) {
+                if (amount < FEE_SEND_MIN_SOL) {
+                    if (amount > 0.0) ErrorLogger.debug("Executor", "🪙 $laneTag ($tag) dust-skipped: $amount SOL < $FEE_SEND_MIN_SOL")
+                    return
+                }
+                val d = dest(primary, fallback)
+                if (d == null) {
+                    ErrorLogger.warn("Executor", "🪙 $laneTag ($tag) skipped: both fee wallets == self")
+                    return
+                }
+                try { com.lifecyclebot.engine.truth.FeeAccrualObservability6439.noteAccrue(d, amount, "${tag}_$laneTag", false) } catch (_: Throwable) {}
+                try {
+                    // V5.0.6786 direct per-trade send — no accumulator.
+                    wallet.sendSol(d, amount)
+                    sentAny = true
+                    try {
+                        PipelineHealthCollector.labelInc("FEE_PER_TRADE_SENT_6786")
+                        PipelineHealthCollector.labelInc("FEE_PER_TRADE_SENT_6786_$laneTag")
+                    } catch (_: Throwable) {}
+                    ErrorLogger.info("Executor", "✅ fee $laneTag ($tag) sent ${"%.6f".format(amount)} SOL → ${d.take(6)}…")
+                } catch (e: Exception) {
+                    ErrorLogger.warn("Executor", "❌ fee $laneTag ($tag) send failed: ${e.message} — enqueued for retry")
+                    try { FeeRetryQueue.enqueue(d, amount, "${tag}_${laneTag}_direct_fail") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("FEE_PER_TRADE_RETRY_6786_$laneTag") } catch (_: Throwable) {}
+                }
+            }
+
             // share 1 → wallet1, falling back to wallet2 if wallet1 is self
-            if (amount1 >= FEE_SEND_MIN_SOL) {
-                val d = dest(TRADING_FEE_WALLET_1, TRADING_FEE_WALLET_2)
-                if (d != null) {
-                    // V5.0.6439 — observability. Prove the fee actually reached the pipe.
-                    try { com.lifecyclebot.engine.truth.FeeAccrualObservability6439.noteAccrue(d, amount1, "${tag}_w1", false) } catch (_: Throwable) {}
-                    try { FeeAccumulator.accrue(d, amount1, "${tag}_w1"); accrued = true }
-                    catch (e: Exception) {
-                        // Accumulator persistence failed — fall back to immediate retry queue
-                        FeeRetryQueue.enqueue(d, amount1, "${tag}_w1_acc_fail")
-                    }
-                } else {
-                    ErrorLogger.warn("Executor", "🪙 fee_w1 ($tag) skipped: both fee wallets == self")
-                }
-            } else if (amount1 > 0.0) {
-                ErrorLogger.debug("Executor", "🪙 fee_w1 ($tag) dust-skipped: ${amount1} SOL < ${FEE_SEND_MIN_SOL}")
-            }
+            sendShare(amount1, TRADING_FEE_WALLET_1, TRADING_FEE_WALLET_2, "w1")
             // share 2 → wallet2, falling back to wallet1 if wallet2 is self
-            if (amount2 >= FEE_SEND_MIN_SOL) {
-                val d = dest(TRADING_FEE_WALLET_2, TRADING_FEE_WALLET_1)
-                if (d != null) {
-                    // V5.0.6439 — observability.
-                    try { com.lifecyclebot.engine.truth.FeeAccrualObservability6439.noteAccrue(d, amount2, "${tag}_w2", false) } catch (_: Throwable) {}
-                    try { FeeAccumulator.accrue(d, amount2, "${tag}_w2"); accrued = true }
-                    catch (e: Exception) {
-                        FeeRetryQueue.enqueue(d, amount2, "${tag}_w2_acc_fail")
-                    }
-                } else {
-                    ErrorLogger.warn("Executor", "🪙 fee_w2 ($tag) skipped: both fee wallets == self")
-                }
-            } else if (amount2 > 0.0) {
-                ErrorLogger.debug("Executor", "🪙 fee_w2 ($tag) dust-skipped: ${amount2} SOL < ${FEE_SEND_MIN_SOL}")
-            }
-            return accrued
+            sendShare(amount2, TRADING_FEE_WALLET_2, TRADING_FEE_WALLET_1, "w2")
+
+            return sentAny
         }
         
         // V5.7.3: Fee percentages
@@ -7860,7 +7863,38 @@ class Executor(
                         else -> "DEFAULT"
                     }
                 }) — force-exit", ts.mint)
-                doSell(ts, "STRICT_SL_${hardFloor.toInt()}", wallet, walletSol)
+                // V5.0.6763 §EXIT_REASON_ECONOMIC_TRUTH — annotate the terminal
+                // reason with the mark-freshness at decision time. Operator
+                // dump on V5.0.6761 showed STRICT_SL_-3 producing realized
+                // losses of -10% to -16% because the mark that computed
+                // pnlPctNow was already stale by the time doSell() fetched
+                // the actual pool price. The reason label lied about the
+                // economic result and downstream DNA / learner-bridge / edge
+                // engine received contradictory truth. Encoding mark age
+                // into the reason keeps the terminal record honest so:
+                //   • CausalLearning sees the true exit conditions
+                //   • DNA store bucket "STRICT_SL_-3_MARK_STALE_30s" is a
+                //     distinct cohort from clean "STRICT_SL_-3"
+                //   • MathematicalEdgeEngine won't classify a stale-mark
+                //     exit as a clean stop-loss expectancy sample.
+                val markAgeMs6763 = try {
+                    (System.currentTimeMillis() - ts.lastPriceUpdate).coerceAtLeast(0L)
+                } catch (_: Throwable) { 0L }
+                val strictSlReason6763 = if (markAgeMs6763 > 15_000L) {
+                    try {
+                        PipelineHealthCollector.labelInc("STRICT_SL_MARK_STALE_ECONOMIC_TRUTH_6763")
+                        ForensicLogger.lifecycle(
+                            "STRICT_SL_MARK_STALE_ECONOMIC_TRUTH_6763",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} pnl=${pnlPctNow.fmt(2)} " +
+                                "floor=${hardFloor.fmt(2)} markAgeMs=$markAgeMs6763 currentPrice=$currentPrice " +
+                                "lastPriceUpdate=${ts.lastPriceUpdate} action=annotate_reason_with_mark_age",
+                        )
+                    } catch (_: Throwable) {}
+                    "STRICT_SL_${hardFloor.toInt()}_MARK_STALE_${markAgeMs6763 / 1000}s"
+                } else {
+                    "STRICT_SL_${hardFloor.toInt()}"
+                }
+                doSell(ts, strictSlReason6763, wallet, walletSol)
                 return
             }
             // V5.0.4079 — STRICT_SL STALE-PRICE BACKSTOP (operator P0: -48% leak
@@ -10962,10 +10996,39 @@ class Executor(
             val snapshotExecutable6512 = decision6512?.verdict in setOf("BUY", "PROBE_ONLY") &&
                 normalizeExecutionLane(decision6512?.executionLane).isNotBlank()
             if (nonBuySignal && snapshotExecutable6512) {
+                // V5.0.6801 §FROZEN_DECISION_MUST_YIELD_TO_NEWER_SIGNAL —
+                //   operator diagnosis Feb 2026: "Freezing execution
+                //   provenance makes sense for identity/accounting, but it
+                //   must not freeze the economic decision when materially
+                //   newer pre-fill evidence changes BUY → WAIT/NO_BUY. Yet
+                //   this happened 199 times this run (FDG_MUTABLE_SIGNAL_
+                //   IGNORED_6512 verdict=BUY mutableSignal=WAIT action=
+                //   continue_frozen_pre_execution_authority)."
+                //
+                //   The economic decision now yields to the newer signal:
+                //   release the sealed election and defer for one cycle so
+                //   the next FDG evaluation can reprove or fully rescind.
+                //   Only the PROVENANCE (candidateVersion + lane identity)
+                //   stays sealed via LaneExecutionCoordinator; that's the
+                //   identity/accounting guarantee. The economic BUY does
+                //   not survive newer WAIT evidence.
+                val released6801 = try {
+                    LaneExecutionCoordinator.releaseIfPrimary(
+                        ts.mint, frozenLane6512,
+                        "FDG_MUTABLE_SIGNAL_UNFROZEN_6801", frozenVersion6512,
+                    )
+                } catch (_: Throwable) { false }
                 try {
-                    PipelineHealthCollector.labelInc("FDG_MUTABLE_SIGNAL_IGNORED_6512")
-                    ForensicLogger.lifecycle("FDG_MUTABLE_SIGNAL_IGNORED_6512", "mint=${ts.mint.take(10)} candidateVersion=${decision6512?.candidateVersion} verdict=${decision6512?.verdict} lane=${decision6512?.executionLane} mutableSignal=$signal6504 action=continue_frozen_pre_execution_authority")
+                    PipelineHealthCollector.labelInc("FDG_MUTABLE_SIGNAL_UNFROZEN_6801")
+                    ForensicLogger.lifecycle(
+                        "FDG_MUTABLE_SIGNAL_UNFROZEN_6801",
+                        "mint=${ts.mint.take(10)} candidateVersion=${decision6512?.candidateVersion} " +
+                            "verdict=${decision6512?.verdict} lane=${decision6512?.executionLane} " +
+                            "mutableSignal=$signal6504 electionReleased=$released6801 " +
+                            "action=defer_re_elect_newer_wait_wins_over_frozen_buy",
+                    )
                 } catch (_: Throwable) {}
+                return
             } else if (nonBuySignal) {
                 val released6512 = try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, frozenLane6512, "EXEC_AUTHORITY_MISSING_6512", frozenVersion6512) } catch (_: Throwable) { false }
                 try {
@@ -12589,8 +12652,42 @@ class Executor(
             )
         }
         if (!promotion6613.promoted) try {
+            // V5.0.6760 §FRESH_SOURCE_MARK_PROMOTION — split the observed
+            // failure reasons into distinct classes so provider degradation
+            // on ONE provider cannot masquerade as a systemic mark failure.
+            // Operator spec §6:
+            //   "Separate: bad unit/decimal identity, invalid pair identity,
+            //    stale quote, source-only advisory observation, executable
+            //    canonical mark. A fresh routable correctly-identified quote
+            //    must not be rejected merely because another provider is
+            //    degraded."
+            //
+            // The under-count knob:
+            //   `missingExecutableMarkWithValidSource` should approach zero.
+            // We stamp a sub-class alongside the generic label so operator
+            // triage can identify the actual constraint at a glance.
+            val reasonUpper6760 = promotion6613.reason.uppercase()
+            val subClass6760 = when {
+                reasonUpper6760.contains("IDENTITY_MISMATCH") || reasonUpper6760.contains("UNIT") || reasonUpper6760.contains("DECIMAL") ->
+                    "IDENTITY_UNIT_OR_DECIMAL"
+                reasonUpper6760.contains("PAIR") || reasonUpper6760.contains("MINT_ROUTE") ->
+                    "PAIR_OR_ROUTE_INVALID"
+                reasonUpper6760.contains("STALE") || reasonUpper6760.contains("AGE") ->
+                    "STALE_QUOTE_ONLY"
+                reasonUpper6760.contains("OBSERVATION") || reasonUpper6760.contains("SOURCE_ADVISORY") ->
+                    "SOURCE_ADVISORY_ONLY"
+                reasonUpper6760.contains("EXCEPTION") ->
+                    "SOURCE_RESOLUTION_EXCEPTION"
+                else -> "OTHER_${promotion6613.reason.take(24)}"
+            }
             PipelineHealthCollector.labelInc("VALID_SOURCE_NO_EXECUTABLE_MARK|${promotion6613.reason}")
-            ForensicLogger.lifecycle("VALID_SOURCE_NO_EXECUTABLE_MARK", "mint=${ts.mint.take(10)} source=${promotion6613.source} price=${promotion6613.price} ageMs=${promotion6613.ageMs} identity=${promotion6613.identity.take(80)} unit=${promotion6613.unitState} reason=${promotion6613.reason}")
+            PipelineHealthCollector.labelInc("VALID_SOURCE_NO_EXECUTABLE_MARK_6760|$subClass6760")
+            ForensicLogger.lifecycle(
+                "VALID_SOURCE_NO_EXECUTABLE_MARK",
+                "mint=${ts.mint.take(10)} source=${promotion6613.source} price=${promotion6613.price} " +
+                    "ageMs=${promotion6613.ageMs} identity=${promotion6613.identity.take(80)} " +
+                    "unit=${promotion6613.unitState} reason=${promotion6613.reason} subClass6760=$subClass6760",
+            )
         } catch (_: Throwable) {}
         val strictMark6575 = try {
             com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.getFresh6734(
@@ -12826,11 +12923,26 @@ class Executor(
             // weak BLUECHIP/SHITCOIN/EXPRESS entries lose money while the
             // self-tuner saw no terminal sample. Keep the candidate visible in
             // telemetry, but do not open a canonical position.
-            try { PipelineHealthCollector.labelInc("PAPER_ENTRY_QUALITY_REJECTED_6663") } catch (_: Throwable) {}
-            try { ForensicLogger.lifecycle("PAPER_ENTRY_QUALITY_REJECTED_6663", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$why learningEligible=false openTrade=false") } catch (_: Throwable) {}
-            ErrorLogger.debug("Executor", "🧪 PAPER_ENTRY_QUALITY_REJECTED_6663: ${ts.symbol} | $why")
-            markPaperBuyNotOpened("LEARNING_QUALITY_REJECTED_6663")
-            return
+            //
+            // V5.0.6760 §POST_SEAL_ADVISORY_ONLY_6760 — learning-quality is a
+            // pre-seal signal, not a hard-safety veto. Operator spec §7:
+            // "learning quality must run BEFORE authoritative sealing or
+            // become advisory only". Demote here; the paper trade proceeds
+            // and the learner still consumes the outcome (that IS the point
+            // of paper training). The candidate stays visible in telemetry.
+            val reason6760 = "PAPER_ENTRY_QUALITY_REJECTED_6663"
+            val extra6760 = "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$why"
+            if (com.lifecyclebot.engine.truth.PostSealAuthorityInvariants6760.mayBlockAfterFdgAllow(reason6760)) {
+                try { PipelineHealthCollector.labelInc(reason6760) } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle(reason6760, "$extra6760 learningEligible=false openTrade=false") } catch (_: Throwable) {}
+                ErrorLogger.debug("Executor", "🧪 $reason6760: ${ts.symbol} | $why")
+                markPaperBuyNotOpened("LEARNING_QUALITY_REJECTED_6663")
+                return
+            } else {
+                com.lifecyclebot.engine.truth.PostSealAuthorityInvariants6760.emitAdvisory6760(reason6760, extra6760)
+                // fall through — paper trade proceeds, learner will still
+                // consume the terminal outcome as evidence.
+            }
         }
         // V5.9.1129 — route authority must run before open authority for direct
         // paperBuy() callers. In LIVE mode with shadowPaperEnabled=true this is
@@ -13584,6 +13696,15 @@ class Executor(
                 }
             } catch (_: Throwable) {}
             val entryLane6485 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "STANDARD" }
+            // V5.0.6789 §OWNER_ATTRIBUTION — bind full provenance at open commit.
+            val candidateVersion6789 = try {
+                com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(tradeId.mint)
+            } catch (_: Throwable) { 0L }
+            val sealedFdgId6789 = try {
+                com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510
+                    .currentForMint(tradeId.mint, candidateVersion6789, "PAPER")
+                    ?.let { "FDG:${it.authorityVersion}" } ?: entryFinalityId6497
+            } catch (_: Throwable) { entryFinalityId6497 }
             canonicalCreated6485 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyAttempt(
                 mint = tradeId.mint, symbol = ts.symbol.ifBlank { tradeId.symbol }, lane = entryLane6485,
                 estimatedCostSol = actualSol, estimatedFeesSol = fee6485, paperMode = true,
@@ -13593,6 +13714,10 @@ class Executor(
                 entryPriceSource = entryMarketSnapshot?.priceSource ?: ts.lastPriceSource,
                 entryPoolAddress = entryMarketSnapshot?.poolAddress ?: ts.lastPricePoolAddr.ifBlank { ts.pairAddress },
                 entryDex = entryMarketSnapshot?.dex ?: ts.lastPriceDex,
+                candidateVersion = candidateVersion6789,
+                sealedFdgId = sealedFdgId6789,
+                intentId = entryFinalityId6497,
+                discoverySource = ts.source,
             )
             if (!canonicalCreated6485) {
                 rollbackPaperEntry6485("CANONICAL_RESERVATION_REJECTED")
@@ -15087,6 +15212,15 @@ class Executor(
         // trace with the SQLite idempotency key reserved. The mirror is
         // no-op on failure so a bug never breaks the live path.
         try {
+            // V5.0.6789 §OWNER_ATTRIBUTION — bind full provenance at open commit.
+            val liveCandidateVersion6789 = try {
+                com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(ts.mint)
+            } catch (_: Throwable) { 0L }
+            val liveSealedFdgId6789 = try {
+                com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510
+                    .currentForMint(ts.mint, liveCandidateVersion6789, "LIVE")
+                    ?.let { "FDG:${it.authorityVersion}" } ?: ""
+            } catch (_: Throwable) { "" }
             com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyAttempt(
                 mint = ts.mint,
                 symbol = ts.symbol.ifBlank { ts.mint.take(6) },
@@ -15094,6 +15228,10 @@ class Executor(
                 estimatedCostSol = entryAuthoritySol6487,
                 estimatedFeesSol = 0.0,
                 paperMode = false,
+                candidateVersion = liveCandidateVersion6789,
+                sealedFdgId = liveSealedFdgId6789,
+                intentId = liveSealedFdgId6789,
+                discoverySource = ts.source,
             )
         } catch (_: Throwable) {}
 

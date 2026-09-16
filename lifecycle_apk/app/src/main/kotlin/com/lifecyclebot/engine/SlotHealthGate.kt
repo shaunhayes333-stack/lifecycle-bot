@@ -24,11 +24,17 @@ import java.util.concurrent.atomic.AtomicLong
  *
  * V5.0.6709 restores the missing half of that doctrine: removing the static 24-position
  * ceiling must NOT mean unbounded entry velocity. A PAPER book whose OPEN inventory is
- * growing materially faster than terminal SELLs now gets a progressive admission cadence.
+ * growing materially faster than terminal SELLs gets a progressive admission cadence.
  * This is not a hard cap: 1/N ordinary executable opportunities are still admitted and
  * confirmed-high-edge entries always bypass the cadence. As the book drains, cadence
  * automatically relaxes back to 1/1. The objective is round-trip throughput, not entry
  * suppression: buys and exits must converge instead of OPEN inventory growing forever.
+ *
+ * V5.0.6756 moves the first turnover-pressure band from 48 to 64 opens. The 5.0.6755
+ * runtime had 56 opens and an exit sweep in flight, so the old threshold stacked a 1/3
+ * global cadence on top of lane-scoped capital pressure and finality/mark gates. That
+ * was ordinary inventory, not runaway inventory. At <64 opens the slot layer is now
+ * advisory only; economic/risk authorities still gate every admission.
  */
 object SlotHealthGate {
 
@@ -48,14 +54,28 @@ object SlotHealthGate {
     private const val FORCED_OPEN_DIRTY = 20
     // 12 is telemetry/priority context only; it is not an entry cap.
     private const val ENTRY_SOFT_CAP = 12
+    // V5.0.6800 §INVENTORY_BACKPRESSURE — operator diagnosis Feb 2026:
+    //   "93 open + 0.0064 cash + forcedSlots=75 = admission distress. Stop
+    //    producing normal entry tickets while: free cash < executable
+    //    minimum OR forced-slot count > threshold OR exit backlog is
+    //    materially elevated." The 6709 paper-turnover cadence is a
+    //    fractional 1/N brake and never activates when the top choke is
+    //    capital exhaustion. This band gives shouldDeferBuy an authoritative
+    //    hard-defer surface (still 1-cycle retryable) driven by canonical
+    //    capital + forced-slot distress + protective-exit backlog, so
+    //    hundreds of doomed tickets no longer traverse FDG/sizing.
+    private const val FORCED_OPEN_DISTRESS_6800 = 40
+    private const val CANONICAL_FREE_CASH_FLOOR_SOL_6800 = 0.05
+    private const val EXIT_LATCH_BACKLOG_MATERIAL_6800 = 8
+    private val capitalStarvationDefers6800 = AtomicLong(0L)
+    private val forcedDistressDefers6800 = AtomicLong(0L)
+    private val exitBacklogDefers6800 = AtomicLong(0L)
+    private val backpressureHighEdgeBypass6800 = AtomicLong(0L)
 
-    // V5.0.6709 — adaptive PAPER turnover pressure. These are cadence bands,
-    // never hard inventory ceilings. At 111 open positions (operator 6708 dump)
-    // ordinary entry cadence becomes 1/5 while an exit sweep is outstanding;
-    // at <=47 open positions it is exactly 1/1. Confirmed-high-edge candidates
-    // bypass. This lets terminal SELL throughput catch entry throughput without
-    // reverting to the obsolete 24-position global choke.
-    private const val TURNOVER_SOFT_START_6709 = 48
+    // V5.0.6709 / 6756 — adaptive PAPER turnover pressure. These are cadence
+    // bands, never hard inventory ceilings. Below 64 opens ordinary execution
+    // remains 1/1; pressure starts only when inventory is materially elevated.
+    private const val TURNOVER_SOFT_START_6709 = 64
     private const val TURNOVER_MEDIUM_START_6709 = 72
     private const val TURNOVER_HIGH_START_6709 = 96
     private const val TURNOVER_SEVERE_START_6709 = 120
@@ -101,9 +121,9 @@ object SlotHealthGate {
     } catch (_: Throwable) { -1 }
 
     /**
-     * V5.0.6709 progressive PAPER admission cadence.
-     *  open <48       -> 1/1 ordinary entries
-     *  48..71         -> 1/2
+     * V5.0.6756 progressive PAPER admission cadence.
+     *  open <64       -> 1/1 ordinary entries
+     *  64..71         -> 1/2
      *  72..95         -> 1/3
      *  96..119        -> 1/4
      *  >=120          -> 1/5
@@ -182,6 +202,66 @@ object SlotHealthGate {
             return DeferDecision(false, "stale_snapshot_fail_open")
         }
 
+        // V5.0.6800 §INVENTORY_BACKPRESSURE — operator P0 mandate Feb 2026:
+        //   "Stop producing normal entry tickets while free cash < executable
+        //    minimum OR forcedSlots > distress threshold OR exit backlog is
+        //    materially elevated. Do this BEFORE FDG/sizing. Crucially this
+        //    should prevent generating hundreds of doomed tickets rather than
+        //    allowing them all the way to sizing/execution."
+        //   Confirmed-high-edge probes are still admitted so the system can
+        //   continue to reproof cohorts and follow strong signals. Every
+        //   canonical read is defensive: failure to read any of the three
+        //   authoritative sources fails OPEN so a diagnostic outage cannot
+        //   masquerade as inventory distress.
+        if (paperRuntime6692) {
+            val canonicalCashSol6800 = try {
+                com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.snapshot().cashSol
+            } catch (_: Throwable) { Double.NaN }
+            val cashStarved6800 = canonicalCashSol6800.isFinite() &&
+                canonicalCashSol6800 < CANONICAL_FREE_CASH_FLOOR_SOL_6800
+            val forcedNow6800 = forcedOpenCount.get()
+            val forcedDistressed6800 = forcedNow6800 > FORCED_OPEN_DISTRESS_6800
+            val exitLatched6800 = try {
+                com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.latchedCount6800()
+            } catch (_: Throwable) { 0 }
+            val exitBacklogged6800 = exitLatched6800 >= EXIT_LATCH_BACKLOG_MATERIAL_6800
+
+            if (cashStarved6800 || forcedDistressed6800 || exitBacklogged6800) {
+                if (candidateConfirmedHighEdge) {
+                    backpressureHighEdgeBypass6800.incrementAndGet()
+                    try {
+                        PipelineHealthCollector.labelInc("INVENTORY_BACKPRESSURE_HIGH_EDGE_BYPASS_6800")
+                    } catch (_: Throwable) {}
+                } else {
+                    when {
+                        cashStarved6800 -> capitalStarvationDefers6800.incrementAndGet()
+                        forcedDistressed6800 -> forcedDistressDefers6800.incrementAndGet()
+                        exitBacklogged6800 -> exitBacklogDefers6800.incrementAndGet()
+                    }
+                    val label6800 = when {
+                        cashStarved6800 -> "INVENTORY_BACKPRESSURE_CASH_STARVED_6800"
+                        forcedDistressed6800 -> "INVENTORY_BACKPRESSURE_FORCED_DISTRESS_6800"
+                        else -> "INVENTORY_BACKPRESSURE_EXIT_BACKLOG_6800"
+                    }
+                    try {
+                        PipelineHealthCollector.labelInc(label6800)
+                        ForensicLogger.lifecycle(
+                            label6800,
+                            "cash=${"%.6f".format(canonicalCashSol6800)} floor=$CANONICAL_FREE_CASH_FLOOR_SOL_6800 " +
+                                "forced=$forcedNow6800 distress=$FORCED_OPEN_DISTRESS_6800 " +
+                                "exitLatched=$exitLatched6800 material=$EXIT_LATCH_BACKLOG_MATERIAL_6800 " +
+                                "action=defer_pre_fdg_admission_backpressure",
+                        )
+                    } catch (_: Throwable) {}
+                    return DeferDecision(
+                        true,
+                        "INVENTORY_BACKPRESSURE_6800 cash=${"%.4f".format(canonicalCashSol6800)} " +
+                            "forced=$forcedNow6800 exitLatched=$exitLatched6800",
+                    )
+                }
+            }
+        }
+
         val ghosts = ghostOpenCount.get()
         if (ghosts > 0) {
             val stuckSince = ghostStuckSinceMs.get()
@@ -197,11 +277,10 @@ object SlotHealthGate {
             val stuckSince = forcedStuckSinceMs.get()
             val stuckMs = if (stuckSince > 0L) System.currentTimeMillis() - stuckSince else 0L
             if (paperRuntime6692) {
-                // 6692 correctly stopped FORCED count being a hard PAPER gate. Do not
-                // return here: 6709's independent adaptive cadence below must still run
-                // when the book is large, otherwise PAPER_FORCED_OPEN_FAIL_OPEN turns
-                // into an accidental bypass of all turnover control (operator 6708:
-                // forced=108, open=111, 322 BUY vs 131 SELL).
+                // V5.0.6692 §PAPER_FORCED_OPEN_FAIL_OPEN — forced PAPER count is
+                // diagnostic/cleanup state, not a hard gate. Do not defer here;
+                // the independent adaptive cadence below is the only turnover
+                // control (see 6709/6756 docblock at file top).
                 try {
                     PipelineHealthCollector.labelInc("PAPER_FORCED_OPEN_ADVISORY_6709")
                 } catch (_: Throwable) {}
@@ -268,5 +347,6 @@ object SlotHealthGate {
         "ghost=${ghostOpenCount.get()} forced=${forcedOpenCount.get()} open=${openPositionCount.get()} " +
         "sup=${supervisorActive.get()}/${supervisorCap.get()} exitPending=${exitPending.get()} " +
         "memeTurnoverCap=SHARED_CAPITAL_6692 cadence=1/${turnoverCadenceNow6709.get()} " +
-        "turnover6709[admit=${turnoverAdmitted6709.get()} defer=${turnoverDeferred6709.get()} highEdge=${turnoverHighEdgeBypass6709.get()}]"
+        "turnover6709[admit=${turnoverAdmitted6709.get()} defer=${turnoverDeferred6709.get()} highEdge=${turnoverHighEdgeBypass6709.get()}] " +
+        "backpressure6800[cash=${capitalStarvationDefers6800.get()} forced=${forcedDistressDefers6800.get()} exitBacklog=${exitBacklogDefers6800.get()} highEdge=${backpressureHighEdgeBypass6800.get()}]"
 }

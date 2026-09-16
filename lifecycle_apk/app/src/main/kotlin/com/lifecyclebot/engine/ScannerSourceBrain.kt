@@ -51,7 +51,13 @@ object ScannerSourceBrain {
     private const val LEARNED_THRESHOLD = 60L
     private const val AUTH_THRESHOLD = 150L
 
-    enum class AuthorityTier { BOOTSTRAP, ADVISORY, LEARNED, AUTHORITATIVE }
+    enum class AuthorityTier {
+        // V5.0.6809: BOOTSTRAP retained for wire compat and dead-branch when-
+        // arms only; runtime paths must return ADVISORY (neutral prior)
+        // instead.
+        BOOTSTRAP,
+        ADVISORY, LEARNED, AUTHORITATIVE,
+    }
 
     private data class SourceStats(
         var wins: Long = 0L,
@@ -142,14 +148,38 @@ object ScannerSourceBrain {
     }
 
     fun authority(source: String): AuthorityTier {
-        val s = stats[normalise(source)] ?: return AuthorityTier.BOOTSTRAP
+        // V5.0.6809: cold/no-samples sources return ADVISORY (neutral prior),
+        // not BOOTSTRAP. BOOTSTRAP is no longer a runtime authority tier.
+        val s = stats[normalise(source)] ?: return AuthorityTier.ADVISORY
         val n = s.samples()
         return when {
             n >= AUTH_THRESHOLD     -> AuthorityTier.AUTHORITATIVE
             n >= LEARNED_THRESHOLD  -> AuthorityTier.LEARNED
-            n >= BOOT_THRESHOLD     -> AuthorityTier.ADVISORY
-            else                    -> AuthorityTier.BOOTSTRAP
+            else                    -> AuthorityTier.ADVISORY
         }
+    }
+
+    /**
+     * V5.0.6809 §SOURCE_LEVEL_EXPECTANCY_ADMISSION — operator mandate:
+     *   "If a source such as PUMP_PORTAL_WS,PUMP_PORTAL becomes materially
+     *    negative, stop capital execution from that source while retaining
+     *    shadow learning. Do not blacklist permanently."
+     *
+     * Returns true when this source has BOTH sufficient sample count AND
+     * a materially-negative net average PnL, meaning capital execution
+     * should be suppressed while shadow observation continues. Threshold:
+     * n >= 40 (learned floor) AND avg PnL <= -3% (material negative-EV,
+     * same threshold the AATE policy synthesiser uses). Fresh evidence
+     * (better WR, positive PnL over subsequent trades) will naturally
+     * pull avgPnl back above the threshold via the running sum.
+     */
+    fun sourceCapitalExecutionSuppressed6809(source: String): Boolean {
+        return try {
+            val s = stats[normalise(source)] ?: return false
+            val n = s.samples()
+            if (n < 40L) return false
+            s.avgPnlPct() <= -3.0
+        } catch (_: Throwable) { false }
     }
 
     /** Multiplier in [0.40, 1.80] depending on tier + winRate.
@@ -165,8 +195,8 @@ object ScannerSourceBrain {
         val (floor, cap) = when (authority(key)) {
             AuthorityTier.AUTHORITATIVE -> 0.40 to 1.80
             AuthorityTier.LEARNED       -> 0.60 to 1.40
-            AuthorityTier.ADVISORY      -> 0.40 to 1.20  // V5.0.4123: was 0.80 floor, too generous for 4% WR sources
-            AuthorityTier.BOOTSTRAP     -> 1.00 to 1.00
+            AuthorityTier.ADVISORY      -> 0.40 to 1.20  // V5.0.4123 / V5.0.6809: neutral prior tier for cold + young sources
+            AuthorityTier.BOOTSTRAP     -> 0.40 to 1.20  // V5.0.6809: never returned at runtime; legacy compat only
         }
         val raw = 1.0 + centred * 0.6
         return checkStarvationBoost(key, raw.coerceIn(floor, cap))

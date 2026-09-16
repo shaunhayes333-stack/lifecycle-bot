@@ -116,6 +116,23 @@ object LaneExpectancyDamper {
         }
     }
 
+    /**
+     * V5.0.6809 §ADMISSION_VETO_SURFACE — operator mandate: LaneExpectancyDamper
+     * must feed actual admission authority, not only sizing telemetry.
+     *
+     * Returns true when the damped multiplier collapses below a hard admission
+     * floor (0.20) — i.e. this lane's own expectancy stack has decayed to a
+     * bleeder state where any further capital execution violates learning
+     * authority. Callers gate capital opens on this; observation/training
+     * still fires via the shadow path.
+     */
+    fun laneCapitalExecutionSuppressed6809(lane: String?): Boolean {
+        if (lane.isNullOrBlank()) return false
+        return try {
+            sizeMultiplier(lane) <= 0.20
+        } catch (_: Throwable) { false }
+    }
+
     fun statusLine(): String = try {
         val map = snapshot()
         val env6679 = try { if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "LIVE" }

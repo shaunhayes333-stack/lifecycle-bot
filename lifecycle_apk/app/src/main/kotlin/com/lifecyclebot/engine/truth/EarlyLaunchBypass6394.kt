@@ -99,6 +99,13 @@ object EarlyLaunchBypass6394 {
      * @return Decision.allow=false when the bypass does not fire (caller
      *         should keep whatever block it was going to apply).
      */
+    /**
+     * V5.0.6784 §AUTHORITY_CONSOLIDATION — 6394 live-buy bypass retired.
+     * See EarlyLaunchBypass6396.evaluateForLiveBuy for the rationale.
+     * The internal `evaluate` remains available for shadow/counterfactual
+     * learners that need to reason about what would have happened, but
+     * live/paper canonical capital does not execute below floor.
+     */
     fun evaluateForLiveBuy(
         mint: String,
         liveScore: Double,
@@ -106,27 +113,8 @@ object EarlyLaunchBypass6394 {
         sameMintAlreadyOpen: Boolean,
         reentryLockout: Boolean,
     ): Decision {
-        // Absolute floor — don't touch tokens below the probe zone.
-        if (liveScore < ABSOLUTE_MIN_SCORE) return Decision(false, 0.0, "BELOW_ABSOLUTE_MIN")
         if (liveScore >= STANDARD_LIVE_SCORE_FLOOR)
             return Decision(false, 1.0, "SCORE_AT_OR_ABOVE_FLOOR")  // normal path handles it
-
-        // Derive scout tier from smart-money activity (2+ whale buys in 60s).
-        val whaleBuys = try { SmartMoneyFeed6394.smartMoneyBuysLast60s(mint) } catch (_: Throwable) { 0 }
-        val tier = if (whaleBuys >= 2) EarlyEntryScout6390.Tier.HIGH_CONVICTION_EARLY
-                   else EarlyEntryScout6390.Tier.NOT_QUALIFIED
-
-        // Safety booleans — the FDG upstream already validated mint/freeze
-        // authority, rug, LP, holders. Pass-through with LP freshness check.
-        return evaluate(
-            liveScore = liveScore,
-            scoutTier = tier,
-            hardSafetyPassed = true,
-            mintPairResolved = liquidityUsd > 0.0,
-            freshLiquidityProof = liquidityUsd >= 3_000.0,
-            sellQuoteable = true,
-            sameMintOpen = sameMintAlreadyOpen,
-            reentryLockout = reentryLockout,
-        )
+        return Decision(false, 0.0, "EARLY_LAUNCH_BYPASS_RETIRED_6784")
     }
 }

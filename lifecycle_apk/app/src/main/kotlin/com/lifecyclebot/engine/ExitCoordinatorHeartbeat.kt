@@ -152,9 +152,44 @@ object ExitCoordinatorHeartbeat {
     }
 
     /** Perform the stale reset. Uses the generation counter so any
-     *  outstanding worker from the prior generation is fenced off. */
-    fun staleReset(mint: String, reason: String): State? {
-        val prev = states.remove(mint) ?: return null
+     *  outstanding worker from the prior generation is fenced off.
+     *
+     *  V5.0.6805 §STALE_RESET_SELF_GUARD — operator diagnosis Feb 2026:
+     *    "The exit coordinator has already required a stale reset even
+     *     when the state was healthy." A caller must not be able to tear
+     *     down a healthy generation by simply naming it stale. Verify at
+     *     the destructive boundary by consulting shouldStaleReset and use
+     *     compare-and-remove so a heartbeat/state transition that lands
+     *     during the reset does not zap a fresh generation.
+     *    Legitimate cleanup callers (tests, forced sweeps) pass force=true.
+     */
+    @JvmOverloads
+    fun staleReset(mint: String, reason: String, force: Boolean = false): State? {
+        val observed = states[mint] ?: return null
+        if (!force && !shouldStaleReset(mint)) {
+            try {
+                PipelineHealthCollector.labelInc("EXIT_COORDINATOR_UNJUSTIFIED_RESET_BLOCKED_6805")
+                ForensicLogger.lifecycle(
+                    "EXIT_COORDINATOR_UNJUSTIFIED_RESET_BLOCKED_6805",
+                    "mint=${mint.take(10)} sweepId=${observed.sweepId} phase=${observed.phase} " +
+                        "owner=${observed.owner} generation=${observed.generation} reason=$reason " +
+                        "action=keep_healthy_generation",
+                )
+            } catch (_: Throwable) {}
+            return null
+        }
+        // Compare-and-remove fences a heartbeat/state transition that lands
+        // after the stale check. A caller cannot tear down a newer healthy
+        // generation just because the check briefly said stale.
+        val prev = if (force) {
+            states.remove(mint) ?: return null
+        } else {
+            if (!states.remove(mint, observed)) {
+                try { PipelineHealthCollector.labelInc("EXIT_COORDINATOR_RESET_RACE_PREVENTED_6805") } catch (_: Throwable) {}
+                return null
+            }
+            observed
+        }
         staleResets.incrementAndGet()
         justifiedResets.incrementAndGet()
         try {

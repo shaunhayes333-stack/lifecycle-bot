@@ -166,7 +166,36 @@ object LiveWinDNAStore {
         trimIfOverCap()
         invalidateSnapshots()
         if (bulkLoadDepth.get() <= 0) schedulePersist()
-        try { ForensicLogger.lifecycle("LIVE_WIN_DNA_CAPTURED_6238", "sym=$symbol lane=$lane setup=$entrySetup pnl=${"%.1f".format(pnlPct)}% mode=$paperOrLive") } catch (_: Throwable) {}
+        try {
+            // V5.0.6763 §DNA_TAXONOMY_FIX — the 6258 rewire journals BOTH
+            // winners and losers so the aggregators can compute
+            // setup/pattern/lane frequency for each class (see the
+            // `pnlPct > 0.0` / `pnlPct < 0.0` filters below). But the
+            // telemetry label was still `LIVE_WIN_DNA_CAPTURED_6238`
+            // regardless of pnl sign — operator forensic dump on
+            // V5.0.6761 showed lines like
+            //     LIVE_WIN_DNA_CAPTURED_6238 ... pnl=-100.0% mode=PAPER
+            // which is a semantic contradiction. Any downstream parser
+            // that greps `WIN_DNA_CAPTURED` to bucket positive events
+            // would learn the inverse. Split the label by sign so the
+            // event taxonomy matches the aggregator taxonomy exactly.
+            val classTag6763 = when {
+                pnlPct > 0.0 -> "WIN"
+                pnlPct < 0.0 -> "LOSS"
+                else -> "BREAKEVEN"
+            }
+            ForensicLogger.lifecycle(
+                "LIVE_TRADE_DNA_${classTag6763}_CAPTURED_6763",
+                "sym=$symbol lane=$lane setup=$entrySetup pnl=${"%.1f".format(pnlPct)}% mode=$paperOrLive",
+            )
+            // Retain the legacy label for backward-compatible dashboards
+            // BUT prefix a corrected class tag so grep-based routing can
+            // migrate cleanly. Never emit a bare `WIN` label on a loss.
+            if (pnlPct > 0.0) {
+                ForensicLogger.lifecycle("LIVE_WIN_DNA_CAPTURED_6238",
+                    "sym=$symbol lane=$lane setup=$entrySetup pnl=${"%.1f".format(pnlPct)}% mode=$paperOrLive class6763=WIN")
+            }
+        } catch (_: Throwable) {}
     }
 
     /**

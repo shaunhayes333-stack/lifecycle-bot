@@ -22,12 +22,21 @@ class V5_0_6570AcceptanceTest {
         )
         assertTrue(CanonicalPriceMarkRegistry6522.publish(observation))
         assertEquals(BigDecimal("0.00125"), CanonicalPriceMarkRegistry6522.get("mint6570")!!.priceUsd.value)
+        // Executable via MINT_ROUTE without CANONICAL_MINT_SOURCE_MARK_6613 proof is still rejected.
         assertFalse(CanonicalPriceMarkRegistry6522.publish(observation.copy(
             mint = "mint6570-live", baseMint = "mint6570-live", pairId = "MINT_ROUTE:mint6570-live",
             purpose = CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
         )))
-        assertFalse(CanonicalPriceMarkRegistry6522.publish(observation.copy(
+        // V5.0.6756 §OBSERVATION_FRESHNESS_ROUTING — observation slot accepts up to
+        // OBSERVATION_FRESHNESS_WINDOW_MS_6743 (300s) so paper scoring can proceed
+        // on 121-300s provider evidence. Executable slot must still refuse it.
+        assertTrue(CanonicalPriceMarkRegistry6522.publish(observation.copy(
             mint = "stale6570", baseMint = "stale6570", pairId = "MINT_ROUTE:stale6570",
+            timestampMs = now - 121_000L,
+        )))
+        assertFalse(CanonicalPriceMarkRegistry6522.publish(observation.copy(
+            mint = "stale6570-exec", baseMint = "stale6570-exec", pairId = "MINT_ROUTE:stale6570-exec",
+            purpose = CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
             timestampMs = now - 121_000L,
         )))
     }

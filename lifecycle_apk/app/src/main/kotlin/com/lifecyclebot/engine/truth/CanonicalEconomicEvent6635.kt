@@ -279,6 +279,19 @@ object CanonicalEconomicEvent6635 {
      * FORENSIC RECONCILIATION HEALTH LINE — operator directive §10.
      * Called by the health-report emitter every cadence tick.
      */
+    /**
+     * V5.0.6778 §CI_SEED_DETECTION — number of events in Terminal.COMMITTED.
+     * Used by JournalEconomicReplay6619 to detect the CI-seed / restore-from-
+     * canonical-events scenario: when the ledger reflects canonical drains but
+     * TradeHistoryStore is empty, the whole-history walk MUST supersede rather
+     * than fail-close the hero snapshot.
+     */
+    fun committedEventCount6778(): Int {
+        var comm = 0
+        for ((_, s) in events) if (s.terminal == Terminal.COMMITTED) comm++
+        return comm
+    }
+
     fun forensicReconciliationLine6635(): String {
         var open = 0; var comm = 0; var pend = 0; var stuckN = 0
         var missingJournal = 0; var missingLedger = 0
@@ -300,7 +313,19 @@ object CanonicalEconomicEvent6635 {
             if (s.pendingSinceMs > 0 && System.currentTimeMillis() - s.pendingSinceMs > 60_000L) stuckN++
         }
         val eventParity = (pend == 0 && stuckN == 0)
-        val status = if (eventParity && open == 0) "RECONCILED" else "FAILED"
+        // V5.0.6768 §GLOBAL_RECONCILIATION_STATUS_ROOT_CAUSE — an event stays in
+        //   Terminal.OPEN from the moment openEvent() is called until all five
+        //   stores have called markCommitted(). Under real trade throughput
+        //   there is ALWAYS at least one in-flight commit in the registry when
+        //   ForensicReconciliation samples — that made status permanently
+        //   "FAILED", made JournalEconomicAuthority6616's publish gate refuse
+        //   every snapshot (JOURNAL_ECONOMIC_PUBLISH_BLOCKED_FAILED_REPLAY_6647
+        //   with replayOk=true failures=[]), and left the hero without a
+        //   RECONCILED snapshot to bind to — so UnifiedAccountSnapshot6635
+        //   painted ACCOUNT UNAVAILABLE / ACCOUNTING ERROR on a healthy account.
+        //   In-flight OPEN is NORMAL. Fault semantics are already fully covered
+        //   by PENDING_RECONCILIATION (>60s partial commit) and STUCK (>120s).
+        val status = if (eventParity) "RECONCILED" else "FAILED"
         return buildString {
             append("FORENSIC_ACCOUNTING_RECONCILIATION_6635 ")
             append("canonicalEconomicEvents=${events.size} ")
