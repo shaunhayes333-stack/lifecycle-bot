@@ -113,7 +113,7 @@ object PolicySynthesizer6512 {
                     "candidateId=${context.candidateId} mint=${context.mint.take(10)} " +
                         "lane=${context.primaryStrategy} proposedAction=$proposedUpper6801 " +
                         "weightedEv=${"%.2f".format(ev)} pWin=${"%.2f".format(pWin)} " +
-                        "evContributors=${we.size}/${MIN_EV_HARD_VETO_SAMPLE_6813} " +
+                        "evContributors=${we.size}/${MIN_EV_HARD_VETO_SAMPLE_6814} " +
                         "evidenceState=$evidenceState6813 " +
                         "action=advisory_only_no_hard_veto",
                 )
