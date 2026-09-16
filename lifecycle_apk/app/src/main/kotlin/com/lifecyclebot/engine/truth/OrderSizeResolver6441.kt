@@ -191,7 +191,26 @@ object OrderSizeResolver6441 {
             com.lifecyclebot.engine.truth.RuntimeTune6833.laneCapacityMultiplier(laneName)
         } catch (_: Throwable) { 1.0 }
         val adaptiveMult6684 = (ssiMult6684 * labMult6684 * pressureMult6830 * laneRedistMult6833).coerceIn(0.20, 2.50)
-        val requested = (requestedSol.coerceAtLeast(0.0) * adaptiveMult6684).coerceAtLeast(0.0)
+        // V5.0.6833 §EXPRESS_ADMISSION_BLEED — operator directive Feb 2026:
+        //   "liveP<0.30 => PROBE_ONLY; expectedPnl<0 AND liveP<0.30 => NO_BUY;
+        //    raw score MUST NOT override strongly negative learned edge."
+        // Applied AFTER coerceIn so PROBE_ONLY (x0.25) and NO_BUY (x0.0) can
+        // reach through the 0.20 adaptive floor for EXPRESS only. All other
+        // lanes carry a 1.0 admission multiplier and are unaffected.
+        val expressAdmissionMult6833 = try {
+            val laneKey = laneName.trim().uppercase()
+            if (laneKey == "EXPRESS") {
+                val snap = com.lifecyclebot.engine.LiveProbabilityEngine
+                    .laneSnapshots().firstOrNull { it.lane == "EXPRESS" }
+                if (snap != null && snap.sample >= 20) {
+                    val liveP = (snap.wrPct / 100.0).coerceIn(0.0, 1.0)
+                    val ev = (snap.evPct / 100.0).coerceIn(-1.0, 1.0)
+                    com.lifecyclebot.engine.truth.RuntimeTune6833
+                        .expressAdmissionMultiplier(liveP, ev, rawScore = 0)
+                } else 1.0
+            } else 1.0
+        } catch (_: Throwable) { 1.0 }
+        val requested = (requestedSol.coerceAtLeast(0.0) * adaptiveMult6684 * expressAdmissionMult6833).coerceAtLeast(0.0)
         val risk = requested.coerceAtMost(laneRiskCapSol)
         if (kotlin.math.abs(adaptiveMult6684 - 1.0) > 0.001) {
             try {
