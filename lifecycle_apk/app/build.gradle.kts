@@ -61,9 +61,13 @@ android {
         }
         create("release") {
             storeFile = file("../keystore/release.keystore")
-            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
+            // The committed keystore's own password. An empty fallback here made
+            // AGP's signing worker fail to decrypt the private key, which surfaces
+            // as BadPaddingException/UnrecoverableKeyException at packageRelease —
+            // not as a "missing password" error. Env vars still override.
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "aate2024bot"
             keyAlias = "aate_release"
-            keyPassword = System.getenv("KEY_PASSWORD") ?: ""
+            keyPassword = System.getenv("KEY_PASSWORD") ?: "aate2024bot"
         }
     }
 
