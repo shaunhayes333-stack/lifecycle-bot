@@ -10,6 +10,7 @@ import java.nio.ByteOrder
 import kotlin.math.abs
 import kotlin.math.ln
 import kotlin.math.exp
+import kotlin.math.sqrt
 import kotlin.math.tanh
 
 /**
@@ -61,6 +62,9 @@ object OnDeviceMLEngine {
     // Statistics for normalization
     private var featureMeans = FloatArray(NUM_FEATURES) { 0f }
     private var featureStds = FloatArray(NUM_FEATURES) { 1f }
+    // V5.0.6843 — Welford's sum of squared deviations from the running mean.
+    // Required to derive a real standard deviation; see updateNormalizationStats.
+    private var featureM2 = FloatArray(NUM_FEATURES) { 0f }
     private var isNormalized = false
 
     // ═══════════════════════════════════════════════════════════════════
@@ -625,10 +629,41 @@ object OnDeviceMLEngine {
             features.spikeSignal, features.flowImbalance, features.txnAccel  // V5.9.1268
         )
         
+        // V5.0.6843 §FEATURE_STDDEV_WAS_A_SINGLE_SAMPLE_DEVIATION — the mean update
+        // here is a correct running mean, but the std line was
+        //   featureStds[i] = abs(raw[i] - featureMeans[i])
+        // which is the absolute deviation of THE CURRENT SAMPLE from the mean, not a
+        // standard deviation over the sample set. It carried no accumulator, so the
+        // z-score denominator used by normalizeFeatures() was rewritten from scratch on
+        // every training row.
+        //
+        // The consequence is severe because this is the only model in the stack fed
+        // rich per-token market data (32 features: liquidity depth/ratio/change, holder
+        // count/growth/top-holder share, buy pressure, volume ratio/spike, flow
+        // imbalance, txn acceleration, rugcheck, authority flags, RSI, EMA, support and
+        // resistance distance). Normalising each of those by |x - mean| collapses the
+        // magnitude information the features exist to carry — when the same sample
+        // drives both numerator and denominator the z-score degenerates toward +/-1
+        // regardless of how extreme the reading actually was, and when a sample lands
+        // near the mean the 0.01 floor makes it explode instead. Either way the entry,
+        // rug and exit heads train on a scale that changes underneath them, and
+        // OnDeviceMLEngine's rugProbability drives a HARD veto in FinalDecisionGate.
+        //
+        // Real Welford: accumulate M2 = sum of (x - mean_old)*(x - mean_new), then
+        // std = sqrt(M2 / (n - 1)).
         for (i in 0 until NUM_FEATURES) {
             val oldMean = featureMeans[i]
-            featureMeans[i] = oldMean + (raw[i] - oldMean) / n
-            featureStds[i] = abs(raw[i] - featureMeans[i]).coerceAtLeast(0.01f)
+            val delta = raw[i] - oldMean
+            featureMeans[i] = oldMean + delta / n
+            featureM2[i] += delta * (raw[i] - featureMeans[i])
+            // Keep the previous scale until genuine variance has accumulated, so a
+            // restore from prefs written before 6843 (no persisted M2) does not collapse
+            // every denominator to the 0.01 floor on the next sample.
+            featureStds[i] = if (n > 1f && featureM2[i] > 0f) {
+                sqrt(featureM2[i] / (n - 1f)).coerceAtLeast(0.01f)
+            } else {
+                featureStds[i].coerceAtLeast(0.01f)
+            }
         }
     }
     
@@ -747,6 +782,10 @@ object OnDeviceMLEngine {
         val prefs = context.getSharedPreferences("ml_norm_stats", android.content.Context.MODE_PRIVATE)
         featureMeans = FloatArray(NUM_FEATURES) { i -> prefs.getFloat("mean_$i", 0f) }
         featureStds  = FloatArray(NUM_FEATURES) { i -> prefs.getFloat("std_$i", 1f).coerceAtLeast(1e-6f) }
+        // V5.0.6843 — Welford accumulator. Absent in stores written before 6843, in
+        // which case it starts at 0 and updateNormalizationStats keeps the persisted
+        // std until real variance accrues rather than collapsing to the 0.01 floor.
+        featureM2    = FloatArray(NUM_FEATURES) { i -> prefs.getFloat("m2_$i", 0f) }
         isNormalized = prefs.getBoolean("is_normalized", false)
     }
 
@@ -754,6 +793,7 @@ object OnDeviceMLEngine {
         val prefs = context.getSharedPreferences("ml_norm_stats", android.content.Context.MODE_PRIVATE).edit()
         featureMeans.forEachIndexed { i, v -> prefs.putFloat("mean_$i", v) }
         featureStds.forEachIndexed  { i, v -> prefs.putFloat("std_$i",  v) }
+        featureM2.forEachIndexed    { i, v -> prefs.putFloat("m2_$i",   v) }
         prefs.putBoolean("is_normalized", isNormalized)
         prefs.apply()
     }
