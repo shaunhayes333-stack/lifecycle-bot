@@ -61,32 +61,24 @@ object PolicySynthesizer6512 {
         //   confident -3% or worse cannot become an executable BUY.
         val proposedUpper6801 = proposedAction.uppercase()
         val isBuyLike6801 = proposedUpper6801 in setOf("BUY", "PROBE", "PROBE_ONLY", "EXECUTE")
-        // V5.0.6813 §NEG_EV_EVIDENCE_STATE — operator diagnosis Feb 2026:
-        //   "EV=-5.0 must NOT be interpreted as proven negative expectancy
-        //    when EV evidence is missing, sparse, defaulted, or sentinel-
-        //    derived. Distinguish EV_UNKNOWN / EV_INSUFFICIENT from
-        //    EV_VALID_NEGATIVE. Require minimum trustworthy EV population
-        //    before hard veto."
+        // V5.0.6814 §NEG_EV_AUTHORITY_TIGHTEN — operator diagnosis Feb 2026:
+        //   "EV_INSUFFICIENT is advisory only, that is allowing structurally
+        //    weak entries through. weightedEv < 0 with >=2 independent EV
+        //    contributors: block/defer BUY for that candidate epoch.
+        //    EV_INSUFFICIENT with only 1 contributor: max size multiplier =
+        //    0.25, require strong source + momentum/price confirmation."
         //
-        //   Evidence state assignment:
-        //     • EV_UNKNOWN      — no contributor supplied an EV signal
-        //                         (we.isEmpty()); nothing to veto on
-        //     • EV_INSUFFICIENT — 1..2 EV contributors present; sample
-        //                         population too sparse for a hard veto
-        //     • EV_VALID_NEGATIVE — >=3 EV contributors AND weighted ev
-        //                         at or below the veto floor (-3.0%)
-        //     • EV_VALID_NEUTRAL — >=3 EV contributors but ev > -3.0%
-        //
-        //   Only EV_VALID_NEGATIVE triggers POLICY_NEG_EV_BLOCK_6801. All
-        //   other states remain BUY-like and emit
-        //   AATE_POLICY_EV_INSUFFICIENT_ADVISORY_6811 for size damping /
-        //   future authority tightening. Hard safety (rug, liquidity, scam,
-        //   route) is unchanged and continues to BLOCK regardless.
-        val MIN_EV_HARD_VETO_SAMPLE_6813 = 3
+        //   V5.0.6813 required 3 contributors for the hard veto and left
+        //   1-2 contributor cases as EV_INSUFFICIENT advisory. 6814
+        //   drops the threshold to 2 (matching the operator's 2-contributor
+        //   rule) and keeps the 1-contributor case as advisory that
+        //   downstream sizing caps at 0.25× via
+        //   `evInsufficientSingleContributorSizeCap6814`.
+        val MIN_EV_HARD_VETO_SAMPLE_6814 = 2
         val evNegativeFloor6813 = -3.0
         val evidenceState6813 = when {
             we.isEmpty() -> "EV_UNKNOWN"
-            we.size < MIN_EV_HARD_VETO_SAMPLE_6813 -> "EV_INSUFFICIENT"
+            we.size < MIN_EV_HARD_VETO_SAMPLE_6814 -> "EV_INSUFFICIENT"
             ev <= evNegativeFloor6813 -> "EV_VALID_NEGATIVE"
             else -> "EV_VALID_NEUTRAL"
         }

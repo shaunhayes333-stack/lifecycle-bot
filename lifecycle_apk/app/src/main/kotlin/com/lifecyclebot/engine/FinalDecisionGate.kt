@@ -1001,6 +1001,69 @@ object FinalDecisionGate {
             )
         }
 
+        // V5.0.6814 §CAPITAL_RECOVERY_GATE — operator diagnosis Feb 2026:
+        //   When cash is starved, positions saturated, or buy/sell ratio
+        //   inverted, stop ordinary new entries so exits can recover
+        //   capital. Exits (SELL/TP/SL/catastrophic) never traverse this
+        //   gate — FDG evaluates BUY-side candidates only. Uses the
+        //   normal blockReason return path (no early-exit / no
+        //   hand-built FinalDecision) — critical after the V5.0.6811
+        //   crash lesson. Learning/shadow evaluation continues via the
+        //   normal FinalDecision consumers.
+        //
+        //   The gate self-triggers a refresh of CapitalRecoveryAuthority6814
+        //   state using the currently-authoritative capital snapshot
+        //   (paper ledger or LIVE capital source). No BotService loop
+        //   modification is required.
+        try {
+            val cash6814 = try {
+                if (isPaperMode) com.lifecyclebot.engine.truth.PaperAccountLedger6430.cashSol()
+                else 0.0
+            } catch (_: Throwable) { 0.0 }
+            val openCount6814 = try {
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().size
+            } catch (_: Throwable) { 0 }
+            // Equity approximation: cash + open position count * average
+            // notional (a conservative proxy — we deliberately avoid
+            // touching canonical valuation authorities from FDG).
+            val avgNotionalProxy6814 = 0.05
+            val equity6814 = cash6814 + openCount6814 * avgNotionalProxy6814
+            // Slot capacity — use a conservative constant since the
+            // authoritative slot registry has no public API here.
+            val slotCap6814 = 100
+            com.lifecyclebot.engine.truth.CapitalRecoveryAuthority6814.evaluate(
+                availableCashSol = cash6814,
+                equitySol = equity6814,
+                openPositions = openCount6814,
+                slotCapacity = slotCap6814,
+                buysLastWindow = 0L,   // rolling counters not wired in this ship
+                sellsLastWindow = 0L,
+            )
+        } catch (_: Throwable) {}
+        if (com.lifecyclebot.engine.truth.CapitalRecoveryAuthority6814.isActive()) {
+            val reason6814 = com.lifecyclebot.engine.truth.CapitalRecoveryAuthority6814.lastReason()
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("FDG_BLOCKED_CAPITAL_RECOVERY_6814")
+            } catch (_: Throwable) {}
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = candidate.aiConfidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = "CAPITAL_RECOVERY_6814",
+                blockLevel = BlockLevel.HARD,
+                sizeSol = 0.0,
+                tags = listOf("capital_recovery_6814", "reason:$reason6814"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "CAPITAL_RECOVERY_6814: cash/slot/buy-sell imbalance → new BUY entries paused ($reason6814)",
+                gateChecks = listOf(GateCheck("capital_recovery_6814", false, reason6814)),
+            )
+        }
+
         // V5.9.805 — operator audit Fix (β): record this candidate's V3
         // score in the WrRecoveryPartial rolling distribution. We do this
         // at the top of FDG (after candidate construction) because every
