@@ -27847,25 +27847,69 @@ if (hotExitHandledSweep) {
                     "${strategy.emoji} ${strategy.label} | urgency=${urgency.name} | " +
                     "pnl=${pnlPct.toInt()}% | peak=${sellOptSignal.peakPnlPct.toInt()}%")
                 
-                executor.requestSell(
+                val sellResult6839 = executor.requestSell(
                     ts = ts,
                     reason = "[SELL_OPT] ${strategy.label}: ${sellOptSignal.reason}",
                     wallet = wallet,
                     walletSol = effectiveBalance,
                 )
-                
-                // Close position tracking
-                com.lifecyclebot.v3.scoring.SellOptimizationAI.closePosition(ts.mint, pnlPct)
-                
-                // V5.6.8 FIX: Release exposure slot
-                com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+
+                // V5.0.6839 §TEARDOWN_ON_UNAPPLIED_SELL — the SellResult was discarded
+                // and the two teardown calls below ran unconditionally. When the sell was
+                // refused (FAILED_RETRYABLE, ROUTE_FAILED_NO_SIGNATURE, NO_WALLET,
+                // WAITING_BALANCE_PROOF, FAILED_FATAL) the bag stayed OPEN while:
+                //   - SellOptimizationAI.closePosition wiped peakPnlPct and chunksSold, so
+                //     the trailing lock (needs peakPnlPct > 20) was disarmed and the chunk
+                //     ladder restarted at CHUNK_1 on a position that had already laddered
+                //   - V3EngineManager.onPositionClosed freed the exposure slot while the
+                //     position was still exposed, letting a replacement open against
+                //     capital that was not actually released
+                // The partial branch 20 lines above already gates on
+                // partialReceipt6566.applied; this branch simply never did.
+                // Only CONFIRMED / PAPER_CONFIRMED / ALREADY_CLOSED mean the position is
+                // genuinely settled — everything else may still be held.
+                val settled6839 = sellResult6839 == Executor.SellResult.CONFIRMED ||
+                    sellResult6839 == Executor.SellResult.PAPER_CONFIRMED ||
+                    sellResult6839 == Executor.SellResult.ALREADY_CLOSED
+                if (settled6839) {
+                    // Close position tracking
+                    com.lifecyclebot.v3.scoring.SellOptimizationAI.closePosition(ts.mint, pnlPct)
+
+                    // V5.6.8 FIX: Release exposure slot
+                    com.lifecyclebot.v3.V3EngineManager.onPositionClosed(ts.mint)
+                } else {
+                    try {
+                        PipelineHealthCollector.labelInc("SELL_OPT_TEARDOWN_SKIPPED_UNSETTLED_6839")
+                        PipelineHealthCollector.labelInc("SELL_OPT_TEARDOWN_SKIPPED_${sellResult6839.name}_6839")
+                    } catch (_: Throwable) {}
+                }
             }
             
             // Update stop loss if suggested (for treasury positions)
             sellOptSignal.suggestedStopLoss?.let { newStop ->
-                if (ts.position.isTreasuryPosition && newStop > ts.position.treasuryStopLoss) {
+                // V5.0.6839 §PROFIT_FLOOR_WRITTEN_INTO_STOP_LOSS_FIELD — these two
+                // values have opposite sign conventions:
+                //   SellOptimizationAI.suggestedStopLoss is a POSITIVE profit floor in
+                //     pnl points (currentPnlPct*0.7 / *0.6 / *0.5, or 5.0, or 0.0)
+                //   Position.treasuryStopLoss is a NEGATIVE stop-loss percentage, set at
+                //     entry from effectiveSlPct (:22653) and tested as `< 0` by the
+                //     restart re-registration path (:26826)
+                // Because the field starts negative, EVERY positive suggestion satisfied
+                // `newStop > treasuryStopLoss`, so a position at +60% overwrote its -4%
+                // stop with +36. The `>` comparison then made that monotonic: a positive
+                // value can never be replaced by a negative one, so the configured stop
+                // was destroyed for the life of the position and persisted that way via
+                // WalletTokenMemory. On restart the `< 0` test fails and the position is
+                // re-registered with the -4.0 fallback rather than its real stop, while
+                // MainActivity:5779 renders the positive number as the stop.
+                // The profit-lock intent here is already served by PeakDrawdownLock and
+                // FluidLearningAI.fluidProfitFloor, and the positive value never acted as
+                // a stop anywhere, so nothing is lost by refusing it. Accept a suggestion
+                // only when it is a genuine TIGHTENING of a still-negative stop, which
+                // keeps this correct if suggestedStopLoss ever starts returning one.
+                if (ts.position.isTreasuryPosition && newStop < 0.0 && newStop > ts.position.treasuryStopLoss) {
                     ts.position.treasuryStopLoss = newStop
-                    ErrorLogger.debug("BotService", "🔒 [SELL_OPT] ${ts.symbol} stop moved to +${newStop.toInt()}%")
+                    ErrorLogger.debug("BotService", "🔒 [SELL_OPT] ${ts.symbol} stop tightened to ${newStop.toInt()}%")
                 }
             }
         }
