@@ -128,6 +128,15 @@ class BotService : Service() {
         val paperStaleZombieLatch6504: java.util.concurrent.ConcurrentHashMap.KeySetView<String, Boolean> =
             java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
+        // V5.0.6818 §STALE_MARK_EXIT_REFRESH_BUDGET — per-position refresh
+        //   attempt counter for the paper-stale-scratch gate. The V5.0.6817
+        //   `StaleMarkExitGate6817` requires multiple refresh attempts to
+        //   expire before terminal scratch is permitted. This map holds the
+        //   attempt count per `mint:entryTime` latch key; cleared on close
+        //   alongside the zombie latch above.
+        val paperStaleRefreshAttempts6818: java.util.concurrent.ConcurrentHashMap<String, Int> =
+            java.util.concurrent.ConcurrentHashMap()
+
         // V5.9.1165 — permanent-runtime stop contract.
         // The bot may stop only from an explicit confirmed Stop button / halt
         // reset, operator manual stop, or controlled config restart. Unknown
@@ -4833,6 +4842,7 @@ class BotService : Service() {
         // legitimately re-opened mint's stale-price timeout can fire
         // its one-shot again in the new session.
         try { paperStaleZombieLatch6504.clear() } catch (_: Throwable) {}
+        try { paperStaleRefreshAttempts6818.clear() } catch (_: Throwable) {}
         // V5.0.6503 §2 — start HeroSnapshotAuthority6503 so MainActivity /
         // hero panels can read equity/exposure/openCount/pnl off Main via
         // an O(1) atomic reference. Idempotent. Publishes every 500ms on
@@ -9198,13 +9208,51 @@ class BotService : Service() {
                                             // (PositionCloseLedger.isClosed) — at which point the outer
                                             // exit sweep also drops the mint.
                                             val zombieLatchKey6504 = "${ts.mint}:${ts.position.entryTime}"
+                                            // V5.0.6818 §STALE_MARK_EXIT_REFRESH_BUDGET — consult
+                                            //   StaleMarkExitGate6817 BEFORE scratching. The gate
+                                            //   requires REFRESH_BUDGET (=3) attempts before permitting
+                                            //   a terminal scratch, and even then the scratch is
+                                            //   marked TRAINABLE=FALSE so RewardPurityAdmission6817
+                                            //   excludes it from every learner. Refresh attempts
+                                            //   are bumped once per tick — subsequent ticks
+                                            //   continue holding until the budget expires.
+                                            val refreshAttempts6818 = paperStaleRefreshAttempts6818
+                                                .compute(zombieLatchKey6504) { _, cur -> (cur ?: 0) + 1 }!!
+                                            // Prefer the canonical position id so downstream
+                                            // finalization matches on the same key the gate stamped.
+                                            val stalePositionId6818 = ts.position.positionId
+                                                .ifBlank { zombieLatchKey6504 }
+                                            val staleVerdict6818 = try {
+                                                com.lifecyclebot.engine.truth.StaleMarkExitGate6817.evaluate(
+                                                    positionId = stalePositionId6818,
+                                                    priceAuthority = com.lifecyclebot.engine.truth.StaleMarkExitGate6817.PriceAuthority.STALE,
+                                                    refreshAttempts = refreshAttempts6818,
+                                                    deadConfirmed = false,
+                                                )
+                                            } catch (_: Throwable) {
+                                                com.lifecyclebot.engine.truth.StaleMarkExitGate6817.Verdict.SCRATCH_DIAGNOSTIC
+                                            }
+                                            if (staleVerdict6818 == com.lifecyclebot.engine.truth.StaleMarkExitGate6817.Verdict.HOLD_DEFER) {
+                                                try {
+                                                    ForensicLogger.lifecycle(
+                                                        "PAPER_STALE_MARK_HOLD_DEFER_6818",
+                                                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} " +
+                                                            "refreshAttempts=$refreshAttempts6818 " +
+                                                            "ageS=${livePriceAgeMs/1000} " +
+                                                            "action=hold_no_scratch_refresh_budget_not_exhausted",
+                                                    )
+                                                    PipelineHealthCollector.labelInc("PAPER_STALE_MARK_HOLD_DEFER_6818")
+                                                } catch (_: Throwable) {}
+                                                continue
+                                            }
                                             if (paperStaleZombieLatch6504.add(zombieLatchKey6504)) {
                                                 try {
                                                     ForensicLogger.lifecycle(
                                                         "PAPER_STALE_ZOMBIE_SCRATCH_EXIT",
-                                                        "symbol=${ts.symbol} lastPnlPct=${"%.1f".format(lastKnownPnlPct)} floor=${"%.1f".format(stalePnlFloor)} ageS=${livePriceAgeMs/1000} timeoutS=${paperStaleTimeoutMs/1000} — feed+oracle dark, closing scratch to prevent forcedOpen/WR poison (one-shot 6504)"
+                                                        "symbol=${ts.symbol} lastPnlPct=${"%.1f".format(lastKnownPnlPct)} floor=${"%.1f".format(stalePnlFloor)} ageS=${livePriceAgeMs/1000} timeoutS=${paperStaleTimeoutMs/1000} refreshAttempts=$refreshAttempts6818 verdict=$staleVerdict6818 — feed+oracle dark, closing scratch TRAINABLE=FALSE (6818)"
                                                     )
                                                     PipelineHealthCollector.labelInc("PAPER_STALE_ZOMBIE_SCRATCH_EXIT_ONESHOT_6504")
+                                                    PipelineHealthCollector.labelInc("PAPER_STALE_SCRATCH_NON_TRAINABLE_6818")
                                                 } catch (_: Throwable) {}
                                                 executor.requestSell(
                                                     ts = ts,

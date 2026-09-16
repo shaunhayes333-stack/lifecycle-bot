@@ -195,6 +195,46 @@ object CanonicalTradeFinalizedBus6450 {
                     } catch (_: Throwable) {}
                 }
             }
+            // V5.0.6818 §STALE_MARK_SCRATCH_NON_TRAINABLE — operator directive
+            //   Feb 2026 item #1/#6: "PAPER_STALE_PRICE_TIMEOUT_SCRATCH must
+            //   not train entry/exit learners unless exitPriceAuthority ==
+            //   VALIDATED_MARK." Consult the V5.0.6817 gates: if the position
+            //   was routed through the stale-mark exit gate as non-trainable,
+            //   or its owner is quarantined, override the envelope's
+            //   `learningEligible` to FALSE and stamp the reason so
+            //   RewardPurityAdmission6817 / consumers observe the exclusion.
+            val staleGateTrainable6818 = try {
+                com.lifecyclebot.engine.truth.StaleMarkExitGate6817.isTrainable(event.positionId)
+            } catch (_: Throwable) { true }
+            val ownerQuarantined6818 = try {
+                com.lifecyclebot.engine.truth.UnresolvedOwnerLearningQuarantine6817
+                    .isQuarantined(event.positionId)
+            } catch (_: Throwable) { false }
+            val staleExitReasonTag6818 = event.exitReason.contains("STALE_PRICE_TIMEOUT", ignoreCase = true) ||
+                event.exitReason.contains("STALE_ZOMBIE_SCRATCH", ignoreCase = true)
+            if (!staleGateTrainable6818 || ownerQuarantined6818 || staleExitReasonTag6818) {
+                unitInvariant6813Eligible = false
+                val reasons6818 = buildList {
+                    if (!staleGateTrainable6818) add("STALE_MARK_NON_TRAINABLE_6818")
+                    if (ownerQuarantined6818) add("UNRESOLVED_OWNER_QUARANTINED_6817")
+                    if (staleExitReasonTag6818) add("STALE_EXIT_REASON_6818:${event.exitReason.take(40)}")
+                }
+                unitInvariant6813Reason = if (unitInvariant6813Reason == "ELIGIBLE")
+                    reasons6818.joinToString("|")
+                else "$unitInvariant6813Reason|${reasons6818.joinToString("|")}"
+                try {
+                    PipelineHealthCollector.labelInc("FINALIZED_LEARNING_EXCLUDED_STALE_6818")
+                    if (staleExitReasonTag6818) PipelineHealthCollector.labelInc("FINALIZED_LEARNING_EXCLUDED_STALE_EXIT_REASON_6818")
+                    if (!staleGateTrainable6818) PipelineHealthCollector.labelInc("FINALIZED_LEARNING_EXCLUDED_STALE_GATE_6818")
+                    if (ownerQuarantined6818) PipelineHealthCollector.labelInc("FINALIZED_LEARNING_EXCLUDED_UNRESOLVED_OWNER_6818")
+                    ForensicLogger.lifecycle(
+                        "FINALIZED_LEARNING_EXCLUDED_STALE_6818",
+                        "positionId=${event.positionId.take(24)} mint=${event.mint.take(10)} " +
+                            "exitReason=${event.exitReason.take(60)} reasons=${reasons6818.joinToString(",")} " +
+                            "action=diagnostic_visible_learners_excluded",
+                    )
+                } catch (_: Throwable) {}
+            }
             val env = CanonicalFinalizedTradeBus6464.Envelope(
                 tradeId = event.positionId,
                 atMs = event.settledAtMs,
