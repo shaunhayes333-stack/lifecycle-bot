@@ -2913,8 +2913,12 @@ object CryptoAltTrader {
                     } else resolved.price
                     val refreshed = DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(resolved.canonicalIdentity6544) ?: resolved
                     val refreshedAgeMs = (System.currentTimeMillis() - refreshed.lastUpdatedMs).coerceAtLeast(0L)
-                    if (!refreshedPrice.isFinite() || refreshedPrice <= 0.0 ||
-                        refreshedAgeMs > DYNAMIC_MARK_MAX_AGE_MS_6654) {
+                    // V5.0.6819: decouple price check from registry-age check.
+                    // refreshPriceForMintBlocking now touches lastUpdatedMs on carry-forward, so
+                    // refreshedAgeMs will be near-zero even for transient DEX failures.  Only block
+                    // when we genuinely have no price — the combined OR was killing positions that
+                    // had a valid carry price but an old registry timestamp.
+                    if (!refreshedPrice.isFinite() || refreshedPrice <= 0.0) {
                         try { PipelineHealthCollector.labelInc("CRYPTO_DYN_MARK_STALE_OR_MISSING_6654") } catch (_: Throwable) {}
                         if (position.isPaper && System.currentTimeMillis() - position.openTime >= DYNAMIC_MARK_MAX_AGE_MS_6654) {
                             settleUntrustedDynamicPaperPosition6663(position, "MARK_STALE_OR_MISSING")

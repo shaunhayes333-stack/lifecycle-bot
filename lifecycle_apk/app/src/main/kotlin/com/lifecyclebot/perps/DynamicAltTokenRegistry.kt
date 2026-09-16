@@ -188,6 +188,10 @@ object DynamicAltTokenRegistry {
     private const val ESTABLISHED_DISCOVERY_MS_6544 = 5 * 60_000L
     private const val DISCOVERY_TTL_MS = ESTABLISHED_DISCOVERY_MS_6544
     private const val PRICE_TTL_MS     = 60_000L
+    // V5.0.6819: carry last-known-good price for up to 5 min when DEX or CoinGecko refresh
+    // fails transiently (network hiccup, rate limit, blank chainId).  Must stay under
+    // DYNAMIC_MARK_MAX_AGE_MS_6654 (10 min) so a genuinely dead feed still settles the position.
+    private const val MARK_CARRY_TTL_MS = 5 * 60_000L
 
     private val networksObserved6544 = ConcurrentHashMap.newKeySet<String>()
     private val dexesObserved6544 = ConcurrentHashMap.newKeySet<String>()
@@ -990,19 +994,34 @@ object DynamicAltTokenRegistry {
      * 45s-cached and RateLimiter-gated, so it will silently return null under
      * load rather than hammering the API.
      */
+    // V5.0.6819: carry a last-known-good price when the normal refresh path is unavailable.
+    // Updates lastUpdatedMs in the registry so monitorPositions sees a fresh timestamp and
+    // doesn't incorrectly classify the position as STALE_MARK_OR_MISSING while the feed is
+    // temporarily down.  Returns 0.0 once the price itself is older than MARK_CARRY_TTL_MS.
+    private fun carryForwardPrice6819(existing: DynToken, ageMs: Long): Double {
+        if (!existing.price.isFinite() || existing.price <= 0.0 || ageMs > MARK_CARRY_TTL_MS) return 0.0
+        val key = existing.canonicalIdentity6544
+        registry[key] = existing.copy(lastUpdatedMs = System.currentTimeMillis())
+        return existing.price
+    }
+
     fun refreshPriceForMintBlocking(identityOrAddress: String, forceRefresh: Boolean = false): Double {
         val existing = registry[identityOrAddress] ?: getTokenByMint(identityOrAddress) ?: return 0.0
         val ageMs = (System.currentTimeMillis() - existing.lastUpdatedMs).coerceAtLeast(0L)
         if (existing.price > 0.0 && (!forceRefresh || ageMs <= PRICE_TTL_MS)) return existing.price
-        // CoinGecko/static identities cannot use a DEX mint route.  Their
-        // discovery-owned mark is usable only while still within its own TTL.
+        // CoinGecko/static identities cannot use a DEX mint route — carry price for up to MARK_CARRY_TTL_MS.
         if (existing.tokenAddress.startsWith("cg:") || existing.tokenAddress.startsWith("static:")) {
-            return existing.price.takeIf { it.isFinite() && it > 0.0 && ageMs <= DISCOVERY_TTL_MS } ?: 0.0
+            return existing.price.takeIf { it.isFinite() && it > 0.0 && ageMs <= MARK_CARRY_TTL_MS } ?: 0.0
         }
         val chain = existing.chainId.trim().lowercase()
-        if (chain.isBlank() || chain == "unknown" || chain == "established") return 0.0
+        // V5.0.6819: blank/unknown/established chain has no DEX route — carry last-known price and
+        // touch lastUpdatedMs so monitorPositions does not see a stale registry age.
+        if (chain.isBlank() || chain == "unknown" || chain == "established") {
+            return carryForwardPrice6819(existing, ageMs)
+        }
         val pair = try { dex.getBestPair(chain, existing.tokenAddress) } catch (_: Exception) { null }
-            ?: return existing.price.takeIf { it.isFinite() && it > 0.0 && ageMs <= PRICE_TTL_MS } ?: 0.0
+        // V5.0.6819: transient DEX failure — carry last-known price rather than returning 0 after 60s.
+        if (pair == null) return carryForwardPrice6819(existing, ageMs)
         val price = pair.candle.priceUsd
         if (price <= 0.0) return 0.0
         val key = existing.canonicalIdentity6544
