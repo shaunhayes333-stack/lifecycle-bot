@@ -407,3 +407,69 @@ re-applied only the safe, isolated policy-synth tightening.
   the elected lane in the first place, or (c) make the shadow guard
   opt-in via a caller-passed flag rather than a global hot-path check.
 
+
+## V5.0.6813 — NARROW SOURCE REPAIR (2026-02)
+
+Operator diagnosis Feb 2026, six-item mandate. **After the V5.0.6811
+crash**, this ship is deliberately narrow: 4 isolated source-level
+changes; 2 items deferred to dedicated ships to avoid touching the
+canonical reconciler / hot-path ticket refresh loop.
+
+- **#1 EV evidence-state refinement.** `PolicySynthesizer6512.synthesize`
+  now classifies each candidate's EV signal as
+  `EV_UNKNOWN` / `EV_INSUFFICIENT` / `EV_VALID_NEGATIVE` / `EV_VALID_NEUTRAL`.
+  Hard veto `POLICY_NEG_EV_BLOCK_6801` fires ONLY on `EV_VALID_NEGATIVE`
+  (≥3 attributable EV contributors AND ev ≤ -3.0%). Every other
+  low-sample / defaulted / sentinel-derived EV path emits
+  `AATE_POLICY_EV_INSUFFICIENT_ADVISORY_6811` with the exact operator-
+  specified label (contributor count, raw EV, pWin, evidence state).
+  Hard safety (rug/liquidity/scam/route) is unchanged.
+- **#2a Market-cap Int-saturation guard.** ~25 log/reason string sites
+  across `BotService`, `ToolkitSignalSheet`, `SolanaMarketScanner`,
+  `TreasuryScannerFeed`, `ProjectSniperAI`, `MainActivity` converted
+  from `.toInt()` to `.toLong()` for mcap and paired liq/vol values.
+  No display or reason string can now saturate to Int.MAX_VALUE
+  (2_147_483_647). Pure numeric-safety change; no economic path
+  touched.
+- **#2b Unit-invariant learning quarantine.** `CanonicalTradeFinalizedBus6450`
+  §UNIT_INVALID_LEARNING_QUARANTINE detects entry-basis unit corruption
+  at Envelope construction time and overrides `learningEligible=false`
+  with reason `UNIT_INVALID_QUARANTINE_6813[:MCAP_INT_SATURATION]
+  [:ENTRY_PRICE_DECIMAL_SKEW]`. Trigger predicates:
+    • entry mcap ≈ Int.MAX (saturation signature); OR
+    • entryPriceUsd > $1000 while mcap ∈ [$1, $500k] (memecoin decimal-
+      skew signature — real per-token price would be <$0.01)
+  This filters bad rows out of EV / WR / tactic μ / losing-streak /
+  UnifiedPolicyHead / StrategyHypothesisEngine / ForwardOutcomeModel
+  learning inputs. **Does NOT touch canonical position authority, does
+  NOT rebase entry basis, does NOT mutate economics** — pure learning-
+  input filter (matches operator's DO-NOT-TOUCH boundary).
+- **#5 Conditional min-promotion reinstated.** `OrderSizeResolver6441`
+  §CONDITIONAL_MIN_PROMOTION supersedes both the V5.0.6600 unconditional
+  promote and the V5.0.6809 kill-min-promotion. Sub-min behaviour:
+    • request ≥ minExec               → shape normally
+    • request < minExec, caps admit   → promote once (`OK_MIN_PROMOTED_6600`)
+    • request < minExec, caps refuse  → explicit `BELOW_MIN_NOTIONAL_6813`
+  Never a silent zero-sized executable ticket. `SUB_MIN_ADAPTIVE_HELD_6809`
+  taxonomy retired.
+- **Deferred to dedicated ships (still on backlog):**
+    • **#3 Reward/journal parity** (closed=226 vs finalized=218): the
+      gap sits between `CanonicalPositionAuthority6441.close()` and
+      `CanonicalTradeFinalizedBus6450.publish()`. Fixing this touches
+      the canonical reconciler which is on the DO-NOT-TOUCH list; needs
+      a dedicated audit-boundary recovery patch with no canonical
+      mutation.
+    • **#4 `EXPIRED_TICKET_ECONOMIC_REJECT_6614`**: refresh/reseal
+      path already exists at `ExecutableOpenGate:510-580` with a
+      10-minute sealed-provenance budget. Extending it without
+      touching hot-path semantics needs a focused ship — the
+      V5.0.6811 hot-path guard experience is fresh.
+- **Test alignment**: `Repair6490AcceptanceTest`, `Repair6510AuthorityAcceptanceTest`,
+  `Repair6511PaperExecutionSourceTest`, `Aate6600SpecialistAuthorityRestorationTest`,
+  `V5_0_6567AcceptanceTest`, `AuthorityConvergenceAcceptanceTest6809`,
+  `GoldenTapeRegressionTest` row 8166 — all updated to the conditional-
+  min-promotion + CONDITIONAL_MIN_PROMOTION taxonomy.
+- **CI status:** `Build AATE APK` **succeeds** for V5.0.6813 (16m28s).
+  All acceptance tests pass. Runtime Smoke Test unchanged (pre-existing
+  brittleness).
+
