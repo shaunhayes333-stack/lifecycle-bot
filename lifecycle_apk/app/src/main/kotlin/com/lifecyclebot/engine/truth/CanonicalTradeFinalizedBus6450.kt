@@ -193,8 +193,15 @@ object CanonicalTradeFinalizedBus6450 {
                                 mint = event.mint,
                                 lane = event.entryLane,
                                 entryRaw = 0.0, entryNormalized = 0.0,
-                                exitRaw = if (exitPriceValid) 1.0 else 0.0,
-                                exitNormalized = if (exitPriceValid) 1.0 else 0.0,
+                                // V5.0.6844 §EXIT_INVALID_BY_DEFINITION — we are only
+                                //   inside this branch because corruptExit6840 already
+                                //   proved the settled economic event is malformed
+                                //   (non-finite return/PnL, or -100% at zero SOL).
+                                //   The old boolean `exitPriceValid` was deleted with
+                                //   6840's whitelist rewrite; here the exit is by
+                                //   definition not price-valid, so pass 0.0 through.
+                                exitRaw = 0.0,
+                                exitNormalized = 0.0,
                                 triggerReason = event.exitReason,
                                 triggerPct = event.netReturnPct,
                                 proceeds = 0.0,
