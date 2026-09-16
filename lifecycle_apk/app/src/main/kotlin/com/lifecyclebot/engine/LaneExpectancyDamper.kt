@@ -116,6 +116,47 @@ object LaneExpectancyDamper {
         }
     }
 
+    /**
+     * V5.0.6838 §LEARNED_EXPECTANCY_MUST_GATE_ADMISSION — extra confidence points a
+     * lane must clear to be admitted, derived entirely from this damper's OWN
+     * already-computed multiplier. No new thresholds, no new data source.
+     *
+     * Operator diagnostic on 5.0.6835 showed the defect this closes: the canonical
+     * entry authority reported gates=3506 allows=3506 denies=0 while, at the same
+     * moment, this damper had concluded EXPRESS x0.18 and LosingPatternMemory had
+     * EXPRESS|S41-60 at losses=21 wins=1 meanPnl=-67%. EXPRESS was simultaneously
+     * the most heavily damped lane and one of the most heavily executed (31 execs,
+     * 3.8% WR). The learning was correct and simply had no way to refuse a trade —
+     * it could only make the same bad bet smaller.
+     *
+     * Shrinking alone is actively harmful: it drives the ticket under the executable
+     * minimum, so the whole candidate/FDG/mark/sizing pipeline is spent before the
+     * order is rejected (BELOW_MIN_NOTIONAL=124, SHITCOIN buyIntent=39 ->
+     * sizedExecutable=2). Raising the bar instead rejects the cohort early.
+     *
+     * Deliberately a score floor rather than a refusal. A hard refusal removes the
+     * lane's ability to gather non-probe evidence, so its win rate can never recover
+     * and the damper can never lift — the failure mode already documented in
+     * BleederLaneProbation6747. A floor still admits genuinely strong setups, so the
+     * lane keeps earning the evidence that un-damps it.
+     *
+     * Multiplier tiers map straight onto the constants above:
+     *   <= CATASTROPHIC_MIN_MULT (0.08) -> +25  (>=20 closes, <=8% WR, <=-20% mean)
+     *   <= MIN_MULT (0.18)              -> +15  (bleeder: <=-12% mean over >=8 closes)
+     *   <  0.36                         -> +8   (moderate shaping)
+     *   otherwise                       ->  0   (healthy / unshaped lanes unchanged)
+     */
+    fun admissionScoreFloorDelta(lane: String?): Double {
+        if (lane.isNullOrBlank()) return 0.0
+        val m = try { sizeMultiplier(lane) } catch (_: Throwable) { 1.0 }
+        if (!m.isFinite() || m >= 0.36) return 0.0
+        return when {
+            m <= CATASTROPHIC_MIN_MULT + 0.01 -> 25.0
+            m <= MIN_MULT + 0.01              -> 15.0
+            else                              -> 8.0
+        }
+    }
+
     fun statusLine(): String = try {
         val map = snapshot()
         val env6679 = try { if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "LIVE" }

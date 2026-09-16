@@ -1496,11 +1496,24 @@ object FinalDecisionGate {
             val pressureDelta6830 = try {
                 com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.scoreFloorDelta()
             } catch (_: Throwable) { 0.0 }
-            val effectiveFloor6830 = 22.0 + qualityDelta6830 + pressureDelta6830
+            // V5.0.6838 §LEARNED_EXPECTANCY_MUST_GATE_ADMISSION — third term: the
+            // lane's own realised terminal expectancy. LaneExpectancyDamper had only
+            // a sizeMultiplier() API, so its conclusion could shrink a ticket but
+            // never refuse one. On 5.0.6835 that produced the core contradiction in
+            // the operator diagnostic: entry authority gates=3506 allows=3506
+            // denies=0 while the damper held EXPRESS x0.18 and EXPRESS still took 31
+            // executions at 3.8% WR / -62% avg. Learning that can only resize is not
+            // an admission authority.
+            val expectancyDelta6838 = try {
+                com.lifecyclebot.engine.LaneExpectancyDamper
+                    .admissionScoreFloorDelta(laneKeyForFloor6830)
+            } catch (_: Throwable) { 0.0 }
+            val effectiveFloor6830 = 22.0 + qualityDelta6830 + pressureDelta6830 + expectancyDelta6838
             if (effectiveFloor6830 > 22.0 && confidence < effectiveFloor6830 && !canBypassConfidenceFloors) {
                 blockReason = "SELECTION_QUALITY_FLOOR_6830 lane=$laneKeyForFloor6830 " +
                     "conf=${confidence.toInt()}% floor=${"%.1f".format(effectiveFloor6830)} " +
                     "qDelta=${"%.1f".format(qualityDelta6830)} pDelta=${"%.1f".format(pressureDelta6830)} " +
+                    "eDelta=${"%.1f".format(expectancyDelta6838)} laneMult=${"%.2f".format(com.lifecyclebot.engine.LaneExpectancyDamper.sizeMultiplier(laneKeyForFloor6830))} " +
                     "wr=${"%.1f".format(com.lifecyclebot.engine.truth.SelectionQualityAuthority6829.rollingWr(laneKeyForFloor6830))} " +
                     "open=${com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.openPositions()}"
                 blockLevel = BlockLevel.CONFIDENCE
