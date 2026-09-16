@@ -2,6 +2,23 @@
 
 **Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.
 
+## V5.0.6832 (Feb 2026) — Mark-price freshness telemetry (advisory) ✅ CI GREEN
+
+Operator observed frozen unrealized %/$ on the Open Positions panel while the elapsed-time clock still ticked (screenshot: 9 rows, all pnl values static, 00:44–00:59 elapsed). Diagnosis: `monitorPositions()` ticks at 1Hz but `DynamicAltTokenRegistry.refreshPriceForMintBlocking()` only re-fetches when the registry entry is >60s old, and `carryForwardPrice6819()` silently touches `lastUpdatedMs` without changing the numeric value — so downstream PnL is computed from a stale carry-forward and the UI appears frozen even though the pipeline is live.
+
+- New: `com.lifecyclebot.engine.truth.MarkPriceFreshnessTelemetry6832`
+  - `observe(mintKey, price)` — tracks whether each 1Hz tick genuinely changed the numeric price or was a carry-forward touch. Publishes `MARK_FRESHNESS_{VALUE_CHANGED,CARRY_FORWARD,FIRST_SEEN}_6832` counters into `PipelineHealthCollector`.
+  - `snapshot(mintKey)` — returns `FRESH` (<5s) / `MOVING` (<30s) / `STALLING` (<2m) / `FROZEN` (≥2m) with the age since the value last changed.
+  - `summary()` — run-total carry-forward ratio (per-run diagnostic).
+- Wiring:
+  - `CryptoAltTrader.monitorPositions()` calls `observe()` directly after each validated `markPrice` copy — zero economic effect.
+  - `CryptoAltActivity.buildOpenPositionsPanel()` renders a per-row `quote LIVE / 15s / 2m FROZEN` tag beside the mark ≈ $… line, colored green→amber→red, so the operator sees at a glance which mints are stuck on a carry-forward price.
+- Advisory-only: no trade / exit / adaptive-learning code reads this authority. `GoldenTapeRegressionTest` and Acceptance Audits are unaffected.
+- CI: Build AATE APK **success** (13m3s). Runtime Smoke Test failed with the known-brittle `NO_COMPLETED_PASSING_CURRENT_WINDOW` regression (unrelated to this change).
+
+Status: shipped, awaiting operator screenshot of the new per-row `quote …` tag to confirm the frozen-price hypothesis before touching adaptive statistics.
+
+
 ## V5.0.6732 → 6735 rolling (Sep 2026 fork continuation)
 
 Post-6731 diagnostic showed the choke moved *past* FDG (91.3% of EXEC decisions dying downstream). Attacked in five overlapping builds:
