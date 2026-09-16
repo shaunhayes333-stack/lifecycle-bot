@@ -218,13 +218,24 @@ object OrderSizeResolver6441 {
         val labMult6684 = try {
             com.lifecyclebot.engine.AdaptiveLaneReproof6684.sizeMultiplierForLane(laneName)
         } catch (_: Throwable) { 1.0 }
-        val adaptiveMult6684 = (ssiMult6684 * labMult6684).coerceIn(0.35, 2.50)
+        // V5.0.6814 §RECYCLE_RATIO_SIZE_DAMPER — when the 5-minute rolling
+        // ratio of realised-cash-returned / entry-notional falls below
+        // 1.0, damp new-entry sizing multiplicatively (never above 1.0,
+        // never below 0.20). Restores capital velocity without touching
+        // canonical accounting.
+        val recycleMult6814 = try {
+            com.lifecyclebot.engine.truth.CapitalRecycleRatioAuthority6814.sizeMultiplier()
+        } catch (_: Throwable) { 1.0 }
+        val adaptiveMult6684 = (ssiMult6684 * labMult6684 * recycleMult6814).coerceIn(0.20, 2.50)
         val requested = (requestedSol.coerceAtLeast(0.0) * adaptiveMult6684).coerceAtLeast(0.0)
         val risk = requested.coerceAtMost(laneRiskCapSol)
         if (kotlin.math.abs(adaptiveMult6684 - 1.0) > 0.001) {
             try {
                 PipelineHealthCollector.labelInc("CANONICAL_ADAPTIVE_SIZE_6684")
                 PipelineHealthCollector.labelInc("CANONICAL_ADAPTIVE_SIZE_6684_${laneName.uppercase().take(24)}")
+                if (kotlin.math.abs(recycleMult6814 - 1.0) > 0.001) {
+                    PipelineHealthCollector.labelInc("CANONICAL_ADAPTIVE_SIZE_RECYCLE_DAMPED_6814")
+                }
             } catch (_: Throwable) {}
         }
 

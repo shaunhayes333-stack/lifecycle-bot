@@ -11013,6 +11013,50 @@ class BotService : Service() {
         // -1 liquidity = unknown → treat as "not a liquidity reject" (zero-score gate still applies)
         val liqOk = liquidityUsd < 0.0 || liquidityUsd >= LANE_PROBE_MIN_LIQ_USD
         try { PipelineHealthCollector.labelInc("PREFDG_LANE_CANDIDATE_${lane.uppercase()}") } catch (_: Throwable) {}
+        // V5.0.6814 §WAIT_OVERRIDE_RESTRICTED — operator diagnosis Feb 2026:
+        //   "LANE_BUY_INTENT_OVERRIDES_BASE_WAIT = 523. Base-signal WAIT
+        //    must remain WAIT unless specialist override proves...lane
+        //    expectancy is not strongly negative AND capital recovery
+        //    is false." Two additional pre-conditions before any
+        //    weakWait branch is allowed to convert to a probe:
+        //      (a) LaneExpectancyDamper multiplier > 0.50  (else lane
+        //          is a known bleeder and override is rejected)
+        //      (b) CapitalRecoveryAuthority6814 is not active
+        //   Zero-signal / defensive-streak / thin-liq guards below
+        //   continue to run for the accepted-override path.
+        if (weakWait) {
+            val damper6814 = try {
+                com.lifecyclebot.engine.LaneExpectancyDamper.sizeMultiplier(lane)
+            } catch (_: Throwable) { 1.0 }
+            if (damper6814 <= 0.50) {
+                try {
+                    PipelineHealthCollector.labelInc("SPECIALIST_WAIT_OVERRIDE_REJECTED_6814")
+                    PipelineHealthCollector.labelInc("SPECIALIST_WAIT_OVERRIDE_REJECTED_6814_BLEEDER_LANE_${lane.uppercase()}")
+                    ForensicLogger.lifecycle(
+                        "SPECIALIST_WAIT_OVERRIDE_REJECTED_6814",
+                        "lane=$lane damper=${"%.2f".format(damper6814)} reason=bleeder_lane_expectancy",
+                    )
+                } catch (_: Throwable) {}
+                return laneBase.copy(
+                    signal = "WAIT", finalSignal = "WAIT", shouldTrade = false,
+                    blockReason = if (baseBlock.isBlank()) "SPECIALIST_WAIT_OVERRIDE_REJECTED_6814_BLEEDER" else baseBlock,
+                )
+            }
+            if (com.lifecyclebot.engine.truth.CapitalRecoveryAuthority6814.isActive()) {
+                try {
+                    PipelineHealthCollector.labelInc("SPECIALIST_WAIT_OVERRIDE_REJECTED_6814")
+                    PipelineHealthCollector.labelInc("SPECIALIST_WAIT_OVERRIDE_REJECTED_6814_CAPITAL_RECOVERY")
+                    ForensicLogger.lifecycle(
+                        "SPECIALIST_WAIT_OVERRIDE_REJECTED_6814",
+                        "lane=$lane reason=capital_recovery_active",
+                    )
+                } catch (_: Throwable) {}
+                return laneBase.copy(
+                    signal = "WAIT", finalSignal = "WAIT", shouldTrade = false,
+                    blockReason = if (baseBlock.isBlank()) "SPECIALIST_WAIT_OVERRIDE_REJECTED_6814_CAPITAL_RECOVERY" else baseBlock,
+                )
+            }
+        }
         if (weakWait) {
             try { PipelineHealthCollector.labelInc("PREFDG_WEAK_WAIT_${lane.uppercase()}") } catch (_: Throwable) {}
             // V5.9.1361 P0.7/mandate — TWO distinct rejects, carefully separated:
