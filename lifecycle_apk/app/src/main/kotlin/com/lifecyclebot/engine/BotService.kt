@@ -24504,7 +24504,24 @@ if (hotExitHandledSweep) {
                             liquidityUsd = ts.lastLiquidityUsd,
                             momentum = effectiveExpressMom,  // V5.9.117: use synthesized bootstrap momentum
                             buyPressurePct = ts.lastBuyPressurePct,
-                            volumeChange = 1.5,  // Default estimate
+                            // V5.0.6841 §EXPRESS_SCORE_GATE_COULD_NOT_REJECT — this was a
+                            // hardcoded 1.5 "default estimate", and ShitCoinExpress scores
+                            // volumeChange with `>= 1.5 -> 8`. The literal landed exactly on
+                            // that branch, so EVERY express candidate collected 8 free points
+                            // for a volume surge nobody measured. With ageScore's floor of 3,
+                            // the minimum achievable score was 8 + 3 = 11 against an admission
+                            // threshold of 10 + 10*progress (progress ~0 at current counts):
+                            // 11 > 10 meant the score gate was arithmetically incapable of
+                            // rejecting anything, and a zero-momentum, 50%-buy-pressure token
+                            // was admitted on constants alone. That is how the book's worst
+                            // lane (3.8% WR, -62% avg) also became one of its busiest.
+                            // No real volume-change ratio is reachable here — volumeH1 /
+                            // volume24h live on Candle, not TokenState — and unmeasured data
+                            // must not score. Passing 0.0 drops to the `else -> 0` branch, so
+                            // the floor falls to 3 and the threshold becomes load-bearing.
+                            // Plumb a genuine surge ratio (volumeH1 vs volume24h/24) here to
+                            // restore the signal properly.
+                            volumeChange = 0.0,
                             priceChange5Min = priceChange5Min,
                             isTrending = isTrending,
                             isBoosted = isBoosted,

@@ -70,12 +70,38 @@ object LaneExecutionCoordinator {
         affinities.merge(mint, clean) { old, new -> old + new }
     }
 
+    // V5.0.6841 §LANE_PRIORITY_IGNORED_REALISED_EXPECTANCY — the static table above
+    // is the lane-allocation inversion in its literal form. Operator 5.0.6835:
+    //   EXPRESS         priority 93 : n=26 WR=3.8%  PnL=-0.8794 SOL avg=-62.2% -> 31 execs
+    //   PROJECT_SNIPER  priority 80 : n=19 WR=42.1% PnL=+2.4484 SOL avg=+237.9% -> 0 execs
+    // The lane losing money outranked the lane making it by 13 points, and no
+    // expectancy, win-rate or PnL term appeared anywhere in the election — the only
+    // modifier was a +30 affinity boost. A hardcoded ranking cannot learn, so the
+    // book kept routing capital to its worst performer.
+    //
+    // Re-rank by the same realised-expectancy signal already trusted for sizing and
+    // (since 6838) for the admission floor. LaneExpectancyDamper is mode-keyed and
+    // reads the clean same-mode terminal leaderboard, so this is the lane's own
+    // settled economics, not a heuristic.
+    //
+    // Bounded so a static ordering still breaks ties and one rough streak cannot
+    // fully inseat a lane: multiplier 1.0 is neutral, and the delta clamps to
+    // [-35, +20].
+    //   EXPRESS        x0.18 -> -32  -> 93 - 32 = 61
+    //   PROJECT_SNIPER x1.18 ->  +7  -> 80 +  7 = 87
+    // which puts the profitable lane above the bleeding one for the first time.
+    private fun expectancyPriorityDelta6841(lane: String): Int = try {
+        val mult = com.lifecyclebot.engine.LaneExpectancyDamper.sizeMultiplier(lane)
+        if (!mult.isFinite()) 0
+        else ((mult - 1.0) * 40.0).coerceIn(-35.0, 20.0).toInt()
+    } catch (_: Throwable) { 0 }
+
     private fun effectivePriority(mint: String, lane: String): Int {
         val laneUpper = lane.uppercase()
         val registryAffinity = try { GlobalTradeRegistry.getLaneAffinity(mint) } catch (_: Throwable) { emptySet() }
         val allAffinity = (affinities[mint] ?: emptySet()) + registryAffinity
         val boost = if (allAffinity.contains(laneUpper)) 30 else 0
-        return priority(laneUpper) + boost
+        return priority(laneUpper) + boost + expectancyPriorityDelta6841(laneUpper)
     }
 
     // ── FAIR LANE ROTATION (V5.9.1335) ───────────────────────────────
