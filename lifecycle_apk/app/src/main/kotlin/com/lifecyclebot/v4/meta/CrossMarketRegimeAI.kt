@@ -69,13 +69,12 @@ object CrossMarketRegimeAI {
         }
         val strength = (abs(change24hPct) / 10.0).coerceIn(0.0, 1.0)
 
-        val volHistory = volatilityHistory.getOrPut(symbol) { mutableListOf() }
-        synchronized(volHistory) {
+        val volHistory = volatilityHistory.computeIfAbsent(symbol) { mutableListOf() }
+        val recentVol = synchronized(volHistory) {
             volHistory.add(abs(change24hPct))
             if (volHistory.size > 30) volHistory.removeAt(0)
+            volHistory.average()
         }
-
-        val recentVol = synchronized(volHistory) { volHistory.average() }
 
         marketTrends[symbol] = TrendState(
             symbol = symbol,

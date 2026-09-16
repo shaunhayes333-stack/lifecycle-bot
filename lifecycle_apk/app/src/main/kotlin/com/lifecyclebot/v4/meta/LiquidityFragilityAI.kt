@@ -197,7 +197,7 @@ object LiquidityFragilityAI {
     // ═══════════════════════════════════════════════════════════════════════
 
     fun recordWick(symbol: String, wickPct: Double) {
-        val history = wickHistory.getOrPut(symbol) { mutableListOf() }
+        val history = wickHistory.computeIfAbsent(symbol) { mutableListOf() }
         synchronized(history) {
             history.add(WickEvent(symbol, wickPct, System.currentTimeMillis()))
             if (history.size > 100) history.removeAt(0)
@@ -205,7 +205,7 @@ object LiquidityFragilityAI {
     }
 
     fun recordBreakout(symbol: String, failed: Boolean) {
-        val history = breakoutHistory.getOrPut(symbol) { mutableListOf() }
+        val history = breakoutHistory.computeIfAbsent(symbol) { mutableListOf() }
         synchronized(history) {
             history.add(BreakoutEvent(symbol, failed, System.currentTimeMillis()))
             if (history.size > 50) history.removeAt(0)

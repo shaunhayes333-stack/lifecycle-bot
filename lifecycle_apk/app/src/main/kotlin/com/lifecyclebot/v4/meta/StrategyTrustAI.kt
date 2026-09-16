@@ -153,7 +153,7 @@ object StrategyTrustAI {
         val recentWinRate = if (totalWeight > 0) weightedWins / totalWeight else 0.5
 
         // 2. Expectancy (average R per trade)
-        val expectancy = recent.map { it.outcomePct }.average()
+        val expectancy = recent.map { it.outcomePct }.average().takeIf { !it.isNaN() } ?: 0.0
 
         // 3. Drawdown slope
         var maxPeak = 0.0
@@ -168,8 +168,8 @@ object StrategyTrustAI {
         val drawdownSlope = if (recent.size > 1) -maxDrawdown / recent.size else 0.0
 
         // 4. MAE/MFE analysis
-        val avgMAE = recent.map { it.maePct }.average()
-        val avgMFE = recent.map { it.mfePct }.average()
+        val avgMAE = recent.map { it.maePct }.average().takeIf { !it.isNaN() } ?: 0.0
+        val avgMFE = recent.map { it.mfePct }.average().takeIf { !it.isNaN() } ?: 0.0
 
         // 5. False positive rate (trades that immediately went -2% or worse)
         val falsePositives = recent.count { it.maePct < -2.0 && it.outcomePct < 0 }
@@ -185,7 +185,7 @@ object StrategyTrustAI {
         } else 0.5
 
         // 7. Execution quality
-        val executionQuality = recent.map { it.executionConfidence }.average()
+        val executionQuality = recent.map { it.executionConfidence }.average().takeIf { !it.isNaN() } ?: 0.5
 
         // 8. Slippage damage
         val slippageDamage = recent.map { it.slippagePct }.sum()
