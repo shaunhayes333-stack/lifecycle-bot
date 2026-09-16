@@ -77,30 +77,47 @@ object CanonicalPositionAuthority6441 {
 
     data class ExitEligibility6570(val eligible: Boolean, val position: Position?, val reason: String)
 
-    /** V5.0.6570 — one canonical pre-PnL/pre-side-effect exit contract. */
+    /** V5.0.6570 — one canonical pre-PnL/pre-side-effect exit contract.
+     *  V5.0.6822 — reject unknown explicit IDs and wrong mint/mode/class
+     *  without silently closing a different position or quarantining a
+     *  valid position because the CALLER supplied a wrong ID. */
     fun exitEligibility6570(
         positionId: String? = null,
         mint: String,
         expectedMode: String? = null,
         expectedAssetClass: AssetClass? = null,
     ): ExitEligibility6570 {
-        val pos = positionId?.takeIf { it.isNotBlank() }?.let { positions[it] }
-            ?: positions.values.firstOrNull { it.mint == mint && it.lifecycle in setOf(Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED) }
-            ?: return ExitEligibility6570(false, null, "NO_CANONICAL_POSITION")
+        val requestedId = positionId?.trim()?.takeIf { it.isNotEmpty() }
+        val pos = if (requestedId != null) {
+            positions[requestedId]
+                ?: return ExitEligibility6570(false, null, "POSITION_ID_UNKNOWN")
+        } else {
+            val candidates = positions.values.filter {
+                it.mint == mint &&
+                    it.lifecycle in setOf(Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED) &&
+                    (expectedMode == null || it.mode.equals(expectedMode, true)) &&
+                    (expectedAssetClass == null || it.assetClass == expectedAssetClass)
+            }
+            if (candidates.size > 1) return ExitEligibility6570(false, null, "AMBIGUOUS_CANONICAL_POSITION")
+            candidates.singleOrNull() ?: return ExitEligibility6570(false, null, "NO_CANONICAL_POSITION")
+        }
         val reason = when {
+            pos.mint != mint -> "MINT_MISMATCH"
+            expectedMode != null && !pos.mode.equals(expectedMode, true) -> "MODE_MISMATCH"
+            expectedAssetClass != null && pos.assetClass != expectedAssetClass -> "ASSET_CLASS_MISMATCH"
             pos.lifecycle !in setOf(Lifecycle.OPEN, Lifecycle.PARTIALLY_CLOSED) -> "LIFECYCLE_${pos.lifecycle.name}"
             !pos.entryCostSol.isFinite() || pos.entryCostSol <= 0.0 ||
                 (pos.entryCostSol - pos.soldCostBasisSol) <= 0.0 -> "INVALID_ENTRY_BASIS"
             pos.remainingQtyRaw <= BigInteger.ZERO -> "INVALID_REMAINING_QUANTITY"
             pos.mode !in setOf("paper", "live") -> "INVALID_MODE"
             pos.assetClass == AssetClass.UNKNOWN -> "INVALID_ASSET_CLASS"
-            expectedMode != null && !pos.mode.equals(expectedMode, true) -> "MODE_MISMATCH"
-            expectedAssetClass != null && pos.assetClass != expectedAssetClass -> "ASSET_CLASS_MISMATCH"
             PositionStateLedger6454.lifecycle(pos.positionId) == PositionStateLedger6454.Lifecycle.CLOSING -> "TERMINAL_CLAIM_ACTIVE"
             PositionStateLedger6454.lifecycle(pos.positionId) == PositionStateLedger6454.Lifecycle.CLOSED -> "TERMINAL_ALREADY_CLOSED"
             else -> "ELIGIBLE"
         }
-        if (reason != "ELIGIBLE" && reason !in setOf("TERMINAL_CLAIM_ACTIVE", "TERMINAL_ALREADY_CLOSED")) {
+        // Only quarantine on genuine data-integrity failures, not on caller ID mistakes.
+        // Mint/mode/class mismatches are caller errors — the position itself is healthy.
+        if (reason in setOf("INVALID_ENTRY_BASIS", "INVALID_REMAINING_QUANTITY", "INVALID_MODE", "INVALID_ASSET_CLASS")) {
             quarantine(pos.positionId, "EXIT_ELIGIBILITY_6570:$reason")
         }
         try {
