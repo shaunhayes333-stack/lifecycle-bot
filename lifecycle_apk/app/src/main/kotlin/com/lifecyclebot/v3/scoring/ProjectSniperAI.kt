@@ -699,7 +699,12 @@ object ProjectSniperAI {
         } catch (_: Exception) {}
 
         // Update stats
-        dailyPnlSolBps.addAndGet((pnlSol * 100).toLong())
+        // V5.0.6828 §PNL_LEDGER_TRUNCATED_TO_ZERO — toLong() truncates toward zero on a
+        // 0.01-SOL-granularity ledger, so any |pnlSol| < 0.01 recorded as exactly 0 and
+        // larger values were understated, biasing the daily P&L that getCurrentMode reads
+        // at :223 toward zero. Round instead. Scale and readers unchanged deliberately:
+        // the value is persisted at :123/:144, so re-scaling needs a state migration.
+        dailyPnlSolBps.addAndGet(Math.round(pnlSol * 100))
         
         if (pnlPct >= 0) {
             dailyKills.incrementAndGet()

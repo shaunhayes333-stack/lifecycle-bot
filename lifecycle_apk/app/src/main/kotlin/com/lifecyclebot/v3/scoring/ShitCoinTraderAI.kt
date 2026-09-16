@@ -644,7 +644,13 @@ object ShitCoinTraderAI {
 
         
         // Record to daily P&L
-        val pnlBps = (pnlSol * 100).toLong()
+        // V5.0.6828 §PNL_LEDGER_TRUNCATED_TO_ZERO — toLong() truncates toward zero on a
+        // 0.01-SOL-granularity ledger, so any |pnlSol| < 0.01 recorded as exactly 0 and
+        // everything else was understated. That feeds DAILY_MAX_LOSS_SOL (restored in
+        // V5.0.6822) plus the mode selection at :799/:2165/:2211, so the cap under-counted
+        // real bleed. Round instead. Scale and readers unchanged deliberately: these
+        // values are persisted at :179/:197, so re-scaling needs a state migration.
+        val pnlBps = Math.round(pnlSol * 100)
         dailyPnlSolBps.addAndGet(pnlBps)
         
         if (pnlPct >= 1.0) {
@@ -658,7 +664,7 @@ object ShitCoinTraderAI {
         } else {
             dailyLosses.incrementAndGet()
             // V5.9.208: Deduct loss from internal balance (was missing — balance only ever grew)
-            val lossBps = (pnlSol * 100).toLong()  // pnlSol is negative on loss
+            val lossBps = Math.round(pnlSol * 100)  // pnlSol is negative on loss; round, don't truncate (V5.0.6828)
             if (pos.isPaper) paperBalanceBps.addAndGet(lossBps) else liveBalanceBps.addAndGet(lossBps)
             
             // Track rugged dev if massive loss

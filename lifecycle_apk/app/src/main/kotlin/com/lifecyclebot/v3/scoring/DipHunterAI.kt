@@ -670,13 +670,25 @@ object DipHunterAI {
         try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, "DIP_HUNTER", "DIP_CLOSE", pnlPct.toInt().coerceIn(-100, 100), "exit_${exitSignal.name}_pnl_${pnlPct.fmt(2)}") } catch (_: Throwable) {}
         
         // Record P&L
-        val pnlBps = (pnlSol * 100).toLong()
+        // V5.0.6828 §PNL_LEDGER_TRUNCATED_TO_ZERO — toLong() truncates toward zero, and
+        // this ledger's granularity is 0.01 SOL, so every |pnlSol| < 0.01 recorded as
+        // EXACTLY 0 and everything else was understated. DipHunter's own sizing makes
+        // that the modal case: BASE_POSITION_SOL 0.05 x (0.6 + conf/100 x 0.8) x
+        // dipQuality.sizeMult, so a RISKY_DIP at conf 30 is ~0.034 SOL and its -15% hard
+        // stop is -0.005 SOL -> (-0.504).toLong() == 0. The daily loss cap that :101
+        // calls "CRITICAL for bootstrap protection" therefore never tripped, and the
+        // positionSol *= 0.35 recovery probe never engaged, no matter how many stops hit.
+        // Rounding instead of truncating makes the residual error zero-mean so the cap
+        // accumulates. The *100 scale and every /100.0 reader are left alone on purpose:
+        // these values are persisted (save/restore at :772/:783), so re-scaling would
+        // need a state migration.
+        val pnlBps = Math.round(pnlSol * 100)
         dailyPnlSolBps.addAndGet(pnlBps)
-        
+
         // V5.9.328: Use pnlPct>=1.0 for win tracking (unified threshold)
         if (pnlPct >= 1.0) {
             dailyWins.incrementAndGet()
-            dipBalanceBps.addAndGet((pnlSol * 40).toLong())  // 40% compound
+            dipBalanceBps.addAndGet(Math.round(pnlSol * 40))  // 40% compound
         } else {
             dailyLosses.incrementAndGet()
         }

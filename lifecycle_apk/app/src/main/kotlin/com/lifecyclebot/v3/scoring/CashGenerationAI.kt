@@ -1564,7 +1564,7 @@ object CashGenerationAI {
         val oneMinuteAgo = System.currentTimeMillis() - 60_000
         recentExits.entries.removeIf { it.value < oneMinuteAgo }
 
-        val pnlBps = (pnlSol * 100).toLong()
+        val pnlBps = Math.round(pnlSol * 100)  // round, don't truncate toward zero (V5.0.6828)
         dailyPnlSolBps.addAndGet(pnlBps)
 
         // V5.9.495z17 — operator-mandated 70/30 profit split (CashGen was
@@ -1642,9 +1642,25 @@ object CashGenerationAI {
     fun getCurrentMode(): TreasuryMode {
         val dailyPnl = dailyPnlSolBps.get() / 100.0
 
+        // V5.0.6828 §TREASURY_MARTINGALE — this is the only place a TreasuryMode is
+        // produced (there is no setter), so `dailyPnl < 0 -> AGGRESSIVE` meant the
+        // lane's ONLY route into AGGRESSIVE was losing money, while DEFENSIVE — which
+        // the sizing comment describes as the counterpart — was returned by no branch
+        // at all. Being down on the day therefore applied three amplifications at once:
+        //   size  x1.5 (line 914, vs DEFENSIVE 0.5)
+        //   score  +10 (line 602, vs DEFENSIVE -5) — lowering the entry bar
+        //   TP    TAKE_PROFIT_MAX_PCT (line 1067, vs DEFENSIVE TAKE_PROFIT_MIN_PCT)
+        // so a single -0.01 SOL day flipped the lane to bigger, less selective entries
+        // held for a far wider target, all the way down to its own loss cap: a
+        // textbook martingale.
+        //
+        // Losses now de-risk. AGGRESSIVE is deliberately left unreachable from daily
+        // PnL rather than re-pointed at a winning branch — its 1.5x multiplier has
+        // never been validated against a real edge signal, and guessing a new trigger
+        // would just move the hazard. Do not wire it back to the losing branch.
         return when {
             dailyPnl <= -DAILY_MAX_LOSS_SOL -> TreasuryMode.PAUSED
-            dailyPnl < 0 -> TreasuryMode.AGGRESSIVE
+            dailyPnl < 0 -> TreasuryMode.DEFENSIVE
             dailyPnl > 0.5 -> TreasuryMode.CRUISE
             else -> TreasuryMode.HUNT
         }

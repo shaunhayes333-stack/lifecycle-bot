@@ -250,17 +250,16 @@ object BlueChipTraderAI {
      * V5.6.11: Set trading mode and transfer learning from paper to live
      */
     fun setTradingMode(isPaper: Boolean) {
-        val wasInPaper = isPaperMode
         isPaperMode = isPaper
-        
-        // Transfer paper balance to live when switching modes
-        if (!isPaper && wasInPaper) {
-            val paperBal = paperBalanceBps.get()
-            if (paperBal > liveBalanceBps.get()) {
-                liveBalanceBps.set(paperBal)
-                ErrorLogger.info(TAG, "🔵 TRANSFER: Balance ${paperBal/100.0} SOL from PAPER to LIVE")
-            }
-        }
+        // V5.0.6828 §NO_PAPER_EQUITY_INTO_LIVE_SIZING — this used to copy
+        // paperBalanceBps into liveBalanceBps on the paper->live switch. That
+        // accumulator is not a scoreboard: it feeds
+        //   compoundBonus = balance * COMPOUNDING_RATIO * confScale
+        //   positionSol  += compoundBonus
+        // so simulated profit was compounding REAL position size the moment the
+        // operator went live. Learning transfer happens through FluidLearningAI and
+        // the telemetry stores, not through this balance, so nothing is lost by
+        // letting live compounding accrue only from live wins.
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -463,7 +462,7 @@ object BlueChipTraderAI {
 
         
         // Record to daily P&L
-        val pnlBps = (pnlSol * 100).toLong()
+        val pnlBps = Math.round(pnlSol * 100)  // round, don't truncate toward zero (V5.0.6828)
         dailyPnlSolBps.addAndGet(pnlBps)
         
         // V5.9.328: Use pnlPct>=1.0 for win tracking (unified threshold, was pnlSol>0)
@@ -472,6 +471,22 @@ object BlueChipTraderAI {
             addToBalance(pnlSol * COMPOUNDING_RATIO, pos.isPaper) // Compound portion
         } else {
             dailyLosses.incrementAndGet()
+            // V5.0.6828 §BLUECHIP_BALANCE_ONLY_GREW — addToBalance() early-returns on
+            // profitSol <= 0 and this branch never debited, so paperBalanceBps /
+            // liveBalanceBps were monotone non-decreasing: every win added
+            // pnlSol*COMPOUNDING_RATIO and every loss added nothing. resetDaily() does
+            // not touch them and save() persists them, so the lane's notion of its own
+            // equity could only ever rise. That value feeds
+            //   compoundBonus = balance * COMPOUNDING_RATIO * confScale
+            //   positionSol  += compoundBonus
+            // BEFORE every soft shaper (regime damp, danger, calibration shrink,
+            // BehaviorAI tilt, loss probe), so all of them multiplied an inflated base;
+            // once balance reached ~4.2 SOL the bonus alone exceeded MAX_POSITION_SOL and
+            // BlueChip pinned to the 1.0 SOL cap on every entry regardless of shaping —
+            // on a lane its own comment calls "a -0.23 SOL bleeder".
+            // Same fix ShitCoinTraderAI already carries (V5.9.208).
+            val lossBps = Math.round(pnlSol * 100)  // negative on a loss; round, don't truncate (V5.0.6828)
+            if (pos.isPaper) paperBalanceBps.addAndGet(lossBps) else liveBalanceBps.addAndGet(lossBps)
         }
         
         // V4.0: Blue Chip trades contribute to FluidLearningAI maturity

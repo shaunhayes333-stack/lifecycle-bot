@@ -760,7 +760,30 @@ object QualityTraderAI {
             }
         }
         if (pos == null) return
-        
+
+        // V5.0.6828 §PROMOTION_BOOKED_UNSOLD_PNL — PROMOTE_BLUECHIP and
+        // PROMOTE_MOONSHOT are a HANDOFF, not a close. BotService calls this with
+        // no sell at all ("don't sell, just hand off to higher layer") and then
+        // re-registers the same bag in BlueChip/Moonshot at entrySol = costSol.
+        // Running the outcome fanout below therefore:
+        //   - credited TreasuryManager.contributeFromMemeSell with SOL that was
+        //     never realised (the tokens are still held)
+        //   - logged a guaranteed win, since promotion requires pnl >= +15%
+        //     (BlueChip) or >= +100% (Moonshot), inflating QUALITY's win rate
+        //   - inflated the global FluidLearningAI maturity that drives EVERY
+        //     lane's fluid thresholds, plus BehaviorAI/SentienceHooks/
+        //     ScratchStreakRegistry/TradingCopilot
+        //   - double-counted the position, which the receiving lane then closes
+        //     for real later
+        // The position has already been removed from the maps above, so the
+        // handoff is complete; the receiving lane owns the eventual outcome.
+        if (exitSignal == ExitSignal.PROMOTE_BLUECHIP || exitSignal == ExitSignal.PROMOTE_MOONSHOT) {
+            save()
+            ErrorLogger.info(TAG, "📊 QUALITY HANDOFF: ${pos.symbol} | reason=$exitSignal | " +
+                "released without booking P&L (receiving lane owns the outcome)")
+            return
+        }
+
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * pnlPct / 100
         val isWin = pnlPct > 0.0  // V5.9.408: restored pre-225 win-threshold
