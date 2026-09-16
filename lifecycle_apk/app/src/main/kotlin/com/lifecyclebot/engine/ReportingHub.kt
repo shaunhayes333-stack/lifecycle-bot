@@ -203,22 +203,32 @@ object ReportingHub {
 
     private const val MAX_UNIFIED_REPORT_CHARS = 100_000
 
-    // V5.0.6302 — CLIPBOARD ANR FIX. `ClipboardManager.setPrimaryClip` MUST run
-    // on the Main thread (per V5.0.6273 findings) and Android 12+ silently
-    // no-ops from bg. But a 100KB payload on `setPrimaryClip` on Main forces
-    // a large synchronous Binder IPC + system UI "Copied" chip that
-    // stalls the UI thread for 3-6 seconds and trips the 5s ANR watchdog.
-    // The full report stays intact in the returned TextReport (for share /
-    // forensic export via file), but the clipboard slice is capped so the
-    // paste path is snappy and can't ANR. Operators can also grab the full
-    // dump via LiveTradeLogActivity → Export (file-backed FileProvider share).
+    // V5.0.6302/6304 history — the cap was introduced, then lowered 40k -> 20k,
+    // on the theory that `setPrimaryClip` payload size was stalling Main and
+    // tripping the ANR watchdog. The operator reported a 35k blob "STILL freezing
+    // the app" even after the first reduction, which is the signature of a
+    // misattributed cause rather than a threshold that needed lowering further.
     //
-    // V5.0.6304 — lowered cap from 40k -> 20k after operator report showed
-    // 35k blob STILL freezing the app. Combined with the new bg-thread
-    // clipboard write (PipelineHealthActivity/ErrorLogActivity), the total
-    // budget is now ~20k on a background thread, which is well under any
-    // ClipboardService stall threshold.
-    const val CLIPBOARD_SAFE_MAX_CHARS = 20_000
+    // V5.0.6837 — the size was not the stall. The actual Main-thread work was
+    // BUILDING the report, which V5.0.6308 subsequently moved to a dedicated
+    // worker (PipelineHealthActivity.copyToClipboardAsync) alongside
+    // ErrorLogActivity's buildTextAsync; both now hand an already-built string to
+    // the clip write, and V5.0.6401 additionally persists the full uncapped
+    // report to a cache file on that same worker. With the build off Main, the
+    // remaining clip write is a single Binder transaction, not a 3-6 second stall.
+    //
+    // Ceiling arithmetic: a Parcel stores String as UTF-16, so the ~1MB Binder
+    // transaction limit is roughly 500k chars. 250k chars is ~500KB — about half
+    // the ceiling, and a bit over 2x the largest report observed in the field
+    // (107,450 chars). Anything past that still truncates with the tag below, and
+    // PipelineReportFileExporter6401 remains the file-backed path for pathological
+    // dumps.
+    //
+    // This matters because a truncated pipeline snapshot is not merely shorter —
+    // the sections that get cut are the per-lane liveness and execution telemetry
+    // an operator (or a diagnosing agent) needs, so a partial copy is close to
+    // useless for triage.
+    const val CLIPBOARD_SAFE_MAX_CHARS = 250_000
 
     /**
      * V5.0.6302 — bounded clipboard payload with a clear trailing tag so the
