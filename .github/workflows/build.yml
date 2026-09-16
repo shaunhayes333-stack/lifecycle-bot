@@ -65,45 +65,6 @@ jobs:
       - name: Repository patch-rot scan
         run: python3 ci/patch_rot_scan.py
 
-      # V5.0.6825 §KEYSTORE_MODERN_PBE — the checked-in release keystore was
-      # generated with legacy SHA1-based PKCS12 PBE, which JDK 17.0.7+
-      # (temurin@17 as shipped by actions/setup-java@v4) refuses to decrypt
-      # by default. Re-export the keystore with modern PBE algorithms so the
-      # Android Gradle Plugin signing worker can open it. Preserves the
-      # existing alias, passwords, and certificate fingerprint so users keep
-      # receiving updates without uninstall/reinstall.
-      - name: Convert release keystore to modern PBE
-        run: |
-          set -euo pipefail
-          SRC="keystore/release.keystore"
-          BACKUP="keystore/release.legacy.keystore"
-          NEW="keystore/release.new.keystore"
-          if [[ ! -f "$SRC" ]]; then
-            echo "::error::Missing $SRC"
-            exit 1
-          fi
-          cp "$SRC" "$BACKUP"
-          rm -f "$NEW"
-          # -J-Dkeystore.pkcs12.legacy on the READ side lets us open the
-          # legacy-format source. Omitting it on the WRITE side produces a
-          # modern-PBE destination readable by JDK 17.0.7+ strict crypto.
-          keytool -importkeystore \
-            -srckeystore "$SRC" \
-            -srcstoretype PKCS12 \
-            -srcstorepass aate2024bot \
-            -srckeypass aate2024bot \
-            -srcalias aate_release \
-            -destkeystore "$NEW" \
-            -deststoretype PKCS12 \
-            -deststorepass aate2024bot \
-            -destkeypass aate2024bot \
-            -destalias aate_release \
-            -J-Dkeystore.pkcs12.legacy \
-            -noprompt
-          mv "$NEW" "$SRC"
-          echo "Modern-PBE keystore verification:"
-          keytool -list -keystore "$SRC" -storepass aate2024bot -alias aate_release
-
       - name: Build Release APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
