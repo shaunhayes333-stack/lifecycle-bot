@@ -3,6 +3,7 @@ package com.lifecyclebot.v4.meta
 import com.lifecyclebot.engine.ErrorLogger
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -33,6 +34,19 @@ object CrossTalkFusionEngine {
     private const val TAG = "CrossTalkFusion"
     private const val SIGNAL_TTL_MS = 60_000L       // Signals expire after 60s
     private const val MAX_SIGNALS_PER_SOURCE = 50    // Cap per module
+
+    // V5.0.6826 §FUSION_BUS_DARK_ON_MEME_PATH — the bus had 12 readers but
+    // only 4 writers (alt scan, stock scan, trade close, one UI screen), and
+    // none of them run on the meme path. Since getSnapshot() hard-nulls a
+    // snapshot older than SIGNAL_TTL_MS, UnifiedScorer — which reads the
+    // snapshot once per candidate on the highest-frequency lane — saw null
+    // unless an alt/stock scan or a close happened in the preceding 60s. Every
+    // fused cross-talk signal (killFlags, fragility, narrative heat, regime,
+    // per-market caps) was therefore discarded on the lane that trades most.
+    // Re-fuse on read when the cache has expired, rate-limited so
+    // per-candidate scoring cannot spin it.
+    private const val AUTO_REFUSE_MIN_INTERVAL_MS = 5_000L
+    private val lastAutoFuseMs = AtomicLong(0L)
 
     // Signal buffer — all modules publish here
     private val signalBuffer = ConcurrentLinkedQueue<AATESignal>()
@@ -208,12 +222,20 @@ object CrossTalkFusionEngine {
     // ═══════════════════════════════════════════════════════════════════════
 
     fun getSnapshot(): CrossTalkSnapshot? {
-        val snapshot = currentSnapshot.get() ?: return null
-        if (System.currentTimeMillis() - snapshot.timestamp >= SIGNAL_TTL_MS) {
-            currentSnapshot.compareAndSet(snapshot, null)
-            return null
+        val now = System.currentTimeMillis()
+        val cached = currentSnapshot.get()
+        if (cached != null && now - cached.timestamp < SIGNAL_TTL_MS) return cached
+
+        // Expired or never fused. fuse() only reads already-computed state
+        // (atomic getters plus one pass over the TTL-bounded signal queue), so
+        // it is safe and cheap to drive from a reader. One winner per interval;
+        // losers take whatever the winner published rather than re-fusing.
+        val last = lastAutoFuseMs.get()
+        if (now - last >= AUTO_REFUSE_MIN_INTERVAL_MS && lastAutoFuseMs.compareAndSet(last, now)) {
+            return try { fuse() } catch (_: Throwable) { null }
         }
-        return snapshot
+        // Never hand back a snapshot past its TTL.
+        return currentSnapshot.get()?.takeIf { System.currentTimeMillis() - it.timestamp < SIGNAL_TTL_MS }
     }
 
     fun getLatestSignal(source: String): AATESignal? {
@@ -366,5 +388,6 @@ object CrossTalkFusionEngine {
         signalBuffer.clear()
         latestBySource.clear()
         currentSnapshot.set(null)
+        lastAutoFuseMs.set(0L)
     }
 }
