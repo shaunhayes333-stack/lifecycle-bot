@@ -2716,7 +2716,15 @@ object FinalDecisionGate {
                             // mode filter, not hard safety; shape into probes so the bot
                             // can disprove or reinforce the heuristic with terminal data.
                             dangerZonePenalty = 15
-                            val dangerSizeMult4298 = if (config.paperMode) 0.25 else 0.35
+                            // V5.0.6840 §LIVE_LESS_PROTECTED_THAN_PAPER — this read
+                            // `if (config.paperMode) 0.25 else 0.35`, so a danger-zone
+                            // candidate was sized 40% LARGER with real money than with
+                            // simulated money. Every other soft shaper runs the other way
+                            // (the sibling memorySizeMult4298 below is 0.50 paper / 0.45
+                            // live, i.e. live tighter), so this was an inversion, not a
+                            // deliberate live allowance. Live must never be shaped less
+                            // defensively than paper on the same learned danger signal.
+                            val dangerSizeMult4298 = 0.25
                             sizeMultiplier *= dangerSizeMult4298
                             softPenaltyScore += dangerZonePenalty
                             isProbeCandidate = true

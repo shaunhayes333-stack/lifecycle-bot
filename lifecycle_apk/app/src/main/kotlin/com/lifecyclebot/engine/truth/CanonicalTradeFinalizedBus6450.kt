@@ -158,12 +158,35 @@ object CanonicalTradeFinalizedBus6450 {
             try {
                 val laneKey6831 = event.entryLane.trim().uppercase()
                 if ("EXPRESS" in laneKey6831) {
-                    val exitPriceValid = event.priceIntegrity.equals("VALID", ignoreCase = true) ||
-                        event.priceIntegrity.equals("VALIDATED_MARK", ignoreCase = true)
-                    val dataOk = event.dataQuality.equals("GOOD", ignoreCase = true) ||
-                        event.dataQuality.equals("VALID", ignoreCase = true) ||
-                        event.dataQuality.equals("CLEAN", ignoreCase = true)
-                    if (!exitPriceValid || !dataOk) {
+                    // V5.0.6840 §EXPRESS_INTEGRITY_GATE_EXCLUDED_EVERYTHING — the old
+                    // predicate tested proof-state STRINGS against a whitelist of
+                    // VALID / VALIDATED_MARK / GOOD / CLEAN. No real producer emits any
+                    // of those: canonical paper terminals are stamped
+                    // priceIntegrity = dataQuality = "canonical_paper_fill"
+                    // (CanonicalPaperTerminalBridge6469:410) and live ones
+                    // "confirmed_signature" (SellFinalizationCoordinator:289). So the
+                    // whitelist never matched and the gate fired on 100% of EXPRESS
+                    // closes — operator 5.0.6835 showed finalized=26 against
+                    // FINALIZED_LEARNING_EXCLUDED_EXPRESS_EXIT_INTEGRITY_6831=26, an
+                    // exact 1:1. That is not "every quote was bad", it is a vocabulary
+                    // mismatch excluding the entire lane.
+                    //
+                    // The consequence lands on SelectionQualityAuthority6829, the one
+                    // consumer of the resulting flag: with every EXPRESS terminal
+                    // dropped its rolling WR for the lane stayed empty, so
+                    // scoreFloorDelta("EXPRESS") returned 0.0 at FinalDecisionGate:1492
+                    // and the quality floor could not raise the bar on the worst lane in
+                    // the book (3.8% WR, -62% avg). The gate meant to protect learning
+                    // was disarming the gate meant to protect admission.
+                    //
+                    // Gate on genuine economic corruption instead of proof vocabulary:
+                    // a non-finite return/PnL, or a total-loss return reported with
+                    // exactly zero realised PnL, which is the "sol=0.000 sell" shape
+                    // V5.0.6831 was written to catch.
+                    val corruptExit6840 = !event.netReturnPct.isFinite() ||
+                        !event.netRealizedPnlSol.isFinite() ||
+                        (event.netRealizedPnlSol == 0.0 && event.netReturnPct <= -99.9)
+                    if (corruptExit6840) {
                         ExpressExitPriceIntegrity6831.evaluate(
                             ExpressExitPriceIntegrity6831.AuditInputs(
                                 positionId = event.positionId,
