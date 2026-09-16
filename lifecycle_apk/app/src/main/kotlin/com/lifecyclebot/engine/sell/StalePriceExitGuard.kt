@@ -4,37 +4,33 @@ import com.lifecyclebot.engine.ForensicLogger
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * V5.9.1533 — STALE / DARK LIVE-PRICE EXIT GUARD (operator spec item 4).
+ * V5.0.6825 — STALE / DARK PRICE EXIT INTEGRITY GUARD.
  *
- * THE FAILURE: live logs showed STALE_LIVE_PRICE_RUG_ESCAPE firing EVERY tick for
- * the same mint, each one re-entering the sell path and re-feeding catastrophe
- * cooldown + learning. Two pump mints also showed STALE_LIVE_PRICE_HOLD_WINNER with
- * +83,913,533% / +65,021,599% "PnL" — classic stale/zero/decimal math (entry price
- * recorded as $0.00000000 so any tick price divides into an astronomical multiple).
+ * A stale or missing quote is not economic evidence of a loss. It may mark a
+ * position as needing a refresh, but it must not by itself manufacture a
+ * terminal sell or a trainable losing outcome.
  *
- * This guard enforces:
- *   • A stale-price RUG escape emits exactly ONE exit intent per mint (armOnce).
- *   • An absurd PnL multiple is QUARANTINED — we do not trade from that price and
- *     never feed it into catastrophe cooldown or learning.
- *   • Never assert pnl=-100% from a stale/dark price; only on-chain balance or a
- *     verified fresh price may confirm a total loss.
- *
- * The active-mint set lets SellOnlySafeMode know a stale-price exit storm is in
- * progress so it can gate new buys.
+ * This guard therefore enforces:
+ *   • stale-only observations HOLD/DEFER and never arm a terminal exit;
+ *   • a terminal stale-price escape requires independent evidence that is safe
+ *     to act on (fresh validated mark, confirmed-zero balance, or confirmed
+ *     dead/unroutable route);
+ *   • absurd/non-finite PnL math is quarantined;
+ *   • stale/dark price alone can never assert pnl=-100%.
  */
 object StalePriceExitGuard {
 
-    /** A PnL multiple above this is physically impossible intraday — quarantine the price. */
+    /** A PnL multiple above this is treated as corrupt/untrustworthy. */
     const val ABSURD_GAIN_MULTIPLE = 1000.0   // +100,000%
 
-    // mint -> wallclock when the single rug-escape intent was armed.
+    // mint -> wallclock when the single validated escape intent was armed.
     private val armedRugEscape = ConcurrentHashMap<String, Long>()
-    // mints currently flagged as having a stale/dark price (cleared when a fresh quote lands).
+    // mints currently flagged as having a stale/dark price.
     private val staleActive = ConcurrentHashMap<String, Long>()
 
-    private const val ARM_TTL_MS = 300_000L  // re-arm allowed only after 5 min
+    private const val ARM_TTL_MS = 300_000L
 
-    /** True if ANY mint currently has a stale-price exit armed/active (for safe-mode). */
+    /** True if ANY mint currently has a stale/dark mark condition active. */
     fun anyActive(): Boolean {
         val now = System.currentTimeMillis()
         staleActive.entries.removeIf { now - it.value > ARM_TTL_MS }
@@ -52,42 +48,97 @@ object StalePriceExitGuard {
     }
 
     /**
-     * Arm the single rug-escape intent for a stale-price mint. Returns true exactly
-     * ONCE per mint per TTL window; subsequent ticks return false so the exit does not
-     * re-fire every tick. The caller emits one EXIT_INTENT only when this returns true.
+     * Compatibility entry point used by older callers.
+     *
+     * IMPORTANT: stale price alone is no longer authority to liquidate. The old
+     * implementation returned true once per TTL, which allowed a quote outage to
+     * synthesize PAPER_STALE_* terminal losses. We keep the function so existing
+     * callers compile, but it now records the stale condition and returns false.
+     *
+     * Call [armValidatedRugEscape] only after independent terminal evidence exists.
      */
     fun armOnceRugEscape(mint: String, symbol: String): Boolean {
         if (mint.isBlank()) return false
-        val now = System.currentTimeMillis()
         markStale(mint)
-        val prev = armedRugEscape[mint]
-        if (prev != null && (now - prev) < ARM_TTL_MS) {
-            return false  // already armed within window — do NOT re-fire
+        try {
+            ForensicLogger.lifecycle(
+                "STALE_PRICE_EXIT_DEFERRED_6825",
+                "mint=${mint.take(10)} symbol=$symbol reason=stale_only action=refresh_hold_no_terminal"
+            )
+        } catch (_: Throwable) {}
+        return false
+    }
+
+    /**
+     * Arm exactly one stale-price escape only when a second authority proves that
+     * terminal action is legitimate.
+     *
+     * Evidence accepted:
+     *  - balanceConfirmedZero: authoritative balance says the asset is gone;
+     *  - freshPriceVerified: a fresh validated mark exists and can price the exit;
+     *  - routeConfirmedDead: routing independently proves the token is dead/unroutable.
+     */
+    fun armValidatedRugEscape(
+        mint: String,
+        symbol: String,
+        balanceConfirmedZero: Boolean,
+        freshPriceVerified: Boolean,
+        routeConfirmedDead: Boolean,
+    ): Boolean {
+        if (mint.isBlank()) return false
+        markStale(mint)
+
+        val validatedEvidence = balanceConfirmedZero || freshPriceVerified || routeConfirmedDead
+        if (!validatedEvidence) {
+            try {
+                ForensicLogger.lifecycle(
+                    "STALE_PRICE_EXIT_DEFERRED_6825",
+                    "mint=${mint.take(10)} symbol=$symbol reason=no_independent_evidence action=refresh_hold_no_terminal"
+                )
+            } catch (_: Throwable) {}
+            return false
         }
+
+        val now = System.currentTimeMillis()
+        val prev = armedRugEscape[mint]
+        if (prev != null && (now - prev) < ARM_TTL_MS) return false
+
         val raced = armedRugEscape.putIfAbsent(mint, now)
         if (raced != null && (now - raced) < ARM_TTL_MS) return false
         armedRugEscape[mint] = now
+
         try {
-            ForensicLogger.lifecycle("STALE_LIVE_PRICE_RUG_ESCAPE_ARMED",
-                "mint=${mint.take(10)} symbol=$symbol once=true (no per-tick refire)")
+            ForensicLogger.lifecycle(
+                "STALE_PRICE_VALIDATED_ESCAPE_ARMED_6825",
+                "mint=${mint.take(10)} symbol=$symbol balanceZero=$balanceConfirmedZero freshMark=$freshPriceVerified routeDead=$routeConfirmedDead"
+            )
         } catch (_: Throwable) {}
         return true
     }
 
     /**
-     * Decide whether a computed gain multiple is trustworthy. Returns false (quarantine)
-     * for absurd multiples or non-finite math (zero/negative entry → infinite/NaN).
-     * Quarantined prices must NOT drive trades, catastrophe cooldown, or learning.
+     * Decide whether computed gain math is trustworthy. Quarantined prices must
+     * not drive exits, catastrophe cooldowns, or learner rewards.
      */
-    fun isGainTrustworthy(mint: String, entryPrice: Double, lastPrice: Double, gainMultiple: Double): Boolean {
-        val bad = !gainMultiple.isFinite() || gainMultiple > ABSURD_GAIN_MULTIPLE ||
-                  entryPrice <= 0.0 || lastPrice <= 0.0
+    fun isGainTrustworthy(
+        mint: String,
+        entryPrice: Double,
+        lastPrice: Double,
+        gainMultiple: Double,
+    ): Boolean {
+        val bad = !gainMultiple.isFinite() ||
+            gainMultiple > ABSURD_GAIN_MULTIPLE ||
+            entryPrice <= 0.0 ||
+            lastPrice <= 0.0
+
         if (bad) {
             markStale(mint)
             try {
-                ForensicLogger.lifecycle("STALE_PRICE_QUARANTINED",
+                ForensicLogger.lifecycle(
+                    "STALE_PRICE_QUARANTINED",
                     "mint=${mint.take(10)} entryPrice=$entryPrice lastPrice=$lastPrice gainMultiple=$gainMultiple " +
-                    "reason=absurd_or_nonfinite action=do_not_trade_or_learn")
+                        "reason=absurd_or_nonfinite action=do_not_trade_or_learn"
+                )
             } catch (_: Throwable) {}
             return false
         }
@@ -96,7 +147,7 @@ object StalePriceExitGuard {
 
     /**
      * A stale/dark price may NEVER be reported as a confirmed -100% loss. Only an
-     * on-chain balance read or a verified fresh price may confirm a total loss.
+     * authoritative zero balance or a verified fresh price may prove total loss.
      */
     fun canAssertTotalLoss(balanceConfirmedZero: Boolean, freshPriceVerified: Boolean): Boolean =
         balanceConfirmedZero || freshPriceVerified
