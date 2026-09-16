@@ -36,7 +36,7 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object ExecutableEntryAuthority6450 {
 
-    enum class Verdict { ALLOW, ALLOW_PROBE, DENY_LOSING_STREAK, DENY_COOLDOWN, DENY_DAILY_LOSS_CAP }
+    enum class Verdict { ALLOW, ALLOW_PROBE, DENY_LOSING_STREAK, DENY_COOLDOWN, DENY_DAILY_LOSS_CAP, DENY_LEARNED_NEGATIVE_6846 }
 
     data class Decision(val verdict: Verdict, val recommendedSizeSol: Double, val reason: String)
 
@@ -124,6 +124,69 @@ object ExecutableEntryAuthority6450 {
             shaped,
             "mode=$mode lane=${normalizedLane(lane)} streak=$streak cooling=$cooling sizeMult=${"%.2f".format(mult)}",
         )
+    }
+
+    /**
+     * V5.0.6846 §MAKE_LEARNED_ENTRY_AUTHORITY_ACTUALLY_AUTHORITATIVE —
+     * overload of gate() that consults LearnedAdmissionAuthority6846
+     * with the caller-assembled Inputs (UnifiedPolicyHead / Brain /
+     * LosingPatternMemory / ForwardOutcomeModel / RegimeDetector /
+     * source-family + capital projections) BEFORE the historical streak
+     * damping is applied.
+     *
+     * Contract:
+     *   * ALLOW      -> returns the streak-shaped size (existing behaviour).
+     *   * PROBE_ONLY -> returns Verdict.ALLOW_PROBE with the
+     *                   LearnedAdmissionAuthority-recommended probe size.
+     *   * DENY       -> returns Verdict.DENY_LEARNED_NEGATIVE_6846 with
+     *                   size 0.0.  Callers MUST NOT fall back to a
+     *                   duplicate ALLOW path elsewhere (operator §8: "no
+     *                   pid/source/lane alias bypasses").
+     *
+     * Non-learned callers keep the existing 3-arg gate() and this
+     * overload is opt-in; the existing test surface is unaffected.
+     */
+    fun gate(inputs: LearnedAdmissionAuthority6846.Inputs): Decision {
+        val learned = try {
+            LearnedAdmissionAuthority6846.evaluate(inputs)
+        } catch (_: Throwable) {
+            // Fail-open on learned-authority error — the historical
+            // streak damping still runs below.  Never fail-closed here
+            // because it would open a global choke, which the operator
+            // §8 explicitly forbids.
+            null
+        }
+        return when (learned?.verdict) {
+            LearnedAdmissionAuthority6846.Verdict.DENY -> {
+                gates.incrementAndGet()
+                denies.incrementAndGet()
+                try {
+                    PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_DENY_LEARNED_6846")
+                } catch (_: Throwable) {}
+                Decision(
+                    Verdict.DENY_LEARNED_NEGATIVE_6846,
+                    0.0,
+                    "learned6846:${learned.denyCategory}",
+                )
+            }
+            LearnedAdmissionAuthority6846.Verdict.PROBE_ONLY -> {
+                gates.incrementAndGet()
+                probes.incrementAndGet()
+                try {
+                    PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_PROBE_LEARNED_6846")
+                } catch (_: Throwable) {}
+                Decision(
+                    Verdict.ALLOW_PROBE,
+                    learned.recommendedSizeSol,
+                    "learned6846_probe:${learned.denyCategory}",
+                )
+            }
+            else -> {
+                // ALLOW (or learned-authority errored): fall through to
+                // historical cohort-streak shaping.
+                gate(inputs.lane, inputs.mint, inputs.requestedSizeSol)
+            }
+        }
     }
 
     fun consecutiveLossesFor6488(lane: String, mode: String = currentMode()): Long =
