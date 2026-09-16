@@ -61,23 +61,39 @@ object PolicySynthesizer6512 {
         //   confident -3% or worse cannot become an executable BUY.
         val proposedUpper6801 = proposedAction.uppercase()
         val isBuyLike6801 = proposedUpper6801 in setOf("BUY", "PROBE", "PROBE_ONLY", "EXECUTE")
-        // V5.0.6812 §NEG_EV_MIN_SAMPLE — operator diagnosis Feb 2026:
-        //   "POLICY_NEG_EV_BLOCK_6801 can hard-veto a candidate with high pWin,
-        //    rugP=0, many contributors, but only ONE EV contributor producing
-        //    weightedEv=-5. That is insufficient evidence for a hard veto."
-        //   Require at least MIN_EV_HARD_VETO_SAMPLE_6812 independent
-        //   attributable EV contributors before allowing the hard veto.
-        //   Otherwise downgrade to POLICY_NEG_EV_ADVISORY_6812 — the decision
-        //   remains BUY-like but the negative EV signal is recorded for size
-        //   damping and future authority tightening. Hard safety (rug,
-        //   liquidity, scam, route) is unaffected and continues to BLOCK
-        //   regardless of EV sample count. This is a source-level tightening
-        //   of AATE policy synthesis only; no execution/authority path is
-        //   changed (the crash-inducing 6811 FDG-consolidation was reverted).
-        val MIN_EV_HARD_VETO_SAMPLE_6812 = 3
-        val evSampleQualifies6812 = we.size >= MIN_EV_HARD_VETO_SAMPLE_6812
-        val evVetoFires6801 = isBuyLike6801 && we.isNotEmpty() && ev <= -3.0 && evSampleQualifies6812
-        val evAdvisoryFires6812 = isBuyLike6801 && we.isNotEmpty() && ev <= -3.0 && !evSampleQualifies6812
+        // V5.0.6813 §NEG_EV_EVIDENCE_STATE — operator diagnosis Feb 2026:
+        //   "EV=-5.0 must NOT be interpreted as proven negative expectancy
+        //    when EV evidence is missing, sparse, defaulted, or sentinel-
+        //    derived. Distinguish EV_UNKNOWN / EV_INSUFFICIENT from
+        //    EV_VALID_NEGATIVE. Require minimum trustworthy EV population
+        //    before hard veto."
+        //
+        //   Evidence state assignment:
+        //     • EV_UNKNOWN      — no contributor supplied an EV signal
+        //                         (we.isEmpty()); nothing to veto on
+        //     • EV_INSUFFICIENT — 1..2 EV contributors present; sample
+        //                         population too sparse for a hard veto
+        //     • EV_VALID_NEGATIVE — >=3 EV contributors AND weighted ev
+        //                         at or below the veto floor (-3.0%)
+        //     • EV_VALID_NEUTRAL — >=3 EV contributors but ev > -3.0%
+        //
+        //   Only EV_VALID_NEGATIVE triggers POLICY_NEG_EV_BLOCK_6801. All
+        //   other states remain BUY-like and emit
+        //   AATE_POLICY_EV_INSUFFICIENT_ADVISORY_6811 for size damping /
+        //   future authority tightening. Hard safety (rug, liquidity, scam,
+        //   route) is unchanged and continues to BLOCK regardless.
+        val MIN_EV_HARD_VETO_SAMPLE_6813 = 3
+        val evNegativeFloor6813 = -3.0
+        val evidenceState6813 = when {
+            we.isEmpty() -> "EV_UNKNOWN"
+            we.size < MIN_EV_HARD_VETO_SAMPLE_6813 -> "EV_INSUFFICIENT"
+            ev <= evNegativeFloor6813 -> "EV_VALID_NEGATIVE"
+            else -> "EV_VALID_NEUTRAL"
+        }
+        val evVetoFires6801 = isBuyLike6801 && evidenceState6813 == "EV_VALID_NEGATIVE"
+        val evAdvisoryFires6813 = isBuyLike6801 && !evVetoFires6801 &&
+            (evidenceState6813 == "EV_INSUFFICIENT" || evidenceState6813 == "EV_UNKNOWN") &&
+            we.isNotEmpty() && ev <= evNegativeFloor6813
         val action = when {
             hardSafety.isNotEmpty() -> "BLOCK"
             evVetoFires6801 -> "POLICY_NEG_EV_BLOCK_6801"
@@ -92,20 +108,22 @@ object PolicySynthesizer6512 {
                         "lane=${context.primaryStrategy} proposedAction=$proposedUpper6801 " +
                         "weightedEv=${"%.2f".format(ev)} pWin=${"%.2f".format(pWin)} rugP=${"%.2f".format(rug)} " +
                         "contributors=${bounded.size} evContributors=${we.size} " +
+                        "evidenceState=$evidenceState6813 " +
                         "action=downgrade_to_POLICY_NEG_EV_BLOCK_6801_never_becomes_buy",
                 )
             } catch (_: Throwable) {}
         }
-        if (evAdvisoryFires6812) {
+        if (evAdvisoryFires6813) {
             try {
-                PipelineHealthCollector.labelInc("AATE_POLICY_NEG_EV_ADVISORY_6812")
+                PipelineHealthCollector.labelInc("AATE_POLICY_EV_INSUFFICIENT_ADVISORY_6811")
                 ForensicLogger.lifecycle(
-                    "AATE_POLICY_NEG_EV_ADVISORY_6812",
+                    "AATE_POLICY_EV_INSUFFICIENT_ADVISORY_6811",
                     "candidateId=${context.candidateId} mint=${context.mint.take(10)} " +
                         "lane=${context.primaryStrategy} proposedAction=$proposedUpper6801 " +
                         "weightedEv=${"%.2f".format(ev)} pWin=${"%.2f".format(pWin)} " +
-                        "evContributors=${we.size}/${MIN_EV_HARD_VETO_SAMPLE_6812} " +
-                        "action=advisory_only_low_sample_no_hard_veto",
+                        "evContributors=${we.size}/${MIN_EV_HARD_VETO_SAMPLE_6813} " +
+                        "evidenceState=$evidenceState6813 " +
+                        "action=advisory_only_no_hard_veto",
                 )
             } catch (_: Throwable) {}
         }

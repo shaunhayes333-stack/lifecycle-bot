@@ -318,20 +318,28 @@ object OrderSizeResolver6441 {
         // positive request that BOTH the authoritative capital and the lane
         // cap can fund is promoted once to min-exec here. This is the only
         // way FDG-approved intents survive multiplicative advisory shaping.
-        // V5.0.6809 §KILL_MIN_SIZE_PROMOTION — operator mandate Feb 2026:
-        //   "If learned final size is below executable minimum: never increase
-        //    an adaptively reduced risk size simply to make the order executable.
-        //    Final size must never exceed the adaptive/risk-authorized size
-        //    because of a minimum-order floor."
-        // The 6600 min-promotion was a throughput hack that violated learning
-        // authority: an adaptive risk shaper deliberately cutting size below
-        // minExec was being overruled by capital-floor manufacture. Removed:
-        // sub-minimum learned size resolves NON-EXECUTABLE. Caller may route to
-        // shadow/train-only observation; capital never opens below adaptive
-        // authority.
+        // V5.0.6813 §CONDITIONAL_MIN_PROMOTION — operator diagnosis Feb 2026:
+        //   "Do not allow positive approved notional to silently become
+        //    zero after FDG. Resolve minimum executable notional exactly
+        //    once. If the risk-approved value is below exchange minimum:
+        //      (a) promote to minimum only when minimum remains within
+        //          risk/cash/lane cap, OR
+        //      (b) terminate immediately as explicit BELOW_MIN_NOTIONAL.
+        //    Do not create an intent/ticket for a knowingly zero-sized
+        //    order."
+        //
+        //   V5.0.6809 killed min-promotion entirely; V5.0.6813 reinstates
+        //   the CONDITIONAL form: promote once when caps can genuinely
+        //   fund minExec; otherwise emit an explicit non-executable
+        //   BELOW_MIN_NOTIONAL rejection so the caller never sees a
+        //   silent size=0 survivor.
+        val canFundMinimum6600 = requestedLamports6491 > 0L &&
+            availableLamports6491 >= minExecLamports6491 &&
+            laneCapLamports6491 >= minExecLamports6491
         val shapedOrMinimumLamports6600 = when {
             requestedLamports6491 >= minExecLamports6491 ->
                 minOf(requestedLamports6491, laneClampedLamports6491)
+            canFundMinimum6600 -> minExecLamports6491
             else -> 0L
         }
         // V5.0.6601 §GOLDEN_TAPE_LEXICAL_ALIAS — preserve legacy variable
@@ -351,12 +359,19 @@ object OrderSizeResolver6441 {
             !executable && authoritativeCash <= 0.0 -> "NO_WALLET"
             !executable && availableLamports6491 < minExecLamports6491 -> "CAPITAL_BELOW_MIN_EXECUTABLE_6490"
             !executable && laneCapLamports6491 < minExecLamports6491 -> "LANE_CAP_BELOW_MIN_EXECUTABLE_6490"
-            !executable && requestedLamports6491 in 1L until minExecLamports6491 -> "SUB_MIN_ADAPTIVE_HELD_6809"
+            !executable && requestedLamports6491 in 1L until minExecLamports6491 -> "BELOW_MIN_NOTIONAL_6813"
             !executable -> "BELOW_MIN_EXECUTABLE"
             paperMode && authoritativeCash + 1e-12 < finalSize * (1.0 + PAPER_ENTRY_FEE_RESERVE_RATE_6490) -> "PAPER_CASH_INSUFFICIENT_WITH_FEE_6490"
+            // V5.0.6813 §CONDITIONAL_MIN_PROMOTION — promote once when the
+            //   hard caps can fund minExec. Never inflate above adaptive
+            //   caps; the promotion is bounded by canFundMinimum6600 which
+            //   already required cash+lane both admit minExec. This
+            //   supersedes the retired V5.0.6797 10% "deliberate
+            //   suppression" discriminator.
+            requestedLamports6491 in 1L until minExecLamports6491 && canFundMinimum6600 -> "OK_MIN_PROMOTED_6600"
             else -> "OK"
         }
-        val actuallyExec = executable && reason == "OK"
+        val actuallyExec = executable && reason in setOf("OK", "OK_MIN_PROMOTED_6600")
         val res = Resolution(
             requestedSol = requested,
             riskSol = risk,

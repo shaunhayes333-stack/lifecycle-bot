@@ -11566,7 +11566,7 @@ class BotService : Service() {
                 try {
                     ForensicLogger.lifecycle(
                         "QUALITY_OWNER_HOLDER_PROOF_BLIND_SOFT_ALLOW",
-                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct} action=size_shape_downstream_not_owner_starve",
+                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toLong()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct} action=size_shape_downstream_not_owner_starve",
                     )
                     PipelineHealthCollector.labelInc("QUALITY_OWNER_HOLDER_PROOF_BLIND_SOFT_ALLOW")
                 } catch (_: Throwable) {}
@@ -11600,12 +11600,12 @@ class BotService : Service() {
         // WR collapse while preserving meme-family training volume.
         if (l.equals(primaryLane, ignoreCase = true)) {
             if (l in setOf("QUALITY", "BLUECHIP") && !qualityLaneProofOk()) {
-                try { ForensicLogger.lifecycle("QUALITY_PRIMARY_PROOF_REJECTED", "lane=$l symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct}") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("QUALITY_PRIMARY_PROOF_REJECTED", "lane=$l symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toLong()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct}") } catch (_: Throwable) {}
                 return false
             }
             // V5.0.6047 — TREASURY uses permissive cashGenProofOk (scalp/compounder role)
             if (l == "TREASURY" && !cashGenProofOk()) {
-                try { ForensicLogger.lifecycle("CASHGEN_TREASURY_PRIMARY_PROOF_REJECTED_6047", "lane=$l symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} src=${ts.lastPriceSource.ifBlank { ts.source }}") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("CASHGEN_TREASURY_PRIMARY_PROOF_REJECTED_6047", "lane=$l symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toLong()} src=${ts.lastPriceSource.ifBlank { ts.source }}") } catch (_: Throwable) {}
                 return false
             }
             if (catastrophicPaperLowScoreSpecialistBleed(ts, l)) {
@@ -11735,7 +11735,7 @@ class BotService : Service() {
                 }
             }.ifEmpty { rawOwnerPool0.filter { it !in setOf("QUALITY", "BLUECHIP", "TREASURY", "CASHGEN") }.ifEmpty { rawOwnerPool0 } }
             if (!qualityEligible && rawOwnerPool0.any { it in setOf("QUALITY", "BLUECHIP", "TREASURY", "CASHGEN") }) {
-                try { ForensicLogger.lifecycle("QUALITY_OWNER_PROOF_REJECTED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct} primary=$primaryLane cashGenEligible=$cashGenEligible") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("QUALITY_OWNER_PROOF_REJECTED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toLong()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct} primary=$primaryLane cashGenEligible=$cashGenEligible") } catch (_: Throwable) {}
             }
             val ownerPool = com.lifecyclebot.engine.LaneToxicityGuard.filterNonToxic(rawOwnerPool, scoreForToxicity).ifEmpty { rawOwnerPool }
             val candidateVersion6533 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
@@ -11852,7 +11852,7 @@ class BotService : Service() {
                                 ForensicLogger.phase(
                                     ForensicLogger.PHASE.LANE_EVAL,
                                     ts.symbol,
-                                    "lane=$l shadow=LIVE_LANE_READ_FLOOR_4489 no_fdg=true primary=$primaryLane ownerHint=$contributorRotationHint6599 canonicalPrimary=$allowed mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
+                                    "lane=$l shadow=LIVE_LANE_READ_FLOOR_4489 no_fdg=true primary=$primaryLane ownerHint=$contributorRotationHint6599 canonicalPrimary=$allowed mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
                                 )
                                 PipelineHealthCollector.labelInc("LIVE_LANE_READ_FLOOR_4489_$l")
                             } catch (_: Throwable) {}
@@ -20056,7 +20056,7 @@ if (hotExitHandledSweep) {
                     val fastSynth6401 = synthesizeFallbackPair(ts)
                     if (fastSynth6401 != null) {
                         try { PipelineHealthCollector.labelInc("INTAKE_PUMPFUN_SOURCE_NATIVE_SEED_6401") } catch (_: Throwable) {}
-                        try { ForensicLogger.lifecycle("INTAKE_PUMPFUN_SOURCE_NATIVE_SEED_6401", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} mcap=${ts.lastMcap.toInt()} seededPrice=$seededPrice") } catch (_: Throwable) {}
+                        try { ForensicLogger.lifecycle("INTAKE_PUMPFUN_SOURCE_NATIVE_SEED_6401", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} mcap=${ts.lastMcap.toLong()} seededPrice=$seededPrice") } catch (_: Throwable) {}
                         return@run fastSynth6401
                     }
                 }
@@ -20096,7 +20096,7 @@ if (hotExitHandledSweep) {
                         ForensicLogger.PHASE.INTAKE,
                         ts.symbol,
                         allow = false,
-                        reason = "NO_PAIR_NO_FALLBACK src=${ts.source} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} lastPrice=${ts.lastPrice} oracleHit=$refreshed hydrationState=$stateLabel",
+                        reason = "NO_PAIR_NO_FALLBACK src=${ts.source} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} lastPrice=${ts.lastPrice} oracleHit=$refreshed hydrationState=$stateLabel",
                     )
                     // No usable price — last-resort exit safety net.
                     if (ts.position.qtyToken > 0.0 && ts.position.entryPrice > 0.0) {
@@ -20130,7 +20130,7 @@ if (hotExitHandledSweep) {
                         }
                         if (!agedNoPair) {
                             try { PipelineHealthCollector.labelInc("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION") } catch (_: Throwable) {}
-                            try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} pc=$processCount ageMs=$ageMs mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} action=keep_hot") } catch (_: Throwable) {}
+                            try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} pc=$processCount ageMs=$ageMs mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} action=keep_hot") } catch (_: Throwable) {}
                         } else {
                             if (liveHeldOrManagedMint(mint)) {
                                 try { PipelineHealthCollector.labelInc("ENTRY_AUTHORITY_HELD_NO_PAIR_DEMOTE_REMOVE_BLOCKED_4550") } catch (_: Throwable) {}
@@ -20151,7 +20151,7 @@ if (hotExitHandledSweep) {
                             if (demoted) {
                                 try { synchronized(status.tokens) { status.tokens.remove(mint) } } catch (_: Throwable) {}
                                 try { PipelineHealthCollector.labelInc("INTAKE_NO_PAIR_DEMOTED_TO_PROBATION_AGED") } catch (_: Throwable) {}
-                                try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_DEMOTED_TO_PROBATION_AGED", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} pc=$processCount ageMs=$ageMs mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()}") } catch (_: Throwable) {}
+                                try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_DEMOTED_TO_PROBATION_AGED", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} pc=$processCount ageMs=$ageMs mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()}") } catch (_: Throwable) {}
                             }
                         }
                     }
@@ -21481,7 +21481,7 @@ if (hotExitHandledSweep) {
                     )
                 } catch (_: Throwable) {}
             } else {
-                ErrorLogger.info("BotService", "🔓 [VOL_GATE_BYPASS] ${identity.symbol} | free-range unknown h1vol but liq=\$${ts.lastLiquidityUsd.toInt()} mcap=\$${ts.lastMcap.toInt()} paper=${cfg.paperMode}")
+                ErrorLogger.info("BotService", "🔓 [VOL_GATE_BYPASS] ${identity.symbol} | free-range unknown h1vol but liq=\$${ts.lastLiquidityUsd.toInt()} mcap=\$${ts.lastMcap.toLong()} paper=${cfg.paperMode}")
             }
         }
     }
@@ -21558,7 +21558,7 @@ if (hotExitHandledSweep) {
         ForensicLogger.phase(
             ForensicLogger.PHASE.V3,
             ts.symbol,
-            "stage=ENTRY src=${ts.source} liq=$${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore.toInt()} mcap=$${ts.lastMcap.toInt()}"
+            "stage=ENTRY src=${ts.source} liq=$${ts.lastLiquidityUsd.toLong()} score=${ts.entryScore.toInt()} mcap=$${ts.lastMcap.toLong()}"
         )
         // V5.9.495z50 — confirm V3 engine reached for this candidate so the
         // operator can verify the watchlist→V3 handoff fires.
@@ -22024,12 +22024,12 @@ if (hotExitHandledSweep) {
                 ForensicLogger.phase(
                     ForensicLogger.PHASE.LANE_EVAL,
                     ts.symbol,
-                    "lane=V3_CORE shadow=V3_CORE_VISIBILITY_4489 decision=$v3CoreDecision4489 no_extra_fdg=true mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
+                    "lane=V3_CORE shadow=V3_CORE_VISIBILITY_4489 decision=$v3CoreDecision4489 no_extra_fdg=true mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
                 )
                 ForensicLogger.phase(
                     ForensicLogger.PHASE.LANE_EVAL,
                     ts.symbol,
-                    "lane=STANDARD shadow=CORE_STANDARD_VISIBILITY_4489 decision=$v3CoreDecision4489 no_extra_fdg=true mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
+                    "lane=STANDARD shadow=CORE_STANDARD_VISIBILITY_4489 decision=$v3CoreDecision4489 no_extra_fdg=true mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
                 )
                 PipelineHealthCollector.labelInc("V3_CORE_VISIBILITY_4489_$v3CoreDecision4489")
                 PipelineHealthCollector.labelInc("CORE_STANDARD_VISIBILITY_4489")
@@ -22067,7 +22067,7 @@ if (hotExitHandledSweep) {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,
                         ts.symbol,
-                        "lane=CASHGEN paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} alias=TREASURY_CASHGEN_SHARED_EXEC no_fdg=true v3Skip=$v3WillExecuteCore"
+                        "lane=CASHGEN paper=${cfg.paperMode} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} alias=TREASURY_CASHGEN_SHARED_EXEC no_fdg=true v3Skip=$v3WillExecuteCore"
                     )
                     PipelineHealthCollector.labelInc("CASHGEN_ALIAS_LANE_EVAL_4483")
                 } catch (_: Throwable) {}
@@ -22078,7 +22078,7 @@ if (hotExitHandledSweep) {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,
                         ts.symbol,
-                        "lane=TREASURY paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} v3Skip=$v3WillExecuteCore"
+                        "lane=TREASURY paper=${cfg.paperMode} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} v3Skip=$v3WillExecuteCore"
                     )
                 } catch (_: Throwable) {}
                 try {
@@ -22232,7 +22232,7 @@ if (hotExitHandledSweep) {
                                     try {
                                         ForensicLogger.lifecycle(
                                             "TREASURY_FEED_AFFINITY_BOOST_6004",
-                                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} src=${ts.source} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} boostBy=${if (bluechipSource) "source" else "metrics"} affinityAdded=CASHGEN+TREASURY+QUALITY${if (ts.lastMcap >= 500_000.0 || bluechipSource) "+BLUECHIP" else ""}",
+                                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} src=${ts.source} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} boostBy=${if (bluechipSource) "source" else "metrics"} affinityAdded=CASHGEN+TREASURY+QUALITY${if (ts.lastMcap >= 500_000.0 || bluechipSource) "+BLUECHIP" else ""}",
                                         )
                                         PipelineHealthCollector.labelInc("TREASURY_FEED_AFFINITY_BOOST_6004_${if (bluechipSource) "SOURCE" else "METRICS"}")
                                     } catch (_: Throwable) {}
@@ -22285,11 +22285,11 @@ if (hotExitHandledSweep) {
                         val treasuryRoleEligible6663 = ts.lastMcap >= TreasuryScannerFeed.MIN_TREASURY_MCAP &&
                             ts.lastLiquidityUsd >= TreasuryScannerFeed.MIN_TREASURY_LIQUIDITY
                         if (shouldEnter && !treasuryRoleEligible6663) {
-                            treasuryBlockedReason = "TREASURY_ROLE_METRICS mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()}"
+                            treasuryBlockedReason = "TREASURY_ROLE_METRICS mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()}"
                             shouldEnter = false
                             try {
                                 PipelineHealthCollector.labelInc("TREASURY_ROLE_REJECTED_6663")
-                                ForensicLogger.lifecycle("TREASURY_ROLE_REJECTED_6663", "mint=${ts.mint.take(10)} symbol=${ts.symbol} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} action=yield_to_meme_lanes")
+                                ForensicLogger.lifecycle("TREASURY_ROLE_REJECTED_6663", "mint=${ts.mint.take(10)} symbol=${ts.symbol} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} action=yield_to_meme_lanes")
                             } catch (_: Throwable) {}
                         }
 
@@ -22698,7 +22698,7 @@ if (hotExitHandledSweep) {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,
                         ts.symbol,
-                        "lane=QUALITY paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} eligible=${ts.lastMcap >= 75_000}"
+                        "lane=QUALITY paper=${cfg.paperMode} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} eligible=${ts.lastMcap >= 75_000}"
                     )
                 } catch (_: Throwable) {}
             }
@@ -22778,7 +22778,7 @@ if (hotExitHandledSweep) {
                             // V5.9.116: Promote from debug → throttled info so user
                             // actually sees WHY Quality never fires.
                             logLayerSkip("⭐ QUALITY", ts.symbol, ts.mint,
-                                "${qualitySignal6022.reason} | mcap=\$${ts.lastMcap.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()} age=${qualityTokenAgeMinutes.toInt()}min")
+                                "${qualitySignal6022.reason} | mcap=\$${ts.lastMcap.toLong()} liq=\$${ts.lastLiquidityUsd.toInt()} age=${qualityTokenAgeMinutes.toInt()}min")
                         }
                         
                         if (qualitySignal6022.shouldEnter) {
@@ -22933,7 +22933,7 @@ if (hotExitHandledSweep) {
                         ForensicLogger.phase(
                             ForensicLogger.PHASE.LANE_EVAL,
                             ts.symbol,
-                            "lane=BLUECHIP paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} eligible=${ts.lastMcap >= 1_000_000}"
+                            "lane=BLUECHIP paper=${cfg.paperMode} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} eligible=${ts.lastMcap >= 1_000_000}"
                         )
                     } catch (_: Throwable) {}
 
@@ -23162,7 +23162,7 @@ if (hotExitHandledSweep) {
                 ForensicLogger.phase(
                     ForensicLogger.PHASE.LANE_EVAL,
                     ts.symbol,
-                    "lane=MOONSHOT paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
+                    "lane=MOONSHOT paper=${cfg.paperMode} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
                 )
                 // V5.7.8: Moonshot runs independently — Treasury positions don't block it
                 try {
@@ -24210,7 +24210,7 @@ if (hotExitHandledSweep) {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,
                         ts.symbol,
-                        "lane=MANIPULATED paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} bundleRisk=${ts.safety.bundleRisk} score=${ts.entryScore}"
+                        "lane=MANIPULATED paper=${cfg.paperMode} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} bundleRisk=${ts.safety.bundleRisk} score=${ts.entryScore}"
                     )
                 } catch (_: Throwable) {}
                 try {
@@ -24412,7 +24412,7 @@ if (hotExitHandledSweep) {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,
                         ts.symbol,
-                        "lane=EXPRESS paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
+                        "lane=EXPRESS paper=${cfg.paperMode} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
                     )
                 } catch (_: Throwable) {}
                 // V5.7.8: Express runs independently, but V5.0.3817 routes it through
@@ -24456,7 +24456,7 @@ if (hotExitHandledSweep) {
                     if (!passesPreFilter) {
                         // V5.9.116: throttled diagnostic so the user can see WHY
                         // Express never qualifies instead of silent skip.
-                        val mcap = ts.lastMcap.toInt()
+                        val mcap = ts.lastMcap.toLong()
                         val reason = when {
                             !expressInMcapRange && !expressUnknownMcapOk ->
                                 if (ts.lastMcap <= 0.0) "mcap=unknown liq=$${ts.lastLiquidityUsd.toInt()} < \$1K"
@@ -24694,7 +24694,7 @@ if (hotExitHandledSweep) {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,
                         ts.symbol,
-                        "lane=PROJECT_SNIPER paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} sniperAllowed=$sniperAllowed singleGate4483=true"
+                        "lane=PROJECT_SNIPER paper=${cfg.paperMode} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} sniperAllowed=$sniperAllowed singleGate4483=true"
                     )
                 } catch (_: Throwable) {}
             }
@@ -24871,7 +24871,7 @@ if (hotExitHandledSweep) {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,
                         ts.symbol,
-                        "lane=DIP_HUNTER paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
+                        "lane=DIP_HUNTER paper=${cfg.paperMode} mcap=${ts.lastMcap.toLong()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
                     )
                 } catch (_: Throwable) {}
                 // V5.7.8: DipHunter runs independently
@@ -28638,7 +28638,7 @@ if (hotExitHandledSweep) {
                                     if (ts.history.size > 300) ts.history.removeFirst()
                                 }
                             }
-                            addLog("🎯 Pump.fun: ${ts.symbol} mcap=\$${mcap.toInt()} priceUsd=\$${String.format("%.10f", priceUsd)}", mint)
+                            addLog("🎯 Pump.fun: ${ts.symbol} mcap=\$${mcap.toLong()} priceUsd=\$${String.format("%.10f", priceUsd)}", mint)
                             broadcastFallbackPrice(mint, priceUsd)   // V5.9.423
                             return true
                         }
