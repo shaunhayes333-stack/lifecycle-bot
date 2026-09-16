@@ -95,18 +95,45 @@ jobs:
             -nodes \
             -passin pass:aate2024bot \
             -legacy
-          # Step 2: re-export into a modern PKCS12 store using OpenSSL 3
-          #   defaults (AES-256-CBC + PBKDF2). The keystore is readable by
-          #   JDK 17.0.7+ strict crypto AND legacy JDKs.
+          # Step 2: re-export into a modern PKCS12 store with EXPLICIT modern
+          #   PBE parameters. Some OpenSSL 3 builds still default to SHA1 for
+          #   -macalg unless overridden, so we force PBES2 + AES-256-CBC +
+          #   HMAC-SHA256 explicitly. This ensures the private key entry is
+          #   decryptable by JDK 17.0.7+ strict crypto.
           openssl pkcs12 -export \
             -in "$PEM" \
             -out "$NEW" \
             -name aate_release \
-            -passout pass:aate2024bot
+            -passout pass:aate2024bot \
+            -keypbe AES-256-CBC \
+            -certpbe AES-256-CBC \
+            -macalg SHA256
           rm -f "$PEM"
           mv "$NEW" "$SRC"
-          echo "Modern-PBE keystore verification (via keytool):"
-          keytool -list -keystore "$SRC" -storepass aate2024bot -alias aate_release
+          echo "=== Modern-PBE keystore verification (via keytool) ==="
+          keytool -list -v -keystore "$SRC" -storepass aate2024bot -alias aate_release | head -20
+          # Force the JVM to actually DECRYPT the private key entry — this
+          # is what AGP's signing worker does and is where padding errors
+          # surface. Runs a tiny inline Java program via jrunscript / Java 17
+          # single-file source mode. If this fails, the AGP signing step
+          # would also fail — surface it HERE for fast feedback.
+          cat > /tmp/VerifyKey.java <<'EOF'
+          import java.io.FileInputStream;
+          import java.security.KeyStore;
+          import java.security.Key;
+          public class VerifyKey {
+              public static void main(String[] args) throws Exception {
+                  KeyStore ks = KeyStore.getInstance("PKCS12");
+                  try (FileInputStream fis = new FileInputStream(args[0])) {
+                      ks.load(fis, args[1].toCharArray());
+                  }
+                  Key k = ks.getKey(args[2], args[3].toCharArray());
+                  if (k == null) throw new RuntimeException("Key entry not found: " + args[2]);
+                  System.out.println("=== Private key decrypt OK: alg=" + k.getAlgorithm() + " format=" + k.getFormat() + " bytes=" + k.getEncoded().length + " ===");
+              }
+          }
+          EOF
+          java /tmp/VerifyKey.java "$SRC" aate2024bot aate_release aate2024bot
 
       - name: Build Release APK
         env:
@@ -118,7 +145,7 @@ jobs:
           echo "Building AATE v${{ steps.aate_build.outputs.version_name }}"
           echo "versionCode = $((500 + AATE_BUILD_NUMBER))"
           echo "========================================"
-          ./gradlew assembleRelease --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
+          ./gradlew assembleRelease --no-daemon --no-build-cache --rerun-tasks --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
           python3 ci/build_gate_summary.py
           echo "Built APK:"
           ls -la app/build/outputs/apk/release/
