@@ -9192,4 +9192,122 @@ class GoldenTapeRegressionTest {
         )
     }
 
+    @Test
+    fun v5_0_6820_bleederProbationMinWindowRestoredTo15() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/BleederLaneProbation6747.kt").readText()
+        org.junit.Assert.assertTrue(
+            "V5.0.6820: MIN_WINDOW must be 15 — restored after 6753 regression collapsed meme WR to ~20%",
+            src.contains("MIN_WINDOW   = 15"),
+        )
+        org.junit.Assert.assertFalse(
+            "V5.0.6820: MIN_WINDOW=5 must not be present (caused meme WR collapse from 85% to 20%)",
+            src.contains("MIN_WINDOW   = 5"),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.6820: restore comment §PROBATION_MIN_WINDOW_RESTORE must be present as source contract",
+            src.contains("V5.0.6820 §PROBATION_MIN_WINDOW_RESTORE"),
+        )
+    }
+
+    @Test
+    fun v5_0_6820_neutralSlCeilingRaisedToFive() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        org.junit.Assert.assertTrue(
+            "V5.0.6820: NEUTRAL health tier must have explicit -5.0 SL ceiling (not fall through to -3.0)",
+            exec.contains("HealthTier.NEUTRAL -> -5.0"),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.6820: HEALTHY_RUNNER must remain -6.0",
+            exec.contains("HealthTier.HEALTHY_RUNNER -> -6.0"),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.6820: HEALTHY_STABLE must remain -4.0",
+            exec.contains("HealthTier.HEALTHY_STABLE -> -4.0"),
+        )
+    }
+
+    @Test
+    fun v5_0_6822_aateCognitiveAuthorityBindingConstants() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BrainConsensusGate.kt").readText()
+        org.junit.Assert.assertTrue(
+            "V5.0.6822: MIN_MATURE_SAMPLES_6782 must be 8L",
+            gate.contains("MIN_MATURE_SAMPLES_6782 = 8L"),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.6822: MIN_STRONG_SAMPLES_6782 must be 15L",
+            gate.contains("MIN_STRONG_SAMPLES_6782 = 15L"),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.6822: REJECT_PWIN_6782 must be 0.30",
+            gate.contains("REJECT_PWIN_6782 = 0.30"),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.6822: CATASTROPHIC_PWIN_6782 must be 0.18",
+            gate.contains("CATASTROPHIC_PWIN_6782 = 0.18"),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.6822: dualNegative hard-block path must be wired",
+            gate.contains("dualNegative") && gate.contains("hardBlock"),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.6822: FDG must emit AATE_COGNITIVE_HARD_VETO_6782 telemetry",
+            gate.contains("AATE_COGNITIVE_HARD_VETO_6782"),
+        )
+        org.junit.Assert.assertFalse(
+            "V5.0.6822: probeAllowed must not be wired as a capital escape hatch — exploration belongs in shadow/replay",
+            gate.contains("probeAllowed = true"),
+        )
+    }
+
+    @Test
+    fun v5_0_6822_shitCoinDailyLossCapRestored() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt").readText()
+        org.junit.Assert.assertTrue(
+            "V5.0.6822: DAILY_MAX_LOSS_SOL must be restored (was removed in V4.20, leaving highest-frequency lane uncapped)",
+            src.contains("DAILY_MAX_LOSS_SOL = 0.5"),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.6822: getCurrentMode() must check dailyPnl against loss cap",
+            src.contains("dailyPnl <= -DAILY_MAX_LOSS_SOL") && src.contains("ShitCoinMode.PAUSED"),
+        )
+    }
+
+    @Test
+    fun v5_0_6822_apiBackoff429SeparateSchedule() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ApiBackoff.kt").readText()
+        org.junit.Assert.assertTrue(
+            "V5.0.6821: rateLimitSchedule must exist with multi-minute 429 backoff",
+            src.contains("rateLimitSchedule"),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.6821: 429 must map to rateLimitSchedule (not soft 2s schedule)",
+            src.contains("429 -> rateLimitSchedule"),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.6821: first 429 backoff must be at least 2 minutes",
+            src.contains("120_000L"),
+        )
+    }
+
+    @Test
+    fun v5_0_6823_exitEligibilityRejectsUnknownPositionId() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt").readText()
+        org.junit.Assert.assertTrue(
+            "V5.0.6823: explicit positionId not found must return POSITION_ID_UNKNOWN immediately",
+            src.contains("POSITION_ID_UNKNOWN"),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.6823: ambiguous same-mint positions must return AMBIGUOUS_CANONICAL_POSITION",
+            src.contains("AMBIGUOUS_CANONICAL_POSITION"),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.6823: mint/mode/class mismatches must be checked before quarantine",
+            src.contains("MINT_MISMATCH") && src.contains("pos.mint != mint"),
+        )
+        org.junit.Assert.assertFalse(
+            "V5.0.6823: caller ID mistakes must not trigger quarantine — only data-integrity failures should",
+            src.indexOf("MINT_MISMATCH") > src.indexOf("quarantine(pos.positionId"),
+        )
+    }
+
 }

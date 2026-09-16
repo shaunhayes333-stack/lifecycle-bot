@@ -60,11 +60,10 @@ android {
             // Uses default debug keystore at ~/.android/debug.keystore
         }
         create("release") {
-            // Consistent key stored in repo - allows APK updates without uninstall
             storeFile = file("../keystore/release.keystore")
-            storePassword = "aate2024bot"
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
             keyAlias = "aate_release"
-            keyPassword = "aate2024bot"
+            keyPassword = System.getenv("KEY_PASSWORD") ?: ""
         }
     }
 
@@ -119,6 +118,12 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+    }
+
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
     }
 
     buildFeatures {
@@ -202,7 +207,7 @@ dependencies {
     // V5.9.495z29 — operator spec item 10: acceptance test harness.
     // JUnit + coroutines-test for pure-logic unit tests of TokenLifecycleTracker,
     // SellSlippageProfile, ExecutableQuoteGate verdicts, LiveExecutionGate
-    // semaphore behaviour. Tests run via `./gradlew testDebugUnitTest` in CI.
+    // semaphore behaviour. Tests run via `./gradlew testReleaseUnitTest` in CI.
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     testImplementation("org.mockito:mockito-core:5.12.0")

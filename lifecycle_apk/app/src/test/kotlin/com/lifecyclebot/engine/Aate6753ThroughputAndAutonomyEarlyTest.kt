@@ -64,18 +64,32 @@ class Aate6753ThroughputAndAutonomyEarlyTest {
     }
 
     @Test
-    fun `bleeder probation fires from trade 5 not 15`() {
-        // Behaviour + source contract.
+    fun `bleeder probation MIN_WINDOW restored to 15 after V5_0_6820`() {
+        // V5.0.6820 §PROBATION_MIN_WINDOW_RESTORE: MIN_WINDOW=5 (V5.0.6753) was too
+        // aggressive — meme tokens in NEUTRAL health hit 4-5 normal-noise losses and
+        // immediately locked every lane into 0.02 SOL probes, collapsing WR from ~85%
+        // to ~20%. Restored to 15 so probation requires a sustained losing streak.
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/BleederLaneProbation6747.kt").readText()
-        assertTrue("MIN_WINDOW must be 5 (autonomous adjustment early)",
+        assertTrue("V5.0.6820: MIN_WINDOW must be 15 (restored from 5)",
+            src.contains("MIN_WINDOW   = 15"))
+        assertFalse("V5.0.6820: MIN_WINDOW=5 must not be present (caused WR collapse)",
             src.contains("MIN_WINDOW   = 5"))
-        // 5 straight losses → probation.
-        repeat(5) { BleederLaneProbation6747.onTradeClosed("EXPRESS", -5.0) }
-        assertTrue("5 losses must trigger probation immediately",
+        assertTrue("V5.0.6820: restore comment must be present as source contract",
+            src.contains("V5.0.6820 §PROBATION_MIN_WINDOW_RESTORE"))
+        // 15 straight losses → probation triggers.
+        repeat(15) { BleederLaneProbation6747.onTradeClosed("EXPRESS", -5.0) }
+        assertTrue("15 consecutive losses must trigger probation",
             BleederLaneProbation6747.isOnProbation("EXPRESS"))
-        // Regular-size admission refused.
+        // 5 losses alone must NOT trigger probation.
+        BleederLaneProbation6747.resetForTest()
+        repeat(5) { BleederLaneProbation6747.onTradeClosed("EXPRESS", -5.0) }
+        assertFalse("5 losses must NOT trigger probation with MIN_WINDOW=15",
+            BleederLaneProbation6747.isOnProbation("EXPRESS"))
+        // Regular-size admission refused once probation is active.
+        BleederLaneProbation6747.resetForTest()
+        repeat(15) { BleederLaneProbation6747.onTradeClosed("EXPRESS", -5.0) }
         val refused = BleederLaneProbation6747.evaluate("EXPRESS", 0.05)
-        assertNotNull("regular admission refused at trade 5+", refused)
+        assertNotNull("regular admission refused during probation", refused)
     }
 
     @Test

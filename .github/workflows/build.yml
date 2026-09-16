@@ -66,30 +66,17 @@ jobs:
         run: python3 ci/patch_rot_scan.py
 
       - name: Build Release APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          chmod +x gradlew || true
-          mkdir -p gradle/wrapper
-          curl -sL -o gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
-          GRADLE_CMD="./gradlew"
-          for i in 1 2 3 4 5; do
-            if ./gradlew --version --no-daemon; then
-              GRADLE_CMD="./gradlew"
-              break
-            fi
-            echo "Gradle wrapper bootstrap attempt $i failed; retrying in $((i*15))s..."
-            sleep $((i*15))
-          done
-          if ! ./gradlew --version --no-daemon; then
-            echo "Gradle wrapper unavailable; falling back to system gradle"
-            GRADLE_CMD="gradle"
-            gradle --version
-          fi
+          chmod +x gradlew
           echo "========================================"
           echo "Building AATE v${{ steps.aate_build.outputs.version_name }}"
           echo "versionCode = $((500 + AATE_BUILD_NUMBER))"
           echo "========================================"
-          $GRADLE_CMD testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
-          $GRADLE_CMD assembleRelease --no-daemon -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
+          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
+          ./gradlew assembleRelease --no-daemon -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
           python3 ci/build_gate_summary.py
           echo "Built APK:"
           ls -la app/build/outputs/apk/release/

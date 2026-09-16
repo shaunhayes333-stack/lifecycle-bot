@@ -4490,13 +4490,13 @@ object FinalDecisionGate {
                         if (report.provenDead) {
                             val beforeP = finalSize
                             if (report.normalEntryBlocked) {
+                                // V5.0.6822: BrainConsensusGate.probeAllowed is always false
+                                // (probe logic retired — exploration belongs in shadow/replay,
+                                // not canonical capital). normalEntryBlocked is the only sizing
+                                // path; the dead else-if branch has been removed.
                                 finalSize = minOf(finalSize, 0.02).coerceAtLeast(0.01)
                                 tags.add("bcg_proven_dead_normal_veto")
                                 checks.add(GateCheck("brain_consensus_proven_dead", true, "PROVEN_DEAD normal-size vetoed → probe ${beforeP.format(3)}→${finalSize.format(3)} (learning stays open)"))
-                            } else if (report.probeAllowed) {
-                                finalSize = minOf(finalSize, 0.02).coerceAtLeast(0.01)
-                                tags.add("bcg_proven_dead_probe")
-                                checks.add(GateCheck("brain_consensus_proven_dead", true, "PROVEN_DEAD 1-in-25 learning probe @ ${finalSize.format(3)}"))
                             } else {
                                 tags.add("bcg_proven_dead_observed")
                             }
