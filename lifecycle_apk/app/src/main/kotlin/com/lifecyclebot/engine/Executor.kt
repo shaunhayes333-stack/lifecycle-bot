@@ -6531,6 +6531,19 @@ class Executor(
         if (!ts.position.isOpen || currentPrice <= 0.0) return false
         val pnlVerdict6038 = OpenPnlSanity.inspectPosition(ts.position, currentPrice, "Executor.trySweepTakeProfitExit_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true, mint = ts.mint)
         val pnlPct = if (pnlVerdict6038.ok) pnlVerdict6038.pnlPct else 0.0
+        val laneKey = ts.position.tradingMode.ifBlank { "STANDARD" }
+        // V5.0.6836 §MOONSHOT_SWEPT_TO_FULL_EXIT — this generic sweep ends in
+        // requestSell (a FULL close) once pnlPct >= maxOf(tpPct, learnedTpFloor), and
+        // learnedTpFloor is WrRecoveryPartial.learnedExitRungs(...).first, which is
+        // floored at MIN_PARTIAL_GAIN_PCT = 50.0. MOONSHOT has no lane TP branch below
+        // (unlike SHITCOIN/BLUE_CHIP/TREASURY), so it fell through to the generic path
+        // and every moonshot was liquidated in full at roughly +50% — before its own
+        // ladder even reached the +100% rung, on a lane whose ladder runs to +10000%.
+        // The lane owns its exits: MoonshotTraderAI's rung ladder, the fluid trail,
+        // PeakDrawdownLock and the unconditional hard floor all still apply, so
+        // declining here removes a contradictory full-exit rather than removing risk
+        // control. Returning false simply means "this path takes no exit".
+        if (laneKey.contains("MOONSHOT", ignoreCase = true)) return false
         val tpPct = when {
             // V5.0.4125 — style-adjusted TP takes PRIORITY over lane-specific TPs.
             ts.position.entryTakeProfitPct > 0.0 ->
@@ -6544,13 +6557,15 @@ class Executor(
             else -> {
                 // Generic meme: use fluid TP — lerps from 15% bootstrap to
                 // cfg default as learning matures.
+                // V5.0.6836 — pass the lane. getFluidTakeProfit's tradingMode parameter
+                // defaults to "", so the V5.9.8 high-upside branch (MOONSHOT/TREASURY/
+                // BLUE, "must never be TP-capped") could never fire from this call site.
                 try {
                     com.lifecyclebot.v3.scoring.FluidLearningAI
-                        .getFluidTakeProfit(cfg().exitScoreThreshold.coerceAtLeast(20.0))
+                        .getFluidTakeProfit(cfg().exitScoreThreshold.coerceAtLeast(20.0), laneKey)
                 } catch (_: Throwable) { 20.0 }
             }
         }
-        val laneKey = ts.position.tradingMode.ifBlank { "STANDARD" }
         val learnedTpFloor = try { WrRecoveryPartial.learnedExitRungs(laneKey).first } catch (_: Throwable) { 50.0 }
         val tune = try { LiveStrategyTuner.adjustment(laneKey) } catch (_: Throwable) { LiveStrategyTuner.adjustment("STANDARD") }
         val liveGrowthTpPct = maxOf(tpPct, learnedTpFloor) * tune.tpMult

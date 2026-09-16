@@ -14880,7 +14880,26 @@ class BotService : Service() {
         val catastropheThreshold = getCatastropheThreshold(cfg.paperMode)
         val peakGainPct = ts.position.peakGainPct
         val drawdownFromPeak = peakGainPct - pnlPct
-        val giveBackTrigger = peakGainPct >= 20.0 && drawdownFromPeak >= 25.0
+        // V5.0.6836 §GIVE_BACK_WAS_FLAT_POINTS — drawdownFromPeak is in pnl POINTS, so
+        // comparing it to a flat 25.0 made the trigger scale-blind: peak +30% fired on a
+        // 19% retrace (fine), but peak +900% fired the moment pnl touched +875% — a 2.8%
+        // retrace off peak. Because this check runs before settle-in and before any V3
+        // checkExit, and calls requestSell (a FULL close), it pre-empted
+        // PeakDrawdownLock.triggerFracForPeak — the V5.9.1326 runner-capture curve that
+        // would only fire at +327% for a +900% peak — making that curve unreachable for
+        // any peak above roughly +45%. PeakDrawdownLock's own comment records the same
+        // symptom: "avgPeak +1483% -> realized +60%, 4% MFE capture".
+        // Scale the band with peak size using that existing curve, but keep the old flat
+        // 25 points as a FLOOR so small peaks are never protected less tightly than
+        // before. Nothing here becomes tighter; only mega-runners gain room.
+        //   peak  +30% -> max(25, 12)  = 25 pts (unchanged)
+        //   peak +100% -> max(25, 45)  = 45 pts (fires at +55 instead of +75)
+        //   peak +900% -> max(25, 572) = 572 pts (fires at +327, not +875)
+        val requiredGiveBackPts6836 = maxOf(
+            25.0,
+            peakGainPct * PeakDrawdownLock.triggerFracForPeak(peakGainPct)
+        )
+        val giveBackTrigger = peakGainPct >= 20.0 && drawdownFromPeak >= requiredGiveBackPts6836
 
         // V5.9.1521 — UNCONDITIONAL SAFETY MUST PRECEDE SETTLE-IN.
         // ROOT CAUSE of "live/paper trading really poorly": the paper settle-in
