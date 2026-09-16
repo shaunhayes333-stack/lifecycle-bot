@@ -61,13 +61,15 @@ android {
         }
         create("release") {
             storeFile = file("../keystore/release.keystore")
-            // The committed keystore's own password. An empty fallback here made
-            // AGP's signing worker fail to decrypt the private key, which surfaces
-            // as BadPaddingException/UnrecoverableKeyException at packageRelease —
-            // not as a "missing password" error. Env vars still override.
-            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "aate2024bot"
+            // takeIf(isNotBlank) is load-bearing, not defensive: build.yml maps
+            // these to repository secrets, and GitHub Actions sets the env var to
+            // an EMPTY STRING (not unset) when the secret does not exist. A plain
+            // `?:` only fires on null, so an empty password reached AGP and failed
+            // as BadPaddingException/UnrecoverableKeyException at packageRelease
+            // rather than as a missing-credential error.
+            storePassword = System.getenv("KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() } ?: "aate2024bot"
             keyAlias = "aate_release"
-            keyPassword = System.getenv("KEY_PASSWORD") ?: "aate2024bot"
+            keyPassword = System.getenv("KEY_PASSWORD")?.takeIf { it.isNotBlank() } ?: "aate2024bot"
         }
     }
 
