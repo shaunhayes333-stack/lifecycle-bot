@@ -68,55 +68,50 @@ jobs:
       # V5.0.6825 §KEYSTORE_MODERN_PBE — the checked-in release keystore was
       # generated with legacy SHA1-based PKCS12 PBE, which JDK 17.0.7+
       # (temurin@17 as shipped by actions/setup-java@v4) refuses to decrypt
-      # by default. Re-export the keystore with modern PBE algorithms so the
-      # Android Gradle Plugin signing worker can open it. Preserves the
-      # existing alias, passwords, and certificate fingerprint so users keep
-      # receiving updates without uninstall/reinstall.
-      - name: Convert release keystore to modern PBE
+      # by default. Re-export using OpenSSL 3 (available on ubuntu-latest),
+      # which reliably converts legacy-PBE PKCS12 stores to modern PBES2
+      # format that the Android Gradle Plugin signing worker can open.
+      # Preserves the existing alias, passwords, and certificate fingerprint
+      # so users keep receiving updates without uninstall/reinstall.
+      - name: Convert release keystore to modern PBE (OpenSSL 3)
         run: |
           set -euo pipefail
           SRC="keystore/release.keystore"
           BACKUP="keystore/release.legacy.keystore"
+          PEM="keystore/release.pem"
           NEW="keystore/release.new.keystore"
           if [[ ! -f "$SRC" ]]; then
-            echo "::error::Missing $SRC"
-            exit 1
+            echo "::error::Missing $SRC"; exit 1
           fi
+          openssl version
           cp "$SRC" "$BACKUP"
-          rm -f "$NEW"
-          # -J-Dkeystore.pkcs12.legacy on the READ side lets us open the
-          # legacy-format source. Omitting it on the WRITE side produces a
-          # modern-PBE destination readable by JDK 17.0.7+ strict crypto.
-          keytool -importkeystore \
-            -srckeystore "$SRC" \
-            -srcstoretype PKCS12 \
-            -srcstorepass aate2024bot \
-            -srckeypass aate2024bot \
-            -srcalias aate_release \
-            -destkeystore "$NEW" \
-            -deststoretype PKCS12 \
-            -deststorepass aate2024bot \
-            -destkeypass aate2024bot \
-            -destalias aate_release \
-            -J-Dkeystore.pkcs12.legacy \
-            -noprompt
+          rm -f "$PEM" "$NEW"
+          # Step 1: extract the private key + cert chain from the legacy
+          #   PKCS12 store. -legacy re-enables the SHA1-based PBE providers
+          #   in OpenSSL 3.x. -nodes writes the private key unencrypted to
+          #   the intermediate PEM file (deleted immediately after import).
+          openssl pkcs12 -in "$SRC" \
+            -out "$PEM" \
+            -nodes \
+            -passin pass:aate2024bot \
+            -legacy
+          # Step 2: re-export into a modern PKCS12 store using OpenSSL 3
+          #   defaults (AES-256-CBC + PBKDF2). The keystore is readable by
+          #   JDK 17.0.7+ strict crypto AND legacy JDKs.
+          openssl pkcs12 -export \
+            -in "$PEM" \
+            -out "$NEW" \
+            -name aate_release \
+            -passout pass:aate2024bot
+          rm -f "$PEM"
           mv "$NEW" "$SRC"
-          echo "Modern-PBE keystore verification:"
+          echo "Modern-PBE keystore verification (via keytool):"
           keytool -list -keystore "$SRC" -storepass aate2024bot -alias aate_release
 
       - name: Build Release APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          # V5.0.6825 §KEYSTORE_MODERN_PBE — even after the keystore is
-          # converted to modern PBE in the prior step, AGP's :app:packageRelease
-          # spawns its own signing worker JVM which does not inherit the
-          # Gradle daemon's system properties. JAVA_TOOL_OPTIONS is honoured
-          # by every JVM subprocess (including AGP workers), so the legacy
-          # PBE flag is guaranteed to reach the signing worker as a
-          # belt-and-braces fallback if the source keystore is still
-          # legacy-formatted for any reason.
-          JAVA_TOOL_OPTIONS: "-Dkeystore.pkcs12.legacy -Dfile.encoding=UTF-8"
         run: |
           chmod +x gradlew
           echo "========================================"
