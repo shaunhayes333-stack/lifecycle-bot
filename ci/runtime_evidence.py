@@ -62,6 +62,10 @@ def inspect_log(text: str) -> dict[str, Any]:
         "unidentified_committed_receipts": malformed_receipts,
         "acceptance_witnesses": list(witnesses.values()),
         "failures": reasons,
+        # V5.0.6888 — the observed values V5.0.6884 added to the FAIL witness.
+        # Carried out separately so they can be annotated without being
+        # mistaken for failure reasons by anything reading `failures`.
+        "failure_details": [v["detail"] for v in failures if v.get("detail")],
     }
 
 
@@ -85,7 +89,42 @@ def main() -> int:
     if args.summary:
         with args.summary.open("a", encoding="utf-8") as handle:
             handle.write("\n" + report)
+    if not result["passed"]:
+        _annotate(result)
     return 0 if result["passed"] else 1
+
+
+def _annotate(result: dict[str, Any]) -> None:
+    """Emit the verdict as GitHub Actions error annotations.
+
+    V5.0.6888 — this report was printed to stdout only. Step logs and the
+    uploaded artifacts both live in blob storage, which is not reachable from
+    every environment that needs to read a red build; the sole failure
+    annotation on a red smoke run was the runner's own generic "Process
+    completed with exit code 1", so a reviewer could see THAT the acceptance
+    witness failed but never WHICH invariant. Annotations are served by the
+    REST API (/check-runs/{id}/annotations) rather than blob storage, so
+    routing the reasons through `::error::` makes every red build readable
+    wherever the API is.
+
+    Purely additive: the printed report, the JSON output, the summary file and
+    the exit code are all unchanged.
+    """
+    def esc(text: str) -> str:
+        # GitHub workflow-command escaping for annotation message payloads.
+        return (str(text).replace("%", "%25")
+                .replace("\r", "%0D").replace("\n", "%0A"))
+
+    for reason in result.get("failures", []):
+        print(f"::error title=ACCEPTANCE_FAILURE::{esc(reason)}")
+    for detail in result.get("failure_details", []):
+        print(f"::error title=ACCEPTANCE_DETAIL::{esc(detail)}")
+    print(
+        "::error title=ACCEPTANCE_SUMMARY::"
+        f"paperBuyTickets={result.get('canonical_paper_buys', 0)} "
+        f"latestWindowStartMs={result.get('latest_window_start_ms', 0)} "
+        f"unidentifiedReceipts={result.get('unidentified_committed_receipts', 0)}"
+    )
 
 
 if __name__ == "__main__":

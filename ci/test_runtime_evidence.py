@@ -36,6 +36,26 @@ class RuntimeEvidenceTest(unittest.TestCase):
         row = row.replace(':LIVE:', ':PAPER:').replace('paper=false', 'paper=true').replace('committed=true', 'committed=false')
         self.assertEqual(0, inspect_log(row)['canonical_paper_buys'])
 
+    def test_detail_is_carried_separately_from_failure_reasons(self):
+        """V5.0.6888 — the FAIL witness detail must reach failure_details so it
+        can be annotated, without ever appearing in `failures` (which the gate
+        treats as the reason list)."""
+        fail = (OK.replace('_OK ', '_FAIL ') + ' failures=PHANTOM_SIZED_ONLY'
+                ' detail=safety=7,phantom=3,[QUALITY,missing=NO_INTENT=3]')
+        result = inspect_log(START + '\n' + fail)
+        self.assertFalse(result['passed'])
+        self.assertIn('PHANTOM_SIZED_ONLY', result['failures'])
+        self.assertEqual(
+            ['safety=7,phantom=3,[QUALITY,missing=NO_INTENT=3]'],
+            result['failure_details'],
+        )
+        self.assertNotIn('safety=7,phantom=3,[QUALITY,missing=NO_INTENT=3]', result['failures'])
+
+    def test_passing_run_reports_no_failure_details(self):
+        result = inspect_log(START + '\n' + OK)
+        self.assertTrue(result['passed'])
+        self.assertEqual([], result['failure_details'])
+
     def test_detail_suffix_does_not_corrupt_the_failure_list(self):
         """V5.0.6883 — the FAIL witness now carries observed values after
         `failures=`. The parser must still read the failure list as one token
