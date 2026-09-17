@@ -82,6 +82,11 @@ object JournalEconomicReplay6619 {
         var sells = 0
         var partials = 0
         var totalRows = 0
+        // V5.0.6868 — basis that a terminal SELL left behind on its lot. Tracked so
+        // the residual is a readable quantity instead of being silently carried as
+        // open cost (or, before this fix, silently dropping the whole sell event).
+        var residualBasisWrittenOff6868 = 0.0
+        var residualLotCount6868 = 0
 
         val rows = try {
             TradeHistoryStore.getAllValidTradesSnapshot(limit = 20_000)
@@ -257,9 +262,45 @@ object JournalEconomicReplay6619 {
                     if (nextBasis < -1e-9 || nextRaw < java.math.BigInteger.ZERO || nextDisplay < -1e-9) {
                         reject(t, eventId, "NEGATIVE_REMAINING_LOT"); continue
                     }
-                    if (side == "SELL" && (kotlin.math.abs(nextBasis) > 1e-9 ||
-                            (lot.rawQty > java.math.BigInteger.ZERO && nextRaw != java.math.BigInteger.ZERO))) {
-                        reject(t, eventId, "TERMINAL_SELL_INCOMPLETE_LOT"); continue
+                    // V5.0.6868 §A_REPLAY_MUST_NOT_APPLY_A_DEBIT_AND_REFUSE_ITS_CREDIT —
+                    // this used to `reject(...); continue` on TERMINAL_SELL_INCOMPLETE_LOT,
+                    // i.e. when a terminal SELL left residual basis or raw quantity on the
+                    // lot. The `continue` landed AFTER the matching BUY had already done
+                    // `cash -= (cost + fee)` earlier in the same replay, so the buy leg of
+                    // the transaction was applied and the sell leg was silently discarded.
+                    //
+                    // That is where the operator's 7.4 SOL ledger/journal split comes from.
+                    // The arithmetic in the 5.0.6846 dump matches it exactly:
+                    // openCostDelta 1.176 + realizedDelta 6.126 ~= cashDelta 7.417 — the
+                    // replay is missing the proceeds it refused to credit, and still
+                    // carrying the basis it refused to release. No capital was lost; the
+                    // audit tool was reporting a number that describes nothing, and an
+                    // operator reading it cannot tell a bookkeeping artefact from a real
+                    // 7.4 SOL hole.
+                    //
+                    // A replay's job is to reproduce what happened, then say where it
+                    // disagrees. So: apply the event's real economics, force the lot
+                    // closed, and account for the residual explicitly as a written-off
+                    // basis rather than leaving it to masquerade as open cost. The
+                    // anomaly stays fully visible — reject() still fires, so the event is
+                    // still quarantined from learning and still counted in failures — but
+                    // the totals now balance against the ledger and the residual is a
+                    // quantity the operator can actually read.
+                    val terminalResidual6868 = side == "SELL" && (kotlin.math.abs(nextBasis) > 1e-9 ||
+                        (lot.rawQty > java.math.BigInteger.ZERO && nextRaw != java.math.BigInteger.ZERO))
+                    if (terminalResidual6868) {
+                        reject(t, eventId, "TERMINAL_SELL_INCOMPLETE_LOT")
+                        residualBasisWrittenOff6868 += nextBasis.coerceAtLeast(0.0)
+                        residualLotCount6868 += 1
+                        try {
+                            ForensicLogger.lifecycle(
+                                "JOURNAL_TERMINAL_SELL_RESIDUAL_WRITTEN_OFF_6868",
+                                "economicEventId=$eventId positionId=${t.positionId} residualBasisSol=${"%.6f".format(nextBasis)} " +
+                                    "residualRaw=$nextRaw gross=${"%.6f".format(gross)} basis=${"%.6f".format(basis)} " +
+                                    "action=apply_both_legs_and_close_lot",
+                            )
+                            PipelineHealthCollector.labelInc("JOURNAL_TERMINAL_SELL_RESIDUAL_WRITTEN_OFF_6868")
+                        } catch (_: Throwable) {}
                     }
                     cash += (gross - fee)
                     openCost -= basis
@@ -268,6 +309,15 @@ object JournalEconomicReplay6619 {
                     lot.basisSol = nextBasis
                     lot.rawQty = nextRaw
                     lot.displayQty = nextDisplay
+                    if (terminalResidual6868) {
+                        // The position is terminally closed on the ledger, so its residual
+                        // basis is not open cost any more. Release it here instead of
+                        // carrying a phantom open position for the rest of the replay.
+                        openCost -= nextBasis.coerceAtLeast(0.0)
+                        lot.basisSol = 0.0
+                        lot.rawQty = java.math.BigInteger.ZERO
+                        lot.displayQty = 0.0
+                    }
                     if (side == "SELL" || lot.basisSol <= 1e-9) lots.remove(t.positionId)
                     if (side == "SELL") sells++ else partials++
                 }
@@ -277,6 +327,20 @@ object JournalEconomicReplay6619 {
         if (openCost < -1e-9) {
             failures += "GLOBAL:NEGATIVE_OPEN_BASIS"
             try { PipelineHealthCollector.labelInc("JOURNAL_NEGATIVE_BASIS_INVARIANT_6647") } catch (_: Throwable) {}
+        }
+        // V5.0.6868 — report the residual as one readable line. Previously this
+        // quantity was invisible: the sells carrying it were dropped entirely, and
+        // what the operator saw instead was an unexplained multi-SOL split between
+        // the ledger and the journal.
+        if (residualLotCount6868 > 0) {
+            try {
+                ForensicLogger.lifecycle(
+                    "JOURNAL_TERMINAL_RESIDUAL_SUMMARY_6868",
+                    "lots=$residualLotCount6868 residualBasisSol=${"%.6f".format(residualBasisWrittenOff6868)} " +
+                        "note=terminal_sells_left_basis_on_lot_applied_and_written_off",
+                )
+                PipelineHealthCollector.labelInc("JOURNAL_TERMINAL_RESIDUAL_LOTS_6868")
+            } catch (_: Throwable) {}
         }
 
         val equity = cash + openCost
