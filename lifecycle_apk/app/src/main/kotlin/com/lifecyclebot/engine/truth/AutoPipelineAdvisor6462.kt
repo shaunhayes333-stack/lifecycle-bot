@@ -372,14 +372,54 @@ object AutoPipelineAdvisor6462 {
         // brain (mult > 1.0, positive sentience) agrees with LOOSENING.
         val loosening = c.delta > 0.0
         val votes = mutableListOf<BrainVote>()
-        fun voteFor(name: String, defensive: Boolean, weight: Double = 1.0) {
+        // V5.0.6898 §ABSTENTION_WAS_COUNTED_AS_OPPOSITION.
+        //
+        // `defensive` was derived as `mult < 1.0`, so a brain sitting at
+        // exactly 1.0 — which means it has NO opinion — was classified
+        // non-defensive and therefore recorded as voting AGAINST any
+        // tightening proposal. With every brain neutral, agreement computes to
+        // 0.00 and the advisor can never auto-apply anything.
+        //
+        // Operator 5.0.6892 shows precisely that state:
+        //   13 x LOW_AGREEMENT exitScoreThreshold delta -2.0000 agree=0.00
+        //        votes=MetaCo:-1.0,SuperB:-0.8,Capita:-1.2,Sentie:-0.6,
+        //              BrainC:-1.4,RiskEx:-1.0
+        //   autoAdvisor: ticks=13 runsOk=13 autoApplied=0
+        //   Personality tune: size x1.00
+        //   Specialist MoE Gate: applied=0 boosted=0 damped=0 neutral=38
+        // All six weights render negative (disagree) while every multiplier is
+        // 1.00 and the MoE gate reports 38 neutral, 0 boosted, 0 damped. Nobody
+        // objected; nobody was asked. The advisor then re-proposed the identical
+        // delta thirteen times and was refused thirteen times on a quorum that
+        // was never really taken.
+        //
+        // An abstaining brain is now excluded from BOTH numerator and
+        // denominator, so agreement measures the opinions that actually exist.
+        // When every brain abstains, totalWeight is 0 and the existing 0.5
+        // neutral fallback applies — still under AUTO_APPLY_MIN_AGREEMENT, so
+        // this does not start auto-applying changes on silence. It stops
+        // manufacturing opposition out of silence, which is what was blocking
+        // genuine consensus from ever forming.
+        val NEUTRAL_BAND_6898 = 0.02
+        fun voteFor(name: String, defensive: Boolean, weight: Double = 1.0, abstains: Boolean = false) {
+            if (abstains) {
+                try { PipelineHealthCollector.labelInc("ADVISOR_BRAIN_ABSTAINED_6898") } catch (_: Throwable) {}
+                return
+            }
             val agrees = if (defensive) !loosening else loosening
             votes += BrainVote(name, agrees, weight)
         }
-        voteFor("MetaCognitionExecutorBridge", defensive = b.metaCogMult < 1.0, weight = 1.0)
-        voteFor("SuperBrainEnhancements",     defensive = b.superBrainMult < 1.0, weight = 0.8)
-        voteFor("CapitalEfficiencyBrain",     defensive = b.capitalMult < 1.0, weight = 1.2)
-        voteFor("SentienceOrchestrator",      defensive = b.sentienceMult < 1.0, weight = 0.6)
+        fun neutral6898(mult: Double): Boolean = kotlin.math.abs(mult - 1.0) <= NEUTRAL_BAND_6898
+        voteFor("MetaCognitionExecutorBridge", defensive = b.metaCogMult < 1.0, weight = 1.0,
+            abstains = neutral6898(b.metaCogMult))
+        voteFor("SuperBrainEnhancements",     defensive = b.superBrainMult < 1.0, weight = 0.8,
+            abstains = neutral6898(b.superBrainMult))
+        voteFor("CapitalEfficiencyBrain",     defensive = b.capitalMult < 1.0, weight = 1.2,
+            abstains = neutral6898(b.capitalMult))
+        voteFor("SentienceOrchestrator",      defensive = b.sentienceMult < 1.0, weight = 0.6,
+            abstains = neutral6898(b.sentienceMult))
+        // These two are genuine booleans, not multipliers — they always have a
+        // position, so neither can abstain.
         voteFor("BrainConsensusGate",         defensive = b.provenDead, weight = 1.4)
         voteFor("RiskExitPriorityDomain6461", defensive = b.riskLatencyPressure > 0.5, weight = 1.0)
 

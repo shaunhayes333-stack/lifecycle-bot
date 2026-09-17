@@ -109,7 +109,35 @@ object ForensicReconciler6377 {
 
         // ── 1. WALLET_VS_JOURNAL ─────────────────────────────────────────
         run {
-            val realizedSol = sells.sumOf { it.pnlSol }
+            // V5.0.6898 §THE_EXPECTATION_OMITTED_PARTIAL_PROCEEDS.
+            //
+            // `sells` above is filtered to side == "SELL", so PARTIAL_SELL rows
+            // were absent from this expectation — while their proceeds very much
+            // do credit the wallet. The test is one-sided and only flags
+            // wallet > expected, so every missing credit becomes a permanent
+            // false "phantom SOL creation" alarm.
+            //
+            // Operator 5.0.6892:
+            //   WALLET_VS_JOURNAL wallet=65.005 expected<=11.390+tol=0.05695
+            //                     over=53.615
+            // against a ledger reading realized=+67.5598 and 21 lifetime
+            // partials (economicSchema: buys=455 sells=308 partials=21). The
+            // ledger's own conservation identity passed in the same snapshot —
+            // "Paper capital conservation OK", CONSERVATION delta=-0.000000 —
+            // so the two reconcilers disagreed and this one was wrong.
+            //
+            // That matters beyond tidiness: this check feeds a wallet-snap
+            // remediation path (BotService:13895) and it is one of only four
+            // checks in the 6377 report. A permanently-red check is a check
+            // nobody can act on, and it masks the real drift it exists to find.
+            //
+            // The other two terms in the true identity
+            //   cash = startingCash + realized - fees - openCost
+            // can only ever LOWER the wallet, so the one-sided test stays valid
+            // without them. Partial proceeds were the only omitted term that
+            // raises it.
+            val partialSells6898 = tradesForMode.filter { it.side.equals("PARTIAL_SELL", true) }
+            val realizedSol = sells.sumOf { it.pnlSol } + partialSells6898.sumOf { it.pnlSol }
             val expected = startCapitalSol + realizedSol
             // Open positions consume SOL from the wallet — a mismatch here
             // may just mean money is parked in open buys. So this check
@@ -118,7 +146,8 @@ object ForensicReconciler6377 {
             val over = paperWalletSol - expected
             val tolerance = maxOf(SAFE_ABS_FLOOR_SOL, abs(expected) * SAFE_REL_TOL)
             val ok = over <= tolerance
-            val summary = "wallet=${fmt(paperWalletSol)} expected≤${fmt(expected)}+tol=${fmt(tolerance)} over=${fmt(over)}"
+            val summary = "wallet=${fmt(paperWalletSol)} expected≤${fmt(expected)}+tol=${fmt(tolerance)} " +
+                "over=${fmt(over)} terminalSells=${sells.size} partials=${partialSells6898.size}"
             results += CheckResult("WALLET_VS_JOURNAL", ok, summary)
         }
 
