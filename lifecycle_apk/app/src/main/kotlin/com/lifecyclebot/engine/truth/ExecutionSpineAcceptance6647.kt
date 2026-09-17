@@ -167,11 +167,16 @@ object ExecutionSpineAcceptanceWindow6647 {
 
     private fun emitFailure6689(
         durationMs: Long, failures: List<String>, error: Throwable? = null, windowStartMs: Long = 0L,
+        detail6883: String = "",
     ) {
         emitResult6735(
             "EXECUTION_SPINE_ACCEPTANCE_6647_FAIL",
             "windowStartMs=$windowStartMs durationMs=$durationMs failures=${failures.joinToString("|")}" +
-                (error?.let { " err=${it.javaClass.simpleName}:${it.message?.take(120)}" } ?: ""),
+                (error?.let { " err=${it.javaClass.simpleName}:${it.message?.take(120)}" } ?: "") +
+                // V5.0.6883 — observed values for the failing window. Kept after
+                // `failures=` so ci/runtime_evidence.py's FIELD regex still reads
+                // `failures` as a single token; the detail is additive.
+                (if (detail6883.isNotBlank()) " detail=${detail6883.replace(' ', ',').take(900)}" else ""),
         )
     }
 
@@ -284,7 +289,32 @@ object ExecutionSpineAcceptanceWindow6647 {
                     "windowStartMs=${start.atMs} durationMs=$duration safety=${observation.safety} v3=${observation.v3} workers=${observation.currentWorkerHeartbeats}/${observation.configuredWorkers} dispatches=${observation.dispatches} cryptoOpen=${observation.cryptoOpenConfirmed} exit=${observation.exitStart}/${observation.exitDone} canonicalOpen=${observation.canonicalOpen} exitEval=${observation.exitEvaluations}",
                 )
             } else {
-                emitFailure6689(duration, result.failures, windowStartMs = start.atMs)
+                // V5.0.6883 — the FAIL witness used to carry the failure NAMES
+                // and nothing else, so ci/runtime_evidence.py reported e.g.
+                // "PHANTOM_SIZED_ONLY" with no observed values and every
+                // diagnosis needed a separate on-device snapshot. Emit the same
+                // numbers the OK line carries, plus — when the phantom
+                // invariant is the one failing — which predecessor stamp was
+                // missing and a sample orphaned intentId per desk.
+                val detail6883 = buildString {
+                    append("safety=${observation.safety} v3=${observation.v3} ")
+                    append("workers=${observation.currentWorkerHeartbeats}/${observation.configuredWorkers} ")
+                    append("dispatches=${observation.dispatches}/${observation.immutableIntentsForDispatches}/${observation.terminalResultsForDispatches} ")
+                    append("cryptoOpen=${observation.cryptoOpenConfirmed} ")
+                    append("exit=${observation.exitStart}/${observation.exitDone} ")
+                    append("canonicalOpen=${observation.canonicalOpen} exitEval=${observation.exitEvaluations} ")
+                    append("phantom=${observation.phantomSizedOnly}")
+                    if ("PHANTOM_SIZED_ONLY" in result.failures) {
+                        for (desk in desks) {
+                            val snap = try { SpecialistCausalFunnel6625.laneSnapshot6647(desk) } catch (_: Throwable) { null }
+                            if (snap == null || snap.phantomSizedOnly <= 0) continue
+                            append(" [$desk n=${snap.phantomSizedOnly}")
+                            append(" missing=${snap.phantomMissing6883.entries.joinToString(",") { "${it.key}=${it.value}" }}")
+                            append(" sample=${snap.phantomSampleIntentId6883}]")
+                        }
+                    }
+                }
+                emitFailure6689(duration, result.failures, windowStartMs = start.atMs, detail6883 = detail6883)
             }
             result
         } catch (t: Throwable) {

@@ -36,6 +36,17 @@ class RuntimeEvidenceTest(unittest.TestCase):
         row = row.replace(':LIVE:', ':PAPER:').replace('paper=false', 'paper=true').replace('committed=true', 'committed=false')
         self.assertEqual(0, inspect_log(row)['canonical_paper_buys'])
 
+    def test_detail_suffix_does_not_corrupt_the_failure_list(self):
+        """V5.0.6883 — the FAIL witness now carries observed values after
+        `failures=`. The parser must still read the failure list as one token
+        and must not mistake the detail's inner key=value pairs for fields."""
+        fail = (OK.replace('_OK ', '_FAIL ') + ' failures=PHANTOM_SIZED_ONLY'
+                ' detail=safety=7,v3=4,phantom=3,[QUALITY,n=3,missing=NO_INTENT=3]')
+        result = inspect_log(START + '\n' + fail)
+        self.assertFalse(result['passed'])
+        self.assertIn('PHANTOM_SIZED_ONLY', result['failures'])
+        self.assertNotIn('7', result['failures'])
+
     def test_old_unscoped_ok_is_not_accepted(self):
         self.assertFalse(inspect_log(START + '\nEXECUTION_SPINE_ACCEPTANCE_6647_OK durationMs=120000')['passed'])
 
