@@ -285,6 +285,71 @@ object CrossTalkFusionEngine {
     // GATED SCORING — Multiplicative scoring with hard vetoes
     // ═══════════════════════════════════════════════════════════════════════
 
+    /**
+     * V5.0.6878 §THE_MEME_PATH_NEVER_CONSULTED_THE_FUSION_ENGINE — computeGatedScore
+     * is called only by CryptoAltTrader:1451 and TokenizedStockTrader:951. The meme
+     * book, which carries almost all the volume, never asked the cross-talk engine
+     * anything, so the hive's shared view of a candidate reached perps and stocks
+     * and not the lane that mattered.
+     *
+     * It cannot simply be called from the meme path, because two of its seven
+     * channels — portfolioSafetyMultiplier and liquiditySafetyMultiplier — were
+     * wired DIRECTLY into the Executor sizing stack in V5.0.6853. Calling the whole
+     * gate would square portfolio heat and fragility.
+     *
+     * So this exposes only the channels the meme stack does NOT already have:
+     *   strategyTrust      — StrategyTrustAI's learned trust in this lane, fed by
+     *                        TradeLessonRecorder (whose context became real in 6859)
+     *   narrativePersistence — NarrativeFlowAI heat for the symbol
+     *   leadLag            — cross-asset rotation probability
+     *   perMarketCaps      — the market's own size cap, which also finally gives
+     *                        perMarketCaps a reader; it has been computed on every
+     *                        fuse() and consumed nowhere (its two filters were
+     *                        structural never-matches until V5.0.6873)
+     *
+     * Deliberately excluded: portfolioSafety and liquiditySafety (already applied at
+     * the Executor), and regimeFit (the Executor's own regimeMult already shapes on
+     * RegimeDetector; CrossMarketRegimeAI's GlobalRiskMode is a related enough axis
+     * that stacking both risks double-damping the same condition).
+     *
+     * Bounded to [0.70, 1.30] and fail-open at 1.0 — shape, never veto. The vetoes
+     * computeGatedScore would raise are already covered on the meme path by the
+     * AdaptiveVetoConsensusAuthority publishers wired in 6853 and 6862.
+     */
+    fun memeShapeMultiplier6878(symbol: String?, lane: String?, market: String = "MEME"): Double {
+        return try {
+            val snapshot = getSnapshot() ?: return 1.0
+            val trustMult = lane?.trim()?.takeIf { it.isNotBlank() }?.let { l ->
+                snapshot.strategyTrust[l] ?: snapshot.strategyTrust[l.uppercase()]
+            }?.let { trust ->
+                when {
+                    trust < 0.2 -> 0.80
+                    trust < 0.4 -> 0.90
+                    trust < 0.6 -> 1.00
+                    trust < 0.8 -> 1.08
+                    else -> 1.15
+                }
+            } ?: 1.0
+            val narrMult = symbol?.trim()?.takeIf { it.isNotBlank() }?.let { s ->
+                snapshot.narrativeMap[s] ?: snapshot.narrativeMap[s.uppercase()]
+            }?.let { heat ->
+                when {
+                    heat > 0.8 -> 1.15
+                    heat > 0.5 -> 1.00
+                    heat > 0.2 -> 0.92
+                    else -> 0.85
+                }
+            } ?: 1.0
+            val leadLagMult = symbol?.trim()?.takeIf { it.isNotBlank() }?.let { s ->
+                snapshot.leadLagLinks.firstOrNull { it.lagger == s || it.lagger.equals(s, true) }
+                    ?.let { 1.0 + it.rotationProbability * 0.20 }
+            } ?: 1.0
+            val marketSizeCap = snapshot.perMarketCaps[market]?.sizeCap?.takeIf { it.isFinite() && it > 0.0 }
+                ?.coerceIn(0.70, 1.0) ?: 1.0
+            (trustMult * narrMult * leadLagMult * marketSizeCap).coerceIn(0.70, 1.30)
+        } catch (_: Throwable) { 1.0 }
+    }
+
     fun computeGatedScore(
         baseScore: Double,
         strategy: String,

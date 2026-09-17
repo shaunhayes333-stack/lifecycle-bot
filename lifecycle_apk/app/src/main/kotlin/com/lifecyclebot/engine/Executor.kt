@@ -11097,6 +11097,29 @@ class Executor(
                 }
             } catch (_: Throwable) {}
         }
+        // V5.0.6878 §THE_MEME_PATH_NEVER_CONSULTED_THE_FUSION_ENGINE —
+        // CrossTalkFusionEngine.computeGatedScore has exactly two callers,
+        // CryptoAltTrader:1451 and TokenizedStockTrader:951. The meme book never
+        // asked the cross-talk engine anything, so the hive's shared view of a
+        // candidate reached perps and stocks and not the lane carrying the volume.
+        // memeShapeMultiplier6878 exposes only the channels this stack does not
+        // already hold — learned lane trust, narrative heat, cross-asset lead-lag,
+        // and the market's own perMarketCaps size cap — because portfolio heat and
+        // liquidity fragility are applied above by 6853 and stacking them twice
+        // would square the same damp.
+        val crossTalkShape6878 = try {
+            com.lifecyclebot.v4.meta.CrossTalkFusionEngine
+                .memeShapeMultiplier6878(symbol = ts.symbol, lane = laneKeyForAgi, market = "MEME")
+        } catch (_: Throwable) { 1.0 }
+        if (crossTalkShape6878 != 1.0) {
+            try {
+                ForensicLogger.lifecycle(
+                    "CROSSTALK_MEME_SHAPE_6878",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi mult=${crossTalkShape6878.fmt(3)}",
+                )
+                PipelineHealthCollector.labelInc("CROSSTALK_MEME_SHAPE_6878")
+            } catch (_: Throwable) {}
+        }
         val sizingStackComponents4285 = linkedMapOf(
             "sizeMult" to sizeMult,
             "lab" to labMult,
@@ -11122,6 +11145,7 @@ class Executor(
             "routeReliability4518" to routeReliabilitySizeMult4518,
             "portfolioHeat6853" to portfolioHeatSizeMult6853,
             "fragility6853" to fragilitySizeMult6853,
+            "crossTalk6878" to crossTalkShape6878,
         )
         val multiplierProductRaw = sizingStackComponents4285.values.fold(1.0) { acc, v -> acc * v }
         try {
@@ -11171,6 +11195,7 @@ class Executor(
                     "routeReliability4518" to routeReliabilitySizeMult4518,
                     "portfolioHeat6853" to portfolioHeatSizeMult6853,
                     "fragility6853" to fragilitySizeMult6853,
+                    "crossTalk6878" to crossTalkShape6878,
                 ),
             )
         } catch (_: Throwable) {}
