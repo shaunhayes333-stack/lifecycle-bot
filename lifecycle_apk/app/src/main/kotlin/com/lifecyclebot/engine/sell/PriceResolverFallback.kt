@@ -37,6 +37,10 @@ object PriceResolverFallback {
         .callTimeout(4, TimeUnit.SECONDS)
         .build()
 
+    /** V5.0.6894 — one instance so DexscreenerApi's 45s pairCache actually
+     *  survives between resolves. See the note at the DexScreener step. */
+    private val sharedDexscreener6894 by lazy { DexscreenerApi() }
+
     enum class Source { DEXSCREENER, GECKOTERMINAL, JUPITER, CACHED, ENTRY, UNKNOWN }
 
     data class Resolved(val priceUsd: Double, val source: Source)
@@ -51,9 +55,15 @@ object PriceResolverFallback {
     fun resolve(mint: String, solUsdHint: Double): Resolved? {
         if (mint.isBlank()) return null
 
-        // 1. DexScreener
+        // 1. DexScreener (keyless, 300 req/min, healthiest host in the fleet)
         try {
-            val price = DexscreenerApi().getBestPair(mint)?.candle?.priceUsd ?: 0.0
+            // V5.0.6894 — was `DexscreenerApi()`, a FRESH instance per call.
+            // DexscreenerApi holds its 45s pairCache as instance state, so
+            // constructing one per resolve threw the cache away every time and
+            // made this fallback re-hit the network for a mint it had just
+            // priced. One shared instance restores the cache the class was
+            // built around.
+            val price = sharedDexscreener6894.getBestPair(mint)?.candle?.priceUsd ?: 0.0
             if (price > 0.0) {
                 cache[mint] = Cached(price, "DEXSCREENER", System.currentTimeMillis())
                 return Resolved(price, Source.DEXSCREENER)

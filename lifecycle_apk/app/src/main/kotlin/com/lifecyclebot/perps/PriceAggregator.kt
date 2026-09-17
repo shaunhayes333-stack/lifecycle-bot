@@ -746,21 +746,31 @@ object PriceAggregator {
     }
 
     /** V5.0.6065 — Jupiter Lite public price endpoint (keyless).
-     *  Endpoint: lite-api.jup.ag/price/v2?ids={mint}
-     *  Note: paid tiers use the branded path; lite-api is the community mirror.
+     *  V5.0.6894 — moved v2 -> v3. Jupiter retired the v2 price path; every
+     *  other Jupiter price call in this tree was already migrated to
+     *  lite-api.jup.ag/price/v3 (AlternativeOracles, PerpsMarketDataFetcher,
+     *  JupiterPerps, WalletManager) and this one was left behind. Still keyless.
+     *  The two response shapes differ, so the parser accepts both:
+     *    v3: {"<mint>":{"usdPrice":1.23,...}}          (no wrapper, numeric)
+     *    v2: {"data":{"<mint>":{"price":"1.23",...}}}   (wrapped, string)
      */
     private suspend fun fetchJupiterLite(symbol: String): PriceResult? = withContext(Dispatchers.IO) {
         try {
             val mint = resolveSolanaMint(symbol) ?: return@withContext null
-            val url = "https://lite-api.jup.ag/price/v2?ids=$mint"
+            val url = "https://lite-api.jup.ag/price/v3?ids=$mint"
             val request = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
             client.newCall(request).execute().use { resp ->
                 if (!resp.isSuccessful) return@withContext null
                 val body = resp.body?.string() ?: return@withContext null
                 val json = JSONObject(body)
-                val data = json.optJSONObject("data") ?: return@withContext null
-                val obj = data.optJSONObject(mint) ?: return@withContext null
-                val price = obj.optString("price", "0").toDoubleOrNull() ?: 0.0
+                // v3 is unwrapped; v2 nested everything under "data".
+                val obj = json.optJSONObject(mint)
+                    ?: json.optJSONObject("data")?.optJSONObject(mint)
+                    ?: return@withContext null
+                // v3 exposes a numeric usdPrice; v2 a stringified price.
+                val price = obj.optDouble("usdPrice", Double.NaN)
+                    .takeIf { it.isFinite() && it > 0.0 }
+                    ?: (obj.optString("price", "0").toDoubleOrNull() ?: 0.0)
                 if (price > 0) {
                     ErrorLogger.debug(TAG, "🌀 JupiterLite: $symbol = \$${"%.6f".format(price)}")
                     PriceResult(price, calcChange(symbol, price), "JUPITER_LITE")

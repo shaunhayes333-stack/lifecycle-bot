@@ -82,40 +82,66 @@ class DexscreenerApi {
         val now = System.currentTimeMillis()
         if (cached != null && now - cached.timestamp < CACHE_TTL_MS) return cached.pair
 
-        // DexPaprika token hydration is explicitly Solana-only. Never project it
-        // onto Base/ETH/BSC/etc identities.
-        if (allowDexPaprika && RateLimiter.allowRequest("dexpaprika")) {
-            val paprika = fetchDexPaprikaToken6512(tokenAddress)
-            if (paprika != null) {
-                pairCache[cacheKey] = CachedPair(paprika, now)
-                return paprika
-            }
-        }
-
+        // V5.0.6894 §THE_DEAD_PROVIDER_WAS_FIRST_IN_LINE.
+        //
+        // DexPaprika used to be attempted BEFORE DexScreener on every Solana
+        // hydration. Operator 5.0.6892 measured what that costs:
+        //   dexpaprika    sr=0%  4xx=12  5xx=1716
+        //   dexscreener   sr=99% s=1491
+        // and this function's own header notes it is "the FIRST network hit
+        // inside processTokenCycle... under the 8s supervisor worker budget"
+        // with a 6s callTimeout. So every token paid up to six seconds on a
+        // corpse before reaching the provider that works. That is where
+        // workerTimeout=8, avgCycle=7123ms and — because exit marks come
+        // through this same call — missingMark=99 of 100 open positions came
+        // from.
+        //
+        // DexScreener is keyless, 300 req/min, and the healthiest provider in
+        // the fleet, so it goes first. DexPaprika stays as a genuine fallback
+        // for the case DexScreener has no pair, but only while it is actually
+        // alive: ApiHealthMonitor.isCircuitBroken already encodes "this host
+        // has proven itself dead" (>=30 5xx/net with sr<10%) and was wired for
+        // birdeye only. Nothing is removed and no key is required anywhere in
+        // this path.
         if (cached != null && now - cached.timestamp < CACHE_TTL_MS * 3) {
             if (!RateLimiter.allowRequest("dexscreener")) return cached.pair
         } else if (!RateLimiter.allowRequest("dexscreener")) return null
 
         val url = "https://api.dexscreener.com/token-pairs/v1/${encode(chainId)}/${encode(tokenAddress)}"
-        val body = get(url) ?: run {
-            pairCache[cacheKey] = CachedPair(null, System.currentTimeMillis())
-            return null
-        }
-        val pairs = JSONArray(body)
-        if (pairs.length() == 0) {
-            pairCache[cacheKey] = CachedPair(null, System.currentTimeMillis())
-            return null
-        }
+        val body = get(url)
         var best: JSONObject? = null
-        var bestScore = -1.0
-        for (i in 0 until pairs.length()) {
-            val row = pairs.getJSONObject(i)
-            val baseAddress = row.optJSONObject("baseToken")?.optString("address", "") ?: ""
-            if (!baseAddress.equals(tokenAddress, ignoreCase = chainId != "solana")) continue
-            val score = scorePair(row)
-            if (score > bestScore) { bestScore = score; best = row }
+        if (body != null) {
+            val pairs = JSONArray(body)
+            var bestScore = -1.0
+            for (i in 0 until pairs.length()) {
+                val row = pairs.getJSONObject(i)
+                val baseAddress = row.optJSONObject("baseToken")?.optString("address", "") ?: ""
+                if (!baseAddress.equals(tokenAddress, ignoreCase = chainId != "solana")) continue
+                val score = scorePair(row)
+                if (score > bestScore) { bestScore = score; best = row }
+            }
         }
-        val result = best?.let { parsePair(it) }
+        var result = best?.let { parsePair(it) }
+        // Fallback only — and only to a host that is not circuit-broken.
+        if (result == null && allowDexPaprika) {
+            val paprikaDead6894 = try {
+                com.lifecyclebot.engine.ApiHealthMonitor.isCircuitBroken("dexpaprika")
+            } catch (_: Throwable) { false }
+            if (paprikaDead6894) {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector
+                        .labelInc("DEXPAPRIKA_SKIPPED_CIRCUIT_BROKEN_6894")
+                } catch (_: Throwable) {}
+            } else if (RateLimiter.allowRequest("dexpaprika")) {
+                result = fetchDexPaprikaToken6512(tokenAddress)
+                if (result != null) {
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector
+                            .labelInc("DEXPAPRIKA_FALLBACK_HIT_6894")
+                    } catch (_: Throwable) {}
+                }
+            }
+        }
         pairCache[cacheKey] = CachedPair(result, System.currentTimeMillis())
         if (pairCache.size > 400) {
             val cutoffNow = System.currentTimeMillis()

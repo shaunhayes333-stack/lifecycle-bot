@@ -1269,16 +1269,33 @@ object DynamicAltTokenRegistry {
      * Only adds NEW tokens (never overwrites richer data from other sources).
      */
     private fun fetchJupiterTokenList() {
-        val body  = httpGet("https://token.jup.ag/strict") ?: return
+        // V5.0.6894 — token.jup.ag is DNS-dead. The operator 5.0.6892 snapshot
+        // carries the exact error against it:
+        //   jupiter sr=59% last_err: Unable to resolve host "token.jup.ag":
+        //   No address associated with hostname
+        // Jupiter retired that host along with price.jup.ag (already migrated
+        // at V5.9.862). The live keyless replacement is the lite-api tag
+        // endpoint; tokens.jup.ag is kept as a second try because it is a
+        // different host and still answers for some regions. Both are keyless.
+        //
+        // Field names differ between them, so the parser below reads either:
+        //   lite-api v2 tag: {"id":"<mint>","symbol":..,"name":..,"icon":..}
+        //   legacy strict:   {"address":"<mint>","symbol":..,"name":..,"logoURI":..}
+        val body = httpGet("https://lite-api.jup.ag/tokens/v2/tag?query=verified")
+            ?: httpGet("https://tokens.jup.ag/tokens?tags=verified")
+            ?: return
         var added = 0
         try {
             val arr = JSONArray(body)
             for (i in 0 until arr.length()) {
                 val obj     = arr.getJSONObject(i)
-                val mint    = obj.optString("address",   "").trim()
+                // V5.0.6894 — lite-api names the mint "id"; legacy used "address".
+                val mint    = obj.optString("address", "").trim()
+                    .ifBlank { obj.optString("id", "").trim() }
                 val symbol  = obj.optString("symbol",    "").uppercase().trim()
                 val name    = obj.optString("name",      "").trim()
-                val logoUrl = obj.optString("logoURI",   "")
+                // V5.0.6894 — lite-api names the logo "icon"; legacy used "logoURI".
+                val logoUrl = obj.optString("logoURI", "").ifBlank { obj.optString("icon", "") }
 
                 if (mint.isBlank() || symbol.isBlank()) continue
 
