@@ -12118,10 +12118,14 @@ class Executor(
         //   the intent's canonicalLane over any downstream fallback so
         //   attemptId synthesis and lane-filter both see the same lane.
         //   No new state — read-only lookup of the already-published intent.
-        val activeIntentLane6658 = try {
+        // V5.0.6886 — the sealed intent was already being fetched here and then
+        // reduced to its lane, discarding the attemptId that is the causal
+        // identity every other stage in this trade stamps on. Keep the object.
+        val activeIntent6886 = try {
             ExecutableOpenGate.activeExecutionIntent6519("PAPER", ts.mint, authorityVersion6513)
-                ?.canonicalLane?.uppercase()?.takeIf { it.isNotBlank() }
         } catch (_: Throwable) { null }
+        val activeIntentLane6658 = activeIntent6886
+            ?.canonicalLane?.uppercase()?.takeIf { it.isNotBlank() }
         // The active intent is the sealed FDG execution owner.  A snapshot is
         // a supporting projection and currentForMint() can legally return a
         // newer/different lane from the same multi-lane candidate.  Preferring
@@ -12333,10 +12337,36 @@ class Executor(
             )
         } catch (_: Throwable) { null }
         val paperMarkOk6579 = strictMark6575 != null || observationMark6579 != null
-        if (paperMarkOk6579) try { ToolkitSignalSheet.recordDeskStage(layerTag, "MARK_READY", executionAttemptId6514) } catch (_: Throwable) {}
+        // V5.0.6886 §THE_STAMPS_DISAGREED_ABOUT_WHICH_TRADE_THIS_IS.
+        //
+        // These desk stamps used executionAttemptId6514, which paperBuy mints
+        // itself: doBuy (Executor:11616) calls paperBuy positionally and never
+        // passes attemptId, so the chain falls through to
+        // ExecutableOpenGate.nextAttemptId → canonicalExecutionKey, and that
+        // re-resolves candidateVersion from
+        // LaneExecutionCoordinator.candidateVersionFor(mint) at execution time.
+        // The rest of the trade stamps on the sealed intent's attemptId, whose
+        // candidateVersion was fixed when the intent was created.
+        //
+        // SpecialistCausalFunnel6625 keys on "<mint>:<candidateVersion>:<lane>",
+        // so if a new scanner candidate arrived for the same mint between intent
+        // creation and execution, these stamps land on a different record than
+        // the TICKET stamp. laneSnapshot6647 then refuses to count them, because
+        // EXEC is only valid when its own record also holds INTENT, FDG, SIZE and
+        // MARK. That is the operator's CORE ticket=8 exec=0: eight tickets, eight
+        // executions, and a telemetry split that reported the lane as dead.
+        //
+        // Telemetry only — attempt synthesis is deliberately left alone. Making
+        // paperBuy adopt the intent's attemptId would change what
+        // ticketForAttempt/terminalizeAttempt6514 resolve on the live buy path,
+        // and a duplicate-attempt rejection there would block buying, which is a
+        // far worse failure than a miscounted funnel.
+        val causalAttempt6886 = activeIntent6886?.attemptId?.takeIf { it.isNotBlank() }
+            ?: executionAttemptId6514
+        if (paperMarkOk6579) try { ToolkitSignalSheet.recordDeskStage(layerTag, "MARK_READY", causalAttempt6886) } catch (_: Throwable) {}
         if (!paperMarkOk6579) {
             try {
-                ToolkitSignalSheet.recordDeskStage(layerTag, "MARK_REJECT", executionAttemptId6514)
+                ToolkitSignalSheet.recordDeskStage(layerTag, "MARK_REJECT", causalAttempt6886)
                 val validSource6600 = (ts.tokenMap.priceUsd ?: 0.0) > 0.0 || (ts.lastPrice > 0.0 && ts.lastLiquidityUsd > 0.0)
                 if (validSource6600) ToolkitSignalSheet.recordCausalIssue6600("missingExecutableMarkWithValidSource", layerTag, "mint=${ts.mint.take(10)}")
             } catch (_: Throwable) {}
@@ -13489,8 +13519,16 @@ class Executor(
             )
             // Keep execution telemetry on the sealed attempt record. The
             // positionId remains the canonical inventory identity.
-            com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(entryLane6450, "EXEC", executionAttemptId6514)
-            com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(entryLane6450, "POSITION_OPENED", executionAttemptId6514)
+            // V5.0.6886 — stamp EXEC/POSITION_OPENED on the sealed intent's
+            // attemptId (the identity TICKET was stamped on in BotService:26819),
+            // not the attemptId paperBuy minted for itself. See the
+            // §THE_STAMPS_DISAGREED_ABOUT_WHICH_TRADE_THIS_IS note above for why
+            // those two can carry different candidateVersions, and why the fix is
+            // confined to telemetry.
+            val causalOpenAttempt6886 = sealedIntent6613?.attemptId?.takeIf { it.isNotBlank() }
+                ?: executionAttemptId6514
+            com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(entryLane6450, "EXEC", causalOpenAttempt6886)
+            com.lifecyclebot.engine.ToolkitSignalSheet.recordDeskStage(entryLane6450, "POSITION_OPENED", causalOpenAttempt6886)
             // V5.0.6627 §7 OPEN_POSITION_ENTRY_BASIS_INVARIANT — proactive alarm
             // at canonical OPEN transition. Fires OPEN_POSITION_ZERO_ENTRY_PRICE_
             // 6627 if the sealed entry basis is not authoritative, so the source
