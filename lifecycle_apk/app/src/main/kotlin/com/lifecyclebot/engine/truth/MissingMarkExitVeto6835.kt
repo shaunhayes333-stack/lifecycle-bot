@@ -86,9 +86,32 @@ object MissingMarkExitVeto6835 {
      * Both conditions must hold, so a 1–2 minute provider blip cannot trip
      * the release: the deferral must be older than MAX_DEFER_MS *and* have
      * been retried at least MIN_DEFER_ATTEMPTS times.
+     *
+     * V5.0.6893 §THE_BOUND_NEEDED_A_CEILING — operator 5.0.6892 measured the
+     * 6882 bound doing almost nothing:
+     *   vetoed=599 boundReleased6882=1 heldNow=11 oldestHeld=1789s
+     * One release. Eleven positions held, the oldest for thirty minutes against
+     * a ten-minute bound. The `AND attempts >= 20` is the reason: this veto is
+     * only consulted when a catastrophic exit reason is actually proposed, and
+     * the universal sweep walks a rotating 24-of-100 slice, so a position can
+     * sit half an hour without being consulted twenty times. The condition that
+     * was meant to stop a provider blip tripping the release also stopped the
+     * release from ever happening for a slowly-visited position.
+     *
+     * Consequence, straight from the same snapshot: 100 open positions,
+     * POSITION_HARD_CAP_EXIT_THROUGHPUT as the top hard block,
+     * ORDER_SIZE_BLOCKED_EXIT_THROUGHPUT_6758=1849, BLUECHIP with 480 pending
+     * intents and sized=0, CORE holding 0.0 of a 4.3 SOL target. Inventory that
+     * cannot be released is inventory that cannot compound.
+     *
+     * HARD_DEFER_MS is an unconditional ceiling on top of the existing rule.
+     * Past it the position is released on age alone, however rarely it has been
+     * consulted. Twenty minutes is still far longer than any credible provider
+     * blip, so the protection 6882 was built for is intact.
      */
     private const val MAX_DEFER_MS = 600_000L
     private const val MIN_DEFER_ATTEMPTS = 20L
+    private const val HARD_DEFER_MS = 1_200_000L
 
     private val vetoCount = AtomicLong(0L)
     private val allowCount = AtomicLong(0L)
@@ -199,15 +222,29 @@ object MissingMarkExitVeto6835 {
         val d = deferrals.computeIfAbsent(mintKey) { Deferral(nowMs) }
         val attempts = d.attempts.incrementAndGet()
         val heldMs = (nowMs - d.firstAtMs).coerceAtLeast(0L)
-        if (heldMs > MAX_DEFER_MS && attempts >= MIN_DEFER_ATTEMPTS) {
+        // V5.0.6893 — age alone releases past HARD_DEFER_MS. See the constant's
+        // note: the attempt count starves for positions the rotating exit slice
+        // rarely reaches, which is exactly the population that most needs
+        // releasing.
+        val ceilingHit6893 = heldMs > HARD_DEFER_MS
+        if ((heldMs > MAX_DEFER_MS && attempts >= MIN_DEFER_ATTEMPTS) || ceilingHit6893) {
             deferrals.remove(mintKey)
             boundReleaseCount.incrementAndGet()
             try {
                 PipelineHealthCollector.labelInc("EXIT_DEFERRAL_BOUND_RELEASED_6882")
+                // V5.0.6893 — distinguish the two release paths so the operator
+                // can see whether the attempt-counted rule or the age ceiling is
+                // doing the work. If the ceiling dominates, the rotating exit
+                // slice is not reaching these positions often enough and THAT is
+                // the thing to fix next.
+                if (ceilingHit6893) {
+                    PipelineHealthCollector.labelInc("EXIT_DEFERRAL_AGE_CEILING_RELEASED_6893")
+                }
                 ForensicLogger.lifecycle(
                     "EXIT_DEFERRAL_BOUND_RELEASED_6882",
                     "mint=${mintKey.take(10)} proposedReason=$exitReason detail=$detail " +
                         "heldMs=$heldMs attempts=$attempts boundMs=$MAX_DEFER_MS " +
+                        "ceiling6893=$ceilingHit6893 ceilingMs=$HARD_DEFER_MS " +
                         "action=release_position_mark_untrusted_excluded_from_learning",
                 )
             } catch (_: Throwable) {}

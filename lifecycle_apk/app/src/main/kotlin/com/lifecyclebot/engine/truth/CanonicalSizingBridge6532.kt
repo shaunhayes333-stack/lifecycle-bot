@@ -80,20 +80,49 @@ object CanonicalSizingBridge6532 {
         // already owns this exact mode/mint/candidateVersion. The normal
         // BotService execution spine stamps SIZED_EXECUTABLE again after the
         // sealed intent exists, so genuine executable sizes remain visible.
-        val resolvedCausalEventId6674 = causalEventId.ifBlank {
-            if (assetClass == AssetClass.SOLANA_TOKEN &&
-                canonicalAssetId.isNotBlank() &&
-                resolvedCandidateVersion6620 > 0L
-            ) {
-                val mode6674 = if (paperMode) "PAPER" else "LIVE"
-                try {
-                    com.lifecyclebot.engine.ExecutableOpenGate
-                        .activeExecutionIntent6519(mode6674, canonicalAssetId, resolvedCandidateVersion6620)
-                        ?.attemptId
-                        ?.takeIf { it.isNotBlank() }
-                        .orEmpty()
-                } catch (_: Throwable) { "" }
-            } else ""
+        // V5.0.6893 §THE_GUARD_ONLY_COVERED_THE_BLANK_CASE.
+        //
+        // 6704 made the FALLBACK fail-closed — `causalEventId.ifBlank { ...only
+        // when an immutable intent owns this mode/mint/version... }`. But a
+        // caller passing a NON-BLANK causalEventId was trusted unconditionally,
+        // and OrderSizeResolver6441 stamps SIZED_EXECUTABLE for any nonblank id.
+        // So the exact defect 6704 describes still reached the funnel by the one
+        // path its guard did not cover.
+        //
+        // Operator 5.0.6892 measured it: QUALITY phantomSizedOnly=84
+        // (NO_INTENT=78), PROJECT_SNIPER=55 (NO_INTENT=55), CORE=8 (NO_INTENT=6).
+        // NO_INTENT dominates. My V5.0.6892 fix guarded
+        // CanonicalAssetEntryContract6551 instead, which turns out to serve
+        // CRYPTO_ALT only (cross-asset funnel: sized=261 intent=261, and
+        // ADVISORY_SIZE_STAMP_WITHHELD_6892 never fired) — so it closed a real
+        // hole but not the one producing these phantoms. This bridge, at 2,677
+        // invocations, is the meme-lane path.
+        //
+        // The intent lookup is now the sole authority: when an immutable intent
+        // owns this mode/mint/version its attemptId is used (which is also the
+        // id every other stage in the trade stamps on, so the record joins
+        // correctly); when none does, no stage stamp is emitted regardless of
+        // what the caller claimed. Telemetry only — sizing resolves exactly as
+        // before and no lane, trader or probe is disabled.
+        val intentOwnedCausalId6893 = if (
+            assetClass == AssetClass.SOLANA_TOKEN &&
+            canonicalAssetId.isNotBlank() &&
+            resolvedCandidateVersion6620 > 0L
+        ) {
+            val mode6674 = if (paperMode) "PAPER" else "LIVE"
+            try {
+                com.lifecyclebot.engine.ExecutableOpenGate
+                    .activeExecutionIntent6519(mode6674, canonicalAssetId, resolvedCandidateVersion6620)
+                    ?.attemptId
+                    ?.takeIf { it.isNotBlank() }
+                    .orEmpty()
+            } catch (_: Throwable) { "" }
+        } else ""
+        val resolvedCausalEventId6674 = intentOwnedCausalId6893
+        if (causalEventId.isNotBlank() && intentOwnedCausalId6893.isBlank()) {
+            try {
+                PipelineHealthCollector.labelInc("ADVISORY_SIZE_STAMP_WITHHELD_6893")
+            } catch (_: Throwable) {}
         }
 
         // V5.0.6689 §SHARED_CAPITAL_COMPOUNDING — paper callers are not
