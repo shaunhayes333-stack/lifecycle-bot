@@ -68,6 +68,9 @@ jobs:
       - name: Android resource pre-flight
         run: python3 ci/res_validate.py
 
+      - name: Layout id contract check
+        run: python3 ci/layout_contract.py
+
       - name: Build Release APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
