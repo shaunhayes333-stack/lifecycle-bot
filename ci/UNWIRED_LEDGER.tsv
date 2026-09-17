@@ -47,7 +47,7 @@ A_PREDICT	ExecutableEntryAuthority6450	scoreFloorDeltaFor6488	engine/truth/Execu
 A_PREDICT	ExecutableOpenGate	mutableSignalCanVeto6519	engine/ExecutableOpenGate.kt
 A_PREDICT	ExplorationBudget	allowShadowSignal	engine/learning/ExplorationBudget.kt
 A_PREDICT	FluidLearning	getExitTagWinRate	engine/FluidLearning.kt
-A_PREDICT	FluidLearningAI	getAltsSpotScoreThreshold	v3/scoring/FluidLearningAI.kt
+F_DEAD	FluidLearningAI	getAltsSpotScoreThreshold	v3/scoring/FluidLearningAI.kt
 A_PREDICT	FluidLearningAI	getBootstrapConfidenceBoost	v3/scoring/FluidLearningAI.kt
 A_PREDICT	FluidLearningAI	getHeuristicSignal	v3/scoring/FluidLearningAI.kt
 G_PROTOCOL	ForensicEventEnvelope6430	setLedgerEpoch	engine/truth/ForensicEventEnvelope6430.kt
@@ -160,7 +160,7 @@ G_PROTOCOL	CanonicalLedger6387	canonicalRiskPositionMints	engine/truth/Canonical
 B_RISK	CollectiveLearning	getCollectiveTotalTradeCount	collective/CollectiveLearning.kt
 H_MUTATOR	DistributionFadeAvoider	clearSuppression	engine/DistributionFadeAvoider.kt
 B_RISK	EarlyEntryScout6390	isDistributionRisk	engine/truth/EarlyEntryAndPeakCapture6390.kt
-B_RISK	EdgeLearning	getVetoStickyMinutes	engine/EdgeLearning.kt
+F_DEAD	EdgeLearning	getVetoStickyMinutes	engine/EdgeLearning.kt
 B_RISK	EmergentGuardrails	shouldBlockPromotion	engine/EmergentGuardrails.kt
 G_PROTOCOL	EntryGateBlockCache6398	shouldEmitCanonicalBlock	engine/truth/EntryGateBlockCache6398.kt
 G_PROTOCOL	EvidenceEpochFilter6388	canPassForensicRegressionGuard	engine/truth/GovernorRecoverySubstrate6388.kt
@@ -178,7 +178,7 @@ B_RISK	MemeExecutionRouteStack	stackExhausted	engine/execution/MemeExecutionRout
 B_RISK	MemePipelineTracer	blockReasons	engine/MemePipelineTracer.kt
 B_RISK	MintWorkCoordinator6450	isOpenBlocked	engine/truth/MintWorkCoordinator6450.kt
 B_RISK	MoonshotHoldProfileRegistry6415	shouldSuppressTp	engine/truth/MoonshotHoldProfileRegistry6415.kt
-B_RISK	OwnershipClassification6391	isRealExhaustion	engine/truth/SellOnlyHoldRepair6391.kt
+G_PROTOCOL	OwnershipClassification6391	isRealExhaustion	engine/truth/SellOnlyHoldRepair6391.kt
 B_RISK	PerpsSandbox6463	evaluateRiskExit	engine/truth/PerpsSandbox6463.kt
 B_RISK	PositionIdentity6411	guardMerge	engine/truth/PositionIdentity6411.kt
 B_RISK	PositionSizing	calculateRiskBasedSize	engine/PositionSizing.kt
@@ -254,14 +254,14 @@ H_MUTATOR	FeeAccumulator	setFlushThresholdSol	engine/FeeAccumulator.kt
 C_EXIT	FinalizedSellProof6386	classifyPartial	engine/truth/FinalizedSellProof6386.kt
 C_EXIT	FluidLearning	getSimulatedPeak	engine/FluidLearning.kt
 C_EXIT	FluidLearningAI	calculateNetPnl	v3/scoring/FluidLearningAI.kt
-C_EXIT	FluidLearningAI	getAltsLevTpPct	v3/scoring/FluidLearningAI.kt
-C_EXIT	FluidLearningAI	getAltsSpotConfThreshold	v3/scoring/FluidLearningAI.kt
-C_EXIT	FluidLearningAI	getAltsSpotTpPct	v3/scoring/FluidLearningAI.kt
+F_DEAD	FluidLearningAI	getAltsLevTpPct	v3/scoring/FluidLearningAI.kt
+F_DEAD	FluidLearningAI	getAltsSpotConfThreshold	v3/scoring/FluidLearningAI.kt
+F_DEAD	FluidLearningAI	getAltsSpotTpPct	v3/scoring/FluidLearningAI.kt
 C_EXIT	FluidLearningAI	getBreakoutThreshold	v3/scoring/FluidLearningAI.kt
 C_EXIT	FluidLearningAI	getFeeAdjustedTakeProfit	v3/scoring/FluidLearningAI.kt
 C_EXIT	FluidLearningAI	getLayerHoldParams	v3/scoring/FluidLearningAI.kt
-C_EXIT	FluidLearningAI	getMarketsTakeProfitPct	v3/scoring/FluidLearningAI.kt
-C_EXIT	FluidLearningAI	getMarketsUncappedTpPct	v3/scoring/FluidLearningAI.kt
+E_INFILE	FluidLearningAI	getMarketsTakeProfitPct	v3/scoring/FluidLearningAI.kt
+F_DEAD	FluidLearningAI	getMarketsUncappedTpPct	v3/scoring/FluidLearningAI.kt
 C_EXIT	FluidLearningAI	getMinProfitableExitPct	v3/scoring/FluidLearningAI.kt
 C_EXIT	FluidLearningAI	isHoldTimeExceeded	v3/scoring/FluidLearningAI.kt
 C_EXIT	FluidLearningAI	isNetProfitable	v3/scoring/FluidLearningAI.kt
@@ -305,7 +305,7 @@ C_EXIT	ModeSpecificScanners	getMinLiquidityThreshold	engine/ModeSpecificScanners
 C_EXIT	MoonshotHoldProfileRegistry6415	trailStopPctFromPeak	engine/truth/MoonshotHoldProfileRegistry6415.kt
 C_EXIT	OrderbookImbalancePulseAI	getRecentPulse	v3/scoring/OrderbookImbalancePulseAI.kt
 C_EXIT	OrthogonalSignals	calculateHolderEntropy	engine/OrthogonalSignals.kt
-C_EXIT	OwnershipClassification6391	allowSellOrEmergencyProbe	engine/truth/SellOnlyHoldRepair6391.kt
+G_PROTOCOL	OwnershipClassification6391	allowSellOrEmergencyProbe	engine/truth/SellOnlyHoldRepair6391.kt
 H_MUTATOR	OwnershipClassification6391	startPlan	engine/truth/SellOnlyHoldRepair6391.kt
 H_MUTATOR	PaperAccountLedger6430	onSellProvenanced6737	engine/truth/PaperAccountLedger6430.kt
 C_EXIT	PeakDrawdownLock	mfeProfitFloorPct	engine/PeakDrawdownLock.kt

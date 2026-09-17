@@ -6,6 +6,45 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /**
+ * ⚠️ V5.0.6957 — INTEGRATION STATUS: MOSTLY NOT WIRED INTO PRODUCTION.
+ *
+ * READ THIS BEFORE ASSUMING ANY PROTECTION BELOW IS ACTIVE. This file declares
+ * ten objects. Counting references from anywhere outside this file, in the whole
+ * of src/main:
+ *
+ *     OwnershipClassification6391          1
+ *     SellOnlyHold6391                     2
+ *     EffectiveLiveAuthorityResolver6391   0
+ *     CanonicalRecoveryUpsert6391          0
+ *     ReconcilerVisibility6391             0
+ *     ExecutionCircuitBreakers6391         0
+ *     ProviderOutcomeTaxonomy6391          0
+ *     ExitRoutePlan6391                    0
+ *     PumpRescueUnifiedBuilder6391         0
+ *     ForensicTelemetry6391                0
+ *
+ * Eight of the ten are called by NOTHING in production. The header below says
+ * "Every section below implements one part of the V5.0.6391 directive. No
+ * cherry-picking." The implementation honoured that. The INTEGRATION did not:
+ * the sections were written, and then almost none of them were called.
+ *
+ * What makes this actively misleading rather than merely unfinished is that
+ * Bundle6391SellOnlyHoldReleaseTest exercises all ten sections and passes. So
+ * the suite reports this subsystem as healthy every build, while the running
+ * bot never enters it. A green test on an uncalled module is not evidence of a
+ * working protection — it is evidence of a working module.
+ *
+ * This note exists so the next reader (including the author of this note) does
+ * not find ExecutionCircuitBreakers6391.allowSellOrEmergencyProbe, see a clean
+ * implementation and a passing test, and conclude the sell path is protected by
+ * a circuit breaker. It is not; nothing calls it.
+ *
+ * Deliberately NOT deleted: the code is correct and tested, the integration is
+ * what is missing, and deleting it would also delete the test that documents the
+ * intended contract. Integrating it is a design job, not a wiring job — several
+ * sections would need to become the authority for decisions other code already
+ * owns, and creating a second authority is the defect class this audit removes.
+ *
  * V5.0.6391 — BREAK SELL-ONLY DEADLOCK + REPAIR EXIT AUTHORITY.
  *
  * V5.0.6390 was operationally alive but 0 buys landed because the 6389 hold
