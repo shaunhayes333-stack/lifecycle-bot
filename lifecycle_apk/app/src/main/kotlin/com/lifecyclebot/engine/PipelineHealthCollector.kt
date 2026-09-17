@@ -2050,6 +2050,14 @@ object PipelineHealthCollector {
             sb.append("  Quote freshness (§6452):      ").append(
                 com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.statusLine()
             ).append("\n")
+            // V5.0.6882 — MissingMarkExitVeto6835 can hold a protective exit
+            // open indefinitely. Its counters existed but statusLine() had no
+            // callers, so the operator could not see exit-veto pressure at all
+            // while inventory climbed to 103 open positions. Rendered here next
+            // to the exit scheduler so the two read together.
+            sb.append("  Missing-mark exit veto (§6835):").append(
+                com.lifecyclebot.engine.truth.MissingMarkExitVeto6835.statusLine()
+            ).append("\n")
             sb.append("  Reward bootstrap (§6453):     ").append(
                 com.lifecyclebot.engine.truth.CanonicalRewardBootstrap6453.statusLine()
             ).append("\n")

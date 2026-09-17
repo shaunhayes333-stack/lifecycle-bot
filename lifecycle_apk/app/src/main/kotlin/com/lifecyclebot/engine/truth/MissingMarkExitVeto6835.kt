@@ -2,6 +2,7 @@ package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -57,13 +58,57 @@ object MissingMarkExitVeto6835 {
      *  the actual poisoning surface documented in 6832. */
     private const val MARK_FROZEN_MS = 120_000L
 
+    /**
+     * V5.0.6882 §DEFERRAL_IS_NOT_A_DISPOSITION — bound on how long a single
+     * position may be held open by this veto.
+     *
+     * The 6835 design rests on one premise, stated in its own header:
+     * "genuine catastrophic moves recur repeatedly and will trigger the veto
+     * to lift on the very next fresh tick." That premise holds for a feed
+     * blip. It fails for the case the veto fires on most: a token whose pool
+     * has actually been drained. There is no next fresh tick — the mark is
+     * gone for good — so the veto became an unbounded hold. The position
+     * could never close, its basis stayed in openCost forever, and it
+     * permanently consumed a slot against POSITION_HARD_CAP.
+     *
+     * Operator 5.0.6881 shows the end state of that: 103 open positions,
+     * cash 6.10 of 41.38 equity, ORDER_SIZE_BLOCKED_EXIT_THROUGHPUT_6758=873,
+     * POSITION_HARD_CAP_EXIT_THROUGHPUT=120, CASH_STARVED_EXIT_THROUGHPUT=60.
+     * Inventory that cannot be released is inventory that cannot compound.
+     *
+     * The bound keeps the veto's actual purpose intact — it still refuses to
+     * mint a synthetic -N% economic terminal from a bad mark — while giving
+     * the deferral a terminal disposition. Past the bound the close is
+     * allowed but flagged `markUntrusted6882`, the caller appends
+     * MARK_UNTRUSTED_6882 to the reason, and Executor's `accountingTrainable`
+     * refuses to train on it. Capital comes back; the learners never see it.
+     *
+     * Both conditions must hold, so a 1–2 minute provider blip cannot trip
+     * the release: the deferral must be older than MAX_DEFER_MS *and* have
+     * been retried at least MIN_DEFER_ATTEMPTS times.
+     */
+    private const val MAX_DEFER_MS = 600_000L
+    private const val MIN_DEFER_ATTEMPTS = 20L
+
     private val vetoCount = AtomicLong(0L)
     private val allowCount = AtomicLong(0L)
     private val freshBypassCount = AtomicLong(0L)
+    private val boundReleaseCount = AtomicLong(0L)
+
+    private class Deferral(val firstAtMs: Long) {
+        val attempts = AtomicLong(0L)
+    }
+
+    private val deferrals = ConcurrentHashMap<String, Deferral>()
 
     data class Verdict(
         val allow: Boolean,
         val reason6835: String,
+        /** V5.0.6882 — true when `allow` is only granted because the
+         *  deferral bound expired, NOT because the mark became fresh. The
+         *  resulting closure is economically untrustworthy and must not
+         *  reach any learner. */
+        val markUntrusted6882: Boolean = false,
     )
 
     /**
@@ -95,40 +140,82 @@ object MissingMarkExitVeto6835 {
 
         // Mark price must be a legal number.
         if (!markPrice.isFinite() || markPrice <= 0.0) {
-            vetoCount.incrementAndGet()
-            emitVeto(mintKey, exitReason, "MARK_NONFINITE_OR_NONPOSITIVE")
-            return Verdict(false, "MARK_NONFINITE_OR_NONPOSITIVE")
+            return deferOrRelease(mintKey, exitReason, nowMs, "MARK_NONFINITE_OR_NONPOSITIVE", "MARK_NONFINITE_OR_NONPOSITIVE")
         }
 
         // markUpdatedAtMs freshness gate.
         val markAgeMs = if (markUpdatedAtMs > 0L) (nowMs - markUpdatedAtMs).coerceAtLeast(0L) else Long.MAX_VALUE
         if (markAgeMs > MARK_MAX_AGE_MS) {
-            vetoCount.incrementAndGet()
-            emitVeto(mintKey, exitReason, "MARK_AGE_${markAgeMs / 1000L}s_EXCEEDS_${MARK_MAX_AGE_MS / 1000L}s")
-            return Verdict(false, "MARK_STALE_${markAgeMs / 1000L}s")
+            return deferOrRelease(
+                mintKey, exitReason, nowMs,
+                "MARK_AGE_${markAgeMs / 1000L}s_EXCEEDS_${MARK_MAX_AGE_MS / 1000L}s",
+                "MARK_STALE_${markAgeMs / 1000L}s",
+            )
         }
 
         // MarkPriceFreshnessTelemetry6832 frozen check — the price may
         // have been touched (markUpdatedAtMs is fresh) but the numeric
         // value hasn't changed in a very long time. That's the
         // carry-forward pocket documented in 6832.
-        try {
+        val frozen6882 = try {
             val snap = MarkPriceFreshnessTelemetry6832.snapshot(mintKey)
             val ageSinceChange = snap.ageSinceChangeMs
             if (ageSinceChange >= 0L && ageSinceChange > MARK_FROZEN_MS) {
-                vetoCount.incrementAndGet()
-                emitVeto(
-                    mintKey, exitReason,
-                    "MARK_FROZEN_${ageSinceChange / 1000L}s_carryFwd=${snap.carryForwardCount}"
-                )
-                return Verdict(false, "MARK_FROZEN_${ageSinceChange / 1000L}s")
-            }
+                Pair(ageSinceChange, snap.carryForwardCount)
+            } else null
         } catch (_: Throwable) {
             // Telemetry not initialised — fall through to allow.
+            null
+        }
+        if (frozen6882 != null) {
+            val (ageSinceChange, carryFwd) = frozen6882
+            return deferOrRelease(
+                mintKey, exitReason, nowMs,
+                "MARK_FROZEN_${ageSinceChange / 1000L}s_carryFwd=$carryFwd",
+                "MARK_FROZEN_${ageSinceChange / 1000L}s",
+            )
         }
 
+        // Fresh mark — the deferral (if any) has served its purpose and is
+        // discarded so a later unrelated stall starts its own clock.
+        deferrals.remove(mintKey)
         freshBypassCount.incrementAndGet()
         return Verdict(true, "MARK_FRESH_${markAgeMs / 1000L}s")
+    }
+
+    /**
+     * V5.0.6882 — the single veto exit point. Defers while the bound holds;
+     * once the bound expires, releases the position with
+     * `markUntrusted6882 = true` so the caller can tag the closure and keep
+     * it out of learning.
+     */
+    private fun deferOrRelease(
+        mintKey: String,
+        exitReason: String,
+        nowMs: Long,
+        detail: String,
+        verdictReason: String,
+    ): Verdict {
+        val d = deferrals.computeIfAbsent(mintKey) { Deferral(nowMs) }
+        val attempts = d.attempts.incrementAndGet()
+        val heldMs = (nowMs - d.firstAtMs).coerceAtLeast(0L)
+        if (heldMs > MAX_DEFER_MS && attempts >= MIN_DEFER_ATTEMPTS) {
+            deferrals.remove(mintKey)
+            boundReleaseCount.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("EXIT_DEFERRAL_BOUND_RELEASED_6882")
+                ForensicLogger.lifecycle(
+                    "EXIT_DEFERRAL_BOUND_RELEASED_6882",
+                    "mint=${mintKey.take(10)} proposedReason=$exitReason detail=$detail " +
+                        "heldMs=$heldMs attempts=$attempts boundMs=$MAX_DEFER_MS " +
+                        "action=release_position_mark_untrusted_excluded_from_learning",
+                )
+            } catch (_: Throwable) {}
+            return Verdict(true, "DEFERRAL_BOUND_EXCEEDED_${heldMs / 1000L}s_$verdictReason", markUntrusted6882 = true)
+        }
+        vetoCount.incrementAndGet()
+        emitVeto(mintKey, exitReason, "${detail}_held${heldMs / 1000L}s_try$attempts")
+        return Verdict(false, verdictReason)
     }
 
     private fun emitVeto(mintKey: String, exitReason: String, detail: String) {
@@ -149,17 +236,38 @@ object MissingMarkExitVeto6835 {
         val vetoed: Long,
         val allowed: Long,
         val freshBypass: Long,
+        val boundReleased: Long,
+        val heldNow: Int,
+        val oldestHeldMs: Long,
     )
 
-    fun summary(): Summary = Summary(vetoCount.get(), allowCount.get(), freshBypassCount.get())
+    fun summary(): Summary {
+        val nowMs = System.currentTimeMillis()
+        val oldest = deferrals.values.minOfOrNull { it.firstAtMs } ?: 0L
+        return Summary(
+            vetoed = vetoCount.get(),
+            allowed = allowCount.get(),
+            freshBypass = freshBypassCount.get(),
+            boundReleased = boundReleaseCount.get(),
+            heldNow = deferrals.size,
+            oldestHeldMs = if (oldest > 0L) (nowMs - oldest).coerceAtLeast(0L) else 0L,
+        )
+    }
 
+    /**
+     * V5.0.6882 — this line had zero callers, so an authority capable of
+     * holding every protective exit open was completely invisible in the
+     * operator snapshot. Now rendered by PipelineHealthCollector.
+     */
     fun statusLine(): String {
         val s = summary()
-        return "MissingMarkExitVeto6835 vetoed=${s.vetoed} allowedNonCatastrophic=${s.allowed} " +
-            "freshCatastrophicAllowed=${s.freshBypass}"
+        return "vetoed=${s.vetoed} allowedNonCatastrophic=${s.allowed} " +
+            "freshCatastrophicAllowed=${s.freshBypass} boundReleased6882=${s.boundReleased} " +
+            "heldNow=${s.heldNow} oldestHeld=${s.oldestHeldMs / 1000L}s"
     }
 
     internal fun clearForTest() {
         vetoCount.set(0L); allowCount.set(0L); freshBypassCount.set(0L)
+        boundReleaseCount.set(0L); deferrals.clear()
     }
 }

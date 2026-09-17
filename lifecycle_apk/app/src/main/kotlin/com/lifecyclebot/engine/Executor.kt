@@ -3322,6 +3322,26 @@ class Executor(
             // V5.0.4112 — recovered scratches are NEVER trainable. They have
             // no real cost basis and represent inventory cleanup, not edge.
             else if (isRecoveredScratch) false
+            // V5.0.6882 §DEFERRAL_IS_NOT_A_DISPOSITION — a closure that only
+            // happened because MissingMarkExitVeto6835's deferral bound
+            // expired was priced off a mark the veto itself judged
+            // untrustworthy. The position had to be released (it was holding a
+            // POSITION_HARD_CAP slot and its basis in openCost indefinitely),
+            // but the -N% it reports is a feed artefact, not edge. This is the
+            // exact row 6835 exists to keep out of strategy expectancy,
+            // losing-pattern memory, the forward-outcome model and the policy
+            // head — so it is journalled for audit and trained on by nothing.
+            else if (tradeWithMint.reason.contains("MARK_UNTRUSTED_6882")) {
+                try {
+                    PipelineHealthCollector.labelInc("LEARNING_EXCLUDED_MARK_UNTRUSTED_6882")
+                    ForensicLogger.lifecycle(
+                        "LEARNING_EXCLUDED_MARK_UNTRUSTED_6882",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${tradeWithMint.reason} " +
+                            "action=journal_only_no_learning_fanout",
+                    )
+                } catch (_: Throwable) {}
+                false
+            }
             // V5.0.6310 — decimal-skew quarantine (belt-and-suspenders on top
             // of the inferUiScaleFromTrade units fix and explicitDecimals plumb).
             else if (qtyDecimalSkew6310) false
@@ -7171,6 +7191,20 @@ class Executor(
                     )
                     return
                 }
+                // V5.0.6882 §DEFERRAL_IS_NOT_A_DISPOSITION — the veto let this
+                // through only because its deferral bound expired, not because
+                // a fresh mark arrived. Release the capital but brand the
+                // closure so `accountingTrainable` keeps it out of every
+                // learner (the exact poisoning 6835 was built to prevent).
+                val markUntrustedSuffix6882 = if (veto6835.markUntrusted6882) {
+                    onLog(
+                        "⏳ EXIT_DEFERRAL_BOUND_RELEASED_6882: ${ts.symbol} " +
+                            "worstPnl=${worstPnl.toInt()}% detail=${veto6835.reason6835} — " +
+                            "releasing position, closure excluded from learning",
+                        ts.mint,
+                    )
+                    "_MARK_UNTRUSTED_6882"
+                } else ""
                 // V5.0.6325 — CATASTROPHIC EXIT LATENCY TRACE onDetect.
                 // Records the fast-risk-price age + confirming source so
                 // the operator can see how quickly the exit reached each
@@ -7195,7 +7229,7 @@ class Executor(
                     "☠ CATASTROPHIC -25% BACKSTOP: ${ts.symbol} worstPnl=${worstPnl.toInt()}% — last-line force-exit (quote freshness ignored)",
                     ts.mint
                 )
-                doSell(ts, "CATASTROPHIC_HARD_BACKSTOP_-25", wallet, walletSol)
+                doSell(ts, "CATASTROPHIC_HARD_BACKSTOP_-25$markUntrustedSuffix6882", wallet, walletSol)
                 return
             }
         }
@@ -8279,6 +8313,56 @@ class Executor(
     // ~1.6% live round-trip), but suppressing rug and dump detection to save a
     // spread is strictly worse than paying it. Any future wiring must invert the
     // blocklist into an allowlist of genuinely advisory reasons.
+    /**
+     * V5.0.6882 §ONE_SET_OF_PROTECTIVE_THRESHOLDS.
+     *
+     * riskCheck computed the four ProtectiveExitScheduler6450 thresholds
+     * inline, so the only other place that could have fed the scheduler —
+     * the independent wall-clock risk clock — had no way to produce the same
+     * numbers and passed zeros instead. Two callers deriving the same truth
+     * separately is how these thresholds drift, so they are derived once here
+     * and both callers read this.
+     */
+    data class ProtectiveThresholds6882(
+        val markPx: Double,
+        val stopPx: Double,
+        val catastrophePx: Double,
+        val tpPx: Double,
+        val trailPx: Double,
+        val markAgeMs: Long,
+    )
+
+    fun protectiveExitThresholds6882(
+        ts: TokenState,
+        modeConf: AutoModeEngine.ModeConfig? = null,
+    ): ProtectiveThresholds6882? {
+        val pos = ts.position
+        if (!pos.isOpen) return null
+        val markPx = try { getActualPrice(ts) } catch (_: Throwable) { 0.0 }
+        if (!markPx.isFinite() || markPx <= 0.0) return null
+        if (pos.entryPrice <= 0.0) return null
+        // V5.0.6709 — magnitude authority: a negative learned stopLossPct
+        // used to make the `> 0` predicate false and silently zero stopPx.
+        val effStopPctRaw = modeConf?.stopLossPct ?: cfg().stopLossPct
+        val effStopPct = kotlin.math.abs(effStopPctRaw)
+        if (effStopPctRaw < 0.0) {
+            try { PipelineHealthCollector.labelInc("PROTECTIVE_EXIT_STOP_SIGN_NORMALIZED_6709") } catch (_: Throwable) {}
+        }
+        val effTpPct = when {
+            pos.isTreasuryPosition && pos.treasuryTakeProfit > 0.0 -> pos.treasuryTakeProfit
+            else -> 25.0  // 25% meme runner default (V5.0.6581 §P0-7)
+        }
+        return ProtectiveThresholds6882(
+            markPx = markPx,
+            stopPx = if (effStopPct.isFinite() && effStopPct > 0.0) pos.entryPrice * (1.0 - effStopPct / 100.0) else 0.0,
+            catastrophePx = pos.entryPrice * 0.75,
+            tpPx = if (effTpPct > 0.0) pos.entryPrice * (1.0 + effTpPct / 100.0) else 0.0,
+            trailPx = if (pos.highestPrice > pos.entryPrice) pos.highestPrice * 0.90 else 0.0,
+            markAgeMs = ts.lastPriceUpdate.takeIf { it > 0L }
+                ?.let { (System.currentTimeMillis() - it).coerceAtLeast(0L) } ?: Long.MAX_VALUE,
+        )
+    }
+
     fun riskCheck(ts: TokenState, modeConf: AutoModeEngine.ModeConfig? = null): String? {
         normalizePositionScaleIfNeeded(ts)
         val pos   = ts.position
@@ -8297,41 +8381,25 @@ class Executor(
         // independent of scanner/learner/UI completion.
         try {
             val pid6451 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
-            // V5.0.6709 — canonical protective-exit stop uses magnitude authority.
-            // ModeConfig historically drifted between signed PnL thresholds and
-            // positive percentages. A negative learned value previously made the
-            // `effStopPct > 0` predicate false and silently set stopPx=0.
-            val effStopPctRaw6709 = modeConf?.stopLossPct ?: cfg().stopLossPct
-            val effStopPct = kotlin.math.abs(effStopPctRaw6709)
-            if (effStopPctRaw6709 < 0.0) {
-                try { PipelineHealthCollector.labelInc("PROTECTIVE_EXIT_STOP_SIGN_NORMALIZED_6709") } catch (_: Throwable) {}
-            }
-            val stopPx = if (pos.entryPrice > 0.0 && effStopPct.isFinite() && effStopPct > 0.0) pos.entryPrice * (1.0 - effStopPct / 100.0) else 0.0
-            val catastrophePx = if (pos.entryPrice > 0.0) pos.entryPrice * 0.75 else 0.0 // -25% catastrophic
-            val trailPx = if (pos.highestPrice > pos.entryPrice) pos.highestPrice * 0.90 else 0.0 // 10% trail off peak
-            // V5.0.6581 §P0-7 — TAKE-PROFIT WIRING.
-            // Operator forensic (6580): 13,381 exit evaluations, TP=0 with
-            // +7.8 SOL unrealised. tpPx was hard-coded to 0.0 which meant the
-            // scheduler had no take-profit threshold to compare against — every
-            // winner rolled through until stopped out. Now derive tpPx from:
-            //   1) treasuryTakeProfit if set by the treasury sizer
-            //   2) modeConf.takeProfitPct or the growth default 50%
-            // else fall back to 25% (the meme runner default).
-            val effTpPct = when {
-                pos.isTreasuryPosition && pos.treasuryTakeProfit > 0.0 -> pos.treasuryTakeProfit
-                else -> 25.0  // 25% meme runner default — was 0 (TP disabled), now wired
-            }
-            val tpPx = if (pos.entryPrice > 0.0 && effTpPct > 0.0) pos.entryPrice * (1.0 + effTpPct / 100.0) else 0.0
-            val canonicalExitTrigger6600 = com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.evaluate(
-                positionId = pid6451,
-                mint = ts.mint,
-                markPx = price,
-                stopPx = stopPx,
-                catastrophePx = catastrophePx,
-                tpPx = tpPx,
-                trailPx = trailPx,
-                quoteAgeMs = 0L,
-            )
+            // V5.0.6882 — thresholds now come from the single authority
+            // (protectiveExitThresholds6882) so the wall-clock risk clock and
+            // this hot path cannot diverge. It carries forward:
+            //   * V5.0.6709 stop-sign magnitude normalisation
+            //   * V5.0.6581 §P0-7 take-profit wiring (tpPx was hard-coded 0.0,
+            //     which is why the operator saw 13,381 evaluations with TP=0
+            //     and +7.8 SOL unrealised — every winner rolled to a stop)
+            val th6882 = protectiveExitThresholds6882(ts, modeConf)
+            val canonicalExitTrigger6600 = if (th6882 == null) null else
+                com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.evaluate(
+                    positionId = pid6451,
+                    mint = ts.mint,
+                    markPx = th6882.markPx,
+                    stopPx = th6882.stopPx,
+                    catastrophePx = th6882.catastrophePx,
+                    tpPx = th6882.tpPx,
+                    trailPx = th6882.trailPx,
+                    quoteAgeMs = th6882.markAgeMs,
+                )
             if (canonicalExitTrigger6600 != null) {
                 try {
                     PipelineHealthCollector.labelInc("PROTECTIVE_EXIT_DELIVERED_TO_REQUEST_SELL_6600_${canonicalExitTrigger6600.name}")

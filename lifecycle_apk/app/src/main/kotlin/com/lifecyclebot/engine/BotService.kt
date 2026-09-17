@@ -4861,26 +4861,103 @@ class BotService : Service() {
             )
         } catch (_: Throwable) {}
         try {
+            val riskClockCfg6882 = try { com.lifecyclebot.data.ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
             com.lifecyclebot.engine.truth.CanonicalRiskClock6454.start { positionId, mint ->
-                // V5.0.6454 heartbeat-only ping — the REAL per-tick
-                // evaluate(markPx=live) is wired in Executor.riskCheck
-                // which fires from every tick regardless of botLoop.
-                // This clock's job is to guarantee the scheduler
-                // heartbeat + starvation check run on wall-clock cadence
-                // even if botLoop is wedged 150s. Passing markPx=0 makes
-                // the scheduler treat the call as a heartbeat ping that
-                // never latches (§P0-#9 no fake mark).
+                // V5.0.6882 §THE_INDEPENDENT_CLOCK_WAS_A_HEARTBEAT_ONLY.
+                //
+                // This callback used to pass markPx=0 with all four
+                // thresholds at zero. CanonicalRiskClock6454's own contract
+                // says the caller should "fetch fresh mark from an in-memory
+                // price cache and call evaluate(...) with real numbers"; it
+                // never did. The consequence in operator 5.0.6881:
+                //   Exit scheduler: eval=196842 SL=0 CATA=0 TP=0 TRAIL=0
+                // 196,842 evaluations and not one latch of any kind. At a
+                // 500ms tick across ~103 open positions this clock accounts
+                // for essentially all of that count, so the scheduler's whole
+                // eval column was heartbeat noise and the monotonic latch
+                // contract ("a triggered STOP must NEVER subsequently become
+                // FINAL_NO_TRIGGER") was never in force for any position the
+                // scanner was not actively revisiting.
+                //
+                // The deferral to Executor.riskCheck was the mistake: riskCheck
+                // only runs from maybeAct/maybeActWithDecision, i.e. the
+                // scan-driven path. The universal sweep calls runManageOnly,
+                // which never reaches riskCheck — so with a large inventory
+                // most positions had no stop-loss, no trailing stop and no
+                // take-profit at all, only the -25% catastrophic backstop.
+                // That is precisely the failure this clock was created for.
+                //
+                // Now it evaluates for real off the shared threshold authority
+                // and, because it is the one path immune to a wedged botLoop,
+                // it also executes the exit it latches.
                 try {
-                    com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.evaluate(
-                        positionId = positionId,
-                        mint = mint,
-                        markPx = 0.0,
-                        stopPx = 0.0,
-                        catastrophePx = 0.0,
-                        tpPx = 0.0,
-                        trailPx = 0.0,
-                        quoteAgeMs = 0L,
-                    )
+                    val ts6882 = try { status.tokens[mint] } catch (_: Throwable) { null }
+                    val th6882 = if (ts6882 == null) null else
+                        try { executor.protectiveExitThresholds6882(ts6882) } catch (_: Throwable) { null }
+                    // §P0-#9 no fake mark: a stale mark must never latch a
+                    // protective exit, so an unresolvable or aged mark falls
+                    // back to the original heartbeat-only ping.
+                    val markUsable6882 = th6882 != null && th6882.markAgeMs <= 60_000L
+                    if (!markUsable6882) {
+                        com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.evaluate(
+                            positionId = positionId, mint = mint, markPx = 0.0,
+                            stopPx = 0.0, catastrophePx = 0.0, tpPx = 0.0, trailPx = 0.0, quoteAgeMs = 0L,
+                        )
+                        try { PipelineHealthCollector.labelInc("RISK_CLOCK_HEARTBEAT_NO_FRESH_MARK_6882") } catch (_: Throwable) {}
+                    } else {
+                        val th = th6882!!
+                        val alreadyLatched6882 =
+                            com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.isTriggered(positionId)
+                        // tpPx=0 and trailPx=0 deliberately. This clock owns
+                        // the two unambiguous downside floors and nothing else.
+                        //
+                        // Take-profit and the 10%-off-peak trail belong to the
+                        // managed ladder (checkProfitLock → checkPartialSell →
+                        // riskCheck), which runs them in that order precisely so
+                        // a runner is laddered rather than clipped. Firing a
+                        // naked 25% TP from a 500ms wall-clock would cap every
+                        // moonshot at +25% and break the runner-capture doctrine
+                        // (V5.9.1358: never cap, never throttle). Worse, the
+                        // scheduler latch is monotonic and first-come — a TP or
+                        // trail latched here would permanently occupy the slot a
+                        // real STOP_LOSS needs later. So they are not offered.
+                        val kind6882 = com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.evaluate(
+                            positionId = positionId,
+                            mint = mint,
+                            markPx = th.markPx,
+                            stopPx = th.stopPx,
+                            catastrophePx = th.catastrophePx,
+                            tpPx = 0.0,
+                            trailPx = 0.0,
+                            quoteAgeMs = th.markAgeMs,
+                        )
+                        // Act once, on the latch transition only — the latch is
+                        // monotonic, so without this guard every subsequent
+                        // 500ms tick would re-request the same sell.
+                        // The 45s post-buy grace matches the universal sweep so
+                        // entry-tick noise can never stop out a fresh fill.
+                        val posAgeMs6882 = System.currentTimeMillis() - (ts6882?.position?.entryTime ?: 0L)
+                        if (kind6882 != null && !alreadyLatched6882 && ts6882 != null && posAgeMs6882 >= 45_000L) {
+                            try {
+                                PipelineHealthCollector.labelInc("RISK_CLOCK_PROTECTIVE_EXIT_ACTED_6882_$kind6882")
+                                ForensicLogger.lifecycle(
+                                    "RISK_CLOCK_PROTECTIVE_EXIT_ACTED_6882",
+                                    "positionId=${positionId.take(12)} mint=${mint.take(10)} kind=$kind6882 " +
+                                        "mark=${"%.8f".format(th.markPx)} entry=${"%.8f".format(ts6882.position.entryPrice)} " +
+                                        "markAgeMs=${th.markAgeMs} heldMs=$posAgeMs6882",
+                                )
+                            } catch (_: Throwable) {}
+                            executor.requestSell(
+                                ts = ts6882,
+                                reason = "PROTECTIVE_EXIT_${kind6882}_6450_RISKCLOCK",
+                                wallet = WalletManager.getWallet(),
+                                walletSol = status.getEffectiveBalance(
+                                    riskClockCfg6882?.paperMode
+                                        ?: try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true },
+                                ),
+                            )
+                        }
+                    }
                 } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {}
@@ -19852,30 +19929,58 @@ if (hotExitHandledSweep) {
                         )
                         return@forEach
                     }
+                    // V5.0.6882 §DEFERRAL_IS_NOT_A_DISPOSITION — bound-expired
+                    // release. The mark never came back (drained pool, dead
+                    // provider), so the position is freed to stop it holding a
+                    // POSITION_HARD_CAP slot and its basis in openCost forever,
+                    // but the closure is branded MARK_UNTRUSTED_6882 so
+                    // Executor's accountingTrainable refuses to train on it.
+                    val reason6882 = if (veto6835.markUntrusted6882) {
+                        addLog(
+                            "⏳ [UNIVERSAL] ${ts.symbol}: EXIT_DEFERRAL_BOUND_RELEASED_6882 " +
+                                "detail=${veto6835.reason6835} — releasing, excluded from learning"
+                        )
+                        "${reason}_MARK_UNTRUSTED_6882"
+                    } else reason
                     ErrorLogger.warn(
                         "BotService",
-                        "🛡 UNIVERSAL_EXIT: ${ts.symbol} | pnl=${pnlPct.toInt()}% peak=${peakPct.toInt()}% | $reason",
+                        "🛡 UNIVERSAL_EXIT: ${ts.symbol} | pnl=${pnlPct.toInt()}% peak=${peakPct.toInt()}% | $reason6882",
                     )
                     try {
                         ForensicLogger.lifecycle(
                             "UNIVERSAL_EXIT_FORCE",
-                            "symbol=${ts.symbol} pnl=${pnlPct.toInt()} peak=${peakPct.toInt()} reason=$reason",
+                            "symbol=${ts.symbol} pnl=${pnlPct.toInt()} peak=${peakPct.toInt()} reason=$reason6882",
                         )
                     } catch (_: Throwable) {}
                     val r = executor.requestSell(
                         ts = ts,
-                        reason = reason,
+                        reason = reason6882,
                         wallet = wallet,
                         walletSol = effectiveBalance,
                     )
                     if (r == com.lifecyclebot.engine.Executor.SellResult.CONFIRMED ||
                         r == com.lifecyclebot.engine.Executor.SellResult.PAPER_CONFIRMED
                     ) {
-                        addLog("🛡 [UNIVERSAL] ${ts.symbol}: $reason pnl=${pnlPct.toInt()}% peak=${peakPct.toInt()}%")
+                        addLog("🛡 [UNIVERSAL] ${ts.symbol}: $reason6882 pnl=${pnlPct.toInt()}% peak=${peakPct.toInt()}%")
                     }
                 } catch (e: Exception) {
                     ErrorLogger.debug("BotService", "Universal exit ${ts.symbol}: ${e.message}")
                 }
+            }
+            // V5.0.6882 §ROTATING_CURSOR_SKIPPED_WHAT_THE_DEADLINE_CUT —
+            // rotatingExitSlice6663 advances the cursor by maxItems the moment
+            // the slice is taken, but the 5s FULL_SWEEP_HARD_DEADLINE can end
+            // the walk after only a handful of positions. Everything the
+            // deadline cut was therefore skipped *and* stepped over, so with
+            // 103 open positions and a slow price provider the same tail never
+            // reached the hard-floor check on any pass — those positions had no
+            // -20% floor at all. Rewind the cursor by the unprocessed count so
+            // the next sweep resumes exactly where this one stopped.
+            if (floorPositionsDeferred > 0) {
+                fullExitCoverageCursor6663.addAndGet(-floorPositionsDeferred)
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FULL_EXIT_SWEEP_CURSOR_REWOUND_6882")
+                } catch (_: Throwable) {}
             }
         } catch (e: Exception) {
             ErrorLogger.warn("BotService", "Universal exit sweep error: ${e.message}")
