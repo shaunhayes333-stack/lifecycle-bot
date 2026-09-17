@@ -655,14 +655,41 @@ object ExecutableOpenGate {
         }
     }
 
-    private fun isSourceBucketLane(lane: String): Boolean {
-        return canonicalLane(lane) in setOf(
-            "CORE", "UNKNOWN", "WATCHLIST", "PUMP_PORTAL", "PUMP_PORTAL_WS",
-            "PUMP_FUN", "PUMP_FUN_NEW", "PUMP_FUN_GRADUATE",
-            "DEX_TREND", "DEX_TRENDING", "DEX_BOOST", "DEX_BOOSTED",
-            "RAYDIUM", "RAYDIUM_N", "RAYDIUM_NEW_POOL", "COINGECKO", "COINGECKO_TRENDING"
-        )
-    }
+    /**
+     * V5.0.6871 §TWO_COPIES_OF_ONE_LIST_THAT_DRIFTED — isSourceBucketLane and
+     * isRealExecutionLane are the same question asked twice ("is this a scanner
+     * source rather than a specialist lane?"), and they were two hand-maintained
+     * literal sets that had diverged:
+     *
+     *   COINGECKO and COINGECKO_TRENDING were in the bucket set but NOT in the
+     *   execution set, so isRealExecutionLane("COINGECKO_TRENDING") returned true —
+     *   a scanner source counted as a legitimate specialist in lane election and
+     *   could trigger the lane-contention rescue.
+     *
+     *   SCANNER_DIRECT and its four SCANNER_DIRECT_* variants, plus RAYDIUM_NEW,
+     *   were in the execution set but NOT in the bucket set, so
+     *   selectedLaneMatchesRequest would not forgive a SCANNER_DIRECT requester
+     *   against a real selected lane — producing exactly the false
+     *   SELECTED_LANE_*_REQUEST_* mismatch drop that V5.9.1169 was written to stop.
+     *
+     * One set now, so they cannot drift again. The membership is the strict union of
+     * what the two lists already contained — no names added, none removed — so this
+     * only makes the two answers agree. Blank is deliberately NOT a member: a
+     * missing lane is absent data, not a source bucket, and must not be forgiven by
+     * selectedLaneMatchesRequest the way a named bucket is.
+     */
+    private val SOURCE_BUCKET_LANES_6871: Set<String> = setOf(
+        "CORE", "UNKNOWN", "WATCHLIST", "PUMP_PORTAL", "PUMP_PORTAL_WS",
+        "PUMP_FUN", "PUMP_FUN_NEW", "PUMP_FUN_GRADUATE",
+        "DEX_TREND", "DEX_TRENDING", "DEX_BOOST", "DEX_BOOSTED",
+        "RAYDIUM", "RAYDIUM_N", "RAYDIUM_NEW", "RAYDIUM_NEW_POOL",
+        "COINGECKO", "COINGECKO_TRENDING",
+        "SCANNER_DIRECT", "SCANNER_DIRECT_RAYDIUM_NEW_POOL", "SCANNER_DIRECT_DEX_TRENDING",
+        "SCANNER_DIRECT_PUMP_FUN_NEW", "SCANNER_DIRECT_PUMP_FUN_GRADUATE",
+    )
+
+    private fun isSourceBucketLane(lane: String): Boolean =
+        canonicalLane(lane) in SOURCE_BUCKET_LANES_6871
 
     private fun selectedLaneMatchesRequest(selectedLane: String, requestedLane: String): Boolean {
         val selected = canonicalLane(selectedLane)
@@ -679,16 +706,11 @@ object ExecutableOpenGate {
     fun lanesCompatibleForTests(selectedLane: String, requestedLane: String): Boolean =
         selectedLaneMatchesRequest(selectedLane, requestedLane)
 
+    // V5.0.6871 — derived from the one shared set (see SOURCE_BUCKET_LANES_6871).
+    // A real execution lane is a non-blank lane that is not a scanner source bucket.
     private fun isRealExecutionLane(lane: String): Boolean {
         val l = canonicalLane(lane)
-        return l !in setOf(
-            "", "UNKNOWN", "CORE", "WATCHLIST", "PUMP_PORTAL", "PUMP_PORTAL_WS",
-            "PUMP_FUN", "PUMP_FUN_NEW", "PUMP_FUN_GRADUATE",
-            "DEX_TREND", "DEX_TRENDING", "DEX_BOOST", "DEX_BOOSTED",
-            "RAYDIUM", "RAYDIUM_N", "RAYDIUM_NEW", "RAYDIUM_NEW_POOL",
-            "SCANNER_DIRECT", "SCANNER_DIRECT_RAYDIUM_NEW_POOL", "SCANNER_DIRECT_DEX_TRENDING",
-            "SCANNER_DIRECT_PUMP_FUN_NEW", "SCANNER_DIRECT_PUMP_FUN_GRADUATE"
-        )
+        return l.isNotBlank() && l !in SOURCE_BUCKET_LANES_6871
     }
 
     private fun laneForRelease(selectedLane: String, requestedLane: String): String {
