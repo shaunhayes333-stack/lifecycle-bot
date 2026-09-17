@@ -79,6 +79,57 @@ object ScannerHardRejectStore {
                     atMs = r.optLong("atMs", 0L),
                 )
             }
+            purgeTransientLiquidityStamps6913()
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.6913 §THIS_STORE_IS_NOT_ALLOWED_TO_HOLD_A_TRANSIENT_UNKNOWN.
+     *
+     * This class's own header states the contract:
+     *
+     *   "Transient unknowns (RC pending, liquidity pending) are NOT stamped
+     *    here; only confirmed hard rejects use this store."
+     *
+     * The zero-liquidity intake reject violated it. Operator 5.0.6911:
+     * dexscreener sr=0% with 62 5xx — the provider that supplies liquidity for
+     * intake was failing every request, so liquidity read 0.0 for everything,
+     * and 59 real tokens were stamped PROBATION_LIQ_ZERO_REJECT_4507 with
+     * taxonomy=HARD_SAFETY. The watchlist fell to ten.
+     *
+     * These stamps are DURABLE (SharedPreferences), so they survive restarts.
+     * The write barrier added in §6913 at the intake site stops new ones, but
+     * it cannot un-condemn the tokens already written — and there is no way to
+     * tell retroactively which were genuinely dust and which were merely
+     * invisible, because both recorded liq=0/mcap=0.
+     *
+     * For an UNKNOWN, the safe default is rescan, not condemned-forever: a
+     * genuine dust mint simply gets re-stamped on its next appearance now that
+     * a healthy provider can confirm it, at a cost of one scan. A real token
+     * wrongly condemned never returns at all. So purge the liquidity-reason
+     * stamps once at load, which also brings the store back inside the
+     * contract its own header declares.
+     *
+     * Only liquidity reasons. Rug, blocked-symbol, safety and every other
+     * confirmed hard reject are untouched.
+     */
+    private fun purgeTransientLiquidityStamps6913() {
+        val victims = hardRejects.values
+            .filter { r ->
+                val up = r.reason.uppercase()
+                up.contains("LIQ_ZERO") || up.contains("LIQUIDITY_PENDING") || up.contains("LIQ_PENDING")
+            }
+            .map { it.mint }
+        if (victims.isEmpty()) return
+        victims.forEach { hardRejects.remove(it) }
+        try { save() } catch (_: Throwable) {}
+        try {
+            PipelineHealthCollector.labelInc("SCANNER_HARD_REJECT_LIQ_STAMPS_PURGED_6913")
+            ForensicLogger.lifecycle(
+                "SCANNER_HARD_REJECT_LIQ_STAMPS_PURGED_6913",
+                "purged=${victims.size} remaining=${hardRejects.size} " +
+                    "reason=transient_liquidity_unknown_is_not_a_confirmed_hard_reject",
+            )
         } catch (_: Throwable) {}
     }
 

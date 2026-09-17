@@ -12751,6 +12751,65 @@ class BotService : Service() {
             val isUserAdded = source == "USER" || source.contains("USER_ADDED")
             val isRegistryRestore = source == "MEME_REGISTRY_RESTORE"
             val isProbationPromotion = source == "PROBATION"
+            // V5.0.6913 §I_COULD_NOT_READ_LIQUIDITY_IS_NOT_LIQUIDITY_IS_ZERO.
+            //
+            // OPERATOR EVIDENCE (5.0.6911, 216s uptime, "10 tokens on the
+            // watchlist"):
+            //
+            //   dexscreener  sr=0%  s=0  4xx=10  5xx=62   (was sr=99% s=1479)
+            //   Root cause likely: API_LAYER_DEGRADED badApis=dexscreener
+            //                      (scanner-critical)
+            //   INTAKE_PROBATION_LIQ_ZERO_REJECT_4507: 59
+            //   TOKEN_MAP_PENDING: 309  vs  TOKEN_MAP_OK: 117
+            //   API_BACKOFF_ARMED: 112  SCANNER_SOURCE_CIRCUIT_BREAKER_TRIPPED: 3
+            //
+            // DexScreener — the provider that supplies liquidity for intake —
+            // was returning 5xx on every single request. Liquidity therefore
+            // read 0.0 for everything, and this block treated that as proof of
+            // a dust pool: reject AND `ScannerHardRejectStore.mark(...)`, which
+            // is a PERMANENT stamp carrying taxonomy=HARD_SAFETY. Fifty-nine
+            // real tokens were condemned for the duration of the process
+            // because the bot could not see them, and the watchlist collapsed
+            // to ten.
+            //
+            // The signature gives it away: liq=0.0000 AND mcap=0.0000
+            // simultaneously. A genuine dust mint has a pool and some nonzero
+            // market cap; exact double zeros on both fields at once is the
+            // fingerprint of NO DATA, not of no liquidity. Same conflation as
+            // everything else in this pipeline — an absent reading recorded as
+            // a measured value.
+            //
+            // When the scanner-critical provider is unhealthy, a pure-zero read
+            // DEFERS: no watchlist admission (unchanged, so nothing is traded
+            // on unknown liquidity) but no hard-reject stamp either, so the
+            // mint is reconsidered the moment the provider recovers. Deliberately
+            // narrow: only when BOTH fields are exactly zero AND the provider is
+            // actually down. A dust mint reported by a HEALTHY provider is
+            // rejected and stamped exactly as before.
+            val liquidityProviderBlind6913 = run {
+                if (liquidityUsd != 0.0 || trustedMarketCapUsd6492 != 0.0) return@run false
+                try {
+                    // successRate() is a FRACTION 0.0..1.0 and returns 1.0 for an
+                    // unknown host, so an unsampled provider is never treated as
+                    // blind. isCircuitBroken needs >=30 5xx AND sr<10%, which the
+                    // observed 5xx=62 / s=0 satisfies; the sr<0.25 arm catches the
+                    // degrading window before the breaker formally trips.
+                    com.lifecyclebot.engine.ApiHealthMonitor.isCircuitBroken("dexscreener") ||
+                        com.lifecyclebot.engine.ApiHealthMonitor.successRate("dexscreener") < 0.25
+                } catch (_: Throwable) { false }
+            }
+            if (isDustLiq && liquidityProviderBlind6913 && !isUserAdded) {
+                try {
+                    PipelineHealthCollector.labelInc("INTAKE_LIQ_ZERO_DEFERRED_PROVIDER_BLIND_6913")
+                    ForensicLogger.lifecycle(
+                        "INTAKE_LIQ_ZERO_DEFERRED_PROVIDER_BLIND_6913",
+                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source " +
+                            "liq=0 mcap=0 dexscreenerDown=true " +
+                            "action=defer_no_hard_reject_stamp_retry_when_provider_recovers",
+                    )
+                } catch (_: Throwable) {}
+                return false
+            }
             if (isDustLiq && isProbationPromotion && !isUserAdded) {
                 try {
                     ForensicLogger.lifecycle(
