@@ -21206,8 +21206,12 @@ class Executor(
                 )
                 // V5.0.4097 — ScannerSourceBrain (parallel AGI head)
                 try {
+                    // V5.0.6856 — pass the raw provenance. `.ifEmpty { "UNKNOWN" }`
+                    // turned a missing source into a literal source NAMED "UNKNOWN",
+                    // founding a scanner cohort out of rows whose origin was lost.
+                    // ScannerSourceBrain now counts and drops a blank instead.
                     ScannerSourceBrain.recordOutcome(
-                        source = ts.source.ifEmpty { "UNKNOWN" },
+                        source = ts.source,
                         pnlPct = pnlP
                     )
                 } catch (_: Throwable) { }
@@ -24146,8 +24150,12 @@ class Executor(
                 )
                 // V5.0.4097 — ScannerSourceBrain (parallel AGI head)
                 try {
+                    // V5.0.6856 — pass the raw provenance. `.ifEmpty { "UNKNOWN" }`
+                    // turned a missing source into a literal source NAMED "UNKNOWN",
+                    // founding a scanner cohort out of rows whose origin was lost.
+                    // ScannerSourceBrain now counts and drops a blank instead.
                     ScannerSourceBrain.recordOutcome(
-                        source = ts.source.ifEmpty { "UNKNOWN" },
+                        source = ts.source,
                         pnlPct = pnlP
                     )
                 } catch (_: Throwable) { }

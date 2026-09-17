@@ -128,15 +128,60 @@ object ScannerSourceBrain {
         } catch (_: Throwable) { false }
     }
 
+    /**
+     * V5.0.6856 §THE_BRAIN_LEARNED_INTO_KEYS_NOBODY_READ — the write key and the
+     * scanner's read key were different strings, so the two never met.
+     *
+     * Executor:21209/24149 record with `source = ts.source`, and ts.source is a
+     * COMPOUND provenance label — this file's own V5.0.4597 comment quotes a real
+     * one: "PUMP_FUN_NEW,SCANNER_DIRECT at n=282 WR=19%". But
+     * SolanaMarketScanner:3940 reads `intakeMultiplier(token.source.name)`, which
+     * is the bare TokenSource enum name "PUMP_FUN_NEW", and ScannerDiversityBandit
+     * :32 reads a bare family name too. `normalise` only trims and uppercases — it
+     * never splits — so those lookups missed every time, fell through to
+     * BOOTSTRAP, and returned a flat 1.0 forever.
+     *
+     * The consequence was one-sided and easy to miss: Executor:10810 and
+     * LiveStylePivotRouter:185 read with the same compound ts.source and DID
+     * resolve, so the brain visibly shaped entry SIZE while the scanner-side
+     * ordering and intake priority it was actually built for — "the scanner loop
+     * uses it to ORDER and WEIGHT scan calls", per this file's header — silently
+     * received nothing.
+     *
+     * Fix: record the outcome under the compound key AND under each component, so
+     * a lookup by either form resolves. A component key's stats are then the union
+     * over every compound source containing it, which is exactly what a scanner
+     * asking "how is PUMP_FUN_NEW doing?" means.
+     */
+    private fun componentKeys6856(source: String): List<String> {
+        val full = source.trim().uppercase()
+        if (full.isBlank()) return emptyList()
+        val parts = full.split(',', ';', '|', '/', '+')
+            .map { it.trim() }
+            .filter { it.isNotBlank() && it != full }
+            .distinct()
+        return listOf(full) + parts
+    }
+
     /** Called by Executor at journal close. Mirrors ScannerLearning.recordTrade. */
     fun recordOutcome(source: String, pnlPct: Double) {
         if (!loaded) return
-        val key = normalise(source)
-        val s = stats.getOrPut(key) { SourceStats() }
-        synchronized(s) {
-            if (pnlPct > 0.0) s.wins++ else s.losses++
-            s.pnlSumPct += pnlPct
-            s.lastUpdated = System.currentTimeMillis()
+        // A blank provenance is not a source. Recording it would found a cohort
+        // named after a placeholder, which is the exact class of defect V5.0.6851
+        // removed from the terminal ledgers — count it and drop it instead.
+        val keys = componentKeys6856(source)
+        if (keys.isEmpty()) {
+            try { PipelineHealthCollector.labelInc("SCANNER_SOURCE_BRAIN_UNATTRIBUTED_OUTCOME_6856") } catch (_: Throwable) {}
+            return
+        }
+        val now = System.currentTimeMillis()
+        keys.forEach { key ->
+            val s = stats.getOrPut(key) { SourceStats() }
+            synchronized(s) {
+                if (pnlPct > 0.0) s.wins++ else s.losses++
+                s.pnlSumPct += pnlPct
+                s.lastUpdated = now
+            }
         }
         save()
     }
@@ -170,6 +215,46 @@ object ScannerSourceBrain {
         }
         val raw = 1.0 + centred * 0.6
         return checkStarvationBoost(key, raw.coerceIn(floor, cap))
+    }
+
+    /**
+     * V5.0.6856 §THE_BANDIT_ASKED_ABOUT_SOURCES_THAT_DO_NOT_EXIST — family-level
+     * aggregate. ScannerDiversityBandit mapped each family to a single
+     * "representative source" and looked that one string up, but six of its eight
+     * names — DEXSCREENER, COINMARKETCAP, SCANNER_TRENDING, PUMP_PORTAL, BIRDEYE,
+     * OTHER — are not TokenSource values and never appear as a recorded key. Only
+     * COINGECKO_TRENDING and RAYDIUM_NEW_POOL were real. So six families always
+     * resolved to a missing key, returned a flat 1.0, and the "bandit" degenerated
+     * into a fixed sort that could never reorder anything no matter what the
+     * scanners produced.
+     *
+     * A family is not one source anyway: DEX covers DEX_TRENDING, DEX_GAINERS and
+     * DEX_BOOSTED; BIRDEYE covers four separate feeds. This pools every recorded
+     * key matching any of the given tokens and runs the same tier/s-curve maths
+     * over the union, so a family's ordering reflects all of its feeds.
+     */
+    fun familyIntakeMultiplier6856(vararg tokens: String): Double {
+        return try {
+            val needles = tokens.map { it.trim().uppercase() }.filter { it.isNotBlank() }
+            if (needles.isEmpty()) return 1.0
+            var wins = 0L
+            var losses = 0L
+            stats.forEach { (key, s) ->
+                if (needles.any { key.contains(it) }) {
+                    synchronized(s) { wins += s.wins; losses += s.losses }
+                }
+            }
+            val n = wins + losses
+            if (n < BOOT_THRESHOLD) return 1.0
+            val wr = wins.toDouble() / n
+            val centred = (wr - 0.5) * 2.0
+            val (floor, cap) = when {
+                n >= AUTH_THRESHOLD    -> 0.40 to 1.80
+                n >= LEARNED_THRESHOLD -> 0.60 to 1.40
+                else                   -> 0.40 to 1.20
+            }
+            (1.0 + centred * 0.6).coerceIn(floor, cap)
+        } catch (_: Throwable) { 1.0 }
     }
 
     /**
@@ -285,7 +370,13 @@ object ScannerSourceBrain {
         return out
     }
 
-    private fun normalise(s: String): String = s.trim().uppercase().ifBlank { "UNKNOWN" }
+    // V5.0.6856 — a blank source is not a source named "UNKNOWN". The old
+    // `.ifBlank { "UNKNOWN" }` here meant every lookup with a missing provenance
+    // resolved to one shared bucket, so unattributed rows pooled into a single
+    // cohort and then shaped intake for every source that had lost its label —
+    // the same placeholder-as-identity defect V5.0.6851 removed from the terminal
+    // ledgers. Lookups on a blank now simply miss and fall through to neutral.
+    private fun normalise(s: String): String = s.trim().uppercase()
 
     private fun save() {
         val c = ctx ?: return

@@ -383,13 +383,45 @@ class BotBrain(
             }
             phaseBoosts = newPhaseBoosts
 
-            // Restore source boosts
+            // Restore source boosts.
+            //
+            // V5.0.6856 §RESTORE_PATH_SIGNED_SOURCE_BOOSTS_BACKWARDS — this block
+            // used the phase convention instead of the source convention, and the
+            // two are OPPOSITE in this class:
+            //   phaseBoosts is an entry-THRESHOLD delta, so negative = good. Line
+            //     1443 reads `phaseBoost <= -5.0 -> mult *= 1.2  // Winning phase`.
+            //   sourceBoosts is a discovery-SCORE delta, so positive = good. Line
+            //     1449 reads `sourceBoost >= 10.0 -> mult *= 1.15 // Good source`,
+            //     the live update at 1265 assigns +10 for wr>=0.70 and -10 below
+            //     0.50, and the memory-stats update at 2162 assigns +10/-15 the
+            //     same way.
+            // Written as it was, a source with >=70% win rate was restored to -3.0
+            // and a source with <=45% win rate to +5.0 — exactly inverted. The
+            // block was evidently copy-adapted from the phase block directly above
+            // without flipping the sign to match what a source boost means.
+            //
+            // The damage lands on discovery, every boot: SolanaMarketScanner's
+            // getAISourceBoost buckets at +/-5/10/15, so the restored -3.0 rounded
+            // a PROVEN source down to no boost at all, while the restored +5.0 gave
+            // a sub-45%-WR bleeder a real +5 discovery-score boost — until enough
+            // live closes overwrote the map. shouldSkipTrade's `sourceBoost <= -20`
+            // risk factor could never fire from a restore either.
+            //
+            // Signs and magnitudes now match the other two writers and the readers'
+            // thresholds, so a restored boost can actually reach the buckets that
+            // read it.
             val newSourceBoosts = mutableMapOf<String, Double>()
             trades.groupBy { it.source }.forEach { (src, st) ->
                 if (st.size >= 8) {
                     val sWr = st.count { it.isWin == true }.toDouble() / st.size
-                    if (sWr >= 0.70) newSourceBoosts[src] = -3.0
-                    else if (sWr <= 0.45) newSourceBoosts[src] = 5.0
+                    val boost = when {
+                        sWr >= 0.70 -> 10.0
+                        sWr >= 0.60 -> 5.0
+                        sWr <= 0.30 -> -15.0
+                        sWr <= 0.45 -> -10.0
+                        else -> 0.0
+                    }
+                    if (boost != 0.0) newSourceBoosts[src] = boost
                 }
             }
             sourceBoosts = newSourceBoosts

@@ -3619,7 +3619,28 @@ class SolanaMarketScanner(
         }
 
         seenMints[token.mint] = System.currentTimeMillis()
-        return true
+        // V5.0.6856 §SAFETY_REJECTS_WERE_SHADOWED_ALONG_WITH_QUALITY_REJECTS —
+        // this used to `return true` unconditionally. The V5.9.637 decision behind
+        // that is correct and is preserved above: EfficiencyLayer suppression and
+        // the liquidity floors are shadow-telemetry only, because hard-dropping on
+        // them starved the watchlist and the real quality judgement belongs to V3 /
+        // FDG / the sub-traders downstream.
+        //
+        // But `passesFilterInternal` no longer contains any quality filter. V5.9.34
+        // already stripped those out and says so in its own comment: "Kept below:
+        // basic mcap sanity (< 0), explicit scam words, infra impersonation — those
+        // are factual data-quality guards, not opinion filters." What the blanket
+        // `return true` was actually discarding is the five identity/safety rejects:
+        // a PERMANENTLY BANNED mint, an impossible negative market cap, a scam word
+        // in the symbol or name, a reserved-symbol impersonation (sol/usdc/ray/jup)
+        // and an infrastructure-name impersonation. Three of them even wrote to
+        // ScannerHardRejectStore on the way out — and were then emitted anyway, so
+        // the store only caught them on a LATER sighting, and BannedTokens and the
+        // negative-mcap case were never caught at all.
+        //
+        // Honouring these cannot starve intake: they drop counterfeits and corrupt
+        // rows, not thin pools.
+        return passed
     }
 
     private fun passesFilterInternal(token: ScannedToken): Boolean {
@@ -3629,6 +3650,10 @@ class SolanaMarketScanner(
         // V5.6.29d: Banned tokens blocked in both modes
         if (BannedTokens.isBanned(token.mint)) {
             ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: PERMANENTLY BANNED")
+            // V5.0.6856 — persist it like the other identity rejects below, so a
+            // banned mint is also short-circuited by isSeen()/ScannerHardRejectStore
+            // on subsequent sightings instead of being re-evaluated every pass.
+            ScannerHardRejectStore.mark(token.mint, token.symbol, "SCANNER_PERMANENTLY_BANNED", token.source.name)
             return false
         }
 
@@ -3645,8 +3670,14 @@ class SolanaMarketScanner(
         // Kept below: basic mcap sanity (< 0), explicit scam words, infra impersonation —
         // those are factual data-quality guards, not opinion filters.
 
-        // Basic mcap sanity check
-        if (token.mcapUsd < 0) return false
+        // Basic mcap sanity check. V5.0.6856 — a negative or non-finite market cap
+        // is a corrupt provider row, not a cheap token; mark it so the same bad row
+        // is not re-ingested on every scan pass.
+        if (token.mcapUsd < 0 || !token.mcapUsd.isFinite()) {
+            ErrorLogger.debug("Scanner", "FILTER REJECT ${token.symbol}: impossible mcap=${token.mcapUsd}")
+            ScannerHardRejectStore.mark(token.mint, token.symbol, "SCANNER_IMPOSSIBLE_MCAP", token.source.name)
+            return false
+        }
 
         
         // Scam pattern detection (both modes)
