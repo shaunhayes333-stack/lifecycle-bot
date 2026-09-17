@@ -8755,6 +8755,39 @@ class Executor(
             } catch (_: Throwable) {}
         }
         sellInProgress[mint] = now
+        // V5.0.6953 §TWO_SELL_LOCKS, ONE_OF_THEM_READ_BY_NOBODY.
+        //
+        // HostWalletTokenTracker keeps its own in-flight state, and the split is
+        // stark: clearSellInFlight has THIRTEEN external callers, isSellInFlight
+        // and markSellInFlight have ZERO. Thirteen sites diligently release a
+        // lock that nothing on earth ever acquires or tests, and the release even
+        // logs "lock cleared, stop can re-fire" — describing a block that could
+        // not happen. Meanwhile Executor keeps this parallel sellInProgress map,
+        // which is the lock actually doing the work. Two representations of one
+        // fact, one of them vestigial.
+        //
+        // DELIBERATELY NOT MADE A BLOCKER. The obvious move is to test
+        // isSellInFlight here and refuse the sell. That would be wrong: it adds a
+        // NEW way for an exit to be denied, bounded only by a 90s stale TTL, and
+        // on a rug 90 seconds is the entire loss. The doctrine is that exits
+        // always fire. A redundant lock that can only ever block is a liability.
+        //
+        // So it is wired as DIVERGENCE DETECTION instead. If the tracker believes
+        // a sell is already in flight at the moment Executor acquires its own
+        // lock, that means a sell was started somewhere Executor's lock does not
+        // cover — a genuine double-sell path — and that is worth knowing about
+        // precisely. If it never fires, Executor is the sole sell initiator and
+        // the tracker's flag is confirmed vestigial.
+        try {
+            if (com.lifecyclebot.engine.HostWalletTokenTracker.isSellInFlight(mint)) {
+                ForensicLogger.lifecycle(
+                    "SELL_LOCK_TRACKER_DIVERGENCE_6953",
+                    "mint=${mint.take(10)} executorLock=acquired trackerInFlight=true " +
+                        "meaning=sell_started_outside_executor_lock action=allowed_not_blocked",
+                )
+                PipelineHealthCollector.labelInc("SELL_LOCK_TRACKER_DIVERGENCE_6953")
+            }
+        } catch (_: Throwable) {}
         try {
             // V5.9.764 — EMERGENT item D forensic counter.
             ForensicLogger.lifecycle(
@@ -8773,6 +8806,17 @@ class Executor(
                     "SELL_LOCK_RELEASED",
                     "mint=${mint.take(10)} heldMs=${System.currentTimeMillis() - removed}",
                 )
+            } catch (_: Throwable) {}
+            // V5.0.6953 — keep the two locks' LIFECYCLES in step even though the
+            // tracker's is not a blocker. Without this the tracker's flag depends
+            // entirely on thirteen scattered clear sites all being reached on
+            // every path, including the failure paths; releasing here means the
+            // authoritative lock's release is also the tracker's, so the
+            // divergence counter above measures a real second sell path rather
+            // than just a missed cleanup.
+            try {
+                com.lifecyclebot.engine.HostWalletTokenTracker
+                    .clearSellInFlight(mint, "EXECUTOR_SELL_LOCK_RELEASED_6953")
             } catch (_: Throwable) {}
         }
     }
