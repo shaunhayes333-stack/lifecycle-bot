@@ -264,10 +264,43 @@ object ForensicReconciler6377 {
 
         // ── 10. ORPHAN_SELL ──────────────────────────────────────────────
         run {
+            // V5.0.6900 §THE_PARENT_SET_WAS_AN_EVICTING_WINDOW.
+            //
+            // `buys` derives from allTrades, which BotService gathers from
+            // status.tokens.values.flatMap { it.trades } — the in-memory
+            // per-token ring. That collection evicts: operator 5.0.6892 shows
+            // WATCHLIST_LRU_EVICT_6287=111, WATCHLIST_CAP_EVICT=12,
+            // MEME_RESTORE_TRIMMED=1. So a SELL whose matching BUY has aged out
+            // of memory reads as parentless even though the journal holds it,
+            // and the check reported "orphan sells=30" against 308 lifetime
+            // closes.
+            //
+            // Same failure class as the WALLET_VS_JOURNAL defect fixed in
+            // V5.0.6898: a durable invariant evaluated against a bounded
+            // window. A reconciler that cries wolf on its own eviction policy
+            // is a reconciler nobody can act on, and 6377 has only four checks
+            // — two of them were false.
+            //
+            // CanonicalPositionAuthority6441 is the durable record (455
+            // positions / 308 closed in that same snapshot), so a mint it knows
+            // about is definitionally parented. Only a sell whose mint is
+            // absent from BOTH the in-memory buys and the canonical authority
+            // is a genuine orphan.
             val boughtMints = buys.mapTo(HashSet()) { it.mint }
-            val orphans = sells.count { it.mint.isNotBlank() && it.mint !in boughtMints }
+            val canonicalMints6900 = try {
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+                    .let { it.openPositions() + it.closedPositions() }
+                    .mapTo(HashSet()) { it.mint }
+            } catch (_: Throwable) { emptySet<String>() }
+            val orphans = sells.count {
+                it.mint.isNotBlank() && it.mint !in boughtMints && it.mint !in canonicalMints6900
+            }
             val ok = orphans == 0
-            results += CheckResult("ORPHAN_SELL", ok, if (ok) "sells=${sells.size} all-parented" else "orphan sells=$orphans")
+            results += CheckResult(
+                "ORPHAN_SELL", ok,
+                if (ok) "sells=${sells.size} all-parented (journal=${boughtMints.size} canonical=${canonicalMints6900.size})"
+                else "orphan sells=$orphans journalBuys=${boughtMints.size} canonicalMints=${canonicalMints6900.size}",
+            )
         }
 
         // ── 11. CANONICAL_VS_REGISTRY ────────────────────────────────────
