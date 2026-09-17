@@ -1082,7 +1082,25 @@ class UnifiedScorer(
             val maturity = try { EducationSubLayerAI.getLayerMaturity(layerName) } catch (_: Exception) { null }
             val minSamples = if (isOuter) 50 else 20
             if (maturity == null || maturity.trades < minSamples) return c
-            val accuracy = try { EducationSubLayerAI.getLayerAccuracy(layerName) } catch (_: Exception) { 0.5 }
+            // V5.0.6864 §UNIFIED_MODE_WEIGHTED_LAYERS_BY_A_GLOBAL_BLEND — classicScore's
+            // weightedComponents loop reads the ASSET-CLASS-SCOPED accuracy (V5.9.1274:
+            // "so each universe (MEME / ALT / STOCK / ...) weights layers by its own
+            // learned edge, not a global blend"). symmetricTrust, the unifiedScore
+            // equivalent, called the unscoped overload — so in UNIFIED mode every layer
+            // was weighted by a blend across all universes, and a layer that is strong
+            // on memes and weak on stocks got the average of both on a meme candidate.
+            //
+            // This is the same omission V5.9.833 documents immediately below for the
+            // MetaCog trust blend: "V5.9.820 wired MetaCognitionAI.getTrustMultiplier
+            // into classicScore's weightedComponents loop but never into unifiedScore's
+            // symmetricTrust. If production ever flips to UNIFIED mode the
+            // trust-weighting evaporates." The asset scoping was missed the same way,
+            // one line above the fix for it. The scoped overload already falls back to
+            // the global value until its bucket warms, so this cannot cold-start worse.
+            val assetClass6864 = try {
+                EducationSubLayerAI.assetClassOf(null, candidate.mint)
+            } catch (_: Exception) { null }
+            val accuracy = try { EducationSubLayerAI.getLayerAccuracy(layerName, assetClass6864) } catch (_: Exception) { 0.5 }
             val educationWeight = (0.7 + accuracy * 0.8).coerceIn(0.7, 1.5)
 
             // ── V5.9.833 (B2) — mirror classicScore MetaCog trust blend into UnifiedScorer ──
