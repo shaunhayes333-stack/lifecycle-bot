@@ -9571,6 +9571,69 @@ class Executor(
                 onLog("⚠️ LIQ DRAIN: ${ts.symbol} liq dropped ${liqDropPct.toInt()}% while losing | exit", ts.mint)
                 return "liquidity_drain"
             }
+
+            // V5.0.6955 §IT_LEARNED_EVERY_RUG_AND_NEVER_USED_THE_LESSON.
+            //
+            // TradingMemory.learnFromRug IS wired (BotService:21663) and its
+            // patterns are persisted and reloaded across restarts. So the bot has
+            // been recording the liquidity-drop / price-drop / volume-spike /
+            // time-from-launch signature of every rug it has ever taken, for its
+            // entire operating life. matchesRugPattern — the ONLY consumer of
+            // that memory — had zero callers. It learned the shape of every rug
+            // and then met the next one with the same two hardcoded thresholds.
+            //
+            // The thresholds above are fixed at 50% and 30%. A rug that drains
+            // 40% and holds there is invisible to both, and that is exactly the
+            // kind of shape a learner is for.
+            //
+            // CONSULTED ONLY ON A POSITION ALREADY IN TROUBLE. matchesRugPattern
+            // needs 3 of 4 indicators, and one of them (volumeSpike ==
+            // ind.volumeSpikeBeforeRug) can match on false == false, with a young
+            // token matching the age indicator for free — so a healthy new token
+            // sits at 2 of 4 and one modest dip would tip it. Gating on a real
+            // drawdown (losing AND >=15% off either liquidity or peak price)
+            // makes this a REFINEMENT of the rug detection above for drops the
+            // fixed thresholds miss, never a new trigger on a healthy position.
+            val peakPx6955 = pos.highestPrice
+            val priceDropPct6955 = if (peakPx6955 > 0.0 && price > 0.0)
+                ((peakPx6955 - price) / peakPx6955) * 100.0 else 0.0
+            if (gainPct < 0.0 && (liqDropPct >= 15.0 || priceDropPct6955 >= 15.0)) {
+                val volSpike6955 = try {
+                    val rc = ts.history.takeLast(3)
+                    if (rc.size >= 3) {
+                        val avg = rc.map { it.volumeH1 }.average()
+                        avg > 0.0 && rc.last().volumeH1 > avg * 3.0
+                    } else false
+                } catch (_: Throwable) { false }
+                // Same derivation the entry path uses at :22257 — one definition
+                // of token age, not a second one invented here.
+                val ageHours6955 = try {
+                    (System.currentTimeMillis() -
+                        (ts.history.firstOrNull()?.ts ?: System.currentTimeMillis())) / 3_600_000.0
+                } catch (_: Throwable) { 0.0 }
+                val rugMatch6955 = try {
+                    com.lifecyclebot.engine.TradingMemory.matchesRugPattern(
+                        liquidityDropPct = liqDropPct,
+                        priceDropPct = priceDropPct6955,
+                        volumeSpike = volSpike6955,
+                        timeFromLaunchHours = ageHours6955,
+                    )
+                } catch (_: Throwable) { false }
+                if (rugMatch6955) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "LEARNED_RUG_PATTERN_MATCH_6955",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${gainPct.toInt()}% " +
+                                "liqDrop=${liqDropPct.toInt()}% priceDropFromPeak=${priceDropPct6955.toInt()}% " +
+                                "volSpike=$volSpike6955 ageH=${"%.1f".format(ageHours6955)} " +
+                                "source=TradingMemory.learnFromRug action=exit",
+                        )
+                        PipelineHealthCollector.labelInc("LEARNED_RUG_PATTERN_MATCH_6955")
+                    } catch (_: Throwable) {}
+                    onLog("🧠🚨 LEARNED RUG PATTERN: ${ts.symbol} matches a rug this bot has been burned by before (liq -${liqDropPct.toInt()}%, px -${priceDropPct6955.toInt()}% off peak) | exit", ts.mint)
+                    return "learned_rug_pattern"
+                }
+            }
         }
 
         if (heldSecs < 90.0) return null
