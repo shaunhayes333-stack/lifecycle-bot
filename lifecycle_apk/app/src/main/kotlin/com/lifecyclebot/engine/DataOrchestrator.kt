@@ -292,7 +292,19 @@ class DataOrchestrator(
             onGraduation = { mint ->
                 onLog("Token graduated to Raydium: ${mint.take(12)}…", mint)
                 val ts = status.tokens[mint]
-                if (ts != null) onNotify("🎓 Graduated", "${ts.symbol} moved to Raydium", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                if (ts != null) {
+                    // V5.0.6852 §GRADUATION_FLAG_HAD_ZERO_WRITERS — this callback KNEW the
+                    // curve had completed and did nothing but log it. The canonical flag
+                    // that Executor:138 uses to pick the sell route stayed false, so we
+                    // kept aiming exits at the dead bonding curve. Stamp it the moment
+                    // the WS says so; RouteTruthHydrator also derives it from the venue,
+                    // this is just the earliest and most authoritative signal.
+                    ts.tokenMap.migratedOrGraduated = true
+                    ts.tokenMap.pumpFunExecutable = false
+                    ts.tokenMap.updatedAtMs = System.currentTimeMillis()
+                    try { PipelineHealthCollector.labelInc("GRADUATION_DETECTED_PUMP_WS") } catch (_: Throwable) {}
+                    onNotify("🎓 Graduated", "${ts.symbol} moved to Raydium", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                }
             },
             onLog = { msg -> onLog("PumpFun: $msg", "") },
         )
@@ -544,6 +556,41 @@ class DataOrchestrator(
             synchronized(ts.history) {
                 ts.history.addLast(candle)
                 if (ts.history.size > 300) ts.history.removeFirst()
+                // V5.0.6852 §SILENT_DEFAULTS_FED_THE_WHOLE_BOOK — TokenState.volatility and
+                // TokenState.momentum had ZERO writers tree-wide while carrying 39 and
+                // several readers respectively, every one of them a fallback:
+                //   BotService:9558 `ts.volatility ?: 50.0`, MainActivity:5523/5758/5822,
+                //   ToolkitSignalSheet:224 `?: 0.0`,
+                //   RegimeVolatilityExecutorBridge:28-29 `?: ts.meta.volScore / momScore`.
+                // So every token in the book was priced as median volatility and neutral
+                // momentum: stops, TP widening and regime routing treated a 5%/hr bluechip
+                // and a 400%/hr pump.fun launch identically. This is the candle series that
+                // should have been feeding them all along.
+                // Both are 0..100 scores, matching their meta siblings (volScore/momScore)
+                // and the 50.0 "median" the readers assume.
+                val recent6852 = ts.history.takeLast(12)
+                if (recent6852.size >= 3) {
+                    val ranges6852 = recent6852.mapNotNull { c ->
+                        val p = c.priceUsd
+                        if (!p.isFinite() || p <= 0.0) null else {
+                            val hi = if (c.highUsd > 0.0) c.highUsd else p
+                            val lo = if (c.lowUsd > 0.0) c.lowUsd else p
+                            (((hi - lo) / p) * 100.0).takeIf { it.isFinite() && it >= 0.0 }
+                        }
+                    }
+                    if (ranges6852.isNotEmpty()) {
+                        // mean per-candle true range as % of price; ~5%/candle maps to the
+                        // 50 midpoint the readers already treat as median, 10% saturates.
+                        ts.volatility = (ranges6852.average() * 10.0).coerceIn(0.0, 100.0)
+                    }
+                    val first6852 = recent6852.first().priceUsd
+                    val last6852 = recent6852.last().priceUsd
+                    if (first6852.isFinite() && first6852 > 0.0 && last6852.isFinite() && last6852 > 0.0) {
+                        // net % change across the window, centred so 50 = flat.
+                        val chg6852 = ((last6852 - first6852) / first6852) * 100.0
+                        ts.momentum = (50.0 + chg6852 * 2.0).coerceIn(0.0, 100.0)
+                    }
+                }
             }
             pendingTrades[ts.mint] = PendingCandle(open = close, high = close, low = close)
         }

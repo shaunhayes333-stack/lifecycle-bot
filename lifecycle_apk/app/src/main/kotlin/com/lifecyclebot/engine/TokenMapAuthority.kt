@@ -205,7 +205,15 @@ object TokenMapAuthority {
         val now = System.currentTimeMillis()
         val routeAge = if (tm.updatedAtMs > 0L) now - tm.updatedAtMs else Long.MAX_VALUE
         val source = (tm.sourceScanner + " " + tm.dexId + " " + ts.lastPriceSource).uppercase()
-        if (tm.pumpFunExecutable || source.contains("PUMP") || (tm.expectedOutAmount > 0.0 && tm.pumpFunBondingCurveStatus.equals("ACTIVE", true)) || (tm.realSolReserves ?: 0.0) > 0.0 || (tm.virtualSolReserves ?: 0.0) > 0.0) {
+        // V5.0.6852 §GRADUATION_FLAG_HAD_ZERO_WRITERS — resolve graduation BEFORE the
+        // bonding-curve branch. `source.contains("PUMP")` also matches "PUMP_GRADUATE"
+        // and "PUMPSWAP", so a token that had already migrated to Raydium was stamped
+        // routeStatus=PUMPFUN_BONDING_CURVE_EXECUTABLE with a fabricated
+        // expectedOutAmount=1.0 and returned early — the real DEX branch below never
+        // ran, and every downstream buy/sell route pointed at a dead curve.
+        try { RouteTruthHydrator.markGraduationIfDetected6852(ts) } catch (_: Throwable) {}
+        if (!tm.migratedOrGraduated &&
+            (tm.pumpFunExecutable || source.contains("PUMP") || (tm.expectedOutAmount > 0.0 && tm.pumpFunBondingCurveStatus.equals("ACTIVE", true)) || (tm.realSolReserves ?: 0.0) > 0.0 || (tm.virtualSolReserves ?: 0.0) > 0.0)) {
             tm.pumpFunExecutable = true
             if (tm.pumpFunBondingCurveStatus.isBlank() || tm.pumpFunBondingCurveStatus == "UNKNOWN") tm.pumpFunBondingCurveStatus = "DISCOVERY_ACTIVE_CANDIDATE"
             if (tm.expectedOutAmount <= 0.0) tm.expectedOutAmount = 1.0
@@ -214,6 +222,14 @@ object TokenMapAuthority {
             tm.hydrationConfidence = maxOf(tm.hydrationConfidence, 0.75)
             tm.providerAttempts = maxOf(tm.providerAttempts, 1)
             return
+        }
+        // V5.0.6852 — a graduated token trades on a real AMM pool. The bonding branch
+        // above used to hand it a fabricated expectedOutAmount=1.0 and call it
+        // executable; the honest equivalent is the DEX branch, so admit it there on the
+        // same evidence (a concrete pool/pair) rather than demoting it to PENDING and
+        // stranding an open position with no sell route.
+        if (tm.migratedOrGraduated && (tm.poolAddress.isNotBlank() || tm.pairAddress.isNotBlank())) {
+            tm.dexRouteOk = true
         }
         if (tm.jupiterQuoteOk || tm.dexRouteOk || tm.expectedOutAmount > 0.0 || (tm.poolAddress.isNotBlank() && (tm.liquidityUsd ?: 0.0) > 0.0) || (tm.pairAddress.isNotBlank() && (tm.liquidityUsd ?: 0.0) > 0.0)) {
             tm.dexRouteOk = true

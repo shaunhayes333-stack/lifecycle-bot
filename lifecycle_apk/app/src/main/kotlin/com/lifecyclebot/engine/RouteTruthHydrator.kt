@@ -21,6 +21,53 @@ object RouteTruthHydrator {
         val reason: String,
     )
 
+    /**
+     * V5.0.6852 §GRADUATION_FLAG_HAD_ZERO_WRITERS — CanonicalTokenMap.migratedOrGraduated
+     * was declared `= false` and NEVER assigned anywhere in the tree, while five
+     * execution-critical sites branch on it:
+     *   RouteTruthHydrator:58/78 (this file) pick the PUMP bonding route,
+     *   FinalDecisionGate:2290 marks the entry pumpFunExecutable,
+     *   Executor:138 picks SellRoutePriority6099.PUMP_FIRST on the SELL path,
+     *   CanonicalFeaturesBuilder:238 feeds the learner's isMigrated feature.
+     * Frozen at false, a token that had already graduated off the bonding curve to
+     * Raydium/PumpSwap was still routed PUMP_FIRST when we tried to exit — sells
+     * aimed at a dead curve on exactly the tokens that ran far enough to graduate,
+     * which is the moonshot cohort. TokenMapAuthority.classifyRoute had the same
+     * blindness in reverse: `source.contains("PUMP")` matched "PUMP_GRADUATE" and
+     * stamped routeStatus=PUMPFUN_BONDING_CURVE_EXECUTABLE with a fake
+     * expectedOutAmount=1.0, returning before the real DEX branch could run.
+     *
+     * Single detector, called from both, sticky: a curve that completed never
+     * un-completes. Returns true if this call flipped the flag.
+     */
+    fun markGraduationIfDetected6852(ts: TokenState): Boolean {
+        val tm = ts.tokenMap
+        if (tm.migratedOrGraduated) return false
+        val hay = listOf(
+            ts.source, tm.sourceScanner, tm.venue, tm.dexId,
+            ts.lastPriceDex, ts.lastPriceSource, tm.routeStatus,
+        ).joinToString(" ").uppercase()
+        // Explicit graduation/migration events emitted by the scanners + pump WS.
+        val explicit = hay.contains("GRADUATE") || hay.contains("MIGRAT")
+        // A real post-curve AMM venue. pump.fun bonding-curve tokens report
+        // "PUMPFUN"/"PUMP.FUN"; PUMPSWAP is pump.fun's own AMM and only exists
+        // AFTER graduation, so it counts alongside the third-party AMMs.
+        val ammVenue = listOf(
+            "RAYDIUM", "PUMPSWAP", "ORCA", "WHIRLPOOL", "METEORA",
+            "LIFINITY", "FLUXBEAM", "PHOENIX", "OPENBOOK",
+        ).any { hay.contains(it) }
+        if (!explicit && !ammVenue) return false
+        tm.migratedOrGraduated = true
+        tm.pumpFunExecutable = false
+        tm.pumpFunBondingCurveStatus = "COMPLETED_MIGRATED"
+        try {
+            PipelineHealthCollector.labelInc(
+                if (explicit) "GRADUATION_DETECTED_EXPLICIT" else "GRADUATION_DETECTED_AMM_VENUE"
+            )
+        } catch (_: Throwable) {}
+        return true
+    }
+
     fun hydrate(ts: TokenState): Result {
         val now = System.currentTimeMillis()
         val tm = ts.tokenMap
@@ -29,6 +76,8 @@ object RouteTruthHydrator {
         if (tm.name.isBlank()) tm.name = ts.name
         if (tm.sourceScanner.isBlank()) tm.sourceScanner = ts.source
         if (tm.updatedAtMs <= 0L) tm.updatedAtMs = now
+
+        markGraduationIfDetected6852(ts)
 
         fun inc(label: String) { try { PipelineHealthCollector.labelInc(label) } catch (_: Throwable) {} }
         fun hit(src: String, reason: String): Result {
