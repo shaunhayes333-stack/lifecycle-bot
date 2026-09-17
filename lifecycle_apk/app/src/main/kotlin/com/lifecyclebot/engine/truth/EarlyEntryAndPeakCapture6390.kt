@@ -168,18 +168,111 @@ object PeakAdaptiveTrail6390 {
      * while the sizing half was properly wired. Bounded [0.95, 1.10] at the
      * source; widening the trail means more room, i.e. let it run.
      */
-    fun shouldExitOnTrail(peakGainPct: Double, currentGainPct: Double): Boolean {
-        val baseTrailPct = trailPctForPeakGain(peakGainPct)
-        if (baseTrailPct.isInfinite()) return false
+    fun shouldExitOnTrail(
+        peakGainPct: Double,
+        currentGainPct: Double,
+        /**
+         * V5.0.6926 — mean per-candle true range as a % of PRICE. 0.0 means
+         * "no volatility evidence", which falls back to the legacy table.
+         */
+        atrPctPerCandle: Double = 0.0,
+    ): Boolean {
         if (peakGainPct <= 0.0) return false
         val slack = try {
             com.lifecyclebot.engine.PersonalityTraitMultipliers.trailSlackMultiplier()
                 .let { if (it.isFinite() && it > 0.0) it else 1.0 }
                 .coerceIn(0.95, 1.10)
         } catch (_: Throwable) { 1.0 }
+
+        // V5.0.6926 §TRAIL_ON_VOLATILITY_NOT_ON_GAIN.
+        //
+        // The table below is indexed on peak gain. Peak gain does not decide
+        // whether a dip is noise or a trend break — VOLATILITY does.
+        //
+        // A token up 10x in four hours is printing 10-15% candles. An 8%
+        // trail on that is roughly 0.6 ATR: it is not a trail, it is a
+        // donation. One market-buy imbalance wicks it out and the move
+        // continues without us. The same 8% on a +30% grinder with 2% candles
+        // is 4 ATR, which is so loose it is not a stop at all.
+        //
+        // And it is worse than arbitrary, because the parabolic leg is the
+        // HIGHEST-volatility part of the whole move. A gain-indexed
+        // tightening trail therefore gets tightest exactly when volatility
+        // peaks — wrong in both dimensions at once.
+        //
+        // So when there is real volatility evidence, the trail is an ATR
+        // multiple off the high and the tape decides how much room the
+        // position gets. Quiet tape, tight trail. Wild tape, wide trail.
+        //
+        // ON THE DENOMINATOR, which is the trap here. ATR is a percentage of
+        // PRICE. The legacy comparison below is a percentage of the RUN
+        // ((peak-current)/peak, fixed in V5.0.6921). Those are different
+        // bases and mixing them is the exact defect class this file has
+        // already been bitten by twice. With entry P0, peak Pmax and current
+        // P, the price drawdown off the high is
+        //
+        //     (Pmax - P) / Pmax  =  (peakGain - currentGain) / (100 + peakGain)
+        //
+        // so the ATR branch uses that form and the legacy branch keeps its
+        // own. Two internally-consistent regimes, never blended.
+        val atr = if (atrPctPerCandle.isFinite() && atrPctPerCandle > 0.0) atrPctPerCandle else 0.0
+        if (atr > 0.0) {
+            val atrTrailPct = (atr * ATR_TRAIL_MULT_6926 * slack)
+                .coerceIn(ATR_TRAIL_FLOOR_PCT_6926, ATR_TRAIL_CEIL_PCT_6926)
+            val priceDrawdownPctFromHigh =
+                (peakGainPct - currentGainPct) / (100.0 + peakGainPct) * 100.0
+            return priceDrawdownPctFromHigh >= atrTrailPct
+        }
+
+        // No volatility evidence — fall back to the legacy gain-indexed table
+        // in its own (run-fraction) basis, as corrected by V5.0.6921.
+        val baseTrailPct = trailPctForPeakGain(peakGainPct)
+        if (baseTrailPct.isInfinite()) return false
         val trailPct = baseTrailPct * slack
         val giveBackPctOfPeak = (peakGainPct - currentGainPct) / peakGainPct * 100.0
         return giveBackPctOfPeak >= trailPct
+    }
+
+    /**
+     * V5.0.6926 — trail width in ATR multiples off the high.
+     *
+     * 2.75 sits in the band discretionary traders actually use (2-3 ATR).
+     * Below ~2 you are inside the noise and get wicked out of every runner;
+     * above ~3.5 the trail stops protecting anything.
+     */
+    private const val ATR_TRAIL_MULT_6926 = 2.75
+
+    /**
+     * Floor: a dead-quiet token must still have SOME trail, or a slow bleed
+     * never triggers one.
+     */
+    private const val ATR_TRAIL_FLOOR_PCT_6926 = 5.0
+
+    /**
+     * Ceiling: a lunatic ATR must not effectively disable the trail. 35%
+     * matches the ceiling AdvancedExitManager.calculateProgressiveTrailingStop
+     * independently arrived at for its own monster-runner trail — useful
+     * corroboration from a different author solving the same problem.
+     */
+    private const val ATR_TRAIL_CEIL_PCT_6926 = 35.0
+
+    /**
+     * V5.0.6926 — mean per-candle true range as a % of price, from whatever
+     * evidence exists. Returns 0.0 when there is none, which is the signal to
+     * fall back to the legacy table rather than to guess.
+     *
+     * Prefers raw candles because ts.volatility is a 0..100 score that
+     * SATURATES at 10% per candle (DataOrchestrator: `ranges.average() * 10.0`
+     * coerced to 100), and a parabolic memecoin routinely exceeds that. Losing
+     * resolution precisely on the biggest runners is the opposite of useful,
+     * so the score is only the fallback.
+     */
+    fun atrPctFromRanges6926(ranges: List<Double>): Double {
+        if (ranges.isEmpty()) return 0.0
+        val clean = ranges.filter { it.isFinite() && it >= 0.0 }
+        if (clean.size < 3) return 0.0
+        val mean = clean.average()
+        return if (mean.isFinite() && mean > 0.0) mean else 0.0
     }
 
     /** Track peak per position so trail is stateful across ticks. */
@@ -403,6 +496,12 @@ object PeakCaptureAuthority6390 {
         val whaleSellSolOnMint: Double = 0.0,
         /** Position cost, so whale sell size can be judged against our own. */
         val positionCostSol: Double = 0.0,
+        /**
+         * V5.0.6926 — mean per-candle true range as a % of price. Lets the
+         * adaptive trail size itself against the tape instead of against the
+         * gain. 0.0 = no evidence, trail falls back to the legacy table.
+         */
+        val atrPctPerCandle: Double = 0.0,
     )
     fun decide(i: Inputs): Decision {
         // 1. Safety net first — hard give-back → full cut.
@@ -458,9 +557,12 @@ object PeakCaptureAuthority6390 {
                     "buyVol=${"%.0f".format(i.currentBuyVolumeUsd)}/${"%.0f".format(i.peakBuyVolumeUsd)}",
                 0.75)
         // 4. Adaptive trail broken.
-        if (PeakAdaptiveTrail6390.shouldExitOnTrail(i.peakGainPct, i.currentGainPct))
+        if (PeakAdaptiveTrail6390.shouldExitOnTrail(i.peakGainPct, i.currentGainPct, i.atrPctPerCandle))
             return Decision(Verdict.TRAIL_EXIT,
-                "PEAK_ADAPTIVE_TRAIL_BROKEN peakGain=${i.peakGainPct} current=${i.currentGainPct}", 1.0)
+                "PEAK_ADAPTIVE_TRAIL_BROKEN peakGain=${"%.0f".format(i.peakGainPct)} " +
+                    "current=${"%.0f".format(i.currentGainPct)} " +
+                    "atrPct=${"%.2f".format(i.atrPctPerCandle)} " +
+                    "basis=${if (i.atrPctPerCandle > 0.0) "ATR_6926" else "LEGACY_TABLE"}", 1.0)
         // 5. Scheduled winner ladder partial.
         val rung = WinnerLadderExit6390.nextRung(i.positionId, i.currentGainPct)
         if (rung != null)

@@ -9933,6 +9933,11 @@ class BotService : Service() {
                         // That is the honest answer, not a guess.
                         val volNow6919: Double
                         val volPeak6919: Double
+                        // V5.0.6926 — mean per-candle true range as a % of
+                        // price, so the adaptive trail can size itself against
+                        // the TAPE instead of against the size of the gain.
+                        // Collected from the same history walk.
+                        val atrRanges6926 = ArrayList<Double>(64)
                         run {
                             val buyVols6919 = ArrayList<Double>(64)
                             try {
@@ -9940,6 +9945,18 @@ class BotService : Service() {
                                     for (c in ts.history) {
                                         if (c.volumeH1 <= 0.0) continue
                                         buyVols6919.add(c.volumeH1 * c.buyRatio)
+                                    }
+                                    // Raw true range per bar, uncapped. Only the
+                                    // recent window matters for "how wild is it
+                                    // right now"; 20 bars is the usual ATR length.
+                                    for (c in ts.history.toList().takeLast(20)) {
+                                        val p = c.priceUsd
+                                        if (!p.isFinite() || p <= 0.0) continue
+                                        val hi = if (c.highUsd > 0.0) c.highUsd else p
+                                        val lo = if (c.lowUsd > 0.0) c.lowUsd else p
+                                        if (hi < lo) continue
+                                        val r = (hi - lo) / p * 100.0
+                                        if (r.isFinite() && r >= 0.0) atrRanges6926.add(r)
                                     }
                                 }
                             } catch (_: Throwable) {}
@@ -9996,6 +10013,16 @@ class BotService : Service() {
                                     whaleTopSellerScore = whaleTopScore6919,
                                     whaleSellSolOnMint = whaleSellSol6919,
                                     positionCostSol = try { ts.position.costSol } catch (_: Throwable) { 0.0 },
+                                    // V5.0.6926 — real candle ranges first;
+                                    // ts.volatility only as fallback because it
+                                    // is a 0..100 score that saturates at 10%
+                                    // per candle, and the biggest runners live
+                                    // above that saturation point.
+                                    atrPctPerCandle = com.lifecyclebot.engine.truth.PeakAdaptiveTrail6390
+                                        .atrPctFromRanges6926(atrRanges6926)
+                                        .takeIf { it > 0.0 }
+                                        ?: (try { (ts.volatility ?: 0.0) / 10.0 } catch (_: Throwable) { 0.0 })
+                                            .coerceAtLeast(0.0),
                                 )
                             )
                         } catch (_: Throwable) { null }
