@@ -3694,7 +3694,7 @@ object FinalDecisionGate {
 
         if (winMemoryMultiplier != 1.0) {
             val originalSize = finalSize
-            finalSize = (finalSize * winMemoryMultiplier).coerceIn(0.01, 1.0)
+            finalSize = (finalSize * winMemoryMultiplier).coerceAtLeast(0.01)
             if (winMemoryMultiplier > 1.0) {
                 tags.add("size_boosted_win_memory")
                 checks.add(GateCheck("win_memory", true, "Size boosted ${originalSize.format(3)} → ${finalSize.format(3)} (memory=${winMemoryMultiplier.format(2)}x)"))
@@ -3749,7 +3749,7 @@ object FinalDecisionGate {
             val direction = if (collectiveAdj > 0) "boost" else "penalty"
             val multiplier = 1.0 + (collectiveAdj.toDouble() / 100.0)
             val originalSize = finalSize
-            finalSize = (finalSize * multiplier).coerceIn(0.01, 1.0)
+            finalSize = (finalSize * multiplier).coerceAtLeast(0.01)
 
             tags.add("collective_${direction}")
             checks.add(GateCheck("collective_learning", collectiveAdj > 0, "🌐 Collective $direction: ${originalSize.format(3)} → ${finalSize.format(3)} (adj=$collectiveAdj)"))
@@ -3767,7 +3767,7 @@ object FinalDecisionGate {
 
         if (crossTalkSignal != null && crossTalkSignal.sizeMultiplier != 1.0) {
             val originalSize = finalSize
-            finalSize = (finalSize * crossTalkSignal.sizeMultiplier).coerceIn(0.01, 1.0)
+            finalSize = (finalSize * crossTalkSignal.sizeMultiplier).coerceAtLeast(0.01)
             if (finalSize != originalSize) {
                 val direction = if (crossTalkSignal.sizeMultiplier > 1.0) "boosted" else "reduced"
                 tags.add("size_${direction}_crosstalk")
@@ -3842,7 +3842,7 @@ object FinalDecisionGate {
                     }
                     if (collectiveMult != 1.00) {
                         val originalSize = finalSize
-                        finalSize = (finalSize * collectiveMult).coerceIn(0.01, 1.0)
+                        finalSize = (finalSize * collectiveMult).coerceAtLeast(0.01)
                         val direction = if (collectiveMult > 1.0) "boosted" else "reduced"
                         tags.add("size_${direction}_collective")
                         checks.add(
@@ -4015,7 +4015,7 @@ object FinalDecisionGate {
                 val tieredSecMult = tierShape(secMult, candidateMcap)
                 if (tieredSecMult != 1.00) {
                     val originalSize = finalSize
-                    finalSize = (finalSize * tieredSecMult).coerceIn(0.01, 1.0)
+                    finalSize = (finalSize * tieredSecMult).coerceAtLeast(0.01)
                     val direction = if (tieredSecMult > 1.0) "boosted" else "reduced"
                     tags.add("size_${direction}_birdeye_security")
                     val flags = buildList {
@@ -4074,7 +4074,7 @@ object FinalDecisionGate {
                     val tieredFlowMult = tierShape(flowMult, candidateMcap)
                     if (tieredFlowMult != 1.00) {
                         val originalSize = finalSize
-                        finalSize = (finalSize * tieredFlowMult).coerceIn(0.01, 1.0)
+                        finalSize = (finalSize * tieredFlowMult).coerceAtLeast(0.01)
                         val direction = if (tieredFlowMult > 1.0) "boosted" else "reduced"
                         tags.add("size_${direction}_flow_imbalance")
                         checks.add(
@@ -4112,7 +4112,7 @@ object FinalDecisionGate {
                 val tieredVolMult = tierShape(volMult, candidateMcap)
                 if (tieredVolMult != 1.00 && regime != "UNKNOWN") {
                     val originalSize = finalSize
-                    finalSize = (finalSize * tieredVolMult).coerceIn(0.01, 1.0)
+                    finalSize = (finalSize * tieredVolMult).coerceAtLeast(0.01)
                     val direction = if (tieredVolMult > 1.0) "boosted" else "reduced"
                     tags.add("size_${direction}_volatility_${regime.lowercase()}")
                     checks.add(
@@ -4159,7 +4159,7 @@ object FinalDecisionGate {
                     val tieredAgeMult = tierShape(ageMult, candidateMcap)
                     if (tieredAgeMult != 1.00) {
                         val originalSize = finalSize
-                        finalSize = (finalSize * tieredAgeMult).coerceIn(0.01, 1.0)
+                        finalSize = (finalSize * tieredAgeMult).coerceAtLeast(0.01)
                         val direction = if (tieredAgeMult > 1.0) "boosted" else "reduced"
                         tags.add("size_${direction}_age_${ageH.toInt()}h")
                         checks.add(
@@ -4202,7 +4202,7 @@ object FinalDecisionGate {
                 val tieredSocialMult = tierShape(socialMult, candidateMcap)
                 if (tieredSocialMult != 1.00) {
                     val originalSize = finalSize
-                    finalSize = (finalSize * tieredSocialMult).coerceIn(0.01, 1.0)
+                    finalSize = (finalSize * tieredSocialMult).coerceAtLeast(0.01)
                     val direction = if (tieredSocialMult > 1.0) "boosted" else "reduced"
                     val tagFlag = if (meta.isListed()) "listed" else "${sc}ch"
                     tags.add("size_${direction}_social_$tagFlag")
@@ -4281,7 +4281,7 @@ object FinalDecisionGate {
 
             if (tierSafetyMult < 1.0 && tierSafetyPenalties.isNotEmpty()) {
                 val originalSize = finalSize
-                finalSize = (finalSize * tierSafetyMult).coerceIn(0.01, 1.0)
+                finalSize = (finalSize * tierSafetyMult).coerceAtLeast(0.01)
                 tags.add("size_reduced_tier_safety_${tier.label.lowercase()}")
                 checks.add(
                     GateCheck(
@@ -4332,7 +4332,7 @@ object FinalDecisionGate {
                 if (!isMatch && whitelist.isNotEmpty()) {
                     val mismatchMult = 0.85
                     val originalSize = finalSize
-                    finalSize = (finalSize * mismatchMult).coerceIn(0.01, 1.0)
+                    finalSize = (finalSize * mismatchMult).coerceAtLeast(0.01)
                     tags.add("size_reduced_source_tier_mismatch")
                     checks.add(
                         GateCheck(
@@ -4379,7 +4379,61 @@ object FinalDecisionGate {
                 checks.add(GateCheck("min_size", true, null))
             }
 
-            val maxSize = if (config.paperMode) 1.0 else 0.5
+            // V5.0.6928 §THE_COMPOUNDING_CEILING.
+            //
+            // This was `if (config.paperMode) 1.0 else 0.5` — two literals,
+            // with no reference to how much money the account actually has.
+            //
+            // It is the LAST cap in the chain, so it overrides every lane's
+            // own sizing work. CashGenerationAI computes
+            // `MAX_POSITION_SOL(2.0) * walletScaleFactor` specifically so the
+            // treasury lane can compound with a growing wallet; BlueChip
+            // allows 1.00 with a 1.5x overshoot. In live mode all of that was
+            // then truncated to 0.5 SOL by this line.
+            //
+            // So the bot structurally could not compound. However large the
+            // wallet grew, every live position stayed <= 0.5 SOL — meaning the
+            // edge per trade shrank as a fraction of equity with every
+            // successful trade, and even a 26x runner moved the account by a
+            // rounding error. A bot whose entire purpose is compounding had a
+            // hard constant where its position sizing should have been.
+            //
+            // Fixed by reusing the formula CashGenerationAI already uses, so
+            // there is ONE wallet-scaling pattern in the codebase rather than
+            // a second invented one:
+            //
+            //     walletScaleFactor = (1 + balance * 0.05).coerceIn(1.0, 10.0)
+            //
+            // Floored at 1.0x, so this can only ever RAISE the cap and small
+            // wallets behave exactly as they do today (at 1 SOL the live cap
+            // moves 0.50 -> 0.525). At 10 SOL it is 0.75, at 50 SOL 1.75
+            // (3.5% of equity), saturating at 5.0. Those are conservative
+            // fractions of equity by any sizing standard.
+            //
+            // LIVE USES THE REAL WALLET BALANCE ONLY. CashGenerationAI carries
+            // a hard-won comment about exactly this: a paper/virtual treasury
+            // ledger "can show thousands of SOL while the wallet holds
+            // pennies", and using maxOf(wallet, treasury) in live once
+            // produced 20 SOL position sizes on a 0.07 SOL wallet. So this
+            // reads WalletManager.cachedSolBalance() and nothing else, and
+            // fails closed to the old constant if that read fails.
+            //
+            // PAPER IS LEFT AT 1.0 DELIBERATELY. Paper does not earn anything,
+            // so scaling it buys no money — it only perturbs the size
+            // distribution that every learner in the stack is training on.
+            // The ceiling that costs real money is the live one.
+            //
+            // This does raise money at risk on a large live wallet. The
+            // portfolio-level envelope is unchanged and still applies
+            // (PortfolioHeatAI entry penalty / forced de-risk, the total
+            // portfolio risk cap, and per-lane wallet caps).
+            val maxSize = if (config.paperMode) {
+                1.0
+            } else {
+                val liveBal6928 = try { WalletManager.cachedSolBalance() } catch (_: Throwable) { 0.0 }
+                if (!liveBal6928.isFinite() || liveBal6928 <= 0.0) 0.5
+                else 0.5 * (1.0 + liveBal6928 * 0.05).coerceIn(1.0, 10.0)
+            }
             if (finalSize > maxSize) {
                 finalSize = maxSize
                 checks.add(GateCheck("max_size", true, "capped from $proposedSizeSol to $maxSize"))
