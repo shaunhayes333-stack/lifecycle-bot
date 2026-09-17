@@ -1794,7 +1794,58 @@ object EducationSubLayerAI {
      * (weightSum == 0) so the upgrade is forward-compat with persisted
      * state.
      */
-    fun getLayerAccuracy(layerName: String): Double {
+    /**
+     * V5.0.6880 §PER_LAYER_ACCURACY_NEVER_LEFT_THE_INSTANCE — the most transferable
+     * thing this bot learns is which of its ~41 layers are actually reliable. That
+     * is a property of the LAYER, not of a token or a wallet, so it is exactly what
+     * a network of installs should be pooling. The hive already syncs the
+     * performance genome, blacklists, patterns, mode stats, whale stats, mint
+     * memory, rug clusters, source reliability and creator reputation — per-layer
+     * accuracy was not among them. Every fresh install started from 0.5 on all 41
+     * layers and had to rediscover from its own trades what the network already
+     * knew.
+     *
+     * Peer accuracy is held separately and never overwrites local evidence. It is
+     * consulted only while local evidence is thin and fades out completely as this
+     * instance builds its own samples — the same "lean on the other source while
+     * thin, then fade to own authority" shape used by PaperLiveIntelligenceBridge
+     * and by the V5.0.6869 forward-model split.
+     */
+    private const val HIVE_ACCURACY_FADE_SAMPLES_6880 = 30.0
+    private val hivePeerAccuracy6880 = ConcurrentHashMap<String, Double>()
+    private val hivePeerContributors6880 = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** Peer-blended per-layer accuracy inherited from the hive. */
+    fun applyHivePeerAccuracy6880(peer: Map<String, Double>, contributors: Int) {
+        try {
+            if (peer.isEmpty() || contributors <= 0) return
+            peer.forEach { (rawLayer, acc) ->
+                val layer = normalizeLayerName(rawLayer)
+                if (layer.isNotBlank() && acc.isFinite()) {
+                    hivePeerAccuracy6880[layer] = acc.coerceIn(0.0, 1.0)
+                }
+            }
+            hivePeerContributors6880.set(contributors)
+            com.lifecyclebot.engine.PipelineHealthCollector
+                .labelInc("HIVE_LAYER_ACCURACY_INHERITED_6880")
+        } catch (_: Throwable) {}
+    }
+
+    /** This instance's own per-layer accuracy, for upload to the hive. */
+    fun localLayerAccuracySnapshot6880(minSamples: Int = SCOPED_MIN_SAMPLES): Map<String, Double> {
+        return try {
+            layerPerformance.entries
+                .filter { !it.key.contains('|') && it.value.totalOutcomesRecorded >= minSamples }
+                .associate { (layer, _) -> layer to getLayerAccuracyLocal6880(layer) }
+                .filterValues { it.isFinite() }
+        } catch (_: Throwable) { emptyMap() }
+    }
+
+    fun hivePeerAccuracyStatus6880(): String =
+        "layers=${hivePeerAccuracy6880.size} contributors=${hivePeerContributors6880.get()}"
+
+    /** Local-only accuracy: the pre-6880 computation, with no hive blend. */
+    private fun getLayerAccuracyLocal6880(layerName: String): Double {
         val canonicalLayerName = normalizeLayerName(layerName)
         val m = layerPerformance[canonicalLayerName] ?: return 0.5
         val alpha = 5.0
@@ -1807,6 +1858,19 @@ object EducationSubLayerAI {
         if (n <= 0) return 0.5
         val wins = m.successfulPredictions.toDouble()
         return ((wins + alpha) / (n + 2.0 * alpha)).coerceIn(0.0, 1.0)
+    }
+
+    fun getLayerAccuracy(layerName: String): Double {
+        val canonicalLayerName = normalizeLayerName(layerName)
+        val local = getLayerAccuracyLocal6880(canonicalLayerName)
+        // V5.0.6880 — blend in the hive's view only while our own evidence is thin.
+        // localWeight reaches 1.0 at HIVE_ACCURACY_FADE_SAMPLES_6880 own outcomes, so
+        // a mature layer is decided entirely by this instance's own trades and the
+        // peer value stops mattering.
+        val peer = hivePeerAccuracy6880[canonicalLayerName] ?: return local
+        val own = (layerPerformance[canonicalLayerName]?.totalOutcomesRecorded ?: 0).toDouble()
+        val localWeight = (own / HIVE_ACCURACY_FADE_SAMPLES_6880).coerceIn(0.0, 1.0)
+        return (local * localWeight + peer * (1.0 - localWeight)).coerceIn(0.0, 1.0)
     }
 
     /** V5.9.138 — mean pnlPct per trade for this layer, or 0 if no history. */

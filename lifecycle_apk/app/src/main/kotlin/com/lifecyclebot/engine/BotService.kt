@@ -15312,7 +15312,31 @@ class BotService : Service() {
                         // PnL, PF >= 1.10 and a 7-day freshness window, capped at 25
                         // contributors. applyHiveGenomeNudge is pressure, not overwrite.
                         try {
-                            val genomeWeights6865 = AdaptiveLearningEngine.getDetailedWeights()
+                            // V5.0.6880 §PER_LAYER_ACCURACY_NEVER_LEFT_THE_INSTANCE —
+                            // which of the ~41 layers are actually reliable is the most
+                            // transferable thing this bot learns: it is a property of the
+                            // LAYER, not of a token or a wallet. The hive already syncs
+                            // the genome, blacklists, patterns, mode stats, whale stats,
+                            // mint memory, rug clusters, source reliability and creator
+                            // reputation. Layer accuracy was not among them, so every
+                            // fresh install started at 0.5 on all 41 and had to
+                            // rediscover from its own trades what the network already
+                            // knew.
+                            //
+                            // Carried inside the existing genome's feature_weights_json
+                            // under an "LYR:" namespace rather than on a new table. That
+                            // inherits the quality gate already guarding this exchange —
+                            // peers need >=100 trades, WR >= 55%, positive PnL, PF >= 1.10
+                            // and 7-day freshness, capped at 25 contributors — and its
+                            // contributor-weighted blend, so one bad instance cannot
+                            // poison the pool. Values are accuracies in 0..1, which sits
+                            // inside the 0.1..5.0 clamp the upload already applies.
+                            val layerAcc6880 = try {
+                                com.lifecyclebot.v3.scoring.EducationSubLayerAI
+                                    .localLayerAccuracySnapshot6880()
+                                    .mapKeys { "LYR:${it.key}" }
+                            } catch (_: Throwable) { emptyMap() }
+                            val genomeWeights6865 = AdaptiveLearningEngine.getDetailedWeights() + layerAcc6880
                             com.lifecyclebot.collective.CollectiveLearning.uploadPerformanceGenome(
                                 appVersion = com.lifecyclebot.BuildConfig.VERSION_NAME,
                                 totalTrades = localStats.totalTrades,
@@ -15327,8 +15351,25 @@ class BotService : Service() {
                                     localWinRatePct = localStats.winRate,
                                 )
                             if (genome6865 != null) {
+                                // V5.0.6880 — split the blend before applying it. The
+                                // adaptive engine must keep receiving only the feature
+                                // weights it owns; the LYR: namespace is layer accuracy
+                                // and goes to EducationSubLayerAI, which holds it apart
+                                // from local evidence and fades it out as this instance
+                                // builds its own samples.
+                                val hiveLayerAcc6880 = genome6865.featureWeights
+                                    .filterKeys { it.startsWith("LYR:") }
+                                    .mapKeys { it.key.removePrefix("LYR:") }
+                                    .filterValues { it.isFinite() && it in 0.0..1.0 }
+                                if (hiveLayerAcc6880.isNotEmpty()) {
+                                    try {
+                                        com.lifecyclebot.v3.scoring.EducationSubLayerAI
+                                            .applyHivePeerAccuracy6880(hiveLayerAcc6880, genome6865.contributors)
+                                        addLog("🧠 Hive layer accuracy: ${hiveLayerAcc6880.size} layers from ${genome6865.contributors} proven bots")
+                                    } catch (_: Throwable) {}
+                                }
                                 AdaptiveLearningEngine.applyHiveGenomeNudge(
-                                    hiveWeights = genome6865.featureWeights,
+                                    hiveWeights = genome6865.featureWeights.filterKeys { !it.startsWith("LYR:") },
                                     hiveAvgWinRatePct = genome6865.avgWinRatePct,
                                     hiveContributors = genome6865.contributors,
                                     hiveTotalTrades = genome6865.totalTrades,
