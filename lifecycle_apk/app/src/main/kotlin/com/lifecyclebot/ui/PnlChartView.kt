@@ -27,41 +27,114 @@ class PnlChartView @JvmOverloads constructor(
     private val density = ctx.resources.displayMetrics.density
     private val scaledDensity = ctx.resources.displayMetrics.scaledDensity
 
+    /**
+     * V5.0.6936 — animated reveal.
+     *
+     * The chart used to snap to its final shape the instant data arrived. The
+     * reference design reads as a live instrument, so the curve now sweeps in
+     * left-to-right over [REVEAL_MS] whenever the series changes.
+     *
+     * Deliberately cheap and interruptible: one ValueAnimator, cancelled and
+     * restarted on every set, driving a single 0..1 fraction that clips how
+     * much of the path is drawn. No per-frame allocation, no object animators
+     * on child views, and if the animator never runs the fraction stays at 1f
+     * so the chart still renders complete. Animation must never be the reason
+     * a number is invisible.
+     */
+    private var revealFraction = 1f
+    private var revealAnimator: android.animation.ValueAnimator? = null
+
     var points: List<PnlPoint> = emptyList()
-        set(v) { field = v; invalidate() }
+        set(v) {
+            val hadData = field.isNotEmpty()
+            field = v
+            if (v.size >= 2) startReveal(fromScratch = !hadData) else { revealFraction = 1f; invalidate() }
+        }
+
+    private fun startReveal(fromScratch: Boolean) {
+        revealAnimator?.cancel()
+        // A refresh of an already-drawn chart should not replay the whole
+        // sweep on every tick — that would make a live dashboard flicker.
+        if (!fromScratch) { revealFraction = 1f; invalidate(); return }
+        revealFraction = 0f
+        revealAnimator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = REVEAL_MS
+            interpolator = android.view.animation.DecelerateInterpolator(1.6f)
+            addUpdateListener { revealFraction = it.animatedValue as Float; invalidate() }
+            start()
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        revealAnimator?.cancel(); revealAnimator = null
+        super.onDetachedFromWindow()
+    }
+
+    private companion object { const val REVEAL_MS = 620L }
 
     // ── paints ────────────────────────────────────────────────────────
 
     private val linePaintPos = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color     = 0xFF00E5A0.toInt()
+        color     = 0xFF16E6A1.toInt()
         strokeWidth = 2.5f
         style     = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
     private val linePaintNeg = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color     = 0xFFFF3D5A.toInt()
+        color     = 0xFFFF4D6D.toInt()
         strokeWidth = 2.5f
         style     = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
-    private val fillPaintPos = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0x1800E5A0
-        style = Paint.Style.FILL
+    /**
+     * V5.0.6936 — the reference design fades the area fill out as it falls
+     * away from the curve rather than using one flat wash. Shaders are built
+     * in onSizeChanged because a LinearGradient needs the real view height,
+     * and rebuilding one per frame in onDraw would allocate on every tick.
+     */
+    private val fillPaintPos = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = 0x2816E6A1 }
+    private val fillPaintNeg = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL; color = 0x28FF4D6D }
+
+    /** Soft neon bloom under the curve, matching the lit-from-behind look. */
+    private val glowPaintPos = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x5516E6A1; strokeWidth = 6f; style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        maskFilter = BlurMaskFilter(7f, BlurMaskFilter.Blur.NORMAL)
     }
-    private val fillPaintNeg = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0x18FF3D5A
-        style = Paint.Style.FILL
+    private val glowPaintNeg = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x55FF4D6D; strokeWidth = 6f; style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+        maskFilter = BlurMaskFilter(7f, BlurMaskFilter.Blur.NORMAL)
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
+        super.onSizeChanged(w, h, ow, oh)
+        if (h <= 0) return
+        val fh = h.toFloat()
+        fillPaintPos.shader = LinearGradient(
+            0f, 0f, 0f, fh,
+            intArrayOf(0x5516E6A1, 0x1416E6A1, 0x0016E6A1),
+            floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP,
+        )
+        fillPaintNeg.shader = LinearGradient(
+            0f, fh, 0f, 0f,
+            intArrayOf(0x55FF4D6D, 0x14FF4D6D, 0x00FF4D6D),
+            floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP,
+        )
+        // Hardware layers cannot render a BlurMaskFilter; without this the
+        // glow silently disappears on most devices instead of erroring.
+        setLayerType(LAYER_TYPE_SOFTWARE, null)
     }
     private val baselinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color     = 0xFF2A3A4A.toInt()
+        color     = 0xFF193250.toInt()
         strokeWidth = 1f
         style     = Paint.Style.STROKE
         pathEffect = DashPathEffect(floatArrayOf(8f, 6f), 0f)
     }
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color     = 0xFF4A5E70.toInt()
+        color     = 0xFF63759B.toInt()
         textSize  = 10f * scaledDensity
         typeface  = Typeface.MONOSPACE
     }
@@ -71,19 +144,19 @@ class PnlChartView @JvmOverloads constructor(
         textAlign = Paint.Align.RIGHT
     }
     private val buyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF00E5A0.toInt()
+        color = 0xFF16E6A1.toInt()
         style = Paint.Style.FILL
     }
     private val sellWinPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF00E5A0.toInt()
+        color = 0xFF16E6A1.toInt()
         style = Paint.Style.FILL
     }
     private val sellLossPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFFF3D5A.toInt()
+        color = 0xFFFF4D6D.toInt()
         style = Paint.Style.FILL
     }
     private val emptyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color     = 0xFF4A5E70.toInt()
+        color     = 0xFF63759B.toInt()
         textSize  = 32f
         typeface  = Typeface.MONOSPACE
         textAlign = Paint.Align.CENTER
@@ -156,24 +229,38 @@ class PnlChartView @JvmOverloads constructor(
             (padL + chartW).toInt(), (padT + chartH).toInt()
         )
 
+        // V5.0.6936 — the reveal sweep clips everything to a growing x, so the
+        // curve and its fill draw in from the left together.
+        val revealRight = padL + chartW * revealFraction
+
         canvas.save()
-        canvas.clipRect(padL, padT, padL + chartW, zeroY)
+        canvas.clipRect(padL, padT, revealRight, zeroY)
         canvas.drawPath(fillPath, fillPaintPos)
         canvas.restore()
 
         canvas.save()
-        canvas.clipRect(padL, zeroY, padL + chartW, padT + chartH)
+        canvas.clipRect(padL, zeroY, revealRight, padT + chartH)
         canvas.drawPath(fillPath, fillPaintNeg)
         canvas.restore()
 
-        // ── draw line ─────────────────────────────────────────────────
+        canvas.save()
+        canvas.clipRect(padL, padT, revealRight, padT + chartH)
+
+        // ── draw line, with the V5.0.6936 neon bloom beneath it ───────
         val lastVal = points.last().cumulativePnlSol
-        canvas.drawPath(path, if (lastVal >= 0) linePaintPos else linePaintNeg)
+        val up = lastVal >= 0
+        canvas.drawPath(path, if (up) glowPaintPos else glowPaintNeg)
+        canvas.drawPath(path, if (up) linePaintPos else linePaintNeg)
+        canvas.restore()   // closes the reveal clip opened before the fills
 
         // ── buy/sell markers ──────────────────────────────────────────
+        // V5.0.6936 — markers appear as the sweep reaches them, so the chart
+        // draws itself in one direction instead of popping fully formed.
         val markerSize = 5f * density
+        val revealX = padL + chartW * revealFraction
         for ((i, pt) in points.withIndex()) {
             val x = xOf(i)
+            if (x > revealX) break
             val y = yOf(pt.cumulativePnlSol)
             if (pt.isBuy) {
                 drawTriangle(canvas, x, y + markerSize, markerSize, true, buyPaint)
@@ -193,7 +280,7 @@ class PnlChartView @JvmOverloads constructor(
 
         // ── current P&L annotation ────────────────────────────────────
         val finalPnl = lastVal
-        pnlLabelPaint.color = if (finalPnl >= 0) 0xFF00E5A0.toInt() else 0xFFFF3D5A.toInt()
+        pnlLabelPaint.color = if (finalPnl >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt()
         canvas.drawText(
             "%+.4f◎".format(finalPnl),
             w - 4f, padT + 20f,

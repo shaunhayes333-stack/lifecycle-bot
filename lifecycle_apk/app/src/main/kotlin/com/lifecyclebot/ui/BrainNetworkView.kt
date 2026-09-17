@@ -54,17 +54,17 @@ class BrainNetworkView @JvmOverloads constructor(
         var altsAccuracy: Double = -1.0,    var altsSignals: Int = 0,
     ) {
         val color: Int get() = when {
-            !isActive -> 0xFFFF8800.toInt()       // Orange - dormant
-            accuracy >= 60 -> 0xFF00FF88.toInt()  // Green - performing well
+            !isActive -> 0xFFFFB020.toInt()       // Orange - dormant
+            accuracy >= 60 -> 0xFF16E6A1.toInt()  // Green - performing well
             accuracy >= 50 -> 0xFFFFFF00.toInt()  // Yellow - average
-            else -> 0xFFFF4444.toInt()            // Red - underperforming
+            else -> 0xFFFF4D6D.toInt()            // Red - underperforming
         }
 
         fun engineColor(signals: Int, accuracy: Double): Int = when {
             signals <= 0   -> 0x66888888.toInt()   // Dim grey outline — no data yet
-            accuracy >= 60 -> 0xFF00FF88.toInt()   // Green
+            accuracy >= 60 -> 0xFF16E6A1.toInt()   // Green
             accuracy >= 50 -> 0xFFFFFF00.toInt()   // Yellow
-            else           -> 0xFFFF4444.toInt()   // Red
+            else           -> 0xFFFF4D6D.toInt()   // Red
         }
     }
     
@@ -151,7 +151,7 @@ class BrainNetworkView @JvmOverloads constructor(
     }
     
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFFFFFFF.toInt()
+        color = 0xFFF5F7FF.toInt()
         textSize = 24f
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
@@ -165,7 +165,7 @@ class BrainNetworkView @JvmOverloads constructor(
     }
     
     private val statsPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF00FF88.toInt()
+        color = 0xFF16E6A1.toInt()
         textSize = 32f
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
@@ -174,7 +174,7 @@ class BrainNetworkView @JvmOverloads constructor(
     // V5.9.1325/1326 — Phase 2 ANR fix: hoist per-frame Paint/Path/Gradient
     // allocations out of onDraw so the 30fps draw loop is allocation-free.
     private val gridPaintCached = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0x15FFFFFF
+        color = 0x15F5F7FF
         style = Paint.Style.STROKE
         strokeWidth = 1f
     }
@@ -184,7 +184,7 @@ class BrainNetworkView @JvmOverloads constructor(
         strokeWidth = 1.5f
     }
     private val texturePaintCached = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0x40FFFFFF
+        color = 0x40F5F7FF
         style = Paint.Style.STROKE
         strokeWidth = 2f
     }
@@ -658,7 +658,7 @@ class BrainNetworkView @JvmOverloads constructor(
             
             // Connection line to brain center
             connectionPaint.color = if (layer.isActive) {
-                (layer.color and 0x00FFFFFF) or 0x30000000  // 20% alpha
+                (layer.color and 0x00F5F7FF) or 0x30000000  // 20% alpha
             } else {
                 0x15888888
             }
@@ -694,7 +694,7 @@ class BrainNetworkView @JvmOverloads constructor(
             
             // Pulse glow
             val glowRadius = 12f * (1f - t * 0.5f)
-            pulsePaint.color = (pulse.color and 0x00FFFFFF) or 0x60000000
+            pulsePaint.color = (pulse.color and 0x00F5F7FF) or 0x60000000
             pulsePaint.maskFilter = pulseBlur(glowRadius)  // V5.9.1282 cached, no per-frame alloc
             canvas.drawCircle(pulseX, pulseY, glowRadius, pulsePaint)
             
@@ -731,7 +731,7 @@ class BrainNetworkView @JvmOverloads constructor(
                 // updateLayerPerEngine has been called).
                 if (layer.isActive) {
                     val pulseGlow = (sin(animationPhase * Math.PI * 2 + layer.pulsePhase * Math.PI * 4) * 0.3 + 0.7).toFloat()
-                    nodeGlowPaint.color = (layer.color and 0x00FFFFFF) or ((0x80 * pulseGlow).toInt() shl 24)
+                    nodeGlowPaint.color = (layer.color and 0x00F5F7FF) or ((0x80 * pulseGlow).toInt() shl 24)
                     canvas.drawCircle(nodeX, nodeY, nodeRadius * 2f, nodeGlowPaint)
                 }
                 nodePaint.color = layer.color
@@ -790,12 +790,12 @@ class BrainNetworkView @JvmOverloads constructor(
             return
         }
         val color = when {
-            accuracy >= 60 -> 0xFF00FF88.toInt()
+            accuracy >= 60 -> 0xFF16E6A1.toInt()
             accuracy >= 50 -> 0xFFFFFF00.toInt()
-            else           -> 0xFFFF4444.toInt()
+            else           -> 0xFFFF4D6D.toInt()
         }
         val pulseGlow = (sin(animationPhase * Math.PI * 2 + phase * Math.PI * 4) * 0.3 + 0.7).toFloat()
-        nodeGlowPaint.color = (color and 0x00FFFFFF) or ((0x80 * pulseGlow).toInt() shl 24)
+        nodeGlowPaint.color = (color and 0x00F5F7FF) or ((0x80 * pulseGlow).toInt() shl 24)
         canvas.drawCircle(x, y, r * 1.8f, nodeGlowPaint)
         nodePaint.color = color
         canvas.drawCircle(x, y, r, nodePaint)
@@ -812,7 +812,7 @@ class BrainNetworkView @JvmOverloads constructor(
             val megaPulse1 = (sin(brainPulsePhase * Math.PI * 4) * 0.5 + 0.5).toFloat()
             val megaPulse2 = (sin(brainPulsePhase * Math.PI * 4 + Math.PI) * 0.5 + 0.5).toFloat()
             
-            brainGlowPaint.color = (0x20FFD700).toInt()  // Gold glow
+            brainGlowPaint.color = (0x20FFB020).toInt()  // Gold glow
             canvas.drawCircle(cx, cy, animRadius * 2.5f * (0.8f + megaPulse1 * 0.4f), brainGlowPaint)
             
             brainGlowPaint.color = (0x15FF00FF).toInt()  // Purple glow
@@ -820,11 +820,11 @@ class BrainNetworkView @JvmOverloads constructor(
         }
         
         // Outer glow
-        brainGlowPaint.color = if (isMegaBrain) 0x60FFD700.toInt() else 0x4000FF88.toInt()
+        brainGlowPaint.color = if (isMegaBrain) 0x60FFB020.toInt() else 0x4016E6A1.toInt()
         canvas.drawCircle(cx, cy, animRadius * 1.8f, brainGlowPaint)
         
         // Middle glow  
-        brainGlowPaint.color = if (isMegaBrain) 0x80FFD700.toInt() else 0x6000FF88.toInt()
+        brainGlowPaint.color = if (isMegaBrain) 0x80FFB020.toInt() else 0x6016E6A1.toInt()
         canvas.drawCircle(cx, cy, animRadius * 1.4f, brainGlowPaint)
         
         // V5.9.1325 — Phase 2 ANR fix: cache the RadialGradient by quantised
@@ -838,14 +838,14 @@ class BrainNetworkView @JvmOverloads constructor(
             cachedBrainRadial = if (isMegaBrain) {
                 RadialGradient(
                     cx, cy, quantised,
-                    intArrayOf(0xFFFFD700.toInt(), 0xFFFF8800.toInt(), 0xFFAA5500.toInt()),
+                    intArrayOf(0xFFFFB020.toInt(), 0xFFFFB020.toInt(), 0xFFAA5500.toInt()),
                     floatArrayOf(0f, 0.6f, 1f),
                     Shader.TileMode.CLAMP
                 )
             } else {
                 RadialGradient(
                     cx, cy, quantised,
-                    intArrayOf(0xFF00FF88.toInt(), 0xFF00AA55.toInt(), 0xFF006633.toInt()),
+                    intArrayOf(0xFF16E6A1.toInt(), 0xFF00AA55.toInt(), 0xFF006633.toInt()),
                     floatArrayOf(0f, 0.6f, 1f),
                     Shader.TileMode.CLAMP
                 )
@@ -885,17 +885,17 @@ class BrainNetworkView @JvmOverloads constructor(
     private fun drawStats(canvas: Canvas, cx: Float, cy: Float, brainRadius: Float) {
         // Draw curriculum level at top
         textPaint.textSize = brainRadius * 0.35f
-        textPaint.color = if (isMegaBrain) 0xFFFFD700.toInt() else 0xFFFFD700.toInt()  // Gold
+        textPaint.color = if (isMegaBrain) 0xFFFFB020.toInt() else 0xFFFFB020.toInt()  // Gold
         canvas.drawText(curriculumIcon, cx, cy - brainRadius * 0.15f, textPaint)
         
         // Draw level name
         labelPaint.textSize = brainRadius * 0.22f
-        labelPaint.color = 0xFFFFFFFF.toInt()
+        labelPaint.color = 0xFFF5F7FF.toInt()
         canvas.drawText(curriculumLevel, cx, cy + brainRadius * 0.2f, labelPaint)
         
         // Draw trade count or mega score
         labelPaint.textSize = brainRadius * 0.16f
-        labelPaint.color = if (isMegaBrain) 0xFFFFD700.toInt() else 0xFF888888.toInt()
+        labelPaint.color = if (isMegaBrain) 0xFFFFB020.toInt() else 0xFF888888.toInt()
         
         val scoreText = if (isMegaBrain) {
             "⚡ ${megaScore.toInt()} pts"

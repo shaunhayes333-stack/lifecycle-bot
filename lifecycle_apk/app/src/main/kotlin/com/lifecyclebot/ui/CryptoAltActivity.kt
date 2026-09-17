@@ -76,15 +76,15 @@ class CryptoAltActivity : AppCompatActivity() {
 
     // ─── Palette ─────────────────────────────────────────────────────────────
     private val bg      = 0xFF0A0A0F.toInt()
-    private val card    = 0xFF1A1A2E.toInt()
+    private val card    = 0xFF0D192B.toInt()
     private val card2   = 0xFF12122A.toInt()
-    private val divBg   = 0xFF1F2937.toInt()
-    private val white   = 0xFFFFFFFF.toInt()
-    private val muted   = 0xFF6B7280.toInt()
-    private val green   = 0xFF22C55E.toInt()
-    private val red     = 0xFFEF4444.toInt()
-    private val amber   = 0xFFF59E0B.toInt()
-    private val purple  = 0xFFA78BFA.toInt()
+    private val divBg   = 0xFF101E33.toInt()
+    private val white   = 0xFFF5F7FF.toInt()
+    private val muted   = 0xFF63759B.toInt()
+    private val green   = 0xFF16E6A1.toInt()
+    private val red     = 0xFFFF4D6D.toInt()
+    private val amber   = 0xFFFFB020.toInt()
+    private val purple  = 0xFFB36BFF.toInt()
     private val blue    = 0xFF60A5FA.toInt()
     private val teal    = 0xFF14B8A6.toInt()
     private val pink    = 0xFFF472B6.toInt()
@@ -238,7 +238,7 @@ class CryptoAltActivity : AppCompatActivity() {
         tabSettings.setOnClickListener  { selectTab(3) }
 
         // Swipe-to-refresh
-        swipeRefresh.setColorSchemeColors(0xFFA78BFA.toInt(), 0xFF9945FF.toInt())
+        swipeRefresh.setColorSchemeColors(0xFFB36BFF.toInt(), 0xFF9A4DFF.toInt())
         swipeRefresh.setOnRefreshListener {
             // V5.9.1: Force bypass TTL on pull-to-refresh too
             lifecycleScope.launch(Dispatchers.IO) {
@@ -466,11 +466,11 @@ class CryptoAltActivity : AppCompatActivity() {
         } else {
             "Alt trader stopped"
         }
-        tvBotStatus.setTextColor(if (running) 0xFF10B981.toInt() else 0xFF6B7280.toInt())
+        tvBotStatus.setTextColor(if (running) 0xFF16E6A1.toInt() else 0xFF63759B.toInt())
 
         // Mode badge: PAPER / LIVE
         tvMode.text = if (live) "LIVE" else "PAPER"
-        tvMode.setTextColor(if (live) 0xFF10B981.toInt() else 0xFFF59E0B.toInt())
+        tvMode.setTextColor(if (live) 0xFF16E6A1.toInt() else 0xFFFFB020.toInt())
 
         // Auto mode badge
         val phaseShort = when {
@@ -487,7 +487,7 @@ class CryptoAltActivity : AppCompatActivity() {
         // Toggle button
         btnToggle.text = if (running) "Stop Crypto Trader" else "Start Crypto Trader"
         btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(
-            if (running) 0xFFEF4444.toInt() else 0xFF9945FF.toInt()
+            if (running) 0xFFFF4D6D.toInt() else 0xFF9A4DFF.toInt()
         )
     }
 
@@ -501,11 +501,11 @@ class CryptoAltActivity : AppCompatActivity() {
         if (wallet != null) {
             val addr = wallet.publicKeyB58
             tvWalletShort.text = "${addr.take(4)}..${addr.takeLast(4)}"
-            tvWalletShort.setTextColor(0xFF10B981.toInt())
+            tvWalletShort.setTextColor(0xFF16E6A1.toInt())
             tvWalletDot.setBackgroundResource(R.drawable.dot_green)
         } else {
             tvWalletShort.text = "Connect"
-            tvWalletShort.setTextColor(0xFF6B7280.toInt())
+            tvWalletShort.setTextColor(0xFF63759B.toInt())
         }
     }
 
@@ -563,7 +563,7 @@ class CryptoAltActivity : AppCompatActivity() {
                 android.util.Log.e("CryptoAltAct", "CRASH ${'$'}name: ${'$'}{e.message}", e)
                 try {
                     llContent.addView(tv("\u26a0\ufe0f ${'$'}name: ${'$'}{e.javaClass.simpleName}: ${'$'}{e.message?.take(80)}",
-                        10f, 0xFFEF4444.toInt()).apply { setPadding(16,4,16,4) })
+                        10f, 0xFFFF4D6D.toInt()).apply { setPadding(16,4,16,4) })
                 } catch (_: Exception) {}
             }
         }
@@ -1037,7 +1037,7 @@ class CryptoAltActivity : AppCompatActivity() {
         pillRow.addView(statPill("$trades", "24h Trades", white))
         pillRow.addView(statPill("${"%.0f".format(wr)}%", "Win Rate",
             if (wr >= 60) green else if (wr >= 40) amber else red))
-        pillRow.addView(statPill("$open", "Open", if (open > 0) 0xFFA78BFA.toInt() else muted))
+        pillRow.addView(statPill("$open", "Open", if (open > 0) 0xFFB36BFF.toInt() else muted))
         pillRow.addView(statPill(
             if (aiConf > 0) "$aiConf" else phase,
             "Fear/Greed",
@@ -1052,7 +1052,7 @@ class CryptoAltActivity : AppCompatActivity() {
             layoutParams = llp(0, wrap, 1f)
             gravity = Gravity.CENTER_VERTICAL
         })
-        listOf("BNB" to amber, "ETH" to 0xFF60A5FA.toInt(), "SOL" to 0xFFA78BFA.toInt(), "POLY" to 0xFF818CF8.toInt()).forEach { (label, col) ->
+        listOf("BNB" to amber, "ETH" to 0xFF60A5FA.toInt(), "SOL" to 0xFFB36BFF.toInt(), "POLY" to 0xFF818CF8.toInt()).forEach { (label, col) ->
             chainRow.addView(tv(label, 9f, col).apply {
                 setBackgroundColor(0xFF0D0D1A.toInt()); setPadding(8, 3, 8, 3)
                 layoutParams = llp(wrap, wrap).apply { marginStart = 4 }
@@ -1629,7 +1629,7 @@ class CryptoAltActivity : AppCompatActivity() {
                 isClickable = true; isFocusable = true
                 setOnClickListener { onClick() }
                 foreground = android.graphics.drawable.RippleDrawable(
-                    android.content.res.ColorStateList.valueOf(0x33FFFFFF), null, null)
+                    android.content.res.ColorStateList.valueOf(0x33F5F7FF), null, null)
             }
         }
     }
@@ -2150,7 +2150,7 @@ class CryptoAltActivity : AppCompatActivity() {
         row2.addView(TextView(this).apply {
             text = sourceShort
             textSize = 8f * scale
-            setTextColor(0xFF14F195.toInt())   // same green as MainActivity
+            setTextColor(0xFF16E6A1.toInt())   // same green as MainActivity
             setPadding(3, 1, 3, 1)
             background = try {
                 ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.badge_bg)
@@ -2648,7 +2648,7 @@ class CryptoAltActivity : AppCompatActivity() {
             style = android.graphics.Paint.Style.STROKE
         }
         private val labelPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            color     = 0xFF4A5E70.toInt()
+            color     = 0xFF63759B.toInt()
             textSize  = 9f * resources.displayMetrics.scaledDensity
             typeface  = android.graphics.Typeface.MONOSPACE
         }
@@ -2682,7 +2682,7 @@ class CryptoAltActivity : AppCompatActivity() {
                 drawLineChart(canvas)
             } else {
                 val p = android.graphics.Paint().apply {
-                    color = 0xFF2A3A4A.toInt()
+                    color = 0xFF193250.toInt()
                     textSize = 12f * resources.displayMetrics.scaledDensity
                     isAntiAlias = true
                 }
@@ -2719,8 +2719,8 @@ class CryptoAltActivity : AppCompatActivity() {
                 canvas.drawLine(padL, y, padL + w, y, gridPaint)
             }
 
-            val greenC = 0xFF22C55E.toInt()
-            val redC   = 0xFFEF4444.toInt()
+            val greenC = 0xFF16E6A1.toInt()
+            val redC   = 0xFFFF4D6D.toInt()
 
             for ((i, c) in candles.withIndex()) {
                 val o = if (c.openUsd > 0) c.openUsd else c.priceUsd
@@ -2750,7 +2750,7 @@ class CryptoAltActivity : AppCompatActivity() {
                     if (v > 0) {
                         val barTop = yVol(v)
                         val barBot = yVolBase()
-                        val translucentCol = (col and 0x00FFFFFF.toInt()) or (0x80 shl 24)
+                        val translucentCol = (col and 0x00F5F7FF.toInt()) or (0x80 shl 24)
                         bodyPaint.color = translucentCol
                         canvas.drawRect(left, barTop, right, barBot, bodyPaint)
                     }
@@ -2819,8 +2819,8 @@ class CryptoAltActivity : AppCompatActivity() {
             val range = if (mx > mn) mx - mn else mn * 0.01
 
             val isPositive = prices.last() >= prices.first()
-            val lineColor  = if (isPositive) 0xFF22C55E.toInt() else 0xFFEF4444.toInt()
-            val fillColor  = if (isPositive) 0x1422C55E.toInt() else 0x14EF4444.toInt()
+            val lineColor  = if (isPositive) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt()
+            val fillColor  = if (isPositive) 0x1416E6A1.toInt() else 0x14FF4D6D.toInt()
             linePaint.color = lineColor
             fillPaint.color = fillColor
 
@@ -3095,7 +3095,7 @@ class CryptoAltActivity : AppCompatActivity() {
                     }
                     r2.addView(TextView(this).apply {
                         text = srcShort; textSize = 8f * scaleFactor
-                        setTextColor(0xFF14F195.toInt()); setPadding(3, 1, 3, 1)
+                        setTextColor(0xFF16E6A1.toInt()); setPadding(3, 1, 3, 1)
                         background = try { ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.badge_bg) } catch (_: Exception) { null }
                     })
                 }
@@ -3265,7 +3265,7 @@ class CryptoAltActivity : AppCompatActivity() {
         if (closedPos.isNotEmpty()) {
             val closedHeader = hBox(0xFF0D1117.toInt(), 12, 8).apply { gravity = Gravity.CENTER_VERTICAL }
             closedHeader.addView(tv("📜 CLOSED  (${closedPos.size})", 10f, muted, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
-            closedHeader.addView(tv("last ${closedPos.size.coerceAtMost(50)}", 9f, 0xFF4B5563.toInt()))
+            closedHeader.addView(tv("last ${closedPos.size.coerceAtMost(50)}", 9f, 0xFF63759B.toInt()))
             llContent.addView(closedHeader)
             llContent.addView(thinDivider())
 
@@ -3344,7 +3344,7 @@ class CryptoAltActivity : AppCompatActivity() {
         val line1 = hBox(0, 0, 0).apply { gravity = Gravity.CENTER_VERTICAL }
         line1.addView(tv(pos.marketSymbol, 13f, white, bold = true).apply { layoutParams = llp(0, wrap, 1f) })
         // Direction pill
-        val dirColor = if (pos.direction == com.lifecyclebot.perps.PerpsDirection.LONG) 0xFF10B981.toInt() else 0xFFEF4444.toInt()
+        val dirColor = if (pos.direction == com.lifecyclebot.perps.PerpsDirection.LONG) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt()
         line1.addView(tv("${pos.direction.emoji} ${pos.leverageLabel}", 10f, dirColor, bold = true).apply {
             setPadding(6, 2, 6, 2)
             background = androidx.core.content.ContextCompat.getDrawable(this@CryptoAltActivity, R.drawable.badge_bg)
@@ -3375,7 +3375,7 @@ class CryptoAltActivity : AppCompatActivity() {
             if (tpPct > 0) append("  TP+${tpPct.toInt()}%  SL-${slPct.toInt()}%")
             if (pos.aiScore > 0) append("  AI:${pos.aiScore}")
         }
-        centre.addView(tv(line3, 9f, 0xFF6B7280.toInt(), mono = true))
+        centre.addView(tv(line3, 9f, 0xFF63759B.toInt(), mono = true))
 
         row.addView(centre)
 
@@ -3400,7 +3400,7 @@ class CryptoAltActivity : AppCompatActivity() {
             // Background track
             progressBar.addView(View(this).apply {
                 layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, 4)
-                setBackgroundColor(0xFF1F2937.toInt())
+                setBackgroundColor(0xFF101E33.toInt())
             })
             // Fill
             val fillColor = when {
@@ -3495,9 +3495,9 @@ class CryptoAltActivity : AppCompatActivity() {
                 axisRight.isEnabled = false
                 axisLeft.apply {
                     setDrawGridLines(false)
-                    textColor = 0xFF6B7280.toInt()
+                    textColor = 0xFF63759B.toInt()
                     textSize = 8f
-                    gridColor = 0xFF1F2937.toInt()
+                    gridColor = 0xFF101E33.toInt()
                     setDrawAxisLine(false)
                 }
                 // Build price points: entry → current with intermediate steps simulated
@@ -3513,15 +3513,15 @@ class CryptoAltActivity : AppCompatActivity() {
                 // Mark TP and SL as limit lines
                 if (pos.takeProfitPrice > 0) {
                     axisLeft.addLimitLine(com.github.mikephil.charting.components.LimitLine(pos.takeProfitPrice.toFloat(), "TP").apply {
-                        lineColor = 0xFF10B981.toInt(); lineWidth = 1f
-                        textColor = 0xFF10B981.toInt(); textSize = 8f
+                        lineColor = 0xFF16E6A1.toInt(); lineWidth = 1f
+                        textColor = 0xFF16E6A1.toInt(); textSize = 8f
                         enableDashedLine(6f, 4f, 0f)
                     })
                 }
                 if (pos.stopLossPrice > 0) {
                     axisLeft.addLimitLine(com.github.mikephil.charting.components.LimitLine(pos.stopLossPrice.toFloat(), "SL").apply {
-                        lineColor = 0xFFEF4444.toInt(); lineWidth = 1f
-                        textColor = 0xFFEF4444.toInt(); textSize = 8f
+                        lineColor = 0xFFFF4D6D.toInt(); lineWidth = 1f
+                        textColor = 0xFFFF4D6D.toInt(); textSize = 8f
                         enableDashedLine(6f, 4f, 0f)
                     })
                 }
@@ -3575,7 +3575,7 @@ class CryptoAltActivity : AppCompatActivity() {
             root.addView(thinDivider())
             root.addView(tv("🧠 AI Reasoning", 11f, muted, bold = true).apply { setPadding(0, 4, 0, 4) })
             pos.reasons.take(5).forEach { reason ->
-                root.addView(tv("• $reason", 10f, 0xFF9CA3AF.toInt()).apply { setPadding(4, 2, 0, 2) })
+                root.addView(tv("• $reason", 10f, 0xFFA7B7D8.toInt()).apply { setPadding(4, 2, 0, 2) })
             }
         }
 
@@ -3596,7 +3596,7 @@ class CryptoAltActivity : AppCompatActivity() {
 
     private fun buildSettingsTab() {
         // ── Engine Controls ────────────────────────────────────────────────────
-        addSectionHeader("⚙️ Engine Controls", 0xFF9CA3AF.toInt())
+        addSectionHeader("⚙️ Engine Controls", 0xFFA7B7D8.toInt())
         addToggleRow("🤖 Crypto Trader Running", CryptoAltTrader.isRunning()) { on ->
             if (on) CryptoAltTrader.start() else CryptoAltTrader.stop(); selectTab(3)
         }
@@ -3834,7 +3834,7 @@ class CryptoAltActivity : AppCompatActivity() {
         })
 
         // ── Manual Controls ────────────────────────────────────────────────────
-        addSectionHeader("🔧 Manual Actions", 0xFF9CA3AF.toInt())
+        addSectionHeader("🔧 Manual Actions", 0xFFA7B7D8.toInt())
 
         llContent.addView(hBox(card, 12, 12).apply {
             layoutParams = llp(match, wrap).apply { topMargin = 4; bottomMargin = 4 }
@@ -3911,14 +3911,14 @@ class CryptoAltActivity : AppCompatActivity() {
                 setBackgroundColor(0xFF0D0D1A.toInt()); setPadding(6, 3, 6, 3)
             })
             if (onClick != null) {
-                header.addView(tv(" ›", 16f, 0xFF4B5563.toInt()).apply { setPadding(4, 0, 0, 0) })
+                header.addView(tv(" ›", 16f, 0xFF63759B.toInt()).apply { setPadding(4, 0, 0, 0) })
             }
             addView(header)
             if (onClick != null) {
                 isClickable = true; isFocusable = true
                 setOnClickListener { onClick() }
                 foreground = android.graphics.drawable.RippleDrawable(
-                    android.content.res.ColorStateList.valueOf(0x22FFFFFF), null, null)
+                    android.content.res.ColorStateList.valueOf(0x22F5F7FF), null, null)
             }
         }
     }

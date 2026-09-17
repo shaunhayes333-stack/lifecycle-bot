@@ -173,12 +173,12 @@ object LiveGrowthDoctrine {
         val missing = dispatchableContributionLanes.filterNot { it in normalizedExisting }
         if (missing.isEmpty()) return null
         val rotation = try { (System.currentTimeMillis() / 30_000L).toInt() } catch (_: Throwable) { 0 }
-        return missing[((seed.hashCode() xor rotation) and 0x7fffffff) % missing.size]
+        return missing[((seed.hashCode() xor rotation) and 0x7FF5F7FF) % missing.size]
     }
 
     fun growthToolFallback(seed: String, existing: Set<String>): String? {
         val missing = growthToolUniverse.filterNot { it in existing }
         if (missing.isEmpty()) return null
-        return missing[((seed.hashCode() and 0x7fffffff) % missing.size)]
+        return missing[((seed.hashCode() and 0x7FF5F7FF) % missing.size)]
     }
 }

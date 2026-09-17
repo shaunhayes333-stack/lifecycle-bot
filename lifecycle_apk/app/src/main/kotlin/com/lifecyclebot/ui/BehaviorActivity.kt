@@ -336,7 +336,7 @@ class BehaviorActivity : AppCompatActivity() {
                 fun paint() {
                     val muted = com.lifecyclebot.engine.VoiceManager.isMuted(this)
                     btnMute.text = if (muted) "🔇" else "🔊"
-                    btnMute.setTextColor(if (muted) 0xFFE5E7EB.toInt() else 0xFF14F195.toInt())
+                    btnMute.setTextColor(if (muted) 0xFFF5F7FF.toInt() else 0xFF16E6A1.toInt())
                 }
                 paint()
                 btnMute.setOnClickListener {
@@ -385,19 +385,19 @@ class BehaviorActivity : AppCompatActivity() {
     
     private fun updateModeDisplay(level: Int) {
         val (mode, description, color) = when (level) {
-            0 -> Triple("ULTRA DEFENSIVE", "Minimal trades, maximum safety. Only highest quality setups.", 0xFF4488FF.toInt())
-            1 -> Triple("VERY DEFENSIVE", "Conservative approach. High confidence required.", 0xFF4488FF.toInt())
-            2 -> Triple("DEFENSIVE", "Prioritize capital preservation over gains.", 0xFF4488FF.toInt())
+            0 -> Triple("ULTRA DEFENSIVE", "Minimal trades, maximum safety. Only highest quality setups.", 0xFF4C8DFF.toInt())
+            1 -> Triple("VERY DEFENSIVE", "Conservative approach. High confidence required.", 0xFF4C8DFF.toInt())
+            2 -> Triple("DEFENSIVE", "Prioritize capital preservation over gains.", 0xFF4C8DFF.toInt())
             3 -> Triple("CONSERVATIVE", "Lean defensive with some opportunities.", 0xFF00DD77.toInt())
             4 -> Triple("SLIGHTLY CONSERVATIVE", "Below normal aggression.", 0xFF00DD77.toInt())
-            5 -> Triple("NORMAL", "Balanced buying and selling behavior.", 0xFF00FF88.toInt())
-            6 -> Triple("SLIGHTLY AGGRESSIVE", "Above normal aggression.", 0xFFFFAA00.toInt())
-            7 -> Triple("AGGRESSIVE", "More frequent entries, wider targets.", 0xFFFFAA00.toInt())
+            5 -> Triple("NORMAL", "Balanced buying and selling behavior.", 0xFF16E6A1.toInt())
+            6 -> Triple("SLIGHTLY AGGRESSIVE", "Above normal aggression.", 0xFFFFB020.toInt())
+            7 -> Triple("AGGRESSIVE", "More frequent entries, wider targets.", 0xFFFFB020.toInt())
             8 -> Triple("VERY AGGRESSIVE", "High frequency trading, looser criteria.", 0xFFFF8844.toInt())
             9 -> Triple("HYPER AGGRESSIVE", "Maximum entry rate, minimum filters.", 0xFFFF6644.toInt())
-            10 -> Triple("DEGEN MODE", "Full send. Minimal safety checks.", 0xFFFF4444.toInt())
+            10 -> Triple("DEGEN MODE", "Full send. Minimal safety checks.", 0xFFFF4D6D.toInt())
             11 -> Triple("GOES TO 11", "Beyond maximum. For true degens only.", 0xFFFF0000.toInt())
-            else -> Triple("NORMAL", "Balanced buying and selling behavior.", 0xFF00FF88.toInt())
+            else -> Triple("NORMAL", "Balanced buying and selling behavior.", 0xFF16E6A1.toInt())
         }
         
         tvCurrentMode.text = mode
@@ -475,36 +475,36 @@ class BehaviorActivity : AppCompatActivity() {
                 else -> "0"
             }
             tvStreak.setTextColor(when {
-                streak >= 3 -> 0xFF00FF88.toInt()
-                streak <= -3 -> 0xFFFF4444.toInt()
-                else -> 0xFFFFFFFF.toInt()
+                streak >= 3 -> 0xFF16E6A1.toInt()
+                streak <= -3 -> 0xFFFF4D6D.toInt()
+                else -> 0xFFF5F7FF.toInt()
             })
             
             // Discipline
             tvDiscipline.text = "${state.disciplineScore}%"
             tvDiscipline.setTextColor(when {
-                state.disciplineScore >= 70 -> 0xFF00FF88.toInt()
-                state.disciplineScore <= 30 -> 0xFFFF4444.toInt()
-                else -> 0xFFFFFFFF.toInt()
+                state.disciplineScore >= 70 -> 0xFF16E6A1.toInt()
+                state.disciplineScore <= 30 -> 0xFFFF4D6D.toInt()
+                else -> 0xFFF5F7FF.toInt()
             })
             
             // Tilt
             tvTilt.text = "${state.tiltLevel}%"
             tvTilt.setTextColor(when {
-                state.tiltLevel >= 70 -> 0xFFFF4444.toInt()
-                state.tiltLevel >= 40 -> 0xFFFFAA00.toInt()
-                else -> 0xFF00FF88.toInt()
+                state.tiltLevel >= 70 -> 0xFFFF4D6D.toInt()
+                state.tiltLevel >= 40 -> 0xFFFFB020.toInt()
+                else -> 0xFF16E6A1.toInt()
             })
             
             // Sentiment
             tvSentiment.text = state.sentimentClass
             tvSentiment.setTextColor(when (state.sentimentClass) {
                 "EUPHORIA" -> 0xFFFF00FF.toInt()
-                "CONFIDENCE" -> 0xFF00FF88.toInt()
-                "NEUTRAL" -> 0xFFFFFFFF.toInt()
-                "FEAR" -> 0xFFFFAA00.toInt()
-                "EXTREME_FEAR" -> 0xFFFF4444.toInt()
-                else -> 0xFFFFFFFF.toInt()
+                "CONFIDENCE" -> 0xFF16E6A1.toInt()
+                "NEUTRAL" -> 0xFFF5F7FF.toInt()
+                "FEAR" -> 0xFFFFB020.toInt()
+                "EXTREME_FEAR" -> 0xFFFF4D6D.toInt()
+                else -> 0xFFF5F7FF.toInt()
             })
             
             // Milestones
@@ -528,9 +528,9 @@ class BehaviorActivity : AppCompatActivity() {
             val adj = state.fluidAdjustment + aggrMod
             tvFluidAdjustment.text = String.format("%+.2f", adj)
             tvFluidAdjustment.setTextColor(when {
-                adj > 0.2 -> 0xFF00FF88.toInt()
-                adj < -0.2 -> 0xFFFF4444.toInt()
-                else -> 0xFFFFFFFF.toInt()
+                adj > 0.2 -> 0xFF16E6A1.toInt()
+                adj < -0.2 -> 0xFFFF4D6D.toInt()
+                else -> 0xFFF5F7FF.toInt()
             })
             tvFluidDescription.text = when {
                 adj > 0.5 -> "Excellent behavior - thresholds loosened significantly"
@@ -581,7 +581,7 @@ class BehaviorActivity : AppCompatActivity() {
                 "${level.icon} ${level.displayName.uppercase()}"
             }
             tvCurriculumLevel.text = levelDisplay
-            tvCurriculumLevel.setTextColor(if (isMegaBrain) 0xFFFFD700.toInt() else 0xFFFFD700.toInt())
+            tvCurriculumLevel.setTextColor(if (isMegaBrain) 0xFFFFB020.toInt() else 0xFFFFB020.toInt())
             
             // Progress bar always reflects progress inside the current tier.
             progressMaturity.progress = levelPct
@@ -592,7 +592,7 @@ class BehaviorActivity : AppCompatActivity() {
             } else {
                 "$levelPct% → ${level.displayName}"
             }
-            tvMaturityPct.setTextColor(if (isMegaBrain) 0xFFFFD700.toInt() else 0xFF00FF88.toInt())
+            tvMaturityPct.setTextColor(if (isMegaBrain) 0xFFFFB020.toInt() else 0xFF16E6A1.toInt())
             
             // Get layer diagnostics
             val diagnostics = EducationSubLayerAI.runDiagnostics()
@@ -641,10 +641,10 @@ class BehaviorActivity : AppCompatActivity() {
             
             tvAvgAccuracy.text = "%d%%".format(avgAccuracyPct.toInt().coerceIn(0, 99))
             tvAvgAccuracy.setTextColor(when {
-                avgAccuracyPct >= 70 -> 0xFFFFD700.toInt()  // Gold: well-learned
-                avgAccuracyPct >= 60 -> 0xFF00FF88.toInt()  // Green: learning
+                avgAccuracyPct >= 70 -> 0xFFFFB020.toInt()  // Gold: well-learned
+                avgAccuracyPct >= 60 -> 0xFF16E6A1.toInt()  // Green: learning
                 avgAccuracyPct >= 45 -> 0xFFFFFF00.toInt()  // Yellow: forming
-                else -> 0xFFFF8800.toInt()                   // Orange: early/noisy
+                else -> 0xFFFFB020.toInt()                   // Orange: early/noisy
             })
             
             // V5.9.133 — REAL top 3 performing layers by Bayesian-smoothed
@@ -687,14 +687,14 @@ class BehaviorActivity : AppCompatActivity() {
                 }
             }
             tvTopLayers.text = topLayers
-            tvTopLayers.setTextColor(if (isMegaBrain) 0xFFFFD700.toInt() else 0xFF00FF88.toInt())
+            tvTopLayers.setTextColor(if (isMegaBrain) 0xFFFFB020.toInt() else 0xFF16E6A1.toInt())
             
             // Dormant warning or motivational message
             val dormantNames = EducationSubLayerAI.getDormantLayers()
             if (dormantNames.isNotEmpty() && totalTrades > 20 && !isMegaBrain) {
                 tvDormantWarning.visibility = View.VISIBLE
                 tvDormantWarning.text = "⚠ ${dormantNames.size} layers need more trades to activate"
-                tvDormantWarning.setTextColor(0xFFFF8800.toInt())
+                tvDormantWarning.setTextColor(0xFFFFB020.toInt())
             } else if (isMegaBrain) {
                 // Show motivational message for Mega Brain
                 tvDormantWarning.visibility = View.VISIBLE
@@ -738,7 +738,7 @@ class BehaviorActivity : AppCompatActivity() {
                 }
                 tvDormantWarning.visibility = View.VISIBLE
                 tvDormantWarning.text = "🧠 $metaInfo"
-                tvDormantWarning.setTextColor(0xFF9945FF.toInt())
+                tvDormantWarning.setTextColor(0xFF9A4DFF.toInt())
             } catch (_: Exception) {}
             
         } catch (e: Exception) {
@@ -754,10 +754,10 @@ class BehaviorActivity : AppCompatActivity() {
             val s = com.lifecyclebot.engine.LlmTradeScore.snapshot()
             // Tint based on net PnL: green positive, red negative, purple neutral.
             sum.setTextColor(when {
-                s.opens == 0        -> 0xFF9945FF.toInt()
-                s.netPnlSol > 0.001 -> 0xFF00FF88.toInt()
+                s.opens == 0        -> 0xFF9A4DFF.toInt()
+                s.netPnlSol > 0.001 -> 0xFF16E6A1.toInt()
                 s.netPnlSol < -0.001 -> 0xFFFF4466.toInt()
-                else                 -> 0xFF9945FF.toInt()
+                else                 -> 0xFF9A4DFF.toInt()
             })
             val det = tvLlmScoreDetail
             if (det != null && det.visibility == View.VISIBLE) {
@@ -911,10 +911,10 @@ class BehaviorActivity : AppCompatActivity() {
         }
         tvProgress.text = "$phase · ${(progress * 100).toInt()}% · $journalSells trades"
         tvProgress.setTextColor(when (phase) {
-            "BOOTSTRAP" -> 0xFFFCD34D.toInt()
+            "BOOTSTRAP" -> 0xFFFFB020.toInt()
             "LEARNING" -> 0xFF60A5FA.toInt()
-            "MATURING" -> 0xFF14F195.toInt()
-            else -> 0xFF00FF88.toInt()
+            "MATURING" -> 0xFF16E6A1.toInt()
+            else -> 0xFF16E6A1.toInt()
         })
 
         // V5.9.1325 — Phase 2 ANR fix: layout built ONCE; subsequent ticks
@@ -997,7 +997,7 @@ class BehaviorActivity : AppCompatActivity() {
         container.addView(TextView(this).apply {
             text = title
             textSize = 11f
-            setTextColor(0xFF9CA3AF.toInt())
+            setTextColor(0xFFA7B7D8.toInt())
             typeface = android.graphics.Typeface.MONOSPACE
             setPadding(0, dp(12), 0, dp(4))
         })
@@ -1014,7 +1014,7 @@ class BehaviorActivity : AppCompatActivity() {
         topRow.addView(TextView(this).apply {
             text = "• $label"
             textSize = 11f
-            setTextColor(0xFFE5E7EB.toInt())
+            setTextColor(0xFFF5F7FF.toInt())
             typeface = android.graphics.Typeface.MONOSPACE
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         })
@@ -1023,7 +1023,7 @@ class BehaviorActivity : AppCompatActivity() {
         val valueTv = TextView(this).apply {
             text = value
             textSize = 12f
-            setTextColor(0xFF14F195.toInt())
+            setTextColor(0xFF16E6A1.toInt())
             typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
         }
         fluidRowValueViews[label] = valueTv
@@ -1032,7 +1032,7 @@ class BehaviorActivity : AppCompatActivity() {
         wrap.addView(TextView(this).apply {
             text = hint
             textSize = 9f
-            setTextColor(0xFF4B5563.toInt())
+            setTextColor(0xFF63759B.toInt())
             typeface = android.graphics.Typeface.MONOSPACE
             setPadding(dp(10), 0, 0, 0)
         })

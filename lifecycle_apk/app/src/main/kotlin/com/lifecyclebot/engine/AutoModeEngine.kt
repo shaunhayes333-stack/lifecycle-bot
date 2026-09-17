@@ -61,12 +61,12 @@ class AutoModeEngine(
         }
 
         val colour: Int get() = when (this) {
-            SNIPE      -> 0xFF9945FF.toInt()
-            RANGE      -> 0xFF3B82F6.toInt()
-            AGGRESSIVE -> 0xFFEF4444.toInt()
-            DEFENSIVE  -> 0xFF10B981.toInt()
-            COPY       -> 0xFFF59E0B.toInt()
-            PAUSED     -> 0xFF6B7280.toInt()
+            SNIPE      -> 0xFF9A4DFF.toInt()
+            RANGE      -> 0xFF4C8DFF.toInt()
+            AGGRESSIVE -> 0xFFFF4D6D.toInt()
+            DEFENSIVE  -> 0xFF16E6A1.toInt()
+            COPY       -> 0xFFFFB020.toInt()
+            PAUSED     -> 0xFF63759B.toInt()
         }
     }
 

@@ -109,11 +109,11 @@ object HeatmapRenderCache6374 {
         for (i in 0 until sliceCount) {
             val pct = store.rollingWinRatePctSlice(offset = i * sliceWidth, width = sliceWidth)
             val color = when {
-                pct < 0 -> 0xFF4B5563.toInt()
-                phaseTarget <= 0 -> 0xFF4B5563.toInt()
-                pct >= phaseTarget -> 0xFF10B981.toInt()
-                pct >= phaseTarget * 0.85 -> 0xFFF59E0B.toInt()
-                else -> 0xFFEF4444.toInt()
+                pct < 0 -> 0xFF63759B.toInt()
+                phaseTarget <= 0 -> 0xFF63759B.toInt()
+                pct >= phaseTarget -> 0xFF16E6A1.toInt()
+                pct >= phaseTarget * 0.85 -> 0xFFFFB020.toInt()
+                else -> 0xFFFF4D6D.toInt()
             }
             val start = builder.length
             builder.append("▰")

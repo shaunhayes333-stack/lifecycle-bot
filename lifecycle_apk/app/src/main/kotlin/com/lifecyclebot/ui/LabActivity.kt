@@ -74,14 +74,14 @@ class LabActivity : AppCompatActivity() {
 
     // ── Cyberpunk palette ────────────────────────────────────────────────
     private val ink     = 0xFF050508.toInt()
-    private val white   = 0xFFFFFFFF.toInt()
-    private val muted   = 0xFF6B7280.toInt()
-    private val grey    = 0xFF9CA3AF.toInt()
-    private val green   = 0xFF14F195.toInt()
+    private val white   = 0xFFF5F7FF.toInt()
+    private val muted   = 0xFF63759B.toInt()
+    private val grey    = 0xFFA7B7D8.toInt()
+    private val green   = 0xFF16E6A1.toInt()
     private val red     = 0xFFFF3B6B.toInt()
-    private val amber   = 0xFFF59E0B.toInt()
-    private val purple  = 0xFFA78BFA.toInt()
-    private val deepP   = 0xFF7C3AED.toInt()
+    private val amber   = 0xFFFFB020.toInt()
+    private val purple  = 0xFFB36BFF.toInt()
+    private val deepP   = 0xFF9A4DFF.toInt()
     private val cyan    = 0xFF22D3EE.toInt()
     private val magenta = 0xFFE879F9.toInt()
     private val cardLo  = 0xFF0E0E18.toInt()
@@ -1037,7 +1037,7 @@ class LabActivity : AppCompatActivity() {
         background = GradientDrawable().apply {
             cornerRadius = 12f * resources.displayMetrics.density
             setColor(cardLo)
-            setStroke(1.dp(), (borderColor and 0x00FFFFFF) or 0x66000000.toInt())
+            setStroke(1.dp(), (borderColor and 0x00F5F7FF) or 0x66000000.toInt())
         }
         setPadding(14.dp(), 12.dp(), 14.dp(), 12.dp())
         layoutParams = LinearLayout.LayoutParams(

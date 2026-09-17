@@ -33,15 +33,15 @@ class InsiderWalletsActivity : AppCompatActivity() {
     private val scope = CoroutineScope(Dispatchers.Main + Job())
     private var currentFilter: InsiderCategory? = null // null = ALL
 
-    private val white   = 0xFFFFFFFF.toInt()
-    private val muted   = 0xFF6B7280.toInt()
-    private val green   = 0xFF14F195.toInt()
-    private val red     = 0xFFEF4444.toInt()
-    private val amber   = 0xFFF59E0B.toInt()
-    private val purple  = 0xFF9945FF.toInt()
+    private val white   = 0xFFF5F7FF.toInt()
+    private val muted   = 0xFF63759B.toInt()
+    private val green   = 0xFF16E6A1.toInt()
+    private val red     = 0xFFFF4D6D.toInt()
+    private val amber   = 0xFFFFB020.toInt()
+    private val purple  = 0xFF9A4DFF.toInt()
     private val surface = 0xFF111118.toInt()
     private val dark    = 0xFF0D0D14.toInt()
-    private val divider = 0xFF1F2937.toInt()
+    private val divider = 0xFF101E33.toInt()
     private val sdf     = SimpleDateFormat("MMM dd HH:mm", Locale.US)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -87,7 +87,7 @@ class InsiderWalletsActivity : AppCompatActivity() {
         tabs.forEachIndexed { index, tab ->
             if (cats[index] == category) {
                 tab.setTextColor(purple)
-                tab.setBackgroundColor(0xFF1A1A2E.toInt())
+                tab.setBackgroundColor(0xFF0D192B.toInt())
             } else {
                 tab.setTextColor(muted)
                 tab.setBackgroundColor(0x00000000)

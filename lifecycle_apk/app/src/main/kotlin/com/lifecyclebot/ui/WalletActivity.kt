@@ -48,10 +48,10 @@ class WalletActivity : AppCompatActivity() {
     private lateinit var pnlChart: PnlChartView
 
     private var keyVisible = false
-    private val accentColor = 0xFF00E5A0.toInt()
-    private val mutedColor  = 0xFF4A5E70.toInt()
-    private val dangerColor = 0xFFFF3D5A.toInt()
-    private val warnColor   = 0xFFFFB700.toInt()
+    private val accentColor = 0xFF16E6A1.toInt()
+    private val mutedColor  = 0xFF63759B.toInt()
+    private val dangerColor = 0xFFFF4D6D.toInt()
+    private val warnColor   = 0xFFFFB020.toInt()
 
     // Withdraw views
     private lateinit var tvWithdrawTreasuryBal: TextView
@@ -466,7 +466,7 @@ class WalletActivity : AppCompatActivity() {
                 if (withdrawPct >= 100) android.view.View.VISIBLE else android.view.View.GONE
             // Highlight 100% button red, others reset
             btnWith100.backgroundTintList = android.content.res.ColorStateList.valueOf(
-                if (withdrawPct == 100) 0xFF3D1010.toInt() else 0xFF111720.toInt())
+                if (withdrawPct == 100) 0xFF3D1010.toInt() else 0xFF0A1424.toInt())
         }
 
         seekWithdrawPct.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -501,14 +501,14 @@ class WalletActivity : AppCompatActivity() {
                 .setMessage(confirmMsg)
                 .setPositiveButton(if (withdrawPct >= 100) "WITHDRAW ALL" else "Withdraw") { dialog: android.content.DialogInterface, _: Int ->
                     tvWithdrawStatus.text = "Processing…"
-                    tvWithdrawStatus.setTextColor(0xFFFFB700.toInt())
+                    tvWithdrawStatus.setTextColor(0xFFFFB020.toInt())
                     btnWithdrawConfirm.isEnabled = false
                     vm.withdrawFromTreasury(pct, dest) { result ->
                         btnWithdrawConfirm.isEnabled = true
                         val ok = result.startsWith("OK") || result.startsWith("PAPER")
                         tvWithdrawStatus.text  = result
                         tvWithdrawStatus.setTextColor(
-                            if (ok) 0xFF00E5A0.toInt() else 0xFFFF3D5A.toInt())
+                            if (ok) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
                         if (ok) {
                             Toast.makeText(this, "Withdrawal complete", Toast.LENGTH_LONG).show()
                             applyWithdrawPct(50)  // reset to 50% after success

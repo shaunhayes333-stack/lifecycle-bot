@@ -436,7 +436,7 @@ class MultiAssetActivity : AppCompatActivity() {
         
         // Swipe refresh
         swipeRefresh = findViewById(R.id.swipeRefresh)
-        swipeRefresh.setColorSchemeColors(0xFF00FF88.toInt())
+        swipeRefresh.setColorSchemeColors(0xFF16E6A1.toInt())
         swipeRefresh.setOnRefreshListener {
             refreshData()
             swipeRefresh.isRefreshing = false
@@ -606,7 +606,7 @@ class MultiAssetActivity : AppCompatActivity() {
         if (isLiveMode) {
             btnModeToggle.text = "LIVE"
             btnModeToggle.setBackgroundResource(R.drawable.pill_bg_red)
-            btnModeToggle.setTextColor(0xFFFFFFFF.toInt())
+            btnModeToggle.setTextColor(0xFFF5F7FF.toInt())
         } else {
             btnModeToggle.text = "PAPER"
             btnModeToggle.setBackgroundResource(R.drawable.pill_bg_yellow)
@@ -710,7 +710,7 @@ class MultiAssetActivity : AppCompatActivity() {
             if (marketsRunning) R.drawable.pill_bg_yellow else R.drawable.pill_bg_green
         )
         btnMarketsToggle.setTextColor(
-            if (marketsRunning) 0xFF000000.toInt() else 0xFFFFFFFF.toInt()
+            if (marketsRunning) 0xFF000000.toInt() else 0xFFF5F7FF.toInt()
         )
     }
     
@@ -928,10 +928,10 @@ class MultiAssetActivity : AppCompatActivity() {
             val combinedWr = if (allTrades > 0) allWins * 100 / allTrades else 0
             tvStatsWinRate.text = if (combinedWr > 0) "$combinedWr%" else "—%"
             tvStatsWinRate.setTextColor(when {
-                combinedWr >= 55 -> 0xFF10B981.toInt()
-                combinedWr >= 45 -> 0xFFF59E0B.toInt()
-                combinedWr >  0  -> 0xFFEF4444.toInt()
-                else             -> 0xFF6B7280.toInt()
+                combinedWr >= 55 -> 0xFF16E6A1.toInt()
+                combinedWr >= 45 -> 0xFFFFB020.toInt()
+                combinedWr >  0  -> 0xFFFF4D6D.toInt()
+                else             -> 0xFF63759B.toInt()
             })
 
             val solPrice = try {
@@ -939,14 +939,14 @@ class MultiAssetActivity : AppCompatActivity() {
             } catch (_: Exception) { SOL_PRICE_USD }
             val totalPnlUsd = allPnlSol * solPrice
             tvStatsTotalPnl.text = "${if (totalPnlUsd >= 0) "+" else ""}\$${"%,.0f".format(totalPnlUsd)}"
-            tvStatsTotalPnl.setTextColor(if (totalPnlUsd >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
+            tvStatsTotalPnl.setTextColor(if (totalPnlUsd >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
 
             val readiness = calculateMarketsReadiness()
             tvStatsAiScore.text = "${readiness.readinessScore}"
             tvStatsAiScore.setTextColor(when {
-                readiness.readinessScore >= 75 -> 0xFF10B981.toInt()
-                readiness.readinessScore >= 50 -> 0xFFF59E0B.toInt()
-                else -> 0xFFEF4444.toInt()
+                readiness.readinessScore >= 75 -> 0xFF16E6A1.toInt()
+                readiness.readinessScore >= 50 -> 0xFFFFB020.toInt()
+                else -> 0xFFFF4D6D.toInt()
             })
         } catch (_: Exception) {
             tvStats24hTrades.text = "0"
@@ -990,10 +990,10 @@ class MultiAssetActivity : AppCompatActivity() {
         try {
             tvMarketsWinRate.text = if (readiness.winRate > 0) "${"%.1f".format(readiness.winRate)}%" else "--"
             tvMarketsWinRate.setTextColor(when {
-                readiness.winRate >= 55 -> 0xFF00FF88.toInt()
-                readiness.winRate >= 45 -> 0xFFF59E0B.toInt()
-                readiness.winRate > 0   -> 0xFFFF4444.toInt()
-                else                    -> 0xFF6B7280.toInt()
+                readiness.winRate >= 55 -> 0xFF16E6A1.toInt()
+                readiness.winRate >= 45 -> 0xFFFFB020.toInt()
+                readiness.winRate > 0   -> 0xFFFF4D6D.toInt()
+                else                    -> 0xFF63759B.toInt()
             })
         } catch (_: Exception) {}
 
@@ -1001,12 +1001,12 @@ class MultiAssetActivity : AppCompatActivity() {
         try {
             tvMarketsPhase.text = readiness.phase.shortName
             tvMarketsPhase.setTextColor(when (readiness.phase) {
-                MarketsPhase.BOOTSTRAP  -> 0xFFF59E0B.toInt()
-                MarketsPhase.LEARNING   -> 0xFF3B82F6.toInt()
-                MarketsPhase.VALIDATING -> 0xFF8B5CF6.toInt()
+                MarketsPhase.BOOTSTRAP  -> 0xFFFFB020.toInt()
+                MarketsPhase.LEARNING   -> 0xFF4C8DFF.toInt()
+                MarketsPhase.VALIDATING -> 0xFF9A4DFF.toInt()
                 MarketsPhase.MATURING   -> 0xFF06B6D4.toInt()
-                MarketsPhase.READY      -> 0xFF10B981.toInt()
-                MarketsPhase.LIVE       -> 0xFF00FF88.toInt()
+                MarketsPhase.READY      -> 0xFF16E6A1.toInt()
+                MarketsPhase.LIVE       -> 0xFF16E6A1.toInt()
             })
         } catch (_: Exception) {}
 
@@ -1168,7 +1168,7 @@ class MultiAssetActivity : AppCompatActivity() {
             tvLayerCorrel.text = "--"
             tvMarketsLearningEvents.text = "0"
             tvMarketsCrossSync.text = "INIT"
-            tvMarketsCrossSync.setTextColor(0xFFF59E0B.toInt())
+            tvMarketsCrossSync.setTextColor(0xFFFFB020.toInt())
         }
     }
     
@@ -1176,10 +1176,10 @@ class MultiAssetActivity : AppCompatActivity() {
         textView.text = if (confidence > 0) "$confidence%" else "--"
         textView.setTextColor(
             when {
-                confidence >= 70 -> 0xFF22C55E.toInt()  // Green
-                confidence >= 50 -> 0xFFF59E0B.toInt()  // Yellow
-                confidence > 0 -> 0xFFEF4444.toInt()    // Red
-                else -> 0xFF6B7280.toInt()              // Gray
+                confidence >= 70 -> 0xFF16E6A1.toInt()  // Green
+                confidence >= 50 -> 0xFFFFB020.toInt()  // Yellow
+                confidence > 0 -> 0xFFFF4D6D.toInt()    // Red
+                else -> 0xFF63759B.toInt()              // Gray
             }
         )
     }
@@ -1254,15 +1254,15 @@ class MultiAssetActivity : AppCompatActivity() {
             val marketsTrades = PerpsTraderAI.getLifetimeTrades()
             // V5.7.6b: Updated thresholds to match 5000 trade requirement
             when {
-                marketsTrades >= 5000 -> "SYNCED" to 0xFF00FF88.toInt()  // Full sync at 5000+
+                marketsTrades >= 5000 -> "SYNCED" to 0xFF16E6A1.toInt()  // Full sync at 5000+
                 marketsTrades >= 3000 -> "MATURING" to 0xFF06B6D4.toInt()  // Cyan
-                marketsTrades >= 1500 -> "VALID" to 0xFF8B5CF6.toInt()  // Purple
-                marketsTrades >= 500 -> "LEARNING" to 0xFF3B82F6.toInt()  // Blue
-                marketsTrades > 0 -> "BOOT" to 0xFFF59E0B.toInt()  // Yellow
-                else -> "INIT" to 0xFF6B7280.toInt()
+                marketsTrades >= 1500 -> "VALID" to 0xFF9A4DFF.toInt()  // Purple
+                marketsTrades >= 500 -> "LEARNING" to 0xFF4C8DFF.toInt()  // Blue
+                marketsTrades > 0 -> "BOOT" to 0xFFFFB020.toInt()  // Yellow
+                else -> "INIT" to 0xFF63759B.toInt()
             }
         } catch (_: Exception) {
-            "ERROR" to 0xFFEF4444.toInt()
+            "ERROR" to 0xFFFF4D6D.toInt()
         }
     }
     
@@ -1329,12 +1329,12 @@ class MultiAssetActivity : AppCompatActivity() {
                             it.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
                             tvTotalBalance.layoutParams = it
                         }
-                        tvTotalBalance.setTextColor(0xFF00FF88.toInt())
+                        tvTotalBalance.setTextColor(0xFF16E6A1.toInt())
                         balanceContainer.contentDescription =
                             "Live: \$${"%,.0f".format(usdValue)} (${"%.2f".format(liveWalletSol)} SOL)"
                     } else if (unified6635?.status != com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED) {
                         tvTotalBalance.text = "ACCOUNTING ERROR"
-                        tvTotalBalance.setTextColor(0xFFEF4444.toInt())
+                        tvTotalBalance.setTextColor(0xFFFF4D6D.toInt())
                         balanceContainer.contentDescription = unified6635?.forensicLine
                             ?: "Paper accounting has not reconciled. Balance withheld."
                     } else {
@@ -1344,7 +1344,7 @@ class MultiAssetActivity : AppCompatActivity() {
                             it.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
                             tvTotalBalance.layoutParams = it
                         }
-                        tvTotalBalance.setTextColor(0xFFF59E0B.toInt())
+                        tvTotalBalance.setTextColor(0xFFFFB020.toInt())
                         balanceContainer.contentDescription =
                             "Paper: \$${"%,.0f".format(usdValue)} (${"%.2f".format(paperBalanceSol)} SOL · equity ${"%.2f".format(paperEquitySol)})"
                         // V5.0.6616 §HERO_BALANCE_RENDER + PARITY PROBE.
@@ -1363,7 +1363,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 ErrorLogger.error(TAG, "updateTotalBalance failed: ${e.message}")
                 withContext(Dispatchers.Main) {
                     tvTotalBalance.text = "-- PAPER"
-                    tvTotalBalance.setTextColor(0xFFF59E0B.toInt())
+                    tvTotalBalance.setTextColor(0xFFFFB020.toInt())
                 }
             }
         }
@@ -1389,7 +1389,7 @@ class MultiAssetActivity : AppCompatActivity() {
         val pnlUsd = pnlSol * solPrice
         
         tvTodayPnl.text = "${if (pnlUsd >= 0) "+" else ""}\$${"%,.2f".format(pnlUsd)}"
-        tvTodayPnl.setTextColor(if (pnlUsd >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
+        tvTodayPnl.setTextColor(if (pnlUsd >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
         
         // Win rate — aggregate across ALL Markets traders
         // V5.9.450: Markets excludes CryptoAlt (own Crypto tab).
@@ -1446,14 +1446,14 @@ class MultiAssetActivity : AppCompatActivity() {
     
     private fun updateModeToggle() {
         if (showSpotOnly) {
-            btnSpotMode.setTextColor(0xFF00FF88.toInt())
+            btnSpotMode.setTextColor(0xFF16E6A1.toInt())
             btnSpotMode.setBackgroundResource(R.drawable.tab_selected_bg)
-            btnLeverageMode.setTextColor(0xFF6B7280.toInt())
+            btnLeverageMode.setTextColor(0xFF63759B.toInt())
             btnLeverageMode.setBackgroundResource(R.drawable.section_card_bg)
         } else {
-            btnLeverageMode.setTextColor(0xFFFFD700.toInt())
+            btnLeverageMode.setTextColor(0xFFFFB020.toInt())
             btnLeverageMode.setBackgroundResource(R.drawable.tab_selected_bg)
-            btnSpotMode.setTextColor(0xFF6B7280.toInt())
+            btnSpotMode.setTextColor(0xFF63759B.toInt())
             btnSpotMode.setBackgroundResource(R.drawable.section_card_bg)
             
             // Update leverage text based on tab
@@ -1534,13 +1534,13 @@ class MultiAssetActivity : AppCompatActivity() {
         }
         symbolCol.addView(TextView(this).apply {
             text = "${pos.directionEmoji} ${pos.symbol}"
-            setTextColor(0xFFFFFFFF.toInt())
+            setTextColor(0xFFF5F7FF.toInt())
             textSize = 16f
             setTypeface(null, android.graphics.Typeface.BOLD)
         })
         symbolCol.addView(TextView(this).apply {
             text = "${pos.typeLabel} • Size: \$${"%,.0f".format(pos.sizeUsd)}"
-            setTextColor(0xFF9CA3AF.toInt())
+            setTextColor(0xFFA7B7D8.toInt())
             textSize = 11f
         })
         topRow.addView(symbolCol)
@@ -1552,13 +1552,13 @@ class MultiAssetActivity : AppCompatActivity() {
         }
         pnlCol.addView(TextView(this).apply {
             text = "${if (pos.pnlUsd >= 0) "+" else ""}\$${"%,.2f".format(pos.pnlUsd)}"
-            setTextColor(if (pos.pnlUsd >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
+            setTextColor(if (pos.pnlUsd >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
             textSize = 16f
             setTypeface(null, android.graphics.Typeface.BOLD)
         })
         pnlCol.addView(TextView(this).apply {
             text = "${if (pos.pnlPct >= 0) "+" else ""}${"%.2f".format(pos.pnlPct)}%"
-            setTextColor(if (pos.pnlPct >= 0) 0xFF10B981.toInt() else 0xFFEF4444.toInt())
+            setTextColor(if (pos.pnlPct >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
             textSize = 12f
         })
         topRow.addView(pnlCol)
@@ -1577,19 +1577,19 @@ class MultiAssetActivity : AppCompatActivity() {
         }
         priceRow.addView(TextView(this).apply {
             text = "Entry: ${pos.entryPrice}"
-            setTextColor(0xFF6B7280.toInt())
+            setTextColor(0xFF63759B.toInt())
             textSize = 11f
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         })
         priceRow.addView(TextView(this).apply {
             text = "→"
-            setTextColor(0xFF4B5563.toInt())
+            setTextColor(0xFF63759B.toInt())
             textSize = 14f
             setPadding(8, 0, 8, 0)
         })
         priceRow.addView(TextView(this).apply {
             text = "Now: ${pos.currentPrice}"
-            setTextColor(0xFFFFFFFF.toInt())
+            setTextColor(0xFFF5F7FF.toInt())
             textSize = 11f
             setTypeface(null, android.graphics.Typeface.BOLD)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -1619,7 +1619,7 @@ class MultiAssetActivity : AppCompatActivity() {
             })
             addView(TextView(this@MultiAssetActivity).apply {
                 text = " SL: ${pos.stopLossPrice}"
-                setTextColor(0xFFEF4444.toInt())
+                setTextColor(0xFFFF4D6D.toInt())
                 textSize = 10f
             })
         })
@@ -1635,7 +1635,7 @@ class MultiAssetActivity : AppCompatActivity() {
             })
             addView(TextView(this@MultiAssetActivity).apply {
                 text = " TP: ${pos.takeProfitPrice}"
-                setTextColor(0xFF10B981.toInt())
+                setTextColor(0xFF16E6A1.toInt())
                 textSize = 10f
             })
         })
@@ -1670,7 +1670,7 @@ class MultiAssetActivity : AppCompatActivity() {
         
         bottomRow.addView(TextView(this).apply {
             text = "⏱ Open: $timeOpen"
-            setTextColor(0xFF6B7280.toInt())
+            setTextColor(0xFF63759B.toInt())
             textSize = 10f
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         })
@@ -1678,11 +1678,11 @@ class MultiAssetActivity : AppCompatActivity() {
         // Close button
         bottomRow.addView(TextView(this).apply {
             text = "✕ CLOSE"
-            setTextColor(0xFFFF6B6B.toInt())
+            setTextColor(0xFFFF4D6D.toInt())
             textSize = 11f
             setTypeface(null, android.graphics.Typeface.BOLD)
             setPadding(16, 6, 16, 6)
-            setBackgroundColor(0x33FF6B6B.toInt())
+            setBackgroundColor(0x33FF4D6D.toInt())
             setOnClickListener { showClosePositionDialog(pos) }
         })
         card.addView(bottomRow)
@@ -1703,7 +1703,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 12
             ).apply { topMargin = 6 }
-            setBackgroundColor(0xFF1F2937.toInt())
+            setBackgroundColor(0xFF101E33.toInt())
             
             // Calculate progress: -100% (at SL) to +100% (at TP), 0% at entry
             val progress = pos.pnlPct.coerceIn(-100.0, 100.0)
@@ -1713,30 +1713,30 @@ class MultiAssetActivity : AppCompatActivity() {
                 val lossWidth = (kotlin.math.abs(progress) / 100.0 * 50).toInt().coerceIn(1, 50)
                 addView(View(this@MultiAssetActivity).apply {
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, (50 - lossWidth).toFloat())
-                    setBackgroundColor(0xFF1F2937.toInt())
+                    setBackgroundColor(0xFF101E33.toInt())
                 })
                 addView(View(this@MultiAssetActivity).apply {
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, lossWidth.toFloat())
-                    setBackgroundColor(0xFFEF4444.toInt())
+                    setBackgroundColor(0xFFFF4D6D.toInt())
                 })
                 addView(View(this@MultiAssetActivity).apply {
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 50f)
-                    setBackgroundColor(0xFF1F2937.toInt())
+                    setBackgroundColor(0xFF101E33.toInt())
                 })
             } else {
                 // Right side (profit zone - green)
                 val profitWidth = (progress / 100.0 * 50).toInt().coerceIn(1, 50)
                 addView(View(this@MultiAssetActivity).apply {
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 50f)
-                    setBackgroundColor(0xFF1F2937.toInt())
+                    setBackgroundColor(0xFF101E33.toInt())
                 })
                 addView(View(this@MultiAssetActivity).apply {
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, profitWidth.toFloat())
-                    setBackgroundColor(0xFF10B981.toInt())
+                    setBackgroundColor(0xFF16E6A1.toInt())
                 })
                 addView(View(this@MultiAssetActivity).apply {
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, (50 - profitWidth).toFloat())
-                    setBackgroundColor(0xFF1F2937.toInt())
+                    setBackgroundColor(0xFF101E33.toInt())
                 })
             }
         }
@@ -1755,7 +1755,7 @@ class MultiAssetActivity : AppCompatActivity() {
             
             // Create a simple bar chart
             val barWidth = (kotlin.math.abs(pnlPct).coerceIn(0.0, 20.0) / 20.0 * 100).toInt()
-            val barColor = if (pnlPct >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt()
+            val barColor = if (pnlPct >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt()
             
             addView(View(this@MultiAssetActivity).apply {
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, barWidth.toFloat())
@@ -1763,7 +1763,7 @@ class MultiAssetActivity : AppCompatActivity() {
             })
             addView(View(this@MultiAssetActivity).apply {
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, (100 - barWidth).toFloat())
-                setBackgroundColor(0x20FFFFFF)
+                setBackgroundColor(0x20F5F7FF)
             })
         }
     }
@@ -2062,7 +2062,7 @@ class MultiAssetActivity : AppCompatActivity() {
                 })
                 addView(TextView(this@MultiAssetActivity).apply {
                     text = mover.symbol
-                    setTextColor(0xFFFFFFFF.toInt())
+                    setTextColor(0xFFF5F7FF.toInt())
                     textSize = 11f
                     setTypeface(null, android.graphics.Typeface.BOLD)
                     setPadding(4, 0, 0, 0)
@@ -2072,14 +2072,14 @@ class MultiAssetActivity : AppCompatActivity() {
             // Price
             addView(TextView(this@MultiAssetActivity).apply {
                 text = if (mover.price > 1000) "${"%.0f".format(mover.price)}" else "${"%.2f".format(mover.price)}"
-                setTextColor(0xFFFFFFFF.toInt())
+                setTextColor(0xFFF5F7FF.toInt())
                 textSize = 12f
             })
             
             // Change
             addView(TextView(this@MultiAssetActivity).apply {
                 text = "${if (mover.change24h >= 0) "+" else ""}${"%.1f".format(mover.change24h)}%"
-                setTextColor(if (mover.change24h >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
+                setTextColor(if (mover.change24h >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
                 textSize = 10f
             })
         }
@@ -2105,14 +2105,14 @@ class MultiAssetActivity : AppCompatActivity() {
             }
             row.addView(TextView(this).apply {
                 text = "${getAssetLogo(signal.symbol)} ${signal.symbol}"
-                setTextColor(0xFFFFFFFF.toInt())
+                setTextColor(0xFFF5F7FF.toInt())
                 textSize = 13f
                 setTypeface(null, android.graphics.Typeface.BOLD)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             })
             row.addView(TextView(this).apply {
                 text = signal.direction
-                setTextColor(if (signal.direction == "LONG") 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
+                setTextColor(if (signal.direction == "LONG") 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
                 textSize = 12f
                 setTypeface(null, android.graphics.Typeface.BOLD)
                 layoutParams = LinearLayout.LayoutParams(
@@ -2122,12 +2122,12 @@ class MultiAssetActivity : AppCompatActivity() {
             })
             row.addView(TextView(this).apply {
                 text = "${signal.confidence}%"
-                setTextColor(0xFF9CA3AF.toInt())
+                setTextColor(0xFFA7B7D8.toInt())
                 textSize = 11f
             })
             row.addView(TextView(this).apply {
                 text = signal.reason
-                setTextColor(0xFF6B7280.toInt())
+                setTextColor(0xFF63759B.toInt())
                 textSize = 10f
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -2170,7 +2170,7 @@ class MultiAssetActivity : AppCompatActivity() {
             val change = cachedData?.priceChange24hPct ?: 0.0
             row.addView(TextView(this).apply {
                 text = "${getAssetLogo(market.symbol)} ${market.symbol}"
-                setTextColor(0xFFFFFFFF.toInt())
+                setTextColor(0xFFF5F7FF.toInt())
                 textSize = 13f
                 setTypeface(null, android.graphics.Typeface.BOLD)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -2183,7 +2183,7 @@ class MultiAssetActivity : AppCompatActivity() {
             }
             row.addView(TextView(this).apply {
                 text = priceText
-                setTextColor(0xFFE5E7EB.toInt())
+                setTextColor(0xFFF5F7FF.toInt())
                 textSize = 12f
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -2192,7 +2192,7 @@ class MultiAssetActivity : AppCompatActivity() {
             })
             row.addView(TextView(this).apply {
                 text = if (price <= 0) "" else "${if (change >= 0) "+" else ""}${"%.2f".format(change)}%"
-                setTextColor(if (change >= 0) 0xFF00FF88.toInt() else 0xFFFF4444.toInt())
+                setTextColor(if (change >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
                 textSize = 11f
             })
             assetsContainer.addView(row)
@@ -2341,13 +2341,13 @@ class MultiAssetActivity : AppCompatActivity() {
                 
                 addView(TextView(this@MultiAssetActivity).apply {
                     text = "${if (signal.direction == "LONG") "📈" else "📉"} ${signal.symbol} ${signal.direction}"
-                    setTextColor(0xFFFFFFFF.toInt())
+                    setTextColor(0xFFF5F7FF.toInt())
                     textSize = 12f
                     setTypeface(null, android.graphics.Typeface.BOLD)
                 })
                 addView(TextView(this@MultiAssetActivity).apply {
                     text = signal.reason
-                    setTextColor(0xFF6B7280.toInt())
+                    setTextColor(0xFF63759B.toInt())
                     textSize = 9f
                     maxLines = 1
                 })
@@ -2361,16 +2361,16 @@ class MultiAssetActivity : AppCompatActivity() {
                 addView(TextView(this@MultiAssetActivity).apply {
                     text = "${signal.score}"
                     setTextColor(when {
-                        signal.score >= 70 -> 0xFF00FF88.toInt()
-                        signal.score >= 50 -> 0xFFF59E0B.toInt()
-                        else -> 0xFFFF4444.toInt()
+                        signal.score >= 70 -> 0xFF16E6A1.toInt()
+                        signal.score >= 50 -> 0xFFFFB020.toInt()
+                        else -> 0xFFFF4D6D.toInt()
                     })
                     textSize = 16f
                     setTypeface(null, android.graphics.Typeface.BOLD)
                 })
                 addView(TextView(this@MultiAssetActivity).apply {
                     text = "score"
-                    setTextColor(0xFF6B7280.toInt())
+                    setTextColor(0xFF63759B.toInt())
                     textSize = 8f
                 })
             })

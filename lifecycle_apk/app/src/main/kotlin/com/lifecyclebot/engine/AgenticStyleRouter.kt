@@ -77,7 +77,7 @@ object AgenticStyleRouter {
         val tools: Set<String> get() = style.tools
     }
 
-    private fun stablePick(seed: String, count: Int): Int = if (count <= 0) 0 else ((seed.hashCode() and 0x7fffffff) % count)
+    private fun stablePick(seed: String, count: Int): Int = if (count <= 0) 0 else ((seed.hashCode() and 0x7FF5F7FF) % count)
 
     private fun boundedLanes(mint: String, base: Set<String>, style: Style, score: Int = 50): Set<String> {
         // V5.9.1576 — bounded style fanout. 1575 fixed strategy monoculture

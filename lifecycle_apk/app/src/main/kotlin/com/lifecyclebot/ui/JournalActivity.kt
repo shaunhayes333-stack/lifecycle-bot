@@ -48,14 +48,14 @@ class JournalActivity : AppCompatActivity() {
     private var lastRenderedStoreCount: Int = -1
     private var lastRenderedFilter: String? = "__INIT__"
 
-    private val white = 0xFFFFFFFF.toInt()
-    private val muted = 0xFF6B7280.toInt()
-    private val green = 0xFF10B981.toInt()
-    private val red = 0xFFEF4444.toInt()
-    private val amber = 0xFFF59E0B.toInt()
+    private val white = 0xFFF5F7FF.toInt()
+    private val muted = 0xFF63759B.toInt()
+    private val green = 0xFF16E6A1.toInt()
+    private val red = 0xFFFF4D6D.toInt()
+    private val amber = 0xFFFFB020.toInt()
     private val buyBlue = 0xFF60A5FA.toInt()
     private val surface = 0xFF111118.toInt()
-    private val divider = 0xFF1F2937.toInt()
+    private val divider = 0xFF101E33.toInt()
 
     private val sdf = SimpleDateFormat("MMM dd HH:mm", Locale.US)
 
@@ -150,8 +150,8 @@ class JournalActivity : AppCompatActivity() {
                     0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f
                 ).also { it.marginEnd = dp(4) }
                 gravity = android.view.Gravity.CENTER
-                setBackgroundColor(0xFF1F2937.toInt())
-                setTextColor(if (filter == currentModeFilter) 0xFF10B981.toInt() else 0xFF9CA3AF.toInt())
+                setBackgroundColor(0xFF101E33.toInt())
+                setTextColor(if (filter == currentModeFilter) 0xFF16E6A1.toInt() else 0xFFA7B7D8.toInt())
                 setOnClickListener {
                     currentModeFilter = filter
                     currentPage = 1  // V5.9.330: reset pagination on filter change
@@ -188,8 +188,8 @@ class JournalActivity : AppCompatActivity() {
     }
 
     private fun updateTabColors() {
-        val active = 0xFF10B981.toInt()
-        val inactive = 0xFF9CA3AF.toInt()
+        val active = 0xFF16E6A1.toInt()
+        val inactive = 0xFFA7B7D8.toInt()
         tvFilterAll?.setTextColor(if (currentModeFilter == null) active else inactive)
         tvFilterLive?.setTextColor(if (currentModeFilter == "live") active else inactive)
         tvFilterPaper?.setTextColor(if (currentModeFilter == "paper") active else inactive)
@@ -689,7 +689,7 @@ class JournalActivity : AppCompatActivity() {
                 setTextColor(0xFF60A5FA.toInt())
                 gravity = android.view.Gravity.CENTER
                 typeface = Typeface.DEFAULT_BOLD
-                setBackgroundColor(0xFF1F2937.toInt())
+                setBackgroundColor(0xFF101E33.toInt())
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
@@ -775,7 +775,7 @@ class JournalActivity : AppCompatActivity() {
         fun mkBtn(label: String, color: Int, onClick: () -> Unit): android.widget.Button {
             return android.widget.Button(this).apply {
                 text = label
-                setTextColor(0xFFFFFFFF.toInt())
+                setTextColor(0xFFF5F7FF.toInt())
                 setBackgroundColor(color)
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -788,13 +788,13 @@ class JournalActivity : AppCompatActivity() {
             }
         }
 
-        container.addView(mkBtn("Restore Paper Treasury", 0xFF10B981.toInt()) {
+        container.addView(mkBtn("Restore Paper Treasury", 0xFF16E6A1.toInt()) {
             showTreasuryInputDialog("Paper", true)
         })
-        container.addView(mkBtn("Restore Live Treasury", 0xFF9945FF.toInt()) {
+        container.addView(mkBtn("Restore Live Treasury", 0xFF9A4DFF.toInt()) {
             showTreasuryInputDialog("Live", false)
         })
-        container.addView(mkBtn("Restore Both", 0xFFF59E0B.toInt()) {
+        container.addView(mkBtn("Restore Both", 0xFFFFB020.toInt()) {
             showBothTreasuryInputDialog()
         })
 
@@ -851,12 +851,12 @@ class JournalActivity : AppCompatActivity() {
         
         layout.addView(TextView(this).apply { 
             text = "Paper Treasury:"
-            setTextColor(0xFF10B981.toInt())
+            setTextColor(0xFF16E6A1.toInt())
         })
         layout.addView(paperInput)
         layout.addView(TextView(this).apply { 
             text = "\nLive Treasury:"
-            setTextColor(0xFF9945FF.toInt())
+            setTextColor(0xFF9A4DFF.toInt())
         })
         layout.addView(liveInput)
         
