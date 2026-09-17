@@ -1326,19 +1326,19 @@ object MoonshotTraderAI {
                 val strategyName = "MOONSHOT_${pos.spaceMode.name}"
                 val mfePct = if (pos.peakPnlPct > 0.0) pos.peakPnlPct else pnlPct.coerceAtLeast(0.0)
                 val maePct = pnlPct.coerceAtMost(0.0)
-                val lessonCtx = com.lifecyclebot.v4.meta.TradeLessonRecorder.TradeLessonContext(
+                // V5.0.6859 — real causal context instead of literals. Every field
+                // below used to be a constant (RISK_ON / OFF_HOURS / 0.5 / 0.3 / 0.5
+                // / 0.3 / 1.0 / 0.6), so every moonshot lesson ever recorded claimed
+                // the same market conditions. StrategyTrustAI reads this corpus and
+                // the collective/Turso sync ships it to the network hive, so the
+                // constants propagated outward too.
+                val lessonCtx = com.lifecyclebot.v4.meta.TradeLessonRecorder.liveContext6859(
                     strategy = strategyName,
                     market = "MEME",
                     symbol = pos.symbol,
-                    entryRegime = com.lifecyclebot.v4.meta.GlobalRiskMode.RISK_ON,
-                    entrySession = com.lifecyclebot.v4.meta.SessionContext.OFF_HOURS,
-                    trustScore = 0.5, fragilityScore = 0.3,
-                    narrativeHeat = 0.5, portfolioHeat = 0.3,
-                    leverageUsed = 1.0, executionConfidence = 0.6,
-                    leadSource = null, expectedDelaySec = null,
+                    mint = pos.mint,
                     expectedFillPrice = pos.entryPrice,
-                    executionRoute = "JUPITER_V6",
-                    captureTime = pos.entryTime
+                    captureTime = pos.entryTime,
                 )
                 com.lifecyclebot.v4.meta.TradeLessonRecorder.completeLesson(
                     context = lessonCtx,

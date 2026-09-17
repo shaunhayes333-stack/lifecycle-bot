@@ -209,6 +209,81 @@ object TradeLessonRecorder {
         val captureTime: Long
     )
 
+    /**
+     * V5.0.6859 §THE_CAUSAL_CHAIN_RECORDER_WAS_FED_CONSTANTS — this class exists to
+     * record "the FULL causal chain for every trade, not just won/lost", and its
+     * three meme call sites all built the context out of hardcoded literals:
+     *
+     *   entryRegime = GlobalRiskMode.RISK_ON, entrySession = SessionContext.OFF_HOURS,
+     *   trustScore = 0.5, fragilityScore = 0.3, narrativeHeat = 0.5,
+     *   portfolioHeat = 0.3, leverageUsed = 1.0, executionConfidence = 0.6
+     *
+     * (Executor:21383 and :24213 vary only executionConfidence and narrativeHeat;
+     * MoonshotTraderAI:1330 hardcodes all eight.) Every lesson in the corpus was
+     * therefore stamped with the same context, so the separate memory lanes this
+     * class was built to keep apart — regime-fit, execution-quality,
+     * narrative-persistence — had nothing to separate. StrategyTrustAI reads that
+     * corpus, and the collective/Turso hive syncs it, so the constants propagated
+     * into the network hive mind as well.
+     *
+     * Every one of those values has a real live source, and after V5.0.6853 the two
+     * that used to be genuinely unavailable (fragility and portfolio heat) are fed.
+     * This factory resolves them; each read is independently fail-soft so a single
+     * unavailable subsystem degrades one field instead of the whole lesson.
+     */
+    fun liveContext6859(
+        strategy: String,
+        market: String,
+        symbol: String,
+        mint: String = "",
+        expectedFillPrice: Double,
+        captureTime: Long,
+        executionRoute: String = "JUPITER_V6",
+        leverageUsed: Double = 1.0,
+        leadSource: String? = null,
+        expectedDelaySec: Int? = null,
+    ): TradeLessonContext {
+        val regime = try {
+            CrossMarketRegimeAI.getCurrentRegime()
+        } catch (_: Throwable) { GlobalRiskMode.RISK_ON }
+        val session = try {
+            CrossTalkFusionEngine.currentSession6859()
+        } catch (_: Throwable) { SessionContext.OFF_HOURS }
+        val trust = try {
+            StrategyTrustAI.getAllTrustScores()[strategy]?.trustScore ?: 0.5
+        } catch (_: Throwable) { 0.5 }
+        val fragility = try {
+            LiquidityFragilityAI.getFragilityScoreFor(mint, symbol)
+        } catch (_: Throwable) { 0.3 }
+        val narrative = try {
+            NarrativeFlowAI.getNarrativeHeat(symbol)
+        } catch (_: Throwable) { 0.5 }
+        val heat = try {
+            PortfolioHeatAI.getPortfolioHeat()
+        } catch (_: Throwable) { 0.3 }
+        val execConf = try {
+            (ExecutionPathAI.getExecutionConfidenceMultiplier() / 2.0).coerceIn(0.0, 1.0)
+        } catch (_: Throwable) { 0.6 }
+        return TradeLessonContext(
+            strategy = strategy,
+            market = market,
+            symbol = symbol,
+            entryRegime = regime,
+            entrySession = session,
+            trustScore = trust,
+            fragilityScore = fragility,
+            narrativeHeat = narrative,
+            portfolioHeat = heat,
+            leverageUsed = leverageUsed,
+            executionConfidence = execConf,
+            leadSource = leadSource,
+            expectedDelaySec = expectedDelaySec,
+            executionRoute = executionRoute,
+            expectedFillPrice = expectedFillPrice,
+            captureTime = captureTime,
+        )
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // QUERY — Lane-specific analysis
     // ═══════════════════════════════════════════════════════════════════════

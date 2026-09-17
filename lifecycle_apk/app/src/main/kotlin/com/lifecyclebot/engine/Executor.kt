@@ -21380,17 +21380,16 @@ class Executor(
         // V5.9.9: Feed meme paper trade into V4 TradeLessonRecorder → StrategyTrustAI
         try {
             val tradingMode = ts.position.tradingMode.ifBlank { "STANDARD" }
-            val lessonCtx = com.lifecyclebot.v4.meta.TradeLessonRecorder.TradeLessonContext(
+            // V5.0.6859 — real causal context instead of literals. The old block
+            // stamped entryRegime=RISK_ON, entrySession=OFF_HOURS, trustScore=0.5,
+            // fragilityScore=0.3 and portfolioHeat=0.3 on EVERY lesson, so the
+            // regime-fit, execution-quality and narrative-persistence memory lanes
+            // this recorder exists to keep separate had nothing to separate.
+            val lessonCtx = com.lifecyclebot.v4.meta.TradeLessonRecorder.liveContext6859(
                 strategy = tradingMode, market = "MEME", symbol = tradeId.symbol,
-                entryRegime = com.lifecyclebot.v4.meta.GlobalRiskMode.RISK_ON,
-                entrySession = com.lifecyclebot.v4.meta.SessionContext.OFF_HOURS,
-                trustScore = 0.5, fragilityScore = 0.3,
-                narrativeHeat = ts.meta.pressScore / 100.0, portfolioHeat = 0.3,
-                leverageUsed = 1.0, executionConfidence = ts.entryScore / 100.0,
-                leadSource = null, expectedDelaySec = null,
+                mint = tradeId.mint,
                 expectedFillPrice = ts.position.entryPrice,
-                executionRoute = "JUPITER_V6",
-                captureTime = ts.position.entryTime
+                captureTime = ts.position.entryTime,
             )
             com.lifecyclebot.v4.meta.TradeLessonRecorder.completeLesson(
                 context = lessonCtx, outcomePct = pnlP,
@@ -24210,17 +24209,16 @@ class Executor(
         // V5.9.9: Feed meme trade into V4 TradeLessonRecorder → StrategyTrustAI
         try {
             val tradingMode = ts.position.tradingMode.ifBlank { "STANDARD" }
-            val lessonCtx = com.lifecyclebot.v4.meta.TradeLessonRecorder.TradeLessonContext(
+            // V5.0.6859 — real causal context instead of literals. The old block
+            // stamped entryRegime=RISK_ON, entrySession=OFF_HOURS, trustScore=0.5,
+            // fragilityScore=0.3 and portfolioHeat=0.3 on EVERY lesson, so the
+            // regime-fit, execution-quality and narrative-persistence memory lanes
+            // this recorder exists to keep separate had nothing to separate.
+            val lessonCtx = com.lifecyclebot.v4.meta.TradeLessonRecorder.liveContext6859(
                 strategy = tradingMode, market = "MEME", symbol = tradeId.symbol,
-                entryRegime = com.lifecyclebot.v4.meta.GlobalRiskMode.RISK_ON,
-                entrySession = com.lifecyclebot.v4.meta.SessionContext.OFF_HOURS,
-                trustScore = 0.5, fragilityScore = 0.3,
-                narrativeHeat = ts.meta.pressScore / 100.0, portfolioHeat = 0.3,
-                leverageUsed = 1.0, executionConfidence = ts.entryScore / 100.0,
-                leadSource = null, expectedDelaySec = null,
+                mint = tradeId.mint,
                 expectedFillPrice = ts.position.entryPrice,
-                executionRoute = "JUPITER_V6",
-                captureTime = ts.position.entryTime
+                captureTime = ts.position.entryTime,
             )
             com.lifecyclebot.v4.meta.TradeLessonRecorder.completeLesson(
                 context = lessonCtx, outcomePct = pnlP,

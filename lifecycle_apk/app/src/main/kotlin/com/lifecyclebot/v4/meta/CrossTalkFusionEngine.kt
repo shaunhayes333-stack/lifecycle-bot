@@ -364,6 +364,16 @@ object CrossTalkFusionEngine {
     // UTILITIES
     // ═══════════════════════════════════════════════════════════════════════
 
+    /**
+     * V5.0.6859 — public session read. The trading session was already computed on
+     * every fuse() but was only reachable through a snapshot, so callers that needed
+     * it outside the fusion cycle (the lesson recorder, most importantly) hardcoded
+     * SessionContext.OFF_HOURS instead. Prefer the live snapshot's value and fall
+     * back to computing it, so a stale or absent snapshot still yields the truth.
+     */
+    fun currentSession6859(): SessionContext =
+        try { getSnapshot()?.sessionContext ?: detectSession() } catch (_: Throwable) { detectSession() }
+
     private fun detectSession(): SessionContext {
         val utcHour = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
             .get(java.util.Calendar.HOUR_OF_DAY)
