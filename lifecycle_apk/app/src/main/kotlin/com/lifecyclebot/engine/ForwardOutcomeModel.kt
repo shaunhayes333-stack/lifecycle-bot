@@ -124,7 +124,13 @@ object ForwardOutcomeModel {
     /** Feed settled PnL back — updates BOTH the fine and coarse cells (Welford). */
     fun recordOutcome(mint: String, pnlPct: Double) {
         try {
-            val keys = pending.remove(mint) ?: return
+            // V5.0.6862 — an unmapped close is a LOST learning sample, not a no-op.
+            // It used to return in silence, so the drop was invisible; count it so a
+            // rising number is visible rather than being mistaken for a quiet model.
+            val keys = pending.remove(mint) ?: run {
+                try { PipelineHealthCollector.labelInc("FORWARD_OUTCOME_UNMAPPED_CLOSE_6862") } catch (_: Throwable) {}
+                return
+            }
             val pnl = pnlPct.coerceIn(-95.0, 1000.0)
             update(fine.getOrPut(keys.first) { Cell() }, pnl)
             update(coarse.getOrPut(keys.second) { Cell() }, pnl)
@@ -145,13 +151,38 @@ object ForwardOutcomeModel {
         }
     }
 
+    /**
+     * V5.0.6861 §DECAY_TRUNCATION_WALKED_EVERY_WIN_RATE_DOWNWARDS — this used
+     * `.toLong()`, which truncates toward zero, on three counters independently.
+     * Two separate faults fell out of that.
+     *
+     * 1. Truncation is not a 2% decay. n=1 became 0 (0.98 truncates to 0), so a
+     *    cell with a single observation was erased outright rather than aged; n=2
+     *    became 1, a 50% cut. The intended gentle ageing was brutal at exactly the
+     *    sample sizes where evidence is scarcest.
+     *
+     * 2. Worse, decaying n, wins and rugs independently does not preserve the
+     *    ratio between them, and truncation removes on average half a unit from
+     *    each — which costs the smaller numerator proportionally more. A perfectly
+     *    stable cohort therefore drifted DOWNWARD on every decay cycle with no new
+     *    evidence at all: n=50/wins=25 (50.0%) decays to 49/24 (48.98%), then to
+     *    48/23 (47.9%), and so on toward zero. The forward model's win rates were
+     *    being walked pessimistic by the ageing routine itself, and a pessimistic
+     *    pWin suppresses entries.
+     *
+     * Rounded, and the sub-counters are scaled by the ratio n actually moved by, so
+     * ageing changes the WEIGHT of the evidence and never its shape.
+     */
     private fun decayAll() {
         try {
             (fine.values + coarse.values).forEach { c ->
                 synchronized(c) {
-                    c.n = (c.n * DECAY_FACTOR).toLong().coerceAtLeast(0L)
-                    c.wins = (c.wins * DECAY_FACTOR).toLong().coerceAtLeast(0L)
-                    c.rugs = (c.rugs * DECAY_FACTOR).toLong().coerceAtLeast(0L)
+                    val priorN = c.n
+                    val newN = Math.round(priorN * DECAY_FACTOR).coerceAtLeast(0L)
+                    val scale = if (priorN > 0L) newN.toDouble() / priorN.toDouble() else 0.0
+                    c.wins = Math.round(c.wins * scale).coerceIn(0L, newN)
+                    c.rugs = Math.round(c.rugs * scale).coerceIn(0L, newN)
+                    c.n = newN
                     c.m2 *= DECAY_FACTOR
                 }
             }
@@ -177,11 +208,26 @@ object ForwardOutcomeModel {
         }
     }
 
+    // V5.0.6862 §THE_MODEL_NEVER_LEARNED_FROM_A_TRADE_THAT_OUTLIVED_A_RESTART —
+    // `pending` holds the mint → (fineKey, coarseKey) mapping written at entry by
+    // stamp(), and recordOutcome opens with `pending.remove(mint) ?: return`. It was
+    // the only part of this model's state that was NOT persisted, so every position
+    // open across a restart came back with no mapping and its close returned early —
+    // silently, with no counter, so the loss did not appear anywhere. Given hold
+    // times from minutes to hours, that is a standing slice of every session's
+    // closes that the forward model never saw, and it biases what remains toward
+    // short-hold trades purely because those are the ones that fit inside one
+    // process lifetime.
     fun exportState(): String = try {
         JSONObject().apply {
             put("totalUpdates", totalUpdates)
             put("fine", mapToJson(fine))
             put("coarse", mapToJson(coarse))
+            put("pending", JSONObject().apply {
+                pending.forEach { (mint, keys) ->
+                    put(mint, JSONObject().apply { put("f", keys.first); put("c", keys.second) })
+                }
+            })
         }.toString()
     } catch (_: Throwable) { "{}" }
 
@@ -192,6 +238,15 @@ object ForwardOutcomeModel {
             totalUpdates = o.optLong("totalUpdates", 0L)
             jsonToMap(o.optJSONObject("fine"), fine)
             jsonToMap(o.optJSONObject("coarse"), coarse)
+            o.optJSONObject("pending")?.let { po ->
+                val pk = po.keys()
+                while (pk.hasNext()) {
+                    val mint = pk.next()
+                    val e = po.optJSONObject(mint) ?: continue
+                    val f = e.optString("f", ""); val c = e.optString("c", "")
+                    if (f.isNotBlank() && c.isNotBlank()) pending.putIfAbsent(mint, f to c)
+                }
+            }
         } catch (_: Throwable) {}
     }
 
