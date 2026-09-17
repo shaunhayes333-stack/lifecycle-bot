@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- AATE vNext visual system. UI-only palette; no engine/runtime behavior. -->
+    <color name="aate_bg">#030712</color>
+    <color name="aate_bg_deep">#01040B</color>
+    <color name="aate_surface">#0A1424</color>
+    <color name="aate_surface_2">#0D192B</color>
+    <color name="aate_surface_3">#101E33</color>
+    <color name="aate_stroke">#2B4B78</color>
+    <color name="aate_stroke_soft">#193250</color>
+    <color name="aate_text">#F5F7FF</color>
+    <color name="aate_text_secondary">#A7B7D8</color>
+    <color name="aate_text_muted">#63759B</color>
+    <color name="aate_purple">#9A4DFF</color>
+    <color name="aate_purple_bright">#B36BFF</color>
+    <color name="aate_blue">#4C8DFF</color>
+    <color name="aate_cyan">#31C7FF</color>
+    <color name="aate_green">#16E6A1</color>
+    <color name="aate_amber">#FFB020</color>
+    <color name="aate_red">#FF4D6D</color>
+    <color name="aate_scrim">#CC020611</color>
+</resources>

@@ -2,35 +2,29 @@
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
         <shape android:shape="rectangle">
-            <gradient
-                android:type="linear"
-                android:angle="270"
-                android:startColor="#050711"
-                android:centerColor="#080B14"
-                android:endColor="#02030A"/>
+            <gradient android:type="linear" android:angle="270"
+                android:startColor="#071121" android:centerColor="#030916" android:endColor="#01040B"/>
         </shape>
     </item>
     <item>
         <shape android:shape="rectangle">
-            <gradient
-                android:type="radial"
-                android:gradientRadius="260dp"
-                android:centerX="0.16"
-                android:centerY="0.02"
-                android:startColor="#334F46E5"
-                android:centerColor="#1622D3EE"
-                android:endColor="#00000000"/>
+            <gradient android:type="radial" android:gradientRadius="340dp"
+                android:centerX="0.08" android:centerY="0.00"
+                android:startColor="#334C8DFF" android:centerColor="#132C57A8" android:endColor="#00000000"/>
         </shape>
     </item>
     <item>
         <shape android:shape="rectangle">
-            <gradient
-                android:type="radial"
-                android:gradientRadius="300dp"
-                android:centerX="0.88"
-                android:centerY="0.22"
-                android:startColor="#2452F3C3"
-                android:endColor="#00000000"/>
+            <gradient android:type="radial" android:gradientRadius="380dp"
+                android:centerX="0.96" android:centerY="0.12"
+                android:startColor="#249A4DFF" android:centerColor="#0F5B33A0" android:endColor="#00000000"/>
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <gradient android:type="radial" android:gradientRadius="320dp"
+                android:centerX="0.55" android:centerY="0.48"
+                android:startColor="#0C31C7FF" android:endColor="#00000000"/>
         </shape>
     </item>
 </layer-list>

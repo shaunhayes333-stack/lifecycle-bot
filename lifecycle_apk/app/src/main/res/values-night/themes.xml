@@ -1,46 +1,49 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- DARK MODE (Night) - Original dark theme -->
     <style name="Theme.AATE" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <item name="colorPrimary">#9945FF</item>
-        <item name="colorPrimaryVariant">#7C3AED</item>
-        <item name="colorOnPrimary">#FFFFFF</item>
-        <item name="android:windowBackground">#0A0A0F</item>
+        <item name="colorPrimary">@color/aate_purple</item>
+        <item name="colorPrimaryVariant">@color/aate_purple_bright</item>
+        <item name="colorOnPrimary">@color/aate_text</item>
+        <item name="colorSecondary">@color/aate_cyan</item>
+        <item name="colorOnSecondary">@color/aate_bg</item>
+        <item name="colorSurface">@color/aate_surface</item>
+        <item name="colorOnSurface">@color/aate_text</item>
+        <item name="android:colorBackground">@color/aate_bg</item>
+        <item name="colorOnBackground">@color/aate_text</item>
+        <item name="android:windowBackground">@drawable/aate_screen_bg</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">#0A0A0F</item>
+        <item name="android:navigationBarColor">@color/aate_bg_deep</item>
         <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
     </style>
 
-    <!-- Splash Screen Theme - Pure black, no status bar -->
     <style name="Theme.AATE.Splash" parent="Theme.MaterialComponents.NoActionBar">
-        <item name="android:windowBackground">#000000</item>
-        <item name="android:statusBarColor">#000000</item>
-        <item name="android:navigationBarColor">#000000</item>
+        <item name="android:windowBackground">@color/aate_bg_deep</item>
+        <item name="android:statusBarColor">@color/aate_bg_deep</item>
+        <item name="android:navigationBarColor">@color/aate_bg_deep</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowContentOverlay">@null</item>
     </style>
-    
-    <!-- DARK Card Style Override -->
+
     <style name="Card">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:background">@drawable/card_bg_dark</item>
-        <item name="android:padding">14dp</item>
+        <item name="android:background">@drawable/aate_universe_panel_bg</item>
+        <item name="android:padding">16dp</item>
         <item name="android:layout_marginBottom">12dp</item>
     </style>
-    
-    <!-- Disclaimer Dialog Style (Dark) -->
+
     <style name="Theme.AATE.Dialog" parent="Theme.MaterialComponents.Dialog.Alert">
-        <item name="android:background">#1A1A2E</item>
-        <item name="android:textColor">#FFFFFF</item>
-        <item name="android:textColorPrimary">#FFFFFF</item>
-        <item name="android:textColorSecondary">#9CA3AF</item>
+        <item name="android:background">@color/aate_surface</item>
+        <item name="android:textColor">@color/aate_text</item>
+        <item name="android:textColorPrimary">@color/aate_text</item>
+        <item name="android:textColorSecondary">@color/aate_text_secondary</item>
         <item name="buttonBarPositiveButtonStyle">@style/DialogButton</item>
     </style>
-    
+
     <style name="DialogButton" parent="Widget.MaterialComponents.Button.TextButton.Dialog">
-        <item name="android:textColor">#10B981</item>
+        <item name="android:textColor">@color/aate_green</item>
         <item name="android:textSize">16sp</item>
         <item name="android:textStyle">bold</item>
     </style>
