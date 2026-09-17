@@ -252,12 +252,65 @@ object SellAmountAuthority {
      *
      * Anything else still returns false — discretionary exits queue retries.
      */
+    // V5.0.6951 §THE_TOKEN_LIST_DID_NOT_MATCH_THE_EXIT_VOCABULARY.
+    //
+    // These two lists decide how long a stale balance proof may be trusted for a
+    // given exit, and whether canBroadcastLiveOrEmergency may broadcast at all
+    // on a TX_PARSE proof. A reason matching NEITHER list gets the SHORTEST
+    // freshness window and is excluded from the emergency broadcast path — it is
+    // treated as an ordinary discretionary sell.
+    //
+    // Enumerating what riskCheck actually returns against the old lists, ten of
+    // fourteen real exit reasons matched NEITHER:
+    //
+    //     stop_loss                    EMERGENCY      ok
+    //     liquidity_drain              EMERGENCY      ok (via DRAIN)
+    //     reflex_liq_drain             EMERGENCY      ok (via DRAIN)
+    //     trailing_stop                NEITHER
+    //     liquidity_collapse           NEITHER
+    //     dev_dump                     NEITHER
+    //     whale_dump                   NEITHER
+    //     velocity_dump                NEITHER
+    //     crosstalk_coordinated_dump   NEITHER
+    //     accelerating_loss            NEITHER
+    //     reflex_abort                 NEITHER
+    //     gemini_immediate_exit        NEITHER
+    //     catastrophic_gap_guard_*     NEITHER
+    //     PROTECTIVE_EXIT_*_6450       NEITHER
+    //
+    // So EVERY dump signature the bot has, plus liquidity collapse and the
+    // reflex abort, was handled with less urgency than a routine stop-loss. A
+    // rug exit — the one exit where a few seconds of indexing lag is the whole
+    // loss — could sit in SELL_WAITING_BALANCE_PROOF while a stop_loss on a
+    // quiet position broadcast immediately.
+    //
+    // "CATASTROPHE" is the sharpest example: the reason string is
+    // catastrophic_gap_guard_*, and "CATASTROPHIC" does not contain
+    // "CATASTROPHE". The token could never match the only reason it was written
+    // for. Shortened to "CATASTROPH" so it matches both spellings.
+    //
+    // Same defect class as the ProfitabilityLayer blocklist repaired in 6948: a
+    // keyword list written against an imagined vocabulary rather than the one
+    // the code emits. Here it gated EMERGENCY broadcasts, so it cost more.
     private val EMERGENCY_REASON_TOKENS = listOf(
-        "STRICT_SL", "HARD_FLOOR", "STOP_LOSS", "CATASTROPHE", "RUG", "DRAIN",
+        "STRICT_SL", "HARD_FLOOR", "STOP_LOSS", "CATASTROPH", "RUG", "DRAIN",
         "SHUTDOWN", "LIQUIDATE", "EMERGENCY", "MANUAL_EMERGENCY",
+        // V5.0.6951 — the vocabulary riskCheck actually emits.
+        "DUMP",              // dev_dump, whale_dump, velocity_dump, crosstalk_coordinated_dump
+        "COLLAPSE",          // liquidity_collapse
+        "ACCELERATING_LOSS", // accelerating_loss
+        "REFLEX",            // reflex_abort (reflex_liq_drain already matched via DRAIN)
+        "GAP_GUARD",         // catastrophic_gap_guard_* — belt and braces with CATASTROPH
+        "IMMEDIATE_EXIT",    // gemini_immediate_exit
+        "PROTECTIVE_EXIT",   // PROTECTIVE_EXIT_*_6450
+        "BACKSTOP",          // STALE_QUOTE_EMERGENCY_*_BACKSTOP (also matches EMERGENCY)
     )
     private val PROFIT_PROTECT_REASON_TOKENS = listOf(
         "PARTIAL_TAKE_PROFIT", "TAKE_PROFIT", "PROFIT_LOCK", "CAPITAL_RECOVERY", "RAPID_DRAWDOWN_FROM_PEAK_STOP",
+        // V5.0.6951 — a trailing stop and a breakeven ratchet are PROTECTING a
+        // gain, not fleeing a rug. They belong in the profit-protect window,
+        // which is the middle tier, rather than in neither list.
+        "TRAILING_STOP", "TRAILING_FLUID", "BREAKEVEN_RATCHET",
     )
 
     fun isEmergencyExitReason(reason: String): Boolean {

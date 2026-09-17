@@ -334,9 +334,9 @@ C_EXIT	RecoveredHoldGuard	isInHoldGrace	engine/RecoveredHoldGuard.kt
 C_EXIT	RouteValidator	validateFinalOutput	engine/execution/RouteValidator.kt
 C_EXIT	RuntimeRepairState	requestPaperMode	engine/RuntimeRepairState.kt
 C_EXIT	ScannerHeatPublisher6398	currentPct01	engine/truth/ScannerHeatPublisher6398.kt
-C_EXIT	SellAmountAuthority	isEmergencyExitReason	engine/sell/SellAmountAuthority.kt
-C_EXIT	SellAmountAuthority	isProfitProtectExitReason	engine/sell/SellAmountAuthority.kt
-C_EXIT	SellAmountAuthority	resolveSellAmount	engine/sell/SellAmountAuthority.kt
+E_INFILE	SellAmountAuthority	isEmergencyExitReason	engine/sell/SellAmountAuthority.kt
+E_INFILE	SellAmountAuthority	isProfitProtectExitReason	engine/sell/SellAmountAuthority.kt
+F_DEAD	SellAmountAuthority	resolveSellAmount	engine/sell/SellAmountAuthority.kt
 C_EXIT	SellIntentQuantityAuthority6401	validateSellIntentFromUi	engine/truth/SellIntentQuantityAuthority6401.kt
 C_EXIT	SellQuantityBoundary6459	admitSell	engine/truth/SellQuantityBoundary6459.kt
 C_EXIT	SentienceHooks	lastPostMortemAgeMs	engine/SentienceHooks.kt
