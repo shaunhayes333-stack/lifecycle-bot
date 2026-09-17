@@ -11557,24 +11557,33 @@ class BotService : Service() {
         // canonicalCycleLaneFor elected the owner before these lane sections.
         // Non-primary specialists continue to the bounded rescue election below;
         // they are not unconditionally amputated before affinity/owner policy.
-        // V5.0.4178 — L7 WORST-LANE SUPPRESSION (operator directive).
-        // SHITCOIN / EXPRESS / MANIPULATED / DIP_HUNTER all bleed (0% WR in
-        // journal). While the bot is below the 45% LIVE_ADAPTIVE doctrine
-        // floor, suppress these from EVALUATING entirely so capital + cycle
-        // budget concentrate on MOONSHOT / STANDARD (the two ≥22% WR
-        // performers). Auto-resumes when WR recovers above the floor.
-        // Primary-lane override and STANDARD/CORE/V3 trunk are always allowed
-        // (regression guard handled below at line ~9210).
+        // L7 LANE EDGE OBSERVATION.
+        //
+        // V5.0.6876 §A_COUNTER_THAT_CLAIMED_A_THROTTLE_NOBODY_APPLIES — this block
+        // used to be headed "L7 WORST-LANE SUPPRESSION" and said it would "suppress
+        // these from EVALUATING entirely". It does not, and has not for a long time:
+        // the body only calls PipelineHealthCollector.labelInc. V5.0.4300 correctly
+        // de-fanged the small-sample case, and the mature case was left emitting
+        // L7_LANE_NEGATIVE_EDGE_SHAPED_6613_<lane> — a name asserting shaping by a
+        // "6613" authority that does not exist anywhere in the tree.
+        //
+        // The behaviour is right and is deliberately left alone: suppressing lanes
+        // contradicts the standing "never disable a lane / don't disable, re-educate"
+        // mandate (V5.9.1358), and bleeding lanes ARE genuinely shaped — by
+        // LaneExpectancyDamper (size multiplier plus the V5.0.6838 admission
+        // score-floor delta), BleederLaneProbation6747, BandLossVetoGuard and
+        // LaneAutoPauseGuard. What was wrong was the label: an operator reading
+        // L7_LANE_NEGATIVE_EDGE_SHAPED_6613_SHITCOIN in a dump would conclude that
+        // lane was being throttled here, and go looking for a throttle that is not
+        // in this file. Same cost as any misleading number — it spends the reader's
+        // time. The counters now say what they are and name where the shaping lives.
         if (l in setOf("SHITCOIN", "EXPRESS", "MANIPULATED", "DIP_HUNTER")
             && !l.equals(primaryLane, ignoreCase = true)) {
             try {
                 val wr = com.lifecyclebot.engine.LiveLayerGateRelaxer.currentLiveWrPct()
                 val liveN = com.lifecyclebot.engine.LiveLayerGateRelaxer.currentLiveTerminalCount()
-                // V5.0.4300 — paper learning wins by sampling all layers first.
-                // Do not suppress non-primary meme lanes on a tiny live sample;
-                // let FDG/sizing soft-shape until enough terminal closes exist.
                 if (liveN >= 40 && wr < 45.0) {
-                    PipelineHealthCollector.labelInc("L7_LANE_NEGATIVE_EDGE_SHAPED_6613_$l")
+                    PipelineHealthCollector.labelInc("L7_LANE_NEGATIVE_EDGE_OBSERVED_6876_$l")
                 } else if (liveN < 40 && wr < 45.0) {
                     PipelineHealthCollector.labelInc("L7_LANE_SOFT_START_ALLOWED_4300_$l")
                 }
