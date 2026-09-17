@@ -131,12 +131,55 @@ object PeakAdaptiveTrail6390 {
         else -> Double.POSITIVE_INFINITY   // no trail below +10% — allow room
     }
 
-    /** Should we exit right now given the current gain vs the peak? */
+    /**
+     * Should we exit right now given the current gain vs the peak?
+     *
+     * V5.0.6921 §TRAIL_UNIT_CORRECTION — this was:
+     *
+     *     val giveBack = peakGainPct - currentGainPct   // percentage POINTS
+     *     return giveBack >= trailPct                   // fraction OF PEAK
+     *
+     * The table above is specified, in its own row comments, as a share of
+     * the peak: 8.0 means "hold 92% of peak". The comparison treated the same
+     * number as an absolute give-back in percentage points. Those two units
+     * coincide at exactly one row — peakGain = 100% — and diverge by the
+     * peak/100 factor everywhere else. Concretely, at a +1000% peak the
+     * trail of 8.0 fired on an 8-POINT give-back: a drop from +1000% to
+     * +992%, which is 0.8% off the high, not the documented 8%.
+     *
+     * So the tighter the run got, the more impossible it became to hold. A
+     * 10x could not survive one noisy tick. This object's own header says the
+     * CHEEMS 26x "would have banked at least 8-10x under this model" — under
+     * the shipped arithmetic it would have banked on the first wobble past
+     * 10x instead, which is the runner-capture failure the doctrine exists to
+     * prevent. In the other direction, a +20% peak needed a give-back of 30
+     * POINTS (i.e. a fall to -10%) before the trail said anything at all, so
+     * small winners had effectively no trail.
+     *
+     * Now measured as a share of peak gain, which is what every row comment
+     * claims and what the ratchet-tighter-as-it-climbs design requires.
+     *
+     * V5.0.6921 §PERSONALITY_TRAIL_SLACK — PersonalityTraitMultipliers.
+     * trailSlackMultiplier() is read here. Its module header states
+     * "conviction (loyalty) up -> +5% trail slack on winners (let winners
+     * run)", but the only thing that ever called it was summaryLine(), so
+     * that sentence described a dashboard string. The exit half of the
+     * personality — this and takeProfitBiasPct — was printed, never applied,
+     * while the sizing half was properly wired. Bounded [0.95, 1.10] at the
+     * source; widening the trail means more room, i.e. let it run.
+     */
     fun shouldExitOnTrail(peakGainPct: Double, currentGainPct: Double): Boolean {
-        val trailPct = trailPctForPeakGain(peakGainPct)
-        if (trailPct.isInfinite()) return false
-        val giveBack = peakGainPct - currentGainPct
-        return giveBack >= trailPct
+        val baseTrailPct = trailPctForPeakGain(peakGainPct)
+        if (baseTrailPct.isInfinite()) return false
+        if (peakGainPct <= 0.0) return false
+        val slack = try {
+            com.lifecyclebot.engine.PersonalityTraitMultipliers.trailSlackMultiplier()
+                .let { if (it.isFinite() && it > 0.0) it else 1.0 }
+                .coerceIn(0.95, 1.10)
+        } catch (_: Throwable) { 1.0 }
+        val trailPct = baseTrailPct * slack
+        val giveBackPctOfPeak = (peakGainPct - currentGainPct) / peakGainPct * 100.0
+        return giveBackPctOfPeak >= trailPct
     }
 
     /** Track peak per position so trail is stateful across ticks. */
@@ -158,13 +201,44 @@ object PeakAdaptiveTrail6390 {
 object PeakSlipExit6390 {
     enum class Action { HOLD, CUT_HALF, CUT_FULL }
 
-    /** Directive: give-back 25% → cut half; give-back 40% → cut full. */
+    /**
+     * Directive: give-back 25% → cut half; give-back 40% → cut full.
+     *
+     * V5.0.6921 §GIVEBACK_UNIT_CORRECTION — same unit error as
+     * PeakAdaptiveTrail6390, and this one matters more because it is branch 1
+     * of PeakCaptureAuthority6390 and it returns a FULL CUT, so it pre-empts
+     * every other branch.
+     *
+     * It was:
+     *
+     *     val giveBack = peakGainPct - currentGainPct   // percentage POINTS
+     *     giveBack >= 40.0 -> CUT_FULL                  // "give-back 40%"
+     *
+     * A "give-back of 40%" means giving back 40% of the run. The comparison
+     * read it as 40 percentage points. The two agree only when peakGainPct is
+     * 100, and above that the guard tightens without limit:
+     *
+     *     peak  +100%  → CUT_FULL at +60%   (40% of the run — as intended)
+     *     peak  +500%  → CUT_FULL at +460%  (8% of the run)
+     *     peak +1000%  → CUT_FULL at +960%  (4% of the run)
+     *
+     * So the better a position did, the smaller the wobble needed to
+     * liquidate all of it. A 10x got full-cut on a 4% dip from its high.
+     * That is the exact opposite of a give-back rule, and it silently
+     * capped every large runner this authority was consulted on.
+     *
+     * Below peak = 100% it erred the other way — a +30% peak needed a fall to
+     * -10% before CUT_FULL — so small winners had no protection either.
+     *
+     * Now a true proportional give-back, which is what the directive says and
+     * what keeps the rule scale-free. The 30% minimum peak still gates noise.
+     */
     fun evaluate(peakGainPct: Double, currentGainPct: Double): Action {
         if (peakGainPct < 30.0) return Action.HOLD    // avoid tripping on noise
-        val giveBack = peakGainPct - currentGainPct
+        val giveBackPctOfPeak = (peakGainPct - currentGainPct) / peakGainPct * 100.0
         return when {
-            giveBack >= 40.0 -> Action.CUT_FULL
-            giveBack >= 25.0 -> Action.CUT_HALF
+            giveBackPctOfPeak >= 40.0 -> Action.CUT_FULL
+            giveBackPctOfPeak >= 25.0 -> Action.CUT_HALF
             else -> Action.HOLD
         }
     }

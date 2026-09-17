@@ -7904,10 +7904,35 @@ class Executor(
         )
         val secondTrigger = WrRecoveryPartial.effectiveSecondTrigger(c.partialSellSecondTriggerPct, laneKey)
         val thirdTrigger  = WrRecoveryPartial.effectiveThirdTrigger(c.partialSellThirdTriggerPct, laneKey)
+        // V5.0.6921 — LiveStrategyTuner.partialTriggerMultiplier had zero
+        // callers. The tuner computes a per-lane partial-trigger multiplier
+        // across every branch — 1.30 runner_lane_exempt, 1.25-1.75
+        // runner_press, 1.15 net_positive_lane_floor, and below 1.0 only on
+        // the trade1 risk ramp — and no ladder has ever read it.
+        //
+        // Direction matches the doctrine exactly: >1.0 pushes the rung HIGHER
+        // so a lane with proven asymmetry ladders LATER and leaves more of the
+        // runner on; <1.0 pulls it in so a bleeding lane banks sooner. This is
+        // the "brains contribute more than trade size" lever on the exit side
+        // — the same evidence that already moves sizeMult now moves WHEN we
+        // take profit.
+        //
+        // Applied to the three LEARNED rungs only. The 10000/50000 rungs are
+        // deliberate absolute moonshot ladders, not learned values, and
+        // scaling them would change a fixed intent.
+        //
+        // A multiplier below 1.0 can pull a rung under the break-even floor
+        // from V5.0.6920; the floor then blocks that partial and logs it,
+        // which is the correct outcome — never ladder into a net loss.
+        val partialMult6921 = try {
+            LiveStrategyTuner.partialTriggerMultiplier(laneKey)
+                .let { if (it.isFinite() && it > 0.0) it else 1.0 }
+                .coerceIn(0.80, 2.00)
+        } catch (_: Throwable) { 1.0 }
         val milestones = listOf(
-            firstTrigger,
-            secondTrigger,
-            thirdTrigger,
+            firstTrigger * partialMult6921,
+            secondTrigger * partialMult6921,
+            thirdTrigger * partialMult6921,
             10000.0,
             50000.0,
         )
@@ -9331,7 +9356,11 @@ class Executor(
             // (holdMult=2.80) extends 120min → 336min. EXHAUSTION_QUICK_FLIP
             // (holdMult=0.38) shortens 120min → 45min. This lets the AGI stack
             // control hold time per-trade, not just per-lane.
-            val _effectiveMaxHold = modeConfig.maxHoldMins * _tf * _regimeHoldMult * ts.styleHoldMult.coerceIn(0.25, 5.0)
+            // V5.0.6921 — plus the lane's own realised hold evidence, which
+            // LiveStrategyTuner has been computing for nothing. Same helper at
+            // the sibling gate below so the two cannot drift.
+            val _laneHoldMult6921 = laneLearnedHoldMult6921(ts)
+            val _effectiveMaxHold = modeConfig.maxHoldMins * _tf * _regimeHoldMult * ts.styleHoldMult.coerceIn(0.25, 5.0) * _laneHoldMult6921
             // V5.9.901 — RUNNER BYPASS for mode_maxhold.
             // PRE-FIX: SNIPE=30min, COPY=20min, DEFENSIVE=45min etc capped
             // every winner at mode-specific time even if +200% and still
@@ -9919,7 +9948,10 @@ class Executor(
                     com.lifecyclebot.engine.MarketRegimeAI.getHoldTimeMultiplier().coerceIn(0.5, 2.0)
                 } catch (_: Throwable) { 1.0 }
                 // V5.0.4125 — Apply AGI style hold multiplier (sibling of primary path)
-                val effectiveMaxHold2 = modeConfig.maxHoldMins * tf * regimeHoldMult2 * ts.styleHoldMult.coerceIn(0.25, 5.0)
+                // V5.0.6921 — same lane hold evidence as the primary gate,
+                // via the same helper (V5.9.901 sibling-drift rule).
+                val laneHoldMult6921b = laneLearnedHoldMult6921(ts)
+                val effectiveMaxHold2 = modeConfig.maxHoldMins * tf * regimeHoldMult2 * ts.styleHoldMult.coerceIn(0.25, 5.0) * laneHoldMult6921b
                 // V5.9.901 — SIBLING-DRIFT FIX (memory #3 rule 8): mirror the
                 // runner bypass applied to the primary mode_maxhold gate at
                 // ~line 4865. Without this, the v3 decision path would still
@@ -19313,6 +19345,34 @@ class Executor(
      * stamp() overwrites pending[mint], so re-stamping is safe and the last
      * stamp before the close is the one that trains.
      */
+    /**
+     * V5.0.6921 — LiveStrategyTuner.holdMultiplier had zero callers.
+     *
+     * The tuner computes a per-lane hold multiplier across a dozen branches —
+     * 1.40 for runner_lane_exempt, 1.18-1.75 for runner_press /
+     * proven_winner_press_2x3x, 1.10 for net_positive_lane_floor, and mild
+     * values for the bleeder pivots — and nothing has ever read it. Meanwhile
+     * the two max-hold gates multiply modeConfig.maxHoldMins by the candle
+     * timeframe, the market regime and the AGI style multiplier. The one term
+     * missing from that product is the lane's own realised evidence: which
+     * lanes have historically paid for being held.
+     *
+     * Resolved here once and used at BOTH max-hold gates, because those two
+     * gates are siblings that have drifted before (see the V5.9.901
+     * SIBLING-DRIFT FIX note at the second one) and a hold multiplier applied
+     * at only one of them is worse than none — it makes the two paths
+     * disagree about when a position is too old.
+     *
+     * Clamped to [0.80, 2.00]: the tuner's own values sit inside that, and
+     * the clamp means a future tuner change cannot silently gain the power to
+     * zero out or 10x a hold window from here.
+     */
+    private fun laneLearnedHoldMult6921(ts: TokenState): Double = try {
+        val lane = resolveExecutionLane(ts, fallback = ts.position.tradingMode.ifBlank { "STANDARD" })
+        LiveStrategyTuner.holdMultiplier(lane).let { if (it.isFinite() && it > 0.0) it else 1.0 }
+            .coerceIn(0.80, 2.00)
+    } catch (_: Throwable) { 1.0 }
+
     private fun stampUnifiedExitForClose6920(ts: TokenState, reason: String) {
         try {
             val pos = ts.position
