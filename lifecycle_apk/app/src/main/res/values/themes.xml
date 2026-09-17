@@ -10,7 +10,7 @@
         <item name="colorOnSecondary">@color/aate_bg</item>
         <item name="colorSurface">@color/aate_surface</item>
         <item name="colorOnSurface">@color/aate_text</item>
-        <item name="colorBackground">@color/aate_bg</item>
+        <item name="android:colorBackground">@color/aate_bg</item>
         <item name="colorOnBackground">@color/aate_text</item>
         <item name="android:windowBackground">@drawable/aate_screen_bg</item>
         <item name="android:colorAccent">@color/aate_purple</item>
