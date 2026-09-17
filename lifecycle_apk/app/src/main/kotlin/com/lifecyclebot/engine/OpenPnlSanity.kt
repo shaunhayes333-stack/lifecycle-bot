@@ -95,6 +95,21 @@ object OpenPnlSanity {
         if (!pnl.isFinite()) return reject("OPEN_PNL_NOT_FINITE", entryPrice, currentPrice, context, emit, mint)
         if (pnl < MIN_PNL_PCT) return reject("OPEN_PNL_BELOW_TOTAL_LOSS", entryPrice, currentPrice, context, emit, mint)
 
+        // V5.0.6854 §ABSURD_UPSIDE_WAS_NEVER_QUARANTINED — StalePriceExitGuard
+        // .isGainTrustworthy() exists to reject a gain multiple above
+        // ABSURD_GAIN_MULTIPLE (1000x = +100,000%) and quarantine the mint, and it
+        // had ZERO callers, so markStale() was never invoked from it and
+        // anyActive() was permanently false. This authority already rejects the
+        // downside impossibility one line above; the mirror-image upside
+        // impossibility — a decimals/basis glitch presenting a 10^6 gain — passed
+        // straight through into peak tracking, profit locks and learner rewards.
+        // Same invariant, same gate, and routing it through the guard means the
+        // quarantine flag finally gets set by the thing that detects the problem.
+        if (!com.lifecyclebot.engine.sell.StalePriceExitGuard
+                .isGainTrustworthy(mint, entryPrice, currentPrice, ratio)) {
+            return reject("OPEN_PNL_ABSURD_GAIN_6854", entryPrice, currentPrice, context, emit, mint)
+        }
+
         // V5.0.6701 — this must run BEFORE source/pool comparability. The defect
         // that produced the operator screenshot was precisely a new numeric mark
         // wearing stale same-source/same-pool metadata. Decimal-unit continuity is

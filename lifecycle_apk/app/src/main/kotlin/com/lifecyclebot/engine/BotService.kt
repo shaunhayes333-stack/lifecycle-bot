@@ -9020,16 +9020,118 @@ class BotService : Service() {
                                     addLog("🛟 PRICE RECOVERED via oracle: ${ts.symbol} = \$$fbPrice — skipping rug-escape", ts.mint)
                                     continue  // re-evaluate with real price next monitor pass
                                 }
+                                // V5.0.6854 §STALE_PRICE_ALONE_MANUFACTURED_TERMINAL_LOSSES —
+                                // StalePriceExitGuard was written in V5.0.6825 for exactly this
+                                // site ("a stale or missing quote is not economic evidence of a
+                                // loss... it must not by itself manufacture a terminal sell or a
+                                // trainable losing outcome") and was then never connected:
+                                // armValidatedRugEscape() and armOnceRugEscape() had ZERO callers,
+                                // markStale() was never invoked, so anyActive() was permanently
+                                // false and clearStale() — wired in three places, including 12
+                                // lines above — only ever cleared a flag nothing set.
+                                //
+                                // Meanwhile this branch force-sold on "no price for 90s and the
+                                // oracles are dark", in BOTH modes. In LIVE that is self-
+                                // validating: the sell is a real swap, so a genuinely dead token
+                                // simply fails to route and nothing false is booked. In PAPER
+                                // there is no such check — the simulated fill prices off the very
+                                // stale ts.lastPrice we just proved we cannot trust, and books a
+                                // terminal loss into the book the learner trains on. The code
+                                // already knew this: the catastrophe cooldown below is live-gated
+                                // with "stale-price exits in paper mode are price-feed noise, not
+                                // real rugs" — but the sell that creates the loss was not.
+                                val routeDead6854 = try {
+                                    val rs = ts.tokenMap.routeStatus.uppercase()
+                                    rs == "NO_ROUTE" || rs.contains("DEAD") || rs.contains("UNROUTABLE")
+                                } catch (_: Throwable) { false }
+                                val balanceZero6854 = !cfg.paperMode && ts.position.qtyToken <= 0.0
+                                val armed6854 = try {
+                                    com.lifecyclebot.engine.sell.StalePriceExitGuard.armValidatedRugEscape(
+                                        mint = ts.mint,
+                                        symbol = ts.symbol,
+                                        balanceConfirmedZero = balanceZero6854,
+                                        // By construction we are here BECAUSE every oracle is dark.
+                                        freshPriceVerified = false,
+                                        routeConfirmedDead = routeDead6854,
+                                    )
+                                } catch (_: Throwable) { false }
+                                // LIVE escalation: a real swap validates itself, so after a long
+                                // dark window we still attempt the exit rather than hold a
+                                // possibly-rugged live position indefinitely. PAPER never
+                                // escalates — there is no capital at risk and nothing to learn
+                                // from a fabricated fill.
+                                val longDark6854 = !cfg.paperMode && lastPriceAgeMs > 900_000L
+                                if (!armed6854 && !longDark6854) {
+                                    try { com.lifecyclebot.engine.sell.StalePriceExitGuard.markStale(ts.mint) } catch (_: Throwable) {}
+                                    try { PipelineHealthCollector.labelInc("STALE_PRICE_TERMINAL_DEFERRED_6854") } catch (_: Throwable) {}
+                                    // Deferring is not the same as holding forever: a position with
+                                    // NO price at all can never reach the stale-live branch below,
+                                    // so paper would accumulate zombies (forcedOpen debt + endless
+                                    // EXIT evaluations) — the exact failure V5.0.3739 and
+                                    // V5.0.6829 were written to stop. Route paper through the SAME
+                                    // runner-protection authority that branch guards the
+                                    // stale-live scratch with: 5-min min hold, never scratch a
+                                    // winner, 6 refresh attempts, and the close is stamped
+                                    // non-trainable so it can never teach the learner a loss that
+                                    // only a dead feed produced.
+                                    val latchKey6854 = "${ts.mint}:${ts.position.entryTime}"
+                                    val scratch6854 = cfg.paperMode && try {
+                                        com.lifecyclebot.engine.truth.StaleMarkRunnerProtection6829.evaluate(
+                                            latchKey = latchKey6854,
+                                            positionId = ts.position.positionId.ifBlank { latchKey6854 },
+                                            heldMsSinceBuy = (System.currentTimeMillis() - ts.position.entryTime).coerceAtLeast(0L),
+                                            // No mark exists at all here, so there is no last-known
+                                            // PnL to evaluate — say so rather than pass a fake 0.0
+                                            // that Guard B would read as "breakeven, protect it".
+                                            lastKnownPnlPct = 0.0,
+                                            lastKnownPnlOk = false,
+                                        ) == com.lifecyclebot.engine.truth.StaleMarkRunnerProtection6829.Verdict.SCRATCH_ALLOWED
+                                    } catch (_: Throwable) { false }
+                                    if (scratch6854 && paperStaleZombieLatch6504.add(latchKey6854)) {
+                                        try {
+                                            ForensicLogger.lifecycle(
+                                                "PAPER_STALE_NO_MARK_SCRATCH_EXIT_6854",
+                                                "symbol=${ts.symbol} ageS=${lastPriceAgeMs / 1000} posAgeS=${posAgeMs / 1000} — no price and no oracle, closing scratch TRAINABLE=FALSE",
+                                            )
+                                            PipelineHealthCollector.labelInc("PAPER_STALE_NO_MARK_SCRATCH_EXIT_6854")
+                                        } catch (_: Throwable) {}
+                                        executor.requestSell(ts = ts, reason = "PAPER_STALE_PRICE_TIMEOUT_SCRATCH",
+                                            wallet = wallet, walletSol = effectiveBalance)
+                                        continue
+                                    }
+                                    ErrorLogger.warn("BotService",
+                                        "⏸️ STALE_PRICE_HOLD_6854: ${ts.symbol} — no price for ${lastPriceAgeMs/1000}s, oracles dark, but no independent terminal evidence (routeDead=$routeDead6854 balZero=$balanceZero6854 paper=${cfg.paperMode}) — holding, not manufacturing a loss")
+                                    addLog("⏸️ STALE PRICE HOLD: ${ts.symbol} | dark ${lastPriceAgeMs/1000}s, no rug proof — position held", ts.mint)
+                                    continue
+                                }
                                 ErrorLogger.warn("BotService",
-                                    "💀 STALE_PRICE_RUG_ESCAPE: ${ts.symbol} — no price for ${lastPriceAgeMs/1000}s (pos age ${posAgeMs/1000}s), all oracles dark, force-exit")
-                                addLog("💀 STALE PRICE EXIT: ${ts.symbol} | no price ${lastPriceAgeMs/1000}s — oracles dark, assume rug", ts.mint)
+                                    "💀 STALE_PRICE_RUG_ESCAPE: ${ts.symbol} — no price for ${lastPriceAgeMs/1000}s (pos age ${posAgeMs/1000}s), all oracles dark, evidence(routeDead=$routeDead6854 balZero=$balanceZero6854 longDark=$longDark6854), force-exit")
+                                addLog("💀 STALE PRICE EXIT: ${ts.symbol} | no price ${lastPriceAgeMs/1000}s — oracles dark, rug evidence confirmed", ts.mint)
                                 executor.requestSell(ts = ts, reason = "STALE_PRICE_RUG_ESCAPE",
                                     wallet = wallet, walletSol = effectiveBalance)
                                 // V5.9.715-FIX: stale-price exits in paper mode are price-feed
                                 // noise, not real rugs. Catastrophe cooldown punished the same
                                 // mint for 30min, starving V3 via the loss_streak guard and
                                 // collapsing trading to near-zero. Only fire in live mode.
-                                if (!cfg.paperMode) TradeStateMachine.startCatastropheCooldown(ts.mint, -100.0)
+                                // V5.0.6854 — only claim a total loss when the guard says we may.
+                                // StalePriceExitGuard.canAssertTotalLoss() had zero callers, so
+                                // this site reported a flat -100% off a dark feed. It is a log/
+                                // telemetry value, but it is the number an operator reads when
+                                // deciding whether the bot is rugging or its feed is broken, and
+                                // those are opposite diagnoses. Report -100 only with
+                                // balance-zero or a fresh verified mark; otherwise say
+                                // "unverified" and print the evidence that actually fired.
+                                if (!cfg.paperMode) {
+                                    val assertTotal6854 = try {
+                                        com.lifecyclebot.engine.sell.StalePriceExitGuard
+                                            .canAssertTotalLoss(balanceZero6854, false)
+                                    } catch (_: Throwable) { false }
+                                    val reportedPnl6854 = if (assertTotal6854) -100.0 else Double.NaN
+                                    TradeStateMachine.startCatastropheCooldown(
+                                        ts.mint, reportedPnl6854,
+                                        evidence = "stale=${lastPriceAgeMs / 1000}s routeDead=$routeDead6854 balZero=$balanceZero6854 longDark=$longDark6854",
+                                    )
+                                }
                             }
                             continue  // can't do pnl math without price
                         }

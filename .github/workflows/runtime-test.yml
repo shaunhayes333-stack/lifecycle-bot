@@ -54,6 +54,16 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           accept-android-sdk-licenses: true
+          # V5.0.6854 — this input is NOT optional any more. The action's default
+          # is `packages: 'tools platform-tools'`, and Google has withdrawn the
+          # legacy `tools` package from the SDK repository, so sdkmanager now exits
+          # 1 with "Warning: Failed to find package 'tools'". That killed this job
+          # ~15s in, before KVM/AVD/emulator ever ran, and the `if: always()`
+          # witness step then failed on the missing logcat_full.txt — which is what
+          # the red "Runtime Smoke Test" runs have actually been reporting, not a
+          # runtime regression in the app. build.yml already pins its packages,
+          # which is why it stayed green while this workflow went red.
+          packages: 'platform-tools'
 
       - name: Enable KVM (hardware accel for emulator)
         # Without KVM the emulator runs in software and times out on most

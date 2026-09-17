@@ -133,7 +133,14 @@ object TradeStateMachine {
      * just got blown up on (which used to happen because the regular 30s
      * cooldown wasn't enough to outlast a fast-rugging meme).
      */
-    fun startCatastropheCooldown(mint: String, pnlPct: Double) {
+    /**
+     * @param pnlPct the realised loss, or NaN when no trustworthy mark exists. A
+     *   dark price feed and a rug produce the same silence but demand opposite
+     *   operator responses, so V5.0.6854 stopped printing a fabricated -100.0%
+     *   for the former — see StalePriceExitGuard.canAssertTotalLoss.
+     * @param evidence short provenance for why the cooldown fired.
+     */
+    fun startCatastropheCooldown(mint: String, pnlPct: Double, evidence: String = "") {
         val ts = getState(mint)
         ts.state = TradeState.COOLDOWN
         val cd = 30L * 60_000L   // 30 minutes
@@ -141,7 +148,9 @@ object TradeStateMachine {
         ts.entryPattern = EntryPattern.NONE
         ts.spikeHighPrice = 0.0
         ts.pullbackLowPrice = 0.0
-        ErrorLogger.warn("StateMachine", "💀 CATASTROPHE COOLDOWN ${mint.take(8)}: pnl=${"%.1f".format(pnlPct)}% → 30 min lockout")
+        val pnlText = if (pnlPct.isFinite()) "${"%.1f".format(pnlPct)}%" else "unverified(no trustworthy mark)"
+        val evidenceText = if (evidence.isBlank()) "" else " evidence=$evidence"
+        ErrorLogger.warn("StateMachine", "💀 CATASTROPHE COOLDOWN ${mint.take(8)}: pnl=$pnlText$evidenceText → 30 min lockout")
     }
     
     /**
