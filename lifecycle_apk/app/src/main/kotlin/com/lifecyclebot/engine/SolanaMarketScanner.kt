@@ -708,6 +708,27 @@ class SolanaMarketScanner(
         val tradeVelocity24h: Double = 0.0,    // (trade24hChangePercent)
         val walletVelocity24h: Double = 0.0,   // (uniqueWallet24hChangePercent)
         val uniqueWallet24h: Int = 0,          // raw distinct wallets, anti-bot signal
+        // V5.0.6959 §THE_FIRST_SEEN_PRICE_THAT_WAS_NEVER_CAPTURED.
+        //
+        // emit() records every discovered token into SourceTimingRegistry with
+        // `price = null`, and that was not carelessness — this type carried no
+        // price for it to pass. The consequence is that
+        // SourceTimingRegistry.getPriceChangeSinceFirstSeen can NEVER return a
+        // value on the main discovery path: it reads first.price, finds null and
+        // returns null every time. That is why it has zero callers; it is not an
+        // unwired consumer, it is a consumer whose input was never supplied.
+        //
+        // "How far has this token already run since we first saw it" is the
+        // chase-detector for a meme book — entering a token already +200% off
+        // its discovery price is a different trade from entering it flat, and
+        // the bot could not tell the two apart.
+        //
+        // Defaulted to 0.0 so all 27 existing construction sites stay
+        // source-compatible; buildScannedToken (the shared builder, which
+        // already holds pair.candle.priceUsd and validated it > 0 on entry)
+        // populates it, and 0.0 continues to mean "unknown" at the sites that
+        // construct the type directly.
+        val priceUsd: Double = 0.0,
     )
 
     // V5.9.1080 — REMOVE the per-scanner Dispatcher override.
@@ -3747,6 +3768,8 @@ class SolanaMarketScanner(
             pairCreatedHoursAgo = ageHours.coerceAtLeast(0.0),
             dexId = "solana",
             priceChangeH1 = 0.0,
+            // V5.0.6959 — validated > 0 by the guard at the top of this function.
+            priceUsd = pair.candle.priceUsd,
             txCountH1 = pair.candle.buysH1 + pair.candle.sellsH1,
             score = scoreToken(
                 liquidity,
@@ -3960,7 +3983,12 @@ class SolanaMarketScanner(
             com.lifecyclebot.v3.arb.SourceTimingRegistry.record(
                 mint = token.mint,
                 source = token.source.name,
-                price = null,
+                // V5.0.6959 — was hard-coded null, which made
+                // getPriceChangeSinceFirstSeen structurally incapable of ever
+                // returning a value on this path. Still null when the price is
+                // genuinely unknown (0.0 from a direct construction site), so
+                // the registry never records a fabricated first-seen price.
+                price = token.priceUsd.takeIf { it > 0.0 },
                 liquidityUsd = token.liquidityUsd,
                 buyPressurePct = null
             )

@@ -13019,6 +13019,43 @@ class Executor(
             ForensicLogger.lifecycle("MINT_ENTRY_MARKET_SNAPSHOT_STORED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason price=${snap.priceUsd} mcap=${snap.marketCapUsd} liq=${snap.liquidityUsd} pool=${snap.poolAddress.take(16)} source=${snap.priceSource} dex=${snap.dex}")
             PipelineHealthCollector.labelInc("MINT_ENTRY_MARKET_SNAPSHOT_STORED")
             if (snap.marketCapUsd <= 0.0) PipelineHealthCollector.labelInc("MINT_ENTRY_MARKET_SNAPSHOT_MCAP_UNKNOWN")
+            // V5.0.6959 §HOW_FAR_HAS_THIS_ALREADY_RUN.
+            //
+            // SourceTimingRegistry.getPriceChangeSinceFirstSeen finally has an
+            // input: the scanner now records a real first-seen price instead of
+            // the hard-coded null it passed before. This is the chase-detector a
+            // meme book needs — entering a token flat and entering it already
+            // +200% off its discovery price are different trades, and nothing
+            // here could previously tell them apart.
+            //
+            // MEASURED, NOT GATED, DELIBERATELY. This number has never existed in
+            // production, so there is no distribution to pick a threshold from.
+            // Choosing a cutoff now would be exactly the guess this audit keeps
+            // finding in other people's code. The bucketed counters below give
+            // the operator that distribution on the next run; a gate can follow
+            // once it is real, and the standing throughput doctrine says only
+            // rugs get hard-blocked at entry in any case.
+            try {
+                val runPct6959 = com.lifecyclebot.v3.arb.SourceTimingRegistry
+                    .getPriceChangeSinceFirstSeen(ts.mint, snap.priceUsd)
+                if (runPct6959 != null && runPct6959.isFinite()) {
+                    val bucket6959 = when {
+                        runPct6959 >= 200.0 -> "GE_200"
+                        runPct6959 >= 100.0 -> "100_200"
+                        runPct6959 >= 50.0 -> "50_100"
+                        runPct6959 >= 20.0 -> "20_50"
+                        runPct6959 >= 0.0 -> "0_20"
+                        else -> "BELOW_DISCOVERY"
+                    }
+                    PipelineHealthCollector.labelInc("ENTRY_RUN_SINCE_DISCOVERY_6959_$bucket6959")
+                    ForensicLogger.lifecycle(
+                        "ENTRY_RUN_SINCE_DISCOVERY_6959",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} " +
+                            "runSinceFirstSeen=${"%.1f".format(runPct6959)}% bucket=$bucket6959 " +
+                            "entryPx=${snap.priceUsd} note=measurement_only_no_gate",
+                    )
+                }
+            } catch (_: Throwable) {}
         } catch (_: Throwable) {}
     }
 
