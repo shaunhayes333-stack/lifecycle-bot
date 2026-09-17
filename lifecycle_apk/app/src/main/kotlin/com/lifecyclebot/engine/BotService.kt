@@ -18205,6 +18205,14 @@ if (hotExitHandledSweep) {
      */
     private fun enforceExitStartDeadline6647() {
         if (!fullExitSweepPending.get() && !universalSlSweepPending.get()) return
+        // V5.0.6897 — do not keep relaunching into a scope that cannot host a
+        // coroutine. ensureExitSweepCoordinator names the condition once per 20
+        // attempts; there is no point paying a cancel+launch per bot cycle for a
+        // job that is cancelled before its first line runs.
+        if (!exitScope6647.isActive) {
+            ensureExitSweepCoordinator()
+            return
+        }
         val requestedCycle = exitCoordinatorRequestedCycle6647.get()
         if (requestedCycle < 0L || executionSpineCycle6647.get() - requestedCycle < 2L) return
         val requestedAt = exitCoordinatorRequestedAtMs6647.get()
@@ -18235,14 +18243,58 @@ if (hotExitHandledSweep) {
         ensureExitSweepCoordinator()
     }
 
+    /** V5.0.6897 — consecutive relaunches that produced no coordinator start. */
+    private val exitCoordinatorIneffectiveRelaunches6897 = java.util.concurrent.atomic.AtomicLong(0L)
+
     private fun ensureExitSweepCoordinator() {
         val existing = exitSweepCoordinatorJob
         if (existing?.isActive == true) return
+        // V5.0.6897 §A_RELAUNCH_INTO_A_DEAD_SCOPE_IS_STILLBORN.
+        //
+        // exitScope6647 is built on serviceJob6647 (BotService:666), and
+        // serviceJob6647.cancel() runs in teardown (BotService:3676). A
+        // cancelled SupervisorJob can never be revived, so once it has been
+        // cancelled every exitScope6647.launch{} returns a job that is already
+        // cancelled and whose body never executes. The watchdog then sees
+        // `jobAlive == false` on the next pass and relaunches again, forever.
+        //
+        // Operator 5.0.6892 is that loop, exactly:
+        //   EXIT_COORDINATOR_NO_START_RELAUNCHED_6647 = 120
+        //   EXIT_COORDINATOR_STARTED                  = 1
+        // 120 relaunch decisions, one coordinator that ever ran. And because
+        // the loop body is what calls onCoordinatorStarted (BotService:18253),
+        // a dead coordinator never consumes requestedCycle — so the measured
+        // start delay grows by one every bot cycle and J_EXIT_START_LATE fails
+        // the acceptance witness permanently. That is the invariant that
+        // appeared in the 5.0.6892 audit alongside the phantom and delta
+        // failures.
+        //
+        // Nothing here changes exit behaviour: the sweep still runs, still on
+        // the same dispatcher, with the same cadence. What changes is that an
+        // impossible relaunch is named instead of being retried in silence.
+        if (!exitScope6647.isActive) {
+            val n = exitCoordinatorIneffectiveRelaunches6897.incrementAndGet()
+            if (n == 1L || n % 20L == 0L) {
+                try {
+                    PipelineHealthCollector.labelInc("EXIT_COORDINATOR_SCOPE_DEAD_6897")
+                    ForensicLogger.lifecycle(
+                        "EXIT_COORDINATOR_SCOPE_DEAD_6897",
+                        "consecutive=$n serviceJobCancelled=true running=${status.running} " +
+                            "action=relaunch_is_stillborn_reporting_instead_of_spinning",
+                    )
+                } catch (_: Throwable) {}
+            }
+            return
+        }
         synchronized(exitSweepCoordinatorLock) {
             val again = exitSweepCoordinatorJob
             if (again?.isActive == true) return
             exitSweepCoordinatorJob = exitScope6647.launch {
                 val start6647 = System.currentTimeMillis()
+                // V5.0.6897 — the body actually ran, so the relaunch was not
+                // stillborn. Clearing here (rather than at launch) is what makes
+                // the counter mean "launches that never started".
+                exitCoordinatorIneffectiveRelaunches6897.set(0L)
                 exitCoordinatorStartedAtMs6647.set(start6647)
                 exitCoordinatorStartHeartbeatMs6647.set(start6647)
                 com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onCoordinatorStarted(executionSpineCycle6647.get())
