@@ -151,6 +151,17 @@ object PredictiveEntryOracle6915 {
     /** Bound on the total stack adjustment, in percentage points. */
     private const val STACK_ADJUST_CAP_PCT = 25.0
 
+    /**
+     * V5.0.6917 — separate cap for the brain-network tier. Deliberately lower
+     * than STACK_ADJUST_CAP_PCT: these modules have never been validated
+     * against outcomes, because nothing ever read them. They are allowed to
+     * move the estimate meaningfully but never to dominate the measured
+     * shrinkage hierarchy. Widen this once their contributions are shown to
+     * correlate with realised PnL — that is an evidence decision, not a
+     * configuration one.
+     */
+    private const val BRAIN_NETWORK_CAP_PCT_6917 = 18.0
+
     private val evaluations = AtomicLong(0L)
     private val admits = AtomicLong(0L)
     private val probes = AtomicLong(0L)
@@ -158,6 +169,8 @@ object PredictiveEntryOracle6915 {
     private val cellHits = AtomicLong(0L)
     private val laneHits = AtomicLong(0L)
     private val globalOnly = AtomicLong(0L)
+    /** V5.0.6917 — how many previously-unread brain outputs actually spoke. */
+    private val brainReads6917 = AtomicLong(0L)
 
     private data class Level(val name: String, val mean: Double, val pWin: Double, val n: Double) {
         val weight: Double get() = if (n <= 0.0) 0.0 else n / (n + SHRINK_K)
@@ -173,11 +186,163 @@ object PredictiveEntryOracle6915 {
      *                    part of the cell key, because regime-keying is what
      *                    made every cohort unreachable in the first place
      */
+    /**
+     * V5.0.6917 §THE_BRAINS_THAT_WERE_NEVER_READ.
+     *
+     * OPERATOR: "there are so many modules brains ai layers trading tools
+     * styles systems not being utilised correctly ... I literally built a brain
+     * network of ai brains, modules, data sources, learning, education even
+     * gave it a Harvard brain thats meant to be phd level trading analysis."
+     *
+     * A function-level audit of all 1,136 source files found 2,038 public
+     * functions with no caller outside their own file, and — filtering to
+     * intelligence modules and to query/analysis-shaped functions only — 114
+     * modules holding 317 ANALYSIS OUTPUTS THAT NOTHING READS.
+     *
+     * The most direct examples, all confirmed zero-caller:
+     *
+     *   CollectiveIntelligenceAI.predictTokenSuccess(mint,sym,src,liq)
+     *       A function literally named "predict token success", returning
+     *       successProbability 0-100 and a STRONG_BUY..STRONG_SELL signal.
+     *       Never called. That single fact answers "is the bot predictive".
+     *
+     *   LanePolicy.posteriorWr6611 / posteriorWrForBucket6611
+     *       A Beta-posterior win rate whose own comment says it exists so
+     *       "callers that want adaptive-from-N=1 behaviour use
+     *       posteriorWr6611". Somebody already solved this codebase's sparse
+     *       evidence problem with the correct statistical tool, and nothing
+     *       ever called it.
+     *
+     *   EducationSubLayerAI — the Harvard brain, 3,108 lines, initialised at
+     *       BotService:7269 and written to by Executor on every close. 13 of
+     *       its 30 analysis outputs are unread, including
+     *       getLayerExpectancyPct, getLayerAccuracyRaw, getEdgeLedger and
+     *       getApprovalPatterns. It has been recording outcomes for six months
+     *       and its conclusions have never been consulted by a trade.
+     *
+     *   TradingMemory.isCreatorBlacklisted / getPatternWinRate
+     *   WhaleWalletTracker.getWhaleScore / isWhaleReliable
+     *   InsiderTrackerAI.hasRecentAlphaSignal / getAlphaWallets
+     *   MomentumPredictorAI.getMomentumScore / getStrongMomentumTokens
+     *   TimeOptimizationAI.getGoldenHours / getDangerHours
+     *   CollectiveLearning.getNetworkBoostForMint / getHighWinPatterns
+     *   BehaviorLearning.getTopGoodPatterns / getTopBadPatterns
+     *
+     * This tier reads them. Each is a BOUNDED contribution to one expectancy
+     * estimate, capped in aggregate, and every one that moves the number is
+     * named in the verdict so the operator can see which brain spoke.
+     *
+     * DESIGN NOTE — WHY BOUNDED AND NOT AUTHORITATIVE. These modules have
+     * never been validated against outcomes, precisely because nothing read
+     * them. Handing any single one a veto would be replacing a measured
+     * estimate with an unmeasured opinion. So they adjust, the shrinkage
+     * hierarchy anchors, and their combined influence is capped. As their
+     * contributions start correlating with outcomes the caps can widen — but
+     * that decision belongs to evidence, not to this commit.
+     */
+    private data class BrainRead(val label: String, val deltaPct: Double)
+
+    private fun bandLabel6917(score: Int): String = when {
+        score >= 80 -> "S80"; score >= 60 -> "S60"; score >= 40 -> "S40"
+        score >= 20 -> "S20"; score >= 10 -> "S10"; score >= 5 -> "S05"; else -> "S00"
+    }
+
+    /** Bounded reads from the previously-unconsulted brain network. */
+    private fun brainNetwork6917(
+        lane: String,
+        score: Int,
+        mint: String,
+        symbol: String,
+        sourceFamily: String,
+        liquidityUsd: Double,
+        creator: String,
+    ): List<BrainRead> {
+        val out = mutableListOf<BrainRead>()
+
+        // Collective prediction — successProbability is 0..100 centred on 50.
+        try {
+            if (mint.isNotBlank()) {
+                val p = com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI
+                    .predictTokenSuccess(mint, symbol, sourceFamily, liquidityUsd)
+                if (p.instancesReporting > 0) {
+                    val d = ((p.successProbability - 50.0) / 50.0) * 12.0
+                    out += BrainRead("collectivePredict(p=${p.successProbability.toInt()}%,n=${p.instancesReporting},${p.collectiveSignal})", d)
+                }
+            }
+        } catch (_: Throwable) {}
+
+        // Beta-posterior win rate, adaptive from n=1. Centred on 0.5.
+        try {
+            val band = bandLabel6917(score)
+            val pb = com.lifecyclebot.engine.learning.LanePolicy.posteriorWrForBucket6611(lane, band)
+            val pl = com.lifecyclebot.engine.learning.LanePolicy.posteriorWr6611(lane)
+            // Bucket posterior is more specific; lane posterior is the anchor.
+            val blended = pb * 0.6 + pl * 0.4
+            val d = (blended - 0.5) * 30.0
+            if (kotlin.math.abs(d) >= 0.5) {
+                out += BrainRead("posteriorWR(bucket=${"%.2f".format(pb)},lane=${"%.2f".format(pl)})", d)
+            }
+        } catch (_: Throwable) {}
+
+        // Harvard brain — per-layer realised expectancy for this lane.
+        try {
+            val e = com.lifecyclebot.v3.scoring.EducationSubLayerAI.getLayerExpectancyPct(lane)
+            if (e.isFinite() && kotlin.math.abs(e) >= 0.5) {
+                out += BrainRead("harvard(E=${"%+.1f".format(e)}%)", (e / 100.0 * 10.0).coerceIn(-12.0, 12.0))
+            }
+        } catch (_: Throwable) {}
+
+        // Creator rug memory — the only near-hard negative in this tier.
+        try {
+            if (creator.isNotBlank() &&
+                com.lifecyclebot.engine.TradingMemory.isCreatorBlacklisted(creator)
+            ) out += BrainRead("creatorBlacklisted", -18.0)
+        } catch (_: Throwable) {}
+
+        // Momentum predictor.
+        try {
+            if (mint.isNotBlank()) {
+                val m = com.lifecyclebot.engine.MomentumPredictorAI.getMomentumScore(mint)
+                if (m.isFinite() && kotlin.math.abs(m) >= 1.0) {
+                    out += BrainRead("momentum(${"%+.0f".format(m)})", (m / 100.0 * 8.0).coerceIn(-8.0, 8.0))
+                }
+            }
+        } catch (_: Throwable) {}
+
+        // Insider/alpha wallet signal on this exact token.
+        try {
+            if (mint.isNotBlank() &&
+                com.lifecyclebot.v3.scoring.InsiderTrackerAI.hasRecentAlphaSignal(mint)
+            ) out += BrainRead("alphaWalletSignal", +8.0)
+        } catch (_: Throwable) {}
+
+        // Time-of-day edge. Golden/danger hours were computed and never read.
+        try {
+            val hour = com.lifecyclebot.engine.TimeOptimizationAI.getCurrentHourUtc()
+            val golden = com.lifecyclebot.engine.TimeOptimizationAI.getGoldenHours()
+            val danger = com.lifecyclebot.engine.TimeOptimizationAI.getDangerHours()
+            when {
+                golden.isNotEmpty() && hour in golden -> out += BrainRead("goldenHour($hour)", +5.0)
+                danger.isNotEmpty() && hour in danger -> out += BrainRead("dangerHour($hour)", -5.0)
+            }
+        } catch (_: Throwable) {}
+
+        return out
+    }
+
     fun evaluate(
         lane: String,
         score: Int,
         sourceFamily: String = "",
         regime: String = "",
+        // V5.0.6917 — per-candidate identity, so the mint-specific brains
+        // (collective prediction, momentum, insider, creator memory) can be
+        // read. All optional: blank simply drops those inputs and the estimate
+        // falls back to the cohort hierarchy exactly as in 6915.
+        mint: String = "",
+        symbol: String = "",
+        liquidityUsd: Double = 0.0,
+        creator: String = "",
     ): Forecast {
         evaluations.incrementAndGet()
         val laneKey = lane.trim().uppercase().ifBlank { "UNKNOWN" }
@@ -288,8 +453,23 @@ object PredictiveEntryOracle6915 {
                 contributions += "src(${sourceFamily.take(14)},n=${src.closed},${"%+.1f".format(d)})"
             }
         } catch (_: Throwable) {}
+        // V5.0.6917 — the brain-network tier. Capped separately from the 6915
+        // stack adjustments so one tier cannot swamp the other, and so the
+        // operator can tell from the contributions list which tier moved the
+        // number.
+        var brainAdjust6917 = 0.0
+        try {
+            val reads = brainNetwork6917(laneKey, s, mint, symbol, sourceFamily, liquidityUsd, creator)
+            for (r in reads) {
+                brainAdjust6917 += r.deltaPct
+                contributions += "${r.label}=${"%+.1f".format(r.deltaPct)}"
+            }
+            if (reads.isNotEmpty()) brainReads6917.addAndGet(reads.size.toLong())
+        } catch (_: Throwable) {}
+        val boundedBrain6917 = brainAdjust6917
+            .coerceIn(-BRAIN_NETWORK_CAP_PCT_6917, BRAIN_NETWORK_CAP_PCT_6917)
         val boundedAdjust = adjust.coerceIn(-STACK_ADJUST_CAP_PCT, STACK_ADJUST_CAP_PCT)
-        val finalE = blendedE + boundedAdjust
+        val finalE = blendedE + boundedAdjust + boundedBrain6917
 
         // ── VERDICT ─────────────────────────────────────────────────────────
         val verdict = when {
@@ -324,10 +504,11 @@ object PredictiveEntryOracle6915 {
     fun statusLine(): String =
         "evals=${evaluations.get()} admit=${admits.get()} probe=${probes.get()} refuse=${refuses.get()} " +
             "cellEvidence=${cellHits.get()} laneEvidence=${laneHits.get()} noEvidence=${globalOnly.get()} " +
+            "brainReads6917=${brainReads6917.get()} brainCap=${BRAIN_NETWORK_CAP_PCT_6917}% " +
             "shrinkK=$SHRINK_K refuseAt=${REFUSE_EXPECTANCY_PCT}% minConf=$MIN_CONFIDENCE_TO_REFUSE"
 
     internal fun resetForTest() {
         evaluations.set(0L); admits.set(0L); probes.set(0L); refuses.set(0L)
-        cellHits.set(0L); laneHits.set(0L); globalOnly.set(0L)
+        cellHits.set(0L); laneHits.set(0L); globalOnly.set(0L); brainReads6917.set(0L)
     }
 }

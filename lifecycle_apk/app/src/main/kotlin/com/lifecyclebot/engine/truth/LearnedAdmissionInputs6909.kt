@@ -162,6 +162,19 @@ object LearnedAdmissionInputs6909 {
         // meaning "this exact cell has 8 closes" and starts meaning "the
         // hierarchy behind this candidate carries enough weight to act on",
         // without changing a single existing threshold.
+        // V5.0.6917 — candidate identity for the mint-specific brains. Read
+        // from the live TokenState rather than threaded through every caller,
+        // because these are enrichment inputs: a miss simply drops that brain
+        // from the estimate and the cohort hierarchy still answers.
+        val tsForBrains6917 = try {
+            com.lifecyclebot.engine.BotService.status.tokens[mint]
+        } catch (_: Throwable) { null }
+        val symbolHint6917 = try { tsForBrains6917?.symbol.orEmpty() } catch (_: Throwable) { "" }
+        val liquidityUsdHint6917 = try { tsForBrains6917?.lastLiquidityUsd ?: 0.0 } catch (_: Throwable) { 0.0 }
+        val creatorHint6917 = try {
+            com.lifecyclebot.engine.BirdeyeCreationInfoProvider.peekCached(mint)?.creatorAddress.orEmpty()
+        } catch (_: Throwable) { "" }
+
         // V5.0.6915 — realised per-source expectancy. Read once here and
         // shared with 6846's §5, which has been inert since 6909 only because
         // the scorecard had no accessor.
@@ -175,6 +188,14 @@ object LearnedAdmissionInputs6909 {
                 score = entryScore.coerceAtLeast(0),
                 sourceFamily = sourceFamilyHint,
                 regime = regime,
+                // V5.0.6917 — candidate identity so the mint-specific brains
+                // can be read: CollectiveIntelligenceAI.predictTokenSuccess,
+                // MomentumPredictorAI, InsiderTrackerAI and the creator rug
+                // memory. All were zero-caller before this.
+                mint = mint,
+                symbol = symbolHint6917,
+                liquidityUsd = liquidityUsdHint6917,
+                creator = creatorHint6917,
             )
         } catch (_: Throwable) { null }
         if (oracle6915 != null) {
