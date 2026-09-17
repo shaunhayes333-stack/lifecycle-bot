@@ -178,7 +178,22 @@ object ForensicReconciliation6635 {
             } catch (_: Throwable) {}
         }
 
-        val allZero = replay6647?.reconciled == true && cashDelta.isFinite() && realizedDelta.isFinite() && openCostDelta.isFinite() &&
+        // V5.0.6899 — gate on totalsComplete6899, not reconciled. `reconciled`
+        // means "no event was anomalous"; this predicate needs "every event's
+        // economics were applied", and V5.0.6868 made those two different
+        // things by applying both legs of a residual terminal sell before
+        // rejecting it. Requiring `reconciled` here meant one quarantined lot
+        // held the account UNRECONCILED forever, which fired the
+        // BotService:17091 early return on all 281 cycles of the 5.0.6892
+        // snapshot and disabled the growth ring, the anti-reward-hacking guard
+        // and the four acceptance conservation invariants at once — while
+        // cashDelta and realizedDelta both read exactly 0.0000.
+        //
+        // The delta comparisons below are unchanged and still have to pass, so
+        // V5.0.6735's mandate ("Unknown/unreconciled evidence still FAILS;
+        // never heal it to pass") is intact: a genuine mismatch still fails.
+        // What no longer fails is an account whose numbers agree.
+        val allZero = replay6647?.totalsComplete6899 == true && cashDelta.isFinite() && realizedDelta.isFinite() && openCostDelta.isFinite() &&
             cashDelta <= DELTA_TOLERANCE_SOL &&
             realizedDelta <= DELTA_TOLERANCE_SOL &&
             openCostDelta <= DELTA_TOLERANCE_SOL && quantityDeltaRaw6647 == java.math.BigInteger.ZERO

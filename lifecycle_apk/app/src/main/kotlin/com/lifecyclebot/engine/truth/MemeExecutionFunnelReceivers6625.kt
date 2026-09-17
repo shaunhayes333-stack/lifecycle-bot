@@ -317,6 +317,71 @@ object SpecialistCausalFunnel6625 {
     private val records = ConcurrentHashMap<String, Record>()
     private val rejectedBlankIds = AtomicLong(0L)
 
+    // V5.0.6899 §THE_CAUSAL_FUNNEL_NEVER_FORGOT_ANYTHING.
+    //
+    // `records` had no eviction of any kind. Operator 5.0.6892:
+    //   §P5 CAUSAL_FUNNEL records=27692
+    // after 2005s of uptime, growing monotonically for the life of the
+    // process. Two costs, both real on a phone:
+    //
+    //   * Memory. Every record holds a CausalKey plus a stage map and an
+    //     outcome set, and nothing is ever released.
+    //   * CPU on the report path. laneSnapshot6647 filters records.values by
+    //     lane, and it is called once PER DESK — 13 desks in that snapshot —
+    //     for the operator report AND for every acceptance-window capture.
+    //     That is ~360k record visits per report, on the main thread, which is
+    //     why PipelineHealthActivity.onCreate shows up in the ANR stall
+    //     samples next to maxFrameGap=22484ms.
+    //
+    // A 120-second acceptance window has no use for a record whose last stage
+    // landed half an hour ago, so age is the right axis. The sweep is
+    // single-flight, runs at most once a minute, and is skipped entirely while
+    // the map is small — so the common path pays one size check.
+    private const val RECORD_TTL_MS_6899 = 1_800_000L
+    private const val RECORD_SOFT_CAP_6899 = 12_000
+    private const val SWEEP_MIN_INTERVAL_MS_6899 = 60_000L
+    private val lastSweepAtMs6899 = AtomicLong(0L)
+    private val sweeping6899 = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val evicted6899 = AtomicLong(0L)
+
+    private fun newestStageMs6899(r: Record): Long =
+        synchronized(r) { r.stages.values.maxOrNull() ?: 0L }
+
+    private fun sweepIfNeeded6899(nowMs: Long) {
+        if (records.size < RECORD_SOFT_CAP_6899) return
+        val last = lastSweepAtMs6899.get()
+        if (nowMs - last < SWEEP_MIN_INTERVAL_MS_6899) return
+        if (!sweeping6899.compareAndSet(false, true)) return
+        try {
+            lastSweepAtMs6899.set(nowMs)
+            var removed = 0L
+            val it = records.entries.iterator()
+            while (it.hasNext()) {
+                val e = it.next()
+                val newest = newestStageMs6899(e.value)
+                // A record with no stage timestamp at all is malformed; treat
+                // it as evictable rather than immortal.
+                if (newest <= 0L || nowMs - newest > RECORD_TTL_MS_6899) {
+                    it.remove()
+                    removed++
+                }
+            }
+            if (removed > 0L) {
+                evicted6899.addAndGet(removed)
+                try {
+                    PipelineHealthCollector.labelInc("CAUSAL_FUNNEL_RECORDS_EVICTED_6899")
+                    ForensicLogger.lifecycle(
+                        "CAUSAL_FUNNEL_RECORDS_EVICTED_6899",
+                        "removed=$removed remaining=${records.size} ttlMs=$RECORD_TTL_MS_6899 " +
+                            "softCap=$RECORD_SOFT_CAP_6899 lifetimeEvicted=${evicted6899.get()}",
+                    )
+                } catch (_: Throwable) {}
+            }
+        } finally {
+            sweeping6899.set(false)
+        }
+    }
+
     private fun keyString(k: CausalKey): String =
         "${k.runId}|${k.mode}|${k.mint}|${k.lane}|${k.authorityVersion}|${k.intentId}"
 
@@ -330,6 +395,9 @@ object SpecialistCausalFunnel6625 {
             return
         }
         val ks = keyString(key)
+        // V5.0.6899 — bound the map before adding to it. Cheap size check on
+        // the common path; the sweep itself is single-flight and rate-limited.
+        try { sweepIfNeeded6899(System.currentTimeMillis()) } catch (_: Throwable) {}
         val rec = records.computeIfAbsent(ks) { Record(key) }
         var inferredTicket6688 = false
         var inferredExec6688 = false
@@ -464,7 +532,8 @@ object SpecialistCausalFunnel6625 {
         .maxByOrNull { record -> synchronized(record) { record.stages[Stage.FINALIZE] ?: 0L } }
         ?.key
 
-    fun statusLine(): String = "records=${records.size}"
+    fun statusLine(): String =
+        "records=${records.size} evicted6899=${evicted6899.get()} softCap=$RECORD_SOFT_CAP_6899"
     internal fun resetForTest() { records.clear(); rejectedBlankIds.set(0L) }
 }
 

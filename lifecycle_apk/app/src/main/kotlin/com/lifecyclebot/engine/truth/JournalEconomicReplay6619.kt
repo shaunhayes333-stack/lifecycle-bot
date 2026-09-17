@@ -26,6 +26,46 @@ object JournalEconomicReplay6619 {
         val paperPartialSells: Int,
         val emittedAtMs: Long,
         val reconciled: Boolean = true,
+        /**
+         * V5.0.6899 §RECONCILED_CONFLATED_TWO_DIFFERENT_FACTS.
+         *
+         * `reconciled` is `failures.isEmpty()` — it means "no event was
+         * anomalous". Thirteen of the fourteen reject sites follow their
+         * reject with `continue`, which skips the event's economics entirely,
+         * so for those the totals really are incomplete. But V5.0.6868's
+         * TERMINAL_SELL_INCOMPLETE_LOT path deliberately applies BOTH legs and
+         * writes the residual off before rejecting, precisely so the totals
+         * still balance while the anomaly stays visible. After 6868 the two
+         * facts are separable and `reconciled` alone can no longer stand in
+         * for "the numbers add up".
+         *
+         * That distinction was load-bearing in ways nothing made obvious.
+         * ForensicReconciliation6635.allZero requires replay.reconciled, which
+         * gates UnifiedAccountSnapshot6635's RECONCILED status, which gates an
+         * early return at BotService:17091. Operator 5.0.6892 shows that early
+         * return firing on every single cycle —
+         * GROWTH_MILESTONE_BLOCKED_UNRECONCILED_OR_UNPRICED_6647=281 across
+         * 281 bot cycles — and taking three systems down with it:
+         *   * the growth ring never bumps           (no_ring_yet bumps=0)
+         *   * AntiRewardHackingGuard6439 never arms (high24hSol=0.00000,
+         *     highAgeMin=29827379 — an uninitialised timestamp reading 56
+         *     years), so canExpandRisk returns true unconditionally and the
+         *     guard that exists to stop learners expanding risk during a
+         *     drawdown cannot veto anything
+         *   * the four conservation invariants in the acceptance witness all
+         *     fail together, because reconciledDelta() returns NaN whenever
+         *     the reconciler is not RECONCILED
+         *
+         * And the numbers did add up: the same snapshot reports
+         * paperReplay cashDelta=0.0000 realizedDelta=0.0000 with
+         * journalOnlyCommits=0 ledgerOnlyCommits=0 duplicateJournal=0.
+         *
+         * `totalsComplete6899` is therefore the honest predicate for "every
+         * event's economics were applied": false only when a rejection
+         * actually skipped an event. `reconciled` keeps its original meaning
+         * and every existing reader of it is untouched.
+         */
+        val totalsComplete6899: Boolean = true,
         val invariantFailures: List<String> = emptyList(),
         val openRawQtyByPosition: Map<String, java.math.BigInteger> = emptyMap(),
         val openBasisByPosition: Map<String, Double> = emptyMap(),
@@ -116,9 +156,16 @@ object JournalEconomicReplay6619 {
             } catch (_: Throwable) { java.math.BigInteger.ZERO }
         }
 
-        fun reject(t: com.lifecyclebot.data.Trade, eventId: String, reason: String) {
+        // V5.0.6899 — `skipped` records whether this rejection also abandoned
+        // the event's economics. Every site that follows reject() with
+        // `continue` leaves the totals short by that event and keeps the
+        // default; the 6868 residual path applies both legs first and passes
+        // skipped = false.
+        var skippedEvents6899 = 0
+        fun reject(t: com.lifecyclebot.data.Trade, eventId: String, reason: String, skipped: Boolean = true) {
             val identity = "$eventId:$reason"
             failures += identity
+            if (skipped) skippedEvents6899 += 1
             try {
                 LearningQuarantineGate6470.quarantinePositionId("EVENT:$eventId", reason)
                 if (t.positionId.isNotBlank()) LearningQuarantineGate6470.quarantinePositionId(t.positionId, "EVENT:$eventId:$reason")
@@ -289,7 +336,9 @@ object JournalEconomicReplay6619 {
                     val terminalResidual6868 = side == "SELL" && (kotlin.math.abs(nextBasis) > 1e-9 ||
                         (lot.rawQty > java.math.BigInteger.ZERO && nextRaw != java.math.BigInteger.ZERO))
                     if (terminalResidual6868) {
-                        reject(t, eventId, "TERMINAL_SELL_INCOMPLETE_LOT")
+                        // V5.0.6899 — both legs ARE applied below and the
+                        // residual is written off, so the totals stay whole.
+                        reject(t, eventId, "TERMINAL_SELL_INCOMPLETE_LOT", skipped = false)
                         residualBasisWrittenOff6868 += nextBasis.coerceAtLeast(0.0)
                         residualLotCount6868 += 1
                         try {
@@ -357,6 +406,7 @@ object JournalEconomicReplay6619 {
             paperPartialSells = partials,
             emittedAtMs = System.currentTimeMillis(),
             reconciled = failures.isEmpty(),
+            totalsComplete6899 = skippedEvents6899 == 0,
             invariantFailures = failures.toList(),
             openRawQtyByPosition = lots.mapValues { it.value.rawQty },
             openBasisByPosition = lots.mapValues { it.value.basisSol },
