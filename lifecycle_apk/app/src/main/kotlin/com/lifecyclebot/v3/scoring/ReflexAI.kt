@@ -56,7 +56,14 @@ object ReflexAI {
         }
 
         // Reflex 2 — immediate 2x pump → partial lock 50%
-        if (heldSec in 0..120 && gainPct >= 100.0 && pos.partialSoldPct < 0.25) {
+        // V5.0.6849 §PARTIAL_SOLD_PCT_UNIT_MISMATCH — partialSoldPct is a PERCENT in
+        // 0..100 everywhere else (Executor:4626 `>= 50.0`, :4627 `>= 25.0`,
+        // ProfitabilityLayer:85, HoldingLogicLayer:407, and it is persisted as such).
+        // Comparing it to 0.25 made this guard 100x too tight: any prior partial of
+        // 0.25% or more permanently disarmed the 2x-in-120s reflex lock, so the one
+        // mechanism meant to bank a violent early pump almost never fired. The intent
+        // is "no more than a quarter of the position already sold".
+        if (heldSec in 0..120 && gainPct >= 100.0 && pos.partialSoldPct < 25.0) {
             ErrorLogger.info(TAG, "⚡ REFLEX PARTIAL: ${ts.symbol} +${gainPct.toInt()}% at ${heldSec}s → lock 50%")
             return Reflex.PARTIAL_LOCK
         }

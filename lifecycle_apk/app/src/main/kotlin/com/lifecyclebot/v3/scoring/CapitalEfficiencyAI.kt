@@ -59,7 +59,21 @@ object CapitalEfficiencyAI {
         val n = bandSampleCount[band] ?: 0
         if (n < 5) return ScoreComponent("CapitalEfficiencyAI", 0, "💸 $band: warming ($n/5)")
         val median = globalMedianPnlPerSolHour
+        // V5.0.6849 §MULTIPLICATIVE_COMPARISON_INVERTS_ON_A_NEGATIVE_MEDIAN — these
+        // ratio tests are only meaningful when the median is POSITIVE. globalMedianPnlPerSolHour
+        // is a median of band means and goes negative whenever the book is losing, which
+        // inverts every branch: with median = -0.010, `median * 2.0` = -0.020, so a band
+        // at expected = -0.008 — still destroying capital — satisfies
+        // `expected > median * 2.0` and collects the MAXIMUM +5 bonus. Meanwhile a
+        // genuinely profitable band sitting exactly at the median scores 0, because
+        // `expected > median` is false on equality.
+        // So during precisely the drawdowns where capital efficiency should be gating
+        // hardest, this layer handed its strongest admission bonus to the least-bad
+        // losers. Wired at UnifiedScorer:407/547/1047.
+        // When the book median is non-positive there is no peer benchmark worth
+        // dividing by: only genuinely positive expectancy earns credit.
         val value = when {
+            median <= 0.0 -> if (expected > 0.0) +2 else -2
             expected > median * 2.0 -> +5
             expected > median       -> +2
             expected < median * 0.3 -> -5

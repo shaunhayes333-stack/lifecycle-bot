@@ -560,7 +560,14 @@ object EducationSubLayerAI {
         "entry"              -> "EntryAI"
         "momentum"           -> "MomentumPredictorAI"
         "liquidity"          -> "LiquidityDepthAI"
-        "volume"             -> "OrderFlowImbalanceAI"
+        // V5.0.6849 §TWO_LAYERS_SHARED_ONE_BUCKET — "volume" and "orderflow" both mapped
+        // to "OrderFlowImbalanceAI". recordEntryScores builds a map via
+        // components.associate { normalizeLayerName(it.name) to it.value }, so the later
+        // "orderflow" entry silently OVERWROTE VolumeProfileAI's prediction. VolumeProfileAI
+        // was therefore never graded, had no bucket of its own, and yet was still
+        // trust-weighted and sign-flipped by OrderFlowImbalanceAI's statistics — one layer
+        // being judged on another layer's accuracy.
+        "volume"             -> "VolumeProfileAI"
         "holders"            -> "HolderSafetyAI"
         "narrative"          -> "NarrativeDetectorAI"
         "memory"             -> "TokenWinMemory"
@@ -709,6 +716,10 @@ object EducationSubLayerAI {
         "CollectiveIntelligenceAI",
         "VolatilityRegimeAI",
         "OrderFlowImbalanceAI",
+        // V5.0.6849 — registered so the "volume" component now has a bucket of its own.
+        // Grading iterates REGISTERED_LAYERS, so re-pointing normalizeLayerName without
+        // this entry would have moved VolumeProfileAI from mis-graded to ungraded.
+        "VolumeProfileAI",
         "SmartMoneyDivergenceAI",
         "LiquidityCycleAI",
         "FearGreedAI",
@@ -1991,7 +2002,19 @@ object EducationSubLayerAI {
             }
             // SOFT PENALTY: below noise floor, reduce influence
             edge < 0.42 && relaxation >= 0.55 -> {
-                val mult = 0.65 * relaxation
+                // V5.0.6849 §BOOTSTRAP_RELAXATION_APPLIED_INVERTED — getBootstrapRelaxation
+                // returns 0.30 (few trades) .. 1.00 (mature) and its own header states the
+                // contract: "only the drag is softened ... distrusted patterns are forgiven
+                // during bootstrap". `mult` is the surviving VOTE fraction, so penalty
+                // strength is (1 - mult). Writing `0.65 * relaxation` inverted it:
+                //   relaxation 0.30 (thinnest data) -> mult 0.195 -> 80% of the vote stripped
+                //   relaxation 1.00 (mature)        -> mult 0.650 -> 35% stripped
+                // i.e. penalties were roughly twice as harsh exactly when the evidence was
+                // weakest — the opposite of the stated purpose, and it fires on most of the
+                // committee because this file notes "most layers sit at 35-48% smoothed edge".
+                // Correct form keeps the documented 0.65 at full maturity and relaxes toward
+                // 1.0 (no drag) during bootstrap.
+                val mult = 1.0 - 0.35 * relaxation
                 Triple((vote * mult).toInt(), mult, "SOFT_PENALTY")
             }
             // BOOST: positive vote from a proven accurate layer — amplify
