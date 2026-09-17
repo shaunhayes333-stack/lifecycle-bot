@@ -867,7 +867,33 @@ object ToolkitSignalSheet {
             val pending = (deskCount6599(lane, "BUY_INTENT") - deskCount6599(lane, "EXEC")).coerceAtLeast(0L)
             val targetPct = (weights.getValue(lane) / weightSum * 100.0).coerceIn(0.0, 100.0)
             val targetSol = sharedEquity * (targetPct / 100.0)
-            appendLine("$lane targetAllocation=${"%.2f".format(targetPct)}% targetSol=${"%.4f".format(targetSol)} availableAllocation=sharedCash:${"%.4f".format(sharedCash)} usedAllocation=${"%.4f".format(used)} openPositions=${owned.size} pendingIntents=$pending capitalStarved=${pending > 0L && sharedCash <= 0.0} starvedByLane=NONE allocationDecisionSource=${capitalSource6686}+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE")
+            // V5.0.6912 §THE_REPORT_MUST_SHOW_WHAT_ACTUALLY_GATES.
+            //
+            // The target computed above is expectancy x OPPORTUNITY, where
+            // opportunity is ln1p(qualified) — i.e. scanner traffic. The
+            // authority that actually gates admissions,
+            // LaneCapitalFairness6732, deliberately uses expectancy ALONE and
+            // says why in its own comment: tying budget to traffic "conflates
+            // 'this lane has candidates to admit' with 'this lane has
+            // budget'". It is right, and that means this line — the surface
+            // the operator reads — has been reporting a target that nothing
+            // enforces, against an equity base (cash + openMarketValue) that
+            // the enforcer no longer uses either.
+            //
+            // Print both, labelled. The advisory figure stays for continuity;
+            // enforced* is the one that decides whether a buy happens, so the
+            // next snapshot can verify the §6912 block directly instead of
+            // inferring it.
+            val enforced6912 = try {
+                com.lifecyclebot.engine.truth.LaneCapitalFairness6732
+                    .headroomFor(if (paperMode6686) "PAPER" else "LIVE", lane)
+            } catch (_: Throwable) { null }
+            val enforcedTxt6912 = if (enforced6912 != null && enforced6912.targetSol > 0.0) {
+                " enforcedTargetSol=${"%.4f".format(enforced6912.targetSol)}" +
+                    " enforcedUtil=${"%.2f".format(enforced6912.utilization)}x" +
+                    " enforcedHeadroom=${enforced6912.hasHeadroom}"
+            } else " enforcedTargetSol=n/a enforcedUtil=n/a enforcedHeadroom=n/a"
+            appendLine("$lane targetAllocation=${"%.2f".format(targetPct)}%(advisory) targetSol=${"%.4f".format(targetSol)}(advisory)$enforcedTxt6912 availableAllocation=sharedCash:${"%.4f".format(sharedCash)} usedAllocation=${"%.4f".format(used)} openPositions=${owned.size} pendingIntents=$pending capitalStarved=${pending > 0L && sharedCash <= 0.0} starvedByLane=NONE allocationDecisionSource=${capitalSource6686}+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE")
         }
     }
 

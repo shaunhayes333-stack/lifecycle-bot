@@ -109,6 +109,45 @@ class JupiterStrictTokenList {
             val sorted = list.sortedByDescending { it.dailyVolumeUsd }
             cache = sorted
             fetchedAt = System.currentTimeMillis()
+            // V5.0.6912 §DECIMALS_WERE_PARSED_AND_THROWN_AWAY.
+            //
+            // OPERATOR EVIDENCE (5.0.6909):
+            //   Token meta cache: decimals known: 0/2513 (0.0%)
+            //   PAPER_DECIMALS_PENDING_ADVISORY_6514: 117  (one per paper buy)
+            //
+            // V5.0.6908 added the archive column and populated it from
+            // ts.tokenMap.decimals; V5.0.6912 repointed that at
+            // MintDecimalsAuthority6392. Both were still empty, because in
+            // PAPER nothing ever populates the authority:
+            // PaperTokenQuantityAuthority6509.resolveDecimals returns null
+            // unless a caller hands it metadata decimals, and no paper caller
+            // has any — hence 117 pending advisories for 117 buys.
+            //
+            // Meanwhile this parser has been reading `decimals` off every row
+            // of the verified token list for its own data class and dropping it
+            // into a local cache that only primeOnStart consults. Thousands of
+            // authoritative decimals, already downloaded, already keyless,
+            // already free, discarded on arrival.
+            //
+            // Seed the authority from them. resolveAndCache is putIfAbsent, so
+            // a chain-resolved value always wins and this can only ever fill a
+            // gap, never overwrite truth. That arms OpenPnlSanity's §6701 unit
+            // guard (which otherwise GUESSES 6 or 9), lets the §6908 archive
+            // fill, and gives the hive something to share.
+            var seeded6912 = 0
+            for (t in sorted) {
+                if (t.decimals !in 0..18) continue
+                try {
+                    com.lifecyclebot.engine.truth.MintDecimalsAuthority6392
+                        .resolveAndCache(t.mint, t.decimals)
+                    seeded6912++
+                } catch (_: Throwable) { /* invalid value — skip, never fail the list */ }
+            }
+            if (seeded6912 > 0) try {
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("MINT_DECIMALS_SEEDED_FROM_VERIFIED_LIST_6912")
+                ErrorLogger.info("JupiterStrict", "seeded $seeded6912 mint decimals into MintDecimalsAuthority6392")
+            } catch (_: Throwable) {}
             ErrorLogger.info(
                 "JupiterStrict",
                 "✅ verified Solana token list cached: ${sorted.size} tokens (vol>=\$5K) via lite-api.jup.ag/tokens/v2"

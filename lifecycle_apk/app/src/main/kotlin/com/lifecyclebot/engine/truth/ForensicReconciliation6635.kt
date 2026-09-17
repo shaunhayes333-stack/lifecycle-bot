@@ -128,6 +128,46 @@ object ForensicReconciliation6635 {
             acc + ((journalRaw6647[positionId] ?: java.math.BigInteger.ZERO) -
                 (canonicalRaw6647[positionId] ?: java.math.BigInteger.ZERO)).abs()
         }
+        // V5.0.6912 §NAME_THE_DIVERGENT_POSITION_NOT_JUST_THE_DELTA.
+        //
+        // OPERATOR EVIDENCE (5.0.6909), 582 occurrences each:
+        //   FORENSIC_CASH_DELTA_6635      ledger=2.142721 journal=1.506327 delta=0.636394
+        //   FORENSIC_OPEN_COST_DELTA_6635 ledger=9.165980 journal=9.825552 delta=0.659572
+        //   FORENSIC_REALIZED_DELTA_6635  ledger=-0.299753 journal=-0.278174 delta=0.021579
+        //   FORENSIC_QUANTITY_DELTA_6647  absoluteRawDelta=1000000000
+        //                                 journalPositions=81 canonicalPositions=80
+        //
+        // The three money deltas reconcile against each other
+        // (0.659572 - 0.021579 ~= 0.636394), so this is one position present in
+        // the journal and absent from canonical inventory, carrying ~0.66 SOL of
+        // open cost. The authority already holds BOTH position sets right here
+        // and reduces them to a single scalar, so 582 log lines said "they
+        // differ" and not one said which row. Meanwhile PositionParity6464's
+        // replay reports openCostD=-0.0000 with orphanLots=0 — two reconcilers,
+        // two answers, and neither names a subject.
+        //
+        // Diff the key sets and name them. Pure diagnostics: no mutation, no
+        // healing, no gating. The counters and status remain exactly as before.
+        val journalOnly6912 = journalRaw6647.keys - canonicalRaw6647.keys
+        val canonicalOnly6912 = canonicalRaw6647.keys - journalRaw6647.keys
+        val qtyMismatched6912 = (journalRaw6647.keys intersect canonicalRaw6647.keys)
+            .filter { journalRaw6647[it] != canonicalRaw6647[it] }
+        if (journalOnly6912.isNotEmpty() || canonicalOnly6912.isNotEmpty() || qtyMismatched6912.isNotEmpty()) {
+            try {
+                PipelineHealthCollector.labelInc("FORENSIC_POSITION_SET_DIVERGENCE_6912")
+                ForensicLogger.lifecycle(
+                    "FORENSIC_POSITION_SET_DIVERGENCE_6912",
+                    "journalOnly=${journalOnly6912.size} canonicalOnly=${canonicalOnly6912.size} " +
+                        "qtyMismatched=${qtyMismatched6912.size} " +
+                        "journalOnlyIds=${journalOnly6912.take(5).joinToString(",") { it.take(28) }} " +
+                        "canonicalOnlyIds=${canonicalOnly6912.take(5).joinToString(",") { it.take(28) }} " +
+                        "qtyMismatchedIds=${qtyMismatched6912.take(5).joinToString(",") { id ->
+                            "${id.take(20)}(j=${journalRaw6647[id]},c=${canonicalRaw6647[id]})"
+                        }} " +
+                        "action=identify_split_write_subject",
+                )
+            } catch (_: Throwable) {}
+        }
 
         lastCashLedger.set(cashLedger); lastCashJournal.set(cashJournal); lastCashDelta.set(cashDelta)
         lastRealizedLedger.set(realizedLedger); lastRealizedJournal.set(realizedJournal); lastRealizedDelta.set(realizedDelta)

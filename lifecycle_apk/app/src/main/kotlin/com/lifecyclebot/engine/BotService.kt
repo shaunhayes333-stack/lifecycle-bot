@@ -13464,6 +13464,37 @@ class BotService : Service() {
                 // mcap/liquidity/price seed at the same point status.tokens is updated
                 // so restarts and duplicate source hits can reuse it instead of falling
                 // back through slow no-pair oracle paths. Best-effort only; never gates.
+                // V5.0.6912 §PUMP_FUN_DECIMALS_ARE_A_KNOWN_CONSTANT.
+                //
+                // The verified-token-list seed added in 6912 covers established
+                // Solana tokens, but 306 of 519 intakes this session came from
+                // PUMP_PORTAL_WS and pump.fun mints are not on that list. Those
+                // are exactly the tokens whose marks keep tripping
+                // OpenPnlSanity's §6701 decimal-discontinuity guard, and that
+                // guard falls back to GUESSING 6 or 9 when decimals are absent.
+                //
+                // Pump.fun bonding-curve tokens are 6 decimals. That is not an
+                // inference: PumpFunDirectApi.sellToken takes `decimals: Int = 6`
+                // and its own comment states "pump.fun tokens use 6 decimals",
+                // so the LIVE sell path already stakes real money on it.
+                // Recording it here makes an assumption that is already
+                // load-bearing explicit, auditable and shareable.
+                //
+                // resolveAndCache is putIfAbsent, so this can only fill a gap —
+                // a chain-resolved or verified-list value that arrived first
+                // always wins, and decimals never change for a mint.
+                try {
+                    val srcUpper6912 = joinedSources.uppercase()
+                    val isPumpFun6912 = srcUpper6912.contains("PUMP_FUN") ||
+                        srcUpper6912.contains("PUMP_PORTAL") ||
+                        srcUpper6912.contains("PUMPFUN")
+                    if (isPumpFun6912 &&
+                        com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.get(mint) == null
+                    ) {
+                        com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.resolveAndCache(mint, 6)
+                        PipelineHealthCollector.labelInc("MINT_DECIMALS_SEEDED_PUMPFUN_6912")
+                    }
+                } catch (_: Throwable) {}
                 try {
                     com.lifecyclebot.engine.TokenMetaCache.get(applicationContext).register(
                         mint = mint,
@@ -13484,7 +13515,12 @@ class BotService : Service() {
                         // point they are known. Immutable per mint, so this is a
                         // one-time write that arms the §6701 unit guard for
                         // every future encounter and for every hive peer.
-                        decimals = ts.tokenMap.decimals,
+                        // V5.0.6912 — authority first; see Executor's
+                        // entry-snapshot register for why the cache is empty.
+                        decimals = (try {
+                            com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.get(ts.mint)
+                                ?.takeIf { it in 0..24 }
+                        } catch (_: Throwable) { null }) ?: ts.tokenMap.decimals,
                     )
                 } catch (_: Throwable) {}
             }

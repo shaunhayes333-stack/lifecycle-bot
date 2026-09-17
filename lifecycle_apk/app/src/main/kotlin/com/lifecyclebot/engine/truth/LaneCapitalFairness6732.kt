@@ -68,15 +68,43 @@ object LaneCapitalFairness6732 {
         }
         return try {
             val paperMode = mode.trim().equals("PAPER", true)
-            val (sharedCash, sharedEquity) = if (paperMode) {
-                val cap = PaperCapitalAuthority6577.snapshot()
-                cap.availableCashSol to cap.totalEquitySol
+            val sharedCash = if (paperMode) {
+                PaperCapitalAuthority6577.snapshot().availableCashSol
             } else {
-                val cap = CanonicalCapitalAuthority6450.snapshot()
-                val eq = cap.cashSol + cap.openMarketValueSol
-                cap.cashSol to eq
+                CanonicalCapitalAuthority6450.snapshot().cashSol
             }
             val positions = CanonicalPositionAuthority6441.openPositions()
+            // V5.0.6912 §BUDGETS_MUST_NOT_BE_SCALED_BY_PHANTOM_UNREALISED_GAINS.
+            //
+            // OPERATOR EVIDENCE (5.0.6909 WALLET SURFACES):
+            //
+            //   CASH               2.1427 SOL
+            //   OPEN MARKET VALUE 28.4239 SOL      <- against 9.1660 of cost
+            //   UNREALIZED PNL    19.2584 SOL
+            //   TOTAL EQUITY      30.5666 SOL
+            //   HERO_OPENMV_PER_POSITION_QUARANTINE_6604 ... ratio=4570.9x
+            //     (1,583 occurrences; mint=SLNDpmoWTV costBasis=0.055 rawMark=251.40)
+            //
+            // This used cash + openMarketValue as the equity that every lane
+            // target is a fraction of. 19.26 of that 30.57 SOL is unrealised
+            // gain on marks the system's OWN quarantine authority is rejecting
+            // as fallback at ratios up to 4,570x. So every lane's budget was
+            // being scaled by roughly 2.7x of fiction, which is why utilisation
+            // read low, why hasHeadroom kept returning true, and why the
+            // specialist report (which uses cost basis and showed BLUECHIP at
+            // 368%) and this authority disagreed about the same lane.
+            //
+            // A budget denominated in unrealised profit grows every time a
+            // phantom mark spikes — it hands out the most permission exactly
+            // when the price data is least trustworthy. Use cash plus
+            // REMAINING COST BASIS instead: money actually paid in, plus money
+            // actually available. Same basis the numerator (`used`) is measured
+            // in, so the ratio is finally comparing like with like. Realised
+            // gains still grow the budget, through cash.
+            val openCostBasisSol6912 = positions
+                .filter { it.mode.equals(mode, true) }
+                .sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
+            val sharedEquity = (sharedCash + openCostBasisSol6912).coerceAtLeast(0.0)
             val laneOwned = positions.filter {
                 it.mode.equals(mode, true) && (
                     it.lane.equals(nl, true) || (nl == "BLUECHIP" && it.lane.equals("BLUE_CHIP", true))

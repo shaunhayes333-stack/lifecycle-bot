@@ -12391,7 +12391,21 @@ class Executor(
                 // pruneStale/evictColdSoft may never delete this row, so the
                 // pool address, dex, decimals and creation time survive for the
                 // next encounter instead of being re-earned from providers.
-                decimals = ts.tokenMap.decimals,
+                // V5.0.6912 — read the AUTHORITY, not the cache. Operator
+                // 5.0.6909 archive: "decimals known: 0/2513 (0.0%)".
+                // V5.0.6908 added the column and populated it from
+                // ts.tokenMap.decimals, which is only ever written by one
+                // narrow wallet-verify path in getWalletDecimals (guarded on
+                // reflected == null) and is therefore null for essentially
+                // every token. MintDecimalsAuthority6392 is the canonical
+                // chain-resolved source — the same one DecimalIntegrityAuthority
+                // 6405's strict resolver reads first — and the TokenState field
+                // is merely a warmed copy of it. Ask the authority and fall back
+                // to the cache, so the archive fills for every traded mint.
+                decimals = (try {
+                    com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.get(ts.mint)
+                        ?.takeIf { it in 0..24 }
+                } catch (_: Throwable) { null }) ?: ts.tokenMap.decimals,
                 interacted = true,
             )
         } catch (_: Throwable) {}

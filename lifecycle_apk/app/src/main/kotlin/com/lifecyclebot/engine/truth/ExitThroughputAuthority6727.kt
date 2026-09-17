@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine.truth
 
+import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
 
 /**
@@ -49,6 +50,17 @@ object ExitThroughputAuthority6727 {
     private const val VELOCITY_OPEN_TO_SELL_MAX = 3.0
     /** Minimum sells within the window before ratio can engage. */
     private const val VELOCITY_MIN_SELLS = 5
+
+    /**
+     * V5.0.6912 — lane budget utilisation at which NEW OPENS for that lane
+     * are refused. See the block in evaluate() for the full rationale.
+     *
+     * 1.50 = "half again over its expectancy-weighted target". Deliberately
+     * above 1.0: a lane may sit slightly over while a fill settles, and the
+     * targets themselves move as expectancy updates. BLUECHIP's observed
+     * 3.68x clears this by a wide margin; a healthy lane never reaches it.
+     */
+    private const val OVERSPEND_BLOCK_RATIO_6912 = 1.50
 
     data class Verdict(
         val allow: Boolean,
@@ -116,12 +128,73 @@ object ExitThroughputAuthority6727 {
         // lanes reported capitalStarved=false. This deferral restores
         // per-lane fairness. Position hard cap above is preserved as
         // an unconditional sanity ceiling.
+        // V5.0.6912 §FAIRNESS_WAS_EXEMPTION_ONLY.
+        //
+        // OPERATOR EVIDENCE (5.0.6909 snapshot, MEME SPECIALIST CAPITAL):
+        //
+        //   BLUECHIP        targetSol=0.8474  usedAllocation=3.1184  (368%)
+        //                   exec=26  finalized=1  W/L=0/1  avgPct=-53.3%
+        //   PROJECT_SNIPER  targetSol=0.8261  usedAllocation=1.0579  (128%)
+        //                   exec=2   EV=+83.12%/trade  PnL=+0.3793 SOL
+        //   capitalStarved=false  starvedByLane=NONE   (for every lane)
+        //
+        // The lane with the only positive expectancy in the book got two
+        // fills. The lane at 368% of its budget, 0-for-1 at -53%, got
+        // twenty-six. That inversion is most of the win rate.
+        //
+        // LaneCapitalFairness6732's own header says "the specialist report is
+        // the observability surface, this authority is the enforcement
+        // surface". It enforced nothing. Its single production caller was the
+        // line below, which used it ONE WAY: headroom -> bypass the global
+        // gate. Saturation returned false, which merely meant "the global gate
+        // is fair" — and the global gate measures portfolio cash and inventory
+        // count, not this lane's budget. So no code path anywhere ever told a
+        // lane it was over its allocation. A budget that cannot be exceeded in
+        // one direction and cannot be enforced in the other is not a budget.
+        //
+        // Now both directions are honoured: headroom still bypasses (that is
+        // the 6732 fairness fix and it stays), and saturation past
+        // OVERSPEND_BLOCK_RATIO_6912 blocks NEW OPENS for that lane.
+        //
+        // NOT A LANE DISABLE (V5.9.1358). This is a budget, and it clears
+        // itself two ways without any operator action: the lane frees capital
+        // when a position closes, and its target grows when its expectancy
+        // improves (laneTargetSol is expectancy-weighted). Exits are never
+        // touched — this authority is consulted by the ENTRY resolver only,
+        // so a saturated lane keeps draining normally, which is precisely how
+        // it earns headroom back. The block is also per-lane, so a saturated
+        // BLUECHIP cannot starve PROJECT_SNIPER; it frees the shared cash that
+        // the profitable lane was being outbid for.
+        //
+        // The ratio is deliberately well above 1.0 rather than at it. A lane
+        // may legitimately sit slightly over target while a fill settles, and
+        // targets themselves move as expectancy updates. 1.50 means "half
+        // again over budget", which BLUECHIP's 3.68x clears by a wide margin
+        // and a normal lane never reaches.
         val laneHeadroom6732 = try {
-            if (lane.isNotBlank()) LaneCapitalFairness6732.hasHeadroom(m, lane) else false
-        } catch (_: Throwable) { false }
-        if (laneHeadroom6732) {
+            if (lane.isNotBlank()) LaneCapitalFairness6732.headroomFor(m, lane) else null
+        } catch (_: Throwable) { null }
+        if (laneHeadroom6732?.hasHeadroom == true) {
             try { PipelineHealthCollector.labelInc("EXIT_THROUGHPUT_LANE_FAIRNESS_BYPASS_6732") } catch (_: Throwable) {}
             return Verdict(true, "LANE_HEADROOM_FAIRNESS_6732", openCount, cash, equity, cashRatio)
+        }
+        if (laneHeadroom6732 != null &&
+            laneHeadroom6732.targetSol > 0.0 &&
+            laneHeadroom6732.utilization >= OVERSPEND_BLOCK_RATIO_6912
+        ) {
+            try {
+                PipelineHealthCollector.labelInc("EXIT_THROUGHPUT_BLOCKED_LANE_OVERSPEND_6912")
+                PipelineHealthCollector.labelInc("EXIT_THROUGHPUT_BLOCKED_LANE_OVERSPEND_6912_${laneHeadroom6732.lane}")
+                ForensicLogger.lifecycle(
+                    "EXIT_THROUGHPUT_BLOCKED_LANE_OVERSPEND_6912",
+                    "mode=$m lane=${laneHeadroom6732.lane} used=${"%.4f".format(laneHeadroom6732.usedSol)} " +
+                        "target=${"%.4f".format(laneHeadroom6732.targetSol)} " +
+                        "util=${"%.2f".format(laneHeadroom6732.utilization)}x " +
+                        "blockAt=${OVERSPEND_BLOCK_RATIO_6912}x openCount=$openCount " +
+                        "action=refuse_new_opens_until_lane_drains_or_earns_target",
+                )
+            } catch (_: Throwable) {}
+            return Verdict(false, "LANE_OVERSPEND_6912", openCount, cash, equity, cashRatio)
         }
 
         // Compound guard: cash starved AND we're already carrying real
