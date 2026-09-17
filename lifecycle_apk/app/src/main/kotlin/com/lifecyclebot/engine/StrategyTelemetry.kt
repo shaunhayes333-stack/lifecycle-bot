@@ -158,7 +158,23 @@ object StrategyTelemetry {
             // can't make a bleeding lane read as a megawinner (the "lie of
             // averages"). totalSolPnl below stays RAW so real SOL accounting is
             // untouched — this only sanitizes the percentage expectancy display.
-            fun sanePct(p: Double): Double = LearningPnlSanitizer.inspectPct(p, "StrategyTelemetry.sanePct", emit = false).takeIf { it.ok }?.pnlPct ?: 0.0
+            // V5.0.6848 §EV_STILL_DECIDED_BY_ONE_ROW — the V5.9.1357 intent above is
+            // right, but the implementation did not deliver it. sanePct delegates to
+            // LearningPnlSanitizer, whose ceiling is MAX_TRAINABLE_PNL_PCT = 100_000, so
+            // a +40,000% feed-artifact row passes through UNCHANGED and still dominates
+            // the mean. Operator 5.0.6846 shows the result: UNRESOLVED_OWNER_6741 reports
+            // EV=+832.66%/trade on 41W/190L, and EXPRESS previously reported +1434.58%/trade
+            // on 1W/25L. Both are bleeding cohorts reading as megawinners — precisely the
+            // "lie of averages" this clamp was written to prevent.
+            // Second, opposite bias: sanePct returns 0.0 when the sanitizer REJECTS a row,
+            // yet that row still counts in trades.size, dragging the mean toward zero.
+            // Winsorize each contribution into a realistic band instead. The ceiling
+            // matches this file's own stated realism test in saneSol below — "a real meme
+            // close cannot net more than ~50x its own deployed size (that is already a
+            // +5000% move)" — and -100% is a true total loss. This keeps the field a mean
+            // (semantics unchanged for consumers) while removing single-row domination.
+            fun sanePct(p: Double): Double =
+                if (!p.isFinite()) 0.0 else p.coerceIn(-100.0, 5_000.0)
             val sumPnl = trades.sumOf { sanePct(it.pnlPct) }
             val mean = if (trades.isNotEmpty()) sumPnl / trades.size else 0.0
             val wlDenom = wins + losses
@@ -273,7 +289,10 @@ object StrategyTelemetry {
             }
             .map { (strategy, trades) ->
                 fun rowPnlSol(t: Trade): Double = t.netPnlSol.takeIf { it != 0.0 } ?: t.pnlSol
-                fun sanePct(p: Double): Double = LearningPnlSanitizer.inspectPct(p, "StrategyTelemetry.cleanLive.sanePct", emit = false).takeIf { it.ok }?.pnlPct ?: 0.0
+                // V5.0.6848 — same winsorization as computeLeaderboardUncached above; see
+                // the rationale there. Duplicated formula, duplicated defect.
+                fun sanePct(p: Double): Double =
+                    if (!p.isFinite()) 0.0 else p.coerceIn(-100.0, 5_000.0)
                 val wins = trades.count { rowPnlSol(it) > 0.0 }
                 val losses = trades.count { rowPnlSol(it) < 0.0 }
                 val scratches = trades.size - wins - losses
@@ -332,7 +351,12 @@ object StrategyTelemetry {
             }
             .map { (strategy, trades) ->
                 fun rowPnlSol(t: Trade): Double = t.netPnlSol.takeIf { it != 0.0 } ?: t.pnlSol
-                fun sanePct(p: Double): Double = LearningPnlSanitizer.inspectPct(p, "StrategyTelemetry.cleanPaper.sanePct", emit = false).takeIf { it.ok }?.pnlPct ?: 0.0
+                // V5.0.6848 — same winsorization as computeLeaderboardUncached above; see
+                // the rationale there. This is the leaderboard LaneExpectancyDamper reads,
+                // so an outlier-dominated mean here mis-ranks lanes for sizing, for the
+                // 6838 admission floor and for the 6841 election priority.
+                fun sanePct(p: Double): Double =
+                    if (!p.isFinite()) 0.0 else p.coerceIn(-100.0, 5_000.0)
                 val wins = trades.count { rowPnlSol(it) > 0.0 }
                 val losses = trades.count { rowPnlSol(it) < 0.0 }
                 val scratches = trades.size - wins - losses
