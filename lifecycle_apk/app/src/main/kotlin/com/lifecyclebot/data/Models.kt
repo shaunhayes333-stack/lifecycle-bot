@@ -96,6 +96,12 @@ data class Position(
     // so paper had no basis protection and booked a +15,532% partial on a
     // bonding-curve-vs-AMM mismatch. See Executor.getActualPrice §6895.
     var crossBasisRefusals6895: Long = 0L,
+    // V5.0.6904 — two-strike confirmation for the catastrophic backstop. Armed
+    // when price alone says catastrophe but no supporting metric agrees; the
+    // next management pass then treats the breach as confirmed. Cleared the
+    // instant the position stops breaching, so a recovered dip never carries a
+    // stale strike. Same device V5.9.1564 uses for TICK_HARD_FLOOR.
+    var catastropheStrike6904: Boolean = false,
     // V5.9.1564 — two-strike state for tick-time HARD_FLOOR (prevents single-tick
     // basis-switch phantom reads from cutting real winners). Set true when a tick
     // sees pnl <= TICK_HARD_FLOOR_PCT for the FIRST time; the next tick (if also

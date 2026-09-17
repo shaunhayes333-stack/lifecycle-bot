@@ -13702,6 +13702,12 @@ class BotService : Service() {
     // refresh in the exit sweep loop doesn't pound the mark registry for the
     // same mint every 200ms while the observation is genuinely offline.
     private val staleMarkRefreshCooldown6721 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    /** V5.0.6902 — own cadence for the stale-mark refresh so it stops running
+     *  on every 250ms coordinator iteration and starving that loop's heartbeat. */
+    private val lastStaleMarkRefreshAtMs6902 = java.util.concurrent.atomic.AtomicLong(0L)
+    /** V5.0.6902 — rotating cursor so a bounded slice still covers every open
+     *  position over time, the same way the exit sweeps do. */
+    private val staleMarkRefreshCursor6902 = java.util.concurrent.atomic.AtomicInteger(0)
     private val EXIT_COORDINATOR_FULL_MIN_MS: Long = 30_000L
     private val EXIT_COORDINATOR_UNIVERSAL_MIN_MS: Long = 30_000L
 
@@ -18314,7 +18320,47 @@ if (hotExitHandledSweep) {
                         // observation-to-executable resolver for any mint
                         // whose mark is >60s old. Rate-limited to at most
                         // once per 5s per mint to avoid provider spam.
-                        try {
+                        // V5.0.6902 §THE_REFRESH_WAS_STARVING_THE_LOOP_THAT_RAN_IT.
+                        //
+                        // This block sat at the top of a 250-750ms loop and
+                        // iterated EVERY canonical open position, doing a
+                        // registry get() for each and a promote() for each stale
+                        // one. With 100 opens and 94 of them stale that is ~400
+                        // registry lookups a second plus up to 94 promotions per
+                        // pass, and the loop's own heartbeat (set two lines
+                        // above) cannot advance until the whole pass finishes.
+                        //
+                        // enforceExitStartDeadline6647 relaunches the coordinator
+                        // when that heartbeat is older than 15s. So a slow pass
+                        // got the coroutine CANCELLED MID-REFRESH, the relaunch
+                        // started the pass again from scratch, and it was
+                        // cancelled again. Operator 5.0.6899:
+                        //   EXIT_COORDINATOR_NO_START_RELAUNCHED_6647 = 48
+                        //   EXIT_COORDINATOR_STARTED                  = 1
+                        //   EXIT_COORDINATOR_FULL_START               = 2
+                        //   STALE_MARK_REFRESH_TRIGGERED_6721         = ABSENT
+                        //   CANONICAL_EXIT_FEED_6512 ... missingMark  = 94 of 100
+                        // 48 relaunches, two sweeps serviced in 318 seconds, and
+                        // not one completed mark refresh. A self-defeating loop:
+                        // the work that needed the loop alive was what killed it.
+                        //
+                        // This is also the correction to V5.0.6897, where I
+                        // called the relaunches "telemetry noise". They were not
+                        // — they were cancelling the mark refresh, which is why
+                        // 94 of 100 positions had no mark and the exit layer was
+                        // blind. The marks and the relaunches are one defect.
+                        //
+                        // Two changes: own cadence (5s, not every iteration) and
+                        // a bounded rotating slice so no single pass can outlive
+                        // the heartbeat window. Coverage is unchanged over time —
+                        // 24 mints every 5s clears 100 positions in ~21s, well
+                        // inside the 60s staleness limit this refresh exists to
+                        // defend. Failures are now counted instead of swallowed,
+                        // because a promote() that throws every time looks
+                        // exactly like a refresh that never ran.
+                        val refreshDue6902 = now - lastStaleMarkRefreshAtMs6902.get() >= 5_000L
+                        if (refreshDue6902) lastStaleMarkRefreshAtMs6902.set(now)
+                        if (refreshDue6902) try {
                             val stalenessLimitMs = 60_000L
                             val perMintCooldownMs = 5_000L
                             // V5.0.6724 §STALE_MARK_REFRESH_SOLANA_SCOPED —
@@ -18331,9 +18377,17 @@ if (hotExitHandledSweep) {
                             // published). Clamp the refresh to genuine
                             // Solana base58 mints.
                             val base58Solana6724 = Regex("^[1-9A-HJ-NP-Za-km-z]{32,44}$")
-                            val opens = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                            val allOpens6902 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                                .filter { base58Solana6724.matches(it.mint) }
+                            // Bounded rotating slice — the same device the exit
+                            // sweeps already use (rotatingExitSlice6663) so one
+                            // slow position cannot starve the ones behind it.
+                            val opens = rotatingExitSlice6663(
+                                allOpens6902, maxItems = 24, cursor = staleMarkRefreshCursor6902,
+                            )
+                            var refreshed6902 = 0
+                            var failed6902 = 0
                             for (p in opens) {
-                                if (!base58Solana6724.matches(p.mint)) continue
                                 val mark = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(
                                     p.mint,
                                     com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXIT_ECONOMIC,
@@ -18346,8 +18400,29 @@ if (hotExitHandledSweep) {
                                 try {
                                     com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.promoteObservationToExecutable6613(p.mint, now)
                                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("STALE_MARK_REFRESH_TRIGGERED_6721")
-                                } catch (_: Throwable) {}
+                                    refreshed6902++
+                                } catch (t: Throwable) {
+                                    // V5.0.6902 — a promote that always throws is
+                                    // indistinguishable from a refresh that never
+                                    // ran once the exception is swallowed. Name it.
+                                    failed6902++
+                                    if (failed6902 == 1) try {
+                                        PipelineHealthCollector.labelInc("STALE_MARK_REFRESH_FAILED_6902")
+                                        ForensicLogger.lifecycle(
+                                            "STALE_MARK_REFRESH_FAILED_6902",
+                                            "mint=${p.mint.take(10)} err=${t.javaClass.simpleName}:${t.message?.take(90)}",
+                                        )
+                                    } catch (_: Throwable) {}
+                                }
                             }
+                            if (refreshed6902 > 0 || failed6902 > 0) try {
+                                ForensicLogger.lifecycle(
+                                    "STALE_MARK_REFRESH_PASS_6902",
+                                    "sliceSize=${opens.size} solanaOpens=${allOpens6902.size} " +
+                                        "refreshed=$refreshed6902 failed=$failed6902 " +
+                                        "cursor=${staleMarkRefreshCursor6902.get()}",
+                                )
+                            } catch (_: Throwable) {}
                         } catch (_: Throwable) {}
                         // V5.9.1361 P0.6 — DEDUPE-PRESERVING DRAIN. The old code did
                         // getAndSet(false) on the pending flag BEFORE the rate-limit

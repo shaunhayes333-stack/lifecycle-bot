@@ -100,6 +100,20 @@ private const val ROUTE_LOCK_MAX_STALENESS_MS: Long = 60_000L
 // untouched, so a cross-source move that is merely large stays tradeable.
 private const val CROSS_BASIS_MAX_RATIO_6895: Double = 10.0
 
+// V5.0.6904 — evidence thresholds for the catastrophic backstop.
+//
+// CATASTROPHE_LIQ_FLOOR_USD_6904: a pool this thin cannot absorb an exit, so a
+// 25% drawdown against it is a genuine liquidity event rather than a dip. Set
+// to the same $5K the V5.0.4551 earlyRug block already treats as thin, so the
+// two gates agree on what "thin" means instead of using different numbers.
+//
+// CATASTROPHE_UNAMBIGUOUS_PCT_6904: past this depth, price IS the evidence. A
+// memecoin does not print -60% and recover with its pool intact, so requiring
+// further confirmation there would only add latency to a real rug. This is the
+// escape hatch that keeps the backstop's original protective purpose whole.
+private const val CATASTROPHE_LIQ_FLOOR_USD_6904: Double = 5_000.0
+private const val CATASTROPHE_UNAMBIGUOUS_PCT_6904: Double = -60.0
+
 // V5.0.6054 — REAL PRICE SOURCES for route-lock enforcement.
 // Anything NOT in this set is treated as symbolic/recovery basis (e.g.
 // LIVE_PROOF_COST_BASIS, RESTORED_LIVE_BASIS_UNKNOWN, SYNTH_COST_DIV_QTY,
@@ -7283,7 +7297,133 @@ class Executor(
                 }
             }
 
-            if (worstPnl <= -25.0) {
+            // V5.0.6903 §THE_CATASTROPHE_WAS_NEVER_CORROBORATED.
+            //
+            // worstPnl is candidates.min() — deliberately the WORSE of the live
+            // (executable) read and the cached read. That conservatism is right
+            // for DETECTING danger. It is wrong as the sole trigger for a full
+            // catastrophic exit, because the sell that follows executes at the
+            // EXECUTABLE price, not at the worst-case one.
+            //
+            // Operator 5.0.6899, a genuinely fresh install (lifetime closes=25,
+            // QUARANTINED=0, no inherited book) — every one of these is a
+            // CATASTROPHIC_HARD_BACKSTOP_-25 that realised a small loss:
+            //   6JrR1i cost=0.0500 sol=0.049 pnl=-0.002   ->  -4.0%
+            //   7GPGqs cost=0.0889 sol=0.087 pnl=-0.004   ->  -4.5%
+            //   j1AntP cost=0.0769 sol=0.074 pnl=-0.004   ->  -5.0%
+            //   DvdmEn cost=0.0500 sol=0.049 pnl=-0.002   ->  -4.0%
+            //   RAwqiv cost=0.0559 sol=0.054 pnl=-0.003   ->  -5.0%
+            // with EXIT_TRIGGER_BASIS_REBASED_4481=463,
+            // OPEN_PNL_BASIS_REJECTED=400 and
+            // CANONICAL_MARK_RATIO_QUARANTINE_6727=206 alongside.
+            //
+            // That is the whole 0% win rate. 19 consecutive losses of 2-5% each,
+            // every one labelled -25%: positions were being guillotined on a
+            // phantom catastrophe before any of them could reach profit. No
+            // entry filter, sizing rule or learner can produce a win when the
+            // exit layer cuts every position at -4%.
+            //
+            // The executable read is ground truth for what a sell will realise,
+            // so it is what must agree before we call something catastrophic.
+            // When it disagrees with the worst-case read, the -25% is an
+            // artefact of a divergent feed and the position is handed back to
+            // the normal ladder — STRICT_SL, LANE_HARD_15PCT_SL, the trailing
+            // stop and the risk clock all remain fully armed and will still cut
+            // it at its real level. Nothing is disabled and no exit is removed;
+            // a genuine rug reads catastrophic on BOTH sources and still fires
+            // instantly (CATASTROPHIC_EXIT latency in that same snapshot is
+            // 3ms). When only one source is finite, worstPnl == livePnl and
+            // behaviour is unchanged.
+            val execPnlForCatastrophe6903 = livePnl
+            val catastropheCorroborated6903 =
+                if (execPnlForCatastrophe6903.isFinite()) execPnlForCatastrophe6903 <= -25.0
+                else worstPnl <= -25.0
+
+            // V5.0.6904 §A_PRICE_GOING_DOWN_IS_NOT_A_REASON_TO_SELL.
+            //
+            // Operator directive: "price movement down should not equal sell
+            // immediately unless allowed metrics agree that it's sell time."
+            //
+            // The block immediately above (earlyRug, V5.0.4551) already gets
+            // this right — it requires LIQUIDITY evidence beside the price
+            // drop: thin liquidity on a fresh token, or a pool drained under
+            // $2.5K. This backstop, ten lines below it, required nothing but a
+            // number. Same file, same function, opposite standard of proof.
+            //
+            // A memecoin down 25% with an intact pool, normal depth and no
+            // distress signal is a DIP. Selling it is not risk management, it
+            // is handing the position to whoever is buying it. The stack even
+            // has the concept already: RUG_PRICE_COLLAPSE_UNCONFIRMED fired 91
+            // times in the 5.0.6899 snapshot — it knows the difference between
+            // a confirmed collapse and a price print, and this gate was
+            // ignoring the distinction.
+            //
+            // Rug protection is NOT weakened. Three independent escapes keep
+            // firing instantly:
+            //   * liquidity distress — a real rug drains the pool, and that is
+            //     what the earlyRug block above already catches at -10%/-15%,
+            //     BEFORE this gate is even reached
+            //   * unambiguous depth — past CATASTROPHE_UNAMBIGUOUS_PCT no dip
+            //     recovers, so price alone is sufficient evidence
+            //   * persistence — a drop still present on the next management
+            //     pass is confirmed, not a single-tick artefact (the same
+            //     two-strike device V5.9.1564 already uses for TICK_HARD_FLOOR)
+            // And every other floor stays fully armed underneath: STRICT_SL,
+            // LANE_HARD_15PCT_SL, UNIVERSAL_HARD_FLOOR, the trailing stop and
+            // the risk clock. A position that keeps falling still gets cut at
+            // its real level — it just is not branded catastrophic and
+            // full-exited on one price read.
+            val liqUsdForEvidence6904 = try { ts.lastLiquidityUsd } catch (_: Throwable) { 0.0 }
+            val liqSignal6904 = try {
+                LiquidityDepthAI.getSignal(ts.mint, ts.symbol, isOpenPosition = true)
+            } catch (_: Throwable) { null }
+            val liqDistress6904 =
+                (liqUsdForEvidence6904 > 0.0 && liqUsdForEvidence6904 < CATASTROPHE_LIQ_FLOOR_USD_6904) ||
+                liqSignal6904?.signal == LiquidityDepthAI.SignalType.LIQUIDITY_COLLAPSE ||
+                liqSignal6904?.signal == LiquidityDepthAI.SignalType.LIQUIDITY_DRAINING ||
+                liqSignal6904?.depthQuality == LiquidityDepthAI.DepthQuality.POOR ||
+                liqSignal6904?.depthQuality == LiquidityDepthAI.DepthQuality.DANGEROUS
+            val unambiguousDepth6904 = worstPnl <= CATASTROPHE_UNAMBIGUOUS_PCT_6904
+            val persistedBreach6904 = pos.catastropheStrike6904
+            val evidenceAgrees6904 = liqDistress6904 || unambiguousDepth6904 || persistedBreach6904
+
+            val priceSaysCatastrophe6904 = worstPnl <= -25.0 && catastropheCorroborated6903
+            // Arm/clear the strike so the NEXT pass counts as confirmation.
+            // Cleared the moment the position is no longer breaching, so a
+            // recovered dip never carries a stale strike into the future.
+            if (priceSaysCatastrophe6904 && !evidenceAgrees6904) {
+                pos.catastropheStrike6904 = true
+            } else if (worstPnl > -25.0) {
+                pos.catastropheStrike6904 = false
+            }
+
+            if (worstPnl <= -25.0 && !catastropheCorroborated6903) {
+                try {
+                    PipelineHealthCollector.labelInc("CATASTROPHIC_BACKSTOP_UNCORROBORATED_6903")
+                    ForensicLogger.lifecycle(
+                        "CATASTROPHIC_BACKSTOP_UNCORROBORATED_6903",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} " +
+                            "worstPnl=${worstPnl.fmt(2)} execPnl=${execPnlForCatastrophe6903.fmt(2)} " +
+                            "cachedPnl=${if (cachedPnl.isFinite()) cachedPnl.fmt(2) else "NaN"} " +
+                            "entry=${pos.entryPrice} execPx=$currentPrice cachedPx=$cachedPx " +
+                            "action=refuse_catastrophic_label_defer_to_normal_stop_ladder",
+                    )
+                } catch (_: Throwable) {}
+            } else if (priceSaysCatastrophe6904 && !evidenceAgrees6904) {
+                try {
+                    PipelineHealthCollector.labelInc("CATASTROPHIC_BACKSTOP_NO_EVIDENCE_6904")
+                    ForensicLogger.lifecycle(
+                        "CATASTROPHIC_BACKSTOP_NO_EVIDENCE_6904",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} worstPnl=${worstPnl.fmt(2)} " +
+                            "liqUsd=${liqUsdForEvidence6904.toInt()} liqFloor=${CATASTROPHE_LIQ_FLOOR_USD_6904.toInt()} " +
+                            "liqSignal=${liqSignal6904?.signal} depth=${liqSignal6904?.depthQuality} " +
+                            "strikeArmed=true unambiguousAt=${CATASTROPHE_UNAMBIGUOUS_PCT_6904} " +
+                            "action=dip_not_catastrophe_hold_for_confirmation_normal_ladder_still_armed",
+                    )
+                } catch (_: Throwable) {}
+            }
+
+            if (priceSaysCatastrophe6904 && evidenceAgrees6904) {
                 // V5.0.6835 §MISSING_MARK_EXIT_VETO — refuse to
                 // materialise a synthetic -N% closure when the mark
                 // that would justify it is stale/missing/frozen.
