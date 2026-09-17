@@ -230,6 +230,60 @@ object WhaleDistributionAlarm6390 {
     fun aggregateAlarm(topHolderNetSellsPctOfBag: List<Double>): Boolean =
         topHolderNetSellsPctOfBag.any { it >= 20.0 } ||
         topHolderNetSellsPctOfBag.count { it >= 10.0 } >= 3
+
+    /**
+     * V5.0.6919 — the alarm that can actually fire, on the evidence that
+     * actually exists.
+     *
+     * `aggregateAlarm` above needs each top-10 holder's net sells as a share
+     * of their own bag. No component in this app tracks per-holder bag size,
+     * so its only call site has always passed emptyList() and this detector
+     * has never fired once — one of the five branches of
+     * PeakCaptureAuthority6390 permanently inert.
+     *
+     * WhaleWalletTracker holds real per-movement evidence (tokenMint, action,
+     * solAmount, whaleScore) and its readers getRecentMovements /
+     * getWatchedWhaleMovements were themselves zero-caller. This predicate
+     * uses that, in its own units, and requires ALL of:
+     *
+     *   1. WE ARE UP. Whales selling into a dip is not distribution, it is
+     *      capitulation, and the existing stop/backstop layer owns that. This
+     *      detector is only about a runner being sold into.
+     *   2. A HIGH-CONVICTION SELLER. whaleScore is the tracker's own
+     *      reliability measure; a low-score wallet is noise.
+     *   3. MATERIAL SIZE. The whale's sold SOL must be meaningful against our
+     *      own cost, or against a repeated-seller count. A single small sale
+     *      from one wallet is not the top.
+     *
+     * Deliberately conservative: three independent conditions, and the
+     * authority acts on it with a 0.75 partial rather than a full cut,
+     * because a whale exiting is strong evidence to BANK most of a runner and
+     * weak evidence that the move is over. Capture, not abandon.
+     */
+    fun trackedWhaleDistribution6919(
+        currentGainPct: Double,
+        sellEvents: Int,
+        topSellerScore: Int,
+        whaleSellSol: Double,
+        positionCostSol: Double,
+    ): Boolean {
+        if (currentGainPct < MIN_GAIN_FOR_DISTRIBUTION_6919) return false
+        if (sellEvents <= 0) return false
+        if (topSellerScore < MIN_WHALE_SCORE_6919) return false
+        val materialBySize = positionCostSol > 0.0 &&
+            whaleSellSol >= positionCostSol * SELL_SIZE_VS_POSITION_6919
+        val materialByRepetition = sellEvents >= MIN_REPEAT_SELLERS_6919
+        return materialBySize || materialByRepetition
+    }
+
+    /** Only a position in real profit can be "distributed into". */
+    private const val MIN_GAIN_FOR_DISTRIBUTION_6919 = 25.0
+    /** WhaleWalletTracker's own reliability scale; below this is noise. */
+    private const val MIN_WHALE_SCORE_6919 = 60
+    /** Whale sold at least this multiple of our own position cost. */
+    private const val SELL_SIZE_VS_POSITION_6919 = 2.0
+    /** Or this many separate whale sells on the same mint. */
+    private const val MIN_REPEAT_SELLERS_6919 = 3
 }
 
 /* ============================ AGGREGATE EXIT AUTHORITY ===================== */
@@ -252,6 +306,29 @@ object PeakCaptureAuthority6390 {
         val peakBuyVolumeUsd: Double, val currentBuyVolumeUsd: Double,
         val peakPriceUsd: Double, val currentPriceUsd: Double,
         val topHolderNetSellsPctOfBag: List<Double>,
+        // V5.0.6919 §HONEST_WHALE_INPUT.
+        //
+        // topHolderNetSellsPctOfBag needs each top-10 holder's net sells as a
+        // percentage of THEIR OWN bag. Nothing in this app tracks per-holder
+        // bag size, so that list has only ever been passed as emptyList() —
+        // which means WhaleDistributionAlarm6390, one of the five detectors
+        // here, has never been able to fire. See the call site in BotService.
+        //
+        // WhaleWalletTracker DOES hold real evidence: per-movement tokenMint,
+        // action, solAmount and whaleScore, with getRecentMovements /
+        // getWatchedWhaleMovements — both zero-caller before V5.0.6919. That
+        // is genuine smart-money-exit evidence in a different unit, so it gets
+        // its own honestly-named fields rather than being cast into a
+        // percentage it is not. Fabricating a "% of bag" from sol amounts
+        // would be inventing evidence, which is the exact failure class this
+        // codebase keeps rediscovering.
+        //
+        // Defaults keep every existing construction valid.
+        val whaleSellEventsOnMint: Int = 0,
+        val whaleTopSellerScore: Int = 0,
+        val whaleSellSolOnMint: Double = 0.0,
+        /** Position cost, so whale sell size can be judged against our own. */
+        val positionCostSol: Double = 0.0,
     )
     fun decide(i: Inputs): Decision {
         // 1. Safety net first — hard give-back → full cut.
@@ -265,10 +342,47 @@ object PeakCaptureAuthority6390 {
         // 2. Whale distribution.
         if (WhaleDistributionAlarm6390.aggregateAlarm(i.topHolderNetSellsPctOfBag))
             return Decision(Verdict.DISTRIBUTION_EXIT, "WHALE_DISTRIBUTION_ALARM", 1.0)
+        // 2b. V5.0.6919 — tracked-whale selling on THIS mint while we are up.
+        // The %-of-bag alarm above cannot fire because nothing supplies that
+        // unit; this uses the evidence that does exist. Requires all three:
+        // we are in profit (so this is distribution, not a dip), a
+        // high-conviction whale is the seller, and the sold size is material
+        // against our own position. Partial rather than full: a whale exiting
+        // is a strong reason to bank most of a runner, not proof the move is
+        // finished, and the doctrine is capture not abandon.
+        if (WhaleDistributionAlarm6390.trackedWhaleDistribution6919(
+                currentGainPct = i.currentGainPct,
+                sellEvents = i.whaleSellEventsOnMint,
+                topSellerScore = i.whaleTopSellerScore,
+                whaleSellSol = i.whaleSellSolOnMint,
+                positionCostSol = i.positionCostSol,
+            )
+        ) return Decision(
+            Verdict.DISTRIBUTION_EXIT,
+            "TRACKED_WHALE_DISTRIBUTION_6919 events=${i.whaleSellEventsOnMint} " +
+                "topScore=${i.whaleTopSellerScore} whaleSol=${"%.2f".format(i.whaleSellSolOnMint)} " +
+                "ourCost=${"%.2f".format(i.positionCostSol)} gain=${"%.0f".format(i.currentGainPct)}%",
+            0.75,
+        )
         // 3. Volume exhaustion.
-        if (VolumeExhaustionDetector6390.isDistributionRisk(
+        //
+        // V5.0.6919 §PEAK_PRECONDITION. This branch was written against
+        // volumes that the only call site hardcoded to 0.0, so it could never
+        // fire and its missing precondition never mattered. Now that it is
+        // fed real data the precondition matters a lot: isDistributionRisk
+        // asks only "did buy volume collapse while price held near its peak",
+        // with no reference to whether we are UP. Without a floor it would
+        // sell 75% of a flat or losing position purely because the tape went
+        // quiet — and a quiet flat token is exactly the state a memecoin sits
+        // in for hours before it runs. "Distribution" means being sold into
+        // near a peak, so a peak has to exist. Same floor as branch 2b.
+        if (i.peakGainPct >= MIN_PEAK_GAIN_FOR_VOL_EXHAUSTION_6919 &&
+            VolumeExhaustionDetector6390.isDistributionRisk(
                 i.peakBuyVolumeUsd, i.currentBuyVolumeUsd, i.peakPriceUsd, i.currentPriceUsd))
-            return Decision(Verdict.DISTRIBUTION_EXIT, "VOLUME_EXHAUSTION_DISTRIBUTION", 0.75)
+            return Decision(Verdict.DISTRIBUTION_EXIT,
+                "VOLUME_EXHAUSTION_DISTRIBUTION peakGain=${"%.0f".format(i.peakGainPct)}% " +
+                    "buyVol=${"%.0f".format(i.currentBuyVolumeUsd)}/${"%.0f".format(i.peakBuyVolumeUsd)}",
+                0.75)
         // 4. Adaptive trail broken.
         if (PeakAdaptiveTrail6390.shouldExitOnTrail(i.peakGainPct, i.currentGainPct))
             return Decision(Verdict.TRAIL_EXIT,
@@ -279,4 +393,7 @@ object PeakCaptureAuthority6390 {
             return Decision(Verdict.LADDER_PARTIAL, "WINNER_LADDER_${rung.name}", rung.sellFraction)
         return Decision(Verdict.HOLD, "OK", 0.0)
     }
+
+    /** V5.0.6919 — a peak must exist before "distribution into it" is meaningful. */
+    private const val MIN_PEAK_GAIN_FOR_VOL_EXHAUSTION_6919 = 25.0
 }

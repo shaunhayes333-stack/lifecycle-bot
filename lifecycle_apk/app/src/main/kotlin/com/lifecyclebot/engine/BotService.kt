@@ -9887,14 +9887,115 @@ class BotService : Service() {
                             com.lifecyclebot.engine.truth.PeakAdaptiveTrail6390
                                 .recordTick(positionIdForPeak, pnlPct)
                         } catch (_: Throwable) {}
+                        // V5.0.6919 §FEED_THE_DETECTORS_THAT_WERE_PASSED_ZEROS.
+                        //
+                        // This call has always passed peakBuyVolumeUsd=0,
+                        // currentBuyVolumeUsd=0, peakPriceUsd=0,
+                        // currentPriceUsd=0 and an empty holder list. Read
+                        // VolumeExhaustionDetector6390.isDistributionRisk: it
+                        // returns false immediately when peakBuyVolumeUsd<=0
+                        // or peakPriceUsd<=0. And aggregateAlarm on an empty
+                        // list is false by definition. So two of the five
+                        // branches of this authority — the two that catch
+                        // DISTRIBUTION, i.e. a runner being sold into at the
+                        // top — have never once been able to fire. Only peak
+                        // slip, the adaptive trail and the winner ladder were
+                        // ever live.
+                        //
+                        // Every value below is real and already on hand.
+                        val curPriceForPeak6919 = try { ts.lastPrice } catch (_: Throwable) { 0.0 }
+                        val peakPriceForPeak6919 = try {
+                            maxOf(ts.position.highestPrice, curPriceForPeak6919)
+                        } catch (_: Throwable) { 0.0 }
+                        // Rolling BUY volume from the candle history that
+                        // V5.0.6916 finally started populating.
+                        //
+                        // Three traps here, all of which would have turned
+                        // this detector from inert into actively harmful:
+                        //
+                        //  a) BASIS MIXING. Candle.vol is `volumeH1 > 0 ?
+                        //     volumeH1 : volume24h`. Across a 300-bar window
+                        //     some bars carry the 1h figure and some the 24h
+                        //     figure — a ~24x scale step. Comparing the two
+                        //     manufactures an instant ">= 60% collapse" out of
+                        //     nothing. So we read volumeH1 ONLY and skip any
+                        //     bar that does not have it.
+                        //  b) BUY vs TOTAL. The detector is specified on buy
+                        //     volume, so each bar is weighted by its own
+                        //     buyRatio instead of being passed whole.
+                        //  c) SINGLE-BAR NOISE. One quiet minute is not
+                        //     exhaustion. Both current and peak are 3-bar
+                        //     means, so peak is the best sustained window and
+                        //     current is the latest sustained window.
+                        //
+                        // Too few consistent bars → feed 0.0, which the
+                        // detector reads as "no evidence" and stays silent.
+                        // That is the honest answer, not a guess.
+                        val volNow6919: Double
+                        val volPeak6919: Double
+                        run {
+                            val buyVols6919 = ArrayList<Double>(64)
+                            try {
+                                synchronized(ts.history) {
+                                    for (c in ts.history) {
+                                        if (c.volumeH1 <= 0.0) continue
+                                        buyVols6919.add(c.volumeH1 * c.buyRatio)
+                                    }
+                                }
+                            } catch (_: Throwable) {}
+                            val win6919 = 3
+                            if (buyVols6919.size < win6919 * 2) {
+                                volNow6919 = 0.0; volPeak6919 = 0.0
+                            } else {
+                                var peak = 0.0
+                                var i6919 = 0
+                                while (i6919 + win6919 <= buyVols6919.size) {
+                                    var s = 0.0
+                                    for (k in i6919 until i6919 + win6919) s += buyVols6919[k]
+                                    val m = s / win6919
+                                    if (m > peak) peak = m
+                                    i6919 += 1
+                                }
+                                var tail = 0.0
+                                for (k in buyVols6919.size - win6919 until buyVols6919.size) tail += buyVols6919[k]
+                                volNow6919 = tail / win6919
+                                volPeak6919 = peak
+                            }
+                        }
+                        // Tracked-whale selling on THIS mint. Both readers were
+                        // zero-caller before now.
+                        var whaleSellEvents6919 = 0
+                        var whaleTopScore6919 = 0
+                        var whaleSellSol6919 = 0.0
+                        try {
+                            val movements = com.lifecyclebot.engine.WhaleWalletTracker
+                                .getRecentMovements(80)
+                            for (mv in movements) {
+                                if (!mv.tokenMint.equals(ts.mint, true)) continue
+                                if (!mv.action.uppercase().contains("SELL")) continue
+                                whaleSellEvents6919 += 1
+                                whaleSellSol6919 += mv.solAmount.coerceAtLeast(0.0)
+                                if (mv.whaleScore > whaleTopScore6919) whaleTopScore6919 = mv.whaleScore
+                            }
+                        } catch (_: Throwable) {}
                         val peakDecision = try {
                             com.lifecyclebot.engine.truth.PeakCaptureAuthority6390.decide(
                                 com.lifecyclebot.engine.truth.PeakCaptureAuthority6390.Inputs(
                                     positionId = positionIdForPeak,
                                     peakGainPct = peakPnlPct, currentGainPct = pnlPct,
-                                    peakBuyVolumeUsd = 0.0, currentBuyVolumeUsd = 0.0,
-                                    peakPriceUsd = 0.0, currentPriceUsd = 0.0,
+                                    peakBuyVolumeUsd = volPeak6919,
+                                    currentBuyVolumeUsd = volNow6919,
+                                    peakPriceUsd = peakPriceForPeak6919,
+                                    currentPriceUsd = curPriceForPeak6919,
+                                    // Still empty: nothing tracks per-holder bag
+                                    // size, so this stays honest rather than
+                                    // fabricated. The whale fields below carry
+                                    // the evidence that does exist.
                                     topHolderNetSellsPctOfBag = emptyList(),
+                                    whaleSellEventsOnMint = whaleSellEvents6919,
+                                    whaleTopSellerScore = whaleTopScore6919,
+                                    whaleSellSolOnMint = whaleSellSol6919,
+                                    positionCostSol = try { ts.position.costSol } catch (_: Throwable) { 0.0 },
                                 )
                             )
                         } catch (_: Throwable) { null }
