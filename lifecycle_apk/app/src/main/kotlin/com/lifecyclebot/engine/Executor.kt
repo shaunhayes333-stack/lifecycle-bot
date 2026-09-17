@@ -7877,6 +7877,25 @@ class Executor(
         }
     }
 
+    /**
+     * V5.0.6922 — carrier for the Exit AI's PARTIAL_EXIT recommendation.
+     *
+     * riskCheck() consults ExitIntelligence.evaluateExit() on every tick, but
+     * its `when` only acted on EMERGENCY_EXIT and FULL_EXIT — PARTIAL_EXIT
+     * and TIGHTEN_STOP fell into `else -> {}`. So the exit AI's partial
+     * recommendation, complete with a 25/50 partialExitPercent, was computed
+     * and thrown away on every tick of every position.
+     *
+     * riskCheck is `riskCheck(ts, modeConf): String?` — a pure advisory with
+     * no wallet in scope — so it cannot execute a partial itself. It records
+     * the recommendation here instead, and checkPartialSell consumes it: that
+     * function already owns the partial ladder, already has the wallet, and
+     * already applies the V5.0.6920 break-even floor. At both call sites
+     * checkPartialSell runs immediately before riskCheck, so a recommendation
+     * is acted on one tick after it is made, which is seconds.
+     */
+    private val exitAiPendingPartial6922 = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
     fun checkPartialSell(ts: TokenState, wallet: SolanaWallet?, walletSol: Double): Boolean {
         val c   = cfg()
         normalizePositionScaleIfNeeded(ts)
@@ -7886,6 +7905,49 @@ class Executor(
         val actualPrice = getActualPrice(ts)
         val gainPct = pct(pos.entryPrice, actualPrice)
         val soldPct = pos.partialSoldPct
+
+        // V5.0.6922 — act on the Exit AI's PARTIAL_EXIT recommendation from
+        // the previous tick. Routed through requestPartialSellConfirmed6566 so
+        // it goes out the SAME door as every other partial: paper/live split,
+        // break-even floor, lot accounting, journal. No second sell path.
+        run {
+            val wantedPct6922 = exitAiPendingPartial6922.remove(ts.mint) ?: return@run
+            if (wantedPct6922 !in 1..100) return@run
+            // The exit AI's partial branches are profit branches
+            // (pnl >= partialExit25/50Threshold). Never ladder a loser here;
+            // losses belong to the stop/backstop layer.
+            if (gainPct <= 0.0) return@run
+            if (soldPct >= 99.9) return@run
+            val receipt6922 = try {
+                requestPartialSellConfirmed6566(
+                    ts = ts,
+                    sellPercentage = wantedPct6922 / 100.0,
+                    reason = "EXIT_AI_PARTIAL_${wantedPct6922}PCT_6922",
+                    wallet = wallet,
+                    walletBalance = walletSol,
+                )
+            } catch (_: Throwable) { null }
+            if (receipt6922?.applied == true) {
+                // Only NOW is the partial real. ExitIntelligence.confirmPartialExit
+                // was a zero-caller function whose own docstring says "Call this
+                // only AFTER a partial exit order actually fills. This avoids
+                // consuming partial exits just from repeated evaluations." It is
+                // the ONLY writer of tracker.partialExitsTaken, so that counter
+                // sat at 0 forever and the two guards that read it
+                // (partialExitsTaken < 2 and < 1) were permanently true — the
+                // exit AI would have re-recommended the same partial on every
+                // tick for the life of the position, which is exactly what its
+                // docstring warned about.
+                try { ExitIntelligence.confirmPartialExit(ts.mint, wantedPct6922) } catch (_: Throwable) {}
+                try {
+                    ForensicLogger.lifecycle("EXIT_AI_PARTIAL_APPLIED_6922",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} pct=$wantedPct6922 gain=${"%.2f".format(gainPct)} authority=${receipt6922.authorityResult}")
+                    PipelineHealthCollector.labelInc("EXIT_AI_PARTIAL_APPLIED_6922")
+                } catch (_: Throwable) {}
+                return true
+            }
+            try { PipelineHealthCollector.labelInc("EXIT_AI_PARTIAL_NOT_APPLIED_6922_${receipt6922?.authorityResult ?: "NO_RECEIPT"}") } catch (_: Throwable) {}
+        }
 
         val partialLevel = (soldPct / (c.partialSellFraction * 100.0)).toInt()
         val laneKey = pos.tradingMode.ifBlank { if (pos.isShitCoinPosition) "SHITCOIN" else if (pos.isBlueChipPosition) "BLUECHIP" else if (pos.isTreasuryPosition) "TREASURY" else "STANDARD" }
@@ -8843,8 +8905,31 @@ class Executor(
             lowestPrice = pos.lowestPrice,
             pnlPercent = gainPct,
             holdTimeMinutes = (heldSecs / 60.0).toInt(),
-            buyPressure = ts.meta.pressScore,
-            entryBuyPressure = ts.meta.pressScore,
+            // V5.0.6922 §ONE_VALUE_FOR_TWO_FACTS. These two lines both read
+            // ts.meta.pressScore, so (entryBuyPressure - buyPressure) was
+            // identically 0.0 on every evaluation and the branch
+            //
+            //     (state.entryBuyPressure - state.buyPressure) >= 30.0
+            //         -> TIGHTEN_STOP, "Buy pressure dropped N%"
+            //
+            // was structurally unreachable. "Buy pressure at entry" and "buy
+            // pressure now" are two different facts, and the app already
+            // records both: EntryStrategySnapshot6450 stamps
+            // entryBuyPressurePct at entry from ts.lastBuyPressurePct, which
+            // is the live value. Same units (buys/txns as a percentage), so
+            // the delta is meaningful.
+            //
+            // Falls back to the live value when there is no entry snapshot
+            // (blank positionId, or a position opened before the snapshot
+            // existed), which yields a delta of 0 and leaves the detector
+            // silent rather than firing on a missing number.
+            buyPressure = ts.lastBuyPressurePct,
+            entryBuyPressure = (
+                try {
+                    com.lifecyclebot.engine.truth.EntryStrategySnapshot6450
+                        .snapshot(pos.positionId)?.entryBuyPressurePct
+                } catch (_: Throwable) { null }
+            )?.takeIf { it > 0.0 } ?: ts.lastBuyPressurePct,
             volume = ts.meta.volScore,
             volatility = ts.meta.avgAtr,
             isDistribution = ts.phase == "distribution" && ts.meta.pressScore < 30,
@@ -8871,6 +8956,20 @@ class Executor(
                     onLog("🤖⚠️ EXIT AI: ${ts.symbol} FULL EXIT | ${exitAiDecision.reasons.firstOrNull()}", ts.mint)
                     TradeStateMachine.startCooldown(ts.mint)
                     return aiReason
+                }
+            }
+            // V5.0.6922 — PARTIAL_EXIT used to land in `else -> {}` and be
+            // discarded. Recorded for checkPartialSell, which owns the ladder
+            // and has the wallet. See exitAiPendingPartial6922.
+            ExitIntelligence.ExitAction.PARTIAL_EXIT -> {
+                val wanted = exitAiDecision.partialExitPercent
+                if (wanted in 1..100 && gainPct > 0.0) {
+                    exitAiPendingPartial6922[ts.mint] = wanted
+                    try {
+                        ForensicLogger.lifecycle("EXIT_AI_PARTIAL_RECOMMENDED_6922",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} pct=$wanted gain=${"%.2f".format(gainPct)} urgency=${exitAiDecision.urgency} reason=${exitAiDecision.reasons.firstOrNull()?.take(60) ?: ""}")
+                        PipelineHealthCollector.labelInc("EXIT_AI_PARTIAL_RECOMMENDED_6922")
+                    } catch (_: Throwable) {}
                 }
             }
             else -> {}
