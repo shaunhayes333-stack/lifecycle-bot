@@ -9443,10 +9443,33 @@ class Executor(
         // are not, and a guard that tests a different value than the one the rest
         // of the decision used is the defect class this audit keeps turning up.
         if (breakevenArmed6948 && pos.entryPrice > 0.0 && price > 0.0) {
+            // V5.0.6952 — FEE MODEL, NOT A FEE CONSTANT. 6948 shipped this with a
+            // flat feePct = 1.6, the nominal live round trip. That is wrong in the
+            // direction that costs money: real break-even also carries PRICE
+            // IMPACT, which scales with clip size against pool depth. A 0.4 SOL
+            // exit from a $4k pool needs far more than 1.6% to clear, so a flat
+            // 1.6% "breakeven" ratchet would close those positions at a genuine
+            // net loss while labelling it breakeven — the precise mislabelling
+            // CloseOutcomeLabelSanitizer keeps catching after the fact.
+            //
+            // FluidLearningAI.getMinProfitableExitPct already models exactly this
+            // (round-trip fee + network fee + impact from positionUsd/liquidityUsd)
+            // and V5.0.6920 wired it into the PARTIAL profit floor for the same
+            // reason. The full-exit breakeven had been left on the constant.
+            // maxOf with 1.6 so the fee model may only ever RAISE the bar.
+            val feePct6952 = try {
+                val sizeSol = pos.costSol
+                val liqUsd = ts.lastLiquidityUsd
+                if (sizeSol > 0.0 && liqUsd > 0.0) {
+                    com.lifecyclebot.v3.scoring.FluidLearningAI
+                        .getMinProfitableExitPct(sizeSol, liqUsd)
+                        .let { if (it.isFinite() && it > 0.0) maxOf(1.6, it) else 1.6 }
+                } else 1.6
+            } catch (_: Throwable) { 1.6 }
             val breakevenPx6948 = try {
                 com.lifecyclebot.engine.TrailingStopManager.calculateBreakevenStop(
                     entryPriceUsd = pos.entryPrice,
-                    feePct = 1.6,  // live round trip: ~0.8% in, ~0.8% out
+                    feePct = feePct6952,
                 )
             } catch (_: Throwable) { 0.0 }
             if (breakevenPx6948 > 0.0 && price <= breakevenPx6948) {
@@ -9455,7 +9478,8 @@ class Executor(
                         "BREAKEVEN_RATCHET_6948",
                         "mint=${ts.mint.take(10)} symbol=${ts.symbol} peak=+${peakPnlPct.toInt()}% " +
                             "now=${gainPct.toInt()}% heldSecs=${heldSecs.toInt()} " +
-                            "px=$price breakevenPx=$breakevenPx6948 action=protect_entry",
+                            "px=$price breakevenPx=$breakevenPx6948 feePct=${"%.2f".format(feePct6952)} " +
+                            "sizeSol=${"%.4f".format(pos.costSol)} liqUsd=${ts.lastLiquidityUsd.toInt()} action=protect_entry",
                     )
                     PipelineHealthCollector.labelInc("BREAKEVEN_RATCHET_6948")
                 } catch (_: Throwable) {}
