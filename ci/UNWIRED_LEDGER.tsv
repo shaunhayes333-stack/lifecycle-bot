@@ -76,7 +76,7 @@ A_PREDICT	NoHardScoreEntryGateGuard6400	hardScoreGateActive	engine/truth/NoHardS
 A_PREDICT	OperatorFingerprintAI	scoreHint	v3/scoring/OperatorFingerprintAI.kt
 A_PREDICT	OrthogonalSignals	calculateAgePatternScore	engine/OrthogonalSignals.kt
 A_PREDICT	PatternBacktester	getConfidenceAdjustments	engine/PatternBacktester.kt
-A_PREDICT	PatternClassifier	liveWinRate	engine/PatternClassifier.kt
+D_DISPLAY	PatternClassifier	liveWinRate	engine/PatternClassifier.kt
 A_PREDICT	PatternClassifier	liveWinRatePct	engine/PatternClassifier.kt
 A_PREDICT	PatternClassifier	paperWinRate	engine/PatternClassifier.kt
 A_PREDICT	PatternGoldenGoose	scoreBias	engine/PatternGoldenGoose.kt
@@ -103,8 +103,8 @@ A_PREDICT	PythOracle	getConfidencePct	perps/PythOracle.kt
 A_PREDICT	QualityTraderAI	getRecommendedLeverage	v3/scoring/QualityTraderAI.kt
 A_PREDICT	QuantMetrics	calculateWinRateStats	engine/quant/QuantMetrics.kt
 A_PREDICT	QuantMindV2	getEdgeDecay	engine/quant/QuantMindV2.kt
-A_PREDICT	QuantMindV2	getMomentumDecomposition	engine/quant/QuantMindV2.kt
-A_PREDICT	QuantMindV2	getMomentumState	engine/quant/QuantMindV2.kt
+F_DEAD	QuantMindV2	getMomentumDecomposition	engine/quant/QuantMindV2.kt
+E_INFILE	QuantMindV2	getMomentumState	engine/quant/QuantMindV2.kt
 H_MUTATOR	QuantMindV2	updateMomentum	engine/quant/QuantMindV2.kt
 H_MUTATOR	ReentryGuard	onBadMemoryScore	engine/ReentryGuard.kt
 A_PREDICT	RuntimeTune6833	exitWorkerShouldBoost	engine/truth/RuntimeTune6833.kt
@@ -112,9 +112,9 @@ A_PREDICT	RuntimeTune6833	isHighEdge	engine/truth/RuntimeTune6833.kt
 A_PREDICT	ScoreComponent	sourceScore	v3/scoring/ScoreCard.kt
 F_DEAD	ScoreDistributionHistogram6396	recommendAdaptiveBaseline	engine/truth/ScoreDistributionHistogram6396.kt
 H_MUTATOR	SemanticPatternGraph	addEdge	engine/SemanticPatternGraph.kt
-A_PREDICT	SemanticPatternGraph	edgeCount6512	engine/SemanticPatternGraph.kt
+D_DISPLAY	SemanticPatternGraph	edgeCount6512	engine/SemanticPatternGraph.kt
 H_MUTATOR	SentientPersonality	onTrustScoreChange	engine/SentientPersonality.kt
-A_PREDICT	ShadowLearningEngine	getAvoidAccuracy	v3/learning/ShadowLearningEngine.kt
+D_DISPLAY	ShadowLearningEngine	getAvoidAccuracy	v3/learning/ShadowLearningEngine.kt
 A_PREDICT	ShadowLearningEngine	getPerformanceByConfidence	v3/learning/ShadowLearningEngine.kt
 A_PREDICT	ShadowLearningEngine	getPerformanceRanking	engine/ShadowLearningEngine.kt
 A_PREDICT	SignalQualityTracker	isPredictive	engine/SignalQualityTracker.kt
@@ -139,7 +139,7 @@ A_PREDICT	TradingCopilot	confidenceFloor	engine/TradingCopilot.kt
 A_PREDICT	TradingCopilot	convictionBoost	engine/TradingCopilot.kt
 A_PREDICT	TradingMemory	getPatternWinRate	engine/TradingMemory.kt
 A_PREDICT	TradingMemory	matchesRugPattern	engine/TradingMemory.kt
-A_PREDICT	TrailingStopManager	getRecommendedStopType	engine/TrailingStopManager.kt
+F_DEAD	TrailingStopManager	getRecommendedStopType	engine/TrailingStopManager.kt
 A_PREDICT	TursoClient	getMarketsAssetRankings	collective/TursoClient.kt
 H_MUTATOR	TursoClient	savePerpsPattern	collective/TursoClient.kt
 A_PREDICT	UnifiedPolicyHead	brierScore	engine/UnifiedPolicyHead.kt
@@ -175,7 +175,7 @@ B_RISK	LiquidityCycleAI	isRisky	v3/scoring/LiquidityCycleAI.kt
 F_DEAD	LivePipelineTrace6431	bumpBlockReason	engine/truth/LivePipelineTrace6431.kt
 F_DEAD	LosingStreakReflex6439	shouldBlockNewBuys	engine/truth/LosingStreakReflex6439.kt
 B_RISK	MemeExecutionRouteStack	stackExhausted	engine/execution/MemeExecutionRouteStack.kt
-B_RISK	MemePipelineTracer	blockReasons	engine/MemePipelineTracer.kt
+D_DISPLAY	MemePipelineTracer	blockReasons	engine/MemePipelineTracer.kt
 B_RISK	MintWorkCoordinator6450	isOpenBlocked	engine/truth/MintWorkCoordinator6450.kt
 B_RISK	MoonshotHoldProfileRegistry6415	shouldSuppressTp	engine/truth/MoonshotHoldProfileRegistry6415.kt
 G_PROTOCOL	OwnershipClassification6391	isRealExhaustion	engine/truth/SellOnlyHoldRepair6391.kt
@@ -183,8 +183,8 @@ B_RISK	PerpsSandbox6463	evaluateRiskExit	engine/truth/PerpsSandbox6463.kt
 B_RISK	PositionIdentity6411	guardMerge	engine/truth/PositionIdentity6411.kt
 B_RISK	PositionSizing	calculateRiskBasedSize	engine/PositionSizing.kt
 B_RISK	ProfitabilityLayer	shouldBlockFeeBandExit	engine/ProfitabilityLayer.kt
-B_RISK	ReentryGuard	getBlockedCount	engine/ReentryGuard.kt
-B_RISK	ReentryGuard	getBlockedMints	engine/ReentryGuard.kt
+D_DISPLAY	ReentryGuard	getBlockedCount	engine/ReentryGuard.kt
+D_DISPLAY	ReentryGuard	getBlockedMints	engine/ReentryGuard.kt
 B_RISK	ReentryGuard	manualBlock	engine/ReentryGuard.kt
 B_RISK	RunnerAutoCompound6422	liveTotalLift	engine/truth/RunnerAutoCompound6422.kt
 G_PROTOCOL	SameMintCandidateEpoch6402	totalSuppressed	engine/truth/SameMintCandidateEpoch6402.kt
@@ -192,14 +192,14 @@ F_DEAD	SellOnlySafeMode	blockLiveBuyReason	engine/sell/SellOnlySafeMode.kt
 B_RISK	SellOnlySafeMode	blockedBuyCount	engine/sell/SellOnlySafeMode.kt
 H_MUTATOR	SoftScoreShaping6400	recordMechanicalMinBlock	engine/truth/SoftScoreShaping6400.kt
 B_RISK	TelegramBot	alertRisk	engine/TelegramBot.kt
-B_RISK	TokenBlacklist	getBlacklistSize	engine/TokenBlacklist.kt
+D_DISPLAY	TokenBlacklist	getBlacklistSize	engine/TokenBlacklist.kt
 B_RISK	TokenMapVersionGuard6411	guardMetricWrite	engine/truth/TokenMapVersionGuard6411.kt
 B_RISK	TradeDatabase	getSuppressionStrength	engine/TradeDatabase.kt
 B_RISK	TradeLifecycle	forceExpireBlocked	engine/TradeLifecycle.kt
 B_RISK	TradingMemory	getCreatorRugCount	engine/TradingMemory.kt
 B_RISK	TradingMemory	getFeatureBucketRisk	engine/TradingMemory.kt
 B_RISK	TrailingStopManager	shouldMoveToBreakeven	engine/TrailingStopManager.kt
-B_RISK	UltraFastRugDetectorAI	getRugsSaved	v3/scoring/UltraFastRugDetectorAI.kt
+D_DISPLAY	UltraFastRugDetectorAI	getRugsSaved	v3/scoring/UltraFastRugDetectorAI.kt
 B_RISK	V3Adapter	toRiskState	v3/bridge/V3Adapter.kt
 B_RISK	V3EngineManager	blockFatal	v3/V3EngineManager.kt
 C_EXIT	AdvancedExitManager	calculateExitTargets	v3/scoring/AdvancedExitManager.kt
@@ -292,7 +292,7 @@ C_EXIT	LiveExecutionGate	trySell	engine/LiveExecutionGate.kt
 C_EXIT	LiveExitOnlyMode6387	classifyForStop	engine/truth/LiveTruthExitAuthority6387.kt
 H_MUTATOR	LivePositionCloseAuthority	purgeSellResidue	engine/sell/LivePositionCloseAuthority.kt
 C_EXIT	LiveSafetyCircuitBreaker	isSessionDrawdownPressureActive	engine/LiveSafetyCircuitBreaker.kt
-C_EXIT	LiveSafetyCircuitBreaker	sessionDrawdownPressureReason	engine/LiveSafetyCircuitBreaker.kt
+D_DISPLAY	LiveSafetyCircuitBreaker	sessionDrawdownPressureReason	engine/LiveSafetyCircuitBreaker.kt
 C_EXIT	LiveStrategyTuner	holdMultiplier	engine/LiveStrategyTuner.kt
 C_EXIT	LiveStrategyTuner	partialTriggerMultiplier	engine/LiveStrategyTuner.kt
 E_INFILE	LiveStrategyTuner	tpMultiplier	engine/LiveStrategyTuner.kt
@@ -319,7 +319,7 @@ C_EXIT	PersonalityTraitMultipliers	takeProfitBiasPct	engine/PersonalityTraitMult
 C_EXIT	PersonalityTraitMultipliers	trailSlackMultiplier	engine/PersonalityTraitMultipliers.kt
 C_EXIT	PipelineHealthCollector	sellLike	engine/PipelineHealthCollector.kt
 G_PROTOCOL	PortfolioInvariants6405	verifyWalletParity	engine/truth/PortfolioInvariants6405.kt
-C_EXIT	PositionIdentity6395	activeExitIntent	engine/truth/PositionIdentity6395.kt
+E_INFILE	PositionIdentity6395	activeExitIntent	engine/truth/PositionIdentity6395.kt
 H_MUTATOR	PositionStateLedger6454	onPartial	engine/truth/PositionStateLedger6454.kt
 C_EXIT	PriceAggregator	getPrunedSymbols	perps/PriceAggregator.kt
 C_EXIT	PriceDenomination6387	isAuthoritativeForExit	engine/truth/CanonicalTokenPrice6387.kt
