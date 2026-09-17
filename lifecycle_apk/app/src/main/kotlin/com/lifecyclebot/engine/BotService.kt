@@ -4947,15 +4947,39 @@ class BotService : Service() {
                                         "markAgeMs=${th.markAgeMs} heldMs=$posAgeMs6882",
                                 )
                             } catch (_: Throwable) {}
-                            executor.requestSell(
-                                ts = ts6882,
-                                reason = "PROTECTIVE_EXIT_${kind6882}_6450_RISKCLOCK",
-                                wallet = WalletManager.getWallet(),
-                                walletSol = status.getEffectiveBalance(
-                                    riskClockCfg6882?.paperMode
-                                        ?: try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true },
-                                ),
-                            )
+                            // Execution is dispatched to IO, never run inline.
+                            // CanonicalRiskClock6454 ticks on Dispatchers.Default
+                            // (sized to CPU count) and requestSell is synchronous
+                            // network I/O on a live fill — BotService:5636 records
+                            // what happened the last time a burst of inline
+                            // requestSell blocked its scope: "cascade UI stalls".
+                            // Blocking the risk clock would also delay the very
+                            // detection cadence this fix exists to guarantee.
+                            // The !alreadyLatched6882 guard means exactly one
+                            // dispatch per latch, so this cannot fan out.
+                            val sellTs6882 = ts6882
+                            val sellReason6882 = "PROTECTIVE_EXIT_${kind6882}_6450_RISKCLOCK"
+                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                try {
+                                    executor.requestSell(
+                                        ts = sellTs6882,
+                                        reason = sellReason6882,
+                                        wallet = WalletManager.getWallet(),
+                                        walletSol = status.getEffectiveBalance(
+                                            riskClockCfg6882?.paperMode
+                                                ?: try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true },
+                                        ),
+                                    )
+                                } catch (t: Throwable) {
+                                    try {
+                                        PipelineHealthCollector.labelInc("RISK_CLOCK_PROTECTIVE_EXIT_SELL_ERROR_6882")
+                                        ForensicLogger.lifecycle(
+                                            "RISK_CLOCK_PROTECTIVE_EXIT_SELL_ERROR_6882",
+                                            "mint=${mint.take(10)} reason=$sellReason6882 err=${t.message?.take(120)}",
+                                        )
+                                    } catch (_: Throwable) {}
+                                }
+                            }
                         }
                     }
                 } catch (_: Throwable) {}
