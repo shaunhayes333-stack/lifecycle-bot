@@ -176,8 +176,39 @@ object PeakAdaptiveTrail6390 {
          * "no volatility evidence", which falls back to the legacy table.
          */
         atrPctPerCandle: Double = 0.0,
+        /**
+         * V5.0.6948 — the mint, so an ELITE patient-hold profile can widen the
+         * trail. Empty means "no profile lookup", which is the prior behaviour
+         * exactly, so every existing caller is unchanged until it passes one.
+         */
+        mint6948: String = "",
     ): Boolean {
         if (peakGainPct <= 0.0) return false
+        // V5.0.6948 §THE_OTHER_HALF_OF_THE_PATIENT_HOLD.
+        //
+        // MoonshotHoldProfileRegistry6415.trailStopPctFromPeak had zero callers,
+        // so the elite profile suppressed the stop-loss (wired) without ever
+        // widening the trail that replaces it. Once TP suppression releases at
+        // +400%, the trail is the ONLY thing standing between a 26x and a round
+        // trip — and it was the ordinary table, which at a +2500% peak is 8%.
+        //
+        // The registry returns 30.0 for elite: "wider than the standard trail so
+        // a 26x has room to consolidate mid-run." Applied as a FLOOR on the trail
+        // width, never a ceiling, so it can only ever grant more room. It is
+        // applied inside each branch in THAT BRANCH'S OWN BASIS — run-fraction
+        // for the legacy table, price-drawdown for the ATR branch — because
+        // blending the two bases is the exact defect this file was bitten by in
+        // 6921 and again in 6926. The two differ by peak/(100+peak); at the gains
+        // where an elite profile is still live (>+400%, post-suppression) that is
+        // under 20% of the number and always in the direction of more room.
+        val eliteTrailFloorPct6948 = if (mint6948.isNotBlank()) {
+            try {
+                com.lifecyclebot.engine.truth.MoonshotHoldProfileRegistry6415
+                    .trailStopPctFromPeak(mint6948)
+                    ?.takeIf { it.isFinite() && it > 0.0 }
+                    ?: 0.0
+            } catch (_: Throwable) { 0.0 }
+        } else 0.0
         val slack = try {
             com.lifecyclebot.engine.PersonalityTraitMultipliers.trailSlackMultiplier()
                 .let { if (it.isFinite() && it > 0.0) it else 1.0 }
@@ -219,6 +250,10 @@ object PeakAdaptiveTrail6390 {
         if (atr > 0.0) {
             val atrTrailPct = (atr * ATR_TRAIL_MULT_6926 * slack * regimeTrailMult6929())
                 .coerceIn(ATR_TRAIL_FLOOR_PCT_6926, ATR_TRAIL_CEIL_PCT_6926)
+                // Elite floor applied AFTER the ceiling clamp, deliberately: the
+                // 35% ceiling exists to stop a volatility spike inventing an
+                // absurd trail, not to overrule an explicit patient-hold profile.
+                .coerceAtLeast(eliteTrailFloorPct6948)
             val priceDrawdownPctFromHigh =
                 (peakGainPct - currentGainPct) / (100.0 + peakGainPct) * 100.0
             return priceDrawdownPctFromHigh >= atrTrailPct
@@ -227,8 +262,11 @@ object PeakAdaptiveTrail6390 {
         // No volatility evidence — fall back to the legacy gain-indexed table
         // in its own (run-fraction) basis, as corrected by V5.0.6921.
         val baseTrailPct = trailPctForPeakGain(peakGainPct)
+        // An infinite base means "below +10%, no trail at all — allow room".
+        // The elite floor must not convert that into a 30% trail where none
+        // existed; more room is the whole point, so infinity stands.
         if (baseTrailPct.isInfinite()) return false
-        val trailPct = baseTrailPct * slack
+        val trailPct = (baseTrailPct * slack).coerceAtLeast(eliteTrailFloorPct6948)
         val giveBackPctOfPeak = (peakGainPct - currentGainPct) / peakGainPct * 100.0
         return giveBackPctOfPeak >= trailPct
     }
@@ -317,6 +355,54 @@ object PeakAdaptiveTrail6390 {
         return newPeak
     }
     fun peakGainPctFor(positionId: String): Double = peaks[positionId] ?: 0.0
+
+    /**
+     * V5.0.6948 §THE_PEAK_NOBODY_READ_AND_NOBODY_EVICTED.
+     *
+     * recordTick() is called once per hot-exit tick — and since V5.0.6945 raised
+     * held-position pricing from 0.41Hz to a true 1Hz, that is now once per second
+     * per open position. peakGainPctFor() had ZERO callers: PeakCaptureAuthority
+     * .decide() is handed ts.position.peakGainPct instead. So this map was written
+     * every tick, read never, and cleared never — one permanent entry per mint the
+     * bot has ever held.
+     *
+     * The tempting fix is to merge the two peaks (max of tracker and position).
+     * That would be a runner-killer. ts.position.peakGainPct is DELIBERATELY reset
+     * (OpenPnlSanity:258 zeroes it when the basis is untrustworthy) and DELIBERATELY
+     * rebased (BotService:10910 sets it to the current pnl after a basis change).
+     * This map is keyed by MINT and has no notion of either event, so a max() would
+     * resurrect a dead peak from a previous position in the same mint and trail-exit
+     * the re-entry on its first tick. One authority stays one authority.
+     *
+     * So: evict on close/rebase, and expose the tracker as DIVERGENCE TELEMETRY
+     * rather than as a second opinion the exit path has to arbitrate between.
+     */
+    fun onPositionClosed6948(positionId: String) {
+        peaks.remove(positionId)
+    }
+
+    /**
+     * Returns a log-ready string when the independently-tracked peak disagrees
+     * with the position's own by more than [tolerancePct] points, or null when
+     * they agree. Divergence means one of the two reset and the other did not —
+     * which is exactly the condition that silently corrupts every trail decision.
+     */
+    fun peakDivergence6948(
+        positionId: String,
+        positionPeakGainPct: Double,
+        tolerancePct: Double = 5.0,
+    ): String? {
+        val tracked = peaks[positionId] ?: return null
+        if (!tracked.isFinite() || !positionPeakGainPct.isFinite()) return null
+        val gap = tracked - positionPeakGainPct
+        if (kotlin.math.abs(gap) < tolerancePct) return null
+        return "tracked=${"%.1f".format(tracked)}% position=${"%.1f".format(positionPeakGainPct)}% " +
+            "gap=${"%+.1f".format(gap)}pts likely=${if (gap > 0) "position_peak_was_rebased_or_zeroed" else "tracker_missed_ticks"}"
+    }
+
+    /** Number of tracked peaks — a leak canary for the snapshot. */
+    fun trackedPeakCount6948(): Int = peaks.size
+
     internal fun clearForTest() { peaks.clear() }
 }
 
@@ -590,7 +676,13 @@ object PeakCaptureAuthority6390 {
                     "buyVol=${"%.0f".format(i.currentBuyVolumeUsd)}/${"%.0f".format(i.peakBuyVolumeUsd)}",
                 0.75)
         // 4. Adaptive trail broken.
-        if (PeakAdaptiveTrail6390.shouldExitOnTrail(i.peakGainPct, i.currentGainPct, i.atrPctPerCandle))
+        // V5.0.6948 — positionId is the mint at the only live call site
+        // (BotService sets positionIdForPeak = ts.mint), so the elite patient-hold
+        // trail floor threads through with no change to Inputs. A caller that
+        // passes a non-mint id simply finds no profile and gets a 0.0 floor,
+        // i.e. exactly the prior behaviour.
+        if (PeakAdaptiveTrail6390.shouldExitOnTrail(
+                i.peakGainPct, i.currentGainPct, i.atrPctPerCandle, i.positionId))
             return Decision(Verdict.TRAIL_EXIT,
                 "PEAK_ADAPTIVE_TRAIL_BROKEN peakGain=${"%.0f".format(i.peakGainPct)} " +
                     "current=${"%.0f".format(i.currentGainPct)} " +

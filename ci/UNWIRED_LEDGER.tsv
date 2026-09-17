@@ -295,7 +295,7 @@ C_EXIT	LiveSafetyCircuitBreaker	isSessionDrawdownPressureActive	engine/LiveSafet
 C_EXIT	LiveSafetyCircuitBreaker	sessionDrawdownPressureReason	engine/LiveSafetyCircuitBreaker.kt
 C_EXIT	LiveStrategyTuner	holdMultiplier	engine/LiveStrategyTuner.kt
 C_EXIT	LiveStrategyTuner	partialTriggerMultiplier	engine/LiveStrategyTuner.kt
-C_EXIT	LiveStrategyTuner	tpMultiplier	engine/LiveStrategyTuner.kt
+E_INFILE	LiveStrategyTuner	tpMultiplier	engine/LiveStrategyTuner.kt
 C_EXIT	LiveWinDNAStore	holdTimeStats	engine/LiveWinDNAStore.kt
 C_EXIT	LiveWinDNAStore	losingExitReasons	engine/LiveWinDNAStore.kt
 C_EXIT	LiveWinDNAStore	winningExitReasons	engine/LiveWinDNAStore.kt

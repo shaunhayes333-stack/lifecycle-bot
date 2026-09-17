@@ -198,18 +198,40 @@ object ProfitabilityLayer {
     //    signals. If unrealized PnL is in the band AND position is
     //    younger than the idle window, block the exit. SL still wins.
     // ════════════════════════════════════════════════════════════════════
+    /**
+     * V5.0.6948 §BLOCKLIST_INVERTED_TO_AN_ALLOWLIST.
+     *
+     * V5.0.6855 left this function with zero callers and wrote down exactly why,
+     * in Executor: it decided "is this a hard exit?" from a keyword BLOCKLIST —
+     * stop / sl / trail / drain / rug / v8 / circuit / force — which does not
+     * match the exit vocabulary riskCheck actually returns. Enumerated, that
+     * vocabulary is: accelerating_loss, crosstalk_coordinated_dump, dev_dump,
+     * gemini_exit_soon, gemini_immediate_exit, liquidity_collapse,
+     * liquidity_drain, reflex_abort, reflex_liq_drain, stop_loss, trailing_stop,
+     * velocity_dump, whale_dump. Only stop_loss, trailing_stop and the two
+     * *_drain reasons hit a blocklist keyword. The other NINE — every dump and
+     * rug signature the bot has — would have been deferred for the first 15
+     * minutes of a position's life to save a spread. That guard was correctly
+     * refused, and the note set the condition for wiring it: invert the
+     * blocklist into an allowlist.
+     *
+     * Inverted here. The default is now "this exit proceeds": a reason must be
+     * affirmatively recognised as ADVISORY before the fee band may defer it, so
+     * an unrecognised or newly-added reason fails SAFE (exit allowed) instead of
+     * fails SILENT (risk exit suppressed). The band itself is real — a ±0.8%
+     * exit is a certain net loss against a ~1.6% live round trip — but it may
+     * only ever hold back an exit that carries no risk content.
+     *
+     * Still deliberately called from nowhere in riskCheck, because as enumerated
+     * above that path emits no advisory reason at all. It is now safe to wire
+     * from an advisory exit path the day one exists, which the previous form
+     * was not.
+     */
     fun shouldBlockFeeBandExit(ts: TokenState, reason: String): Boolean {
         return try {
             val pos = ts.position
             if (!pos.isOpen || pos.entryPrice <= 0 || ts.lastPrice <= 0) return false
-
-            // Never block a true stop-loss or trail-stop or drain exit.
-            val r = reason.lowercase()
-            val hardExit = r.contains("stop") || r.contains("sl") ||
-                           r.contains("trail") || r.contains("drain") ||
-                           r.contains("rug") || r.contains("v8") ||
-                           r.contains("circuit") || r.contains("force")
-            if (hardExit) return false
+            if (!isAdvisoryExitReason6948(reason)) return false
 
             val pnlPct = (ts.lastPrice / pos.entryPrice - 1.0) * 100.0
             if (pnlPct < -0.8 || pnlPct > 0.8) return false
@@ -219,6 +241,33 @@ object ProfitabilityLayer {
             val ageMin = (System.currentTimeMillis() - pos.entryTime) / 60_000L
             ageMin < 15L
         } catch (_: Throwable) { false }
+    }
+
+    /**
+     * The allowlist. An exit reason is ADVISORY only when it carries no risk
+     * content — a score/conviction fade, an idle or stagnation timeout, a
+     * rebalance. Anything expressing a dump, drain, rug, gap, stop, protective
+     * trigger or emergency is NOT advisory and is never deferred.
+     *
+     * Deliberately matched on whole tokens rather than substrings: "sl" as a
+     * substring matches "slippage" and "consolidation", which is how the
+     * original blocklist would have misfired even on the reasons it did cover.
+     */
+    fun isAdvisoryExitReason6948(reason: String): Boolean {
+        val r = reason.lowercase()
+        if (r.isBlank()) return false
+        // Hard veto first — any risk marker disqualifies, whatever else matches.
+        val riskMarkers = listOf(
+            "dump", "drain", "rug", "collapse", "stop", "abort", "emergency",
+            "catastroph", "gap_guard", "protective", "circuit", "force",
+            "accelerating_loss", "reflex", "floor", "backstop", "liquidation",
+        )
+        if (riskMarkers.any { r.contains(it) }) return false
+        val advisoryMarkers = listOf(
+            "score_decay", "conviction_fade", "signal_fade", "idle", "stagnant",
+            "stagnation", "max_hold", "time_exit", "rebalance", "scratch",
+        )
+        return advisoryMarkers.any { r.contains(it) }
     }
 
     // ════════════════════════════════════════════════════════════════════

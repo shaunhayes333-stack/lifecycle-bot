@@ -6790,11 +6790,67 @@ class Executor(
         }
         val learnedTpFloor = try { WrRecoveryPartial.learnedExitRungs(laneKey).first } catch (_: Throwable) { 50.0 }
         val tune = try { LiveStrategyTuner.adjustment(laneKey) } catch (_: Throwable) { LiveStrategyTuner.adjustment("STANDARD") }
-        val liveGrowthTpPct = maxOf(tpPct, learnedTpFloor) * tune.tpMult
+        // V5.0.6948 §PERSONALITY_EXIT_HALF_STILL_UNAPPLIED. V5.0.6921 wired
+        // PersonalityTraitMultipliers.trailSlackMultiplier() into the trail and
+        // said so in EarlyEntryAndPeakCapture6390's header: "The exit half of the
+        // personality — this and takeProfitBiasPct — was printed, never applied."
+        // It wired ONE of the two named. takeProfitBiasPct() still had exactly one
+        // caller — summaryLine(), a dashboard string. So an aggressive personality
+        // sized up and trailed wider but took profit at precisely the same level as
+        // a timid one. Additive and bounded [-2, +5] at the source: aggression
+        // raises the bar a winner must clear before the generic sweep closes it.
+        val personalityTpBias6948 = try {
+            com.lifecyclebot.engine.PersonalityTraitMultipliers.takeProfitBiasPct()
+                .let { if (it.isFinite()) it.coerceIn(-2.0, 5.0) else 0.0 }
+        } catch (_: Throwable) { 0.0 }
+        val liveGrowthTpPct =
+            (maxOf(tpPct, learnedTpFloor) * tune.tpMult + personalityTpBias6948)
+                .coerceAtLeast(1.0)
         if (RuntimeModeAuthority.isLive() && tune.tpMult > 1.0) {
             try { ForensicLogger.lifecycle("LIVE_STRATEGY_TUNER_TP_RAISED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKey baseTp=${tpPct.toInt()} learned=${learnedTpFloor.toInt()} tuned=${liveGrowthTpPct.toInt()} tune=${tune.compact}") } catch (_: Throwable) {}
         }
         if (pnlPct >= liveGrowthTpPct) {
+            // V5.0.6948 §THE_ASYMMETRY_THAT_COST_REAL_MONEY.
+            //
+            // MoonshotHoldProfileRegistry6415 ships THREE paired authorities.
+            // Only one of them was ever called:
+            //
+            //   shouldSuppressSl      WIRED at Executor:~9226 — an elite mint
+            //                         holds through drawdown to -40%
+            //   shouldSuppressTp      ZERO CALLERS
+            //   trailStopPctFromPeak  ZERO CALLERS
+            //
+            // So registering a mint as ELITE bought it the widened DOWNSIDE
+            // runway and nothing else. Its upside stayed clipped at the ordinary
+            // lane TP. That is not a patient-hold profile, it is a strictly worse
+            // trade than never registering it at all: full loss exposure to -40%,
+            // capped gain at +20-50%. Every elite tag made the EV worse.
+            //
+            // Note this is NOT covered by the MOONSHOT-lane early return above.
+            // That guards a LANE; this registry is a per-MINT overlay stamped by
+            // EarlyMoonshotHunter6415 at buy time, so an elite mint routed into
+            // SHITCOIN or QUALITY lands here and gets swept at the lane TP.
+            //
+            // Suppression releases at +400%, where trailStopPctFromPeak's wider
+            // trail (wired in the same version) takes over. Both halves now exist
+            // on the same position at the same time, which is the only way the
+            // -40% runway is a bet rather than a donation.
+            if (try {
+                    com.lifecyclebot.engine.truth.MoonshotHoldProfileRegistry6415
+                        .shouldSuppressTp(ts.mint, pnlPct)
+                } catch (_: Throwable) { false }
+            ) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "MOONSHOT_TP_SUPPRESSED_6948",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKey " +
+                            "pnl=${pnlPct.toInt()}% wouldHaveSweptAt=${liveGrowthTpPct.toInt()}% " +
+                            "profile=ELITE_PATIENT_HOLD releasesAt=400% action=hold_the_runner",
+                    )
+                    PipelineHealthCollector.labelInc("MOONSHOT_TP_SUPPRESSED_6948")
+                } catch (_: Throwable) {}
+                return false
+            }
             // V5.0.6499 §3 — MARK AUTHORITY INVALID LATCH. When the
             // mark is latched invalid (e.g. LIQ_HALVED_MARK_INVALIDATED_6310
             // for this mint), the +N% PnL is phantom. Refuse the
@@ -8674,6 +8730,14 @@ class Executor(
     /** Operator/test diagnostic — number of currently held sell locks. */
     fun sellLockHeldCount(): Int = sellInProgress.size
 
+    // V5.0.6948 — the condition this note set has now been met in
+    // ProfitabilityLayer: the blocklist below is inverted to an allowlist, so an
+    // unrecognised reason fails SAFE (exit proceeds) instead of being deferred.
+    // It is still called from nowhere in riskCheck, and for the reason given
+    // below: riskCheck emits no advisory reason at all, so the correct number of
+    // call sites on this path remains zero. The guard is now merely SAFE to wire
+    // the day an advisory exit path exists.
+    //
     // V5.0.6855 §FEE_BAND_SCRATCH_GUARD_DELIBERATELY_LEFT_UNWIRED —
     // ProfitabilityLayer.shouldBlockFeeBandExit() has zero callers, and it stays
     // that way. It decides "is this a hard exit?" from a keyword blocklist —
@@ -9237,6 +9301,57 @@ class Executor(
                 onLog("🛑 DYNAMIC STOP ($stopType): ${ts.symbol} at ${gainPct.toInt()}% (dynamic limit=${dynamicStopPct.toInt()}%)", ts.mint)
                 markForRecoveryScan(ts, gainPct, stopType)
                 return "${stopType}_loss"
+            }
+        }
+
+        // V5.0.6948 §BREAKEVEN_RATCHET — TrailingStopManager.calculateBreakevenStop
+        // and shouldMoveToBreakeven both had zero callers, so a position that ran
+        // to +15% and then bled all the way back to entry was handed straight to
+        // the -15% hard floor. That is the single most common way a winner becomes
+        // a loser, and the bot had no defence against it at all.
+        //
+        // ARMED ON PEAK, ENFORCED ON CURRENT. shouldMoveToBreakeven takes a pnl and
+        // a hold time; feeding it the CURRENT pnl would arm the ratchet only while
+        // the position is still up 15%, which is precisely when it is not needed.
+        // Fed the PEAK, it means what the name says: this position earned the right
+        // to a breakeven floor, so it may no longer close below entry plus fees.
+        //
+        // ELITE MOONSHOTS ARE EXEMPT. The 6415 patient-hold profile deliberately
+        // buys a -40% runway; a breakeven floor is far TIGHTER than that and would
+        // silently cancel it. The two protections are mutually exclusive by design,
+        // and the wider one wins for a mint the hunter tagged elite.
+        val breakevenArmed6948 = try {
+            !com.lifecyclebot.engine.truth.MoonshotHoldProfileRegistry6415
+                .shouldSuppressSl(ts.mint, gainPct) &&
+                com.lifecyclebot.engine.TrailingStopManager.shouldMoveToBreakeven(
+                    pnlPct = peakPnlPct,
+                    holdTimeMs = (heldSecs * 1000.0).toLong(),
+                )
+        } catch (_: Throwable) { false }
+        // Compared against `price` — the SAME mark gainPct was derived from at
+        // :8905 — and not ts.lastPrice. They are usually equal and occasionally
+        // are not, and a guard that tests a different value than the one the rest
+        // of the decision used is the defect class this audit keeps turning up.
+        if (breakevenArmed6948 && pos.entryPrice > 0.0 && price > 0.0) {
+            val breakevenPx6948 = try {
+                com.lifecyclebot.engine.TrailingStopManager.calculateBreakevenStop(
+                    entryPriceUsd = pos.entryPrice,
+                    feePct = 1.6,  // live round trip: ~0.8% in, ~0.8% out
+                )
+            } catch (_: Throwable) { 0.0 }
+            if (breakevenPx6948 > 0.0 && price <= breakevenPx6948) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "BREAKEVEN_RATCHET_6948",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} peak=+${peakPnlPct.toInt()}% " +
+                            "now=${gainPct.toInt()}% heldSecs=${heldSecs.toInt()} " +
+                            "px=$price breakevenPx=$breakevenPx6948 action=protect_entry",
+                    )
+                    PipelineHealthCollector.labelInc("BREAKEVEN_RATCHET_6948")
+                } catch (_: Throwable) {}
+                onLog("🔒 BREAKEVEN RATCHET: ${ts.symbol} peaked +${peakPnlPct.toInt()}% and fell back to entry — closing at breakeven instead of riding to the floor", ts.mint)
+                markForRecoveryScan(ts, gainPct, "breakeven_ratchet")
+                return "breakeven_ratchet"
             }
         }
 

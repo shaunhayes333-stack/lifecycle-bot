@@ -9888,8 +9888,28 @@ class BotService : Service() {
                         // the remaining 25% on the give-back.
                         val positionIdForPeak = ts.mint
                         try {
+                            // V5.0.6948 — the tracker and ts.position.peakGainPct are
+                            // two independent peaks and the exit path uses only the
+                            // latter. They are NOT merged: position.peakGainPct is
+                            // deliberately zeroed (OpenPnlSanity) and rebased
+                            // (BotService:~10910), and this map is mint-keyed with no
+                            // notion of either, so a max() would resurrect a dead peak
+                            // onto a re-entry. Instead, report when they disagree —
+                            // divergence is the signal that one reset and the other
+                            // did not, which silently corrupts every trail decision.
                             com.lifecyclebot.engine.truth.PeakAdaptiveTrail6390
                                 .recordTick(positionIdForPeak, pnlPct)
+                            com.lifecyclebot.engine.truth.PeakAdaptiveTrail6390
+                                .peakDivergence6948(positionIdForPeak, peakPnlPct)
+                                ?.let { div6948 ->
+                                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                        "PEAK_AUTHORITY_DIVERGENCE_6948",
+                                        "mint=${ts.mint.take(10)} sym=${ts.symbol} $div6948 " +
+                                            "authority=position.peakGainPct tracked=${com.lifecyclebot.engine.truth.PeakAdaptiveTrail6390.trackedPeakCount6948()}",
+                                    )
+                                    com.lifecyclebot.engine.PipelineHealthCollector
+                                        .labelInc("PEAK_AUTHORITY_DIVERGENCE_6948")
+                                }
                         } catch (_: Throwable) {}
                         // V5.0.6919 §FEED_THE_DETECTORS_THAT_WERE_PASSED_ZEROS.
                         //

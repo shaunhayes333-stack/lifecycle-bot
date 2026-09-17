@@ -767,6 +767,15 @@ object V3EngineManager {
         exposureGuard?.closePosition(mint)
         // V5.9.1351 — release held-pivot per-position state on close.
         try { com.lifecyclebot.engine.HeldPositionPivotArbiter.onClosed(mint) } catch (_: Throwable) {}
+        // V5.0.6948 — release the adaptive-trail peak. It is keyed by MINT and was
+        // never evicted, so it accumulated one permanent entry per mint ever held
+        // and, worse, would have handed a re-entry the DEAD peak of the previous
+        // position had anything read it. Evicting here — the single close hook all
+        // ~10 exit paths already call — makes the tracker position-scoped in fact
+        // as well as in intent.
+        try {
+            com.lifecyclebot.engine.truth.PeakAdaptiveTrail6390.onPositionClosed6948(mint)
+        } catch (_: Throwable) {}
     }
 
     /**
