@@ -273,7 +273,7 @@ C_EXIT	GovernorRecovery6388	lastPromotionReason	engine/truth/GovernorRecovery638
 C_EXIT	HistoricalChartScanner	getProgress	engine/HistoricalChartScanner.kt
 C_EXIT	HoldTimeOptimizerAI	getCurrentHoldSeconds	v3/scoring/HoldTimeOptimizerAI.kt
 C_EXIT	HoldTimeOptimizerAI	isHoldTimeOptimal	v3/scoring/HoldTimeOptimizerAI.kt
-C_EXIT	HoldingLogicLayer	getHoldParams	engine/HoldingLogicLayer.kt
+E_INFILE	HoldingLogicLayer	getHoldParams	engine/HoldingLogicLayer.kt
 C_EXIT	HostWalletTokenTracker	getPendingOrOpenCount	engine/HostWalletTokenTracker.kt
 C_EXIT	HostWalletTokenTracker	isSellInFlight	engine/HostWalletTokenTracker.kt
 H_MUTATOR	HostWalletTokenTracker	markSellNoSignatureUnlocked	engine/HostWalletTokenTracker.kt

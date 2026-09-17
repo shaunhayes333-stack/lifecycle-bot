@@ -11429,7 +11429,66 @@ class BotService : Service() {
             val tsForProbe = mintForProbe.takeIf { it.isNotBlank() }?.let { status.tokens[it] }
             if (tsForProbe != null) MemeCrossTalkEntryBridge.shapeLaneEntry(lane, tsForProbe, confidenceFloor, isOpenPosition = false) else null
         } catch (_: Throwable) { null }
-        val shapedConfidenceFloor4262 = xTalkShape4262?.confidenceFloor ?: confidenceFloor
+        val shapedConfidenceFloor4262Base = xTalkShape4262?.confidenceFloor ?: confidenceFloor
+        // V5.0.6965 §THE_COPILOT_THAT_ONLY_EVER_TALKED_TO_THE_DASHBOARD.
+        //
+        // TradingCopilot emits a full trading Directive — mood, learning health,
+        // recommendedMinConfidence, sizingMultiplier, convictionBoost, per-layer
+        // weights, regime — and recomputes it from the rolling trade window.
+        // Every accessor that EXPOSES a lever has zero callers:
+        //
+        //     confidenceFloor()    0        layerWeight()        0
+        //     sizingMultiplier()   0        isEmergencyBrake()   0
+        //     convictionBoost()    0
+        //
+        // The only things anyone reads are current(), lastUpdated() and
+        // snapshot() — all from MainActivity, to render it. So the copilot has
+        // been a dashboard widget: it forms a considered opinion about how the
+        // bot should be trading and then tells nobody but the screen.
+        //
+        // confidenceFloor is wired here because this is where the confidence bar
+        // is already being shaped (crosstalk does exactly this, one line up), and
+        // as maxOf it can only RAISE the bar — the copilot cannot loosen entry
+        // admission, only tighten it.
+        //
+        // FRESHNESS-GUARDED on the same 30-minute window MainActivity uses to
+        // decide whether to display the directive at all. A stale directive is
+        // an opinion about a market that no longer exists, and the default
+        // recommendedMinConfidence of 8.0 with lastUpdateMs = 0 would otherwise
+        // apply a floor before the copilot has seen a single trade.
+        //
+        // THE OTHER FOUR LEVERS ARE LEFT UNWIRED, deliberately:
+        //   sizingMultiplier  0.25x floor recreates the BELOW_MIN_NOTIONAL
+        //                     failure (item C2, 99 lost entries) — same refusal
+        //                     as V5.0.6961
+        //   isEmergencyBrake  halts ALL new entries; "never disable a lane" is
+        //                     standing doctrine and this is not mine to automate
+        //   convictionBoost   LOOSENS admission on moonshot setups; it belongs
+        //                     wired, but it needs the moonshot-class predicate it
+        //                     was written against identified first, not guessed
+        //   layerWeight       per-layer weighting reaches into the scoring stack
+        //                     and deserves its own batch
+        val copilotConfFloor6965 = try {
+            val ageMs6965 = System.currentTimeMillis() - com.lifecyclebot.engine.TradingCopilot.lastUpdated()
+            if (com.lifecyclebot.engine.TradingCopilot.lastUpdated() > 0L && ageMs6965 < 30L * 60_000L) {
+                com.lifecyclebot.engine.TradingCopilot.confidenceFloor()
+                    .let { if (it.isFinite()) it.coerceIn(0.0, 95.0) else 0.0 }
+            } else 0.0
+        } catch (_: Throwable) { 0.0 }
+        val shapedConfidenceFloor4262 = maxOf(shapedConfidenceFloor4262Base, copilotConfFloor6965)
+        if (copilotConfFloor6965 > shapedConfidenceFloor4262Base) {
+            try {
+                PipelineHealthCollector.labelInc("COPILOT_CONFIDENCE_FLOOR_APPLIED_6965")
+                ForensicLogger.lifecycle(
+                    "COPILOT_CONFIDENCE_FLOOR_APPLIED_6965",
+                    "lane=$lane base=${"%.1f".format(shapedConfidenceFloor4262Base)} " +
+                        "copilot=${"%.1f".format(copilotConfFloor6965)} " +
+                        "applied=${"%.1f".format(shapedConfidenceFloor4262)} " +
+                        "mood=${try { com.lifecyclebot.engine.TradingCopilot.current().mood.name } catch (_: Throwable) { "?" }} " +
+                        "regime=${try { com.lifecyclebot.engine.TradingCopilot.current().regime } catch (_: Throwable) { "?" }}",
+                )
+            } catch (_: Throwable) {}
+        }
         // V5.0.4591 — TIGHTEN ENTRY SCORE for weak lanes (operator P1 Issue 2a).
         // Operator: "small losers still bleeding wallet — 42 new BUYs at ~0.008 SOL
         // × ~85% loss rate = death by a thousand cuts". Only STANDARD/MOONSHOT/
