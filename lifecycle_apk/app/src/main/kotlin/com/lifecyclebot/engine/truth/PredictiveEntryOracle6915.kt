@@ -474,6 +474,149 @@ object PredictiveEntryOracle6915 {
             }
         } catch (_: Throwable) {}
 
+        out += brainNetworkB6940(lane, mint, symbol, sourceFamily, liquidityUsd, creator)
+        return out
+    }
+
+    /**
+     * V5.0.6940 — second brain-network batch, working the A_PREDICT tier of
+     * ci/UNWIRED_LEDGER.tsv.
+     *
+     * Split into its own function purely for readability; the reads join the
+     * same list and are bounded by the same BRAIN_NETWORK_CAP_PCT_6917 tier
+     * cap, so adding brains widens the evidence base without widening the
+     * authority.
+     *
+     * EVERY read here uses ONLY inputs the oracle genuinely has (lane, mint,
+     * symbol, sourceFamily, liquidityUsd, creator). Ledger entries whose
+     * signatures need inputs this call site cannot honestly supply are
+     * deliberately left for a later pass rather than fed invented values:
+     *
+     *   TradingMemory.matchesRugPattern   needs liquidityDropPct,
+     *     priceDropPct, volumeSpike, timeFromLaunchHours — all post-entry
+     *     observations that do not exist at admission time.
+     *   TradingMemory.getPatternWinRate   needs phase + emaFan.
+     *   CollectiveLearning.getNetworkBoostForMint is a SUSPEND function and
+     *     evaluate() is synchronous on the hot path.
+     *   TradeDatabase.getSignalWinRate    needs a featureKey whose format is
+     *     not derivable from here without guessing.
+     */
+    private fun brainNetworkB6940(
+        lane: String,
+        mint: String,
+        symbol: String,
+        sourceFamily: String,
+        liquidityUsd: Double,
+        creator: String,
+    ): List<BrainRead> {
+        val out = mutableListOf<BrainRead>()
+
+        // Paper win rate, the sibling of the already-wired liveWinRatePct.
+        // Paper is where nearly all the evidence is, so this is the larger
+        // sample; it is weighted lower because paper fills are frictionless.
+        try {
+            val pw = com.lifecyclebot.engine.PatternClassifier.paperWinRate()
+            if (pw.isFinite() && pw > 0.0) {
+                out += BrainRead("paperWR(${"%.0f".format(pw)}%)",
+                    ((pw - 40.0) / 100.0 * 6.0).coerceIn(-5.0, 5.0))
+            }
+        } catch (_: Throwable) {}
+
+        // How often the momentum brain has actually been right. A brain that
+        // is wrong more than it is right should not be able to push an entry,
+        // and this is the only thing that says so.
+        try {
+            val acc = com.lifecyclebot.engine.MomentumPredictorAI.getPredictionAccuracy()
+            if (acc.isFinite() && acc > 0.0) {
+                out += BrainRead("momAcc(${"%.0f".format(acc)}%)",
+                    ((acc - 50.0) / 100.0 * 5.0).coerceIn(-4.0, 4.0))
+            }
+        } catch (_: Throwable) {}
+
+        // Recent form. A book that has been losing for 24h is in a different
+        // regime from its lifetime average, whatever the cohort says.
+        try {
+            val wr24 = com.lifecyclebot.engine.TradeHistoryStore.getWinRate24h()
+            if (wr24 > 0) {
+                out += BrainRead("wr24h(${wr24}%)",
+                    ((wr24 - 35.0) / 100.0 * 6.0).coerceIn(-5.0, 5.0))
+            }
+        } catch (_: Throwable) {}
+
+        // Has this lane's signal ever actually predicted anything?
+        try {
+            if (!com.lifecyclebot.engine.SignalQualityTracker.isPredictive(lane)) {
+                out += BrainRead("laneSignalNotPredictive", -6.0)
+            }
+        } catch (_: Throwable) {}
+
+        // Token-name/symbol pattern edge learned from realised outcomes.
+        try {
+            if (symbol.isNotBlank()) {
+                val bias = com.lifecyclebot.engine.PatternGoldenGoose.scoreBias(symbol, symbol)
+                if (bias != 0) out += BrainRead("goldenGoose($bias)",
+                    (bias / 10.0).coerceIn(-6.0, 6.0))
+            }
+        } catch (_: Throwable) {}
+
+        // Social velocity — a genuinely boosted token has attention behind it,
+        // which in this asset class is most of the thesis.
+        try {
+            if (mint.isNotBlank() &&
+                com.lifecyclebot.v3.scoring.SocialVelocityAI.isBoosted(mint)
+            ) {
+                val amt = com.lifecyclebot.v3.scoring.SocialVelocityAI.getBoostAmount(mint)
+                out += BrainRead("socialBoost($amt)",
+                    (1.5 + (amt.coerceAtMost(20L) / 20.0) * 4.5).coerceIn(0.0, 6.0))
+            }
+        } catch (_: Throwable) {}
+
+        // Insider/alpha wallet signals already recorded against this mint.
+        try {
+            if (mint.isNotBlank()) {
+                val n = com.lifecyclebot.v3.scoring.InsiderTrackerAI.getSignalsByToken(mint).size
+                if (n > 0) out += BrainRead("insiderSignals($n)",
+                    (n.coerceAtMost(4) * 1.6).coerceIn(0.0, 6.4))
+            }
+        } catch (_: Throwable) {}
+
+        // The creator wallet judged as a WALLET rather than as a rug counter:
+        // WhaleWalletTracker scores every address it has seen trade.
+        try {
+            if (creator.isNotBlank()) {
+                val ws = com.lifecyclebot.engine.WhaleWalletTracker.getWhaleScore(creator)
+                if (ws > 0) {
+                    val reliable = com.lifecyclebot.engine.WhaleWalletTracker.isWhaleReliable(creator)
+                    out += BrainRead("creatorWhale($ws${if (reliable) ",rel" else ""})",
+                        (((ws - 50) / 100.0) * 8.0 + (if (reliable) 2.0 else 0.0)).coerceIn(-5.0, 6.0))
+                }
+            }
+        } catch (_: Throwable) {}
+
+        // Learned toxic shape: source family x liquidity bucket x lane.
+        // hasCollapsed is false by definition at admission — nothing has
+        // collapsed yet — so this is a real argument, not a placeholder.
+        try {
+            val bucket = when {
+                liquidityUsd <= 0.0 -> "UNKNOWN"
+                liquidityUsd < 2_000.0 -> "MICRO"
+                liquidityUsd < 10_000.0 -> "TINY"
+                liquidityUsd < 50_000.0 -> "LOW"
+                else -> "HEALTHY"
+            }
+            if (bucket != "UNKNOWN" && sourceFamily.isNotBlank() &&
+                com.lifecyclebot.engine.ToxicModeCircuitBreaker
+                    .isToxicPattern(sourceFamily, bucket, lane, false)
+            ) out += BrainRead("toxicShape($bucket)", -12.0)
+        } catch (_: Throwable) {}
+
+        // Evidence volume behind the edge learner. Very few patterns means the
+        // stack's own confidence should be discounted, not trusted.
+        try {
+            val pc = com.lifecyclebot.engine.EdgeLearning.getPatternCount()
+            if (pc in 1..14) out += BrainRead("thinEdgeEvidence($pc)", -3.0)
+        } catch (_: Throwable) {}
+
         return out
     }
 
