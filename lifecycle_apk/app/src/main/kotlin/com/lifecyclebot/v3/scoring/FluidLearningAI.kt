@@ -1552,10 +1552,38 @@ object FluidLearningAI {
             else                 -> -1.0    // 2h+ — established move, tighter lock
         }
         val logFactor = kotlin.math.log10(kotlin.math.max(1.0, peakPnlPct / 5.0))
-        val allowance = (3.0 + 5.0 * logFactor + volAdjust + ageAdjust).coerceIn(1.5, 15.0)
+        val pointsAllowance = (3.0 + 5.0 * logFactor + volAdjust + ageAdjust).coerceIn(1.5, 15.0)
+        // V5.0.6845 §POINTS_ALLOWANCE_BECOMES_A_HAIR_TRIGGER_ON_RUNNERS — V5.9.190
+        // deliberately moved this from peak*0.50 to a points-based give-back to tighten
+        // small peaks, and for small peaks that is right. But the allowance is clamped
+        // to a maximum of 15 POINTS, which stops being a give-back band once the peak is
+        // large: at peak +900% the floor lands at +885%, so a 1.4% retrace off peak
+        // liquidates. That silently defeated both the 28% fluid trail and
+        // PeakDrawdownLock, and it is a direct cause of the operator's runners realising
+        // a fraction of their move.
+        //
+        // The trailing max(floor, peak*0.70) did not save it — at peak +900% that
+        // returns 630, i.e. it RE-TIGHTENS to an 8% give-back. That net exists to stop
+        // a tiny peak flooring below breakeven; above +100% it inverts into a cap on
+        // generosity.
+        //
+        // Above +100% peak, scale the band with peak size using the same
+        // PeakDrawdownLock.triggerFracForPeak curve the give-back stop now uses
+        // (V5.0.6836), so the two mechanisms agree instead of one pre-empting the other:
+        //   peak  +38% -> unchanged points behaviour (floor +30.6)
+        //   peak +900% -> allowance 572 -> floor +328, matching the give-back stop's +327
+        // Below +100% nothing changes, preserving V5.9.190's intent.
+        val allowance = if (peakPnlPct >= 100.0) {
+            kotlin.math.max(
+                pointsAllowance,
+                peakPnlPct * com.lifecyclebot.engine.PeakDrawdownLock.triggerFracForPeak(peakPnlPct)
+            )
+        } else pointsAllowance
         val floor = peakPnlPct - allowance
-        // Safety net: never below 70% of peak (protects against very small peaks)
-        return kotlin.math.max(floor, peakPnlPct * 0.70)
+        // Safety net: never below 70% of peak (protects against very small peaks).
+        // Only meaningful below the proportional band — above it, it would undo the
+        // scaling above.
+        return if (peakPnlPct >= 100.0) floor else kotlin.math.max(floor, peakPnlPct * 0.70)
     }
 
     /**

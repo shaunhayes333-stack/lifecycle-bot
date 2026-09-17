@@ -1509,7 +1509,24 @@ object FinalDecisionGate {
                     .admissionScoreFloorDelta(laneKeyForFloor6830)
             } catch (_: Throwable) { 0.0 }
             val effectiveFloor6830 = 22.0 + qualityDelta6830 + pressureDelta6830 + expectancyDelta6838
-            if (effectiveFloor6830 > 22.0 && confidence < effectiveFloor6830 && !canBypassConfidenceFloors) {
+            // V5.0.6847 §BASE_CONFIDENCE_FLOOR_WAS_A_NO_OP — the guard used to read
+            // `effectiveFloor6830 > 22.0 && confidence < effectiveFloor6830`, so the
+            // 22.0 base was only ever applied when one of the three deltas happened to
+            // raise it. With all deltas at 0 — the common case, e.g. BLUECHIP has no
+            // LaneExpectancyDamper entry so its delta is 0, and SelectionQualityAuthority
+            // returns 0 for a lane it has no terminal rows for — the floor evaluated to
+            // exactly 22.0, `22.0 > 22.0` was false, and the block never ran. A candidate
+            // at confidence 0 was admitted by a gate whose whole purpose is a confidence
+            // floor.
+            // Operator snapshot 5.0.6846 shows the consequence directly:
+            //   DEC/FDG/BUY USYC  score=0 conf=0 BUY
+            //   DEC/FDG/BUY USDTB score=0 conf=0 BUY
+            //   AATE_POLICY action=BUY pWin=0.52 EV=-5.0
+            // against WR 1.0% (1W/104L), a 92-trade loss streak and PF 0.08.
+            // The base floor now actually binds. Still CONFIDENCE-level (recoverable)
+            // and still honours canBypassConfidenceFloors, so probe/exploration paths
+            // are unaffected.
+            if (confidence < effectiveFloor6830 && !canBypassConfidenceFloors) {
                 blockReason = "SELECTION_QUALITY_FLOOR_6830 lane=$laneKeyForFloor6830 " +
                     "conf=${confidence.toInt()}% floor=${"%.1f".format(effectiveFloor6830)} " +
                     "qDelta=${"%.1f".format(qualityDelta6830)} pDelta=${"%.1f".format(pressureDelta6830)} " +
