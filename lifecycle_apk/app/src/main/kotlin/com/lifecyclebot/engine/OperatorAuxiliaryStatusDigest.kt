@@ -63,6 +63,56 @@ object OperatorAuxiliaryStatusDigest {
                 "totalExits=${com.lifecyclebot.engine.ExitIntelligence.getTotalExits()} " +
                 "trackedPeaks=${com.lifecyclebot.engine.truth.PeakAdaptiveTrail6390.trackedPeakCount6948()}"
         } catch (_: Throwable) { "ExitIntelligence unavailable" }
-        return "OPERATOR_AUX_STATUS_DIGEST_4364 exitReasons6949=[$exitReasons6949] exitLearner6949=[$exitLearner6949]tokenRefresh=[$tokenRefresh] birdeyeBudget=[$birdeyeBudget] apiHealth=[$apiHealth] fees=[$fees] exits=[$exits] liveTuner=[$liveTuner] scannerBrain=[$scannerBrain] playbook=[$playbook] strategyVariants=[$strategyVariants] exploration=[$exploration] noTrade=[$noTrade] sellFailures=[$sellFailures] sellJobs=[$sellJobs] growthDashboard=[$growthDash] liveExecReadiness6411=[$liveExecReadiness6411] adapterCircuits6411=[$adapterCircuits6411] attemptJournal6411=[$attemptJournal6411] ticketMachine6411=[$ticketMachine6411] canary6411=[$canary6411] scannerDedupe6411=[$scannerDedupe6411] tokenMapVersion6411=[$tokenMapVersion6411] cycleProfiler6411=[$cycleProfiler6411] workerPools6411=[$workerPools6411] safetyProof6411=[$safetyProof6411] laneQuar6411=[$laneQuar6411] exitInv6411=[$exitInv6411] posIdent6411=[$posIdent6411] costBasisRepair6412=[$costBasisRepair6412] moonshot6415=[$moonshot6415] liveGrowth6416=[$liveGrowth6416] report_only=true no_execution_authority=true no_gate_change=true playbook_execution_authority=Executor.liveBuy"
+        // V5.0.6960 §THE_DEFENCES_THE_BOT_COULD_NOT_SEE_WORKING.
+        //
+        // Nine accessors, all with zero callers, all answering "is this
+        // protection actually doing anything". Individually each is a small
+        // telemetry gap; together they are why the operator's only evidence
+        // about the bot's own defences was the absence of complaints.
+        //
+        // Two are asymmetries rather than plain omissions, and those are the
+        // ones worth naming. SemanticPatternGraph.nodeCount6512 is live while
+        // edgeCount6512 is not, so the graph reported how many patterns it knows
+        // and never how many relationships it had learned between them — a graph
+        // with 400 nodes and 3 edges is not a graph, and only the edge count
+        // distinguishes the two. And LiveSafetyCircuitBreaker
+        // .isSessionDrawdownPressureActive was wired in V5.0.6941 to admit
+        // MEDIUM-urgency full exits under pressure, while
+        // sessionDrawdownPressureReason — the half that says WHY the session is
+        // under pressure — was not, so that gate could open and close with no
+        // way to attribute it afterwards.
+        //
+        // All reads, no behaviour change. TradeDatabase.getSuppressionStrength
+        // is deliberately excluded: it takes a feature key, so there is no
+        // meaningful session-level value to print and inventing one would be
+        // fabricated telemetry.
+        val defences6960 = try {
+            val ddReason = try {
+                com.lifecyclebot.engine.LiveSafetyCircuitBreaker.sessionDrawdownPressureReason()
+                    .ifBlank { "none" }
+            } catch (_: Throwable) { "unavailable" }
+            val rugsSaved = try {
+                com.lifecyclebot.v3.scoring.UltraFastRugDetectorAI.getRugsSaved()
+            } catch (_: Throwable) { -1 }
+            val blacklist = try { com.lifecyclebot.engine.TokenBlacklist.getBlacklistSize() } catch (_: Throwable) { -1 }
+            val reentryBlocked = try { com.lifecyclebot.engine.ReentryGuard.getBlockedCount() } catch (_: Throwable) { -1 }
+            val reentrySample = try {
+                com.lifecyclebot.engine.ReentryGuard.getBlockedMints().take(3)
+                    .joinToString(",") { it.take(6) }.ifBlank { "none" }
+            } catch (_: Throwable) { "unavailable" }
+            val graphNodes = try { com.lifecyclebot.engine.SemanticPatternGraph.nodeCount6512() } catch (_: Throwable) { -1 }
+            val graphEdges = try { com.lifecyclebot.engine.SemanticPatternGraph.edgeCount6512() } catch (_: Throwable) { -1 }
+            val avoidAcc = try {
+                "%.1f".format(com.lifecyclebot.v3.learning.ShadowLearningEngine.getAvoidAccuracy())
+            } catch (_: Throwable) { "-" }
+            val patternWr = try {
+                "%.1f".format(com.lifecyclebot.engine.PatternClassifier.liveWinRate())
+            } catch (_: Throwable) { "-" }
+            "drawdownReason=$ddReason rugsSaved=$rugsSaved blacklist=$blacklist " +
+                "reentryBlocked=$reentryBlocked reentrySample=[$reentrySample] " +
+                "graphNodes=$graphNodes graphEdges=$graphEdges " +
+                "shadowAvoidAcc=$avoidAcc patternLiveWR=$patternWr"
+        } catch (_: Throwable) { "defences6960 unavailable" }
+        return "OPERATOR_AUX_STATUS_DIGEST_4364 exitReasons6949=[$exitReasons6949] exitLearner6949=[$exitLearner6949] defences6960=[$defences6960] tokenRefresh=[$tokenRefresh] birdeyeBudget=[$birdeyeBudget] apiHealth=[$apiHealth] fees=[$fees] exits=[$exits] liveTuner=[$liveTuner] scannerBrain=[$scannerBrain] playbook=[$playbook] strategyVariants=[$strategyVariants] exploration=[$exploration] noTrade=[$noTrade] sellFailures=[$sellFailures] sellJobs=[$sellJobs] growthDashboard=[$growthDash] liveExecReadiness6411=[$liveExecReadiness6411] adapterCircuits6411=[$adapterCircuits6411] attemptJournal6411=[$attemptJournal6411] ticketMachine6411=[$ticketMachine6411] canary6411=[$canary6411] scannerDedupe6411=[$scannerDedupe6411] tokenMapVersion6411=[$tokenMapVersion6411] cycleProfiler6411=[$cycleProfiler6411] workerPools6411=[$workerPools6411] safetyProof6411=[$safetyProof6411] laneQuar6411=[$laneQuar6411] exitInv6411=[$exitInv6411] posIdent6411=[$posIdent6411] costBasisRepair6412=[$costBasisRepair6412] moonshot6415=[$moonshot6415] liveGrowth6416=[$liveGrowth6416] report_only=true no_execution_authority=true no_gate_change=true playbook_execution_authority=Executor.liveBuy"
     }
 }
