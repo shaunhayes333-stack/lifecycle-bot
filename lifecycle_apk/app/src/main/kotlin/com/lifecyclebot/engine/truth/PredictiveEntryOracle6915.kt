@@ -293,10 +293,38 @@ object PredictiveEntryOracle6915 {
         } catch (_: Throwable) {}
 
         // Creator rug memory — the only near-hard negative in this tier.
+        //
+        // V5.0.6927 §GRADED_NOT_BINARY. This read used isCreatorBlacklisted,
+        // which is `rugCount >= 1`. So a dev with ONE rug in a long history
+        // scored identically to a serial rugger with six, and the penalty had
+        // to be set for the average of those two — too soft on the serial
+        // rugger, too harsh on the one-off. getCreatorRugCount has the actual
+        // number and had zero callers.
+        //
+        // In this asset class creator history is the highest-signal thing you
+        // can know before entry, and it is close to monotonic: a wallet that
+        // has rugged repeatedly is telling you exactly what it does for a
+        // living. So the penalty now scales, and at REFUSE_RUG_COUNT it is
+        // large enough to sink an entry on its own — the one place in this
+        // bounded tier where a single brain should be able to do that.
         try {
-            if (creator.isNotBlank() &&
-                com.lifecyclebot.engine.TradingMemory.isCreatorBlacklisted(creator)
-            ) out += BrainRead("creatorBlacklisted", -18.0)
+            if (creator.isNotBlank()) {
+                val rugs = com.lifecyclebot.engine.TradingMemory.getCreatorRugCount(creator)
+                // Serial ruggers (>= REFUSE_RUG_COUNT_6927) do not come through
+                // here at all — they are a recorded fact, not an adjustment,
+                // and hardSafetyRefusal6927 handles them before the verdict.
+                // These weights are sized to live INSIDE the ±18% tier cap;
+                // anything larger would simply be clamped and the gradation
+                // would be a lie.
+                if (rugs > 0) {
+                    val penalty = when {
+                        rugs >= 3 -> -18.0   // saturates this tier on its own
+                        rugs == 2 -> -13.0
+                        else      -> -8.0    // one prior rug: a real flag, not a death sentence
+                    }
+                    out += BrainRead("creatorRugs($rugs)", penalty)
+                }
+            }
         } catch (_: Throwable) {}
 
         // Momentum predictor.
@@ -553,6 +581,47 @@ object PredictiveEntryOracle6915 {
         val boundedAdjust = adjust.coerceIn(-STACK_ADJUST_CAP_PCT, STACK_ADJUST_CAP_PCT)
         val finalE = blendedE + boundedAdjust + boundedBrain6917
 
+        // ── V5.0.6927 · RECORDED-FACT SAFETY REFUSAL ────────────────────────
+        //
+        // Everything above this line is a statistical estimate, and the
+        // verdict below rightly gates REFUSE on confidence: you should not
+        // refuse an entry because a thin cohort produced a gloomy mean.
+        //
+        // But that gate is wrong for a RECORDED FACT. "This creator wallet has
+        // rugged four times" is not an estimate awaiting a bigger sample — it
+        // is something that happened, four times, and it does not become more
+        // true with a larger cohort. Under the confidence gate a serial rugger
+        // launching a brand-new token (which is the whole point of launching a
+        // brand-new token) has almost no cohort evidence, so confidence stays
+        // low and the entry sails through with at most a clamped -18% nudge.
+        //
+        // In this asset class creator history is the highest-signal thing that
+        // can be known before entry, and a wallet that has rugged repeatedly
+        // is stating plainly what it does for a living. So this refusal skips
+        // the confidence gate. It is the one place in this object that does.
+        //
+        // Bounded deliberately: it only ever REFUSES, never admits and never
+        // sizes; it fails open on any exception; and it needs a recorded count
+        // from TradingMemory's own rug ledger, not an inference.
+        val hardRefusal6927 = hardSafetyRefusal6927(creator)
+        if (hardRefusal6927 != null) {
+            refuses.incrementAndGet()
+            val f = Forecast(
+                Verdict.REFUSE, finalE, blendedPWin, confidence,
+                contributions + hardRefusal6927, hardRefusal6927,
+            )
+            try {
+                PipelineHealthCollector.labelInc("PREDICTIVE_ORACLE_REFUSE_6915")
+                PipelineHealthCollector.labelInc("PREDICTIVE_ORACLE_HARD_SAFETY_REFUSE_6927")
+                ForensicLogger.lifecycle(
+                    "PREDICTIVE_ORACLE_HARD_SAFETY_REFUSE_6927",
+                    "lane=$laneKey mint=${mint.take(10)} sym=$symbol reason=$hardRefusal6927 " +
+                        "note=recorded_fact_bypasses_confidence_gate",
+                )
+            } catch (_: Throwable) {}
+            return f
+        }
+
         // ── VERDICT ─────────────────────────────────────────────────────────
         val verdict = when {
             finalE <= REFUSE_EXPECTANCY_PCT && confidence >= MIN_CONFIDENCE_TO_REFUSE -> Verdict.REFUSE
@@ -581,6 +650,27 @@ object PredictiveEntryOracle6915 {
             )
         } catch (_: Throwable) {}
         return f
+    }
+
+    /**
+     * V5.0.6927 — recorded rug count at which a creator is refused outright.
+     *
+     * Four is chosen to be past any plausible innocent explanation. One rug
+     * can be a failed project, two can be bad luck twice; four is a business
+     * model. Below this the graded penalty in the brain tier applies instead.
+     */
+    private const val REFUSE_RUG_COUNT_6927 = 4
+
+    /**
+     * Returns a refusal reason when a RECORDED fact disqualifies this entry,
+     * or null. Never admits, never sizes, fails open.
+     */
+    private fun hardSafetyRefusal6927(creator: String): String? {
+        if (creator.isBlank()) return null
+        return try {
+            val rugs = com.lifecyclebot.engine.TradingMemory.getCreatorRugCount(creator)
+            if (rugs >= REFUSE_RUG_COUNT_6927) "CREATOR_SERIAL_RUGGER_6927(rugs=$rugs)" else null
+        } catch (_: Throwable) { null }
     }
 
     fun statusLine(): String =
