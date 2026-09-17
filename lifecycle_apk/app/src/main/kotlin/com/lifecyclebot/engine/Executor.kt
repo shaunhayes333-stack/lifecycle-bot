@@ -6833,7 +6833,7 @@ class Executor(
                 // BLUE, "must never be TP-capped") could never fire from this call site.
                 try {
                     com.lifecyclebot.v3.scoring.FluidLearningAI
-                        .getFluidTakeProfit(cfg().exitScoreThreshold.coerceAtLeast(20.0), laneKey)
+                        .getFluidTakeProfit(brainAdjustedExitThreshold6954(cfg().exitScoreThreshold).coerceAtLeast(20.0), laneKey)
                 } catch (_: Throwable) { 20.0 }
             }
         }
@@ -14122,7 +14122,7 @@ class Executor(
             // super-AGI scoring stack and actual exit behavior.
             entryTakeProfitPct = try {
                 val baseFluidTp = com.lifecyclebot.v3.scoring.FluidLearningAI
-                    .getFluidTakeProfit(cfg().exitScoreThreshold.coerceAtLeast(20.0))
+                    .getFluidTakeProfit(brainAdjustedExitThreshold6954(cfg().exitScoreThreshold).coerceAtLeast(20.0))
                 (baseFluidTp * ts.styleTpMult).coerceIn(5.0, 500.0)
             } catch (_: Throwable) { 0.0 },
         )
@@ -15408,6 +15408,36 @@ class Executor(
             val sourceBoost = b.getSourceBoost(ts.source)
             (adjusted + phaseBoost + sourceBoost).coerceIn(0.0, 100.0)
         } catch (_: Throwable) { baseScore }
+    }
+
+    /**
+     * V5.0.6954 §THE_EXIT_HALF_OF_THE_SAME_OPERATOR_DIRECTIVE.
+     *
+     * brainAdjustedLaneScore above exists to satisfy one instruction, quoted in
+     * its own comment: a threshold is "meant to be a fluid learnt value ...
+     * adjusted thru the learning, brain, education, sentience and intelligence
+     * stack." That was implemented for ENTRY and only for entry.
+     *
+     * BotBrain ships effectiveExitThreshold as the exact symmetric twin of
+     * effectiveEntryThreshold — same bootstrap loosening ladder keyed on trade
+     * count, same SymbolicContext mood delta (PANIC -8, FEARFUL -4, aggressive
+     * lets runners run). It had ZERO callers. All three exit sites passed
+     * cfg().exitScoreThreshold straight through: the raw operator setting,
+     * untouched by anything the bot had learned.
+     *
+     * So the entry bar moved as the bot learned and the exit bar never did. The
+     * brain got steadily better at deciding what to buy and had no say whatever
+     * in when to sell — on a book whose entire problem is the exit side.
+     *
+     * Returns the raw threshold unchanged when brain is null (bootstrap and
+     * unit tests), matching brainAdjustedLaneScore's contract exactly.
+     */
+    private fun brainAdjustedExitThreshold6954(rawThreshold: Double): Double {
+        val b = brain ?: return rawThreshold
+        return try {
+            val adjusted = b.effectiveExitThreshold(rawThreshold)
+            if (adjusted.isFinite()) adjusted.coerceIn(0.0, 100.0) else rawThreshold
+        } catch (_: Throwable) { rawThreshold }
     }
 
     private fun consultEntryAdvisors(ts: TokenState, score: Double, layerTag: String, isPaperMode: Boolean = false): Pair<Boolean, String> {
@@ -18489,7 +18519,7 @@ class Executor(
                 // Same bridge as paperBuy: fluidTP * styleTpMult = exit target.
                 entryTakeProfitPct = try {
                     val baseFluidTp = com.lifecyclebot.v3.scoring.FluidLearningAI
-                        .getFluidTakeProfit(cfg().exitScoreThreshold.coerceAtLeast(20.0))
+                        .getFluidTakeProfit(brainAdjustedExitThreshold6954(cfg().exitScoreThreshold).coerceAtLeast(20.0))
                     (baseFluidTp * ts.styleTpMult).coerceIn(5.0, 500.0)
                 } catch (_: Throwable) { 0.0 },
             )
