@@ -77,9 +77,43 @@ object ForwardOutcomeModel {
         score >= 80 -> "S80"; score >= 60 -> "S60"; score >= 40 -> "S40"
         score >= 20 -> "S20"; score >= 10 -> "S10"; score >= 5 -> "S05"; else -> "S00"
     }
-    private fun fineKey(lane: String, score: Int, quality: String, regime: String, edgePhase: String): String =
+    /**
+     * V5.0.6869 §PAPER_AND_LIVE_SHARED_ONE_PREDICTED_WIN_RATE — the cohort keys
+     * carried no mode, and recordOutcome is fed from the canonical bus
+     * (FinalizedBusConsumerBridge6465:194/266), which carries BOTH books. So every
+     * paper close and every live close landed in the same cell and the model
+     * returned one pWin for both.
+     *
+     * Paper fills are simulated: no real slippage, no MEV, no failed route, no
+     * partial fill. Its PnL distribution is structurally optimistic relative to
+     * live, and paper also runs at far higher volume — so the shared cell was
+     * dominated by paper and handed live an inflated P(win) that then sized live
+     * UP into trades the model had never actually seen executed with real capital.
+     *
+     * The stack already has a considered position on paper→live transfer and this
+     * was not it. PaperLiveIntelligenceBridge lets "paper shape live size softly
+     * while live evidence is thin, then fade to live-only authority" — a weighted
+     * blend that decays. Raw pooling gave paper permanent, unweighted, equal
+     * authority over live's predicted win rate forever.
+     *
+     * Keys are now mode-scoped, and forecast() applies that same fade: own-mode
+     * cell when it has samples, other-mode cell as the thin-evidence prior, and
+     * legacy unprefixed cells stay readable so nothing already learned is thrown
+     * away.
+     */
+    private fun modeTag6869(isPaper: Boolean): String = if (isPaper) "P" else "L"
+    private fun currentIsPaper6869(): Boolean =
+        try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }
+
+    private fun fineKey(lane: String, score: Int, quality: String, regime: String, edgePhase: String, isPaper: Boolean = currentIsPaper6869()): String =
+        "${modeTag6869(isPaper)}|${lane.uppercase().take(14)}|${band(score)}|${quality.take(3)}|${regime.uppercase().take(10)}|${edgePhase.uppercase().take(10)}"
+    private fun coarseKey(lane: String, score: Int, regime: String, isPaper: Boolean = currentIsPaper6869()): String =
+        "${modeTag6869(isPaper)}|${lane.uppercase().take(14)}|${band(score)}|${regime.uppercase().take(10)}"
+
+    /** Pre-6869 key shape, kept so historical cells remain readable as a prior. */
+    private fun legacyFineKey6869(lane: String, score: Int, quality: String, regime: String, edgePhase: String): String =
         "${lane.uppercase().take(14)}|${band(score)}|${quality.take(3)}|${regime.uppercase().take(10)}|${edgePhase.uppercase().take(10)}"
-    private fun coarseKey(lane: String, score: Int, regime: String): String =
+    private fun legacyCoarseKey6869(lane: String, score: Int, regime: String): String =
         "${lane.uppercase().take(14)}|${band(score)}|${regime.uppercase().take(10)}"
 
     /** Predict the outcome distribution for a candidate (no side effects). */
@@ -87,14 +121,25 @@ object ForwardOutcomeModel {
         lane: String, score: Int, quality: String, regime: String, edgePhase: String
     ): Forecast {
         return try {
-            val fk = fineKey(lane, score, quality, regime, edgePhase)
-            val ck = coarseKey(lane, score, regime)
-            val fc = fine[fk]
-            val cc = coarse[ck]
+            // V5.0.6869 — own-mode first, other-mode as the thin-evidence prior,
+            // legacy pooled cells last. This is the PaperLiveIntelligenceBridge fade
+            // applied to the forward model: live leans on paper only while its own
+            // evidence is thin, and stops consulting it the moment it is not.
+            val isPaper = currentIsPaper6869()
+            val fc = fine[fineKey(lane, score, quality, regime, edgePhase, isPaper)]
+            val cc = coarse[coarseKey(lane, score, regime, isPaper)]
+            val ofc = fine[fineKey(lane, score, quality, regime, edgePhase, !isPaper)]
+            val occ = coarse[coarseKey(lane, score, regime, !isPaper)]
+            val lfc = fine[legacyFineKey6869(lane, score, quality, regime, edgePhase)]
+            val lcc = coarse[legacyCoarseKey6869(lane, score, regime)]
             val cell: Cell?; val src: String
             when {
                 fc != null && fc.n >= MIN_SAMPLES -> { cell = fc; src = "fine" }
                 cc != null && cc.n >= MIN_SAMPLES -> { cell = cc; src = "coarse" }
+                lfc != null && lfc.n >= MIN_SAMPLES -> { cell = lfc; src = "fine_legacy" }
+                lcc != null && lcc.n >= MIN_SAMPLES -> { cell = lcc; src = "coarse_legacy" }
+                ofc != null && ofc.n >= MIN_SAMPLES -> { cell = ofc; src = if (isPaper) "fine_live_prior" else "fine_paper_prior" }
+                occ != null && occ.n >= MIN_SAMPLES -> { cell = occ; src = if (isPaper) "coarse_live_prior" else "coarse_paper_prior" }
                 else -> return Forecast(0.5, 0.0, 0.0, 0.0, (fc?.n ?: 0L) + (cc?.n ?: 0L), 1.0, "bootstrap")
             }
             // Conviction nudge: lean in on high pWin + positive expectancy, damp on
