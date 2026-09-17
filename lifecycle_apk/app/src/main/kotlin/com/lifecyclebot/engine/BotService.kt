@@ -15283,6 +15283,55 @@ class BotService : Service() {
                             )
                         }
                         com.lifecyclebot.collective.CollectiveLearning.syncModeLearning(snapshots)
+                        // V5.0.6865 §THE_HIVE_ONLY_COMPARED_NOTES_AT_BOOT — the
+                        // performance-genome round trip (upload this instance's adaptive
+                        // weights, inherit a bounded nudge from proven positive peers)
+                        // was wired ONCE, inside the CollectiveLearning init block at
+                        // startup. Everything else in the network exchange — heartbeat,
+                        // endpoint health, mode stats, CollectiveIntelligenceAI — already
+                        // refreshes here on the 15-minute telemetry pass; the genome did
+                        // not. So an instance that traded for twelve hours never
+                        // published the intelligence it had just earned, and never
+                        // inherited what its peers had earned in the same period. The
+                        // network could only ever be as smart as every member was at the
+                        // moment it last restarted, which is the opposite of "each
+                        // instance gets smarter and smarter from each trade".
+                        //
+                        // Same call pair, same bounded-nudge semantics as the boot path:
+                        // upload is an upsert keyed on instance_id, and the download is
+                        // already gated to peers with >=100 trades, WR >= 55%, positive
+                        // PnL, PF >= 1.10 and a 7-day freshness window, capped at 25
+                        // contributors. applyHiveGenomeNudge is pressure, not overwrite.
+                        try {
+                            val genomeWeights6865 = AdaptiveLearningEngine.getDetailedWeights()
+                            com.lifecyclebot.collective.CollectiveLearning.uploadPerformanceGenome(
+                                appVersion = com.lifecyclebot.BuildConfig.VERSION_NAME,
+                                totalTrades = localStats.totalTrades,
+                                winRatePct = localStats.winRate,
+                                netPnlSol = localStats.totalPnlSol,
+                                profitFactor = localStats.profitFactor,
+                                featureWeights = genomeWeights6865,
+                            )
+                            val genome6865 = com.lifecyclebot.collective.CollectiveLearning
+                                .downloadPerformanceGenomeBlend(
+                                    localTradeCount = localStats.totalTrades,
+                                    localWinRatePct = localStats.winRate,
+                                )
+                            if (genome6865 != null) {
+                                AdaptiveLearningEngine.applyHiveGenomeNudge(
+                                    hiveWeights = genome6865.featureWeights,
+                                    hiveAvgWinRatePct = genome6865.avgWinRatePct,
+                                    hiveContributors = genome6865.contributors,
+                                    hiveTotalTrades = genome6865.totalTrades,
+                                    localWinRatePct = localStats.winRate,
+                                    localTradeCount = localStats.totalTrades,
+                                )
+                                addLog("🧬 Hive genome refresh: ${genome6865.contributors} proven bots, hiveWR=${genome6865.avgWinRatePct.toInt()}%, best=${genome6865.bestWinRatePct.toInt()}%")
+                                try { PipelineHealthCollector.labelInc("HIVE_GENOME_PERIODIC_NUDGE_6865") } catch (_: Throwable) {}
+                            }
+                        } catch (e: Exception) {
+                            ErrorLogger.debug("BotService", "Hive genome periodic sync error: ${e.message}")
+                        }
                         val collectiveInsights = com.lifecyclebot.collective.CollectiveLearning.getInsightsSummary()
                         addLog("🌐 $collectiveInsights")
                         if (cfg.v3EngineEnabled) {
