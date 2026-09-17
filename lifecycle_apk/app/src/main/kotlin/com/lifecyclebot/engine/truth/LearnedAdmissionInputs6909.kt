@@ -51,6 +51,13 @@ object LearnedAdmissionInputs6909 {
 
     private val assembled = AtomicLong(0L)
     private val forecastMissing = AtomicLong(0L)
+    private val forecastResolved = AtomicLong(0L)
+    // V5.0.6911 — how often the regime-agnostic aggregate rescued a read the
+    // per-regime cell could not answer. If this stays at 0 while
+    // matureCohorts is also 0, the model genuinely has no evidence yet; if
+    // this is high, the regime-keyed blindness was the whole problem.
+    private val aggregateUsed6911 = AtomicLong(0L)
+    private val matureCohorts6911 = AtomicLong(0L)
 
     /**
      * Assemble admission inputs for (lane, mint) from the live learned
@@ -83,6 +90,7 @@ object LearnedAdmissionInputs6909 {
             )
         } catch (_: Throwable) { null }
         if (fwd == null || fwd.source == "bootstrap") forecastMissing.incrementAndGet()
+        else forecastResolved.incrementAndGet()
 
         // UNIT CONVERSION — NOT COSMETIC. ForwardOutcomeModel.expectedPnl is a
         // PERCENT (its own dump prints "E[pnl]=+31.5%"), while
@@ -107,7 +115,27 @@ object LearnedAdmissionInputs6909 {
         // the conservative direction for a gate that only ever throttles.
         val laneLossRatePct = (100.0 - laneWrPct).coerceIn(0.0, 100.0)
 
-        val cohortSample = (fwd?.samples ?: 0L).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+        // V5.0.6911 — the per-regime forecast cell is the wrong granularity
+        // for admission. Operator 5.0.6909: assembled=5589 with
+        // forecastBootstrapOrMissing=5589 — every single admission read came
+        // back bootstrap, so §2b never fired, while the model plainly held
+        // n=13 and n=11 cells with well separated expectancy. Those cells were
+        // written under regime=NORMAL and the detector had rotated to CHOP.
+        // Ask the regime-agnostic (lane, band) aggregate instead; fall back to
+        // the per-regime cell only when the aggregate is genuinely empty.
+        val agg6911 = try {
+            com.lifecyclebot.engine.ForwardOutcomeModel.cohortEvidence6911(laneKey, entryScore.coerceAtLeast(0))
+        } catch (_: Throwable) { null }
+        val useAgg6911 = agg6911 != null && agg6911.samples > 0L
+        if (useAgg6911) {
+            aggregateUsed6911.incrementAndGet()
+            if (agg6911!!.samples >= 8L) matureCohorts6911.incrementAndGet()
+        }
+        val cohortSample = if (useAgg6911) {
+            agg6911!!.samples.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+        } else {
+            (fwd?.samples ?: 0L).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+        }
 
         return LearnedAdmissionAuthority6846.Inputs(
             lane = laneKey,
@@ -115,8 +143,10 @@ object LearnedAdmissionInputs6909 {
             requestedSizeSol = requestedSizeSol.coerceAtLeast(0.0),
             scoreBand = entryScore.coerceAtLeast(0),
             regime = regime,
-            livePWin = (fwd?.pWin ?: 0.0).coerceIn(0.0, 1.0),
-            expectedPnl = expectedPnlFraction,
+            livePWin = if (useAgg6911) agg6911!!.pWin.coerceIn(0.0, 1.0)
+                else (fwd?.pWin ?: 0.0).coerceIn(0.0, 1.0),
+            expectedPnl = if (useAgg6911) (agg6911!!.expectedPnlPct / 100.0)
+                else expectedPnlFraction,
             cohortSample = cohortSample,
             laneWrPct = laneWrPct,
             laneLossRatePct = laneLossRatePct,
@@ -172,5 +202,7 @@ object LearnedAdmissionInputs6909 {
     }
 
     fun statusLine(): String =
-        "assembled=${assembled.get()} forecastBootstrapOrMissing=${forecastMissing.get()}"
+        "assembled=${assembled.get()} forecastBootstrapOrMissing=${forecastMissing.get()} " +
+            "forecastResolved=${forecastResolved.get()} " +
+            "aggUsed6911=${aggregateUsed6911.get()} matureCohorts6911=${matureCohorts6911.get()}"
 }

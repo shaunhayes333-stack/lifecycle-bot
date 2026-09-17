@@ -56,6 +56,86 @@ object ForwardOutcomeModel {
     private val fine   = ConcurrentHashMap<String, Cell>()   // full signature
     private val coarse = ConcurrentHashMap<String, Cell>()   // lane×band×regime parent
     fun signatureCount(): Int = fine.size  // V5.9.1355 P0.5 audit
+
+    /**
+     * V5.0.6911 §COHORT_EVIDENCE_MUST_SURVIVE_A_REGIME_FLIP.
+     *
+     * OPERATOR EVIDENCE (5.0.6909 snapshot):
+     *
+     *   Learned admission (§6909): assembled=5589 forecastBootstrapOrMissing=5589
+     *   Forward Outcome Model:     signatures=13 updates=42
+     *     P|PROJECT_SNIPER|S20|PRO|NORMAL|DOBUY.FINA  pWin=15% E=+26.8% n=13
+     *     P|PROJECT_SNIPER|S10|PRO|NORMAL|DOBUY.FINA  pWin=0%  E=-15.8% n=11
+     *   Regime detector:           regime=CHOP n=32 age=16s
+     *
+     * Every one of 5,589 admission reads came back bootstrap. Not one cohort
+     * was ever mature, so V5.0.6909's §2b expectancy test could not fire even
+     * once even though the evidence it needs plainly exists — n=13 and n=11
+     * cells with clearly separated expectancy.
+     *
+     * The cells are keyed with REGIME as part of the signature. Those were
+     * written while the regime read NORMAL; the detector now reads CHOP and
+     * recomputes on a ~16s cadence. So the moment the regime rotates, every
+     * cohort the model has ever learned becomes unreachable and the admission
+     * authority goes blind — and it goes blind precisely when conditions have
+     * just changed, which is when it is most needed.
+     *
+     * Per-regime keying is right for FORECASTING (a setup genuinely behaves
+     * differently in DUMP than in PUMP). It is wrong for asking the much
+     * blunter question admission actually asks: "has this lane and score band
+     * ever made money?" A lane that is 0-for-18 is not 0-for-18 because of the
+     * weather.
+     *
+     * So this exposes an aggregate across regime / quality / edgePhase for one
+     * (lane, band), pooling Welford means by sample weight. It adds no new
+     * storage and no new key format; the forecasting path is untouched and
+     * still uses the exact per-regime cells.
+     */
+    data class CohortEvidence6911(
+        val samples: Long,
+        val pWin: Double,
+        val expectedPnlPct: Double,
+        val cells: Int,
+    )
+
+    fun cohortEvidence6911(lane: String, score: Int): CohortEvidence6911 {
+        val laneTag = lane.uppercase().take(14)
+        val bandTag = band(score)
+        var n = 0L
+        var wins = 0L
+        var weighted = 0.0
+        var cells = 0
+        // Match the lane|band segments regardless of the mode, regime, quality
+        // or edgePhase around them. Uses the FINE map because that is the one
+        // the writer always populates; coarse is a derived parent and would
+        // double-count.
+        //
+        // The leading pipe is required, not cosmetic: without it "CORE|S20|"
+        // also matches the V3_CORE key "P|V3_CORE|S20|...", which would pool a
+        // read-only shadow lane's outcomes into a real lane's admission
+        // evidence. Legacy pre-6869 keys have no mode prefix and so start with
+        // the lane, which is why startsWith is checked as well — those cells
+        // are kept as a prior rather than silently dropped.
+        val needle = "|$laneTag|$bandTag|"
+        val legacyPrefix = "$laneTag|$bandTag|"
+        try {
+            for ((k, c) in fine) {
+                if (!k.contains(needle) && !k.startsWith(legacyPrefix)) continue
+                if (c.n <= 0L) continue
+                n += c.n
+                wins += c.wins
+                weighted += c.mean * c.n
+                cells++
+            }
+        } catch (_: Throwable) {}
+        if (n <= 0L) return CohortEvidence6911(0L, 0.5, 0.0, 0)
+        return CohortEvidence6911(
+            samples = n,
+            pWin = (wins.toDouble() / n).coerceIn(0.0, 1.0),
+            expectedPnlPct = weighted / n,
+            cells = cells,
+        )
+    }
     @Volatile private var totalUpdates = 0L
     @Volatile private var appContext: Context? = null
 

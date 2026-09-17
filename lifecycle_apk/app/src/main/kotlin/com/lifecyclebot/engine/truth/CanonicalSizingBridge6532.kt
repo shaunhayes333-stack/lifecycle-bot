@@ -168,6 +168,18 @@ object CanonicalSizingBridge6532 {
             laneMinExecutableSol = effectiveMinSol6542,
             applyPaperMemeMinimum = assetClass == AssetClass.SOLANA_TOKEN,
             causalEventId = resolvedCausalEventId6674,
+            // V5.0.6911 — forward the asset identity so the resolver can read
+            // EntryConvictionRegistry6909. Operator 5.0.6909 snapshot:
+            //   Entry conviction (§6909): stamps=469 reads=72 hits=0
+            //   ENTRY_CONVICTION_COLLAPSED_6909: 304
+            // Conviction was being computed and stamped 469 times and read
+            // zero times, because the resolver only consults the registry when
+            // `mint` is non-blank and this bridge — 1,594 invocations, the main
+            // meme sizing path — left it at its "" default. The 72 reads were
+            // all CRYPTO_ALT (the one caller that did pass an id), whose asset
+            // ids are never stamped by doBuy, hence hits=0. The §6909
+            // min-promotion refusal therefore never fired once.
+            mint = canonicalAssetId,
         )
         try {
             PipelineHealthCollector.labelInc(

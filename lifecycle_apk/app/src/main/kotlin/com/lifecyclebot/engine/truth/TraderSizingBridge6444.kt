@@ -122,6 +122,13 @@ object TraderSizingBridge6444 {
                 paperMode = paperMode,
                 laneRiskCapSol = laneCap,
                 laneMinExecutableSol = if (paperMode) OrderSizeResolver6441.paperExecutableMinimumSol() else 0.001,
+                // V5.0.6911 — forward the mint so the resolver can read
+                // EntryConvictionRegistry6909. See CanonicalSizingBridge6532
+                // for the evidence: 469 conviction stamps, 0 hits. Blank is
+                // still tolerated (sizeForLane forwards a blank mint by
+                // design), and a blank simply means conviction is unknown,
+                // which resolves to 1.0 and changes nothing.
+                mint = mintForSeal,
             )
             // V5.0.6497 §1 — seal executable resolution for the mint so
             // downstream execution readers cannot re-compute a smaller

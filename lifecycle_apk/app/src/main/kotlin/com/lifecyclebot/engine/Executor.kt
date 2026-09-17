@@ -13327,7 +13327,69 @@ class Executor(
         }
         val slippageMultiplier = 1.0 + (simulatedSlippagePct / 100.0)
         val effectivePrice = price * slippageMultiplier
-        
+        // V5.0.6911 §THE_FINGERPRINTS_WERE_POST_SLIPPAGE_AND_THE_GUARD_RAN_PRE_SLIPPAGE.
+        //
+        // OPERATOR EVIDENCE (5.0.6909 snapshot, last 30 paper buys):
+        //
+        //   2zMMhc BLUECHIP entry=0.050250000 cost=0.2319 mcap=$640274145
+        //   J3NKxx BLUECHIP entry=0.050250000 cost=0.2321 mcap=$573951671
+        //   HzwqbK BLUECHIP entry=0.050250000 cost=0.0500 mcap=$473133370
+        //   6p6xgH BLUECHIP entry=0.050250000 cost=0.0500 mcap=$752748104
+        //
+        // 0.05025 is the FIRST entry in MarketDataProvenance6471's
+        // SENTINEL_PRICES_STANDALONE_6658 list and the price field of its only
+        // KNOWN_TEMPLATES tuple. It has been a declared sentinel since
+        // V5.0.6471 and is consulted by four separate guards (§6551 CryptoAlt
+        // entry, §6658 paperBuy entry, §6677 persisted repair, §6680 display
+        // PnL). It still seals canonical BLUECHIP entries.
+        //
+        // Because the fingerprint is the value AFTER slippage, and every guard
+        // tests the value BEFORE it:
+        //
+        //   0.05    * 1.005 = 0.050249999999999996   (renders "0.050250000")
+        //   epsilon = 0.05025 * 1e-6 = 5.025e-8
+        //   |0.050249999999999996 - 0.05025| = 3.5e-18  -> WOULD match
+        //   |0.05                 - 0.05025| = 2.5e-4   -> does NOT match
+        //
+        // The real template price is 0.05. Whoever added the fingerprint read
+        // it off a journal row — which prints pos.entryPrice, i.e. the sealed
+        // post-slippage basis — and installed it in a predicate that runs on
+        // entryMarketSnapshot.priceUsd. For this fingerprint the predicate has
+        // therefore never matched once, which is why four layers of guard have
+        // all been passing it through for ~440 builds.
+        //
+        // Adding the pre-images is not the fix: the slippage tier varies with
+        // liquidity (5% / 3% / 2% / 1% / 0.5%), so one fingerprint has five
+        // pre-images and a new tier would silently add a sixth. Instead check
+        // the value that ACTUALLY becomes the basis, at the point it becomes
+        // it. Same principle as V5.0.6907: validate the number you are about
+        // to commit, not a different one upstream of it.
+        //
+        // The §6658 pre-slippage check above is deliberately left in place —
+        // it still catches a raw sentinel arriving straight from a provider.
+        // This is the second half of the same gate, not a replacement.
+        val effectiveIsSentinel6911 = try {
+            com.lifecyclebot.engine.truth.MarketDataProvenance6471
+                .isKnownStandaloneSentinelPrice6658(effectivePrice)
+        } catch (_: Throwable) { false }
+        if (effectiveIsSentinel6911) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_BUY_EFFECTIVE_PRICE_SENTINEL_REJECTED_6911")
+                PipelineHealthCollector.labelInc("PAPER_BUY_EFFECTIVE_PRICE_SENTINEL_REJECTED_6911_${quality.uppercase()}")
+                ForensicLogger.lifecycle(
+                    "PAPER_BUY_EFFECTIVE_PRICE_SENTINEL_REJECTED_6911",
+                    "mint=${tradeId.mint.take(10)} symbol=${tradeId.symbol} " +
+                        "rawPrice=$price slippagePct=$simulatedSlippagePct " +
+                        "effectivePrice=$effectivePrice liq=${ts.lastLiquidityUsd.toInt()} " +
+                        "mcap=${ts.lastMcap.toInt()} src=${entryMarketSnapshot.priceSource} " +
+                        "action=refuse_post_slippage_sentinel_basis",
+                )
+            } catch (_: Throwable) {}
+            onLog("⚠ Buy skipped: ${tradeId.symbol} sentinel basis after slippage (${effectivePrice})", tradeId.mint)
+            markPaperBuyNotOpened("EFFECTIVE_PRICE_SENTINEL_6911")
+            return
+        }
+
         val simulatedFeePct = 0.5
         val effectiveSol = actualSol * (1.0 - simulatedFeePct / 100.0)
         

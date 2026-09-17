@@ -65,6 +65,20 @@ object MarketDataProvenance6471 {
         0.050250000,
         0.000052530,
         0.000000589600,
+        // V5.0.6911 — observed template. Operator 5.0.6909 shows this exact
+        // double, to all 17 significant figures, as the entry price of at
+        // least three unrelated mints simultaneously:
+        //   E57LjeaJAp/NTDA entry=2.0137438370880698E-4 refusals=861
+        //   j1AntPusR5/USPR entry=2.0137438370880698E-4 refusals=1041
+        //   mzGEKC8bKm/ELON entry=2.0137438370880698E-4 refusals=1021
+        // Unrelated tokens do not collide to 17 figures, and the §6895 mark
+        // guard is spending thousands of refusals per position keeping these
+        // basis values out of PnL — which leaves the positions open and
+        // unpriceable rather than never opened. Neighbouring real entries in
+        // the same snapshot (1.9746420E-4, 1.9941929E-4) differ well outside
+        // the 1e-6 relative band, so a genuine price near this magnitude is
+        // unaffected.
+        2.0137438370880698E-4,
     )
     private const val SENTINEL_PRICE_RELATIVE_EPSILON_6658 = 1e-6
 
