@@ -165,7 +165,41 @@ object ExitIntelligence {
             else -> 0.0
         }
 
-        val dynamicStopLoss = (params.baseStopLoss - volatilityAdjust + qualityAdjust)
+        // V5.0.6924 — BehaviorAI.getStopLossModPct finally read.
+        //
+        // BehaviorAI holds one aggressionLevel knob (0 = most conservative,
+        // 11 = most aggressive) and converts it into four bounded outputs:
+        //
+        //   getSizingMultiplier   consumed in EIGHT places — every trader AI,
+        //                         Executor, TreasuryOpportunityEngine
+        //   getEntryThresholdMod  consumed
+        //   getMinQualityGrade    consumed
+        //   getStopLossModPct     ZERO callers
+        //
+        // So the bot's own risk appetite has been steering how much it BUYS
+        // everywhere and how it EXITS nowhere. Operator, on exactly this
+        // shape: "the brains are meant to contribute way more than trade
+        // size!!!"
+        //
+        // Sign convention, read off the function's own row comments rather
+        // than assumed: it returns -3.0 at aggression 0 labelled "Tighter
+        // stops" and +4.0 at aggression 10 labelled "Wider stops", against a
+        // baseStopLoss that is NEGATIVE (-8.0 default). So it is a value to
+        // SUBTRACT: -8 - (-3) = -5 (tighter, closer to entry) and
+        // -8 - (+4) = -12 (wider). That is the same idiom the existing
+        // `- volatilityAdjust` term uses, where a positive volatility term
+        // widens the stop. Adding it instead of subtracting would invert the
+        // knob and tighten stops precisely when the bot is most confident.
+        //
+        // The pre-existing [-20, -6] clamp still bounds the result, so the
+        // widest this can reach is the clamp, not the modifier.
+        val behaviorStopMod6924 = try {
+            com.lifecyclebot.v3.scoring.BehaviorAI.getStopLossModPct()
+                .let { if (it.isFinite()) it else 0.0 }
+                .coerceIn(-5.0, 5.0)
+        } catch (_: Throwable) { 0.0 }
+
+        val dynamicStopLoss = (params.baseStopLoss - volatilityAdjust + qualityAdjust - behaviorStopMod6924)
             .coerceIn(-20.0, -6.0)
 
         // ═══════════════════════════════════════════════════════════════════
@@ -468,15 +502,28 @@ object ExitIntelligence {
             buyPressure < 35.0
     }
 
+    /**
+     * V5.0.6924 — this duplicates the stop formula that evaluateExit computes
+     * inline, and it currently has no callers. It is kept in step with the
+     * live one anyway (same BehaviorAI term, same clamp): a zero-caller copy
+     * of a live formula that has silently DIVERGED from it is a trap for
+     * whoever wires it next, and this codebase has enough of those.
+     */
     fun getCurrentStopLoss(quality: String, volatility: Double): Double {
         val normalizedQuality = normalizeQuality(quality)
         val volatilityAdjust = volatility.coerceIn(0.0, 25.0) * params.volatilityStopMultiplier
+        val behaviorStopMod6924 = try {
+            com.lifecyclebot.v3.scoring.BehaviorAI.getStopLossModPct()
+                .let { if (it.isFinite()) it else 0.0 }
+                .coerceIn(-5.0, 5.0)
+        } catch (_: Throwable) { 0.0 }
         val qualityAdjust = when (normalizedQuality) {
             "A" -> params.qualityStopAdjust
             "B" -> params.qualityStopAdjust / 2.0
             else -> 0.0
         }
-        return (params.baseStopLoss - volatilityAdjust + qualityAdjust).coerceIn(-20.0, -6.0)
+        return (params.baseStopLoss - volatilityAdjust + qualityAdjust - behaviorStopMod6924)
+            .coerceIn(-20.0, -6.0)
     }
 
     fun getCurrentTakeProfit(quality: String, momentum: Double): Double {
