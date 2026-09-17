@@ -96,6 +96,15 @@ data class Position(
     // so paper had no basis protection and booked a +15,532% partial on a
     // bonding-curve-vs-AMM mismatch. See Executor.getActualPrice §6895.
     var crossBasisRefusals6895: Long = 0L,
+    // V5.0.6907 — wallclock of the MOST RECENT cross-basis mark refusal.
+    // The counter above proves a refusal happened at some point in the
+    // position's life; it cannot say whether the mark is incomparable RIGHT
+    // NOW. Every display and learning surface needs the latter, because a
+    // position whose basis later becomes comparable again must recover rather
+    // than stay condemned forever. Stamped only by Executor.getActualPrice
+    // §6895 — the one site that makes the decision — and read by
+    // OpenPnlSanity so no surface re-derives the answer with its own band.
+    var markRefusedAtMs6907: Long = 0L,
     // V5.0.6904 — two-strike confirmation for the catastrophic backstop. Armed
     // when price alone says catastrophe but no supporting metric agrees; the
     // next management pass then treats the breach as confirmed. Cleared the

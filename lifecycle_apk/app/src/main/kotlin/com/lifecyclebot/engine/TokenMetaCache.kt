@@ -44,6 +44,27 @@ class TokenMetaCache private constructor(ctx: Context) :
         var firstSeenMs: Long = 0L,
         var lastSeenMs: Long = 0L,
         var hitCount: Long = 0L,
+        // V5.0.6908 §EVERYTHING_NEEDED_FOR_PROPER_PRICE_TRACKING.
+        // Token decimals are not cosmetic metadata — they are the unit in
+        // which every price is denominated. OpenPnlSanity's §6701
+        // decimal-scale discontinuity guard (the authority that catches a
+        // raw-vs-UI token pricing mismatch, i.e. a mark that jumped by
+        // 10^decimals) takes tokenDecimals as input, and when it is absent
+        // it degrades to GUESSING 6 or 9 and only for sub-micro entries.
+        // A token restored from archive with no decimals therefore arrives
+        // with the unit guard weakened. Archive it like the mint address:
+        // once known, never re-fetched, and shared across the hive.
+        var decimals: Int = -1,
+        // V5.0.6908 §ARCHIVED_UNTIL_INTERACTED_WITH_AGAIN.
+        // Wallclock of the last time AATE actually executed against this
+        // mint (buy/sell/partial), as opposed to merely observing it in a
+        // scan. Retention is keyed on interaction, not on scan recency:
+        // pruneStale and evictColdSoft both filter purely on lastSeenMs and
+        // hitCount, so a token the bot traded and then stopped scanning was
+        // eligible for deletion in 7 days — taking its pool address, dex,
+        // decimals and creation time with it, and forcing a full rebuild
+        // (and a fresh provider spend) if the bot ever touched it again.
+        var lastInteractedMs: Long = 0L,
     )
 
     private val live = ConcurrentHashMap<String, Entry>(8192)
@@ -81,16 +102,57 @@ class TokenMetaCache private constructor(ctx: Context) :
                 "creation_time_ms INTEGER NOT NULL DEFAULT 0," +
                 "first_seen_ms INTEGER NOT NULL DEFAULT 0," +
                 "last_seen_ms INTEGER NOT NULL DEFAULT 0," +
-                "hit_count INTEGER NOT NULL DEFAULT 0" +
+                "hit_count INTEGER NOT NULL DEFAULT 0," +
+                "decimals INTEGER NOT NULL DEFAULT -1," +
+                "last_interacted_ms INTEGER NOT NULL DEFAULT 0" +
                 ");"
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_meta_last_seen ON token_meta(last_seen_ms DESC);")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_meta_hit_count ON token_meta(hit_count DESC);")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_meta_interacted ON token_meta(last_interacted_ms DESC);")
     }
 
+    /**
+     * V5.0.6908 §THE_ARCHIVE_MUST_SURVIVE_ITS_OWN_SCHEMA_CHANGES.
+     *
+     * This used to be `DROP TABLE token_meta; onCreate(db)` — every single
+     * DB_VERSION bump silently destroyed the entire accumulated token
+     * archive. That is the exact opposite of a durable store that "saves
+     * data rebuilding across the hive": the first schema change threw away
+     * every pool address, dex, creation time and pair URL the fleet had ever
+     * paid a provider call to learn, and the bot then re-earned all of it
+     * from scratch at full CU + latency cost.
+     *
+     * Additive-only migration, the same pattern CollectiveSchema already
+     * uses for the hive-side table. Each statement is idempotent and each is
+     * tried independently, so a column that already exists (or a partially
+     * applied prior upgrade) cannot abort the rest of the migration and
+     * cannot cost us the table.
+     */
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        db.execSQL("DROP TABLE IF EXISTS token_meta;")
-        onCreate(db)
+        onCreate(db) // CREATE TABLE IF NOT EXISTS — no-op on an existing archive
+        val additive = listOf(
+            "ALTER TABLE token_meta ADD COLUMN decimals INTEGER NOT NULL DEFAULT -1",
+            "ALTER TABLE token_meta ADD COLUMN last_interacted_ms INTEGER NOT NULL DEFAULT 0",
+        )
+        var applied = 0
+        for (stmt in additive) {
+            try { db.execSQL(stmt); applied++ } catch (_: Throwable) { /* already present */ }
+        }
+        try {
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_meta_interacted ON token_meta(last_interacted_ms DESC);")
+        } catch (_: Throwable) {}
+        ErrorLogger.info(
+            TAG,
+            "onUpgrade $oldVersion->$newVersion applied=$applied/${additive.size} additive columns; archive preserved",
+        )
+    }
+
+    override fun onDowngrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        // A downgrade must not destroy the archive either. Newer columns are
+        // simply unread by older code; SQLiteOpenHelper's default behaviour
+        // here is to throw, which would make the store unopenable.
+        ErrorLogger.warn(TAG, "onDowngrade $oldVersion->$newVersion ignored; archive preserved")
     }
 
     /**
@@ -106,8 +168,15 @@ class TokenMetaCache private constructor(ctx: Context) :
                 "SELECT mint, symbol, name, pair_address, pair_url, logo_url, " +
                     "last_price_source, last_price_pool_addr, last_price_dex, " +
                     "last_price, last_mcap, last_liquidity_usd, last_fdv, " +
-                    "creation_time_ms, first_seen_ms, last_seen_ms, hit_count " +
-                    "FROM token_meta ORDER BY last_seen_ms DESC LIMIT ?",
+                    "creation_time_ms, first_seen_ms, last_seen_ms, hit_count, " +
+                    "decimals, last_interacted_ms " +
+                    // V5.0.6908 — interacted rows load first and are never
+                    // truncated by the row cap: a token the bot actually traded
+                    // is the one whose archived pool/dex/decimals we most need
+                    // back, and it is exactly the row that stops being scanned
+                    // and so sorts last under lastSeenMs alone.
+                    "FROM token_meta ORDER BY (last_interacted_ms > 0) DESC, " +
+                    "last_interacted_ms DESC, last_seen_ms DESC LIMIT ?",
                 arrayOf(maxRows.toString())
             ).use { c ->
                 while (c.moveToNext()) {
@@ -131,6 +200,8 @@ class TokenMetaCache private constructor(ctx: Context) :
                         firstSeenMs = c.getLong(14),
                         lastSeenMs = c.getLong(15),
                         hitCount = c.getLong(16),
+                        decimals = c.getInt(17),
+                        lastInteractedMs = c.getLong(18),
                     )
                     live[mint] = e
                     hydrated++
@@ -173,6 +244,13 @@ class TokenMetaCache private constructor(ctx: Context) :
         lastLiquidityUsd: Double? = null,
         lastFdv: Double? = null,
         creationTimeMs: Long? = null,
+        // V5.0.6908 — token decimals. Archived once, never re-fetched.
+        decimals: Int? = null,
+        // V5.0.6908 — true only when AATE EXECUTED against this mint
+        // (buy/sell/partial), not when it merely observed it. Stamps the
+        // retention exemption; observation alone must not, or every scanned
+        // mint would become permanently unprunable.
+        interacted: Boolean = false,
     ) {
         val key = com.lifecyclebot.data.CanonicalMint.normalize(mint)
         if (key.isEmpty()) return
@@ -192,6 +270,22 @@ class TokenMetaCache private constructor(ctx: Context) :
         if (lastLiquidityUsd != null && lastLiquidityUsd > 0.0 && lastLiquidityUsd != e.lastLiquidityUsd) { e.lastLiquidityUsd = lastLiquidityUsd; changed = true }
         if (lastFdv != null && lastFdv > 0.0 && lastFdv != e.lastFdv) { e.lastFdv = lastFdv; changed = true }
         if (creationTimeMs != null && creationTimeMs > 0L && creationTimeMs != e.creationTimeMs) { e.creationTimeMs = creationTimeMs; changed = true }
+        // Decimals are immutable for an SPL mint, so a known value is never
+        // overwritten by a later unknown one — and a CHANGE is a genuine
+        // integrity event worth surfacing rather than silently accepting,
+        // because a decimals flip is precisely what §6701 reads as a unit
+        // discontinuity in the price feed.
+        if (decimals != null && decimals >= 0 && decimals != e.decimals) {
+            if (e.decimals >= 0) {
+                try {
+                    PipelineHealthCollector.labelInc("TOKEN_META_DECIMALS_CONFLICT_6908")
+                    ErrorLogger.warn(TAG, "decimals conflict mint=${key.take(10)} archived=${e.decimals} offered=$decimals (keeping archived)")
+                } catch (_: Throwable) {}
+            } else {
+                e.decimals = decimals; changed = true
+            }
+        }
+        if (interacted) { e.lastInteractedMs = now; changed = true }
         e.lastSeenMs = now
         e.hitCount += 1L
         if (changed || (e.hitCount % FLUSH_EVERY_N_HITS == 0L)) dirty.add(key)
@@ -228,6 +322,8 @@ class TokenMetaCache private constructor(ctx: Context) :
                             put("first_seen_ms", e.firstSeenMs)
                             put("last_seen_ms", e.lastSeenMs)
                             put("hit_count", e.hitCount)
+                            put("decimals", e.decimals)
+                            put("last_interacted_ms", e.lastInteractedMs)
                         }
                         db.insertWithOnConflict("token_meta", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
                         written++
@@ -246,12 +342,23 @@ class TokenMetaCache private constructor(ctx: Context) :
         return written
     }
 
-    /** Reap rows older than ageMs that were seen fewer than minHitsToKeep times. */
+    /**
+     * Reap rows older than ageMs that were seen fewer than minHitsToKeep times.
+     *
+     * V5.0.6908 §ARCHIVED_UNTIL_INTERACTED_WITH_AGAIN — a mint AATE has
+     * actually executed against is exempt, in memory and in SQL. Retention
+     * was keyed purely on scan recency, which inverted the priority: a token
+     * the bot bought, closed and stopped scanning went cold immediately and
+     * was deleted in 7 days, while thousands of never-traded scanner rows
+     * that happened to keep reappearing were kept. The traded row is the one
+     * whose pool/dex/decimals/creation time we most want on the next
+     * encounter, and the one whose loss costs a full provider rebuild.
+     */
     fun pruneStale(ageMs: Long = 7L * 24L * 3600_000L, minHitsToKeep: Long = 5L): Int {
         var removed = 0
         val cutoff = System.currentTimeMillis() - ageMs
         val victims = live.values.asSequence()
-            .filter { it.lastSeenMs < cutoff && it.hitCount < minHitsToKeep }
+            .filter { it.lastInteractedMs <= 0L && it.lastSeenMs < cutoff && it.hitCount < minHitsToKeep }
             .map { it.mint }
             .toList()
         for (m in victims) { live.remove(m); dirty.remove(m); removed++ }
@@ -259,16 +366,21 @@ class TokenMetaCache private constructor(ctx: Context) :
             try {
                 val db = writableDatabase
                 db.delete("token_meta",
-                    "last_seen_ms < ? AND hit_count < ?",
+                    "last_interacted_ms <= 0 AND last_seen_ms < ? AND hit_count < ?",
                     arrayOf(cutoff.toString(), minHitsToKeep.toString()))
             } catch (t: Throwable) {
                 ErrorLogger.warn(TAG, "pruneStale failed: ${t.message}")
             }
         }
         if (live.size > MAX_LIVE_ROWS) {
-            val keep = live.values.asSequence()
+            // Interacted rows are kept ahead of the cap, then the warmest of
+            // the rest fill the remainder.
+            val interacted = live.values.asSequence().filter { it.lastInteractedMs > 0L }.map { it.mint }.toSet()
+            val room = (MAX_LIVE_ROWS - interacted.size).coerceAtLeast(0)
+            val keep = interacted + live.values.asSequence()
+                .filter { it.lastInteractedMs <= 0L }
                 .sortedByDescending { it.lastSeenMs }
-                .take(MAX_LIVE_ROWS)
+                .take(room)
                 .map { it.mint }
                 .toSet()
             val drops = live.keys.filter { it !in keep }
@@ -292,7 +404,11 @@ class TokenMetaCache private constructor(ctx: Context) :
         val excess = live.size - softMax
         // Candidates: low-hit rows only, coldest first. High-hit rows are sticky.
         val victims = live.values.asSequence()
-            .filter { it.hitCount < minHitsToKeep }
+            // V5.0.6908 — never evict a mint AATE has executed against. Same
+            // exemption as pruneStale; this path runs on the 60s flush tick
+            // with softMax=2500, so it was by far the likelier of the two to
+            // delete a traded token's archived pool/dex/decimals.
+            .filter { it.lastInteractedMs <= 0L && it.hitCount < minHitsToKeep }
             .sortedBy { it.lastSeenMs }
             .take(excess)
             .map { it.mint }
@@ -319,12 +435,26 @@ class TokenMetaCache private constructor(ctx: Context) :
         val totalReadMisses: Long,
         val totalWrites: Long,
         val hitRatePct: Double,
+        // V5.0.6908 — archive completeness. decimalsKnown answers "is the
+        // unit guard actually armed for the rows we hold?"; interactedRows
+        // answers "how much of the archive is protected from eviction?".
+        val decimalsKnown: Int = 0,
+        val interactedRows: Int = 0,
+        val pairAddressKnown: Int = 0,
     )
 
     fun snapshot(): Snapshot {
         val hits = totalReadHits.get()
         val misses = totalReadMisses.get()
         val denom = (hits + misses).coerceAtLeast(1L)
+        var decimalsKnown = 0
+        var interactedRows = 0
+        var pairKnown = 0
+        for (e in live.values) {
+            if (e.decimals >= 0) decimalsKnown++
+            if (e.lastInteractedMs > 0L) interactedRows++
+            if (e.pairAddress.isNotBlank()) pairKnown++
+        }
         return Snapshot(
             liveRows = live.size,
             dirtyRows = dirty.size,
@@ -332,13 +462,18 @@ class TokenMetaCache private constructor(ctx: Context) :
             totalReadMisses = misses,
             totalWrites = totalWrites.get(),
             hitRatePct = hits * 100.0 / denom,
+            decimalsKnown = decimalsKnown,
+            interactedRows = interactedRows,
+            pairAddressKnown = pairKnown,
         )
     }
 
     companion object {
         private const val TAG = "TokenMetaCache"
         private const val DB_NAME = "lifecycle_token_meta.db"
-        private const val DB_VERSION = 1
+        // V5.0.6908 — 1 -> 2 adds decimals + last_interacted_ms. Safe to bump
+        // now that onUpgrade migrates additively instead of dropping the table.
+        private const val DB_VERSION = 2
         private const val MAX_LIVE_ROWS = 50_000
         private const val FLUSH_EVERY_N_HITS = 32L
 

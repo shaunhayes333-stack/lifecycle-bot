@@ -85,8 +85,44 @@ object MarketDataProvenance6471 {
     private val SENTINEL_POOL_PREFIXES = listOf(
         "MINT_ROUTE:", "UNKNOWN", "PLACEHOLDER", "SENTINEL",
     )
+    /**
+     * V5.0.6908 §ARCHIVED_MARK_IS_NOT_A_LIVE_MARK.
+     *
+     * Operator directive: "price and things that move should always be checked
+     * in a live state if being interacted with by aate."
+     *
+     * The single source label for a price restored from the durable token
+     * archive (TokenMetaCache) or from another instance's archive via the hive
+     * (collective_token_mints). It lives HERE, next to the sentinel list that
+     * judges it, so no caller can invent a second spelling — vocabulary
+     * mismatch between a writer and its gate is how these authorities have
+     * gone quietly dead before.
+     *
+     * Before this existed, a restored price was copied onto the runtime row
+     * still wearing the ORIGINAL provider's name, so classify() saw
+     * "DEXSCREENER_PAIR_POLL" and returned AUTHORITATIVE — enough under §6658
+     * to seal an immutable canonical paper entry from a number of unknown age
+     * off local disk. The 6471 mandate already covers this case in words
+     * ("cache-template price MUST carry provenance=NON_AUTHORITATIVE"); it
+     * just had no way to recognise one.
+     *
+     * Consequence of being in SENTINEL_SOURCES: an archived mark keeps the
+     * token visible, keeps feeding shadow telemetry and can request a provider
+     * refresh, but cannot prove liquidity, cause BLUECHIP/QUALITY
+     * classification, raise score, satisfy FDG, size an order, create a
+     * canonical entry snapshot, or enter learner terminal truth. Exactly the
+     * mandate, applied to the archive.
+     */
+    const val ARCHIVED_MARK_SOURCE_6908 = "TOKEN_META_ARCHIVE_6908"
+
     private val SENTINEL_SOURCES = setOf(
         "UNKNOWN", "FALLBACK", "CACHE_DEFAULT", "CACHE_TEMPLATE", "SYNTHETIC",
+        ARCHIVED_MARK_SOURCE_6908,
+        // The pre-existing warm-boot label written by Executor's cached-pool
+        // recovery path. It was never in this set, and it is simultaneously
+        // listed in Executor.REAL_PRICE_SOURCES, so a disk-cached price counted
+        // as a real provider feed on both sides of the boundary.
+        "TOKEN_META_CACHE",
     )
 
     private fun canonicalSource6674(source: String): String {

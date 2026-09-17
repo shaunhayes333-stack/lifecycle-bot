@@ -805,6 +805,13 @@ class Executor(
                 // something truthful to fall back to.
                 pos.lastRoutePrice = livePrice
                 pos.lastRoutePriceTs = System.currentTimeMillis()
+                // V5.0.6907 — the basis is comparable again, so clear the
+                // refusal stamp immediately instead of waiting for it to age
+                // out. A position that recovers a matching feed must be
+                // priceable on this very tick; the doctrine is "don't disable,
+                // re-educate", and the lifetime counter above still preserves
+                // the history for the learning exclusion.
+                pos.markRefusedAtMs6907 = 0L
             } else {
                 val ratio6895 = livePrice / pos.entryPrice
                 val outOfBand6895 = !ratio6895.isFinite() ||
@@ -816,6 +823,14 @@ class Executor(
                         pos.lastRoutePrice
                     } else pos.entryPrice
                     pos.crossBasisRefusals6895 += 1
+                    // V5.0.6907 — publish the refusal as a fact every other
+                    // surface can read. Until now this decision lived only
+                    // inside this function: the engine served entryPrice and
+                    // correctly saw 0%, while OpenPnlSanity re-asked the same
+                    // question with its own 51x band, approved the raw tick,
+                    // and painted +4290% on the position card. One decision,
+                    // one writer, one timestamp.
+                    pos.markRefusedAtMs6907 = System.currentTimeMillis()
                     if (pos.crossBasisRefusals6895 % 20L == 1L) {
                         try {
                             PipelineHealthCollector.labelInc("PAPER_CROSS_BASIS_MARK_REFUSED_6895")
@@ -12315,6 +12330,14 @@ class Executor(
                 lastMcap = snap.marketCapUsd.takeIf { it > 0.0 } ?: ts.lastMcap,
                 lastLiquidityUsd = snap.liquidityUsd,
                 lastFdv = ts.lastFdv.takeIf { it > 0.0 } ?: snap.marketCapUsd,
+                // V5.0.6908 — this is the entry-snapshot seal, i.e. the moment
+                // AATE actually executes against this mint. Stamp the archive
+                // retention exemption and persist decimals here: from now on
+                // pruneStale/evictColdSoft may never delete this row, so the
+                // pool address, dex, decimals and creation time survive for the
+                // next encounter instead of being re-earned from providers.
+                decimals = ts.tokenMap.decimals,
+                interacted = true,
             )
         } catch (_: Throwable) {}
         try {

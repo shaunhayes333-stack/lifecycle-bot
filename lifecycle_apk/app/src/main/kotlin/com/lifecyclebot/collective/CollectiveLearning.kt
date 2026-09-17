@@ -383,6 +383,9 @@ object CollectiveLearning {
         val firstSeenMs: Long,
         val lastSeenMs: Long,
         val reportCount: Int,
+        // V5.0.6908 — shared token decimals; -1 means not yet known by any
+        // instance. Immutable per mint, so the first learner saves the fleet.
+        val tokenDecimals: Int = -1,
     )
 
     data class HiveGenomeBlend(
@@ -584,6 +587,7 @@ object CollectiveLearning {
         lastLiquidityUsd: Double,
         lastMcapUsd: Double,
         createdAtMs: Long,
+        tokenDecimals: Int = -1,
     ): Boolean {
         if (!isEnabled()) return false
         val safeMint = CanonicalMint.normalize(mint)
@@ -597,8 +601,8 @@ object CollectiveLearning {
                         (mint, symbol, name, source, creator_address, logo_url,
                          twitter, telegram, discord, website, coingecko_id, social_count,
                          pair_address, pair_url, pair_dex, last_price_source, quote_success_count, quote_fail_count,
-                         last_liquidity_usd, last_mcap_usd, created_at_ms, first_seen_ms, last_seen_ms, report_count)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                         last_liquidity_usd, last_mcap_usd, created_at_ms, first_seen_ms, last_seen_ms, token_decimals, report_count)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                     ON CONFLICT(mint) DO UPDATE SET
                         symbol = COALESCE(NULLIF(excluded.symbol, ''), symbol),
                         name = COALESCE(NULLIF(excluded.name, ''), name),
@@ -625,6 +629,10 @@ object CollectiveLearning {
                             ELSE MIN(created_at_ms, excluded.created_at_ms)
                         END,
                         last_seen_ms = excluded.last_seen_ms,
+                        token_decimals = CASE
+                            WHEN excluded.token_decimals >= 0 THEN excluded.token_decimals
+                            ELSE token_decimals
+                        END,
                         report_count = report_count + 1
                     """.trimIndent(),
                     listOf(
@@ -651,6 +659,7 @@ object CollectiveLearning {
                         createdAtMs.coerceAtLeast(0L),
                         now,
                         now,
+                        tokenDecimals.coerceIn(-1, 18),
                     )
                 )
                 result.success
@@ -1410,7 +1419,8 @@ object CollectiveLearning {
                 SELECT mint, symbol, name, source, creator_address, logo_url,
                        twitter, telegram, discord, website, coingecko_id, social_count,
                        pair_address, pair_url, pair_dex, last_price_source, quote_success_count, quote_fail_count,
-                       last_liquidity_usd, last_mcap_usd, created_at_ms, first_seen_ms, last_seen_ms, report_count
+                       last_liquidity_usd, last_mcap_usd, created_at_ms, first_seen_ms, last_seen_ms, report_count,
+                       token_decimals
                 FROM collective_token_mints
                 WHERE last_seen_ms > ?
                 ORDER BY last_seen_ms DESC
@@ -1420,6 +1430,7 @@ object CollectiveLearning {
             )
             if (result.success) {
                 cachedTokenMints.clear()
+                var seeded6908 = 0
                 for (row in result.rows) {
                     val mint = CanonicalMint.normalize(parseString(row["mint"]))
                     if (mint.isBlank()) continue
@@ -1448,6 +1459,7 @@ object CollectiveLearning {
                         firstSeenMs = parseLong(row["first_seen_ms"]),
                         lastSeenMs = parseLong(row["last_seen_ms"]),
                         reportCount = parseInt(row["report_count"]),
+                        tokenDecimals = parseInt(row["token_decimals"]).let { if (it in 0..18) it else -1 },
                     )
                     cachedTokenMints[mint]?.let { shared ->
                         if (shared.socialCount > 0 || shared.coingeckoId.isNotBlank()) {
@@ -1464,9 +1476,51 @@ object CollectiveLearning {
                                 )
                             } catch (_: Throwable) {}
                         }
+                        // V5.0.6908 §THE_HIVE_SHOULD_SAVE_REBUILDING_NOT_JUST_INFORM.
+                        //
+                        // Operator directive: "the t9ken registry is meant to be
+                        // a all instance shared resource to help save data
+                        // rebuilding across the hive."
+                        //
+                        // Downloaded peer metadata previously lived ONLY in this
+                        // in-memory map. It was consulted at intake, but it was
+                        // never written through to the durable local archive, so
+                        // it evaporated on every process death and the next boot
+                        // re-downloaded (or re-earned) facts the fleet had
+                        // already paid for. Write the immutable identity facts —
+                        // pair, url, logo, dex, decimals, creation time — into
+                        // TokenMetaCache so they survive locally.
+                        //
+                        // Deliberately NOT written through: price. The shared
+                        // table has no price column by design, and mcap/liquidity
+                        // are peer-observed moving values, so they stay
+                        // advisory-only in memory. Anything that moves gets
+                        // re-read live when AATE interacts with the token.
+                        try {
+                            val ctx6908 = com.lifecyclebot.AATEApp.appContextOrNull()
+                            if (ctx6908 != null && (shared.pairAddress.isNotBlank() ||
+                                    shared.tokenDecimals >= 0 || shared.createdAtMs > 0L)) {
+                                com.lifecyclebot.engine.TokenMetaCache.get(ctx6908).register(
+                                    mint = mint,
+                                    symbol = shared.symbol.ifBlank { null },
+                                    name = shared.name.ifBlank { null },
+                                    pairAddress = shared.pairAddress.ifBlank { null },
+                                    pairUrl = shared.pairUrl.ifBlank { null },
+                                    logoUrl = shared.logoUrl.ifBlank { null },
+                                    lastPriceDex = shared.pairDex.ifBlank { null },
+                                    creationTimeMs = shared.createdAtMs.takeIf { it > 0L },
+                                    decimals = shared.tokenDecimals.takeIf { it >= 0 },
+                                )
+                                seeded6908++
+                            }
+                        } catch (_: Throwable) {}
                     }
                 }
-                Log.i(TAG, "Downloaded ${cachedTokenMints.size} shared token mints")
+                Log.i(TAG, "Downloaded ${cachedTokenMints.size} shared token mints (seeded $seeded6908 into local archive)")
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector
+                        .labelInc("HIVE_TOKEN_ARCHIVE_SEEDED_6908")
+                } catch (_: Throwable) {}
             }
         } catch (e: Exception) {
             Log.e(TAG, "Download token mints error: ${e.message}")

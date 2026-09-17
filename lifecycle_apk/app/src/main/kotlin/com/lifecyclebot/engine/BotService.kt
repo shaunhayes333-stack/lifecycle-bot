@@ -976,7 +976,56 @@ class BotService : Service() {
     @Volatile private var loopJob: Job? = null
     @Volatile private var rapidStopLossMonitorJob: Job? = null
     @Volatile private var openPositionTickJob: Job? = null
+    // V5.0.6908 §ONE_MAP_WAS_DOING_TWO_JOBS_AND_THEREFORE_NEITHER.
+    //
+    // `tokenMintUploadInFlight` was used simultaneously as an in-flight guard
+    // AND as a 60s-per-mint rate limiter, and the two uses cancelled out:
+    //
+    //   val prior = map.put(mint, now) ?: 0L
+    //   if (now - prior >= 60_000L) launch { ... finally { map.remove(mint) } }
+    //
+    // On the path that DID upload, the finally-block removed the entry, so the
+    // next intake hit read prior=0L and `now - 0 >= 60_000` was trivially true.
+    // The throttle therefore never fired once for any mint that successfully
+    // uploaded — every scanner re-observation re-uploaded the same row to
+    // Turso. That is the opposite of "save data rebuilding across the hive":
+    // it spends fleet write quota re-asserting facts the hive already holds,
+    // and report_count inflates by one per duplicate so the shared table's own
+    // confidence signal is noise.
+    //
+    // Split into two structures, one fact each: `tokenMintUploadInFlight` is
+    // now only ever the in-flight set (removed in `finally`), and
+    // `tokenMintLastUploadedMs` is the durable last-success stamp that the
+    // interval is measured against (never removed).
     private val tokenMintUploadInFlight = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val tokenMintLastUploadedMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val tokenMintUploadSuppressed6908 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val tokenMintStampSweepAtMs6908 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /** V5.0.6908 — minimum interval between hive uploads of the same mint. */
+    private val TOKEN_MINT_UPLOAD_INTERVAL_MS_6908 = 60_000L
+
+    /**
+     * V5.0.6908 — the last-upload stamp map is never removed from (that is the
+     * whole point: removal is what killed the old throttle), so it needs its
+     * own bound. A stamp older than the interval can no longer suppress
+     * anything, so dropping it is free. Called on the same path that adds to
+     * the map; cheap and amortised.
+     */
+    private fun sweepTokenMintStamps6908(nowMs: Long) {
+        if (tokenMintLastUploadedMs.size < 20_000) return
+        if (nowMs - tokenMintStampSweepAtMs6908.get() < 60_000L) return
+        tokenMintStampSweepAtMs6908.set(nowMs)
+        try {
+            val it = tokenMintLastUploadedMs.entries.iterator()
+            var dropped = 0
+            while (it.hasNext()) {
+                val e = it.next()
+                if (nowMs - e.value > TOKEN_MINT_UPLOAD_INTERVAL_MS_6908 * 4) { it.remove(); dropped++ }
+            }
+            if (dropped > 0) PipelineHealthCollector.labelInc("TOKEN_MINT_UPLOAD_STAMPS_SWEPT_6908")
+        } catch (_: Throwable) {}
+    }
 
     // V5.9.1081 — single-flight startup latch. Set to true the moment
     // ACTION_START is accepted, cleared when startBot() finishes
@@ -13133,6 +13182,36 @@ class BotService : Service() {
                         "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source reason=${addResult.reason}"
                     )
                 } catch (_: Throwable) {}
+                // V5.0.6908 §EVERY_TOKEN_THAT_ARRIVES_GETS_ARCHIVED.
+                //
+                // Operator directive: "ensure all tokens arrive, log into the
+                // token registry with full metrics, mint address everything
+                // needed for proper price and data tracking."
+                //
+                // This early return is correct about the HOT RUNTIME MAP — a
+                // probation-only mint must stay cold and cost the bot loop
+                // nothing. But it also skipped the durable archive, which sits
+                // several hundred lines further down, so a probation mint was
+                // never written at all. The consequence compounds: when the
+                // same mint is later PROMOTED it re-enters here with
+                // source=PROBATION and finds no archive row, so its symbol,
+                // name, pair address, pool, dex and decimals are all re-earned
+                // from providers — every time, for every promotion, fleet-wide.
+                //
+                // Archiving identity costs one in-memory map write (SQLite is
+                // batched on the 60s flush) and keeps the mint cold. No price
+                // is written here: probation rows have no proven mark, and a
+                // moving value must be re-read live when AATE interacts.
+                try {
+                    com.lifecyclebot.engine.TokenMetaCache.get(applicationContext).register(
+                        mint = mint,
+                        symbol = symbol.ifBlank { null },
+                        name = name.ifBlank { null },
+                        lastMcap = trustedMarketCapUsd6492.takeIf { it > 0.0 },
+                        lastLiquidityUsd = liquidityUsd.takeIf { it > 0.0 },
+                    )
+                    PipelineHealthCollector.labelInc("TOKEN_ARCHIVE_PROBATION_REGISTERED_6908")
+                } catch (_: Throwable) {}
                 return true
             }
         }
@@ -13186,13 +13265,57 @@ class BotService : Service() {
                             if (cached.lastFdv > 0.0) fresh.lastFdv = cached.lastFdv
                             if (cached.lastPriceDex.isNotBlank()) fresh.lastPriceDex = cached.lastPriceDex
                             if (cached.lastPricePoolAddr.isNotBlank()) fresh.lastPricePoolAddr = cached.lastPricePoolAddr
-                            if (cached.lastPriceSource.isNotBlank()) fresh.lastPriceSource = cached.lastPriceSource
+                            if (cached.decimals >= 0) fresh.tokenMap.decimals = cached.decimals
+                            // V5.0.6908 §A_RESTORED_PRICE_IS_NOT_A_LIVE_PRICE.
+                            //
+                            // Operator directive: "price and things that move
+                            // should always be checked in a live state if being
+                            // interacted with by aate."
+                            //
+                            // This line used to copy the ARCHIVED PROVIDER NAME
+                            // onto the fresh TokenState — e.g. a price read from
+                            // SQLite arrived wearing "DEXSCREENER_PAIR_POLL".
+                            // That laundered the archive's identity into a live
+                            // provider's, and every authority downstream reads
+                            // the source string to decide what the number is
+                            // worth: MarketDataProvenance6471 saw a legitimate
+                            // provider and returned AUTHORITATIVE, which under
+                            // §6658 is enough to seal a canonical paper entry.
+                            // So a price of unknown age off local disk could
+                            // become an immutable entry basis — the precise
+                            // failure the 6471 mandate names ("cache-template
+                            // price MUST carry provenance=NON_AUTHORITATIVE").
+                            //
+                            // The number still seeds the row so the UI is not
+                            // blank for the first seconds after boot, but it now
+                            // says where it came from. lastPriceUpdate stays 0 so
+                            // every freshness window also treats it as unproven,
+                            // and the first real tick overwrites both fields.
+                            // Archived pool/dex/decimals are untouched: those are
+                            // immutable facts about the token, not moving values.
+                            if (cached.lastPrice > 0.0) {
+                                fresh.lastPriceSource = com.lifecyclebot.engine.truth.MarketDataProvenance6471.ARCHIVED_MARK_SOURCE_6908
+                                fresh.lastPriceUpdate = 0L
+                            } else if (cached.lastPriceSource.isNotBlank()) {
+                                fresh.lastPriceSource = cached.lastPriceSource
+                            }
                         }
                         if (cached == null && hiveForIntake != null) {
                             if (hiveForIntake.lastMcapUsd > 0.0) fresh.lastMcap = hiveForIntake.lastMcapUsd
                             if (hiveForIntake.lastLiquidityUsd > 0.0) fresh.lastLiquidityUsd = hiveForIntake.lastLiquidityUsd
                             if (hiveForIntake.pairDex.isNotBlank()) fresh.lastPriceDex = hiveForIntake.pairDex
-                            if (hiveForIntake.lastPriceSource.isNotBlank()) fresh.lastPriceSource = hiveForIntake.lastPriceSource
+                            if (hiveForIntake.tokenDecimals >= 0) fresh.tokenMap.decimals = hiveForIntake.tokenDecimals
+                            // V5.0.6908 — hive metadata is another instance's
+                            // archive, so it is archival by definition and is
+                            // labelled the same way. It never carries a price at
+                            // all (the shared table has no price column), only
+                            // mcap/liquidity context, so labelling the source
+                            // here purely prevents a peer's provider name from
+                            // standing in as local live proof.
+                            if (hiveForIntake.lastPriceSource.isNotBlank()) {
+                                fresh.lastPriceSource = com.lifecyclebot.engine.truth.MarketDataProvenance6471.ARCHIVED_MARK_SOURCE_6908
+                                fresh.lastPriceUpdate = 0L
+                            }
                         }
                     }
                 }
@@ -13357,6 +13480,11 @@ class BotService : Service() {
                         lastLiquidityUsd = ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: liquidityUsd.takeIf { it > 0.0 },
                         lastFdv = ts.lastFdv.takeIf { it > 0.0 } ?: trustedMarketCapUsd6492.takeIf { it > 0.0 },
                         creationTimeMs = ts.addedToWatchlistAt.takeIf { it > 0L },
+                        // V5.0.6908 — archive decimals at intake, the earliest
+                        // point they are known. Immutable per mint, so this is a
+                        // one-time write that arms the §6701 unit guard for
+                        // every future encounter and for every hive peer.
+                        decimals = ts.tokenMap.decimals,
                     )
                 } catch (_: Throwable) {}
             }
@@ -13385,9 +13513,17 @@ class BotService : Service() {
 
             try {
                 val uploadNow = System.currentTimeMillis()
-                val priorUpload = tokenMintUploadInFlight.put(mint, uploadNow) ?: 0L
-                val shouldUploadMintMeta = uploadNow - priorUpload >= 60_000L
-                if (shouldUploadMintMeta) scope.launch(com.lifecyclebot.util.AppDispatchers.sideEffect) {
+                // V5.0.6908 — two facts, two structures. See the field
+                // declarations for why the single-map version never throttled.
+                sweepTokenMintStamps6908(uploadNow)
+                val lastUploaded = tokenMintLastUploadedMs[mint] ?: 0L
+                val intervalElapsed = uploadNow - lastUploaded >= TOKEN_MINT_UPLOAD_INTERVAL_MS_6908
+                // putIfAbsent is the in-flight claim: exactly one coroutine per
+                // mint can be in the air, and it is released in `finally`.
+                val claimed = intervalElapsed &&
+                    tokenMintUploadInFlight.putIfAbsent(mint, uploadNow) == null
+                if (!claimed) tokenMintUploadSuppressed6908.incrementAndGet()
+                if (claimed) scope.launch(com.lifecyclebot.util.AppDispatchers.sideEffect) {
                     try {
                         val tsShared = synchronized(status.tokens) { status.tokens[mint] }
                         val creation = com.lifecyclebot.engine.BirdeyeCreationInfoProvider.peekCached(mint)
@@ -13413,7 +13549,16 @@ class BotService : Service() {
                             lastLiquidityUsd = tsShared?.lastLiquidityUsd ?: liquidityUsd,
                             lastMcapUsd = tsShared?.lastMcap ?: trustedMarketCapUsd6492,
                             createdAtMs = creation?.createdAtMs ?: tsShared?.addedToWatchlistAt ?: 0L,
+                            // V5.0.6908 — publish decimals so the first
+                            // instance to learn them saves the whole fleet the
+                            // lookup, and every peer's §6701 unit guard is armed
+                            // on a fresh install instead of after a rebuild.
+                            tokenDecimals = tsShared?.tokenMap?.decimals ?: -1,
                         )
+                        // Stamp the interval only on a completed attempt, so a
+                        // crash or a disabled hive does not silently start a
+                        // 60s blackout for this mint.
+                        try { tokenMintLastUploadedMs[mint] = System.currentTimeMillis() } catch (_: Throwable) {}
                     } catch (_: Throwable) {
                     } finally {
                         try { tokenMintUploadInFlight.remove(mint) } catch (_: Throwable) {}

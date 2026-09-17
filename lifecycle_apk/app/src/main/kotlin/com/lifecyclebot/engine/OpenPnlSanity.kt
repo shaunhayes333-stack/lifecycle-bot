@@ -181,8 +181,59 @@ object OpenPnlSanity {
         return Verdict(true, pnl)
     }
 
+    /**
+     * V5.0.6907 §THE_ENGINE_ALREADY_ANSWERED_THIS.
+     *
+     * OPERATOR EVIDENCE (5.0.6905 screenshot + snapshot):
+     *
+     *   Open Positions card:  TDOF +4290.3%   KIBA +3628.4%   SPX67H +1347.1%
+     *   Same snapshot:        PAPER_CROSS_BASIS_MARK_REFUSED_6895 = 1247
+     *
+     *   > "it should be firing partials and taking these wins.
+     *   >  Profit locks aren't firing either look at the picture."
+     *
+     * Both statements were true at once, and that is the defect. The exit
+     * engine had already refused those marks as incomparable (entry priced on
+     * one feed, tick priced on another, >10x apart in a single discontinuous
+     * step) and was serving `entryPrice` — so it read 0% and correctly fired
+     * no partial and no profit lock. Meanwhile this authority was asked the
+     * SAME question about the SAME position and answered differently, because
+     * it compared `entryPrice` against the RAW tick (`ts.ref`) using its own
+     * band: MAX_UNKNOWN_BASIS_RATIO = 51.0. A 43.9x basis artefact sits under
+     * 51x and above 10x, so the engine refused it and the card painted it.
+     *
+     * Two thresholds for one question is the bug, not the value of either
+     * threshold. Lowering this band to 10x would be worse — it would refuse
+     * genuine 10x-50x runners on a stable feed, and runner capture is not
+     * negotiable (V5.9.1358). The engine's decision is already narrower and
+     * better informed than anything re-derivable here: it is source-change
+     * gated, so a real runner on one feed never trips it.
+     *
+     * So do not re-derive. Read the answer. Executor.getActualPrice §6895 is
+     * the single writer of `markRefusedAtMs6907`; it clears the stamp the
+     * instant an on-basis tick arrives, so a position that regains a matching
+     * feed is priceable again on that very tick and nothing is condemned
+     * permanently.
+     *
+     * Scope note: this rejects the DISPLAY/learning basis only. Inventory,
+     * cost basis, stops and the catastrophic backstop are untouched — a
+     * position with an unpriceable mark is still fully exitable, which is what
+     * V5.0.6835's missing-mark veto and the §6904 backstop are for.
+     */
+    private const val MARK_REFUSAL_FRESHNESS_MS_6907 = 120_000L
+
+    private fun markRefusedByEngine6907(pos: Position): Boolean {
+        val at = pos.markRefusedAtMs6907
+        if (at <= 0L) return false
+        val age = System.currentTimeMillis() - at
+        return age in -5_000L..MARK_REFUSAL_FRESHNESS_MS_6907
+    }
+
     fun inspect(ts: TokenState, context: String = "", emit: Boolean = true): Verdict {
         val p = ts.position
+        if (markRefusedByEngine6907(p)) {
+            return reject("MARK_REFUSED_CROSS_BASIS_6907", p.entryPrice, ts.ref, context, emit, ts.mint)
+        }
         val verdict = inspect(
             entryPrice = p.entryPrice,
             currentPrice = ts.ref,
@@ -221,6 +272,12 @@ object OpenPnlSanity {
     }
 
     fun inspectPosition(pos: Position, currentPrice: Double, context: String = "", emit: Boolean = true, mint: String = ""): Verdict {
+        // V5.0.6907 — same engine verdict, same authority. See
+        // markRefusedByEngine6907. Checked before the cost/qty heal below so a
+        // reconstructed basis cannot smuggle a refused mark back onto a card.
+        if (markRefusedByEngine6907(pos)) {
+            return reject("MARK_REFUSED_CROSS_BASIS_6907", pos.entryPrice, currentPrice, context, emit, mint)
+        }
         // V5.0.6050 — ENTRY_PRICE_INVALID auto-heal (operator ask 2026-07-03).
         // Report V5.0.6049 showed repeating OPEN_PNL_BASIS_REJECTED reason=
         // ENTRY_PRICE_INVALID because some positions have entryPrice=0 despite

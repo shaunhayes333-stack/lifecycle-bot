@@ -2619,6 +2619,14 @@ object PipelineHealthCollector {
             sb.append("  read misses:     ${cacheSnap.totalReadMisses}\n")
             sb.append("  total writes:    ${cacheSnap.totalWrites}\n")
             sb.append("  hit rate:        ${"%.1f".format(cacheSnap.hitRatePct)}%\n")
+            // V5.0.6908 — archive completeness, not just archive size. A high
+            // row count with low decimalsKnown means the rows are there but
+            // the §6701 unit guard is running on guessed decimals for most of
+            // them. interactedRows is the eviction-exempt set.
+            val denom6908 = cacheSnap.liveRows.coerceAtLeast(1)
+            sb.append("  decimals known:  ${cacheSnap.decimalsKnown}/${cacheSnap.liveRows} (${"%.1f".format(cacheSnap.decimalsKnown * 100.0 / denom6908)}%)\n")
+            sb.append("  pair addr known: ${cacheSnap.pairAddressKnown}/${cacheSnap.liveRows} (${"%.1f".format(cacheSnap.pairAddressKnown * 100.0 / denom6908)}%)\n")
+            sb.append("  interacted:      ${cacheSnap.interactedRows} (eviction-exempt, V5.0.6908)\n")
             }
         } catch (_: Throwable) { /* best-effort telemetry */ }
 

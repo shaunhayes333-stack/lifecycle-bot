@@ -493,7 +493,16 @@ object CollectiveSchema {
             created_at_ms INTEGER NOT NULL DEFAULT 0,
             first_seen_ms INTEGER NOT NULL DEFAULT 0,
             last_seen_ms INTEGER NOT NULL DEFAULT 0,
-            report_count INTEGER NOT NULL DEFAULT 0
+            report_count INTEGER NOT NULL DEFAULT 0,
+            -- V5.0.6908 — token decimals, shared fleet-wide. Immutable per
+            -- mint, so the first instance to learn it saves every other
+            -- instance the lookup permanently. It is also the unit that every
+            -- price is denominated in: OpenPnlSanity's §6701 guard (which
+            -- catches a raw-vs-UI token pricing mismatch, i.e. a mark that
+            -- jumped by 10^decimals) takes decimals as input and otherwise
+            -- falls back to guessing 6 or 9. Sharing it arms that guard
+            -- immediately on a fresh install instead of after a rebuild.
+            token_decimals INTEGER NOT NULL DEFAULT -1
         )
     """
 
@@ -874,6 +883,8 @@ object CollectiveSchema {
         "ALTER TABLE collective_token_mints ADD COLUMN pair_url TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE collective_token_mints ADD COLUMN pair_dex TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE collective_token_mints ADD COLUMN last_price_source TEXT NOT NULL DEFAULT ''",
+        // V5.0.6908 — shared token decimals (see CREATE above).
+        "ALTER TABLE collective_token_mints ADD COLUMN token_decimals INTEGER NOT NULL DEFAULT -1",
         "ALTER TABLE collective_token_mints ADD COLUMN quote_success_count INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE collective_token_mints ADD COLUMN quote_fail_count INTEGER NOT NULL DEFAULT 0",
         // Hive performance genome migrations

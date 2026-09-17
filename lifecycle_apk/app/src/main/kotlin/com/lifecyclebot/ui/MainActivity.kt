@@ -5406,11 +5406,48 @@ for legal compliance.
                 val currentUsd = ts.ref
                 if (canonicalEntryUsd > 0.0 && currentUsd.isFinite() && currentUsd > 0.0) {
                     val recomputedPct = (currentUsd / canonicalEntryUsd - 1.0) * 100.0
-                    if (recomputedPct.isFinite()) {
+                    // V5.0.6907 §VALIDATE_THE_PAIR_YOU_ACTUALLY_PAINT.
+                    // The comment above says "OpenPnlSanity.inspect is still
+                    // used as the trust gate", but the verdict it produced was
+                    // for (pos.entryPrice, ts.ref) — and this block then
+                    // substitutes a DIFFERENT entry basis, from the canonical
+                    // fill registry, that the authority never saw. Approving
+                    // one pair and rendering another is how an unvalidated
+                    // basis reaches the screen no matter how good the gate is.
+                    // Re-inspect the substituted pair; on rejection keep the
+                    // verdict's own sanitised value rather than the unproven
+                    // recomputation, which also makes the card agree with the
+                    // exit engine instead of contradicting it.
+                    val canonVerdict6907 = if (recomputedPct.isFinite()) try {
+                        com.lifecyclebot.engine.OpenPnlSanity.inspect(
+                            entryPrice = canonicalEntryUsd,
+                            currentPrice = currentUsd,
+                            entrySource = pos.entryPriceSource,
+                            currentSource = ts.lastPriceSource,
+                            entryPool = pos.entryPoolAddress,
+                            currentPool = ts.lastPricePoolAddr,
+                            context = "MainActivity.canonicalBasis6907/${ts.symbol}/${ts.mint.take(8)}",
+                            emit = false,
+                            mint = ts.mint,
+                            tokenDecimals = ts.tokenMap.decimals ?: -1,
+                        )
+                    } catch (_: Throwable) { null } else null
+                    if (recomputedPct.isFinite() && canonVerdict6907?.ok == true) {
                         if (kotlin.math.abs(recomputedPct - gainPct) > 1.0) {
                             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UI_PNL_RECOMPUTED_FROM_CANONICAL_6323") } catch (_: Throwable) {}
                         }
                         gainPct = recomputedPct
+                    } else if (recomputedPct.isFinite()) {
+                        try {
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UI_CANONICAL_BASIS_REFUSED_6907")
+                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                "UI_CANONICAL_BASIS_REFUSED_6907",
+                                "mint=${ts.mint.take(10)} sym=${ts.symbol} canonEntry=$canonicalEntryUsd " +
+                                    "posEntry=${pos.entryPrice} mark=$currentUsd wouldPaint=${"%.1f".format(recomputedPct)}% " +
+                                    "keptPct=${"%.1f".format(gainPct)}% reason=${canonVerdict6907?.reason ?: "INSPECT_FAILED"} " +
+                                    "action=keep_validated_verdict_do_not_paint_unproven_basis",
+                            )
+                        } catch (_: Throwable) {}
                     }
                 }
             }
@@ -6383,7 +6420,25 @@ for legal compliance.
                     val curUsd = currentPrice ?: (tsState?.ref ?: 0.0)
                     if (canonUsd > 0.0 && curUsd.isFinite() && curUsd > 0.0) {
                         val rp = (curUsd / canonUsd - 1.0) * 100.0
-                        if (rp.isFinite()) gainPct = rp
+                        // V5.0.6907 — validate the substituted pair, not the
+                        // one the verdict was computed from. See the main card
+                        // site for the full rationale.
+                        val ok6907 = rp.isFinite() && (try {
+                            com.lifecyclebot.engine.OpenPnlSanity.inspect(
+                                entryPrice = canonUsd, currentPrice = curUsd,
+                                entrySource = tsState?.position?.entryPriceSource ?: "",
+                                currentSource = tsState?.lastPriceSource ?: "",
+                                entryPool = tsState?.position?.entryPoolAddress ?: "",
+                                currentPool = tsState?.lastPricePoolAddr ?: "",
+                                context = "MainActivity.scFastCanonical6907/${pos.symbol}/${pos.mint.take(8)}",
+                                emit = false, mint = pos.mint,
+                                tokenDecimals = tsState?.tokenMap?.decimals ?: -1,
+                            ).ok
+                        } catch (_: Throwable) { false })
+                        if (ok6907) gainPct = rp
+                        else if (rp.isFinite()) try {
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UI_CANONICAL_BASIS_REFUSED_6907")
+                        } catch (_: Throwable) {}
                     }
                 }
                 val pnlSol = if (basisTrusted) pos.entrySol * gainPct / 100.0 else 0.0
@@ -6426,7 +6481,24 @@ for legal compliance.
                 val curUsd = currentPrice ?: (tsState?.ref ?: 0.0)
                 if (canonUsd > 0.0 && curUsd.isFinite() && curUsd > 0.0) {
                     val rp = (curUsd / canonUsd - 1.0) * 100.0
-                    if (rp.isFinite()) gainPct = rp
+                    // V5.0.6907 — validate the substituted pair. See the main
+                    // card site for the full rationale.
+                    val ok6907 = rp.isFinite() && (try {
+                        com.lifecyclebot.engine.OpenPnlSanity.inspect(
+                            entryPrice = canonUsd, currentPrice = curUsd,
+                            entrySource = tsState?.position?.entryPriceSource ?: "",
+                            currentSource = tsState?.lastPriceSource ?: "",
+                            entryPool = tsState?.position?.entryPoolAddress ?: "",
+                            currentPool = tsState?.lastPricePoolAddr ?: "",
+                            context = "MainActivity.scBuildCanonical6907/${pos.symbol}/${pos.mint.take(8)}",
+                            emit = false, mint = pos.mint,
+                            tokenDecimals = tsState?.tokenMap?.decimals ?: -1,
+                        ).ok
+                    } catch (_: Throwable) { false })
+                    if (ok6907) gainPct = rp
+                    else if (rp.isFinite()) try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("UI_CANONICAL_BASIS_REFUSED_6907")
+                    } catch (_: Throwable) {}
                 }
             }
             val gainCol = if (!basisTrusted) muted else if (gainPct >= 0) green else red
