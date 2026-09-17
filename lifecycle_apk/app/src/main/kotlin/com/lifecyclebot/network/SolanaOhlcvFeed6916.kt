@@ -100,6 +100,70 @@ object SolanaOhlcvFeed6916 {
     private class PoolRef(val pool: String, val atMs: Long)
     private val poolCache = ConcurrentHashMap<String, PoolRef>()
 
+    /* ══════ V5.0.6944 — RATE LIMIT. This was missing and it broke the feed. ══
+     *
+     * Operator snapshot: geckoterminal sr=1% 5xx=1921, fetches=2008 served=18
+     * empty=1990. 2008 requests over 560s of uptime is 215/min against
+     * GeckoTerminal's free-tier allowance of roughly 30/min — SEVEN TIMES over.
+     * The host was shedding essentially everything, so the pattern stack stayed
+     * starved exactly as it was before V5.0.6916 tried to feed it.
+     *
+     * I shipped that build without a limiter because the egress proxy here
+     * returns 403 for api.geckoterminal.com, so I could not probe the endpoint
+     * and did not think about call volume. Writing the parser defensively while
+     * ignoring the request budget was the wrong half to be careful about.
+     *
+     * MIN_INTERVAL_MS is 2500 => 24/min, under the limit with headroom. Callers
+     * that arrive while the gate is closed get null immediately rather than
+     * queueing: this is a best-effort enrichment feed on a 5s scan cadence, so
+     * a skipped fetch costs one stale cache entry, while a queue would pile up
+     * coroutines behind a shared lock on the hot path.
+     */
+    private const val MIN_INTERVAL_MS = 2_500L
+    private val lastCallAtMs = AtomicLong(0L)
+
+    /**
+     * Sustained rejection backoff. A 429 or 5xx storm means the host is
+     * actively refusing us; continuing to knock makes it worse and buries the
+     * real signal in ApiHealthMonitor.
+     */
+    private const val COOLDOWN_MS = 60_000L
+    private val cooldownUntilMs = AtomicLong(0L)
+    private val consecutiveRejects = AtomicLong(0L)
+
+    /**
+     * Negative cache. 1990 of 2008 results were empty, and without this the
+     * same mints are re-requested every scan pass forever — which is most of
+     * how the budget got burned. A mint with no GeckoTerminal pool is a stable
+     * fact for minutes, not something to rediscover every 5 seconds.
+     */
+    private const val NEGATIVE_TTL_MS = 10L * 60_000L
+    private val negativeCache = ConcurrentHashMap<String, Long>()
+
+    private val rateLimited = AtomicLong(0L)
+    private val cooldownSkips = AtomicLong(0L)
+    private val negativeHits = AtomicLong(0L)
+
+    /** True when a call may proceed now; also claims the slot. */
+    private fun rateGateOpen6944(): Boolean {
+        val now = System.currentTimeMillis()
+        if (now < cooldownUntilMs.get()) { cooldownSkips.incrementAndGet(); return false }
+        val prev = lastCallAtMs.get()
+        if (now - prev < MIN_INTERVAL_MS) { rateLimited.incrementAndGet(); return false }
+        return lastCallAtMs.compareAndSet(prev, now)
+    }
+
+    private fun noteResponse6944(code: Int) {
+        if (code == 429 || code >= 500) {
+            if (consecutiveRejects.incrementAndGet() >= 5L) {
+                cooldownUntilMs.set(System.currentTimeMillis() + COOLDOWN_MS)
+                consecutiveRejects.set(0L)
+            }
+        } else if (code in 200..299) {
+            consecutiveRejects.set(0L)
+        }
+    }
+
     private val fetches = AtomicLong(0L)
     private val served = AtomicLong(0L)
     private val cacheHits = AtomicLong(0L)
@@ -147,11 +211,15 @@ object SolanaOhlcvFeed6916 {
             )
             .header("Accept-Language", "en-US,en;q=0.9")
             .build()
+        // V5.0.6944 — the request budget gate. Without this the feed ran 7x over
+        // GeckoTerminal's free-tier allowance and the host shed ~99% of calls.
+        if (!rateGateOpen6944()) return null
         return try {
             http.newCall(req).execute().use { resp ->
                 try {
                     ApiHealthMonitor.record(HOST, resp.code, System.currentTimeMillis() - started)
                 } catch (_: Throwable) {}
+                noteResponse6944(resp.code)
                 if (!resp.isSuccessful) return null
                 val body = resp.body?.string()
                 if (body.isNullOrBlank()) return null
@@ -214,8 +282,19 @@ object SolanaOhlcvFeed6916 {
         cache[key]?.let {
             if (now - it.atMs <= CACHE_TTL_MS) { cacheHits.incrementAndGet(); return it.candles }
         }
+        // V5.0.6944 — negative cache. 1990 of 2008 results came back empty, and
+        // without this the same poolless mints are re-requested every scan pass,
+        // which is most of how the request budget was burned.
+        negativeCache[mint]?.let {
+            if (now - it <= NEGATIVE_TTL_MS) { negativeHits.incrementAndGet(); return emptyList() }
+            negativeCache.remove(mint)
+        }
         fetches.incrementAndGet()
-        val pool = resolvePool(mint, poolHint) ?: run { emptyResults.incrementAndGet(); return emptyList() }
+        val pool = resolvePool(mint, poolHint) ?: run {
+            emptyResults.incrementAndGet()
+            negativeCache[mint] = now
+            return emptyList()
+        }
         val url = "$BASE/pools/$pool/ohlcv/$unit?aggregate=$aggregate&limit=$n&currency=usd"
         val json = get(url) ?: run { emptyResults.incrementAndGet(); return emptyList() }
         val list = try {
@@ -275,11 +354,16 @@ object SolanaOhlcvFeed6916 {
         "fetches=${fetches.get()} served=${served.get()} cacheHits=${cacheHits.get()} " +
             "empty=${emptyResults.get()} poolResolves=${poolResolves.get()} " +
             "barsDelivered=${barsDelivered.get()} rowsRejected=${rowsRejected.get()} " +
-            "cached=${cache.size} keyless=true host=$HOST"
+            "cached=${cache.size} keyless=true host=$HOST " +
+            "rateLimited6944=${rateLimited.get()} cooldownSkips6944=${cooldownSkips.get()} " +
+            "negativeHits6944=${negativeHits.get()} negCached6944=${negativeCache.size} " +
+            "minIntervalMs=$MIN_INTERVAL_MS"
 
     internal fun resetForTest() {
         cache.clear(); poolCache.clear()
         fetches.set(0L); served.set(0L); cacheHits.set(0L); emptyResults.set(0L)
         poolResolves.set(0L); barsDelivered.set(0L); rowsRejected.set(0L)
+        negativeCache.clear(); lastCallAtMs.set(0L); cooldownUntilMs.set(0L)
+        consecutiveRejects.set(0L); rateLimited.set(0L); cooldownSkips.set(0L); negativeHits.set(0L)
     }
 }
