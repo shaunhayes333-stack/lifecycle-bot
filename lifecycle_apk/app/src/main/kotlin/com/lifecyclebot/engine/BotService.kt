@@ -10576,7 +10576,54 @@ class BotService : Service() {
                 if (missingBeforeKeyless6946.isNotEmpty()) {
                     val solUsdHint6946 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
                     var resolved6946 = 0
-                    for (mint in missingBeforeKeyless6946.take(8)) {
+                    // V5.0.6958 §THE_EXIT_PRESSURE_SIGNAL_NOBODY_POLLED.
+                    //
+                    // RuntimeTune6833.exitWorkerShouldBoost(openPositions, cashRatio)
+                    // documents itself as "callers running the exit worker loop poll
+                    // this to decide whether to raise their scheduling priority." It
+                    // had ZERO callers. It fires when opens > 45 or cash ratio < 20%,
+                    // and the operator's snapshot had 94 open positions — so the
+                    // boost condition has been continuously TRUE while the exit path
+                    // starved, and nothing ever asked.
+                    //
+                    // Applied to the thing that is actually the bottleneck rather
+                    // than to thread priority. 6946 capped this keyless rescue at 8
+                    // mints per tick to protect the 1Hz cadence. With 94 opens and
+                    // 371 missing marks that is ~46 seconds to sweep the backlog
+                    // once — and a position the scheduler cannot price is a position
+                    // it cannot exit, which is the whole defect chain from 6945/6946.
+                    //
+                    // Under boost the cap rises to 24, sweeping the same backlog in
+                    // ~15s. Still bounded, still leaves headroom inside the 1Hz
+                    // budget (the fixed-rate delay from 6945 absorbs the extra work
+                    // and the 150ms floor stops a slow pass spinning), and it only
+                    // widens under exactly the condition the authority was written
+                    // to detect. Raising thread priority instead was rejected: this
+                    // app already has an open ANR at maxFrameGap=43s and starving
+                    // the main thread further to fix an exit problem trades one
+                    // failure for a worse one.
+                    val keylessCap6958 = try {
+                        val opens6958 = openMints.size
+                        // Cash ratio = free SOL / (free SOL + SOL actually deployed
+                        // in open positions). Both terms are SOL — an earlier draft
+                        // of this divided SOL by a position COUNT, which is not a
+                        // ratio of anything and would have made the gate fire on
+                        // position count alone.
+                        val cashRatio6958 = try {
+                            val freeSol6958 = if (RuntimeModeAuthority.isPaper())
+                                status.paperWalletSol else status.walletSol
+                            val deployedSol6958 = synchronized(status.tokens) {
+                                status.tokens.values
+                                    .filter { it.position.isOpen }
+                                    .sumOf { it.position.costSol.coerceAtLeast(0.0) }
+                            }
+                            val total6958 = freeSol6958 + deployedSol6958
+                            if (total6958 > 0.0) freeSol6958 / total6958 else 1.0
+                        } catch (_: Throwable) { 1.0 }
+                        if (com.lifecyclebot.engine.truth.RuntimeTune6833
+                                .exitWorkerShouldBoost(opens6958, cashRatio6958)) 24 else 8
+                    } catch (_: Throwable) { 8 }
+                    for (mint in missingBeforeKeyless6946.take(keylessCap6958)) {
                         val r = try {
                             com.lifecyclebot.engine.sell.PriceResolverFallback.resolve(mint, solUsdHint6946)
                         } catch (_: Throwable) { null }
