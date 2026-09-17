@@ -772,6 +772,13 @@ object ToolkitSignalSheet {
             fun n(stage: com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage) = s.counts[stage] ?: 0
             fun o(outcome: String) = s.outcomes[outcome] ?: 0
             appendLine("$lane discovered=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.DISCOVER)} qualified=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.QUALIFY)} ownerSelected=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.OWNER)} buyIntent=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.INTENT)} fdgAllow=${o("FDG_ALLOW")} fdgBlock=${o("FDG_BLOCK")} markReady=${o("MARK_READY")} markReject=${o("MARK_REJECT")} sizedExecutable=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.SIZE)} sizeReject=${o("SIZE_REJECT")} ticket=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.TICKET)} exec=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.EXEC)} positionOpened=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.OPEN)} exit=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.EXIT)} sellAttempt=${o("SELL_ATTEMPT")} sellConfirmed=${o("SELL_CONFIRMED")} finalized=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.FINALIZE)} learningDelivered=${n(com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.LEARN)} phantomSizedOnly=${s.phantomSizedOnly}")
+            // V5.0.6883 — name the missing predecessor and one orphaned key.
+            // A bare phantom count has never been enough to fix
+            // J_PHANTOM_SIZED_ONLY; the breakdown says which hop dropped its
+            // stamp and gives the intentId to grep for.
+            if (s.phantomSizedOnly > 0) {
+                appendLine("$lane phantomMissing=${s.phantomMissing6883.entries.sortedByDescending { it.value }.joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "NONE" }} phantomSampleIntentId=${s.phantomSampleIntentId6883.ifBlank { "NONE" }}")
+            }
         }
         appendLine("ownerLaneChangedAfterSelection=${causalIssue6600("ownerLaneChangedAfterSelection")}")
         appendLine("crossLaneExecutionRewrite=${causalIssue6600("crossLaneExecutionRewrite")}")

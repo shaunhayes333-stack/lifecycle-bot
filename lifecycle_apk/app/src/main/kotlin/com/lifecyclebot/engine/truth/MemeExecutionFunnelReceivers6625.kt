@@ -374,11 +374,26 @@ object SpecialistCausalFunnel6625 {
         val counts: Map<Stage, Int>,
         val outcomes: Map<String, Int>,
         val phantomSizedOnly: Int,
+        /** V5.0.6883 — which predecessor each phantom record was missing,
+         *  keyed "NO_DISCOVER" / "NO_INTENT" / "NO_MARK". A record can be
+         *  counted under more than one. */
+        val phantomMissing6883: Map<String, Int> = emptyMap(),
+        /** V5.0.6883 — one representative orphaned intentId, so the operator
+         *  can grep the exact key rather than infer it. */
+        val phantomSampleIntentId6883: String = "",
     )
     fun laneSnapshot6647(lane: String): LaneSnapshot6647 {
         val counts = mutableMapOf<Stage, Int>()
         val outcomes = mutableMapOf<String, Int>()
         var phantom = 0
+        // V5.0.6883 §A_PHANTOM_COUNT_NAMES_NO_CULPRIT — phantomSizedOnly has
+        // been failing the J_PHANTOM_SIZED_ONLY acceptance invariant since
+        // 6845 (42 of 46 runs at 5.0.6881) and the only thing the snapshot
+        // reported was the count. Which of the three predecessors was absent,
+        // and on which key, was computed here and thrown away — so every
+        // diagnosis of it has been inference. Record the breakdown.
+        val phantomMissing6883 = mutableMapOf<String, Int>()
+        var phantomSample6883 = ""
         for (r in records.values) {
             if (!r.key.lane.equals(lane, true)) continue
             synchronized(r) {
@@ -386,7 +401,13 @@ object SpecialistCausalFunnel6625 {
                 val executableSize = "SIZED_EXECUTABLE" in r.outcomes || "SIZE" in r.outcomes
                 val fdgAllowed = "FDG_ALLOW" in r.outcomes || "FDG" in r.outcomes
                 val markReady = "MARK_READY" in r.outcomes || "MARK" in r.outcomes
-                if (executableSize && (Stage.DISCOVER !in r.stages || Stage.INTENT !in r.stages || !markReady)) phantom++
+                if (executableSize && (Stage.DISCOVER !in r.stages || Stage.INTENT !in r.stages || !markReady)) {
+                    phantom++
+                    if (Stage.DISCOVER !in r.stages) phantomMissing6883["NO_DISCOVER"] = (phantomMissing6883["NO_DISCOVER"] ?: 0) + 1
+                    if (Stage.INTENT !in r.stages) phantomMissing6883["NO_INTENT"] = (phantomMissing6883["NO_INTENT"] ?: 0) + 1
+                    if (!markReady) phantomMissing6883["NO_MARK"] = (phantomMissing6883["NO_MARK"] ?: 0) + 1
+                    if (phantomSample6883.isEmpty()) phantomSample6883 = r.key.intentId.take(48)
+                }
                 for (stage in r.stages.keys) {
                     // Later stages are executable telemetry only when the
                     // same keyed record contains its causal predecessors.
@@ -403,7 +424,11 @@ object SpecialistCausalFunnel6625 {
                 }
             }
         }
-        return LaneSnapshot6647(lane, counts, outcomes, phantom)
+        return LaneSnapshot6647(
+            lane, counts, outcomes, phantom,
+            phantomMissing6883 = phantomMissing6883,
+            phantomSampleIntentId6883 = phantomSample6883,
+        )
     }
 
     /** Resolve position/finality telemetry back to the newest keyed record

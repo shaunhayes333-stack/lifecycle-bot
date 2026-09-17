@@ -26432,7 +26432,38 @@ if (hotExitHandledSweep) {
             )
         } catch (_: Throwable) { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.PromotionResult6613(null, "TOKEN_MAP_MARK_REFRESH_EXCEPTION", identity = identity.mint) }
         if (markRefresh6614.promoted) {
-            try { ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "MARK_READY", "${identity.mint}:${LaneExecutionCoordinator.candidateVersionFor(identity.mint)}") } catch (_: Throwable) {}
+            // V5.0.6883 §MARK_READY_MINTED_ITS_OWN_CAUSAL_IDENTITY.
+            //
+            // This stamp used to hand-build its eventId as
+            // "<mint>:<candidateVersionFor(mint)>", resolving the candidate
+            // version independently of every other stage in the cycle. Those
+            // all stamp on ticketStampIntent6658.attemptId (BotService:26815+).
+            // Since SpecialistCausalFunnel6625 keys records on
+            // "<mint>:<candidateVersion>:<lane>", a version that differs by one
+            // allocation is a different key, so this MARK_READY landed on a
+            // record of its own that has no DISCOVER, no INTENT and no SIZE.
+            //
+            // That is the direct cause of the operator's impossible funnel
+            // line — markReady=45 against buyIntent=32, more marks than the
+            // intents they descend from — and the orphan record it leaves is
+            // an attractor for later position-event stamps, because they
+            // resolve their version through latestCandidateVersion6647(mint,
+            // lane) and find this one. A SIZE joining it is exactly the shape
+            // laneSnapshot6647 counts as phantomSizedOnly.
+            //
+            // Same defect V5.0.6858 fixed for runId, one field over. Stamp on
+            // the canonical attempt identity or do not stamp a stage at all —
+            // an unattributable mark promotion is a counter, not a funnel row.
+            val markCausalId6883 = try {
+                ExecutableOpenGate.activeExecutionIntent6519(
+                    if (cfg.paperMode) "PAPER" else "LIVE", identity.mint,
+                )?.attemptId
+            } catch (_: Throwable) { null }
+            if (!markCausalId6883.isNullOrBlank()) {
+                try { ToolkitSignalSheet.recordDeskStage(cyclePrimaryLane, "MARK_READY", markCausalId6883) } catch (_: Throwable) {}
+            } else {
+                try { PipelineHealthCollector.labelInc("MARK_PROMOTED_BEFORE_CAUSAL_IDENTITY_6883") } catch (_: Throwable) {}
+            }
         } else try {
             PipelineHealthCollector.labelInc("MEME_EXECUTABLE_MARK_REFRESH_REJECTED_6614|${markRefresh6614.reason}")
         } catch (_: Throwable) {}
