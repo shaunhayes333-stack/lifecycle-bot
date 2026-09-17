@@ -32,7 +32,26 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict
 
 A = "{http://schemas.android.com/apk/res/android}"
-RES = os.path.join("lifecycle_apk", "app", "src", "main", "res")
+def _find_res():
+    """Locate app/src/main/res regardless of the caller's working directory.
+
+    V5.0.6935: the build workflow sets `working-directory: lifecycle_apk` for
+    every run step, so a repo-root-relative path silently fails there. This
+    walks up from the script to find the res tree, which works from the repo
+    root, from lifecycle_apk, or from anywhere else.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    for base in (here, os.path.dirname(here), os.path.dirname(os.path.dirname(here)), os.getcwd()):
+        for cand in (
+            os.path.join(base, "app", "src", "main", "res"),
+            os.path.join(base, "lifecycle_apk", "app", "src", "main", "res"),
+        ):
+            if os.path.isdir(cand):
+                return cand
+    return os.path.join("lifecycle_apk", "app", "src", "main", "res")
+
+
+RES = _find_res()
 HEX = re.compile(r"^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
 REF = re.compile(r"[@?](?:android:)?(\w+)/([\w.]+)")
 
