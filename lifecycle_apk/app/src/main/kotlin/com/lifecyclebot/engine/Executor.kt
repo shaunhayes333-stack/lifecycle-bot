@@ -8335,10 +8335,21 @@ class Executor(
     fun protectiveExitThresholds6882(
         ts: TokenState,
         modeConf: AutoModeEngine.ModeConfig? = null,
+        // V5.0.6891 — getActualPrice is not a pure read: it stamps
+        // QuoteFreshnessGuard6452.note() on every call. V5.0.6882 moved the
+        // threshold maths in here without noticing that riskCheck had ALREADY
+        // resolved the mark two lines earlier, so every riskCheck began
+        // stamping the freshness guard twice. That silently doubles the
+        // operator's "Quote freshness: stale=N missing=N" line, and I would
+        // have read the next snapshot's inflated figure as a deteriorating
+        // feed rather than as my own double-count. Callers that already hold
+        // the mark pass it; the risk clock, which holds nothing, does not.
+        preResolvedMark6891: Double? = null,
     ): ProtectiveThresholds6882? {
         val pos = ts.position
         if (!pos.isOpen) return null
-        val markPx = try { getActualPrice(ts) } catch (_: Throwable) { 0.0 }
+        val markPx = preResolvedMark6891
+            ?: try { getActualPrice(ts) } catch (_: Throwable) { 0.0 }
         if (!markPx.isFinite() || markPx <= 0.0) return null
         if (pos.entryPrice <= 0.0) return null
         // V5.0.6709 — magnitude authority: a negative learned stopLossPct
@@ -8388,7 +8399,9 @@ class Executor(
             //   * V5.0.6581 §P0-7 take-profit wiring (tpPx was hard-coded 0.0,
             //     which is why the operator saw 13,381 evaluations with TP=0
             //     and +7.8 SOL unrealised — every winner rolled to a stop)
-            val th6882 = protectiveExitThresholds6882(ts, modeConf)
+            // V5.0.6891 — pass the mark riskCheck already resolved at the top
+            // of this function instead of making the helper resolve it again.
+            val th6882 = protectiveExitThresholds6882(ts, modeConf, preResolvedMark6891 = price)
             val canonicalExitTrigger6600 = if (th6882 == null) null else
                 com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.evaluate(
                     positionId = pid6451,
