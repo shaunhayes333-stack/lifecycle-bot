@@ -79,6 +79,10 @@ object NetworkSignalAutoBuyer {
     
     // Recently executed signals (to prevent duplicates)
     private val executedSignals = ConcurrentHashMap<Long, Long>()  // signalId -> executeTime
+
+    // V5.0.6872 — signals this instance has corroborated, so one instance cannot
+    // inflate a signal's ack_count by re-evaluating it every 15-second scan.
+    private val ackedSignals6872 = ConcurrentHashMap<Long, Long>()  // signalId -> ackTime
     
     // Scan interval
     private const val SCAN_INTERVAL_MS = 15_000L  // 15 seconds
@@ -271,17 +275,64 @@ object NetworkSignalAutoBuyer {
             // Check collective sentiment
             val hasPositive = CollectiveIntelligenceAI.hasPositiveNetworkSignal(signal.mint)
             if (!hasPositive) return false
-            
+
+            // V5.0.6872 §THE_NETWORK_COULD_READ_CORROBORATION_BUT_NEVER_WRITE_IT —
+            // CollectiveLearning.acknowledgeSignal() had ZERO callers, so ack_count
+            // stayed 0 on every network_signals row forever. Two things depended on
+            // it and both were dead:
+            //
+            //   getNetworkBoostForMint adds `(ackCount * 2)` capped at +10 for a
+            //   MEGA_WINNER and +8 for a HOT_TOKEN, so a token ten instances had
+            //   independently confirmed scored exactly the same as one only its
+            //   broadcaster ever saw. The whole point of a network is that
+            //   corroboration means something.
+            //
+            //   Worse, the HOT_TOKEN branch below requires `ackCount >= 2`. With
+            //   ack_count pinned at 0 that condition can never be true, so EVERY
+            //   HOT_TOKEN signal was rejected by every instance in the network,
+            //   permanently. And because acknowledgement would only ever have
+            //   happened on execution, it was a deadlock even in principle: no
+            //   instance could be the first to act, so no ack could ever be written,
+            //   so no instance could ever act.
+            //
+            // The deadlock is why the ack belongs HERE and not after a fill. An ack
+            // means "I have independently looked at this and I agree" — this
+            // instance's own blacklist and collective-sentiment checks have just
+            // passed on the broadcaster's mint. That is corroboration whether or not
+            // our wallet, size or cooldown gates then permit a buy, and it is what
+            // makes the count meaningful to everyone else. Deduped per signal id so
+            // a single instance cannot inflate it across 15-second rescans.
+            if (ackedSignals6872.putIfAbsent(signal.id, System.currentTimeMillis()) == null) {
+                if (ackedSignals6872.size > 4096) {
+                    try {
+                        val cutoff = System.currentTimeMillis() - 24L * 60L * 60L * 1000L
+                        ackedSignals6872.entries.removeIf { it.value < cutoff }
+                    } catch (_: Throwable) {}
+                }
+                // acknowledgeSignal is suspend and this is not, so dispatch it the
+                // same way line ~427 already dispatches its collective write.
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        CollectiveLearning.acknowledgeSignal(signal.id)
+                        com.lifecyclebot.engine.PipelineHealthCollector
+                            .labelInc("NETWORK_SIGNAL_ACKNOWLEDGED_6872")
+                    } catch (_: Throwable) {}
+                }
+            }
+
             // For MEGA_WINNERS, we're more lenient
             if (signal.signalType == "MEGA_WINNER" && signal.ackCount >= 3) {
                 return true
             }
-            
-            // For HOT_TOKENs, require higher threshold
+
+            // For HOT_TOKENs, require higher threshold.
+            // V5.0.6872 — the ackCount floor stays, because corroboration is exactly
+            // the right bar for acting on somebody else's signal. It is reachable now
+            // that acknowledgement is actually written.
             if (signal.signalType == "HOT_TOKEN") {
                 return signal.confidence >= 70 && signal.ackCount >= 2
             }
-            
+
             return true
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "AI approval check failed: ${e.message}")
