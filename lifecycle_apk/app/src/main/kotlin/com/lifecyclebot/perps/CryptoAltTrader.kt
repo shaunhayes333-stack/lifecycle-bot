@@ -76,6 +76,23 @@ object CryptoAltTrader {
     private val tier2 = setOf("DOGE", "ADA", "TRX", "LINK", "AVAX", "TON", "DOT", "MATIC",
                               "LTC", "BCH", "XMR", "XLM", "ETC", "NEAR", "APT", "ARB", "OP",
                               "ATOM", "ICP", "FIL", "HBAR", "VET", "INJ", "TAO", "RENDER")  // $100M+ liq, $5B+ mcap
+    /**
+     * V5.0.6923 — one place that maps a market symbol to the crypto-brain
+     * tier bucket. This classification was written inline at the onTradeClose
+     * site; V5.0.6923 needs the same bucket at entry to read the per-tier
+     * exit verdict, and two copies of a bucket rule is how the write side and
+     * the read side end up keyed differently — the defect that has already
+     * cost this codebase several inert learners.
+     */
+    private fun cryptoBrainTier6923(symbol: String): String {
+        val symU = symbol.uppercase()
+        return when {
+            symU in tier1 -> "TIER1"
+            symU in tier2 -> "TIER2"
+            else          -> "TIER3"
+        }
+    }
+
     private fun altLiqMcapHint(symbol: String): Pair<Double, Double> = when (symbol.uppercase()) {
         in tier1 -> 5_000_000_000.0 to 100_000_000_000.0
         in tier2 -> 200_000_000.0   to 10_000_000_000.0
@@ -2263,7 +2280,49 @@ object CryptoAltTrader {
         }
 
         val tpPct = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getTpPct(isSpot)
-        val slPctBase  = if (isSpot) DEFAULT_SL_SPOT else DEFAULT_SL_LEV
+        // V5.0.6923 — CryptoBrain.laneExitVerdict had zero callers.
+        //
+        // The line below reads the crypto brain's LEARNED take-profit. The
+        // stop next to it was a bare constant, and the brain's own per-tier
+        // exit verdict — CryptoLaneExitTuner, which keeps a 100-sample window
+        // per tier and returns WIDEN_STOPS / DEFAULT / TIGHTEN_STOPS from that
+        // tier's realised profit factor and net SOL — was never consulted by
+        // anything. Its three enum values literally name what to do with the
+        // stop ("lane is profitable + low PF -> run wider stops", "lane is
+        // bleeding -> tighten stops") and no stop ever moved.
+        //
+        // Note on what was deliberately NOT changed here:
+        //  * CryptoBrain.getSlPct returns a hardcoded 3.5 / 5.0, identical to
+        //    DEFAULT_SL_SPOT / DEFAULT_SL_LEV. Routing through it would look
+        //    like wiring and change nothing, so the constants stay.
+        //  * This trader's use of the MEME FluidLearningAI.getDynamicFluidStop
+        //    for its profit-floor lock is intentional (V5.9.118: "same lock
+        //    semantics as the main meme trader so alts runners don't give back
+        //    huge gains"), not a cross-contamination bug.
+        //
+        // The verdict needs n >= 25 in a tier before it is anything but
+        // DEFAULT, so this is inert until that tier has real evidence.
+        val laneTier6923 = cryptoBrainTier6923(mktSym)
+        val laneExitVerdict6923 = try {
+            com.lifecyclebot.perps.crypto.brain.CryptoBrain.laneExitVerdict(laneTier6923)
+        } catch (_: Throwable) {
+            com.lifecyclebot.perps.crypto.brain.CryptoLaneExitTuner.Verdict.DEFAULT
+        }
+        val laneStopMult6923 = when (laneExitVerdict6923) {
+            com.lifecyclebot.perps.crypto.brain.CryptoLaneExitTuner.Verdict.WIDEN_STOPS -> 1.25
+            com.lifecyclebot.perps.crypto.brain.CryptoLaneExitTuner.Verdict.TIGHTEN_STOPS -> 0.80
+            com.lifecyclebot.perps.crypto.brain.CryptoLaneExitTuner.Verdict.DEFAULT -> 1.00
+        }
+        val slPctBase  = (if (isSpot) DEFAULT_SL_SPOT else DEFAULT_SL_LEV) * laneStopMult6923
+        if (laneStopMult6923 != 1.00) {
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "CRYPTO_LANE_EXIT_VERDICT_APPLIED_6923",
+                    "sym=$mktSym tier=$laneTier6923 verdict=$laneExitVerdict6923 stopMult=${"%.2f".format(laneStopMult6923)} slPct=${"%.2f".format(slPctBase)} spot=$isSpot",
+                )
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_LANE_EXIT_VERDICT_APPLIED_6923_$laneExitVerdict6923")
+            } catch (_: Throwable) {}
+        }
         val lev    = if (isSpot) 1.0 else signal.leverage
 
         // V5.9.88: FLUID TP/SL — scale with conviction, stop flat TP+7%/SL-3%
@@ -3512,12 +3571,10 @@ object CryptoAltTrader {
         // ── BehaviorAI (V5.9.1442 — isolated crypto brain) ───────────────────
         try {
             // Determine tier from symbol for the crypto-brain bucket key.
-            val symU = mktSym.uppercase()
-            val tier = when {
-                symU in tier1 -> "TIER1"
-                symU in tier2 -> "TIER2"
-                else          -> "TIER3"
-            }
+            // V5.0.6923 — was an inline copy of this rule; now the same
+            // helper the entry-side verdict read uses, so the write key and
+            // the read key cannot diverge.
+            val tier = cryptoBrainTier6923(mktSym)
             com.lifecyclebot.perps.crypto.brain.CryptoBrain.onTradeClose(
                 tier   = tier,
                 score  = pos.aiScore,
