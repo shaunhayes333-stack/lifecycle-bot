@@ -4891,6 +4891,18 @@ class BotService : Service() {
                 // and, because it is the one path immune to a wedged botLoop,
                 // it also executes the exit it latches.
                 try {
+                    // V5.0.6890 — do no work once the bot is stopping. stopBot
+                    // now calls CanonicalRiskClock6454.stop(), but the clock is
+                    // a process-lifetime singleton on its own scope and this
+                    // callback holds the authority to dispatch a sell, so it
+                    // must also refuse on its own rather than trusting that it
+                    // was torn down in the right order. An exit fired into a
+                    // half-torn-down service is how 6888 lost
+                    // LIFECYCLE_STOP_COMPLETE.
+                    if (!status.running || isShuttingDown) {
+                        try { PipelineHealthCollector.labelInc("RISK_CLOCK_TICK_SUPPRESSED_SHUTDOWN_6890") } catch (_: Throwable) {}
+                        return@start
+                    }
                     val ts6882 = try { status.tokens[mint] } catch (_: Throwable) { null }
                     val th6882 = if (ts6882 == null) null else
                         try { executor.protectiveExitThresholds6882(ts6882) } catch (_: Throwable) { null }
@@ -7886,6 +7898,24 @@ class BotService : Service() {
         // V5.9.905 — stop the high-frequency exit manager loop.
         try { hotExitJob?.cancel() } catch (_: Throwable) {}
         hotExitJob = null
+        // V5.0.6890 §THE_RISK_CLOCK_OUTLIVED_THE_BOT.
+        //
+        // CanonicalRiskClock6454.stop() had zero callers since 6454. That was
+        // survivable while its callback was a no-op heartbeat ping with all
+        // four thresholds at zero — a stray 500ms tick after shutdown cost
+        // nothing. V5.0.6882 gave that callback real work (threshold
+        // computation per open position) and the authority to dispatch
+        // requestSell, so an unstoppable clock stopped being harmless: it kept
+        // evaluating and could still fire an exit while the service was tearing
+        // down. The 5.0.6888 smoke run died at
+        //   "confirmed UI stop timed out waiting for LIFECYCLE_STOP_COMPLETE"
+        // in step 8 — a step that passed on 5.0.6881, before 6882 existed.
+        // That regression is mine.
+        //
+        // Every other background loop in this teardown is already cancelled
+        // here (loopHeartbeat, reconciler, hotExit, exitSweepCoordinator); the
+        // risk clock simply was never added. stop() is graceful and idempotent.
+        try { com.lifecyclebot.engine.truth.CanonicalRiskClock6454.stop() } catch (_: Throwable) {}
         // V5.9.1313 — reset hotExit liveness trackers so the next start has a
         // clean grace window and the loop doesn't false-trigger a resurrection.
         botLoopStartedAtMs = 0L
