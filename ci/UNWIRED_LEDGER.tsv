@@ -329,8 +329,8 @@ H_MUTATOR	PumpPortalKillSwitch	recordPartialAttempt	engine/sell/PumpPortalKillSw
 C_EXIT	QuantMetrics	calculateProfitFactor	engine/quant/QuantMetrics.kt
 H_MUTATOR	ReEntryLockout	clearOnNewPeak	engine/ReEntryLockout.kt
 H_MUTATOR	RecoveredHoldGuard	clearOnFullExit	engine/RecoveredHoldGuard.kt
-C_EXIT	RecoveredHoldGuard	isEmergencyExitOverride	engine/RecoveredHoldGuard.kt
-C_EXIT	RecoveredHoldGuard	isInHoldGrace	engine/RecoveredHoldGuard.kt
+E_INFILE	RecoveredHoldGuard	isEmergencyExitOverride	engine/RecoveredHoldGuard.kt
+E_INFILE	RecoveredHoldGuard	isInHoldGrace	engine/RecoveredHoldGuard.kt
 C_EXIT	RouteValidator	validateFinalOutput	engine/execution/RouteValidator.kt
 C_EXIT	RuntimeRepairState	requestPaperMode	engine/RuntimeRepairState.kt
 C_EXIT	ScannerHeatPublisher6398	currentPct01	engine/truth/ScannerHeatPublisher6398.kt
@@ -338,7 +338,7 @@ E_INFILE	SellAmountAuthority	isEmergencyExitReason	engine/sell/SellAmountAuthori
 E_INFILE	SellAmountAuthority	isProfitProtectExitReason	engine/sell/SellAmountAuthority.kt
 F_DEAD	SellAmountAuthority	resolveSellAmount	engine/sell/SellAmountAuthority.kt
 C_EXIT	SellIntentQuantityAuthority6401	validateSellIntentFromUi	engine/truth/SellIntentQuantityAuthority6401.kt
-C_EXIT	SellQuantityBoundary6459	admitSell	engine/truth/SellQuantityBoundary6459.kt
+G_PROTOCOL	SellQuantityBoundary6459	admitSell	engine/truth/SellQuantityBoundary6459.kt
 C_EXIT	SentienceHooks	lastPostMortemAgeMs	engine/SentienceHooks.kt
 C_EXIT	ShadowLearningEngine	getPerformanceByMode	v3/learning/ShadowLearningEngine.kt
 C_EXIT	SmartExitOptimizer	getExitPressure	engine/SmartExitOptimizer.kt
