@@ -1351,13 +1351,95 @@ object ExecutableOpenGate {
             val keepOld = sameVersion && rank(old?.preFdgVerdict) >= rank(finalVerdict)
             val effectiveVerdict = if (keepOld) old!!.preFdgVerdict else finalVerdict
             val effectiveCan = if (keepOld) old!!.fdgCan else canExecute
+            // V5.0.6910 §LANE_OWNERSHIP_IS_NOT_THE_VERDICT.
+            //
+            // OPERATOR DIAGNOSIS (5.0.6908), GREG trace, same mint, same version:
+            //
+            //   selected lane = STANDARD ... preFdg=WATCH
+            //   frozen snapshot has no valid intent ... execution dropped
+            //   then: lane = PROJECT_SNIPER ... FDG_ALLOW ... preFdg=BUY
+            //
+            //   EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY: 50
+            //   EXEC_FROZEN_SNAPSHOT_MISSING_INTENT_NEEDS_REVALIDATION: 90
+            //
+            //   > "the pipeline is still briefly constructing a STANDARD
+            //   >  execution candidate before the actual specialist authority
+            //   >  resolves to PROJECT_SNIPER."
+            //
+            // The V5.9.1545 precedence above ranks the VERDICT correctly, but
+            // `selectedLane` was carried as a passenger on that same decision —
+            // one boolean deciding two independent facts. That matters because
+            // `selectedLane` is what reaches ExecutionDecisionSnapshot6510 as
+            // `executionLane` (see `winner.selectedLane` below), and
+            // LaneExecutionCoordinator.sealedFdgOwnerLane6679 REFUSES to accept
+            // STANDARD / V3_CORE / SHADOW / UNKNOWN as an execution owner:
+            //
+            //   ?.takeIf { it !in setOf("UNKNOWN", "STANDARD", "V3_CORE", "SHADOW") }
+            //
+            // So when a placeholder lane wrote the surviving verdict, the sealed
+            // owner resolved to NULL — and canRequestExecution then fell through
+            // to its "pre-FDG compatibility" branch, which elects the FIRST
+            // CALLER. A STANDARD-first BUY therefore did not merely lose its own
+            // claim: it destroyed sealed ownership for that whole candidate
+            // version and silently revoked the 6679 guarantee its own log line
+            // states outright ("caller_order_has_no_authority").
+            //
+            // Split the two facts. Ownership is ranked by whether the lane can
+            // own execution at all, asking LaneExecutionCoordinator's own
+            // predicate rather than re-listing the labels here — a second copy
+            // of that set is precisely how a writer and its gate come to
+            // disagree about the same word. The verdict keeps its existing
+            // precedence untouched, so an approval is never downgraded.
+            //
+            // Behavioural delta is deliberately narrow: a real specialist lane
+            // now takes `selectedLane` from a placeholder lane. Two real lanes
+            // resolve exactly as before, two placeholders resolve exactly as
+            // before, and no verdict changes in any case. Nothing is disabled
+            // and no lane is preferred over another real lane — this only stops
+            // a non-owner from occupying the owner field.
+            //
+            // Deliberately NOT done via SpecialistProposalArbiter6629.elect6629:
+            // that object's header forbids it ("MUST NOT become a second
+            // post-FDG execution authority", uncalled by production since
+            // V5.0.6653/6679). Ownership stays where 6679 put it.
+            fun ownerRank6910(l: String?): Int {
+                val canon = try { canonicalLane(l ?: "") } catch (_: Throwable) { "" }
+                val ok = try {
+                    com.lifecyclebot.engine.LaneExecutionCoordinator.laneCanOwnExecution6910(canon)
+                } catch (_: Throwable) { false }
+                return if (ok) 1 else 0
+            }
+            val incomingLane6910 = lane.uppercase()
+            val oldLaneRank6910 = ownerRank6910(old?.selectedLane)
+            val newLaneRank6910 = ownerRank6910(incomingLane6910)
+            val effectiveLane6910 = when {
+                !sameVersion -> incomingLane6910
+                newLaneRank6910 > oldLaneRank6910 -> incomingLane6910
+                newLaneRank6910 < oldLaneRank6910 -> old?.selectedLane ?: incomingLane6910
+                // Equal ownership rank — preserve the pre-6910 verdict-driven choice.
+                keepOld -> old?.selectedLane ?: "UNKNOWN"
+                else -> incomingLane6910
+            }
+            if (sameVersion && newLaneRank6910 > oldLaneRank6910) {
+                try {
+                    PipelineHealthCollector.labelInc("LANE_OWNER_RECLAIMED_FROM_PLACEHOLDER_6910")
+                    ForensicLogger.lifecycle(
+                        "LANE_OWNER_RECLAIMED_FROM_PLACEHOLDER_6910",
+                        "mint=${mint.take(10)} version=$candidateVersion " +
+                            "placeholder=${old?.selectedLane} owner=$incomingLane6910 " +
+                            "oldVerdict=${old?.preFdgVerdict} newVerdict=$finalVerdict " +
+                            "action=sealed_owner_would_have_been_null",
+                    )
+                } catch (_: Throwable) {}
+            }
             (old ?: EntryState(mint = mint, symbol = symbol)).copy(
                 symbol = if (keepOld) old?.symbol ?: symbol else symbol,
                 fdgCan = effectiveCan,
                 fdgReason = if (keepOld) old?.fdgReason else reason,
                 signal = if (keepOld) old?.signal ?: "UNKNOWN" else signal.ifBlank { "UNKNOWN" },
                 decisionBand = if (keepOld) old?.decisionBand ?: effectiveVerdict else if (effectiveVerdict == "BUY") "BUY" else effectiveVerdict,
-                selectedLane = if (keepOld) old?.selectedLane ?: "UNKNOWN" else lane.uppercase(),
+                // V5.0.6910 — ownership-ranked, no longer a passenger on the verdict.
+                selectedLane = effectiveLane6910,
                 preFdgVerdict = effectiveVerdict,
                 hardNoReasons = if (keepOld) (old?.hardNoReasons ?: finalHardNo) else finalHardNo,
                 candidateVersion = if (keepOld) old?.candidateVersion ?: candidateVersion else candidateVersion,

@@ -217,6 +217,25 @@ object LaneExecutionCoordinator {
      * Do not re-elect it here using static priority once a sealed FDG owner exists;
      * the sealed specialist decision is the causal execution authority.
      */
+    /**
+     * V5.0.6910 — the single definition of "this lane cannot own execution".
+     *
+     * These four labels were an inline `setOf(...)` inside
+     * sealedFdgOwnerLane6679 below. ExecutableOpenGate now has to make the same
+     * judgement when it decides which lane to record as `selectedLane` — the
+     * value that BECOMES `executionLane` in the snapshot this function reads —
+     * so the set had to become shared rather than copied. A second copy is how
+     * a writer and its gate end up disagreeing about the same word, which is
+     * the failure this whole chain already suffered once.
+     */
+    private val NON_OWNER_LANES_6910 = setOf("UNKNOWN", "STANDARD", "V3_CORE", "SHADOW")
+
+    /** True when `lane` can hold canonical execution ownership. */
+    fun laneCanOwnExecution6910(lane: String?): Boolean {
+        val u = lane?.trim()?.uppercase().orEmpty()
+        return u.isNotBlank() && u !in NON_OWNER_LANES_6910
+    }
+
     private fun sealedFdgOwnerLane6679(mint: String, candidateVersion: Long): String? = try {
         val mode6679 = if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
         com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510
@@ -224,9 +243,7 @@ object LaneExecutionCoordinator {
             ?.executionLane
             ?.trim()
             ?.uppercase()
-            ?.takeIf {
-                it.isNotBlank() && it !in setOf("UNKNOWN", "STANDARD", "V3_CORE", "SHADOW")
-            }
+            ?.takeIf { laneCanOwnExecution6910(it) }
     } catch (_: Throwable) { null }
 
     fun canRequestExecution(
