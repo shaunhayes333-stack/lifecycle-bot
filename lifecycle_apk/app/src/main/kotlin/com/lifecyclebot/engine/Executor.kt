@@ -9051,6 +9051,47 @@ class Executor(
             else -> {}
         }
 
+        // V5.0.6949 §TIGHTEN_STOP_WAS_PRODUCED_FIVE_TIMES_AND_CONSUMED_NEVER.
+        //
+        // ExitAction.TIGHTEN_STOP is set by five separate branches of
+        // evaluateExit — long hold, stale loser, buy-pressure collapse, RSI
+        // overbought, trailing activation — and every one of them landed in the
+        // `else -> {}` above and was dropped. The entire "tighten the stop" half
+        // of the exit AI has therefore been inert: it computed a verdict every
+        // tick, logged it, and changed nothing. (This is the same shape as the
+        // PARTIAL_EXIT drop that V5.0.6922 fixed directly above.)
+        //
+        // Applied to the fluid stop below, with three deliberate restrictions:
+        //
+        //   LOSERS ONLY. A tightened stop on a position in profit is precisely
+        //   the runner-killer the doctrine forbids — it clips the winner that
+        //   pays for the book. gainPct > 0 is left completely alone, which also
+        //   means the MEDIUM long-hold-winner branch stays inert by design.
+        //
+        //   ELITE MOONSHOTS EXEMPT. The 6415 profile buys a -40% runway on
+        //   purpose; tightening would silently cancel it, exactly as the
+        //   breakeven ratchet would have.
+        //
+        //   BOUNDED, AND NEVER TIGHTER THAN -5%. Inside 5% is meme noise, not a
+        //   signal, so no amount of AI urgency may pull the stop in past it.
+        //
+        // Net effect: the branch that actually bites is the stale loser — a
+        // position past its learned max hold and underwater — which is the case
+        // that was rotting until an emergency backstop caught it.
+        val exitAiTightenMult6949: Double =
+            if (exitAiDecision.action == ExitIntelligence.ExitAction.TIGHTEN_STOP && gainPct <= 0.0) {
+                val elite6949 = try {
+                    com.lifecyclebot.engine.truth.MoonshotHoldProfileRegistry6415
+                        .shouldSuppressSl(ts.mint, gainPct)
+                } catch (_: Throwable) { false }
+                if (elite6949) 1.0 else when (exitAiDecision.urgency) {
+                    ExitIntelligence.Urgency.CRITICAL -> 0.70
+                    ExitIntelligence.Urgency.HIGH -> 0.70
+                    ExitIntelligence.Urgency.MEDIUM -> 0.85
+                    else -> 1.0
+                }
+            } else 1.0
+
         // V5.0.6941 §LEARNED_HOLD_CEILING_FINALLY_DOES_SOMETHING.
         //
         // FluidLearningAI.getFluidMaxHoldMinutes learns a per-layer hold
@@ -9234,7 +9275,7 @@ class Executor(
         val peakPnlPct = pos.peakGainPct
         val volatility = ts.volatility ?: 50.0
         
-        val dynamicStopPct = try {
+        val dynamicStopPctBase6949 = try {
             val modeDefault = modeConf?.stopLossPct ?: cfg().stopLossPct
             com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
                 modeDefaultStop = modeDefault,
@@ -9251,7 +9292,27 @@ class Executor(
                 -(modeConf?.stopLossPct ?: cfg().stopLossPct)
             }
         }
-        
+        // V5.0.6949 — apply the exit AI's TIGHTEN_STOP verdict (see the block at
+        // the evaluateExit call site for why it was previously discarded, and
+        // for the loser-only / elite-exempt restrictions). The stop is a
+        // NEGATIVE percentage, so multiplying by <1 moves it toward zero, i.e.
+        // tighter. Never tighter than -5%: inside that is meme noise.
+        val dynamicStopPct = if (exitAiTightenMult6949 < 1.0 && dynamicStopPctBase6949 < 0.0) {
+            val tightened6949 = (dynamicStopPctBase6949 * exitAiTightenMult6949).coerceAtMost(-5.0)
+            if (tightened6949 != dynamicStopPctBase6949) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "EXIT_AI_TIGHTEN_STOP_APPLIED_6949",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${"%.1f".format(gainPct)}% " +
+                            "urgency=${exitAiDecision.urgency} base=${"%.1f".format(dynamicStopPctBase6949)}% " +
+                            "tightened=${"%.1f".format(tightened6949)}% mult=$exitAiTightenMult6949",
+                    )
+                    PipelineHealthCollector.labelInc("EXIT_AI_TIGHTEN_STOP_APPLIED_6949")
+                } catch (_: Throwable) {}
+            }
+            tightened6949
+        } else dynamicStopPctBase6949
+
         // V5.9.1419 — HARD 30s ENTRY-PROTECT TIME-LOCK (operator directive).
         // This Executor dynamic-stop path had NO settle-in guard, so it kept
         // firing RAPID_ENTRY_PROTECT_STOP on tokens only seconds old even after

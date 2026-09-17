@@ -282,11 +282,43 @@ object ExitIntelligence {
             partialExitPct = 25
             urgency = Urgency.LOW
             reasons.add("Partial exit at ${state.pnlPercent.toInt()}% profit")
-        } else if (state.holdTimeMinutes >= max(params.maxHoldMinutes, 60)) {
+        // V5.0.6949 §THE_LONGER_A_LOSER_ROTTED_THE_FEWER_CHECKS_IT_GOT.
+        //
+        // This branch was `max(params.maxHoldMinutes, 60)` guarding a body that
+        // acted ONLY when pnl > 0. Two separate defects sat in that one line.
+        //
+        // (1) THE FLOOR OVERRODE THE LEARNER. V5.0.6920 repaired the one-way
+        //     ratchet so maxHoldMinutes can now learn anywhere in [15, 1440].
+        //     The consumer then silently floored it at 60, so every value the
+        //     learner produced below 60 minutes was discarded at the point of
+        //     use. The learner wrote one number and the gate read another —
+        //     which is the same defect class as the give-back units in 6921.
+        //
+        // (2) THE BODY WAS EMPTY FOR LOSERS, AND THE CHAIN IS else-if. A losing
+        //     position past its max hold set no action at all, and by entering
+        //     this branch it also consumed the buy-pressure-collapse and RSI
+        //     branches below. So it fell out with HOLD. The effect is perverse:
+        //     the longer a loser rotted, the FEWER exit checks it received, and
+        //     the rule that exists to deal with stale positions was actively
+        //     protecting them. That is the "positions rot until an emergency
+        //     backstop catches them" shape in the operator's journal, where the
+        //     only exits on record are STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP and
+        //     TICK_HARD_FLOOR_-35PCT.
+        //
+        // A loser past its learned max hold is the STRONGEST case for acting,
+        // not the weakest. It now sets TIGHTEN_STOP at HIGH urgency — tighten,
+        // not force-sell, so this adds exit pressure without adding forced
+        // liquidation. Every branch below this one also resolves to
+        // TIGHTEN_STOP, so setting an action here unconditionally means
+        // consuming the chain no longer loses a decision, only a reason string.
+        } else if (state.holdTimeMinutes >= params.maxHoldMinutes) {
+            action = ExitAction.TIGHTEN_STOP
             if (state.pnlPercent > 0.0) {
-                action = ExitAction.TIGHTEN_STOP
                 urgency = Urgency.MEDIUM
-                reasons.add("Long hold time (${state.holdTimeMinutes}min) - tighten stop")
+                reasons.add("Long hold time (${state.holdTimeMinutes}min, learnedMax=${params.maxHoldMinutes}) - tighten stop")
+            } else {
+                urgency = Urgency.HIGH
+                reasons.add("Stale loser: ${state.holdTimeMinutes}min held at ${state.pnlPercent.toInt()}% (learnedMax=${params.maxHoldMinutes}) - tighten stop")
             }
         } else if ((state.entryBuyPressure - state.buyPressure) >= 30.0 && !isInEarlyPhase) {
             action = ExitAction.TIGHTEN_STOP
