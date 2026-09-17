@@ -2663,7 +2663,56 @@ class Executor(
             }
         } catch (_: Throwable) { 1.0 }
         val growthLift6416 = laneWinBump6416 * walletTierLift6416
-        val totalBoost6416 = effectiveBoost6415 * growthLift6416
+        // V5.0.6950 §THE_GUARD_THAT_WATCHED_AND_WAS_NEVER_ASKED.
+        //
+        // AntiRewardHackingGuard6439 exists for one operator directive: "Bad
+        // behaviour should NEVER be seen or recognised as good behaviour."
+        // Learners rationalise expanding risk after a loss — "I lost because my
+        // size was too small, next time bigger" — and that wipes accounts.
+        //
+        // Its observation half IS wired: BotService feeds observeWalletBalance
+        // every loop, so the rolling 24h wallet high has been tracked accurately
+        // this whole time. Its DECISION half, canExpandRisk, had zero callers.
+        // The file's own header states the contract it expected — "every learner
+        // asks: canExpandRisk(currentWalletSol) -> Boolean and only proceeds with
+        // an expand-risk tune if the answer is true" — and no learner ever did.
+        // So the bot tracked its own drawdown precisely and then sized up
+        // through it regardless, which is the exact behaviour the guard was
+        // written to prevent.
+        //
+        // This is the right single gate: totalBoost6416 is where EVERY expansion
+        // path converges — runner boost, moonshot multiplier, lane-win bump and
+        // wallet-tier lift all multiply into it, and walletSol is in scope.
+        //
+        // IT CLAMPS TO 1.0, IT NEVER GOES BELOW. This declines to ADD risk while
+        // the wallet is under its 24h high; it does not cut the base size. That
+        // matters — the doctrine is "never throttle, never cap-to-dust, never
+        // disable a lane", and a boost of 1.0 is the unboosted baseline, not a
+        // throttle. Every lane keeps trading at full normal size.
+        //
+        // smallWalletTurbo6409 below is deliberately NOT gated: it is an explicit
+        // operator directive for bankrolls under 0.2 SOL, where the 24h high is
+        // noise, and it is already bounded by liquidity and spendable.
+        val canExpandRisk6950 = try {
+            com.lifecyclebot.engine.truth.AntiRewardHackingGuard6439.canExpandRisk(walletSol)
+        } catch (_: Throwable) { true }
+        val totalBoost6416 = if (!canExpandRisk6950) {
+            val wanted6950 = effectiveBoost6415 * growthLift6416
+            if (wanted6950 > 1.0) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "RISK_EXPANSION_VETOED_DRAWDOWN_6950",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$laneKey " +
+                            "wallet=${walletSol.fmt(4)} wantedBoost=$wanted6950 " +
+                            "runnerBoost=$runnerBoost6408 moonshotMult=$moonshotMult6415 " +
+                            "growthLift=$growthLift6416 applied=1.0 reason=below_24h_wallet_high " +
+                            "note=baseline_size_unchanged_no_lane_throttled",
+                    )
+                    PipelineHealthCollector.labelInc("RISK_EXPANSION_VETOED_DRAWDOWN_6950")
+                } catch (_: Throwable) {}
+            }
+            1.0
+        } else effectiveBoost6415 * growthLift6416
         val walletCapSol6408 = if (totalBoost6416 > 1.0) {
             val relaxed = walletCapSol * totalBoost6416
             try {

@@ -169,11 +169,11 @@ B_RISK	ExternalAlphaFeeds	enrichSafety	v4/meta/ExternalAlphaFeeds.kt
 B_RISK	GeminiCopilot	assessRisk	engine/GeminiCopilot.kt
 B_RISK	LaneShadowProofLoop	blacklistedLanes	engine/LaneShadowProofLoop.kt
 B_RISK	LaneShadowProofLoop	blockLaneResume	engine/LaneShadowProofLoop.kt
-B_RISK	LaneShadowProofLoop	isResumeBlocked	engine/LaneShadowProofLoop.kt
+E_INFILE	LaneShadowProofLoop	isResumeBlocked	engine/LaneShadowProofLoop.kt
 B_RISK	LiquidityCycleAI	getRiskLevel	v3/scoring/LiquidityCycleAI.kt
 B_RISK	LiquidityCycleAI	isRisky	v3/scoring/LiquidityCycleAI.kt
 B_RISK	LivePipelineTrace6431	bumpBlockReason	engine/truth/LivePipelineTrace6431.kt
-B_RISK	LosingStreakReflex6439	shouldBlockNewBuys	engine/truth/LosingStreakReflex6439.kt
+F_DEAD	LosingStreakReflex6439	shouldBlockNewBuys	engine/truth/LosingStreakReflex6439.kt
 B_RISK	MemeExecutionRouteStack	stackExhausted	engine/execution/MemeExecutionRouteStack.kt
 B_RISK	MemePipelineTracer	blockReasons	engine/MemePipelineTracer.kt
 B_RISK	MintWorkCoordinator6450	isOpenBlocked	engine/truth/MintWorkCoordinator6450.kt
@@ -188,7 +188,7 @@ B_RISK	ReentryGuard	getBlockedMints	engine/ReentryGuard.kt
 B_RISK	ReentryGuard	manualBlock	engine/ReentryGuard.kt
 B_RISK	RunnerAutoCompound6422	liveTotalLift	engine/truth/RunnerAutoCompound6422.kt
 G_PROTOCOL	SameMintCandidateEpoch6402	totalSuppressed	engine/truth/SameMintCandidateEpoch6402.kt
-B_RISK	SellOnlySafeMode	blockLiveBuyReason	engine/sell/SellOnlySafeMode.kt
+F_DEAD	SellOnlySafeMode	blockLiveBuyReason	engine/sell/SellOnlySafeMode.kt
 B_RISK	SellOnlySafeMode	blockedBuyCount	engine/sell/SellOnlySafeMode.kt
 H_MUTATOR	SoftScoreShaping6400	recordMechanicalMinBlock	engine/truth/SoftScoreShaping6400.kt
 B_RISK	TelegramBot	alertRisk	engine/TelegramBot.kt
