@@ -2662,7 +2662,71 @@ class Executor(
                 com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.walletGrowthLift(walletSol)
             }
         } catch (_: Throwable) { 1.0 }
-        val growthLift6416 = laneWinBump6416 * walletTierLift6416
+        // V5.0.6956 §THE_COMPOUNDER_WHOSE_ONLY_READER_WAS_A_UNIT_TEST.
+        //
+        // Operator, repeatedly: "wallet balance isnt increasing again on live or
+        // paper trading. it needs to be more growth centric."
+        //
+        // RunnerAutoCompound6422 is the module built for exactly that. Its FEED
+        // is fully wired — onPaperClose and onLiveClose are called on every
+        // terminal close, so it has been tracking win streaks (RUNNER, TURBO,
+        // SUPER, MEGA) and extended wallet-growth tiers 4/5/6 the entire time.
+        //
+        // Its OUTPUT went nowhere. paperStreakMultiplier and liveStreakMultiplier
+        // have exactly one external caller each, and that caller is
+        // InvariantSelfCheck6430 — a SELF-TEST. paperTotalLift, liveTotalLift,
+        // paperExtendedTierLift and liveExtendedTierLift have zero callers of any
+        // kind. So the compounder computed a lift on every close and the only
+        // thing in the entire binary that ever read one was an assertion about
+        // itself. The bot has never once compounded a winning streak into size.
+        //
+        // The extended tiers are the sharper half: LiveGrowthCompounder6416's
+        // walletGrowthLift caps out at 3x wallet growth, and 6422's tiers 4/5/6
+        // exist precisely to carry past that cap. A bot that actually tripled its
+        // bankroll would have stopped scaling at exactly the moment scaling
+        // started to matter.
+        //
+        // Mode-scoped, matching the isPaper6867 split directly above: paper
+        // streaks must not lift live buys and vice versa. The ratio is
+        // currentWallet/baseline from the matching half of 6416, which is the
+        // same baseline walletTierLift6416 is already computed against — one
+        // definition of wallet growth, not a second one invented here.
+        //
+        // This multiplies INTO growthLift6416, so it passes through the
+        // canExpandRisk gate added in 6950: a winning streak compounds, and a
+        // streak that runs while the wallet is under its 24h high does not. That
+        // ordering is deliberate — compounding into a drawdown is the reward
+        // hacking 6439 exists to refuse.
+        val runnerCompoundLift6956 = try {
+            val baseline6956 = if (isPaper6867) {
+                com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.paperBaselineSolOrNull()
+            } else {
+                com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.liveBaselineSolOrNull()
+            }
+            val ratio6956 = if (baseline6956 != null && baseline6956 > 0.0 && walletSol > 0.0)
+                walletSol / baseline6956 else 1.0
+            val lift6956 = if (isPaper6867) {
+                com.lifecyclebot.engine.truth.RunnerAutoCompound6422.paperTotalLift(ratio6956)
+            } else {
+                com.lifecyclebot.engine.truth.RunnerAutoCompound6422.liveTotalLift(ratio6956)
+            }
+            if (lift6956.isFinite() && lift6956 >= 1.0) {
+                if (lift6956 > 1.0) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "RUNNER_AUTO_COMPOUND_APPLIED_6956",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$laneKey " +
+                                "mode=${if (isPaper6867) "PAPER" else "LIVE"} wallet=${walletSol.fmt(4)} " +
+                                "baseline=${baseline6956?.let { it.fmt(4) } ?: "-"} ratio=${"%.2f".format(ratio6956)} " +
+                                "lift=${"%.2f".format(lift6956)} status=${com.lifecyclebot.engine.truth.RunnerAutoCompound6422.statusLine()}",
+                        )
+                        PipelineHealthCollector.labelInc("RUNNER_AUTO_COMPOUND_APPLIED_6956")
+                    } catch (_: Throwable) {}
+                }
+                lift6956
+            } else 1.0
+        } catch (_: Throwable) { 1.0 }
+        val growthLift6416 = laneWinBump6416 * walletTierLift6416 * runnerCompoundLift6956
         // V5.0.6950 §THE_GUARD_THAT_WATCHED_AND_WAS_NEVER_ASKED.
         //
         // AntiRewardHackingGuard6439 exists for one operator directive: "Bad
