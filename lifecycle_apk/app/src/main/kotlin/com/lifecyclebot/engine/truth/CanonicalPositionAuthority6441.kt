@@ -994,8 +994,59 @@ object CanonicalPositionAuthority6441 {
             // SOL/token (pre-V5.0.6539 CanonicalPaperTransaction6486.add
             // stored costSol/qty as fillPrice — the exact bug this
             // replaces).
-            fun replayFillPriceUnitOk6541(fillPrice: Double, costSol: Double, qtyRaw: BigInteger, quantityScale: Int): Boolean {
+            // V5.0.6901 §THE_UNIT_CHECK_WAS_SOLANA_ONLY_AND_JUDGED_EVERYTHING.
+            //
+            // The identity below is specifically a Solana-token one:
+            //   USD/token x tokens / SOL  =  implied SOL/USD  (~200, so 5..10000)
+            // It holds only when fillPrice really is USD per token AND qtyRaw
+            // really is a token count. Cross-asset positions satisfy neither:
+            // CryptoAltTrader opens them on a notional convention with
+            // qty = 1.000, so fillPrice x qty is not a USD notional and the
+            // ratio collapses by orders of magnitude.
+            //
+            // Operator 5.0.6899, straight from the journal:
+            //   HTmQz7 (solana) entry=6.078e-4 qty=1.493e5 cost=0.9132 ->   99.4  ok
+            //   3oo8et (solana) entry=4.180e-5 qty=2.794e6 cost=1.1760 ->   99.3  ok
+            //   base|0 (cross)  entry=7.432e-11 qty=1.000  cost=0.1968 -> 3.8e-10 rejected
+            // so every CRYPTO_ALT / CRYPTO_LEV / CRYPTO_SPOT event was being
+            // quarantined on a test that cannot apply to it:
+            //   REPLAY_FILL_PRICE_UNIT_REJECTED_6541 = 250
+            //   LEGACY_REPLAY_QUARANTINED_6630       = 250
+            //   canonical sumCheck QUARANTINED       = 80
+            //
+            // And the cost is not just those positions. A quarantined event is
+            // skipped by the journal replay, which sets skippedEvents6899 > 0,
+            // which makes totalsComplete6899 false (V5.0.6899), which keeps
+            // ForensicReconciliation6635 out of RECONCILED, which fires the
+            // BotService:17091 early return on every cycle
+            // (GROWTH_MILESTONE_BLOCKED_UNRECONCILED_OR_UNPRICED_6647 = 57 of
+            // 57) and so leaves the growth ring at bumps=0, the
+            // AntiRewardHackingGuard6439 at high24hSol=0.00000 and unable to
+            // veto anything, and all four acceptance conservation invariants
+            // failing. 6899 correctly separated "no anomaly" from "totals
+            // complete"; this is the anomaly that was making the totals
+            // incomplete in the first place.
+            //
+            // Scoped the same way V5.0.6724 scoped the stale-mark refresh: a
+            // genuine base58 Solana mint. Anything else (chain|token, perps:*,
+            // robinhood|*, unresolved, ASSET_*) keeps its stored fill price.
+            // Nothing is loosened for Solana tokens — the band is unchanged
+            // for every identity the test was ever valid for.
+            val base58Solana6901 = Regex("^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+            fun replayFillPriceUnitOk6541(
+                fillPrice: Double, costSol: Double, qtyRaw: BigInteger, quantityScale: Int,
+                mint: String,
+            ): Boolean {
                 if (!fillPrice.isFinite() || fillPrice <= 0.0) return false
+                if (!base58Solana6901.matches(mint.trim())) {
+                    // Cross-asset identity — the USD/token x tokens identity does
+                    // not hold, so this test has no opinion. Trust the stored
+                    // price rather than quarantining a position it cannot judge.
+                    try {
+                        PipelineHealthCollector.labelInc("REPLAY_FILL_PRICE_UNIT_SKIPPED_CROSS_ASSET_6901")
+                    } catch (_: Throwable) {}
+                    return true
+                }
                 val qty = try { PaperTokenQuantityAuthority6509.decode(qtyRaw, quantityScale) } catch (_: Throwable) { 0.0 }
                 if (!qty.isFinite() || qty <= 0.0 || costSol <= 0.0) return false
                 val impliedSolUsd = (fillPrice * qty) / costSol
@@ -1057,7 +1108,7 @@ object CanonicalPositionAuthority6441 {
                         //   - fillPrice > 0 AND unitOk         => trust as USD/token, OPEN with basis
                         //   - fillPrice > 0 AND !unitOk        => durable event has SOL/token in USD field, QUARANTINE
                         //   - fillPrice == 0 (pure carry)      => no USD basis available, OPEN with entryPriceUsd=0
-                        val unitOk6541 = replayFillPriceUnitOk6541(e.fillPrice, e.executedCostSol, e.filledQty, e.quantityScale)
+                        val unitOk6541 = replayFillPriceUnitOk6541(e.fillPrice, e.executedCostSol, e.filledQty, e.quantityScale, e.mint)
                         val trustedPrice6541: Double = if (e.fillPrice > 0.0 && !unitOk6541) {
                             try {
                                 PipelineHealthCollector.labelInc("REPLAY_FILL_PRICE_UNIT_REJECTED_6541")
