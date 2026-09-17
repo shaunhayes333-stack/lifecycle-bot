@@ -260,6 +260,29 @@ class DataOrchestrator(
             onLog("$symbol: seeded $keylessSeeded6916 keyless candles (GeckoTerminal)", mint)
         }
 
+        // V5.0.6947 §REPORT_THE_REAL_REASON. This path checked the BUDGET gate
+        // and never the circuit, so a permanently dead 401 key surfaced as
+        // BIRDEYE_SEED_SKIPPED_BUDGET x662 in the operator snapshot — "budget
+        // throttled" when the truth is "the key is dead and no budget will ever
+        // fix it". A misleading reason is worse than no reason: it sends the
+        // operator to raise a quota instead of rotating a credential.
+        val authDead6947 = try {
+            com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402
+                .isAuthTerminal(com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.BIRDEYE)
+        } catch (_: Throwable) { false }
+        if (authDead6947) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BIRDEYE_SEED_SKIPPED_AUTH_DEAD_6947")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "BIRDEYE_SEED_SKIPPED_AUTH_DEAD_6947",
+                    "mint=${mint.take(10)} symbol=$symbol reason=birdeye_401_key_dead " +
+                        "keylessBars=$keylessSeeded6916 recovery=rotate_key_in_settings " +
+                        "note=not_a_budget_problem",
+                )
+            } catch (_: Throwable) {}
+            return
+        }
+
         val budgetOk = try {
             com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()
         } catch (_: Throwable) { true }

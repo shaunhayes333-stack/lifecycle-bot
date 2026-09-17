@@ -296,7 +296,6 @@ object PriceAggregator {
     private fun getSourcesForType(type: AssetType, symbol: String): List<DataSource> {
         return when (type) {
             AssetType.CRYPTO -> if (resolveSolanaMint(symbol) != null) listOf(
-                DataSource.DEXPAPRIKA,
                 DataSource.RAYDIUM_V3,
                 DataSource.JUPITER,
                 DataSource.JUPITER_LITE,
@@ -331,7 +330,6 @@ object PriceAggregator {
                 DataSource.JUPITER,
                 DataSource.JUPITER_LITE,
                 DataSource.RAYDIUM_V3,
-                DataSource.DEXPAPRIKA,
                 DataSource.GECKO_TERMINAL,
                 DataSource.DIA_DATA,
                 DataSource.COINCAP,
@@ -420,7 +418,6 @@ object PriceAggregator {
             DataSource.GECKO_TERMINAL -> fetchGeckoTerminal(symbol)
             DataSource.DIA_DATA -> fetchDiaData(symbol)
             DataSource.JUPITER_LITE -> fetchJupiterLite(symbol)
-            DataSource.DEXPAPRIKA -> fetchDexPaprika(symbol)
             DataSource.RAYDIUM_V3 -> fetchRaydiumV3(symbol)
             DataSource.COINPAPRIKA -> fetchCoinPaprika(symbol)
             DataSource.COINCAP -> fetchCoinCap(symbol)
@@ -780,24 +777,8 @@ object PriceAggregator {
         } catch (_: Exception) { null }
     }
 
-    /** V5.0.6512 — DexPaprika keyless Solana token market data. Mint-only;
-     *  symbol ambiguity is rejected by resolveSolanaMint before any request.
-     */
-    private suspend fun fetchDexPaprika(symbol: String): PriceResult? = withContext(Dispatchers.IO) {
-        try {
-            val mint = resolveSolanaMint(symbol) ?: return@withContext null
-            val request = Request.Builder()
-                .url("https://api.dexpaprika.com/networks/solana/tokens/$mint")
-                .header("User-Agent", "lifecycle-bot-android/6.0").build()
-            client.newCall(request).execute().use { resp ->
-                if (!resp.isSuccessful) return@withContext null
-                val json = JSONObject(resp.body?.string() ?: return@withContext null)
-                if (!json.optString("id", "").equals(mint, true)) return@withContext null
-                val price = json.optJSONObject("summary")?.optDouble("price_usd", 0.0) ?: 0.0
-                if (price > 0.0) PriceResult(price, calcChange(symbol, price), "DEXPAPRIKA") else null
-            }
-        } catch (_: Throwable) { null }
-    }
+    // V5.0.6946 — fetchDexPaprika removed with the DEXPAPRIKA DataSource:
+    // api.dexpaprika.com went HTTP 402 (paid) and scored sr=0% over 30 5xx.
 
     /** V5.0.6065 — Raydium v3 keyless mint price endpoint.
      *  Endpoint: api-v3.raydium.io/mint/price?mints={mint}

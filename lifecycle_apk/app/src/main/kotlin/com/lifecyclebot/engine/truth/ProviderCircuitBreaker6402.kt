@@ -112,6 +112,16 @@ object ProviderCircuitBreaker6402 {
         nowMs: Long = System.currentTimeMillis(),
     ) {
         val s = st(p)
+        // V5.0.6947 — a provider whose credentials are DEAD cannot be
+        // rate-limited in any meaningful sense; the circuit is already open and
+        // every call short-circuits. Recording 429s against it inflates
+        // consecutiveRateLimits, stretches a backoff nothing is waiting on, and
+        // publishes PROVIDER_CIRCUIT_RATE_LIMITED_* counters that make an auth
+        // failure read like a throttling problem. The operator snapshot showed
+        // exactly that shape for Birdeye: AUTH_TERMINAL=1 alongside
+        // RATE_LIMITED=10. Auth terminal is the louder fact; keep it the only
+        // one reported.
+        if (s.authTerminal) return
         s.consecutiveRateLimits++
         s.lastRateLimitAt = nowMs
         val exp = RATE_LIMIT_BASE_BACKOFF_MS * (1L shl minOf(s.consecutiveRateLimits - 1, 6))
