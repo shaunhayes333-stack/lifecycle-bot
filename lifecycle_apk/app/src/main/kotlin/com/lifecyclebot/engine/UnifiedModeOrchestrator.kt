@@ -75,7 +75,10 @@ object UnifiedModeOrchestrator {
     ) {
         val winRate: Double get() = if (wins + losses > 0) wins.toDouble() / (wins + losses) * 100 else 0.0
         val avgPnlPct: Double get() = if (trades > 0) totalPnlPct / trades else 0.0
-        val isHealthy: Boolean get() = winRate >= 40.0 || (wins + losses) < 10  // Need 10+ decisive trades to judge
+        // V5.0.6870 — same sampling argument as the deactivation guard: ten decisive
+        // trades cannot separate a 45%-WR mode from a 25%-WR one, and a fat-tailed
+        // winner is healthy at a low hit rate if its average PnL is positive.
+        val isHealthy: Boolean get() = winRate >= 40.0 || avgPnlPct > 0.0 || (wins + losses) < 40
     }
     
     /**
@@ -252,18 +255,46 @@ object UnifiedModeOrchestrator {
             } catch (_: Exception) { 0.0 }
             val isBootstrapPhase = isPaperMode && learningProgress < 0.40  // V5.0.4021: paper-only; live adapts from trade 1
 
+            // V5.0.6870 §TEN_TRADES_IS_NOT_EVIDENCE — live used minTrades=10 with a
+            // 30% win-rate bar. At n=10 that is close to a coin flip: a mode whose
+            // TRUE win rate is 45% still shows 3 or fewer wins in ten decisive trades
+            // roughly a quarter of the time, so about one in four genuinely good live
+            // modes was switched off by sampling noise alone. There is no automatic
+            // reactivation — activateMode() is only reached manually or from
+            // SelfHealingDiagnostics' all-modes-dead sweep — and ModeStats are
+            // cumulative, so a deactivated mode takes no further trades and can never
+            // recover the average that condemned it. The kill was permanent.
+            //
+            // Win rate alone is also the wrong test for this book. A meme mode whose
+            // edge comes from occasional 10x runners routinely sits under 30% WR while
+            // being strongly profitable — that IS the moonshot profile the doctrine is
+            // hunting. Judging it on hit rate would retire the exact strategy the
+            // operator wants most.
+            //
+            // So: a real sample AND genuine unprofitability. Anything with positive
+            // average PnL stays on regardless of hit rate. This also aligns the live
+            // path with the standing "don't disable, re-educate" mandate (V5.9.1358)
+            // that the rest of the stack follows.
             val minTrades = when {
                 isBootstrapPhase -> Int.MAX_VALUE  // Never deactivate in bootstrap
                 isPaperMode -> 150                                 // Post-bootstrap paper: need more data
-                else -> 10                                         // Live: judge quickly
+                else -> 40                                         // Live: enough to beat sampling noise
             }
             val minWinRate = if (isPaperMode) 8.0 else 30.0
 
             // Guard uses decisive trades (wins+losses), not raw trade count
-            if (decisiveCount >= minTrades && stats.winRate < minWinRate) {
+            if (decisiveCount >= minTrades && stats.winRate < minWinRate && stats.avgPnlPct <= 0.0) {
                 stats.isActive = false
-                stats.deactivationReason = "Win rate ${stats.winRate.toInt()}% < ${minWinRate.toInt()}% after $decisiveCount decisive trades"
+                stats.deactivationReason = "Win rate ${stats.winRate.toInt()}% < ${minWinRate.toInt()}% AND avgPnl ${"%.2f".format(stats.avgPnlPct)}% <= 0 after $decisiveCount decisive trades"
                 ErrorLogger.warn(TAG, "Deactivated ${mode.label}: ${stats.deactivationReason}")
+            } else if (decisiveCount >= minTrades && stats.winRate < minWinRate) {
+                // Low hit rate but net positive — a fat-tailed winner. Say so, so the
+                // dumps show this was considered and kept rather than silently missed.
+                ErrorLogger.info(
+                    TAG,
+                    "Kept ${mode.label}: WR ${stats.winRate.toInt()}% below ${minWinRate.toInt()}% but avgPnl " +
+                        "${"%.2f".format(stats.avgPnlPct)}% is positive over $decisiveCount decisive trades (fat-tail profile)",
+                )
             }
             
         } catch (e: Exception) {
