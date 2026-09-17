@@ -90,6 +90,12 @@ data class Position(
     var lastRoutePrice: Double = 0.0,        // last on-route price tick
     var lastRoutePriceTs: Long = 0L,         // wallclock of last on-route tick
     var routeLockRejects: Long = 0L,         // # of off-route reads filtered
+    // V5.0.6895 — count of cross-basis marks refused on a PAPER position.
+    // Route-lock above is live-only and the V5.9.744 rebase is gated on a
+    // blank positionId (V5.0.6636), which every canonical position fails —
+    // so paper had no basis protection and booked a +15,532% partial on a
+    // bonding-curve-vs-AMM mismatch. See Executor.getActualPrice §6895.
+    var crossBasisRefusals6895: Long = 0L,
     // V5.9.1564 — two-strike state for tick-time HARD_FLOOR (prevents single-tick
     // basis-switch phantom reads from cutting real winners). Set true when a tick
     // sees pnl <= TICK_HARD_FLOOR_PCT for the FIRST time; the next tick (if also

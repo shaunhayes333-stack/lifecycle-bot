@@ -84,6 +84,22 @@ data class MintEntryMarketSnapshot(
 // route lull us into ignoring real moves.
 private const val ROUTE_LOCK_MAX_STALENESS_MS: Long = 60_000L
 
+// V5.0.6895 — cross-source comparability band for PAPER marks.
+//
+// A quote arriving on a DIFFERENT source from the one the entry was stamped
+// on is only comparable to that entry if the two sit on the same basis. A
+// pump.fun bonding-curve entry (mcap/1B) against a post-graduation AMM quote
+// differs by orders of magnitude, and operator 5.0.6892 shows what that books:
+// a +15,532% partial on EaxKqb, QUALITY averaging +3170% on a 5/21 record.
+//
+// 10x is deliberately generous. A genuine runner on a STABLE source is never
+// touched by this at any multiple — the 10x-1000x doctrine (V5.9.1358) is not
+// negotiable, and this gate requires a source change before it looks at
+// magnitude at all. What it catches is the discontinuous one-tick jump that
+// only a basis switch produces. Anything inside the band still flows through
+// untouched, so a cross-source move that is merely large stays tradeable.
+private const val CROSS_BASIS_MAX_RATIO_6895: Double = 10.0
+
 // V5.0.6054 — REAL PRICE SOURCES for route-lock enforcement.
 // Anything NOT in this set is treated as symbolic/recovery basis (e.g.
 // LIVE_PROOF_COST_BASIS, RESTORED_LIVE_BASIS_UNKNOWN, SYNTH_COST_DIV_QTY,
@@ -719,6 +735,90 @@ class Executor(
             ErrorLogger.warn("Executor",
                 "🩹 ROUTE_LOCK_SELF_HEAL ${ts.symbol}: entryPriceSource $old → ${ts.lastPriceSource} " +
                 "(first real tick, price=$livePrice)")
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // V5.0.6895 §PAPER_HAD_NO_BASIS_PROTECTION_AT_ALL
+        // ═══════════════════════════════════════════════════════════════
+        // Two gates below combine to leave paper positions completely
+        // unguarded against a basis switch:
+        //   * route-lock (above) is gated on `!pos.isPaperPosition`
+        //   * the V5.9.744 rebase (below) is gated on
+        //     `pos.positionId.isBlank()` (V5.0.6636, "immutable canonical
+        //     fills never rebase") — and EVERY canonical position has a
+        //     positionId, so that rebase cannot fire on anything real.
+        // The mechanism built to fix pump.fun-BC -> AMM basis switches has
+        // therefore been inert, and paper had no fallback.
+        //
+        // Operator 5.0.6892 is what that costs:
+        //   PARTIAL_SELL EaxKqb sol=1.954085 pnl=+1.941522 cost=0.0125
+        //     -> +15,532% booked, then the remainder closed at pnl=-0.037
+        //   QUALITY  W/L=5/21  mu=+3170.2%
+        //   BLUECHIP W/L=7/14  mu=+6537.9%
+        // You cannot average +6537% on a 33% win rate unless individual rows
+        // are astronomically wrong. Those rows are entry priced on the
+        // bonding-curve basis (mcap/1B) against a mark priced on the AMM
+        // basis. The gain is arithmetic, not economic — and it is banked as
+        // real paper cash by partial_25pct, then taught to the tactic
+        // switcher, the lane damper, the forward-outcome model and the policy
+        // head as evidence that QUALITY prints money. That is why the bot
+        // keeps loading QUALITY while its true EV is -28.75%/trade.
+        //
+        // 6636 is right that a canonical entry price must never be mutated.
+        // So this does not rebase anything: when the mark is not comparable
+        // to the entry, it REFUSES the mark, exactly as route-lock already
+        // does for live. Fresh on-route price if we have one, else entryPrice
+        // (neutral 0%), which is the same doctrine live has had since 6052.
+        //
+        // The discriminator is a SOURCE CHANGE, not magnitude. A genuine
+        // 10x-1000x runner on a stable source is untouched — that doctrine is
+        // never negotiable (V5.9.1358). Only a cross-source jump outside the
+        // band is treated as a basis artefact, because a basis switch appears
+        // in one discontinuous tick while a real runner climbs through
+        // intermediate prices on the same feed.
+        //
+        // NOTE on direction: V5.0.6261 lets an off-route PROFIT through for
+        // LIVE, reasoning that the sell tx itself proves it. Paper has no sell
+        // tx — a phantom profit there is booked straight into cash and into
+        // every learner. In paper a phantom gain is therefore MORE dangerous
+        // than a phantom loss, so both directions are refused.
+        if (livePrice != null && pos.isOpen && pos.isPaperPosition &&
+            pos.entryPrice > 0.0 &&
+            pos.entryPriceSource.isNotBlank() && ts.lastPriceSource.isNotBlank() &&
+            isRealPriceSource(pos.entryPriceSource) && isRealPriceSource(ts.lastPriceSource)) {
+            if (pos.entryPriceSource == ts.lastPriceSource) {
+                // On-basis tick — cache it so a later cross-source read has
+                // something truthful to fall back to.
+                pos.lastRoutePrice = livePrice
+                pos.lastRoutePriceTs = System.currentTimeMillis()
+            } else {
+                val ratio6895 = livePrice / pos.entryPrice
+                val outOfBand6895 = !ratio6895.isFinite() ||
+                    ratio6895 > CROSS_BASIS_MAX_RATIO_6895 ||
+                    ratio6895 < (1.0 / CROSS_BASIS_MAX_RATIO_6895)
+                if (outOfBand6895) {
+                    val onRouteAge6895 = System.currentTimeMillis() - pos.lastRoutePriceTs
+                    val fallback6895 = if (pos.lastRoutePrice > 0.0 && onRouteAge6895 < ROUTE_LOCK_MAX_STALENESS_MS) {
+                        pos.lastRoutePrice
+                    } else pos.entryPrice
+                    pos.crossBasisRefusals6895 += 1
+                    if (pos.crossBasisRefusals6895 % 20L == 1L) {
+                        try {
+                            PipelineHealthCollector.labelInc("PAPER_CROSS_BASIS_MARK_REFUSED_6895")
+                            ForensicLogger.lifecycle(
+                                "PAPER_CROSS_BASIS_MARK_REFUSED_6895",
+                                "mint=${ts.mint.take(10)} sym=${ts.symbol} " +
+                                    "entrySrc=${pos.entryPriceSource} tickSrc=${ts.lastPriceSource} " +
+                                    "entry=${pos.entryPrice} tick=$livePrice ratio=${"%.4g".format(ratio6895)} " +
+                                    "band=$CROSS_BASIS_MAX_RATIO_6895 served=$fallback6895 " +
+                                    "refusals=${pos.crossBasisRefusals6895} " +
+                                    "action=refuse_incomparable_mark_do_not_book_or_learn",
+                            )
+                        } catch (_: Throwable) {}
+                    }
+                    return fallback6895
+                }
+            }
         }
 
         // Detect source-basis switch on an open position.
@@ -3331,6 +3431,30 @@ class Executor(
             // exact row 6835 exists to keep out of strategy expectancy,
             // losing-pattern memory, the forward-outcome model and the policy
             // head — so it is journalled for audit and trained on by nothing.
+            // V5.0.6895 §A_BASIS_SPLIT_POSITION_IS_NOT_EVIDENCE — if this
+            // position ever served a refused cross-basis mark, its entry and
+            // its marks were never on the same basis, so its terminal PnL
+            // describes arithmetic rather than economics. Journal it for audit;
+            // train nothing on it.
+            //
+            // This is the row that taught the stack QUALITY prints +3170% on a
+            // 5/21 record. Excluding it is what lets LaneExpectancyDamper, the
+            // tactic switcher, ForwardOutcomeModel and the policy head finally
+            // see QUALITY's real -28.75%/trade and rotate away from it — the
+            // win-rate fix is in the exclusion, not in any new signal.
+            else if (ts.position.crossBasisRefusals6895 > 0L) {
+                try {
+                    PipelineHealthCollector.labelInc("LEARNING_EXCLUDED_CROSS_BASIS_6895")
+                    ForensicLogger.lifecycle(
+                        "LEARNING_EXCLUDED_CROSS_BASIS_6895",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} " +
+                            "refusals=${ts.position.crossBasisRefusals6895} " +
+                            "entrySrc=${ts.position.entryPriceSource} pnlPct=${tradeWithMint.pnlPct} " +
+                            "action=journal_only_no_learning_fanout",
+                    )
+                } catch (_: Throwable) {}
+                false
+            }
             else if (tradeWithMint.reason.contains("MARK_UNTRUSTED_6882")) {
                 try {
                     PipelineHealthCollector.labelInc("LEARNING_EXCLUDED_MARK_UNTRUSTED_6882")
