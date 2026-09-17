@@ -1965,6 +1965,14 @@ object PipelineHealthCollector {
             sb.append("  Entry conviction (§6909):     ").append(
                 com.lifecyclebot.engine.truth.EntryConvictionRegistry6909.statusLine()
             ).append("\n")
+            // V5.0.6915 — the predictive oracle. Read this FIRST when asking
+            // "is the bot trading on evidence or guessing": evals>0 means the
+            // stack is consulted before capital commits, cellEvidence/
+            // laneEvidence show which level of the hierarchy is carrying the
+            // estimate, and noEvidence counts genuine cold starts.
+            sb.append("  Predictive oracle (§6915):    ").append(
+                com.lifecyclebot.engine.truth.PredictiveEntryOracle6915.statusLine()
+            ).append("\n")
             sb.append("  Same-mint dedup (§6441):      ").append(
                 com.lifecyclebot.engine.truth.SameMintDedupAuthority6441.statusLine()
             ).append("\n")

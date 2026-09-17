@@ -22088,6 +22088,8 @@ if (hotExitHandledSweep) {
                 entryScore = ExecutableOpenGate.entryScoreFor6909(identity.mint),
                 minExecutableSol = 0.0,
                 probeSizeSol = 1.0,
+                // V5.0.6915 — see ExecutableOpenGate's matching call.
+                sourceFamilyHint = ts.source,
             )
         } catch (_: Throwable) {
             com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Decision(

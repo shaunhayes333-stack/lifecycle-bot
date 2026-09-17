@@ -97,6 +97,24 @@ object LearnedAdmissionAuthority6846 {
      *  cohorts stay fully admitted. */
     private const val COHORT_NEGATIVE_PWIN_MAX_6909 = 0.20
 
+    // ── §2c V5.0.6915 oracle expectancy refusal ─────────────────────────
+    /**
+     * Effective confidence (as a sample count) the oracle must carry before
+     * its negative expectancy may throttle admission. 8 matches MATURITY_MIN_N
+     * on purpose: the oracle earns the same standing as a genuinely mature
+     * cohort, no more. Its confidence maps 1.0 -> 16, so this is ~0.50
+     * confidence — above its own internal refuse floor of 0.45.
+     */
+    private const val ORACLE_MIN_CONFIDENT_N_6915 = 8
+
+    /**
+     * Expectancy (FRACTION per trade) at or below which a confident oracle
+     * estimate throttles. -0.08 = losing 8% per trade on blended evidence.
+     * PROJECT_SNIPER's observed -37.92% clears this by a factor of nearly five;
+     * CRYPTO_LEV's +7.06% is nowhere near it.
+     */
+    private const val ORACLE_REFUSE_EV_6915 = -0.08
+
     /** Probe window per dead cohort. One admission per window, so a proven
      *  cohort keeps learning without manufacturing entry volume. */
     private const val COHORT_PROBE_WINDOW_DEAD_MS_6909 = 900_000L
@@ -216,6 +234,45 @@ object LearnedAdmissionAuthority6846 {
                 return deny("REGIME_DUMP_MATURE_NEGATIVE", inputs,
                     "dump n=${inputs.cohortSample} lanePWin=${"%.2f".format(lanePWin)} lossRate=${"%.2f".format(laneLossRate)}")
             }
+        }
+
+        // ── §2c V5.0.6915 §THE_ORACLE_MUST_BE_ABLE_TO_SAY_NO ───────────────
+        //
+        // Operator: "the brains are meant to contribute way more than trade
+        // size!!!"
+        //
+        // PredictiveEntryOracle6915 blends cell/lane/global expectancy by
+        // shrinkage and folds in AutonomousMetaPolicy, SemanticPatternGraph,
+        // SsiPilotCouncil and realised source expectancy. Unlike every earlier
+        // brain read, it ALWAYS returns an estimate — a thin cell falls back to
+        // its lane, a thin lane to the book — so there is no longer any state
+        // in which the intelligence stack has nothing to say at admission time.
+        //
+        // Its expectancy arrives here as `expectedPnl` and its confidence as
+        // `cohortSample` (see LearnedAdmissionInputs6909 for that mapping). The
+        // rule below is the only thing in this authority that can refuse on
+        // expectancy ALONE, without also requiring a particular regime or a
+        // low win rate — because a fat-tailed cohort is allowed to have a
+        // terrible win rate and still be the best trade on the board.
+        //
+        // WHY THIS DOES NOT CAP RUNNERS. Expectancy is mean PnL. A single 10x
+        // lifts a cohort's mean enormously, so the exact cohorts that produce
+        // runners score HIGHEST here. What scores low is a cohort that loses
+        // steadily with no tail — PROJECT_SNIPER at 0/11 and EV -37.92%, which
+        // is what the operator has been watching bleed.
+        //
+        // PROBE_ONLY, not DENY, and metered by the same cohort budget as §2b:
+        // a grave still gets a trickle so it can prove it has healed.
+        if (inputs.cohortSample >= ORACLE_MIN_CONFIDENT_N_6915 &&
+            inputs.expectedPnl <= ORACLE_REFUSE_EV_6915
+        ) {
+            val cohortKey6915 = "$laneKey|S${inputs.scoreBand}|ORACLE"
+            val budgeted = cohortProbeBudgetAllows6909(cohortKey6915, provenDead = true)
+            val detail = "cohort=$cohortKey6915 effN=${inputs.cohortSample} " +
+                "oracleEV=${"%.4f".format(inputs.expectedPnl)} " +
+                "pWin=${"%.2f".format(inputs.livePWin)} budgeted=$budgeted"
+            return if (budgeted) probe("ORACLE_NEGATIVE_EXPECTANCY_6915", inputs, detail)
+            else deny("ORACLE_PROBE_BUDGET_6915", inputs, detail)
         }
 
         // ── §2b V5.0.6909 §COHORT_EVIDENCE_IS_NOT_A_REGIME_PRIVILEGE ───────

@@ -2711,6 +2711,9 @@ object ExecutableOpenGate {
                 entryScore = scoreNow6909,
                 minExecutableSol = 0.0,
                 probeSizeSol = 1.0,
+                // V5.0.6915 — discovery source reaches the oracle so realised
+                // per-source expectancy counts toward the entry decision.
+                sourceFamilyHint = source,
             ).also {
                 entryAuthority6487[authorityKey6487(mint, candidateVersion)] = it
             }

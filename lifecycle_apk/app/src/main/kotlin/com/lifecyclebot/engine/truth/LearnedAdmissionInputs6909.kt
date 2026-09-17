@@ -58,6 +58,12 @@ object LearnedAdmissionInputs6909 {
     // this is high, the regime-keyed blindness was the whole problem.
     private val aggregateUsed6911 = AtomicLong(0L)
     private val matureCohorts6911 = AtomicLong(0L)
+    // V5.0.6915 — oracle reach. reads>0 proves the stack is consulted before
+    // capital commits at all; the verdict split shows what it concluded.
+    private val oracleReads6915 = AtomicLong(0L)
+    private val oracleAdmit6915 = AtomicLong(0L)
+    private val oracleProbe6915 = AtomicLong(0L)
+    private val oracleRefuse6915 = AtomicLong(0L)
 
     /**
      * Assemble admission inputs for (lane, mint) from the live learned
@@ -72,6 +78,10 @@ object LearnedAdmissionInputs6909 {
         entryScore: Int,
         minExecutableSol: Double,
         probeSizeSol: Double,
+        // V5.0.6915 — discovery source, so the oracle can read the source
+        // scorecard's realised expectancy. Blank is tolerated and simply
+        // drops that one input.
+        sourceFamilyHint: String = "",
     ): LearnedAdmissionAuthority6846.Inputs {
         assembled.incrementAndGet()
         val laneKey = lane.trim().uppercase().ifBlank { "UNKNOWN" }
@@ -131,6 +141,56 @@ object LearnedAdmissionInputs6909 {
             aggregateUsed6911.incrementAndGet()
             if (agg6911!!.samples >= 8L) matureCohorts6911.incrementAndGet()
         }
+
+        // V5.0.6915 §THE_ORACLE_IS_THE_EVIDENCE_SOURCE.
+        //
+        // Operator: "the brains are meant to contribute way more than trade
+        // size!!!" — and: "a human can guess. Aate should never."
+        //
+        // Up to 6914 this assembler fed the admission authority a raw
+        // per-cohort cell, which returned bootstrap on 3,191 of 3,191 reads
+        // (matureCohorts6911=1), so §2b's expectancy test could never fire and
+        // admission always said yes. PredictiveEntryOracle6915 replaces that
+        // single sparse cell with a hierarchical shrinkage estimate over
+        // cell/lane/global PLUS bounded reads from AutonomousMetaPolicy,
+        // SemanticPatternGraph, SsiPilotCouncil and the source scorecard. It
+        // always produces an estimate, because a lane or the book as a whole
+        // always has evidence even when a cell does not.
+        //
+        // The oracle's CONFIDENCE is mapped onto cohortSample, which is what
+        // 6846's maturity tests read. That is the whole unlock: maturity stops
+        // meaning "this exact cell has 8 closes" and starts meaning "the
+        // hierarchy behind this candidate carries enough weight to act on",
+        // without changing a single existing threshold.
+        // V5.0.6915 — realised per-source expectancy. Read once here and
+        // shared with 6846's §5, which has been inert since 6909 only because
+        // the scorecard had no accessor.
+        val srcExp6915 = try {
+            com.lifecyclebot.engine.SourceFamilyOpportunityScorecard
+                .expectancyFor6915(sourceFamilyHint)
+        } catch (_: Throwable) { null }
+        val oracle6915 = try {
+            PredictiveEntryOracle6915.evaluate(
+                lane = laneKey,
+                score = entryScore.coerceAtLeast(0),
+                sourceFamily = sourceFamilyHint,
+                regime = regime,
+            )
+        } catch (_: Throwable) { null }
+        if (oracle6915 != null) {
+            oracleReads6915.incrementAndGet()
+            when (oracle6915.verdict) {
+                PredictiveEntryOracle6915.Verdict.REFUSE -> oracleRefuse6915.incrementAndGet()
+                PredictiveEntryOracle6915.Verdict.PROBE -> oracleProbe6915.incrementAndGet()
+                PredictiveEntryOracle6915.Verdict.ADMIT -> oracleAdmit6915.incrementAndGet()
+            }
+        }
+        // Confidence 0..1 -> an effective sample count on the same scale the
+        // maturity constants use (MATURITY_MIN_N=8, DUMP_STRONG_MIN_N=10).
+        // 1.0 confidence maps to 16 so a fully-evidenced candidate clears every
+        // existing gate; 0.45 (the oracle's own refuse floor) maps to ~7, just
+        // under MATURITY_MIN_N, so a thin estimate still cannot deny.
+        val oracleEffectiveN6915 = ((oracle6915?.confidence ?: 0.0) * 16.0).toInt().coerceIn(0, 16)
         val cohortSample = if (useAgg6911) {
             agg6911!!.samples.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
         } else {
@@ -143,19 +203,27 @@ object LearnedAdmissionInputs6909 {
             requestedSizeSol = requestedSizeSol.coerceAtLeast(0.0),
             scoreBand = entryScore.coerceAtLeast(0),
             regime = regime,
-            livePWin = if (useAgg6911) agg6911!!.pWin.coerceIn(0.0, 1.0)
+            // V5.0.6915 — the oracle's blended estimate is preferred over any
+            // single cell. It is always present once anything has closed, which
+            // is what ends the "pWin=0.65 EV=0.0 hardcoded prior" state.
+            livePWin = oracle6915?.pWin?.takeIf { it in 0.0..1.0 }
+                ?: if (useAgg6911) agg6911!!.pWin.coerceIn(0.0, 1.0)
                 else (fwd?.pWin ?: 0.0).coerceIn(0.0, 1.0),
-            expectedPnl = if (useAgg6911) (agg6911!!.expectedPnlPct / 100.0)
+            expectedPnl = oracle6915?.expectancyPct?.takeIf { it.isFinite() }?.div(100.0)
+                ?: if (useAgg6911) (agg6911!!.expectedPnlPct / 100.0)
                 else expectedPnlFraction,
-            cohortSample = cohortSample,
+            // Maturity now means "the hierarchy carries enough weight", not
+            // "this exact cell has 8 closes". No threshold in 6846 changed.
+            cohortSample = maxOf(cohortSample, oracleEffectiveN6915),
             laneWrPct = laneWrPct,
             laneLossRatePct = laneLossRatePct,
-            // Neutral — see "HONEST PARTIAL COVERAGE" above. sourceSample=0
-            // keeps §5 inert rather than guessing a source expectancy.
-            sourceFamily = "",
-            sourcePWin = 0.0,
-            sourceExpectedPnl = 0.0,
-            sourceSample = 0,
+            // V5.0.6915 — §5 source-family adaptation is no longer inert. The
+            // scorecard has tracked this since V5.0.4287 and had no read
+            // accessor; expectancyFor6915 supplies one.
+            sourceFamily = sourceFamilyHint,
+            sourcePWin = (srcExp6915?.winRatePct ?: 0.0) / 100.0,
+            sourceExpectedPnl = (srcExp6915?.meanPnlPct ?: 0.0) / 100.0,
+            sourceSample = srcExp6915?.closed ?: 0,
             policyHardBlock = false,
             brainSoftBlock = false,
             losingPatternMatch = false,
@@ -179,9 +247,14 @@ object LearnedAdmissionInputs6909 {
         entryScore: Int,
         minExecutableSol: Double,
         probeSizeSol: Double,
+        // V5.0.6915 — forwarded to the oracle for the source-expectancy read.
+        sourceFamilyHint: String = "",
     ): ExecutableEntryAuthority6450.Decision {
         return try {
-            val inputs = build(lane, mint, requestedSizeSol, entryScore, minExecutableSol, probeSizeSol)
+            val inputs = build(
+                lane, mint, requestedSizeSol, entryScore, minExecutableSol, probeSizeSol,
+                sourceFamilyHint,
+            )
             val decision = ExecutableEntryAuthority6450.gate(inputs)
             if (decision.verdict != ExecutableEntryAuthority6450.Verdict.ALLOW) {
                 try {
@@ -204,5 +277,7 @@ object LearnedAdmissionInputs6909 {
     fun statusLine(): String =
         "assembled=${assembled.get()} forecastBootstrapOrMissing=${forecastMissing.get()} " +
             "forecastResolved=${forecastResolved.get()} " +
-            "aggUsed6911=${aggregateUsed6911.get()} matureCohorts6911=${matureCohorts6911.get()}"
+            "aggUsed6911=${aggregateUsed6911.get()} matureCohorts6911=${matureCohorts6911.get()} " +
+            "oracle6915[reads=${oracleReads6915.get()} admit=${oracleAdmit6915.get()} " +
+            "probe=${oracleProbe6915.get()} refuse=${oracleRefuse6915.get()}]"
 }

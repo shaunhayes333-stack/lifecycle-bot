@@ -11,6 +11,52 @@ object SourceFamilyOpportunityScorecard {
     private val stats = ConcurrentHashMap<String, Stat>()
     private const val MAX_FAMILIES = 48
 
+    /**
+     * V5.0.6915 — READ ACCESSOR. This object has tracked per-source closed
+     * count, wins and realised PnL since V5.0.4287 and exposed it only through
+     * `snapshot()`, a display string. Six months of source-family expectancy
+     * was therefore unreadable by any decision path — the header calls itself
+     * "diagnostic ... No source block authority", which was accurate and is
+     * exactly the problem the operator named: the brains contribute nothing
+     * but trade size.
+     *
+     * PredictiveEntryOracle6915 reads this as one bounded input to entry
+     * expectancy. Still not a block authority on its own; it is evidence.
+     */
+    data class Expectancy6915(
+        val source: String,
+        val closed: Int,
+        val wins: Int,
+        val winRatePct: Double,
+        val pnlSol: Double,
+        val costSol: Double,
+        /** Realised PnL as a percentage of deployed cost. */
+        val meanPnlPct: Double,
+    )
+
+    fun expectancyFor6915(source: String): Expectancy6915? {
+        val key = source.trim().uppercase()
+        if (key.isEmpty()) return null
+        // Exact family first; otherwise the best substring match, because
+        // intake sources arrive as comma-joined composites
+        // ("PUMP_FUN_NEW,SCANNER_DIRECT,REGISTRY_DUPLICATE_HYDRATE") while the
+        // scorecard is keyed on the family.
+        val s = stats[key]
+            ?: stats.entries.firstOrNull { (k, _) -> k.isNotEmpty() && key.contains(k) }?.value
+            ?: return null
+        if (s.closed <= 0) return null
+        val meanPct = if (s.costSol > 0.0) (s.pnlSol / s.costSol) * 100.0 else 0.0
+        return Expectancy6915(
+            source = key,
+            closed = s.closed,
+            wins = s.wins,
+            winRatePct = s.wins * 100.0 / s.closed,
+            pnlSol = s.pnlSol,
+            costSol = s.costSol,
+            meanPnlPct = if (meanPct.isFinite()) meanPct.coerceIn(-100.0, 5000.0) else 0.0,
+        )
+    }
+
     fun recordDiscovered(source: String, hasRugOverlay: Boolean = false) = update(source) { discovered++; if (hasRugOverlay) this.rugOverlay++ }
     fun recordAdmitted(source: String, hasRugOverlay: Boolean = false) = update(source) { admitted++; if (hasRugOverlay) this.rugOverlay++ }
     fun recordOpened(source: String) = update(source) { opened++ }
