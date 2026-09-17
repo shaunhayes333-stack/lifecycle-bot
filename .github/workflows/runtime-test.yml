@@ -29,6 +29,23 @@ on:
 permissions:
   contents: read
 
+# V5.0.6887 — one smoke verdict per commit.
+# Commit e1e3191 (V5.0.6881) produced ONE "Build AATE APK" run and NINE
+# workflow_run-triggered smoke runs, all started within 15 minutes of each
+# other and all reaching the emulator. At up to 35 minutes of emulator time
+# each that is ~5 hours of runner time per push, and because Actions
+# serializes the queue it is also why every verification round trip in this
+# repo has been taking 13-16 minutes: the queue was full of duplicates of
+# itself. The trigger is already minimal (one workflows entry, one type), so
+# the duplication is in event delivery, not in the condition — a concurrency
+# group is the fix that holds regardless of how many times the event arrives.
+# Keyed on the built commit so pushes still get independent verdicts, and
+# superseded duplicates report `cancelled`, never `failure`, so a cancelled
+# duplicate can never be mistaken for a real red.
+concurrency:
+  group: runtime-smoke-${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
 jobs:
   smoke:
     runs-on: ubuntu-latest
