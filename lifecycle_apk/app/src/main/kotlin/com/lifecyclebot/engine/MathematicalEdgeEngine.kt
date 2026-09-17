@@ -114,6 +114,28 @@ object MathematicalEdgeEngine {
     }
 
     private fun clean(x: String?, fallback: String = "UNKNOWN"): String = x?.ifBlank { fallback }?.replace('\n',' ')?.replace('\r',' ')?.take(160) ?: fallback
+
+    // V5.0.6851 §NO_PLACEHOLDER_LEARNING_COHORTS — clean() substitutes "UNKNOWN" for a
+    // blank provenance string, and the terminal maps below used that result directly as a
+    // cohort KEY. A row whose lane or source was lost therefore did not get skipped — it
+    // founded a learning identity named UNKNOWN and every later orphan joined it.
+    // Operator 5.0.6846: "terminal by source: UNKNOWN n=32 W/L=0/32 WR=0.0%", sitting
+    // beside UNKNOWN|INTENT n=33 and UNKNOWN|TERMINAL_UNTRAINABLE n=32. That cohort is not
+    // a strategy, it is the debris of positions whose attribution was dropped at boot
+    // rebuild, and pooling them produces a statistic about nothing that downstream readers
+    // cannot distinguish from a real lane or a real source.
+    // Attribution that was lost must be counted and shown, never silently named.
+    private val PLACEHOLDER_IDENTITIES_6851 = setOf(
+        "", "UNKNOWN", "UNRESOLVED", "UNATTRIBUTED", "UNCLASSIFIED", "NONE", "NULL", "N/A",
+    )
+    private fun isAttributed6851(raw: String?): Boolean {
+        val v = raw?.trim()?.uppercase().orEmpty()
+        if (v in PLACEHOLDER_IDENTITIES_6851) return false
+        // Boot-rebuild placeholder from CanonicalPositionAuthority6441; see V5.0.6849 notes.
+        return !v.startsWith("UNRESOLVED_OWNER")
+    }
+    private val unattributedLaneTerminals6851 = AtomicLong(0)
+    private val unattributedSourceTerminals6851 = AtomicLong(0)
     private fun key(vararg parts: String): String = parts.joinToString("|") { clean(it).uppercase().take(48) }.take(160)
     private fun topStageKey(e: EdgeEvent): String = key(e.kind, e.stage)
     private fun ensureStarted() {
@@ -144,8 +166,17 @@ object MathematicalEdgeEngine {
             bySourceDecision.computeIfAbsent(key(e.source, e.decision)) { Stat() }.add(e)
             byModeDecision.computeIfAbsent(key(e.mode, e.decision)) { Stat() }.add(e)
             if (e.kind == "TERMINAL") {
-                byLaneTerminal.computeIfAbsent(clean(e.lane).uppercase()) { TerminalStat() }.add(e)
-                bySourceTerminal.computeIfAbsent(clean(e.source).uppercase()) { TerminalStat() }.add(e)
+                // V5.0.6851 — unattributed rows are counted, not named. See isAttributed6851.
+                if (isAttributed6851(e.lane)) {
+                    byLaneTerminal.computeIfAbsent(clean(e.lane).uppercase()) { TerminalStat() }.add(e)
+                } else {
+                    unattributedLaneTerminals6851.incrementAndGet()
+                }
+                if (isAttributed6851(e.source)) {
+                    bySourceTerminal.computeIfAbsent(clean(e.source).uppercase()) { TerminalStat() }.add(e)
+                } else {
+                    unattributedSourceTerminals6851.incrementAndGet()
+                }
             }
             remember(e)
             fanoutToExistingEdgeStack(e)
@@ -351,6 +382,11 @@ object MathematicalEdgeEngine {
             appendLine("  by mode/decision: $modeTop")
             appendLine("  terminal by lane: $terminalLaneTop")
             appendLine("  terminal by source: $terminalSourceTop")
+            // V5.0.6851 — surfaced rather than folded into a fake UNKNOWN cohort. A rising
+            // count here means provenance is being lost upstream (boot rebuild, missing
+            // lane/source on the durable event), not that a strategy called UNKNOWN is losing.
+            appendLine("  terminal unattributed (excluded from cohorts): " +
+                "lane=${unattributedLaneTerminals6851.get()} source=${unattributedSourceTerminals6851.get()}")
             appendLine("  stack readbacks: $readbackTop")
             appendLine("  stack status: $stackStatus")
             appendLine("  recent:")
