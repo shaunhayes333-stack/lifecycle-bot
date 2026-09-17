@@ -3468,7 +3468,7 @@ class Executor(
                     trainable = accountingTrainable && rowLearningAdmitted4349,
                     accepted = ledgerAllowsClosedLearning,
                     score = (tradeWithMint.score.takeIf { it > 0.0 } ?: ts.position.entryScore),
-                    regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" },
+                    regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
                 )
             }
         } catch (_: Throwable) {}
@@ -11768,7 +11768,7 @@ class Executor(
         val policySignals6568 = UnifiedPolicyHead.Signals(
             mlEntryConf = (score / 100.0).coerceIn(0.0, 1.0), symGreenLight = 0.5, evRatio = 0.5,
             metaConviction = 0.5,
-            fwdPWin = try { LiveProbabilityEngine.forecast(safeLane, score.toInt().coerceIn(0, 100), "C", try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" }).pWin } catch (_: Throwable) { 0.5 },
+            fwdPWin = try { LiveProbabilityEngine.forecast(safeLane, score.toInt().coerceIn(0, 100), "C", try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" }).pWin } catch (_: Throwable) { 0.5 },
             candConf = (score / 100.0).coerceIn(0.0, 1.0),
         )
         val policyPWin6568 = try { UnifiedPolicyHead.predictWinProb(safeLane, policySignals6568) } catch (_: Throwable) { 0.5 }
@@ -13330,7 +13330,7 @@ class Executor(
                     entryMarketCapUsd = ts.lastMcap,
                     entryTimestampMs = System.currentTimeMillis(),
                     entryThresholdSnapshot = paperPolicySnapshot,
-                    entryMarketRegime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" },
+                    entryMarketRegime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
                     entryPolicySnapshotId = "$pid6450:6568", entryTacticVersion = "6568",
                     v3Components = "score=${ts.lastV3Score ?: score.toInt()};confidence=${ts.lastV3Confidence ?: 0};phase=${ts.phase}",
                     brainConsensusVerdict = policyField6568(paperPolicySnapshot, "brainConsensus"),
@@ -18044,7 +18044,7 @@ class Executor(
                             entryScore = ts.position.entryScore.toInt(), entryLiquiditySol = 0.0,
                             entryMarketCapUsd = ts.position.entryMcap, entryTimestampMs = ts.position.entryTime,
                             entryThresholdSnapshot = ts.position.entryPolicySnapshot,
-                            entryMarketRegime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" },
+                            entryMarketRegime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
                             entryPolicySnapshotId = "$pidLive6486:6568", entryTacticVersion = "6568",
                             v3Components = "score=${ts.lastV3Score ?: ts.position.entryScore.toInt()};confidence=${ts.lastV3Confidence ?: 0};phase=${ts.phase}",
                             brainConsensusVerdict = policyField6568(ts.position.entryPolicySnapshot, "brainConsensus"),
@@ -18699,7 +18699,12 @@ class Executor(
                 currentMomentum = ts.momentum ?: ts.meta.momScore,
                 currentLiquidity = ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: pos.entryLiquidityUsd,
                 entryLiquidity = pos.entryLiquidityUsd,
-                marketRegime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" },
+                // V5.0.6857 — "UNKNOWN" is not a regime. RegimeDetector's own
+                // neutral value is NORMAL, and that is what a failed read means
+                // here: no evidence of a rip or a dump, so make no adjustment.
+                // Passing a placeholder also matched no branch in the exit
+                // manager's regime switch, which is the defect fixed alongside this.
+                marketRegime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
                 volatility = ts.volatility ?: 0.0,
                 alreadySoldPct = pos.partialSoldPct.toInt().coerceIn(0, 100),
                 symbol = ts.symbol,

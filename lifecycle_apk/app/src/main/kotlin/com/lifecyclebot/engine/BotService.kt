@@ -11042,7 +11042,7 @@ class BotService : Service() {
         val edgeToken4529 = try { status.tokens[mintForProbe] } catch (_: Throwable) { null }
         val edgeSymbol4529 = edgeToken4529?.symbol ?: mintForProbe.take(8)
         val edgeMcap4529 = edgeToken4529?.lastMcap ?: -1.0
-        val edgeRegime4529 = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" }
+        val edgeRegime4529 = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" }
         try {
             LearningLifecycleBus.preFdgCandidate(lane, sourceForChop, mintForProbe, edgeSymbol4529, base.blockReason, base.entryScore, base.aiConfidence, liquidityUsd, edgeMcap4529, edgeRegime4529)
         } catch (_: Throwable) {}

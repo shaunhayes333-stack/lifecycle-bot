@@ -211,11 +211,38 @@ object AdvancedExitManager {
             volatility < 10 -> { stopLossPct *= 0.8; trailingPct *= 0.8 }
         }
 
-        // Market regime adjustments
-        when (marketRegime.uppercase()) {
-            "BULL", "TRENDING_UP"    -> { takeProfitPct *= 1.2; maxHold = (maxHold * 1.3).toInt() }
-            "BEAR", "TRENDING_DOWN"  -> { takeProfitPct *= 0.7; stopLossPct *= 0.8; maxHold = (maxHold * 0.6).toInt() }
-            "RANGE", "CHOPPY"        -> { takeProfitPct *= 0.8; trailingPct *= 1.2 }
+        // Market regime adjustments.
+        //
+        // V5.0.6857 §THE_REGIME_BLOCK_SPOKE_A_VOCABULARY_NOTHING_SENDS — this `when`
+        // matched on BULL / TRENDING_UP / BEAR / TRENDING_DOWN / RANGE / CHOPPY, and
+        // the main caller (Executor:18702, via advancedExitAdvisory) passes
+        // `RegimeDetector.currentRegime().name`, whose enum is
+        // { BULL_RIPPING, NORMAL, CHOP, DUMP, DEAD, BOOTSTRAP }. Not one of those six
+        // names matched any of the six strings tested, so on the live meme exit path
+        // the whole block fell through and did nothing: take-profit was never widened
+        // in a rip and stops were never tightened in a dump. The three perps callers
+        // pass the literal "NEUTRAL", which also matched nothing. Only
+        // ModeSpecificExits:93, which derives its own "BULL"/"BEAR"/"NEUTRAL" from the
+        // EMA fan, was ever able to reach a branch.
+        //
+        // Normalise every vocabulary that actually reaches this parameter into the
+        // three behaviours, keeping the original aliases so nothing that did work
+        // stops working. NORMAL / NEUTRAL / BOOTSTRAP are genuinely "no adjustment"
+        // and stay that way.
+        val regimeUpper6857 = marketRegime.trim().uppercase()
+        val regimeBucket6857 = when {
+            regimeUpper6857.contains("BULL") || regimeUpper6857.contains("TRENDING_UP") ||
+                regimeUpper6857.contains("RIP") -> "BULL"
+            regimeUpper6857.contains("BEAR") || regimeUpper6857.contains("TRENDING_DOWN") ||
+                regimeUpper6857.contains("DUMP") || regimeUpper6857 == "DEAD" -> "BEAR"
+            regimeUpper6857.contains("CHOP") || regimeUpper6857.contains("RANGE") ||
+                regimeUpper6857.contains("SIDEWAYS") -> "RANGE"
+            else -> "NEUTRAL"
+        }
+        when (regimeBucket6857) {
+            "BULL"  -> { takeProfitPct *= 1.2; maxHold = (maxHold * 1.3).toInt() }
+            "BEAR"  -> { takeProfitPct *= 0.7; stopLossPct *= 0.8; maxHold = (maxHold * 0.6).toInt() }
+            "RANGE" -> { takeProfitPct *= 0.8; trailingPct *= 1.2 }
         }
 
         // Emotional state modulation

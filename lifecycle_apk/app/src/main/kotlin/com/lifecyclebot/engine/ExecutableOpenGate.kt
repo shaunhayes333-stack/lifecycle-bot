@@ -1706,7 +1706,7 @@ object ExecutableOpenGate {
                     if (entryScore6747 < effectiveMinScore6747) {
                         try {
                             val canonLane6747 = canonicalLane(lane)
-                            val regimeName6747 = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" }
+                            val regimeName6747 = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" }
                             PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747")
                             PipelineHealthCollector.labelInc("EXEC_OPEN_BLOCKED_REGIME_FLOOR_6747|${canonLane6747}|${regimeName6747}")
                             ForensicLogger.lifecycle(

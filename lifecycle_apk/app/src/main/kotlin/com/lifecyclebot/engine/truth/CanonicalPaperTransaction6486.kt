@@ -456,7 +456,7 @@ object CanonicalPaperTransaction6486 {
         EntryStrategySnapshot6450.setEntry(EntryStrategySnapshot6450.Snapshot(
             positionId, mint, lane, "", tactic, "", "", source, entryScore, 0.0, 0.0,
             System.currentTimeMillis(), "",
-            entryMarketRegime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" },
+            entryMarketRegime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
             assetClassTag = assetClass.tag))
         CanonicalMintOccupancyRegistry6464.markOpen("paper", mint, symbol, source)
         CanonicalPositionAuthority6441.getPosition(positionId)?.let { ensureOpenProjection6659(it) }

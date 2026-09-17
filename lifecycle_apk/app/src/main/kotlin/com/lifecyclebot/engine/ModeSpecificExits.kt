@@ -597,11 +597,26 @@ object ModeSpecificExits {
             // V5.9: Whales selling = exit, but give 3 min before firing.
             // Whales can temporarily pause without meaning they're exiting.
             // VDOR was exiting after 1 minute due to whale pause — too early.
-            if (!whaleSignal.hasWhaleActivity && !whaleSignal.smartMoneyPresent && pnlPct > 5 && holdTimeMins >= 3.0) {
+            // V5.0.6857 §THESIS_INVALIDATION_ONLY_FIRED_ON_WINNERS — the `pnlPct > 5`
+            // term meant the whale-departure exit could ONLY fire on a position
+            // already up more than 5%. This is the WHALE_ACCUMULATION branch, so
+            // whales being present IS the entry thesis; when they leave, the reason
+            // to hold is gone whatever the P&L says. Gated on profit, the rule cut
+            // winners and held losers — the single worst shape an exit rule can have,
+            // and precisely the case where the whale has dumped ON us is the one it
+            // refused to act on.
+            //
+            // The 3-minute buffer stays (V5.9: whales pause without leaving). The
+            // size of the exit now depends on the P&L instead of the firing
+            // condition: in profit take 70% and leave a runner in case the move
+            // continues without them; flat or underwater the thesis is dead AND it
+            // is not working, so close it.
+            if (!whaleSignal.hasWhaleActivity && !whaleSignal.smartMoneyPresent && holdTimeMins >= 3.0) {
+                val whaleExitPct6857 = if (pnlPct > 5.0) 70.0 else 100.0
                 return ExitRecommendation(
                     shouldExit = true,
-                    exitPct = 70.0,
-                    reason = "WHALE_FOLLOW: Whale activity stopped",
+                    exitPct = whaleExitPct6857,
+                    reason = "WHALE_FOLLOW: Whale activity stopped (pnl=${pnlPct.toInt()}%, exit ${whaleExitPct6857.toInt()}%)",
                     urgency = ExitUrgency.URGENT,
                     adjustedStop = null,
                     adjustedTarget = null,

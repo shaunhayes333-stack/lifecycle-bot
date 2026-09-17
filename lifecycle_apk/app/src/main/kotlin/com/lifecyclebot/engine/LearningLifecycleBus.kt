@@ -223,7 +223,7 @@ object LearningLifecycleBus {
             confidence = ((components.count { kotlin.math.abs(it.value) >= 3 } * 100.0) / components.size.coerceAtLeast(1)).coerceIn(0.0, 100.0),
             liquidityUsd = candidate.liquidityUsd,
             marketCapUsd = candidate.marketCapUsd,
-            regime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" },
+            regime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
             style = scoringPath,
         )
     }
