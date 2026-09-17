@@ -2319,22 +2319,34 @@ object ExecutableOpenGate {
             val primaryHasAllowedHandoff = try { recentAllowedAttemptId(mint, canonicalSelectedLane) != null } catch (_: Throwable) { false }
             val rescueRequester = isRealExecutionLane(requestedLane) && (
                 !isRealExecutionLane(rawSelectedLane) ||
-                    // V5.9.1559 — live unchoke: if lane election picked a primary
-                    // but that primary never produced an executable handoff, blocking
-                    // the requesting lane is lost volume, not dedup. Operator log:
+                    // V5.9.1559 — unchoke: if lane election picked a primary but that
+                    // primary never produced an executable handoff, blocking the
+                    // requesting lane is lost volume, not dedup. Operator log:
                     // PRIMARY_MANIPULATED_LOST_SHITCOIN while the SHITCOIN/EXPRESS
                     // lane had can=true and the primary did not open.
-                    (modeUpper == "LIVE" && !primaryHasAllowedHandoff)
+                    //
+                    // V5.0.6863 §THE_RESCUE_WAS_LIVE_ONLY — this carried
+                    // `modeUpper == "LIVE" &&`. The reasoning behind it is not about
+                    // mode at all: an elected primary that produces no handoff is a
+                    // stalled election in either mode. Restricting the rescue to LIVE
+                    // meant PAPER kept dropping those candidates as "dedup", which is
+                    // lost learning volume — and it silently split the two books, so
+                    // live opened trades paper would never have taken and paper's
+                    // learned expectancy stopped describing what live actually does.
+                    // That is the exact paper/live divergence the standing directive
+                    // says must not exist.
+                    !primaryHasAllowedHandoff
             )
             if (!rescueRequester) {
                 return dropped("EXEC_OPEN_DEDUP_LANE_CONTENTION", "PRIMARY_${canonicalSelectedLane}_LOST_${requestedLane}")
             }
-            if (modeUpper == "LIVE" && isRealExecutionLane(requestedLane) && !primaryHasAllowedHandoff) {
+            if (isRealExecutionLane(requestedLane) && !primaryHasAllowedHandoff) {
                 try {
                     ForensicLogger.lifecycle(
-                        "LIVE_LANE_CONTENTION_RESCUED_REQUESTER",
-                        "mint=${mint.take(10)} symbol=$symbol selected=$canonicalSelectedLane requested=$requestedLane reason=primary_no_allowed_handoff"
+                        "LANE_CONTENTION_RESCUED_REQUESTER_6863",
+                        "mode=$modeUpper mint=${mint.take(10)} symbol=$symbol selected=$canonicalSelectedLane requested=$requestedLane reason=primary_no_allowed_handoff"
                     )
+                    PipelineHealthCollector.labelInc("LANE_CONTENTION_RESCUED_REQUESTER_6863_$modeUpper")
                 } catch (_: Throwable) {}
             }
         }
