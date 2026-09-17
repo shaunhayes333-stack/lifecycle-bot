@@ -1315,6 +1315,19 @@ object FinalDecisionGate {
             null
         }
         
+        // V5.0.6881 — stamp the entry confidence this decision is being made on, so
+        // the settled trade can calibrate it. Without the stamp the engine can never
+        // learn whether its 0.80 actually wins 80% of the time, and every consumer
+        // (UnifiedPolicyHead's mlEntryConf, LiveProbabilityEngine's
+        // mlEntryConfidence, the veto below) keeps treating a raw heuristic score as
+        // if it were a probability.
+        if (mlPrediction != null) {
+            try {
+                com.lifecyclebot.ml.OnDeviceMLEngine
+                    .notePrediction6881(ts.mint, mlPrediction.entryConfidence)
+            } catch (_: Throwable) {}
+        }
+
         // Only use ML veto if we have enough training data (confidence > 50%)
         if (mlPrediction != null && mlPrediction.confidence > 0.5) {
             // High rug probability = block the trade

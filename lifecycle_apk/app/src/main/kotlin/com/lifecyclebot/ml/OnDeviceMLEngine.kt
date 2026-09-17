@@ -259,7 +259,7 @@ object OnDeviceMLEngine {
         val rugProbability: Float,     // 0.0-1.0 probability of rug
         val entryConfidence: Float,    // 0.0-1.0 entry quality
         val exitConfidence: Float,     // 0.0-1.0 exit urgency
-        val trajectoryClass: String,   // "MOON", "DUMP", "SIDEWAYS", "UNKNOWN"
+        val trajectoryClass: String,   // "MOON" | "DUMP" | "SIDEWAYS" | "MIXED" | "BOOTSTRAP" | "UNAVAILABLE"
         val confidence: Float,         // Overall prediction confidence
         val dataPoints: Int,           // How many trades model learned from
     )
@@ -340,7 +340,21 @@ object OnDeviceMLEngine {
             )
             
             trainingData.add(features)
-            
+
+            // V5.0.6881 — settle the calibration bin for the prediction this trade
+            // was opened on. Absent stamp (opened before 6881, or opened on a path
+            // that does not predict) simply contributes nothing.
+            try {
+                val staked6881 = pendingPredictions6881.remove(trade.mint)
+                if (staked6881 != null) {
+                    val b = binOf6881(staked6881)
+                    calBinTotal6881[b] = calBinTotal6881[b] + 1
+                    if (trade.pnlPct > 0) calBinWins6881[b] = calBinWins6881[b] + 1
+                    com.lifecyclebot.engine.PipelineHealthCollector
+                        .labelInc("ML_ENTRY_CALIBRATION_SETTLED_6881")
+                }
+            } catch (_: Throwable) {}
+
             // Update normalization statistics
             updateNormalizationStats(features)
 
@@ -375,6 +389,74 @@ object OnDeviceMLEngine {
     /**
      * Get ML prediction for current token state.
      */
+    /**
+     * V5.0.6881 §THE_CONFIDENCE_WAS_NEVER_A_PROBABILITY — predictEntry returns a
+     * 0..1 score that every consumer treats as one. UnifiedPolicyHead takes it as
+     * `mlEntryConf`, LiveProbabilityEngine as `mlEntryConfidence`, and FDG:1295
+     * gates on it. Nothing ever checked whether a 0.80 actually wins 80% of the
+     * time.
+     *
+     * It could not, because the .tflite models are not bundled (see TFLiteModel's
+     * own note) and predictEntry is a hand-tuned heuristic over normalised features.
+     * A heuristic's output is a RANKING, not a frequency: it can order candidates
+     * correctly while being badly mis-scaled, and a systematically inflated
+     * confidence pushes every downstream consumer — sizing, conviction, the policy
+     * head's pWin — in the same wrong direction at once.
+     *
+     * Reliability calibration fixes the scale without touching the ranking. Bin the
+     * score into deciles, track the win rate actually observed in each bin, and once
+     * a bin has real evidence report that frequency instead of the raw score. Below
+     * the evidence floor it returns the raw value unchanged, so this is a no-op at
+     * cold start and can only ever make the number more honest.
+     *
+     * The prediction has to be remembered between entry and close for this to work,
+     * which is the same pending-map shape ForwardOutcomeModel uses: notePrediction
+     * at decision time, resolved by recordTrade at settlement.
+     */
+    private const val CAL_BINS_6881 = 10
+    private const val CAL_MIN_PER_BIN_6881 = 12
+    private val calBinTotal6881 = IntArray(CAL_BINS_6881)
+    private val calBinWins6881 = IntArray(CAL_BINS_6881)
+    private val pendingPredictions6881 = java.util.concurrent.ConcurrentHashMap<String, Float>()
+
+    private fun binOf6881(conf: Float): Int =
+        ((conf.coerceIn(0f, 1f) * CAL_BINS_6881).toInt()).coerceIn(0, CAL_BINS_6881 - 1)
+
+    /** Remember the entry confidence for this mint so the close can calibrate it. */
+    fun notePrediction6881(mint: String, entryConfidence: Float) {
+        if (mint.isBlank() || !entryConfidence.isFinite()) return
+        if (pendingPredictions6881.size > 4096) {
+            try { pendingPredictions6881.clear() } catch (_: Throwable) {}
+        }
+        pendingPredictions6881[mint] = entryConfidence.coerceIn(0f, 1f)
+    }
+
+    private fun calibratedEntryConfidence6881(raw: Float): Float {
+        return try {
+            if (!raw.isFinite()) return 0.5f
+            val b = binOf6881(raw)
+            val n = calBinTotal6881[b]
+            if (n < CAL_MIN_PER_BIN_6881) return raw.coerceIn(0f, 1f)
+            // Laplace-smoothed observed frequency for this bin.
+            ((calBinWins6881[b] + 1.0f) / (n + 2.0f)).coerceIn(0f, 1f)
+        } catch (_: Throwable) { raw.coerceIn(0f, 1f) }
+    }
+
+    /** Operator-readable reliability table. */
+    fun calibrationStatus6881(): String = buildString {
+        append("ML entry-confidence calibration: ")
+        var any = false
+        for (b in 0 until CAL_BINS_6881) {
+            val n = calBinTotal6881[b]
+            if (n <= 0) continue
+            any = true
+            val lo = b * 100 / CAL_BINS_6881
+            val hi = (b + 1) * 100 / CAL_BINS_6881
+            append("[$lo-$hi%]=${(calBinWins6881[b] * 100 / n)}%/n$n ")
+        }
+        if (!any) append("no settled predictions yet")
+    }
+
     fun predict(
         recentCandles: List<Candle>,
         liquidityUsd: Double,
@@ -395,7 +477,7 @@ object OnDeviceMLEngine {
                 rugProbability = 0.5f,
                 entryConfidence = 0.5f,
                 exitConfidence = 0.5f,
-                trajectoryClass = "UNKNOWN",
+                trajectoryClass = "BOOTSTRAP",
                 confidence = 0f,
                 dataPoints = trainingData.size,
             )
@@ -416,13 +498,15 @@ object OnDeviceMLEngine {
             
             // Run inference (or use heuristics if models not trained)
             val rugProb = predictRug(normalized)
-            val entryConf = predictEntry(normalized)
+            val entryConfRaw = predictEntry(normalized)
+            // V5.0.6881 — hand out a CALIBRATED probability, not a raw score.
+            val entryConf = calibratedEntryConfidence6881(entryConfRaw)
             val exitConf = predictExit(normalized)
             val trajectory = classifyTrajectory(normalized, rugProb, recentCandles)
-            
+
             // Calculate overall confidence based on training data volume
             val dataConfidence = (trainingData.size.toFloat() / 500f).coerceAtMost(1f)
-            
+
             return MLPrediction(
                 rugProbability = rugProb,
                 entryConfidence = entryConf,
@@ -764,7 +848,11 @@ object OnDeviceMLEngine {
             momentum > 10f && volumeRatio > 2f && buyPressure > 0.6f -> "MOON"
             momentum < -10f || buyPressure < 0.35f -> "DUMP"
             abs(momentum) < 3f -> "SIDEWAYS"
-            else -> "UNKNOWN"
+            // V5.0.6881 — moderate momentum with no dump signal is a REAL class, not
+            // an absence of one. Calling it UNKNOWN collapsed it together with "the
+            // model had no training data" and "the model threw", which are three
+            // different states an operator needs to tell apart.
+            else -> "MIXED"
         }
     }
     
@@ -772,7 +860,7 @@ object OnDeviceMLEngine {
         rugProbability = 0.5f,
         entryConfidence = 0.5f,
         exitConfidence = 0.5f,
-        trajectoryClass = "UNKNOWN",
+        trajectoryClass = "UNAVAILABLE",
         confidence = 0f,
         dataPoints = trainingData.size,
     )
