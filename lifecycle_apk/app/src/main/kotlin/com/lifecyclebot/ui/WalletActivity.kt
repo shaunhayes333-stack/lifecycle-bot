@@ -215,20 +215,20 @@ class WalletActivity : AppCompatActivity() {
             }
             val title = android.widget.TextView(ctx).apply {
                 text = "🏦 Treasury Wallet"
-                setTextColor(android.graphics.Color.parseColor("#FBBF24"))
+                setTextColor(android.graphics.Color.parseColor("#FFB020"))
                 textSize = 16f
                 typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
             }
             val tvPk = android.widget.TextView(ctx).apply {
                 text = com.lifecyclebot.engine.TreasuryWalletManager.publicKey().ifBlank { "(initialising…)" }
-                setTextColor(android.graphics.Color.parseColor("#E5E7EB"))
+                setTextColor(android.graphics.Color.parseColor("#F5F7FF"))
                 textSize = 12f
                 typeface = android.graphics.Typeface.MONOSPACE
                 setPadding(0, (8 * resources.displayMetrics.density).toInt(), 0, 0)
             }
             val tvBal = android.widget.TextView(ctx).apply {
                 text = "Balance: ${"%.4f".format(com.lifecyclebot.engine.TreasuryWalletManager.getBalance())} SOL"
-                setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
+                setTextColor(android.graphics.Color.parseColor("#A7B7D8"))
                 textSize = 13f
                 setPadding(0, (4 * resources.displayMetrics.density).toInt(), 0, (8 * resources.displayMetrics.density).toInt())
             }
@@ -239,7 +239,7 @@ class WalletActivity : AppCompatActivity() {
                 android.widget.Button(ctx).apply {
                     text = label
                     setBackgroundColor(android.graphics.Color.parseColor(color))
-                    setTextColor(android.graphics.Color.WHITE)
+                    setTextColor(android.graphics.Color.parseColor("#F5F7FF"))
                     textSize = 11f
                     val mPx = (4 * resources.displayMetrics.density).toInt()
                     val lp = android.widget.LinearLayout.LayoutParams(
@@ -248,7 +248,7 @@ class WalletActivity : AppCompatActivity() {
                     layoutParams = lp
                     setOnClickListener { action() }
                 }
-            btnRow.addView(mkBtn("Copy", "#1F2937") {
+            btnRow.addView(mkBtn("Copy", "#101E33") {
                 val pk = com.lifecyclebot.engine.TreasuryWalletManager.publicKey()
                 if (pk.isNotBlank()) {
                     val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
@@ -256,7 +256,7 @@ class WalletActivity : AppCompatActivity() {
                     Toast.makeText(ctx, "Treasury address copied", Toast.LENGTH_SHORT).show()
                 }
             })
-            btnRow.addView(mkBtn("Refresh", "#1F2937") {
+            btnRow.addView(mkBtn("Refresh", "#101E33") {
                 lifecycleScope.launch {
                     val bal = com.lifecyclebot.engine.TreasuryWalletManager.refreshBalance()
                     tvBal.text = "Balance: ${"%.4f".format(bal)} SOL"

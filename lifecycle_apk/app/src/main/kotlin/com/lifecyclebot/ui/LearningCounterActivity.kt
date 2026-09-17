@@ -81,7 +81,7 @@ class LearningCounterActivity : Activity() {
         title = "🧠 Learning Pipeline"
         rootScroll = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
-            setBackgroundColor(Color.parseColor("#0F172A"))
+            setBackgroundColor(Color.parseColor("#0A1424"))
         }
         rootColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -133,14 +133,14 @@ class LearningCounterActivity : Activity() {
             }
         } catch (_: Throwable) { null } ?: -1
         val drift = if (hostOpen >= 0 && reconcilerKnown >= 0) hostOpen - reconcilerKnown else 0
-        addKvHighlight("HostWalletTokenTracker.openCount", hostOpen.toString(), "#10B981")
-        addKvHighlight("HostWalletTokenTracker.actuallyHeldCount", hostHeld.toString(), "#10B981")
+        addKvHighlight("HostWalletTokenTracker.openCount", hostOpen.toString(), "#16E6A1")
+        addKvHighlight("HostWalletTokenTracker.actuallyHeldCount", hostHeld.toString(), "#16E6A1")
         addKv("WalletReconciler.knownMints", reconcilerKnown.toString())
         val driftColor = when {
-            hostOpen < 0 || reconcilerKnown < 0 -> "#6B7280"
-            kotlin.math.abs(drift) <= 1 -> "#10B981"
-            kotlin.math.abs(drift) <= 5 -> "#F59E0B"
-            else -> "#EF4444"
+            hostOpen < 0 || reconcilerKnown < 0 -> "#63759B"
+            kotlin.math.abs(drift) <= 1 -> "#16E6A1"
+            kotlin.math.abs(drift) <= 5 -> "#FFB020"
+            else -> "#FF4D6D"
         }
         addKvHighlight("drift (host - reconciler)", drift.toString(), driftColor)
         addKv("last digest", "see logcat (60s interval)")
@@ -152,41 +152,41 @@ class LearningCounterActivity : Activity() {
         // outer ring or while the LLM defaults ALLOW on cache miss.
         addHeader("🏛️ Scoring & Sentience Mode")
         val scoringMode = try { com.lifecyclebot.v3.scoring.UnifiedScorer.modeLabel() } catch (_: Throwable) { "?" }
-        val scoringColor = if (scoringMode.startsWith("CLASSIC")) "#F59E0B" else "#10B981"
+        val scoringColor = if (scoringMode.startsWith("CLASSIC")) "#FFB020" else "#16E6A1"
         addKvHighlight("UnifiedScorer.mode", scoringMode, scoringColor)
         val llmStatus = try { com.lifecyclebot.engine.SentienceHooks.llmStatus() } catch (_: Throwable) { "UNAVAILABLE" }
         val llmColor = when (llmStatus) {
-            "READY" -> "#10B981"
-            "DEGRADED" -> "#F59E0B"
-            else -> "#EF4444"
+            "READY" -> "#16E6A1"
+            "DEGRADED" -> "#FFB020"
+            else -> "#FF4D6D"
         }
         addKvHighlight("LLM_STATUS", llmStatus, llmColor)
 
         // ── Section 2: Canonical pipeline ─────────────────────────────
         addHeader("📊 Canonical Pipeline (single source of truth)")
         val snap = CanonicalLearningCounters.snapshot()
-        addKvHighlight("canonicalOutcomesTotal", snap["canonicalOutcomesTotal"]?.toString() ?: "?", "#10B981")
+        addKvHighlight("canonicalOutcomesTotal", snap["canonicalOutcomesTotal"]?.toString() ?: "?", "#16E6A1")
         addKv("liveOutcomesTotal", snap["liveOutcomesTotal"]?.toString() ?: "?")
         addKv("paperOutcomesTotal", snap["paperOutcomesTotal"]?.toString() ?: "?")
         addKv("shadowOutcomesTotal", snap["shadowOutcomesTotal"]?.toString() ?: "?")
         addKv("executedTradesTotal", snap["executedTradesTotal"]?.toString() ?: "?")
-        addKvHighlight("failedExecutionsTotal", snap["failedExecutionsTotal"]?.toString() ?: "?", "#F59E0B")
+        addKvHighlight("failedExecutionsTotal", snap["failedExecutionsTotal"]?.toString() ?: "?", "#FFB020")
         addKv("settledWins", snap["settledWins"]?.toString() ?: "?")
         addKv("settledLosses", snap["settledLosses"]?.toString() ?: "?")
         addKv("openTrades", snap["openTrades"]?.toString() ?: "?")
         addKv("inconclusiveTrades", snap["inconclusiveTrades"]?.toString() ?: "?")
         addKv("recoveredTrades", snap["recoveredTrades"]?.toString() ?: "?")
-        addKvHighlight("rejectedBadLabels", snap["rejectedBadLabels"]?.toString() ?: "?", "#EF4444")
+        addKvHighlight("rejectedBadLabels", snap["rejectedBadLabels"]?.toString() ?: "?", "#FF4D6D")
         // V5.9.782 — operator audit items A, C, D, J: rich vs incomplete-feature
         // outcomes. Strategy learners only train on rich samples; incomplete ones
         // still tick counters and educate execution layers.
-        addKvHighlight("richFeatureOutcomes", snap["richFeatureOutcomes"]?.toString() ?: "?", "#10B981")
-        addKvHighlight("incompleteFeatureOutcomes", snap["incompleteFeatureOutcomes"]?.toString() ?: "?", "#F59E0B")
+        addKvHighlight("richFeatureOutcomes", snap["richFeatureOutcomes"]?.toString() ?: "?", "#16E6A1")
+        addKvHighlight("incompleteFeatureOutcomes", snap["incompleteFeatureOutcomes"]?.toString() ?: "?", "#FFB020")
         // V5.9.790 — operator audit Critical Fix 2: split rich into the subset that
         // actually trains strategy patterns vs the subset that may only train
         // execution learners (route, slippage, fee retry).
-        addKvHighlight("strategyTrainableOutcomes", snap["strategyTrainableOutcomes"]?.toString() ?: "?", "#10B981")
-        addKvHighlight("executionOnlyOutcomes", snap["executionOnlyOutcomes"]?.toString() ?: "?", "#F59E0B")
+        addKvHighlight("strategyTrainableOutcomes", snap["strategyTrainableOutcomes"]?.toString() ?: "?", "#16E6A1")
+        addKvHighlight("executionOnlyOutcomes", snap["executionOnlyOutcomes"]?.toString() ?: "?", "#FFB020")
         addKv("Bus subscribers", CanonicalOutcomeBus.subscriberCount().toString())
         // V5.9.790 — operator audit Critical Fix 5: surface how many legacy
         // direct BehaviorLearning.recordTrade() calls were made vs how many
@@ -194,7 +194,7 @@ class LearningCounterActivity : Activity() {
         // compatibility-only (pattern memory comes from canonical bus alone).
         val legacyDirect = try { com.lifecyclebot.engine.BehaviorLearning.getLegacyDirectRecorded().toLong() } catch (_: Throwable) { -1L }
         val legacyPrimary = try { com.lifecyclebot.engine.BehaviorLearning.strategyLearningFromLegacy } catch (_: Throwable) { false }
-        val legacyColor = if (legacyPrimary) "#F59E0B" else "#6B7280"
+        val legacyColor = if (legacyPrimary) "#FFB020" else "#63759B"
         addKvHighlight(
             "BehaviorLearning legacy direct calls",
             "$legacyDirect ${if (legacyPrimary) "(WRITING PATTERNS)" else "(counter-only · bus is primary)"}",
@@ -217,7 +217,7 @@ class LearningCounterActivity : Activity() {
         addKvHighlight(
             "drift baseline (settledWins + settledLosses)",
             "$settledTrades (canonicalRaw=$canonicalTotalRaw)",
-            "#10B981",
+            "#16E6A1",
         )
         val fluidSession = try { FluidLearningAI.getSessionTradeCount().toLong() } catch (_: Throwable) { -1L }
         val fluidBaseline = try { FluidLearningAI.getHistoricalBaseline().toLong() } catch (_: Throwable) { 0L }
@@ -267,25 +267,25 @@ class LearningCounterActivity : Activity() {
         addHeader("🎓 Layer Readiness")
         val readiness = LayerReadinessRegistry.snapshot()
         if (readiness.isEmpty()) {
-            addText("(no layers have received outcomes yet — start trading to populate)", Color.GRAY)
+            addText("(no layers have received outcomes yet — start trading to populate)", Color.parseColor("#63759B"))
         } else {
             for ((layer, state) in readiness.entries.sortedBy { it.key }) {
                 val color = when (state) {
-                    com.lifecyclebot.engine.LayerReadiness.TRUSTED -> "#10B981"
-                    com.lifecyclebot.engine.LayerReadiness.LIVE_ELIGIBLE -> "#3B82F6"
-                    com.lifecyclebot.engine.LayerReadiness.PAPER_ELIGIBLE -> "#8B5CF6"
-                    com.lifecyclebot.engine.LayerReadiness.LEARNING_ONLY -> "#F59E0B"
-                    com.lifecyclebot.engine.LayerReadiness.DEGRADED -> "#EF4444"
+                    com.lifecyclebot.engine.LayerReadiness.TRUSTED -> "#16E6A1"
+                    com.lifecyclebot.engine.LayerReadiness.LIVE_ELIGIBLE -> "#4C8DFF"
+                    com.lifecyclebot.engine.LayerReadiness.PAPER_ELIGIBLE -> "#9A4DFF"
+                    com.lifecyclebot.engine.LayerReadiness.LEARNING_ONLY -> "#FFB020"
+                    com.lifecyclebot.engine.LayerReadiness.DEGRADED -> "#FF4D6D"
                     // V5.9.790 — operator audit Critical Fix 2 sub-classifications:
                     // FEATURE_STARVED renders amber (not red) because the layer isn't
                     // broken — its producer is — and operator must not be told the
                     // layer's signal is bad when truth is it never got rich samples.
-                    com.lifecyclebot.engine.LayerReadiness.DEGRADED_BAD_EV -> "#EF4444"
-                    com.lifecyclebot.engine.LayerReadiness.DEGRADED_FEATURE_STARVED -> "#F59E0B"
-                    com.lifecyclebot.engine.LayerReadiness.DEGRADED_NO_ADAPTER -> "#6B7280"
-                    com.lifecyclebot.engine.LayerReadiness.DEGRADED_NO_VOTES -> "#6B7280"
-                    com.lifecyclebot.engine.LayerReadiness.RECEIVING_SIGNALS -> "#6B7280"
-                    com.lifecyclebot.engine.LayerReadiness.DISCONNECTED -> "#374151"
+                    com.lifecyclebot.engine.LayerReadiness.DEGRADED_BAD_EV -> "#FF4D6D"
+                    com.lifecyclebot.engine.LayerReadiness.DEGRADED_FEATURE_STARVED -> "#FFB020"
+                    com.lifecyclebot.engine.LayerReadiness.DEGRADED_NO_ADAPTER -> "#63759B"
+                    com.lifecyclebot.engine.LayerReadiness.DEGRADED_NO_VOTES -> "#63759B"
+                    com.lifecyclebot.engine.LayerReadiness.RECEIVING_SIGNALS -> "#63759B"
+                    com.lifecyclebot.engine.LayerReadiness.DISCONNECTED -> "#63759B"
                 }
                 // V5.9.790 — show per-layer rich vs incomplete sample counts so
                 // the operator can see at a glance whether a DEGRADED label is
@@ -302,16 +302,16 @@ class LearningCounterActivity : Activity() {
         addHeader("📜 Recent Canonical Outcomes (last 50)")
         val recent = CanonicalOutcomeBus.recentSnapshot().take(50)
         if (recent.isEmpty()) {
-            addText("(no canonical events yet — close a trade to populate)", Color.GRAY)
+            addText("(no canonical events yet — close a trade to populate)", Color.parseColor("#63759B"))
         } else {
             for (o in recent) {
                 val resultColor = when (o.result) {
-                    com.lifecyclebot.engine.TradeResult.WIN -> "#10B981"
-                    com.lifecyclebot.engine.TradeResult.LOSS -> "#EF4444"
-                    com.lifecyclebot.engine.TradeResult.OPEN -> "#3B82F6"
-                    com.lifecyclebot.engine.TradeResult.INCONCLUSIVE_PENDING -> "#F59E0B"
-                    com.lifecyclebot.engine.TradeResult.BREAKEVEN -> "#8B5CF6"
-                    else -> "#6B7280"
+                    com.lifecyclebot.engine.TradeResult.WIN -> "#16E6A1"
+                    com.lifecyclebot.engine.TradeResult.LOSS -> "#FF4D6D"
+                    com.lifecyclebot.engine.TradeResult.OPEN -> "#4C8DFF"
+                    com.lifecyclebot.engine.TradeResult.INCONCLUSIVE_PENDING -> "#FFB020"
+                    com.lifecyclebot.engine.TradeResult.BREAKEVEN -> "#9A4DFF"
+                    else -> "#63759B"
                 }
                 val pnl = o.realizedPnlPct?.let { "%+.1f%%".format(it) } ?: "—"
                 val msg = "${o.symbol.ifBlank { o.mint.take(6) }} · ${o.environment.name} · ${o.mode.name} · ${o.result.name} · $pnl · ${o.executionResult.name} · ${o.closeReason ?: ""}"
@@ -324,7 +324,7 @@ class LearningCounterActivity : Activity() {
     private fun addHeader(text: String) {
         rootColumn.addView(TextView(this).apply {
             this.text = text
-            setTextColor(Color.WHITE)
+            setTextColor(Color.parseColor("#F5F7FF"))
             textSize = 16f
             typeface = Typeface.DEFAULT_BOLD
             val pad = (8 * resources.displayMetrics.density).toInt()
@@ -333,7 +333,7 @@ class LearningCounterActivity : Activity() {
     }
 
     private fun addKv(label: String, value: String) {
-        rootColumn.addView(makeKvRow(label, value, Color.LTGRAY))
+        rootColumn.addView(makeKvRow(label, value, Color.parseColor("#A7B7D8")))
     }
 
     private fun addKvHighlight(label: String, value: String, hex: String) {
@@ -343,16 +343,16 @@ class LearningCounterActivity : Activity() {
     /** Highlights drift between a legacy counter and the canonical total. */
     private fun addKvDrift(label: String, legacyValue: Long, canonicalValue: Long) {
         val color = when {
-            legacyValue < 0 -> "#6B7280"  // unavailable
-            kotlin.math.abs(legacyValue - canonicalValue) <= 5 -> "#10B981"  // aligned
-            kotlin.math.abs(legacyValue - canonicalValue) <= 50 -> "#F59E0B"  // mild drift
-            else -> "#EF4444"  // major drift
+            legacyValue < 0 -> "#63759B"  // unavailable
+            kotlin.math.abs(legacyValue - canonicalValue) <= 5 -> "#16E6A1"  // aligned
+            kotlin.math.abs(legacyValue - canonicalValue) <= 50 -> "#FFB020"  // mild drift
+            else -> "#FF4D6D"  // major drift
         }
         val driftLabel = if (legacyValue < 0) "n/a" else "$legacyValue (Δ=${legacyValue - canonicalValue})"
         rootColumn.addView(makeKvRow(label, driftLabel, Color.parseColor(color)))
     }
 
-    private fun addText(s: String, color: Int = Color.LTGRAY, small: Boolean = false) {
+    private fun addText(s: String, color: Int = Color.parseColor("#A7B7D8"), small: Boolean = false) {
         rootColumn.addView(TextView(this).apply {
             text = s
             setTextColor(color)
@@ -370,7 +370,7 @@ class LearningCounterActivity : Activity() {
             setPadding(0, pad, 0, pad)
             addView(TextView(this@LearningCounterActivity).apply {
                 text = label
-                setTextColor(Color.parseColor("#94A3B8"))
+                setTextColor(Color.parseColor("#A7B7D8"))
                 textSize = 13f
                 typeface = Typeface.MONOSPACE
                 layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)

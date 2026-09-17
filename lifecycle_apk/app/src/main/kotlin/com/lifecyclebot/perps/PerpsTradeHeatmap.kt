@@ -67,11 +67,11 @@ object PerpsTradeHeatmap {
         fun getColor(): String {
             val score = getHeatScore()
             return when {
-                score >= 70 -> "#22C55E"  // Green - hot
+                score >= 70 -> "#16E6A1"  // Green - hot
                 score >= 55 -> "#84CC16"  // Lime
-                score >= 45 -> "#F59E0B"  // Amber
-                score >= 35 -> "#F97316"  // Orange
-                else -> "#EF4444"         // Red - cold
+                score >= 45 -> "#FFB020"  // Amber
+                score >= 35 -> "#FFB020"  // Orange
+                else -> "#FF4D6D"         // Red - cold
             }
         }
     }

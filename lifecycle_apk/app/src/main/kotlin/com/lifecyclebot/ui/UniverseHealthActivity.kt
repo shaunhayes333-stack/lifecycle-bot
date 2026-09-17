@@ -54,7 +54,7 @@ class UniverseHealthActivity : Activity() {
         title = "🛰 AATE Universe Health"
         rootScroll = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
-            setBackgroundColor(Color.parseColor("#0F172A"))
+            setBackgroundColor(Color.parseColor("#0A1424"))
         }
         rootColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -90,7 +90,7 @@ class UniverseHealthActivity : Activity() {
         // ── 1. RUNTIME ────────────────────────────────────────────────
         addHeader("🚦 1. Runtime")
         val mode = try { com.lifecyclebot.engine.RuntimeModeAuthority.authority().name } catch (_: Throwable) { "?" }
-        val modeColor = if (mode == "LIVE") "#EF4444" else "#3B82F6"
+        val modeColor = if (mode == "LIVE") "#FF4D6D" else "#4C8DFF"
         addKvHighlight("RuntimeModeAuthority.mode", mode, modeColor)
         val versionName = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "?" } catch (_: Throwable) { "?" }
         addKv("APK versionName", versionName)
@@ -101,7 +101,7 @@ class UniverseHealthActivity : Activity() {
         addKvHighlight(
             "Battery optimisation whitelisted",
             if (batteryWhitelisted) "YES" else "NO — Doze may suspend bot",
-            if (batteryWhitelisted) "#10B981" else "#F59E0B",
+            if (batteryWhitelisted) "#16E6A1" else "#FFB020",
         )
 
         // ── 2. SCORING ────────────────────────────────────────────────
@@ -109,7 +109,7 @@ class UniverseHealthActivity : Activity() {
         val scoringMode = try { com.lifecyclebot.v3.scoring.UnifiedScorer.modeLabel() } catch (_: Throwable) { "?" }
         // CLASSIC means the modern symbolic outer ring is bypassed — colour amber so the
         // operator never reads 'sentient symbolic mode active' from the UI when it isn't.
-        val scoringColor = if (scoringMode.startsWith("CLASSIC")) "#F59E0B" else "#10B981"
+        val scoringColor = if (scoringMode.startsWith("CLASSIC")) "#FFB020" else "#16E6A1"
         addKvHighlight("UnifiedScorer.mode", scoringMode, scoringColor)
         val sentLabel = if (scoringMode.startsWith("CLASSIC"))
             "CLASSIC (full sentient OFF — outer symbolic ring bypassed)"
@@ -118,9 +118,9 @@ class UniverseHealthActivity : Activity() {
         addKvHighlight("Effective sentience mode", sentLabel, scoringColor)
         val llmStatus = try { com.lifecyclebot.engine.SentienceHooks.llmStatus() } catch (_: Throwable) { "UNAVAILABLE" }
         val llmColor = when (llmStatus) {
-            "READY" -> "#10B981"
-            "DEGRADED" -> "#F59E0B"
-            else -> "#EF4444"
+            "READY" -> "#16E6A1"
+            "DEGRADED" -> "#FFB020"
+            else -> "#FF4D6D"
         }
         addKvHighlight("LLM_STATUS", llmStatus, llmColor)
 
@@ -131,7 +131,7 @@ class UniverseHealthActivity : Activity() {
         val rich = snap["richFeatureOutcomes"] ?: 0L
         val incomplete = snap["incompleteFeatureOutcomes"] ?: 0L
         val richPct = if (rich + incomplete > 0L) "%.1f%%".format(100.0 * rich.toDouble() / (rich + incomplete).toDouble()) else "—"
-        val richColor = if (rich > 0L) "#10B981" else "#EF4444"
+        val richColor = if (rich > 0L) "#16E6A1" else "#FF4D6D"
         addKvHighlight("richFeatureOutcomes", "$rich  ($richPct of total)", richColor)
         addKv("incompleteFeatureOutcomes", incomplete.toString())
         addKv("strategyTrainableOutcomes", (snap["strategyTrainableOutcomes"] ?: 0L).toString())
@@ -141,9 +141,9 @@ class UniverseHealthActivity : Activity() {
         addKvHighlight(
             "bcSimOnlyOutcomes (excl. from WR)",
             bcSim.toString(),
-            if (bcSim > 0L) "#F59E0B" else "#6B7280",
+            if (bcSim > 0L) "#FFB020" else "#63759B",
         )
-        addKvHighlight("rejectedBadLabels", (snap["rejectedBadLabels"] ?: 0L).toString(), "#EF4444")
+        addKvHighlight("rejectedBadLabels", (snap["rejectedBadLabels"] ?: 0L).toString(), "#FF4D6D")
         // Per-layer summary — fold counts into the four buckets the operator audit named.
         val readiness: Map<String, com.lifecyclebot.engine.LayerReadiness> = try {
             com.lifecyclebot.engine.LayerReadinessRegistry.snapshot()
@@ -168,12 +168,12 @@ class UniverseHealthActivity : Activity() {
         for ((bucket, count) in buckets) {
             if (count <= 0) continue
             val c = when (bucket) {
-                "TRUSTED" -> "#10B981"
-                "LIVE_ELIGIBLE" -> "#3B82F6"
-                "PAPER_ELIGIBLE" -> "#8B5CF6"
-                "LEARNING_ONLY", "DEGRADED_FEATURE_STARVED" -> "#F59E0B"
-                "DEGRADED", "DEGRADED_BAD_EV" -> "#EF4444"
-                else -> "#6B7280"
+                "TRUSTED" -> "#16E6A1"
+                "LIVE_ELIGIBLE" -> "#4C8DFF"
+                "PAPER_ELIGIBLE" -> "#9A4DFF"
+                "LEARNING_ONLY", "DEGRADED_FEATURE_STARVED" -> "#FFB020"
+                "DEGRADED", "DEGRADED_BAD_EV" -> "#FF4D6D"
+                else -> "#63759B"
             }
             addKvHighlight("Layers $bucket", count.toString(), c)
         }
@@ -181,19 +181,19 @@ class UniverseHealthActivity : Activity() {
         // ── 4. EXECUTION ──────────────────────────────────────────────
         addHeader("⚙️ 4. Execution")
         addKv("executedTradesTotal", (snap["executedTradesTotal"] ?: 0L).toString())
-        addKvHighlight("failedExecutionsTotal", (snap["failedExecutionsTotal"] ?: 0L).toString(), "#F59E0B")
+        addKvHighlight("failedExecutionsTotal", (snap["failedExecutionsTotal"] ?: 0L).toString(), "#FFB020")
         addKv("openTrades (in-flight)", (snap["openTrades"] ?: 0L).toString())
         addKv("recoveredTrades", (snap["recoveredTrades"] ?: 0L).toString())
         val sellJobs = try { com.lifecyclebot.engine.sell.SellJobRegistry.snapshot().size.toLong() } catch (_: Throwable) { -1L }
         addKv("SellJobRegistry size", sellJobs.toString())
         // V5.9.791 — operator audit Item 1 + 2 visibility: PositionExitArbiter counters.
         val arb: Map<String, Long> = try { com.lifecyclebot.engine.PositionArbiterCounters.snapshot() } catch (_: Throwable) { emptyMap() }
-        addKvHighlight("arbiter terminalSells", (arb["terminalSells"] ?: 0L).toString(), "#10B981")
+        addKvHighlight("arbiter terminalSells", (arb["terminalSells"] ?: 0L).toString(), "#16E6A1")
         val suppressed = arb["suppressedDuplicates"] ?: 0L
         addKvHighlight(
             "arbiter suppressedDuplicates",
             suppressed.toString(),
-            if (suppressed > 0L) "#F59E0B" else "#10B981",
+            if (suppressed > 0L) "#FFB020" else "#16E6A1",
         )
         addKv("arbiter partialSells", (arb["partialSells"] ?: 0L).toString())
         addKv("arbiter staleSlotEvictions", (arb["staleSlotEvictions"] ?: 0L).toString())
@@ -202,15 +202,15 @@ class UniverseHealthActivity : Activity() {
         try {
             val ct = com.lifecyclebot.engine.CycleTimingTracker.snapshot()
             addHeader("⏱ Scanner Cycle Timing")
-            val avgColor = if (ct.avgMs <= ct.targetMs) "#10B981" else if (ct.avgMs <= ct.hardLimitMs) "#F59E0B" else "#EF4444"
+            val avgColor = if (ct.avgMs <= ct.targetMs) "#16E6A1" else if (ct.avgMs <= ct.hardLimitMs) "#FFB020" else "#FF4D6D"
             addKvHighlight("avg (last ${ct.windowSize})", "${ct.avgMs}ms (target ≤${ct.targetMs}ms)", avgColor)
-            val p95Color = if (ct.p95Ms <= ct.hardLimitMs) "#10B981" else "#EF4444"
+            val p95Color = if (ct.p95Ms <= ct.hardLimitMs) "#16E6A1" else "#FF4D6D"
             addKvHighlight("p95 (last ${ct.windowSize})", "${ct.p95Ms}ms", p95Color)
-            val maxColor = if (ct.maxMs <= ct.hardLimitMs) "#10B981" else "#EF4444"
+            val maxColor = if (ct.maxMs <= ct.hardLimitMs) "#16E6A1" else "#FF4D6D"
             addKvHighlight("max (last ${ct.windowSize})", "${ct.maxMs}ms (hard ≤${ct.hardLimitMs}ms)", maxColor)
             addKv("last cycle", "${ct.lastMs}ms")
             addKvHighlight("cycles over hard limit", ct.overHardLimitCycles.toString(),
-                if (ct.overHardLimitCycles > 0L) "#EF4444" else "#10B981")
+                if (ct.overHardLimitCycles > 0L) "#FF4D6D" else "#16E6A1")
             addKv("cycles over target", ct.overTargetCycles.toString())
             addKv("total cycles", ct.totalCycles.toString())
         } catch (_: Throwable) {}
@@ -220,29 +220,29 @@ class UniverseHealthActivity : Activity() {
             val cap = com.lifecyclebot.engine.GlobalTradeRegistry.pumpPortalCapMax()
             val rej = com.lifecyclebot.engine.GlobalTradeRegistry.pumpPortalRejectionCount()
             val ratioColor = when {
-                cur >= cap -> "#EF4444"
-                cur >= cap * 0.8 -> "#F59E0B"
-                else -> "#10B981"
+                cur >= cap -> "#FF4D6D"
+                cur >= cap * 0.8 -> "#FFB020"
+                else -> "#16E6A1"
             }
             addKvHighlight("PumpPortal concurrent / cap", "$cur / $cap", ratioColor)
             addKvHighlight(
                 "PumpPortal cap rejections",
                 rej.toString(),
-                if (rej > 0L) "#F59E0B" else "#6B7280",
+                if (rej > 0L) "#FFB020" else "#63759B",
             )
         } catch (_: Throwable) {}
 
         // ── 5. AUTHORITY ──────────────────────────────────────────────
         addHeader("🛡 5. Authority")
         val enabledSet = try { com.lifecyclebot.engine.EnabledTraderAuthority.snapshotStr() } catch (_: Throwable) { "?" }
-        val enabledColor = if (enabledSet.isNotBlank()) "#10B981" else "#F59E0B"
+        val enabledColor = if (enabledSet.isNotBlank()) "#16E6A1" else "#FFB020"
         addKvHighlight("EnabledTraderAuthority", enabledSet.ifBlank { "(empty — bot stopped?)" }, enabledColor)
         val sniperEnabled = try {
             com.lifecyclebot.engine.EnabledTraderAuthority.isEnabled(
                 com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PROJECT_SNIPER,
             )
         } catch (_: Throwable) { false }
-        val sniperColor = if (sniperEnabled) "#F59E0B" else "#10B981"
+        val sniperColor = if (sniperEnabled) "#FFB020" else "#16E6A1"
         addKvHighlight(
             "PROJECT_SNIPER enabled",
             if (sniperEnabled) "YES (live missions allowed)" else "NO (proven off — FATAL_AUTH_BREACH guard armed)",
@@ -253,8 +253,8 @@ class UniverseHealthActivity : Activity() {
         addHeader("💰 6. Wallet")
         val hostOpen = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { -1 }
         val hostHeld = try { com.lifecyclebot.engine.HostWalletTokenTracker.getActuallyHeldCount() } catch (_: Throwable) { -1 }
-        addKvHighlight("HostWalletTokenTracker.openCount", hostOpen.toString(), "#10B981")
-        addKvHighlight("HostWalletTokenTracker.actuallyHeldCount", hostHeld.toString(), "#10B981")
+        addKvHighlight("HostWalletTokenTracker.openCount", hostOpen.toString(), "#16E6A1")
+        addKvHighlight("HostWalletTokenTracker.actuallyHeldCount", hostHeld.toString(), "#16E6A1")
         val reconcilerKnown: Int = try {
             com.lifecyclebot.engine.WalletReconciler::class.java.declaredFields
                 .find { it.name == "knownMints" }?.let { f ->
@@ -265,10 +265,10 @@ class UniverseHealthActivity : Activity() {
         addKv("WalletReconciler.knownMints", reconcilerKnown.toString())
         val drift = if (hostOpen >= 0 && reconcilerKnown >= 0) hostOpen - reconcilerKnown else 0
         val driftColor = when {
-            hostOpen < 0 || reconcilerKnown < 0 -> "#6B7280"
-            kotlin.math.abs(drift) <= 1 -> "#10B981"
-            kotlin.math.abs(drift) <= 5 -> "#F59E0B"
-            else -> "#EF4444"
+            hostOpen < 0 || reconcilerKnown < 0 -> "#63759B"
+            kotlin.math.abs(drift) <= 1 -> "#16E6A1"
+            kotlin.math.abs(drift) <= 5 -> "#FFB020"
+            else -> "#FF4D6D"
         }
         addKvHighlight("drift (host - reconciler)", drift.toString(), driftColor)
 
@@ -277,7 +277,7 @@ class UniverseHealthActivity : Activity() {
             "ⓘ When scoring mode shows CLASSIC, the modern symbolic outer ring is bypassed. " +
                 "The bot is NOT running 'full sentient symbolic trading' in that mode — it's the " +
                 "20-layer build-1920 pipeline. Flip the toggle in Settings → Scoring Mode to switch.",
-            Color.parseColor("#94A3B8"),
+            Color.parseColor("#A7B7D8"),
             small = true,
         )
     }
@@ -293,7 +293,7 @@ class UniverseHealthActivity : Activity() {
                 text = label
                 isAllCaps = false
                 textSize = 12f
-                setTextColor(Color.WHITE)
+                setTextColor(Color.parseColor("#F5F7FF"))
                 setBackgroundColor(Color.parseColor(hex))
                 val lp = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
                 val m = (3 * resources.displayMetrics.density).toInt()
@@ -304,9 +304,9 @@ class UniverseHealthActivity : Activity() {
                 }
             })
         }
-        navBtn("🩺 Pipeline", "#10B981", PipelineHealthActivity::class.java)
-        navBtn("🧠 Learning", "#3B82F6", LearningCounterActivity::class.java)
-        navBtn("🎚 Tuning", "#F59E0B", TuningActivity::class.java)
+        navBtn("🩺 Pipeline", "#16E6A1", PipelineHealthActivity::class.java)
+        navBtn("🧠 Learning", "#4C8DFF", LearningCounterActivity::class.java)
+        navBtn("🎚 Tuning", "#FFB020", TuningActivity::class.java)
         rootColumn.addView(bar)
     }
 
@@ -314,7 +314,7 @@ class UniverseHealthActivity : Activity() {
     private fun addHeader(text: String) {
         rootColumn.addView(TextView(this).apply {
             this.text = text
-            setTextColor(Color.WHITE)
+            setTextColor(Color.parseColor("#F5F7FF"))
             textSize = 16f
             typeface = Typeface.DEFAULT_BOLD
             val pad = (8 * resources.displayMetrics.density).toInt()
@@ -323,14 +323,14 @@ class UniverseHealthActivity : Activity() {
     }
 
     private fun addKv(label: String, value: String) {
-        rootColumn.addView(makeKvRow(label, value, Color.LTGRAY))
+        rootColumn.addView(makeKvRow(label, value, Color.parseColor("#A7B7D8")))
     }
 
     private fun addKvHighlight(label: String, value: String, hex: String) {
         rootColumn.addView(makeKvRow(label, value, Color.parseColor(hex)))
     }
 
-    private fun addText(s: String, color: Int = Color.LTGRAY, small: Boolean = false) {
+    private fun addText(s: String, color: Int = Color.parseColor("#A7B7D8"), small: Boolean = false) {
         rootColumn.addView(TextView(this).apply {
             text = s
             setTextColor(color)
@@ -348,7 +348,7 @@ class UniverseHealthActivity : Activity() {
             setPadding(0, pad, 0, pad)
             addView(TextView(this@UniverseHealthActivity).apply {
                 text = label
-                setTextColor(Color.parseColor("#94A3B8"))
+                setTextColor(Color.parseColor("#A7B7D8"))
                 textSize = 13f
                 typeface = Typeface.MONOSPACE
                 layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)

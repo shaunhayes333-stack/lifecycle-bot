@@ -220,13 +220,13 @@ class PersonaStudioActivity : AppCompatActivity() {
             }
             val title = TextView(this).apply {
                 text = def.title
-                setTextColor(Color.parseColor("#FFFFFF"))
+                setTextColor(Color.parseColor("#F5F7FF"))
                 textSize = 12f
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             }
             val valueTv = TextView(this).apply {
                 text = "0.00"
-                setTextColor(Color.parseColor("#9CA3AF"))
+                setTextColor(Color.parseColor("#A7B7D8"))
                 textSize = 10f
                 typeface = android.graphics.Typeface.MONOSPACE
             }
@@ -246,13 +246,13 @@ class PersonaStudioActivity : AppCompatActivity() {
             }
             labels.addView(TextView(this).apply {
                 text = def.negLabel
-                setTextColor(Color.parseColor("#6B7280"))
+                setTextColor(Color.parseColor("#63759B"))
                 textSize = 9f
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             })
             labels.addView(TextView(this).apply {
                 text = def.posLabel
-                setTextColor(Color.parseColor("#6B7280"))
+                setTextColor(Color.parseColor("#63759B"))
                 textSize = 9f
                 gravity = Gravity.END
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
@@ -531,18 +531,18 @@ class PersonaStudioActivity : AppCompatActivity() {
             }
             val head = TextView(this).apply {
                 text = m.type.name.replace('_', ' ')
-                setTextColor(Color.parseColor("#FFFFFF"))
+                setTextColor(Color.parseColor("#F5F7FF"))
                 textSize = 11f
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
             }
             val body = TextView(this).apply {
                 text = m.detail.ifBlank { "—" }
-                setTextColor(Color.parseColor("#9CA3AF"))
+                setTextColor(Color.parseColor("#A7B7D8"))
                 textSize = 10f
             }
             val time = TextView(this).apply {
                 text = "${fmt.format(Date(m.timestamp))} · weight ${String.format(Locale.US, "%.2f", m.weight)}"
-                setTextColor(Color.parseColor("#6B7280"))
+                setTextColor(Color.parseColor("#63759B"))
                 textSize = 9f
                 typeface = android.graphics.Typeface.MONOSPACE
             }
@@ -555,9 +555,9 @@ class PersonaStudioActivity : AppCompatActivity() {
     }
 
     private fun weightColor(w: Double): Int = when {
-        w >= 0.70 -> Color.parseColor("#00FF88")
-        w >= 0.40 -> Color.parseColor("#F59E0B")
-        else      -> Color.parseColor("#6B7280")
+        w >= 0.70 -> Color.parseColor("#16E6A1")
+        w >= 0.40 -> Color.parseColor("#FFB020")
+        else      -> Color.parseColor("#63759B")
     }
 
     // ──────────────────────────────────────────────────────────────────
@@ -578,7 +578,7 @@ class PersonaStudioActivity : AppCompatActivity() {
             val isUser = t.role.equals("user", ignoreCase = true)
             val bubble = TextView(this).apply {
                 text = (if (isUser) "🧑 " else "🤖 ") + t.text
-                setTextColor(Color.parseColor("#FFFFFF"))
+                setTextColor(Color.parseColor("#F5F7FF"))
                 textSize = 11f
                 setPadding(dp(10), dp(6), dp(10), dp(6))
                 setBackgroundResource(if (isUser) R.drawable.pill_bg else R.drawable.stats_pill_bg)
@@ -598,7 +598,7 @@ class PersonaStudioActivity : AppCompatActivity() {
             wrap.addView(bubble)
             wrap.addView(TextView(this).apply {
                 text = "${fmt.format(Date(t.timestamp))} · ${t.personaId}"
-                setTextColor(Color.parseColor("#6B7280"))
+                setTextColor(Color.parseColor("#63759B"))
                 textSize = 8f
                 typeface = android.graphics.Typeface.MONOSPACE
                 gravity = if (isUser) Gravity.END else Gravity.START
@@ -730,11 +730,11 @@ class PersonaStudioActivity : AppCompatActivity() {
             if (f.exists() && f.length() > 0) {
                 val kb = f.length() / 1024L
                 s.status.text = "custom · ${kb}KB"
-                s.status.setTextColor(Color.parseColor("#00FF88"))
+                s.status.setTextColor(Color.parseColor("#16E6A1"))
                 s.reset.visibility = View.VISIBLE
             } else {
                 s.status.text = "default"
-                s.status.setTextColor(Color.parseColor("#6B7280"))
+                s.status.setTextColor(Color.parseColor("#63759B"))
                 s.reset.visibility = View.GONE
             }
         }

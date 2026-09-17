@@ -83,7 +83,7 @@ class TuningActivity : Activity() {
         title = "🎚 AATE Tuning Console"
         rootScroll = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
-            setBackgroundColor(Color.parseColor("#0F172A"))
+            setBackgroundColor(Color.parseColor("#0A1424"))
         }
         rootColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -112,7 +112,7 @@ class TuningActivity : Activity() {
 
         addText(
             "Tuning signals computed by the brains. V5.0.6093: Lane Strategy Replay now feeds bounded LaneExitTuner TP/SL bias; this screen remains a display, not a manual apply button.",
-            Color.GRAY, small = true,
+            Color.parseColor("#63759B"), small = true,
         )
 
         // ── 1. PER-LANE EXPECTANCY ─────────────────────────────────────
@@ -123,15 +123,15 @@ class TuningActivity : Activity() {
             val board = rawBoard.filter { it.isStatisticallyMeaningful }
             val displayBoard = if (board.isEmpty()) rawBoard.take(12) else board
             if (displayBoard.isEmpty()) {
-                addText("(no settled lane/trader rows yet)", Color.GRAY)
+                addText("(no settled lane/trader rows yet)", Color.parseColor("#63759B"))
             } else {
-                if (board.isEmpty()) addText("(warming: below statistical threshold, but lanes/traders are contributing)", Color.GRAY, small = true)
+                if (board.isEmpty()) addText("(warming: below statistical threshold, but lanes/traders are contributing)", Color.parseColor("#63759B"), small = true)
                 for (m in displayBoard) {
                     // Profitable mean = green, bleeding = red, flat = amber.
                     val color = when {
-                        m.meanPnlPct > 1.0 -> "#10B981"
-                        m.meanPnlPct < -1.0 -> "#EF4444"
-                        else -> "#F59E0B"
+                        m.meanPnlPct > 1.0 -> "#16E6A1"
+                        m.meanPnlPct < -1.0 -> "#FF4D6D"
+                        else -> "#FFB020"
                     }
                     val warmTag = if (!m.isStatisticallyMeaningful) " warm" else ""
                     val line = "${m.strategy}: WR=${"%.0f".format(m.winRatePct)}% " +
@@ -142,33 +142,33 @@ class TuningActivity : Activity() {
                 }
             }
         } catch (t: Throwable) {
-            addText("(leaderboard unavailable: ${t.message?.take(60)})", Color.GRAY)
+            addText("(leaderboard unavailable: ${t.message?.take(60)})", Color.parseColor("#63759B"))
         }
 
         // ── 2. SCORE-BAND CALIBRATION ──────────────────────────────────
         addHeader("🎯 2. Score-Band Calibration")
         addText(
             "Higher bands SHOULD show higher mean PnL. If they don't, the scorer isn't predictive.",
-            Color.GRAY, small = true,
+            Color.parseColor("#63759B"), small = true,
         )
         try {
             val snap = com.lifecyclebot.engine.ScoreExpectancyTracker.snapshot()
             renderTokenizedSnapshot(snap)
         } catch (t: Throwable) {
-            addText("(score expectancy unavailable)", Color.GRAY)
+            addText("(score expectancy unavailable)", Color.parseColor("#63759B"))
         }
 
         // ── 3. EXIT-REASON P&L ─────────────────────────────────────────
         addHeader("🚪 3. Exit-Reason P&L")
         addText(
             "Where money is captured vs leaked. Negative TP/positive STOP = exits mis-tuned.",
-            Color.GRAY, small = true,
+            Color.parseColor("#63759B"), small = true,
         )
         try {
             val snap = com.lifecyclebot.engine.ExitReasonTracker.snapshot()
             renderTokenizedSnapshot(snap)
         } catch (t: Throwable) {
-            addText("(exit-reason tracker unavailable)", Color.GRAY)
+            addText("(exit-reason tracker unavailable)", Color.parseColor("#63759B"))
         }
 
         // ── 4. DANGER BUCKETS ──────────────────────────────────────────
@@ -176,22 +176,22 @@ class TuningActivity : Activity() {
         try {
             val dump = com.lifecyclebot.engine.LosingPatternMemory.formatForPipelineDump()
             if (dump.isBlank()) {
-                addText("(no danger buckets — learning still warming up)", Color.GRAY)
+                addText("(no danger buckets — learning still warming up)", Color.parseColor("#63759B"))
             } else {
                 // Strip the section header line; render the rest mono-ish.
                 dump.lines().forEach { raw ->
                     val l = raw.trimEnd()
                     if (l.isBlank() || l.startsWith("=====")) return@forEach
                     val color = when {
-                        l.contains("✅") -> "#10B981"
-                        l.contains("losses=") -> "#EF4444"
-                        else -> Color.LTGRAY.let { "#D1D5DB" }
+                        l.contains("✅") -> "#16E6A1"
+                        l.contains("losses=") -> "#FF4D6D"
+                        else -> Color.parseColor("#A7B7D8").let { "#A7B7D8" }
                     }
                     addText(l, Color.parseColor(color), small = true)
                 }
             }
         } catch (t: Throwable) {
-            addText("(losing-pattern memory unavailable)", Color.GRAY)
+            addText("(losing-pattern memory unavailable)", Color.parseColor("#63759B"))
         }
         // ── 5. MFE CAPTURE RATIO ───────────────────────────────────────
         addHeader("📈 5. MFE Capture Ratio (realized ÷ peak)")
@@ -199,7 +199,7 @@ class TuningActivity : Activity() {
             "How much of each lane's peak gain it actually banks. <40% = exiting too late " +
                 "(round-tripping winners); near 100% = exits well-timed. Only counts closed " +
                 "outcomes that carried a recorded peak.",
-            Color.GRAY, small = true,
+            Color.parseColor("#63759B"), small = true,
         )
         try {
             val outcomes = com.lifecyclebot.engine.CanonicalOutcomeBus.recentSnapshot()
@@ -218,14 +218,14 @@ class TuningActivity : Activity() {
                 a.n += 1
             }
             if (byLane.isEmpty()) {
-                addText("(no closed outcomes with a recorded peak yet)", Color.GRAY)
+                addText("(no closed outcomes with a recorded peak yet)", Color.parseColor("#63759B"))
             } else {
                 byLane.entries.sortedByDescending { it.value.n }.forEach { (lane, a) ->
                     val ratio = if (a.peakSum > 0.0) (a.realizedSum / a.peakSum) * 100.0 else 0.0
                     val color = when {
-                        ratio >= 70.0 -> "#10B981"
-                        ratio >= 40.0 -> "#F59E0B"
-                        else -> "#EF4444"
+                        ratio >= 70.0 -> "#16E6A1"
+                        ratio >= 40.0 -> "#FFB020"
+                        else -> "#FF4D6D"
                     }
                     addKv(
                         "$lane: capture=${"%.0f".format(ratio)}% " +
@@ -236,7 +236,7 @@ class TuningActivity : Activity() {
                 }
             }
         } catch (t: Throwable) {
-            addText("(MFE data unavailable: ${t.message?.take(60)})", Color.GRAY)
+            addText("(MFE data unavailable: ${t.message?.take(60)})", Color.parseColor("#63759B"))
         }
 
         // ── 6. LANE STRATEGY REPLAY (V5.9.1285) ────────────────────────
@@ -245,16 +245,16 @@ class TuningActivity : Activity() {
             "Replays each lane's REAL trades under candidate exit shapes using the " +
                 "actual peak/drawdown each trade hit — no fabricated upside. If a lane's " +
                 "best shape can't beat NO_TRADE, the data says it should stop trading.",
-            Color.GRAY, small = true,
+            Color.parseColor("#63759B"), small = true,
         )
         try {
             // V5.9.1332 — read the OFF-MAIN cached replay (refreshLaneReplayAsync),
             // never run the O(trades×profiles) backtest on the main thread here.
             val byLane = cachedLaneReplay
             if (byLane == null) {
-                addText("(computing lane replay… refresh in a moment)", Color.GRAY)
+                addText("(computing lane replay… refresh in a moment)", Color.parseColor("#63759B"))
             } else if (byLane.isEmpty()) {
-                addText("(not enough closed outcomes with peak data yet)", Color.GRAY)
+                addText("(not enough closed outcomes with peak data yet)", Color.parseColor("#63759B"))
             } else {
                 for ((lane, rs) in byLane) {
                     val b = rs.maxByOrNull { it.netSol }!!
@@ -265,17 +265,17 @@ class TuningActivity : Activity() {
                         b.profile == "CURRENT_ACTUAL" -> "✅ KEEP CURRENT"
                         else -> "🔧 SWITCH → ${b.profile}"
                     }
-                    val vColor = if (verdict.startsWith("⛔")) "#EF4444"
-                        else if (verdict.startsWith("🔧")) "#F59E0B" else "#10B981"
+                    val vColor = if (verdict.startsWith("⛔")) "#FF4D6D"
+                        else if (verdict.startsWith("🔧")) "#FFB020" else "#16E6A1"
                     addKv("$lane — $verdict", vColor)
                     rs.sortedByDescending { it.netSol }.forEach { r ->
-                        val rc = if (r.netSol > 0) "#10B981" else if (r.netSol < 0) "#EF4444" else "#9CA3AF"
+                        val rc = if (r.netSol > 0) "#16E6A1" else if (r.netSol < 0) "#FF4D6D" else "#A7B7D8"
                         addText("   ${r.oneLine()}", Color.parseColor(rc), small = true)
                     }
                 }
             }
         } catch (t: Throwable) {
-            addText("(lane replay unavailable: ${t.message?.take(80)})", Color.GRAY)
+            addText("(lane replay unavailable: ${t.message?.take(80)})", Color.parseColor("#63759B"))
         }
     }
 
@@ -285,20 +285,20 @@ class TuningActivity : Activity() {
      */
     private fun renderTokenizedSnapshot(snapshot: String) {
         if (snapshot.isBlank() || snapshot == "no samples yet") {
-            addText("(no samples yet)", Color.GRAY)
+            addText("(no samples yet)", Color.parseColor("#63759B"))
             return
         }
         // Tokens are space-separated but lane labels have no internal spaces.
         val tokens = snapshot.split(" ").filter { it.isNotBlank() }
         if (tokens.isEmpty()) {
-            addText(snapshot, Color.LTGRAY, small = true)
+            addText(snapshot, Color.parseColor("#A7B7D8"), small = true)
             return
         }
         for (tok in tokens) {
             val color = when {
-                Regex("μ=\\+").containsMatchIn(tok) -> "#10B981"
-                Regex("μ=-").containsMatchIn(tok) -> "#EF4444"
-                else -> "#D1D5DB"
+                Regex("μ=\\+").containsMatchIn(tok) -> "#16E6A1"
+                Regex("μ=-").containsMatchIn(tok) -> "#FF4D6D"
+                else -> "#A7B7D8"
             }
             addText(tok, Color.parseColor(color), small = true)
         }
@@ -308,7 +308,7 @@ class TuningActivity : Activity() {
     private fun addHeader(text: String) {
         rootColumn.addView(TextView(this).apply {
             this.text = text
-            setTextColor(Color.WHITE)
+            setTextColor(Color.parseColor("#F5F7FF"))
             textSize = 16f
             typeface = Typeface.DEFAULT_BOLD
             val pad = (8 * resources.displayMetrics.density).toInt()
@@ -327,7 +327,7 @@ class TuningActivity : Activity() {
         })
     }
 
-    private fun addText(s: String, color: Int = Color.LTGRAY, small: Boolean = false) {
+    private fun addText(s: String, color: Int = Color.parseColor("#A7B7D8"), small: Boolean = false) {
         rootColumn.addView(TextView(this).apply {
             text = s
             setTextColor(color)

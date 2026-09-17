@@ -132,10 +132,10 @@ object PerpsTradeVisualizer {
     )
     
     enum class RiskCategory(val emoji: String, val color: String) {
-        SAFE("🟢", "#22C55E"),
-        MODERATE("🟡", "#F59E0B"),
-        ELEVATED("🟠", "#F97316"),
-        HIGH("🔴", "#EF4444"),
+        SAFE("🟢", "#16E6A1"),
+        MODERATE("🟡", "#FFB020"),
+        ELEVATED("🟠", "#FFB020"),
+        HIGH("🔴", "#FF4D6D"),
         CRITICAL("💀", "#7F1D1D"),
     }
     
@@ -232,10 +232,10 @@ object PerpsTradeVisualizer {
     }
     
     enum class AlertSeverity(val emoji: String, val color: String) {
-        INFO("ℹ️", "#3B82F6"),
-        WARNING("⚠️", "#F59E0B"),
-        CRITICAL("🚨", "#EF4444"),
-        OPPORTUNITY("💎", "#22C55E"),
+        INFO("ℹ️", "#4C8DFF"),
+        WARNING("⚠️", "#FFB020"),
+        CRITICAL("🚨", "#FF4D6D"),
+        OPPORTUNITY("💎", "#16E6A1"),
     }
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -296,7 +296,7 @@ object PerpsTradeVisualizer {
             type = ZoneType.ENTRY,
             priceStart = position.entryPrice * 0.995,
             priceEnd = position.entryPrice * 1.005,
-            color = "#3B82F6",
+            color = "#4C8DFF",
             alpha = 0.3f,
             label = "Entry: \$${position.entryPrice.fmt(2)}",
         ))
@@ -307,7 +307,7 @@ object PerpsTradeVisualizer {
                 type = ZoneType.TAKE_PROFIT,
                 priceStart = tp * 0.99,
                 priceEnd = tp * 1.01,
-                color = "#22C55E",
+                color = "#16E6A1",
                 alpha = 0.3f,
                 label = "TP: \$${tp.fmt(2)}",
             ))
@@ -319,7 +319,7 @@ object PerpsTradeVisualizer {
                 type = ZoneType.STOP_LOSS,
                 priceStart = sl * 0.99,
                 priceEnd = sl * 1.01,
-                color = "#F59E0B",
+                color = "#FFB020",
                 alpha = 0.3f,
                 label = "SL: \$${sl.fmt(2)}",
             ))
@@ -340,7 +340,7 @@ object PerpsTradeVisualizer {
             type = ZoneType.LIQUIDATION,
             priceStart = minOf(dangerStart, dangerEnd),
             priceEnd = maxOf(dangerStart, dangerEnd),
-            color = "#EF4444",
+            color = "#FF4D6D",
             alpha = 0.5f,
             label = "☠️ LIQUIDATION: \$${liqPrice.fmt(2)}",
         ))
@@ -618,9 +618,9 @@ object PerpsTradeVisualizer {
             ((recent.last().price - recent.first().price) / recent.first().price * 200).toInt().coerceIn(-100, 100)
         } else 0
         
-        bars.add(MomentumBar(shortTerm, if (shortTerm > 0) "#22C55E" else "#EF4444"))
-        bars.add(MomentumBar(mediumTerm, if (mediumTerm > 0) "#22C55E" else "#EF4444"))
-        bars.add(MomentumBar(longTerm, if (longTerm > 0) "#22C55E" else "#EF4444"))
+        bars.add(MomentumBar(shortTerm, if (shortTerm > 0) "#16E6A1" else "#FF4D6D"))
+        bars.add(MomentumBar(mediumTerm, if (mediumTerm > 0) "#16E6A1" else "#FF4D6D"))
+        bars.add(MomentumBar(longTerm, if (longTerm > 0) "#16E6A1" else "#FF4D6D"))
         
         val overallMomentum = (shortTerm * 0.5 + mediumTerm * 0.3 + longTerm * 0.2).toInt()
         val direction = if (overallMomentum >= 0) PerpsDirection.LONG else PerpsDirection.SHORT

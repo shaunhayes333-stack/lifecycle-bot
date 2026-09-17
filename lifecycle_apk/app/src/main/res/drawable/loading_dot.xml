@@ -6,7 +6,7 @@
     android:useLevel="false">
     <gradient
         android:type="sweep"
-        android:startColor="#9945FF"
-        android:centerColor="#14F195"
+        android:startColor="#9A4DFF"
+        android:centerColor="#16E6A1"
         android:endColor="#00000000"/>
 </shape>

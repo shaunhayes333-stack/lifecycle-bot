@@ -913,39 +913,39 @@ class AnimatedBrainView @JvmOverloads constructor(
     }
     
     private val ringBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#1F2937")
+        color = Color.parseColor("#101E33")
         style = Paint.Style.STROKE
         strokeWidth = 24f  // V4.0: Thicker ring
         strokeCap = Paint.Cap.ROUND
     }
     
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#9945FF")
+        color = Color.parseColor("#9A4DFF")
         style = Paint.Style.STROKE
         strokeWidth = 24f  // V4.0: Thicker ring
         strokeCap = Paint.Cap.ROUND
     }
     
     private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#9945FF")
+        color = Color.parseColor("#9A4DFF")
         maskFilter = BlurMaskFilter(40f, BlurMaskFilter.Blur.OUTER)  // V4.0: Larger glow
     }
     
     private val brainPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#9945FF")
+        color = Color.parseColor("#9A4DFF")
         textSize = 160f  // V4.0: Larger brain emoji
         textAlign = Paint.Align.CENTER
     }
     
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
+        color = Color.parseColor("#F5F7FF")
         textSize = 56f  // V4.0: Larger text
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
     
     private val subtextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#6B7280")
+        color = Color.parseColor("#63759B")
         textSize = 28f  // V4.0: Larger subtext
         textAlign = Paint.Align.CENTER
     }

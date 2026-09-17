@@ -4331,7 +4331,7 @@ for legal compliance.
                 val card = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
                     setPadding((14 * resources.displayMetrics.density).toInt(), (12 * resources.displayMetrics.density).toInt(), (14 * resources.displayMetrics.density).toInt(), (12 * resources.displayMetrics.density).toInt())
-                    setBackgroundColor(android.graphics.Color.parseColor("#1A1A2E"))
+                    setBackgroundColor(android.graphics.Color.parseColor("#0D192B"))
                     val lp = LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT
@@ -4371,7 +4371,7 @@ for legal compliance.
 
             val winRate = if (cycles > 0) (wins * 100 / cycles) else 0
             val growthPct = ((ringUsd - 500.0) / 500.0 * 100.0)
-            val modeColor = if (isLive) android.graphics.Color.parseColor("#FF4444") else amber
+            val modeColor = if (isLive) android.graphics.Color.parseColor("#FF4D6D") else amber
             val modeLabel = if (isLive) "FAIL LIVE" else "PAPER"
 
             // ── Row 1: Header ─────────────────────────────────────────────────
@@ -4384,7 +4384,7 @@ for legal compliance.
 
                 addView(TextView(this@MainActivity).apply {
                     text = "SYNC Cyclic $500→$1M"
-                    setTextColor(android.graphics.Color.WHITE)
+                    setTextColor(android.graphics.Color.parseColor("#F5F7FF"))
                     textSize = 13f
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -4470,7 +4470,7 @@ for legal compliance.
                 // Status line
                 card.addView(TextView(this@MainActivity).apply {
                     text = cyclicStatusDisplay
-                    setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
+                    setTextColor(android.graphics.Color.parseColor("#A7B7D8"))
                     textSize = 10f
                     setPadding((2 * resources.displayMetrics.density).toInt(), (2 * resources.displayMetrics.density).toInt(), 0, 0)
                 })
@@ -4478,7 +4478,7 @@ for legal compliance.
                 // Scanning
                 card.addView(TextView(this@MainActivity).apply {
                     text = status
-                    setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
+                    setTextColor(android.graphics.Color.parseColor("#A7B7D8"))
                     textSize = 10f
                     setPadding((2 * resources.displayMetrics.density).toInt(), (2 * resources.displayMetrics.density).toInt(), 0, 0)
                 })
@@ -8418,7 +8418,7 @@ This cannot be undone!
                 }
                 else -> {
                     tvLiveReadinessBadge.text = "NOT READY"
-                    tvLiveReadinessBadge.setTextColor(Color.WHITE)
+                    tvLiveReadinessBadge.setTextColor(Color.parseColor("#F5F7FF"))
                     tvLiveReadinessBadge.setCachedBackground(R.drawable.pill_bg_red)
                     val needed = mutableListOf<String>()
                     if (meaningfulTrades < TRADES_READY)  needed.add("${TRADES_READY - meaningfulTrades} more trades")
@@ -8483,7 +8483,7 @@ This cannot be undone!
         })
 
         tvReadinessPhase.text = phase
-        tvReadinessPhase.setTextColor(Color.parseColor("#9945FF"))
+        tvReadinessPhase.setTextColor(Color.parseColor("#9A4DFF"))
 
         tvReadinessProgress.text = "$readinessScore%"
         val params = viewReadinessProgressBar.layoutParams
@@ -8518,7 +8518,7 @@ This cannot be undone!
             }
             else -> {
                 tvLiveReadinessBadge.text = "NOT READY"
-                tvLiveReadinessBadge.setTextColor(Color.WHITE)
+                tvLiveReadinessBadge.setTextColor(Color.parseColor("#F5F7FF"))
                 tvLiveReadinessBadge.setCachedBackground(R.drawable.pill_bg_red)
                 val needed = mutableListOf<String>()
                 if (gatingTrades < TRADES_READY) needed.add("${TRADES_READY - gatingTrades} more trades")
@@ -8668,7 +8668,7 @@ This cannot be undone!
             else               -> "MATURING"
         }
         tvReadinessPhase.text = phaseLabel
-        tvReadinessPhase.setTextColor(Color.parseColor("#9945FF"))
+        tvReadinessPhase.setTextColor(Color.parseColor("#9A4DFF"))
 
         tvReadinessProgress.text = "$readinessScore%"
         val params = viewReadinessProgressBar.layoutParams
@@ -8708,7 +8708,7 @@ This cannot be undone!
             }
             else -> {
                 tvLiveReadinessBadge.text = "NOT READY"
-                tvLiveReadinessBadge.setTextColor(Color.WHITE)
+                tvLiveReadinessBadge.setTextColor(Color.parseColor("#F5F7FF"))
                 tvLiveReadinessBadge.setCachedBackground(R.drawable.pill_bg_red)
                 val needed = mutableListOf<String>()
                 if (totalTrades < TRADES_READY)    needed.add("${TRADES_READY - totalTrades} more trades")
@@ -8745,7 +8745,7 @@ This cannot be undone!
                 t.setTypeface(null, android.graphics.Typeface.BOLD)
             } else {
                 t.setBackgroundResource(R.drawable.aate_tab_inactive_bg)
-                t.setTextColor(Color.parseColor("#94A3B8"))
+                t.setTextColor(Color.parseColor("#A7B7D8"))
                 t.setTypeface(null, android.graphics.Typeface.NORMAL)
             }
         }
@@ -8827,7 +8827,7 @@ This cannot be undone!
             val finalColor = when {
                 blendedWR >= 50.0 -> green
                 blendedWR >= 45.0 -> amber
-                totalDecisive == 0 -> Color.parseColor("#9CA3AF")
+                totalDecisive == 0 -> Color.parseColor("#A7B7D8")
                 else              -> red
             }
             // Post the finished string + color to the TextView on the MAIN thread.

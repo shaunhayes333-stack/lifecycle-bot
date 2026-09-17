@@ -41,10 +41,10 @@ enum class PerpsRiskTier(
     val takeProfitPct: Double,
     val color: String,
 ) {
-    SNIPER("🎯", "Sniper", 2.0, 5.0, 3.0, 8.0, "#22C55E"),       // Conservative - Green
-    TACTICAL("⚔️", "Tactical", 5.0, 10.0, 5.0, 15.0, "#3B82F6"),  // Moderate - Blue
-    ASSAULT("💥", "Assault", 10.0, 15.0, 8.0, 25.0, "#F59E0B"),   // Aggressive - Yellow
-    NUKE("☢️", "Nuclear", 20.0, 25.0, 12.0, 50.0, "#EF4444"),     // Degen - Red
+    SNIPER("🎯", "Sniper", 2.0, 5.0, 3.0, 8.0, "#16E6A1"),       // Conservative - Green
+    TACTICAL("⚔️", "Tactical", 5.0, 10.0, 5.0, 15.0, "#4C8DFF"),  // Moderate - Blue
+    ASSAULT("💥", "Assault", 10.0, 15.0, 8.0, 25.0, "#FFB020"),   // Aggressive - Yellow
+    NUKE("☢️", "Nuclear", 20.0, 25.0, 12.0, 50.0, "#FF4D6D"),     // Degen - Red
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -63,7 +63,7 @@ enum class PerpsMarket(
     // ═══════════════════════════════════════════════════════════════════════════
     // 🪙 MAJOR CRYPTOCURRENCIES
     // ═══════════════════════════════════════════════════════════════════════════
-    SOL("SOL", "◎", "Solana", false, 20.0, "24/7", "#14F195"),
+    SOL("SOL", "◎", "Solana", false, 20.0, "24/7", "#16E6A1"),
     BTC("BTC", "₿", "Bitcoin", false, 20.0, "24/7", "#F7931A"),
     ETH("ETH", "⟠", "Ethereum", false, 20.0, "24/7", "#627EEA"),
     BNB("BNB", "🔶", "BNB", false, 20.0, "24/7", "#F3BA2F"),
@@ -115,7 +115,7 @@ enum class PerpsMarket(
     RPL("RPL", "🚀", "Rocket Pool", false, 20.0, "24/7", "#FF6B35"),
     PYTH("PYTH", "🔮", "Pyth Network", false, 20.0, "24/7", "#E6DAFE"),
     RAY("RAY", "☀️", "Raydium", false, 20.0, "24/7", "#C7B2FF"),
-    ORCA("ORCA", "🐋", "Orca", false, 20.0, "24/7", "#FFD700"),
+    ORCA("ORCA", "🐋", "Orca", false, 20.0, "24/7", "#FFB020"),
     MNGO("MNGO", "🥭", "Mango Markets", false, 20.0, "24/7", "#F2C94C"),
     DRIFT("DRIFT", "🌊", "Drift Protocol", false, 20.0, "24/7", "#6366F1"),
 
@@ -201,7 +201,7 @@ enum class PerpsMarket(
     MANTLE("MANTLE", "🔷", "Mantle", false, 20.0, "24/7", "#000000"),
     MANTA("MANTA", "🐋", "Manta Network", false, 20.0, "24/7", "#1EAAF1"),
     SCROLL("SCROLL", "📜", "Scroll", false, 20.0, "24/7", "#FFEEDA"),
-    ZK("ZK", "🔐", "ZKsync", false, 20.0, "24/7", "#8B5CF6"),
+    ZK("ZK", "🔐", "ZKsync", false, 20.0, "24/7", "#9A4DFF"),
     // ── DeFi expanded ────────────────────────────────────────────────────────
     COMP("COMP", "🏦", "Compound", false, 20.0, "24/7", "#00D395"),
     SUSHI("SUSHI", "🍱", "SushiSwap", false, 20.0, "24/7", "#FA52A0"),
@@ -213,12 +213,12 @@ enum class PerpsMarket(
     SPELL("SPELL", "🧙", "Spell Token", false, 20.0, "24/7", "#7B2BF9"),
     PERP("PERP", "📊", "Perpetual Protocol", false, 20.0, "24/7", "#3CEAAA"),
     DODO("DODO", "🐦", "DODO", false, 20.0, "24/7", "#FEE902"),
-    ALPHA("ALPHA", "α", "Alpha Venture DAO", false, 20.0, "24/7", "#1A1A2E"),
+    ALPHA("ALPHA", "α", "Alpha Venture DAO", false, 20.0, "24/7", "#0D192B"),
     FIDA("FIDA", "🔵", "Bonfida", false, 20.0, "24/7", "#B8A4FF"),
     // ── AI / Compute / Data expanded ─────────────────────────────────────────
     ALT("ALT", "🤖", "AltLayer", false, 20.0, "24/7", "#8A2BE2"),
     IO("IO", "🖥️", "io.net", false, 20.0, "24/7", "#00F5FF"),
-    VIRTUAL("VIRTUAL", "🤖", "Virtuals Protocol", false, 20.0, "24/7", "#7C3AED"),
+    VIRTUAL("VIRTUAL", "🤖", "Virtuals Protocol", false, 20.0, "24/7", "#9A4DFF"),
     HYPE("HYPE", "⚡", "Hyperliquid", false, 20.0, "24/7", "#00FF87"),
     MOVE("MOVE", "🔄", "Movement", false, 20.0, "24/7", "#FF6B35"),
     // ── Infrastructure / Interop ─────────────────────────────────────────────
@@ -245,7 +245,7 @@ enum class PerpsMarket(
     MOG("MOG", "😼", "Mog Coin", false, 20.0, "24/7", "#8A2BE2"),
     NEIRO("NEIRO", "🐕", "Neiro", false, 20.0, "24/7", "#F4A460"),
     BRETT("BRETT", "🐸", "Brett", false, 20.0, "24/7", "#4169E1"),
-    DEGEN("DEGEN", "🎩", "Degen", false, 20.0, "24/7", "#A855F7"),
+    DEGEN("DEGEN", "🎩", "Degen", false, 20.0, "24/7", "#B36BFF"),
     // ── Newer cycle tokens ───────────────────────────────────────────────────
     JASMY("JASMY", "🔷", "JasmyCoin", false, 20.0, "24/7", "#2775CA"),
     STG("STG", "🌉", "Stargate Finance", false, 20.0, "24/7", "#999999"),
@@ -256,10 +256,10 @@ enum class PerpsMarket(
     // ═══════════════════════════════════════════════════════════════════════════
     
     // 🔥 MEGA TECH (FAANG+)
-    AAPL("AAPL", "🍎", "Apple Inc.", true, 10.0, "MARKET", "#A2AAAD"),
-    TSLA("TSLA", "🚗", "Tesla Inc.", true, 10.0, "MARKET", "#E31937"),
-    NVDA("NVDA", "🖥️", "NVIDIA Corp.", true, 10.0, "MARKET", "#76B900"),
-    GOOGL("GOOGL", "🔍", "Alphabet Inc.", true, 10.0, "MARKET", "#4285F4"),
+    AAPL("AAPL", "🍎", "Apple Inc.", true, 10.0, "MARKET", "#A7B7D8"),
+    TSLA("TSLA", "🚗", "Tesla Inc.", true, 10.0, "MARKET", "#FF4D6D"),
+    NVDA("NVDA", "🖥️", "NVIDIA Corp.", true, 10.0, "MARKET", "#16E6A1"),
+    GOOGL("GOOGL", "🔍", "Alphabet Inc.", true, 10.0, "MARKET", "#4C8DFF"),
     AMZN("AMZN", "📦", "Amazon.com", true, 10.0, "MARKET", "#FF9900"),
     META("META", "👤", "Meta Platforms", true, 10.0, "MARKET", "#0081FB"),
     MSFT("MSFT", "🪟", "Microsoft Corp.", true, 10.0, "MARKET", "#00A4EF"),
@@ -274,7 +274,7 @@ enum class PerpsMarket(
     TSM("TSM", "🔧", "Taiwan Semi", true, 10.0, "MARKET", "#CC0000"),
     ASML("ASML", "🔬", "ASML Holding", true, 10.0, "MARKET", "#00A9E0"),
     ARM("ARM", "💪", "ARM Holdings", true, 10.0, "MARKET", "#0091BD"),
-    MRVL("MRVL", "🔷", "Marvell Tech", true, 10.0, "MARKET", "#E31937"),
+    MRVL("MRVL", "🔷", "Marvell Tech", true, 10.0, "MARKET", "#FF4D6D"),
     
     // 🚀 GROWTH TECH
     CRM("CRM", "☁️", "Salesforce", true, 10.0, "MARKET", "#00A1E0"),
@@ -391,7 +391,7 @@ enum class PerpsMarket(
     VTI("VTI", "🌎", "Total Stock Market", true, 10.0, "24/7", "#96151D"),
     EEM("EEM", "🌏", "Emerging Markets", true, 10.0, "24/7", "#00A650"),
     EFA("EFA", "🌍", "EAFE Intl ETF", true, 10.0, "24/7", "#0033A0"),
-    GLD("GLD", "🥇", "Gold ETF", true, 10.0, "24/7", "#FFD700"),
+    GLD("GLD", "🥇", "Gold ETF", true, 10.0, "24/7", "#FFB020"),
     SLV("SLV", "🥈", "Silver ETF", true, 10.0, "24/7", "#C0C0C0"),
     TLT("TLT", "📜", "20+ Yr Treasury", true, 10.0, "24/7", "#003366"),
     XLF("XLF", "🏦", "Financial Sector", true, 10.0, "24/7", "#00796B"),
@@ -457,14 +457,14 @@ enum class PerpsMarket(
     // ═══════════════════════════════════════════════════════════════════════════
     // ⛏️ GOLD & SILVER MINERS - Precious Metal Exposure
     // ═══════════════════════════════════════════════════════════════════════════
-    NEM("NEM", "⛏️", "Newmont Corp", true, 10.0, "MARKET", "#FFD700"),
-    GOLD("GOLD", "⛏️", "Barrick Gold", true, 10.0, "MARKET", "#FFD700"),
+    NEM("NEM", "⛏️", "Newmont Corp", true, 10.0, "MARKET", "#FFB020"),
+    GOLD("GOLD", "⛏️", "Barrick Gold", true, 10.0, "MARKET", "#FFB020"),
     AEM("AEM", "⛏️", "Agnico Eagle", true, 10.0, "MARKET", "#CFB53B"),
     FNV("FNV", "⛏️", "Franco-Nevada", true, 10.0, "MARKET", "#D4AF37"),
     WPM("WPM", "⛏️", "Wheaton Precious", true, 10.0, "MARKET", "#C0C0C0"),
     KGC("KGC", "⛏️", "Kinross Gold", true, 10.0, "MARKET", "#B8860B"),
     AGI("AGI", "⛏️", "Alamos Gold", true, 10.0, "MARKET", "#DAA520"),
-    EGO("EGO", "⛏️", "Eldorado Gold", true, 10.0, "MARKET", "#FFD700"),
+    EGO("EGO", "⛏️", "Eldorado Gold", true, 10.0, "MARKET", "#FFB020"),
     HL("HL", "⛏️", "Hecla Mining", true, 10.0, "MARKET", "#C0C0C0"),
     PAAS("PAAS", "⛏️", "Pan American Silver", true, 10.0, "MARKET", "#A8A9AD"),
     AG("AG", "⛏️", "First Majestic Silver", true, 10.0, "MARKET", "#C4CACE"),
@@ -480,7 +480,7 @@ enum class PerpsMarket(
     NGD("NGD", "⛏️", "New Gold Inc", true, 10.0, "MARKET", "#CC9900"),
     GATO("GATO", "⛏️", "Gatos Silver", true, 10.0, "MARKET", "#A9A9A9"),
     SILV("SILV", "⛏️", "SilverCrest Metals", true, 10.0, "MARKET", "#C0C0C0"),
-    DRD("DRD", "⛏️", "DRDGOLD Ltd", true, 10.0, "MARKET", "#FFD700"),
+    DRD("DRD", "⛏️", "DRDGOLD Ltd", true, 10.0, "MARKET", "#FFB020"),
     HMY("HMY", "⛏️", "Harmony Gold", true, 10.0, "MARKET", "#B8860B"),
     AU("AU", "⛏️", "AngloGold Ashanti", true, 10.0, "MARKET", "#DAA520"),
     SSRM("SSRM", "⛏️", "SSR Mining", true, 10.0, "MARKET", "#C0C0C0"),
@@ -543,12 +543,12 @@ enum class PerpsMarket(
     HEATING("HEATING", "🏠", "Heating Oil", false, 15.0, "24/7", "#8B0000"),
     
     // 🌾 COMMODITIES - Agricultural
-    CORN("CORN", "🌽", "Corn", false, 15.0, "24/7", "#FFD700"),
+    CORN("CORN", "🌽", "Corn", false, 15.0, "24/7", "#FFB020"),
     WHEAT("WHEAT", "🌾", "Wheat", false, 15.0, "24/7", "#DEB887"),
     SOYBEAN("SOYBEAN", "🫘", "Soybeans", false, 15.0, "24/7", "#228B22"),
     COFFEE("COFFEE", "☕", "Coffee", false, 15.0, "24/7", "#6F4E37"),
     COCOA("COCOA", "🍫", "Cocoa", false, 15.0, "24/7", "#7B3F00"),
-    SUGAR("SUGAR", "🍬", "Sugar", false, 15.0, "24/7", "#FFFFFF"),
+    SUGAR("SUGAR", "🍬", "Sugar", false, 15.0, "24/7", "#F5F7FF"),
     COTTON("COTTON", "🧶", "Cotton", false, 15.0, "24/7", "#F5F5DC"),
     LUMBER("LUMBER", "🪵", "Lumber", false, 15.0, "24/7", "#8B4513"),
     OJ("OJ", "🍊", "Orange Juice", false, 15.0, "24/7", "#FFA500"),
@@ -558,7 +558,7 @@ enum class PerpsMarket(
     // ═══════════════════════════════════════════════════════════════════════════
     // 🥇 PRECIOUS METALS (24/7 trading via Pyth)
     // ═══════════════════════════════════════════════════════════════════════════
-    XAU("XAU", "🥇", "Gold", false, 15.0, "24/7", "#FFD700"),
+    XAU("XAU", "🥇", "Gold", false, 15.0, "24/7", "#FFB020"),
     XAG("XAG", "🥈", "Silver", false, 15.0, "24/7", "#C0C0C0"),
     XPT("XPT", "⚪", "Platinum", false, 15.0, "24/7", "#E5E4E2"),
     XPD("XPD", "💎", "Palladium", false, 15.0, "24/7", "#CED0DD"),
@@ -623,7 +623,7 @@ enum class PerpsMarket(
     // NEVER be matched by `values().find { it.symbol == realSymbol }` (its symbol
     // is the reserved literal "DYN", which no real coin uses). Spot-only: maxLev
     // 1.0 so a stray leverage read can't lever a dynamic coin.
-    DYN("DYN", "🪙", "Dynamic Crypto", false, 1.0, "24/7", "#9945FF"),
+    DYN("DYN", "🪙", "Dynamic Crypto", false, 1.0, "24/7", "#9A4DFF"),
 
     ;  // End of enum
     
@@ -883,10 +883,10 @@ data class PerpsLiveReadiness(
 }
 
 enum class ReadinessPhase(val emoji: String, val displayName: String, val color: String) {
-    LEARNING("📚", "Learning", "#F59E0B"),
-    PRACTICING("🏋️", "Practicing", "#3B82F6"),
-    READY("✅", "Ready", "#22C55E"),
-    CAUTION("⚠️", "Caution", "#EF4444"),
+    LEARNING("📚", "Learning", "#FFB020"),
+    PRACTICING("🏋️", "Practicing", "#4C8DFF"),
+    READY("✅", "Ready", "#16E6A1"),
+    CAUTION("⚠️", "Caution", "#FF4D6D"),
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

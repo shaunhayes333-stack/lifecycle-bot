@@ -2,6 +2,6 @@
 <!-- Error state indicator -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="oval">
-    <solid android:color="#EF4444"/>
+    <solid android:color="#FF4D6D"/>
     <size android:width="8dp" android:height="8dp"/>
 </shape>

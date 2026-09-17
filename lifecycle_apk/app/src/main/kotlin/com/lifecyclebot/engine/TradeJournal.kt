@@ -664,7 +664,7 @@ class TradeJournal(private val ctx: Context) {
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
         val headerPaint = Paint().apply {
-            color = Color.parseColor("#374151")
+            color = Color.parseColor("#63759B")
             textSize = 12f
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
@@ -673,9 +673,9 @@ class TradeJournal(private val ctx: Context) {
             textSize = 10f
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
         }
-        val greenPaint = Paint(textPaint).apply { color = Color.parseColor("#10B981") }
-        val redPaint = Paint(textPaint).apply { color = Color.parseColor("#EF4444") }
-        val amberPaint = Paint(textPaint).apply { color = Color.parseColor("#F59E0B") }
+        val greenPaint = Paint(textPaint).apply { color = Color.parseColor("#16E6A1") }
+        val redPaint = Paint(textPaint).apply { color = Color.parseColor("#FF4D6D") }
+        val amberPaint = Paint(textPaint).apply { color = Color.parseColor("#FFB020") }
 
         val decisiveSells = sells.filter { isDecisive(it.pnlPct) }
         val wins = decisiveSells.count { isWin(it.pnlPct) }
