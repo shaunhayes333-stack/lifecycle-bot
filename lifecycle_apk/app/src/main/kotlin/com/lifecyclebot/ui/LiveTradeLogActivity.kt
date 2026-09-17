@@ -82,7 +82,7 @@ class LiveTradeLogActivity : Activity() {
         // Programmatic layout — no XML resources needed.
         val outer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#0B0E13"))
+            setBackgroundResource(com.lifecyclebot.R.drawable.aate_screen_bg)
             setPadding(dp(12), dp(16), dp(12), dp(12))
             layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
         }
@@ -94,17 +94,19 @@ class LiveTradeLogActivity : Activity() {
         }
 
         val title = TextView(this).apply {
-            text = "🔬 Live Trade Forensics"
-            setTextColor(Color.parseColor("#E5E9F0"))
-            textSize = 18f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            // V5.0.6939 — screen title on the vNext scale (AateScreenTitle).
+            text = "LIVE TRADE FORENSICS"
+            setTextColor(Color.parseColor("#F5F7FF"))
+            textSize = 19f
+            letterSpacing = 0.10f
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
         }
 
         val clearBtn = Button(this).apply {
             text = "Clear"
-            setBackgroundColor(Color.parseColor("#101E33"))
-            setTextColor(Color.parseColor("#F87171"))
+            setBackgroundResource(com.lifecyclebot.R.drawable.aate_universe_panel_bg)
+            setTextColor(Color.parseColor("#FF4D6D"))
             setOnClickListener {
                 LiveTradeLogStore.clear()
                 renderTimeline()
@@ -114,8 +116,8 @@ class LiveTradeLogActivity : Activity() {
         // V5.9.495z22 (item D) — one-tap forensic export.
         val exportBtn = Button(this).apply {
             text = "Export"
-            setBackgroundColor(Color.parseColor("#101E33"))
-            setTextColor(Color.parseColor("#34D399"))
+            setBackgroundResource(com.lifecyclebot.R.drawable.aate_universe_panel_bg)
+            setTextColor(Color.parseColor("#16E6A1"))
             setOnClickListener {
                 android.widget.Toast.makeText(applicationContext,
                     "Preparing forensic export…", android.widget.Toast.LENGTH_SHORT).show()
@@ -159,7 +161,7 @@ class LiveTradeLogActivity : Activity() {
             itemAnimator = null  // suppress flicker / pointless animation work
             adapter = this@LiveTradeLogActivity.adapter
             layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f)
-            setBackgroundColor(Color.parseColor("#0B0E13"))
+            setBackgroundResource(com.lifecyclebot.R.drawable.aate_screen_bg)
         }
         outer.addView(recycler)
 
@@ -237,7 +239,7 @@ class LiveTradeLogActivity : Activity() {
     private fun renderGroup(g: LiveTradeLogStore.Group, now: Long): View {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#111827"))
+            setBackgroundResource(com.lifecyclebot.R.drawable.aate_universe_panel_bg)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             val lp = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT)
             lp.bottomMargin = dp(10)
@@ -252,9 +254,9 @@ class LiveTradeLogActivity : Activity() {
         val symPill = TextView(this).apply {
             text = " ${g.symbol} "
             setTextColor(Color.parseColor("#F8FAFC"))
-            setBackgroundColor(Color.parseColor("#101E33"))
+            setBackgroundResource(com.lifecyclebot.R.drawable.aate_universe_panel_bg)
             textSize = 14f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             setPadding(dp(8), dp(4), dp(8), dp(4))
         }
         val tagPill = TextView(this).apply {
@@ -269,7 +271,7 @@ class LiveTradeLogActivity : Activity() {
             setTextColor(Color.parseColor("#F5F7FF"))
             setBackgroundColor(phaseColor)
             textSize = 10f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             setPadding(dp(8), dp(4), dp(8), dp(4))
             layoutParams = LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).also {
                 it.leftMargin = dp(6)

@@ -54,7 +54,7 @@ class UniverseHealthActivity : Activity() {
         title = "🛰 AATE Universe Health"
         rootScroll = ScrollView(this).apply {
             layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT)
-            setBackgroundColor(Color.parseColor("#0A1424"))
+            setBackgroundResource(com.lifecyclebot.R.drawable.aate_screen_bg)
         }
         rootColumn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -313,10 +313,12 @@ class UniverseHealthActivity : Activity() {
     // ── Helpers ───────────────────────────────────────────────────────
     private fun addHeader(text: String) {
         rootColumn.addView(TextView(this).apply {
-            this.text = text
+            // V5.0.6939 — matches @style/AateSectionTitle on the XML screens.
+            this.text = text.uppercase()
             setTextColor(Color.parseColor("#F5F7FF"))
-            textSize = 16f
-            typeface = Typeface.DEFAULT_BOLD
+            textSize = 13f
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            letterSpacing = 0.14f
             val pad = (8 * resources.displayMetrics.density).toInt()
             setPadding(0, pad * 2, 0, pad)
         })
