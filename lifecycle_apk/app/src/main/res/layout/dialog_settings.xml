@@ -85,7 +85,8 @@
                 android:textColor="@color/aate_text_muted"
                 android:textSize="10sp"
                 android:fontFamily="monospace"
-                android:layout_marginBottom="4dp"/>
+                android:layout_marginBottom="4dp"
+        android:letterSpacing="0.12" />
             <Spinner
                 android:id="@+id/spTradingMode"
                 android:layout_width="match_parent"
@@ -369,7 +370,8 @@
                         android:textColor="@color/aate_text_muted"
                         android:textSize="10sp"
                         android:fontFamily="monospace"
-                        android:layout_marginBottom="4dp"/>
+                        android:layout_marginBottom="4dp"
+        android:letterSpacing="0.12" />
                     <Spinner
                         android:id="@+id/spMode"
                         android:layout_width="match_parent"
@@ -391,7 +393,8 @@
                         android:textColor="@color/aate_text_muted"
                         android:textSize="10sp"
                         android:fontFamily="monospace"
-                        android:layout_marginBottom="4dp"/>
+                        android:layout_marginBottom="4dp"
+        android:letterSpacing="0.12" />
                     <Spinner
                         android:id="@+id/spAutoTrade"
                         android:layout_width="match_parent"
@@ -421,7 +424,8 @@
                         android:textColor="@color/aate_text_muted"
                         android:textSize="10sp"
                         android:fontFamily="monospace"
-                        android:layout_marginBottom="4dp"/>
+                        android:layout_marginBottom="4dp"
+        android:letterSpacing="0.12" />
                     <EditText
                         android:id="@+id/etStopLoss"
                         android:layout_width="match_parent"
@@ -448,7 +452,8 @@
                         android:textColor="@color/aate_text_muted"
                         android:textSize="10sp"
                         android:fontFamily="monospace"
-                        android:layout_marginBottom="4dp"/>
+                        android:layout_marginBottom="4dp"
+        android:letterSpacing="0.12" />
                     <EditText
                         android:id="@+id/etExitScore"
                         android:layout_width="match_parent"
@@ -483,7 +488,8 @@
                         android:textColor="@color/aate_text_muted"
                         android:textSize="10sp"
                         android:fontFamily="monospace"
-                        android:layout_marginBottom="4dp"/>
+                        android:layout_marginBottom="4dp"
+        android:letterSpacing="0.12" />
                     <EditText
                         android:id="@+id/etSmallBuy"
                         android:layout_width="match_parent"
@@ -510,7 +516,8 @@
                         android:textColor="@color/aate_text_muted"
                         android:textSize="10sp"
                         android:fontFamily="monospace"
-                        android:layout_marginBottom="4dp"/>
+                        android:layout_marginBottom="4dp"
+        android:letterSpacing="0.12" />
                     <EditText
                         android:id="@+id/etLargeBuy"
                         android:layout_width="match_parent"
@@ -544,7 +551,8 @@
                         android:textColor="@color/aate_text_muted"
                         android:textSize="10sp"
                         android:fontFamily="monospace"
-                        android:layout_marginBottom="4dp"/>
+                        android:layout_marginBottom="4dp"
+        android:letterSpacing="0.12" />
                     <EditText
                         android:id="@+id/etSlippage"
                         android:layout_width="match_parent"
@@ -571,7 +579,8 @@
                         android:textColor="@color/aate_text_muted"
                         android:textSize="10sp"
                         android:fontFamily="monospace"
-                        android:layout_marginBottom="4dp"/>
+                        android:layout_marginBottom="4dp"
+        android:letterSpacing="0.12" />
                     <EditText
                         android:id="@+id/etPoll"
                         android:layout_width="match_parent"
@@ -650,7 +659,8 @@
                         android:textColor="@color/aate_text_muted"
                         android:textSize="9sp"
                         android:fontFamily="monospace"
-                        android:layout_marginBottom="4dp"/>
+                        android:layout_marginBottom="4dp"
+        android:letterSpacing="0.12" />
                     <EditText
                         android:id="@+id/etTopUpMinGain"
                         android:layout_width="match_parent"
@@ -677,7 +687,8 @@
                         android:textColor="@color/aate_text_muted"
                         android:textSize="9sp"
                         android:fontFamily="monospace"
-                        android:layout_marginBottom="4dp"/>
+                        android:layout_marginBottom="4dp"
+        android:letterSpacing="0.12" />
                     <EditText
                         android:id="@+id/etTopUpGainStep"
                         android:layout_width="match_parent"
@@ -710,7 +721,8 @@
                         android:textColor="@color/aate_text_muted"
                         android:textSize="9sp"
                         android:fontFamily="monospace"
-                        android:layout_marginBottom="4dp"/>
+                        android:layout_marginBottom="4dp"
+        android:letterSpacing="0.12" />
                     <EditText
                         android:id="@+id/etTopUpMaxCount"
                         android:layout_width="match_parent"
@@ -737,7 +749,8 @@
                         android:textColor="@color/aate_text_muted"
                         android:textSize="9sp"
                         android:fontFamily="monospace"
-                        android:layout_marginBottom="4dp"/>
+                        android:layout_marginBottom="4dp"
+        android:letterSpacing="0.12" />
                     <EditText
                         android:id="@+id/etTopUpMaxSol"
                         android:layout_width="match_parent"
@@ -791,7 +804,8 @@
                 android:textColor="@color/aate_text_muted"
                 android:textSize="10sp"
                 android:fontFamily="monospace"
-                android:layout_marginBottom="4dp"/>
+                android:layout_marginBottom="4dp"
+        android:letterSpacing="0.12" />
             <EditText
                 android:id="@+id/etRpc"
                 android:layout_width="match_parent"
@@ -814,7 +828,8 @@
                 android:textColor="@color/aate_text_muted"
                 android:textSize="10sp"
                 android:fontFamily="monospace"
-                android:layout_marginBottom="4dp"/>
+                android:layout_marginBottom="4dp"
+        android:letterSpacing="0.12" />
             <EditText
                 android:id="@+id/etTreasuryWalletAddress"
                 android:layout_width="match_parent"
@@ -1011,7 +1026,8 @@
                 android:textColor="@color/aate_text_muted"
                 android:textSize="10sp"
                 android:fontFamily="monospace"
-                android:layout_marginBottom="4dp"/>
+                android:layout_marginBottom="4dp"
+        android:letterSpacing="0.12" />
             <EditText
                 android:id="@+id/etTgBotToken"
                 android:layout_width="match_parent"
@@ -1033,7 +1049,8 @@
                 android:textColor="@color/aate_text_muted"
                 android:textSize="10sp"
                 android:fontFamily="monospace"
-                android:layout_marginBottom="4dp"/>
+                android:layout_marginBottom="4dp"
+        android:letterSpacing="0.12" />
             <EditText
                 android:id="@+id/etTgChatId"
                 android:layout_width="match_parent"

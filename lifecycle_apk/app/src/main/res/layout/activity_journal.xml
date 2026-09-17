@@ -80,7 +80,8 @@
             android:layout_weight="1" android:orientation="vertical">
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="WIN RATE" android:textColor="@color/aate_text_muted"
-                android:textSize="9sp" android:fontFamily="monospace"/>
+                android:textSize="9sp" android:fontFamily="monospace"
+        android:letterSpacing="0.12" />
             <TextView android:id="@+id/tvJournalWinRate"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="—" android:textColor="@color/aate_text"
@@ -91,7 +92,8 @@
             android:layout_weight="1" android:orientation="vertical">
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="TRADES" android:textColor="@color/aate_text_muted"
-                android:textSize="9sp" android:fontFamily="monospace"/>
+                android:textSize="9sp" android:fontFamily="monospace"
+        android:letterSpacing="0.12" />
             <TextView android:id="@+id/tvJournalCount"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="0" android:textColor="@color/aate_text"
@@ -102,7 +104,8 @@
             android:layout_weight="1" android:orientation="vertical">
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="AVG WIN" android:textColor="@color/aate_text_muted"
-                android:textSize="9sp" android:fontFamily="monospace"/>
+                android:textSize="9sp" android:fontFamily="monospace"
+        android:letterSpacing="0.12" />
             <TextView android:id="@+id/tvJournalAvgWin"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="—" android:textColor="@color/aate_green"

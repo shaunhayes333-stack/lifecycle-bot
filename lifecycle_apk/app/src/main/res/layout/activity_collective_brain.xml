@@ -68,7 +68,8 @@
             android:background="@drawable/aate_glow_pill_bg"
             android:paddingStart="10dp"
             android:paddingEnd="10dp"
-            android:layout_marginEnd="6dp"/>
+            android:layout_marginEnd="6dp"
+        android:letterSpacing="0.12" />
 
         <!-- Sync now -->
         <TextView

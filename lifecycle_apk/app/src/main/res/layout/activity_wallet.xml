@@ -126,7 +126,8 @@
                 android:text="SOL $—"
                 android:textColor="@color/aate_text_muted"
                 android:textSize="10sp"
-                android:fontFamily="monospace"/>
+                android:fontFamily="monospace"
+        android:letterSpacing="0.12" />
             <TextView
                 android:id="@+id/tvLastRefreshed"
                 android:layout_width="wrap_content"
@@ -191,7 +192,8 @@
                         android:textColor="@color/aate_text_muted"
                         android:textSize="9sp"
                         android:fontFamily="monospace"
-                        android:layout_marginBottom="4dp"/>
+                        android:layout_marginBottom="4dp"
+        android:letterSpacing="0.12" />
                     <TextView
                         android:id="@+id/tvPublicKey"
                         android:layout_width="match_parent"
@@ -406,7 +408,8 @@
                             android:text="RETURN"
                             android:textColor="@color/aate_text_muted"
                             android:textSize="9sp"
-                            android:fontFamily="monospace"/>
+                            android:fontFamily="monospace"
+        android:letterSpacing="0.12" />
                         <TextView
                             android:id="@+id/tvTotalPnlPct"
                             android:layout_width="wrap_content"
@@ -435,7 +438,8 @@
                             android:text="TRADES"
                             android:textColor="@color/aate_text_muted"
                             android:textSize="9sp"
-                            android:fontFamily="monospace"/>
+                            android:fontFamily="monospace"
+        android:letterSpacing="0.12" />
                         <TextView
                             android:id="@+id/tvTotalTrades"
                             android:layout_width="wrap_content"
@@ -457,7 +461,8 @@
                             android:text="WIN RATE"
                             android:textColor="@color/aate_text_muted"
                             android:textSize="9sp"
-                            android:fontFamily="monospace"/>
+                            android:fontFamily="monospace"
+        android:letterSpacing="0.12" />
                         <TextView
                             android:id="@+id/tvWinRate"
                             android:layout_width="wrap_content"
@@ -542,7 +547,8 @@
                             android:text="TREASURY SECUREED"
                             android:textColor="@color/aate_text_muted"
                             android:textSize="9sp"
-                            android:fontFamily="monospace"/>
+                            android:fontFamily="monospace"
+        android:letterSpacing="0.12" />
                         <TextView
                             android:id="@+id/tvWithdrawTreasuryBal"
                             android:layout_width="wrap_content"
@@ -564,7 +570,8 @@
                             android:text="TRADEABLE"
                             android:textColor="@color/aate_text_muted"
                             android:textSize="9sp"
-                            android:fontFamily="monospace"/>
+                            android:fontFamily="monospace"
+        android:letterSpacing="0.12" />
                         <TextView
                             android:id="@+id/tvWithdrawTradeable"
                             android:layout_width="wrap_content"
@@ -593,7 +600,8 @@
                         android:text="AMOUNT"
                         android:textColor="@color/aate_text_muted"
                         android:textSize="9sp"
-                        android:fontFamily="monospace"/>
+                        android:fontFamily="monospace"
+        android:letterSpacing="0.12" />
                     <TextView
                         android:id="@+id/tvWithdrawPct"
                         android:layout_width="0dp"
@@ -660,7 +668,8 @@
                     android:textColor="@color/aate_text_muted"
                     android:textSize="9sp"
                     android:fontFamily="monospace"
-                    android:layout_marginBottom="6dp"/>
+                    android:layout_marginBottom="6dp"
+        android:letterSpacing="0.12" />
                 <EditText android:id="@+id/etWithdrawDest"
                     android:layout_width="match_parent"
                     android:layout_height="44dp"

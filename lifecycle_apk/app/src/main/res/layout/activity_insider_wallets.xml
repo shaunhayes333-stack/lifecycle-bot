@@ -82,7 +82,8 @@
             android:textStyle="bold" android:fontFamily="monospace"
             android:background="@drawable/tab_active_bg"
             android:layout_marginEnd="4dp"
-            android:clickable="true" android:focusable="true"/>
+            android:clickable="true" android:focusable="true"
+        android:letterSpacing="0.12" />
         <TextView android:id="@+id/tabPolitical"
             android:layout_width="0dp" android:layout_height="match_parent"
             android:layout_weight="1" android:gravity="center"
@@ -90,7 +91,8 @@
             android:fontFamily="monospace"
             android:background="@drawable/tab_inactive_bg"
             android:layout_marginEnd="4dp"
-            android:clickable="true" android:focusable="true"/>
+            android:clickable="true" android:focusable="true"
+        android:letterSpacing="0.12" />
         <TextView android:id="@+id/tabSmartMoney"
             android:layout_width="0dp" android:layout_height="match_parent"
             android:layout_weight="1" android:gravity="center"
@@ -98,14 +100,16 @@
             android:fontFamily="monospace"
             android:background="@drawable/tab_inactive_bg"
             android:layout_marginEnd="4dp"
-            android:clickable="true" android:focusable="true"/>
+            android:clickable="true" android:focusable="true"
+        android:letterSpacing="0.12" />
         <TextView android:id="@+id/tabCustom"
             android:layout_width="0dp" android:layout_height="match_parent"
             android:layout_weight="1" android:gravity="center"
             android:text="CUSTOM" android:textColor="@color/aate_text_muted" android:textSize="11sp"
             android:fontFamily="monospace"
             android:background="@drawable/tab_inactive_bg"
-            android:clickable="true" android:focusable="true"/>
+            android:clickable="true" android:focusable="true"
+        android:letterSpacing="0.12" />
     </LinearLayout>
 
     <View android:layout_width="match_parent" android:layout_height="1dp"

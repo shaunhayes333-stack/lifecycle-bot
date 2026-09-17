@@ -20,7 +20,7 @@
         <item name="android:navigationBarColor">@color/aate_bg_deep</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
-        <item name="android:fontFamily">sans</item>
+        <item name="android:fontFamily">monospace</item>
         <item name="materialButtonStyle">@style/BtnPrimary</item>
     </style>
 
@@ -40,7 +40,7 @@
         <item name="android:gravity">center</item>
         <item name="android:textColor">@color/aate_text_secondary</item>
         <item name="android:textSize">10sp</item>
-        <item name="android:fontFamily">sans</item>
+        <item name="android:fontFamily">monospace</item>
         <item name="android:letterSpacing">0.04</item>
     </style>
 
@@ -57,7 +57,7 @@
         <item name="android:layout_height">wrap_content</item>
         <item name="android:textColor">@color/aate_text_secondary</item>
         <item name="android:textSize">10sp</item>
-        <item name="android:fontFamily">sans</item>
+        <item name="android:fontFamily">monospace</item>
         <item name="android:letterSpacing">0.12</item>
         <item name="android:layout_marginBottom">10dp</item>
     </style>
@@ -67,7 +67,7 @@
         <item name="android:layout_height">wrap_content</item>
         <item name="android:textColor">@color/aate_text_muted</item>
         <item name="android:textSize">10sp</item>
-        <item name="android:fontFamily">sans</item>
+        <item name="android:fontFamily">monospace</item>
         <item name="android:letterSpacing">0.06</item>
     </style>
 
@@ -77,7 +77,7 @@
         <item name="android:textColor">@color/aate_text</item>
         <item name="android:textSize">19sp</item>
         <item name="android:textStyle">bold</item>
-        <item name="android:fontFamily">sans</item>
+        <item name="android:fontFamily">monospace</item>
         <item name="android:layout_marginTop">2dp</item>
     </style>
 
@@ -86,7 +86,7 @@
         <item name="android:layout_height">wrap_content</item>
         <item name="android:textColor">@color/aate_text_secondary</item>
         <item name="android:textSize">10sp</item>
-        <item name="android:fontFamily">sans</item>
+        <item name="android:fontFamily">monospace</item>
         <item name="android:letterSpacing">0.06</item>
         <item name="android:layout_marginTop">10dp</item>
         <item name="android:layout_marginBottom">5dp</item>
@@ -115,7 +115,7 @@
         <item name="android:backgroundTint">@color/aate_purple</item>
         <item name="android:textColor">@color/aate_text</item>
         <item name="android:textStyle">bold</item>
-        <item name="android:fontFamily">sans</item>
+        <item name="android:fontFamily">monospace</item>
         <item name="android:letterSpacing">0.06</item>
         <item name="cornerRadius">16dp</item>
         <item name="android:layout_marginTop">8dp</item>
@@ -142,5 +142,165 @@
         <item name="android:textColor">@color/aate_green</item>
         <item name="android:textSize">16sp</item>
         <item name="android:textStyle">bold</item>
+    </style>
+
+    <!-- ══════════════════════════════════════════════════════════════════
+         V5.0.6933 — AATE vNext type + component library.
+         Derived from the operator's reference renders. Presentation only.
+         ══════════════════════════════════════════════════════════════════ -->
+
+    <!-- ── TYPE SCALE ─────────────────────────────────────────────────── -->
+
+    <!-- Screen title: "NEURAL PERSONALITY" / "TRADE JOURNAL" -->
+    <style name="AateScreenTitle">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">@color/aate_text</item>
+        <item name="android:textSize">19sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:letterSpacing">0.10</item>
+        <item name="android:textAllCaps">true</item>
+    </style>
+
+    <!-- Sub-title under a screen title: "Instinct · Plasticity · Layer Health" -->
+    <style name="AateScreenSubtitle">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">@color/aate_text_muted</item>
+        <item name="android:textSize">10sp</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:letterSpacing">0.06</item>
+        <item name="android:layout_marginTop">2dp</item>
+    </style>
+
+    <!-- Card/section heading: "COLLECTIVE INTELLIGENCE", "ENTRY GATES" -->
+    <style name="AateSectionTitle">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">@color/aate_text</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:letterSpacing">0.14</item>
+        <item name="android:textAllCaps">true</item>
+    </style>
+
+    <!-- Small tracked caption under a section title -->
+    <style name="AateSectionCaption">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">@color/aate_text_muted</item>
+        <item name="android:textSize">9sp</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:letterSpacing">0.12</item>
+    </style>
+
+    <!-- Metric label under/over a number: "WIN RATE", "TRADES", "AVG WIN" -->
+    <style name="AateMetricLabel">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">@color/aate_text_muted</item>
+        <item name="android:textSize">9sp</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:letterSpacing">0.16</item>
+        <item name="android:textAllCaps">true</item>
+    </style>
+
+    <!-- Metric value: the number itself -->
+    <style name="AateMetricValue">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">@color/aate_text</item>
+        <item name="android:textSize">20sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:letterSpacing">0.01</item>
+    </style>
+
+    <!-- Hero readout: portfolio value, SOL balance -->
+    <style name="AateHeroValue">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">@color/aate_text</item>
+        <item name="android:textSize">34sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:letterSpacing">-0.01</item>
+    </style>
+
+    <!-- Monospace data/price/address text -->
+    <style name="AateDataText">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:textColor">@color/aate_text_secondary</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:fontFamily">monospace</item>
+    </style>
+
+    <!-- ── COMPONENTS ─────────────────────────────────────────────────── -->
+
+    <!-- Glass panel: the standard rounded card in the reference renders -->
+    <style name="AateGlassCard">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:background">@drawable/aate_metric_card_bg</item>
+        <item name="android:padding">16dp</item>
+        <item name="android:layout_marginBottom">12dp</item>
+    </style>
+
+    <!-- Hero/primary panel with a stronger glow edge -->
+    <style name="AateHeroCard">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:background">@drawable/aate_hero_premium_bg</item>
+        <item name="android:padding">18dp</item>
+        <item name="android:layout_marginBottom">14dp</item>
+    </style>
+
+    <!-- Status pill: ONLINE / LIVE / DEGRADED -->
+    <style name="AateStatusPill">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:background">@drawable/aate_glow_pill_bg</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:paddingTop">5dp</item>
+        <item name="android:paddingBottom">5dp</item>
+        <item name="android:textColor">@color/aate_green</item>
+        <item name="android:textSize">10sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:letterSpacing">0.10</item>
+        <item name="android:textAllCaps">true</item>
+    </style>
+
+    <!-- Metric tile inside a 2/3-across grid -->
+    <style name="AateMetricTile">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:background">@drawable/aate_readiness_metric_bg</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:gravity">center</item>
+        <item name="android:padding">14dp</item>
+        <item name="android:layout_margin">4dp</item>
+    </style>
+
+    <!-- Thin neon divider -->
+    <style name="AateDivider">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">1dp</item>
+        <item name="android:background">@color/aate_stroke_soft</item>
+        <item name="android:layout_marginTop">12dp</item>
+        <item name="android:layout_marginBottom">12dp</item>
+    </style>
+
+    <!-- Slim progress bar matching the readiness strips in the renders -->
+    <style name="AateProgress" parent="Widget.AppCompat.ProgressBar.Horizontal">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">6dp</item>
+        <item name="android:progressDrawable">@drawable/aate_readiness_strip_bg</item>
+        <item name="android:max">100</item>
     </style>
 </resources>

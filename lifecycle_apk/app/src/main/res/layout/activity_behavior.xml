@@ -120,13 +120,16 @@
                     android:layout_marginBottom="10dp">
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
                         android:text="DEFENSIVE" android:textColor="#4488FF" android:textSize="9sp"
-                        android:fontFamily="monospace" android:gravity="start"/>
+                        android:fontFamily="monospace" android:gravity="start"
+        android:letterSpacing="0.12" />
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
                         android:text="NORMAL" android:textColor="@color/aate_green" android:textSize="9sp"
-                        android:fontFamily="monospace" android:gravity="center"/>
+                        android:fontFamily="monospace" android:gravity="center"
+        android:letterSpacing="0.12" />
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
                         android:text="AGGRESSIVE" android:textColor="@color/aate_red" android:textSize="9sp"
-                        android:fontFamily="monospace" android:gravity="end"/>
+                        android:fontFamily="monospace" android:gravity="end"
+        android:letterSpacing="0.12" />
                 </LinearLayout>
 
                 <SeekBar
@@ -229,7 +232,8 @@
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:orientation="vertical">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="STREAK" android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"/>
+                            android:text="STREAK" android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"
+        android:letterSpacing="0.12" />
                         <TextView android:id="@+id/tvStreak" android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="0" android:textColor="@color/aate_text" android:textSize="@dimen/kpi_value_size"
                             android:textStyle="bold" android:fontFamily="monospace"/>
@@ -238,7 +242,8 @@
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:orientation="vertical">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="DISCIPLINE" android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"/>
+                            android:text="DISCIPLINE" android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"
+        android:letterSpacing="0.12" />
                         <TextView android:id="@+id/tvDiscipline" android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="50%" android:textColor="@color/aate_purple" android:textSize="@dimen/kpi_value_size"
                             android:textStyle="bold" android:fontFamily="monospace"/>
@@ -247,7 +252,8 @@
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:orientation="vertical">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="TILT" android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"/>
+                            android:text="TILT" android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"
+        android:letterSpacing="0.12" />
                         <TextView android:id="@+id/tvTilt" android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="0%" android:textColor="@color/aate_red" android:textSize="@dimen/kpi_value_size"
                             android:textStyle="bold" android:fontFamily="monospace"/>
@@ -260,7 +266,8 @@
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:orientation="vertical">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="SENTIMENT" android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"/>
+                            android:text="SENTIMENT" android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"
+        android:letterSpacing="0.12" />
                         <TextView android:id="@+id/tvSentiment" android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="NEUTRAL" android:textColor="@color/aate_text" android:textSize="@dimen/kpi_value_size"
                             android:textStyle="bold" android:fontFamily="monospace"/>
@@ -269,7 +276,8 @@
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:orientation="vertical">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="10X RUNS" android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"/>
+                            android:text="10X RUNS" android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"
+        android:letterSpacing="0.12" />
                         <TextView android:id="@+id/tvTenX" android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="0" android:textColor="@color/aate_amber" android:textSize="@dimen/kpi_value_size"
                             android:textStyle="bold" android:fontFamily="monospace"/>
@@ -278,7 +286,8 @@
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:orientation="vertical">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="100X RUNS" android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"/>
+                            android:text="100X RUNS" android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"
+        android:letterSpacing="0.12" />
                         <TextView android:id="@+id/tvHundredX" android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="0" android:textColor="#FF00FF" android:textSize="@dimen/kpi_value_size"
                             android:textStyle="bold" android:fontFamily="monospace"/>
@@ -388,7 +397,8 @@
                         android:paddingStart="10dp"
                         android:paddingEnd="10dp"
                         android:paddingTop="3dp"
-                        android:paddingBottom="3dp"/>
+                        android:paddingBottom="3dp"
+        android:letterSpacing="0.12" />
                 </LinearLayout>
 
                 <!-- Brain network visualization -->
@@ -591,7 +601,8 @@
                         android:textColor="@color/aate_purple"
                         android:textSize="10sp"
                         android:fontFamily="monospace"
-                        android:layout_marginEnd="8dp"/>
+                        android:layout_marginEnd="8dp"
+        android:letterSpacing="0.12" />
                     <Spinner
                         android:id="@+id/spinnerPersona"
                         android:layout_width="0dp"

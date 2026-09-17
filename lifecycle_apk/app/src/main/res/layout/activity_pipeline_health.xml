@@ -52,7 +52,8 @@
             android:paddingEnd="8dp"
             android:paddingTop="4dp"
             android:paddingBottom="4dp"
-            android:background="#10B98122"/>
+            android:background="#10B98122"
+        android:letterSpacing="0.12" />
     </LinearLayout>
 
     <!-- ACTION ROW -->
@@ -143,7 +144,8 @@
                 android:layout_height="wrap_content"
                 android:text="LOOP"
                 android:textColor="@color/aate_text_muted"
-                android:textSize="11sp"/>
+                android:textSize="11sp"
+        android:letterSpacing="0.12" />
             <TextView
                 android:id="@+id/statLoop"
                 android:layout_width="wrap_content"
@@ -167,7 +169,8 @@
                 android:layout_height="wrap_content"
                 android:text="EXEC"
                 android:textColor="@color/aate_text_muted"
-                android:textSize="11sp"/>
+                android:textSize="11sp"
+        android:letterSpacing="0.12" />
             <TextView
                 android:id="@+id/statExec"
                 android:layout_width="wrap_content"
@@ -191,7 +194,8 @@
                 android:layout_height="wrap_content"
                 android:text="JRNL"
                 android:textColor="@color/aate_text_muted"
-                android:textSize="11sp"/>
+                android:textSize="11sp"
+        android:letterSpacing="0.12" />
             <TextView
                 android:id="@+id/statJrnl"
                 android:layout_width="wrap_content"
@@ -214,7 +218,8 @@
                 android:layout_height="wrap_content"
                 android:text="MAX FRAME"
                 android:textColor="@color/aate_text_muted"
-                android:textSize="11sp"/>
+                android:textSize="11sp"
+        android:letterSpacing="0.12" />
             <TextView
                 android:id="@+id/statMaxFrame"
                 android:layout_width="wrap_content"
