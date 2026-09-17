@@ -55,6 +55,31 @@ object CollectiveLearning {
     
     /** V5.7.3: Public getter for instance ID (used by perps learning) */
     fun getInstanceId(): String? = instanceId.takeIf { it.isNotBlank() }
+
+    /**
+     * V5.0.6943 — expose the last init failure so the supervisor and the
+     * operator snapshot can report WHY the hive is on local cache. It was a
+     * private field, so a silent fallback surfaced nowhere at all.
+     */
+    fun lastInitErrorPublic6943(): String = lastInitError
+
+    /** V5.0.6943 — millis since the last successful hive sync, -1 if never. */
+    fun lastSyncAgeMs6943(): Long =
+        if (lastSyncTime <= 0L) -1L else (System.currentTimeMillis() - lastSyncTime)
+
+    /** V5.0.6943 — one line of hive truth for the operator snapshot. */
+    fun statusLine6943(): String = try {
+        val age = lastSyncAgeMs6943()
+        "HIVE(§6943): connected=" + isEnabled() +
+            " init=" + isInitialized +
+            " client=" + (client != null) +
+            " patterns=" + cachedPatterns.size +
+            " blacklist=" + cachedBlacklist.size +
+            " modeStats=" + cachedModeStats.size +
+            " lastSync=" + (if (age < 0) "never" else "" + (age / 1000) + "s") +
+            " uploads=" + totalUploadSuccessThisSession + "/" + totalUploadAttemptsThisSession +
+            (if (lastInitError.isBlank()) "" else " lastErr=" + lastInitError.take(90))
+    } catch (t: Throwable) { "HIVE(§6943): unavailable (" + (t.message ?: "error") + ")" }
     
     /** V5.7.3: Public getter for TursoClient (used by perps learning) */
     fun getClient(): TursoClient? = client

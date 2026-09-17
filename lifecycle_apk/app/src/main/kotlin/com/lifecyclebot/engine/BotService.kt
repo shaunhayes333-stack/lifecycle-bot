@@ -663,6 +663,9 @@ class BotService : Service() {
     private val exitDispatcher6647 = exitExecutor6647.asCoroutineDispatcher()
     private val exitWorkerDispatcher6647 = exitWorkerExecutor6647.asCoroutineDispatcher()
     private val scope = CoroutineScope(serviceJob6647 + serviceDispatcher6647 + exceptionHandler)
+
+    /** V5.0.6943 — one hive supervisor per service instance. */
+    private val hiveSupervisorStarted6943 = java.util.concurrent.atomic.AtomicBoolean(false)
     private val exitScope6647 = CoroutineScope(serviceJob6647 + exitDispatcher6647 + exceptionHandler + CoroutineName("exit-coordinator-6647"))
     private val exitWorkerScope6647 = CoroutineScope(serviceJob6647 + exitWorkerDispatcher6647 + exceptionHandler + CoroutineName("exit-policy-6647"))
     private val specialistWorkerJobs6647 = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Job>()
@@ -6729,6 +6732,7 @@ class BotService : Service() {
         ErrorLogger.info("BotService", "🔧 COLLECTIVE CONFIG CHECK: enabled=${cfg.collectiveLearningEnabled} | urlLen=${cfg.tursoDbUrl.length} | tokenLen=${cfg.tursoAuthToken.length}")
         if (cfg.collectiveLearningEnabled && cfg.tursoDbUrl.isNotBlank() && cfg.tursoAuthToken.isNotBlank()) {
             ErrorLogger.info("BotService", "🔧 COLLECTIVE: Starting init coroutine...")
+            startHiveSupervisor6943()
             scope.launch {
                 try {
                     ErrorLogger.info("BotService", "🔧 COLLECTIVE: Inside coroutine, calling init...")
@@ -15783,6 +15787,91 @@ class BotService : Service() {
      * vs FDG comparison log. Fire-and-forget on the service scope so
      * botLoop sees only a function-call overhead.
      */
+    /**
+     * V5.0.6943 §HIVE_NEVER_RECONNECTED_IN_PRACTICE.
+     *
+     * Operator: "hive mind isn't syncing to the live hive network." The UI
+     * showed Connected / last sync 3m ago with 0 trades, 0 nodes, 0 patterns
+     * and NETWORK SOURCE = Local.
+     *
+     * Nothing was misconfigured. The credentials are hardcoded and intact
+     * (DB_URL is a const, AUTH_TOKEN is XOR+Base64 obfuscated per V5.0.6672 and
+     * decodes to a valid 3-segment JWT), collectiveLearningEnabled defaults
+     * true, and ConfigStore.load applies the TursoDefaults fallback. The
+     * problem is WHEN the bot tries, not WHETHER it can.
+     *
+     *   1. Boot init is a single scope.launch. Its internal probe retries 3x,
+     *      but with 1s/2s backoff all three land within ~3 seconds of service
+     *      start — precisely when a mobile network is least likely to be up.
+     *   2. The only recovery path is run180TickTelemetry, which fires every
+     *      180 BOT LOOP TICKS. At the observed 6065ms average cycle that is
+     *      ~18 MINUTES to the first retry. The operator's snapshot was taken
+     *      at tick 92 — 9.3 minutes — so the retry had not run even once.
+     *
+     * Miss the 3-second boot window and the hive is dead for a quarter of an
+     * hour, silently, on local cache.
+     *
+     * This supervisor puts reconnect on a WALL CLOCK instead of a tick count,
+     * which is the right unit: network availability has nothing to do with how
+     * fast the trading loop happens to be spinning. Backoff climbs 20s -> 5min
+     * while disconnected so a genuinely offline device is not hammered, and
+     * resets the moment a connection succeeds. run180TickTelemetry's existing
+     * call is harmless alongside this — ensureConnected is cooldown-guarded and
+     * returns immediately when already connected.
+     */
+    private fun startHiveSupervisor6943() {
+        if (!hiveSupervisorStarted6943.compareAndSet(false, true)) return
+        scope.launch {
+            var backoffMs = 20_000L
+            var everConnected = false
+            while (true) {
+                try {
+                    val up = try {
+                        com.lifecyclebot.collective.CollectiveLearning.isEnabled()
+                    } catch (_: Throwable) { false }
+
+                    if (up) {
+                        if (!everConnected) {
+                            everConnected = true
+                            addLog("🌐 Hive mind connected to the live network")
+                            try {
+                                ForensicLogger.lifecycle("HIVE_SUPERVISOR_CONNECTED_6943",
+                                    "afterBackoffMs=$backoffMs note=wall_clock_reconnect")
+                                PipelineHealthCollector.labelInc("HIVE_SUPERVISOR_CONNECTED_6943")
+                            } catch (_: Throwable) {}
+                        }
+                        backoffMs = 20_000L
+                        delay(120_000L)
+                    } else {
+                        val ok = try {
+                            com.lifecyclebot.collective.CollectiveLearning.ensureConnected(force = true)
+                        } catch (_: Throwable) { false }
+                        try {
+                            // Make the hive visible in the API health table like
+                            // every other provider. TursoClient reported to
+                            // ApiHealthMonitor nowhere, which is why a silent
+                            // fallback to local cache surfaced nowhere either.
+                            if (ok) ApiHealthMonitor.record("turso", 200, 0L)
+                            else ApiHealthMonitor.recordNetworkError(
+                                "turso",
+                                com.lifecyclebot.collective.CollectiveLearning.lastInitErrorPublic6943(),
+                            )
+                            PipelineHealthCollector.labelInc(
+                                if (ok) "HIVE_RECONNECT_OK_6943" else "HIVE_RECONNECT_FAILED_6943"
+                            )
+                        } catch (_: Throwable) {}
+                        if (!ok) {
+                            delay(backoffMs)
+                            backoffMs = (backoffMs * 2).coerceAtMost(300_000L)
+                        }
+                    }
+                } catch (_: Throwable) {
+                    delay(backoffMs)
+                }
+            }
+        }
+    }
+
     private fun run180TickTelemetry(cfg: BotConfig) {
         scope.launch {
             try {

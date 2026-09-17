@@ -519,6 +519,11 @@ object ReportingHub {
             com.lifecyclebot.engine.CompoundGrowthMentality.statusLine()
         }.let { appendLine(it) }
         appendLine(safe("live_win_dna") { com.lifecyclebot.engine.LiveWinDNAStore.statusLine() })
+        // V5.0.6943 — hive truth on the snapshot. The operator reported "hive
+        // mind isn't syncing" and there was no way to see why: CollectiveLearning
+        // reported to ApiHealthMonitor nowhere and appeared in no report section,
+        // so a silent fallback to local cache was invisible by construction.
+        appendLine(safe("hive_6943") { com.lifecyclebot.collective.CollectiveLearning.statusLine6943() })
         // V5.0.6925 — CAPTURE RATIO. Of the gain each position actually
         // reached, how much did we keep? Broken down by lane and by exit
         // reason, worst first, so the exit path that is clipping runners names
