@@ -294,8 +294,13 @@ object SymbolicExitReasoner {
         totalConviction += regimeSignal * 0.08
 
         // 3. Liquidity Fragility (weight: 0.07)
+        // V5.0.6853 — mint-first. Meme tickers collide, and now that
+        // LiquidityFragilityAI is actually fed (BotService safety-commit site), a
+        // symbol-keyed read would hand this token another token's fragility.
         val fragility = try {
-            if (symbol.isNotEmpty()) LiquidityFragilityAI.getFragilityScore(symbol) else 0.3
+            if (mint.isNotEmpty() || symbol.isNotEmpty())
+                LiquidityFragilityAI.getFragilityScoreFor(mint, symbol)
+            else 0.3
         } catch (_: Exception) { 0.3 }
         val fragilitySignal = when {
             fragility > 0.8 -> 0.9
@@ -734,7 +739,8 @@ object SymbolicExitReasoner {
         // V4 Meta — original 5
         try { snap["StrategyTrust"]    = StrategyTrustAI.getAllTrustScores().values.map { it.trustScore }.average().takeIf { !it.isNaN() } ?: 0.5 } catch (_: Exception) { snap["StrategyTrust"] = 0.5 }
         try { snap["CrossRegime"]      = if (CrossMarketRegimeAI.getCurrentRegime() == GlobalRiskMode.RISK_OFF) 0.9 else 0.1 } catch (_: Exception) { snap["CrossRegime"] = 0.1 }
-        try { snap["Fragility"]        = if (symbol.isNotEmpty()) LiquidityFragilityAI.getFragilityScore(symbol) else 0.3 } catch (_: Exception) { snap["Fragility"] = 0.3 }
+        // V5.0.6853 — mint-first (see assess()).
+        try { snap["Fragility"]        = if (mint.isNotEmpty() || symbol.isNotEmpty()) LiquidityFragilityAI.getFragilityScoreFor(mint, symbol) else 0.3 } catch (_: Exception) { snap["Fragility"] = 0.3 }
         try { snap["NarrativeHeat"]    = if (symbol.isNotEmpty()) NarrativeFlowAI.getNarrativeHeat(symbol) else 0.5 } catch (_: Exception) { snap["NarrativeHeat"] = 0.5 }
         try { snap["PortfolioHeat"]    = PortfolioHeatAI.getPortfolioHeat() } catch (_: Exception) { snap["PortfolioHeat"] = 0.3 }
 

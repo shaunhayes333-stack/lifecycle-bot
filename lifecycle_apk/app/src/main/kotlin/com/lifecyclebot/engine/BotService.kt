@@ -20612,7 +20612,55 @@ if (hotExitHandledSweep) {
                 synchronized(ts) {
                     ts.safety       = r
                     ts.lastSafetyCheck = System.currentTimeMillis()
+                    // V5.0.6853 §TOP_HOLDER_PCT_HAD_NO_WRITER — TokenState.topHolderPct
+                    // was declared `Double? = null` and never assigned, so every reader
+                    // fell through to a hardcoded guess: BotService:22169/22779/22983
+                    // used `?: if (isLive) 50.0 else 20.0`, i.e. LIVE scored every token
+                    // as if a single wallet held half the supply while PAPER scored the
+                    // same token at 20% — a systematic paper/live divergence baked into
+                    // rug scoring. TokenSafetyChecker already resolves the real number;
+                    // mirror it here at the one place safety is committed. -1.0 is the
+                    // checker's "unknown" sentinel and must not be mirrored.
+                    r.topHolderPct.takeIf { it.isFinite() && it >= 0.0 }?.let { ts.topHolderPct = it }
                 }
+                // V5.0.6853 §THE_LAYER_THAT_SAVES_MONEY_WAS_NEVER_FED — first and only
+                // feed for LiquidityFragilityAI. analyze() had zero callers, so its
+                // report cache was permanently empty and every consumer read the
+                // "unknown" constant 0.1. This site already holds everything it needs:
+                // resolved liquidity (depth), the real pair age, the freshly-resolved
+                // holder concentration and the candle series for wick frequency.
+                try {
+                    val nowFrag6853 = System.currentTimeMillis()
+                    val poolAgeDays6853 = if (pairCreatedAt > 0L) {
+                        ((nowFrag6853 - pairCreatedAt) / 86_400_000L).toInt().coerceAtLeast(0)
+                    } else 999
+                    val wicks6853 = synchronized(ts.history) {
+                        ts.history.takeLast(30).mapNotNull { c ->
+                            val p = c.priceUsd
+                            if (!p.isFinite() || p <= 0.0 || c.highUsd <= 0.0 || c.lowUsd <= 0.0) null
+                            else (((c.highUsd - c.lowUsd) / p) * 100.0).takeIf { it.isFinite() && it >= 0.0 }
+                        }
+                    }
+                    val slip6853 = try {
+                        com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI
+                            .expectedExtraSlipPct(resolvedLiquidityUsd)
+                    } catch (_: Throwable) { 0.0 }
+                    com.lifecyclebot.v4.meta.LiquidityFragilityAI.analyze(
+                        market = "MEME",
+                        symbol = ts.symbol,
+                        id = canonicalMint,
+                        depthUsd = resolvedLiquidityUsd,
+                        volume24hUsd = ts.history.lastOrNull()?.volume24h ?: 0.0,
+                        topHolderPct = ts.topHolderPct ?: 0.0,
+                        poolAgeDays = poolAgeDays6853,
+                        recentSlippagePct = slip6853,
+                        recentWickPcts = wicks6853,
+                        // Spot has no liquidation ladder; keep the cascade term inert
+                        // rather than inventing a distance.
+                        liquidationClusterDistancePct = 100.0,
+                    )
+                    PipelineHealthCollector.labelInc("LIQUIDITY_FRAGILITY_ANALYZED_6853")
+                } catch (_: Throwable) {}
                 try {
                     ForensicLogger.lifecycle(
                         "SAFETY_WRITE",

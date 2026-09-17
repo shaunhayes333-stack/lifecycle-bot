@@ -10765,8 +10765,22 @@ class Executor(
             // lane entries to product=0.144 (14.4% of base). Rolling 50 WR dropped 80% → 32%
             // because winning trades netted pennies while losses bled at full slippage. Floor
             // at 0.50 so no per-context tuple can dust-crush size below half base. Hard vetoes
-            // (TOXIC/CATASTROPHIC verdicts) still bypass elsewhere in the stack.
-            BrainMultiplierFloor6363.apply(raw, hardVeto = false)
+            // (TOXIC/CATASTROPHIC verdicts) bypass the floor and keep the raw crush.
+            //
+            // V5.0.6853 §BRAIN_FLOOR_HARD_VETO_ESCAPE_WAS_HARDCODED_FALSE — this argument
+            // was literally `false`, so BrainMultiplierFloor6363.bypassCount() could never
+            // leave zero and the documented safety escape was dead code. The consequence
+            // ran the wrong way: in exactly the states where >=3 independent subsystems
+            // had already agreed the context is toxic (AdaptiveVetoConsensusAuthority6728
+            // hardVeto — the same verdict ExecutableOpenGate:2642 hard-blocks on), the
+            // brain's honest 0.26x crush was LIFTED back to 0.50x, nearly doubling size
+            // into a book the whole stack had just condemned. Feed it the real verdict,
+            // scoped to this mode/lane/mint so no cross-lane or paper/live contamination.
+            val brainHardVeto6853 = try {
+                com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728
+                    .evaluate(advisoryMode6734, advisoryLane6734, ts.mint).hardVeto
+            } catch (_: Throwable) { false }
+            BrainMultiplierFloor6363.apply(raw, hardVeto = brainHardVeto6853)
         } catch (_: Throwable) { 1.0 }
         // V5.0.4117 — WIRE AGI STACK INTO BUY SIZING.
         // LiveStrategyTuner.sizeMult was computed per-lane but never applied
@@ -10960,6 +10974,66 @@ class Executor(
                 PipelineHealthCollector.labelInc("ROUTE_RELIABILITY_SIZE_SHAPED_4518")
             } catch (_: Throwable) {}
         }
+        // V5.0.6853 §PORTFOLIO_HEAT_COMPUTED_AND_DISCARDED — PortfolioHeatAI runs on
+        // every open and close (addPosition/removePosition are wired from Executor,
+        // PositionPersistence, CryptoAltTrader and TokenizedStockTrader) and publishes
+        // a full report, but its four risk outputs — getNewEntryPenalty(),
+        // shouldDeRisk(), isNewEntryAllowed() and getSafetyMultiplier() — had ZERO
+        // callers tree-wide. Only getPortfolioHeat() was read, and only as a logged
+        // feature. The module whose stated purpose is "prevent correlated stupidity"
+        // could not throttle anything. Wire the safety multiplier into the sizing
+        // stack (the 6853 recalculate() fix makes it 1.0 for a diversified or small
+        // book, so this does not choke throughput) and floor it at 0.50, the same
+        // no-dust-crush doctrine BrainMultiplierFloor6363 enforces.
+        val portfolioHeatSizeMult6853 = try {
+            com.lifecyclebot.v4.meta.PortfolioHeatAI.getSafetyMultiplier().coerceIn(0.50, 1.0)
+        } catch (_: Throwable) { 1.0 }
+        if (portfolioHeatSizeMult6853 < 1.0) {
+            try {
+                val rep6853 = com.lifecyclebot.v4.meta.PortfolioHeatAI.getReport()
+                ForensicLogger.lifecycle(
+                    "PORTFOLIO_HEAT_SIZE_SHAPED_6853",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi mult=${portfolioHeatSizeMult6853.fmt(3)} " +
+                        "heat=${(rep6853?.portfolioHeat ?: 0.0).fmt(3)} cluster=${rep6853?.largestCluster ?: "NONE"} " +
+                        "clusterSize=${rep6853?.clusterSize ?: 0} corrStress=${(rep6853?.correlationStress ?: 0.0).fmt(3)} " +
+                        "deRisk=${com.lifecyclebot.v4.meta.PortfolioHeatAI.shouldDeRisk()}",
+                )
+                PipelineHealthCollector.labelInc("PORTFOLIO_HEAT_SIZE_SHAPED_6853")
+                if (com.lifecyclebot.v4.meta.PortfolioHeatAI.shouldDeRisk()) {
+                    PipelineHealthCollector.labelInc("PORTFOLIO_HEAT_FORCED_DERISK_6853")
+                }
+            } catch (_: Throwable) {}
+        }
+        // V5.0.6853 §FRAGILITY_HAD_NO_SIZING_VOICE — LiquidityFragilityAI's header
+        // says it "directly controls position sizing, leverage allowance, DipHunter
+        // validity, ShitCoinAI blocking". It controlled none of them: getSafetyMultiplier,
+        // getMaxSafeSize and isTradeAllowed had zero callers, and analyze() was never
+        // called so there was nothing to read anyway. With the 6853 feed in place
+        // (BotService safety-commit site) this is real per-token depth/holder/age/wick
+        // evidence. Applied as a soft size damper only — [0.2,1.0] by construction,
+        // floored at 0.50 here so a thin-but-tradable token still gets a real ticket
+        // and keeps producing learning samples.
+        val fragilitySizeMult6853 = try {
+            com.lifecyclebot.v4.meta.LiquidityFragilityAI
+                .getSafetyMultiplierFor(ts.mint, ts.symbol).coerceIn(0.50, 1.0)
+        } catch (_: Throwable) { 1.0 }
+        if (fragilitySizeMult6853 < 1.0) {
+            try {
+                val fr6853 = com.lifecyclebot.v4.meta.LiquidityFragilityAI.getReportFor(ts.mint, ts.symbol)
+                ForensicLogger.lifecycle(
+                    "LIQUIDITY_FRAGILITY_SIZE_SHAPED_6853",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi mult=${fragilitySizeMult6853.fmt(3)} " +
+                        "score=${(fr6853?.fragilityScore ?: 0.0).fmt(3)} level=${fr6853?.fragilityLevel?.name ?: "NONE"} " +
+                        "depth=${(fr6853?.depthScore ?: 0.0).fmt(2)} wickFreq=${(fr6853?.wickFrequency ?: 0.0).fmt(2)} " +
+                        "maxSafeSol=${(fr6853?.maxSafeSize ?: 0.0).fmt(2)} tradeAllowed=" +
+                        "${com.lifecyclebot.v4.meta.LiquidityFragilityAI.isTradeAllowedFor(ts.mint, ts.symbol)}",
+                )
+                PipelineHealthCollector.labelInc("LIQUIDITY_FRAGILITY_SIZE_SHAPED_6853")
+                if (!com.lifecyclebot.v4.meta.LiquidityFragilityAI.isTradeAllowedFor(ts.mint, ts.symbol)) {
+                    PipelineHealthCollector.labelInc("LIQUIDITY_FRAGILITY_CRITICAL_6853")
+                }
+            } catch (_: Throwable) {}
+        }
         val sizingStackComponents4285 = linkedMapOf(
             "sizeMult" to sizeMult,
             "lab" to labMult,
@@ -10983,6 +11057,8 @@ class Executor(
             "scoreBandWR4510" to scoreBandWrSizeMult4510,
             "walletCompound4511" to realizedWalletCompoundMult4511,
             "routeReliability4518" to routeReliabilitySizeMult4518,
+            "portfolioHeat6853" to portfolioHeatSizeMult6853,
+            "fragility6853" to fragilitySizeMult6853,
         )
         val multiplierProductRaw = sizingStackComponents4285.values.fold(1.0) { acc, v -> acc * v }
         try {
@@ -11030,6 +11106,8 @@ class Executor(
                     "scoreBandWR4510" to scoreBandWrSizeMult4510,
                     "walletCompound4511" to realizedWalletCompoundMult4511,
                     "routeReliability4518" to routeReliabilitySizeMult4518,
+                    "portfolioHeat6853" to portfolioHeatSizeMult6853,
+                    "fragility6853" to fragilitySizeMult6853,
                 ),
             )
         } catch (_: Throwable) {}

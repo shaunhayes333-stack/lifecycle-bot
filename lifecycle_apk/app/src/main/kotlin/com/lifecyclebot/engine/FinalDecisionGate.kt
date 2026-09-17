@@ -1508,7 +1508,19 @@ object FinalDecisionGate {
                 com.lifecyclebot.engine.LaneExpectancyDamper
                     .admissionScoreFloorDelta(laneKeyForFloor6830)
             } catch (_: Throwable) { 0.0 }
-            val effectiveFloor6830 = 22.0 + qualityDelta6830 + pressureDelta6830 + expectancyDelta6838
+            // V5.0.6853 §CORRELATED_STUPIDITY_HAD_NO_VOICE_AT_ADMISSION — fourth term:
+            // portfolio correlation heat. PortfolioHeatAI's whole stated purpose is
+            // "you may think you have 5 positions but really you have one bet — throttle
+            // new entries", and it publishes newEntryPenalty exactly for that. It had
+            // zero callers. Convert it to a score-floor delta so adding the Nth
+            // correlated position costs conviction: penalty 0.2 → +4, 0.5 → +10,
+            // 0.9 → +18. The 6853 recalculate() fix means this is 0.0 for a diversified
+            // or small book, so ordinary throughput is untouched.
+            val heatDelta6853 = try {
+                com.lifecyclebot.v4.meta.PortfolioHeatAI.getNewEntryPenalty()
+                    .coerceIn(0.0, 1.0) * 20.0
+            } catch (_: Throwable) { 0.0 }
+            val effectiveFloor6830 = 22.0 + qualityDelta6830 + pressureDelta6830 + expectancyDelta6838 + heatDelta6853
             // V5.0.6847 §BASE_CONFIDENCE_FLOOR_WAS_A_NO_OP — the guard used to read
             // `effectiveFloor6830 > 22.0 && confidence < effectiveFloor6830`, so the
             // 22.0 base was only ever applied when one of the three deltas happened to
@@ -1530,7 +1542,9 @@ object FinalDecisionGate {
                 blockReason = "SELECTION_QUALITY_FLOOR_6830 lane=$laneKeyForFloor6830 " +
                     "conf=${confidence.toInt()}% floor=${"%.1f".format(effectiveFloor6830)} " +
                     "qDelta=${"%.1f".format(qualityDelta6830)} pDelta=${"%.1f".format(pressureDelta6830)} " +
-                    "eDelta=${"%.1f".format(expectancyDelta6838)} laneMult=${"%.2f".format(com.lifecyclebot.engine.LaneExpectancyDamper.sizeMultiplier(laneKeyForFloor6830))} " +
+                    "eDelta=${"%.1f".format(expectancyDelta6838)} hDelta=${"%.1f".format(heatDelta6853)} " +
+                    "heat=${"%.2f".format(com.lifecyclebot.v4.meta.PortfolioHeatAI.getPortfolioHeat())} " +
+                    "laneMult=${"%.2f".format(com.lifecyclebot.engine.LaneExpectancyDamper.sizeMultiplier(laneKeyForFloor6830))} " +
                     "wr=${"%.1f".format(com.lifecyclebot.engine.truth.SelectionQualityAuthority6829.rollingWr(laneKeyForFloor6830))} " +
                     "open=${com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.openPositions()}"
                 blockLevel = BlockLevel.CONFIDENCE
