@@ -176,7 +176,7 @@ object ExecutionSpineAcceptanceWindow6647 {
                 // V5.0.6883 — observed values for the failing window. Kept after
                 // `failures=` so ci/runtime_evidence.py's FIELD regex still reads
                 // `failures` as a single token; the detail is additive.
-                (if (detail6883.isNotBlank()) " detail=${detail6883.replace(' ', ',').take(1600)}" else ""),
+                (if (detail6883.isNotBlank()) " detail=${detail6883.replace(' ', ',').take(3000)}" else ""),
         )
     }
 

@@ -136,6 +136,47 @@ object CanonicalEntryAuthority6551 {
             mint = candidate.assetId, mode = candidate.mode, side = "BUY",
             lane = candidate.specialist.ifBlank { candidate.assetClass.tag }, candidateVersion = candidate.candidateVersion,
         )
+        // V5.0.6892 §ADVISORY_SIZING_MUST_NOT_CLAIM_AN_EXECUTABLE_STAGE.
+        //
+        // V5.0.6704 already diagnosed this exact defect in
+        // CanonicalSizingBridge6532: "its fallback fabricated a 7-part
+        // execution key when no ExecutionIntent existed yet.
+        // OrderSizeResolver interprets any nonblank causalEventId as
+        // executable-stage telemetry and stamps SIZED_EXECUTABLE... generated
+        // PHANTOM_SIZED_ONLY records: SIZE existed without immutable
+        // INTENT/FDG/MARK authority."
+        //
+        // 6704's repair guarded the bridge's BLANK fallback. This call site
+        // never goes through the bridge — it fabricates the same 7-part key
+        // above and hands it straight to OrderSizeResolver6441.resolve, so the
+        // guard never applied here. And it runs BEFORE
+        // ExecutionDecisionSnapshot6510.record() below, so at stamp time no
+        // intent owns that key and nothing has stamped INTENT on it.
+        //
+        // The 5.0.6890 acceptance annotation is this, measured:
+        //   phantom=49 [QUALITY n=13 missing=NO_INTENT=13]
+        //              [SHITCOIN n=2 missing=NO_INTENT=2]
+        // NO_INTENT, not NO_MARK — and QUALITY/SHITCOIN are exactly
+        // `candidate.specialist` values reaching this contract.
+        //
+        // Same fail-closed-for-telemetry-only repair as 6704: sizing resolves
+        // identically and no lane, trader or probe is disabled; the stage stamp
+        // is withheld until an immutable intent owns this mode/mint/version.
+        // The BotService execution spine stamps SIZED_EXECUTABLE again once the
+        // sealed intent exists, so genuine executable sizes stay visible.
+        val sizingCausalEventId6892 = try {
+            ExecutableOpenGate
+                .activeExecutionIntent6519(candidate.mode.uppercase(), candidate.assetId, candidate.candidateVersion)
+                ?.attemptId
+                ?.takeIf { it.isNotBlank() }
+                .orEmpty()
+        } catch (_: Throwable) { "" }
+        if (sizingCausalEventId6892.isBlank()) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("ADVISORY_SIZE_STAMP_WITHHELD_6892")
+            } catch (_: Throwable) {}
+        }
         val sizing = OrderSizeResolver6441.resolve(
             requestedSol = shapedSize,
             laneName = candidate.specialist.ifBlank { candidate.assetClass.tag },
@@ -145,7 +186,7 @@ object CanonicalEntryAuthority6551 {
             laneMinExecutableSol = candidate.evidence["laneMinExecutableSol"]?.toDoubleOrNull() ?: 0.001,
             applyPaperMemeMinimum = candidate.assetClass == AssetClass.SOLANA_TOKEN,
             mint = candidate.assetId,
-            causalEventId = attemptId,
+            causalEventId = sizingCausalEventId6892,
         )
         if (!sizing.executable) return blocked(candidate, venue, "SIZE_NOT_EXECUTABLE:${sizing.reason}")
         CanonicalEntryAuthority6540.markSizedFor6551(candidate.assetClass, candidate.symbol)
