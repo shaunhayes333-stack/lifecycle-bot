@@ -8946,8 +8946,20 @@ class Executor(
                 return "ai_emergency_${exitAiDecision.reasons.firstOrNull()?.take(15)?.replace(" ", "_") ?: "exit"}"
             }
             ExitIntelligence.ExitAction.FULL_EXIT -> {
-                if (exitAiDecision.urgency == ExitIntelligence.Urgency.HIGH || 
-                    exitAiDecision.urgency == ExitIntelligence.Urgency.CRITICAL) {
+                // V5.0.6941 — LiveSafetyCircuitBreaker.isSessionDrawdownPressureActive
+                // had zero callers. A MEDIUM-urgency FULL_EXIT is normally
+                // dropped on the floor here (only HIGH/CRITICAL act), which is
+                // the right default — but not while the session is already
+                // bleeding. Under drawdown pressure the cost of holding a
+                // marginal position is higher than the cost of banking it, so
+                // MEDIUM is honoured too. It only ever ADMITS an exit the AI
+                // already asked for; it never invents one.
+                val drawdownPressure6941 = try {
+                    com.lifecyclebot.engine.LiveSafetyCircuitBreaker.isSessionDrawdownPressureActive()
+                } catch (_: Throwable) { false }
+                if (exitAiDecision.urgency == ExitIntelligence.Urgency.HIGH ||
+                    exitAiDecision.urgency == ExitIntelligence.Urgency.CRITICAL ||
+                    (drawdownPressure6941 && exitAiDecision.urgency == ExitIntelligence.Urgency.MEDIUM)) {
                     val aiReason = "ai_exit_${exitAiDecision.reasons.firstOrNull()?.take(15)?.replace(" ", "_") ?: "signal"}"
                     if (softExitProtectedBySymbolicPatience(aiReason, critical = exitAiDecision.urgency == ExitIntelligence.Urgency.CRITICAL)) {
                         onLog("🧠 HOLD OVERRIDE: ${ts.symbol} symbolic patience vetoed ExitAI full-exit", ts.mint)
@@ -8974,6 +8986,40 @@ class Executor(
             }
             else -> {}
         }
+
+        // V5.0.6941 §LEARNED_HOLD_CEILING_FINALLY_DOES_SOMETHING.
+        //
+        // FluidLearningAI.getFluidMaxHoldMinutes learns a per-layer hold
+        // ceiling from realised outcomes, and isHoldTimeExceeded is the
+        // predicate that reads it — with zero callers. So the stack learned how
+        // long each layer's winners actually need and then never applied it.
+        //
+        // Used as a BANK signal, not a stop: it only fires on a position that
+        // is IN PROFIT and past the learned ceiling. A loser past its ceiling
+        // belongs to the stop and backstop layers, not here, and cutting one on
+        // a clock would be the cap-to-dust behaviour the doctrine forbids.
+        //
+        // HoldTimeOptimizerAI.isHoldTimeOptimal is the second opinion: it
+        // compares against the per-position PREDICTED hold rather than the
+        // per-layer average, and returns true (optimal) when it has no data, so
+        // a missing prediction cannot force an exit. Both must agree.
+        try {
+            val heldMin6941 = heldSecs / 60.0
+            val lane6941 = resolveExecutionLane(ts, fallback = pos.tradingMode.ifBlank { "STANDARD" })
+            if (gainPct > 0.0 && heldMin6941 > 1.0 &&
+                com.lifecyclebot.v3.scoring.FluidLearningAI.isHoldTimeExceeded(lane6941, heldMin6941) &&
+                !com.lifecyclebot.v3.scoring.HoldTimeOptimizerAI.isHoldTimeOptimal(ts.mint)
+            ) {
+                try {
+                    PipelineHealthCollector.labelInc("LEARNED_HOLD_CEILING_BANK_6941")
+                    ForensicLogger.lifecycle("LEARNED_HOLD_CEILING_BANK_6941",
+                        "mint=${ts.mint.take(10)} lane=$lane6941 heldMin=${"%.1f".format(heldMin6941)} " +
+                            "gain=${"%.1f".format(gainPct)}% note=in_profit_past_learned_ceiling")
+                } catch (_: Throwable) {}
+                TradeStateMachine.startCooldown(ts.mint)
+                return "learned_hold_ceiling_bank_${gainPct.toInt()}"
+            }
+        } catch (_: Throwable) {}
 
         if (!isPaperRT() && gainPct >= 15) {
             try {
