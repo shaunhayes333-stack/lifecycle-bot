@@ -15156,6 +15156,43 @@ class BotService : Service() {
     }
 
 
+    /**
+     * V5.0.6930 — conviction rank for candidate ORDERING. Not a gate.
+     *
+     * Built from the same ingredients the codebase already treats as
+     * conviction in isHighConvictionUnseen (liquidity, entry score,
+     * multi-lane/tool affinity) plus the registry's own initialConfidence, so
+     * "best" means the same thing here as it does there rather than
+     * introducing a second competing definition.
+     *
+     * Liquidity is logarithmic and capped. A $50k pool is meaningfully better
+     * than $2k, but a $2m pool is not 40x better than $50k for a memecoin
+     * entry — linear liquidity would let one deep pool dominate the ordering
+     * forever. Diminishing returns is the honest shape:
+     *
+     *     $1k -> 5.5    $10k -> 19.2    $50k -> 31.4    $200k+ -> 40 (capped)
+     *
+     * Every term fails to 0 rather than throwing, because this only decides
+     * who is looked at first. A missing input must cost a candidate its place
+     * in the queue, never its chance.
+     */
+    private fun candidateConvictionRank6930(
+        mint: String,
+        entry: com.lifecyclebot.engine.GlobalTradeRegistry.WatchlistEntry?,
+    ): Double = try {
+        val ts = try { status.tokens[mint] } catch (_: Throwable) { null }
+        val score = (ts?.entryScore ?: 0.0).let { if (it.isFinite()) it else 0.0 }.coerceIn(0.0, 100.0)
+        val conf = (entry?.initialConfidence ?: 0).toDouble().coerceIn(0.0, 100.0)
+        val liq = maxOf(
+            (ts?.lastLiquidityUsd ?: 0.0).let { if (it.isFinite()) it else 0.0 },
+            (entry?.initialLiquidityUsd ?: 0.0).let { if (it.isFinite()) it else 0.0 },
+        )
+        val liqPts = if (liq <= 0.0) 0.0
+            else (kotlin.math.ln(1.0 + liq / 1_000.0) * 8.0).coerceIn(0.0, 40.0)
+        val affinity = ((entry?.laneAffinity?.size ?: 0) + (entry?.toolAffinity?.size ?: 0)).toDouble()
+        score + (conf * 0.5) + liqPts + (affinity * 4.0)
+    } catch (_: Throwable) { 0.0 }
+
     private fun sourceBalancedWatchlistOrder(
         mints: List<String>,
         entriesByMint: Map<String, com.lifecyclebot.engine.GlobalTradeRegistry.WatchlistEntry>,
@@ -15196,6 +15233,39 @@ class BotService : Service() {
             }
         }
         mints.forEach { mint -> buckets.getOrPut(bucketFor(mint)) { mutableListOf() }.add(mint) }
+        // V5.0.6930 §BEST_FIRST_WITHIN_SOURCE.
+        //
+        // The bucketing and round-robin below are a genuinely good fair
+        // scheduler: fresh before unseen before cold, and each tier
+        // interleaved by source family so one pump.fun flood cannot crowd out
+        // DexScreener/CoinGecko/Raydium candidates. None of that changes here.
+        //
+        // What was missing is the other half. Within a source bucket the order
+        // was whatever order the mints arrived in — ultimately the hash order
+        // of a ConcurrentHashMap's keys — and the interleave then takes
+        // `removeAt(0)`, the FRONT of each bucket. So of two fresh pump.fun
+        // candidates, one at $50k liquidity with score 85 and one at $800 with
+        // score 20, which one got the cycle's attention (and, when the budget
+        // or a position slot runs out, the capital) was decided by the hash of
+        // the mint address.
+        //
+        // The bot has an entire intelligence stack for ranking candidates and
+        // was allocating in hash order. Sorting each bucket best-first fixes
+        // that while preserving source diversity EXACTLY — same round-robin,
+        // same number of picks per family, only a different choice of WHICH
+        // candidate represents each family. This is ordering only: it cannot
+        // prune, throttle, block or shrink anything, so the protected-intake
+        // doctrine is untouched.
+        //
+        // Ranks are precomputed once per call rather than inside the
+        // comparator, because this runs every cycle over up to 500 mints.
+        try {
+            val rankCache6930 = HashMap<String, Double>(mints.size * 2)
+            mints.forEach { m -> rankCache6930[m] = candidateConvictionRank6930(m, entriesByMint[m]) }
+            buckets.values.forEach { q ->
+                if (q.size > 1) q.sortByDescending { rankCache6930[it] ?: 0.0 }
+            }
+        } catch (_: Throwable) { /* ordering is an optimisation; never fail the cycle */ }
         val out = mutableListOf<String>()
         var emitted: Boolean
         do {
