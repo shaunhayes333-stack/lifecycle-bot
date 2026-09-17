@@ -219,36 +219,86 @@ object TokenMergeQueue {
         val readyToEmit = mutableListOf<MergedToken>()
         val toRemove = mutableListOf<String>()
 
+        // V5.0.6877 §THE_CONFIDENCE_MODEL_WAS_COMPUTED_THEN_IGNORED_AT_SELECTION —
+        // this loop used to emit the FIRST maxEmit (96) ready entries it happened to
+        // walk past and break. pendingDiscoveries is a ConcurrentHashMap, so that
+        // order is hash order — not even FIFO, effectively arbitrary.
+        //
+        // Everything above it exists to rank candidates: calculateMergedConfidence
+        // blends a 20..76 per-scanner hierarchy with a +25 multi-source confirmation
+        // boost, a graduated 3-and-4-scanner bonus, and a high-quality single-source
+        // fast-track, and the entry carries a multiScannerBoost flag. None of it
+        // touched which candidates were admitted. With the pump.fun firehose running
+        // at roughly 70 mints/min against a 96-per-pass cap, the queue is routinely
+        // deeper than the cap, so a three-scanner-confirmed candidate with real
+        // liquidity could sit behind single-source PUMP_PORTAL noise (confidence 40
+        // vs 38) and be starved by nothing but hash placement.
+        //
+        // Select the BEST of what is ready instead of the first. Ordering is
+        // confidence, then corroborating scanner count, then liquidity.
+        //
+        // The age term matters as much as the ranking: a permanently saturated queue
+        // would otherwise starve a low-confidence entry forever, and the doctrine is
+        // that every source keeps getting learning chances. After three merge windows
+        // an entry accrues escalating priority, so it is admitted on a later pass
+        // rather than never.
+        val readyEntries6877 = ArrayList<MergeEntry>(maxEmit.coerceAtLeast(1) * 2)
         var scanned = 0
-        for ((mint, entry) in pendingDiscoveries) {
-            if (scanned++ >= maxScan.coerceAtLeast(1) || readyToEmit.size >= maxEmit.coerceAtLeast(1)) break
-            val elapsed = now - entry.firstSeenAt
-
-            if (elapsed >= MERGE_WINDOW_MS) {
-                val merged = MergedToken(
-                    mint = entry.mint,
-                    symbol = entry.symbol,
-                    marketCapUsd = entry.marketCapUsd,
-                    liquidityUsd = entry.liquidityUsd,
-                    volumeH1 = entry.volumeH1,
-                    primaryScanner = entry.bestScanner,
-                    allScanners = entry.scanners.toSet(),
-                    confidence = entry.confidence,
-                    multiScannerBoost = entry.scanners.size > 1,
-                    laneAffinity = entry.laneAffinity.toSet(),
-                    toolAffinity = entry.toolAffinity.toSet(),
-                )
-
-                readyToEmit.add(merged)
-                toRemove.add(mint)
-                totalEmitted.incrementAndGet()
-
-                val boostLabel = if (merged.multiScannerBoost) " [MULTI-SCANNER BOOST]" else ""
+        for ((_, entry) in pendingDiscoveries) {
+            if (scanned++ >= maxScan.coerceAtLeast(1)) break
+            if (now - entry.firstSeenAt >= MERGE_WINDOW_MS) readyEntries6877.add(entry)
+        }
+        fun agePressure6877(e: MergeEntry): Int {
+            val waited = now - e.firstSeenAt
+            val grace = MERGE_WINDOW_MS * 3L
+            if (waited <= grace) return 0
+            // +1 priority per additional merge window waited, capped so age can lift a
+            // starved candidate above the pack without ever outranking real proof.
+            return ((waited - grace) / MERGE_WINDOW_MS).toInt().coerceAtMost(40)
+        }
+        val selected6877 = readyEntries6877.sortedWith(
+            compareByDescending<MergeEntry> { it.confidence + agePressure6877(it) }
+                .thenByDescending { it.scanners.size }
+                .thenByDescending { it.liquidityUsd }
+                .thenBy { it.firstSeenAt }
+        ).take(maxEmit.coerceAtLeast(1))
+        if (readyEntries6877.size > selected6877.size) {
+            try {
+                PipelineHealthCollector.labelInc("MERGE_QUEUE_RANKED_SELECTION_6877")
                 ErrorLogger.debug(
                     TAG,
-                    "📤 EMIT: ${entry.symbol} | scanners=${entry.scanners.joinToString(",")} | conf=${entry.confidence}$boostLabel"
+                    "🎚 RANKED SELECT: ready=${readyEntries6877.size} emit=${selected6877.size} " +
+                        "bestConf=${selected6877.firstOrNull()?.confidence ?: 0} " +
+                        "cutoffConf=${selected6877.lastOrNull()?.confidence ?: 0}",
                 )
-            }
+            } catch (_: Throwable) {}
+        }
+
+        for (entry in selected6877) {
+            val mint = entry.mint
+            val merged = MergedToken(
+                mint = entry.mint,
+                symbol = entry.symbol,
+                marketCapUsd = entry.marketCapUsd,
+                liquidityUsd = entry.liquidityUsd,
+                volumeH1 = entry.volumeH1,
+                primaryScanner = entry.bestScanner,
+                allScanners = entry.scanners.toSet(),
+                confidence = entry.confidence,
+                multiScannerBoost = entry.scanners.size > 1,
+                laneAffinity = entry.laneAffinity.toSet(),
+                toolAffinity = entry.toolAffinity.toSet(),
+            )
+
+            readyToEmit.add(merged)
+            toRemove.add(mint)
+            totalEmitted.incrementAndGet()
+
+            val boostLabel = if (merged.multiScannerBoost) " [MULTI-SCANNER BOOST]" else ""
+            ErrorLogger.debug(
+                TAG,
+                "📤 EMIT: ${entry.symbol} | scanners=${entry.scanners.joinToString(",")} | conf=${entry.confidence}$boostLabel"
+            )
         }
 
         for (mint in toRemove) {
