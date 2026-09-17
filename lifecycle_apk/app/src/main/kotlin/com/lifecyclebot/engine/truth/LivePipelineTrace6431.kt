@@ -49,6 +49,32 @@ object LivePipelineTrace6431 {
 
     fun render(): String = buildString {
         append("===== LIVE PIPELINE TRACE (V5.0.6431 §H) =====\n")
+        // V5.0.6962 §A_PANEL_THAT_REPORTED_ZERO_BECAUSE_NOBODY_WROTE_TO_IT.
+        //
+        // This render() is embedded in the operator health report by
+        // PipelineHealthCollector. Both of its writers — bumpStage and
+        // bumpBlockReason — have ZERO callers anywhere in the codebase. So every
+        // counter below is permanently 0, the "choke stage" is computed from
+        // zeros, and topReasons is always empty.
+        //
+        // That is worse than showing nothing. An all-zeros funnel in a health
+        // report reads as "the pipeline processed no candidates", which is a
+        // five-alarm symptom, and it has been printed on every report for the
+        // life of this module while the pipeline was in fact running normally.
+        // The real instrumentation is MemePipelineTracer, which has 18 write
+        // sites and whose stage counts already reach the operator digest.
+        //
+        // Rather than bridge one tracer's data into the other — two tracers with
+        // one source of truth is the duplicate-authority defect this audit
+        // removes — the panel now says plainly that it has no writers. A report
+        // that admits it is blind is honest; one that reports zeros as
+        // measurements is not.
+        val anyData6962 = counters.values.any { it.get() > 0L } || topBlockReasons.isNotEmpty()
+        if (!anyData6962) {
+            append("  NO DATA — this trace has no writers (bumpStage/bumpBlockReason: 0 callers).\n")
+            append("  These zeros are NOT measurements. Live pipeline instrumentation is\n")
+            append("  MemePipelineTracer (18 write sites); see memeTrace/memeBlockReasons.\n")
+        }
         var prior = -1L
         var chokeStage: Stage? = null
         for (s in Stage.entries) {

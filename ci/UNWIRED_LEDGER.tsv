@@ -110,7 +110,7 @@ H_MUTATOR	ReentryGuard	onBadMemoryScore	engine/ReentryGuard.kt
 A_PREDICT	RuntimeTune6833	exitWorkerShouldBoost	engine/truth/RuntimeTune6833.kt
 A_PREDICT	RuntimeTune6833	isHighEdge	engine/truth/RuntimeTune6833.kt
 A_PREDICT	ScoreComponent	sourceScore	v3/scoring/ScoreCard.kt
-A_PREDICT	ScoreDistributionHistogram6396	recommendAdaptiveBaseline	engine/truth/ScoreDistributionHistogram6396.kt
+F_DEAD	ScoreDistributionHistogram6396	recommendAdaptiveBaseline	engine/truth/ScoreDistributionHistogram6396.kt
 H_MUTATOR	SemanticPatternGraph	addEdge	engine/SemanticPatternGraph.kt
 A_PREDICT	SemanticPatternGraph	edgeCount6512	engine/SemanticPatternGraph.kt
 H_MUTATOR	SentientPersonality	onTrustScoreChange	engine/SentientPersonality.kt
@@ -172,7 +172,7 @@ B_RISK	LaneShadowProofLoop	blockLaneResume	engine/LaneShadowProofLoop.kt
 E_INFILE	LaneShadowProofLoop	isResumeBlocked	engine/LaneShadowProofLoop.kt
 B_RISK	LiquidityCycleAI	getRiskLevel	v3/scoring/LiquidityCycleAI.kt
 B_RISK	LiquidityCycleAI	isRisky	v3/scoring/LiquidityCycleAI.kt
-B_RISK	LivePipelineTrace6431	bumpBlockReason	engine/truth/LivePipelineTrace6431.kt
+F_DEAD	LivePipelineTrace6431	bumpBlockReason	engine/truth/LivePipelineTrace6431.kt
 F_DEAD	LosingStreakReflex6439	shouldBlockNewBuys	engine/truth/LosingStreakReflex6439.kt
 B_RISK	MemeExecutionRouteStack	stackExhausted	engine/execution/MemeExecutionRouteStack.kt
 B_RISK	MemePipelineTracer	blockReasons	engine/MemePipelineTracer.kt
@@ -204,7 +204,7 @@ B_RISK	V3Adapter	toRiskState	v3/bridge/V3Adapter.kt
 B_RISK	V3EngineManager	blockFatal	v3/V3EngineManager.kt
 C_EXIT	AdvancedExitManager	calculateExitTargets	v3/scoring/AdvancedExitManager.kt
 C_EXIT	AdvancedExitManager	calculateProgressiveTrailingStop	v3/scoring/AdvancedExitManager.kt
-C_EXIT	AdvisorIntegrityHold6466	isHold	engine/truth/AdvisorIntegrityHold6466.kt
+F_DEAD	AdvisorIntegrityHold6466	isHold	engine/truth/AdvisorIntegrityHold6466.kt
 D_DISPLAY	AnimatedBrainLogoView	stopAnimations	ui/AnimatedBrainLogoView.kt
 C_EXIT	BehaviorAI	getStopLossModPct	v3/scoring/BehaviorAI.kt
 C_EXIT	BirdeyeApi	getHolderDistribution	network/BirdeyeApi.kt
