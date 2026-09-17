@@ -278,6 +278,14 @@ object StrategyTelemetry {
             try { PipelineHealthCollector.labelInc("STRATEGY_CLEAN_LIVE_LEADERBOARD_CACHE_HIT_6327") } catch (_: Throwable) {}
             return larger.second
         }
+        // V5.0.6875 — this path fetches SELL+PARTIAL_SELL rows on purpose: it is the
+        // MONEY view, and a partial sell moves real cash, so it must be counted here
+        // even though it is not a terminal close. (The filter below then keeps only
+        // terminal live SELLs for the clean-expectancy board; the raw fetch stays
+        // inclusive because StrategyTruthLedger.clean needs the full row set to
+        // reconcile a position's rungs against its close.) The expectancy surfaces —
+        // computeLeaderboard's callers, winners(), bleeders(), formatForPipelineDump —
+        // are the ones that must NOT count partials as trades.
         val raw = try { TradeHistoryStore.getRecentValidClosedTradesRaw(limit = limit, includePartials = true) } catch (_: Throwable) { emptyList() }
         val cleanRows = try { StrategyTruthLedger.clean(raw, limit).rows } catch (_: Throwable) { raw }
             .filter { it.mode.equals("live", true) && it.side.equals("SELL", true) }
@@ -390,17 +398,36 @@ object StrategyTelemetry {
     /** Live terminal close count used by LiveMaturityAuthority; never counts paper or partials. */
     fun liveTerminalCloseCount(limit: Int = 10_000): Int = LiveMaturityAuthority.liveTerminalCloseCount(limit)
 
-    /** Top-N by mean PnL%, restricted to strategies with ≥5 trades (avoids
-     *  "+47% EV on 1 trade" noise dominating the leaderboard). */
+    /**
+     * V5.0.6875 §PARTIAL_SELLS_WERE_BEING_COUNTED_AS_TRADES_BY_A_DECISION_PATH —
+     * winners() and bleeders() called computeLeaderboard() with its defaults, which
+     * are `includePartials = true`. Every other DECISION consumer of that leaderboard
+     * passes false: LiveProbabilityEngine:167/285, Executor:15599/15701,
+     * LosingPatternMemory:84, LiveStylePivotRouter:123, StrategyHypothesisEngine:443.
+     *
+     * winners() is a decision path too. CompoundGrowthMentality:167 reads it as
+     * `winners(10).any { it.trades >= 40 && it.winRatePct >= 55.0 && it.totalSolPnl > 0.0 }`
+     * and a true result grants a 1.15x compound press boost in reclaim mode.
+     *
+     * Counting partials breaks both halves of that test. A position laddered out in
+     * three rungs contributes three rows, so thirteen real positions clear the
+     * `trades >= 40` bar — and the rows are biased toward wins by construction,
+     * because you ladder out INTO strength, so profit rungs are over-represented
+     * and losses tend to arrive as a single terminal close. The boost could be
+     * earned by partial-sell bookkeeping rather than by forty terminal closes at
+     * 55%.
+     *
+     * Both now match the rest of the decision surface: terminal closes only.
+     */
     fun winners(n: Int = 5): List<StrategyMetric> =
-        computeLeaderboard()
+        computeLeaderboard(includePartials = false)
             .filter { it.isStatisticallyMeaningful }
             .sortedByDescending { it.meanPnlPct }
             .take(n)
 
     /** Bottom-N by mean PnL%, same statistical-meaning filter. */
     fun bleeders(n: Int = 5): List<StrategyMetric> =
-        computeLeaderboard()
+        computeLeaderboard(includePartials = false)
             .filter { it.isStatisticallyMeaningful }
             .sortedBy { it.meanPnlPct }
             .take(n)
@@ -439,13 +466,19 @@ object StrategyTelemetry {
      * to be useful (so the dump doesn't sprout an empty header at boot).
      */
     fun formatForPipelineDump(): String {
-        val all = computeLeaderboard()
+        // V5.0.6875 — report what the bot actually decides on. This used the default
+        // includePartials = true while every decision consumer uses false, so the
+        // operator's dump described a different leaderboard from the one driving
+        // behaviour: partial rungs counted as separate closes and inflated both the
+        // trade count and the mean. An operator cannot reconcile a dump against
+        // behaviour when the two are computed differently.
+        val all = computeLeaderboard(includePartials = false)
         val meaningful = all.filter { it.isStatisticallyMeaningful }
         if (meaningful.isEmpty()) return ""
 
         val sb = StringBuilder()
         sb.append("\n===== Strategy expectancy (V5.9.806) =====\n")
-        sb.append("  (SELL+PARTIAL_SELL with ≥5 trainable closes, sorted by mean PnL%)\n\n")
+        sb.append("  (terminal SELL closes only, ≥5 trainable, sorted by mean PnL% — matches the decision path)\n\n")
 
         val winners = meaningful.sortedByDescending { it.meanPnlPct }.take(5)
         sb.append("  Top 5 winners:\n")

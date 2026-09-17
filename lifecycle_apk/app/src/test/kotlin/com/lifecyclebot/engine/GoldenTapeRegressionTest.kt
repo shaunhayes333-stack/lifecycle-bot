@@ -2771,7 +2771,17 @@ class GoldenTapeRegressionTest {
         assertTrue("Learning sanitizer must define finite trainable PnL bounds", sanitizer.contains("MAX_TRAINABLE_PNL_PCT = 100_000.0") && sanitizer.contains("PNL_PCT_ABOVE_TRAINABLE_MAX") && sanitizer.contains("PNL_PCT_SOL_BASIS_MISMATCH") && sanitizer.contains("emit: Boolean = true"))
         assertTrue("TokenWinMemory must reject impossible PnL before recording", tokenWin.contains("LearningPnlSanitizer.inspectPct") && tokenWin.contains("return") && tokenWin.contains("quarantinedLegacy"))
         assertTrue("TokenWinMemory exports must filter already-poisoned persisted aggregates", tokenWin.contains("sanePatternStats") && tokenWin.contains("saneTokenStats") && tokenWin.contains("saneWinner") && tokenWin.contains("exportPatternAggregates"))
-        assertTrue("StrategyTelemetry must include partial closes and use the same sanitizer", strategy.contains("PARTIAL_SELL") && strategy.contains("LearningPnlSanitizer.inspectTrade") && strategy.contains("SELL+PARTIAL_SELL"))
+        // V5.0.6875 — this used to assert the literal display string
+        // "(SELL+PARTIAL_SELL with ...)" from formatForPipelineDump's header. That
+        // header was inaccurate: the dump used computeLeaderboard's default
+        // includePartials = true while every decision consumer passes false, so the
+        // operator's expectancy block described a different leaderboard from the one
+        // driving behaviour. The header is now honest ("terminal SELL closes only"),
+        // so the assertion checks the real invariant instead of the prose: the money
+        // view still fetches partial rows, expectancy still supports the toggle, and
+        // the same sanitizer still guards every row.
+        assertTrue("StrategyTelemetry money view must include partial closes and use the same sanitizer", strategy.contains("PARTIAL_SELL") && strategy.contains("LearningPnlSanitizer.inspectTrade") && strategy.contains("includePartials = true") && strategy.contains("includePartials: Boolean"))
+        assertTrue("StrategyTelemetry expectancy surfaces must exclude partials so they match the decision path", strategy.contains("computeLeaderboard(includePartials = false)") && strategy.contains("terminal SELL closes only"))
         assertTrue("Canonical learning bus must suppress poisoned rows without deleting journal rows", canonical.contains("LearningPnlSanitizer.inspectTrade") && canonical.contains("only strategy-learning fanout is suppressed"))
         assertTrue("Hive trade/pattern side doors must be guarded", collective.contains("suspend fun uploadTrade") && collective.contains("uploadWhaleEffectiveness") && collective.contains("broadcastHotToken") && collective.contains("LearningPnlSanitizer.inspectPct"))
         assertTrue("TradeRowSanityCheck must cover partial sells too", sanity.contains("PARTIAL_SELL") && sanity.contains("LearningPnlSanitizer.inspectTrade"))
