@@ -185,6 +185,81 @@ class DataOrchestrator(
         // Birdeye seed call behind canAffordScannerLane(). When the budget
         // is tight, SKIP seeding entirely — real-time DexScreener/PumpFun WS
         // feeds will populate ts.history naturally on their first tick.
+        // V5.0.6916 §KEYLESS_SEED_FIRST — the mandate quoted directly above
+        // ("we can get the data birdeye provides free. its meant to be
+        // deprioritised to basically just be a back up") was only half
+        // implemented: Birdeye was deprioritised by BUDGET, but it was still
+        // the ONLY source, so throttling it meant no candles at all. The
+        // early `return` below used to end this function, so both the budget
+        // throttle (BIRDEYE_SEED_SKIPPED_BUDGET=483) and the 401 key death
+        // (birdeye sr=0% 4xx=60) left ts.history/history5m/history15m empty —
+        // and every pattern engine needs 3-5 bars minimum
+        // (MovementPatternSignal <4, HistoricalChartScanner <5,
+        // SmartChartScanner <5). The whole chart-shape layer has therefore
+        // been receiving zero bars, which is why it looks "untouched".
+        //
+        // GeckoTerminal pool OHLCV is keyless and on a host this app already
+        // uses (geckoterminal sr=71%). Seed from it FIRST, unconditionally, so
+        // the pattern stack is fed whether or not Birdeye is alive. Birdeye
+        // then tops up only when affordable — genuinely a backup now.
+        val poolHint6916 = try {
+            ts.pairAddress.ifBlank { ts.lastPricePoolAddr }
+        } catch (_: Throwable) { "" }
+        var keylessSeeded6916 = 0
+        try {
+            val k1m = com.lifecyclebot.network.SolanaOhlcvFeed6916
+                .fetchCandles6916(mint, "1m", 120, poolHint6916)
+            if (k1m.size >= 2) {
+                synchronized(ts.history) {
+                    if (ts.history.size < 10) {
+                        ts.history.clear()
+                        k1m.forEach { ts.history.addLast(it) }
+                        while (ts.history.size > 300) ts.history.removeFirst()
+                        ts.candleTimeframeMinutes = 1
+                        keylessSeeded6916 += k1m.size
+                    }
+                }
+            }
+            val k5m = com.lifecyclebot.network.SolanaOhlcvFeed6916
+                .fetchCandles6916(mint, "5m", 60, poolHint6916)
+            if (k5m.size >= 2) {
+                synchronized(ts.history5m) {
+                    if (ts.history5m.size < 5) {
+                        ts.history5m.clear()
+                        k5m.forEach { ts.history5m.addLast(it) }
+                        while (ts.history5m.size > 100) ts.history5m.removeFirst()
+                        keylessSeeded6916 += k5m.size
+                    }
+                }
+            }
+            val k15m = com.lifecyclebot.network.SolanaOhlcvFeed6916
+                .fetchCandles6916(mint, "15m", 48, poolHint6916)
+            if (k15m.size >= 2) {
+                synchronized(ts.history15m) {
+                    if (ts.history15m.size < 5) {
+                        ts.history15m.clear()
+                        k15m.forEach { ts.history15m.addLast(it) }
+                        while (ts.history15m.size > 60) ts.history15m.removeFirst()
+                        keylessSeeded6916 += k15m.size
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
+        if (keylessSeeded6916 > 0) {
+            seeded += keylessSeeded6916
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANDLE_SEED_KEYLESS_6916")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "CANDLE_SEED_KEYLESS_6916",
+                    "mint=${mint.take(10)} symbol=$symbol bars=$keylessSeeded6916 " +
+                        "h1m=${ts.history.size} h5m=${ts.history5m.size} h15m=${ts.history15m.size} " +
+                        "source=geckoterminal_pool_ohlcv keyless=true " +
+                        "action=pattern_stack_now_has_bars",
+                )
+            } catch (_: Throwable) {}
+            onLog("$symbol: seeded $keylessSeeded6916 keyless candles (GeckoTerminal)", mint)
+        }
+
         val budgetOk = try {
             com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()
         } catch (_: Throwable) { true }
@@ -193,10 +268,22 @@ class DataOrchestrator(
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BIRDEYE_SEED_SKIPPED_BUDGET")
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
                     "BIRDEYE_SEED_SKIPPED_BUDGET",
-                    "mint=${mint.take(10)} symbol=$symbol reason=birdeye_scanner_throttled — will populate from WS",
+                    "mint=${mint.take(10)} symbol=$symbol reason=birdeye_scanner_throttled " +
+                        "keylessBars=$keylessSeeded6916 — keyless seed already ran (V5.0.6916)",
                 )
             } catch (_: Throwable) {}
-            onLog("$symbol: skipping Birdeye seed (budget throttled, using WS data)", mint)
+            onLog("$symbol: skipping Birdeye top-up (budget throttled; keyless bars=$keylessSeeded6916)", mint)
+            return
+        }
+        // V5.0.6916 — if the keyless seed already filled every timeframe there
+        // is nothing for Birdeye to add, so do not spend the CU. This is what
+        // finally makes Birdeye a true backup rather than the primary.
+        if (keylessSeeded6916 > 0 && ts.history.size >= 30 &&
+            ts.history5m.size >= 5 && ts.history15m.size >= 5) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BIRDEYE_SEED_UNNEEDED_KEYLESS_SUFFICIENT_6916")
+            } catch (_: Throwable) {}
+            onLog("$symbol: keyless candles sufficient (${ts.history.size}/1m) — Birdeye not called", mint)
             return
         }
 

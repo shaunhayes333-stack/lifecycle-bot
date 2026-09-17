@@ -1973,6 +1973,16 @@ object PipelineHealthCollector {
             sb.append("  Predictive oracle (§6915):    ").append(
                 com.lifecyclebot.engine.truth.PredictiveEntryOracle6915.statusLine()
             ).append("\n")
+            // V5.0.6916 — keyless OHLCV. barsDelivered is the single number
+            // that says whether the chart/pattern layer is fed at all: every
+            // pattern engine needs 3-5 bars and every OHLCV path in the app
+            // used to run through the dead Birdeye key. rowsRejected>0 with
+            // barsDelivered=0 means the endpoint shape is wrong (it could not
+            // be probed from the build host); served=0 with fetches>0 means
+            // the host or path is failing and will show in API health.
+            sb.append("  Keyless OHLCV (§6916):        ").append(
+                com.lifecyclebot.network.SolanaOhlcvFeed6916.statusLine()
+            ).append("\n")
             sb.append("  Same-mint dedup (§6441):      ").append(
                 com.lifecyclebot.engine.truth.SameMintDedupAuthority6441.statusLine()
             ).append("\n")
