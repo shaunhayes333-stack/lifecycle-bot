@@ -313,6 +313,33 @@ object ExitIntelligence {
     // LEARNING FROM EXITS
     // ═══════════════════════════════════════════════════════════════════════
 
+    /** V5.0.6920 — hard floor; below this a "max hold" is meaningless. */
+    private const val MAX_HOLD_FLOOR_6920 = 15
+
+    /**
+     * V5.0.6920 — ceiling raised from 60. A 10x-1000x runner cannot be
+     * discovered inside an hour, and the old cap made the max-hold parameter
+     * structurally unable to represent one. Only the new win-side growth term
+     * can push it up here, one earned step at a time.
+     */
+    private const val MAX_HOLD_CEILING_6920 = 1_440   // 24h
+
+    /**
+     * V5.0.6920 — the lowest max-hold that the winning evidence permits.
+     *
+     * Reads the p90 of WINNING hold times (LiveWinDNAStore.winnerHoldTimeStats6920,
+     * added alongside this — the pre-existing holdTimeStats was documented as
+     * winners-only but had never filtered, so it reported the hold time of
+     * LOSERS) and this layer's own decayed avgWinningHoldTime, and takes the
+     * larger. Returns the bare floor when there is not enough winning
+     * evidence to say anything, so a cold install behaves as before.
+     */
+    private fun winnerHoldFloorMinutes6920(): Int {
+        val dnaP90 = try { LiveWinDNAStore.winnerHoldTimeStats6920()?.third ?: 0 } catch (_: Throwable) { 0 }
+        val ownAvgWin = params.avgWinningHoldTime.let { if (it.isFinite() && it > 0.0) it.toInt() else 0 }
+        return maxOf(MAX_HOLD_FLOOR_6920, dnaP90, ownAvgWin)
+    }
+
     fun learnFromExit(mint: String, exitReason: String, pnlPercent: Double, holdTimeMinutes: Int) {
         activePositions.remove(mint)
 
@@ -331,13 +358,60 @@ object ExitIntelligence {
 
             params.optimalHoldMinutes = (
                 (params.optimalHoldMinutes * 0.8) + (holdTimeMinutes * 0.2)
-            ).toInt().coerceIn(5, 60)
+            ).toInt().coerceIn(5, MAX_HOLD_CEILING_6920)
+
+            // V5.0.6920 §RATCHET_MADE_SYMMETRIC — the growth half that was
+            // never written. See the block below for why this matters.
+            if (holdTimeMinutes >= params.maxHoldMinutes) {
+                val grown = ((params.maxHoldMinutes * 1.10).toInt() + 1)
+                params.maxHoldMinutes = grown.coerceIn(MAX_HOLD_FLOOR_6920, MAX_HOLD_CEILING_6920)
+            }
         } else {
             params.avgLosingHoldTime = (params.avgLosingHoldTime * 0.9) + (holdTimeMinutes * 0.1)
             params.avgLosingPnl = (params.avgLosingPnl * 0.9) + (pnlPercent * 0.1)
 
+            // V5.0.6920 §THE ONE-WAY RATCHET THAT CAPPED EVERY RUNNER AT 15
+            // MINUTES.
+            //
+            // This was `maxHoldMinutes = (maxHoldMinutes * 0.95).coerceIn(15, 60)`
+            // in the LOSS branch, with no counterpart anywhere in the WIN
+            // branch. Multiply-by-0.95 with no growth term is not learning,
+            // it is a ratchet: it can only travel one way, and its
+            // destination is the floor.
+            //
+            // The trigger is `holdTimeMinutes > avgWinningHoldTime`, which
+            // defaults to 8.0 — so essentially every loss fires it, because
+            // losers are by nature the ones held while hoping for recovery.
+            // At the observed win rate the loss branch runs on the large
+            // majority of closes, so maxHoldMinutes converges to 15 within a
+            // couple of dozen trades and stays there for the life of the
+            // install. needsAttention() then flags a TIME EXIT on every
+            // position at 15 minutes.
+            //
+            // That is a self-reinforcing collapse: losses shorten the hold →
+            // shorter holds cut winners before they mature → fewer winners →
+            // more losses → shorter still. It is the paper-hands death spiral
+            // in four lines, and it caps a 10x-1000x runner doctrine at a
+            // quarter of an hour. The old ceiling of 60 meant even a flawless
+            // run could never learn to hold longer than an hour.
+            //
+            // Two changes, both about making the thing able to learn:
+            //
+            //   1. It may never shrink below what winners have actually
+            //      needed. That floor comes from real evidence — the p90 of
+            //      WINNING hold times in LiveWinDNAStore, and this layer's own
+            //      avgWinningHoldTime — not from a constant. If winners need
+            //      90 minutes, 90 minutes is not a thing to be optimised
+            //      away.
+            //   2. The ceiling rises to 24h, reachable only through the new
+            //      growth term above, which fires when a WIN was held to the
+            //      current limit. Longer holds are earned by evidence, never
+            //      granted.
             if (holdTimeMinutes > params.avgWinningHoldTime) {
-                params.maxHoldMinutes = ((params.maxHoldMinutes * 0.95).toInt()).coerceIn(15, 60)
+                val shrunk = (params.maxHoldMinutes * 0.95).toInt()
+                params.maxHoldMinutes = shrunk
+                    .coerceAtLeast(winnerHoldFloorMinutes6920())
+                    .coerceIn(MAX_HOLD_FLOOR_6920, MAX_HOLD_CEILING_6920)
             }
 
             if (pnlPercent < params.avgLosingPnl) {

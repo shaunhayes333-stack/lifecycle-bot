@@ -289,7 +289,21 @@ object LiveWinDNAStore {
             .sortedByDescending { it.second }
     }
 
-    /** Hold-time distribution of winners — exit optimisers use this. */
+    /**
+     * Hold-time distribution across ALL decisive rows, winners and losers.
+     *
+     * V5.0.6920 — the docstring here used to read "Hold-time distribution of
+     * winners — exit optimisers use this", and the body has never filtered to
+     * winners. At the observed win rate these percentiles are dominated by
+     * LOSERS, so anything that trusted the comment was reading the hold time
+     * of failed trades and calling it the winning hold time — then shortening
+     * holds toward it, which is the paper-hands loop.
+     *
+     * Kept as-is for the operator status line (a population figure is the
+     * right thing to display). Anything making an EXIT-TIMING decision wants
+     * winnerHoldTimeStats6920() below, which is what the old comment
+     * described.
+     */
     fun holdTimeStats(): Triple<Int, Int, Int> {
         val real = realRows()
         if (real.isEmpty()) return Triple(0, 0, 0)
@@ -297,6 +311,28 @@ object LiveWinDNAStore {
         val p50 = holds[holds.size / 2]
         val p75 = holds[(holds.size * 3) / 4]
         val p90 = holds[(holds.size * 9) / 10]
+        return Triple(p50, p75, p90)
+    }
+
+    /**
+     * V5.0.6920 — hold-time distribution of WINNERS only (pnlPct > 0), which
+     * is what an exit optimiser actually needs: "how long did the trades that
+     * worked need to be held". Mirrors setupFrequency/chartPatternFrequency,
+     * which already filter to winners.
+     *
+     * Returns null rather than zeros when there is not enough winning
+     * evidence to form a percentile — a caller must be able to tell "no data"
+     * apart from "hold for zero minutes", and Triple(0,0,0) cannot express
+     * that. MIN_WINNERS is deliberately small; the readers treat this as a
+     * soft ceiling, not a trigger.
+     */
+    fun winnerHoldTimeStats6920(minWinners: Int = 6): Triple<Int, Int, Int>? {
+        val winners = realRows().filter { it.pnlPct > 0.0 && it.holdTimeMinutes >= 0 }
+        if (winners.size < minWinners) return null
+        val holds = winners.map { it.holdTimeMinutes }.sorted()
+        val p50 = holds[holds.size / 2]
+        val p75 = holds[((holds.size * 3) / 4).coerceAtMost(holds.size - 1)]
+        val p90 = holds[((holds.size * 9) / 10).coerceAtMost(holds.size - 1)]
         return Triple(p50, p75, p90)
     }
 

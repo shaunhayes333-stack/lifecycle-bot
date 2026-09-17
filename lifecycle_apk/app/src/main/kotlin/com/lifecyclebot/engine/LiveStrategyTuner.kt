@@ -58,6 +58,51 @@ object LiveStrategyTuner {
 
     fun livePartialProfitFloorPct(): Double = LIVE_PARTIAL_PROFIT_FLOOR_PCT
 
+    /**
+     * V5.0.6920 — THE PARTIAL PROFIT FLOOR, FEE-AWARE AND MODE-BLIND.
+     *
+     * Two defects met here.
+     *
+     * 1. The flat 8% floor knows nothing about position size or pool depth.
+     *    FluidLearningAI.getMinProfitableExitPct computes the real break-even
+     *    from the round-trip fee, the network fee and the price impact implied
+     *    by (positionUsd / liquidityUsd) — and it has had ZERO callers since
+     *    it was written. A 0.4 SOL exit from a $4k pool needs far more than
+     *    8% to clear; 8% there is a loss wearing a profit label. That is
+     *    exactly what CloseOutcomeLabelSanitizer keeps catching as
+     *    PARTIAL_BELOW_PROFIT_FLOOR_LOSS — it renames the loss after the
+     *    fact, which protects the training set but does not stop the trade.
+     *
+     *    maxOf, not replace: the fee-aware number is allowed to RAISE the
+     *    floor (thin pool, large clip) but never to lower it below the
+     *    operator's 8%. Nothing gets looser than it is today.
+     *
+     * 2. Both call sites gated this floor on live mode — one via
+     *    RuntimeModeAuthority.isLive(), the other via !isPaper, which is the
+     *    same fact asked two different ways. That gate belongs on TUNING
+     *    INPUTS, per this object's doctrine (live terminal closes only may
+     *    authorize live tuning). It does not belong on a break-even SAFETY
+     *    FLOOR. Paper is where the learning stack does almost all of its
+     *    learning, so an unguarded paper floor means paper ladders fire below
+     *    break-even, book scratches and losses, and then have their rows
+     *    discarded as dirty by the sanitizer. The learner is starved by the
+     *    very trades it was supposed to learn from. This function carries no
+     *    mode predicate; callers apply it in both modes.
+     *
+     * Falls back to the flat floor if the fee model is unavailable — never
+     * returns something lower than LIVE_PARTIAL_PROFIT_FLOOR_PCT.
+     */
+    fun partialProfitFloorPct6920(positionSizeSol: Double, liquidityUsd: Double): Double {
+        val flat = LIVE_PARTIAL_PROFIT_FLOOR_PCT
+        if (positionSizeSol <= 0.0 || liquidityUsd <= 0.0) return flat
+        val feeAware = try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI
+                .getMinProfitableExitPct(positionSizeSol, liquidityUsd)
+        } catch (_: Throwable) { 0.0 }
+        if (!feeAware.isFinite() || feeAware <= 0.0) return flat
+        return maxOf(flat, feeAware)
+    }
+
     fun statusLine(): String = try {
         val tuned = snapshot().values
             .distinctBy { it.lane }

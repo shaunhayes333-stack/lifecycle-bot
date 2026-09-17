@@ -7914,8 +7914,17 @@ class Executor(
         
         val nextMilestone = milestones.getOrNull(partialLevel)
         val shouldPartial = nextMilestone != null && gainPct >= nextMilestone
-        if (RuntimeModeAuthority.isLive() && shouldPartial && gainPct < LiveStrategyTuner.livePartialProfitFloorPct()) {
-            try { ForensicLogger.lifecycle("PARTIAL_BLOCKED_BELOW_BREAKEVEN", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKey gain=${"%.2f".format(gainPct)} floor=${LiveStrategyTuner.livePartialProfitFloorPct()} level=$partialLevel milestone=$nextMilestone") } catch (_: Throwable) {}
+        // V5.0.6920 — break-even floor is fee-aware and mode-blind. Was
+        // `RuntimeModeAuthority.isLive() && ...` with a flat 8%: paper ladders
+        // fired below break-even, booked scratches, and the sanitizer then
+        // discarded those rows as dirty — starving the learner with the very
+        // trades it was meant to learn from. See partialProfitFloorPct6920.
+        val partialFloor6920 = LiveStrategyTuner.partialProfitFloorPct6920(
+            positionSizeSol = pos.costSol,
+            liquidityUsd = ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: pos.entryLiquidityUsd,
+        )
+        if (shouldPartial && gainPct < partialFloor6920) {
+            try { ForensicLogger.lifecycle("PARTIAL_BLOCKED_BELOW_BREAKEVEN", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKey gain=${"%.2f".format(gainPct)} floor=${"%.2f".format(partialFloor6920)} flatFloor=${LiveStrategyTuner.livePartialProfitFloorPct()} cost=${"%.3f".format(pos.costSol)} liq=${ts.lastLiquidityUsd.toInt()} level=$partialLevel milestone=$nextMilestone") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("PARTIAL_BLOCKED_BELOW_BREAKEVEN") } catch (_: Throwable) {}
             return false
         }
@@ -19272,6 +19281,58 @@ class Executor(
         )
     }
 
+    /**
+     * V5.0.6920 — THE EXIT BRAIN NEVER SAW A PAPER TRADE.
+     *
+     * UnifiedExitPolicyHead.recordOutcome opens with
+     * `pending.remove(mint) ?: return` — no stamp, no training, silently.
+     * The only call to UnifiedExitPolicyHead.stamp lives inside
+     * classifyLiveExitIntent, and both of that function's callers open with:
+     *
+     *     if (ts.position.isPaperPosition) return null / return false
+     *
+     * So a paper close is never stamped, and the central recordTrade fanout —
+     * which correctly fires for paper AND live — finds nothing pending and
+     * trains on nothing. This bot does nearly all of its trading in paper.
+     *
+     * Consequence, end to end: every lane exit head sits at trained=0 →
+     * currentAuthority returns BOOTSTRAP → exitBias returns a hard 1.0 →
+     * exitPolicyBankSoon and exitPolicyLetRun are both permanently false →
+     * shouldVetoStopLoss always returns HONOR. The whole per-lane exit brain,
+     * including the V5.0.6006 stop-loss veto that was added specifically to
+     * stop the paper-handing pattern, has been decoration. The MOONSHOT
+     * cold-start hold-longer seed never applied either, because BOOTSTRAP
+     * short-circuits before the bias is ever read.
+     *
+     * Stamping at terminal-close time is also what the head's own docstring
+     * asks for ("Stamp signals at exit-decision time"), and it is strictly
+     * better than the old incidental stamp, which only happened when a
+     * min-hold or dust-defer check happened to run first — so live emergency
+     * and reconciler exits went untrained too.
+     *
+     * stamp() overwrites pending[mint], so re-stamping is safe and the last
+     * stamp before the close is the one that trains.
+     */
+    private fun stampUnifiedExitForClose6920(ts: TokenState, reason: String) {
+        try {
+            val pos = ts.position
+            if (!pos.isOpen) return
+            val entry = pos.entryPrice
+            if (entry <= 0.0) return
+            val px = ts.lastPrice.takeIf { it > 0.0 } ?: return
+            val rawPnlPct = ((px - entry) / entry) * 100.0
+            val peakGainPct = maxOf(pos.peakGainPct, rawPnlPct)
+            val lane = unifiedExitLaneFor(ts)
+            UnifiedExitPolicyHead.stamp(ts.mint, lane, unifiedExitSignalsFor(ts, rawPnlPct, peakGainPct))
+            try {
+                PipelineHealthCollector.labelInc(
+                    if (pos.isPaperPosition) "UNIFIED_EXIT_POLICY_HEAD_STAMPED_PAPER_6920"
+                    else "UNIFIED_EXIT_POLICY_HEAD_STAMPED_LIVE_6920"
+                )
+            } catch (_: Throwable) {}
+        } catch (_: Throwable) {}
+    }
+
     private fun advancedExitProfileForLane(lane: String): com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitProfile {
         val l = lane.uppercase()
         return when {
@@ -19835,9 +19896,18 @@ class Executor(
             val isForcedProfitCapture = r.contains("PROFIT") || r.contains("CAPTURE") ||
                 r.contains("RAPID") || r.contains("RUNNER") || r.contains("LOCK")
             val isForcedCut = isForcedRiskCut || isForcedProfitCapture
-            if (!isPaper && pnlPct < LiveStrategyTuner.livePartialProfitFloorPct() && !isForcedCut) {
+            // V5.0.6920 — same floor, same authority, both modes. The old
+            // predicate here was `!isPaper` while the sibling guard in
+            // checkPartialSell used `RuntimeModeAuthority.isLive()` — one fact
+            // asked two ways, and both let paper ladder below break-even.
+            // Forced risk cuts and explicit profit captures still bypass.
+            val partialFloor6920 = LiveStrategyTuner.partialProfitFloorPct6920(
+                positionSizeSol = ts.position.costSol,
+                liquidityUsd = ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: ts.position.entryLiquidityUsd,
+            )
+            if (pnlPct < partialFloor6920 && !isForcedCut) {
                 try { ForensicLogger.lifecycle("PARTIAL_BLOCKED_BELOW_BREAKEVEN",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${"%.2f".format(pnlPct)} floor=${LiveStrategyTuner.livePartialProfitFloorPct()} reqPct=${(pct*100).toInt()} reason=$reason action=hold_runner") } catch (_: Throwable) {}
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${"%.2f".format(pnlPct)} floor=${"%.2f".format(partialFloor6920)} flatFloor=${LiveStrategyTuner.livePartialProfitFloorPct()} paper=$isPaper reqPct=${(pct*100).toInt()} reason=$reason action=hold_runner") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("PARTIAL_BLOCKED_BELOW_BREAKEVEN") } catch (_: Throwable) {}
                 return
             }
@@ -20761,6 +20831,11 @@ class Executor(
             PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_NO_PRICE:$reason")
             return SellResult.FAILED_RETRYABLE
         }
+        // V5.0.6920 — the exit brain's only stamp site was unreachable for
+        // paper positions, so recordOutcome had nothing pending to train on
+        // and every lane exit head stayed at trained=0 forever. Stamp here,
+        // on the paper terminal path, before recordTrade's fanout consumes it.
+        stampUnifiedExitForClose6920(ts, reason)
         // V5.9.1470 (spec item 2) — CLOSE IDEMPOTENCY. If this mint already has a live
         // close stamp, a previous paperSell already finalized it. Suppress the duplicate
         // SELL: do NOT journal, train, or re-occupy the slot. Fixes the same-mint
@@ -22416,6 +22491,12 @@ class Executor(
                          wallet: SolanaWallet, walletSol: Double,
                          identity: TradeIdentity? = null): SellResult {
         ExecutionRootCauseTrace.sell("LIVE_SELL_ENTRY", ts, "reason=$reason walletSol=$walletSol posQty=${ts.position.qtyToken} entry=${ts.position.entryPrice} high=${ts.position.highestPrice}")
+        // V5.0.6920 — stamp the exit brain on the live terminal path too. The
+        // old stamp site rode inside the min-hold and dust-defer checks, so
+        // any live exit that skipped those (emergency liquidate, reconciler
+        // requeue, wallet-zero cleanup) also trained nothing. Re-stamping is
+        // safe: stamp() overwrites pending[mint].
+        stampUnifiedExitForClose6920(ts, reason)
         // V5.0.6455 §SELL_DOOR_MIGRATION — CAS reserve BEFORE any live
         // side effect. Blank/unknown positionId => fail closed (return
         // ALREADY_CLOSED). Prevents DsXR94-style repeat live SELLs from
