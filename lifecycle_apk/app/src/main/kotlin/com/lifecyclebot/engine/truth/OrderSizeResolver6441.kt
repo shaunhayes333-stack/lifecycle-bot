@@ -290,11 +290,51 @@ object OrderSizeResolver6441 {
         // hard caps can fund it. Otherwise non-executable.
         val canFundMinimum6600 = requestedLamports6491 > 0L &&
             availableLamports6491 >= minExecLamports6491 && laneCapLamports6491 >= minExecLamports6491
+        // V5.0.6896 §A_LEGAL_REQUEST_MUST_NOT_BE_ZEROED_BY_A_COLLAPSED_CLAMP.
+        //
+        // The two branches below were inverted in effect: a SUB-minimum request
+        // got promoted to minExec, while a request at or above minExec was
+        // handed minOf(requested, laneClamped) with no floor — so if the risk
+        // shaping collapsed laneClamped to zero, the better request resolved to
+        // 0 and the entry was discarded. The worse request was treated better
+        // than the good one.
+        //
+        // Operator 5.0.6892 has it exactly:
+        //   Order size resolver last=[req=0.13349 risk=0.00000 ladder=0.00000
+        //     cashCap=64.65792 laneCap=5.00000 final=0.00000 exec=false]
+        // req was 0.133 — comfortably above the minimum — and risk/ladder both
+        // shaped to zero, so final came out 0. Downstream that surfaces as
+        // EXEC_GATE/taxonomy=BELOW_MIN_NOTIONAL (99 in that session) with
+        // 64.66 SOL of cash sitting idle and a 5.0 SOL lane cap available.
+        // In DUMP regime sizeMult=0.35 compounds with lane caps and drives this
+        // constantly, which is a large part of why BLUECHIP held 480 pending
+        // intents at sized=0 and CORE used 0.0 of a 4.31 SOL target.
+        //
+        // This promotes ONLY when the shaped result is below the minimum — that
+        // is, when the order is not executable at all and the alternative is
+        // dropping the entry. It is exactly the operator directive already
+        // quoted at V5.0.6601: "If final BUY risk budget can afford the minimum
+        // executable notional: clamp the executable order to canonical
+        // minimum." 6601's rule that a LEGAL adaptive size must never be
+        // promoted above the caller's intent is untouched, because a
+        // sub-minimum shaped value is not a legal size. Both hard caps
+        // (available cash and lane cap) must still fund the minimum, so this
+        // can never manufacture an order the account cannot pay for.
+        val shapedCeilingLamports6896 = minOf(requestedLamports6491, laneClampedLamports6491)
+        val clampCollapsed6896 = requestedLamports6491 >= minExecLamports6491 &&
+            shapedCeilingLamports6896 < minExecLamports6491 &&
+            canFundMinimum6600
         val shapedOrMinimumLamports6600 = when {
             requestedLamports6491 >= minExecLamports6491 ->
-                minOf(requestedLamports6491, laneClampedLamports6491)
+                if (clampCollapsed6896) minExecLamports6491 else shapedCeilingLamports6896
             canFundMinimum6600 -> minExecLamports6491
             else -> 0L
+        }
+        if (clampCollapsed6896) {
+            try {
+                PipelineHealthCollector.labelInc("ORDER_SIZE_CLAMP_COLLAPSE_FLOORED_6896")
+                PipelineHealthCollector.labelInc("ORDER_SIZE_CLAMP_COLLAPSE_FLOORED_6896_${laneName.uppercase()}")
+            } catch (_: Throwable) {}
         }
         // V5.0.6601 §GOLDEN_TAPE_LEXICAL_ALIAS — preserve legacy variable
         // names (authorityCapLamports6498, effectiveShapedLamports6506)
@@ -316,9 +356,16 @@ object OrderSizeResolver6441 {
             !executable -> "BELOW_MIN_EXECUTABLE"
             paperMode && authoritativeCash + 1e-12 < finalSize * (1.0 + PAPER_ENTRY_FEE_RESERVE_RATE_6490) -> "PAPER_CASH_INSUFFICIENT_WITH_FEE_6490"
             canFundMinimum6600 && requestedLamports6491 < minExecLamports6491 -> "OK_MIN_PROMOTED_6600"
+            // V5.0.6896 — distinct from OK_MIN_PROMOTED_6600: there the CALLER
+            // asked for less than the minimum; here the caller asked for a legal
+            // size and the lane clamp collapsed underneath it. Separate codes so
+            // the operator can tell "intent too small" from "shaping too harsh",
+            // which are opposite problems with opposite remedies.
+            clampCollapsed6896 -> "OK_CLAMP_COLLAPSE_FLOORED_6896"
             else -> "OK"
         }
-        val actuallyExec = executable && reason in setOf("OK", "OK_MIN_PROMOTED_6600")
+        val actuallyExec = executable &&
+            reason in setOf("OK", "OK_MIN_PROMOTED_6600", "OK_CLAMP_COLLAPSE_FLOORED_6896")
         val res = Resolution(
             requestedSol = requested,
             riskSol = risk,
