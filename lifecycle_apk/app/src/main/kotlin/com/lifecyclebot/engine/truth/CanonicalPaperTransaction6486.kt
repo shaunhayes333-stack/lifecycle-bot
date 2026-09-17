@@ -429,8 +429,30 @@ object CanonicalPaperTransaction6486 {
         CanonicalLotQuantity6464.onBuyFilled(positionId, mint, qtyRaw)
         PositionStateLedger6454.onEntry(positionId)
         SellQtyBoundaryClamp6427.syncAuthoritativeRaw(positionId, qtyRaw, qtyRaw)
+        // V5.0.6850 §OPEN_WROTE_SOL_PER_RAW_UNIT_INTO_A_USD_PRICE_FIELD — recordBuy's
+        // fillPrice argument is a USD-per-token price, and add() below already resolves
+        // it correctly (`if (addedEntryPriceUsd > 0.0 && isFinite) addedEntryPriceUsd else
+        // addedCostSol / addedQtyRaw`). open() ignored its own entryPriceUsd parameter and
+        // always wrote costSol / qtyRaw — SOL per RAW base unit — into that field, despite
+        // the V5.0.6525 header on that parameter stating its purpose is exactly this
+        // propagation "so the canonical row is economically valid on non-Solana assets".
+        //
+        // Consequence: replayFillPriceUnitOk6541 sanity-checks the implied SOL/USD ratio
+        // (fillPrice * decodedQty / costSol must land in [5, 10000]). A SOL-per-raw-unit
+        // value collapses that ratio by 10^scale, so the check failed for effectively every
+        // open. Operator 5.0.6846 shows the two counters moving together 1:1 —
+        // REPLAY_FILL_PRICE_UNIT_REJECTED_6541 = 205 and LEGACY_REPLAY_QUARANTINED_6630 =
+        // 205 — which is journalPositions=52 vs canonicalPositions=43 and the
+        // FORENSIC_QUANTITY_DELTA_6647 spread.
+        //
+        // Forward-only: this stops new opens entering the quarantined population. It does
+        // not reconcile the 205 already written, which needs an operator-authorised basis
+        // audit (LegacyReplayIsolation6630.setMigrationAuthorized6630 is closed by explicit
+        // directive) and is deliberately not automated here.
+        val fillPriceUsd6850 = if (entryPriceUsd > 0.0 && entryPriceUsd.isFinite())
+            entryPriceUsd else costSol / qtyRaw.toDouble()
         EconomicEventSchema6464.recordBuy("paper", positionId, mint, symbol, idem, costSol,
-            qtyRaw, costSol / qtyRaw.toDouble(), feeSol, decimals, quantityScale)
+            qtyRaw, fillPriceUsd6850, feeSol, decimals, quantityScale)
         EntryStrategySnapshot6450.setEntry(EntryStrategySnapshot6450.Snapshot(
             positionId, mint, lane, "", tactic, "", "", source, entryScore, 0.0, 0.0,
             System.currentTimeMillis(), "",
