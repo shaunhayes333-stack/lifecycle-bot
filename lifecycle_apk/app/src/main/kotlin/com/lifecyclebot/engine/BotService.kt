@@ -10479,12 +10479,36 @@ class BotService : Service() {
                     continue
                 }
 
-                // DS batch endpoint caps at 30 mints; split if we ever exceed it
+                // V5.0.6945 §HELD_TOKENS_MUST_TICK_AT_1HZ.
+                //
+                // Operator: "any held token should have 1 second price data
+                // ticks ... the bot will get fucked repeatedly on stale price
+                // data." Correct, and it was not achieving 1Hz.
+                //
+                // The chunks were fetched SEQUENTIALLY. With 94 open positions
+                // that is 4 batches, and DexScreener's measured average latency
+                // is 369ms, so ~1.5s of network went by before a 1000ms delay
+                // was even reached — about 2.4s per iteration, or 0.41Hz. The
+                // snapshot corroborates it exactly: dexscreener s=920 over 560s
+                // is 1.6 calls/sec, where a true 1Hz loop over 4 chunks would
+                // be 4/sec.
+                //
+                // Fetched in PARALLEL now, so wall time is one batch (~370ms)
+                // instead of the sum of four.
+                val tickStartedAtMs6945 = System.currentTimeMillis()
                 val chunks = openMints.chunked(30)
                 val priceMap = HashMap<String, Double>(openMints.size)
-                for (chunk in chunks) {
-                    val part = try { dex.batchPriceFetch(chunk) } catch (_: Throwable) { emptyMap() }
-                    priceMap.putAll(part)
+                if (chunks.size == 1) {
+                    priceMap.putAll(try { dex.batchPriceFetch(chunks[0]) } catch (_: Throwable) { emptyMap() })
+                } else {
+                    val parts = try {
+                        kotlinx.coroutines.coroutineScope {
+                            chunks.map { chunk ->
+                                async { try { dex.batchPriceFetch(chunk) } catch (_: Throwable) { emptyMap() } }
+                            }.awaitAll()
+                        }
+                    } catch (_: Throwable) { emptyList() }
+                    for (part in parts) priceMap.putAll(part)
                 }
 
                 // V5.9.924 — MULTI-SOURCE FALLBACK for mints DS dropped.
@@ -11033,7 +11057,14 @@ class BotService : Service() {
                     }
                 } catch (_: Throwable) { /* never break the tick loop */ }
 
-                kotlinx.coroutines.delay(TICK_MS)
+                // V5.0.6945 — fixed RATE, not fixed delay. A flat delay(1000)
+                // after the work means the true period is work + 1000ms, so the
+                // loop drifts slower the more positions are held — exactly when
+                // fresh marks matter most. Subtract the elapsed work so the
+                // period stays 1s, with a 150ms floor so a slow pass cannot
+                // spin the CPU.
+                val elapsed6945 = System.currentTimeMillis() - tickStartedAtMs6945
+                kotlinx.coroutines.delay((TICK_MS - elapsed6945).coerceIn(150L, TICK_MS))
 
             } catch (ce: kotlinx.coroutines.CancellationException) {
                 throw ce
