@@ -21,7 +21,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="←"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/aate_text"
             android:textSize="22sp"
             android:paddingEnd="12dp"
             android:clickable="true"
@@ -37,7 +37,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Display Currency"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/aate_text"
                 android:textSize="16sp"
                 android:textStyle="bold"/>
 
@@ -46,7 +46,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Updating…"
-                android:textColor="#4B5563"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="9sp"
                 android:fontFamily="monospace"/>
 
@@ -73,7 +73,7 @@
         <View
             android:layout_width="3dp"
             android:layout_height="28dp"
-            android:background="#14F195"
+            android:background="@color/aate_green"
             android:layout_marginEnd="10dp"/>
 
         <LinearLayout
@@ -86,7 +86,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="SOL / USD"
-                android:textColor="#4B5563"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="9sp"
                 android:fontFamily="monospace"
                 android:letterSpacing="0.1"/>
@@ -96,7 +96,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="$—"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/aate_text"
                 android:textSize="@dimen/token_name_size"
                 android:fontFamily="monospace"
                 android:textStyle="bold"/>
@@ -107,7 +107,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="LIVE"
-            android:textColor="#14F195"
+            android:textColor="@color/aate_green"
             android:textSize="8sp"
             android:fontFamily="monospace"
             android:textStyle="bold"

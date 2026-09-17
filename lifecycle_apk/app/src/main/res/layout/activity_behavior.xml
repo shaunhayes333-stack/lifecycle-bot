@@ -38,7 +38,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="NEURAL PERSONALITY"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/aate_text"
                 android:textSize="15sp"
                 android:textStyle="bold"
                 android:fontFamily="monospace"
@@ -47,7 +47,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Instinct · Plasticity · Layer Health"
-                android:textColor="#6B7280"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="9sp"
                 android:fontFamily="monospace"/>
         </LinearLayout>
@@ -83,7 +83,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="INSTINCT DIAL"
-                    android:textColor="#F59E0B"
+                    android:textColor="@color/aate_amber"
                     android:textSize="10sp"
                     android:letterSpacing="0.12"
                     android:fontFamily="monospace"
@@ -122,10 +122,10 @@
                         android:text="DEFENSIVE" android:textColor="#4488FF" android:textSize="9sp"
                         android:fontFamily="monospace" android:gravity="start"/>
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
-                        android:text="NORMAL" android:textColor="#10B981" android:textSize="9sp"
+                        android:text="NORMAL" android:textColor="@color/aate_green" android:textSize="9sp"
                         android:fontFamily="monospace" android:gravity="center"/>
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
-                        android:text="AGGRESSIVE" android:textColor="#EF4444" android:textSize="9sp"
+                        android:text="AGGRESSIVE" android:textColor="@color/aate_red" android:textSize="9sp"
                         android:fontFamily="monospace" android:gravity="end"/>
                 </LinearLayout>
 
@@ -135,16 +135,16 @@
                     android:layout_height="48dp"
                     android:max="11"
                     android:progress="5"
-                    android:progressTint="#14F195"
-                    android:thumbTint="#14F195"
-                    android:progressBackgroundTint="#1F2937"/>
+                    android:progressTint="@color/aate_green"
+                    android:thumbTint="@color/aate_green"
+                    android:progressBackgroundTint="@color/aate_surface_3"/>
 
                 <TextView
                     android:id="@+id/tvCurrentMode"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="NORMAL"
-                    android:textColor="#14F195"
+                    android:textColor="@color/aate_green"
                     android:textSize="30sp"
                     android:textStyle="bold"
                     android:fontFamily="monospace"
@@ -156,7 +156,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Balanced buying and selling behavior"
-                    android:textColor="#6B7280"
+                    android:textColor="@color/aate_text_muted"
                     android:textSize="11sp"
                     android:fontFamily="monospace"
                     android:gravity="center"
@@ -176,7 +176,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="FLUID LEARNING IMPACT"
-                    android:textColor="#6B7280"
+                    android:textColor="@color/aate_text_muted"
                     android:textSize="10sp"
                     android:letterSpacing="0.10"
                     android:fontFamily="monospace"
@@ -187,7 +187,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="0.00"
-                    android:textColor="#14F195"
+                    android:textColor="@color/aate_green"
                     android:textSize="32sp"
                     android:textStyle="bold"
                     android:fontFamily="monospace"
@@ -198,7 +198,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Neutral — thresholds unchanged"
-                    android:textColor="#6B7280"
+                    android:textColor="@color/aate_text_muted"
                     android:textSize="12sp"
                     android:gravity="center"
                     android:layout_marginTop="4dp"/>
@@ -217,7 +217,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="BEHAVIOR METRICS"
-                    android:textColor="#6B7280"
+                    android:textColor="@color/aate_text_muted"
                     android:textSize="10sp"
                     android:letterSpacing="0.10"
                     android:fontFamily="monospace"
@@ -229,27 +229,27 @@
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:orientation="vertical">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="STREAK" android:textColor="#6B7280" android:textSize="9sp" android:fontFamily="monospace"/>
+                            android:text="STREAK" android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"/>
                         <TextView android:id="@+id/tvStreak" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="0" android:textColor="#FFFFFF" android:textSize="@dimen/kpi_value_size"
+                            android:text="0" android:textColor="@color/aate_text" android:textSize="@dimen/kpi_value_size"
                             android:textStyle="bold" android:fontFamily="monospace"/>
                     </LinearLayout>
                     <!-- Discipline -->
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:orientation="vertical">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="DISCIPLINE" android:textColor="#6B7280" android:textSize="9sp" android:fontFamily="monospace"/>
+                            android:text="DISCIPLINE" android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"/>
                         <TextView android:id="@+id/tvDiscipline" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="50%" android:textColor="#9945FF" android:textSize="@dimen/kpi_value_size"
+                            android:text="50%" android:textColor="@color/aate_purple" android:textSize="@dimen/kpi_value_size"
                             android:textStyle="bold" android:fontFamily="monospace"/>
                     </LinearLayout>
                     <!-- Tilt -->
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:orientation="vertical">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="TILT" android:textColor="#6B7280" android:textSize="9sp" android:fontFamily="monospace"/>
+                            android:text="TILT" android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"/>
                         <TextView android:id="@+id/tvTilt" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="0%" android:textColor="#EF4444" android:textSize="@dimen/kpi_value_size"
+                            android:text="0%" android:textColor="@color/aate_red" android:textSize="@dimen/kpi_value_size"
                             android:textStyle="bold" android:fontFamily="monospace"/>
                     </LinearLayout>
                 </LinearLayout>
@@ -260,25 +260,25 @@
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:orientation="vertical">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="SENTIMENT" android:textColor="#6B7280" android:textSize="9sp" android:fontFamily="monospace"/>
+                            android:text="SENTIMENT" android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"/>
                         <TextView android:id="@+id/tvSentiment" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="NEUTRAL" android:textColor="#FFFFFF" android:textSize="@dimen/kpi_value_size"
+                            android:text="NEUTRAL" android:textColor="@color/aate_text" android:textSize="@dimen/kpi_value_size"
                             android:textStyle="bold" android:fontFamily="monospace"/>
                     </LinearLayout>
                     <!-- 10X -->
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:orientation="vertical">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="10X RUNS" android:textColor="#6B7280" android:textSize="9sp" android:fontFamily="monospace"/>
+                            android:text="10X RUNS" android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"/>
                         <TextView android:id="@+id/tvTenX" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="0" android:textColor="#FFD700" android:textSize="@dimen/kpi_value_size"
+                            android:text="0" android:textColor="@color/aate_amber" android:textSize="@dimen/kpi_value_size"
                             android:textStyle="bold" android:fontFamily="monospace"/>
                     </LinearLayout>
                     <!-- 100X -->
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:orientation="vertical">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="100X RUNS" android:textColor="#6B7280" android:textSize="9sp" android:fontFamily="monospace"/>
+                            android:text="100X RUNS" android:textColor="@color/aate_text_muted" android:textSize="9sp" android:fontFamily="monospace"/>
                         <TextView android:id="@+id/tvHundredX" android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="0" android:textColor="#FF00FF" android:textSize="@dimen/kpi_value_size"
                             android:textStyle="bold" android:fontFamily="monospace"/>
@@ -299,7 +299,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="SESSION STATS"
-                    android:textColor="#6B7280"
+                    android:textColor="@color/aate_text_muted"
                     android:textSize="10sp"
                     android:letterSpacing="0.10"
                     android:fontFamily="monospace"
@@ -311,40 +311,40 @@
                         android:layout_weight="1" android:orientation="vertical" android:gravity="center">
                         <TextView android:id="@+id/tvSessionTrades"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="0" android:textColor="#FFFFFF" android:textSize="24sp"
+                            android:text="0" android:textColor="@color/aate_text" android:textSize="24sp"
                             android:textStyle="bold" android:fontFamily="monospace"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="TRADES" android:textColor="#6B7280" android:textSize="9sp"
+                            android:text="TRADES" android:textColor="@color/aate_text_muted" android:textSize="9sp"
                             android:fontFamily="monospace" android:letterSpacing="0.08"/>
                     </LinearLayout>
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:orientation="vertical" android:gravity="center">
                         <TextView android:id="@+id/tvSessionWins"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="0" android:textColor="#10B981" android:textSize="24sp"
+                            android:text="0" android:textColor="@color/aate_green" android:textSize="24sp"
                             android:textStyle="bold" android:fontFamily="monospace"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="WINS" android:textColor="#6B7280" android:textSize="9sp"
+                            android:text="WINS" android:textColor="@color/aate_text_muted" android:textSize="9sp"
                             android:fontFamily="monospace" android:letterSpacing="0.08"/>
                     </LinearLayout>
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:orientation="vertical" android:gravity="center">
                         <TextView android:id="@+id/tvSessionLosses"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="0" android:textColor="#EF4444" android:textSize="24sp"
+                            android:text="0" android:textColor="@color/aate_red" android:textSize="24sp"
                             android:textStyle="bold" android:fontFamily="monospace"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="LOSSES" android:textColor="#6B7280" android:textSize="9sp"
+                            android:text="LOSSES" android:textColor="@color/aate_text_muted" android:textSize="9sp"
                             android:fontFamily="monospace" android:letterSpacing="0.08"/>
                     </LinearLayout>
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1" android:orientation="vertical" android:gravity="center">
                         <TextView android:id="@+id/tvSessionBigWins"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="0" android:textColor="#FFD700" android:textSize="24sp"
+                            android:text="0" android:textColor="@color/aate_amber" android:textSize="24sp"
                             android:textStyle="bold" android:fontFamily="monospace"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="BIG WINS" android:textColor="#6B7280" android:textSize="9sp"
+                            android:text="BIG WINS" android:textColor="@color/aate_text_muted" android:textSize="9sp"
                             android:fontFamily="monospace" android:letterSpacing="0.08"/>
                     </LinearLayout>
                 </LinearLayout>
@@ -371,7 +371,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="NEURAL NETWORK"
-                        android:textColor="#14F195"
+                        android:textColor="@color/aate_green"
                         android:textSize="10sp"
                         android:letterSpacing="0.10"
                         android:fontFamily="monospace"/>
@@ -380,7 +380,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="FRESHMAN"
-                        android:textColor="#FFD700"
+                        android:textColor="@color/aate_amber"
                         android:textSize="10sp"
                         android:textStyle="bold"
                         android:fontFamily="monospace"
@@ -409,7 +409,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="MATURITY"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="9sp"
                         android:fontFamily="monospace"
                         android:letterSpacing="0.10"/>
@@ -419,7 +419,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="0%"
-                        android:textColor="#14F195"
+                        android:textColor="@color/aate_green"
                         android:textSize="11sp"
                         android:textStyle="bold"
                         android:fontFamily="monospace"/>
@@ -453,10 +453,10 @@
                         android:layout_marginEnd="6dp">
                         <TextView android:id="@+id/tvActiveLayers"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="0" android:textColor="#14F195" android:textSize="24sp"
+                            android:text="0" android:textColor="@color/aate_green" android:textSize="24sp"
                             android:textStyle="bold" android:fontFamily="monospace"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="ACTIVE" android:textColor="#14F195" android:textSize="9sp"
+                            android:text="ACTIVE" android:textColor="@color/aate_green" android:textSize="9sp"
                             android:letterSpacing="0.08" android:fontFamily="monospace"/>
                     </LinearLayout>
 
@@ -472,10 +472,10 @@
                         android:layout_marginEnd="6dp">
                         <TextView android:id="@+id/tvDormantLayers"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="0" android:textColor="#FF8800" android:textSize="24sp"
+                            android:text="0" android:textColor="@color/aate_amber" android:textSize="24sp"
                             android:textStyle="bold" android:fontFamily="monospace"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="DORMANT" android:textColor="#FF8800" android:textSize="9sp"
+                            android:text="DORMANT" android:textColor="@color/aate_amber" android:textSize="9sp"
                             android:letterSpacing="0.08" android:fontFamily="monospace"/>
                     </LinearLayout>
 
@@ -490,10 +490,10 @@
                         android:layout_marginStart="6dp">
                         <TextView android:id="@+id/tvAvgAccuracy"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="50%" android:textColor="#FFFFFF" android:textSize="24sp"
+                            android:text="50%" android:textColor="@color/aate_text" android:textSize="24sp"
                             android:textStyle="bold" android:fontFamily="monospace"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="ACCURACY" android:textColor="#6B7280" android:textSize="9sp"
+                            android:text="ACCURACY" android:textColor="@color/aate_text_muted" android:textSize="9sp"
                             android:letterSpacing="0.08" android:fontFamily="monospace"/>
                     </LinearLayout>
                 </LinearLayout>
@@ -509,7 +509,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="TOP PERFORMING LAYERS"
-                        android:textColor="#14F195"
+                        android:textColor="@color/aate_green"
                         android:textSize="9sp"
                         android:fontFamily="monospace"
                         android:letterSpacing="0.10"
@@ -519,7 +519,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="Awaiting data…"
-                        android:textColor="#14F195"
+                        android:textColor="@color/aate_green"
                         android:textSize="10sp"
                         android:fontFamily="monospace"
                         android:lineSpacingExtra="3dp"/>
@@ -528,7 +528,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="•"
-                        android:textColor="#FF8800"
+                        android:textColor="@color/aate_amber"
                         android:textSize="9sp"
                         android:fontFamily="monospace"
                         android:layout_marginTop="8dp"
@@ -555,7 +555,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="SENTIENT MIND"
-                        android:textColor="#9945FF"
+                        android:textColor="@color/aate_purple"
                         android:textSize="14sp"
                         android:textStyle="bold"
                         android:fontFamily="monospace"/>
@@ -588,7 +588,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="PERSONA"
-                        android:textColor="#9945FF"
+                        android:textColor="@color/aate_purple"
                         android:textSize="10sp"
                         android:fontFamily="monospace"
                         android:layout_marginEnd="8dp"/>
@@ -597,7 +597,7 @@
                         android:layout_width="0dp"
                         android:layout_weight="1"
                         android:layout_height="wrap_content"
-                        android:backgroundTint="#9945FF"
+                        android:backgroundTint="@color/aate_purple"
                         android:popupBackground="#0B0F1A"/>
                 </LinearLayout>
 
@@ -640,8 +640,8 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:hint="Ask the bot anything…"
-                        android:textColorHint="#4B5563"
-                        android:textColor="#E5E7EB"
+                        android:textColorHint="@color/aate_text_muted"
+                        android:textColor="@color/aate_text"
                         android:textSize="11sp"
                         android:fontFamily="monospace"
                         android:background="@drawable/aate_universe_panel_bg"
@@ -655,9 +655,9 @@
                         android:layout_height="wrap_content"
                         android:text="SEND"
                         android:textSize="10sp"
-                        android:textColor="#14F195"
+                        android:textColor="@color/aate_green"
                         android:fontFamily="monospace"
-                        android:backgroundTint="#00140A"
+                        android:backgroundTint="@color/aate_surface_2"
                         android:layout_marginStart="6dp"/>
                     <Button
                         android:id="@+id/btnChatMute"
@@ -665,7 +665,7 @@
                         android:layout_height="wrap_content"
                         android:text="MUTE"
                         android:textSize="14sp"
-                        android:textColor="#E5E7EB"
+                        android:textColor="@color/aate_text"
                         android:fontFamily="monospace"
                         android:backgroundTint="#12001A"
                         android:minWidth="44dp"
@@ -682,7 +682,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="LLM DESK · no chat trades yet"
-                    android:textColor="#9945FF"
+                    android:textColor="@color/aate_purple"
                     android:textSize="10sp"
                     android:fontFamily="monospace"
                     android:background="#120020"
@@ -715,10 +715,10 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="REFLECT"
-                        android:textColor="#9945FF"
+                        android:textColor="@color/aate_purple"
                         android:textSize="11sp"
                         android:fontFamily="monospace"
-                        android:backgroundTint="#14001A"
+                        android:backgroundTint="@color/aate_surface_2"
                         android:layout_marginEnd="6dp"/>
                     <Button
                         android:id="@+id/btnSentientClear"
@@ -746,7 +746,7 @@
                     android:layout_height="@dimen/bottom_bar_button_height"
                     android:layout_weight="1"
                     android:text="RESET LEARNING"
-                    android:textColor="#FF8800"
+                    android:textColor="@color/aate_amber"
                     android:textSize="12sp"
                     android:fontFamily="monospace"
                     android:backgroundTint="#1A1000"
@@ -758,10 +758,10 @@
                     android:layout_height="@dimen/bottom_bar_button_height"
                     android:layout_weight="1"
                     android:text="RESET STATE"
-                    android:textColor="#EF4444"
+                    android:textColor="@color/aate_red"
                     android:textSize="12sp"
                     android:fontFamily="monospace"
-                    android:backgroundTint="#1A0808"
+                    android:backgroundTint="@color/aate_surface_2"
                     android:layout_marginStart="0dp"/>
             </LinearLayout>
 
@@ -771,10 +771,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/bottom_bar_button_height"
                 android:text="RESET PAPER WALLET ($1000)"
-                android:textColor="#14F195"
+                android:textColor="@color/aate_green"
                 android:textSize="12sp"
                 android:fontFamily="monospace"
-                android:backgroundTint="#00140A"
+                android:backgroundTint="@color/aate_surface_2"
                 android:layout_marginTop="8dp"/>
 
             <!-- V5.9.362 — LAYER AMNESTY: pull poisoned weights back to 50% neutral prior. -->
@@ -783,10 +783,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/bottom_bar_button_height"
                 android:text="LAYER AMNESTY"
-                android:textColor="#9945FF"
+                android:textColor="@color/aate_purple"
                 android:textSize="12sp"
                 android:fontFamily="monospace"
-                android:backgroundTint="#100A1F"
+                android:backgroundTint="@color/aate_surface_2"
                 android:layout_marginTop="8dp"/>
 
             <!-- ═══════════════════════════════════════════════
@@ -814,7 +814,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="FLUID FLUID DASHBOARD"
-                        android:textColor="#14F195"
+                        android:textColor="@color/aate_green"
                         android:textSize="14sp"
                         android:fontFamily="monospace"
                         android:textStyle="bold"/>
@@ -823,7 +823,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="•"
-                        android:textColor="#9CA3AF"
+                        android:textColor="@color/aate_text_secondary"
                         android:textSize="11sp"
                         android:fontFamily="monospace"/>
                 </LinearLayout>
@@ -832,7 +832,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Every value below is learned, not configured. It drifts with your realized PnL."
-                    android:textColor="#6B7280"
+                    android:textColor="@color/aate_text_muted"
                     android:textSize="10sp"
                     android:fontFamily="monospace"
                     android:layout_marginTop="2dp"
@@ -850,7 +850,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="•"
-                    android:textColor="#4B5563"
+                    android:textColor="@color/aate_text_muted"
                     android:textSize="9sp"
                     android:fontFamily="monospace"
                     android:layout_marginTop="10dp"/>

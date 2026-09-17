@@ -30,7 +30,7 @@
                 android:layout_width="36dp"
                 android:layout_height="36dp"
                 android:text="←"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/aate_text"
                 android:textSize="20sp"
                 android:gravity="center"
                 android:clickable="true"
@@ -52,7 +52,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="AATE"
-                        android:textColor="#00FF88"
+                        android:textColor="@color/aate_green"
                         android:textSize="15sp"
                         android:textStyle="bold"
                         android:fontFamily="monospace"/>
@@ -60,7 +60,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="MARKETS"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/aate_text"
                         android:textSize="15sp"
                         android:textStyle="bold"
                         android:fontFamily="monospace"/>
@@ -70,7 +70,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Perps · Stocks · Commodities · Metals · Forex"
-                    android:textColor="#4B5563"
+                    android:textColor="@color/aate_text_muted"
                     android:textSize="8.5sp"
                     android:fontFamily="monospace"/>
             </LinearLayout>
@@ -81,7 +81,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="28dp"
                 android:text="PAPER"
-                android:textColor="#000000"
+                android:textColor="@color/aate_bg_deep"
                 android:textSize="8sp"
                 android:textStyle="bold"
                 android:background="@drawable/pill_bg_yellow"
@@ -97,7 +97,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="28dp"
                 android:text="START"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/aate_text"
                 android:textSize="9sp"
                 android:textStyle="bold"
                 android:background="@drawable/pill_bg_green"
@@ -133,7 +133,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="PORTFOLIO"
-                    android:textColor="#4B5563"
+                    android:textColor="@color/aate_text_muted"
                     android:textSize="8.5sp"
                     android:letterSpacing="0.12"
                     android:fontFamily="monospace"/>
@@ -143,7 +143,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="$0.00"
-                    android:textColor="#00FF88"
+                    android:textColor="@color/aate_green"
                     android:textSize="26sp"
                     android:textStyle="bold"
                     android:maxLines="1"
@@ -156,7 +156,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="•"
-                    android:textColor="#4B5563"
+                    android:textColor="@color/aate_text_muted"
                     android:textSize="10sp"/>
             </LinearLayout>
 
@@ -185,14 +185,14 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="0"
-                            android:textColor="#FFFFFF"
+                            android:textColor="@color/aate_text"
                             android:textSize="13sp"
                             android:textStyle="bold"/>
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="OPEN"
-                            android:textColor="#4B5563"
+                            android:textColor="@color/aate_text_muted"
                             android:textSize="7sp"
                             android:fontFamily="monospace"/>
                     </LinearLayout>
@@ -208,14 +208,14 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="+$0"
-                            android:textColor="#00FF88"
+                            android:textColor="@color/aate_green"
                             android:textSize="11sp"
                             android:textStyle="bold"/>
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="P&amp;L"
-                            android:textColor="#4B5563"
+                            android:textColor="@color/aate_text_muted"
                             android:textSize="7sp"
                             android:fontFamily="monospace"/>
                     </LinearLayout>
@@ -239,14 +239,14 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="—%"
-                            android:textColor="#10B981"
+                            android:textColor="@color/aate_green"
                             android:textSize="13sp"
                             android:textStyle="bold"/>
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="WIN"
-                            android:textColor="#4B5563"
+                            android:textColor="@color/aate_text_muted"
                             android:textSize="7sp"
                             android:fontFamily="monospace"/>
                     </LinearLayout>
@@ -262,14 +262,14 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="—"
-                            android:textColor="#9945FF"
+                            android:textColor="@color/aate_purple"
                             android:textSize="13sp"
                             android:textStyle="bold"/>
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="AI"
-                            android:textColor="#4B5563"
+                            android:textColor="@color/aate_text_muted"
                             android:textSize="7sp"
                             android:fontFamily="monospace"/>
                     </LinearLayout>
@@ -308,7 +308,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="LEARNING"
-                android:textColor="#F59E0B"
+                android:textColor="@color/aate_amber"
                 android:textSize="9sp"
                 android:textStyle="bold"
                 android:background="@drawable/chip_warn_bg"
@@ -334,14 +334,14 @@
                         android:id="@+id/viewMarketsProgressBar"
                         android:layout_width="0dp"
                         android:layout_height="4dp"
-                        android:background="#00FF88"/>
+                        android:background="@color/aate_green"/>
                 </LinearLayout>
                 <TextView
                     android:id="@+id/tvMarketsRecommendation"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Accumulating training data…"
-                    android:textColor="#6B7280"
+                    android:textColor="@color/aate_text_muted"
                     android:textSize="8.5sp"
                     android:fontFamily="monospace"
                     android:maxLines="1"
@@ -360,7 +360,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="—%"
-                    android:textColor="#00FF88"
+                    android:textColor="@color/aate_green"
                     android:textSize="10sp"
                     android:textStyle="bold"
                     android:gravity="end"/>
@@ -374,13 +374,13 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="0"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="8.5sp"/>
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="trades"
-                        android:textColor="#4B5563"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="8sp"/>
                 </LinearLayout>
             </LinearLayout>
@@ -452,7 +452,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="ENGINES"
-                            android:textColor="#4B5563"
+                            android:textColor="@color/aate_text_muted"
                             android:textSize="7.5sp"
                             android:fontFamily="monospace"
                             android:letterSpacing="0.1"
@@ -463,7 +463,7 @@
                             android:layout_width="6dp" android:layout_height="6dp"
                             android:background="@drawable/dot_red"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="STK" android:textColor="#6B7280" android:textSize="8sp"
+                            android:text="STK" android:textColor="@color/aate_text_muted" android:textSize="8sp"
                             android:fontFamily="monospace" android:layout_marginStart="3dp" android:layout_marginEnd="8dp"/>
 
                         <!-- Commodities -->
@@ -471,7 +471,7 @@
                             android:layout_width="6dp" android:layout_height="6dp"
                             android:background="@drawable/dot_red"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="COM" android:textColor="#6B7280" android:textSize="8sp"
+                            android:text="COM" android:textColor="@color/aate_text_muted" android:textSize="8sp"
                             android:fontFamily="monospace" android:layout_marginStart="3dp" android:layout_marginEnd="8dp"/>
 
                         <!-- Metals -->
@@ -479,7 +479,7 @@
                             android:layout_width="6dp" android:layout_height="6dp"
                             android:background="@drawable/dot_red"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="MET" android:textColor="#6B7280" android:textSize="8sp"
+                            android:text="MET" android:textColor="@color/aate_text_muted" android:textSize="8sp"
                             android:fontFamily="monospace" android:layout_marginStart="3dp" android:layout_marginEnd="8dp"/>
 
                         <!-- Forex -->
@@ -487,7 +487,7 @@
                             android:layout_width="6dp" android:layout_height="6dp"
                             android:background="@drawable/dot_red"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="FX" android:textColor="#6B7280" android:textSize="8sp"
+                            android:text="FX" android:textColor="@color/aate_text_muted" android:textSize="8sp"
                             android:fontFamily="monospace" android:layout_marginStart="3dp" android:layout_marginEnd="8dp"/>
 
                         <!-- Perps -->
@@ -495,7 +495,7 @@
                             android:layout_width="6dp" android:layout_height="6dp"
                             android:background="@drawable/dot_red"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="PERP" android:textColor="#6B7280" android:textSize="8sp"
+                            android:text="PERP" android:textColor="@color/aate_text_muted" android:textSize="8sp"
                             android:fontFamily="monospace" android:layout_marginStart="3dp"/>
 
                         <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
@@ -504,14 +504,14 @@
                         <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:orientation="horizontal" android:gravity="center_vertical">
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="AI" android:textColor="#4B5563" android:textSize="7.5sp"
+                                android:text="AI" android:textColor="@color/aate_text_muted" android:textSize="7.5sp"
                                 android:fontFamily="monospace"/>
                             <View
                                 android:layout_width="6dp" android:layout_height="6dp"
                                 android:background="@drawable/dot_green"/>
                             <TextView
                                 android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="Scanning…" android:textColor="#6B7280" android:textSize="7.5sp"
+                                android:text="Scanning…" android:textColor="@color/aate_text_muted" android:textSize="7.5sp"
                                 android:fontFamily="monospace" android:layout_marginStart="4dp"/>
                         </LinearLayout>
                     </LinearLayout>
@@ -544,7 +544,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="TOKENIZED STOCKS"
-                                android:textColor="#FFFFFF"
+                                android:textColor="@color/aate_text"
                                 android:textSize="13sp"
                                 android:textStyle="bold"
                                 android:fontFamily="monospace"/>
@@ -553,7 +553,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="47 stocks"
-                                android:textColor="#4B5563"
+                                android:textColor="@color/aate_text_muted"
                                 android:textSize="9sp"
                                 android:fontFamily="monospace"/>
                         </LinearLayout>
@@ -570,7 +570,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="match_parent"
                                 android:text="SPOT"
-                                android:textColor="#00FF88"
+                                android:textColor="@color/aate_green"
                                 android:textSize="9sp"
                                 android:textStyle="bold"
                                 android:gravity="center"
@@ -585,7 +585,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="match_parent"
                                 android:text="SIGNAL LEV"
-                                android:textColor="#6B7280"
+                                android:textColor="@color/aate_text_muted"
                                 android:textSize="9sp"
                                 android:textStyle="bold"
                                 android:gravity="center"
@@ -625,7 +625,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="OPEN POSITIONS"
-                                android:textColor="#FFFFFF"
+                                android:textColor="@color/aate_text"
                                 android:textSize="10sp"
                                 android:textStyle="bold"
                                 android:fontFamily="monospace"
@@ -635,7 +635,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="0 open"
-                                android:textColor="#4B5563"
+                                android:textColor="@color/aate_text_muted"
                                 android:textSize="9sp"
                                 android:fontFamily="monospace"
                                 android:layout_marginStart="6dp"/>
@@ -645,7 +645,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="CLOSE ALL"
-                                android:textColor="#EF4444"
+                                android:textColor="@color/aate_red"
                                 android:textSize="8.5sp"
                                 android:fontFamily="monospace"
                                 android:background="@drawable/chip_red_bg"
@@ -671,7 +671,7 @@
                             android:gravity="center"
                             android:padding="16dp"
                             android:text="No open positions"
-                            android:textColor="#374151"
+                            android:textColor="@color/aate_text_muted"
                             android:textSize="12sp"
                             android:visibility="gone"/>
                     </LinearLayout>
@@ -703,7 +703,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="TOP MOVERS"
-                                android:textColor="#FFFFFF"
+                                android:textColor="@color/aate_text"
                                 android:textSize="10sp"
                                 android:textStyle="bold"
                                 android:fontFamily="monospace"
@@ -749,7 +749,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="AI SIGNALS"
-                                android:textColor="#FFFFFF"
+                                android:textColor="@color/aate_text"
                                 android:textSize="10sp"
                                 android:textStyle="bold"
                                 android:fontFamily="monospace"
@@ -765,7 +765,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="Scanning…"
-                                android:textColor="#4B5563"
+                                android:textColor="@color/aate_text_muted"
                                 android:textSize="8sp"
                                 android:fontFamily="monospace"
                                 android:layout_marginStart="4dp"/>
@@ -784,7 +784,7 @@
                             android:gravity="center"
                             android:padding="12dp"
                             android:text="No signals yet"
-                            android:textColor="#374151"
+                            android:textColor="@color/aate_text_muted"
                             android:textSize="11sp"
                             android:visibility="gone"/>
                     </LinearLayout>
@@ -804,7 +804,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="SECTOR HEAT"
-                            android:textColor="#FFFFFF"
+                            android:textColor="@color/aate_text"
                             android:textSize="10sp"
                             android:textStyle="bold"
                             android:fontFamily="monospace"
@@ -821,9 +821,9 @@
                                 android:background="@drawable/aate_universe_panel_bg" android:layout_marginEnd="3dp">
                                 <TextView android:id="@+id/heatTech" android:layout_width="wrap_content"
                                     android:layout_height="wrap_content" android:text="—"
-                                    android:textColor="#6B7280" android:textSize="9sp" android:textStyle="bold"/>
+                                    android:textColor="@color/aate_text_muted" android:textSize="9sp" android:textStyle="bold"/>
                                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                    android:text="TECH" android:textColor="#374151" android:textSize="7sp" android:fontFamily="monospace"/>
+                                    android:text="TECH" android:textColor="@color/aate_text_muted" android:textSize="7sp" android:fontFamily="monospace"/>
                             </LinearLayout>
 
                             <LinearLayout android:layout_width="0dp" android:layout_height="34dp"
@@ -831,9 +831,9 @@
                                 android:background="@drawable/aate_universe_panel_bg" android:layout_marginEnd="3dp">
                                 <TextView android:id="@+id/heatFinance" android:layout_width="wrap_content"
                                     android:layout_height="wrap_content" android:text="—"
-                                    android:textColor="#6B7280" android:textSize="9sp" android:textStyle="bold"/>
+                                    android:textColor="@color/aate_text_muted" android:textSize="9sp" android:textStyle="bold"/>
                                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                    android:text="FIN" android:textColor="#374151" android:textSize="7sp" android:fontFamily="monospace"/>
+                                    android:text="FIN" android:textColor="@color/aate_text_muted" android:textSize="7sp" android:fontFamily="monospace"/>
                             </LinearLayout>
 
                             <LinearLayout android:layout_width="0dp" android:layout_height="34dp"
@@ -841,9 +841,9 @@
                                 android:background="@drawable/aate_universe_panel_bg" android:layout_marginEnd="3dp">
                                 <TextView android:id="@+id/heatEnergy" android:layout_width="wrap_content"
                                     android:layout_height="wrap_content" android:text="—"
-                                    android:textColor="#6B7280" android:textSize="9sp" android:textStyle="bold"/>
+                                    android:textColor="@color/aate_text_muted" android:textSize="9sp" android:textStyle="bold"/>
                                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                    android:text="NRG" android:textColor="#374151" android:textSize="7sp" android:fontFamily="monospace"/>
+                                    android:text="NRG" android:textColor="@color/aate_text_muted" android:textSize="7sp" android:fontFamily="monospace"/>
                             </LinearLayout>
 
                             <LinearLayout android:layout_width="0dp" android:layout_height="34dp"
@@ -851,9 +851,9 @@
                                 android:background="@drawable/aate_universe_panel_bg" android:layout_marginEnd="3dp">
                                 <TextView android:id="@+id/heatMetals" android:layout_width="wrap_content"
                                     android:layout_height="wrap_content" android:text="—"
-                                    android:textColor="#6B7280" android:textSize="9sp" android:textStyle="bold"/>
+                                    android:textColor="@color/aate_text_muted" android:textSize="9sp" android:textStyle="bold"/>
                                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                    android:text="MET" android:textColor="#374151" android:textSize="7sp" android:fontFamily="monospace"/>
+                                    android:text="MET" android:textColor="@color/aate_text_muted" android:textSize="7sp" android:fontFamily="monospace"/>
                             </LinearLayout>
 
                             <LinearLayout android:layout_width="0dp" android:layout_height="34dp"
@@ -861,9 +861,9 @@
                                 android:background="@drawable/aate_universe_panel_bg" android:layout_marginEnd="3dp">
                                 <TextView android:id="@+id/heatForex" android:layout_width="wrap_content"
                                     android:layout_height="wrap_content" android:text="—"
-                                    android:textColor="#6B7280" android:textSize="9sp" android:textStyle="bold"/>
+                                    android:textColor="@color/aate_text_muted" android:textSize="9sp" android:textStyle="bold"/>
                                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                    android:text="FX" android:textColor="#374151" android:textSize="7sp" android:fontFamily="monospace"/>
+                                    android:text="FX" android:textColor="@color/aate_text_muted" android:textSize="7sp" android:fontFamily="monospace"/>
                             </LinearLayout>
 
                             <LinearLayout android:layout_width="0dp" android:layout_height="34dp"
@@ -871,9 +871,9 @@
                                 android:background="@drawable/aate_universe_panel_bg">
                                 <TextView android:id="@+id/heatCrypto" android:layout_width="wrap_content"
                                     android:layout_height="wrap_content" android:text="—"
-                                    android:textColor="#6B7280" android:textSize="9sp" android:textStyle="bold"/>
+                                    android:textColor="@color/aate_text_muted" android:textSize="9sp" android:textStyle="bold"/>
                                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                    android:text="PERP" android:textColor="#374151" android:textSize="7sp" android:fontFamily="monospace"/>
+                                    android:text="PERP" android:textColor="@color/aate_text_muted" android:textSize="7sp" android:fontFamily="monospace"/>
                             </LinearLayout>
                         </LinearLayout>
                     </LinearLayout>
@@ -893,7 +893,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="RECENT SIGNALS"
-                            android:textColor="#FFFFFF"
+                            android:textColor="@color/aate_text"
                             android:textSize="10sp"
                             android:textStyle="bold"
                             android:fontFamily="monospace"
@@ -913,7 +913,7 @@
                             android:gravity="center"
                             android:padding="10dp"
                             android:text="No recent signals"
-                            android:textColor="#374151"
+                            android:textColor="@color/aate_text_muted"
                             android:textSize="11sp"
                             android:visibility="gone"/>
                     </LinearLayout>
@@ -933,7 +933,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="AVAILABLE ASSETS"
-                            android:textColor="#FFFFFF"
+                            android:textColor="@color/aate_text"
                             android:textSize="10sp"
                             android:textStyle="bold"
                             android:fontFamily="monospace"
@@ -953,7 +953,7 @@
                             android:gravity="center"
                             android:padding="10dp"
                             android:text="No assets"
-                            android:textColor="#374151"
+                            android:textColor="@color/aate_text_muted"
                             android:textSize="11sp"
                             android:visibility="gone"/>
                     </LinearLayout>
@@ -973,7 +973,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="AI LAYER CONFIDENCE"
-                            android:textColor="#FFFFFF"
+                            android:textColor="@color/aate_text"
                             android:textSize="10sp"
                             android:textStyle="bold"
                             android:fontFamily="monospace"
@@ -987,24 +987,24 @@
                             android:gravity="center_vertical">
 
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="RSI" android:textColor="#4B5563" android:textSize="8sp" android:fontFamily="monospace"/>
+                                android:text="RSI" android:textColor="@color/aate_text_muted" android:textSize="8sp" android:fontFamily="monospace"/>
                             <TextView android:id="@+id/tvLayerRsi" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold"/>
+                                android:text="--" android:textColor="@color/aate_green" android:textSize="9sp" android:textStyle="bold"/>
 
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="MACD" android:textColor="#4B5563" android:textSize="8sp" android:fontFamily="monospace"/>
+                                android:text="MACD" android:textColor="@color/aate_text_muted" android:textSize="8sp" android:fontFamily="monospace"/>
                             <TextView android:id="@+id/tvLayerMacd" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold"/>
+                                android:text="--" android:textColor="@color/aate_green" android:textSize="9sp" android:textStyle="bold"/>
 
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="VOL" android:textColor="#4B5563" android:textSize="8sp" android:fontFamily="monospace"/>
+                                android:text="VOL" android:textColor="@color/aate_text_muted" android:textSize="8sp" android:fontFamily="monospace"/>
                             <TextView android:id="@+id/tvLayerVolume" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold"/>
+                                android:text="--" android:textColor="@color/aate_green" android:textSize="9sp" android:textStyle="bold"/>
 
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="S/R" android:textColor="#4B5563" android:textSize="8sp" android:fontFamily="monospace"/>
+                                android:text="S/R" android:textColor="@color/aate_text_muted" android:textSize="8sp" android:fontFamily="monospace"/>
                             <TextView android:id="@+id/tvLayerSR" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold"/>
+                                android:text="--" android:textColor="@color/aate_green" android:textSize="9sp" android:textStyle="bold"/>
                         </LinearLayout>
 
                         <LinearLayout
@@ -1015,30 +1015,30 @@
                             android:layout_marginTop="4dp">
 
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="MOM" android:textColor="#4B5563" android:textSize="8sp" android:fontFamily="monospace"/>
+                                android:text="MOM" android:textColor="@color/aate_text_muted" android:textSize="8sp" android:fontFamily="monospace"/>
                             <TextView android:id="@+id/tvLayerMomentum" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold"/>
+                                android:text="--" android:textColor="@color/aate_green" android:textSize="9sp" android:textStyle="bold"/>
 
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="SEC" android:textColor="#4B5563" android:textSize="8sp" android:fontFamily="monospace"/>
+                                android:text="SEC" android:textColor="@color/aate_text_muted" android:textSize="8sp" android:fontFamily="monospace"/>
                             <TextView android:id="@+id/tvLayerSector" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold"/>
+                                android:text="--" android:textColor="@color/aate_green" android:textSize="9sp" android:textStyle="bold"/>
 
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="COR" android:textColor="#4B5563" android:textSize="8sp" android:fontFamily="monospace"/>
+                                android:text="COR" android:textColor="@color/aate_text_muted" android:textSize="8sp" android:fontFamily="monospace"/>
                             <TextView android:id="@+id/tvLayerCorrel" android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold"/>
+                                android:text="--" android:textColor="@color/aate_green" android:textSize="9sp" android:textStyle="bold"/>
 
                             <View android:layout_width="0dp" android:layout_height="1dp" android:layout_weight="1"/>
 
                             <TextView android:id="@+id/tvMarketsLearningEvents" android:layout_width="wrap_content"
                                 android:layout_height="wrap_content" android:text="0"
-                                android:textColor="#00FF88" android:textSize="9sp" android:textStyle="bold"/>
+                                android:textColor="@color/aate_green" android:textSize="9sp" android:textStyle="bold"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="•" android:textSize="8sp"/>
                             <TextView android:id="@+id/tvMarketsCrossSync" android:layout_width="wrap_content"
                                 android:layout_height="wrap_content" android:text="OK"
-                                android:textColor="#00FF88" android:textSize="8sp" android:textStyle="bold"/>
+                                android:textColor="@color/aate_green" android:textSize="8sp" android:textStyle="bold"/>
 
                             <!-- Hidden compat -->
                             <TextView android:id="@+id/tvMarketsLayerCount" android:layout_width="0dp"
@@ -1063,7 +1063,7 @@
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="•" android:textSize="12sp"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="Log" android:textColor="#6B7280" android:textSize="9sp"
+                                android:text="Log" android:textColor="@color/aate_text_muted" android:textSize="9sp"
                                 android:fontFamily="monospace"/>
                         </LinearLayout>
 
@@ -1075,7 +1075,7 @@
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="•" android:textSize="12sp"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="Tax" android:textColor="#6B7280" android:textSize="9sp"
+                                android:text="Tax" android:textColor="@color/aate_text_muted" android:textSize="9sp"
                                 android:fontFamily="monospace"/>
                         </LinearLayout>
 
@@ -1087,7 +1087,7 @@
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="ANALYTICS" android:textSize="12sp"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="Stats" android:textColor="#6B7280" android:textSize="9sp"
+                                android:text="Stats" android:textColor="@color/aate_text_muted" android:textSize="9sp"
                                 android:fontFamily="monospace"/>
                         </LinearLayout>
 
@@ -1099,7 +1099,7 @@
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="•" android:textSize="12sp"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="Export" android:textColor="#6B7280" android:textSize="9sp"
+                                android:text="Export" android:textColor="@color/aate_text_muted" android:textSize="9sp"
                                 android:fontFamily="monospace"/>
                         </LinearLayout>
                     </LinearLayout>

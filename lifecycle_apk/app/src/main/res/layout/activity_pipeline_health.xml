@@ -35,7 +35,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="Pipeline Health"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/aate_text"
             android:textSize="18sp"
             android:textStyle="bold"
             android:layout_marginStart="4dp"/>
@@ -45,7 +45,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="ANR: 0"
-            android:textColor="#10B981"
+            android:textColor="@color/aate_green"
             android:textSize="12sp"
             android:textStyle="bold"
             android:paddingStart="8dp"
@@ -74,7 +74,7 @@
             android:layout_marginEnd="6dp"
             android:text="Copy to Clipboard"
             android:textSize="13sp"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/aate_text"
             android:background="@drawable/aate_universe_list_bg"/>
 
         <Button
@@ -86,7 +86,7 @@
             android:layout_marginEnd="6dp"
             android:text="Refresh"
             android:textSize="13sp"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/aate_text"
             android:background="@drawable/aate_universe_list_bg"/>
 
         <Button
@@ -142,14 +142,14 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="LOOP"
-                android:textColor="#7C8190"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="11sp"/>
             <TextView
                 android:id="@+id/statLoop"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="0"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/aate_text"
                 android:textSize="20sp"
                 android:textStyle="bold"/>
         </LinearLayout>
@@ -166,14 +166,14 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="EXEC"
-                android:textColor="#7C8190"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="11sp"/>
             <TextView
                 android:id="@+id/statExec"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="0"
-                android:textColor="#10B981"
+                android:textColor="@color/aate_green"
                 android:textSize="20sp"
                 android:textStyle="bold"/>
         </LinearLayout>
@@ -190,14 +190,14 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="JRNL"
-                android:textColor="#7C8190"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="11sp"/>
             <TextView
                 android:id="@+id/statJrnl"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="0"
-                android:textColor="#3B82F6"
+                android:textColor="@color/aate_blue"
                 android:textSize="20sp"
                 android:textStyle="bold"/>
         </LinearLayout>
@@ -213,14 +213,14 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="MAX FRAME"
-                android:textColor="#7C8190"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="11sp"/>
             <TextView
                 android:id="@+id/statMaxFrame"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="0 ms"
-                android:textColor="#F59E0B"
+                android:textColor="@color/aate_amber"
                 android:textSize="18sp"
                 android:textStyle="bold"/>
         </LinearLayout>
@@ -245,7 +245,7 @@
             android:layout_height="wrap_content"
             android:text="◀"
             android:textSize="13sp"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/aate_text"
             android:background="@drawable/aate_universe_list_bg"/>
 
         <TextView
@@ -256,7 +256,7 @@
             android:paddingStart="10dp"
             android:paddingEnd="10dp"
             android:text="Section 1/1"
-            android:textColor="#D1D5DB"
+            android:textColor="@color/aate_text_secondary"
             android:textSize="12sp"
             android:typeface="monospace"/>
 
@@ -267,7 +267,7 @@
             android:layout_height="wrap_content"
             android:text="▶"
             android:textSize="13sp"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/aate_text"
             android:background="@drawable/aate_universe_list_bg"/>
     </LinearLayout>
 
@@ -286,7 +286,7 @@
             android:padding="10dp"
             android:typeface="monospace"
             android:textSize="11sp"
-            android:textColor="#D1D5DB"
+            android:textColor="@color/aate_text_secondary"
             android:background="@drawable/aate_universe_panel_bg"
             android:textIsSelectable="true"
             android:fontFamily="monospace"/>
@@ -298,7 +298,7 @@
         android:layout_height="wrap_content"
         android:padding="8dp"
         android:text="Full report is sectioned on-screen to prevent UI choke. Use ◀/▶ to view every section; Copy exports the exact full dump."
-        android:textColor="#6B7280"
+        android:textColor="@color/aate_text_muted"
         android:textSize="11sp"
         android:gravity="center"/>
 

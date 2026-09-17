@@ -21,7 +21,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="←"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/aate_text"
             android:textSize="22sp"
             android:paddingEnd="12dp"
             android:clickable="true"
@@ -37,7 +37,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="HIVE MIND"
-                android:textColor="#9945FF"
+                android:textColor="@color/aate_purple"
                 android:textSize="15sp"
                 android:textStyle="bold"
                 android:fontFamily="monospace"
@@ -48,7 +48,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Checking…"
-                android:textColor="#4B5563"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="9sp"
                 android:fontFamily="monospace"/>
 
@@ -61,7 +61,7 @@
             android:layout_height="30dp"
             android:gravity="center"
             android:text="LOCAL"
-            android:textColor="#9945FF"
+            android:textColor="@color/aate_purple"
             android:textSize="9sp"
             android:textStyle="bold"
             android:fontFamily="monospace"
@@ -77,7 +77,7 @@
             android:layout_height="30dp"
             android:gravity="center"
             android:text="↻ Sync"
-            android:textColor="#000000"
+            android:textColor="@color/aate_bg_deep"
             android:textSize="10sp"
             android:textStyle="bold"
             android:fontFamily="monospace"
@@ -125,7 +125,7 @@
                 android:layout_height="42dp"
                 android:gravity="center"
                 android:text="SIGNAL BOOST — Scan &amp; Backtest"
-                android:textColor="#000000"
+                android:textColor="@color/aate_bg_deep"
                 android:textSize="12sp"
                 android:textStyle="bold"
                 android:fontFamily="monospace"
@@ -158,7 +158,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="0"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/aate_text"
                         android:textSize="22sp"
                         android:textStyle="bold"
                         android:fontFamily="monospace"/>
@@ -167,7 +167,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="TRADES"
-                        android:textColor="#4B5563"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="8sp"
                         android:fontFamily="monospace"
                         android:letterSpacing="0.10"/>
@@ -191,7 +191,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="—"
-                        android:textColor="#9945FF"
+                        android:textColor="@color/aate_purple"
                         android:textSize="22sp"
                         android:textStyle="bold"
                         android:fontFamily="monospace"/>
@@ -200,7 +200,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="NODES"
-                        android:textColor="#4B5563"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="8sp"
                         android:fontFamily="monospace"
                         android:letterSpacing="0.10"/>
@@ -223,7 +223,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="0"
-                        android:textColor="#14F195"
+                        android:textColor="@color/aate_green"
                         android:textSize="22sp"
                         android:textStyle="bold"
                         android:fontFamily="monospace"/>
@@ -232,7 +232,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="PATTERNS"
-                        android:textColor="#4B5563"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="8sp"
                         android:fontFamily="monospace"
                         android:letterSpacing="0.10"/>
@@ -263,7 +263,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="24h PROFIT"
-                        android:textColor="#4B5563"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="8sp"
                         android:fontFamily="monospace"
                         android:letterSpacing="0.08"
@@ -274,7 +274,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="--"
-                        android:textColor="#14F195"
+                        android:textColor="@color/aate_green"
                         android:textSize="@dimen/token_name_size"
                         android:textStyle="bold"
                         android:fontFamily="monospace"/>
@@ -297,7 +297,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="WIN RATE"
-                        android:textColor="#4B5563"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="8sp"
                         android:fontFamily="monospace"
                         android:letterSpacing="0.08"
@@ -308,7 +308,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="--"
-                        android:textColor="#9945FF"
+                        android:textColor="@color/aate_purple"
                         android:textSize="@dimen/token_name_size"
                         android:textStyle="bold"
                         android:fontFamily="monospace"/>
@@ -330,7 +330,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="AVG HOLD"
-                        android:textColor="#4B5563"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="8sp"
                         android:fontFamily="monospace"
                         android:letterSpacing="0.08"
@@ -341,7 +341,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="--"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/aate_text"
                         android:textSize="@dimen/token_name_size"
                         android:textStyle="bold"
                         android:fontFamily="monospace"/>
@@ -372,7 +372,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="BLACKLISTED"
-                        android:textColor="#4B5563"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="8sp"
                         android:fontFamily="monospace"
                         android:letterSpacing="0.08"
@@ -383,7 +383,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="0"
-                        android:textColor="#EF4444"
+                        android:textColor="@color/aate_red"
                         android:textSize="@dimen/token_name_size"
                         android:textStyle="bold"
                         android:fontFamily="monospace"/>
@@ -406,7 +406,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="NETWORK SOURCE"
-                        android:textColor="#4B5563"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="8sp"
                         android:fontFamily="monospace"
                         android:letterSpacing="0.08"
@@ -417,7 +417,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Local"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="@dimen/token_name_size"
                         android:textStyle="bold"
                         android:fontFamily="monospace"/>
@@ -439,7 +439,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="TOP MODE"
-                        android:textColor="#4B5563"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="8sp"
                         android:fontFamily="monospace"
                         android:letterSpacing="0.08"
@@ -450,7 +450,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="—"
-                        android:textColor="#14F195"
+                        android:textColor="@color/aate_green"
                         android:textSize="10sp"
                         android:textStyle="bold"
                         android:fontFamily="monospace"/>
@@ -470,7 +470,7 @@
                 <View
                     android:layout_width="3dp"
                     android:layout_height="14dp"
-                    android:background="#EF4444"
+                    android:background="@color/aate_red"
                     android:layout_marginEnd="8dp"/>
 
                 <TextView
@@ -478,7 +478,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="AVOID"
-                    android:textColor="#EF4444"
+                    android:textColor="@color/aate_red"
                     android:textSize="@dimen/section_title_size"
                     android:textStyle="bold"
                     android:fontFamily="monospace"
@@ -489,7 +489,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="—"
-                    android:textColor="#EF4444"
+                    android:textColor="@color/aate_red"
                     android:textSize="11sp"
                     android:textStyle="bold"
                     android:fontFamily="monospace"/>
@@ -517,7 +517,7 @@
                 <View
                     android:layout_width="3dp"
                     android:layout_height="14dp"
-                    android:background="#9945FF"
+                    android:background="@color/aate_purple"
                     android:layout_marginEnd="8dp"/>
 
                 <TextView
@@ -525,7 +525,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="TOP PATTERNS"
-                    android:textColor="#9945FF"
+                    android:textColor="@color/aate_purple"
                     android:textSize="@dimen/section_title_size"
                     android:textStyle="bold"
                     android:fontFamily="monospace"
@@ -545,7 +545,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Learning from live trades…"
-                    android:textColor="#4B5563"
+                    android:textColor="@color/aate_text_muted"
                     android:textSize="11sp"
                     android:fontFamily="monospace"
                     android:gravity="center"
@@ -564,7 +564,7 @@
                 <View
                     android:layout_width="3dp"
                     android:layout_height="14dp"
-                    android:background="#14F195"
+                    android:background="@color/aate_green"
                     android:layout_marginEnd="8dp"/>
 
                 <TextView
@@ -572,7 +572,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="NETWORK SIGNALS"
-                    android:textColor="#14F195"
+                    android:textColor="@color/aate_green"
                     android:textSize="@dimen/section_title_size"
                     android:textStyle="bold"
                     android:fontFamily="monospace"
@@ -590,7 +590,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Awaiting signals from the hive…"
-                    android:textColor="#4B5563"
+                    android:textColor="@color/aate_text_muted"
                     android:textSize="11sp"
                     android:fontFamily="monospace"
                     android:gravity="center"

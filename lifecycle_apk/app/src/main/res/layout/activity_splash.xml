@@ -1,8 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.6931 — splash restyled onto the AATE vNext visual system.
+
+  Every id referenced by SplashActivity is preserved exactly: ivSplashLogo,
+  layoutParticles, tvSplashTagline, tvSplashVersion, viewGlow. The particle
+  container stays the first child so code-driven particles render behind the
+  logo, and AnimatedBrainLogoView keeps its slot between the bloom and the mark.
+
+  The background is now the same @drawable/aate_screen_bg the app uses, so the
+  splash and the first real screen share one backdrop and there is no palette
+  jump at hand-off. Theme.AATE.Splash carries the same drawable as its
+  windowBackground so there is no black flash before this layout inflates.
+-->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000"
+    android:background="@drawable/aate_screen_bg"
     android:fitsSystemWindows="false">
 
     <!-- Neural pathway particles container (animated in code) -->
@@ -11,23 +24,23 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"/>
 
-    <!-- Glow bloom behind logo — deep purple, not teal -->
+    <!-- Glow bloom behind the mark -->
     <View
         android:id="@+id/viewGlow"
-        android:layout_width="340dp"
-        android:layout_height="340dp"
+        android:layout_width="360dp"
+        android:layout_height="360dp"
         android:layout_gravity="center"
         android:background="@drawable/splash_glow"
-        android:alpha="0.35"/>
+        android:alpha="0.40"/>
 
-    <!-- V5.9.992: Animated brain-wave rings BEHIND the logo (pulsing cyan) -->
+    <!-- Pulsing brain-wave rings BEHIND the logo -->
     <com.lifecyclebot.ui.AnimatedBrainLogoView
         android:id="@+id/animatedBrainLogo"
         android:layout_width="340dp"
         android:layout_height="340dp"
         android:layout_gravity="center"/>
 
-    <!-- Centred content stack -->
+    <!-- Centred brand lockup -->
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -36,27 +49,56 @@
         android:gravity="center"
         android:elevation="4dp">
 
-        <!-- AATE Logo -->
         <ImageView
             android:id="@+id/ivSplashLogo"
-            android:layout_width="260dp"
-            android:layout_height="260dp"
+            android:layout_width="252dp"
+            android:layout_height="252dp"
             android:src="@drawable/logo"
             android:scaleType="fitCenter"
             android:contentDescription="AATE Logo"/>
 
-        <!-- Boot tagline — animated in from invisible -->
+        <!-- Wordmark subtitle — always visible, sets the brand tone -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="ADAPTIVE INTELLIGENCE"
+            android:textColor="@color/aate_cyan"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.32"/>
+
+        <!-- Hairline rule under the wordmark -->
+        <View
+            android:layout_width="180dp"
+            android:layout_height="1dp"
+            android:layout_marginTop="14dp"
+            android:background="@color/aate_stroke"/>
+
+        <!-- Boot tagline — animated in from invisible by SplashActivity -->
         <TextView
             android:id="@+id/tvSplashTagline"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
+            android:layout_marginTop="16dp"
             android:text="AUTONOMOUS ALGORITHMIC TRADING ENGINE"
-            android:textColor="#9945FF"
+            android:textColor="@color/aate_purple_bright"
             android:textSize="10sp"
             android:fontFamily="monospace"
-            android:letterSpacing="0.12"
+            android:letterSpacing="0.14"
             android:visibility="invisible"/>
+
+        <!-- Doctrine strip, matches the brand card in the design set -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="TRADE  ·  EVOLVE  ·  REPEAT"
+            android:textColor="@color/aate_text_muted"
+            android:textSize="9sp"
+            android:fontFamily="monospace"
+            android:letterSpacing="0.22"/>
 
     </LinearLayout>
 
@@ -66,13 +108,18 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="88dp"
+        android:layout_marginBottom="84dp"
+        android:background="@drawable/aate_glow_pill_bg"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="7dp"
+        android:paddingBottom="7dp"
         android:text=""
-        android:textColor="#14F195"
-        android:textSize="13sp"
+        android:textColor="@color/aate_green"
+        android:textSize="12sp"
         android:textStyle="bold"
         android:fontFamily="monospace"
-        android:letterSpacing="0.06"
+        android:letterSpacing="0.08"
         android:visibility="invisible"/>
 
     <!-- Legal — low contrast, stays out of the way -->
@@ -82,7 +129,7 @@
         android:layout_gravity="bottom"
         android:orientation="vertical"
         android:gravity="center"
-        android:paddingBottom="14dp"
+        android:paddingBottom="16dp"
         android:paddingStart="24dp"
         android:paddingEnd="24dp">
 
@@ -91,7 +138,8 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="AATE® is a registered trademark"
-            android:textColor="#1F2937"
+            android:textColor="@color/aate_text_muted"
+            android:alpha="0.55"
             android:textSize="9sp"
             android:fontFamily="monospace"/>
 
@@ -101,7 +149,8 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="3dp"
             android:text="© 2024-2026 Lifecycle Technologies. All rights reserved."
-            android:textColor="#1F2937"
+            android:textColor="@color/aate_text_muted"
+            android:alpha="0.45"
             android:textSize="8sp"
             android:fontFamily="monospace"/>
 

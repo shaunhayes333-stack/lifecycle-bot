@@ -48,7 +48,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="&#8592;"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/aate_text"
                     android:textSize="20sp"
                     android:paddingEnd="8dp"
                     android:clickable="true"
@@ -68,7 +68,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="AATE"
-                            android:textColor="#FFFFFF"
+                            android:textColor="@color/aate_text"
                             android:textSize="14sp"
                             android:textStyle="bold"/>
                         <View
@@ -82,7 +82,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Crypto Alts"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="9sp"/>
                 </LinearLayout>
 
@@ -98,7 +98,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="&#8635; Scan"
-                    android:textColor="#A78BFA"
+                    android:textColor="@color/aate_purple_bright"
                     android:textSize="10sp"
                     android:fontFamily="monospace"
                     android:textStyle="bold"
@@ -118,7 +118,7 @@
                     android:layout_height="30dp"
                     android:gravity="center"
                     android:text="+ Add"
-                    android:textColor="#000000"
+                    android:textColor="@color/aate_bg_deep"
                     android:textSize="10sp"
                     android:textStyle="bold"
                     android:background="@drawable/pill_bg_yellow"
@@ -187,7 +187,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Connect"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="10sp"
                         android:maxWidth="80dp"
                         android:ellipsize="end"
@@ -225,7 +225,7 @@
                     android:layout_weight="1"
                     android:gravity="center"
                     android:text="Scanner"
-                    android:textColor="#A78BFA"
+                    android:textColor="@color/aate_purple_bright"
                     android:textSize="11sp"
                     android:textStyle="bold"
                     android:clickable="true"
@@ -238,7 +238,7 @@
                     android:layout_weight="1"
                     android:gravity="center"
                     android:text="Watchlist"
-                    android:textColor="#6B7280"
+                    android:textColor="@color/aate_text_muted"
                     android:textSize="11sp"
                     android:clickable="true"
                     android:focusable="true"/>
@@ -250,7 +250,7 @@
                     android:layout_weight="1"
                     android:gravity="center"
                     android:text="Positions"
-                    android:textColor="#6B7280"
+                    android:textColor="@color/aate_text_muted"
                     android:textSize="11sp"
                     android:clickable="true"
                     android:focusable="true"/>
@@ -262,7 +262,7 @@
                     android:layout_weight="1"
                     android:gravity="center"
                     android:text="Settings"
-                    android:textColor="#6B7280"
+                    android:textColor="@color/aate_text_muted"
                     android:textSize="11sp"
                     android:clickable="true"
                     android:focusable="true"/>
@@ -276,7 +276,7 @@
                 android:layout_height="2dp"
                 style="?android:attr/progressBarStyleHorizontal"
                 android:indeterminate="true"
-                android:indeterminateTint="#A78BFA"
+                android:indeterminateTint="@color/aate_purple_bright"
                 android:visibility="gone"/>
 
             <!-- DYNAMIC CONTENT (Programmatic UI) -->
@@ -323,7 +323,7 @@
                 android:layout_width="0dp" android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="Alt trader stopped"
-                android:textColor="#6B7280" android:textSize="13sp"
+                android:textColor="@color/aate_text_muted" android:textSize="13sp"
                 android:maxLines="1" android:ellipsize="end"/>
 
             <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -333,7 +333,7 @@
                 <TextView android:id="@+id/tvAutoModeCryptoAlt"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="SCAN"
-                    android:textColor="#3B82F6" android:textSize="10sp"
+                    android:textColor="@color/aate_blue" android:textSize="10sp"
                     android:fontFamily="monospace" android:textStyle="bold"
                     android:background="@drawable/aate_universe_panel_bg"
                     android:paddingStart="8dp" android:paddingEnd="8dp"
@@ -344,7 +344,7 @@
                 <TextView android:id="@+id/tvModeCryptoAlt"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="PAPER"
-                    android:textColor="#F59E0B" android:textSize="10sp"
+                    android:textColor="@color/aate_amber" android:textSize="10sp"
                     android:fontFamily="monospace" android:textStyle="bold"
                     android:background="@drawable/chip_warn_bg"
                     android:paddingStart="8dp" android:paddingEnd="8dp"
@@ -361,10 +361,10 @@
             android:layout_marginTop="4dp"
             android:layout_marginBottom="16dp"
             android:text="Start Crypto Trader"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/aate_text"
             android:textSize="@dimen/bottom_bar_button_text"
             android:textStyle="bold"
-            android:backgroundTint="#9945FF"
+            android:backgroundTint="@color/aate_purple"
             android:stateListAnimator="@null"/>
     </LinearLayout>
 

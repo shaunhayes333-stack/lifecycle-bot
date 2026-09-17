@@ -23,7 +23,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="←"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/aate_text"
             android:textSize="22sp"
             android:paddingEnd="12dp"
             android:clickable="true"
@@ -38,26 +38,26 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Insider Tracker"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/aate_text"
                 android:textSize="16sp"
                 android:textStyle="bold"
                 android:fontFamily="monospace"
                 android:letterSpacing="0.04"/>
             <TextView android:id="@+id/tvWalletCount"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="0 wallets tracked" android:textColor="#6B7280"
+                android:text="0 wallets tracked" android:textColor="@color/aate_text_muted"
                 android:textSize="9sp" android:fontFamily="monospace"/>
         </LinearLayout>
 
         <TextView android:id="@+id/btnRefreshAll"
             android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="↻" android:textColor="#14F195" android:textSize="18sp"
+            android:text="↻" android:textColor="@color/aate_green" android:textSize="18sp"
             android:paddingEnd="10dp" android:clickable="true" android:focusable="true"/>
 
         <TextView android:id="@+id/btnAddWallet"
             android:layout_width="wrap_content" android:layout_height="32dp"
             android:gravity="center"
-            android:text="+ Add" android:textColor="#000000" android:textSize="11sp"
+            android:text="+ Add" android:textColor="@color/aate_bg_deep" android:textSize="11sp"
             android:textStyle="bold"
             android:background="@drawable/pill_bg_green"
             android:paddingStart="12dp" android:paddingEnd="12dp"
@@ -78,7 +78,7 @@
         <TextView android:id="@+id/tabAll"
             android:layout_width="0dp" android:layout_height="match_parent"
             android:layout_weight="1" android:gravity="center"
-            android:text="ALL" android:textColor="#9945FF" android:textSize="11sp"
+            android:text="ALL" android:textColor="@color/aate_purple" android:textSize="11sp"
             android:textStyle="bold" android:fontFamily="monospace"
             android:background="@drawable/tab_active_bg"
             android:layout_marginEnd="4dp"
@@ -86,7 +86,7 @@
         <TextView android:id="@+id/tabPolitical"
             android:layout_width="0dp" android:layout_height="match_parent"
             android:layout_weight="1" android:gravity="center"
-            android:text="POLITICAL" android:textColor="#6B7280" android:textSize="11sp"
+            android:text="POLITICAL" android:textColor="@color/aate_text_muted" android:textSize="11sp"
             android:fontFamily="monospace"
             android:background="@drawable/tab_inactive_bg"
             android:layout_marginEnd="4dp"
@@ -94,7 +94,7 @@
         <TextView android:id="@+id/tabSmartMoney"
             android:layout_width="0dp" android:layout_height="match_parent"
             android:layout_weight="1" android:gravity="center"
-            android:text="SMART $" android:textColor="#6B7280" android:textSize="11sp"
+            android:text="SMART $" android:textColor="@color/aate_text_muted" android:textSize="11sp"
             android:fontFamily="monospace"
             android:background="@drawable/tab_inactive_bg"
             android:layout_marginEnd="4dp"
@@ -102,7 +102,7 @@
         <TextView android:id="@+id/tabCustom"
             android:layout_width="0dp" android:layout_height="match_parent"
             android:layout_weight="1" android:gravity="center"
-            android:text="CUSTOM" android:textColor="#6B7280" android:textSize="11sp"
+            android:text="CUSTOM" android:textColor="@color/aate_text_muted" android:textSize="11sp"
             android:fontFamily="monospace"
             android:background="@drawable/tab_inactive_bg"
             android:clickable="true" android:focusable="true"/>
@@ -115,7 +115,7 @@
         android:layout_width="match_parent" android:layout_height="3dp"
         style="@android:style/Widget.ProgressBar.Horizontal"
         android:indeterminate="true"
-        android:progressTint="#9945FF"
+        android:progressTint="@color/aate_purple"
         android:visibility="gone"/>
 
     <ScrollView android:layout_width="match_parent" android:layout_height="match_parent">

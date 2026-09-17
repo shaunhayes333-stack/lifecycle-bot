@@ -23,7 +23,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="←"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/aate_text"
             android:textSize="22sp"
             android:paddingEnd="12dp"
             android:clickable="true"
@@ -38,7 +38,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Backtest"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/aate_text"
                 android:textSize="16sp"
                 android:textStyle="bold"
                 android:fontFamily="monospace"
@@ -47,7 +47,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Simulate strategy on historical data"
-                android:textColor="#6B7280"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="9sp"
                 android:fontFamily="monospace"/>
         </LinearLayout>
@@ -75,7 +75,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="TOKEN MINT"
-            android:textColor="#6B7280"
+            android:textColor="@color/aate_text_muted"
             android:textSize="10sp"
             android:fontFamily="monospace"
             android:letterSpacing="0.10"
@@ -85,8 +85,8 @@
             android:layout_width="match_parent"
             android:layout_height="@dimen/input_height"
             android:background="@drawable/edit_text_bg"
-            android:textColor="#FFFFFF"
-            android:textColorHint="#4A5E70"
+            android:textColor="@color/aate_text"
+            android:textColorHint="@color/aate_text_muted"
             android:textSize="@dimen/input_text_size"
             android:fontFamily="monospace"
             android:hint="Paste mint address…"
@@ -102,7 +102,7 @@
             <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                 android:layout_weight="1" android:orientation="vertical" android:layout_marginEnd="8dp">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="TIMEFRAME" android:textColor="#6B7280"
+                    android:text="TIMEFRAME" android:textColor="@color/aate_text_muted"
                     android:textSize="10sp" android:fontFamily="monospace"
                     android:letterSpacing="0.10" android:layout_marginBottom="6dp"/>
                 <Spinner android:id="@+id/spinnerBtTf"
@@ -114,13 +114,13 @@
             <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                 android:layout_weight="1" android:orientation="vertical" android:layout_marginEnd="8dp">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="CANDLES" android:textColor="#6B7280"
+                    android:text="CANDLES" android:textColor="@color/aate_text_muted"
                     android:textSize="10sp" android:fontFamily="monospace"
                     android:letterSpacing="0.10" android:layout_marginBottom="6dp"/>
                 <EditText android:id="@+id/etBtCandles"
                     android:layout_width="match_parent" android:layout_height="@dimen/input_height"
                     android:background="@drawable/edit_text_bg"
-                    android:textColor="#FFFFFF" android:textColorHint="#4A5E70"
+                    android:textColor="@color/aate_text" android:textColorHint="@color/aate_text_muted"
                     android:textSize="@dimen/input_text_size" android:fontFamily="monospace"
                     android:hint="200" android:inputType="number"
                     android:paddingStart="@dimen/input_padding_h" android:paddingEnd="@dimen/input_padding_h"/>
@@ -129,13 +129,13 @@
             <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                 android:layout_weight="1" android:orientation="vertical">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="SIZE (SOL)" android:textColor="#6B7280"
+                    android:text="SIZE (SOL)" android:textColor="@color/aate_text_muted"
                     android:textSize="10sp" android:fontFamily="monospace"
                     android:letterSpacing="0.10" android:layout_marginBottom="6dp"/>
                 <EditText android:id="@+id/etBtPositionSol"
                     android:layout_width="match_parent" android:layout_height="@dimen/input_height"
                     android:background="@drawable/edit_text_bg"
-                    android:textColor="#FFFFFF" android:textColorHint="#4A5E70"
+                    android:textColor="@color/aate_text" android:textColorHint="@color/aate_text_muted"
                     android:textSize="@dimen/input_text_size" android:fontFamily="monospace"
                     android:hint="0.10" android:inputType="numberDecimal"
                     android:paddingStart="@dimen/input_padding_h" android:paddingEnd="@dimen/input_padding_h"/>
@@ -149,22 +149,22 @@
                 android:layout_width="0dp" android:layout_height="@dimen/input_height"
                 android:layout_weight="1"
                 android:text="▶ Run Backtest"
-                android:textColor="#000000" android:textStyle="bold"
-                android:backgroundTint="#14F195"
+                android:textColor="@color/aate_bg_deep" android:textStyle="bold"
+                android:backgroundTint="@color/aate_green"
                 android:fontFamily="monospace"
                 android:layout_marginEnd="8dp"/>
             <Button android:id="@+id/btnBtAB"
                 android:layout_width="0dp" android:layout_height="@dimen/input_height"
                 android:layout_weight="1"
                 android:text="A/B Symbolic"
-                android:textColor="#9945FF" android:textStyle="bold"
-                android:backgroundTint="#14001A"
+                android:textColor="@color/aate_purple" android:textStyle="bold"
+                android:backgroundTint="@color/aate_surface_2"
                 android:fontFamily="monospace"
                 android:layout_marginEnd="8dp"/>
             <TextView android:id="@+id/btnBtClear"
                 android:layout_width="wrap_content" android:layout_height="@dimen/input_height"
                 android:text="Clear"
-                android:textColor="#6B7280" android:textSize="13sp"
+                android:textColor="@color/aate_text_muted" android:textSize="13sp"
                 android:gravity="center"
                 android:paddingStart="12dp" android:paddingEnd="4dp"
                 android:clickable="true" android:focusable="true"/>
@@ -176,7 +176,7 @@
         android:layout_width="match_parent" android:layout_height="3dp"
         style="@style/Widget.AppCompat.ProgressBar.Horizontal"
         android:indeterminate="true"
-        android:progressTint="#9945FF"
+        android:progressTint="@color/aate_purple"
         android:visibility="gone"
         android:layout_marginStart="@dimen/screen_padding"
         android:layout_marginEnd="@dimen/screen_padding"
@@ -197,7 +197,7 @@
         android:visibility="gone">
         <TextView android:id="@+id/tvBtSummary"
             android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:textColor="#FFFFFF" android:textSize="12sp"
+            android:textColor="@color/aate_text" android:textSize="12sp"
             android:fontFamily="monospace" android:lineSpacingExtra="3dp"/>
     </LinearLayout>
 
@@ -211,7 +211,7 @@
         android:layout_marginBottom="12dp">
         <TextView android:id="@+id/tvBtLog"
             android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:textColor="#6B7280" android:textSize="11sp"
+            android:textColor="@color/aate_text_muted" android:textSize="11sp"
             android:fontFamily="monospace" android:lineSpacingExtra="3dp"
             android:text="Enter a mint address and hit Run"/>
     </ScrollView>

@@ -18,7 +18,7 @@
     </style>
 
     <style name="Theme.AATE.Splash" parent="Theme.MaterialComponents.NoActionBar">
-        <item name="android:windowBackground">@color/aate_bg_deep</item>
+        <item name="android:windowBackground">@drawable/aate_screen_bg</item>
         <item name="android:statusBarColor">@color/aate_bg_deep</item>
         <item name="android:navigationBarColor">@color/aate_bg_deep</item>
         <item name="android:windowLightStatusBar">false</item>

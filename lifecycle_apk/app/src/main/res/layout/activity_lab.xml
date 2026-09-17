@@ -32,7 +32,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="‹"
-            android:textColor="#FFA78BFA"
+            android:textColor="@color/aate_purple_bright"
             android:textSize="28sp"
             android:paddingEnd="14dp"
             android:fontFamily="monospace"
@@ -54,7 +54,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="// LLM_LAB"
-                android:textColor="#FFFFFFFF"
+                android:textColor="@color/aate_text"
                 android:textSize="17sp"
                 android:textStyle="bold"
                 android:fontFamily="monospace"
@@ -62,7 +62,7 @@
             <TextView android:id="@+id/tvLabSubtitle"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="› sandbox online · proof-required: 100 trades"
-                android:textColor="#FF7C3AED"
+                android:textColor="@color/aate_purple"
                 android:textSize="9sp"
                 android:fontFamily="monospace"
                 android:letterSpacing="0.08"/>
@@ -70,7 +70,7 @@
 
         <TextView android:id="@+id/btnLabRefresh"
             android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="↺" android:textColor="#FF14F195" android:textSize="20sp"
+            android:text="↺" android:textColor="@color/aate_green" android:textSize="20sp"
             android:paddingEnd="12dp" android:clickable="true" android:focusable="true"
             android:fontFamily="monospace"/>
 
@@ -78,7 +78,7 @@
             android:layout_width="wrap_content" android:layout_height="32dp"
             android:gravity="center"
             android:text="PERSONA LIVE"
-            android:textColor="#FF000000"
+            android:textColor="@color/aate_bg_deep"
             android:textSize="11sp"
             android:textStyle="bold"
             android:background="@drawable/lab_section_active"
@@ -113,43 +113,43 @@
             <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                 android:layout_weight="1" android:orientation="vertical">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="BANKROLL" android:textColor="#FF7C3AED" android:textSize="9sp"
+                    android:text="BANKROLL" android:textColor="@color/aate_purple" android:textSize="9sp"
                     android:fontFamily="monospace" android:letterSpacing="0.18"/>
                 <TextView android:id="@+id/tvLabBalance"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="100.00CRYPTO"
-                    android:textColor="#FFA78BFA" android:textSize="20sp" android:textStyle="bold"
+                    android:textColor="@color/aate_purple_bright" android:textSize="20sp" android:textStyle="bold"
                     android:fontFamily="monospace"/>
             </LinearLayout>
 
             <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                 android:layout_weight="1" android:orientation="vertical">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="PNL" android:textColor="#FF7C3AED" android:textSize="9sp"
+                    android:text="PNL" android:textColor="@color/aate_purple" android:textSize="9sp"
                     android:fontFamily="monospace" android:letterSpacing="0.18"/>
                 <TextView android:id="@+id/tvLabPnl"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="+0.000CRYPTO"
-                    android:textColor="#FF14F195" android:textSize="20sp" android:textStyle="bold"
+                    android:textColor="@color/aate_green" android:textSize="20sp" android:textStyle="bold"
                     android:fontFamily="monospace"/>
             </LinearLayout>
 
             <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                 android:layout_weight="1" android:orientation="vertical">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="ACT/PROM" android:textColor="#FF7C3AED" android:textSize="9sp"
+                    android:text="ACT/PROM" android:textColor="@color/aate_purple" android:textSize="9sp"
                     android:fontFamily="monospace" android:letterSpacing="0.18"/>
                 <TextView android:id="@+id/tvLabActive"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="0/0"
-                    android:textColor="#FFFFFFFF" android:textSize="20sp" android:textStyle="bold"
+                    android:textColor="@color/aate_text" android:textSize="20sp" android:textStyle="bold"
                     android:fontFamily="monospace"/>
             </LinearLayout>
 
             <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                 android:layout_weight="1" android:orientation="vertical">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="QUEUED" android:textColor="#FF7C3AED" android:textSize="9sp"
+                    android:text="QUEUED" android:textColor="@color/aate_purple" android:textSize="9sp"
                     android:fontFamily="monospace" android:letterSpacing="0.18"/>
                 <TextView android:id="@+id/tvLabPending"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -163,7 +163,7 @@
         <TextView android:id="@+id/tvLabProofLabel"
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:text="› PROOF: idle"
-            android:textColor="#FF7C3AED"
+            android:textColor="@color/aate_purple"
             android:textSize="9sp"
             android:fontFamily="monospace"
             android:letterSpacing="0.1"
@@ -176,7 +176,7 @@
             style="@android:style/Widget.ProgressBar.Horizontal"
             android:progress="0"
             android:max="100"
-            android:progressTint="#FF14F195"
+            android:progressTint="@color/aate_green"
             android:layout_marginTop="4dp"/>
     </LinearLayout>
 
@@ -188,7 +188,7 @@
         android:layout_height="wrap_content"
         android:gravity="center"
         android:text="MARKETS▱MARKETS▱ NEURAL CORE ONLINE ▱MARKETS▱MARKETS"
-        android:textColor="#FFA78BFA"
+        android:textColor="@color/aate_purple_bright"
         android:textSize="11sp"
         android:fontFamily="monospace"
         android:letterSpacing="0.2"
@@ -248,7 +248,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="▌"
-            android:textColor="#FF14F195"
+            android:textColor="@color/aate_green"
             android:textSize="11sp"
             android:fontFamily="monospace"/>
 
@@ -284,7 +284,7 @@
                 android:layout_width="wrap_content" android:layout_height="36dp"
                 android:gravity="center"
                 android:text="WALLET APPROVALS"
-                android:textColor="#FFFFFFFF"
+                android:textColor="@color/aate_text"
                 android:textSize="11sp"
                 android:textStyle="bold"
                 android:fontFamily="monospace"
@@ -298,7 +298,7 @@
                 android:layout_width="wrap_content" android:layout_height="36dp"
                 android:gravity="center"
                 android:text="LAB STRATEGIES"
-                android:textColor="#FF9CA3AF"
+                android:textColor="@color/aate_text_secondary"
                 android:textSize="11sp"
                 android:fontFamily="monospace"
                 android:letterSpacing="0.1"
@@ -311,7 +311,7 @@
                 android:layout_width="wrap_content" android:layout_height="36dp"
                 android:gravity="center"
                 android:text="PERSONA POSITIONS"
-                android:textColor="#FF9CA3AF"
+                android:textColor="@color/aate_text_secondary"
                 android:textSize="11sp"
                 android:fontFamily="monospace"
                 android:letterSpacing="0.1"
@@ -324,7 +324,7 @@
                 android:layout_width="wrap_content" android:layout_height="36dp"
                 android:gravity="center"
                 android:text="▶ CHAT"
-                android:textColor="#FF9CA3AF"
+                android:textColor="@color/aate_text_secondary"
                 android:textSize="11sp"
                 android:fontFamily="monospace"
                 android:letterSpacing="0.1"
@@ -337,7 +337,7 @@
                 android:layout_width="wrap_content" android:layout_height="36dp"
                 android:gravity="center"
                 android:text="UNIVERSE PERSONA"
-                android:textColor="#FF9CA3AF"
+                android:textColor="@color/aate_text_secondary"
                 android:textSize="11sp"
                 android:fontFamily="monospace"
                 android:letterSpacing="0.1"
@@ -382,7 +382,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="•"
-            android:textColor="#FF14F195"
+            android:textColor="@color/aate_green"
             android:textSize="18sp"
             android:fontFamily="monospace"
             android:paddingEnd="8dp"/>
@@ -405,7 +405,7 @@
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:gravity="center"
             android:text="TX"
-            android:textColor="#FF000000"
+            android:textColor="@color/aate_bg_deep"
             android:textSize="12sp"
             android:textStyle="bold"
             android:fontFamily="monospace"

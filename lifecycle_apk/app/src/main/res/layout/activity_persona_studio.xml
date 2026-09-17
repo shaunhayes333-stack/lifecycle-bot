@@ -32,7 +32,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Persona Studio"
-                android:textColor="#00FF88"
+                android:textColor="@color/aate_green"
                 android:textSize="18sp"
                 android:textStyle="bold"/>
 
@@ -46,7 +46,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="aate"
-                android:textColor="#9945FF"
+                android:textColor="@color/aate_purple"
                 android:textSize="11sp"
                 android:fontFamily="monospace"
                 android:background="@drawable/aate_glow_pill_bg"
@@ -60,7 +60,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Tune how the bot feels, remember its journey, replay its voice."
-            android:textColor="#6B7280"
+            android:textColor="@color/aate_text_muted"
             android:textSize="11sp"
             android:layout_marginTop="4dp"
             android:layout_marginBottom="12dp"/>
@@ -84,7 +84,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Traits"
-                    android:textColor="#00FF88"
+                    android:textColor="@color/aate_green"
                     android:textSize="13sp"
                     android:textStyle="bold"/>
                 <View
@@ -96,7 +96,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="balanced"
-                    android:textColor="#9CA3AF"
+                    android:textColor="@color/aate_text_secondary"
                     android:textSize="10sp"
                     android:fontFamily="monospace"/>
             </LinearLayout>
@@ -105,7 +105,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Sliders drift automatically from trade outcomes. Drag to override manually."
-                android:textColor="#6B7280"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="10sp"
                 android:layout_marginTop="2dp"
                 android:layout_marginBottom="10dp"/>
@@ -121,7 +121,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="RESET Reset traits to neutral"
-                android:textColor="#F59E0B"
+                android:textColor="@color/aate_amber"
                 android:textSize="10sp"
                 android:fontFamily="monospace"
                 android:background="@drawable/aate_glow_pill_bg"
@@ -154,7 +154,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="LOG Milestone Timeline"
-                    android:textColor="#00FF88"
+                    android:textColor="@color/aate_green"
                     android:textSize="13sp"
                     android:textStyle="bold"/>
                 <View
@@ -166,7 +166,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="0"
-                    android:textColor="#9CA3AF"
+                    android:textColor="@color/aate_text_secondary"
                     android:textSize="10sp"
                     android:fontFamily="monospace"/>
             </LinearLayout>
@@ -183,7 +183,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="No milestones yet — the bot hasn't lived enough. Trade it in."
-                android:textColor="#6B7280"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="11sp"
                 android:gravity="center"
                 android:paddingTop="16dp"
@@ -210,7 +210,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="CHAT Chat Replay"
-                    android:textColor="#00FF88"
+                    android:textColor="@color/aate_green"
                     android:textSize="13sp"
                     android:textStyle="bold"/>
                 <View
@@ -222,7 +222,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="0 turns"
-                    android:textColor="#9CA3AF"
+                    android:textColor="@color/aate_text_secondary"
                     android:textSize="10sp"
                     android:fontFamily="monospace"/>
             </LinearLayout>
@@ -239,7 +239,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="No chat yet. Start a conversation in the LLM Desk."
-                android:textColor="#6B7280"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="11sp"
                 android:gravity="center"
                 android:paddingTop="16dp"
@@ -267,7 +267,7 @@
                     android:layout_weight="1"
                     android:layout_height="wrap_content"
                     android:text="VOICE Character Voice"
-                    android:textColor="#00FF88"
+                    android:textColor="@color/aate_green"
                     android:textSize="13sp"
                     android:textStyle="bold"/>
                 <TextView
@@ -275,7 +275,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="—"
-                    android:textColor="#9945FF"
+                    android:textColor="@color/aate_purple"
                     android:textSize="11sp"
                     android:fontFamily="monospace"/>
             </LinearLayout>
@@ -284,7 +284,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Pick a TTS engine + voice for the active persona. Routes through ElevenLabs, OpenAI, Sherpa, or Android."
-                android:textColor="#6B7280"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="10sp"
                 android:layout_marginTop="4dp"
                 android:layout_marginBottom="10dp"/>
@@ -299,10 +299,10 @@
                     android:layout_weight="1"
                     android:layout_height="wrap_content"
                     android:text="PICK VOICE"
-                    android:textColor="#9945FF"
+                    android:textColor="@color/aate_purple"
                     android:textSize="11sp"
                     android:fontFamily="monospace"
-                    android:backgroundTint="#100A1F"
+                    android:backgroundTint="@color/aate_surface_2"
                     android:layout_marginEnd="6dp"/>
                 <Button
                     android:id="@+id/btnVoicePreview"
@@ -310,7 +310,7 @@
                     android:layout_weight="1"
                     android:layout_height="wrap_content"
                     android:text="PREVIEW PREVIEW"
-                    android:textColor="#14F195"
+                    android:textColor="@color/aate_green"
                     android:textSize="11sp"
                     android:fontFamily="monospace"
                     android:backgroundTint="#001A0E"
@@ -332,7 +332,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="AUDIO Custom Sounds"
-                android:textColor="#00FF88"
+                android:textColor="@color/aate_green"
                 android:textSize="13sp"
                 android:textStyle="bold"/>
 
@@ -340,7 +340,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Tap a row to pick an MP3, drop one in, or share-to-app from any file manager. Long-press a row to preview."
-                android:textColor="#6B7280"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="10sp"
                 android:layout_marginTop="4dp"
                 android:layout_marginBottom="10dp"/>
@@ -361,14 +361,14 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="Buy (woohoo)"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/aate_text"
                     android:textSize="12sp"/>
                 <TextView
                     android:id="@+id/tvSoundWoohooStatus"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="default"
-                    android:textColor="#6B7280"
+                    android:textColor="@color/aate_text_muted"
                     android:textSize="10sp"
                     android:fontFamily="monospace"/>
                 <TextView
@@ -376,7 +376,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="•"
-                    android:textColor="#EF4444"
+                    android:textColor="@color/aate_red"
                     android:textSize="12sp"
                     android:paddingStart="10dp"
                     android:paddingEnd="6dp"
@@ -401,14 +401,14 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="RISK️ Block (awesome)"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/aate_text"
                     android:textSize="12sp"/>
                 <TextView
                     android:id="@+id/tvSoundAwesomeStatus"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="default"
-                    android:textColor="#6B7280"
+                    android:textColor="@color/aate_text_muted"
                     android:textSize="10sp"
                     android:fontFamily="monospace"/>
                 <TextView
@@ -416,7 +416,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="•"
-                    android:textColor="#EF4444"
+                    android:textColor="@color/aate_red"
                     android:textSize="12sp"
                     android:paddingStart="10dp"
                     android:paddingEnd="6dp"
@@ -440,14 +440,14 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="STAR A+ Setup Alert"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/aate_text"
                     android:textSize="12sp"/>
                 <TextView
                     android:id="@+id/tvSoundAplusStatus"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="default"
-                    android:textColor="#6B7280"
+                    android:textColor="@color/aate_text_muted"
                     android:textSize="10sp"
                     android:fontFamily="monospace"/>
                 <TextView
@@ -455,7 +455,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="•"
-                    android:textColor="#EF4444"
+                    android:textColor="@color/aate_red"
                     android:textSize="12sp"
                     android:paddingStart="10dp"
                     android:paddingEnd="6dp"

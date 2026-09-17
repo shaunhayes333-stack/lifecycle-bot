@@ -26,7 +26,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="Settings"
-                android:textColor="#FFFFFF"
+                android:textColor="@color/aate_text"
                 android:textSize="20sp"
                 android:textStyle="bold"/>
             
@@ -36,7 +36,7 @@
                 android:layout_height="36dp"
                 android:src="@android:drawable/ic_menu_close_clear_cancel"
                 android:background="?android:attr/selectableItemBackgroundBorderless"
-                app:tint="#6B7280"
+                app:tint="@color/aate_text_muted"
                 android:contentDescription="Close"/>
         </LinearLayout>
 
@@ -63,7 +63,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="🤖 AUTO TRADER MODE"
-                android:textColor="#FFD700"
+                android:textColor="@color/aate_amber"
                 android:textSize="11sp"
                 android:fontFamily="monospace"
                 android:letterSpacing="0.12"
@@ -73,7 +73,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Select which smart auto-traders to run"
-                android:textColor="#6B7280"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="10sp"
                 android:layout_marginBottom="12dp"/>
 
@@ -82,7 +82,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="TRADING MODE"
-                android:textColor="#6B7280"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="10sp"
                 android:fontFamily="monospace"
                 android:layout_marginBottom="4dp"/>
@@ -110,13 +110,13 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="🎰 Meme Trader"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/aate_text"
                         android:textSize="12sp"/>
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Pump.fun • Meme coins • Original bot"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="9sp"/>
                 </LinearLayout>
                 <androidx.appcompat.widget.SwitchCompat
@@ -140,13 +140,13 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="📊 Markets Trader"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/aate_text"
                         android:textSize="12sp"/>
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Perps • Stocks • Commodities • Metals • Forex"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="9sp"/>
                 </LinearLayout>
                 <androidx.appcompat.widget.SwitchCompat
@@ -173,7 +173,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="MARKETS SUB-TRADERS"
-                    android:textColor="#9945FF"
+                    android:textColor="@color/aate_purple"
                     android:textSize="9sp"
                     android:fontFamily="monospace"
                     android:letterSpacing="0.1"
@@ -192,7 +192,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="⚡ Perps"
-                        android:textColor="#E5E7EB"
+                        android:textColor="@color/aate_text"
                         android:textSize="11sp"/>
                     <androidx.appcompat.widget.SwitchCompat
                         android:id="@+id/switchPerpsEnabled"
@@ -213,7 +213,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="📈 Stocks"
-                        android:textColor="#E5E7EB"
+                        android:textColor="@color/aate_text"
                         android:textSize="11sp"/>
                     <androidx.appcompat.widget.SwitchCompat
                         android:id="@+id/switchStocksEnabled"
@@ -234,7 +234,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="🛢️ Commodities"
-                        android:textColor="#E5E7EB"
+                        android:textColor="@color/aate_text"
                         android:textSize="11sp"/>
                     <androidx.appcompat.widget.SwitchCompat
                         android:id="@+id/switchCommoditiesEnabled"
@@ -255,7 +255,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="🥇 Metals"
-                        android:textColor="#E5E7EB"
+                        android:textColor="@color/aate_text"
                         android:textSize="11sp"/>
                     <androidx.appcompat.widget.SwitchCompat
                         android:id="@+id/switchMetalsEnabled"
@@ -275,7 +275,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="💱 Forex"
-                        android:textColor="#E5E7EB"
+                        android:textColor="@color/aate_text"
                         android:textSize="11sp"/>
                     <androidx.appcompat.widget.SwitchCompat
                         android:id="@+id/switchForexEnabled"
@@ -301,13 +301,13 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="🪙 Crypto Alts Trader"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/aate_text"
                         android:textSize="12sp"/>
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="BNB • ETH • SOL alts — learns &amp; trades 24/7"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="9sp"/>
                 </LinearLayout>
                 <androidx.appcompat.widget.SwitchCompat
@@ -333,7 +333,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="TRADING"
-                android:textColor="#9945FF"
+                android:textColor="@color/aate_purple"
                 android:textSize="11sp"
                 android:fontFamily="monospace"
                 android:letterSpacing="0.12"
@@ -366,7 +366,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="MODE"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="10sp"
                         android:fontFamily="monospace"
                         android:layout_marginBottom="4dp"/>
@@ -388,7 +388,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="AUTO TRADE"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="10sp"
                         android:fontFamily="monospace"
                         android:layout_marginBottom="4dp"/>
@@ -418,7 +418,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="STOP LOSS %"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="10sp"
                         android:fontFamily="monospace"
                         android:layout_marginBottom="4dp"/>
@@ -427,7 +427,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="44dp"
                         android:background="@drawable/input_bg"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/aate_text"
                         android:textSize="12sp"
                         android:fontFamily="monospace"
                         android:paddingStart="12dp"
@@ -445,7 +445,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="EXIT SCORE"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="10sp"
                         android:fontFamily="monospace"
                         android:layout_marginBottom="4dp"/>
@@ -454,7 +454,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="44dp"
                         android:background="@drawable/input_bg"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/aate_text"
                         android:textSize="12sp"
                         android:fontFamily="monospace"
                         android:paddingStart="12dp"
@@ -480,7 +480,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="SMALL BUY (SOL)"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="10sp"
                         android:fontFamily="monospace"
                         android:layout_marginBottom="4dp"/>
@@ -489,7 +489,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="44dp"
                         android:background="@drawable/input_bg"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/aate_text"
                         android:textSize="12sp"
                         android:fontFamily="monospace"
                         android:paddingStart="12dp"
@@ -507,7 +507,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="LARGE BUY (SOL)"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="10sp"
                         android:fontFamily="monospace"
                         android:layout_marginBottom="4dp"/>
@@ -516,7 +516,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="44dp"
                         android:background="@drawable/input_bg"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/aate_text"
                         android:textSize="12sp"
                         android:fontFamily="monospace"
                         android:paddingStart="12dp"
@@ -541,7 +541,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="SLIPPAGE BPS"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="10sp"
                         android:fontFamily="monospace"
                         android:layout_marginBottom="4dp"/>
@@ -550,7 +550,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="44dp"
                         android:background="@drawable/input_bg"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/aate_text"
                         android:textSize="12sp"
                         android:fontFamily="monospace"
                         android:paddingStart="12dp"
@@ -568,7 +568,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="POLL SECONDS"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="10sp"
                         android:fontFamily="monospace"
                         android:layout_marginBottom="4dp"/>
@@ -577,7 +577,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="44dp"
                         android:background="@drawable/input_bg"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/aate_text"
                         android:textSize="12sp"
                         android:fontFamily="monospace"
                         android:paddingStart="12dp"
@@ -609,7 +609,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="TOP-UP STRATEGY"
-                    android:textColor="#9945FF"
+                    android:textColor="@color/aate_purple"
                     android:textSize="11sp"
                     android:fontFamily="monospace"
                     android:letterSpacing="0.12"/>
@@ -618,15 +618,15 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:checked="true"
-                    android:thumbTint="#9945FF"
-                    android:trackTint="#1F2937"/>
+                    android:thumbTint="@color/aate_purple"
+                    android:trackTint="@color/aate_text_muted"/>
             </LinearLayout>
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Automatically adds to winning positions. Each add is smaller than the last."
-                android:textColor="#6B7280"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="10sp"
                 android:layout_marginBottom="12dp"/>
 
@@ -647,7 +647,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="FIRST TOP-UP %"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="9sp"
                         android:fontFamily="monospace"
                         android:layout_marginBottom="4dp"/>
@@ -656,7 +656,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="44dp"
                         android:background="@drawable/input_bg"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/aate_text"
                         android:textSize="12sp"
                         android:fontFamily="monospace"
                         android:paddingStart="12dp"
@@ -674,7 +674,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="STEP %"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="9sp"
                         android:fontFamily="monospace"
                         android:layout_marginBottom="4dp"/>
@@ -683,7 +683,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="44dp"
                         android:background="@drawable/input_bg"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/aate_text"
                         android:textSize="12sp"
                         android:fontFamily="monospace"
                         android:paddingStart="12dp"
@@ -707,7 +707,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="MAX TOP-UPS"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="9sp"
                         android:fontFamily="monospace"
                         android:layout_marginBottom="4dp"/>
@@ -716,7 +716,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="44dp"
                         android:background="@drawable/input_bg"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/aate_text"
                         android:textSize="12sp"
                         android:fontFamily="monospace"
                         android:paddingStart="12dp"
@@ -734,7 +734,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="MAX SOL"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="9sp"
                         android:fontFamily="monospace"
                         android:layout_marginBottom="4dp"/>
@@ -743,7 +743,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="44dp"
                         android:background="@drawable/input_bg"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/aate_text"
                         android:textSize="12sp"
                         android:fontFamily="monospace"
                         android:paddingStart="12dp"
@@ -768,7 +768,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="API KEYS"
-                android:textColor="#9945FF"
+                android:textColor="@color/aate_purple"
                 android:textSize="11sp"
                 android:fontFamily="monospace"
                 android:letterSpacing="0.12"
@@ -778,7 +778,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="All keys are FREE. Tap labels for signup links."
-                android:textColor="#4B5563"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="9sp"
                 android:fontFamily="monospace"
                 android:layout_marginBottom="12dp"/>
@@ -788,7 +788,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="RPC URL"
-                android:textColor="#6B7280"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="10sp"
                 android:fontFamily="monospace"
                 android:layout_marginBottom="4dp"/>
@@ -797,8 +797,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
                 android:background="@drawable/input_bg"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#374151"
+                android:textColor="@color/aate_text"
+                android:textColorHint="@color/aate_text_muted"
                 android:textSize="11sp"
                 android:fontFamily="monospace"
                 android:hint="https://api.mainnet-beta.solana.com"
@@ -811,7 +811,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="TREASURY WALLET ADDRESS"
-                android:textColor="#6B7280"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="10sp"
                 android:fontFamily="monospace"
                 android:layout_marginBottom="4dp"/>
@@ -820,8 +820,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
                 android:background="@drawable/input_bg"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#374151"
+                android:textColor="@color/aate_text"
+                android:textColorHint="@color/aate_text_muted"
                 android:textSize="11sp"
                 android:fontFamily="monospace"
                 android:hint="optional public SOL address for treasury splits"
@@ -836,7 +836,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="HELIUS KEY - helius.dev"
-                android:textColor="#14F195"
+                android:textColor="@color/aate_green"
                 android:textSize="10sp"
                 android:fontFamily="monospace"
                 android:layout_marginBottom="4dp"/>
@@ -845,8 +845,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
                 android:background="@drawable/input_bg"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#374151"
+                android:textColor="@color/aate_text"
+                android:textColorHint="@color/aate_text_muted"
                 android:textSize="12sp"
                 android:fontFamily="monospace"
                 android:hint="paste helius api key..."
@@ -860,7 +860,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="BIRDEYE KEY - birdeye.so"
-                android:textColor="#14F195"
+                android:textColor="@color/aate_green"
                 android:textSize="10sp"
                 android:fontFamily="monospace"
                 android:layout_marginBottom="4dp"/>
@@ -869,8 +869,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
                 android:background="@drawable/input_bg"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#374151"
+                android:textColor="@color/aate_text"
+                android:textColorHint="@color/aate_text_muted"
                 android:textSize="12sp"
                 android:fontFamily="monospace"
                 android:hint="paste birdeye api key..."
@@ -884,7 +884,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="GROQ KEY - console.groq.com"
-                android:textColor="#14F195"
+                android:textColor="@color/aate_green"
                 android:textSize="10sp"
                 android:fontFamily="monospace"
                 android:layout_marginBottom="4dp"/>
@@ -893,8 +893,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
                 android:background="@drawable/input_bg"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#374151"
+                android:textColor="@color/aate_text"
+                android:textColorHint="@color/aate_text_muted"
                 android:textSize="12sp"
                 android:fontFamily="monospace"
                 android:hint="paste groq api key..."
@@ -908,7 +908,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="GEMINI KEY - aistudio.google.com"
-                android:textColor="#6B7280"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="10sp"
                 android:fontFamily="monospace"
                 android:layout_marginBottom="4dp"/>
@@ -917,8 +917,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
                 android:background="@drawable/input_bg"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#374151"
+                android:textColor="@color/aate_text"
+                android:textColorHint="@color/aate_text_muted"
                 android:textSize="12sp"
                 android:fontFamily="monospace"
                 android:hint="paste gemini api key..."
@@ -932,7 +932,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="ELEVENLABS KEY - elevenlabs.io/app/settings/api-keys"
-                android:textColor="#6B7280"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="10sp"
                 android:fontFamily="monospace"
                 android:layout_marginBottom="4dp"/>
@@ -941,8 +941,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
                 android:background="@drawable/input_bg"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#374151"
+                android:textColor="@color/aate_text"
+                android:textColorHint="@color/aate_text_muted"
                 android:textSize="12sp"
                 android:fontFamily="monospace"
                 android:hint="paste elevenlabs api key..."
@@ -956,7 +956,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="JUPITER KEY - portal.jup.ag"
-                android:textColor="#6B7280"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="10sp"
                 android:fontFamily="monospace"
                 android:layout_marginBottom="4dp"/>
@@ -965,8 +965,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
                 android:background="@drawable/input_bg"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#374151"
+                android:textColor="@color/aate_text"
+                android:textColorHint="@color/aate_text_muted"
                 android:textSize="12sp"
                 android:fontFamily="monospace"
                 android:hint="paste jupiter api key..."
@@ -989,7 +989,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="TELEGRAM ALERTS"
-                android:textColor="#9945FF"
+                android:textColor="@color/aate_purple"
                 android:textSize="11sp"
                 android:fontFamily="monospace"
                 android:letterSpacing="0.12"
@@ -999,7 +999,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Message @BotFather to create bot, then get chat ID"
-                android:textColor="#4B5563"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="9sp"
                 android:fontFamily="monospace"
                 android:layout_marginBottom="12dp"/>
@@ -1008,7 +1008,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="BOT TOKEN"
-                android:textColor="#6B7280"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="10sp"
                 android:fontFamily="monospace"
                 android:layout_marginBottom="4dp"/>
@@ -1017,8 +1017,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
                 android:background="@drawable/input_bg"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#374151"
+                android:textColor="@color/aate_text"
+                android:textColorHint="@color/aate_text_muted"
                 android:textSize="12sp"
                 android:fontFamily="monospace"
                 android:hint="paste bot token..."
@@ -1030,7 +1030,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="CHAT ID"
-                android:textColor="#6B7280"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="10sp"
                 android:fontFamily="monospace"
                 android:layout_marginBottom="4dp"/>
@@ -1039,8 +1039,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
                 android:background="@drawable/input_bg"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#374151"
+                android:textColor="@color/aate_text"
+                android:textColorHint="@color/aate_text_muted"
                 android:textSize="12sp"
                 android:fontFamily="monospace"
                 android:hint="paste chat id..."
@@ -1063,7 +1063,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="ALERTS &amp; SOUNDS"
-                android:textColor="#9945FF"
+                android:textColor="@color/aate_purple"
                 android:textSize="11sp"
                 android:fontFamily="monospace"
                 android:letterSpacing="0.12"
@@ -1085,13 +1085,13 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Push Notifications"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/aate_text"
                         android:textSize="13sp"/>
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Trade alerts, signals, updates"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="10sp"/>
                 </LinearLayout>
                 <androidx.appcompat.widget.SwitchCompat
@@ -1099,8 +1099,8 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:checked="true"
-                    android:thumbTint="#9945FF"
-                    android:trackTint="#374151"/>
+                    android:thumbTint="@color/aate_purple"
+                    android:trackTint="@color/aate_text_muted"/>
             </LinearLayout>
 
             <!-- Sounds Toggle -->
@@ -1119,13 +1119,13 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Sound Effects"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/aate_text"
                         android:textSize="13sp"/>
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Audio for buy/sell executions"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="10sp"/>
                 </LinearLayout>
                 <androidx.appcompat.widget.SwitchCompat
@@ -1133,8 +1133,8 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:checked="true"
-                    android:thumbTint="#14F195"
-                    android:trackTint="#374151"/>
+                    android:thumbTint="@color/aate_green"
+                    android:trackTint="@color/aate_text_muted"/>
             </LinearLayout>
 
             <!-- Dark Mode Toggle -->
@@ -1152,13 +1152,13 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Dark Mode"
-                        android:textColor="#FFFFFF"
+                        android:textColor="@color/aate_text"
                         android:textSize="13sp"/>
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Switch to light theme"
-                        android:textColor="#6B7280"
+                        android:textColor="@color/aate_text_muted"
                         android:textSize="10sp"/>
                 </LinearLayout>
                 <androidx.appcompat.widget.SwitchCompat
@@ -1166,8 +1166,8 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:checked="true"
-                    android:thumbTint="#14F195"
-                    android:trackTint="#374151"/>
+                    android:thumbTint="@color/aate_green"
+                    android:trackTint="@color/aate_text_muted"/>
             </LinearLayout>
         </LinearLayout>
 
@@ -1186,7 +1186,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="AI SCORING MODE"
-                android:textColor="#9945FF"
+                android:textColor="@color/aate_purple"
                 android:textSize="11sp"
                 android:fontFamily="monospace"
                 android:letterSpacing="0.12"
@@ -1196,7 +1196,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Which scoring engine the bot uses to rank candidates. Restart bot after change."
-                android:textColor="#6B7280"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="10sp"
                 android:layout_marginBottom="10dp"/>
 
@@ -1204,7 +1204,7 @@
                 android:id="@+id/spScoringMode"
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
-                android:backgroundTint="#374151"
+                android:backgroundTint="@color/aate_stroke_soft"
                 android:layout_marginBottom="6dp"/>
 
             <TextView
@@ -1212,7 +1212,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="CLASSIC (20-layer build ~1920) — production default. Symmetric trust + polarity self-heal."
-                android:textColor="#9CA3AF"
+                android:textColor="@color/aate_text_secondary"
                 android:textSize="10sp"
                 android:fontFamily="monospace"/>
         </LinearLayout>
@@ -1232,7 +1232,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="WATCHLIST"
-                android:textColor="#9945FF"
+                android:textColor="@color/aate_purple"
                 android:textSize="11sp"
                 android:fontFamily="monospace"
                 android:letterSpacing="0.12"
@@ -1242,7 +1242,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Comma separated mint addresses"
-                android:textColor="#4B5563"
+                android:textColor="@color/aate_text_muted"
                 android:textSize="9sp"
                 android:fontFamily="monospace"
                 android:layout_marginBottom="8dp"/>
@@ -1252,8 +1252,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:background="@drawable/input_bg"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#374151"
+                android:textColor="@color/aate_text"
+                android:textColorHint="@color/aate_text_muted"
                 android:textSize="12sp"
                 android:fontFamily="monospace"
                 android:hint="mint1, mint2..."
@@ -1271,10 +1271,10 @@
             android:layout_width="match_parent"
             android:layout_height="48dp"
             android:text="Save Settings"
-            android:textColor="#FFFFFF"
+            android:textColor="@color/aate_text"
             android:textStyle="bold"
             android:textSize="14sp"
-            android:backgroundTint="#9945FF"
+            android:backgroundTint="@color/aate_purple"
             android:layout_marginBottom="8dp"/>
 
         <LinearLayout
@@ -1290,10 +1290,10 @@
                 android:layout_height="44dp"
                 android:layout_marginEnd="4dp"
                 android:text="Export"
-                android:textColor="#14F195"
+                android:textColor="@color/aate_green"
                 android:textStyle="bold"
                 android:textSize="12sp"
-                android:backgroundTint="#1F2937"/>
+                android:backgroundTint="@color/aate_surface_3"/>
                 
             <Button
                 android:id="@+id/btnImportData"
@@ -1302,10 +1302,10 @@
                 android:layout_height="44dp"
                 android:layout_marginStart="4dp"
                 android:text="Import"
-                android:textColor="#3B82F6"
+                android:textColor="@color/aate_blue"
                 android:textStyle="bold"
                 android:textSize="12sp"
-                android:backgroundTint="#1F2937"/>
+                android:backgroundTint="@color/aate_surface_3"/>
         </LinearLayout>
 
         <Button
@@ -1313,10 +1313,10 @@
             android:layout_width="match_parent"
             android:layout_height="44dp"
             android:text="Clear All API Keys"
-            android:textColor="#EF4444"
+            android:textColor="@color/aate_red"
             android:textStyle="bold"
             android:textSize="12sp"
-            android:backgroundTint="#1F2937"
+            android:backgroundTint="@color/aate_surface_3"
             android:layout_marginBottom="8dp"/>
 
         <Button
@@ -1324,10 +1324,10 @@
             android:layout_width="match_parent"
             android:layout_height="44dp"
             android:text="Test Toast Notifications"
-            android:textColor="#10B981"
+            android:textColor="@color/aate_green"
             android:textStyle="bold"
             android:textSize="12sp"
-            android:backgroundTint="#1F2937"
+            android:backgroundTint="@color/aate_surface_3"
             android:layout_marginBottom="24dp"/>
 
     </LinearLayout>
