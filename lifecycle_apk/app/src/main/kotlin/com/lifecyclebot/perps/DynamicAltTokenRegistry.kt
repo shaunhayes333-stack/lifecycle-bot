@@ -650,7 +650,44 @@ object DynamicAltTokenRegistry {
 
     // ─── Public getters ───────────────────────────────────────────────────────
 
+    // V5.0.6905 §THE_SORT_RAN_EVEN_WHEN_THE_RENDER_WAS_SKIPPED.
+    //
+    // CryptoAltActivity.renderTokenList calls this FIRST, before its own
+    // content-diff early-out, so a full copy plus sort of the whole registry
+    // was paid on every render pass including the skipped ones. That registry
+    // reached 3896 identities in operator 5.0.6899 (up from 938 — the
+    // V5.0.6894 lite-api token-list migration populates it far more densely
+    // than the dead token.jup.ag endpoint did, so this got materially worse
+    // because of that fix).
+    //
+    // A short-TTL memo collapses the repeat cost to a map lookup. 900ms is
+    // deliberately just under the caller's 1Hz UiRefreshGate cadence: a genuine
+    // refresh still recomputes, while the duplicate calls inside a single
+    // render pass — and any second consumer on the same tick — are free.
+    // Deliberately NOT keyed on a mutation revision: prices update constantly,
+    // so a revision key would invalidate on every tick and memoise nothing.
+    // A sort order up to 900ms stale is invisible in a 1Hz list.
+    private data class SortMemo6905(val sortBy: SortMode, val atMs: Long, val rows: List<DynToken>)
+    @Volatile private var sortMemo6905: SortMemo6905? = null
+    private const val SORT_MEMO_TTL_MS_6905 = 900L
+
     fun getAllTokens(sortBy: SortMode = SortMode.QUALITY): List<DynToken> {
+        val nowMemo6905 = System.currentTimeMillis()
+        sortMemo6905?.let { m ->
+            if (m.sortBy == sortBy && nowMemo6905 - m.atMs < SORT_MEMO_TTL_MS_6905) {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector
+                        .labelInc("DYN_TOKEN_SORT_MEMO_HIT_6905")
+                } catch (_: Throwable) {}
+                return m.rows
+            }
+        }
+        val sorted6905 = sortAllTokens6905(sortBy)
+        sortMemo6905 = SortMemo6905(sortBy, nowMemo6905, sorted6905)
+        return sorted6905
+    }
+
+    private fun sortAllTokens6905(sortBy: SortMode): List<DynToken> {
         val all = registry.values.toList()
         return when (sortBy) {
             SortMode.QUALITY  -> all.sortedByDescending { it.opportunityScore6544 }

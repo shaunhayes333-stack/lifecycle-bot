@@ -125,7 +125,14 @@ class CryptoAltActivity : AppCompatActivity() {
     private var scannerSector    = "All"
     private var scannerSearch    = ""
     private var scannerPage      = 0
-    private val PAGE_SIZE        = 75
+    // V5.0.6905 — was 75. Each rendered page rebuilds PAGE_SIZE rows PLUS
+    // PAGE_SIZE dividers from scratch, so 75 meant 150 view inflations with
+    // full text measurement per render. Operator 5.0.6899 measured the result:
+    // stall=27.5% of uptime, maxFrameGap=59454ms, with
+    // CryptoAltActivity.renderTokenList and buildDynTokenRow as the top two
+    // blocking sites. 25 keeps the list useful (pagination is unchanged, there
+    // are simply more pages) at a third of the view churn.
+    private val PAGE_SIZE        = 25
 
     // V5.0.6373 — CONTENT-DIFF SKIP for renderTokenList (source-of-creation
     // ANR cure). Operator snapshot ranked CryptoAltActivity.buildDynTokenRow
@@ -1876,6 +1883,21 @@ class CryptoAltActivity : AppCompatActivity() {
     // Token list anchor tag — we re-add from this index
     private var tokenListStartIdx = -1
 
+    /**
+     * V5.0.6905 — log-bucket a price into ~0.25% relative steps.
+     *
+     * Relative rather than absolute because this registry spans identities
+     * priced from 7.4e-11 to 1602.22 in the same list; a fixed epsilon is
+     * meaningless across that range. 0.25% is finer than any row displays, so
+     * quantising cannot hide a visible change, and it is coarse enough that
+     * ordinary feed jitter no longer forces a 150-view teardown.
+     */
+    private fun quantisePriceForRender6905(v: Double): Long {
+        if (!v.isFinite() || v == 0.0) return 0L
+        val a = kotlin.math.abs(v)
+        return Math.round(kotlin.math.ln(a) / kotlin.math.ln(1.0025))
+    }
+
     private fun renderTokenList() {
         // V5.9.1323 — UI Refresh Throttle Gate (P0-1 surgical).
         // Operator §1: full token list rebuilds were hammering the main thread
@@ -1915,11 +1937,27 @@ class CryptoAltActivity : AppCompatActivity() {
             h = h * 31 + scannerSearch.hashCode().toLong()
             h = h * 31 + scannerPage.toLong()
             h = h * 31 + total6373.toLong()
+            // V5.0.6905 §THE_EARLY_OUT_COULD_NEVER_FIRE.
+            //
+            // This hash existed to skip the whole remove-and-rebuild pass when
+            // nothing visible changed, and it never skipped once:
+            // CRYPTO_ALT_TOKEN_LIST_RENDER_SKIPPED_6373 is absent from the
+            // 5.0.6899 counters entirely. The reason is doubleToLongBits on raw
+            // prices — every live tick on any one of the rows changes the hash
+            // by a fraction the row does not even render, so the guard was
+            // invalidated continuously and 150 views were rebuilt at 1Hz.
+            //
+            // Quantising to buckets coarser than the display means the hash
+            // changes only when the rendered output would actually differ. The
+            // list still updates on real moves; it stops rebuilding itself over
+            // feed jitter.
             for (t in page6373) {
                 h = h * 31 + t.symbol.hashCode().toLong()
-                h = h * 31 + java.lang.Double.doubleToLongBits(t.price)
-                h = h * 31 + java.lang.Double.doubleToLongBits(t.priceChange24h)
-                h = h * 31 + java.lang.Double.doubleToLongBits(t.mcap)
+                h = h * 31 + quantisePriceForRender6905(t.price)
+                // priceChange renders to one decimal, so bucket at 0.1
+                h = h * 31 + Math.round(t.priceChange24h * 10.0)
+                // mcap renders in whole dollars at most
+                h = h * 31 + Math.round(t.mcap)
             }
             h
         }
