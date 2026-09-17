@@ -41,9 +41,87 @@ object PriceResolverFallback {
      *  survives between resolves. See the note at the DexScreener step. */
     private val sharedDexscreener6894 by lazy { DexscreenerApi() }
 
-    enum class Source { DEXSCREENER, GECKOTERMINAL, JUPITER, CACHED, ENTRY, UNKNOWN }
+    enum class Source {
+        DEXSCREENER, GECKOTERMINAL, JUPITER, CACHED, ENTRY, UNKNOWN,
+        // V5.0.6914 — three additional keyless sources. See §6914 below.
+        JUPITER_PRICE, RAYDIUM, PUMPFUN,
+    }
 
     data class Resolved(val priceUsd: Double, val source: Source)
+
+    /**
+     * V5.0.6914 §COVERAGE_AND_ORDER_ARE_BOTH_THE_PROBLEM.
+     *
+     * OPERATOR EVIDENCE (5.0.6911 outage snapshot):
+     *
+     *   dexscreener    sr=  0%  s=0  4xx=10  5xx=62     <- scanner-critical, dead
+     *   dexpaprika     sr=  0%  5xx=30, HTTP 402         <- now a paid product
+     *   birdeye        sr=  0%  401                      <- key dead
+     *   geckoterminal  sr= 66%
+     *   jupiter        sr=100%  ·  pumpfun sr=90%
+     *
+     * Operator: "we need better free reliable token source coverage."
+     *
+     * Two separate defects, both fixed here.
+     *
+     * COVERAGE. This chain had three live sources: DexScreener, GeckoTerminal,
+     * and a Jupiter *quote* probe. When DexScreener died and GeckoTerminal sat
+     * at 66%, everything funnelled onto the quote probe — the most expensive
+     * option in the set, because it needs a route to exist AND the token's
+     * decimals to be right (it guesses 6 when unknown, and the archive reports
+     * decimals known 0/2518). Three more keyless sources are added:
+     *
+     *   JUPITER_PRICE  lite-api.jup.ag/price/v3   — jupiter is the healthiest
+     *                  host in the fleet at 100%, and its direct price endpoint
+     *                  needs no route simulation and no decimals. It was
+     *                  already used by PriceAggregator/AlternativeOracles and
+     *                  simply never reached the meme sell path.
+     *   RAYDIUM        api-v3.raydium.io/mint/price — native #1 Solana DEX,
+     *                  best long-tail coverage for graduated memes. Also
+     *                  already in the repo (PriceAggregator §6065), also only
+     *                  on the perps path.
+     *   PUMPFUN        frontend-api-v3.pump.fun/coins/<mint> — authoritative
+     *                  for PRE-graduation bonding-curve tokens, which are the
+     *                  majority of this bot's intake (306 of 519 this session
+     *                  came from PUMP_PORTAL_WS). DexScreener frequently has
+     *                  no pair at all for these, so this covers the exact gap
+     *                  the other sources cannot.
+     *
+     * Every URL here is one this repository already calls in another code
+     * path, with the same parse shape, rather than an endpoint invented from
+     * memory — this environment's egress policy denies these hosts (403 on
+     * CONNECT) so they could not be probed live from the build host.
+     *
+     * ORDER. The chain was a hardcoded sequence with DexScreener first,
+     * unconditionally. During its outage every single resolve paid a full
+     * failing round-trip to a host known to be at 0% before falling through —
+     * per position, per tick. Health data to avoid that already existed in
+     * ApiHealthMonitor and nothing consulted it here.
+     *
+     * Sources are now tried in descending measured health, with
+     * circuit-broken hosts demoted behind everything else rather than
+     * removed: a breaker can be wrong, and a demoted source is still tried
+     * before the chain gives up and returns a cached or entry price. An
+     * unsampled host reports 1.0 (see ApiHealthMonitor.successRate) so a
+     * provider that has not been called yet is optimistically ranked, which is
+     * what lets a fresh boot discover the fleet instead of freezing an order.
+     */
+    private data class Candidate6914(
+        val source: Source,
+        val host: String,
+        val label: String,
+        val fetch: () -> Double,
+    )
+
+    /** Health score used for ordering. Circuit-broken hosts are demoted. */
+    private fun healthScore6914(host: String): Double {
+        if (host.isBlank()) return 1.0
+        return try {
+            val broken = com.lifecyclebot.engine.ApiHealthMonitor.isCircuitBroken(host)
+            val sr = com.lifecyclebot.engine.ApiHealthMonitor.successRate(host)
+            if (broken) sr - 10.0 else sr
+        } catch (_: Throwable) { 1.0 }
+    }
 
     /**
      * @param mint            token mint (Solana)
@@ -55,40 +133,51 @@ object PriceResolverFallback {
     fun resolve(mint: String, solUsdHint: Double): Resolved? {
         if (mint.isBlank()) return null
 
-        // 1. DexScreener (keyless, 300 req/min, healthiest host in the fleet)
-        try {
-            // V5.0.6894 — was `DexscreenerApi()`, a FRESH instance per call.
-            // DexscreenerApi holds its 45s pairCache as instance state, so
-            // constructing one per resolve threw the cache away every time and
-            // made this fallback re-hit the network for a mint it had just
-            // priced. One shared instance restores the cache the class was
-            // built around.
-            val price = sharedDexscreener6894.getBestPair(mint)?.candle?.priceUsd ?: 0.0
-            if (price > 0.0) {
-                cache[mint] = Cached(price, "DEXSCREENER", System.currentTimeMillis())
-                return Resolved(price, Source.DEXSCREENER)
-            }
-        } catch (_: Throwable) { /* fall through */ }
+        // V5.0.6914 — six keyless sources, tried in descending measured health.
+        // The DexScreener step keeps the V5.0.6894 shared instance so its 45s
+        // pairCache survives between resolves (a fresh instance per call threw
+        // the cache away and re-hit the network for a mint it had just priced).
+        val candidates6914 = listOf(
+            Candidate6914(Source.DEXSCREENER, "dexscreener", "DEXSCREENER") {
+                sharedDexscreener6894.getBestPair(mint)?.candle?.priceUsd ?: 0.0
+            },
+            Candidate6914(Source.JUPITER_PRICE, "jupiter", "JUPITER_PRICE") {
+                fetchJupiterLitePrice6914(mint)
+            },
+            Candidate6914(Source.RAYDIUM, "raydium", "RAYDIUM") {
+                fetchRaydiumPrice6914(mint)
+            },
+            Candidate6914(Source.PUMPFUN, "pumpfun", "PUMPFUN") {
+                fetchPumpFunPrice6914(mint)
+            },
+            Candidate6914(Source.GECKOTERMINAL, "geckoterminal", "GECKOTERMINAL") {
+                fetchGeckoTerminalPrice(mint)
+            },
+            // Quote-derived is intentionally last among the live sources: it is
+            // the only one that needs a route to exist AND the token's decimals
+            // to be correct, and it guesses 6 when they are unknown.
+            Candidate6914(Source.JUPITER, "jupiter_quote", "JUPITER") {
+                if (solUsdHint > 0.0) fetchJupiterDerivedPrice(mint, solUsdHint) else 0.0
+            },
+        ).sortedByDescending { healthScore6914(it.host) }
 
-        // 2. GeckoTerminal
-        try {
-            val price = fetchGeckoTerminalPrice(mint)
-            if (price > 0.0) {
-                cache[mint] = Cached(price, "GECKOTERMINAL", System.currentTimeMillis())
-                return Resolved(price, Source.GECKOTERMINAL)
-            }
-        } catch (_: Throwable) { /* fall through */ }
-
-        // 3. Jupiter quote-derived: quote 1 unit of token → SOL, multiply by SOL/USD.
-        try {
-            if (solUsdHint > 0.0) {
-                val price = fetchJupiterDerivedPrice(mint, solUsdHint)
-                if (price > 0.0) {
-                    cache[mint] = Cached(price, "JUPITER", System.currentTimeMillis())
-                    return Resolved(price, Source.JUPITER)
+        for (c in candidates6914) {
+            try {
+                val price = c.fetch()
+                if (price > 0.0 && price.isFinite()) {
+                    cache[mint] = Cached(price, c.label, System.currentTimeMillis())
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector
+                            .labelInc("PRICE_FALLBACK_RESOLVED_6914_${c.label}")
+                    } catch (_: Throwable) {}
+                    return Resolved(price, c.source)
                 }
-            }
-        } catch (_: Throwable) { /* fall through */ }
+            } catch (_: Throwable) { /* try the next source */ }
+        }
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector
+                .labelInc("PRICE_FALLBACK_ALL_LIVE_SOURCES_FAILED_6914")
+        } catch (_: Throwable) {}
 
         // 4. In-process cache (last good)
         cache[mint]?.let { c ->
@@ -158,6 +247,99 @@ object PriceResolverFallback {
         val solOut = quote.outAmount / 1_000_000_000.0
         if (solOut <= 0.0) return 0.0
         return solOut * solUsdHint
+    }
+
+    /**
+     * V5.0.6914 — shared request/health wrapper for the new keyless sources.
+     *
+     * Every new source records into ApiHealthMonitor under its own host name.
+     * That is what makes the health ordering above self-correcting: a source
+     * whose endpoint is wrong or whose upstream dies simply accumulates
+     * failures and sinks to the back of the chain, and shows up as a dead
+     * provider in the operator's API health table instead of silently costing
+     * a round-trip forever. It also means a bad URL degrades this resolver
+     * rather than breaking it.
+     */
+    private fun getJson6914(host: String, url: String): JSONObject? {
+        val started = System.currentTimeMillis()
+        val request = Request.Builder()
+            .url(url)
+            .header("Accept", "application/json")
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Pixel 8)")
+            .build()
+        return try {
+            httpClient.newCall(request).execute().use { resp ->
+                try {
+                    com.lifecyclebot.engine.ApiHealthMonitor
+                        .record(host, resp.code, System.currentTimeMillis() - started)
+                } catch (_: Throwable) {}
+                if (!resp.isSuccessful) return null
+                val body = resp.body?.string() ?: return null
+                if (body.isBlank()) return null
+                JSONObject(body)
+            }
+        } catch (e: Throwable) {
+            try {
+                com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError(host, e.message)
+            } catch (_: Throwable) {}
+            null
+        }
+    }
+
+    /**
+     * V5.0.6914 — Jupiter Price v3, keyless. Shape mirrors
+     * PriceAggregator.fetchJupiterLite exactly, including the v3/v2 tolerance:
+     *   v3: {"<mint>":{"usdPrice":1.23,...}}         (unwrapped, numeric)
+     *   v2: {"data":{"<mint>":{"price":"1.23",...}}}  (wrapped, string)
+     * No route simulation and no decimals needed, which is why it is preferred
+     * over the quote probe.
+     */
+    private fun fetchJupiterLitePrice6914(mint: String): Double {
+        val json = getJson6914("jupiter", "https://lite-api.jup.ag/price/v3?ids=$mint") ?: return 0.0
+        val obj = json.optJSONObject(mint)
+            ?: json.optJSONObject("data")?.optJSONObject(mint)
+            ?: return 0.0
+        val v3 = obj.optDouble("usdPrice", Double.NaN)
+        if (v3.isFinite() && v3 > 0.0) return v3
+        return obj.optString("price", "0").toDoubleOrNull() ?: 0.0
+    }
+
+    /**
+     * V5.0.6914 — Raydium v3 keyless mint price. Shape mirrors
+     * PriceAggregator.fetchRaydiumV3 (§6065): {"data":{"<mint>":"1.23"}}.
+     * Native #1 Solana DEX, so this is the best long-tail coverage for
+     * graduated memes that DexScreener has not indexed yet.
+     */
+    private fun fetchRaydiumPrice6914(mint: String): Double {
+        val json = getJson6914("raydium", "https://api-v3.raydium.io/mint/price?mints=$mint") ?: return 0.0
+        val data = json.optJSONObject("data") ?: return 0.0
+        return data.optString(mint, "0").toDoubleOrNull() ?: 0.0
+    }
+
+    /**
+     * V5.0.6914 — pump.fun frontend, keyless. Authoritative for PRE-graduation
+     * bonding-curve tokens, which DexScreener often has no pair for at all.
+     *
+     * UNIT NOTE, carried verbatim from the existing BotService derivation so
+     * the two agree: pump.fun's own `price` field is denominated in SOL, not
+     * USD, so USD price must be derived as usd_market_cap / total_supply. That
+     * derivation is already live in this codebase and already writes
+     * ts.lastPrice under source PUMP_FUN_FRONTEND_API, so reusing it keeps one
+     * definition rather than introducing a second. Supply defaults to the
+     * pump.fun standard 1B when absent or non-positive.
+     */
+    private fun fetchPumpFunPrice6914(mint: String): Double {
+        val original = "https://frontend-api-v3.pump.fun/coins/$mint"
+        val url = try {
+            com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(original)
+        } catch (_: Throwable) { original }
+        val json = getJson6914("pumpfun", url) ?: return 0.0
+        val mcap = json.optDouble("usd_market_cap", 0.0)
+        if (!mcap.isFinite() || mcap <= 0.0) return 0.0
+        val supply = json.optDouble("total_supply", 1_000_000_000.0)
+            .let { if (!it.isFinite() || it <= 0.0) 1_000_000_000.0 else it }
+        val price = mcap / supply
+        return if (price.isFinite() && price > 0.0) price else 0.0
     }
 
     /** Test/diagnostic accessor: snapshot of in-memory cache. */

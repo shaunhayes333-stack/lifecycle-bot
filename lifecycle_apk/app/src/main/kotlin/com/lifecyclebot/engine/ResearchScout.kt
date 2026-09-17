@@ -15,6 +15,13 @@ object ResearchScout {
         COINGECKO_ONCHAIN_FREE,
         SOCIAL_FREE,
         MANUAL_OPERATOR,
+        // V5.0.6914 — additional keyless price surfaces now on the meme sell
+        // fallback chain. Declared here so FreeDataSourceRegistry can list what
+        // the bot actually uses; the registry had no entry for either even
+        // though both URLs already existed elsewhere in the codebase.
+        JUPITER_PRICE_FREE,
+        RAYDIUM_V3_FREE,
+        PUMPFUN_FRONTEND_FREE,
     }
     enum class FindingKind { LIQUIDITY_SHIFT, HOLDER_RISK, LP_RISK, SOCIAL_SPIKE, SOURCE_CONTRADICTION, CLEAN_CONFIRMATION }
 

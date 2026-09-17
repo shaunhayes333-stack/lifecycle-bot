@@ -343,10 +343,14 @@ object LiveWalletReconciler {
                     updated++
                 }
                 val price = try {
-                    // V5.9.495z48 — operator P0 (Message 472): full fallback chain
-                    // (DexScreener → GeckoTerminal → Jupiter → cached → entry).
+                    // V5.9.495z48 — operator P0 (Message 472): full fallback chain.
                     // Prevents stop-losses and trailing stops from silently failing
                     // when one source has an outage.
+                    // V5.0.6914 — the chain is no longer a fixed
+                    // DexScreener → GeckoTerminal → Jupiter sequence. It is six
+                    // keyless sources (DexScreener, Jupiter price v3, Raydium v3,
+                    // pump.fun, GeckoTerminal, Jupiter quote) tried in descending
+                    // measured health, then cached, then entry.
                     val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice }
                                  catch (_: Throwable) { 0.0 }
                     val resolved = PriceResolverFallback.resolve(mint, solUsd)
