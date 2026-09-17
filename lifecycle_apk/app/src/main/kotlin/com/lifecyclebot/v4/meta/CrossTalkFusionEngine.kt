@@ -179,15 +179,39 @@ object CrossTalkFusionEngine {
         }
 
         // 10. Per-market caps
+        // V5.0.6873 §PER_MARKET_CAPS_FILTERED_ON_KEYS_THAT_CANNOT_MATCH — both
+        // filters below were structural never-matches for the market that carries
+        // almost all the volume.
+        //
+        // fragilityMap is keyed by `signal.symbol ?: signal.market`, and every
+        // fragility publisher passes a symbol — a meme ticker like BONK. So
+        // `key.startsWith("MEME") || key == "MEME"` matched nothing, and
+        // perMarketCaps["MEME"].confidenceCap was computed from fragility 0.0 no
+        // matter how fragile the book actually was. The signals already carry their
+        // own `market` field, so aggregate on that instead of guessing from the key.
+        //
+        // strategyTrust is keyed by strategy name — "CryptoAltAI", "ForexAI",
+        // "MetalsAI", "TokenizedStockAI", and for memes the lane names that
+        // TradeLessonRecorder records (MOONSHOT_*, SHITCOIN, STANDARD, ...). None
+        // contains the literal "MEME", so that filter also matched nothing and every
+        // meme sizeCap fell to the hardcoded 0.5. Fall back to the overall trust mean
+        // rather than a constant, so an empty per-market match degrades to real
+        // evidence instead of a made-up number.
+        val overallTrust6873 = strategyTrust.values.average().takeIf { !it.isNaN() } ?: 0.5
         val perMarketCaps = mutableMapOf<String, MarketCap>()
         for (market in listOf("MEME", "STOCKS", "PERPS", "FOREX", "METALS", "COMMODITIES")) {
-            val fragility = fragilityMap.entries
-                .filter { it.key.startsWith(market) || it.key == market }
-                .map { it.value }.maxOrNull() ?: 0.0
+            val fragility = liveSignals
+                .filter { it.market.equals(market, ignoreCase = true) }
+                .mapNotNull { it.fragilityScore }
+                .maxOrNull()
+                ?: fragilityMap.entries
+                    .filter { it.key.startsWith(market, ignoreCase = true) || it.key.equals(market, ignoreCase = true) }
+                    .map { it.value }.maxOrNull()
+                ?: 0.0
 
             val trust = strategyTrust.entries
                 .filter { it.key.contains(market, ignoreCase = true) }
-                .map { it.value }.average().takeIf { !it.isNaN() } ?: 0.5
+                .map { it.value }.average().takeIf { !it.isNaN() } ?: overallTrust6873
 
             perMarketCaps[market] = MarketCap(
                 market = market,
