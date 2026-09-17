@@ -21979,7 +21979,21 @@ if (hotExitHandledSweep) {
     if (!ts.position.isOpen) {
         val candidateVersion6487 = LaneExecutionCoordinator.candidateVersionFor(identity.mint)
         val preEntry6487 = try {
-            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.gate(cyclePrimaryLane, identity.mint, 1.0)
+            // V5.0.6909 — the PRIMARY admission producer. This decision is
+            // cached into ExecutableOpenGate via recordEntryAuthority6487
+            // below and is what the exec gate later reads, so routing it
+            // through the learned overload is what actually gives
+            // LearnedAdmissionAuthority6846 a vote. It had none: this site
+            // called the 3-arg gate(), which only consults the losing-streak
+            // damper. See LearnedAdmissionInputs6909.
+            com.lifecyclebot.engine.truth.LearnedAdmissionInputs6909.gate(
+                lane = cyclePrimaryLane,
+                mint = identity.mint,
+                requestedSizeSol = 1.0,
+                entryScore = ExecutableOpenGate.entryScoreFor6909(identity.mint),
+                minExecutableSol = 0.0,
+                probeSizeSol = 1.0,
+            )
         } catch (_: Throwable) {
             com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Decision(
                 com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.DENY_LOSING_STREAK, 0.0, "gate_error_fail_closed_6487",

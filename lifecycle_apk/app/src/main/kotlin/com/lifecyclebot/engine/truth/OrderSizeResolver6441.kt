@@ -99,6 +99,23 @@ object OrderSizeResolver6441 {
      */
     const val DEFAULT_LANE_RISK_CAP_SOL = 5.0
 
+    /**
+     * V5.0.6909 — conviction below which a SUB-MINIMUM request is refused
+     * rather than promoted to the minimum executable notional.
+     *
+     * 0.15 means the evidence-family multipliers have collectively cut the
+     * intended size by more than 85%. At that point the learners are not
+     * expressing a preference about size, they are declining the trade, and
+     * the only reason a trade still happens is the floor. Above this the
+     * behaviour is unchanged, so ordinary damping (a 0.35 regime multiplier,
+     * a 0.5 lane bias) still promotes and still trades.
+     *
+     * Deliberately NOT a score/liquidity/lane rule: it reads only what the
+     * learned stack already decided, so it tightens and loosens itself as the
+     * learners do, and it cannot throttle a lane the learners like.
+     */
+    const val CONVICTION_PROMOTION_FLOOR_6909 = 0.15
+
     fun resolve(
         requestedSol: Double,
         laneName: String,
@@ -114,6 +131,23 @@ object OrderSizeResolver6441 {
         //   preserves backward compatibility with all pre-6612 callers.
         mint: String = "",
         causalEventId: String = "",
+        // V5.0.6909 §A_MINIMUM_NOTIONAL_IS_NOT_A_SECOND_OPINION.
+        //
+        // The product of the EVIDENCE-family sizing multipliers only — the
+        // learned/belief dampers (regime, lane EV, brain, strategy tuner,
+        // source brain, score-band WR, metacognition, superbrain, hypothesis,
+        // conviction), NOT the mechanical/capacity ones (lane cap, portfolio
+        // heat, fragility, crosstalk, capital efficiency, wallet compounding).
+        // 1.0 means "not supplied / unknown" and preserves the exact
+        // pre-6909 behaviour for every existing caller.
+        //
+        // Why the resolver needs it: it receives a single scalar requestedSol
+        // and cannot tell a size that is small because the intelligence stack
+        // condemned the trade from one that is small because there was no room
+        // to allocate. Those are opposite situations with opposite correct
+        // answers, and promoting both to the minimum turns the first one into
+        // a full-size trade. See the reason branch below.
+        convictionMultiplier6909: Double = 1.0,
     ): Resolution {
         totalResolves.incrementAndGet()
 
@@ -324,11 +358,83 @@ object OrderSizeResolver6441 {
         val clampCollapsed6896 = requestedLamports6491 >= minExecLamports6491 &&
             shapedCeilingLamports6896 < minExecLamports6491 &&
             canFundMinimum6600
+        // V5.0.6909 §A_MINIMUM_NOTIONAL_IS_NOT_A_SECOND_OPINION.
+        //
+        // OPERATOR DIAGNOSIS (5.0.6908), GREG trace:
+        //
+        //   multiplier product = 0.024        (97.6% reduction from nominal)
+        //   LIVE_BUY_ADVISOR_SOFT_SHAPE ... score=2.0<15.0
+        //   ORDER_SIZE_RESOLVED ... final=0.05000 exec=true
+        //                          reason=OK_MIN_PROMOTED_6600
+        //
+        //   > "The system says 'I only want 0.013 SOL of this because the
+        //   >  evidence is bad' and the final resolver says 'minimum trade is
+        //   >  0.05, therefore buy 0.05.' That's not merely sizing. That's an
+        //   >  implicit admission override."
+        //
+        // That is correct, and it explains the shape of the whole book: a 2-7%
+        // win rate with manageable drawdown. The stack is identifying weak
+        // entries well enough to shrink them by 97.6%, and then the floor
+        // converts every one of them back into a full minimum-notional trade at
+        // ~4x the intended risk. Low conviction never becomes NO_BUY.
+        //
+        // THE FIX IS NOT TO REMOVE THE FLOOR. V5.0.6600/6601/6896 exist for a
+        // real and opposite defect — operator 5.0.6892 showed 99
+        // BELOW_MIN_NOTIONAL rejections with 64.66 SOL of cash idle and a 5.0
+        // SOL lane cap free, because shaping had collapsed a perfectly good
+        // 0.133 request to zero. Reverting that would resurrect it.
+        //
+        // The discriminator is WHY the size is small:
+        //
+        //   * collapsed by CAPACITY (lane cap, portfolio heat, fragility,
+        //     crosstalk, wallet room) -> the evidence was fine, we simply
+        //     could not allocate much. Promote to the minimum; that is the
+        //     6600/6601 directive and it stays exactly as it was.
+        //
+        //   * collapsed by EVIDENCE (regime damper, lane EV, learned lane
+        //     damper, score-band WR, metacognition, advisor bias) -> the
+        //     intelligence is saying do not hold this. Promoting it overrides
+        //     a decision the machine already made on real outcomes.
+        //
+        // So a collapsed-conviction sub-minimum request is refused instead of
+        // promoted. Nothing is disabled and no lane is throttled: a
+        // low-conviction request that is still ABOVE the minimum trades
+        // normally at its shaped size, and a high-conviction request that is
+        // sub-minimum for capacity reasons is promoted exactly as before.
+        // Callers that do not supply conviction are unaffected (default 1.0).
+        // Explicit parameter wins; otherwise read the registry the sizing site
+        // stamped for this mint. Absent/stale resolves to 1.0 (unknown), never
+        // to 0.0, so a missing signal can never become a refusal.
+        val conviction6909 = when {
+            convictionMultiplier6909.isFinite() && convictionMultiplier6909 < 1.0 -> convictionMultiplier6909
+            mint.isNotBlank() -> try { EntryConvictionRegistry6909.convictionFor6909(mint) } catch (_: Throwable) { 1.0 }
+            else -> 1.0
+        }
+        val convictionKnown6909 = conviction6909.isFinite() &&
+            conviction6909 >= 0.0 && conviction6909 < 1.0
+        val convictionCollapsed6909 = convictionKnown6909 &&
+            conviction6909 < CONVICTION_PROMOTION_FLOOR_6909
+        val refuseMinPromotion6909 = convictionCollapsed6909 &&
+            requestedLamports6491 < minExecLamports6491
         val shapedOrMinimumLamports6600 = when {
             requestedLamports6491 >= minExecLamports6491 ->
                 if (clampCollapsed6896) minExecLamports6491 else shapedCeilingLamports6896
+            refuseMinPromotion6909 -> 0L
             canFundMinimum6600 -> minExecLamports6491
             else -> 0L
+        }
+        if (refuseMinPromotion6909) {
+            try {
+                PipelineHealthCollector.labelInc("ORDER_SIZE_CONVICTION_REFUSED_MIN_PROMOTION_6909")
+                PipelineHealthCollector.labelInc("ORDER_SIZE_CONVICTION_REFUSED_MIN_PROMOTION_6909_${laneName.uppercase()}")
+                ForensicLogger.lifecycle(
+                    "ORDER_SIZE_CONVICTION_REFUSED_MIN_PROMOTION_6909",
+                    "lane=$laneName mint=${mint.take(10)} conviction=${"%.4f".format(conviction6909)} " +
+                        "floor=$CONVICTION_PROMOTION_FLOOR_6909 requested=${fromLamports6491(requestedLamports6491)} " +
+                        "minExec=${fromLamports6491(minExecLamports6491)} " +
+                        "action=refuse_promotion_low_conviction_is_no_buy_not_minimum_buy",
+                )
+            } catch (_: Throwable) {}
         }
         if (clampCollapsed6896) {
             try {
@@ -350,6 +456,10 @@ object OrderSizeResolver6441 {
         val executable = boundedExecutableLamports6498 >= minExecLamports6491
         val finalSize = if (executable) fromLamports6491(boundedExecutableLamports6498) else 0.0
         val reason = when {
+            // V5.0.6909 — must precede the generic BELOW_MIN codes so the
+            // operator can tell "the evidence said no" apart from "the account
+            // could not fund it", which are opposite problems.
+            refuseMinPromotion6909 -> "CONVICTION_REFUSED_MIN_PROMOTION_6909"
             !executable && authoritativeCash <= 0.0 -> "NO_WALLET"
             !executable && availableLamports6491 < minExecLamports6491 -> "CAPITAL_BELOW_MIN_EXECUTABLE_6490"
             !executable && laneCapLamports6491 < minExecLamports6491 -> "LANE_CAP_BELOW_MIN_EXECUTABLE_6490"

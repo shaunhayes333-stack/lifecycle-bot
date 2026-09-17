@@ -73,6 +73,66 @@ object LearnedAdmissionAuthority6846 {
     private const val DUMP_STRONG_MIN_N = 10
     private const val DUMP_STRONG_PWIN_MAX = 0.15
 
+    // ── §2b V5.0.6909 regime-independent cohort expectancy ──────────────
+    //
+    // Anchored to the operator's own 5.0.6908 cohort numbers rather than
+    // invented, and every one requires NEGATIVE EXPECTANCY so a low win rate
+    // with a fat tail is never punished:
+    //
+    //   CORE                n=14  WR 0%     EV -6.94%  -> proven dead
+    //   CORE|S26-40         n=5   W/L 0/5   mu -5.9%   -> below maturity, untouched
+    //   PROJECT_SNIPER|S10  pWin 0%         E  -14.3%  -> proven dead
+    //   PROJECT_SNIPER|S20                  E  +31.5%  -> positive, untouched
+    //   PROJECT_SNIPER agg  n=23  WR 13%    EV +28.97% -> positive, untouched
+    //
+    /** Sample at which a zero-win cohort is called dead rather than unlucky. */
+    private const val COHORT_DEAD_MIN_N_6909 = 12
+    /** Win rate at or below which a cohort has no demonstrated upside at all. */
+    private const val COHORT_DEAD_PWIN_MAX_6909 = 0.05
+    /** Per-trade expectancy (FRACTION, not percent) marking a real bleed. */
+    private const val COHORT_DEAD_EV_MAX_6909 = -0.05
+    /** Win rate below which a negative-EV mature cohort is metered. Set above
+     *  PROJECT_SNIPER's 13% aggregate on purpose: that lane is only reached
+     *  here per-cohort and only when its EV is also negative, so the runner
+     *  cohorts stay fully admitted. */
+    private const val COHORT_NEGATIVE_PWIN_MAX_6909 = 0.20
+
+    /** Probe window per dead cohort. One admission per window, so a proven
+     *  cohort keeps learning without manufacturing entry volume. */
+    private const val COHORT_PROBE_WINDOW_DEAD_MS_6909 = 900_000L
+    /** Looser window for merely-negative (not proven-dead) cohorts. */
+    private const val COHORT_PROBE_WINDOW_NEGATIVE_MS_6909 = 300_000L
+    private const val COHORT_BUDGET_MAX_KEYS_6909 = 2_000
+
+    private val cohortProbeLastMs6909 = ConcurrentHashMap<String, Long>()
+
+    /**
+     * V5.0.6909 — one probe per cohort per window. Returns true when this
+     * cohort may spend its probe now, and stamps it.
+     *
+     * Bounded: the key space is lane x scoreBand x regime, which is naturally
+     * small, but the map is capped anyway so a vocabulary change upstream can
+     * never grow it without limit.
+     */
+    private fun cohortProbeBudgetAllows6909(cohortKey: String, provenDead: Boolean): Boolean {
+        val windowMs = if (provenDead) COHORT_PROBE_WINDOW_DEAD_MS_6909
+            else COHORT_PROBE_WINDOW_NEGATIVE_MS_6909
+        val now = System.currentTimeMillis()
+        if (cohortProbeLastMs6909.size > COHORT_BUDGET_MAX_KEYS_6909) {
+            try {
+                val it = cohortProbeLastMs6909.entries.iterator()
+                while (it.hasNext()) {
+                    if (now - it.next().value > COHORT_PROBE_WINDOW_DEAD_MS_6909 * 2) it.remove()
+                }
+            } catch (_: Throwable) {}
+        }
+        var allowed = false
+        cohortProbeLastMs6909.compute(cohortKey) { _, prior ->
+            if (prior == null || now - prior >= windowMs) { allowed = true; now } else prior
+        }
+        return allowed
+    }
+
     /** Amount by which projected exposure must exceed adaptive target
      *  before §6 damping kicks in (fractional, not absolute). */
     private const val CAPITAL_TARGET_TOLERANCE = 1.15
@@ -155,6 +215,74 @@ object LearnedAdmissionAuthority6846 {
             if (matureNegative) {
                 return deny("REGIME_DUMP_MATURE_NEGATIVE", inputs,
                     "dump n=${inputs.cohortSample} lanePWin=${"%.2f".format(lanePWin)} lossRate=${"%.2f".format(laneLossRate)}")
+            }
+        }
+
+        // ── §2b V5.0.6909 §COHORT_EVIDENCE_IS_NOT_A_REGIME_PRIVILEGE ───────
+        //
+        // OPERATOR DIAGNOSIS (5.0.6908):
+        //
+        //   Regime:        CHOP wr=2.5% scoreFloorDelta=5 sizeMult=0.35
+        //   UnifiedPolicy: global bias=-0.56
+        //   CORE:          18 finalized, 0W / 18L, EV -6.94%
+        //   Verdicts:      BUY 819 / NO_BUY 101 / PROBE_ONLY 11
+        //
+        //   > "The learner is saying conditions are poor, but the upstream
+        //   >  admission machinery continues manufacturing BUY intents."
+        //
+        // 88% BUY against a 2-7% realised win rate. The reason is directly
+        // above: §2 — the ONLY cohort-expectancy deny in this authority — is
+        // gated on `regimeKey == "DUMP"`, and the bot is in CHOP. So a cohort
+        // that is 0-for-18 with EV -6.94% was admitted at full size purely
+        // because the weather was classified CHOP rather than DUMP.
+        //
+        // Those are independent facts. DUMP is a statement about the market;
+        // 0/18 is a statement about this cohort. A cohort that has never won
+        // in eighteen attempts is dead in every regime, and making an
+        // environmental condition a PRECONDITION for acting on cohort
+        // evidence is what left the learned intelligence with nothing to bite
+        // on. Regime belongs here as a severity modifier, not a gatekeeper —
+        // which is what §2's stricter DUMP thresholds above already are.
+        //
+        // THE FAT TAIL IS PROTECTED, DELIBERATELY. Profitability currently
+        // comes from three runners producing ~95.7% of all winning SOL, and
+        // PROJECT_SNIPER carries it at EV +28.97%/trade despite a 13% win
+        // rate. Judging by win rate would destroy exactly that. So every test
+        // below is keyed on the COHORT (lane x scoreBand x regime, via the
+        // forward model) and requires NEGATIVE EXPECTANCY, never a low win
+        // rate alone. The model already separates these cleanly:
+        //
+        //   PROJECT_SNIPER|S20  E[pnl]=+31.5%  -> positive EV, untouched
+        //   PROJECT_SNIPER|S10  pWin=0% E=-14.3% -> negative EV, throttled
+        //
+        // NOTHING IS DISABLED (V5.9.1358). The verdict for a mature-negative
+        // cohort is PROBE_ONLY, not DENY, because a small live position is how
+        // the brain learns a bucket and heals it. What changes is FREQUENCY:
+        // a proven-dead cohort gets a metered trickle of probes instead of
+        // eighteen consecutive full-size entries. Volume is the actual defect
+        // — 819 BUYs — not the existence of the trade. A cohort throttled here
+        // keeps producing real outcomes and re-admits itself automatically the
+        // moment its expectancy turns.
+        if (cohortMature && inputs.expectedPnl < 0.0) {
+            val provenDead = inputs.cohortSample >= COHORT_DEAD_MIN_N_6909 &&
+                inputs.livePWin <= COHORT_DEAD_PWIN_MAX_6909 &&
+                inputs.expectedPnl <= COHORT_DEAD_EV_MAX_6909
+            val matureNegative6909 = inputs.cohortSample >= MATURITY_MIN_N &&
+                inputs.livePWin < COHORT_NEGATIVE_PWIN_MAX_6909
+            if (provenDead || matureNegative6909) {
+                val cohortKey6909 = "$laneKey|S${inputs.scoreBand}|$regimeKey"
+                val budgeted = cohortProbeBudgetAllows6909(cohortKey6909, provenDead)
+                val detail = "cohort=$cohortKey6909 n=${inputs.cohortSample} " +
+                    "pWin=${"%.2f".format(inputs.livePWin)} EV=${"%.4f".format(inputs.expectedPnl)} " +
+                    "provenDead=$provenDead budgeted=$budgeted"
+                return if (budgeted) {
+                    probe("COHORT_MATURE_NEGATIVE_6909", inputs, detail)
+                } else {
+                    // Not a disable: this exact cohort already spent its probe
+                    // for the current window and will be admitted again on the
+                    // next one.
+                    deny("COHORT_PROBE_BUDGET_6909", inputs, detail)
+                }
             }
         }
 

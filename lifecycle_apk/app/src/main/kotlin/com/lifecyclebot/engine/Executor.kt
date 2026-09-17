@@ -11508,6 +11508,61 @@ class Executor(
             "crossTalk6878" to crossTalkShape6878,
         )
         val multiplierProductRaw = sizingStackComponents4285.values.fold(1.0) { acc, v -> acc * v }
+        // V5.0.6909 §SPLIT_THE_STACK_BY_WHAT_IT_MEANS.
+        //
+        // The map above mixes two kinds of multiplier that happen to compose
+        // the same way but mean opposite things:
+        //
+        //   EVIDENCE  — a learned belief that this trade is bad (regime WR,
+        //               lane EV, brain, strategy tuner, source brain,
+        //               score-band WR, metacognition, superbrain, hypothesis,
+        //               UPH conviction, lab reproof, scanner cohesion, band
+        //               damper, adaptive sizeMult).
+        //   CAPACITY  — no room to allocate here (lane cap, portfolio heat,
+        //               fragility, crosstalk, capital efficiency, wallet
+        //               compounding, route reliability, regime volatility,
+        //               paper/live bridge, shadow variant).
+        //
+        // Downstream only ever saw the single product, so
+        // OrderSizeResolver6441 could not distinguish "the intelligence
+        // condemned this" from "we could not fund much" — and promoted both
+        // to the minimum notional. Operator GREG trace: product 0.024 ->
+        // 0.013 SOL -> OK_MIN_PROMOTED_6600 -> 0.050 SOL. Keyed off the names
+        // the stack already carries; nothing here changes any size.
+        //
+        // runnerBoost6405 is excluded from both: it is a BOOST, and folding a
+        // >1.0 term into a floor test would let a boost mask a collapse.
+        val convictionKeys6909 = setOf(
+            "sizeMult", "lab", "laneEv", "regime", "brain", "strategyTuner",
+            "sourceBrain", "scannerLaneCohesion6292", "bandDamper6301", "uph",
+            "hypothesis", "superBrain", "metaCognition", "scoreBandWR4510",
+        )
+        val convictionProduct6909 = sizingStackComponents4285.entries
+            .filter { it.key in convictionKeys6909 }
+            .fold(1.0) { acc, e -> if (e.value.isFinite() && e.value >= 0.0) acc * e.value else acc }
+            .let { if (it.isFinite()) it.coerceIn(0.0, 1.0) else 1.0 }
+        try {
+            com.lifecyclebot.engine.truth.EntryConvictionRegistry6909
+                .stamp6909(ts.mint, convictionProduct6909)
+            if (convictionProduct6909 < com.lifecyclebot.engine.truth.OrderSizeResolver6441
+                    .CONVICTION_PROMOTION_FLOOR_6909) {
+                PipelineHealthCollector.labelInc("ENTRY_CONVICTION_COLLAPSED_6909")
+                PipelineHealthCollector.labelInc("ENTRY_CONVICTION_COLLAPSED_6909_${laneTag.uppercase()}")
+                // Name the dampers that actually voted it down, so the operator
+                // can see WHICH learner refused rather than only that one did.
+                val collapsedEvidence6909 = sizingStackComponents4285.entries
+                    .filter { e -> e.key in convictionKeys6909 && e.value < 0.95 }
+                    .joinToString(",") { e -> "${e.key}=${"%.2f".format(e.value)}" }
+                ForensicLogger.lifecycle(
+                    "ENTRY_CONVICTION_COLLAPSED_6909",
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$laneTag score=${score.toInt()} " +
+                        "conviction=${"%.4f".format(convictionProduct6909)} " +
+                        "rawProduct=${"%.4f".format(multiplierProductRaw)} " +
+                        "evidence=$collapsedEvidence6909 " +
+                        "action=sub_minimum_request_will_not_be_promoted",
+                )
+            }
+        } catch (_: Throwable) {}
         try {
             SizingStackIntegritySentinel.inspect(
                 mode = if (RuntimeModeAuthority.isPaper()) "paper" else "live",

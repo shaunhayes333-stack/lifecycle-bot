@@ -1953,6 +1953,18 @@ object PipelineHealthCollector {
             sb.append("  Order size resolver (§6441):  ").append(
                 com.lifecyclebot.engine.truth.OrderSizeResolver6441.statusLine()
             ).append("\n")
+            // V5.0.6909 — learned admission now has a caller, and conviction
+            // now reaches the sizing floor. Both are surfaced so the next
+            // snapshot can be read against the 6908 diagnosis directly:
+            // assembled>0 proves the authority is reachable at all (it had
+            // zero callers), and hits>0 proves conviction is reaching the
+            // resolver rather than defaulting to unknown.
+            sb.append("  Learned admission (§6909):    ").append(
+                com.lifecyclebot.engine.truth.LearnedAdmissionInputs6909.statusLine()
+            ).append("\n")
+            sb.append("  Entry conviction (§6909):     ").append(
+                com.lifecyclebot.engine.truth.EntryConvictionRegistry6909.statusLine()
+            ).append("\n")
             sb.append("  Same-mint dedup (§6441):      ").append(
                 com.lifecyclebot.engine.truth.SameMintDedupAuthority6441.statusLine()
             ).append("\n")

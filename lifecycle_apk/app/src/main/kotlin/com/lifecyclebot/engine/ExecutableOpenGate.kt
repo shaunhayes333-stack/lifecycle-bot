@@ -389,6 +389,21 @@ object ExecutableOpenGate {
     private fun isShadowReadOnlyLane6487(rawLane: String): Boolean =
         rawLane.uppercase().trim().replace('-', '_').replace(' ', '_') in setOf("V3_CORE", "STANDARD")
 
+    /**
+     * V5.0.6909 — the entry score this gate already holds for a mint.
+     *
+     * The learned admission authority discriminates per COHORT (lane x
+     * scoreBand x regime), which is what keeps a positive-expectancy sniper
+     * cohort admitted while a negative one is metered. Neither admission call
+     * site carries a score parameter, but this gate's own EntryState has
+     * carried `entryScore` since V5.9.1373 — it was simply never read for
+     * this purpose. Returns 0 when unknown, which lands in the model's
+     * lowest band and therefore judges the candidate against the cohort it
+     * actually belongs to rather than a flattering default.
+     */
+    fun entryScoreFor6909(mint: String): Int =
+        try { states[mint]?.entryScore?.takeIf { it >= 0 } ?: 0 } catch (_: Throwable) { 0 }
+
     fun recordEntryAuthority6487(
         mint: String,
         candidateVersion: Long,
@@ -2579,8 +2594,42 @@ object ExecutableOpenGate {
         if ((signal.equals("WAIT", ignoreCase = true) || fdgReason.contains("WAIT", ignoreCase = true)) && fdgCan != true) {
             return blocked("EXEC_OPEN_BLOCKED_SIGNAL_WAIT", signal.ifBlank { fdgReason }, shadow = mode == "PAPER")
         }
-        val effectiveEntryDecision6487 = entryAuthority6487[authorityKey6487(mint, candidateVersion)] ?: try {
-            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.gate(lane, mint, 1.0).also {
+        // V5.0.6909 — route admission through the LEARNED overload. Both this
+        // site and the BotService pre-entry producer called the 3-arg gate(),
+        // which reaches only the losing-streak damper, so
+        // LearnedAdmissionAuthority6846 was unreachable from either admission
+        // boundary and the learned intelligence had no vote at all. See
+        // LearnedAdmissionInputs6909 for the full writeup.
+        //
+        // CACHE ORDERING MATTERS HERE. The pre-entry producer runs BEFORE FDG
+        // stamps entryScore, so its evaluation lands in score band S00 with no
+        // cohort evidence, fails the maturity test and always returns ALLOW.
+        // Simply reusing that cached ALLOW would have left this entire wiring
+        // inert — the same "authority exists but never bites" failure being
+        // fixed. So:
+        //   * a cached NON-ALLOW is authoritative and reused (a denial must
+        //     not churn, and re-evaluating would also re-spend the cohort
+        //     probe budget);
+        //   * a cached ALLOW is re-evaluated here IF a real score now exists,
+        //     because this is the first boundary that can judge the candidate
+        //     against the cohort it actually belongs to.
+        val cachedEntryDecision6909 = entryAuthority6487[authorityKey6487(mint, candidateVersion)]
+        val scoreNow6909 = entryScoreFor6909(mint)
+        val cachedIsAllow6909 = cachedEntryDecision6909?.verdict ==
+            com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.ALLOW
+        val mustReevaluate6909 = cachedEntryDecision6909 == null ||
+            (cachedIsAllow6909 && scoreNow6909 > 0)
+        val effectiveEntryDecision6487 = if (!mustReevaluate6909) {
+            cachedEntryDecision6909!!
+        } else try {
+            com.lifecyclebot.engine.truth.LearnedAdmissionInputs6909.gate(
+                lane = lane,
+                mint = mint,
+                requestedSizeSol = 1.0,
+                entryScore = scoreNow6909,
+                minExecutableSol = 0.0,
+                probeSizeSol = 1.0,
+            ).also {
                 entryAuthority6487[authorityKey6487(mint, candidateVersion)] = it
             }
         } catch (_: Throwable) {
