@@ -519,6 +519,12 @@ object ReportingHub {
             com.lifecyclebot.engine.CompoundGrowthMentality.statusLine()
         }.let { appendLine(it) }
         appendLine(safe("live_win_dna") { com.lifecyclebot.engine.LiveWinDNAStore.statusLine() })
+        // V5.0.6925 — CAPTURE RATIO. Of the gain each position actually
+        // reached, how much did we keep? Broken down by lane and by exit
+        // reason, worst first, so the exit path that is clipping runners names
+        // itself instead of being argued about. Both inputs (peakPnl, pnlPct)
+        // have been stored on every close since V5.0.6238 and never queried.
+        appendLine(safe("capture_ratio_6925") { com.lifecyclebot.engine.LiveWinDNAStore.captureRatioBlock6925() })
         // V5.0.6240 — bucket-granular pivot advisor. Every trader/lane
         // (BLUECHIP, STANDARD, QUALITY, MOONSHOT, CASHGEN, TREASURY, V3_CORE)
         // can multiply LaneBucketPivot.sizeMult(lane, score) into its own

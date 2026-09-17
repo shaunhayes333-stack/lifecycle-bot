@@ -192,7 +192,31 @@ object LiveWinDNAStore {
             val setup = it.entrySetup.lowercase()
             val pattern = it.chartPattern.lowercase()
             val src = it.source.lowercase()
-            !(setup.contains("backfill") || pattern.contains("backfill") || src.contains("backfill"))
+            // V5.0.6925 — ALSO CHECK exitReason.
+            //
+            // The V5.0.6251 filter looks for "backfill" in entrySetup,
+            // chartPattern and source. The V5.0.6285 paper-history backfill at
+            // BotService:6906 writes rows whose setup is a phase or a
+            // "LANE_MCAPBAND" proxy, whose pattern is an mcap band, and whose
+            // source is the real source or "PAPER_HISTORY" — none of which
+            // contain the word. Its marker is in exitReason:
+            // "PAPER_HISTORY_BACKFILL_6285".
+            //
+            // So a second synthetic-row path was added after the filter and
+            // slipped straight through it, back into exactly the aggregators
+            // 6251 was written to protect. Checking exitReason closes it.
+            //
+            // NOT excluded here, deliberately: the historical/daily CORPUS
+            // rows (paperOrLive == "CORPUS"). They are synthetic too, but
+            // they exist on purpose to bootstrap the learners out of a cold
+            // start, and pulling them out of every aggregator at once would
+            // starve layers that have depended on them for builds. They ARE
+            // excluded from the V5.0.6925 capture-ratio cohort, because their
+            // peak is fabricated (peakPnl = pnlPct * 1.15) and would inject a
+            // constant fake 87% capture that masks the real number.
+            val reason = it.exitReason.lowercase()
+            !(setup.contains("backfill") || pattern.contains("backfill") || src.contains("backfill") ||
+              reason.contains("backfill"))
         }
         realRowsSnapshot.compareAndSet(null, fresh)
         return fresh
@@ -352,6 +376,157 @@ object LiveWinDNAStore {
         return map.entries.sortedByDescending { it.value }.map { it.key to it.value }
     }
 
+    /* ===================== V5.0.6925 · CAPTURE RATIO ========================= */
+    /*
+     * The number that decides whether this bot makes money.
+     *
+     * A memecoin book does not get paid for being right. It gets paid for what
+     * it COLLECTS when it is right. 13% win rate with +900% average winners is
+     * a printer; 13% with +40% winners is a shredder. Same win rate, opposite
+     * business. So "why is the win rate 13%" is the wrong question, and
+     * chasing 60% would just mean taking +8% scalps and losing faster with a
+     * prettier dashboard.
+     *
+     * The right question is: of the gain a position actually REACHED, how much
+     * did we keep? That is capture ratio, and every input for it has been
+     * sitting in these rows the whole time — peakPnl and pnlPct, on every
+     * single close — completely unqueried.
+     *
+     * It matters because V5.0.6921 found PeakSlipExit6390 force-closing an
+     * entire position on a 4% dip from a +1000% peak, and PeakAdaptiveTrail6390
+     * firing its "hold 92% of peak" rule at 0.8% off the high. Both were unit
+     * errors in wired code. Capture ratio is how we see whether that was THE
+     * problem or just A problem, instead of arguing about it.
+     *
+     * It also settles a live disagreement empirically rather than by doctrine:
+     * PeakAdaptiveTrail6390 tightens monotonically as a runner climbs, while
+     * AdvancedExitManager.calculateProgressiveTrailingStop deliberately
+     * re-loosens above +500% on the argument that a tight trail there "would
+     * clip a runner before T2 (+1500%) ever fires". Capture ratio per exit
+     * reason names which one is actually collecting.
+     *
+     * DESIGN NOTES, because each of these would otherwise produce a pretty lie:
+     *
+     *  - Cohort is every row that HAD something to capture (peak >= 20%), not
+     *    just winners. A position that peaked +80% and closed at -10% is the
+     *    worst capture case in the book; counting only winners would hide
+     *    exactly the trades that need finding.
+     *  - Peak is clamped to at least the realised gain. TokenWinMemory's own
+     *    sanity check tolerates peakPnl up to 50 points BELOW pnlPercent, so
+     *    the stored peak is not always clean, and a peak under the realised
+     *    result is impossible in truth.
+     *  - CORPUS rows are dropped. Their peak is fabricated as pnlPct * 1.15,
+     *    which is a fixed 87% capture that would drown the real signal.
+     *  - The headline is money-weighted, sum(captured)/sum(peak), not the mean
+     *    of per-row ratios. A mean of ratios lets fifty +20% scalps outvote one
+     *    +2000% runner, which is precisely backwards for a fat-tailed book.
+     *    Median per-row is reported alongside it, because the gap between the
+     *    two IS the story: money-weighted far below median means the big ones
+     *    are the ones being clipped.
+     */
+    private const val CAPTURE_MIN_PEAK_PCT_6925 = 20.0
+    private const val ROUND_TRIP_PEAK_PCT_6925 = 50.0
+
+    data class CaptureStat6925(
+        val label: String,
+        val n: Int,
+        val meanPeakPct: Double,
+        val meanCapturedPct: Double,
+        /** Money-weighted: sum(captured) / sum(peak) * 100. The headline. */
+        val aggregateCapturePct: Double,
+        /** Median of per-row captured/peak. Compare against the aggregate. */
+        val medianCapturePct: Double,
+        /** Peaked >= 50% and closed flat or negative. Pure give-back. */
+        val roundTrips: Int,
+    ) {
+        val compact: String get() =
+            "$label n=$n capture=${"%.0f".format(aggregateCapturePct)}% " +
+            "(median ${"%.0f".format(medianCapturePct)}%) " +
+            "peak=${"%.0f".format(meanPeakPct)}%→kept=${"%.0f".format(meanCapturedPct)}% " +
+            "roundTrips=$roundTrips"
+    }
+
+    /** Effective peak — can never be below what was actually realised. */
+    private fun effectivePeak6925(r: WinDNA): Double = maxOf(r.peakPnl, r.pnlPct)
+
+    private fun captureCohort6925(): List<WinDNA> = realRows().filter {
+        !it.paperOrLive.equals("CORPUS", true) &&
+            it.pnlPct.isFinite() && it.peakPnl.isFinite() &&
+            effectivePeak6925(it) >= CAPTURE_MIN_PEAK_PCT_6925
+    }
+
+    private fun captureStatOf6925(label: String, group: List<WinDNA>): CaptureStat6925? {
+        if (group.isEmpty()) return null
+        var sumPeak = 0.0
+        var sumKept = 0.0
+        val perRow = ArrayList<Double>(group.size)
+        var roundTrips = 0
+        for (r in group) {
+            val peak = effectivePeak6925(r)
+            if (peak <= 0.0) continue
+            sumPeak += peak
+            sumKept += r.pnlPct
+            perRow.add(r.pnlPct / peak * 100.0)
+            if (peak >= ROUND_TRIP_PEAK_PCT_6925 && r.pnlPct <= 0.0) roundTrips++
+        }
+        if (perRow.isEmpty() || sumPeak <= 0.0) return null
+        perRow.sort()
+        val median = perRow[perRow.size / 2]
+        return CaptureStat6925(
+            label = label,
+            n = perRow.size,
+            meanPeakPct = sumPeak / perRow.size,
+            meanCapturedPct = sumKept / perRow.size,
+            aggregateCapturePct = sumKept / sumPeak * 100.0,
+            medianCapturePct = median,
+            roundTrips = roundTrips,
+        )
+    }
+
+    fun captureRatioOverall6925(): CaptureStat6925? =
+        captureStatOf6925("ALL", captureCohort6925())
+
+    fun captureRatioByLane6925(minN: Int = 3): List<CaptureStat6925> =
+        captureCohort6925().groupBy { it.lane.ifBlank { "UNKNOWN" } }
+            .mapNotNull { (lane, g) -> if (g.size < minN) null else captureStatOf6925(lane, g) }
+            .sortedBy { it.aggregateCapturePct }
+
+    /**
+     * Capture ratio per exit reason, worst first — this names the guilty exit
+     * path directly. winningExitReasons/losingExitReasons already counted which
+     * reasons appear on wins and losses, but a count cannot tell you that
+     * PEAK_SLIP_CUT_FULL fires on genuine winners and keeps 4% of them.
+     */
+    fun captureRatioByExitReason6925(minN: Int = 3): List<CaptureStat6925> =
+        captureCohort6925().groupBy { it.exitReason.ifBlank { "UNKNOWN" }.take(40) }
+            .mapNotNull { (reason, g) -> if (g.size < minN) null else captureStatOf6925(reason, g) }
+            .sortedBy { it.aggregateCapturePct }
+
+    /** Operator block. Worst capture first, because that is the actionable end. */
+    fun captureRatioBlock6925(): String {
+        val overall = captureRatioOverall6925()
+            ?: return "V5.0.6925_CAPTURE_RATIO: no rows with peak >= ${CAPTURE_MIN_PEAK_PCT_6925.toInt()}% yet " +
+                "(need closes that actually went somewhere before this means anything)"
+        val sb = StringBuilder()
+        sb.appendLine("===== V5.0.6925 · CAPTURE RATIO — of the gain we REACHED, how much did we KEEP? =====")
+        sb.appendLine("  ${overall.compact}")
+        if (overall.medianCapturePct - overall.aggregateCapturePct >= 15.0) {
+            sb.appendLine("  ⚠ money-weighted capture is ${"%.0f".format(overall.medianCapturePct - overall.aggregateCapturePct)}pp " +
+                "BELOW median → the BIGGEST runners are the ones being clipped, not the small ones")
+        }
+        val byLane = captureRatioByLane6925()
+        if (byLane.isNotEmpty()) {
+            sb.appendLine("  by lane (worst capture first):")
+            byLane.take(8).forEach { sb.appendLine("    ${it.compact}") }
+        }
+        val byReason = captureRatioByExitReason6925()
+        if (byReason.isNotEmpty()) {
+            sb.appendLine("  by exit reason (worst capture first — this is the guilty exit path):")
+            byReason.take(8).forEach { sb.appendLine("    ${it.compact}") }
+        }
+        return sb.toString()
+    }
+
     /** One-line snapshot for the operational report. */
     fun statusLine(): String {
         val real = realRows()
@@ -366,7 +541,13 @@ object LiveWinDNAStore {
         val topLossSetup = losingSetupFrequency(1).firstOrNull()?.let { "${it.first}(n=${it.second}, μ=${"%.1f".format(it.third)}%)" } ?: "none"
         val topPattern = chartPatternFrequency(1).firstOrNull()?.let { "${it.first}(n=${it.second})" } ?: "none"
         val (p50, p75, p90) = holdTimeStats()
-        return "V5.0.6258_LIVE_WIN_DNA: rows=$n real=$nReal W/L=${winners.size}/${losers.size} avgWin=${"%.1f".format(avgWin)}% avgLoss=${"%.1f".format(avgLoss)}% topWinSetup=$topWinSetup topLossSetup=$topLossSetup topPattern=$topPattern hold_p50/p75/p90=${p50}/${p75}/${p90}m"
+        // V5.0.6925 — capture ratio on the headline. Win rate without capture
+        // ratio is half a sentence: it says how often we were right and says
+        // nothing about whether being right paid.
+        val cap6925 = captureRatioOverall6925()?.let {
+            " capture=${"%.0f".format(it.aggregateCapturePct)}%(n=${it.n},rt=${it.roundTrips})"
+        } ?: " capture=n/a"
+        return "V5.0.6258_LIVE_WIN_DNA: rows=$n real=$nReal W/L=${winners.size}/${losers.size} avgWin=${"%.1f".format(avgWin)}% avgLoss=${"%.1f".format(avgLoss)}%$cap6925 topWinSetup=$topWinSetup topLossSetup=$topLossSetup topPattern=$topPattern hold_p50/p75/p90=${p50}/${p75}/${p90}m"
     }
 
     /** Multi-line detail block for the operational report. */
