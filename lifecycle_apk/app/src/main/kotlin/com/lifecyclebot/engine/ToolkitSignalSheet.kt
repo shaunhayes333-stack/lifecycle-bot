@@ -695,14 +695,45 @@ object ToolkitSignalSheet {
         if (causalStage != null) {
             if (mint.isNotBlank() && candidateVersion6647 > 0L) {
                 val expectedIntentId6647 = "$mint:$candidateVersion6647:$lane"
-                val key = priorCausalKey6647?.takeIf { !canonicalAttempt6647 && it.intentId == expectedIntentId6647 }
-                    ?: com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.CausalKey(
+                val resolvedMode6858 = when {
+                    canonicalAttempt6647 -> parts6647[1].uppercase()
+                    positionEvent6647 -> parts6647[0].uppercase()
+                    else -> try { RuntimeModeAuthority.authority().name } catch (_: Throwable) { "PAPER" }
+                }
+                // V5.0.6858 §THE_CANONICAL_STAGES_ORPHANED_THEMSELVES — the reuse
+                // test used to carry `!canonicalAttempt6647`, so a stage arriving on
+                // a canonical attemptId was FORBIDDEN from joining the record its own
+                // earlier stages had already written. The key includes runId, and the
+                // two paths derive it differently: a canonical attempt uses
+                // parts6647[0] (the attempt's own run id) while everything else uses
+                // BotRuntimeController.currentGeneration(). Same mint, same candidate
+                // version, same lane, same mode — different runId, therefore a
+                // different keyString, therefore a brand-new Record holding SIZE with
+                // no DISCOVER, no INTENT and no MARK_READY on it.
+                //
+                // That is exactly the shape laneSnapshot6647 counts as phantom:
+                //   `if (executableSize && (DISCOVER !in stages || INTENT !in stages
+                //     || !markReady)) phantom++`
+                // and phantomSizedOnly != 0 is a hard failure in
+                // ExecutionSpineAcceptance6647. The CI runtime witness has been
+                // failing on PHANTOM_SIZED_ONLY with zero committed paper buy tickets
+                // while the same log shows PAPER_SELL_OK=9 — the pipeline was working
+                // and the telemetry was reporting it as two disconnected halves.
+                // It also defeats this module's stated purpose, "keyed by the SAME
+                // record every stage reads/writes from, so it becomes structurally
+                // impossible to print impossible combos like fdgAllow=0 exec=113 for
+                // the same intentId".
+                //
+                // Reuse is now keyed on causal identity rather than on which code path
+                // happened to report the stage: same intentId AND same mode. The mode
+                // check is what the canonicalAttempt guard was really protecting — a
+                // PAPER and a LIVE attempt on the same mint and version must never
+                // merge — and it is now enforced directly instead of by proxy.
+                val key = priorCausalKey6647?.takeIf {
+                    it.intentId == expectedIntentId6647 && it.mode.equals(resolvedMode6858, true)
+                } ?: com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.CausalKey(
                         runId = if (canonicalAttempt6647) parts6647[0] else BotRuntimeController.currentGeneration().toString(),
-                        mode = when {
-                            canonicalAttempt6647 -> parts6647[1].uppercase()
-                            positionEvent6647 -> parts6647[0].uppercase()
-                            else -> try { RuntimeModeAuthority.authority().name } catch (_: Throwable) { "PAPER" }
-                        },
+                        mode = resolvedMode6858,
                         mint = mint, lane = lane, authorityVersion = 6551L,
                         intentId = expectedIntentId6647,
                     )
