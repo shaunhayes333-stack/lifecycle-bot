@@ -475,6 +475,7 @@ object PredictiveEntryOracle6915 {
         } catch (_: Throwable) {}
 
         out += brainNetworkB6940(lane, mint, symbol, sourceFamily, liquidityUsd, creator)
+        out += tierBRiskReads6942(mint, lane, score)
         return out
     }
 
@@ -784,6 +785,7 @@ object PredictiveEntryOracle6915 {
         // sizes; it fails open on any exception; and it needs a recorded count
         // from TradingMemory's own rug ledger, not an inference.
         val hardRefusal6927 = hardSafetyRefusal6927(creator)
+            ?: tierBRefusal6942(mint, symbol)
         if (hardRefusal6927 != null) {
             refuses.incrementAndGet()
             val f = Forecast(
@@ -851,6 +853,64 @@ object PredictiveEntryOracle6915 {
             val rugs = com.lifecyclebot.engine.TradingMemory.getCreatorRugCount(creator)
             if (rugs >= REFUSE_RUG_COUNT_6927) "CREATOR_SERIAL_RUGGER_6927(rugs=$rugs)" else null
         } catch (_: Throwable) { null }
+    }
+
+    /**
+     * V5.0.6942 — Tier B (B_RISK) recorded-fact refusals.
+     *
+     * Same doctrine as the serial-rugger path: these are FACTS, not estimates,
+     * so they bypass the confidence gate. A blocklisted mint does not become
+     * less blocklisted when the cohort is thin.
+     *
+     * BaseQuoteMintGuard exists to stop the bot buying base/quote assets it
+     * should never hold as a position (SOL, USDC and friends), and BOTH of its
+     * predicates had zero callers — so the guard was installed and never
+     * consulted. AdaptiveVetoConsensusAuthority6728.isHardVeto is a consensus
+     * veto across the veto stack whose whole purpose is to be asked.
+     *
+     * Fails open on every read: a guard that throws must not block trading.
+     */
+    private fun tierBRefusal6942(mint: String, symbol: String): String? {
+        try {
+            if (mint.isNotBlank() &&
+                com.lifecyclebot.engine.guard.BaseQuoteMintGuard.isBlockedMint(mint)
+            ) return "BLOCKED_BASE_QUOTE_MINT_6942"
+        } catch (_: Throwable) {}
+        try {
+            if (symbol.isNotBlank() &&
+                com.lifecyclebot.engine.guard.BaseQuoteMintGuard.isBlockedSymbol(symbol)
+            ) return "BLOCKED_BASE_QUOTE_SYMBOL_6942($symbol)"
+        } catch (_: Throwable) {}
+        try {
+            if (com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.isHardVeto())
+                return "ADAPTIVE_VETO_CONSENSUS_HARD_6942"
+        } catch (_: Throwable) {}
+        return null
+    }
+
+    /**
+     * V5.0.6942 — Tier B graded risk reads. Bounded adjustments inside the
+     * brain-tier cap, unlike the refusals above.
+     */
+    private fun tierBRiskReads6942(mint: String, lane: String, score: Int): List<BrainRead> {
+        val out = mutableListOf<BrainRead>()
+        // Liquidity-cycle risk: both readers were zero-caller, so the cycle
+        // model ran and nothing asked what it concluded.
+        try {
+            if (com.lifecyclebot.v3.scoring.LiquidityCycleAI.isRisky()) {
+                val lvl = try { com.lifecyclebot.v3.scoring.LiquidityCycleAI.getRiskLevel() } catch (_: Throwable) { 1 }
+                out += BrainRead("liqCycleRisk($lvl)", -(3.0 + lvl.coerceIn(0, 4) * 2.0).coerceAtMost(11.0))
+            }
+        } catch (_: Throwable) {}
+        // Emergent guardrails on promotion size. The oracle does not size, so
+        // this is read at the nominal score as a willingness signal rather
+        // than as a sizing veto.
+        try {
+            if (mint.isNotBlank() &&
+                com.lifecyclebot.engine.EmergentGuardrails.shouldBlockPromotion(mint, score.toDouble())
+            ) out += BrainRead("guardrailBlocksPromotion", -9.0)
+        } catch (_: Throwable) {}
+        return out
     }
 
     fun statusLine(): String =
