@@ -4552,6 +4552,38 @@ object FinalDecisionGate {
                         // without disabling the lane. Only a danger-bucket objection in
                         // a deep deficit with weak evidence becomes binding.
                         tags.add("bcg_objections:${report.objections.size}")
+                        // V5.0.6863 §THE_POLICY_FAMILY_OF_THE_CONSENSUS_WAS_NEVER_FED —
+                        // AdaptiveVetoConsensusAuthority6728 was built for exactly the
+                        // state the operator diagnostic described: "Brain Consensus 82.2%
+                        // SOFT_BLOCK, zero HARD_BLOCK. Unified Policy bias -0.83, still
+                        // executing. Every advisory subsystem correctly identifies the
+                        // toxic state and publishes an advisory; nobody hard-blocks."
+                        // It hard-vetoes when >=3 INDEPENDENT signal families agree, and
+                        // its POLICY family is precisely BRAIN_CONSENSUS_SOFT_BLOCK and
+                        // UNIFIED_POLICY_BIAS_NEGATIVE — neither of which was raised
+                        // anywhere in the tree. Of the four families only ADVISOR
+                        // (Executor:10527/10567) and OUTCOME (FinalExecutionPermit:299)
+                        // had a publisher, so before V5.0.6853 added CAPITAL the quorum
+                        // of three was arithmetically unreachable and
+                        // ExecutableOpenGate:2642 could never fire. The brain consensus —
+                        // the loudest voice in that diagnostic — still had no way to
+                        // reach the authority written to listen to it.
+                        //
+                        // This is evidence, not a veto: the signal decays in 5 minutes,
+                        // is scoped to this mode/lane/mint, and only counts once for its
+                        // whole family, so the soft damp below remains the primary
+                        // response and admission stops only when two other independent
+                        // families agree at the same time.
+                        try {
+                            com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.raise(
+                                com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.Signal.BRAIN_CONSENSUS_SOFT_BLOCK,
+                                mode = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE",
+                                lane = specialistLane?.trim()?.uppercase().orEmpty()
+                                    .ifBlank { tradingModeTag?.name?.trim()?.uppercase().orEmpty() },
+                                mint = ts.mint,
+                                evidenceId = "BCG:${report.objections.sorted().joinToString("+").take(80)}",
+                            )
+                        } catch (_: Throwable) {}
                         val hasDanger = report.objections.any { it.contains("LOSING_PATTERN_DANGER_ZONE") }
                         val originalSize = finalSize
                         // V5.0.4089 — RE-EDUCATE damp (operator: "don't disable,

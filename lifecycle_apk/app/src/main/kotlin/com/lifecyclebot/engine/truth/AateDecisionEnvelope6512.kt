@@ -332,6 +332,29 @@ object AateDecisionFabric6512 {
 
     private fun emitPolicy(e: AateDecisionEnvelope6512) {
         val cs = e.contributors.joinToString(",") { "${it.brain}:${"%.3f".format(it.weight)}:${"%.3f".format(it.effect)}" }
+        // V5.0.6863 §THE_POLICY_FAMILY_OF_THE_CONSENSUS_WAS_NEVER_FED — this is the
+        // exact line the operator diagnostic quoted: "AATE_POLICY action=BUY
+        // pWin=0.52 EV=-5.0", alongside "Unified Policy bias -0.83, still
+        // executing". AdaptiveVetoConsensusAuthority6728 has a signal named
+        // UNIFIED_POLICY_BIAS_NEGATIVE for precisely this, and nothing in the tree
+        // ever raised it — so the authority's POLICY family had no publisher at all
+        // and its 3-of-4-family quorum could not be reached.
+        //
+        // A BUY whose own expected PnL is negative is the policy head contradicting
+        // itself, which is evidence worth pooling. It is only evidence: the signal
+        // decays in 5 minutes, is scoped to this mode/lane/mint, counts once for its
+        // whole family, and blocks nothing on its own.
+        try {
+            if (e.action.equals("BUY", true) && e.expectedPnlPct.isFinite() && e.expectedPnlPct < 0.0) {
+                AdaptiveVetoConsensusAuthority6728.raise(
+                    AdaptiveVetoConsensusAuthority6728.Signal.UNIFIED_POLICY_BIAS_NEGATIVE,
+                    mode = e.context.mode.trim().uppercase(),
+                    lane = e.context.primaryStrategy,
+                    mint = e.context.mint,
+                    evidenceId = "EV:${"%.2f".format(e.expectedPnlPct)}:rev${e.revision}",
+                )
+            }
+        } catch (_: Throwable) {}
         try {
             ForensicLogger.lifecycle("AATE_POLICY", "candidateId=${e.context.candidateId} revision=${e.revision} action=${e.action} pWin=${e.pWin} EV=${e.expectedPnlPct} moonshotP=${e.moonshotP} rugP=${e.rugP} primaryStrategy=${e.context.primaryStrategy} contributors=[$cs] scoreBase=${e.scoreBase} scoreFinal=${e.scoreFinal} sizeBase=${e.sizeBase} sizeFinal=${e.sizeFinal} tactic=${e.tactic} hardSafety=[${e.hardSafety.joinToString(",")}] learningState=${e.learningState} executionTicket=${e.executionTicket}")
             PipelineHealthCollector.labelInc("AATE_POLICY_6512")
