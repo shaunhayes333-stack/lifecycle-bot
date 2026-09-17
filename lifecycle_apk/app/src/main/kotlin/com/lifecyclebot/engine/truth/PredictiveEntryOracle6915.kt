@@ -327,6 +327,88 @@ object PredictiveEntryOracle6915 {
             }
         } catch (_: Throwable) {}
 
+        // ── V5.0.6918 TIER-A BATCH 2 ────────────────────────────────────────
+        // Six more zero-caller decision inputs from ci/UNWIRED_LEDGER.tsv.
+        // Same contract as batch 1: bounded, named in the verdict, never
+        // authoritative on its own.
+
+        // Creator reputation. The hive already downloads per-creator outcome
+        // history (CollectiveLearning.CreatorReputation carries tokenCount,
+        // wins/losses, avgPnlPct and rugLikeLosses) and nothing read it. This
+        // is strictly better evidence than TradingMemory's local blacklist
+        // because it is pooled across the whole fleet.
+        try {
+            if (creator.isNotBlank()) {
+                val rep = com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI
+                    .getCreatorReputation(creator)
+                if (rep != null && rep.totalOutcomes >= 3) {
+                    val rugShare = if (rep.totalOutcomes > 0)
+                        rep.rugLikeLosses.toDouble() / rep.totalOutcomes else 0.0
+                    val d = ((rep.avgPnlPct / 100.0) * 8.0 - rugShare * 14.0).coerceIn(-16.0, 8.0)
+                    out += BrainRead(
+                        "creatorRep(n=${rep.totalOutcomes},E=${"%+.0f".format(rep.avgPnlPct)}%,rug=${rep.rugLikeLosses})", d,
+                    )
+                }
+            }
+        } catch (_: Throwable) {}
+
+        // Source reliability — pooled per-source outcomes from the hive. This
+        // complements the LOCAL SourceFamilyOpportunityScorecard read in 6915:
+        // local is this instance's experience, this is the fleet's.
+        try {
+            if (sourceFamily.isNotBlank()) {
+                val sr = com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI
+                    .getSourceReliability(sourceFamily)
+                if (sr != null && sr.totalOutcomes >= 3) {
+                    val d = ((sr.avgPnlPct / 100.0) * 7.0).coerceIn(-9.0, 9.0)
+                    out += BrainRead("hiveSrc(n=${sr.totalOutcomes},E=${"%+.0f".format(sr.avgPnlPct)}%)", d)
+                }
+            }
+        } catch (_: Throwable) {}
+
+        // Behaviour pattern suppression/boost. These are explicit learned
+        // verdicts on a named pattern and were pure booleans nobody asked for.
+        try {
+            val sig = "$lane:${bandLabel6917(score)}"
+            if (com.lifecyclebot.v3.scoring.BehaviorAI.isPatternSuppressed(sig))
+                out += BrainRead("behaviourSuppressed($sig)", -9.0)
+            else if (com.lifecyclebot.v3.scoring.BehaviorAI.isPatternBoosted(sig))
+                out += BrainRead("behaviourBoosted($sig)", +7.0)
+        } catch (_: Throwable) {}
+
+        // Pattern classifier realised win rate. liveWinRatePct/paperWinRate
+        // were computed on every close and never consulted before one.
+        try {
+            val wr = com.lifecyclebot.engine.PatternClassifier.liveWinRatePct()
+            if (wr.isFinite() && wr > 0.0) {
+                // Centre on 40%: below that a memecoin book is structurally
+                // losing even with a tail, above it the tail compounds.
+                val d = ((wr - 40.0) / 40.0 * 6.0).coerceIn(-6.0, 6.0)
+                if (kotlin.math.abs(d) >= 0.5) out += BrainRead("patternWR(${"%.0f".format(wr)}%)", d)
+            }
+        } catch (_: Throwable) {}
+
+        // Quant edge decay — how fast the current edge is eroding. Nonzero
+        // decay is a reason to be less willing, not to size smaller.
+        try {
+            val decay = com.lifecyclebot.engine.quant.QuantMindV2.getEdgeDecay()
+            if (decay.isFinite() && decay > 0.0) {
+                out += BrainRead("edgeDecay(${"%.2f".format(decay)})", -(decay.coerceAtMost(1.0) * 7.0))
+            }
+        } catch (_: Throwable) {}
+
+        // Approval accuracy — how often the stack's own approvals have been
+        // right. A low figure is a direct statement that its verdicts are not
+        // yet trustworthy, which should reduce willingness across the board.
+        try {
+            val acc = com.lifecyclebot.engine.EdgeLearning.getApprovalAccuracy()
+            if (acc.isFinite() && acc > 0.0) {
+                val pct = if (acc <= 1.0) acc * 100.0 else acc
+                val d = ((pct - 50.0) / 50.0 * 5.0).coerceIn(-5.0, 5.0)
+                if (kotlin.math.abs(d) >= 0.5) out += BrainRead("approvalAcc(${"%.0f".format(pct)}%)", d)
+            }
+        } catch (_: Throwable) {}
+
         return out
     }
 
