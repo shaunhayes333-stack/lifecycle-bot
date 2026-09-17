@@ -1039,7 +1039,7 @@ object CanonicalPositionAuthority6441 {
                         if (e.executedCostSol <= 0.0 || e.filledQty <= BigInteger.ZERO) {
                             positions[e.positionId] = Position(
                                 positionId = e.positionId, mode = "paper", mint = e.mint, symbol = e.symbol,
-                                lane = com.lifecyclebot.engine.truth.LaneAttributionLedger6427.getEntryLane(e.positionId) ?: "UNRESOLVED_OWNER_6741", runId = "REPLAY_RESTORE_${e.idempotencyKey}", openedAtMs = e.atMs,
+                                lane = e.lane.trim().takeIf { it.isNotBlank() } ?: com.lifecyclebot.engine.truth.LaneAttributionLedger6427.getEntryLane(e.positionId) ?: "UNRESOLVED_OWNER_6741", runId = "REPLAY_RESTORE_${e.idempotencyKey}", openedAtMs = e.atMs,
                                 entryCostSol = e.executedCostSol, remainingQtyRaw = e.filledQty,
                                 originalQtyRaw = e.filledQty, soldCostBasisSol = 0.0,
                                 realizedPnlSol = 0.0, realizedProceedsSol = 0.0, feesSol = e.entryFeesSol,
@@ -1101,7 +1101,7 @@ object CanonicalPositionAuthority6441 {
                             if (!migrationAuthorized6630) {
                                 positions[e.positionId] = Position(
                                     positionId = e.positionId, mode = "paper", mint = e.mint, symbol = e.symbol,
-                                    lane = com.lifecyclebot.engine.truth.LaneAttributionLedger6427.getEntryLane(e.positionId) ?: "UNRESOLVED_OWNER_6741", runId = "REPLAY_RESTORE_${e.idempotencyKey}", openedAtMs = e.atMs,
+                                    lane = e.lane.trim().takeIf { it.isNotBlank() } ?: com.lifecyclebot.engine.truth.LaneAttributionLedger6427.getEntryLane(e.positionId) ?: "UNRESOLVED_OWNER_6741", runId = "REPLAY_RESTORE_${e.idempotencyKey}", openedAtMs = e.atMs,
                                     entryCostSol = e.executedCostSol, remainingQtyRaw = e.filledQty,
                                     originalQtyRaw = e.filledQty, soldCostBasisSol = 0.0,
                                     realizedPnlSol = 0.0, realizedProceedsSol = 0.0, feesSol = e.entryFeesSol,
@@ -1139,7 +1139,7 @@ object CanonicalPositionAuthority6441 {
                             } catch (_: Throwable) {}
                             positions[e.positionId] = Position(
                                 positionId = e.positionId, mode = "paper", mint = e.mint, symbol = e.symbol,
-                                lane = com.lifecyclebot.engine.truth.LaneAttributionLedger6427.getEntryLane(e.positionId) ?: "UNRESOLVED_OWNER_6741", runId = "REPLAY_RESTORE_${e.idempotencyKey}", openedAtMs = e.atMs,
+                                lane = e.lane.trim().takeIf { it.isNotBlank() } ?: com.lifecyclebot.engine.truth.LaneAttributionLedger6427.getEntryLane(e.positionId) ?: "UNRESOLVED_OWNER_6741", runId = "REPLAY_RESTORE_${e.idempotencyKey}", openedAtMs = e.atMs,
                                 entryCostSol = e.executedCostSol, remainingQtyRaw = e.filledQty,
                                 originalQtyRaw = e.filledQty, soldCostBasisSol = 0.0,
                                 realizedPnlSol = 0.0, realizedProceedsSol = 0.0, feesSol = e.entryFeesSol,
@@ -1161,7 +1161,7 @@ object CanonicalPositionAuthority6441 {
                         positions[e.positionId] = if (cur == null || cur.lifecycle == Lifecycle.CLOSED || cur.lifecycle == Lifecycle.QUARANTINED) {
                             Position(
                                 positionId = e.positionId, mode = "paper", mint = e.mint, symbol = e.symbol,
-                                lane = com.lifecyclebot.engine.truth.LaneAttributionLedger6427.getEntryLane(e.positionId) ?: "UNRESOLVED_OWNER_6741", runId = "REPLAY_RESTORE_${e.idempotencyKey}", openedAtMs = e.atMs,
+                                lane = e.lane.trim().takeIf { it.isNotBlank() } ?: com.lifecyclebot.engine.truth.LaneAttributionLedger6427.getEntryLane(e.positionId) ?: "UNRESOLVED_OWNER_6741", runId = "REPLAY_RESTORE_${e.idempotencyKey}", openedAtMs = e.atMs,
                                 entryCostSol = e.executedCostSol, remainingQtyRaw = e.filledQty,
                                 originalQtyRaw = e.filledQty, soldCostBasisSol = 0.0,
                                 realizedPnlSol = 0.0, realizedProceedsSol = 0.0,
@@ -1226,7 +1226,23 @@ object CanonicalPositionAuthority6441 {
                     //   assignment below for the §2 rationale.
                     positions[pid] = Position(
                         positionId = pid, mode = "paper", mint = mint, symbol = mint.take(8),
-                        lane = com.lifecyclebot.engine.truth.LaneAttributionLedger6427.getEntryLane(pid) ?: "UNRESOLVED_OWNER_6741", runId = "RECOVERED_CARRY_6492",
+                        // V5.0.6879 — the carry pid is synthesised here
+                        // ("PAPER:CARRY6492:<mint>"), so no Buy event ever carried
+                        // it and the ledger has never seen it: getEntryLane(pid) was
+                        // guaranteed to miss and the placeholder was guaranteed to
+                        // win. The carry IS an aggregate of this mint's holdings
+                        // though, so the lane that opened them is recoverable from
+                        // the newest durable Buy event for the same mint.
+                        lane = (try {
+                            com.lifecyclebot.engine.truth.EconomicEventSchema6464.snapshot()
+                                .asSequence()
+                                .filterIsInstance<com.lifecyclebot.engine.truth.EconomicEventSchema6464.Buy>()
+                                .filter { it.mint == mint && it.lane.isNotBlank() }
+                                .maxByOrNull { it.atMs }?.lane?.trim()
+                        } catch (_: Throwable) { null })
+                            ?: com.lifecyclebot.engine.truth.LaneAttributionLedger6427.getEntryLane(pid)
+                            ?: "UNRESOLVED_OWNER_6741",
+                        runId = "RECOVERED_CARRY_6492",
                         openedAtMs = System.currentTimeMillis(), entryCostSol = carryCost,
                         remainingQtyRaw = qtyRaw, originalQtyRaw = qtyRaw,
                         soldCostBasisSol = 0.0, realizedPnlSol = 0.0, realizedProceedsSol = 0.0,

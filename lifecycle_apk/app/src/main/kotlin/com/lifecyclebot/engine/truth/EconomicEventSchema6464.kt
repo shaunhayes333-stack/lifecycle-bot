@@ -64,6 +64,26 @@ object EconomicEventSchema6464 {
         val fillPrice: Double,
         val tokenDecimals: Int = 9,        // actual metadata; -1 when unknown
         val quantityScale: Int = tokenDecimals, // immutable raw accounting representation
+        /**
+         * V5.0.6879 §THE_DURABLE_BUY_EVENT_CARRIED_NO_LANE — this is the last piece
+         * of the UNKNOWN cohort.
+         *
+         * LaneAttributionLedger6427 is the authority on which lane opened a position,
+         * and it lived only in memory. V5.0.6855 gave it export/import so it survives
+         * a restart, but the ledger is still a side-car: if it is ever cleared,
+         * pruned, or missed on a restore ordering, the consumers substitute a
+         * placeholder rather than failing loudly — CanonicalPositionAuthority6441 at
+         * :1042/:1104/:1142/:1164/:1229 all read
+         * `getEntryLane(pid) ?: "UNRESOLVED_OWNER_6741"`.
+         *
+         * The lane belongs ON the economic event. A Buy is the fact that a lane spent
+         * capital; recording the spend without recording who spent it is an
+         * incomplete record, and no amount of side-car persistence makes it complete.
+         * Defaulted so every existing recordBuy call site compiles unchanged, and
+         * recordBuy self-hydrates it from the ledger at write time — which is exactly
+         * the moment the in-memory ledger is correct.
+         */
+        val lane: String = "",
     ) : Event()
 
     data class Sell(
@@ -143,7 +163,19 @@ object EconomicEventSchema6464 {
         idempotencyKey: String, executedCostSol: Double, filledQty: java.math.BigInteger,
         fillPrice: Double, entryFeesSol: Double = 0.0,
         tokenDecimals: Int = 9, quantityScale: Int = tokenDecimals,
+        lane: String = "",
     ) {
+        // V5.0.6879 — stamp the originating lane onto the durable event. Callers may
+        // pass it explicitly; when they do not, resolve it from
+        // LaneAttributionLedger6427 HERE, because a buy is being recorded right now
+        // and that is precisely when the in-memory ledger holds the truth. After this
+        // the lane is durable on the economic event itself, so a restart no longer
+        // depends on a side-car map surviving to know who opened the position.
+        val resolvedLane6879 = lane.trim().takeIf { it.isNotBlank() }
+            ?: try { LaneAttributionLedger6427.getEntryLane(positionId)?.trim().orEmpty() } catch (_: Throwable) { "" }
+        if (resolvedLane6879.isBlank()) {
+            try { PipelineHealthCollector.labelInc("ECONOMIC_EVENT_BUY_NO_LANE_6879") } catch (_: Throwable) {}
+        }
         val e = Buy(
             atMs = System.currentTimeMillis(), mode = mode.lowercase(),
             positionId = positionId, mint = mint, symbol = symbol,
@@ -151,6 +183,7 @@ object EconomicEventSchema6464 {
             executedCostSol = executedCostSol, entryFeesSol = entryFeesSol.coerceAtLeast(0.0),
             filledQty = filledQty, fillPrice = if (fillPrice.isFinite()) fillPrice else 0.0,
             tokenDecimals = tokenDecimals, quantityScale = quantityScale,
+            lane = resolvedLane6879,
         )
         if (!appendBounded(e)) return
         recordedBuys.incrementAndGet()
@@ -225,6 +258,8 @@ object EconomicEventSchema6464 {
                 put("executedCostSol", e.executedCostSol); put("entryFeesSol", e.entryFeesSol)
                 put("filledQty", e.filledQty.toString()); put("fillPrice", e.fillPrice)
                 put("tokenDecimals", e.tokenDecimals); put("quantityScale", e.quantityScale)
+                // V5.0.6879 — the lane must survive the process, not just the session.
+                put("lane", e.lane)
             }
             is Sell -> {
                 put("partial", e.partial); put("soldQty", e.soldQty.toString())
@@ -246,6 +281,9 @@ object EconomicEventSchema6464 {
             j.getDouble("executedCostSol"), j.optDouble("entryFeesSol", 0.0),
             java.math.BigInteger(j.getString("filledQty")), j.getDouble("fillPrice"),
             j.optInt("tokenDecimals", 9), j.optInt("quantityScale", j.optInt("tokenDecimals", 9)),
+            // V5.0.6879 — absent on rows written before this version; blank then
+            // falls back to the ledger exactly as before, so old events still load.
+            j.optString("lane", ""),
         ) else Sell(
             baseAt, mode, pid, mint, symbol, key, j.getBoolean("partial"),
             java.math.BigInteger(j.getString("soldQty")), j.getDouble("allocatedCostBasisSol"),
