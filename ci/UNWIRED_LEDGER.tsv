@@ -42,7 +42,7 @@ A_PREDICT	EducationSubLayerAI	getEdgeLedger	v3/scoring/EducationSubLayerAI.kt
 A_PREDICT	EducationSubLayerAI	getLayerAccuracyRaw	v3/scoring/EducationSubLayerAI.kt
 H_MUTATOR	EducationSubLayerAI	recordGeneralSignal	v3/scoring/EducationSubLayerAI.kt
 H_MUTATOR	EntryRejectionTelemetry6396	emitScoreFloorReject	engine/truth/EntryRejectionTelemetry6396.kt
-A_PREDICT	ExecutableEntryAuthority6450	scoreFloorDelta6487	engine/truth/ExecutableEntryAuthority6450.kt
+F_DEAD	ExecutableEntryAuthority6450	scoreFloorDelta6487	engine/truth/ExecutableEntryAuthority6450.kt
 A_PREDICT	ExecutableEntryAuthority6450	scoreFloorDeltaFor6488	engine/truth/ExecutableEntryAuthority6450.kt
 A_PREDICT	ExecutableOpenGate	mutableSignalCanVeto6519	engine/ExecutableOpenGate.kt
 A_PREDICT	ExplorationBudget	allowShadowSignal	engine/learning/ExplorationBudget.kt
@@ -124,7 +124,7 @@ A_PREDICT	SocialVelocityAI	isBoosted	v3/scoring/SocialVelocityAI.kt
 A_PREDICT	SocialVelocityAI	refreshBoostedTokens	v3/scoring/SocialVelocityAI.kt
 A_PREDICT	SocialVelocityAI	refreshBoostedTokensAsync	v3/scoring/SocialVelocityAI.kt
 A_PREDICT	SoftScoreShaping6400	softConfidenceFor	engine/truth/SoftScoreShaping6400.kt
-A_PREDICT	SourceTimingRegistry	isLateSignal	v3/arb/SourceTimingRegistry.kt
+E_INFILE	SourceTimingRegistry	isLateSignal	v3/arb/SourceTimingRegistry.kt
 A_PREDICT	SuperBrainEnhancements	getAggregatedSignal	engine/SuperBrainEnhancements.kt
 A_PREDICT	SymbolicContext	getAllSignals	engine/SymbolicContext.kt
 E_INFILE	TacticSwitcher	posteriorLossProbAboveForTest	engine/learning/TacticSwitcher.kt

@@ -11474,7 +11474,53 @@ class BotService : Service() {
         } catch (_: Throwable) { 0.0 }
         val moonshotVolumeRelief6044 = if (laneUpperForFloor4591 == "MOONSHOT" &&
             agiAuthority6020 != com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE) -5.0 else 0.0
-        val entryScoreTightenedFloor4591 = (entryScoreTightenedFloor4591Base + qualityWrRaise6044 + moonshotVolumeRelief6044).coerceIn(0.0, 95.0)
+        // V5.0.6961 §THE_STREAK_DEFENCE_THAT_DEFENDED_NOTHING.
+        //
+        // ExecutableEntryAuthority6450 tracks consecutive losses per (mode, lane)
+        // cohort and exposes exactly two levers for acting on them:
+        //
+        //     scoreFloorDeltaFor6488   0 / +8 / +15 by streak depth
+        //     sizeMultiplierFor6488    1.0 / 0.65 / 0.35 by streak depth
+        //
+        // NEITHER had a single caller. The only thing consulted anywhere was the
+        // BOOLEAN defensiveActiveFor6488, used ~150 lines below to suppress a
+        // shadow wait-probe. So after three consecutive losses in a lane the bot
+        // did not raise its bar and did not cut its size; it kept taking the same
+        // trades at the same size, and the sole observable effect of "defensive"
+        // was that one diagnostic probe went quiet.
+        //
+        // The score floor is wired here because this is where the floor is
+        // composed — additively, alongside qualityWrRaise6044, which is the same
+        // shape of correction (a lane performing badly must clear a higher bar).
+        //
+        // THE SIZE MULTIPLIER IS DELIBERATELY NOT WIRED. Not an oversight:
+        // V5.0.C2 in this audit was BELOW_MIN_NOTIONAL — 99 entries lost because
+        // damping pushed size under the minimum notional and the trade vanished
+        // entirely rather than shrinking. Stacking a 0.35x streak multiplier on
+        // top of 6950's drawdown clamp would recreate that failure directly, and
+        // "same bad trades, smaller" is the weaker half of the defence anyway.
+        // Fewer and better beats smaller and equally bad.
+        //
+        // The AUTHORITATIVE tier is exempt: its base floor is deliberately 0.0
+        // because the AGI head owns the decision there, and adding a streak delta
+        // would manufacture a floor the design explicitly hands away.
+        val streakFloorDelta6961 = try {
+            if (agiAuthority6020 == com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE) 0.0
+            else com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450
+                .scoreFloorDeltaFor6488(lane).toDouble().coerceIn(0.0, 15.0)
+        } catch (_: Throwable) { 0.0 }
+        val entryScoreTightenedFloor4591 = (entryScoreTightenedFloor4591Base + qualityWrRaise6044 + moonshotVolumeRelief6044 + streakFloorDelta6961).coerceIn(0.0, 95.0)
+        if (streakFloorDelta6961 > 0.0) {
+            try {
+                PipelineHealthCollector.labelInc("STREAK_SCORE_FLOOR_RAISED_6961")
+                ForensicLogger.lifecycle(
+                    "STREAK_SCORE_FLOOR_RAISED_6961",
+                    "lane=$lane streak=${try { com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.consecutiveLossesFor6488(lane) } catch (_: Throwable) { -1L }} " +
+                        "delta=+${streakFloorDelta6961.toInt()} base=${"%.1f".format(entryScoreTightenedFloor4591Base)} " +
+                        "effective=${"%.1f".format(entryScoreTightenedFloor4591)} sizeUntouched=true reason=fewer_better_not_smaller_same",
+                )
+            } catch (_: Throwable) {}
+        }
         if (qualityWrRaise6044 > 0.0 || moonshotVolumeRelief6044 != 0.0) {
             try {
                 PipelineHealthCollector.labelInc("LANE_QUALITY_MOONSHOT_FLOOR_TUNE_6044")
