@@ -29,7 +29,15 @@ object LiveProviderQuorum {
         val src = listOf(ts.source, ts.lastPriceSource, ts.lastPriceDex, ts.pairUrl, ts.pairAddress, ts.lastPricePoolAddr)
             .joinToString("|")
             .uppercase()
-        fun hostHealthy(vararg names: String): Boolean = names.any { ApiHealthMonitor.successRate(it) >= 0.45 }
+        // V5.0.6946 — a quorum member must have actually been CONTACTED.
+        // successRate() fails open at 1.0 for a host with no samples, which is
+        // correct for a health gate and wrong here: RAYDIUM appears nowhere in
+        // the operator's API health table, so it had no samples, scored 1.0,
+        // and counted as a healthy provider in every live quorum without one
+        // request ever being made. Requiring samples turns the quorum back into
+        // a count of providers that exist.
+        fun hostHealthy(vararg names: String): Boolean =
+            names.any { ApiHealthMonitor.hasSamples(it) && ApiHealthMonitor.successRate(it) >= 0.45 }
         fun hostDegraded(vararg names: String): Boolean = names.any { ApiHealthMonitor.successRate(it) < 0.45 }
 
         val routeCriticalOk = routeAllowed && (
@@ -42,7 +50,7 @@ object LiveProviderQuorum {
         }
 
         val providers = mutableListOf<String>()
-        if (src.contains("DEXPAPRIKA") || hostHealthy("dexpaprika", "api.dexpaprika.com")) providers += "DEXPAPRIKA"
+        // V5.0.6946 — DEXPAPRIKA removed: HTTP 402, a paid product since 6512.
         if (src.contains("RAYDIUM") || hostHealthy("raydium", "api-v3.raydium.io")) providers += "RAYDIUM"
         if (src.contains("DEXSCREENER") || hostHealthy("dexscreener", "api.dexscreener.com")) providers += "DEXSCREENER_ENRICHMENT"
         if (src.contains("PUMP") || hostHealthy("pumpfun", "pump.fun", "frontend-api.pump.fun", "pumpportal")) providers += "PUMPFUN"

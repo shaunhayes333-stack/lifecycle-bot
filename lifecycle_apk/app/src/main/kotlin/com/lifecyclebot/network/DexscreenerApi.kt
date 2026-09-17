@@ -64,7 +64,8 @@ class DexscreenerApi {
     private val CACHE_TTL_MS = 45_000L  // 45 seconds cache (was 15) - reduce API calls
 
     /** Returns the best-scoring pair for this mint on Solana, or null. */
-    fun getBestPair(mint: String): PairInfo? = getBestPairInternal("solana", mint, allowDexPaprika = true)
+    // V5.0.6946 — DexPaprika removed (HTTP 402, paid product). Never routed to.
+    fun getBestPair(mint: String): PairInfo? = getBestPairInternal("solana", mint, allowDexPaprika = false)
 
     /**
      * V5.0.6544 — chain-aware DexScreener hydration for Crypto Universe.
@@ -73,7 +74,7 @@ class DexscreenerApi {
     fun getBestPair(chainId: String, tokenAddress: String): PairInfo? {
         val chain = chainId.trim().lowercase()
         if (chain.isBlank() || tokenAddress.isBlank()) return null
-        return getBestPairInternal(chain, tokenAddress.trim(), allowDexPaprika = chain == "solana")
+        return getBestPairInternal(chain, tokenAddress.trim(), allowDexPaprika = false)
     }
 
     private fun getBestPairInternal(chainId: String, tokenAddress: String, allowDexPaprika: Boolean): PairInfo? {

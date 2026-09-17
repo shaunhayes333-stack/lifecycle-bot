@@ -36,7 +36,8 @@ object ProviderAuthority {
         "WALLET" to ProviderConfig("WALLET", setOf(Role.EXECUTION, Role.ACCOUNTING, Role.EXIT_RISK), emptySet()),
         "HELIUS" to ProviderConfig("HELIUS", setOf(Role.EXECUTION, Role.ACCOUNTING, Role.EXIT_RISK), setOf(Role.EXECUTION)),
         "JUPITER" to ProviderConfig("JUPITER", setOf(Role.EXECUTION, Role.ACCOUNTING, Role.EXIT_RISK), setOf(Role.ACCOUNTING)),
-        "DEXPAPRIKA" to ProviderConfig("DEXPAPRIKA", setOf(Role.DISCOVERY, Role.DISPLAY, Role.EXIT_RISK), setOf(Role.EXECUTION, Role.ACCOUNTING)),
+        // V5.0.6946 — DEXPAPRIKA retired (HTTP 402). No roles; nothing may route to it.
+        "DEXPAPRIKA" to ProviderConfig("DEXPAPRIKA", emptySet(), setOf(Role.EXECUTION, Role.ACCOUNTING, Role.DISCOVERY, Role.DISPLAY, Role.EXIT_RISK)),
         "RAYDIUM" to ProviderConfig("RAYDIUM", setOf(Role.DISCOVERY, Role.DISPLAY, Role.EXIT_RISK), emptySet()),
         "ORCA" to ProviderConfig("ORCA", setOf(Role.EXIT_RISK, Role.DISPLAY), emptySet()),
         "METEORA" to ProviderConfig("METEORA", setOf(Role.EXIT_RISK, Role.DISPLAY), emptySet()),

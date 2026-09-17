@@ -10527,6 +10527,59 @@ class BotService : Service() {
                 // well inside our rate budget. We rate-limit to 1 fallback
                 // attempt per mint per 5s so a permanently-rugged mint can't
                 // hammer the API every tick.
+                val missingBeforeKeyless6946 = openMints.filter { it !in priceMap }
+
+                // V5.0.6946 §THE_KEYLESS_FALLBACK_WAS_LIVE_ONLY.
+                //
+                // Everything below this block falls back to BIRDEYE, which is
+                // 401-dead (BIRDEYE_KEY_DEAD_401_STICKY_6503, sr=0%). So a mint
+                // DexScreener does not index had no second source at all, which
+                // is why the snapshot showed quote freshness missing=371 against
+                // fresh=3, and why the exit scheduler logged eval=101151 with
+                // SL=0 CATA=0 TP=0 TRAIL=0 — it cannot evaluate what it cannot
+                // price.
+                //
+                // PriceResolverFallback already solves exactly this with six
+                // KEYLESS sources tried in measured-health order — DexScreener,
+                // Jupiter Lite, RAYDIUM, PumpFun, GeckoTerminal — and it was
+                // wired to LiveWalletReconciler only. Paper positions, which is
+                // where essentially all of this bot's inventory lives, never
+                // reached it. Raydium in particular is a first-class Solana
+                // source for graduated and fresh-launch mints and had never been
+                // contacted once: it appears nowhere in ApiHealthMonitor.
+                //
+                // Runs BEFORE the Birdeye path so the keyless chain gets first
+                // refusal and Birdeye becomes the last resort it should always
+                // have been. Capped per tick so a large missing set cannot stall
+                // the 1Hz cadence V5.0.6945 just restored; leftovers are picked
+                // up on subsequent ticks.
+                if (missingBeforeKeyless6946.isNotEmpty()) {
+                    val solUsdHint6946 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+                    var resolved6946 = 0
+                    for (mint in missingBeforeKeyless6946.take(8)) {
+                        val r = try {
+                            com.lifecyclebot.engine.sell.PriceResolverFallback.resolve(mint, solUsdHint6946)
+                        } catch (_: Throwable) { null }
+                        val px = r?.priceUsd ?: 0.0
+                        if (px > 0.0) {
+                            priceMap[mint] = px
+                            resolved6946++
+                            try {
+                                PipelineHealthCollector.labelInc("MARK_KEYLESS_FALLBACK_6946_${r?.source?.name ?: "UNKNOWN"}")
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                    if (resolved6946 > 0) {
+                        try {
+                            PipelineHealthCollector.labelInc("MARK_KEYLESS_FALLBACK_RESOLVED_6946")
+                            ForensicLogger.lifecycle("MARK_KEYLESS_FALLBACK_6946",
+                                "missing=${missingBeforeKeyless6946.size} resolved=$resolved6946 note=paper_positions_now_use_the_keyless_chain")
+                        } catch (_: Throwable) {}
+                    }
+                }
+
+                // Recomputed after the keyless pass so the Birdeye path below
+                // only sees mints that are still genuinely unpriced.
                 val missing = openMints.filter { it !in priceMap }
                 if (missing.isNotEmpty()) {
                     // ═══════════════════════════════════════════════════════════════

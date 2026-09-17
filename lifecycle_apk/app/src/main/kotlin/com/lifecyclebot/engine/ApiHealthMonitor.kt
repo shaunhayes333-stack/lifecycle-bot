@@ -140,6 +140,28 @@ object ApiHealthMonitor {
     }
 
     /**
+     * V5.0.6946 — has this host ever actually been contacted?
+     *
+     * successRate() deliberately fails OPEN at 1.0 for an unknown host so a
+     * brand-new provider is not judged unhealthy before its first call. That is
+     * right for a health GATE and wrong for counting a QUORUM: a provider that
+     * has never been contacted cannot vouch for a price, but at 1.0 it passes
+     * every "healthy" test and silently pads the provider count.
+     *
+     * LiveProviderQuorum was counting RAYDIUM on exactly this basis — raydium
+     * appears nowhere in the operator's API health table, so it had no samples,
+     * so it scored 1.0, so it counted as a healthy provider in every live
+     * quorum without a single request ever being made.
+     *
+     * Callers that need "healthy" should use successRate(). Callers that need
+     * "proven present" must use this as well.
+     */
+    fun hasSamples(host: String): Boolean {
+        val s = hosts[host.lowercase()] ?: return false
+        return (s.successes.get() + s.failures4xx.get() + s.failures5xx.get() + s.networkErrors.get()) > 0
+    }
+
+    /**
      * V5.0.6251 — CIRCUIT-BREAKER HELPER. Returns true when a provider has
      * proven itself dead (sustained auth-fail or rate-limit) and callers
      * should stop hammering it. Snapshot 6249 showed birdeye sr=0% (401)

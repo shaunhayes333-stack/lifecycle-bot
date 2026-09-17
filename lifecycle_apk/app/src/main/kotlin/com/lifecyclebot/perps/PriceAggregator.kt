@@ -396,7 +396,8 @@ object PriceAggregator {
         // V5.0.6065 — API REDUNDANCY EXPLOSION. New keyless crypto sources so
         // the bot never becomes a hostage of Birdeye/CoinGecko rate limits.
         // All six are documented public/no-key endpoints.
-        GECKO_TERMINAL, DIA_DATA, JUPITER_LITE, DEXPAPRIKA, RAYDIUM_V3, COINPAPRIKA, COINCAP,
+        // V5.0.6946 — DEXPAPRIKA dropped from the attempt list: HTTP 402, paid.
+        GECKO_TERMINAL, DIA_DATA, JUPITER_LITE, RAYDIUM_V3, COINPAPRIKA, COINCAP,
         // Stocks
         YAHOO_V7, YAHOO_V8, STOOQ, CNBC, GOOGLE_FINANCE, FINNHUB, ALPHA_VANTAGE, 
         TWELVE_DATA, IEX, POLYGON, FMP, TIINGO, MARKETSTACK,
