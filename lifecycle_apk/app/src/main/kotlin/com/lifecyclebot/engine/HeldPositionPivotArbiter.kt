@@ -37,9 +37,11 @@ import java.util.concurrent.ConcurrentHashMap
  *   • Anti-flip-flop: a pivot only fires when the candidate's blended score beats
  *     the current style's by CONVICTION_MARGIN, and not more than once per
  *     PIVOT_COOLDOWN_MS per position.
- *   • Self-crediting: on pivot it re-stamps ForwardOutcomeModel with the new lane
- *     so Executor.recordOutcome (already wired on close) credits the PIVOTED
- *     signature — the learning stack scores the decision it actually made.
+ *   • Entry attribution is immutable (V5.0.6866): a pivot changes the EXIT STYLE,
+ *     so ForwardOutcomeModel keeps the signature of the lane that made the entry.
+ *     This previously re-stamped with the pivoted lane, which destroyed the
+ *     original signature and credited the settled outcome to a lane that never
+ *     took the decision. The pivot is recorded on Position.modeHistory instead.
  *   • Fail-open: any exception leaves the position on its entry style.
  *
  * It does NOT scale size / add to winners — that touches the buy/exposure path and
@@ -146,13 +148,38 @@ object HeldPositionPivotArbiter {
             // ── PIVOT. Soft-shape: only changes the live exit style. ──
             ts.position.tradingMode = bestLane
             ts.position.tradingModeEmoji = emojiFor(bestLane)
+            // V5.0.6866 §A_PIVOT_MUST_NOT_ERASE_WHO_MADE_THE_ENTRY — tradingMode was
+            // overwritten in place with no record, so the lane that actually opened
+            // the position disappeared. Position.modeHistory exists for this, is
+            // persisted (PositionPersistence:784/872) and is written the same way by
+            // the HoldingLogicLayer mode switch at Executor:9406 and by the lane
+            // promotion path fixed in V5.0.6855. Same treatment here.
+            ts.position.modeHistory = if (ts.position.modeHistory.isEmpty()) {
+                "$current>$bestLane"
+            } else {
+                "${ts.position.modeHistory}>$bestLane"
+            }
             lastPivotMs[mint] = now
             pivotCount[mint] = (pivotCount[mint] ?: 0) + 1
 
-            // Re-stamp so the settled outcome credits the PIVOTED signature.
-            try {
-                ForwardOutcomeModel.stamp(mint, bestLane, score, quality, regime, edgePhase)
-            } catch (_: Throwable) {}
+            // V5.0.6866 §THE_RESTAMP_CREDITED_AN_ENTRY_TO_A_LANE_THAT_DID_NOT_MAKE_IT —
+            // this used to call ForwardOutcomeModel.stamp(mint, bestLane, ...) with the
+            // comment "re-stamp so the settled outcome credits the PIVOTED signature".
+            //
+            // ForwardOutcomeModel is an ENTRY predictor: stamp() is called at buy and
+            // records the mint → (fineKey, coarseKey) signature whose cell the settled
+            // PnL will update, so that the next candidate matching that signature gets
+            // a better P(win) BEFORE entry. Re-stamping replaced pending[mint] outright,
+            // so the original entry signature was destroyed and the outcome was credited
+            // to a lane that never made the decision. The pivoted lane learned "entries
+            // like this do well/badly" about an entry it did not take, and the lane that
+            // did take it learned nothing at all — the same corruption V5.0.6855 fixed on
+            // the lane-promotion path, which the pivot arbiter's own header advertises as
+            // "self-crediting".
+            //
+            // It also contradicts the two lines above it: this is a "soft-shape" that
+            // "only changes the live exit style". An exit-style change is not an entry,
+            // so the entry signature stays with the lane that earned it.
 
             try {
                 ForensicLogger.lifecycle(
