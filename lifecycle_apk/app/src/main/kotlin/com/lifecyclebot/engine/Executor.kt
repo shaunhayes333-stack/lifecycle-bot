@@ -2364,7 +2364,39 @@ class Executor(
      * a wallet/liquidity/score-aware live size while still respecting rent reserve,
      * wallet exposure, and liquidity impact. It never bypasses safety/route gates.
      */
-    private fun realisticLiveEntrySize(
+    /**
+     * V5.0.6867 §ONE_GROWTH_POLICY_SURFACE_MEANT_ONE — this authority used to open
+     * with `if (!RuntimeModeAuthority.isLive()) return requestedSol`, so everything
+     * below it was LIVE-only:
+     *   the LiveGrowthDoctrine wallet-% floor and cap, the liquidity-impact cap, the
+     *   PaperEvBucketGate runner boost, the EarlyMoonshotHunter lift, the
+     *   LiveGrowthCompounder lane-win bump and wallet-tier lift, the small-wallet
+     *   turbo, and the absolute anti-dust floor.
+     *
+     * PAPER received none of it. Paper sized off SmartSizer's ladder times the
+     * multiplier stack and stopped there. The V5.0.6418 paper-parity attempt in
+     * paperBuy says so in its own note: it emits the lift and never applies it,
+     * "advisory_full_wire_lands_when_paperbuy_sol_var_refactored", because `sol` is
+     * a val parameter in a ~1000-line function.
+     *
+     * That is backwards from the design intent. LiveGrowthDoctrine calls itself
+     * "the source authority for the operator's north-star" and states its scope as
+     * "all meme/live trader families, lane archetypes, and trading tools share ONE
+     * growth policy surface". Paper's entire purpose is to predict what live will
+     * do, and it cannot do that while sizing by a different formula: every
+     * expectancy it learns is measured at the wrong position size, the relative fee
+     * drag on a 0.02 SOL paper ticket is nothing like a 0.25 SOL live one, and the
+     * runner / moonshot / wallet-tier compounding paths that actually decide live
+     * outcomes were never exercised in paper at all.
+     *
+     * So the authority now runs in BOTH modes. The live numbers are untouched — they
+     * are the operator's declared 2x–5x growth policy and were already what live
+     * used. Paper simply sizes by the same policy, against the paper balance, using
+     * the paper-scoped compounder state that already exists for exactly this
+     * (consumeNextPaperBuyBump / capturePaperBaseline / paperWalletGrowthLift, added
+     * as "PAPER PARITY" in V5.0.6417 and then never reached).
+     */
+    private fun realisticEntrySize6867(
         ts: TokenState,
         requestedSol: Double,
         walletSol: Double,
@@ -2372,7 +2404,7 @@ class Executor(
         lane: String,
         source: String,
     ): Double {
-        if (!RuntimeModeAuthority.isLive()) return requestedSol
+        val isPaper6867 = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
         if (!requestedSol.isFinite() || requestedSol <= 0.0 || walletSol <= 0.0) return requestedSol
         val rentReserve = 0.012
         val spendable = (walletSol - rentReserve).coerceAtLeast(0.0)
@@ -2427,7 +2459,9 @@ class Executor(
         val runnerBoost6408 = try {
             com.lifecyclebot.engine.truth.PaperEvBucketGate6405.sizeMultiplier(
                 mint = ts.mint, symbol = ts.symbol, lane = laneKey,
-                scoreInt = score.toInt(), isPaper = false,
+                // V5.0.6867 — was hardcoded false because this authority only ever
+                // ran in live. Pass the real mode now that it runs in both.
+                scoreInt = score.toInt(), isPaper = isPaper6867,
             )
         } catch (_: Throwable) { 1.0 }
         // V5.0.6415 — EARLY MOONSHOT HUNTER (sub-$25k mcap runner).
@@ -2475,14 +2509,29 @@ class Executor(
         //   §A next-buy bump from a recent lane win (1.0..2.0×, 5min TTL, one-shot)
         //   §B wallet growth tier lift (1.0/1.10/1.20/1.35 based on currentSol/baseline)
         // Both bounded by liquidityCapSol + spendable in the cap calculation below.
+        // V5.0.6867 — mode-scoped compounder state. LiveGrowthCompounder6416 keeps
+        // paper and live in separate maps on purpose ("so paper wins don't bump live
+        // buys and vice-versa"), and the paper half has existed since V5.0.6417 with
+        // no caller that applies it. Route to the matching half.
         val laneWinBump6416 = try {
-            com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.consumeNextBuyBump(
-                lane = laneKey, mint = ts.mint, symbol = ts.symbol,
-            )
+            if (isPaper6867) {
+                com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.consumeNextPaperBuyBump(
+                    lane = laneKey, mint = ts.mint, symbol = ts.symbol,
+                )
+            } else {
+                com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.consumeNextBuyBump(
+                    lane = laneKey, mint = ts.mint, symbol = ts.symbol,
+                )
+            }
         } catch (_: Throwable) { 1.0 }
         val walletTierLift6416 = try {
-            com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.captureBaseline(walletSol)
-            com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.walletGrowthLift(walletSol)
+            if (isPaper6867) {
+                com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.capturePaperBaseline(walletSol)
+                com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.paperWalletGrowthLift(walletSol)
+            } else {
+                com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.captureBaseline(walletSol)
+                com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.walletGrowthLift(walletSol)
+            }
         } catch (_: Throwable) { 1.0 }
         val growthLift6416 = laneWinBump6416 * walletTierLift6416
         val totalBoost6416 = effectiveBoost6415 * growthLift6416
@@ -11301,7 +11350,7 @@ class Executor(
         // V5.0.3958 — MEGA-PROFIT COMPOUNDING CAP. Once the live expectancy
         // allocator marks a lane as positive edge, let the final size stack press
         // it harder than the legacy 1.75× ceiling. Route, wallet, liquidity,
-        // reserve, zero-liq, and rug safety remain enforced by realisticLiveEntrySize
+        // reserve, zero-liq, and rug safety remain enforced by realisticEntrySize6867
         // and upstream gates.
         // V5.0.6082 — PAPER/LIVE COMPOUNDING SIZE PARITY.
         // Paper is the live-money simulator. If a lane is proven edge, paper must
@@ -11424,9 +11473,13 @@ class Executor(
             try { ForensicLogger.lifecycle("DUMP_REGIME_LIVE_SIZE_SHAPED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag regimeMult=$regimeMult laneCap=$laneSizeCap floor=$liveFloorMult raw=${effSolRaw.fmt(4)}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("DUMP_REGIME_LIVE_SIZE_SHAPED") } catch (_: Throwable) {}
         }
-        val effSol = if (RuntimeModeAuthority.isLive()) {
-            realisticLiveEntrySize(ts, effSolRaw, walletSol, score, identity?.source ?: ts.source, "doBuy.final")
-        } else effSolRaw
+        // V5.0.6867 — one growth policy surface. This was `if (isLive())`, so paper
+        // skipped the doctrine floor/cap and every compounding lift with it. Both
+        // books now size through the same authority against their own balance.
+        val effSol = realisticEntrySize6867(
+            ts, effSolRaw, walletSol, score, identity?.source ?: ts.source,
+            if (RuntimeModeAuthority.isLive()) "doBuy.final" else "doBuy.final.paper",
+        )
 
         try {
             LearningLifecycleBus.sizingDecision(
@@ -12298,34 +12351,22 @@ class Executor(
         // attempt time. Every downstream gate after this point may reject the
         // entry; reservation/open/cash mutation is now deferred to the confirmed
         // paper fill block below.
-        // V5.0.6418 — PAPER GROWTH COMPOUNDER (parity with live at line ~2790).
-        // Operator directive: "wallet balance isnt increasing again on live or
-        // paper trading. it needs to be more growth centric." Apply the same
-        // lane-win compound bump + wallet tier lift to paper sizing.
-        // NOTE: sol is a `val` parameter — we can't reassign it, and paperBuy
-        // uses it in dozens of places downstream. Rather than refactor to a
-        // shadowed var (risky, ~1000-line function), we emit the lift
-        // decision AND publish it to a mint-keyed prime that the very next
-        // liveBuy or paperBuy sizing pass can consume via
-        // consumeNextPaperBuyBump(). For lane-level parity this is close
-        // enough — the compounder is lane-scoped, not mint-scoped, so the
-        // NEXT paper buy in the same lane still gets the bump.
+        // V5.0.6418 — PAPER GROWTH COMPOUNDER. Superseded by V5.0.6867.
+        //
+        // The original note here read "advisory_full_wire_lands_when_paperbuy_sol_
+        // var_refactored": because `sol` is a val parameter in this ~1000-line
+        // function it could not apply the lift, so it consumed the lane prime and
+        // only logged the number. That consumed prime was then gone for whoever
+        // could have used it.
+        //
+        // V5.0.6867 applies both the lane-win bump and the wallet-tier lift for real,
+        // upstream at doBuy.final, through the same entry-size authority live uses.
+        // This block therefore MUST NOT call consumeNextPaperBuyBump any more — it
+        // would race the real consumer and steal the bump. Baseline capture is
+        // idempotent and stays so the paper growth tier keeps tracking.
         try {
-            val laneKey6418 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "STANDARD" }
-            val paperBump6418 = com.lifecyclebot.engine.truth.LiveGrowthCompounder6416
-                .consumeNextPaperBuyBump(laneKey6418, ts.mint, ts.symbol)
             val currentPaperSol6418 = try { com.lifecyclebot.engine.BotService.status.paperWalletSol } catch (_: Throwable) { 0.0 }
             com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.capturePaperBaseline(currentPaperSol6418)
-            val paperTierLift6418 = com.lifecyclebot.engine.truth.LiveGrowthCompounder6416.paperWalletGrowthLift(currentPaperSol6418)
-            if (paperBump6418 > 1.0 || paperTierLift6418 > 1.0) {
-                ForensicLogger.lifecycle(
-                    "PAPER_GROWTH_LIFT_ADVISORY_6418",
-                    "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$laneKey6418 requestedSol=${"%.4f".format(sol)} " +
-                        "paperBump=${"%.2f".format(paperBump6418)} paperTierLift=${"%.2f".format(paperTierLift6418)} " +
-                        "note=advisory_full_wire_lands_when_paperbuy_sol_var_refactored",
-                )
-                PipelineHealthCollector.labelInc("PAPER_GROWTH_LIFT_ADVISORY_6418")
-            }
         } catch (_: Throwable) {}
         // V5.0.6373f — PRESALE/RESALE SNIPE HARD BLOCK (source of the -96 % bleed).
         // Operator's V5.0.6373 snapshot: 11 of the last 30 SELLs were
@@ -16623,7 +16664,7 @@ class Executor(
                 PipelineHealthCollector.labelInc("LIVE_PENDING_PROOF_TRUTH_EXEMPT_6293")
             } catch (_: Throwable) {}
         }
-        val baseRealisticSol = realisticLiveEntrySize(ts, sol, walletSol, score, layerTag.ifBlank { identity?.source ?: ts.source }, "liveBuy.final")
+        val baseRealisticSol = realisticEntrySize6867(ts, sol, walletSol, score, layerTag.ifBlank { identity?.source ?: ts.source }, "liveBuy.final")
         // Unknown proof lowers confidence and learned risk until proof arrives;
         // it does not force every live buy into a fixed micro cap.
         // V5.0.6293 — matching 0.35 → 0.65 dampening for the realistic size path.

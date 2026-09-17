@@ -954,7 +954,7 @@ object ExecutableOpenGate {
             // executable-open finality block. Runtime 3951 still showed one
             // FINALITY_BLOCK:WATCH while TokenSafetyChecker correctly emitted
             // LOW_LIQUIDITY_SIZE_REDUCED. Restore the FDG-approved WATCH and let
-            // LiveRestoreExecutionPolicy/realisticLiveEntrySize clamp size.
+            // LiveRestoreExecutionPolicy/realisticEntrySize6867 clamp size.
             val liqOk = effectiveLiq > 0.0
             if (mode.equals("LIVE", true) && latestAllows && safetyOk && liqOk && effectiveHardNoReasons.isEmpty()) {
                 try {
