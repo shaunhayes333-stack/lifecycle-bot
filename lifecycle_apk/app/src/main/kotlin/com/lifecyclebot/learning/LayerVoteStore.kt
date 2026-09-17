@@ -68,7 +68,46 @@ object LayerVoteStore {
      * Abstained layers (no vote) get no signal — their accuracy is preserved
      * until they decide to vote again.
      */
+    // V5.0.6860 §ONE_CLOSE_WAS_GRADED_TWICE — closeoutMeme has two independent
+    // callers for the same close: the Executor close fanout (Executor:4073) and the
+    // canonical outcome bus subscriber (CanonicalSubscribers:263). The bus side has
+    // its own recordOnce(tradeId) latch, but that only dedupes within the bus — it
+    // cannot see the Executor call.
+    //
+    // drainVotes() made the per-layer grading accidentally idempotent (the second
+    // caller finds an empty bucket), which hid the problem. Everything AROUND the
+    // drain was not: bumpMemeAggregate fires unconditionally at the top, and the
+    // empty-cast branch then runs the flat learnFromAssetTrade fallback. So a single
+    // meme close produced one vote-graded sample PLUS one flat sample PLUS two
+    // aggregate bumps — inflating the "Memes: N trades" counter and feeding the MEME
+    // lane a second, layer-less outcome for a trade it had already learned from.
+    //
+    // Deduped on the exact outcome tuple rather than on a shared id, because the two
+    // callers do not share one: the Executor has a positionId and the bus has a
+    // tradeId. Two genuinely different trades on the same mint would have to produce
+    // bit-identical pnlPct inside the TTL to collide.
+    private val closeoutLatch6860 = ConcurrentHashMap<String, Long>()
+    private const val CLOSEOUT_LATCH_TTL_MS_6860 = 5L * 60_000L
+
+    private fun claimCloseout6860(mint: String, isWin: Boolean, pnlPct: Double): Boolean {
+        val now = System.currentTimeMillis()
+        if (closeoutLatch6860.size > 2048) {
+            try { closeoutLatch6860.entries.removeIf { now - it.value > CLOSEOUT_LATCH_TTL_MS_6860 } } catch (_: Throwable) {}
+        }
+        val key = "$mint|$isWin|${pnlPct.toRawBits()}"
+        val prior = closeoutLatch6860.putIfAbsent(key, now)
+        if (prior != null && now - prior < CLOSEOUT_LATCH_TTL_MS_6860) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAYER_VOTE_CLOSEOUT_DUPLICATE_SUPPRESSED_6860")
+            } catch (_: Throwable) {}
+            return false
+        }
+        closeoutLatch6860[key] = now
+        return true
+    }
+
     fun closeoutMeme(mint: String, isWin: Boolean, pnlPct: Double, symbol: String = "") {
+        if (!claimCloseout6860(mint, isWin, pnlPct)) return
         // V5.9.394 — ALWAYS bump the MEME aggregate counter so the Cross-Layer
         // Bridge "Memes: N trades" stays in sync with the main UI. Previously
         // only the no-votes fallback path hit recordMemeTrade, meaning every
