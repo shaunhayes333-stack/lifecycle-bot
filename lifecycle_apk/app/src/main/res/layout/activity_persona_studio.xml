@@ -28,13 +28,19 @@
             android:orientation="horizontal"
             android:gravity="center_vertical">
 
+            <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
             <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Persona Studio"
-                android:textColor="@color/aate_green"
-                android:textSize="18sp"
-                android:textStyle="bold"/>
+                style="@style/AateScreenTitle"
+                android:text="Persona Studio"/>
+
+            <TextView
+                style="@style/AateScreenSubtitle"
+                android:text="Voice · Tone · Character"/>
+        </LinearLayout>
 
             <View
                 android:layout_width="0dp"
@@ -73,7 +79,9 @@
             android:orientation="vertical"
             android:background="@drawable/aate_universe_panel_bg"
             android:padding="12dp"
-            android:layout_marginBottom="10dp">
+            android:layout_marginBottom="10dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -143,7 +151,9 @@
             android:orientation="vertical"
             android:background="@drawable/aate_universe_panel_bg"
             android:padding="12dp"
-            android:layout_marginBottom="10dp">
+            android:layout_marginBottom="10dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -199,7 +209,9 @@
             android:orientation="vertical"
             android:background="@drawable/aate_universe_panel_bg"
             android:padding="12dp"
-            android:layout_marginBottom="10dp">
+            android:layout_marginBottom="10dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -255,7 +267,9 @@
             android:orientation="vertical"
             android:background="@drawable/aate_universe_panel_bg"
             android:padding="12dp"
-            android:layout_marginBottom="10dp">
+            android:layout_marginBottom="10dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -326,7 +340,9 @@
             android:orientation="vertical"
             android:background="@drawable/aate_universe_panel_bg"
             android:padding="12dp"
-            android:layout_marginBottom="10dp">
+            android:layout_marginBottom="10dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
             <TextView
                 android:layout_width="wrap_content"

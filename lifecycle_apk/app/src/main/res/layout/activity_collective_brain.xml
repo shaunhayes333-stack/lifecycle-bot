@@ -33,15 +33,19 @@
             android:layout_weight="1"
             android:orientation="vertical">
 
+            <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
             <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="HIVE MIND"
-                android:textColor="@color/aate_purple"
-                android:textSize="15sp"
-                android:textStyle="bold"
-                android:fontFamily="monospace"
-                android:letterSpacing="0.12"/>
+                style="@style/AateScreenTitle"
+                android:text="HIVE MIND"/>
+
+            <TextView
+                style="@style/AateScreenSubtitle"
+                android:text="More Minds · Better Edges"/>
+        </LinearLayout>
 
             <TextView
                 android:id="@+id/tvSyncStatus"
@@ -152,7 +156,9 @@
                     android:gravity="center"
                     android:background="@drawable/aate_universe_panel_bg"
                     android:padding="@dimen/card_padding"
-                    android:layout_marginEnd="3dp">
+                    android:layout_marginEnd="3dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
 
                     <TextView
                         android:id="@+id/tvBrainTotalTrades"
@@ -185,7 +191,8 @@
                     android:background="@drawable/aate_universe_panel_bg"
                     android:padding="@dimen/card_padding"
                     android:layout_marginStart="3dp"
-                    android:layout_marginEnd="3dp">
+                    android:layout_marginEnd="3dp"
+        android:layout_marginBottom="12dp">
 
                     <TextView
                         android:id="@+id/tvBrainActiveInstances"
@@ -217,7 +224,9 @@
                     android:gravity="center"
                     android:background="@drawable/aate_universe_panel_bg"
                     android:padding="@dimen/card_padding"
-                    android:layout_marginStart="3dp">
+                    android:layout_marginStart="3dp"
+        android:layout_marginEnd="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
 
                     <TextView
                         android:id="@+id/tvBrainPatternsLearned"
@@ -258,7 +267,9 @@
                     android:gravity="center"
                     android:background="@drawable/aate_universe_panel_bg"
                     android:padding="12dp"
-                    android:layout_marginEnd="3dp">
+                    android:layout_marginEnd="3dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -292,7 +303,8 @@
                     android:background="@drawable/aate_universe_panel_bg"
                     android:padding="12dp"
                     android:layout_marginStart="3dp"
-                    android:layout_marginEnd="3dp">
+                    android:layout_marginEnd="3dp"
+        android:layout_marginBottom="12dp">
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -325,7 +337,9 @@
                     android:gravity="center"
                     android:background="@drawable/aate_universe_panel_bg"
                     android:padding="12dp"
-                    android:layout_marginStart="3dp">
+                    android:layout_marginStart="3dp"
+        android:layout_marginEnd="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -367,7 +381,9 @@
                     android:gravity="center"
                     android:background="@drawable/aate_universe_panel_bg"
                     android:padding="12dp"
-                    android:layout_marginEnd="3dp">
+                    android:layout_marginEnd="3dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -401,7 +417,8 @@
                     android:background="@drawable/aate_universe_panel_bg"
                     android:padding="12dp"
                     android:layout_marginStart="3dp"
-                    android:layout_marginEnd="3dp">
+                    android:layout_marginEnd="3dp"
+        android:layout_marginBottom="12dp">
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -434,7 +451,9 @@
                     android:gravity="center"
                     android:background="@drawable/aate_universe_panel_bg"
                     android:padding="12dp"
-                    android:layout_marginStart="3dp">
+                    android:layout_marginStart="3dp"
+        android:layout_marginEnd="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -505,7 +524,9 @@
                 android:orientation="vertical"
                 android:background="@drawable/aate_universe_panel_bg"
                 android:padding="@dimen/card_padding"
-                android:layout_marginBottom="@dimen/card_margin"/>
+                android:layout_marginBottom="@dimen/card_margin"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding"/>
 
             <!-- ── TOP PATTERNS SECTION ── -->
             <LinearLayout

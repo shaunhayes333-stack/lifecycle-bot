@@ -376,7 +376,10 @@
         android:gravity="center_vertical"
         android:padding="10dp"
         android:background="@drawable/aate_universe_panel_bg"
-        android:visibility="gone">
+        android:visibility="gone"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
 
         <TextView
             android:layout_width="wrap_content"

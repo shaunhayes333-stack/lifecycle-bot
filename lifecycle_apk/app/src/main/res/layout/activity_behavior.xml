@@ -34,15 +34,19 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="vertical">
+            <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
             <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="NEURAL PERSONALITY"
-                android:textColor="@color/aate_text"
-                android:textSize="15sp"
-                android:textStyle="bold"
-                android:fontFamily="monospace"
-                android:letterSpacing="0.06"/>
+                style="@style/AateScreenTitle"
+                android:text="NEURAL PERSONALITY"/>
+
+            <TextView
+                style="@style/AateScreenSubtitle"
+                android:text="Instinct · Plasticity · Layer Health"/>
+        </LinearLayout>
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -77,7 +81,9 @@
                 android:orientation="vertical"
                 android:background="@drawable/aate_universe_panel_bg"
                 android:padding="@dimen/card_padding"
-                android:layout_marginBottom="@dimen/card_margin_bottom">
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
                 <TextView
                     android:layout_width="match_parent"
@@ -173,7 +179,9 @@
                 android:orientation="vertical"
                 android:background="@drawable/aate_universe_panel_bg"
                 android:padding="@dimen/card_padding"
-                android:layout_marginBottom="@dimen/card_margin_bottom">
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -214,7 +222,9 @@
                 android:orientation="vertical"
                 android:background="@drawable/aate_universe_panel_bg"
                 android:padding="@dimen/card_padding"
-                android:layout_marginBottom="@dimen/card_margin_bottom">
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -302,7 +312,9 @@
                 android:orientation="vertical"
                 android:background="@drawable/aate_universe_panel_bg"
                 android:padding="@dimen/card_padding"
-                android:layout_marginBottom="@dimen/card_margin_bottom">
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -366,7 +378,9 @@
                 android:orientation="vertical"
                 android:background="@drawable/aate_universe_panel_bg"
                 android:padding="@dimen/card_padding"
-                android:layout_marginBottom="@dimen/card_margin_bottom">
+                android:layout_marginBottom="@dimen/card_margin_bottom"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
                 <!-- Neural header -->
                 <LinearLayout
@@ -460,7 +474,9 @@
                         android:gravity="center"
                         android:background="@drawable/aate_metric_card_bg"
                         android:padding="12dp"
-                        android:layout_marginEnd="6dp">
+                        android:layout_marginEnd="6dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
                         <TextView android:id="@+id/tvActiveLayers"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="0" android:textColor="@color/aate_green" android:textSize="24sp"
@@ -479,7 +495,8 @@
                         android:background="@drawable/aate_metric_card_bg"
                         android:padding="12dp"
                         android:layout_marginStart="6dp"
-                        android:layout_marginEnd="6dp">
+                        android:layout_marginEnd="6dp"
+        android:layout_marginBottom="12dp">
                         <TextView android:id="@+id/tvDormantLayers"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="0" android:textColor="@color/aate_amber" android:textSize="24sp"
@@ -497,7 +514,9 @@
                         android:gravity="center"
                         android:background="@drawable/aate_metric_card_bg"
                         android:padding="12dp"
-                        android:layout_marginStart="6dp">
+                        android:layout_marginStart="6dp"
+        android:layout_marginEnd="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
                         <TextView android:id="@+id/tvAvgAccuracy"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="50%" android:textColor="@color/aate_text" android:textSize="24sp"
@@ -514,7 +533,10 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
                     android:background="@drawable/aate_metric_card_bg"
-                    android:padding="12dp">
+                    android:padding="12dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -553,7 +575,10 @@
                 android:orientation="vertical"
                 android:background="@drawable/aate_universe_panel_bg"
                 android:padding="12dp"
-                android:layout_marginTop="12dp">
+                android:layout_marginTop="12dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"

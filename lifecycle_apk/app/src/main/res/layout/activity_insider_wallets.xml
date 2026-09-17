@@ -34,15 +34,19 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="vertical">
+            <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
             <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Insider Tracker"
-                android:textColor="@color/aate_text"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:fontFamily="monospace"
-                android:letterSpacing="0.04"/>
+                style="@style/AateScreenTitle"
+                android:text="Insider Tracker"/>
+
+            <TextView
+                style="@style/AateScreenSubtitle"
+                android:text="Track · Cluster · Alert"/>
+        </LinearLayout>
             <TextView android:id="@+id/tvWalletCount"
                 android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="0 wallets tracked" android:textColor="@color/aate_text_muted"

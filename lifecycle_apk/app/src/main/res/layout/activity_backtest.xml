@@ -34,15 +34,19 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="vertical">
+            <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
             <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Backtest"
-                android:textColor="@color/aate_text"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:fontFamily="monospace"
-                android:letterSpacing="0.04"/>
+                style="@style/AateScreenTitle"
+                android:text="Backtest"/>
+
+            <TextView
+                style="@style/AateScreenSubtitle"
+                android:text="Simulate · Measure · Compare"/>
+        </LinearLayout>
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

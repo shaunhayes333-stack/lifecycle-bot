@@ -142,7 +142,10 @@
         android:gravity="center"
         android:layout_marginTop="28dp"
         android:background="@drawable/aate_universe_panel_bg"
-        android:padding="14dp">
+        android:padding="14dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
 
         <TextView
             android:layout_width="wrap_content"

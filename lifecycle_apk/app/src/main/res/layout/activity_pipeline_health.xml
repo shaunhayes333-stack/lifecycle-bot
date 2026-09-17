@@ -30,15 +30,20 @@
             android:clickable="true"
             android:focusable="true"/>
 
-        <TextView
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Pipeline Health"
-            android:textColor="@color/aate_text"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:layout_marginStart="4dp"/>
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/AateScreenTitle"
+                android:text="Pipeline Health"/>
+
+            <TextView
+                style="@style/AateScreenSubtitle"
+                android:text="Intake · Decision · Execution"/>
+        </LinearLayout>
 
         <TextView
             android:id="@+id/anrBadge"
@@ -138,7 +143,9 @@
             android:layout_marginEnd="4dp"
             android:padding="10dp"
             android:orientation="vertical"
-            android:background="@drawable/aate_universe_panel_bg">
+            android:background="@drawable/aate_universe_panel_bg"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -163,7 +170,9 @@
             android:layout_marginEnd="4dp"
             android:padding="10dp"
             android:orientation="vertical"
-            android:background="@drawable/aate_universe_panel_bg">
+            android:background="@drawable/aate_universe_panel_bg"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -188,7 +197,9 @@
             android:layout_marginEnd="4dp"
             android:padding="10dp"
             android:orientation="vertical"
-            android:background="@drawable/aate_universe_panel_bg">
+            android:background="@drawable/aate_universe_panel_bg"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -212,7 +223,10 @@
             android:layout_weight="1"
             android:padding="10dp"
             android:orientation="vertical"
-            android:background="@drawable/aate_universe_panel_bg">
+            android:background="@drawable/aate_universe_panel_bg"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

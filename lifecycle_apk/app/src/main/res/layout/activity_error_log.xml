@@ -29,17 +29,21 @@
             android:clickable="true"
             android:focusable="true"/>
 
-        <TextView
-            android:id="@+id/titleText"
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Error Logs"
-            android:textColor="@color/aate_text"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:fontFamily="monospace"
-                android:letterSpacing="0.04"/>
+            android:orientation="vertical">
+
+            <TextView
+                style="@style/AateScreenTitle"
+                android:id="@+id/titleText"
+                android:text="Error Logs"/>
+
+            <TextView
+                style="@style/AateScreenSubtitle"
+                android:text="Diagnose · Trace · Resolve"/>
+        </LinearLayout>
 
         <TextView
             android:id="@+id/refreshButton"

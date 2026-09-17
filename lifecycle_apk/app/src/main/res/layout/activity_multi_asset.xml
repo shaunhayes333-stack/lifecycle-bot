@@ -179,7 +179,9 @@
                         android:orientation="vertical"
                         android:gravity="center"
                         android:background="@drawable/aate_universe_panel_bg"
-                        android:layout_marginEnd="4dp">
+                        android:layout_marginEnd="4dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
                         <TextView
                             android:id="@+id/tvActivePositions"
                             android:layout_width="wrap_content"
@@ -203,7 +205,10 @@
                         android:layout_height="36dp"
                         android:orientation="vertical"
                         android:gravity="center"
-                        android:background="@drawable/aate_universe_panel_bg">
+                        android:background="@drawable/aate_universe_panel_bg"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
                         <TextView
                             android:id="@+id/tvTodayPnl"
                             android:layout_width="wrap_content"
@@ -234,7 +239,9 @@
                         android:orientation="vertical"
                         android:gravity="center"
                         android:background="@drawable/aate_universe_panel_bg"
-                        android:layout_marginEnd="4dp">
+                        android:layout_marginEnd="4dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
                         <TextView
                             android:id="@+id/tvWinRate"
                             android:layout_width="wrap_content"
@@ -258,7 +265,10 @@
                         android:layout_height="36dp"
                         android:orientation="vertical"
                         android:gravity="center"
-                        android:background="@drawable/aate_universe_panel_bg">
+                        android:background="@drawable/aate_universe_panel_bg"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
                         <TextView
                             android:id="@+id/tvStatsAiScore"
                             android:layout_width="wrap_content"
@@ -303,7 +313,9 @@
             android:paddingTop="6dp"
             android:paddingBottom="6dp"
             android:background="@drawable/aate_universe_panel_bg"
-            android:layout_marginBottom="2dp">
+            android:layout_marginBottom="2dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
             <!-- Phase badge -->
             <TextView
@@ -450,7 +462,9 @@
                         android:paddingEnd="12dp"
                         android:paddingTop="7dp"
                         android:paddingBottom="7dp"
-                        android:layout_marginBottom="10dp">
+                        android:layout_marginBottom="10dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
                         <TextView
                             android:layout_width="wrap_content"
@@ -617,7 +631,9 @@
                         android:orientation="vertical"
                         android:background="@drawable/aate_universe_panel_bg"
                         android:padding="12dp"
-                        android:layout_marginBottom="10dp">
+                        android:layout_marginBottom="10dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
                         <!-- Header row -->
                         <LinearLayout
@@ -696,7 +712,9 @@
                         android:orientation="vertical"
                         android:background="@drawable/aate_universe_panel_bg"
                         android:padding="12dp"
-                        android:layout_marginBottom="10dp">
+                        android:layout_marginBottom="10dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
                         <LinearLayout
                             android:layout_width="match_parent"
@@ -743,7 +761,9 @@
                         android:orientation="vertical"
                         android:background="@drawable/aate_universe_panel_bg"
                         android:padding="12dp"
-                        android:layout_marginBottom="10dp">
+                        android:layout_marginBottom="10dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
                         <LinearLayout
                             android:layout_width="match_parent"
@@ -811,7 +831,9 @@
                         android:orientation="vertical"
                         android:background="@drawable/aate_universe_panel_bg"
                         android:padding="12dp"
-                        android:layout_marginBottom="10dp">
+                        android:layout_marginBottom="10dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
                         <TextView
                             android:layout_width="wrap_content"
@@ -831,7 +853,9 @@
 
                             <LinearLayout android:layout_width="0dp" android:layout_height="34dp"
                                 android:layout_weight="1" android:orientation="vertical" android:gravity="center"
-                                android:background="@drawable/aate_universe_panel_bg" android:layout_marginEnd="3dp">
+                                android:background="@drawable/aate_universe_panel_bg" android:layout_marginEnd="3dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
                                 <TextView android:id="@+id/heatTech" android:layout_width="wrap_content"
                                     android:layout_height="wrap_content" android:text="—"
                                     android:textColor="@color/aate_text_muted" android:textSize="9sp" android:textStyle="bold"/>
@@ -842,7 +866,9 @@
 
                             <LinearLayout android:layout_width="0dp" android:layout_height="34dp"
                                 android:layout_weight="1" android:orientation="vertical" android:gravity="center"
-                                android:background="@drawable/aate_universe_panel_bg" android:layout_marginEnd="3dp">
+                                android:background="@drawable/aate_universe_panel_bg" android:layout_marginEnd="3dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
                                 <TextView android:id="@+id/heatFinance" android:layout_width="wrap_content"
                                     android:layout_height="wrap_content" android:text="—"
                                     android:textColor="@color/aate_text_muted" android:textSize="9sp" android:textStyle="bold"/>
@@ -853,7 +879,9 @@
 
                             <LinearLayout android:layout_width="0dp" android:layout_height="34dp"
                                 android:layout_weight="1" android:orientation="vertical" android:gravity="center"
-                                android:background="@drawable/aate_universe_panel_bg" android:layout_marginEnd="3dp">
+                                android:background="@drawable/aate_universe_panel_bg" android:layout_marginEnd="3dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
                                 <TextView android:id="@+id/heatEnergy" android:layout_width="wrap_content"
                                     android:layout_height="wrap_content" android:text="—"
                                     android:textColor="@color/aate_text_muted" android:textSize="9sp" android:textStyle="bold"/>
@@ -864,7 +892,9 @@
 
                             <LinearLayout android:layout_width="0dp" android:layout_height="34dp"
                                 android:layout_weight="1" android:orientation="vertical" android:gravity="center"
-                                android:background="@drawable/aate_universe_panel_bg" android:layout_marginEnd="3dp">
+                                android:background="@drawable/aate_universe_panel_bg" android:layout_marginEnd="3dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
                                 <TextView android:id="@+id/heatMetals" android:layout_width="wrap_content"
                                     android:layout_height="wrap_content" android:text="—"
                                     android:textColor="@color/aate_text_muted" android:textSize="9sp" android:textStyle="bold"/>
@@ -875,7 +905,9 @@
 
                             <LinearLayout android:layout_width="0dp" android:layout_height="34dp"
                                 android:layout_weight="1" android:orientation="vertical" android:gravity="center"
-                                android:background="@drawable/aate_universe_panel_bg" android:layout_marginEnd="3dp">
+                                android:background="@drawable/aate_universe_panel_bg" android:layout_marginEnd="3dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
                                 <TextView android:id="@+id/heatForex" android:layout_width="wrap_content"
                                     android:layout_height="wrap_content" android:text="—"
                                     android:textColor="@color/aate_text_muted" android:textSize="9sp" android:textStyle="bold"/>
@@ -886,7 +918,10 @@
 
                             <LinearLayout android:layout_width="0dp" android:layout_height="34dp"
                                 android:layout_weight="1" android:orientation="vertical" android:gravity="center"
-                                android:background="@drawable/aate_universe_panel_bg">
+                                android:background="@drawable/aate_universe_panel_bg"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
                                 <TextView android:id="@+id/heatCrypto" android:layout_width="wrap_content"
                                     android:layout_height="wrap_content" android:text="—"
                                     android:textColor="@color/aate_text_muted" android:textSize="9sp" android:textStyle="bold"/>
@@ -906,7 +941,9 @@
                         android:orientation="vertical"
                         android:background="@drawable/aate_universe_panel_bg"
                         android:padding="12dp"
-                        android:layout_marginBottom="10dp">
+                        android:layout_marginBottom="10dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
                         <TextView
                             android:layout_width="wrap_content"
@@ -946,7 +983,9 @@
                         android:orientation="vertical"
                         android:background="@drawable/aate_universe_panel_bg"
                         android:padding="12dp"
-                        android:layout_marginBottom="10dp">
+                        android:layout_marginBottom="10dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
                         <TextView
                             android:layout_width="wrap_content"
@@ -986,7 +1025,9 @@
                         android:orientation="vertical"
                         android:background="@drawable/aate_universe_panel_bg"
                         android:padding="12dp"
-                        android:layout_marginBottom="10dp">
+                        android:layout_marginBottom="10dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
                         <TextView
                             android:layout_width="wrap_content"
@@ -1086,7 +1127,9 @@
                             android:layout_width="0dp" android:layout_height="38dp" android:layout_weight="1"
                             android:orientation="horizontal" android:gravity="center"
                             android:background="@drawable/aate_universe_panel_bg" android:layout_marginEnd="3dp"
-                            android:clickable="true" android:focusable="true">
+                            android:clickable="true" android:focusable="true"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="•" android:textSize="12sp"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -1098,7 +1141,9 @@
                             android:layout_width="0dp" android:layout_height="38dp" android:layout_weight="1"
                             android:orientation="horizontal" android:gravity="center"
                             android:background="@drawable/aate_universe_panel_bg" android:layout_marginEnd="3dp"
-                            android:clickable="true" android:focusable="true">
+                            android:clickable="true" android:focusable="true"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="•" android:textSize="12sp"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -1110,7 +1155,9 @@
                             android:layout_width="0dp" android:layout_height="38dp" android:layout_weight="1"
                             android:orientation="horizontal" android:gravity="center"
                             android:background="@drawable/aate_universe_panel_bg" android:layout_marginEnd="3dp"
-                            android:clickable="true" android:focusable="true">
+                            android:clickable="true" android:focusable="true"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="ANALYTICS" android:textSize="12sp"
         android:letterSpacing="0.12" />
@@ -1123,7 +1170,10 @@
                             android:layout_width="0dp" android:layout_height="38dp" android:layout_weight="1"
                             android:orientation="horizontal" android:gravity="center"
                             android:background="@drawable/aate_universe_panel_bg"
-                            android:clickable="true" android:focusable="true">
+                            android:clickable="true" android:focusable="true"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding"
+        android:layout_marginBottom="12dp">
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="•" android:textSize="12sp"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"

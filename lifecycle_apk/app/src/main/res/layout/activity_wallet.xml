@@ -35,13 +35,19 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="vertical">
+            <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
             <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Wallet"
-                android:textColor="@color/aate_text"
-                android:textSize="16sp"
-                android:textStyle="bold"/>
+                style="@style/AateScreenTitle"
+                android:text="Wallet"/>
+
+            <TextView
+                style="@style/AateScreenSubtitle"
+                android:text="Balance · Performance · Treasury"/>
+        </LinearLayout>
             <TextView
                 android:id="@+id/tvConnectionStatus"
                 android:layout_width="wrap_content"
@@ -166,7 +172,9 @@
                 android:orientation="vertical"
                 android:background="@drawable/aate_universe_panel_bg"
                 android:padding="14dp"
-                android:layout_marginBottom="10dp">
+                android:layout_marginBottom="10dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -351,7 +359,9 @@
                 android:orientation="vertical"
                 android:background="@drawable/aate_universe_panel_bg"
                 android:padding="14dp"
-                android:layout_marginBottom="10dp">
+                android:layout_marginBottom="10dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -518,7 +528,9 @@
                 android:orientation="vertical"
                 android:background="@drawable/aate_universe_panel_bg"
                 android:padding="14dp"
-                android:layout_marginBottom="10dp">
+                android:layout_marginBottom="10dp"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -716,7 +728,9 @@
                 android:background="@drawable/aate_universe_panel_bg"
                 android:padding="14dp"
                 android:layout_marginBottom="24dp"
-                android:gravity="center_vertical">
+                android:gravity="center_vertical"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding">
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"

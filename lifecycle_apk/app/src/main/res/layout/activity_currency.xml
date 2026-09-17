@@ -33,13 +33,19 @@
             android:layout_weight="1"
             android:orientation="vertical">
 
+            <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
             <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Display Currency"
-                android:textColor="@color/aate_text"
-                android:textSize="16sp"
-                android:textStyle="bold"/>
+                style="@style/AateScreenTitle"
+                android:text="Display Currency"/>
+
+            <TextView
+                style="@style/AateScreenSubtitle"
+                android:text="Display · Conversion"/>
+        </LinearLayout>
 
             <TextView
                 android:id="@+id/tvRateStatus"
