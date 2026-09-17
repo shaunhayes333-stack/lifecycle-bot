@@ -217,7 +217,7 @@ object PeakAdaptiveTrail6390 {
         // own. Two internally-consistent regimes, never blended.
         val atr = if (atrPctPerCandle.isFinite() && atrPctPerCandle > 0.0) atrPctPerCandle else 0.0
         if (atr > 0.0) {
-            val atrTrailPct = (atr * ATR_TRAIL_MULT_6926 * slack)
+            val atrTrailPct = (atr * ATR_TRAIL_MULT_6926 * slack * regimeTrailMult6929())
                 .coerceIn(ATR_TRAIL_FLOOR_PCT_6926, ATR_TRAIL_CEIL_PCT_6926)
             val priceDrawdownPctFromHigh =
                 (peakGainPct - currentGainPct) / (100.0 + peakGainPct) * 100.0
@@ -267,6 +267,39 @@ object PeakAdaptiveTrail6390 {
      * resolution precisely on the biggest runners is the opposite of useful,
      * so the score is only the fallback.
      */
+    /**
+     * V5.0.6929 — MarketRegimeAI.getTrailMultiplier, which had zero callers.
+     *
+     * The regime layer publishes a per-regime trail looseness (STRONG_BULL
+     * 1.5 "50% looser trails", STRONG_BEAR 0.6 "40% tighter trails") and
+     * nothing read it, so the trail was regime-blind. Its sibling
+     * getHoldTimeMultiplier has been wired into both max-hold gates for
+     * builds; the trail half was not.
+     *
+     * It belongs on the ATR trail specifically, because the two express
+     * different things: ATR says how noisy the tape is right now, the regime
+     * says which way the whole asset class is leaning. In a strong bull a
+     * runner deserves more rope than its own volatility implies; in a strong
+     * bear you bank into strength because the next leg is probably down.
+     *
+     * ONE CORRECTION APPLIED: HIGH_VOLATILITY is neutralised to 1.0 here. Its
+     * 1.3 exists for the stated reason "volatility = noise", i.e. it is
+     * compensating for exactly the thing the ATR term already measures
+     * directly and better. Passing it through would double-count volatility
+     * and widen the trail twice for the same fact — the double-counting
+     * defect class this file has already been bitten by. The trend regimes
+     * pass through unchanged because they are independent information.
+     *
+     * Fails open to 1.0.
+     */
+    private fun regimeTrailMult6929(): Double = try {
+        val regime = com.lifecyclebot.engine.MarketRegimeAI.getCurrentRegime()
+        if (regime == com.lifecyclebot.engine.MarketRegimeAI.Regime.HIGH_VOLATILITY) 1.0
+        else com.lifecyclebot.engine.MarketRegimeAI.getTrailMultiplier()
+            .let { if (it.isFinite() && it > 0.0) it else 1.0 }
+            .coerceIn(0.6, 1.5)
+    } catch (_: Throwable) { 1.0 }
+
     fun atrPctFromRanges6926(ranges: List<Double>): Double {
         if (ranges.isEmpty()) return 0.0
         val clean = ranges.filter { it.isFinite() && it >= 0.0 }

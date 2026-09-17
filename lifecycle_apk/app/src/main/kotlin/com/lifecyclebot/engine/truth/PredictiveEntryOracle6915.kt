@@ -327,6 +327,43 @@ object PredictiveEntryOracle6915 {
             }
         } catch (_: Throwable) {}
 
+        // V5.0.6929 — market regime as a BAR, not a throttle.
+        //
+        // MarketRegimeAI.shouldReduceExposure() had zero callers. Memecoins
+        // are one asset class with one beta — SOL plus crypto-twitter risk
+        // appetite — so in a risk-off tape every lane loses together, and a
+        // trader takes fewer shots rather than the same shots smaller.
+        //
+        // But "fewer shots" must not become a throttle. The standing doctrine
+        // here is never throttle, never cap-to-dust, never disable a lane, and
+        // a counter that stops entries after N would starve the bot exactly
+        // when a genuinely great setup appears. So this raises the EXPECTANCY
+        // BAR instead: in risk-off, a candidate needs more evidence to clear
+        // the same threshold, and the bot naturally trades less because fewer
+        // candidates qualify — selection, not a cap. A great setup still gets
+        // through. RegimeDetector.scoreFloorDelta already applies the same
+        // idea on the score side.
+        //
+        // Deliberately asymmetric. shouldReduceExposure() is selective (only
+        // STRONG_BEAR and HIGH_VOLATILITY) so it carries real information. Its
+        // sibling isFavorableForEntry() is NOT used as a positive, because it
+        // returns true for NEUTRAL as well — true most of the time, which
+        // would make it a constant baseline shift rather than a signal. The
+        // upside therefore comes only from the genuinely bullish regimes.
+        try {
+            if (com.lifecyclebot.engine.MarketRegimeAI.shouldReduceExposure()) {
+                out += BrainRead("regimeRiskOff", -7.0)
+            } else when (com.lifecyclebot.engine.MarketRegimeAI.getCurrentRegime()) {
+                com.lifecyclebot.engine.MarketRegimeAI.Regime.STRONG_BULL ->
+                    out += BrainRead("regimeStrongBull", 5.0)
+                com.lifecyclebot.engine.MarketRegimeAI.Regime.BULL ->
+                    out += BrainRead("regimeBull", 3.0)
+                com.lifecyclebot.engine.MarketRegimeAI.Regime.BEAR ->
+                    out += BrainRead("regimeBear", -4.0)
+                else -> {}
+            }
+        } catch (_: Throwable) {}
+
         // Momentum predictor.
         try {
             if (mint.isNotBlank()) {
