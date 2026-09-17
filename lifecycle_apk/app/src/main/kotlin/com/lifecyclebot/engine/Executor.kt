@@ -8216,6 +8216,20 @@ class Executor(
     /** Operator/test diagnostic — number of currently held sell locks. */
     fun sellLockHeldCount(): Int = sellInProgress.size
 
+    // V5.0.6855 §FEE_BAND_SCRATCH_GUARD_DELIBERATELY_LEFT_UNWIRED —
+    // ProfitabilityLayer.shouldBlockFeeBandExit() has zero callers, and it stays
+    // that way. It decides "is this a hard exit?" from a keyword blocklist —
+    // stop / sl / trail / drain / rug / v8 / circuit / force — which does not match
+    // this file's actual exit-reason vocabulary. riskCheck below can return
+    // "dev_dump", "whale_dump", "velocity_dump", "liquidity_collapse",
+    // "accelerating_loss", "crosstalk_coordinated_dump", "reflex_abort",
+    // "catastrophic_gap_guard_*" and "PROTECTIVE_EXIT_*_6450"; none of those
+    // contains a blocklist keyword, so wiring the guard here would defer every one
+    // of them — all genuine risk exits — for the first 15 minutes of a position's
+    // life. The fee band it protects is real (a ±0.8% exit is a certain net loss at
+    // ~1.6% live round-trip), but suppressing rug and dump detection to save a
+    // spread is strictly worse than paying it. Any future wiring must invert the
+    // blocklist into an allowlist of genuinely advisory reasons.
     fun riskCheck(ts: TokenState, modeConf: AutoModeEngine.ModeConfig? = null): String? {
         normalizePositionScaleIfNeeded(ts)
         val pos   = ts.position

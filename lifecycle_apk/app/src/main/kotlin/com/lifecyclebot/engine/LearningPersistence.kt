@@ -227,6 +227,11 @@ object LearningPersistence {
             try { putBlob("TRADE_LESSONS",     com.lifecyclebot.v4.meta.TradeLessonRecorder.exportState()) } catch (_: Throwable) {}
             try { putBlob("LANE_EXIT_TUNER",   com.lifecyclebot.engine.learning.LaneExitTuner.exportState()) } catch (_: Throwable) {}  // V5.9.1379
             try { putBlob("COLD_STREAK_DAMPER", com.lifecyclebot.engine.runtime.ColdStreakDamper.exportState()) } catch (_: Throwable) {}  // V5.9.1381
+            // V5.0.6855 — immutable entry-lane attribution. Without this the ledger
+            // died with the process and every position rebuilt after a restart
+            // resolved to UNRESOLVED_OWNER_6741, which is where the operator's
+            // UNKNOWN lane cohort came from.
+            try { putBlob("LANE_ATTRIBUTION_6427", com.lifecyclebot.engine.truth.LaneAttributionLedger6427.exportState()) } catch (_: Throwable) {}
             // V5.9.964 — wire the 6 theatrical-persistence V3 trader lanes.
             // Pre-V5.9.964 these had save()/restore() defined and init() wired
             // so restore() ran at boot, but save() was NEVER called. Lifetime
@@ -313,6 +318,12 @@ object LearningPersistence {
         try { getBlob("TRADE_LESSONS")?.let    { com.lifecyclebot.v4.meta.TradeLessonRecorder.importState(it) } } catch (_: Throwable) {}
         try { getBlob("LANE_EXIT_TUNER")?.let  { com.lifecyclebot.engine.learning.LaneExitTuner.importState(it) } } catch (_: Throwable) {}  // V5.9.1379
         try { getBlob("COLD_STREAK_DAMPER")?.let { com.lifecyclebot.engine.runtime.ColdStreakDamper.importState(it) } } catch (_: Throwable) {}  // V5.9.1381
+        // V5.0.6855 — restore entry-lane attribution. Import is putIfAbsent, so a
+        // first-hand attribution made this run always wins over the restored blob
+        // and the ledger's immutability contract survives the round trip; that also
+        // means it is safe regardless of whether this restore lands before or after
+        // the startup position replay.
+        try { getBlob("LANE_ATTRIBUTION_6427")?.let { com.lifecyclebot.engine.truth.LaneAttributionLedger6427.importState(it) } } catch (_: Throwable) {}
     }
 
     // ═════════════════════════════════════════════════════════════════

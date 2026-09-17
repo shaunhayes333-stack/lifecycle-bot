@@ -728,9 +728,37 @@ object PerpsTraderAI {
             return null
         }
         
-        val sizeUsd = sizeSol * entryPrice  // Simplified - would need SOL price
+        // V5.0.6855 §CORRELATION_MATRIX_LEARNED_AND_WAS_NEVER_ASKED —
+        // PerpsCorrelationMatrix.recordReturn() is wired (PerpsTraderAI:1174) so the
+        // matrix accumulates real per-market return correlations on every close, but
+        // checkOverexposure() — the one function that turns those correlations into a
+        // decision — had ZERO callers. The perps book could therefore open four
+        // positions that are one BTC-beta bet with four times the intended risk, and
+        // nothing in the stack noticed. The result is a soft size penalty bounded to
+        // [0.25, 1.0]; it never blocks an entry, so a correlated market can still be
+        // traded and still produce a learning sample, just smaller.
+        val corrSizeSol6855 = try {
+            val openMarkets6855 = activePositions.values.map { it.market }
+            val over6855 = PerpsCorrelationMatrix.checkOverexposure(
+                existingPositions = openMarkets6855,
+                newMarket = market,
+            )
+            if (over6855.shouldReduceSize) {
+                ErrorLogger.warn(
+                    TAG,
+                    "🔗 CORRELATION_OVEREXPOSURE_6855 ${market.symbol}: size x${"%.2f".format(over6855.sizePenalty)} — ${over6855.warnings.joinToString("; ")}",
+                )
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PERPS_CORRELATION_SIZE_PENALTY_6855")
+                } catch (_: Throwable) {}
+                (sizeSol * over6855.sizePenalty).coerceAtLeast(0.0)
+            } else sizeSol
+        } catch (_: Throwable) { sizeSol }
+        val sizeSol6855 = if (corrSizeSol6855.isFinite() && corrSizeSol6855 > 0.0) corrSizeSol6855 else sizeSol
+
+        val sizeUsd = sizeSol6855 * entryPrice  // Simplified - would need SOL price
         val marginUsd = sizeUsd / leverage
-        
+
         // Calculate liquidation price
         val liqDistance = (1.0 / leverage) * 0.9  // 90% of margin
         val liquidationPrice = when (direction) {
@@ -755,7 +783,7 @@ object PerpsTraderAI {
             direction = direction,
             entryPrice = entryPrice,
             currentPrice = entryPrice,
-            sizeSol = sizeSol,
+            sizeSol = sizeSol6855,
             sizeUsd = sizeUsd,
             leverage = leverage,
             marginUsd = marginUsd,
@@ -785,7 +813,7 @@ object PerpsTraderAI {
                     adapter = "PerpsTraderAI", source = "PerpsExecutionEngine",
                     specialist = "PERPS", score = signal.score.toDouble(), confidence = 1.0,
                     evidence = mapOf("upstreamConfidence" to signal.confidence.toString(), "walletSol" to getBalance(true).toString()),
-                    requestedSizeSol = sizeSol, price = entryPrice, liquidityUsd = 0.0,
+                    requestedSizeSol = sizeSol6855, price = entryPrice, liquidityUsd = 0.0,
                     routeAvailable = true, candidateVersion = perpsVersion6565,
                     diagnosticSignal = "BUY",
                 )
@@ -806,7 +834,7 @@ object PerpsTraderAI {
             val canonicalOpen6486 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(
                 positionId = position.id, mint = market.symbol, symbol = market.symbol,
                 lane = "PERPS_SYNTHETIC", source = "PerpsTraderAI",
-                costSol = sizeSol, entryScore = signal.score, tactic = direction.name,
+                costSol = sizeSol6855, entryScore = signal.score, tactic = direction.name,
                 // V5.0.6525 §ASSET_CLASS + §ENTRY_PRICE.
                 assetClass = com.lifecyclebot.engine.truth.AssetClass.PERPS,
                 entryPriceUsd = entryPrice,
@@ -844,13 +872,13 @@ object PerpsTraderAI {
         
         // Deduct margin from balance
         val balanceRef = if (isPaper) paperBalanceBps else liveBalanceBps
-        val marginBps = (sizeSol * 10000).toLong()
+        val marginBps = (sizeSol6855 * 10000).toLong()
         balanceRef.addAndGet(-marginBps)
 
         // V5.9.249: sync into wallet on open — paper debits unified wallet, live refreshes on-chain balance
         if (isPaper) {
             try {
-                com.lifecyclebot.engine.FluidLearning.recordPaperBuy(market.symbol, sizeSol.coerceAtLeast(0.0))
+                com.lifecyclebot.engine.FluidLearning.recordPaperBuy(market.symbol, sizeSol6855.coerceAtLeast(0.0))
             } catch (_: Exception) {}
         } else {
             // Live: Perps are synthetic — capital is notionally deployed. Refresh real wallet so
@@ -866,7 +894,7 @@ object PerpsTraderAI {
 
         ErrorLogger.info(TAG, "📊 ${direction.emoji} POSITION OPENED: ${market.emoji} ${market.symbol} | " +
             "${signal.recommendedRiskTier.emoji} ${leverage.fmt(1)}x | " +
-            "size=${sizeSol.fmt(3)}◎ | entry=\$${entryPrice.fmt(2)} | " +
+            "size=${sizeSol6855.fmt(3)}◎ | entry=\$${entryPrice.fmt(2)} | " +
             "TP=\$${tpPrice.fmt(2)} SL=\$${slPrice.fmt(2)}")
         
         // V5.7.5: Initialize trailing stop

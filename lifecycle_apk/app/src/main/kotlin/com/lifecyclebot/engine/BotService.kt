@@ -1530,7 +1530,39 @@ class BotService : Service() {
                                             if ((td.decision == LaneTransitionManager.Decision.PROMOTE ||
                                                  td.decision == LaneTransitionManager.Decision.ROTATE) &&
                                                 td.targetLane != null && td.targetLane != currentLane) {
-                                                ts.position.tradingMode = td.targetLane
+                                                // V5.0.6855 §PROMOTION_ERASED_THE_ORIGINATING_LANE —
+                                                // this line overwrote tradingMode in place and kept no
+                                                // record, so a +100% winner entered by SHITCOIN closed
+                                                // credited entirely to MOONSHOT. Both lanes were then
+                                                // learning from a trade one of them never took: the
+                                                // originating lane never found out its pick ran, and
+                                                // the destination lane's entry statistics were
+                                                // inflated by entries it did not make. Position
+                                                // .modeHistory exists for exactly this and is already
+                                                // persisted (PositionPersistence:784/872) and written
+                                                // the same way by the HoldingLogicLayer mode switch at
+                                                // Executor:9406 — it just was not written here.
+                                                //
+                                                // Also refuse to re-lane a ghost. EmergentGuardrails
+                                                // .shouldBlockPromotion() is the declared authority for
+                                                // this and has zero callers, but it blocks whenever its
+                                                // legacy registry has no row, and that registry is only
+                                                // repopulated on persistence restore — so using it here
+                                                // would false-block live promotions. The invariant it
+                                                // encodes (an active position with real size) is
+                                                // checked directly instead.
+                                                val promotable6855 = ts.position.isOpen && ts.position.qtyToken > 0.0
+                                                if (!promotable6855) {
+                                                    try { PipelineHealthCollector.labelInc("LANE_PROMOTION_BLOCKED_GHOST_6855") } catch (_: Throwable) {}
+                                                } else {
+                                                    ts.position.modeHistory = if (ts.position.modeHistory.isEmpty()) {
+                                                        "$currentLane>${td.targetLane}"
+                                                    } else {
+                                                        "${ts.position.modeHistory}>${td.targetLane}"
+                                                    }
+                                                    ts.position.tradingMode = td.targetLane
+                                                    try { PipelineHealthCollector.labelInc("LANE_PROMOTION_APPLIED_6855") } catch (_: Throwable) {}
+                                                }
                                             }
                                         }
                                     }
