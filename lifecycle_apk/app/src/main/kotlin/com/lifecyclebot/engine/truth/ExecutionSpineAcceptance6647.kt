@@ -176,7 +176,7 @@ object ExecutionSpineAcceptanceWindow6647 {
                 // V5.0.6883 — observed values for the failing window. Kept after
                 // `failures=` so ci/runtime_evidence.py's FIELD regex still reads
                 // `failures` as a single token; the detail is additive.
-                (if (detail6883.isNotBlank()) " detail=${detail6883.replace(' ', ',').take(900)}" else ""),
+                (if (detail6883.isNotBlank()) " detail=${detail6883.replace(' ', ',').take(1600)}" else ""),
         )
     }
 
@@ -304,6 +304,22 @@ object ExecutionSpineAcceptanceWindow6647 {
                     append("exit=${observation.exitStart}/${observation.exitDone} ")
                     append("canonicalOpen=${observation.canonicalOpen} exitEval=${observation.exitEvaluations} ")
                     append("phantom=${observation.phantomSizedOnly}")
+                    // V5.0.6889 — the four conservation invariants are NOT four
+                    // independent facts. reconciledDelta() returns NaN and
+                    // quantityDeltaRaw is forced to ONE whenever
+                    // ForensicReconciliation6635 reports anything other than
+                    // RECONCILED, so one unreconciled account fails CASH_DELTA,
+                    // BASIS_DELTA, REALIZED_DELTA and QUANTITY_DELTA together and
+                    // the witness makes that look like four separate breakages.
+                    // V5.0.6735 made unreconciled evidence fail by design ("never
+                    // heal it to pass") and that is right — but it left no way to
+                    // tell "the reconciler disagrees" from "the reconciler has not
+                    // spoken". Print its own verdict next to the deltas.
+                    append(" forensicReconciled=${forensic?.reconciled}")
+                    append(" forensicLine=${
+                        (try { ForensicReconciliation6635.healthLine6635() } catch (_: Throwable) { "UNAVAILABLE" })
+                            .take(520)
+                    }")
                     if ("PHANTOM_SIZED_ONLY" in result.failures) {
                         for (desk in desks) {
                             val snap = try { SpecialistCausalFunnel6625.laneSnapshot6647(desk) } catch (_: Throwable) { null }
