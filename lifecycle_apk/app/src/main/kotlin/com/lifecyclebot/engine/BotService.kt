@@ -10516,19 +10516,86 @@ class BotService : Service() {
                 // Fetched in PARALLEL now, so wall time is one batch (~370ms)
                 // instead of the sum of four.
                 val tickStartedAtMs6945 = System.currentTimeMillis()
-                val chunks = openMints.chunked(30)
-                val priceMap = HashMap<String, Double>(openMints.size)
+                // V5.0.6970 §MY_PARALLEL_FETCH_STARVED_THE_RATE_LIMITER.
+                //
+                // THIS IS THE MISSING-MARK BUG, and it is a regression I shipped
+                // in V5.0.6945.
+                //
+                // batchPriceFetch opens with:
+                //     if (!RateLimiter.allowRequest("dexscreener")) return emptyMap()
+                // and dexscreener's RateConfig carries minSpacingMs = 25.
+                // allowRequest returns FALSE when two calls land inside 25ms of
+                // each other.
+                //
+                // 6945 replaced the sequential chunk loop with
+                // chunks.map { async { ... } }.awaitAll(), so with 80 open
+                // positions all THREE chunks hit the limiter in the same
+                // millisecond. The first passes; the other two are refused and
+                // return emptyMap() — SILENTLY, with no counter and no log, so
+                // the loop cannot tell "rate limited" from "DexScreener has no
+                // data". Fifty of eighty mints therefore got no price on every
+                // single tick, which is exactly the operator's missingMark=79.
+                //
+                // Before 6945 the chunks were sequential and ~369ms apart, so
+                // every one of them cleared the 25ms spacing. I made the
+                // iteration faster and starved two thirds of its data doing it.
+                //
+                // Fixed by STAGGERING the parallel launches by just over the
+                // limiter's spacing. Three chunks cost ~60ms of stagger instead
+                // of ~1.1s of serialised network, so 6945's actual win is kept
+                // and the limiter is respected rather than fought.
+                //
+                // SECOND CAUSE, same line: openMints carries every canonical open
+                // position, including the cross-asset ones CryptoAltTrader owns —
+                // eth|0x…, bsc|0x…, polygon|…, robinhood|…, perps:… — and
+                // batchPriceFetch hardcodes
+                //     https://api.dexscreener.com/tokens/v1/solana/$take
+                // so those can never resolve there. With 33 of 80 positions
+                // cross-asset they were burning batch slots (30 mints per
+                // request) to guarantee a miss, pushing real Solana mints into
+                // extra chunks that the limiter then refused. They are excluded
+                // here; their own trader prices them, which is why CRYPTO_SPOT
+                // and CRYPTO_LEV have marks while the meme book does not.
+                val solanaMints6970 = openMints.filter { m ->
+                    m.length in 32..44 && m.none { it == '|' || it == ':' || it == '/' }
+                }
+                val nonSolanaSkipped6970 = openMints.size - solanaMints6970.size
+                val chunks = solanaMints6970.chunked(30)
+                val priceMap = HashMap<String, Double>(solanaMints6970.size)
+                var rateLimitedChunks6970 = 0
                 if (chunks.size == 1) {
-                    priceMap.putAll(try { dex.batchPriceFetch(chunks[0]) } catch (_: Throwable) { emptyMap() })
+                    val one = try { dex.batchPriceFetch(chunks[0]) } catch (_: Throwable) { emptyMap() }
+                    if (one.isEmpty() && chunks[0].isNotEmpty()) rateLimitedChunks6970++
+                    priceMap.putAll(one)
                 } else {
                     val parts = try {
                         kotlinx.coroutines.coroutineScope {
-                            chunks.map { chunk ->
-                                async { try { dex.batchPriceFetch(chunk) } catch (_: Throwable) { emptyMap() } }
+                            chunks.mapIndexed { idx, chunk ->
+                                async {
+                                    // Stagger past RateLimiter.minSpacingMs (25ms).
+                                    if (idx > 0) kotlinx.coroutines.delay(idx * 30L)
+                                    try { dex.batchPriceFetch(chunk) } catch (_: Throwable) { emptyMap() }
+                                }
                             }.awaitAll()
                         }
                     } catch (_: Throwable) { emptyList() }
-                    for (part in parts) priceMap.putAll(part)
+                    for ((idx, part) in parts.withIndex()) {
+                        if (part.isEmpty() && chunks.getOrNull(idx)?.isNotEmpty() == true) rateLimitedChunks6970++
+                        priceMap.putAll(part)
+                    }
+                }
+                // An empty batch was previously indistinguishable from "no data".
+                // Name it, so a starved limiter can never be silent again.
+                if (rateLimitedChunks6970 > 0) {
+                    try {
+                        PipelineHealthCollector.labelInc("MARK_BATCH_EMPTY_6970")
+                        ForensicLogger.lifecycle(
+                            "MARK_BATCH_EMPTY_6970",
+                            "emptyChunks=$rateLimitedChunks6970/${chunks.size} solanaMints=${solanaMints6970.size} " +
+                                "crossAssetSkipped=$nonSolanaSkipped6970 priced=${priceMap.size} " +
+                                "cause=rate_limited_or_no_data",
+                        )
+                    } catch (_: Throwable) {}
                 }
 
                 // V5.9.924 — MULTI-SOURCE FALLBACK for mints DS dropped.
@@ -10547,7 +10614,12 @@ class BotService : Service() {
                 // well inside our rate budget. We rate-limit to 1 fallback
                 // attempt per mint per 5s so a permanently-rugged mint can't
                 // hammer the API every tick.
-                val missingBeforeKeyless6946 = openMints.filter { it !in priceMap }
+                // V5.0.6970 — candidates come from the SOLANA set, not every open
+                // position. The keyless chain (Jupiter Lite, Raydium, PumpFun,
+                // GeckoTerminal) is Solana-only, so feeding it eth|0x… and
+                // bsc|0x… guaranteed a miss on every provider in the chain and
+                // consumed the per-tick cap that real Solana mints needed.
+                val missingBeforeKeyless6946 = solanaMints6970.filter { it !in priceMap }
 
                 // V5.0.6946 §THE_KEYLESS_FALLBACK_WAS_LIVE_ONLY.
                 //
@@ -10647,7 +10719,10 @@ class BotService : Service() {
 
                 // Recomputed after the keyless pass so the Birdeye path below
                 // only sees mints that are still genuinely unpriced.
-                val missing = openMints.filter { it !in priceMap }
+                // V5.0.6970 — Solana set only; Birdeye's price endpoint is also
+                // Solana-scoped, so cross-asset mints here were a guaranteed miss
+                // against a budget that is already 401-dead.
+                val missing = solanaMints6970.filter { it !in priceMap }
                 if (missing.isNotEmpty()) {
                     // ═══════════════════════════════════════════════════════════════
                     // V5.9.946 — BIRDEYE FALLBACK BUDGET DISCIPLINE.
