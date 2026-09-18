@@ -46,7 +46,7 @@ F_DEAD	ExecutableEntryAuthority6450	scoreFloorDelta6487	engine/truth/ExecutableE
 A_PREDICT	ExecutableEntryAuthority6450	scoreFloorDeltaFor6488	engine/truth/ExecutableEntryAuthority6450.kt
 E_INFILE	ExecutableOpenGate	mutableSignalCanVeto6519	engine/ExecutableOpenGate.kt
 A_PREDICT	ExplorationBudget	allowShadowSignal	engine/learning/ExplorationBudget.kt
-A_PREDICT	FluidLearning	getExitTagWinRate	engine/FluidLearning.kt
+D_DISPLAY	FluidLearning	getExitTagWinRate	engine/FluidLearning.kt
 F_DEAD	FluidLearningAI	getAltsSpotScoreThreshold	v3/scoring/FluidLearningAI.kt
 E_INFILE	FluidLearningAI	getBootstrapConfidenceBoost	v3/scoring/FluidLearningAI.kt
 A_PREDICT	FluidLearningAI	getHeuristicSignal	v3/scoring/FluidLearningAI.kt

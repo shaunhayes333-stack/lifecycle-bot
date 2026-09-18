@@ -972,7 +972,7 @@ positionMap[position.id] = position
         if (com.lifecyclebot.engine.BotService.isShuttingDown && position.isPaper) {
             // V5.9.740: route on position.isPaper, not global isPaperMode.
             if (position.isPaper) {
-                try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(position.market.symbol, position.size, pnl) } catch (_: Exception) {}
+                try { /* V5.0.6972 — pass the REAL exit reason and regime. Both parameters existed and every caller let them default to UNKNOWN@NEUT, collapsing the entire exit-tag learner into one bucket. */ com.lifecyclebot.engine.FluidLearning.recordPaperSell(position.market.symbol, position.size, pnl, reason, regimeTag6972()) } catch (_: Exception) {}
             }
             ErrorLogger.info(TAG, "🏃 FAST_CLOSE [${position.market.symbol}] on shutdown — AI learning skipped")
             positionMap.remove(position.id)
@@ -1062,10 +1062,15 @@ positionMap[position.id] = position
         // wallet when a paper position is retired during a paper→live flip.
         if (position.isPaper) {
             try {
+                // V5.0.6972 — real exit reason + regime; both defaulted to
+                // UNKNOWN@NEUT here, which is why exitTagWinRates only ever
+                // held a single bucket.
                 com.lifecyclebot.engine.FluidLearning.recordPaperSell(
                     mint = position.market.symbol,
                     originalSol = position.size,
-                    pnlSol = pnl
+                    pnlSol = pnl,
+                    exitReason = reason,
+                    regime = regimeTag6972()
                 )
             } catch (_: Exception) {}
             // V5.9.48: Unified paper wallet — capital + PnL back to main dashboard.
@@ -1417,6 +1422,16 @@ positionMap[position.id] = position
         ErrorLogger.info(TAG, "addToPosition ${market.symbol} +$additionalSol SOL | blendedEntry=$blendedEntry")
         return true
     }
+
+
+    /**
+     * V5.0.6972 — one regime string for the exit-tag learner, read from the same
+     * RegimeDetector the rest of the stack uses so exit-reason x regime buckets
+     * line up with every other regime-keyed surface.
+     */
+    private fun regimeTag6972(): String = try {
+        com.lifecyclebot.engine.RegimeDetector.currentRegime().name
+    } catch (_: Throwable) { "NEUT" }
 
 }
 

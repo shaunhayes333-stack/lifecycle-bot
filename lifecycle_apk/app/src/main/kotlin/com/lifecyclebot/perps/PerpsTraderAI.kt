@@ -1067,7 +1067,7 @@ object PerpsTraderAI {
         // V5.9.249: return capital + P&L on close — paper to unified wallet, live refresh on-chain
         if (position.isPaper) {
             try {
-                com.lifecyclebot.engine.FluidLearning.recordPaperSell(position.market.symbol, position.sizeSol, pnlSol)
+                /* V5.0.6972 — pass the REAL exit reason and regime. Both parameters existed and every caller let them default to UNKNOWN@NEUT, collapsing the entire exit-tag learner into one bucket. */ com.lifecyclebot.engine.FluidLearning.recordPaperSell(position.market.symbol, position.sizeSol, pnlSol, exitReason.name, regimeTag6972())
             } catch (_: Exception) {}
         } else {
             // Live: refresh real wallet balance so host screen and sizing stay accurate post-close
@@ -1685,6 +1685,16 @@ object PerpsTraderAI {
             "newEntry=$blendedEntry | newSize=$newSize SOL")
         return true
     }
+
+
+    /**
+     * V5.0.6972 — one regime string for the exit-tag learner, read from the same
+     * RegimeDetector the rest of the stack uses so exit-reason x regime buckets
+     * line up with every other regime-keyed surface.
+     */
+    private fun regimeTag6972(): String = try {
+        com.lifecyclebot.engine.RegimeDetector.currentRegime().name
+    } catch (_: Throwable) { "NEUT" }
 
 }
 

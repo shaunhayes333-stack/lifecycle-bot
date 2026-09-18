@@ -3349,7 +3349,7 @@ object CryptoAltTrader {
             val pnlSolFast = pos.getPnlSol()
             totalPnlSol += pnlSolFast
             if (pos.isPaper) {
-                try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(mktSym, pos.sizeSol, pnlSolFast) } catch (_: Exception) {}
+                try { /* V5.0.6972 — pass the REAL exit reason and regime. Both parameters existed and every caller let them default to UNKNOWN@NEUT, collapsing the entire exit-tag learner into one bucket. */ com.lifecyclebot.engine.FluidLearning.recordPaperSell(mktSym, pos.sizeSol, pnlSolFast, reason, regimeTag6972()) } catch (_: Exception) {}
                 paperBalance = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
             }
             // Async Turso orphan delete (non-blocking)
@@ -4282,4 +4282,14 @@ object CryptoAltTrader {
     fun isPreferLeverage(): Boolean = preferLeverage.get()
 
     // V5.9.321: Removed private Double.fmt — uses public PerpsModels.fmt
+
+    /**
+     * V5.0.6972 — one regime string for the exit-tag learner, read from the same
+     * RegimeDetector the rest of the stack uses so exit-reason x regime buckets
+     * line up with every other regime-keyed surface.
+     */
+    private fun regimeTag6972(): String = try {
+        com.lifecyclebot.engine.RegimeDetector.currentRegime().name
+    } catch (_: Throwable) { "NEUT" }
+
 }

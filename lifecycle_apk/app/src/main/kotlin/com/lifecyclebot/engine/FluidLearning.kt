@@ -36,6 +36,30 @@ object FluidLearning {
     fun getExitTagWinRate(exitReason: String, regime: String): Double =
         exitTagWinRates["$exitReason@$regime"] ?: 50.0
 
+    /**
+     * V5.0.6972 — bounded operator view of the exit-reason x regime table.
+     *
+     * getExitTagWinRate had no readers, and the table it reads had exactly one
+     * key: every caller of recordPaperSell let exitReason and regime default to
+     * "UNKNOWN" and "NEUT", so a learner designed to answer "which exit works in
+     * which regime" could only ever answer for UNKNOWN@NEUT. The callers are
+     * fixed in this version; this exposes the result so the buckets can be seen
+     * filling rather than assumed.
+     *
+     * Reported, not gated. LiveWinDNAStore (wired in V5.0.6949) remains the
+     * authority on exit-reason outcomes; what this adds is the REGIME dimension,
+     * and a second decision authority on the same fact is the defect this audit
+     * keeps removing. It stays read-only until the buckets carry real samples.
+     */
+    fun exitTagSummary6972(limit: Int = 6): String {
+        val snap = synchronized(exitTagWinRates) { exitTagWinRates.toMap() }
+        if (snap.isEmpty()) return "none"
+        return snap.entries
+            .sortedByDescending { it.value }
+            .take(limit)
+            .joinToString(",") { "${it.key}=${"%.0f".format(it.value)}%" }
+    }
+
     @Volatile private var paperWinCount: Int = 0
     @Volatile private var paperLossCount: Int = 0
 
