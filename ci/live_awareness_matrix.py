@@ -67,12 +67,30 @@ COLUMNS = {
         r"ColdStreakDamper", r"ExecutableEntryAuthority6450",
         r"LosingStreakReflex", r"consecutiveLossesFor6488",
     ],
+    # V5.0.6993 — the first cut of this listed only protection CLASS names and
+    # reported CYCLIC as unprotected. CyclicTradeEngine is in fact well
+    # defended: it reads ts.safety's tier, hardBlockReasons, lpLockPct,
+    # topHolderPct and rugcheckScore, checks BannedTokens.isBanned, and runs a
+    # sellability guard before FDG. It just consults the SafetyReport rather
+    # than calling a named filter object, which is the normal way a trader
+    # downstream of the scanner does this. Matching only class names confused
+    # "does not protect itself" with "does not protect itself the way I
+    # happened to grep for".
     "PROT": [
         r"ToxicModeCircuitBreaker", r"HardRugPreFilter", r"LiveSafetyCircuitBreaker",
         r"SecurityGuard", r"LiveEntrySafetyHold", r"RugDetector",
         r"LearnedRugPattern", r"RugPreFilter",
+        # Consuming the safety report is protection too.
+        r"SafetyTier", r"hardBlockReasons", r"rugcheckScore", r"BannedTokens",
+        r"\.safety\b", r"isBlocked", r"lpLockPct", r"topHolderPct",
     ],
 }
+
+# Assets that cannot rug. A forex pair, a metal or a tokenised blue-chip stock
+# has no LP to pull and no deployer to dump, so the absence of a rug filter in
+# these traders is correct rather than a gap, and reporting it would be noise
+# dressed as a finding.
+NON_RUGGABLE = {"FOREX", "METALS", "COMMODITIES", "STOCKS", "PERPS", "PERPS_EXEC"}
 COMPILED = {k: re.compile("|".join(v)) for k, v in COLUMNS.items()}
 
 
@@ -114,7 +132,7 @@ def main() -> int:
             gaps.append((label, rel, "no paper->live seeding"))
         if hits["MODE"] and not hits["STREAK"]:
             gaps.append((label, rel, "no streak reflex"))
-        if hits["MODE"] and not hits["PROT"]:
+        if hits["MODE"] and not hits["PROT"] and label not in NON_RUGGABLE:
             gaps.append((label, rel, "no protection stack"))
 
     print("\n=== GAPS (knows about real money, consults nothing that protects it)")

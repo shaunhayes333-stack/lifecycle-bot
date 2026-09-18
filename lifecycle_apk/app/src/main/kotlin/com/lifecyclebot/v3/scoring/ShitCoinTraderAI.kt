@@ -1081,7 +1081,28 @@ object ShitCoinTraderAI {
             }
             topHolderPct > 30 -> -10  // Whale risk
             topHolderPct > 20 -> -5
-            topHolderPct <= 10 -> 10   // Well distributed
+            // V5.0.6993 §ABSENT_HOLDER_DATA_IS_NOT_PERFECT_DISTRIBUTION.
+            //
+            // This was `topHolderPct <= 10 -> 10`, so a topHolderPct of exactly
+            // 0.0 earned the full +10 "well distributed" bonus. 0.0 does not
+            // mean the supply is beautifully spread; it means nobody fetched
+            // the holder data. The distribution-confidence block ~70 lines
+            // below already knows this and guards it explicitly with
+            // `topHolderPct in 0.01..15.0`, with a comment saying 0 "must NOT
+            // read as perfect distribution". This branch never got the same
+            // treatment.
+            //
+            // It matters because a caller is feeding exactly that value:
+            // CryptoAltTrader:870 calls evaluate(topHolderPct = 0.0) for every
+            // dynamic alt, hardcoded, because it has no holder source for them.
+            // So the whale check could not fire for that lane, and each of its
+            // candidates collected a +10 safety bonus for a measurement that
+            // was never taken. Fabricated inputs into a real reasoner.
+            //
+            // Unknown now scores 0 — no bonus, no penalty — and only a real,
+            // populated, healthy spread is rewarded. Matches the block below.
+            topHolderPct in 0.01..10.0 -> 10   // genuinely well distributed
+            topHolderPct <= 0.0 -> 0           // NO holder data — earns nothing
             else -> 0
         }
         shitScore += holderScore
