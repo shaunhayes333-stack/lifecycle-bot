@@ -92,6 +92,17 @@ jobs:
       # that could not trade. This only inspects what the CURRENT change adds,
       # so it is never held hostage by the historical UNWIRED_LEDGER backlog,
       # and a green build means the new work is actually wired.
+      # V5.0.7038 — three defects this session were the same mistake: grep a
+      # NAME, act on it, never check what DECLARES it (7017 field owner, 7032
+      # function owner, 7036 class-vs-object). The compiler catches all three;
+      # this only saves the 18-minute cycle, which at three in a row is the
+      # expensive part. Verified to catch both the fully-qualified and the
+      # imported call form, and clean across a 70-file scan.
+      - name: Static-call receiver guard
+        run: |
+          git fetch --deepen=2 --quiet || true
+          python3 ci/static_call_check.py HEAD~1
+
       - name: New dead-code guard
         run: |
           git fetch --deepen=2 --quiet || true

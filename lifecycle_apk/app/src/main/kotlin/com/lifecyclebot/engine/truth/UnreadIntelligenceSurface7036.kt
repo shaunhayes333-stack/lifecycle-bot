@@ -58,9 +58,19 @@ object UnreadIntelligenceSurface7036 {
             com.lifecyclebot.engine.ExitIntelligence.getProfitableRate()
         }?.let { sb.append("  ExitIntelligence.profitableRate:   ").append(pct(it)).append("\n") }
 
-        safe("BRAIN_BLENDED_WR") {
-            com.lifecyclebot.engine.BotBrain.getBlendedWinRate()
-        }?.let { sb.append("  BotBrain.blendedWinRate:          ").append(pct(it)).append("\n") }
+        // V5.0.7038 — BotBrain.getBlendedWinRate() is NOT readable from here and
+        // that is not an oversight to fix later. BotBrain is a `class`, not an
+        // `object`: BotService constructs one locally (BotService:6635) and no
+        // singleton is exposed, so there is no instance for a reporting surface
+        // to reach. 7036 called it statically and the build failed on
+        // "Unresolved reference: getBlendedWinRate".
+        //
+        // My mistake was the grep: `^object X|^class X` matched, and I did not
+        // look at WHICH branch matched. Third ownership error of this session
+        // after 7017 (read a field off the wrong type) and 7032 (used a
+        // parameter in a different function than the one declaring it), so
+        // ci/static_call_check.py now fails the build on it instead of me
+        // promising to be more careful.
 
         safe("BEHAVIOUR_GOOD") {
             com.lifecyclebot.engine.BehaviorLearning.getTopGoodPatterns(3)
