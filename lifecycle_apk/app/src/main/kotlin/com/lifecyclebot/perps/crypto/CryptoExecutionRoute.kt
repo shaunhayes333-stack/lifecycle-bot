@@ -93,9 +93,27 @@ object CryptoUniverseDiagCodes {
  * BRIDGE_REQUIRED, PERP_ONLY, NO_ROUTE_AVAILABLE are named, distinct values.
  * Nothing consulted them at the open. This is the predicate that does.
  *
- * BRIDGE_REQUIRED stays excluded deliberately: the cross-chain bridge is an
- * open operator decision, not a shipped capability, and until it is turned on
- * a bridged asset is exactly as untradeable as a CEX-only one.
+ * V5.0.7006 — BRIDGE_REQUIRED IS NOW TRADEABLE, by operator decision.
+ *
+ * 7005 refused it and said why: "the cross-chain bridge is an open operator
+ * decision, not a shipped capability". The operator has now made that
+ * decision — "turn on the cross chain bridge dude!!! we have a multi network
+ * capable wallet we need the bridge!" — so the premise no longer holds and
+ * the refusal goes with it.
+ *
+ * This is not a stub being switched on blind. CryptoUniverseExecutor already
+ * branches on `route == BRIDGE_REQUIRED && resolution.executable`, and the
+ * resolver only stamps BRIDGE_REQUIRED as executable when an adapter exists
+ * for that chain — so an asset with no usable bridge adapter still falls
+ * through to NO_ROUTE_AVAILABLE and stays refused by this same predicate.
+ * What changes is that a bridged asset WITH a working adapter is now allowed
+ * to open instead of being dropped at the gate.
+ *
+ * WORTH THE OPERATOR KNOWING: bridging moves real funds across chains, which
+ * is slower and costlier than a same-chain swap and adds a failure mode a
+ * Jupiter swap does not have — funds in flight between two chains. The exit
+ * path inherits that too: a bridged position cannot be closed as fast as a
+ * Solana one. Refusals for every other unroutable class are unchanged.
  */
 fun CryptoExecutionRoute.isRealTradeable7005(): Boolean = when (this) {
     // Reachable right now with a Solana wallet routing through Jupiter.
@@ -105,12 +123,16 @@ fun CryptoExecutionRoute.isRealTradeable7005(): Boolean = when (this) {
     CryptoExecutionRoute.METEORA_ROUTABLE,
     CryptoExecutionRoute.PUMPFUN_MEME,
     // A wrapped asset lives on Solana as an SPL token — genuinely swappable.
-    CryptoExecutionRoute.BRIDGED_WRAPPED_ASSET -> true
+    CryptoExecutionRoute.BRIDGED_WRAPPED_ASSET,
+    // V5.0.7006 — operator turned the bridge on. The wallet is multi-network
+    // capable and CryptoUniverseExecutor already routes this case; the
+    // resolver only marks it executable when a chain adapter exists, so an
+    // asset with no usable bridge still lands in NO_ROUTE_AVAILABLE below.
+    CryptoExecutionRoute.BRIDGE_REQUIRED -> true
 
-    // Needs something this app does not have: an exchange account, an
-    // authorized bridge, a real perps venue, or any route at all.
+    // Needs something this app does not have: an exchange account, a real
+    // perps venue, or any route at all.
     CryptoExecutionRoute.CEX_REQUIRED,
-    CryptoExecutionRoute.BRIDGE_REQUIRED,
     CryptoExecutionRoute.PERP_ONLY,
     CryptoExecutionRoute.PAPER_ONLY,
     CryptoExecutionRoute.NO_ROUTE_AVAILABLE,
