@@ -601,8 +601,31 @@ class Executor(
         if (livePriceForStamp != null) {
             try {
                 val src = ts.lastPriceSource.uppercase()
+                // V5.0.7001 — "came from a fallback PROVIDER" is not the same
+                // as "was DERIVED rather than observed".
+                //
+                // isFresh() refuses DERIVED outright, so this bucket decides
+                // whether a mark may justify an exit. It must therefore mean
+                // "this number was synthesised" — carried forward, estimated,
+                // interpolated — and nothing else. A real HTTP quote from
+                // Birdeye's price endpoint or from the keyless chain is an
+                // observation of the market; it is second in PREFERENCE order,
+                // which is a completely different property.
+                //
+                // Until V5.0.6999 this distinction was invisible because the
+                // open-position loop stamped every mark "DEXSCREENER_WS"
+                // regardless of who answered, so everything landed in WS_LIVE.
+                // 6999 started recording the provider that actually replied —
+                // correct in itself, and it would have routed every
+                // BIRDEYE_PRICE_FALLBACK and KEYLESS_* mark straight into
+                // DERIVED and had the exit engine refuse marks it had been
+                // accepting the day before. Fixing the label exposed the latent
+                // bug in the classifier rather than causing it, but shipping
+                // one without the other would have been a self-inflicted
+                // outage.
                 val provenance = when {
-                    src.contains("SYNTH") || src.contains("FALLBACK") || src.contains("DERIVED") ->
+                    src.contains("SYNTH") || src.contains("DERIVED") ||
+                        src.contains("CARRY") || src.contains("ESTIMATE") || src.contains("PROJECTED") ->
                         com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.Provenance.DERIVED
                     src.contains("CACHE") -> com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.Provenance.CACHED
                     src.contains("WS") || src.contains("STREAM") -> com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.Provenance.WS_LIVE

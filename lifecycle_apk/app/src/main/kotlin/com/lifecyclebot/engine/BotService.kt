@@ -4968,6 +4968,29 @@ class BotService : Service() {
                             stopPx = 0.0, catastrophePx = 0.0, tpPx = 0.0, trailPx = 0.0, quoteAgeMs = 0L,
                         )
                         try { PipelineHealthCollector.labelInc("RISK_CLOCK_HEARTBEAT_NO_FRESH_MARK_6882") } catch (_: Throwable) {}
+                        // V5.0.7001 — this branch is what produces
+                        // "eval=51378 SL=0 CATA=0 TP=0 TRAIL=0": every tick
+                        // lands here, bumps eval, and returns before any
+                        // threshold can latch. Three reasons reach it and the
+                        // counter merged them, so the snapshot could say the
+                        // exits were not firing but never why. protectiveExit-
+                        // Thresholds6882 returns null for a missing TokenState,
+                        // an unresolvable mark, or an entryPrice of 0 — and an
+                        // entryPrice of 0 is a LEDGER fault, not a feed fault,
+                        // which would send anyone reading this straight at the
+                        // wrong subsystem.
+                        try {
+                            when {
+                                ts6882 == null ->
+                                    PipelineHealthCollector.labelInc("RISK_CLOCK_BLOCKED_7001_NO_TOKEN_STATE")
+                                ts6882.position.entryPrice <= 0.0 ->
+                                    PipelineHealthCollector.labelInc("RISK_CLOCK_BLOCKED_7001_NO_ENTRY_PRICE")
+                                th6882 == null ->
+                                    PipelineHealthCollector.labelInc("RISK_CLOCK_BLOCKED_7001_NO_MARK")
+                                else ->
+                                    PipelineHealthCollector.labelInc("RISK_CLOCK_BLOCKED_7001_MARK_STALE")
+                            }
+                        } catch (_: Throwable) {}
                     } else {
                         val th = th6882!!
                         val alreadyLatched6882 =
@@ -21067,6 +21090,26 @@ if (hotExitHandledSweep) {
                 stateMarkStale6651 || !provenanceFresh6651
             if (refreshNeeded6651) {
                 missingMark++
+                // V5.0.7001 — missingMark is an OR of four very different
+                // faults and the log reported only the sum. "89 of 100" has
+                // been quoted in three consecutive diagnoses, including mine,
+                // without anyone being able to say WHICH of the four it is —
+                // and they need opposite fixes: no entry price is a ledger
+                // problem, no mark is a feed problem, a stale mark is a cadence
+                // problem, and failed provenance is a classifier problem.
+                // Split the counter so the next snapshot names it.
+                try {
+                    when {
+                        ts.position.entryPrice <= 0.0 ->
+                            PipelineHealthCollector.labelInc("MISSING_MARK_CAUSE_7001_NO_ENTRY_PRICE")
+                        ts.lastPrice <= 0.0 ->
+                            PipelineHealthCollector.labelInc("MISSING_MARK_CAUSE_7001_NO_MARK")
+                        stateMarkStale6651 ->
+                            PipelineHealthCollector.labelInc("MISSING_MARK_CAUSE_7001_MARK_STALE")
+                        else ->
+                            PipelineHealthCollector.labelInc("MISSING_MARK_CAUSE_7001_PROVENANCE_REFUSED")
+                    }
+                } catch (_: Throwable) {}
                 // V5.0.6594 §MARK_REFRESH_DEDUP_TTL — enforce a per-mint TTL
                 // so the exit-feed 5s cadence cannot re-queue the same
                 // refresh 9× per position per tick as it did on 6591.
