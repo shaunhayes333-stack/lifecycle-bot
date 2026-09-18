@@ -542,10 +542,19 @@ object JournalEconomicReplay6619 {
                 raw.toBigDecimal().movePointLeft(scale).toDouble()
             } catch (_: Throwable) { 0.0 }
 
-            PaperEconomicAtomicCommit6632.stampLedger(
-                eventId, seed.mint, PaperEconomicAtomicCommit6632.Side.SELL,
-                "JournalEconomicReplay6619.orphanRefund6662",
-            )
+            // V5.0.7050 — honour the verdict. This orphan refund keys on a
+            // deterministic eventId, so every replay re-attempted the identical
+            // refund and relied on TradeHistoryStore's dedupe to absorb it.
+            // See CanonicalPaperTransaction6486.quantityReconcile6666 for the
+            // full note on why the duplicate counters read 1244 against 169.
+            if (PaperEconomicAtomicCommit6632.stampLedger(
+                    eventId, seed.mint, PaperEconomicAtomicCommit6632.Side.SELL,
+                    "JournalEconomicReplay6619.orphanRefund6662",
+                ) == PaperEconomicAtomicCommit6632.Verdict.DUPLICATE_IGNORED
+            ) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ATOMIC_COMMIT_REPAIR_SKIPPED_ALREADY_STAMPED_7050") } catch (_: Throwable) {}
+                return@forEach
+            }
             TradeHistoryStore.recordTrade(Trade(
                 side = "SELL", mode = "paper", sol = basis,
                 price = seed.entryPriceSnapshot.takeIf { it.isFinite() && it > 0.0 }

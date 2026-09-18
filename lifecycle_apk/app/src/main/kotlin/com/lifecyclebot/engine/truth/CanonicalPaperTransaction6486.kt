@@ -115,12 +115,37 @@ object CanonicalPaperTransaction6486 {
             val subtract = (currentRaw - targetRaw).coerceAtLeast(BigInteger.ZERO)
             val add = (targetRaw - currentRaw).coerceAtLeast(BigInteger.ZERO)
             val eventId = "PAPER6486:QTY_RECONCILE:$positionId:$currentRaw:$targetRaw"
-            PaperEconomicAtomicCommit6632.stampLedger(
-                eventId, seed.mint,
-                if (subtract > BigInteger.ZERO) PaperEconomicAtomicCommit6632.Side.SELL
-                else PaperEconomicAtomicCommit6632.Side.BUY,
-                "CanonicalPaperTransaction6486.quantityReconcile6666",
-            )
+            // V5.0.7050 §THE_GUARD_ANSWERED_AND_NOBODY_LISTENED.
+            //
+            // PaperEconomicAtomicCommit6632 returns DUPLICATE_IGNORED when an
+            // economic event has already been stamped, and its own docs say the
+            // verdict decides whether the commit proceeds. Four of its six call
+            // sites — this one, openProjection6659, historyProjection6660 and
+            // JournalEconomicReplay6619.orphanRefund6662 — threw the verdict
+            // away and carried on. Only PaperAccountLedger6430 captured it.
+            //
+            // 5.0.7047: LEDGER_DUPLICATE=1244 and JOURNAL_DUPLICATE=1169
+            // against OK=169. That ratio reads like an integrity emergency and
+            // is not one: TradeHistoryStore.recordTrade dedupes an already-
+            // loaded exact event (TradeHistoryStore:746-760), so 169 commits
+            // produced exactly 169 rows and conservation stayed clean. What it
+            // actually is: a repair path re-running its whole projection on
+            // every replay and being thrown away downstream.
+            //
+            // Honour the answer. Behaviour is unchanged because the dedupe was
+            // already absorbing it; the redundant work stops, and the counter
+            // starts meaning "a real half-commit" instead of "a repair pass
+            // ran again".
+            if (PaperEconomicAtomicCommit6632.stampLedger(
+                    eventId, seed.mint,
+                    if (subtract > BigInteger.ZERO) PaperEconomicAtomicCommit6632.Side.SELL
+                    else PaperEconomicAtomicCommit6632.Side.BUY,
+                    "CanonicalPaperTransaction6486.quantityReconcile6666",
+                ) == PaperEconomicAtomicCommit6632.Verdict.DUPLICATE_IGNORED
+            ) {
+                try { PipelineHealthCollector.labelInc("ATOMIC_COMMIT_REPAIR_SKIPPED_ALREADY_STAMPED_7050") } catch (_: Throwable) {}
+                return@forEach
+            }
             TradeHistoryStore.recordTrade(Trade(
                 side = "QTY_RECONCILE", mode = "paper", sol = 0.0,
                 price = seed.entryPriceSnapshot.takeIf { it.isFinite() && it > 0.0 } ?: seed.price,
@@ -324,12 +349,17 @@ object CanonicalPaperTransaction6486 {
             }
             if (fillId > 0L) CanonicalEconomicEvent6635.markCommitted(
                 eventId, CanonicalEconomicEvent6635.Store.FILL_LOT, "repairCryptoHistory6659")
-            PaperEconomicAtomicCommit6632.stampLedger(
-                eventId, sell.mint,
-                if (sell.partial) PaperEconomicAtomicCommit6632.Side.PARTIAL_SELL
-                else PaperEconomicAtomicCommit6632.Side.SELL,
-                "CanonicalPaperTransaction6486.historyProjection6660",
-            )
+            // V5.0.7050 — honour the verdict (see quantityReconcile6666 above).
+            if (PaperEconomicAtomicCommit6632.stampLedger(
+                    eventId, sell.mint,
+                    if (sell.partial) PaperEconomicAtomicCommit6632.Side.PARTIAL_SELL
+                    else PaperEconomicAtomicCommit6632.Side.SELL,
+                    "CanonicalPaperTransaction6486.historyProjection6660",
+                ) == PaperEconomicAtomicCommit6632.Verdict.DUPLICATE_IGNORED
+            ) {
+                try { PipelineHealthCollector.labelInc("ATOMIC_COMMIT_REPAIR_SKIPPED_ALREADY_STAMPED_7050") } catch (_: Throwable) {}
+                return@forEach
+            }
             val buy = buyByPosition[sell.positionId]
             val grossPnl = sell.grossProceedsSol - sell.allocatedCostBasisSol
             TradeHistoryStore.recordTrade(Trade(
