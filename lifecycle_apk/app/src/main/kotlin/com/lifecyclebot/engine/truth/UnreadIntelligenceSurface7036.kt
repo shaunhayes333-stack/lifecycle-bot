@@ -190,6 +190,44 @@ object UnreadIntelligenceSurface7036 {
             sb.append("  FluidLearningAI feeAdjTP(25%):     ").append(pct(it)).append("\n")
         }
 
+        // ── V5.0.7039, batch 3 ────────────────────────────────────────────
+
+        safe("QUANT_MOMENTUM_STATE") {
+            com.lifecyclebot.engine.quant.QuantMindV2.getMomentumState()
+        }?.let { sb.append("  QuantMindV2.momentumState:         ").append(it).append("\n") }
+
+        safe("CASHGEN_THRESHOLDS") {
+            com.lifecyclebot.v3.scoring.CashGenerationAI.getCurrentScoreThreshold() to
+                com.lifecyclebot.v3.scoring.CashGenerationAI.getCurrentConfidenceThreshold()
+        }?.let { (score, conf) ->
+            sb.append("  CashGenerationAI thresholds:       score>=").append(score)
+                .append(" conf>=").append(conf).append("\n")
+        }
+
+        safe("REPLAY_PATTERNS") {
+            com.lifecyclebot.perps.PerpsAutoReplayLearner.getWinningPatterns().size to
+                com.lifecyclebot.perps.PerpsAutoReplayLearner.getLosingPatterns().size
+        }?.let { (w, l) ->
+            sb.append("  PerpsAutoReplayLearner patterns:   win=").append(w)
+                .append(" lose=").append(l).append("\n")
+        }
+
+        safe("SOURCE_WIN_RATES") {
+            // ScannerLearning.getSourceWinRate — per-source win rate, unread
+            // since it was written. The operator's intake is dominated by
+            // SCANNER_DIRECT_PUMP_FUN_NEW (486) and MEME_REGISTRY_RESTORE
+            // (160); whether those sources actually WIN has never been shown.
+            listOf(
+                "PUMP_FUN_NEW", "DEX_TRENDING", "PUMP_FUN_GRADUATE",
+                "RAYDIUM_NEW_POOL", "MEME_REGISTRY_RESTORE",
+            ).map { it to com.lifecyclebot.engine.ScannerLearning.getSourceWinRate(it) }
+        }?.let { rates ->
+            sb.append("  ScannerLearning source WR:\n")
+            for ((src, wr) in rates) {
+                sb.append("    ").append(src.padEnd(24)).append(pct(wr * 100.0)).append("\n")
+            }
+        }
+
         sb.append("  Read: first readers for outputs the engine has been computing\n")
         sb.append("        and discarding. Advisory only — nothing here gates a trade.\n")
         return sb.toString()
