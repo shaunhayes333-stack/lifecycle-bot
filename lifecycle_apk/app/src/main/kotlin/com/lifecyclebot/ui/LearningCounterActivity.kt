@@ -114,6 +114,10 @@ class LearningCounterActivity : Activity() {
 
     private fun renderAll() {
         rootColumn.removeAllViews()
+        // V5.0.7023 — MUST reset with the column. removeAllViews detaches the
+        // open card but leaves this field pointing at it, so every subsequent
+        // add* would land in an orphan and the screen would render blank.
+        currentCard7023 = null
 
         // ── Section 1: Wallet truth digest ────────────────────────────
         // V5.9.781 — operator audit item I: read HostWalletTokenTracker as
@@ -321,25 +325,35 @@ class LearningCounterActivity : Activity() {
     }
 
     // ── Helpers ───────────────────────────────────────────────────────
+    // V5.0.7023 — same conversion V5.0.7013 made to TuningActivity, for the
+    // same reason: this screen is painted entirely in Kotlin, so no edit to
+    // res/values or res/drawable could ever reach it. Four restyle passes went
+    // past it untouched.
+    //
+    // Done at the HELPERS, not the call sites: addHeader draws the render's
+    // tracked rule and opens a card, and every add* lands inside whichever card
+    // is open. Every existing call keeps working and the whole screen changes
+    // shape at once.
+
+    /** The card currently accepting rows, or null before the first header. */
+    private var currentCard7023: LinearLayout? = null
+
+    private fun target7023(): LinearLayout = currentCard7023 ?: rootColumn
+
     private fun addHeader(text: String) {
-        rootColumn.addView(TextView(this).apply {
-            // V5.0.6939 — matches @style/AateSectionTitle on the XML screens.
-            this.text = text.uppercase()
-            setTextColor(AateUi.TEXT)
-            textSize = 13f
-            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-            letterSpacing = 0.14f
-            val pad = (8 * resources.displayMetrics.density).toInt()
-            setPadding(0, pad * 2, 0, pad)
-        })
+        val label = text.replace(Regex("^[^A-Za-z]*"), "").trim().ifBlank { text }
+        rootColumn.addView(AateComponents6994.sectionHeader(this, label, null, AateUi.CYAN))
+        currentCard7023 = AateComponents6994.card(this, AateUi.CYAN).also { rootColumn.addView(it) }
     }
 
     private fun addKv(label: String, value: String) {
-        rootColumn.addView(makeKvRow(label, value, AateUi.TEXT_SECONDARY))
+        target7023().addView(AateComponents6994.metricRow(this, label, value, AateUi.TEXT))
     }
 
     private fun addKvHighlight(label: String, value: String, hex: String) {
-        rootColumn.addView(makeKvRow(label, value, Color.parseColor(hex)))
+        target7023().addView(
+            AateComponents6994.metricRow(this, label, value, Color.parseColor(hex)),
+        )
     }
 
     /** Highlights drift between a legacy counter and the canonical total. */
@@ -351,16 +365,19 @@ class LearningCounterActivity : Activity() {
             else -> "#FF4D6D"  // major drift
         }
         val driftLabel = if (legacyValue < 0) "n/a" else "$legacyValue (Δ=${legacyValue - canonicalValue})"
-        rootColumn.addView(makeKvRow(label, driftLabel, Color.parseColor(color)))
+        // V5.0.7023 — into the open card like every other row. Left on
+        // rootColumn this would draw full-bleed BETWEEN cards, which reads as a
+        // rendering fault rather than as the drift warning it is.
+        target7023().addView(makeKvRow(label, driftLabel, Color.parseColor(color)))
     }
 
     private fun addText(s: String, color: Int = AateUi.TEXT_SECONDARY, small: Boolean = false) {
-        rootColumn.addView(TextView(this).apply {
+        target7023().addView(TextView(this).apply {
             text = s
             setTextColor(color)
-            textSize = if (small) 11f else 13f
-            typeface = Typeface.MONOSPACE
-            val pad = (2 * resources.displayMetrics.density).toInt()
+            textSize = if (small) 11f else 12.5f
+            setLineSpacing(0f, 1.2f)
+            val pad = (3 * resources.displayMetrics.density).toInt()
             setPadding(0, pad, 0, pad)
         })
     }
