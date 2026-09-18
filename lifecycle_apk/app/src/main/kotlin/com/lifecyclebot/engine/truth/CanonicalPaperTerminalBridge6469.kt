@@ -266,6 +266,8 @@ object CanonicalPaperTerminalBridge6469 {
                 exitReason = exitReason,
                 terminal = terminal,
                 suppressLearningFanout6490 = suppressLearningFanout6490,
+                exitPriceUsd7032 = exitPriceUsd7032,
+                solUsdAtExit7032 = solUsdAtExit7032,
             )
             CanonicalEconomicEvent6635.markCommitted(sellSig, CanonicalEconomicEvent6635.Store.TERMINAL_EXEC, "CanonicalPaperTerminalBridge6469")
             if (terminal) {
@@ -348,6 +350,10 @@ object CanonicalPaperTerminalBridge6469 {
             lane = lane,
             exitReason = exitReason,
             terminal = terminal,
+            // V5.0.7032 — defaults (0.0) on purpose: this entry point is not
+            // given a mark or a rate by its caller, so a row it writes is
+            // genuinely unreconstructible and should say so. It has no callers
+            // at all today, so it cannot over-quarantine anything.
         )
         if (terminal) fullSells.incrementAndGet() else partialSells.incrementAndGet()
         return Result(applied = true, terminalClaimed = true, busPublished = bus, reason = "GRANTED")
@@ -368,6 +374,14 @@ object CanonicalPaperTerminalBridge6469 {
         exitReason: String,
         terminal: Boolean,
         suppressLearningFanout6490: Boolean = false,
+        // V5.0.7032 — recordSell lives in THIS function, not in finalizeSell.
+        // 7032 added these parameters to finalizeSell's signature and used them
+        // at the recordSell call site without checking which function that call
+        // site belonged to; they are different functions, and the build failed
+        // on two unresolved references. Same mistake as 7017's entryMcapUsd:
+        // matched on text, not on ownership.
+        exitPriceUsd7032: Double = 0.0,
+        solUsdAtExit7032: Double = 0.0,
     ): Boolean {
         try {
             CanonicalLotQuantity6464.onSellFilled(
