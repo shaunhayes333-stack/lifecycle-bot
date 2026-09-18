@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.7025 — the render's START button.
+
+  project/Main.dc.html, idle state:
+    background: linear-gradient(120deg,#34D399,#22D3EE)
+    box-shadow: 0 12px 30px -12px rgba(52,211,153,.75)
+
+  Was a teal ramp (#1BEFAE -> #0D9488) that ended DARKER than it began, so the
+  loudest control on the screen faded out toward its own bottom edge. The render
+  runs green into cyan across the diagonal instead, which keeps the whole pill
+  lit. The top highlight is kept — it is the one part the old drawable had right.
+-->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item><shape android:shape="rectangle"><gradient android:type="linear" android:angle="135" android:startColor="#1BEFAE" android:centerColor="#10B981" android:endColor="#0D9488"/><corners android:radius="16dp"/></shape></item>
+    <item><shape android:shape="rectangle"><gradient android:type="linear" android:angle="330" android:startColor="#34D399" android:endColor="#22D3EE"/><corners android:radius="16dp"/></shape></item>
     <item android:height="2dp" android:gravity="top"><shape android:shape="rectangle"><solid android:color="#AAECFEFF"/><corners android:topLeftRadius="16dp" android:topRightRadius="16dp"/></shape></item>
 </layer-list>

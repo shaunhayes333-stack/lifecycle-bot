@@ -1185,6 +1185,16 @@ class MainActivity : AppCompatActivity() {
                     spark.lineColor = if (up) 0xFF34D399.toInt() else 0xFFFB5E6D.toInt()
                     spark.fillColor = if (up) 0xFF22D3EE.toInt() else 0xFFFB5E6D.toInt()
                     spark.showHead = true
+                    // V5.0.7025 — the render's curve is not one flat colour: it
+                    // runs violet -> cyan -> green left to right, over three
+                    // faint gridlines. Only on the way up; a losing curve stays
+                    // a single red trace, because dressing a drawdown in the
+                    // winning palette is the sort of flattery 7013 removed from
+                    // the ring.
+                    spark.showGrid = true
+                    spark.strokeGradient = if (up) {
+                        intArrayOf(0xFF8B5CF6.toInt(), 0xFF22D3EE.toInt(), 0xFF34D399.toInt())
+                    } else IntArray(0)
                     spark.setSeries(arr, animate = true)
                 }
             }
@@ -1257,6 +1267,51 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            // V5.0.7025 §WHAT_THE_ENGINE_JUST_DID.
+            //
+            // The render's Main carries a rotating signal card between the lane
+            // strip and the nav deck — the only element on the home screen that
+            // reports ACTIONS rather than holdings. The shipped screen had no
+            // equivalent; the nearest thing was one static line above the
+            // button.
+            //
+            // Bound to the journal's own recent closes, so it cannot narrate an
+            // event that did not happen. Trade has no symbol field, so the mint
+            // prefix identifies the token — the same shorthand the execution
+            // rows already use. Given nothing to say it is handed an empty set
+            // and blanks itself, because a card that shines over no content
+            // claims the bot is working when it may not be.
+            try {
+                val tickerView7025 = findViewById<SignalTickerView7025>(R.id.heroSignalTicker)
+                if (tickerView7025 != null) {
+                    val recent7025 = try {
+                        com.lifecyclebot.engine.TradeHistoryStore
+                            .getRecentValidClosedTrades(limit = 6)
+                            .sortedByDescending { it.ts }
+                            .take(4)
+                    } catch (_: Throwable) { emptyList() }
+
+                    if (recent7025.isEmpty()) {
+                        tickerView7025.setSignals(emptyArray(), emptyArray(), IntArray(0))
+                    } else {
+                        val msgs7025 = Array(recent7025.size) { i ->
+                            val t = recent7025[i]
+                            val who = t.tradingMode.ifBlank { "TRADE" }
+                            val what = t.mint.take(6).ifBlank { "—" }
+                            val why = t.reason.substringBefore('_').take(14)
+                            if (why.isBlank()) "$who · $what" else "$who · $what $why"
+                        }
+                        val vals7025 = Array(recent7025.size) { i ->
+                            "%+.1f%%".format(recent7025[i].pnlPct)
+                        }
+                        val cols7025 = IntArray(recent7025.size) { i ->
+                            if (recent7025[i].pnlSol >= 0.0) 0xFF34D399.toInt() else 0xFFFB5E6D.toInt()
+                        }
+                        tickerView7025.setSignals(msgs7025, vals7025, cols7025)
+                    }
+                }
+            } catch (_: Throwable) {}
+
             // Lane pressure: open-position weight per lane, normalised to the
             // busiest lane so the strip shows relative load rather than raw counts.
             // V5.0.7012 — read the snapshot renderOpenPositions publishes.
@@ -1276,6 +1331,13 @@ class MainActivity : AppCompatActivity() {
                         0xFF22D3EE.toInt(), 0xFF8B5CF6.toInt(), 0xFFF0409C.toInt(),
                         0xFFFBBF24.toInt(), 0xFF34D399.toInt(),
                     )
+                    // V5.0.7025 — label each bar. The render tags every lane
+                    // (QLTY / BLUE / MOON / SHIT / SNPR …) and without the tag
+                    // the strip says something is busy but not WHICH, which is
+                    // the only half you can act on. Four characters is what
+                    // fits at this width; taken from the lane's own name so a
+                    // new lane needs no table here.
+                    bars.setTags(Array(top.size) { i -> top[i].key.take(4).uppercase() })
                     bars.setBars(
                         FloatArray(top.size) { i -> top[i].value.toFloat() / max },
                         palette,

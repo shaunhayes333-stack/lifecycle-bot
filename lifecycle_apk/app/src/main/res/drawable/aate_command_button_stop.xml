@@ -1,5 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.7025 — the render's RUNNING button.
+
+  project/Main.dc.html, running state:
+    background: linear-gradient(120deg,#8B5CF6,#22D3EE)
+    box-shadow: 0 12px 30px -12px rgba(139,92,246,.8)
+
+  Was slate grey (#3C485E -> #121827) with a hairline — so while the bot was
+  actually WORKING, the control that says so was the most muted thing on the
+  screen. In the render it is the brightest, because a running engine is the
+  screen's headline. Violet into cyan, matching the logo tile, so the two read
+  as the same system.
+-->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item><shape android:shape="rectangle"><gradient android:type="linear" android:angle="135" android:startColor="#3C485E" android:centerColor="#263246" android:endColor="#121827"/><stroke android:width="1dp" android:color="#536179"/><corners android:radius="16dp"/></shape></item>
-    <item android:height="1dp" android:gravity="top"><shape android:shape="rectangle"><solid android:color="#668BA3C7"/><corners android:topLeftRadius="16dp" android:topRightRadius="16dp"/></shape></item>
+    <item><shape android:shape="rectangle"><gradient android:type="linear" android:angle="330" android:startColor="#8B5CF6" android:endColor="#22D3EE"/><corners android:radius="16dp"/></shape></item>
+    <item android:height="2dp" android:gravity="top"><shape android:shape="rectangle"><solid android:color="#AACFE4FF"/><corners android:topLeftRadius="16dp" android:topRightRadius="16dp"/></shape></item>
 </layer-list>

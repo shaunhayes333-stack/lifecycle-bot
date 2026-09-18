@@ -134,12 +134,45 @@ class SparklineView7009 @JvmOverloads constructor(
     }
 
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
-        super.onSizeChanged(w, h, ow, oh); rebuildShader()
+        super.onSizeChanged(w, h, ow, oh)
+        rebuildShader()
+        // Width-dependent, so it must not survive a resize.
+        strokeShader = null
     }
+
+    // V5.0.7025 — the render's equity curve is not a single-colour line.
+    // It carries three horizontal gridlines behind it and a LEFT-TO-RIGHT
+    // gradient stroke (violet -> cyan -> green), so the curve reads as a
+    // journey across the card rather than one flat trace. Both are opt-in so
+    // every existing caller keeps the plain line.
+    private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        strokeWidth = 1f
+        color = 0x177CC4FF
+    }
+    private var strokeShader: android.graphics.Shader? = null
+
+    /** Draw the render's 3 horizontal rules behind the curve. */
+    var showGrid: Boolean = false
+        set(v) { field = v; invalidate() }
+
+    /**
+     * Stroke the line with a left-to-right gradient through these colours.
+     * Empty restores the flat [lineColor].
+     */
+    var strokeGradient: IntArray = IntArray(0)
+        set(v) { field = v.copyOf(); strokeShader = null; invalidate() }
 
     override fun onDraw(canvas: Canvas) {
         val n = series.size
         if (n < 2 || width <= 0 || height <= 0) return
+
+        if (showGrid) {
+            // Thirds, matching the render's y = 18 / 38 / 58 over a 74 box.
+            for (k in 1..3) {
+                val y = height * (k / 4f)
+                canvas.drawLine(0f, y, width.toFloat(), y, gridPaint)
+            }
+        }
 
         var lo = series[0]; var hi = series[0]
         for (v in series) { if (v < lo) lo = v; if (v > hi) hi = v }
@@ -167,8 +200,21 @@ class SparklineView7009 @JvmOverloads constructor(
             canvas.drawPath(fillPath, fillPaint)
         }
 
-        linePaint.color = lineColor
-        canvas.drawPath(linePath, linePaint)
+        if (strokeGradient.size >= 2) {
+            if (strokeShader == null) {
+                strokeShader = android.graphics.LinearGradient(
+                    0f, 0f, width.toFloat(), 0f,
+                    strokeGradient, null,
+                    android.graphics.Shader.TileMode.CLAMP,
+                )
+            }
+            linePaint.shader = strokeShader
+            canvas.drawPath(linePath, linePaint)
+            linePaint.shader = null
+        } else {
+            linePaint.color = lineColor
+            canvas.drawPath(linePath, linePaint)
+        }
 
         if (showHead && progress >= 1f) {
             val d = resources.displayMetrics.density
@@ -243,17 +289,36 @@ class LaneBarsView7009 @JvmOverloads constructor(
 ) : View(ctx, attrs, defStyle) {
 
     private val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val tagPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.CENTER
+        color = 0xFF6E82A8.toInt()
+    }
     private val rect = RectF()
 
     private var values: FloatArray = FloatArray(0)
     private var colors: IntArray = IntArray(0)
+    private var tags: Array<String> = arrayOf()
+    private var shaders: Array<android.graphics.Shader?> = arrayOf()
     private var grow = 1f
     private var anim: ValueAnimator? = null
+
+    /**
+     * V5.0.7025 — the render labels every lane bar (QLTY / BLUE / MOON / SHIT
+     * / SNPR …). Without a tag the strip shows that SOMETHING is busy and not
+     * WHICH, which is the only actionable half. Empty leaves the bars bare, so
+     * existing callers are unchanged.
+     */
+    fun setTags(t: Array<String>) {
+        if (t.contentEquals(tags)) return
+        tags = t.copyOf()
+        invalidate()
+    }
 
     /** values are 0..1; colors is parallel and may be shorter (it wraps). */
     fun setBars(v: FloatArray, c: IntArray, animate: Boolean = true) {
         if (v.size == values.size && v.contentEquals(values)) return
         values = v; colors = c
+        shaders = arrayOfNulls(v.size)
         if (!animate) { grow = 1f; invalidate(); return }
         anim?.cancel()
         anim = ValueAnimator.ofFloat(0f, 1f).apply {
@@ -264,6 +329,11 @@ class LaneBarsView7009 @JvmOverloads constructor(
         }
     }
 
+    override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
+        super.onSizeChanged(w, h, ow, oh)
+        shaders = arrayOfNulls(values.size)
+    }
+
     override fun onDraw(canvas: Canvas) {
         val n = values.size
         if (n == 0 || width <= 0 || height <= 0) return
@@ -271,12 +341,39 @@ class LaneBarsView7009 @JvmOverloads constructor(
         val gap = 4f * d
         val bw = (width - gap * (n - 1)) / n
         val radius = 3f * d
+
+        // V5.0.7025 — reserve the tag row, so bars never overlap their labels.
+        val hasTags = tags.isNotEmpty()
+        tagPaint.textSize = 7.5f * d
+        val tagRow = if (hasTags) 11f * d else 0f
+        val barArea = (height - tagRow).coerceAtLeast(4f * d)
+
         for (i in 0 until n) {
-            val h = (values[i].coerceIn(0f, 1f) * height * grow).coerceAtLeast(2f * d)
+            val h = (values[i].coerceIn(0f, 1f) * barArea * grow).coerceAtLeast(2f * d)
             val left = i * (bw + gap)
-            rect.set(left, height - h, left + bw, height.toFloat())
-            barPaint.color = if (colors.isEmpty()) 0xFF22D3EE.toInt() else colors[i % colors.size]
+            val top = barArea - h
+            val col = if (colors.isEmpty()) 0xFF22D3EE.toInt() else colors[i % colors.size]
+
+            // The render fills each bar with a gradient from its colour down to
+            // a transparent tail rather than a flat block. Shader built here
+            // and cached — never inside the draw of a later frame.
+            var sh = shaders.getOrNull(i)
+            if (sh == null) {
+                sh = android.graphics.LinearGradient(
+                    0f, top, 0f, barArea,
+                    col, (col and 0x00FFFFFF) or 0x3A000000,
+                    android.graphics.Shader.TileMode.CLAMP,
+                )
+                if (i < shaders.size) shaders[i] = sh
+            }
+            barPaint.shader = sh
+            rect.set(left, top, left + bw, barArea)
             canvas.drawRoundRect(rect, radius, radius, barPaint)
+            barPaint.shader = null
+
+            if (hasTags && i < tags.size) {
+                canvas.drawText(tags[i], left + bw / 2f, height - 1.5f * d, tagPaint)
+            }
         }
     }
 
@@ -309,6 +406,21 @@ class RingGaugeView7010 @JvmOverloads constructor(
     private var shown = 0f
     private var anim: ValueAnimator? = null
 
+    // V5.0.7025 — the render wraps the health ring in a dashed outer ring that
+    // rotates (ringSpin, 6s linear, infinite). It is the one piece of motion on
+    // the hero that runs whether or not the numbers move, which is what makes
+    // the card feel live rather than merely rendered.
+    private val orbitPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0x668B5CF6
+    }
+    private var orbitDeg = 0f
+    private var orbitAnim: ValueAnimator? = null
+
+    /** Set false for a still ring (used where the gauge is decorative). */
+    var orbiting: Boolean = true
+        set(v) { field = v; if (v) startOrbit() else { orbitAnim?.cancel(); orbitAnim = null; invalidate() } }
+
     var caption: String = "HEALTH"
         set(v) { field = v; invalidate() }
 
@@ -327,6 +439,24 @@ class RingGaugeView7010 @JvmOverloads constructor(
         labelPaint.color = textColor
         labelPaint.isFakeBoldText = true
         capPaint.color = 0xFF6E82A8.toInt()
+        orbitPaint.strokeWidth = 1f * d
+        orbitPaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(3f * d, 7f * d), 0f)
+    }
+
+    private fun startOrbit() {
+        orbitAnim?.cancel()
+        orbitAnim = ValueAnimator.ofFloat(0f, 360f).apply {
+            duration = 6_000L
+            repeatCount = ValueAnimator.INFINITE
+            interpolator = android.view.animation.LinearInterpolator()
+            addUpdateListener { orbitDeg = it.animatedValue as Float; invalidate() }
+            start()
+        }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (orbiting && orbitAnim == null) startOrbit()
     }
 
     /** value is 0..1. */
@@ -356,11 +486,31 @@ class RingGaugeView7010 @JvmOverloads constructor(
         canvas.drawArc(oval, -90f, 360f, false, trackPaint)
         canvas.drawArc(oval, -90f, 360f * shown, false, arcPaint)
 
+        // Dashed orbit, outside the arc, rotating. Drawn last of the rings so a
+        // full gauge never hides it.
+        if (orbiting) {
+            val oInset = inset + arcPaint.strokeWidth * 0.9f
+            oval.set(
+                cx - size / 2f + oInset - 5f * d, cy - size / 2f + oInset - 5f * d,
+                cx + size / 2f - oInset + 5f * d, cy + size / 2f - oInset + 5f * d,
+            )
+            canvas.save()
+            canvas.rotate(orbitDeg, cx, cy)
+            canvas.drawArc(oval, 0f, 360f, false, orbitPaint)
+            canvas.restore()
+            // Restore the value-arc oval for anything drawn after this point.
+            oval.set(cx - size / 2f + inset, cy - size / 2f + inset, cx + size / 2f - inset, cy + size / 2f - inset)
+        }
+
         labelPaint.textSize = size * 0.30f
         canvas.drawText("${(shown * 100f).toInt()}", cx, cy + labelPaint.textSize * 0.16f, labelPaint)
         capPaint.textSize = size * 0.13f
         canvas.drawText(caption, cx, cy + size * 0.30f, capPaint)
     }
 
-    override fun onDetachedFromWindow() { anim?.cancel(); anim = null; super.onDetachedFromWindow() }
+    override fun onDetachedFromWindow() {
+        anim?.cancel(); anim = null
+        orbitAnim?.cancel(); orbitAnim = null
+        super.onDetachedFromWindow()
+    }
 }
