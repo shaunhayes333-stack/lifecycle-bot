@@ -435,6 +435,162 @@ object CryptoBridgeAdapter {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // V5.0.6987 — CHAIN DRY RUN. The attestation the last flag is waiting for.
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // The readiness matrix marks nine of ten capabilities implemented and holds
+    // `integrationTests = false` with the note:
+    //
+    //     "A deterministic RPC integration test is necessary but not sufficient
+    //      to prove a funded public-chain route. Keep live false until the real
+    //      chain matrix is exercised and attested."
+    //
+    // That is the correct bar, and nothing here lowers it. What was missing is
+    // any way to exercise the matrix at all — so the flag could never be
+    // honestly retired, and the operator could not see what was blocking.
+    //
+    // This probes every configured chain against its real public RPC and proves
+    // everything that can be proved WITHOUT SPENDING:
+    //
+    //   rpcOk            eth_blockNumber          the endpoint is alive
+    //   feeEstimation    eth_gasPrice             a real gas price comes back
+    //   nonceOrUtxo      eth_getTransactionCount  our address has a real nonce
+    //   txConstruction   RawTransaction assembled from those live values
+    //   chainSigning     signed locally, then the sender address is RECOVERED
+    //                    from the signature and compared to our own address —
+    //                    a self-check that cannot pass by accident
+    //
+    // WHAT IT DELIBERATELY DOES NOT DO: it never calls sendRawTransaction, and
+    // never touches EvmBridgeTransactionEngine6649's submit path. Nothing is
+    // broadcast, no gas is spent, no funds move. The signed bytes are built and
+    // thrown away. `submission` and `finalityProof` therefore remain unproven
+    // by this harness BY DESIGN — those require a funded transaction on a real
+    // chain, which is an operator decision, not a test.
+    //
+    // So a green dry run means: the endpoint, the fee oracle, our nonce, our
+    // transaction encoding and our signing key are all correct for that chain.
+    // It does not mean the route is live, and FULL_ROUND_TRIP_IMPLEMENTED stays
+    // false regardless of the result.
+    data class ChainProbe6987(
+        val chainKey: String,
+        val chainId: Long,
+        val rpc: String,
+        val rpcOk: Boolean = false,
+        val blockNumber: String = "",
+        val gasPriceOk: Boolean = false,
+        val gasPriceGwei: String = "",
+        val nonceOk: Boolean = false,
+        val nonce: String = "",
+        val txConstructionOk: Boolean = false,
+        val signingOk: Boolean = false,
+        val address: String = "",
+        val error: String = "",
+    ) {
+        /** Everything provable without spending. Never implies the route is live. */
+        val unfundedGreen: Boolean
+            get() = rpcOk && gasPriceOk && nonceOk && txConstructionOk && signingOk
+
+        fun blockingList(): List<String> = buildList {
+            if (!rpcOk) add("RPC_UNREACHABLE")
+            if (!gasPriceOk) add("FEE_ESTIMATION")
+            if (!nonceOk) add("NONCE")
+            if (!txConstructionOk) add("TX_CONSTRUCTION")
+            if (!signingOk) add("CHAIN_SIGNING")
+        }
+    }
+
+    /** Configured chains, for operator surfaces. Read-only view. */
+    fun configuredChains6987(): Map<String, Chain> = chains
+
+    /**
+     * Probe one chain. Read-only against the network; signs locally and
+     * discards. Returns a probe even on failure, with [ChainProbe6987.error]
+     * set — a harness that throws tells the operator nothing.
+     */
+    suspend fun dryRunChain6987(context: Context, chainKey: String): ChainProbe6987 =
+        withContext(Dispatchers.IO) {
+            val key = chainKey.trim().lowercase()
+            val chain = chains[key]
+                ?: return@withContext ChainProbe6987(key, 0L, "", error = "CHAIN_NOT_CONFIGURED")
+            var probe = ChainProbe6987(key, chain.id, chain.rpc)
+            try {
+                val block = rpcResult(chain.rpc, "eth_blockNumber")
+                probe = probe.copy(rpcOk = block.isNotBlank(), blockNumber = block)
+                if (!probe.rpcOk) return@withContext probe.copy(error = "NO_BLOCK_NUMBER")
+
+                val gasHex = rpcResult(chain.rpc, "eth_gasPrice")
+                val gasWei = try { hexBig(gasHex) } catch (_: Throwable) { BigInteger.ZERO }
+                probe = probe.copy(
+                    gasPriceOk = gasWei > BigInteger.ZERO,
+                    gasPriceGwei = if (gasWei > BigInteger.ZERO)
+                        (gasWei.toBigDecimal().movePointLeft(9).toPlainString().take(10)) else "",
+                )
+
+                val creds = try { MultiChainWalletVault6546.evmCredentials6649(context) } catch (_: Throwable) { null }
+                    ?: return@withContext probe.copy(error = "EVM_WALLET_ABSENT_GENERATE_AND_BACK_UP_FIRST")
+                val address = creds.address
+                probe = probe.copy(address = address)
+
+                val nonceHex = rpcResult(chain.rpc, "eth_getTransactionCount", address, "pending")
+                val nonce = try { hexBig(nonceHex) } catch (_: Throwable) { BigInteger.valueOf(-1L) }
+                probe = probe.copy(nonceOk = nonce >= BigInteger.ZERO, nonce = nonce.toString())
+                if (!probe.nonceOk) return@withContext probe.copy(error = "NONCE_READ_FAILED")
+
+                // Build a real transaction from the live values. Self-transfer of
+                // zero value: valid to encode and sign, pointless to broadcast,
+                // and we do not broadcast it.
+                val raw = org.web3j.crypto.RawTransaction.createTransaction(
+                    nonce,
+                    gasWei.max(BigInteger.ONE),
+                    BigInteger.valueOf(21_000L),
+                    address,
+                    BigInteger.ZERO,
+                    "",
+                )
+                probe = probe.copy(txConstructionOk = true)
+
+                // Sign locally, then RECOVER the signer from the signed bytes and
+                // require it to be our own address. A signature that merely
+                // "returns without throwing" proves nothing; this proves the key
+                // in the vault actually controls the address we would send from.
+                val signed = org.web3j.crypto.TransactionEncoder.signMessage(raw, chain.id, creds)
+                val recovered = try {
+                    val decoded = org.web3j.crypto.TransactionDecoder.decode(org.web3j.utils.Numeric.toHexString(signed))
+                    (decoded as? org.web3j.crypto.SignedRawTransaction)?.from
+                } catch (_: Throwable) { null }
+                probe = probe.copy(
+                    signingOk = signed.isNotEmpty() &&
+                        recovered != null && recovered.equals(address, ignoreCase = true),
+                )
+                if (!probe.signingOk) {
+                    probe = probe.copy(error = "SIGNATURE_DID_NOT_RECOVER_TO_OUR_ADDRESS")
+                }
+                probe
+            } catch (t: Throwable) {
+                probe.copy(error = (t.message ?: t.javaClass.simpleName).take(160))
+            }
+        }
+
+    /** Probe every configured chain. Sequential — these are public free RPCs. */
+    suspend fun dryRunAll6987(context: Context): List<ChainProbe6987> =
+        withContext(Dispatchers.IO) {
+            // Distinct by chain id so aliases (eth/ethereum, bsc/binance-smart-chain)
+            // are not probed twice.
+            val seen = HashSet<Long>()
+            chains.entries
+                .filter { seen.add(it.value.id) }
+                .map { (k, _) -> dryRunChain6987(context, k) }
+        }
+
+    /** One-line operator summary of the dry run. */
+    fun dryRunSummary6987(probes: List<ChainProbe6987>): String {
+        val green = probes.count { it.unfundedGreen }
+        return "BRIDGE_DRY_RUN_6987 chains=${probes.size} unfundedGreen=$green " +
+            "fullRoundTripEnabled=$FULL_ROUND_TRIP_IMPLEMENTED " +
+            "note=submission_and_finality_require_a_funded_tx_and_are_not_proven_here"
+    }
+
     private fun rpcValue(rpc: String, method: String, vararg params: Any): Any? {
         val body = JSONObject().put("jsonrpc", "2.0").put("id", 1).put("method", method)
             .put("params", JSONArray().also { a -> params.forEach { a.put(it) } })

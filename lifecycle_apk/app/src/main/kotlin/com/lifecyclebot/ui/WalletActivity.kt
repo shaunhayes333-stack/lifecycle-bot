@@ -111,6 +111,7 @@ class WalletActivity : AppCompatActivity() {
         // V5.9.495z26 — inject Treasury Wallet card into the connected layout.
         injectTreasuryWalletCard()
         injectDeployableCapitalCard6986()
+        injectCrossChainBridgeCard6987()
         injectMainMultiChainWalletCard6645()
 
         lifecycleScope.launch {
@@ -268,6 +269,192 @@ class WalletActivity : AppCompatActivity() {
                     }
                 } catch (_: Throwable) { /* read-only card; never break the screen */ }
             }
+        } catch (_: Throwable) { }
+    }
+
+    /**
+     * V5.0.6987 — CROSS-CHAIN BRIDGE, MADE VISIBLE AND TESTABLE.
+     *
+     * The Solana->EVM bridge (CryptoBridgeAdapter over deBridge DLN) is fully
+     * coded and fully wired: CryptoUniverseExecutor calls buySolToEvm,
+     * MarketsLiveExecutor calls sellEvmToSol on close, CryptoUniverseRouteResolver
+     * gates on supportsRoundTrip. Nine of its ten readiness capabilities are
+     * marked implemented. It is held shut by two flags, and the last one is
+     * waiting on "the real chain matrix exercised and attested".
+     *
+     * None of that was visible anywhere in the app. No screen referenced the
+     * adapter or the multi-chain vault, so the operator could not see that the
+     * bridge existed, could not see what was blocking it, and — critically —
+     * could not reach confirmBackupAndActivate, which is the one step the
+     * design explicitly reserves for a human. The EVM signer could never be
+     * created, so the route could never be tested even in principle.
+     *
+     * This card surfaces the real state and makes the human-gated steps
+     * reachable. It does NOT enable the bridge: FULL_ROUND_TRIP_IMPLEMENTED
+     * stays false, and the dry run never broadcasts a transaction.
+     */
+    private fun injectCrossChainBridgeCard6987() {
+        try {
+            val ctx = this
+            val container = layoutConnected as? android.view.ViewGroup ?: return
+            val card = AateUi.card(ctx, AateUi.AMBER)
+            val body = AateUi.cardBody(card)
+
+            val enabled = try {
+                com.lifecyclebot.perps.crypto.CryptoBridgeAdapter.isConfigured()
+            } catch (_: Throwable) { false }
+            body.addView(AateUi.headerRow(
+                ctx, "CROSS-CHAIN BRIDGE",
+                if (enabled) "LIVE" else "DISABLED",
+                if (enabled) AateUi.GREEN else AateUi.AMBER,
+            ))
+            body.addView(AateUi.gap(ctx, 8))
+
+            val chains = try {
+                com.lifecyclebot.perps.crypto.CryptoBridgeAdapter.configuredChains6987()
+            } catch (_: Throwable) { emptyMap() }
+            val distinctChains = chains.values.map { it.id }.distinct().size
+            val blocking = try {
+                com.lifecyclebot.perps.crypto.CryptoBridgeAdapter
+                    .readiness6647("base")?.missing().orEmpty()
+            } catch (_: Throwable) { emptyList() }
+
+            body.addView(AateUi.bodyText(
+                ctx,
+                "Route: Solana → USDC → target chain token, and back. " +
+                    "$distinctChains chains configured (${chains.size} keys incl. aliases).",
+                AateUi.TEXT_SECONDARY, sizeSp = 11f,
+            ))
+            body.addView(AateUi.gap(ctx, 6))
+            body.addView(AateUi.bodyText(
+                ctx,
+                if (blocking.isEmpty()) "No readiness capability outstanding."
+                else "Blocking: ${blocking.joinToString(", ")}",
+                if (blocking.isEmpty()) AateUi.GREEN else AateUi.AMBER,
+                sizeSp = 11f,
+            ))
+
+            body.addView(AateUi.divider(ctx))
+
+            // ── multi-chain signer state ───────────────────────────────────
+            val stored = try { com.lifecyclebot.engine.MultiChainWalletVault6546.load(ctx) } catch (_: Throwable) { null }
+            val signerState = when {
+                stored == null -> "NOT CREATED"
+                !stored.backupConfirmed -> "CREATED · BACKUP NOT CONFIRMED"
+                !stored.activeMain -> "BACKED UP · NOT ACTIVATED"
+                else -> "ACTIVE"
+            }
+            val tvSigner = AateUi.bodyText(ctx, "EVM signer: $signerState", AateUi.TEXT, sizeSp = 11.5f)
+            body.addView(tvSigner)
+            if (stored != null) {
+                body.addView(AateUi.gap(ctx, 4))
+                body.addView(AateUi.bodyText(ctx, stored.ethereumAddress, AateUi.TEXT_MUTED, sizeSp = 10f).apply {
+                    typeface = android.graphics.Typeface.MONOSPACE
+                })
+            }
+            body.addView(AateUi.gap(ctx, 10))
+
+            val tvOut = AateUi.bodyText(ctx, "", AateUi.TEXT_SECONDARY, sizeSp = 10.5f)
+
+            fun btn(label: String, accent: Int, onTap: () -> Unit) = Button(ctx).apply {
+                text = label
+                textSize = 12f
+                setTextColor(accent)
+                background = AateUi.pillBackground(ctx, accent)
+                setPadding(AateUi.dp(ctx, 12), AateUi.dp(ctx, 6), AateUi.dp(ctx, 12), AateUi.dp(ctx, 6))
+                setOnClickListener { onTap() }
+            }
+
+            val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+
+            if (stored == null) {
+                row.addView(btn("Create EVM signer", AateUi.CYAN) {
+                    try {
+                        val w = com.lifecyclebot.engine.MultiChainWalletGenerator6546.generate()
+                        com.lifecyclebot.engine.MultiChainWalletVault6546.save(ctx, w)
+                        // The vault's own contract: the UI must show the phrase
+                        // and take an explicit acknowledgement before activating.
+                        // Shown here only, never logged, never sent anywhere.
+                        AlertDialog.Builder(ctx)
+                            .setTitle("Recovery phrase — write it down now")
+                            .setMessage(
+                                w.mnemonic + "\n\n" +
+                                    "ETH/EVM: ${w.ethereumAddress}\n" +
+                                    "This phrase is shown once here. It is stored encrypted on this " +
+                                    "device only. Anyone with it controls these funds.",
+                            )
+                            .setPositiveButton("I have written it down", null)
+                            .show()
+                        recreate()
+                    } catch (e: Throwable) {
+                        tvOut.text = "Create failed: ${e.message}"
+                    }
+                })
+            } else if (!stored.backupConfirmed || !stored.activeMain) {
+                row.addView(btn("Confirm backup + activate", AateUi.AMBER) {
+                    AlertDialog.Builder(ctx)
+                        .setTitle("Activate multi-chain signer?")
+                        .setMessage(
+                            "This marks the recovery phrase as backed up and makes this " +
+                                "wallet the active multi-chain signer. Only do this if you " +
+                                "have written the phrase down. It does not enable bridge " +
+                                "execution on its own.",
+                        )
+                        .setPositiveButton("Activate") { _, _ ->
+                            try {
+                                com.lifecyclebot.engine.MultiChainWalletVault6546.confirmBackupAndActivate(ctx)
+                                recreate()
+                            } catch (e: Throwable) {
+                                tvOut.text = "Activate failed: ${e.message}"
+                            }
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+                })
+            }
+
+            row.addView(btn("Run chain dry run", AateUi.PURPLE_BRIGHT) {
+                tvOut.text = "Probing ${distinctChains} chains…"
+                lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    val probes = try {
+                        com.lifecyclebot.perps.crypto.CryptoBridgeAdapter.dryRunAll6987(ctx)
+                    } catch (e: Throwable) {
+                        emptyList()
+                    }
+                    val text = if (probes.isEmpty()) "Dry run produced no results."
+                    else buildString {
+                        appendLine(
+                            try { com.lifecyclebot.perps.crypto.CryptoBridgeAdapter.dryRunSummary6987(probes) }
+                            catch (_: Throwable) { "" }
+                        )
+                        probes.forEach { p ->
+                            val mark = if (p.unfundedGreen) "OK " else "-- "
+                            append(mark).append(p.chainKey).append(" (").append(p.chainId).append(")  ")
+                            if (p.unfundedGreen) {
+                                append("gas=").append(p.gasPriceGwei).append("gwei nonce=").append(p.nonce)
+                            } else {
+                                append(p.blockingList().joinToString(","))
+                                if (p.error.isNotBlank()) append("  ").append(p.error)
+                            }
+                            appendLine()
+                        }
+                        appendLine()
+                        append(
+                            "Submission and finality are NOT proven here — they need a funded " +
+                                "transaction on a real chain. Nothing was broadcast.",
+                        )
+                    }
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        tvOut.text = text
+                    }
+                }
+            })
+
+            body.addView(row)
+            body.addView(AateUi.gap(ctx, 8))
+            body.addView(tvOut)
+
+            container.addView(card, 0)
         } catch (_: Throwable) { }
     }
 
