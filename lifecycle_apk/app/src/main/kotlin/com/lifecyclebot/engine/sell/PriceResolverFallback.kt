@@ -260,7 +260,48 @@ object PriceResolverFallback {
      * a round-trip forever. It also means a bad URL degrades this resolver
      * rather than breaking it.
      */
+    /**
+     * V5.0.6969 §I_PUT_A_LIVE_WALLET_PATH_ON_A_1HZ_LOOP_WITHOUT_A_RATE_BUDGET.
+     *
+     * This chain had exactly one caller (LiveWalletReconciler) until V5.0.6946
+     * wired it into openPositionTickLoop, and V5.0.6958 then raised its per-tick
+     * cap from 8 mints to 24 whenever exit pressure is high — which, with 80 open
+     * positions, is always. Neither change added a rate budget, so a chain built
+     * for occasional wallet reconciliation started running at up to 24 mints per
+     * second against free keyless endpoints.
+     *
+     * The operator's 5.0.6967 table: jupiter at 669 calls in 213 seconds, 3.1/sec
+     * sustained. That is my regression. I fixed geckoterminal's identical problem
+     * in V5.0.6944 with exactly this governor and did not apply it here.
+     *
+     * 300ms minimum interval per host (~3.3/sec) — enough to keep marks flowing
+     * for 80 positions, low enough that a free endpoint will serve them. Callers
+     * arriving inside the window get null immediately rather than queueing: this
+     * is best-effort enrichment on a 1Hz loop, so a skipped fetch costs one tick
+     * of staleness, whereas a queue would pile coroutines behind a shared lock on
+     * the hot path.
+     */
+    private val lastHostCallMs6969 = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+    private const val HOST_MIN_INTERVAL_MS_6969 = 300L
+
+    private fun hostPaceOpen6969(host: String): Boolean {
+        return try {
+            val cell = lastHostCallMs6969.computeIfAbsent(host) { java.util.concurrent.atomic.AtomicLong(0L) }
+            val now = System.currentTimeMillis()
+            val prev = cell.get()
+            if (now - prev < HOST_MIN_INTERVAL_MS_6969) false
+            else cell.compareAndSet(prev, now)
+        } catch (_: Throwable) { true }
+    }
+
     private fun getJson6914(host: String, url: String): JSONObject? {
+        if (!hostPaceOpen6969(host)) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("KEYLESS_HOST_PACED_6969_${host.uppercase()}")
+            } catch (_: Throwable) {}
+            return null
+        }
         val started = System.currentTimeMillis()
         val request = Request.Builder()
             .url(url)
@@ -270,8 +311,35 @@ object PriceResolverFallback {
         return try {
             httpClient.newCall(request).execute().use { resp ->
                 try {
-                    com.lifecyclebot.engine.ApiHealthMonitor
-                        .record(host, resp.code, System.currentTimeMillis() - started)
+                    // V5.0.6969 §WE_COUNTED_OUR_OWN_BLOCKS_AGAINST_THE_PROVIDER.
+                    //
+                    // HostCircuitInterceptor short-circuits a locked-out host by
+                    // returning a SYNTHETIC 599 without touching the network.
+                    // This line recorded resp.code unconditionally, so every call
+                    // the bot declined to make was filed in ApiHealthMonitor as a
+                    // provider 5xx.
+                    //
+                    // The operator's 5.0.6967 table shows the signature exactly:
+                    //     jupiter  sr=16%  avg=1ms  s=110  5xx=559
+                    // A real 5xx from a remote server cannot return in 1ms. Those
+                    // 559 "failures" are this app's own circuit breaker, and
+                    // meanwhile KeyValidator reports jupiter live=true http=200
+                    // JUPITER_HEALTHY — the endpoint was fine the whole time.
+                    //
+                    // It is self-reinforcing and it reaches routing: the false
+                    // failures collapse successRate, LiveProviderQuorum.hostHealthy
+                    // requires >= 0.45, so a host the bot merely throttled gets
+                    // dropped from the quorum as if the provider had died.
+                    //
+                    // A synthetic block is now skipped entirely. Absence of data
+                    // is the honest record for a call that never happened.
+                    if (com.lifecyclebot.network.HostCircuitInterceptor.isSyntheticBlock(resp)) {
+                        com.lifecyclebot.engine.PipelineHealthCollector
+                            .labelInc("PROVIDER_SELF_BLOCKED_NOT_COUNTED_6969_${host.uppercase()}")
+                    } else {
+                        com.lifecyclebot.engine.ApiHealthMonitor
+                            .record(host, resp.code, System.currentTimeMillis() - started)
+                    }
                 } catch (_: Throwable) {}
                 if (!resp.isSuccessful) return null
                 val body = resp.body?.string() ?: return null

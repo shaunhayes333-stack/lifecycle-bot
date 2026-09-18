@@ -54,12 +54,27 @@ object HostCircuitInterceptor : Interceptor {
         else -> ""
     }
 
+    /**
+     * V5.0.6969 — every synthetic response now carries X-AATE-Synthetic: 1.
+     *
+     * A synthetic 599 means THIS APP declined to make the call. It is not
+     * evidence about the provider, and recording it as one corrupts the health
+     * table that routing decisions are made from. Callers use
+     * [isSyntheticBlock] to tell the two apart.
+     */
+    const val SYNTHETIC_HEADER_6969 = "X-AATE-Synthetic"
+
+    /** True when this response is a local circuit block, not a provider reply. */
+    fun isSyntheticBlock(resp: Response): Boolean =
+        resp.header(SYNTHETIC_HEADER_6969) != null
+
     private fun synthetic(req: okhttp3.Request, code: Int, message: String): Response =
         Response.Builder()
             .request(req)
             .protocol(Protocol.HTTP_1_1)
             .code(code)
             .message(message)
+            .header(SYNTHETIC_HEADER_6969, "1")
             .body("".toResponseBody(null))
             .build()
 
