@@ -10487,6 +10487,32 @@ class BotService : Service() {
         var consecutiveEmpty = 0
 
         while (status.running) {
+            // V5.0.6983 §THE_LIVENESS_COUNTER_THAT_ONLY_COUNTED_SUCCESS.
+            //
+            // OPEN_POS_TICK is emitted near the END of the body, after the
+            // price map has come back non-empty, and its own comment calls it
+            // a "forensic counter so the operator can verify the loop is
+            // alive". It cannot do that: three paths return to the top of the
+            // while without ever reaching it —
+            //
+            //   1. openMints.isEmpty()   -> delay(IDLE_MS); continue
+            //   2. priceMap.isEmpty()    -> delay(TICK_MS); continue
+            //   3. a throw              -> catch; delay(2_000L)
+            //
+            // So OPEN_POS_TICK counts iterations that GOT PRICES, not
+            // iterations that ran. I read "OPEN_POS_TICK: 168" over 522s as
+            // "the loop is running at 0.32Hz, not 1Hz" and reported that to
+            // the operator twice. That inference was not supported: the loop
+            // may well have been ticking at 1Hz and failing to fetch on most
+            // of them — which is a different defect with a different fix, and
+            // MARK_BATCH_EMPTY_6970=153 in the same snapshot points at it.
+            //
+            // Count every iteration here, before anything can skip, and name
+            // the reason an iteration produced no marks. Then the cadence
+            // question has an answer instead of an inference.
+            try {
+                PipelineHealthCollector.labelInc("OPEN_POS_LOOP_TICK_6983")
+            } catch (_: Throwable) {}
             try {
                 val openMints = canonicalExitTokenSnapshot6512()
                     .map { it.mint }
@@ -10494,6 +10520,7 @@ class BotService : Service() {
                     .distinct()
 
                 if (openMints.isEmpty()) {
+                    try { PipelineHealthCollector.labelInc("OPEN_POS_TICK_SKIPPED_6983_NO_OPEN_POSITIONS") } catch (_: Throwable) {}
                     kotlinx.coroutines.delay(IDLE_MS)
                     consecutiveEmpty = 0
                     continue
@@ -10808,6 +10835,11 @@ class BotService : Service() {
                         ErrorLogger.warn("BotService",
                             "📡 OpenPositionTick: 30 consecutive empty batches (${openMints.size} mints) — DS rate-limited or feed-dark")
                     }
+                    // V5.0.6983 — the loop DID tick; it got no prices. Naming
+                    // the two apart is the whole point of the 6983 counters.
+                    try {
+                        PipelineHealthCollector.labelInc("OPEN_POS_TICK_SKIPPED_6983_EMPTY_PRICEMAP")
+                    } catch (_: Throwable) {}
                     kotlinx.coroutines.delay(TICK_MS)
                     continue
                 }
@@ -11265,6 +11297,12 @@ class BotService : Service() {
                 throw ce
             } catch (e: Exception) {
                 ErrorLogger.error("BotService", "OpenPositionTickLoop error: ${e.message}")
+                // V5.0.6983 — a thrown iteration is the third way the loop can
+                // tick without reaching OPEN_POS_TICK, and the 2s backoff means
+                // it also halves the cadence while it persists. Name it.
+                try {
+                    PipelineHealthCollector.labelInc("OPEN_POS_TICK_SKIPPED_6983_THREW")
+                } catch (_: Throwable) {}
                 kotlinx.coroutines.delay(2_000L)
             }
         }
