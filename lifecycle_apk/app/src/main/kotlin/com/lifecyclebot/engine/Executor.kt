@@ -208,6 +208,19 @@ class Executor(
 ) {
     companion object {
 
+        /**
+         * V5.0.7003 — how long the price feed must ACTUALLY be dark before the
+         * stale-quote backstop force-exits a position.
+         *
+         * 90 seconds. The mark loop runs at 1Hz and QuoteFreshnessGuard already
+         * treats 60s as stale, so a genuine outage clears this in a minute and a
+         * half. A rug's outage is permanent, so the backstop still fires on every
+         * case it exists for — it just stops firing on a token whose pool is new
+         * enough that no aggregator has indexed it yet, which is most of what
+         * this bot buys.
+         */
+        private const val STALE_QUOTE_OUTAGE_MIN_MS_7003 = 90_000L
+
         // V5.9.1499 — ANALYTICS TIMESTAMP INTEGRITY (root-cause fix).
         // Persisted TradeRecords drove a 29,684,473-minute "held" value and a
         // 0.0% drawdown in the analytics block. Root cause: when a position was
@@ -7262,13 +7275,79 @@ class Executor(
             // no assumption about price direction — just call doSell and
             // let the executor's sell path use its own last-known-good
             // price for slippage math.
+            // V5.0.7003 §THE_BACKSTOP_THAT_SOLD_ON_ITS_OWN_BLINDNESS.
+            //
+            // Operator 5.0.6997 snapshot, and the reason the win rate is 9.1%
+            // with a 13-trade losing streak:
+            //
+            //     STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP_4594   167
+            //     JOURNALED_SELL|PROJECT_SNIPER|STALE_QUOTE…    7
+            //     JOURNALED_SELL|QUALITY|STALE_QUOTE…           3
+            //     "Cut losses faster — losers held 1.7min vs winners 0.2min"
+            //
+            // Winners held twelve seconds. That is not a strategy outcome, it
+            // is this block firing, and two separate defects made it fire on
+            // healthy positions.
+            //
+            // 1. IT MEASURED THE POSITION'S AGE, NOT THE OUTAGE'S DURATION.
+            //    The comment above says "no signal for at least one full
+            //    status check window", but `holdMs >= 15_000` only asks how
+            //    long the position has been OPEN. Nothing checked how long the
+            //    feed had actually been dark. So any position older than 15
+            //    seconds that hit a SINGLE tick with no usable read was
+            //    force-sold at an assumed -25%. A freshly bought memecoin
+            //    routinely has no indexed quote for its first minute — the
+            //    pool is new, DexScreener has not listed it, the keyless chain
+            //    has not caught up. The bot bought, blinked, and sold itself.
+            //
+            // 2. "NO PRICE" AND "PRICE I DISTRUST" WERE THE SAME BRANCH.
+            //    `candidates` is empty when OpenPnlSanity REJECTS the basis
+            //    too, and that snapshot carries OPEN_PNL_BASIS_REJECTED=659.
+            //    A rejected basis is a bookkeeping fault about our own cost
+            //    record; force-selling turns it into a realised loss and
+            //    teaches every learner that the entry was bad. Those are
+            //    opposite problems and only one of them is an emergency.
+            //
+            // The backstop's real purpose is intact and worth keeping: during
+            // a rug the feed genuinely goes dark and holding is never right.
+            // A rug's outage is permanent, so requiring it to PERSIST costs
+            // essentially nothing on a real rug and saves every position whose
+            // quote is merely late.
+            val outageMs7003 = try {
+                val lastMark = ts.lastPriceUpdate.takeIf { it > 0L } ?: pos.entryTime
+                (System.currentTimeMillis() - maxOf(lastMark, pos.entryTime)).coerceAtLeast(0L)
+            } catch (_: Throwable) { 0L }
+            val trulyPriceless7003 = currentPrice <= 0.0 && cachedPx <= 0.0
+            if (candidates.isEmpty() && pos.isOpen && pos.entryPrice > 0.0 &&
+                !trulyPriceless7003
+            ) {
+                // A price exists; the basis is what was refused. Say so and
+                // hold — this is a ledger repair, not an exit.
+                try {
+                    PipelineHealthCollector.labelInc("STALE_QUOTE_BACKSTOP_HELD_BASIS_REJECTED_7003")
+                    ForensicLogger.lifecycle(
+                        "STALE_QUOTE_BACKSTOP_HELD_BASIS_REJECTED_7003",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} livePx=$currentPrice cachedPx=$cachedPx " +
+                            "entry=${pos.entryPrice} action=hold_not_an_outage reason=pnl_basis_refused_not_missing_price",
+                    )
+                } catch (_: Throwable) {}
+                return@run
+            }
+            if (candidates.isEmpty() && pos.isOpen && pos.entryPrice > 0.0 &&
+                outageMs7003 < STALE_QUOTE_OUTAGE_MIN_MS_7003
+            ) {
+                try {
+                    PipelineHealthCollector.labelInc("STALE_QUOTE_BACKSTOP_HELD_OUTAGE_TOO_SHORT_7003")
+                } catch (_: Throwable) {}
+                return@run
+            }
             if (candidates.isEmpty() && pos.isOpen && pos.entryPrice > 0.0) {
                 val holdMs = try { System.currentTimeMillis() - pos.entryTime } catch (_: Throwable) { 0L }
                 if (holdMs >= 15_000L) {
                     try {
                         ForensicLogger.lifecycle(
                             "STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP_4594",
-                            "mint=${ts.mint.take(10)} sym=${ts.symbol} holdMs=$holdMs entry=${pos.entryPrice} livePx=${currentPrice} cachedPx=${cachedPx} — no finite price reads >15s, force-exiting at -25% assumption",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} holdMs=$holdMs outageMs7003=$outageMs7003 entry=${pos.entryPrice} livePx=${currentPrice} cachedPx=${cachedPx} — no price at all for ${outageMs7003 / 1000}s, force-exiting at -25% assumption",
                         )
                         PipelineHealthCollector.labelInc("STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP")
                     } catch (_: Throwable) {}

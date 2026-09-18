@@ -250,6 +250,36 @@ object TradeAuthorizer {
             } catch (_: Throwable) {}
         }
 
+        // V5.0.7003 §DID_THE_LANE_EVEN_GET_HERE.
+        //
+        // The operator's 5.0.6997 funnel reads, for four lanes:
+        //
+        //     TREASURY     fdgAllow=94  ownerSelected=0  buyIntent=0  INTENT_CHOKED
+        //     MANIPULATED  fdgAllow=55  ownerSelected=0  buyIntent=0
+        //     CASHGEN      fdgAllow=25  ownerSelected=0  buyIntent=0
+        //     DIP_HUNTER   fdgAllow=5   ownerSelected=0  buyIntent=0
+        //
+        // BUY_INTENT is stamped on the line below, before any gate, so
+        // buyIntent=0 can only mean authorize() was never called. But
+        // `fdgAllow` and `buyIntent` are counted differently — one by outcome
+        // string over a lane's records, the other by records reaching a stage,
+        // and the record key includes both the lane AND the candidate version.
+        // So a version that advanced between the FDG stamp and the authorize
+        // stamp splits one candidate across two records and produces exactly
+        // this shape with nothing actually choked.
+        //
+        // I could not separate those two explanations by reading the code, and
+        // I have already mis-diagnosed this snapshot once by preferring a
+        // plausible chain to a measured one. This counter settles it: it
+        // increments on entry to authorize(), before every gate and before any
+        // funnel keying, so it cannot be confounded by record identity.
+        //
+        //   TREASURY reads 0  -> the block is genuinely upstream of authorize
+        //   TREASURY reads ~94 -> the funnel's keying is the bug, not the lane
+        try {
+            PipelineHealthCollector.labelInc("TRADE_AUTHORIZE_ENTERED_7003_${requestedBook.name}")
+        } catch (_: Throwable) {}
+
         try { ToolkitSignalSheet.recordDeskStage(requestedBook.name, "BUY_INTENT", causalAttempt6613) } catch (_: Throwable) {}
 
         // V5.9.1120 — lane election BEFORE finality/open-request side effects.
