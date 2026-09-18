@@ -20,7 +20,18 @@
         <item name="android:navigationBarColor">@color/aate_bg_deep</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
-        <item name="android:fontFamily">monospace</item>
+        <!--
+             V5.0.7008 §THE_WHOLE_APP_WAS_SET_IN_MONOSPACE.
+             This one line made every label, heading, button and paragraph in
+             all 21 screens draw in a fixed-pitch face, which is the single
+             biggest reason the app read as a terminal dump instead of a
+             product. Monospace earns its place on NUMBERS (they line up
+             column to column) and nowhere else, so it moves to @style/T.Mono
+             and the default becomes the render's body face.
+        -->
+        <item name="android:fontFamily">@font/aate_body</item>
+        <item name="fontFamily">@font/aate_body</item>
+        <item name="android:textAppearance">@style/T.Body</item>
         <item name="materialButtonStyle">@style/BtnPrimary</item>
     </style>
 
@@ -302,5 +313,70 @@
         <item name="android:layout_height">6dp</item>
         <item name="android:progressDrawable">@drawable/aate_readiness_strip_bg</item>
         <item name="android:max">100</item>
+    </style>
+
+    <!--
+      V5.0.7008 — AATE type scale.
+
+      Three faces, each with one job, matching the render:
+        T.Display  Space Grotesk   headings, hero labels, button text
+        T.Body     IBM Plex Sans   everything that is language
+        T.Mono     JetBrains Mono  everything that is a number
+
+      Sizes are sp so they follow the operator's system text-size setting;
+      nothing here is fixed in px.
+    -->
+    <style name="T.Display" parent="TextAppearance.MaterialComponents.Headline6">
+        <item name="android:fontFamily">@font/space_grotesk_bold</item>
+        <item name="fontFamily">@font/space_grotesk_bold</item>
+        <item name="android:textColor">@color/aate_text</item>
+        <item name="android:letterSpacing">0.02</item>
+    </style>
+
+    <style name="T.Display.Hero">
+        <item name="android:textSize">30sp</item>
+        <item name="android:letterSpacing">0.01</item>
+    </style>
+
+    <style name="T.Display.Section">
+        <item name="android:textSize">15sp</item>
+        <item name="android:textColor">@color/aate_text_secondary</item>
+        <item name="android:letterSpacing">0.16</item>
+    </style>
+
+    <style name="T.Body" parent="TextAppearance.MaterialComponents.Body2">
+        <item name="android:fontFamily">@font/aate_body</item>
+        <item name="fontFamily">@font/aate_body</item>
+        <item name="android:textColor">@color/aate_text</item>
+        <item name="android:textSize">13sp</item>
+    </style>
+
+    <style name="T.Body.Secondary">
+        <item name="android:textColor">@color/aate_text_secondary</item>
+        <item name="android:textSize">12sp</item>
+    </style>
+
+    <style name="T.Body.Caption">
+        <item name="android:textColor">@color/aate_text_muted</item>
+        <item name="android:textSize">10sp</item>
+        <item name="android:letterSpacing">0.10</item>
+    </style>
+
+    <style name="T.Mono" parent="TextAppearance.MaterialComponents.Body2">
+        <item name="android:fontFamily">@font/aate_mono</item>
+        <item name="fontFamily">@font/aate_mono</item>
+        <item name="android:textColor">@color/aate_text</item>
+        <item name="android:textSize">13sp</item>
+    </style>
+
+    <style name="T.Mono.Figure">
+        <item name="android:textSize">26sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:letterSpacing">-0.02</item>
+    </style>
+
+    <style name="T.Mono.Small">
+        <item name="android:textSize">10sp</item>
+        <item name="android:textColor">@color/aate_text_secondary</item>
     </style>
 </resources>

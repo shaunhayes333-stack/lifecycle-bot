@@ -1,0 +1,9 @@
+Fonts bundled with AATE (V5.0.7008)
+
+Space Grotesk    — SIL Open Font License 1.1 — (c) Florian Karsten
+IBM Plex Sans    — SIL Open Font License 1.1 — (c) IBM Corp.
+JetBrains Mono   — SIL Open Font License 1.1 — (c) JetBrains s.r.o.
+
+All three are licensed under the SIL OFL 1.1, which permits bundling and
+redistribution inside an application. Retrieved from Google Fonts.
+Full licence text: https://scripts.sil.org/OFL

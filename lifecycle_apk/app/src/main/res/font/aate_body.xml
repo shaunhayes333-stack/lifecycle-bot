@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.7008 — AATE body face: IBM Plex Sans.
+
+  The theme previously set android:fontFamily="monospace" app-wide, which is
+  why every screen read as a terminal dump rather than a product: labels,
+  headings, button text and prose all drew in a fixed-pitch face. Monospace is
+  right for NUMBERS you want to scan in a column, and wrong for everything
+  else. This is the family the render uses for text, and aate_mono keeps the
+  fixed pitch where it earns its place.
+
+  Bundled under the SIL Open Font License 1.1 (see app/FONT_LICENSES.txt) rather than pulled from a downloadable-font provider, so the app
+  renders identically with no Play Services dependency and no first-frame
+  font swap.
+-->
+<font-family xmlns:android="http://schemas.android.com/apk/res/android">
+    <font android:fontStyle="normal" android:fontWeight="400" android:font="@font/ibm_plex_sans_regular"/>
+    <font android:fontStyle="normal" android:fontWeight="600" android:font="@font/ibm_plex_sans_semibold"/>
+</font-family>

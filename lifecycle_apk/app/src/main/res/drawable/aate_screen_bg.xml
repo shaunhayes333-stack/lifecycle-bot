@@ -1,30 +1,58 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.7008 — the render's ground, on every screen at once.
+
+  This is the theme's android:windowBackground, so it sits behind all 21
+  activities. Restyling it is the cheapest possible way to give the whole app
+  the render's depth: one file, no layout edits, no id churn.
+
+  WHAT CHANGED. The old version was already a layer-list of three radial
+  washes, but every one of them was too weak to read (0x33, 0x24, 0x0C alpha
+  over a near-black base) and they were tinted toward the old blue/purple
+  pair. The render's ground has three clearly separated colour fields —
+  violet top-left, cyan upper-right, magenta lower-left — strong enough to see
+  as light, which is what stops a dark app looking like a black rectangle.
+
+  Alphas roughly doubled and the third wash moved from centre to lower-left so
+  the fields do not stack on one point. Base gradient pulled to the render's
+  #04060D so cards (which are now a visibly lighter slab, V5.0.7007) sit
+  clearly above it.
+-->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- base ground -->
     <item>
         <shape android:shape="rectangle">
             <gradient android:type="linear" android:angle="270"
-                android:startColor="#071121" android:centerColor="#030916" android:endColor="#01040B"/>
+                android:startColor="#0A1024" android:centerColor="#060A18" android:endColor="#02040A"/>
         </shape>
     </item>
+
+    <!-- violet field, top-left -->
     <item>
         <shape android:shape="rectangle">
-            <gradient android:type="radial" android:gradientRadius="340dp"
-                android:centerX="0.08" android:centerY="0.00"
-                android:startColor="#334C8DFF" android:centerColor="#132C57A8" android:endColor="#00000000"/>
+            <gradient android:type="radial" android:gradientRadius="360dp"
+                android:centerX="0.04" android:centerY="0.02"
+                android:startColor="#6B8B5CF6" android:centerColor="#2A6D45C8" android:endColor="#00000000"/>
         </shape>
     </item>
+
+    <!-- cyan field, upper-right -->
     <item>
         <shape android:shape="rectangle">
-            <gradient android:type="radial" android:gradientRadius="380dp"
-                android:centerX="0.96" android:centerY="0.12"
-                android:startColor="#249A4DFF" android:centerColor="#0F5B33A0" android:endColor="#00000000"/>
+            <gradient android:type="radial" android:gradientRadius="400dp"
+                android:centerX="1.00" android:centerY="0.14"
+                android:startColor="#4C22D3EE" android:centerColor="#1E1C7FA0" android:endColor="#00000000"/>
         </shape>
     </item>
+
+    <!-- magenta field, lower-left — keeps the three fields from stacking -->
     <item>
         <shape android:shape="rectangle">
-            <gradient android:type="radial" android:gradientRadius="320dp"
-                android:centerX="0.55" android:centerY="0.48"
-                android:startColor="#0C31C7FF" android:endColor="#00000000"/>
+            <gradient android:type="radial" android:gradientRadius="360dp"
+                android:centerX="0.16" android:centerY="0.92"
+                android:startColor="#33F0409C" android:centerColor="#14802354" android:endColor="#00000000"/>
         </shape>
     </item>
+
 </layer-list>

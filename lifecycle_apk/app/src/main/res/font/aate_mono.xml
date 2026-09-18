@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.7008 — AATE numeric face: JetBrains Mono.
+
+  Kept fixed-pitch on purpose and used ONLY where it earns it: prices, PnL,
+  SOL amounts, counters, mints, log lines. Tabular figures line up column to
+  column, which is the whole reason a trading surface wants a mono face — and
+  the reason it should not also be setting your button labels.
+-->
+<font-family xmlns:android="http://schemas.android.com/apk/res/android">
+    <font android:fontStyle="normal" android:fontWeight="400" android:font="@font/jetbrains_mono_regular"/>
+    <font android:fontStyle="normal" android:fontWeight="700" android:font="@font/jetbrains_mono_bold"/>
+</font-family>
