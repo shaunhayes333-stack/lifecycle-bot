@@ -103,6 +103,14 @@ jobs:
           git fetch --deepen=2 --quiet || true
           python3 ci/static_call_check.py HEAD~1
 
+      # V5.0.7043 — third counter this session that reported a refusal which
+      # did not happen (after 7027's eval and 7035's resetsOnFlip). Each one
+      # sent someone at the wrong subsystem.
+      - name: Return-telemetry honesty guard
+        run: |
+          git fetch --deepen=2 --quiet || true
+          python3 ci/return_telemetry_check.py HEAD~1
+
       - name: New dead-code guard
         run: |
           git fetch --deepen=2 --quiet || true

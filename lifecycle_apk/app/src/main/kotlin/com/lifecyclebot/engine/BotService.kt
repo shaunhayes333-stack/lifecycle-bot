@@ -22102,7 +22102,33 @@ if (hotExitHandledSweep) {
                 } catch (_: Throwable) {}
                 if (!observationAdmitted6628) try {
                     PipelineHealthCollector.labelInc("CANONICAL_MARK_REJECTED_INFO|${promotion6616.reason}")
-                    com.lifecyclebot.engine.truth.PreV3ReturnTelemetry6525.stamp(ts, "CANONICAL_MARK_REJECTED_INFO_6575")
+                    // V5.0.7043 §A_RETURN_COUNTER_ON_A_PATH_THAT_DOES_NOT_RETURN.
+                    //
+                    // This used to call PreV3ReturnTelemetry6525.stamp, whose
+                    // entire contract is "this candidate RETURNED before V3" —
+                    // it emits PRE_V3_RETURN_<reason> and the choke audit sums
+                    // those as candidates LOST before scoring. Three lines below
+                    // this block the code says, in its own words, "No pre-V3
+                    // return. Cycle proceeds even when neither mark was
+                    // accepted". Both cannot be true.
+                    //
+                    // The operator's 5.0.7040 capture is what that produces:
+                    //
+                    //   pre-V3 returns: 265 [CANONICAL_MARK_REJECTED_INFO_6575=261]
+                    //   unique intake → V3: 0.5% (1/222)
+                    //
+                    // 261 candidates reported as lost that were never lost, and a
+                    // headline conversion rate computed from it. I read that line
+                    // and told the operator it was the biggest throughput choke in
+                    // the app. It is not a choke at all; it is a mislabelled
+                    // counter, and it is the third of this exact shape this
+                    // session after resetsOnFlip and the exit scheduler's eval.
+                    //
+                    // The rejection is real and worth counting — the canonical
+                    // mark was refused and the cycle continued on a provisional
+                    // one — so it keeps a counter of its own that says that, and
+                    // stops claiming a return that never happens.
+                    PipelineHealthCollector.labelInc("CANONICAL_MARK_REJECTED_CYCLE_CONTINUED_7043")
                     ForensicLogger.lifecycle("CANONICAL_MARK_REJECTED_INFO", "mint=${mint.take(10)} source=${promotion6616.source} price=${promotion6616.price} ageMs=${promotion6616.ageMs} identity=${promotion6616.identity.take(80)} reason=${promotion6616.reason}")
                 } catch (_: Throwable) {}
             }
