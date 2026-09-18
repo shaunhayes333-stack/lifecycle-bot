@@ -24268,7 +24268,7 @@ if (hotExitHandledSweep) {
                 // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
                     allow = treasuryFdgCanExecute6663,
-                    reason = "path=TREASURY " + (treasuryFdgReason6663))
+                    reason = (treasuryFdgReason6663) + " path=TREASURY")
             } catch (_: Throwable) {}
             ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "TREASURY", treasuryFdgCanExecute6663, treasuryFdgReason6663, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
             // V5.9.691 — FDG modulates, does not hard-kill, Treasury signals
@@ -24569,7 +24569,7 @@ if (hotExitHandledSweep) {
                 // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
                     allow = qualityFdg?.canExecute() ?: true,
-                    reason = "path=QUALITY " + (qualityFdg?.blockReason ?: "ok"))
+                    reason = (qualityFdg?.blockReason ?: "ok") + " path=QUALITY")
             } catch (_: Throwable) {}
             ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "QUALITY", qualityFdg?.canExecute() ?: true, qualityFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
             // V5.9.691 — FDG modulates, does not hard-kill, Quality signals
@@ -24777,7 +24777,7 @@ if (hotExitHandledSweep) {
                 // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
                     allow = blueChipFdg?.canExecute() ?: true,
-                    reason = "path=BLUECHIP " + (blueChipFdg?.blockReason ?: "ok"))
+                    reason = (blueChipFdg?.blockReason ?: "ok") + " path=BLUECHIP")
             } catch (_: Throwable) {}
             ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "BLUECHIP", blueChipFdg?.canExecute() ?: true, blueChipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
             // V5.9.691 — FDG modulates, does not hard-kill, BlueChip signals
@@ -25712,7 +25712,7 @@ if (hotExitHandledSweep) {
                 // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
                     allow = shitCoinFdg?.canExecute() ?: true,
-                    reason = "path=SHITCOIN " + (shitCoinFdg?.blockReason ?: "ok"))
+                    reason = (shitCoinFdg?.blockReason ?: "ok") + " path=SHITCOIN")
             } catch (_: Throwable) {}
             ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "SHITCOIN", shitCoinFdg?.canExecute() ?: true, shitCoinFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
                             // V5.9.1201 — FDG is a HARD VETO for ShitCoin too.
@@ -26052,7 +26052,7 @@ if (hotExitHandledSweep) {
                             // gate reason so onGate still does the per-lane accounting.
                             ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
                                 allow = manipFdg?.canExecute() ?: true,
-                                reason = "path=MANIP " + (manipFdg?.blockReason ?: "ok"))
+                                reason = (manipFdg?.blockReason ?: "ok") + " path=MANIP")
                         } catch (_: Throwable) {}
                         ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "MANIPULATED", manipFdg?.canExecute() ?: true, manipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
                         // V5.9.691 — FDG modulates, does not hard-kill, Manip signals
@@ -26331,7 +26331,7 @@ if (hotExitHandledSweep) {
                 // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
                     allow = expressFdg?.canExecute() ?: true,
-                    reason = "path=EXPRESS " + (expressFdg?.blockReason ?: "ok"))
+                    reason = (expressFdg?.blockReason ?: "ok") + " path=EXPRESS")
             } catch (_: Throwable) {}
             if (expressFdg != null && !expressFdg.canExecute()) {
                                 ErrorLogger.info("BotService", "🚫 FDG VETO on EXPRESS: ${ts.symbol} | ${expressFdg.blockReason ?: "fdg_block"}")
@@ -26797,7 +26797,7 @@ if (hotExitHandledSweep) {
                 // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
                     allow = dipFdg?.canExecute() ?: true,
-                    reason = "path=DIPHUNTER " + (dipFdg?.blockReason ?: "ok"))
+                    reason = (dipFdg?.blockReason ?: "ok") + " path=DIPHUNTER")
             } catch (_: Throwable) {}
             ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "DIP_HUNTER", dipFdg?.canExecute() ?: true, dipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
             // V5.9.691 — FDG modulates, does not hard-kill, DipHunter signals
