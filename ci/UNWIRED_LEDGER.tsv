@@ -274,11 +274,11 @@ C_EXIT	HistoricalChartScanner	getProgress	engine/HistoricalChartScanner.kt
 E_INFILE	HoldTimeOptimizerAI	getCurrentHoldSeconds	v3/scoring/HoldTimeOptimizerAI.kt
 C_EXIT	HoldTimeOptimizerAI	isHoldTimeOptimal	v3/scoring/HoldTimeOptimizerAI.kt
 E_INFILE	HoldingLogicLayer	getHoldParams	engine/HoldingLogicLayer.kt
-C_EXIT	HostWalletTokenTracker	getPendingOrOpenCount	engine/HostWalletTokenTracker.kt
+D_DISPLAY	HostWalletTokenTracker	getPendingOrOpenCount	engine/HostWalletTokenTracker.kt
 C_EXIT	HostWalletTokenTracker	isSellInFlight	engine/HostWalletTokenTracker.kt
 H_MUTATOR	HostWalletTokenTracker	markSellNoSignatureUnlocked	engine/HostWalletTokenTracker.kt
 H_MUTATOR	HostWalletTokenTracker	recordSellPending	engine/HostWalletTokenTracker.kt
-C_EXIT	HotPathLaneGate	mayProceedHotPath	engine/HotPathLaneGate.kt
+F_DEAD	HotPathLaneGate	mayProceedHotPath	engine/HotPathLaneGate.kt
 G_PROTOCOL	IdempotencyKeyStore6437	sellKey	engine/truth/IdempotencyKeyStore6437.kt
 G_PROTOCOL	JournalReceiptAccounting6663	getPaperStats	engine/TradeJournal.kt
 C_EXIT	JupiterPerps	getPoolInfo	perps/JupiterPerps.kt
@@ -287,8 +287,8 @@ C_EXIT	LearnerRuntimeBudgetGuard6441	shouldStop	engine/truth/LearnerRuntimeBudge
 G_PROTOCOL	LiveContinuityPolicy6392	cadenceInvariantHolds	engine/truth/LiveContinuity6392.kt
 C_EXIT	LiveContinuityPolicy6392	inventoryConservationHolds	engine/truth/LiveContinuity6392.kt
 C_EXIT	LiveContinuityPolicy6392	profitPartialAcceptable	engine/truth/LiveContinuity6392.kt
-C_EXIT	LiveExecutionGate	sellCompleted	engine/LiveExecutionGate.kt
-C_EXIT	LiveExecutionGate	trySell	engine/LiveExecutionGate.kt
+F_DEAD	LiveExecutionGate	sellCompleted	engine/LiveExecutionGate.kt
+G_PROTOCOL	LiveExecutionGate	trySell	engine/LiveExecutionGate.kt
 C_EXIT	LiveExitOnlyMode6387	classifyForStop	engine/truth/LiveTruthExitAuthority6387.kt
 H_MUTATOR	LivePositionCloseAuthority	purgeSellResidue	engine/sell/LivePositionCloseAuthority.kt
 C_EXIT	LiveSafetyCircuitBreaker	isSessionDrawdownPressureActive	engine/LiveSafetyCircuitBreaker.kt
@@ -313,7 +313,7 @@ E_INFILE	PerpsAdvancedAI	getPartialExitPlan	perps/PerpsAdvancedAI.kt
 C_EXIT	PerpsAdvancedAI	shouldPartialExit	perps/PerpsAdvancedAI.kt
 C_EXIT	PerpsLaneGate	canAdmitPerpsTrade	engine/PerpsLaneGate.kt
 C_EXIT	PerpsMarketDataFetcher	getPriceSource	perps/PerpsMarketDataFetcher.kt
-C_EXIT	PerpsTrailingStop	getTrailStop	perps/PerpsTrailingStop.kt
+D_DISPLAY	PerpsTrailingStop	getTrailStop	perps/PerpsTrailingStop.kt
 H_MUTATOR	PerpsUnifiedScorerBridge	recordHold	perps/PerpsUnifiedScorerBridge.kt
 C_EXIT	PersonalityTraitMultipliers	takeProfitBiasPct	engine/PersonalityTraitMultipliers.kt
 C_EXIT	PersonalityTraitMultipliers	trailSlackMultiplier	engine/PersonalityTraitMultipliers.kt
@@ -339,7 +339,7 @@ E_INFILE	SellAmountAuthority	isProfitProtectExitReason	engine/sell/SellAmountAut
 F_DEAD	SellAmountAuthority	resolveSellAmount	engine/sell/SellAmountAuthority.kt
 C_EXIT	SellIntentQuantityAuthority6401	validateSellIntentFromUi	engine/truth/SellIntentQuantityAuthority6401.kt
 G_PROTOCOL	SellQuantityBoundary6459	admitSell	engine/truth/SellQuantityBoundary6459.kt
-C_EXIT	SentienceHooks	lastPostMortemAgeMs	engine/SentienceHooks.kt
+D_DISPLAY	SentienceHooks	lastPostMortemAgeMs	engine/SentienceHooks.kt
 C_EXIT	ShadowLearningEngine	getPerformanceByMode	v3/learning/ShadowLearningEngine.kt
 C_EXIT	SmartExitOptimizer	getExitPressure	engine/SmartExitOptimizer.kt
 H_MUTATOR	SmartSizer	resetSessionPeak	engine/SmartSizer.kt
@@ -352,7 +352,7 @@ C_EXIT	TelegramNotifier	partialMsg	engine/TelegramNotifier.kt
 G_PROTOCOL	TerminalFinalityAuthority6405	allowExit	engine/truth/TerminalFinalityAuthority6405.kt
 C_EXIT	ToxicModeCircuitBreaker	activateEmergencyStop	engine/ToxicModeCircuitBreaker.kt
 C_EXIT	ToxicModeCircuitBreaker	deactivateEmergencyStop	engine/ToxicModeCircuitBreaker.kt
-C_EXIT	TradeHistoryStore	getPnl24hSol	engine/TradeHistoryStore.kt
+D_DISPLAY	TradeHistoryStore	getPnl24hSol	engine/TradeHistoryStore.kt
 H_MUTATOR	TradeHistoryStore	recordPartialProfit	engine/TradeHistoryStore.kt
 C_EXIT	TradeIdentityManager	auditTrail	engine/TradeIdentity.kt
 C_EXIT	TrailingStopManager	calculateBreakevenStop	engine/TrailingStopManager.kt
