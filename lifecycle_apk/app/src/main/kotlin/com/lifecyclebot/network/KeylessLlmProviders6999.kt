@@ -180,9 +180,18 @@ object KeylessLlmProviders6999 {
             // reply. Without the first half this member — the council's best
             // performer at 34% in the operator's 5.0.7012 table — would stay
             // locked out during the one call that exists to break the deadlock.
+            // V5.0.7026 — the OVH member needs BOTH waivers too, and it is the
+            // one that matters most: the operator's table has it at 28% with 10
+            // successes, the best of the eight, while the chat saw none of them.
+            // Without the probe header HostCircuitInterceptor blocks the forced
+            // attempt before the wire and the waiver above achieves nothing.
+            val forced7026 = KeylessLlmClient.isForcedAttempt7016()
+            val outbound7026 = if (forced7026) {
+                req.newBuilder().header(HostCircuitInterceptor.PROBE_HEADER_6976, "1").build()
+            } else req
             HealthAwareHttp.execute(
-                http, req, host = HOST_OVH,
-                allowDuringLockout = KeylessLlmClient.isForcedAttempt7016(),
+                http, outbound7026, host = HOST_OVH,
+                allowDuringLockout = forced7026,
             ).use { resp ->
                 if (!resp.isSuccessful) {
                     if (HostCircuitInterceptor.isSyntheticBlock(resp)) {

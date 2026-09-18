@@ -87,12 +87,56 @@ object KeylessLlmClient {
      * a guess. It also means a member that starts 429ing gets the same backoff
      * discipline as everything else rather than being hammered forever.
      */
-    private fun exec(req: Request, host: String) =
-        com.lifecyclebot.engine.HealthAwareHttp.execute(
-            httpClient, req, host = host,
-            // V5.0.7016 — true only inside runChat's single forced attempt.
-            allowDuringLockout = forcedAttempt7016.get() == true,
+    /**
+     * V5.0.7026 §THE_APP_BLOCKS_ITSELF_IN_TWO_PLACES_AND_I_ONLY_UNBLOCKED_ONE.
+     *
+     * The operator's 5.0.7024 diagnostic — the one V5.0.7016 added so this
+     * would stop being guesswork — reads:
+     *
+     *   [llm: keyless_fallback:members=8 asked=0 cooling=3 ownBackoff=5
+     *         empty=0 err=1]
+     *   LLM_COUNCIL_DRY_7016: 4070
+     *
+     * Read it precisely. Five of eight members were called and refused BY US
+     * (ownBackoff), three were inside our own cooldown, so the loop asked no
+     * one — and then the forced attempt 7016 added did run, and threw (err=1).
+     *
+     * It threw because there are TWO independent places this app refuses its
+     * own request, and 7016 waived only the first:
+     *
+     *   1. HealthAwareHttp.execute -> ApiBackoff.isLockedOut -> synthetic 503
+     *      (waived by allowDuringLockout, added in 7016)
+     *   2. HostCircuitInterceptor, installed on the SHARED OkHttp client ->
+     *      synthetic 599, before the request reaches the wire at all
+     *
+     * So the forced call still never left the device. It came back synthetic,
+     * okOrThrow correctly identified it as our own refusal, and threw.
+     *
+     * The mechanism for exactly this already exists. V5.0.6976 added
+     * PROBE_HEADER_6976 so a readiness probe could opt out of the circuit, and
+     * its comment states the reason in the same words this bug needs: "the
+     * block is indistinguishable from the provider being down, so the UI
+     * renders 'JUPITER UNREACHABLE' when what actually happened is that this
+     * app declined to look." That is precisely what the Persona chat has been
+     * printing, 4,070 times.
+     *
+     * Built in 6976, never used by the council. The fourth time this session a
+     * capability existed and the thing that needed it did not call it.
+     *
+     * The probe header goes on ONLY the single forced attempt — one request, on
+     * a turn that would otherwise have failed without asking anyone. Every
+     * background call still respects both layers.
+     */
+    private fun exec(req: Request, host: String): okhttp3.Response {
+        val forced = forcedAttempt7016.get() == true
+        val outbound = if (forced) {
+            req.newBuilder().header(HostCircuitInterceptor.PROBE_HEADER_6976, "1").build()
+        } else req
+        return com.lifecyclebot.engine.HealthAwareHttp.execute(
+            httpClient, outbound, host = host,
+            allowDuringLockout = forced,
         )
+    }
 
     private val startIdx = AtomicInteger(0)
     private const val COOLDOWN_MS = 60_000L

@@ -308,6 +308,9 @@ class DexscreenerApi {
         val body = get(url) ?: return emptyMap()
 
         val out = HashMap<String, Double>(mints.size)
+        // V5.0.7026 — the liquidity behind each mint's currently-chosen pair,
+        // so "best" can actually be compared rather than asserted.
+        val bestLiqByMint = HashMap<String, Double>(mints.size)
         try {
             val arr = JSONArray(body)
             for (i in 0 until arr.length()) {
@@ -317,11 +320,43 @@ class DexscreenerApi {
                 if (mint.isBlank()) continue
                 val priceUsd = p.optString("priceUsd", "0").toDoubleOrNull() ?: 0.0
                 if (priceUsd <= 0.0) continue
-                // If multiple pairs returned for the same mint, keep the
-                // best-liquidity one (higher = more trustworthy mid-price).
+                // V5.0.7026 §THE_COMMENT_SAID_BEST_LIQUIDITY_THE_CODE_SAID_LAST.
+                //
+                // Intent, unchanged since this was written: "If multiple pairs
+                // returned for the same mint, keep the best-liquidity one
+                // (higher = more trustworthy mid-price)."
+                //
+                // What it did: `if (existing == null || liq > 0.0)` overwrites
+                // on ANY pair carrying liquidity above zero, so the winner was
+                // simply the LAST such pair in DexScreener's response order.
+                // Nothing compared one liquidity against another — the only
+                // quantity the rule is about was never used as a comparison.
+                //
+                // That matters because a mint routinely returns several pairs
+                // and some are near-empty junk whose mid-price is meaningless.
+                // The operator's 5.0.7024 snapshot shows what arrives when one
+                // of those lands last:
+                //
+                //   STALE_PRICE_QUARANTINED mint=Dz9mQ9NzkB
+                //     entryPrice=2.53e-07 lastPrice=0.2521 gainMultiple=995863
+                //   HERO_OPENMV_PER_POSITION_QUARANTINE_6604 mint=XsqE9cRRpz
+                //     costBasis=0.0375 rawMark=14499.39 ratio=386650.3x
+                //
+                //   ... 2,400 quarantines in one session, all src=DEXSCREENER_BATCH.
+                //
+                // The downstream guards caught every one and refused to trade or
+                // learn on them, which is why this cost noise rather than money.
+                // But a mark that has to be thrown away is a mark the exit
+                // engine never got, and this is the fix at the source.
+                //
+                // Now genuinely best-of: remember the winning pair's liquidity
+                // and only replace when a strictly better one arrives.
                 val liq = p.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
-                val existing = out[mint]
-                if (existing == null || liq > 0.0) out[mint] = priceUsd
+                val bestLiq = bestLiqByMint[mint]
+                if (bestLiq == null || liq > bestLiq) {
+                    bestLiqByMint[mint] = liq
+                    out[mint] = priceUsd
+                }
             }
         } catch (_: Exception) { /* return whatever we have */ }
 
