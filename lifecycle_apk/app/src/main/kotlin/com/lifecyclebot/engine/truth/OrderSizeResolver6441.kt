@@ -165,6 +165,33 @@ object OrderSizeResolver6441 {
         // answers, and promoting both to the minimum turns the first one into
         // a full-size trade. See the reason branch below.
         convictionMultiplier6909: Double = 1.0,
+        // V5.0.6992 §THE_STREAK_REFLEX_EXISTED_IN_ONE_TRADER_OUT_OF_SIXTEEN.
+        //
+        // A platform-wide sweep (ci/live_awareness_matrix.py) checked every
+        // trader for four kinds of live-awareness. Exactly one — Executor.kt,
+        // the Solana/meme path — had all four. Every other trader (CRYPTO_ALT,
+        // PERPS, MARKETS_LIVE, FOREX, METALS, COMMODITIES, STOCKS,
+        // CRYPTO_UNIVERSE, CYCLIC and the v3 lane scorers) knew it was trading
+        // real money and consulted NO streak reflex and NO paper→live seeding.
+        //
+        // And none of the four shared gates — ExecutableOpenGate,
+        // CanonicalEntryAuthority6540, FinalDecisionGate, this resolver —
+        // referenced any of it either, so there was no shared path picking it
+        // up on their behalf. The reflexes were applied in one file, and only
+        // one lane family goes through that file.
+        //
+        // Editing ten traders would work once and then drift. This resolver is
+        // the one authority they all already call: the operator's own snapshot
+        // shows ORDER_SIZE_RESOLVED_6441 for lane=CRYPTO and lane=CRYPTO_SPOT
+        // as well as the meme lanes, at 4019 resolves in a session. Applying it
+        // here is platform-wide by construction and cannot be forgotten by the
+        // next trader someone adds.
+        //
+        // Size-only, never a veto — doctrine is never throttle, never
+        // cap-to-dust, never disable a lane. Executor already applies the
+        // bridge itself, so it passes true here to avoid double-counting.
+        bridgeAlreadyApplied6992: Boolean = false,
+        liquidityUsd6992: Double = Double.NaN,
     ): Resolution {
         totalResolves.incrementAndGet()
 
@@ -469,7 +496,52 @@ object OrderSizeResolver6441 {
         val authorityCapLamports6498 = minOf(shapedOrMinimumLamports6600, availableLamports6491, laneCapLamports6491)
         @Suppress("UNUSED_VARIABLE")
         val effectiveShapedLamports6506 = laneClampedLamports6491
-        val boundedExecutableLamports6498 = minOf(shapedOrMinimumLamports6600, availableLamports6491, laneCapLamports6491)
+        // V5.0.6992 — platform-wide live-awareness, applied once for every
+        // trader that sizes an order. Two soft multipliers, both bounded:
+        //
+        //   streak  ColdStreakDamper, which since 6991 seeds its LOSS streak
+        //           from paper at full strength, so a lane that bled in paper
+        //           opens guarded on its first real trade.
+        //   bridge  PaperLiveIntelligenceBridge's paper→live alignment, passed
+        //           through PaperSeededPrior6991.assess so paper's OPTIMISM is
+        //           shrunk (and shrunk further on a thin pool, where a real
+        //           fill least resembles its simulation) while paper's CAUTION
+        //           passes whole.
+        //
+        // Neither can zero a size: the damper floors at 0.25 and the bridge is
+        // clamped to [0.94, 1.08], and the result is floored at the minimum
+        // executable notional below exactly as before.
+        var liveAwareLamports6992 = shapedOrMinimumLamports6600
+        if (shapedOrMinimumLamports6600 > 0L) {
+            val streakMult6992 = try {
+                com.lifecyclebot.engine.runtime.ColdStreakDamper.sizeMultiplier(laneName, paperMode)
+            } catch (_: Throwable) { 1.0 }
+            val bridgeMult6992 = if (bridgeAlreadyApplied6992 || paperMode) 1.0 else try {
+                val sig = com.lifecyclebot.engine.PaperLiveIntelligenceBridge.liveSizeMultiplier(laneName)
+                PaperSeededPrior6991.assess(
+                    paperValue = sig.multiplier,
+                    neutral = 1.0,
+                    liveSamples = sig.liveTrades.toLong(),
+                    label = "PaperLiveIntelligenceBridge[$laneName]",
+                    positionSol = fromLamports6491(shapedOrMinimumLamports6600),
+                    liquidityUsd = liquidityUsd6992,
+                    solPriceUsd = try {
+                        com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+                    } catch (_: Throwable) { Double.NaN },
+                )
+            } catch (_: Throwable) { 1.0 }
+            val combined6992 = (streakMult6992 * bridgeMult6992).coerceIn(0.20, 1.10)
+            if (combined6992 < 0.999 || combined6992 > 1.001) {
+                liveAwareLamports6992 =
+                    (shapedOrMinimumLamports6600.toDouble() * combined6992).toLong().coerceAtLeast(0L)
+                try {
+                    PipelineHealthCollector.labelInc("LIVE_AWARE_SIZE_SHAPED_6992")
+                    PipelineHealthCollector.labelInc("LIVE_AWARE_SIZE_SHAPED_6992_${laneName.uppercase().take(20)}")
+                } catch (_: Throwable) {}
+            }
+        }
+
+        val boundedExecutableLamports6498 = minOf(liveAwareLamports6992, availableLamports6491, laneCapLamports6491)
         val executable = boundedExecutableLamports6498 >= minExecLamports6491
         val finalSize = if (executable) fromLamports6491(boundedExecutableLamports6498) else 0.0
         val reason = when {

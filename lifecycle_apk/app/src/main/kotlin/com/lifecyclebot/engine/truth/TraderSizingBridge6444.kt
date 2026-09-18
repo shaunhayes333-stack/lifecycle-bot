@@ -122,6 +122,11 @@ object TraderSizingBridge6444 {
                 paperMode = paperMode,
                 laneRiskCapSol = laneCap,
                 laneMinExecutableSol = if (paperMode) OrderSizeResolver6441.paperExecutableMinimumSol() else 0.001,
+                // V5.0.6992 — this bridge's only caller is Executor.doBuy, whose
+                // sizing stack already contains paperLiveBridgeMult. The resolver
+                // now applies PaperLiveIntelligenceBridge for every OTHER trader
+                // (they had none of it), so tell it not to apply it twice here.
+                bridgeAlreadyApplied6992 = true,
                 // V5.0.6911 — forward the mint so the resolver can read
                 // EntryConvictionRegistry6909. See CanonicalSizingBridge6532
                 // for the evidence: 469 conviction stamps, 0 hits. Blank is

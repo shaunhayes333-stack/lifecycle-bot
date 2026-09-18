@@ -66,6 +66,59 @@ object PaperSeededPrior6991 {
     const val LIVE_AUTONOMY_N = 40
 
     /**
+     * V5.0.6992 — MARKET IMPACT. The thing paper cannot simulate at all.
+     *
+     * Operator: "paper trading never moves the chart or affects the real life
+     * token metrics like real buying and selling does vs live trading."
+     *
+     * That is a bigger gap than slippage, and it cuts the wrong way for exactly
+     * the trades this bot exists to catch. A paper buy fills at the quoted
+     * price and leaves the book untouched. A real buy walks the book, moves the
+     * mark, and on a thin pool is itself a visible event other bots trade
+     * against. A paper sell exits 100% at the mark; a real sell into the same
+     * pool is the thing that breaks the price — which is precisely the runner
+     * position the doctrine cares most about protecting.
+     *
+     * So paper's overstatement is not a constant. It scales with how large the
+     * position is relative to the pool it has to move through. The lanes
+     * showing the most spectacular paper edge are the thin micro-cap ones
+     * (MOONSHOT and BLUECHIP at mean +3187% and +2169% in the operator's
+     * 5.0.6972 snapshot) and those are exactly the pools where a real fill
+     * least resembles its simulation.
+     *
+     * This returns the fraction of OPTIMISM_WEIGHT that survives, given the
+     * position's footprint in the pool. Round-trip footprint is 2x the notional
+     * because the exit has to come back out through the same book.
+     *
+     * A missing or nonsense liquidity reading returns the thin-pool answer, not
+     * the generous one: unknown depth is not shallow depth, but it is certainly
+     * not proven depth, and this is the direction where being wrong is cheap.
+     */
+    fun impactSurvival6992(positionSol: Double, liquidityUsd: Double, solPriceUsd: Double): Double {
+        if (!positionSol.isFinite() || positionSol <= 0.0) return 1.0
+        if (!liquidityUsd.isFinite() || liquidityUsd <= 0.0) return 0.25
+        val solPx = if (solPriceUsd.isFinite() && solPriceUsd > 1.0) solPriceUsd else 150.0
+        val roundTripUsd = positionSol * solPx * 2.0
+        val footprint = roundTripUsd / liquidityUsd
+        return when {
+            footprint <= 0.002 -> 1.00  // under 0.2% of the pool — impact is noise
+            footprint <= 0.01  -> 0.80
+            footprint <= 0.03  -> 0.55
+            footprint <= 0.08  -> 0.30
+            else               -> 0.10  // we ARE the market here; paper proved nothing
+        }
+    }
+
+    /**
+     * Optimism weight adjusted for the pool this trade actually has to move
+     * through. Caution is unaffected — market impact makes the downside worse,
+     * never better, so a warning from paper stays at full volume regardless of
+     * liquidity.
+     */
+    fun optimismWeightFor6992(positionSol: Double, liquidityUsd: Double, solPriceUsd: Double): Double =
+        (OPTIMISM_WEIGHT * impactSurvival6992(positionSol, liquidityUsd, solPriceUsd)).coerceIn(0.0, 1.0)
+
+    /**
      * How much paper is still allowed to speak, given how much live has seen.
      * 1.0 with no live evidence, 0.0 at [LIVE_AUTONOMY_N] and beyond.
      */
@@ -115,12 +168,29 @@ object PaperSeededPrior6991 {
      * optimism and is shrunk. One call for learners that publish a single
      * signed number, such as a size multiplier around 1.0.
      */
-    fun assess(paperValue: Double, neutral: Double, liveSamples: Long, label: String): Double {
+    fun assess(
+        paperValue: Double,
+        neutral: Double,
+        liveSamples: Long,
+        label: String,
+        // V5.0.6992 — supply these and the optimism shrink also accounts for
+        // the position's footprint in the pool. Omitted, behaviour is the
+        // pre-6992 liquidity-blind shrink.
+        positionSol: Double = Double.NaN,
+        liquidityUsd: Double = Double.NaN,
+        solPriceUsd: Double = Double.NaN,
+    ): Double {
         if (!paperValue.isFinite()) return neutral
         val out = if (paperValue <= neutral) {
+            // Caution. Passes whole, and market impact only makes the downside
+            // worse, so liquidity never softens a warning.
             paperValue
         } else {
-            shrinkOptimism(paperValue, neutral, liveSamples)
+            val base = shrinkOptimism(paperValue, neutral, liveSamples)
+            if (positionSol.isFinite() && liquidityUsd.isFinite()) {
+                val survival = impactSurvival6992(positionSol, liquidityUsd, solPriceUsd)
+                neutral + (base - neutral) * survival
+            } else base
         }
         try {
             if (out != paperValue) {
