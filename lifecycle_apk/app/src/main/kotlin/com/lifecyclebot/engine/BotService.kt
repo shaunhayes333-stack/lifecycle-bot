@@ -10646,7 +10646,52 @@ class BotService : Service() {
                 // GeckoTerminal) is Solana-only, so feeding it eth|0x… and
                 // bsc|0x… guaranteed a miss on every provider in the chain and
                 // consumed the per-tick cap that real Solana mints needed.
-                val missingBeforeKeyless6946 = solanaMints6970.filter { it !in priceMap }
+                val missingBeforeKeyless6946Raw = solanaMints6970.filter { it !in priceMap }
+
+                // V5.0.6996 §ONE_DEAD_PROVIDER_STOPPED_THE_WHOLE_BOT_TRADING.
+                //
+                // The 6946 chain below is PER-MINT and capped per tick, so with
+                // 97 open positions and DexScreener returning nothing it can
+                // only rescue a handful per second. The operator's 5.0.6993
+                // snapshot is what that looks like when the primary source is
+                // fully dead rather than patchy:
+                //
+                //     dexscreener  sr=0%  s=0  4xx=5      <- zero all session
+                //     Exit scheduler: eval=58,066  SL=0  TP=0  TRAIL=0
+                //     Open positions 97 / POSITION_HARD_CAP 100
+                //
+                // 58,066 exit evaluations fired zero stops because nothing
+                // could be priced; inventory then filled to the cap and every
+                // lane went SIZING_CHOKED. One provider took the bot out.
+                //
+                // So try BATCH keyless sources first: DefiLlama (no key, no
+                // account, entirely separate infrastructure from the DEX
+                // aggregators) then Jupiter's price surface, which was sitting
+                // at sr=96% with 217 successful calls in that same snapshot
+                // while the positions went unmarked.
+                //
+                // Whatever those two answer for is removed from the per-mint
+                // chain's workload, so the cap below is spent on genuinely
+                // hard mints instead of on the bulk.
+                var missingBeforeKeyless6946 = missingBeforeKeyless6946Raw
+                if (missingBeforeKeyless6946Raw.isNotEmpty()) {
+                    try {
+                        val rescued6996 = com.lifecyclebot.network.KeylessPriceSources6996
+                            .fillMissing(missingBeforeKeyless6946Raw)
+                        if (rescued6996.isNotEmpty()) {
+                            for ((m, p) in rescued6996) {
+                                if (p.isFinite() && p > 0.0) priceMap[m] = p
+                            }
+                            missingBeforeKeyless6946 = missingBeforeKeyless6946Raw.filter { it !in priceMap }
+                            ForensicLogger.lifecycle(
+                                "MARK_KEYLESS_BATCH_RESCUE_6996",
+                                "requested=${missingBeforeKeyless6946Raw.size} rescued=${rescued6996.size} " +
+                                    "stillMissing=${missingBeforeKeyless6946.size} " +
+                                    "note=batch_keyless_runs_before_the_per_mint_chain",
+                            )
+                        }
+                    } catch (_: Throwable) { /* fail-soft: per-mint chain still runs */ }
+                }
 
                 // V5.0.6946 §THE_KEYLESS_FALLBACK_WAS_LIVE_ONLY.
                 //

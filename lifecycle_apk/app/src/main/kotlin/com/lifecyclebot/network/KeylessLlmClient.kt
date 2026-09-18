@@ -135,7 +135,81 @@ object KeylessLlmClient {
         if (emergentKey.isNotBlank()) {
             list.add(Provider("emergent") { s, u, m -> callEmergent(s, u, m) })
         }
+
+        // V5.0.6996 §THE_KEYLESS_CLIENT_HAD_NO_KEYLESS_PROVIDER.
+        //
+        // Operator: "youve killed the llm. its meant to be free and keyless
+        // and multi llm sourced ... the aate stack should never be data or
+        // llm dry ever."
+        //
+        // The council is real — GeminiCopilot builds seven providers and this
+        // class is its declared KEYLESS_FALLBACK. But look at what was in the
+        // list above: groq needs operatorGroqKey, openrouter needs
+        // operatorOpenRouterKey, anthropic needs operatorAnthropicKey, and
+        // emergent carries an embedded obfuscated key. EVERY member is
+        // key-bound. The class named KeylessLlmClient had no keyless provider
+        // in it, so when the operator's snapshot shows
+        //
+        //     groq    live=false http=429 GROQ_RATE_LIMIT_429
+        //     gemini  live=false http=401 default placeholder key
+        //
+        // there is nothing left underneath and the whole council goes dry.
+        //
+        // These two need no key, no account and no signup, so the chain can
+        // never bottom out again. They are LAST on purpose: a real operator
+        // subscription always wins, and these only carry the load when every
+        // keyed member is rate-limited, unpaid or unconfigured.
+        list.add(Provider("pollinations") { s, u, m -> callPollinations(s, u, m) })
+        list.add(Provider("pollinations_get") { s, u, m -> callPollinationsGet(s, u, m) })
         return list
+    }
+
+    // ── Pollinations (GENUINELY keyless — no account, no signup) ───────────
+    //
+    // OpenAI-compatible POST surface. Free and unauthenticated by design.
+    private fun callPollinations(system: String, user: String, maxTokens: Int): String? {
+        val payload = JSONObject().apply {
+            put("model", "openai")
+            put("max_tokens", maxTokens)
+            put("temperature", 0.2)
+            put("messages", JSONArray()
+                .put(JSONObject().put("role", "system").put("content", system))
+                .put(JSONObject().put("role", "user").put("content", user)))
+        }
+        val req = Request.Builder()
+            .url("https://text.pollinations.ai/openai")
+            .header("Content-Type", "application/json")
+            .post(payload.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        httpClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) return null
+            val body = resp.body?.string() ?: return null
+            // Documented shape is OpenAI-compatible, but this endpoint has
+            // also been observed returning bare text. Accept both rather than
+            // throwing away a usable answer over its envelope.
+            val trimmed = body.trim()
+            if (!trimmed.startsWith("{")) return trimmed.ifBlank { null }
+            val j = JSONObject(trimmed)
+            return j.optJSONArray("choices")?.optJSONObject(0)
+                ?.optJSONObject("message")?.optString("content", "")?.trim()?.ifBlank { null }
+                ?: trimmed.ifBlank { null }
+        }
+    }
+
+    // Plain-GET form of the same service. Kept as a separate member because it
+    // survives when the POST surface is unhappy, and a council that can still
+    // answer on a degraded transport is the entire point of this class.
+    private fun callPollinationsGet(system: String, user: String, maxTokens: Int): String? {
+        val prompt = (if (system.isBlank()) user else "$system\n\n$user").take(1800)
+        val encoded = java.net.URLEncoder.encode(prompt, "UTF-8")
+        val req = Request.Builder()
+            .url("https://text.pollinations.ai/$encoded?model=openai")
+            .get()
+            .build()
+        httpClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) return null
+            return resp.body?.string()?.trim()?.ifBlank { null }
+        }
     }
 
     // ── Emergent OpenAI-compat proxy (verified live Feb 2026) ──────────────
