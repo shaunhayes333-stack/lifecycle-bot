@@ -993,14 +993,22 @@ class BehaviorActivity : AppCompatActivity() {
     private var fluidDashboardBuilt = false
     private val fluidRowValueViews = HashMap<String, TextView>()
 
+    // V5.0.7019 — the render's section rule and row shape.
+    //
+    // These two helpers build the whole Fluid block, so converting them here
+    // converts the block; the call sites are untouched. Same leverage the
+    // V5.0.7013 TuningActivity conversion used, and the same reason it is done
+    // at the helper: a screen painted in Kotlin cannot be reached by editing
+    // res/values, which is why three restyle passes never landed on it.
     private fun addFluidSection(container: LinearLayout, title: String) {
-        container.addView(TextView(this).apply {
-            text = title
-            textSize = 11f
-            setTextColor(AateUi.TEXT_SECONDARY)
-            typeface = android.graphics.Typeface.MONOSPACE
-            setPadding(0, dp(12), 0, dp(4))
-        })
+        container.addView(
+            AateComponents6994.sectionHeader(this, title, null, AateUi.CYAN).apply {
+                // sectionHeader carries a 16dp screen gutter; inside a card that
+                // gutter is already paid, so drop it rather than inset twice —
+                // the exact double-gutter bug V5.0.7014 found in the Hive tiles.
+                setPadding(0, 0, 0, 0)
+            },
+        )
     }
 
     private fun addFluidRow(container: LinearLayout, label: String, value: String, hint: String) {
@@ -1012,29 +1020,34 @@ class BehaviorActivity : AppCompatActivity() {
             orientation = LinearLayout.HORIZONTAL
         }
         topRow.addView(TextView(this).apply {
-            text = "• $label"
-            textSize = 11f
+            // V5.0.7019 — the render's row label: a real name at readable
+            // weight, not a bulleted 11sp mono line. The bullet went with the
+            // monospace; the rule above now does the grouping it was doing.
+            text = label
+            textSize = 12.5f
             setTextColor(AateUi.TEXT)
-            typeface = android.graphics.Typeface.MONOSPACE
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         })
         // V5.9.1325 — Phase 2 ANR fix: cache the value TextView reference
         // so the 2s refresh tick can mutate text in place (no removeAllViews).
         val valueTv = TextView(this).apply {
             text = value
-            textSize = 12f
+            // The figure is what the operator came to read, so it leads the row.
+            textSize = 14f
             setTextColor(AateUi.GREEN)
             typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+            gravity = android.view.Gravity.END
         }
         fluidRowValueViews[label] = valueTv
         topRow.addView(valueTv)
         wrap.addView(topRow)
         wrap.addView(TextView(this).apply {
             text = hint
-            textSize = 9f
+            textSize = 10.5f
             setTextColor(AateUi.TEXT_MUTED)
-            typeface = android.graphics.Typeface.MONOSPACE
-            setPadding(dp(10), 0, 0, 0)
+            setLineSpacing(0f, 1.2f)
+            setPadding(0, dp(2), 0, 0)
         })
         container.addView(wrap)
     }

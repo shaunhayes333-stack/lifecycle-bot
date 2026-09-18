@@ -1,7 +1,56 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <gradient android:type="linear" android:angle="135" android:startColor="#DD101F36" android:centerColor="#E80B1729" android:endColor="#EE07101D"/>
-    <stroke android:width="1dp" android:color="#36577F"/>
-    <corners android:radius="20dp"/>
-    <padding android:left="1dp" android:top="1dp" android:right="1dp" android:bottom="1dp"/>
-</shape>
+<!--
+  V5.0.7019 — brought in line with aate_metric_card_bg.
+
+  V5.0.7007 raised the app's card surface three stops and added the graded glow
+  edge, and it did that to aate_metric_card_bg and aate_universe_panel_bg. This
+  drawable was missed, so the sixteen places that use it — Settings (8),
+  MainActivity (3), MultiAssetActivity (5) — kept the pre-7007 card: a darker
+  slab (#101F36) behind a flat 1dp #36577F hairline, sitting next to restyled
+  cards that are visibly lighter and lit. That is the same "half the app moved"
+  failure as the AateUi palette drift in 7013, in a single file.
+
+  Same three-stop diagonal fill and same 0x24 / 0x4E / 0xAD edge as
+  aate_metric_card_bg. The 20dp radius is kept rather than dropped to 18dp
+  because these are section containers rather than metric tiles, and the layouts
+  that use them are built around the softer corner.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- outer bloom -->
+    <item>
+        <shape android:shape="rectangle">
+            <stroke android:width="3dp" android:color="#2422D3EE"/>
+            <corners android:radius="20dp"/>
+        </shape>
+    </item>
+
+    <!-- falloff -->
+    <item android:left="1dp" android:top="1dp" android:right="1dp" android:bottom="1dp">
+        <shape android:shape="rectangle">
+            <stroke android:width="2dp" android:color="#4E4C8DFF"/>
+            <corners android:radius="19dp"/>
+        </shape>
+    </item>
+
+    <!-- lit core -->
+    <item android:left="2dp" android:top="2dp" android:right="2dp" android:bottom="2dp">
+        <shape android:shape="rectangle">
+            <gradient android:type="linear" android:angle="135"
+                android:startColor="#EB222E5C" android:centerColor="#F1131D42" android:endColor="#F7090E20"/>
+            <stroke android:width="1dp" android:color="#AD7CC4FF"/>
+            <corners android:radius="18dp"/>
+        </shape>
+    </item>
+
+    <!-- top-left light source -->
+    <item android:left="2dp" android:top="2dp" android:right="2dp" android:bottom="2dp">
+        <shape android:shape="rectangle">
+            <gradient android:type="radial" android:gradientRadius="140dp"
+                android:centerX="0.10" android:centerY="0.00"
+                android:startColor="#144C8DFF" android:endColor="#00000000"/>
+            <corners android:radius="18dp"/>
+        </shape>
+    </item>
+
+</layer-list>

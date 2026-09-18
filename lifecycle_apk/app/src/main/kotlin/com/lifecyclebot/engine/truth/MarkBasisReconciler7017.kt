@@ -84,23 +84,24 @@ object MarkBasisReconciler7017 {
     private val noCurrentMcap = java.util.concurrent.atomic.AtomicLong(0)
 
     /**
-     * The entry's market cap. Position carries TWO fields for this one
-     * quantity — `entryMcap` (V4.20) and `entryMcapUsd` (V5.9.744) — populated
-     * by different paths, so either can be the only one set on a given
-     * position. Reading both here keeps that split from silently halving the
-     * number of positions this can rescue; it is not an endorsement of having
-     * two fields.
+     * The entry's market cap.
+     *
+     * V5.0.7018 CORRECTION. The first cut of this read `pos.entryMcapUsd` as
+     * well, on the strength of two `entryMcap*` declarations in Models.kt — and
+     * they are not on the same class. `entryMcap` (line 60) belongs to
+     * Position; `entryMcapUsd` (line 285) belongs to Trade. Position has ONE
+     * entry-market-cap field, not two, and the claim in the 7017 commit message
+     * that it carries two competing ones is wrong. It cost a build.
+     *
+     * So: the recorded field first, then the value recovered from the first
+     * on-basis tick after entry for positions whose open path left it at 0.0.
+     * See Executor.getActualPrice §7017 for why that recovery is exact.
      */
     fun entryMcapOf(pos: Position): Double {
-        val a = pos.entryMcapUsd
+        val a = pos.entryMcap
         if (a.isFinite() && a > 0.0) return a
-        val b = pos.entryMcap
+        val b = pos.entryMcapBackfilled7017
         if (b.isFinite() && b > 0.0) return b
-        // Last: recovered from the first on-basis tick after entry, for
-        // positions whose open path recorded neither field. See
-        // Executor.getActualPrice §7017 for why that observation is exact.
-        val c = pos.entryMcapBackfilled7017
-        if (c.isFinite() && c > 0.0) return c
         return 0.0
     }
 
