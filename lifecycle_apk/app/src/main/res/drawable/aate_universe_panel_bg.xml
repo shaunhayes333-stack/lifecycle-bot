@@ -1,26 +1,72 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.6998 — the glow edge from the renders, on the app's main card surface.
+
+  This one drawable is the background of 145 card containers across the 21
+  layouts, so restyling it restyles most of the app with no layout edit, no id
+  churn and no Kotlin change. That is the "80% is restyling what is already
+  there" the operator was pointing at.
+
+  WHAT CHANGED, and why it is the whole difference: the card had a SINGLE flat
+  1dp stroke at #385A86B8 — 22% alpha. Every card in every render has a
+  LUMINOUS hairline edge instead. A 22%-alpha hairline reads as a box drawn
+  around content; a graded edge reads as a lit surface, and that is what makes
+  the mockups look like a product.
+
+  Added two concentric stroke layers OUTSIDE the existing surface — a 3dp
+  bloom at 10% and a 2dp falloff at 24% — and lifted the core stroke from 22%
+  to 54%. The gradient fill, the 20dp radius, the radial corner wash and the
+  top highlight rule are untouched, so nothing shifts position and every
+  existing screen keeps its exact geometry.
+
+  The layers are inset 1dp/2dp so the bloom occupies the container's own
+  padding rather than growing the card.
+-->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- outer bloom -->
     <item>
         <shape android:shape="rectangle">
-            <gradient android:type="linear" android:angle="135"
-                android:startColor="#E60D1A2E" android:centerColor="#E6091424" android:endColor="#EE050C18"/>
-            <stroke android:width="1dp" android:color="#385A86B8"/>
+            <stroke android:width="3dp" android:color="#1A4C8DFF"/>
             <corners android:radius="20dp"/>
         </shape>
     </item>
-    <item>
+
+    <!-- mid falloff -->
+    <item android:left="1dp" android:top="1dp" android:right="1dp" android:bottom="1dp">
+        <shape android:shape="rectangle">
+            <stroke android:width="2dp" android:color="#3D4C8DFF"/>
+            <corners android:radius="19dp"/>
+        </shape>
+    </item>
+
+    <!-- surface + crisp lit edge (was a single #385A86B8 hairline) -->
+    <item android:left="2dp" android:top="2dp" android:right="2dp" android:bottom="2dp">
+        <shape android:shape="rectangle">
+            <gradient android:type="linear" android:angle="135"
+                android:startColor="#E60D1A2E" android:centerColor="#E6091424" android:endColor="#EE050C18"/>
+            <stroke android:width="1dp" android:color="#8A5A86B8"/>
+            <corners android:radius="18dp"/>
+        </shape>
+    </item>
+
+    <!-- corner wash, unchanged -->
+    <item android:left="2dp" android:top="2dp" android:right="2dp" android:bottom="2dp">
         <shape android:shape="rectangle">
             <gradient android:type="radial" android:gradientRadius="190dp"
                 android:centerX="0.08" android:centerY="0.00"
                 android:startColor="#184C8DFF" android:endColor="#00000000"/>
-            <corners android:radius="20dp"/>
+            <corners android:radius="18dp"/>
         </shape>
     </item>
-    <item android:height="1dp" android:gravity="top">
+
+    <!-- top highlight rule, unchanged -->
+    <item android:height="1dp" android:gravity="top" android:left="2dp" android:right="2dp" android:top="2dp">
         <shape android:shape="rectangle">
             <gradient android:type="linear" android:angle="0"
                 android:startColor="#004C8DFF" android:centerColor="#AA4C8DFF" android:endColor="#0031C7FF"/>
-            <corners android:topLeftRadius="20dp" android:topRightRadius="20dp"/>
+            <corners android:topLeftRadius="18dp" android:topRightRadius="18dp"/>
         </shape>
     </item>
+
 </layer-list>

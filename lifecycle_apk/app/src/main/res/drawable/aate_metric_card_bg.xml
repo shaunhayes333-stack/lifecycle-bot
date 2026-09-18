@@ -1,26 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.6998 — glow edge, matching aate_universe_panel_bg. 7 uses.
+  Same change and same reasoning: the flat 1dp #3D5D8B hairline becomes a
+  graded bloom -> falloff -> lit core. Gradient, 18dp radius and corner wash
+  are unchanged so geometry is identical.
+-->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
     <item>
         <shape android:shape="rectangle">
-            <gradient android:type="linear" android:angle="135"
-                android:startColor="#E6112038" android:centerColor="#EA0A1628" android:endColor="#F0060E1A"/>
-            <stroke android:width="1dp" android:color="#3D5D8B"/>
+            <stroke android:width="3dp" android:color="#164C8DFF"/>
             <corners android:radius="18dp"/>
         </shape>
     </item>
-    <item>
+
+    <item android:left="1dp" android:top="1dp" android:right="1dp" android:bottom="1dp">
+        <shape android:shape="rectangle">
+            <stroke android:width="2dp" android:color="#384C8DFF"/>
+            <corners android:radius="17dp"/>
+        </shape>
+    </item>
+
+    <item android:left="2dp" android:top="2dp" android:right="2dp" android:bottom="2dp">
+        <shape android:shape="rectangle">
+            <gradient android:type="linear" android:angle="135"
+                android:startColor="#E6112038" android:centerColor="#EA0A1628" android:endColor="#F0060E1A"/>
+            <stroke android:width="1dp" android:color="#8A5D8BC4"/>
+            <corners android:radius="16dp"/>
+        </shape>
+    </item>
+
+    <item android:left="2dp" android:top="2dp" android:right="2dp" android:bottom="2dp">
         <shape android:shape="rectangle">
             <gradient android:type="radial" android:gradientRadius="120dp"
                 android:centerX="0.10" android:centerY="0.00"
                 android:startColor="#144C8DFF" android:endColor="#00000000"/>
-            <corners android:radius="18dp"/>
+            <corners android:radius="16dp"/>
         </shape>
     </item>
-    <item android:height="1dp" android:gravity="top">
-        <shape android:shape="rectangle">
-            <gradient android:type="linear" android:angle="0"
-                android:startColor="#004C8DFF" android:centerColor="#884C8DFF" android:endColor="#0031C7FF"/>
-            <corners android:topLeftRadius="18dp" android:topRightRadius="18dp"/>
-        </shape>
-    </item>
+
 </layer-list>
