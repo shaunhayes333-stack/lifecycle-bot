@@ -15,6 +15,7 @@ import com.lifecyclebot.engine.LaneExecutionCoordinator
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.perps.crypto.CryptoFinalBuyCandidate
 import com.lifecyclebot.perps.crypto.CryptoUniverseRouteResolver
+import com.lifecyclebot.perps.crypto.isRealTradeable7005
 import com.lifecyclebot.v3.scoring.BehaviorAI
 import com.lifecyclebot.v3.scoring.BlueChipTraderAI
 import com.lifecyclebot.v3.scoring.FluidLearningAI
@@ -2026,6 +2027,34 @@ object CryptoAltTrader {
                     "symbol=$symbol direction=SHORT adapter=SPOT " +
                         "expected=reroute_to_perp observed=hard_no_buy_stamped " +
                         "action=investigate_regression",
+                )
+            } catch (_: Throwable) {}
+        }
+        // V5.0.7005 §REMOVE_ANYTHING_THAT_CANNOT_BE_TRADED_IN_REAL_LIFE.
+        //
+        // Operator: "remove anything that cant be traded in real life!"
+        //
+        // `adapter` below reads `isPaperMode.get() -> "PAPER_EXECUTOR"` FIRST,
+        // so in paper the routability test that follows it is never reached.
+        // That single short-circuit is why the 5.0.7003 snapshot shows
+        // CRYPTO_ALT fdgBlock=0 against 164 candidates the registry had
+        // already marked as having no live route: the app knew, recorded it,
+        // and opened them regardless.
+        //
+        // A null route is treated as untradeable rather than unknown. Route
+        // resolution failing is not evidence that a venue exists.
+        val routeReal7005 = route?.route?.isRealTradeable7005() == true
+        if (!routeReal7005) {
+            hardNo += "NOT_REAL_TRADEABLE_7005:${route?.route?.name ?: "NO_ROUTE_RESOLVED"}"
+            try {
+                PipelineHealthCollector.labelInc(
+                    "CRYPTO_ENTRY_REFUSED_NOT_REAL_TRADEABLE_7005_${route?.route?.name ?: "NO_ROUTE_RESOLVED"}",
+                )
+                ForensicLogger.lifecycle(
+                    "CRYPTO_ENTRY_REFUSED_NOT_REAL_TRADEABLE_7005",
+                    "symbol=$symbol route=${route?.route?.name ?: "NO_ROUTE_RESOLVED"} " +
+                        "mode=${if (isPaperMode.get()) "PAPER" else "LIVE"} " +
+                        "action=refuse_open_paper_trains_live",
                 )
             } catch (_: Throwable) {}
         }

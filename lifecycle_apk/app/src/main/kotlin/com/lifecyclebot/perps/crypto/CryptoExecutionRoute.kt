@@ -56,3 +56,66 @@ object CryptoUniverseDiagCodes {
     const val ROUTE_MEME_REJECT         = "CRYPTO_ROUTE_MEME_REJECT"
     const val ROUTE_PAPER_ONLY          = "CRYPTO_ROUTE_PAPER_ONLY"
 }
+
+/**
+ * V5.0.7005 §REMOVE_ANYTHING_THAT_CANNOT_BE_TRADED_IN_REAL_LIFE.
+ *
+ * Operator, verbatim: "remove anything that cant be traded in real life!"
+ *
+ * THE EVIDENCE. V5.0.7003 snapshot:
+ *
+ *     CRYPTO_ALT  candidate=148 submit=74 fdgAllow=74 fdgBlock=0
+ *                 sized=74 intent=74 dispatch=50 open=50
+ *     paper-only unavailable live route = 164
+ *     live-routable candidates          = 58
+ *     CRYPTO_LEV  n=33  EV=-7.80%/trade  PnL=-2.7313 SOL   <- largest loser
+ *
+ * fdgBlock=0. Not one cross-asset candidate was ever refused. Meanwhile the
+ * app's own registry had already counted 164 candidates as having no live
+ * route — it knew, wrote it down, and opened them anyway. The positions that
+ * follow are `base|0x…`, `eth|0x…`, `polygon_pos|…`, `perps:…` and a symbol
+ * literally named `unresolved`. This bot holds a Solana wallet and routes
+ * through Jupiter. It cannot swap on Base or Ethereum, it has no CEX account,
+ * no bridge is authorized, and the perps venue is a sandbox
+ * (perpsSandbox enabled=true, txSubmitted=0). None of it is real.
+ *
+ * WHY IT IS WORTH REMOVING RATHER THAN IGNORING. The operator's doctrine for
+ * this system is that paper exists to seed live: "paper is meant to seed the
+ * live trading engine only with things that can transfer and be used."
+ * A paper fill on an unroutable asset breaks that in three ways at once —
+ * it consumes a position slot against the cap, it consumes shared paper cash
+ * that a routable candidate could have used, and every learner trains on an
+ * outcome that can never occur with real money. CRYPTO_LEV being the single
+ * largest loser while holding assets it could never have bought is that cost
+ * made explicit.
+ *
+ * The distinction was always in the type system — PAPER_ONLY, CEX_REQUIRED,
+ * BRIDGE_REQUIRED, PERP_ONLY, NO_ROUTE_AVAILABLE are named, distinct values.
+ * Nothing consulted them at the open. This is the predicate that does.
+ *
+ * BRIDGE_REQUIRED stays excluded deliberately: the cross-chain bridge is an
+ * open operator decision, not a shipped capability, and until it is turned on
+ * a bridged asset is exactly as untradeable as a CEX-only one.
+ */
+fun CryptoExecutionRoute.isRealTradeable7005(): Boolean = when (this) {
+    // Reachable right now with a Solana wallet routing through Jupiter.
+    CryptoExecutionRoute.SOLANA_SPL_DIRECT,
+    CryptoExecutionRoute.JUPITER_ROUTABLE,
+    CryptoExecutionRoute.RAYDIUM_ROUTABLE,
+    CryptoExecutionRoute.METEORA_ROUTABLE,
+    CryptoExecutionRoute.PUMPFUN_MEME,
+    // A wrapped asset lives on Solana as an SPL token — genuinely swappable.
+    CryptoExecutionRoute.BRIDGED_WRAPPED_ASSET -> true
+
+    // Needs something this app does not have: an exchange account, an
+    // authorized bridge, a real perps venue, or any route at all.
+    CryptoExecutionRoute.CEX_REQUIRED,
+    CryptoExecutionRoute.BRIDGE_REQUIRED,
+    CryptoExecutionRoute.PERP_ONLY,
+    CryptoExecutionRoute.PAPER_ONLY,
+    CryptoExecutionRoute.NO_ROUTE_AVAILABLE,
+    CryptoExecutionRoute.ROUTE_DISABLED,
+    // Not a permanent property of the asset, but the order still cannot be
+    // placed, so it must not become a paper fill either.
+    CryptoExecutionRoute.INSUFFICIENT_SOL -> false
+}
