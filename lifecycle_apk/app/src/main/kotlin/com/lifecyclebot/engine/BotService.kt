@@ -30567,10 +30567,16 @@ if (hotExitHandledSweep) {
                         val mcap = json.optDouble("usd_market_cap", 0.0)
                         // NOTE: pump.fun API's "price" field is in SOL (not USD), so we
                         // compute a correct USD price from usd_market_cap / total_supply.
-                        // Pump.fun tokens always have 1B token supply as their standard.
-                        val totalSupply = json.optDouble("total_supply", 1_000_000_000.0)
-                            .let { if (it <= 0) 1_000_000_000.0 else it }
-                        val priceUsd = if (mcap > 0 && totalSupply > 0) mcap / totalSupply else 0.0
+                        //
+                        // V5.0.7017 — the divisor was wrong by exactly 10^decimals.
+                        // `total_supply` is in RAW BASE UNITS (1e15 for the standard
+                        // 1e9-token mint), and the old line divided by it as though it
+                        // were whole tokens, so every pump.fun mark came out a
+                        // millionfold too small. That is what produced the operator's
+                        // 5.0.7012 cross-basis refusals and, through them, the frozen
+                        // marks and the 100-position hard cap. See PumpFunPriceUnits7017
+                        // for the arithmetic straight off that snapshot.
+                        val priceUsd = com.lifecyclebot.engine.PumpFunPriceUnits7017.priceUsd(json)
                         if (mcap > 0) {
                             synchronized(ts) {
                                 ts.lastPrice = priceUsd

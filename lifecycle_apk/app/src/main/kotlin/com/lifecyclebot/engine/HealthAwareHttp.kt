@@ -51,15 +51,32 @@ object HealthAwareHttp {
      * @param request     The request to execute.
      * @param host        Short host label for ApiHealthMonitor / ApiBackoff
      *                    (e.g. "dexscreener", "jupiter", "helius", "pumpfun").
+     * @param allowDuringLockout
+     *                    V5.0.7016 — skip the backoff short-circuit for THIS
+     *                    call. Reserved for requests a person is waiting on.
+     *
+     *                    Backoff exists to stop a background loop hammering a
+     *                    sore host thousands of times an hour. It was never
+     *                    meant to answer a question the operator just typed,
+     *                    and when it does the app reports its own refusal as
+     *                    the provider's silence — see KeylessLlmClient.runChat.
+     *                    A user-initiated turn is one request, rarely, so
+     *                    exempting it costs the host nothing and the default
+     *                    (false) leaves every background caller unchanged.
      * @return            The raw OkHttp Response. Caller must close it.
      */
-    fun execute(client: OkHttpClient, request: Request, host: String): Response {
+    fun execute(
+        client: OkHttpClient,
+        request: Request,
+        host: String,
+        allowDuringLockout: Boolean = false,
+    ): Response {
         // V5.9.1024 — REACTIVE BACKOFF SHORT-CIRCUIT.
         // If this host is in lockout (last call returned 429/403/4xx/5xx
         // within the backoff window), don't fire another request. Return
         // a synthetic 503 so callers see `!resp.isSuccessful` and skip.
         try {
-            if (ApiBackoff.isLockedOut(host)) {
+            if (!allowDuringLockout && ApiBackoff.isLockedOut(host)) {
                 return Response.Builder()
                     .request(request)
                     .protocol(Protocol.HTTP_1_1)

@@ -479,20 +479,20 @@ class WalletActivity : AppCompatActivity() {
             }
             val title = android.widget.TextView(ctx).apply {
                 text = "🏦 Treasury Wallet"
-                setTextColor(android.graphics.AateUi.AMBER)
+                setTextColor(AateUi.AMBER)
                 textSize = 16f
                 typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
             }
             val tvPk = android.widget.TextView(ctx).apply {
                 text = com.lifecyclebot.engine.TreasuryWalletManager.publicKey().ifBlank { "(initialising…)" }
-                setTextColor(android.graphics.AateUi.TEXT)
+                setTextColor(AateUi.TEXT)
                 textSize = 12f
                 typeface = android.graphics.Typeface.MONOSPACE
                 setPadding(0, (8 * resources.displayMetrics.density).toInt(), 0, 0)
             }
             val tvBal = android.widget.TextView(ctx).apply {
                 text = "Balance: ${"%.4f".format(com.lifecyclebot.engine.TreasuryWalletManager.getBalance())} SOL"
-                setTextColor(android.graphics.AateUi.TEXT_SECONDARY)
+                setTextColor(AateUi.TEXT_SECONDARY)
                 textSize = 13f
                 setPadding(0, (4 * resources.displayMetrics.density).toInt(), 0, (8 * resources.displayMetrics.density).toInt())
             }
@@ -503,7 +503,7 @@ class WalletActivity : AppCompatActivity() {
                 android.widget.Button(ctx).apply {
                     text = label
                     setBackgroundColor(android.graphics.Color.parseColor(color))
-                    setTextColor(android.graphics.AateUi.TEXT)
+                    setTextColor(AateUi.TEXT)
                     textSize = 11f
                     val mPx = (4 * resources.displayMetrics.density).toInt()
                     val lp = android.widget.LinearLayout.LayoutParams(

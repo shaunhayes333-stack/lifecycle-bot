@@ -393,8 +393,11 @@ object PriceResolverFallback {
      * USD, so USD price must be derived as usd_market_cap / total_supply. That
      * derivation is already live in this codebase and already writes
      * ts.lastPrice under source PUMP_FUN_FRONTEND_API, so reusing it keeps one
-     * definition rather than introducing a second. Supply defaults to the
-     * pump.fun standard 1B when absent or non-positive.
+     * definition rather than introducing a second.
+     *
+     * V5.0.7017 — "reusing the existing derivation" reused its bug: total_supply
+     * is raw base units, not whole tokens. Both sites now call
+     * PumpFunPriceUnits7017, which resolves the scaling explicitly.
      */
     private fun fetchPumpFunPrice6914(mint: String): Double {
         val original = "https://frontend-api-v3.pump.fun/coins/$mint"
@@ -402,12 +405,11 @@ object PriceResolverFallback {
             com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(original)
         } catch (_: Throwable) { original }
         val json = getJson6914("pumpfun", url) ?: return 0.0
-        val mcap = json.optDouble("usd_market_cap", 0.0)
-        if (!mcap.isFinite() || mcap <= 0.0) return 0.0
-        val supply = json.optDouble("total_supply", 1_000_000_000.0)
-            .let { if (!it.isFinite() || it <= 0.0) 1_000_000_000.0 else it }
-        val price = mcap / supply
-        return if (price.isFinite() && price > 0.0) price else 0.0
+        // V5.0.7017 — one derivation, shared with BotService. Both sites had the
+        // same unit bug (raw base units treated as whole tokens); keeping the
+        // arithmetic in one object is what stops them diverging on the fix the
+        // way they agreed on the mistake.
+        return com.lifecyclebot.engine.PumpFunPriceUnits7017.priceUsd(json)
     }
 
     /** Test/diagnostic accessor: snapshot of in-memory cache. */

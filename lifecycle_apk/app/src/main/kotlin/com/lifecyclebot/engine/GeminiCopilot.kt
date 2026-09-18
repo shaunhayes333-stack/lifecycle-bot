@@ -587,7 +587,21 @@ Default to a natural, normal LLM-style reply with emotional range.
                     return if (asJson) sanitizeJsonText(text) else text.trim()
                 }
 
-                failures.add(provider.name + ":empty")
+                // V5.0.7016 — say WHICH kind of empty.
+                //
+                // "keyless_fallback:empty" is what the operator's Persona chat
+                // printed on every turn for several builds, and it was usually
+                // not true: the council had not been asked. KeylessLlmClient now
+                // publishes whether its members were skipped by cooldown,
+                // refused by our own ApiBackoff lockout, or genuinely asked and
+                // silent. Those need different fixes and looked identical.
+                val why7016 = if (provider.kind == ProviderKind.KEYLESS_FALLBACK) {
+                    try {
+                        com.lifecyclebot.network.KeylessLlmClient.lastCouncilDiagnostic7016
+                            .takeIf { it.isNotBlank() }
+                    } catch (_: Throwable) { null }
+                } else null
+                failures.add(provider.name + ":" + (why7016 ?: "empty"))
             } catch (e: Exception) {
                 val reason = e.message ?: e.javaClass.simpleName
                 failures.add(provider.name + ":" + reason)

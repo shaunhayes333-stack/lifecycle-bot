@@ -88,11 +88,49 @@ object KeylessLlmClient {
      * discipline as everything else rather than being hammered forever.
      */
     private fun exec(req: Request, host: String) =
-        com.lifecyclebot.engine.HealthAwareHttp.execute(httpClient, req, host = host)
+        com.lifecyclebot.engine.HealthAwareHttp.execute(
+            httpClient, req, host = host,
+            // V5.0.7016 — true only inside runChat's single forced attempt.
+            allowDuringLockout = forcedAttempt7016.get() == true,
+        )
 
     private val startIdx = AtomicInteger(0)
     private const val COOLDOWN_MS = 60_000L
-    private val cooldownUntil = mutableMapOf<String, Long>()
+    // V5.0.7016 — concurrent. runChat is called from the entry dispatcher, the
+    // sentience hooks and probeCouncil6999 at the same time; a plain
+    // LinkedHashMap mutated from several threads can corrupt its own buckets.
+    private val cooldownUntil = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /**
+     * V5.0.7016 — why the last runChat returned null, in the app's own words.
+     *
+     * "keyless_fallback:empty" was the only thing the chat surface could say,
+     * and it was frequently a lie: it also meant "every member was in cooldown
+     * and none was asked" and "ApiBackoff refused before the wire". Those need
+     * different fixes and they looked identical.
+     */
+    @Volatile var lastCouncilDiagnostic7016: String = ""
+        private set
+
+    /**
+     * Our own refusal, not the provider's. HealthAwareHttp returns a synthetic
+     * 503 when ApiBackoff has the host locked out, tagged with
+     * HostCircuitInterceptor.SYNTHETIC_HEADER_6969 in V5.0.6976 precisely so
+     * callers could tell the two apart — and then no LLM member ever read the
+     * tag. Every one did `if (!resp.isSuccessful) return null`, so a lockout we
+     * imposed came back indistinguishable from a provider with nothing to say.
+     */
+    private class OwnBackoffRefusal(val host: String) : Exception("own-backoff:$host")
+
+    private fun okOrThrow(resp: okhttp3.Response, host: String): Boolean {
+        if (resp.isSuccessful) return true
+        // HostCircuitInterceptor already owns this test. Re-reading the header
+        // here would be a second definition of "is this our own refusal", and
+        // two definitions of one question is how 6976's tag came to be written
+        // but never read in the first place.
+        if (HostCircuitInterceptor.isSyntheticBlock(resp)) throw OwnBackoffRefusal(host)
+        return false
+    }
 
     @Volatile private var operatorGroqKey: String = ""
     @Volatile private var operatorOpenRouterKey: String = ""
@@ -117,21 +155,115 @@ object KeylessLlmClient {
         val start = startIdx.getAndIncrement() % n
         val now = System.currentTimeMillis()
 
+        var asked = 0
+        var cooling = 0
+        var ownBackoff = 0
+        var empty = 0
+        var errored = 0
+
         for (offset in 0 until n) {
             val p = providers[(start + offset) % n]
             val until = cooldownUntil[p.name] ?: 0L
-            if (until > now) continue
+            if (until > now) { cooling++; continue }
             try {
+                asked++
                 val text = p.call(system, user, maxTokens)
-                if (!text.isNullOrBlank()) return text
+                if (!text.isNullOrBlank()) {
+                    lastCouncilDiagnostic7016 = ""
+                    return text
+                }
+                empty++
                 cooldownUntil[p.name] = now + 15_000L
+            } catch (e: OwnBackoffRefusal) {
+                // V5.0.7016 — do NOT cool this member down. It was never asked:
+                // ApiBackoff short-circuited before the wire, so we have no
+                // evidence at all about the provider. Adding our own 60s
+                // cooldown on top of our own lockout is the app punishing a
+                // member for our refusal, and it is how one bad minute became
+                // a silent council for several.
+                asked--
+                ownBackoff++
+                ErrorLogger.debug(TAG, "provider=${p.name} refused by our own backoff (${e.host})")
             } catch (e: Exception) {
+                errored++
                 cooldownUntil[p.name] = now + COOLDOWN_MS
                 ErrorLogger.debug(TAG, "provider=${p.name} err=${e.message?.take(120)}")
             }
         }
+
+        // V5.0.7016 §THE_COUNCIL_THAT_ANSWERED_NOBODY.
+        //
+        // Operator's Persona chat, every turn, for several builds:
+        //
+        //     "LLM connection blipped — back in a moment."
+        //     [llm: keyless_fallback:empty]
+        //
+        // while the same snapshot's health table showed ovh_llm_keyless at 34%
+        // and API_BACKOFF_REQUEST_LEVEL_IGNORED_6999=89. Both were true. The
+        // council works about a third of the time; the chat never saw it,
+        // because by the time a person typed a question every member was either
+        // inside a 15-60s cooldown or behind an ApiBackoff lockout, the loop
+        // skipped all of them, and the app reported ITS OWN SILENCE as the
+        // provider's.
+        //
+        // Backoff exists to stop a background loop hammering a sore host
+        // thousands of times an hour. A person asking one question is not that.
+        // If the first pass asked nobody, ask ONE member for real — the one
+        // whose cooldown expires soonest — with the lockout waived for that
+        // single request. One call, only on a turn that would otherwise have
+        // failed without trying. Never in the background path, which reaches
+        // here already having asked.
+        if (asked == 0 && providers.isNotEmpty()) {
+            val soonest = providers.minByOrNull { cooldownUntil[it.name] ?: 0L }
+            if (soonest != null) {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                        "LLM_COUNCIL_FORCED_ATTEMPT_7016_" + soonest.name.uppercase(),
+                    )
+                } catch (_: Throwable) {}
+                forcedAttempt7016.set(true)
+                try {
+                    val text = soonest.call(system, user, maxTokens)
+                    if (!text.isNullOrBlank()) {
+                        lastCouncilDiagnostic7016 = ""
+                        cooldownUntil.remove(soonest.name)
+                        return text
+                    }
+                    empty++
+                } catch (e: Exception) {
+                    errored++
+                    ErrorLogger.debug(TAG, "forced ${soonest.name}: ${e.message?.take(120)}")
+                } finally {
+                    forcedAttempt7016.set(false)
+                }
+            }
+        }
+
+        lastCouncilDiagnostic7016 =
+            "members=$n asked=$asked cooling=$cooling ownBackoff=$ownBackoff empty=$empty err=$errored"
+        try {
+            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                "LLM_COUNCIL_DRY_7016", lastCouncilDiagnostic7016,
+            )
+        } catch (_: Throwable) {}
         return null
     }
+
+    /**
+     * Set only for the duration of the single forced attempt above, so exec()
+     * can waive the ApiBackoff short-circuit for that one request and nothing
+     * else. Thread-local because several council calls can be in flight.
+     */
+    private val forcedAttempt7016 = ThreadLocal.withInitial { false }
+
+    /**
+     * V5.0.7016 — read by KeylessLlmProviders6999, the OVH member, which calls
+     * HealthAwareHttp directly rather than through exec() above. Without this
+     * the forced attempt would waive the lockout for every member EXCEPT the
+     * one with the best success rate in the operator's health table (34%),
+     * which would make the whole fix a no-op most of the time it matters.
+     */
+    fun isForcedAttempt7016(): Boolean = forcedAttempt7016.get() == true
 
     private data class Provider(val name: String, val call: (String, String, Int) -> String?)
 
@@ -253,7 +385,7 @@ object KeylessLlmClient {
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
         exec(req, "llm_pollinations").use { resp ->
-            if (!resp.isSuccessful) return null
+            if (!okOrThrow(resp, "llm_pollinations")) return null
             val body = resp.body?.string() ?: return null
             // Documented shape is OpenAI-compatible, but this endpoint has
             // also been observed returning bare text. Accept both rather than
@@ -278,7 +410,7 @@ object KeylessLlmClient {
             .get()
             .build()
         exec(req, "llm_pollinations_get").use { resp ->
-            if (!resp.isSuccessful) return null
+            if (!okOrThrow(resp, "llm_pollinations_get")) return null
             return resp.body?.string()?.trim()?.ifBlank { null }
         }
     }
@@ -300,7 +432,7 @@ object KeylessLlmClient {
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
         exec(req, "llm_emergent").use { resp ->
-            if (!resp.isSuccessful) return null
+            if (!okOrThrow(resp, "llm_emergent")) return null
             val body = resp.body?.string() ?: return null
             val j = JSONObject(body)
             return j.optJSONArray("choices")?.optJSONObject(0)
@@ -328,7 +460,7 @@ object KeylessLlmClient {
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
         exec(req, "llm_groq").use { resp ->
-            if (!resp.isSuccessful) return null
+            if (!okOrThrow(resp, "llm_groq")) return null
             val body = resp.body?.string() ?: return null
             val j = JSONObject(body)
             return j.optJSONArray("choices")?.optJSONObject(0)
@@ -355,7 +487,7 @@ object KeylessLlmClient {
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
         exec(req, "llm_openrouter").use { resp ->
-            if (!resp.isSuccessful) return null
+            if (!okOrThrow(resp, "llm_openrouter")) return null
             val body = resp.body?.string() ?: return null
             val j = JSONObject(body)
             return j.optJSONArray("choices")?.optJSONObject(0)
@@ -379,7 +511,7 @@ object KeylessLlmClient {
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
         exec(req, "llm_anthropic").use { resp ->
-            if (!resp.isSuccessful) return null
+            if (!okOrThrow(resp, "llm_anthropic")) return null
             val body = resp.body?.string() ?: return null
             val j = JSONObject(body)
             return j.optJSONArray("content")?.optJSONObject(0)

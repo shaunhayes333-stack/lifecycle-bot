@@ -148,6 +148,32 @@ def main():
                 % (const, kt[const], res_name, xml[res_name])
             )
 
+    # ── C. mangled-qualifier check ────────────────────────────────────────
+    #
+    # V5.0.7015 shipped six of these and cost a full build. The 552-literal
+    # sweep replaced the bare `Color.parseColor("#...")` form before the
+    # fully-qualified `android.graphics.Color.parseColor("#...")` form, so the
+    # six call sites written the long way came out as
+    # `android.graphics.AateUi.TEXT` — a package that has no such member.
+    #
+    # It is a one-line regex to catch and it is invisible to every other check
+    # here: the palette is correct, the token is correct, only the qualifier is
+    # nonsense. Exactly the kind of thing an 18-minute compile should not be
+    # the first thing to notice.
+    MANGLED = re.compile(r'(?<![\w.])(?!com\.lifecyclebot\.ui\.)[\w.]+\.AateUi\.')
+    for fname in sorted(os.listdir(UI_DIR)):
+        if not fname.endswith(".kt"):
+            continue
+        with open(os.path.join(UI_DIR, fname), encoding="utf-8") as fh:
+            for lineno, line in enumerate(fh, 1):
+                m = MANGLED.search(line)
+                if m:
+                    problems.append(
+                        "MANGLED_QUALIFIER %s:%d has `%s` — AateUi lives in "
+                        "com.lifecyclebot.ui and needs no package prefix from "
+                        "inside that package." % (fname, lineno, m.group(0))
+                    )
+
     # ── B. retired literal check ──────────────────────────────────────────
     scanned = 0
     for fname in sorted(os.listdir(UI_DIR)):

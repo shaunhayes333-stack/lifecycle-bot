@@ -300,10 +300,10 @@ class CryptoAltActivity : AppCompatActivity() {
         try {
             val fab = android.widget.TextView(this).apply {
                 text = "🔬 Live Forensics"
-                setTextColor(android.graphics.AateUi.TEXT)
+                setTextColor(AateUi.TEXT)
                 textSize = 12f
                 typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-                setBackgroundColor(android.graphics.AateUi.PURPLE_BRIGHT)
+                setBackgroundColor(AateUi.PURPLE_BRIGHT)
                 val pad = (10 * resources.displayMetrics.density).toInt()
                 setPadding(pad + pad / 2, pad / 2 + 2, pad + pad / 2, pad / 2 + 2)
                 elevation = 12f * resources.displayMetrics.density

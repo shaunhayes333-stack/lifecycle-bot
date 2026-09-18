@@ -175,8 +175,23 @@ object KeylessLlmProviders6999 {
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
         return try {
-            HealthAwareHttp.execute(http, req, host = HOST_OVH).use { resp ->
-                if (!resp.isSuccessful) return null
+            // V5.0.7016 — waive the lockout only inside runChat's single forced
+            // attempt, and tell an ApiBackoff refusal apart from a real empty
+            // reply. Without the first half this member — the council's best
+            // performer at 34% in the operator's 5.0.7012 table — would stay
+            // locked out during the one call that exists to break the deadlock.
+            HealthAwareHttp.execute(
+                http, req, host = HOST_OVH,
+                allowDuringLockout = KeylessLlmClient.isForcedAttempt7016(),
+            ).use { resp ->
+                if (!resp.isSuccessful) {
+                    if (HostCircuitInterceptor.isSyntheticBlock(resp)) {
+                        try {
+                            PipelineHealthCollector.labelInc("LLM_KEYLESS_OVH_REFUSED_BY_OWN_BACKOFF_7016")
+                        } catch (_: Throwable) {}
+                    }
+                    return null
+                }
                 val body = resp.body?.string() ?: return null
                 val text = JSONObject(body).optJSONArray("choices")?.optJSONObject(0)
                     ?.optJSONObject("message")?.optString("content", "")?.trim()
