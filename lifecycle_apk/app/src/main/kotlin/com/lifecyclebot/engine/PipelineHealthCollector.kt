@@ -2169,6 +2169,13 @@ object PipelineHealthCollector {
             sb.append("  Entry cohort attrib (§7051):  ").append(
                 com.lifecyclebot.engine.truth.EntryCohortAttribution7051.statusLine7051()
             ).append("\n")
+            // V5.0.7054 — directive §7 acceptance metrics. Read together with
+            // the 7051 line above: the calibration is deliberately at the top
+            // of every suggested band until leakWins says how much of the
+            // PROJECT_SNIPER cohort was mis-attributed by promotion.
+            sb.append("  Sniper low-score shaper(§7054):").append(
+                com.lifecyclebot.engine.truth.SniperLowScoreShaper7054.statusLine7054()
+            ).append("\n")
             sb.append("  Reward bootstrap (§6453):     ").append(
                 com.lifecyclebot.engine.truth.CanonicalRewardBootstrap6453.statusLine()
             ).append("\n")

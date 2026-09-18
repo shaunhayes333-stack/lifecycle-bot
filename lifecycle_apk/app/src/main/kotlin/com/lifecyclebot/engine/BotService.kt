@@ -26702,6 +26702,40 @@ if (hotExitHandledSweep) {
                             ErrorLogger.info("BotService",
                                 "🏷️ [SNIPER] ${ts.symbol} | DANGER_ZONE_TELEMETRY (score=$_sniperScore ≥30, allowed) | LosingPatternMemory flagged (PRESALE_SNIPE|S${(_sniperScore/10)*10}-${(_sniperScore/10)*10+10})")
                         }
+                        // V5.0.7054 §TRADE_QUALITY_DIRECTIVE — lane-local size
+                        // shaping for the PROJECT_SNIPER S0-25 cohorts. Soft
+                        // size only, never zero, never a veto: a shaped
+                        // candidate still walks the identical authorize →
+                        // shitCoinBuy path, and S26+ is untouched. No other
+                        // lane reaches this code.
+                        val sniperShaping7054 = try {
+                            com.lifecyclebot.engine.truth.SniperLowScoreShaper7054.shape(
+                                ts = ts, lane = "PROJECT_SNIPER", score = _sniperScore,
+                                regime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
+                                sourceFamily = ts.source,
+                            )
+                        } catch (_: Throwable) { null }
+                        val sniperSizeBefore7054 = assessment.positionSizeSol
+                        val sniperSizedSol7054 = if (sniperShaping7054 != null) {
+                            val shapedSol = (sniperSizeBefore7054 * sniperShaping7054.sizeMult)
+                                // Never cap to dust: the resolver's own
+                                // executable minimum remains the floor, so a
+                                // shaped entry is a smaller trade, not a
+                                // rejected one.
+                                .coerceAtLeast(
+                                    try { com.lifecyclebot.engine.truth.OrderSizeResolver6441.paperExecutableMinimumSol() }
+                                    catch (_: Throwable) { 0.01 }
+                                )
+                            try {
+                                com.lifecyclebot.engine.truth.SniperLowScoreShaper7054.emit(
+                                    ts, sniperShaping7054, sniperSizeBefore7054, shapedSol,
+                                    try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
+                                    ts.source,
+                                )
+                            } catch (_: Throwable) {}
+                            shapedSol
+                        } else sniperSizeBefore7054
+
                         if (assessment.shouldEngage && !_sniperBlocked6072) {
                             // V5.0.6842 §SNIPER_CAUSAL_IDENTITY_FRAGMENTED — the standalone
                             // sniper path left authorize()'s attemptId at its "" default, so
@@ -26734,7 +26768,7 @@ if (hotExitHandledSweep) {
                                 rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
-                                preResolvedSizeSol = assessment.positionSizeSol,
+                                preResolvedSizeSol = sniperSizedSol7054,  // V5.0.7054 shaped
                                 attemptId = sniperAttemptId6842,
                             )
                             
@@ -26761,7 +26795,7 @@ if (hotExitHandledSweep) {
                                 } catch (_: Throwable) { 1.0 }
                                 val sniperOpened = executor.shitCoinBuy(
                                     ts = ts,
-                                    sizeSol = assessment.positionSizeSol,
+                                    sizeSol = sniperSizedSol7054,  // V5.0.7054 shaped
                                     walletSol = effectiveBalance,
                                     takeProfitPct = 35.0 * sniperTpMult,
                                     stopLossPct = -12.0 * sniperSlMult,
@@ -26807,7 +26841,7 @@ if (hotExitHandledSweep) {
                                     mint = ts.mint,
                                     symbol = ts.symbol,
                                     entryPrice = ts.ref,
-                                    entrySol = assessment.positionSizeSol,
+                                    entrySol = sniperSizedSol7054,  // V5.0.7054 shaped
                                     assessment = assessment,
                                     liquidity = ts.lastLiquidityUsd,
                                     mcap = ts.lastMcap,
