@@ -24189,11 +24189,14 @@ if (hotExitHandledSweep) {
                             val treasuryFdgReason6663 = treasuryFdg?.blockReason ?: treasuryFdgFailure6663 ?: "FDG_RESULT_MISSING"
                             // V5.9.689 — bump FDG forensic counter for TREASURY path
             try {
-                ForensicLogger.phase(ForensicLogger.PHASE.FDG, ts.symbol,
-                    "path=TREASURY can=$treasuryFdgCanExecute6663 reason=$treasuryFdgReason6663")
+                // V5.0.6997 — ONE forensic row per FDG decision, not two. The
+                // phase() call that stood here carried the same verdict as the
+                // gate() call below it, so every decision wrote two PHASE/FDG
+                // rows and bumped phaseCounts["FDG"] twice. path= moves onto the
+                // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
                     allow = treasuryFdgCanExecute6663,
-                    reason = treasuryFdgReason6663)
+                    reason = "path=TREASURY " + (treasuryFdgReason6663))
             } catch (_: Throwable) {}
             ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "TREASURY", treasuryFdgCanExecute6663, treasuryFdgReason6663, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
             // V5.9.691 — FDG modulates, does not hard-kill, Treasury signals
@@ -24487,11 +24490,14 @@ if (hotExitHandledSweep) {
                             }
                             // V5.9.689 — bump FDG forensic counter for QUALITY path
             try {
-                ForensicLogger.phase(ForensicLogger.PHASE.FDG, ts.symbol,
-                    "path=QUALITY can=${qualityFdg?.canExecute() ?: true} reason=${qualityFdg?.blockReason ?: "n/a"}")
+                // V5.0.6997 — ONE forensic row per FDG decision, not two. The
+                // phase() call that stood here carried the same verdict as the
+                // gate() call below it, so every decision wrote two PHASE/FDG
+                // rows and bumped phaseCounts["FDG"] twice. path= moves onto the
+                // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
                     allow = qualityFdg?.canExecute() ?: true,
-                    reason = qualityFdg?.blockReason ?: "ok")
+                    reason = "path=QUALITY " + (qualityFdg?.blockReason ?: "ok"))
             } catch (_: Throwable) {}
             ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "QUALITY", qualityFdg?.canExecute() ?: true, qualityFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
             // V5.9.691 — FDG modulates, does not hard-kill, Quality signals
@@ -24692,11 +24698,14 @@ if (hotExitHandledSweep) {
                             }
                             // V5.9.689 — bump FDG forensic counter for BLUECHIP path
             try {
-                ForensicLogger.phase(ForensicLogger.PHASE.FDG, ts.symbol,
-                    "path=BLUECHIP can=${blueChipFdg?.canExecute() ?: true} reason=${blueChipFdg?.blockReason ?: "n/a"}")
+                // V5.0.6997 — ONE forensic row per FDG decision, not two. The
+                // phase() call that stood here carried the same verdict as the
+                // gate() call below it, so every decision wrote two PHASE/FDG
+                // rows and bumped phaseCounts["FDG"] twice. path= moves onto the
+                // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
                     allow = blueChipFdg?.canExecute() ?: true,
-                    reason = blueChipFdg?.blockReason ?: "ok")
+                    reason = "path=BLUECHIP " + (blueChipFdg?.blockReason ?: "ok"))
             } catch (_: Throwable) {}
             ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "BLUECHIP", blueChipFdg?.canExecute() ?: true, blueChipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
             // V5.9.691 — FDG modulates, does not hard-kill, BlueChip signals
@@ -25624,11 +25633,14 @@ if (hotExitHandledSweep) {
                             }
                             // V5.9.689 — bump FDG forensic counter for SHITCOIN path
             try {
-                ForensicLogger.phase(ForensicLogger.PHASE.FDG, ts.symbol,
-                    "path=SHITCOIN can=${shitCoinFdg?.canExecute() ?: true} reason=${shitCoinFdg?.blockReason ?: "n/a"}")
+                // V5.0.6997 — ONE forensic row per FDG decision, not two. The
+                // phase() call that stood here carried the same verdict as the
+                // gate() call below it, so every decision wrote two PHASE/FDG
+                // rows and bumped phaseCounts["FDG"] twice. path= moves onto the
+                // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
                     allow = shitCoinFdg?.canExecute() ?: true,
-                    reason = shitCoinFdg?.blockReason ?: "ok")
+                    reason = "path=SHITCOIN " + (shitCoinFdg?.blockReason ?: "ok"))
             } catch (_: Throwable) {}
             ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "SHITCOIN", shitCoinFdg?.canExecute() ?: true, shitCoinFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
                             // V5.9.1201 — FDG is a HARD VETO for ShitCoin too.
@@ -25961,11 +25973,14 @@ if (hotExitHandledSweep) {
                         }
                         // V5.9.689 — bump FDG forensic counter for MANIP path
                         try {
-                            ForensicLogger.phase(ForensicLogger.PHASE.FDG, ts.symbol,
-                                "path=MANIP can=${manipFdg?.canExecute() ?: true} reason=${manipFdg?.blockReason ?: "n/a"}")
+                            // V5.0.6997 — ONE forensic row per FDG decision, not two. The
+                            // phase() call that stood here carried the same verdict as the
+                            // gate() call below it, so every decision wrote two PHASE/FDG
+                            // rows and bumped phaseCounts["FDG"] twice. path= moves onto the
+                            // gate reason so onGate still does the per-lane accounting.
                             ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
                                 allow = manipFdg?.canExecute() ?: true,
-                                reason = manipFdg?.blockReason ?: "ok")
+                                reason = "path=MANIP " + (manipFdg?.blockReason ?: "ok"))
                         } catch (_: Throwable) {}
                         ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "MANIPULATED", manipFdg?.canExecute() ?: true, manipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
                         // V5.9.691 — FDG modulates, does not hard-kill, Manip signals
@@ -26237,11 +26252,14 @@ if (hotExitHandledSweep) {
                             }
                             // V5.9.689 — bump FDG forensic counter for EXPRESS path
             try {
-                ForensicLogger.phase(ForensicLogger.PHASE.FDG, ts.symbol,
-                    "path=EXPRESS can=${expressFdg?.canExecute() ?: true} reason=${expressFdg?.blockReason ?: "n/a"}")
+                // V5.0.6997 — ONE forensic row per FDG decision, not two. The
+                // phase() call that stood here carried the same verdict as the
+                // gate() call below it, so every decision wrote two PHASE/FDG
+                // rows and bumped phaseCounts["FDG"] twice. path= moves onto the
+                // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
                     allow = expressFdg?.canExecute() ?: true,
-                    reason = expressFdg?.blockReason ?: "ok")
+                    reason = "path=EXPRESS " + (expressFdg?.blockReason ?: "ok"))
             } catch (_: Throwable) {}
             if (expressFdg != null && !expressFdg.canExecute()) {
                                 ErrorLogger.info("BotService", "🚫 FDG VETO on EXPRESS: ${ts.symbol} | ${expressFdg.blockReason ?: "fdg_block"}")
@@ -26700,11 +26718,14 @@ if (hotExitHandledSweep) {
                             }
                             // V5.9.689 — bump FDG forensic counter for DIPHUNTER path
             try {
-                ForensicLogger.phase(ForensicLogger.PHASE.FDG, ts.symbol,
-                    "path=DIPHUNTER can=${dipFdg?.canExecute() ?: true} reason=${dipFdg?.blockReason ?: "n/a"}")
+                // V5.0.6997 — ONE forensic row per FDG decision, not two. The
+                // phase() call that stood here carried the same verdict as the
+                // gate() call below it, so every decision wrote two PHASE/FDG
+                // rows and bumped phaseCounts["FDG"] twice. path= moves onto the
+                // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
                     allow = dipFdg?.canExecute() ?: true,
-                    reason = dipFdg?.blockReason ?: "ok")
+                    reason = "path=DIPHUNTER " + (dipFdg?.blockReason ?: "ok"))
             } catch (_: Throwable) {}
             ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "DIP_HUNTER", dipFdg?.canExecute() ?: true, dipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
             // V5.9.691 — FDG modulates, does not hard-kill, DipHunter signals
