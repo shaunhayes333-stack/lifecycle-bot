@@ -1212,7 +1212,20 @@ class MainActivity : AppCompatActivity() {
             // shows realised PnL instead: same question (is this working), an
             // authority that actually exists, and the number the operator would
             // check next anyway.
-            val realized7011 = life7011?.realizedPnlSol ?: Double.NaN
+            //
+            // V5.0.7045 §5 — but it must be the ACCOUNT'S realized, not the
+            // trade store's. This chip read TradeHistoryStore lifetime realized
+            // while the "ACCOUNT REALIZED" line four dp above it read the
+            // account snapshot, and the operator's 7040 screenshot caught them
+            // disagreeing on one screen: +423.88 in the chip, +$465.58 on the
+            // line. Two independent reconstructions of one quantity is one more
+            // than the number that can be right. The chip now consumes the
+            // identical snapshot field, and blanks when the account cannot be
+            // rendered rather than substituting the trade-store figure.
+            val realized7011 = try {
+                val acct7045 = com.lifecyclebot.engine.truth.HeroAccountSnapshot7045.read("HERO_RAIL")
+                if (acct7045.renderable) acct7045.realizedSol else Double.NaN
+            } catch (_: Throwable) { Double.NaN }
 
             findViewById<RingGaugeView7010>(R.id.heroHealthRing)?.let { ring ->
                 // V5.0.7013 §THE_RING_AND_THE_RAIL_DISAGREED.
@@ -3291,10 +3304,22 @@ for legal compliance.
         //   so the big number MUST bind to snapshot.cashSol. Equity is
         //   still surfaced in the contentDescription for screen readers.
         val config = state.config // V5.9.706 — use pre-loaded config from UiState (avoid AES-GCM decrypt on main thread)
-        val solPx  = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..500.0 } ?: 85.0
-        val unifiedSnap6635 = if (config.paperMode) {
-            try { com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.read("MEME") } catch (_: Throwable) { null }
+        // V5.0.7045 §HERO_CASH_AUTHORITY — ONE atomic account snapshot for the
+        // whole hero: cash, reserved, open market value, unrealized, realized,
+        // fees, equity and the SOL/USD rate, all captured together under one
+        // revision. Replaces the 6635 read whose non-RECONCILED path returned
+        // `lastReconciled[mode]` — a snapshot frozen from an earlier tick —
+        // with accountAvailable=true, which is the entire $986.20: 8.796 SOL at
+        // 112.12, the cash this account held early in the session, while the
+        // ledger and CapitalAuthority both read 616.1890.
+        //
+        // `solPx` used to be read here and never used; the rate now travels
+        // inside the snapshot so the hero and its figures cannot be converted
+        // at two different prices.
+        val account7045 = if (config.paperMode) {
+            try { com.lifecyclebot.engine.truth.HeroAccountSnapshot7045.read("MEME") } catch (_: Throwable) { null }
         } else null
+        val accountRenderable7045 = account7045?.renderable == true
         // V5.0.6650 — hero MUST render the ledger-authoritative balance
         //   even when the forensic reconciler reports a delta.  Prior
         //   behaviour (V5.0.6640) blanked the whole hero as
@@ -3313,9 +3338,12 @@ for legal compliance.
         //   The forensic banner still fires; the ledger balance is
         //   still visible.  A FAILED reconcile is now a "reconciling"
         //   annotation, not a wealth-hiding gate.
-        val reconciliationStatus6650 = unifiedSnap6635?.status
+        // V5.0.7045 §3 — the headline is TOTAL EQUITY, per operator directive.
+        // Cash remains explicit in the subtitle (§4). Both come from the same
+        // immutable snapshot, so the big number and the line under it can never
+        // be drawn from different refreshes.
         val balSol = if (config.paperMode) {
-            unifiedSnap6635?.cashSol ?: 0.0
+            if (accountRenderable7045) account7045!!.totalEquitySol else 0.0
         } else {
             ws.solBalance
         }
@@ -3333,33 +3361,36 @@ for legal compliance.
         // gives the operator every canonical number in accessible text
         // and adds an emission label so the pipeline dump can quote it.
 
-        if (balSol > 0.001) {
+        // V5.0.7045 §9 — FAIL CLOSED. Paper mode with no renderable account
+        // shows "--" and says why. It never falls back to legacy balance
+        // arithmetic, a retained snapshot, prefs, or a wallet projection. A
+        // frozen figure is worse than a dash: the dash cannot be mistaken for
+        // the truth, and $986.20 was believed for an entire session.
+        if (config.paperMode && !accountRenderable7045) {
+            tvBalanceLarge.setTextIfChanged("--")
+            tvBalanceUsd.setTextIfChanged("PAPER · ACCOUNT UNAVAILABLE")
+            tvBalanceUsd.contentDescription =
+                "Paper account snapshot unavailable. No balance is shown rather than a stale one."
+        } else if (balSol > 0.001) {
             tvBalanceLarge.setTextIfChanged(compactHeroBalance(balSol))
-            // V5.0.6650 — surface reconciliation status as a subtitle
-            //   annotation, not as a hero blank.  When the reconciler
-            //   is still hydrating (WARMUP) or has flagged a delta
-            //   (FAILED) the operator still sees the ledger cash but
-            //   knows the forensic gate is not yet green.  The full
-            //   forensic line is exposed in contentDescription for
-            //   the operator dump / accessibility surfaces.
-            val recAnnot6650 = when (reconciliationStatus6650) {
-                com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.WARMUP -> " · RECONCILING…"
-                com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.FAILED -> " · RECONCILIATION DELTA"
-                else -> ""
-            }
             tvBalanceUsd.setTextIfChanged(
-                // V5.0.6629 §6 — subtitle CASH also reads from the canonical
-                // hero snapshot so the big number and the subtitle can never
-                // disagree (was walletSnap6451?.cashSol which is ledger-derived).
-                if (config.paperMode) "PAPER · CASH ${"%.4f".format(unifiedSnap6635?.cashSol ?: 0.0)} SOL$recAnnot6650" else "LIVE"
+                // V5.0.7045 §4 — CASH in SOL, from the same snapshot and the
+                // same revision as the equity headline above it.
+                if (config.paperMode && account7045 != null)
+                    "PAPER · CASH ${"%.4f".format(account7045.cashSol)} SOL"
+                else "LIVE"
             )
-            tvBalanceUsd.contentDescription = if (config.paperMode && unifiedSnap6635 != null) {
-                "CASH ${"%.4f".format(unifiedSnap6635.cashSol)} SOL · " +
-                    "OPEN_MV ${"%.4f".format(unifiedSnap6635.openMarketValueSol)} SOL · " +
-                    "UNREALIZED ${"%.4f".format(unifiedSnap6635.unrealizedPnlSol)} SOL · " +
-                    "REALIZED ${"%.4f".format(unifiedSnap6635.realizedPnlSol)} SOL · " +
-                    "EQUITY ${"%.4f".format(unifiedSnap6635.equitySol)} SOL · " +
-                    "POSITIONS ${unifiedSnap6635.openPositionsCount}"
+            tvBalanceUsd.contentDescription = if (config.paperMode && account7045 != null) {
+                // §2 — every canonical field the operator named, one snapshot.
+                "CASH ${"%.4f".format(account7045.cashSol)} SOL · " +
+                    "RESERVED ${"%.4f".format(account7045.reservedSol)} SOL · " +
+                    "OPEN_MV ${"%.4f".format(account7045.openMarketSol)} SOL · " +
+                    "UNREALIZED ${"%.4f".format(account7045.unrealizedSol)} SOL · " +
+                    "REALIZED ${"%.4f".format(account7045.realizedSol)} SOL · " +
+                    "FEES ${"%.4f".format(account7045.feesSol)} SOL · " +
+                    "EQUITY ${"%.4f".format(account7045.totalEquitySol)} SOL · " +
+                    "SOL_USD ${"%.2f".format(account7045.solUsd)} · " +
+                    "POSITIONS ${account7045.openPositions}"
             } else if (config.paperMode) {
                 "Paper total equity ${"%.4f".format(balSol)} SOL. Cash unavailable until ledger hydration."
             } else "Live wallet ${"%.4f".format(balSol)} SOL."
@@ -3390,8 +3421,8 @@ for legal compliance.
                 tvBalanceLarge.setTextIfChanged("—")
             }
             tvBalanceUsd.setTextIfChanged(
-                // V5.0.6629 §6 — canonical hero snapshot for the fallback subtitle.
-                if (config.paperMode) "PAPER · CASH ${"%.4f".format(unifiedSnap6635?.cashSol ?: 0.0)} SOL" else "LIVE"
+                // V5.0.7045 — same snapshot as every other cash surface here.
+                if (config.paperMode) "PAPER · CASH ${"%.4f".format(account7045?.cashSol ?: 0.0)} SOL" else "LIVE"
             )
         }
 
@@ -3401,21 +3432,30 @@ for legal compliance.
         //   whose displayed cash diverges from the journal-authoritative
         //   snapshot at render time, so divergence is counted at its
         //   causal origin (not merely reconciled later).
-        if (config.paperMode) {
+        if (config.paperMode && account7045 != null) {
             try {
-                // V5.0.6629 §6 — every hero render uses the canonical snapshot
-                // so the parity probe reads the SAME values the operator sees.
-                val displayedCash6616 = unifiedSnap6635?.cashSol ?: 0.0
-                val displayedEquity6616 = unifiedSnap6635?.equitySol ?: displayedCash6616
+                // V5.0.7045 §7 + §8 — RENDER INVARIANT. The hero declares what it
+                // actually painted and which snapshot revision it came from, and
+                // the authority asserts |ui - canonical| < 1e-6 on cash, equity
+                // and realized. A render from legacy or fallback account
+                // arithmetic is a counted divergence, not a silent one — the
+                // $986.20 survived a whole session precisely because nothing on
+                // the render path ever had to justify the figure it drew.
+                val displayedCash7045 = if (accountRenderable7045) account7045.cashSol else 0.0
+                val displayedEquity7045 = if (accountRenderable7045) account7045.totalEquitySol else 0.0
+                val displayedRealized7045 = if (accountRenderable7045) account7045.realizedSol else 0.0
+                com.lifecyclebot.engine.truth.HeroAccountSnapshot7045.recordRender(
+                    "MEME", account7045, displayedCash7045, displayedEquity7045, displayedRealized7045,
+                )
                 com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
-                    .recordHeroRender("MEME", displayedCash6616, displayedEquity6616)
+                    .recordHeroRender("MEME", displayedCash7045, displayedEquity7045)
                 com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
-                    .probeHeroBinding("MEME", displayedCash6616, displayedEquity6616)
+                    .probeHeroBinding("MEME", displayedCash7045, displayedEquity7045)
 
                 // V5.0.7011 — feed the render's hero: curve, ring, rail, lanes.
                 // Bound to the SAME canonical snapshot the figure above uses, so
                 // the shape can never disagree with the number printed beside it.
-                renderHeroShape7011(displayedEquity6616)
+                renderHeroShape7011(displayedEquity7045)
             } catch (_: Throwable) {}
         }
 
@@ -3453,8 +3493,11 @@ for legal compliance.
             com.lifecyclebot.engine.truth.DeskPerformanceAuthority6648.Book.PORTFOLIO,
             if (config.paperMode) "paper" else "live",
         )
+        // V5.0.7045 §5 — realized comes from the SAME snapshot as cash and
+        // equity. Null when the account is not renderable, so the line blanks
+        // with the hero rather than quoting a figure the hero just refused.
         val authoritativePnl = if (config.paperMode) {
-            unifiedSnap6635?.realizedPnlSol
+            if (accountRenderable7045) account7045!!.realizedSol else null
         } else {
             portfolioPerformance.realizedPnlSol
         }

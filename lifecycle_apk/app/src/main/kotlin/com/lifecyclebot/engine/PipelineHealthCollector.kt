@@ -1826,7 +1826,18 @@ object PipelineHealthCollector {
             // operator can grep both from one place.
             try {
                 sb.append("===== CAUSAL AUTHORITY REPAIR (V5.0.6629) =====\n")
-                sb.append("  §6 HERO_SNAPSHOT        ${com.lifecyclebot.engine.truth.PaperEconomicSnapshot6629.statusLine6629()}\n")
+                // V5.0.7045 — this line used to print PaperEconomicSnapshot6629,
+                // which has no callers anywhere in the app. It therefore read
+                // "reads=0" forever, and the 7040 report cited that zero as
+                // proof the hero was not consuming canonical authority. It was
+                // not: the hero was reading UnifiedAccountSnapshot6635, which
+                // was handing back a retained stale snapshot. A status line that
+                // names a dead module is the same defect as a counter that
+                // reports a refusal which never happened — it sends the reader
+                // at the wrong subsystem. It now reports the authority the hero
+                // actually renders from.
+                sb.append("  §6 HERO_ACCOUNT_7045    ${com.lifecyclebot.engine.truth.HeroAccountSnapshot7045.statusLine7045()}\n")
+                sb.append("  §6 HERO_SNAPSHOT_6629   ${com.lifecyclebot.engine.truth.PaperEconomicSnapshot6629.statusLine6629()} (facade; no callers)\n")
                 sb.append("  §8 SPECIALIST_ARBITER   ${com.lifecyclebot.engine.truth.SpecialistProposalArbiter6629.statusLine6629()}\n")
                 sb.append("===== CRITICAL AUTHORITY RECOVERY (V5.0.6630) =====\n")
                 sb.append("  §C LEGACY_REPLAY_ISOL   ${com.lifecyclebot.engine.truth.LegacyReplayIsolation6630.statusLine6630()}\n")
