@@ -12312,7 +12312,15 @@ class BotService : Service() {
         // AgenticStyleRouter.boundedLanes still caps each token to 2 lanes (primary +
         // one alternate via stablePick), so this broadens the CANDIDATE pool — it
         // doesn't explode lane_eval. Variety rotates over cycles.
-        ModeRouter.TradeType.FRESH_LAUNCH        -> setOf("SHITCOIN", "PROJECT_SNIPER", "EXPRESS", "MANIPULATED")  // quick snipe
+        // V5.0.7044 — MOONSHOT added. It was reachable only through
+        // BREAKOUT_CONTINUATION and GRADUATION, and BREAKOUT_CONTINUATION is not
+        // even scored until `hist.size >= 10`, so the lane whose whole purpose is
+        // 10x-1000x capture was handed candidates that had already run and never
+        // the sub-$20k launches those multiples come out of. Additive per
+        // doctrine #105 — PROJECT_SNIPER and the rest keep every candidate they
+        // have; MoonshotFreshLaunchAdmission7044 decides ownership of the narrow
+        // low-mcap window where the multiple is physically available.
+        ModeRouter.TradeType.FRESH_LAUNCH        -> setOf("SHITCOIN", "PROJECT_SNIPER", "EXPRESS", "MANIPULATED", "MOONSHOT")  // quick snipe + runner window
         ModeRouter.TradeType.BREAKOUT_CONTINUATION -> setOf("MOONSHOT", "CYCLIC", "EXPRESS")                       // runner
         ModeRouter.TradeType.GRADUATION          -> setOf("MOONSHOT", "MANIPULATED", "CYCLIC")                     // chaos→structure
         ModeRouter.TradeType.INSIDER_SHARK      -> setOf("INSIDER_SHARK", "MOONSHOT", "QUALITY")                     // named-wallet/social shark alpha
@@ -12374,12 +12382,25 @@ class BotService : Service() {
                 } catch (_: Throwable) {}
                 electedPrimary4524
             } else electedPrimary4524
+            // V5.0.7044 — last word on a runner-shaped fresh launch.
+            //
+            // It has to sit here, after the whole election, because every earlier
+            // stage is structurally incapable of producing MOONSHOT for this
+            // archetype: the style lanes exclude it, and the desk-hypothesis
+            // filter above re-permits PROJECT_SNIPER precisely for the
+            // DEGEN_MICRO_SNIPE / PUMP_GRADUATION_SNIPE setups a fresh launch
+            // elects. 5.0.7040 read ownerSelectedN=3 out of qualifiedN=134 for
+            // MOONSHOT while PROJECT_SNIPER took the $3.7k-$4.7k launches at a
+            // 5.6% win rate. Ownership only — nothing here buys anything, and
+            // MOONSHOT's own scoring, FDG, sizing and rug guards all still run.
+            val moonshotAdmitted7044 = com.lifecyclebot.engine.truth.MoonshotFreshLaunchAdmission7044
+                .electPrimary(ts, classification, pivotedPrimary4524, forced)
             try {
                 val snap = TokenMetricStageRouter.snapshot(ts)
-                ForensicLogger.lifecycle("TOKEN_METRIC_STAGE_PRIMARY", "symbol=${ts.symbol} mint=${ts.mint.take(10)} stylePrimary=$stylePrimary metricPrimary=$metricPrimary finalPrimary=$pivotedPrimary4524 ${snap.compact}")
+                ForensicLogger.lifecycle("TOKEN_METRIC_STAGE_PRIMARY", "symbol=${ts.symbol} mint=${ts.mint.take(10)} stylePrimary=$stylePrimary metricPrimary=$metricPrimary finalPrimary=$moonshotAdmitted7044 ${snap.compact}")
                 PipelineHealthCollector.labelInc("TOKEN_METRIC_STAGE_${snap.stage.name}")
             } catch (_: Throwable) {}
-            pivotedPrimary4524
+            moonshotAdmitted7044
         } catch (_: Throwable) { "SHITCOIN" }
     }
 

@@ -230,7 +230,7 @@ object AgenticStyleRouter {
 
         val weakChopSheet = isWeakChopSheet(sheet) || isWeakRuntimeRegime()
         val toolkitStyle = if (sheet.confidence >= 38.0) styleForToolkit(sheet)?.let { weakChopStylePivot(it, sheet, weakChopSheet, laneHint) } else null
-        val style = when {
+        val electedStyle7044 = when {
             toolkitStyle != null -> toolkitStyle
             // V5.0.3716 — do not let PULLBACK/LAB tactics route score-0 CHOP
             // candidates into DIP_HUNTER as primary during a catastrophic paper
@@ -255,6 +255,34 @@ object AgenticStyleRouter {
             classification.tradeType == ModeRouter.TradeType.SENTIMENT_IGNITION -> Style.QUICK_FLIP
             else -> if (ddAgg < 0.80) sameLaneWeakPivotStyle(laneHint, Style.DEFENSIVE_PROBE) else sameLaneWeakPivotStyle(laneHint, Style.LAB_EXPLORATION)
         }
+        // V5.0.7044 — the other half of the moonshot defect. Admitting MOONSHOT
+        // to fresh launches is worthless if the lane then expresses the trade as
+        // a flip. Every style a FRESH_LAUNCH can elect above is a scalp profile:
+        // DEGEN_MICRO_SNIPE hold×0.45 tp×0.82, MICRO_SNIPE hold×0.45 tp×0.85,
+        // QUICK_FLIP hold×0.65 tp×0.95 — and the toolkit branch at the top wins
+        // over all of them, so even the MOONSHOT call site at BotService:25165,
+        // which has passed laneHint="MOONSHOT" since 5.9.1575, was getting a
+        // 0.45x hold clock. That is the operator's Saadboi complaint exactly:
+        // not that the bot missed the 14k entry, but that it would have sold it
+        // long before 4 million.
+        //
+        // DIAMOND_HANDS_RUNNER (hold×2.80, tp×1.55) is the profile the lane is
+        // for. Narrow on purpose: MOONSHOT lane only, fresh launch only, runner
+        // shape only, and never over a defensive regime or a bleed context —
+        // those branches are lane-preserving already and they exist because the
+        // market said stop, which outranks an archetype preference.
+        val laneIsMoonshot7044 = try { BleederMemoryRouter.canon(laneHint) == "MOONSHOT" } catch (_: Throwable) { false }
+        val style = if (
+            laneIsMoonshot7044 &&
+            classification.tradeType == ModeRouter.TradeType.FRESH_LAUNCH &&
+            !weakChopSheet &&
+            !lowScoreBleedContext &&
+            electedStyle7044.holdMult < Style.DIAMOND_HANDS_RUNNER.holdMult &&
+            com.lifecyclebot.engine.truth.MoonshotFreshLaunchAdmission7044.isRunnerShaped(ts, classification.tradeType)
+        ) {
+            try { PipelineHealthCollector.labelInc("MOONSHOT_FRESH_RUNNER_STYLE_7044_FROM_${electedStyle7044.name}") } catch (_: Throwable) {}
+            Style.DIAMOND_HANDS_RUNNER
+        } else electedStyle7044
         val tuneLane = laneHint.ifBlank { style.lanes.firstOrNull().orEmpty() }.ifBlank { classification.tradeType.name }
         val strategyTune = try { LiveStrategyTuner.adjustment(tuneLane) } catch (_: Throwable) { LiveStrategyTuner.adjustment("STANDARD") }
         // V5.0.4579 — toxic buckets pivot strategy inside the same lane instead
