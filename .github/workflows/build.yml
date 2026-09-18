@@ -56,6 +56,14 @@ jobs:
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
+      # V5.0.6979 — runs before Gradle because it costs a second and the
+      # failure it catches costs an 18-minute round trip. V5.0.6977 shipped
+      # `ui/*.kt` inside a KDoc; Kotlin block comments nest, so that opened a
+      # comment level the KDoc's own `*/` then closed, swallowing the rest of
+      # the file and unresolving the object it declared 40 times over.
+      - name: Kotlin nested block-comment balance
+        run: python3 ci/comment_balance.py app/src
+
       - name: Golden Tape literal static scan
         run: python3 ci/golden_tape_literal_scan.py
 

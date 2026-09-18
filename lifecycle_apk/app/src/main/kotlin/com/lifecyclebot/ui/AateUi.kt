@@ -17,7 +17,8 @@ import android.widget.TextView
  * ====================
  * V5.0.6931-6939 restyled the app and the operator reported that nothing
  * changed except the splash screen. That report was correct, and the reason is
- * structural rather than cosmetic: the restyle was applied to `res/layout/*.xml`
+ * structural rather than cosmetic: the restyle was applied to the res/layout
+ * XML files
  * and `res/values/{colors,dimens}.xml`, but almost none of what is on screen
  * comes from those files.
  *
@@ -28,7 +29,7 @@ import android.widget.TextView
  *     MultiAssetActivity.kt   59 addView() calls
  *     ---------------------------------------------------------------
  *     704 hardcoded 0xAARRGGBB literals and ~300 hardcoded textSize values
- *     across ui/*.kt
+ *     across the ui package
  *
  * The XML files define the shell. Every card, row, stat, badge and number
  * inside the shell is built at runtime in Kotlin with literal colours, literal
