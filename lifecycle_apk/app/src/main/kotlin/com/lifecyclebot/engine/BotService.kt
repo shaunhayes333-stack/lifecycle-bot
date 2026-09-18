@@ -14300,6 +14300,20 @@ class BotService : Service() {
                     if (newPrice != ts.lastPrice) {
                         ts.lastPrice = newPrice
                         ts.lastPriceUpdate = System.currentTimeMillis()
+                        // V5.0.7055 — bin the observation into a 1m candle for
+                        // this NOT-YET-OPEN candidate. Intake seeds one candle
+                        // and stops, so ModeRouter classifies every candidate
+                        // at hist.size=1 and its BREAKOUT(>=10) / REVERSAL(>=8)
+                        // / PULLBACK(>=15) archetypes can never score — which
+                        // is why TREASURY, CASHGEN and DIP_HUNTER, reachable
+                        // only through those two latter archetypes, sat at
+                        // ownerSelected=0 with hundreds of qualified
+                        // candidates. Free and keyless: arithmetic on a tick
+                        // the app already has.
+                        try {
+                            com.lifecyclebot.engine.truth.LocalCandleSynthesis7055
+                                .note(ts, newPrice, trustedMarketCapUsd6492)
+                        } catch (_: Throwable) {}
                     }
                 }
                 if (confidence > 0 && ts.entryScore <= 0.0) {

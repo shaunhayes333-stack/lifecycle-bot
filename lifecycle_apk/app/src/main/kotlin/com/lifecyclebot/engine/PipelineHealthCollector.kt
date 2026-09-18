@@ -2176,6 +2176,12 @@ object PipelineHealthCollector {
             sb.append("  Sniper low-score shaper(§7054):").append(
                 com.lifecyclebot.engine.truth.SniperLowScoreShaper7054.statusLine7054()
             ).append("\n")
+            // V5.0.7055 — read against "Keyless OHLCV barsDelivered". While the
+            // fetched feed delivers zero bars, these locally-binned candles are
+            // the only thing letting a candidate reach hist.size >= 8/10/15.
+            sb.append("  Local candle synth (§7055):   ").append(
+                com.lifecyclebot.engine.truth.LocalCandleSynthesis7055.statusLine7055()
+            ).append("\n")
             sb.append("  Reward bootstrap (§6453):     ").append(
                 com.lifecyclebot.engine.truth.CanonicalRewardBootstrap6453.statusLine()
             ).append("\n")
