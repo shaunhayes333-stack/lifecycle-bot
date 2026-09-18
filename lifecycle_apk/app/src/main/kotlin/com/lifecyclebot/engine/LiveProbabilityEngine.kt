@@ -571,7 +571,18 @@ object LiveProbabilityEngine {
     }
 
     fun statusLine(): String = try {
-        val rows = StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
+        // V5.0.7052 — same mode branch as laneSnapshots below. This line read
+        // "rapid-live/no clean terminal rows yet" in every snapshot of every
+        // session, which the operator could only read as "the engine has no
+        // data yet" rather than "this engine cannot see paper data at all".
+        val paperRuntime7052 = try {
+            com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+        } catch (_: Throwable) { false }
+        val rows = (if (paperRuntime7052) {
+            StrategyTelemetry.computeCleanPaperTerminalLeaderboard(limit = 1_500)
+        } else {
+            StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
+        })
             .filter { it.trades >= 5 }
             .take(6)
             .map { forecast(it.strategy, 50, "U", "NORMAL") }
@@ -593,8 +604,48 @@ object LiveProbabilityEngine {
         val evPct: Double,
     )
 
+    /**
+     * V5.0.7052 §TWO_OF_THE_ORACLE'S_THREE_LEGS_WERE_DEAD_IN_PAPER.
+     *
+     * This fed the LANE and GLOBAL evidence tiers of
+     * PredictiveEntryOracle6915 (lines 675-691) off a leaderboard that
+     * filters `mode == "live"` (StrategyTelemetry:291). This bot has never
+     * traded live — EXEC_LIVE_BUY_OK=0, canonical LIVE active mints=0, live
+     * terminal closes=0 — so the list was empty every call, in every session:
+     *
+     *   Predictive oracle (§6915): cellEvidence=1214 laneEvidence=0
+     *                              noEvidence=1354  of 2568 evals
+     *   LiveProbabilityEngine: rapid-live/no clean terminal rows yet
+     *
+     * laneEvidence=0 is not "the lanes had no edge". It is a whole evidence
+     * tier that could not return a row. The GLOBAL tier is built from the same
+     * list, so it died with it, and its own comment — "the whole book. Always
+     * present once anything has closed, which is what guarantees the estimate
+     * is never a hardcoded prior" — was false in paper: by its definition
+     * nothing had ever closed. The oracle ran on one leg out of three, and 53%
+     * of entries got no forecast at all and fell through to a 0.5 prior PROBE.
+     *
+     * Four other consumers already solved this the same way — LiveStrategyTuner
+     * :134, LaneExpectancyDamper:188, ChronicBleederScout:33, RegimeDetector
+     * :155 all pick the paper board when the runtime is paper. This engine was
+     * simply never given the branch. Following the established idiom rather
+     * than inventing one, and it is the operator's own doctrine: paper seeds
+     * live with what can transfer.
+     *
+     * Mode-selected, never merged — paper rows never contaminate a live book
+     * and vice versa, which is the "no paper contamination" rule the old
+     * comment above was protecting.
+     */
     fun laneSnapshots(): List<LaneSnapshot> = try {
-        StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500).map { row ->
+        val paperRuntime7052 = try {
+            com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+        } catch (_: Throwable) { false }
+        val board7052 = if (paperRuntime7052) {
+            StrategyTelemetry.computeCleanPaperTerminalLeaderboard(limit = 1_500)
+        } else {
+            StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
+        }
+        board7052.map { row ->
             LaneSnapshot(
                 lane = row.strategy.uppercase(),
                 sample = row.trades,
