@@ -105,6 +105,34 @@ data class Position(
     // §6895 — the one site that makes the decision — and read by
     // OpenPnlSanity so no surface re-derives the answer with its own band.
     var markRefusedAtMs6907: Long = 0L,
+    // V5.0.7017 — wallclock of the FIRST refusal in the current unpriceable
+    // run, cleared the instant the basis becomes comparable again.
+    //
+    // 6907 above stamps the MOST RECENT refusal, which is what "is this mark
+    // incomparable right now" needs. It cannot answer "how long has this
+    // position been unpriceable", because it is overwritten on every tick —
+    // and that is the question the exit path has to ask. The operator's
+    // 5.0.7012 snapshot shows why: positions carrying refusals=641 and
+    // refusals=101, continuously unpriceable for the whole session, were
+    // served entryPrice as their mark and so evaluated at exactly 0.00% P&L
+    // forever. 195,694 exit evaluations, zero stops, zero take-profits, zero
+    // trails. Unpriceable is not flat, and only a first-refusal timestamp can
+    // tell the two apart.
+    var markRefusedSinceMs7017: Long = 0L,
+    // V5.0.7017 — entry market cap recovered from an on-basis tick.
+    //
+    // Reconciling a cross-source mark onto this position's entry basis needs
+    // the entry's market cap, and Position already carries two `val` fields for
+    // it (entryMcap, entryMcapUsd) that some open paths populate and others
+    // leave at 0.0. A position that opened without one could never be
+    // reconciled, which is the one remaining way to be permanently unpriceable.
+    //
+    // This closes it. Whenever a tick arrives on the SAME source as the entry,
+    // its price and market cap are by definition on the entry's basis, so
+    // supply falls out as (mcap / price) and the entry's market cap is exactly
+    // entryPrice x supply. Written once, from the one site that already knows
+    // the tick is on-basis, and never overwritten.
+    var entryMcapBackfilled7017: Double = 0.0,
     // V5.0.6904 — two-strike confirmation for the catastrophic backstop. Armed
     // when price alone says catastrophe but no supporting metric agrees; the
     // next management pass then treats the breach as confirmed. Cleared the

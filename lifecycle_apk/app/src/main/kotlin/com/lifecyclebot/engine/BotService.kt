@@ -12976,7 +12976,21 @@ class BotService : Service() {
         val contradiction = kotlin.math.abs(rawGain - mcapGain) >= 250.0 && kotlin.math.abs(rawGain) >= 500.0
         val oppositeSign = (rawGain > 250.0 && mcapGain < 0.0) || (rawGain < -80.0 && mcapGain > 250.0)
         if (!contradiction && !oppositeSign) return rawPrice
-        val comparable = entry * (currentMcap / entryMcap)
+        // V5.0.7017 — one arithmetic definition. This conversion existed in
+        // three places (here, CryptoAltActivity.uiComparableOpenPrice4479, and
+        // now the reconciler) and the three could drift. The trigger heuristic
+        // below stays local to this site; only the maths is shared.
+        //
+        // Worth recording why this site could not fix the operator's 5.0.7012
+        // freeze on its own: it fires on rawGain disagreeing with mcapGain, but
+        // Executor.getActualPrice's §6895 refusal runs FIRST and returns
+        // entryPrice, which makes rawGain exactly 0.0 — so neither
+        // `contradiction` nor `oppositeSign` can ever be true for a refused
+        // position. A guard downstream of the flattening can never see what the
+        // flattening hid. That is why V5.0.7017 reconciles inside getActualPrice
+        // instead, before anything is refused.
+        val comparable = com.lifecyclebot.engine.truth.MarkBasisReconciler7017
+            .reconcile(entry, entryMcap, currentMcap)
         if (comparable <= 0.0 || !comparable.isFinite()) return rawPrice
         try { PipelineHealthCollector.labelInc("EXIT_TRIGGER_BASIS_REBASED_4481") } catch (_: Throwable) {}
         try {

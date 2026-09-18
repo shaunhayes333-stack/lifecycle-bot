@@ -848,12 +848,94 @@ class Executor(
                 // re-educate", and the lifetime counter above still preserves
                 // the history for the learning exclusion.
                 pos.markRefusedAtMs6907 = 0L
+                // V5.0.7017 — the unpriceable RUN ends here too, so every
+                // surface that reads these stamps sees the position recover on
+                // this very tick rather than on some later sweep.
+                pos.markRefusedSinceMs7017 = 0L
+                // V5.0.7017 §BACKFILL_THE_ENTRY_BASIS_WHILE_WE_ARE_ON_IT.
+                //
+                // This branch is the one place in the app that KNOWS the tick
+                // and the entry share a basis. That makes supply recoverable —
+                // supply = mcap / price — and therefore makes the entry's own
+                // market cap recoverable as entryPrice x supply, even for a
+                // position that opened without one recorded.
+                //
+                // Why bother: reconciling a later cross-source mark needs the
+                // entry market cap, and a position that never had one is the
+                // last remaining way to be permanently unpriceable. Captured
+                // once and never overwritten, because the first on-basis
+                // observation is the closest one to the entry.
+                if (pos.entryMcapBackfilled7017 <= 0.0 &&
+                    pos.entryPrice > 0.0 && livePrice > 0.0 && ts.lastMcap > 0.0
+                ) {
+                    val supply7017 = ts.lastMcap / livePrice
+                    val derived7017 = pos.entryPrice * supply7017
+                    if (derived7017.isFinite() && derived7017 > 0.0) {
+                        pos.entryMcapBackfilled7017 = derived7017
+                        try {
+                            PipelineHealthCollector.labelInc("ENTRY_MCAP_BACKFILLED_7017")
+                        } catch (_: Throwable) {}
+                    }
+                }
             } else {
                 val ratio6895 = livePrice / pos.entryPrice
                 val outOfBand6895 = !ratio6895.isFinite() ||
                     ratio6895 > CROSS_BASIS_MAX_RATIO_6895 ||
                     ratio6895 < (1.0 / CROSS_BASIS_MAX_RATIO_6895)
                 if (outOfBand6895) {
+                    // V5.0.7017 §NO_POSITION_SHOULD_EVER_GO_UNPRICEABLE.
+                    //
+                    // Operator: "no position should ever go unpriceable. ever."
+                    //
+                    // Before refusing, TAKE THE MEASUREMENT. Price-per-token is
+                    // basis-dependent, which is why the tick above is
+                    // incomparable — but market cap is not. Supply cancels, so
+                    // a tick from any source that reports a market cap can be
+                    // placed exactly on this position's own entry basis:
+                    //
+                    //     entryPrice x (currentMcap / entryMcap)
+                    //
+                    // No supply, no decimals, no knowledge of which venue
+                    // either side quotes. Exact, not approximate, and immune to
+                    // the whole class of defect that produced this refusal —
+                    // V5.0.7016's pump.fun bug corrupted the derived price by
+                    // 10^decimals while `usd_market_cap` stayed correct, so
+                    // this path would have kept every affected position
+                    // priceable straight through it.
+                    //
+                    // Only when BOTH market caps are unavailable is the mark
+                    // genuinely unknown, and only then do we fall through to
+                    // the refusal below.
+                    val curMcap7017 = ts.lastMcap
+                    val reconciled7017 = try {
+                        com.lifecyclebot.engine.truth.MarkBasisReconciler7017
+                            .reconcileForPosition(pos, curMcap7017)
+                    } catch (_: Throwable) { 0.0 }
+                    if (reconciled7017 > 0.0 && reconciled7017.isFinite()) {
+                        try {
+                            com.lifecyclebot.engine.truth.MarkBasisReconciler7017.note(
+                                mint = ts.mint, symbol = ts.symbol,
+                                entryPrice = pos.entryPrice,
+                                entryMcap = com.lifecyclebot.engine.truth.MarkBasisReconciler7017.entryMcapOf(pos),
+                                currentMcap = curMcap7017,
+                                rawTick = livePrice, reconciledPx = reconciled7017,
+                                refusals = pos.crossBasisRefusals6895 + 1,
+                            )
+                        } catch (_: Throwable) {}
+                        // The position is PRICEABLE, so nothing about it is
+                        // refused: no refusal stamp, no refusal counter, and
+                        // the reconciled mark is cached as the on-route price
+                        // so a later gap has something truthful to hold.
+                        // Clearing the 6907 stamps is what lets every surface
+                        // that reads them — OpenPnlSanity, the exit feed —
+                        // treat this position as priced again on this tick.
+                        pos.lastRoutePrice = reconciled7017
+                        pos.lastRoutePriceTs = System.currentTimeMillis()
+                        pos.markRefusedAtMs6907 = 0L
+                        pos.markRefusedSinceMs7017 = 0L
+                        return reconciled7017
+                    }
+
                     val onRouteAge6895 = System.currentTimeMillis() - pos.lastRoutePriceTs
                     val fallback6895 = if (pos.lastRoutePrice > 0.0 && onRouteAge6895 < ROUTE_LOCK_MAX_STALENESS_MS) {
                         pos.lastRoutePrice
@@ -867,6 +949,12 @@ class Executor(
                     // and painted +4290% on the position card. One decision,
                     // one writer, one timestamp.
                     pos.markRefusedAtMs6907 = System.currentTimeMillis()
+                    // V5.0.7017 — open the run on the FIRST refusal only, so
+                    // the stamp measures how long this position has been
+                    // unpriceable rather than how recently it was refused.
+                    if (pos.markRefusedSinceMs7017 <= 0L) {
+                        pos.markRefusedSinceMs7017 = pos.markRefusedAtMs6907
+                    }
                     if (pos.crossBasisRefusals6895 % 20L == 1L) {
                         try {
                             PipelineHealthCollector.labelInc("PAPER_CROSS_BASIS_MARK_REFUSED_6895")
