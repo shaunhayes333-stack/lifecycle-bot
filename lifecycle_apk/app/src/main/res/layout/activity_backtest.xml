@@ -199,6 +199,36 @@
         android:layout_marginEnd="@dimen/screen_padding"
         android:layout_marginBottom="8dp"
         android:visibility="gone">
+        <!-- V5.0.7024 — the A/B, as an A/B.
+             This screen runs baseline against symbolic and reported the result
+             as two paragraphs plus a LIFT block, so the reader compares two
+             sets of figures by eye and does the subtraction the screen had
+             already done. Two bars on one shared scale answer "which arm won"
+             before you have finished reading the header. -->
+        <LinearLayout
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:gravity="center_vertical"
+            android:layout_marginBottom="6dp">
+            <View android:layout_width="9dp" android:layout_height="9dp"
+                android:background="@drawable/dot_bg"
+                android:backgroundTint="@color/aate_text_muted"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="BASELINE" style="@style/T.Body.Caption"
+                android:layout_marginStart="6dp" android:layout_marginEnd="14dp"/>
+            <View android:layout_width="9dp" android:layout_height="9dp"
+                android:background="@drawable/dot_bg"
+                android:backgroundTint="@color/aate_purple"/>
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="SYMBOLIC" style="@style/T.Body.Caption"
+                android:layout_marginStart="6dp"/>
+        </LinearLayout>
+
+        <com.lifecyclebot.ui.PairedBarsView7021
+            android:id="@+id/btAbBars"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="10dp"/>
+
         <TextView android:id="@+id/tvBtSummary"
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:textColor="@color/aate_text" android:textSize="12sp"

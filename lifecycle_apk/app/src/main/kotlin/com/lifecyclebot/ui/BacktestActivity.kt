@@ -152,6 +152,30 @@ class BacktestActivity : AppCompatActivity() {
             (symbolic.netSol - baseline.netSol) / kotlin.math.abs(baseline.netSol) * 100.0
         else 0.0
 
+        // V5.0.7024 — draw the A/B this screen exists to run.
+        //
+        // The result was two paragraphs and a LIFT block: the reader compares
+        // two sets of figures by eye and redoes a subtraction the screen has
+        // already performed. Two bars on one shared scale answer "which arm
+        // won" before the header is finished.
+        //
+        // Win rate and trade count only. NET is deliberately NOT a bar — it can
+        // be negative on either arm, and a signed quantity drawn as a length
+        // from a common baseline reads as magnitude and hides the sign, which
+        // is precisely the kind of chart that misleads. NET stays in the text
+        // below, where its sign is unambiguous.
+        try {
+            findViewById<PairedBarsView7021>(R.id.btAbBars)?.let { ab ->
+                ab.controlColor = AateUi.TEXT_MUTED
+                ab.variantColor = AateUi.PURPLE
+                ab.setRows(
+                    arrayOf("WIN RATE %", "TRADES"),
+                    floatArrayOf(baseline.winRate.toFloat(), baseline.totalTrades.toFloat()),
+                    floatArrayOf(symbolic.winRate.toFloat(), symbolic.totalTrades.toFloat()),
+                )
+            }
+        } catch (_: Throwable) {}
+
         tvSummary.text = buildString {
             appendLine("━━━ A/B  $symbol  $candleCount×$tf  ${posSol}◎/trade ━━━")
             appendLine("")

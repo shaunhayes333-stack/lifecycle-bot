@@ -1105,14 +1105,25 @@ class LabActivity : AppCompatActivity() {
         addView(rowText(value, color, 13, true))
     }
 
-    private fun sectionHeader(text: String): TextView = TextView(this).apply {
-        this.text = text
-        setTextColor(deepP)
-        textSize = 10f
-        typeface = Typeface.MONOSPACE
-        setTypeface(typeface, Typeface.BOLD)
-        setPadding(0, 14.dp(), 0, 8.dp())
-        letterSpacing = 0.16f
+    /**
+     * V5.0.7024 — the render's section rule.
+     *
+     * Was a bare tracked TextView padded with "══" characters on either side,
+     * which is a rule drawn in text because there was no rule. Now the real
+     * thing: a tracked label with a hairline running to the edge.
+     *
+     * Return type widened from TextView to View. All three call sites do
+     * llContent.addView(sectionHeader(...)) and nothing reads it back, so the
+     * widening is safe — checked before changing it rather than after.
+     */
+    private fun sectionHeader(text: String): View {
+        val clean = text.replace("═", "").replace("=", "").trim().ifBlank { text }
+        return AateComponents6994.sectionHeader(this, clean, null, deepP).apply {
+            // The Lab builds its own gutter via llContent's padding, so drop
+            // the component's 16dp or the rule insets twice — the double-gutter
+            // bug V5.0.7014 found in the Hive tiles.
+            setPadding(0, 0, 0, 0)
+        }
     }
 
     private fun emptyState(title: String, body: String): View = neonCard(divLine).apply {
