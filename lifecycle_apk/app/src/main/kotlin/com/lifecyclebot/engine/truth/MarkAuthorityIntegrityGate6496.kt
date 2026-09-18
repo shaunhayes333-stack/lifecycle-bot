@@ -138,16 +138,60 @@ object MarkAuthorityIntegrityGate6496 {
         // single canonical DEXSCREENER provider, matching Birdeye / Jupiter /
         // PumpFun handling. Freshness / pool identity / template checks
         // are unchanged — only the string comparison is normalized.
-        val canonicalSource6548 = when {
-            sourceUpper.startsWith("DEXSCREENER") -> "DEXSCREENER"
-            sourceUpper.startsWith("BIRDEYE") -> "BIRDEYE"
-            sourceUpper.startsWith("GECKOTERMINAL") || sourceUpper.startsWith("GECKO_TERMINAL") -> "GECKOTERMINAL"
-            sourceUpper.startsWith("JUPITER") -> "JUPITER"
-            sourceUpper.startsWith("PUMPFUN") || sourceUpper.startsWith("PUMP_FUN") ||
-                sourceUpper.startsWith("PUMP_PORTAL") -> "PUMPFUN"
-            else -> sourceUpper
+        // V5.0.7004 §THE_SECOND_ALLOW_LIST.
+        //
+        // Operator 5.0.7003 snapshot:
+        //
+        //   MARK_AUTHORITY_GATE_BLOCKED_6496: 47
+        //   mint=2zMMhcVQEX provenance=AUTHORITATIVE src=KEYLESS_BATCH_6996
+        //   liq=3431008 priceUsd=0.007698 reason=price_authority
+        //   blockReason6547=SOURCE_NOT_WHITELISTED
+        //
+        // Provenance AUTHORITATIVE, real liquidity, real price — blocked purely
+        // because the source STRING was not in a hard-coded set.
+        //
+        // This is mine. Until V5.0.6999 the open-position loop stamped every
+        // mark "DEXSCREENER_WS" regardless of which provider actually answered,
+        // so DefiLlama's and Jupiter's rescues sailed through this gate wearing
+        // DexScreener's name. 6999 started recording the truth, and the truth
+        // was not on the list. V5.0.7001 caught the same collision in the
+        // provenance classifier and I fixed that one without checking whether a
+        // second allow-list existed. It did.
+        //
+        // The lesson worth keeping: making a label honest is only half a
+        // change. Every consumer that pattern-matches that label has to learn
+        // the new vocabulary in the same commit, or the honest label is just a
+        // new way to fail.
+        //
+        // KEYLESS_ is a transport/acquisition prefix, not a trust domain —
+        // exactly the argument 6548 made for stripping WS/REST/POLL. Strip it
+        // and canonicalise whatever provider is underneath.
+        val deKeylessed7004 = sourceUpper.removePrefix("KEYLESS_")
+        val canonicalSource7004 = when {
+            // The 6996 batch rescue is DefiLlama-then-Jupiter; BotService now
+            // labels which one answered, but older rows carry the blob.
+            deKeylessed7004.startsWith("BATCH_6996") -> "DEFILLAMA"
+            else -> deKeylessed7004
         }
-        val realPriceSource = canonicalSource6548 in setOf("DEXSCREENER", "GECKOTERMINAL", "BIRDEYE", "JUPITER", "PUMPFUN")
+        val canonicalSource6548 = when {
+            canonicalSource7004.startsWith("DEFILLAMA") || canonicalSource7004.startsWith("LLAMA") -> "DEFILLAMA"
+            canonicalSource7004.startsWith("RAYDIUM") -> "RAYDIUM"
+            canonicalSource7004.startsWith("DEXSCREENER") -> "DEXSCREENER"
+            canonicalSource7004.startsWith("BIRDEYE") -> "BIRDEYE"
+            canonicalSource7004.startsWith("GECKOTERMINAL") || canonicalSource7004.startsWith("GECKO_TERMINAL") -> "GECKOTERMINAL"
+            canonicalSource7004.startsWith("JUPITER") -> "JUPITER"
+            canonicalSource7004.startsWith("PUMPFUN") || canonicalSource7004.startsWith("PUMP_FUN") ||
+                canonicalSource7004.startsWith("PUMP_PORTAL") -> "PUMPFUN"
+            else -> canonicalSource7004
+        }
+        // V5.0.7004 — DefiLlama and Raydium added. Both are first-class price
+        // authorities this app already calls and already trusts elsewhere:
+        // DefiLlama ran at sr=100% in the same snapshot that blocked its marks,
+        // and Raydium is a primary Solana AMM. Neither is a weaker observation
+        // than the five already here; they were simply never written down.
+        val realPriceSource = canonicalSource6548 in setOf(
+            "DEXSCREENER", "GECKOTERMINAL", "BIRDEYE", "JUPITER", "PUMPFUN", "DEFILLAMA", "RAYDIUM",
+        )
         val priceValidity = fresh && priceUsd.isFinite() && priceUsd > 0.0
         val liquidityValidity = liquidityUsd.isFinite() && liquidityUsd > 0.0
         // V5.0.6596 §MARK_AUTHORITY_MINT_ROUTE_FOR_KNOWN_OPEN — a known-open

@@ -44,7 +44,32 @@ object CrossAssetMarkRouter6530 {
     suspend fun refreshMark(assetClass: AssetClass, symbol: String, ts: TokenState): Boolean {
         if (assetClass == AssetClass.SOLANA_TOKEN || assetClass == AssetClass.UNKNOWN) return false
         val market = resolveMarket(symbol) ?: run {
-            emit("UNROUTABLE_SYMBOL", assetClass, symbol, "no PerpsMarket entry matched — provider wiring gap")
+            // V5.0.7004 §ASKING_THE_WRONG_KIND_OF_PROVIDER.
+            //
+            // resolveMarket maps a SYMBOL to a PerpsMarket enum, so AERO, CRO,
+            // VVV, KTA — ordinary DEX tokens on base/eth/polygon/avax — can
+            // never resolve. There is no perps contract for them and there
+            // never will be. The operator's 5.0.7003 snapshot shows what that
+            // costs: 25 UNROUTABLE_SYMBOL lines, 24 CRYPTO_ALT positions with
+            // mark=0.0 and markAgeMs=Long.MAX_VALUE (never marked, not once),
+            // and CRYPTO_LEV as the session's single largest loser at
+            // -2.7349 SOL. A position that cannot be priced cannot be exited.
+            //
+            // The identity needed to price them was on the position all along:
+            // ts.mint is `base|0xc06…`, `eth|0x4624…`. DefiLlama's coins API
+            // keys on exactly that, and KeylessPriceSources6996 was already
+            // calling it — for `solana:MINT` only.
+            val keylessPx7004 = try {
+                com.lifecyclebot.network.KeylessPriceSources6996.crossChainPrice(ts.mint)
+            } catch (_: Throwable) { 0.0 }
+            if (keylessPx7004.isFinite() && keylessPx7004 > 0.0) {
+                ts.lastPrice = keylessPx7004
+                ts.lastPriceSource = "DEFILLAMA_CROSSCHAIN_7004"
+                ts.lastPriceUpdate = System.currentTimeMillis()
+                emit("OK_KEYLESS_CROSSCHAIN_7004", assetClass, symbol, "price=$keylessPx7004 id=${ts.mint.take(24)}")
+                return true
+            }
+            emit("UNROUTABLE_SYMBOL", assetClass, symbol, "no PerpsMarket entry and no keyless cross-chain mark for id=${ts.mint.take(24)}")
             return false
         }
         return try {

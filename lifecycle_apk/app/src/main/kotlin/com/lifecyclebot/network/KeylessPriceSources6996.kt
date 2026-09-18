@@ -160,6 +160,74 @@ object KeylessPriceSources6996 {
         return out
     }
 
+    /**
+     * V5.0.7004 — cross-chain marks for the CRYPTO_ALT inventory.
+     *
+     * The operator's 5.0.7003 snapshot opened 24 CRYPTO_ALT positions and could
+     * not price a single one:
+     *
+     *   CROSS_ASSET_MARK_ROUTE_6530 status=UNROUTABLE_SYMBOL symbol=AERO
+     *     "no PerpsMarket entry matched — provider wiring gap"   (x25 symbols)
+     *   CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513 mint=base|0xc06
+     *     mark=0.0 markAgeMs=9223372036854775807
+     *   CRYPTO_LEV  n=25  EV=-10.36%/trade  PnL=-2.7349 SOL
+     *
+     * markAgeMs=Long.MAX_VALUE means never marked, not once, and that lane is
+     * the single largest loser in the session. CrossAssetMarkRouter6530 maps a
+     * SYMBOL to a PerpsMarket enum, so AERO/CRO/VVV/KTA — ordinary DEX tokens
+     * on base, eth, polygon and avax — can never resolve. There is no perps
+     * contract for them and there never will be; the router was asking the
+     * wrong kind of provider.
+     *
+     * But the positions already carry full identity: `base|0xc06…`,
+     * `eth|0x4624…`. DefiLlama's coins API keys on exactly that — `chain:address`
+     * — and this object already uses it for `solana:MINT`. The capability was
+     * here the whole time, pointed at one chain.
+     */
+    private val LLAMA_CHAIN_ALIASES_7004 = mapOf(
+        "eth" to "ethereum",
+        "ethereum" to "ethereum",
+        "base" to "base",
+        "bsc" to "bsc",
+        "avax" to "avax",
+        "arbitrum" to "arbitrum",
+        "arb" to "arbitrum",
+        "optimism" to "optimism",
+        "op" to "optimism",
+        "polygon" to "polygon",
+        "polygon_pos" to "polygon",
+        "solana" to "solana",
+    )
+
+    /**
+     * Price a `chain|address` identity. Returns 0.0 when the chain is one
+     * DefiLlama does not key, which is a wiring gap worth seeing rather than
+     * guessing around.
+     */
+    fun crossChainPrice(chainToken: String): Double {
+        val parts = chainToken.split('|', ':', limit = 2)
+        if (parts.size != 2) return 0.0
+        val chain = LLAMA_CHAIN_ALIASES_7004[parts[0].trim().lowercase()] ?: run {
+            try { PipelineHealthCollector.labelInc("KEYLESS_CROSSCHAIN_UNKNOWN_CHAIN_7004") } catch (_: Throwable) {}
+            return 0.0
+        }
+        val addr = parts[1].trim()
+        if (addr.isBlank()) return 0.0
+        return try {
+            val body = get("https://coins.llama.fi/prices/current/$chain:$addr", "defillama") ?: return 0.0
+            val o = JSONObject(body).optJSONObject("coins")?.optJSONObject("$chain:$addr") ?: return 0.0
+            val price = o.optDouble("price", 0.0)
+            if (!price.isFinite() || price <= 0.0) return 0.0
+            val conf = o.optDouble("confidence", 1.0)
+            if (conf.isFinite() && conf < 0.70) return 0.0
+            try { PipelineHealthCollector.labelInc("KEYLESS_CROSSCHAIN_MARK_7004") } catch (_: Throwable) {}
+            price
+        } catch (t: Throwable) {
+            ErrorLogger.debug(TAG, "crosschain price failed $chainToken: ${t.message?.take(120)}")
+            0.0
+        }
+    }
+
     private fun get(url: String, host: String): String? = try {
         val req = Request.Builder().url(url)
             .header("User-Agent", "lifecycle-bot-android/6.0")
