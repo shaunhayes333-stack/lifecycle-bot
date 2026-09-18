@@ -382,13 +382,67 @@ object CanonicalPositionAuthority6441 {
                 // basis per operator directive. Deriving the price here
                 // lets the strict rejection stand without breaking those
                 // legitimate reconstruction paths.
+                // V5.0.7002 §THE_DERIVED_ENTRY_PRICE_WAS_IN_THE_WRONG_CURRENCY.
+                //
+                // This field is unambiguously USD per token — thirty lines up,
+                // lockAtBuy6634 computes entryPriceSol as
+                // `position.entryPriceUsd / solUsd6634`. Dividing by the SOL
+                // price is only meaningful if the numerator is USD.
+                //
+                // The 6631c fallback derived it as entryCostSol / qtyToken,
+                // which is SOL per token, and stored that in the USD field. At
+                // a SOL price of ~$200 the stored entry is ~200x too small, and
+                // every consumer that compares a real USD mark against it is
+                // then comparing two different currencies:
+                //
+                //   stopPx        = entry * 0.85   -> mark can never fall to it
+                //   catastrophePx = entry * 0.75   -> likewise unreachable
+                //   pnlPct        = mark/entry - 1 -> ~+20,000% out of thin air
+                //
+                // A position like that can never stop out and never
+                // catastrophe-exit; it reads as a spectacular winner, trips
+                // runner-bypass, and squats its slot against POSITION_HARD_CAP
+                // forever. This codebase has been documenting the symptom for
+                // builds — "+31,900% / +12,470% dominating a $583 hero" at
+                // openPositions(), "phantom PnLs like +604,752,538%" at the
+                // runner-bypass guard — while treating it as a provenance
+                // problem. A unit mismatch produces exactly that signature.
+                //
+                // HONEST SCOPE: the main paper and live buy paths DO pass a
+                // real entryPriceUsd, so this fallback only fires for callers
+                // that supply cost and quantity alone. I have not established
+                // that it is what is holding the operator's current inventory
+                // open — it is a latent correctness bug found while looking,
+                // and it is fixed here rather than left to fire later.
+                //
+                // If the SOL price is unknown we store 0 rather than a
+                // wrong-unit number: openPositions() already rejects a
+                // zero-basis row, and a row that is visibly missing is far
+                // safer than one that is confidently wrong by 200x.
                 entryPriceUsd = if (entryPriceUsd > 0.0) entryPriceUsd else run {
                     val qtyToken6631 = try {
                         if (quantityScale in 0..18)
                             openedQtyRaw.toBigDecimal().movePointLeft(quantityScale).toDouble()
                         else 0.0
                     } catch (_: Throwable) { 0.0 }
-                    if (entryCostSol > 0.0 && qtyToken6631 > 0.0) entryCostSol / qtyToken6631 else 0.0
+                    if (entryCostSol <= 0.0 || qtyToken6631 <= 0.0) return@run 0.0
+                    val solUsd7002 = try {
+                        com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf {
+                            it.isFinite() && it > 0.0
+                        } ?: 0.0
+                    } catch (_: Throwable) { 0.0 }
+                    if (solUsd7002 <= 0.0) {
+                        try {
+                            com.lifecyclebot.engine.PipelineHealthCollector
+                                .labelInc("ENTRY_PRICE_DERIVE_NO_SOL_PRICE_7002")
+                        } catch (_: Throwable) {}
+                        return@run 0.0
+                    }
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector
+                            .labelInc("ENTRY_PRICE_DERIVED_SOL_TO_USD_7002")
+                    } catch (_: Throwable) {}
+                    (entryCostSol / qtyToken6631) * solUsd7002
                 },
                 entryPriceSource = if (entryPriceUsd > 0.0) entryPriceSource
                     else if (entryPriceSource.isBlank()) "OPEN_POSITION_DERIVED_FROM_COST_QTY_6631"
