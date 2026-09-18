@@ -2162,6 +2162,13 @@ object PipelineHealthCollector {
             sb.append("  Mark basis reconciler (§7017): ").append(
                 com.lifecyclebot.engine.truth.MarkBasisReconciler7017.status()
             ).append("\n")
+            // V5.0.7051 — size the promotion leak BEFORE anything is shaped
+            // against the cohort. leakWins is the count of runners the entering
+            // lane was never credited with; while it is non-trivial, a "losses=9
+            // wins=2" bucket is not the lane's real record.
+            sb.append("  Entry cohort attrib (§7051):  ").append(
+                com.lifecyclebot.engine.truth.EntryCohortAttribution7051.statusLine7051()
+            ).append("\n")
             sb.append("  Reward bootstrap (§6453):     ").append(
                 com.lifecyclebot.engine.truth.CanonicalRewardBootstrap6453.statusLine()
             ).append("\n")

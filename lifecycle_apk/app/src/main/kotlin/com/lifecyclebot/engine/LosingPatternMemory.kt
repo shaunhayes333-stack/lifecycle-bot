@@ -84,7 +84,28 @@ object LosingPatternMemory {
             val sells = TradeHistoryStore.getRecentValidClosedTrades(limit = 2_000, includePartials = false)
 
             for (t in sells) {
-                val key = bucketKey(tradingMode = t.tradingMode, score = t.score.toInt())
+                // V5.0.7051 §ATTRIBUTE_THE_COHORT_TO_THE_LANE_THAT_ENTERED_IT.
+                //
+                // t.tradingMode is the lane the position was in when it CLOSED,
+                // and a position that runs is promoted mid-hold
+                // (BotService:1615, Executor:10739/10787/12060/15573) before it
+                // closes. Losers never promote, because promotion is triggered
+                // by the gain. So this bucket — the one that decides danger
+                // zones and size multipliers — kept every loss and handed its
+                // winners to whichever lane the promotion moved them into.
+                //
+                // 5.0.7047: PROJECT_SNIPER|S11-25 losses=9 wins=2, alongside
+                // meanPnl=+20.26% and EV=+12.07%/trade from the same cohort.
+                // Those two facts only reconcile if the winners are somewhere
+                // else, which is exactly what promotion does with them.
+                //
+                // EntryCohortAttribution7051 resolves the entry lane from
+                // LaneAttributionLedger6427, which is stamped at buy time and
+                // never rewritten by a promotion. Trade emission is untouched —
+                // this changes only which bucket the READER files it under.
+                val entryLane7051 = com.lifecyclebot.engine.truth
+                    .EntryCohortAttribution7051.entryLaneFor(t)
+                val key = bucketKey(tradingMode = entryLane7051, score = t.score.toInt())
                 val cell = acc.getOrPut(key) { LongArray(3) }
                 if (t.pnlPct <= -5.0) cell[0]++
                 else if (t.pnlPct >= 1.0) cell[1]++
