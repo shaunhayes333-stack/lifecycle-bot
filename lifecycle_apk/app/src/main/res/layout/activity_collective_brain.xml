@@ -40,7 +40,7 @@
 
             <TextView
                 style="@style/AateScreenTitle"
-                android:text="HIVE MIND"/>
+                android:text="Hive Mind"/>
 
             <TextView
                 style="@style/AateScreenSubtitle"

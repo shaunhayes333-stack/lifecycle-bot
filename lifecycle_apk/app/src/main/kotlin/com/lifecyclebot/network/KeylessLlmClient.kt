@@ -204,6 +204,8 @@ object KeylessLlmClient {
         var ownBackoff = 0
         var empty = 0
         var errored = 0
+        // V5.0.7030 — which member the forced attempt ended up asking.
+        var forcedName7030 = ""
 
         for (offset in 0 until n) {
             val p = providers[(start + offset) % n]
@@ -257,34 +259,92 @@ object KeylessLlmClient {
         // single request. One call, only on a turn that would otherwise have
         // failed without trying. Never in the background path, which reaches
         // here already having asked.
+        // V5.0.7030 §THE_FORCED_ATTEMPT_ALWAYS_PICKED_THE_DEADEST_MEMBER.
+        //
+        // 7016 picked the forced member with
+        //     providers.minByOrNull { cooldownUntil[it.name] ?: 0L }
+        // and that selection is structurally guaranteed to choose a member we
+        // have no evidence for, never the one that is working. Two reasons,
+        // both introduced by 7016's own (correct) decisions:
+        //
+        //   * a member refused by our OwnBackoffRefusal deliberately gets NO
+        //     cooldown entry — 7016's comment explains why, and it is right —
+        //     so its key is absent, `?: 0L` gives it zero, and zero always wins
+        //     a min. The forced attempt therefore targets an ownBackoff member
+        //     every single time;
+        //   * the forced attempt set no cooldown when it came back empty, so
+        //     the member it just failed on stayed at zero and was picked again
+        //     on the next turn, and the next, permanently.
+        //
+        // The operator's 5.0.7027 snapshot is that lock-in, and the health
+        // table beside it names the member it locked onto:
+        //
+        //   [llm: keyless_fallback:members=8 asked=0 cooling=4 ownBackoff=4
+        //         empty=1 err=0]
+        //   llm_emergent      sr=0%    s=0    4xx=3501
+        //   ovh_llm_keyless   sr=45%   s=29
+        //   llm_groq          sr=100%  s=2
+        //
+        // Thirty-one successful LLM calls happened in that session. The chat
+        // saw none of them, because the one member it was allowed to ask was
+        // the one with three and a half thousand 4xx and zero successes.
+        //
+        // Pick by MEASURED success rate instead. ApiHealthMonitor already
+        // records every member (6999 routed them through HealthAwareHttp for
+        // exactly this reason) and it was never consulted here. A member with
+        // no samples ranks above a member measured at zero — untried is not the
+        // same as failed — and the cooldown clock only breaks ties.
         if (asked == 0 && providers.isNotEmpty()) {
-            val soonest = providers.minByOrNull { cooldownUntil[it.name] ?: 0L }
-            if (soonest != null) {
+            val best = providers.maxWithOrNull(
+                compareBy<Provider> { p ->
+                    try {
+                        if (com.lifecyclebot.engine.ApiHealthMonitor.hasSamples(p.healthHost)) {
+                            com.lifecyclebot.engine.ApiHealthMonitor.successRate(p.healthHost)
+                        } else {
+                            // Between "never tried" and "tried and failed
+                            // every time", try the untried one.
+                            0.5
+                        }
+                    } catch (_: Throwable) { 0.5 }
+                }.thenByDescending { p -> cooldownUntil[p.name] ?: 0L }
+            )
+            if (best != null) {
+                forcedName7030 = best.name
                 try {
                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
-                        "LLM_COUNCIL_FORCED_ATTEMPT_7016_" + soonest.name.uppercase(),
+                        "LLM_COUNCIL_FORCED_ATTEMPT_7016_" + best.name.uppercase(),
                     )
                 } catch (_: Throwable) {}
                 forcedAttempt7016.set(true)
                 try {
-                    val text = soonest.call(system, user, maxTokens)
+                    val text = best.call(system, user, maxTokens)
                     if (!text.isNullOrBlank()) {
                         lastCouncilDiagnostic7016 = ""
-                        cooldownUntil.remove(soonest.name)
+                        cooldownUntil.remove(best.name)
                         return text
                     }
                     empty++
+                    // V5.0.7030 — a forced member that answered with nothing
+                    // must still be cooled, or the next turn re-picks it on an
+                    // identical (still empty) cooldown and the council can
+                    // never rotate off a dead member.
+                    cooldownUntil[best.name] = now + 15_000L
                 } catch (e: Exception) {
                     errored++
-                    ErrorLogger.debug(TAG, "forced ${soonest.name}: ${e.message?.take(120)}")
+                    cooldownUntil[best.name] = now + COOLDOWN_MS
+                    ErrorLogger.debug(TAG, "forced ${best.name}: ${e.message?.take(120)}")
                 } finally {
                     forcedAttempt7016.set(false)
                 }
             }
         }
 
+        // V5.0.7030 — name the member the forced attempt chose. Working out
+        // that it was always emergent took a health table, a cooldown-map
+        // reading and a paragraph of inference; the line should just say it.
         lastCouncilDiagnostic7016 =
-            "members=$n asked=$asked cooling=$cooling ownBackoff=$ownBackoff empty=$empty err=$errored"
+            "members=$n asked=$asked cooling=$cooling ownBackoff=$ownBackoff empty=$empty err=$errored" +
+                (if (forcedName7030.isNotEmpty()) " forced=$forcedName7030" else "")
         try {
             com.lifecyclebot.engine.ForensicLogger.lifecycle(
                 "LLM_COUNCIL_DRY_7016", lastCouncilDiagnostic7016,
@@ -309,24 +369,35 @@ object KeylessLlmClient {
      */
     fun isForcedAttempt7016(): Boolean = forcedAttempt7016.get() == true
 
-    private data class Provider(val name: String, val call: (String, String, Int) -> String?)
+    /**
+     * V5.0.7030 — [healthHost] is the key this member's requests are recorded
+     * under in ApiHealthMonitor, so the forced attempt can pick by MEASURED
+     * success rate instead of by a cooldown timestamp. See the selection block
+     * in runChat for why that distinction decided whether the council ever
+     * spoke again.
+     */
+    private data class Provider(
+        val name: String,
+        val healthHost: String,
+        val call: (String, String, Int) -> String?,
+    )
 
     private fun buildProviderList(): List<Provider> {
         val list = mutableListOf<Provider>()
         // Operator-supplied paid keys FIRST so a real subscription always wins.
         if (operatorGroqKey.isNotBlank()) {
-            list.add(Provider("groq") { s, u, m -> callGroq(s, u, m) })
+            list.add(Provider("groq", "llm_groq") { s, u, m -> callGroq(s, u, m) })
         }
         if (operatorOpenRouterKey.isNotBlank()) {
-            list.add(Provider("openrouter") { s, u, m -> callOpenRouter(s, u, m) })
+            list.add(Provider("openrouter", "llm_openrouter") { s, u, m -> callOpenRouter(s, u, m) })
         }
         if (operatorAnthropicKey.isNotBlank()) {
-            list.add(Provider("anthropic") { s, u, m -> callAnthropic(s, u, m) })
+            list.add(Provider("anthropic", "llm_anthropic") { s, u, m -> callAnthropic(s, u, m) })
         }
         // Emergent last-priority but ALWAYS present so we never return null
         // purely because no operator key was set.
         if (emergentKey.isNotBlank()) {
-            list.add(Provider("emergent") { s, u, m -> callEmergent(s, u, m) })
+            list.add(Provider("emergent", "llm_emergent") { s, u, m -> callEmergent(s, u, m) })
         }
 
         // V5.0.6996 §THE_KEYLESS_CLIENT_HAD_NO_KEYLESS_PROVIDER.
@@ -352,8 +423,8 @@ object KeylessLlmClient {
         // never bottom out again. They are LAST on purpose: a real operator
         // subscription always wins, and these only carry the load when every
         // keyed member is rate-limited, unpaid or unconfigured.
-        list.add(Provider("pollinations") { s, u, m -> callPollinations(s, u, m) })
-        list.add(Provider("pollinations_get") { s, u, m -> callPollinationsGet(s, u, m) })
+        list.add(Provider("pollinations", "llm_pollinations") { s, u, m -> callPollinations(s, u, m) })
+        list.add(Provider("pollinations_get", "llm_pollinations_get") { s, u, m -> callPollinationsGet(s, u, m) })
 
         // V5.0.6999 — a keyless surface that publishes its own catalogue.
         //
@@ -373,7 +444,7 @@ object KeylessLlmClient {
         // /v1/models. Guessing a model string I cannot verify is precisely the
         // mistake that made 6996 a no-op.
         repeat(3) { slot ->
-            list.add(Provider("ovh_keyless_$slot") { s, u, m -> KeylessLlmProviders6999.chat(s, u, m) })
+            list.add(Provider("ovh_keyless_$slot", "ovh_llm_keyless") { s, u, m -> KeylessLlmProviders6999.chat(s, u, m) })
         }
         return list
     }

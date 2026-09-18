@@ -29,31 +29,31 @@
             android:clickable="true"
             android:focusable="true"/>
 
+        <!--
+          V5.0.7028 — the subtitle was on this screen TWICE, one under the
+          other, which is what the operator's screenshot shows. An earlier
+          conversion wrapped title+subtitle in a new inner LinearLayout and
+          left the original subtitle TextView sitting below it. Nothing
+          caught it because both lines are valid XML saying the same true
+          thing; only a person looking at the screen can see it.
+
+          Title is sentence case now: AateScreenTitle stopped forcing
+          textAllCaps in 7028 to match the render, so a literal typed in
+          capitals would have kept shouting on its own.
+        -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="vertical">
-            <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="vertical">
 
             <TextView
                 style="@style/AateScreenTitle"
-                android:text="NEURAL PERSONALITY"/>
+                android:text="Neural Personality"/>
 
             <TextView
                 style="@style/AateScreenSubtitle"
                 android:text="Instinct · Plasticity · Layer Health"/>
-        </LinearLayout>
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Instinct · Plasticity · Layer Health"
-                android:textColor="@color/aate_text_muted"
-                android:textSize="9sp"
-                android:fontFamily="monospace"/>
         </LinearLayout>
     </LinearLayout>
 
