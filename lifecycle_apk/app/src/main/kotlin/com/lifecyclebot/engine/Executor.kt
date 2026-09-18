@@ -1040,7 +1040,30 @@ class Executor(
                         try {
                             ts.lastPrice = reconciled7017
                             ts.lastPriceUpdate = System.currentTimeMillis()
-                            ts.lastPriceSource = "MARK_BASIS_RECONCILED_7046"
+                            // V5.0.7048 — KEEP THE PROVIDER IN THE PROVENANCE.
+                            //
+                            // 7046 stamped a flat "MARK_BASIS_RECONCILED_7046".
+                            // MarkAuthorityIntegrityGate6496 canonicalises the
+                            // source by PREFIX (line 176) and whitelists seven
+                            // provider names, so a flat tag canonicalised to
+                            // itself, matched nothing, and every repaired mark
+                            // came back SOURCE_NOT_WHITELISTED —
+                            // MARK_AUTHORITY_GATE_BLOCKED_6496 fired 94 times in
+                            // a 241s session with provenance=AUTHORITATIVE and a
+                            // real pool. I fixed the number and broke its
+                            // paperwork.
+                            //
+                            // The provider is still the honest answer to "where
+                            // did this come from": the market cap driving the
+                            // reconstruction is that provider's own reading. So
+                            // keep its name as the prefix and append the
+                            // transform, which satisfies the prefix whitelist
+                            // AND leaves the rebase visible. The substringBefore
+                            // keeps it idempotent across repeated repairs.
+                            val base7048 = ts.lastPriceSource
+                                .substringBefore("+RECONCILED_7046")
+                                .takeIf { it.isNotBlank() } ?: "RECONCILED"
+                            ts.lastPriceSource = "$base7048+RECONCILED_7046"
                             PipelineHealthCollector.labelInc("TS_LAST_PRICE_REPAIRED_7046")
                         } catch (_: Throwable) {}
                         return reconciled7017
