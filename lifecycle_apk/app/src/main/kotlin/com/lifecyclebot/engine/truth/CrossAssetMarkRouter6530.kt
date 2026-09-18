@@ -66,6 +66,14 @@ object CrossAssetMarkRouter6530 {
                 ts.lastPrice = keylessPx7004
                 ts.lastPriceSource = "DEFILLAMA_CROSSCHAIN_7004"
                 ts.lastPriceUpdate = System.currentTimeMillis()
+                try {
+                    QuoteFreshnessGuard6452.note(
+                        mint = ts.mint,
+                        priceUsd = keylessPx7004,
+                        source = QuoteFreshnessGuard6452.Provenance.REST_LIVE,
+                    )
+                } catch (_: Throwable) {}
+
                 emit("OK_KEYLESS_CROSSCHAIN_7004", assetClass, symbol, "price=$keylessPx7004 id=${ts.mint.take(24)}")
                 return true
             }
@@ -78,6 +86,39 @@ object CrossAssetMarkRouter6530 {
                 ts.lastPrice = data.price
                 ts.lastPriceSource = "CrossAssetMarkRouter6530/${assetClass.tag}/${market.name}"
                 ts.lastPriceUpdate = System.currentTimeMillis()
+                // V5.0.7010 §THE_OTHER_MARK_PATH_STILL_DID_NOT_STAMP.
+                //
+                // V5.0.6999 taught the SOLANA open-position loop to stamp
+                // QuoteFreshnessGuard when it commits a mark, because the exit
+                // feed tests provenance, not ts.lastPrice. It did not teach
+                // THIS path — the cross-asset router — and so the fix covered
+                // one of the two places the app writes a mark.
+                //
+                // Operator 5.0.7006, with the bot holding 92 positions:
+                //
+                //   CROSS_ASSET_MARK_ROUTE_6530 status=OK symbol=ZEN price=6.986
+                //   CANONICAL_EXIT_FEED_6512 ... missingMark=89 of 92
+                //   ... markAgeMs=30935 provenanceFresh=false
+                //   Exit scheduler eval=170763 SL=0 CATA=0 TP=0 TRAIL=0
+                //   Quote freshness: missing=76663
+                //
+                // Read those together: the marks were arriving and were 30s
+                // old — comfortably inside the 60s window — and the exit feed
+                // still counted 89 of 92 positions unmarked, because nothing
+                // had ever written them into the guard it actually consults.
+                // 170,763 exit evaluations produced two sells.
+                //
+                // Same defect, same shape, one path later. Stamping here is the
+                // whole fix: the mark is already fetched, already validated and
+                // already committed to TokenState on the line above.
+                try {
+                    QuoteFreshnessGuard6452.note(
+                        mint = ts.mint,
+                        priceUsd = data.price,
+                        source = QuoteFreshnessGuard6452.Provenance.REST_LIVE,
+                    )
+                } catch (_: Throwable) {}
+
                 emit("OK", assetClass, symbol, "price=${"%.6f".format(data.price)} market=${market.name}")
                 true
             } else {

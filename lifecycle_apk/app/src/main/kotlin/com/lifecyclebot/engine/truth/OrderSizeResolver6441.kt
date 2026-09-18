@@ -508,9 +508,50 @@ object OrderSizeResolver6441 {
         //           fill least resembles its simulation) while paper's CAUTION
         //           passes whole.
         //
-        // Neither can zero a size: the damper floors at 0.25 and the bridge is
-        // clamped to [0.94, 1.08], and the result is floored at the minimum
-        // executable notional below exactly as before.
+        // V5.0.7010 §I_APPLIED_A_DAMPER_AFTER_THE_FLOOR_AND_CALLED_IT_FLOORED.
+        //
+        // The two paragraphs above used to end: "Neither can zero a size: the
+        // damper floors at 0.25 and the bridge is clamped to [0.94, 1.08], and
+        // the result is floored at the minimum executable notional below
+        // exactly as before."
+        //
+        // Every clause of that was wrong, and it is mine.
+        //
+        //   - the combined clamp is [0.20, 1.10], not [0.94, 1.08] — I widened
+        //     it in the same commit and never updated the sentence;
+        //   - there is NO re-floor below. Line ~544 is `minOf(...)`, which can
+        //     only lower a value. I asserted an invariant I had not written.
+        //
+        // What that produced, operator 5.0.7006: "meme trader is barely buying
+        // or selling."
+        //
+        //   Order size resolver: resolves=2569 exec=1283 skip=1286
+        //     last=[req=0.00555 ... final=0.00000 exec=false
+        //           reason=BELOW_MIN_EXECUTABLE]
+        //   QUALITY  markReady=175 sizedExecutable=0 sizeReject=174  SIZING_CHOKED
+        //   MOONSHOT markReady=22  sizedExecutable=0 sizeReject=22   SIZING_CHOKED
+        //   CYCLIC   markReady=13  sizedExecutable=0 sizeReject=13   SIZING_CHOKED
+        //   EXEC_PAPER_BUY_OK = 4
+        //
+        // Exactly half of every sizing decision in the session was refused, and
+        // the lanes that had a mark and wanted to trade were refused hardest.
+        //
+        // THE SEQUENCE. shapedOrMinimumLamports6600 is the value AFTER
+        // V5.0.6600/6896 promoted a sub-minimum shaped size back up to the
+        // minimum executable notional — the whole point of that fix being that
+        // stacked soft multipliers must not silently cancel an entry. This
+        // block then multiplied that promoted value by up to 0.20x and handed
+        // it to a `>= minExec` test. It walked the size straight back under the
+        // floor 6600 had just lifted it over, and the entry was dropped.
+        //
+        // A SOFT SHAPER SIZES DOWN. IT DOES NOT VETO. That is the rule 6600 and
+        // 6896 established and the rule my own comment claimed to be honouring.
+        // So the floor the comment described now actually exists: if the
+        // account and the lane can still fund the minimum, a live-aware shrink
+        // that lands under it is floored back to it rather than cancelling the
+        // trade. The shaper keeps every bit of its authority to make an order
+        // smaller; it loses the authority it never should have had, which is to
+        // turn "trade smaller" into "do not trade".
         var liveAwareLamports6992 = shapedOrMinimumLamports6600
         if (shapedOrMinimumLamports6600 > 0L) {
             val streakMult6992 = try {
@@ -534,6 +575,24 @@ object OrderSizeResolver6441 {
             if (combined6992 < 0.999 || combined6992 > 1.001) {
                 liveAwareLamports6992 =
                     (shapedOrMinimumLamports6600.toDouble() * combined6992).toLong().coerceAtLeast(0L)
+
+                // V5.0.7010 — the floor my 6992 comment promised and never wrote.
+                // The shrink stands unless it would push the order under the
+                // minimum executable notional while both hard caps can still
+                // fund that minimum; then it is floored, because the only other
+                // outcome is silently dropping an entry the rest of the stack
+                // already approved. Both caps are re-checked here, so this can
+                // never manufacture an order the account cannot pay for.
+                if (liveAwareLamports6992 < minExecLamports6491 && canFundMinimum6600) {
+                    liveAwareLamports6992 = minExecLamports6491
+                    try {
+                        PipelineHealthCollector.labelInc("LIVE_AWARE_SIZE_FLOORED_TO_MIN_7010")
+                        PipelineHealthCollector.labelInc(
+                            "LIVE_AWARE_SIZE_FLOORED_TO_MIN_7010_${laneName.uppercase().take(20)}",
+                        )
+                    } catch (_: Throwable) {}
+                }
+
                 try {
                     PipelineHealthCollector.labelInc("LIVE_AWARE_SIZE_SHAPED_6992")
                     PipelineHealthCollector.labelInc("LIVE_AWARE_SIZE_SHAPED_6992_${laneName.uppercase().take(20)}")
