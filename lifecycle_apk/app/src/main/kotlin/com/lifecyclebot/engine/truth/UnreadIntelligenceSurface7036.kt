@@ -121,6 +121,65 @@ object UnreadIntelligenceSurface7036 {
                 .append(" distinctMints=").append(mints).append("\n")
         }
 
+        // ── V5.0.7037, batch 2 ────────────────────────────────────────────
+        // Tuning constants and learned curves the engine computes and never
+        // consults. Each is a pure function of its arguments, so calling it
+        // here cannot disturb anything: we are asking what it WOULD say.
+
+        safe("WEEKLY_DD_SIZE_MULT") {
+            // WeeklyGrowthMode6393.sizeMultiplierFromDrawdown — the drawdown
+            // ladder that was supposed to shrink size as the week goes against
+            // us. Probed at the operator's actual current drawdown.
+            val dd = com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450
+                .snapshot().let { snap ->
+                    val eq = snap.totalEquitySol
+                    if (eq > 0.0) ((snap.realizedPnlSol / eq) * 100.0).coerceAtMost(0.0) else 0.0
+                }
+            WeeklyGrowthMode6393.sizeMultiplierFromDrawdown(kotlin.math.abs(dd)) to dd
+        }?.let { (mult, dd) ->
+            sb.append("  WeeklyGrowthMode6393 @dd=").append(pct(kotlin.math.abs(dd)))
+                .append(": sizeMult=").append(String.format(java.util.Locale.US, "%.2fx", mult)).append("\n")
+        }
+
+        safe("PEAK_TRAIL_CURVE") {
+            // EarlyEntryScout6390.trailPctForPeakGain — the peak-gain trail
+            // curve. Printed at four points so the shape is visible rather
+            // than asserted.
+            listOf(25.0, 100.0, 500.0, 2000.0).map { it to EarlyEntryScout6390.trailPctForPeakGain(it) }
+        }?.let { pts ->
+            sb.append("  EarlyEntryScout6390 trail curve:    ")
+                .append(pts.joinToString(" ") { (peak, trail) ->
+                    "+" + peak.toInt() + "%→" + String.format(java.util.Locale.US, "%.0f%%", trail)
+                }).append("\n")
+        }
+
+        safe("EDGE_VETO_STICKY") {
+            com.lifecyclebot.engine.EdgeLearning.getVetoStickyMinutes()
+        }?.let { sb.append("  EdgeLearning.vetoStickyMinutes:    ").append(it).append("m\n") }
+
+        safe("CURRICULUM_HOLD") {
+            com.lifecyclebot.v3.scoring.EducationSubLayerAI.getCurriculumHoldStats()
+        }?.let { m ->
+            sb.append("  EducationSubLayerAI curriculum:    ").append(m.size).append(" layers")
+            if (m.isNotEmpty()) {
+                val worst = m.entries.minByOrNull { it.value.third }
+                if (worst != null) {
+                    sb.append("  weakest=").append(worst.key.take(22))
+                        .append(" acc=").append(pct(worst.value.third * 100.0))
+                }
+            }
+            sb.append("\n")
+        }
+
+        safe("FEE_ADJUSTED_TP") {
+            // FluidLearningAI.getFeeAdjustedTakeProfit — what the raw TP
+            // becomes once round-trip fees are priced in. Probed at the
+            // 25% meme runner default on a typical 0.1 SOL / $50k-liq fill.
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getFeeAdjustedTakeProfit(25.0, 0.1, 50_000.0)
+        }?.let {
+            sb.append("  FluidLearningAI feeAdjTP(25%):     ").append(pct(it)).append("\n")
+        }
+
         sb.append("  Read: first readers for outputs the engine has been computing\n")
         sb.append("        and discarding. Advisory only — nothing here gates a trade.\n")
         return sb.toString()
