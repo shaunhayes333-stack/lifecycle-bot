@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.7028 — the render's back control.
+
+  Every artboard opens with a 32px rounded tile carrying the arrow, not a bare
+  glyph: `border-radius:10px; border:1px solid rgba(124,196,255,.28);
+  background:rgba(255,255,255,.04)`. The app used a transparent ImageButton on
+  the converted screens and a naked "←" TextView on the rest, so the one
+  control that appears on all twenty-one screens was the one element that
+  matched the render nowhere.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#0AFFFFFF"/>
+    <stroke android:width="1dp" android:color="#477CC4FF"/>
+    <corners android:radius="10dp"/>
+</shape>

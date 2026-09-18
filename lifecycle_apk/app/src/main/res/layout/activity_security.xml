@@ -1,201 +1,229 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+  V5.0.7028 — Unlock, rebuilt against project/Security.dc.html.
+
+  THE SHAPE OF THE RENDER: a violet halo, a gradient lock tile inside two
+  pulsing rings, six PIN dots, and a 3x4 keypad. The shipped screen had the
+  app logo, a masked EditText, an "Unlock" button and two paragraphs of
+  small print — a form, where the render is a lock.
+
+  WHY THE EditText AND THE BUTTON ARE STILL HERE, HIDDEN. SecurityActivity
+  owns real behaviour: first-run setup, confirm-PIN (which REPLACES the submit
+  button's click listener mid-flow), lockout counting and the biometric path.
+  Re-plumbing that to a keypad would be rewriting the code that stands between
+  the operator and their wallet, to change how a screen looks. So the keypad
+  types into the SAME EditText the existing logic already reads, and its check
+  key calls performClick() on the SAME button — which routes to whichever
+  listener that flow has installed, setup or confirm or unlock, without this
+  layout needing to know which. Every existing id is bound exactly as before:
+  tvSecurityTitle, tvSecuritySubtitle, tvSecurityError, layoutSecurityPin,
+  etSecurityPin, btnSecuritySubmit, btnSecurityBiometric, ivSecurityLogo.
+
+  The two paragraphs of small print are cut to the render's one line. The PIN
+  warning was 38 words set in 9sp monospace under the keypad, which is not a
+  place anyone reads a warning — it belongs in setup, and setup is where the
+  activity already states it.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:gravity="center"
-    android:background="@drawable/aate_screen_bg"
-    android:padding="24dp"
+    android:background="@color/aate_bg"
     android:fitsSystemWindows="true">
 
-    <!-- Logo + glow container -->
-    <FrameLayout
-        android:layout_width="180dp"
-        android:layout_height="180dp"
-        android:layout_marginBottom="20dp">
+    <!-- Halo. Behind everything, no touch. -->
+    <View
+        android:layout_width="320dp"
+        android:layout_height="320dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="60dp"
+        android:background="@drawable/aate_unlock_halo"
+        android:alpha="0.85"
+        android:importantForAccessibility="no"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center_horizontal">
+
+        <!-- ── LOCK ── -->
+        <FrameLayout
+            android:layout_width="108dp"
+            android:layout_height="108dp"
+            android:layout_marginTop="76dp">
+
+            <com.lifecyclebot.ui.PulseRingsView7028
+                android:id="@+id/pulseRingsSecurity"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"/>
+
+            <com.lifecyclebot.ui.GradientTileView7028
+                android:id="@+id/tileSecurityLock"
+                android:layout_width="62dp"
+                android:layout_height="62dp"
+                android:layout_gravity="center"/>
+
+            <ImageView
+                android:id="@+id/ivSecurityLogo"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_lock_aate"
+                android:contentDescription="Locked"/>
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/tvSecurityTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="22dp"
+            android:text="Unlock AATE"
+            android:textColor="@color/aate_text"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.04"/>
+
+        <TextView
+            android:id="@+id/tvSecuritySubtitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:text="Enter your PIN to access your wallet"
+            android:textColor="#8FA3C8"
+            android:textSize="12sp"/>
+
+        <TextView
+            android:id="@+id/tvSecurityError"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text=""
+            android:textColor="@color/aate_red"
+            android:textSize="11sp"
+            android:gravity="center"
+            android:visibility="gone"/>
+
+        <!-- ── PIN ── -->
+        <LinearLayout
+            android:id="@+id/layoutSecurityPin"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_horizontal">
+
+            <com.lifecyclebot.ui.PinDotsView7028
+                android:id="@+id/pinDotsSecurity"
+                android:layout_width="match_parent"
+                android:layout_height="26dp"
+                android:layout_marginTop="26dp"/>
+
+            <!--
+              The model, not the view. GONE so the render's dots are the only
+              PIN surface, but still in the tree so every existing read of
+              etSecurityPin.text, setText("") and hint assignment keeps working
+              untouched. Keeping it also means the soft keyboard never opens
+              over the keypad.
+            -->
+            <EditText
+                android:id="@+id/etSecurityPin"
+                android:layout_width="1dp"
+                android:layout_height="1dp"
+                android:inputType="numberPassword"
+                android:maxLength="6"
+                android:importantForAutofill="no"
+                android:focusable="false"
+                android:visibility="gone"
+                android:hint="PIN"
+                android:autofillHints=""/>
+
+            <!-- ── KEYPAD ── -->
+            <GridLayout
+                android:id="@+id/gridSecurityKeypad"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="28dp"
+                android:columnCount="3"
+                android:rowCount="4">
+
+                <TextView android:id="@+id/key1" style="@style/AateKeypadKey" android:text="1"/>
+                <TextView android:id="@+id/key2" style="@style/AateKeypadKey" android:text="2"/>
+                <TextView android:id="@+id/key3" style="@style/AateKeypadKey" android:text="3"/>
+                <TextView android:id="@+id/key4" style="@style/AateKeypadKey" android:text="4"/>
+                <TextView android:id="@+id/key5" style="@style/AateKeypadKey" android:text="5"/>
+                <TextView android:id="@+id/key6" style="@style/AateKeypadKey" android:text="6"/>
+                <TextView android:id="@+id/key7" style="@style/AateKeypadKey" android:text="7"/>
+                <TextView android:id="@+id/key8" style="@style/AateKeypadKey" android:text="8"/>
+                <TextView android:id="@+id/key9" style="@style/AateKeypadKey" android:text="9"/>
+
+                <TextView
+                    android:id="@+id/keyDel"
+                    style="@style/AateKeypadKey"
+                    android:text="←"
+                    android:textSize="19sp"
+                    android:textColor="#8FA3C8"
+                    android:contentDescription="Delete"/>
+
+                <TextView android:id="@+id/key0" style="@style/AateKeypadKey" android:text="0"/>
+
+                <TextView
+                    android:id="@+id/keyOk"
+                    style="@style/AateKeypadKey"
+                    android:text="✓"
+                    android:textSize="19sp"
+                    android:textColor="@color/aate_bg_deep"
+                    android:background="@drawable/aate_keypad_ok"
+                    android:contentDescription="Confirm"/>
+            </GridLayout>
+
+            <!--
+              The real submit. GONE: the check key performs its click, so
+              whichever listener the current flow installed still runs.
+            -->
+            <Button
+                android:id="@+id/btnSecuritySubmit"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Unlock"
+                android:visibility="gone"/>
+        </LinearLayout>
 
         <View
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="@drawable/splash_glow"
-            android:alpha="0.35"/>
+            android:layout_height="0dp"
+            android:layout_weight="1"/>
 
-        <ImageView
-            android:id="@+id/ivSecurityLogo"
-            android:layout_width="140dp"
-            android:layout_height="140dp"
-            android:layout_gravity="center"
-            android:src="@drawable/logo"
-            android:scaleType="fitCenter"
-            android:contentDescription="AATE Logo"/>
-    </FrameLayout>
-
-    <!-- Title -->
-    <TextView
-        android:id="@+id/tvSecurityTitle"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Unlock AATE"
-        android:textColor="@color/aate_text"
-        android:textSize="26sp"
-        android:textStyle="bold"
-        android:fontFamily="monospace"
-        android:letterSpacing="0.04"
-        android:layout_marginBottom="6dp"/>
-
-    <!-- Subtitle -->
-    <TextView
-        android:id="@+id/tvSecuritySubtitle"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Enter your PIN to access your wallet"
-        android:textColor="@color/aate_cyan"
-        android:textSize="12sp"
-        android:textAlignment="center"
-        android:fontFamily="monospace"
-        android:layout_marginBottom="20dp"/>
-
-    <!-- Divider accent -->
-    <View
-        android:layout_width="40dp"
-        android:layout_height="1dp"
-        android:background="@color/aate_green"
-        android:alpha="0.5"
-        android:layout_marginBottom="20dp"/>
-
-    <!-- Error message -->
-    <TextView
-        android:id="@+id/tvSecurityError"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="•"
-        android:textColor="@color/aate_red"
-        android:textSize="12sp"
-        android:fontFamily="monospace"
-        android:visibility="gone"
-        android:layout_marginBottom="12dp"/>
-
-    <!-- PIN entry container -->
-    <LinearLayout
-        android:id="@+id/layoutSecurityPin"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:gravity="center"
-        android:visibility="visible">
-
-        <!-- PIN input -->
-        <EditText
-            android:id="@+id/etSecurityPin"
-            android:layout_width="220dp"
-            android:layout_height="@dimen/input_height"
-            android:background="@drawable/edit_text_bg"
-            android:hint="Enter PIN"
-            android:textColorHint="@color/aate_text_muted"
-            android:textColor="@color/aate_green"
-            android:textSize="22sp"
-            android:textStyle="bold"
-            android:textAlignment="center"
-            android:letterSpacing="0.4"
-            android:inputType="numberPassword"
-            android:maxLength="6"
-            android:gravity="center"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:fontFamily="monospace"
-            android:layout_marginBottom="16dp"/>
-
-        <!-- Unlock button -->
         <Button
-            android:id="@+id/btnSecuritySubmit"
-            android:layout_width="220dp"
-            android:layout_height="50dp"
-            android:text="Unlock"
-            android:textColor="@color/aate_bg_deep"
-            android:textSize="15sp"
+            android:id="@+id/btnSecurityBiometric"
+            android:layout_width="wrap_content"
+            android:layout_height="46dp"
+            android:layout_marginBottom="14dp"
+            android:paddingStart="22dp"
+            android:paddingEnd="22dp"
+            android:text="☉  Use fingerprint"
+            android:textColor="#67E8F9"
+            android:textSize="13sp"
             android:textStyle="bold"
             android:textAllCaps="false"
-            android:background="@drawable/button_primary_bg"
-            android:layout_marginBottom="12dp"/>
-
-    </LinearLayout>
-
-    <!-- Biometric button -->
-    <Button
-        android:id="@+id/btnSecurityBiometric"
-        android:layout_width="220dp"
-        android:layout_height="44dp"
-        android:text="Use Fingerprint"
-        android:textColor="@color/aate_cyan"
-        android:textSize="12sp"
-        android:textAllCaps="false"
-        android:background="@android:color/transparent"
-        android:visibility="gone"
-        android:drawableStart="@android:drawable/ic_menu_compass"
-        android:drawablePadding="8dp"/>
-
-    <!-- Security disclaimer -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:gravity="center"
-        android:layout_marginTop="28dp"
-        android:background="@drawable/aate_universe_panel_bg"
-        android:padding="14dp"
-        android:layout_marginStart="@dimen/screen_padding"
-        android:layout_marginEnd="@dimen/screen_padding"
-        android:layout_marginBottom="12dp">
+            android:stateListAnimator="@null"
+            android:background="@drawable/aate_pill_cyan"
+            android:visibility="gone"/>
 
         <TextView
+            android:id="@+id/tvSecurityVersion"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="IMPORTANT"
-            android:textColor="@color/aate_amber"
+            android:text="AATE"
+            android:textColor="#4E5F80"
             android:textSize="10sp"
-            android:textStyle="bold"
-            android:fontFamily="monospace"
-            android:letterSpacing="0.1"
-            android:layout_marginBottom="6dp"/>
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Store your PIN in a safe place. AATE cannot recover lost PINs or access locked funds. You are solely responsible for securing your wallet credentials."
-            android:textColor="@color/aate_text_muted"
-            android:textSize="9sp"
-            android:textAlignment="center"
-            android:fontFamily="monospace"
-            android:lineSpacingMultiplier="1.4"/>
-
-    </LinearLayout>
-
-    <!-- Version badge -->
-    <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:gravity="center"
-        android:layout_marginTop="20dp">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="AATE v5.0"
-            android:textColor="@color/aate_cyan"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:fontFamily="monospace"
-            android:letterSpacing="0.1"/>
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Autonomous AI Trading Engine"
-            android:textColor="@color/aate_text_muted"
-            android:textSize="8sp"
             android:fontFamily="monospace"/>
 
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:layout_marginBottom="22dp"
+            android:text="Keys never leave this device"
+            android:textColor="#3C4A66"
+            android:textSize="9sp"/>
     </LinearLayout>
-
-</LinearLayout>
+</FrameLayout>

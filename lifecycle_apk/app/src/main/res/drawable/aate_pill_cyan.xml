@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- V5.0.7028 — the render's action pill: rgba(34,211,238,.10) on a .40 edge. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#1A22D3EE"/>
+    <stroke android:width="1dp" android:color="#6622D3EE"/>
+    <corners android:radius="999dp"/>
+</shape>

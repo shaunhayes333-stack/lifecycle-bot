@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.7028 — the same row, edged green.
+
+  The render brightens a row's border to rgba(52,211,153,.28) once its score
+  clears the promotion floor, so a qualifying row is visible while scrolling
+  without reading the number. Same fill: only the edge carries the verdict.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient android:type="linear" android:angle="300"
+        android:startColor="#DB141F3C" android:endColor="#ED090E1E"/>
+    <stroke android:width="1dp" android:color="#4734D399"/>
+    <corners android:radius="14dp"/>
+</shape>

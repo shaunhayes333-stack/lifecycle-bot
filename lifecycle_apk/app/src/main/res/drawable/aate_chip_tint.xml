@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.7028 — the render's inline chip, tintable.
+
+  Every artboard marks state with a small rounded chip carrying its own hue at
+  low alpha: ALERT amber on Watchlist, FOLLOW/WATCH/FADE on Insiders, the lane
+  badges on Positions. In the render each is
+  `border-radius:999px; background:rgba(<hue>,.16); color:<hue light>`.
+
+  One white shape, tinted at bind time. The alternative was a drawable file per
+  hue per screen, which is how the app ended up with tab_active_bg,
+  tab_selected_bg and pill_bg_{green,red,yellow} all meaning "a chip".
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#FFFFFFFF"/>
+    <corners android:radius="999dp"/>
+</shape>

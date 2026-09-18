@@ -604,6 +604,77 @@ class Executor(
      * This helper is the single source of truth for all price-based logic.
      */
     fun getActualPricePublic(ts: TokenState): Double = getActualPrice(ts)
+
+    /**
+     * V5.0.7029 §THE_SELL_LEG_NEVER_GOT_THE_6310_UNITS_FIX.
+     *
+     * Token quantity times a USD mark, expressed in SOL. Null when the SOL/USD
+     * rate is not trustworthy enough to convert, and a caller that gets null
+     * must REFUSE rather than book the USD figure.
+     *
+     * THE UNIT CONVENTION, which this file already states twice. Line 1416:
+     *
+     *     estimatedQty = (solAmount_SOL * solPrice_USDperSOL) / priceUsd_USDperToken
+     *                  = qty_tokens
+     *
+     * so `qtyToken` is tokens, `getActualPrice` is USD PER TOKEN, and
+     * `costSol` is SOL. Therefore `qtyToken * actualPrice` is USD. It is not
+     * SOL, and it never was.
+     *
+     * V5.0.6310 found exactly this on the BUY leg — it is the "WADDLE 1000x
+     * skew", and its comment says the missing factor left quantities "~200x
+     * too small". The SELL leg was never given the same treatment, so eight
+     * sites across the paper partial and profit-lock paths computed
+     *
+     *     val sellSol = sellQty * actualPrice          // USD, named SOL
+     *
+     * and handed it to the canonical ledger as SOL proceeds, subtracted
+     * `costSol` from it, and paid it into the paper wallet.
+     *
+     * WHAT THAT LOOKS LIKE IN THE OPERATOR'S DATA (paper CSV vs 00:47:50):
+     *
+     *   twelve canonical partials reported     +46.9204 SOL
+     *   the same twelve, from their own
+     *   entry and exit prices                  + 0.3320 SOL
+     *
+     *   position   reported gain    price-implied gain    ratio
+     *   4bs8G6aR      60,166%              451%           133.4
+     *   H1B8yG7d      58,955%              439%           134.3
+     *   8AcC8JuK      49,669%              356%           139.5
+     *   EsR3JyV6      44,451%              307%           144.8
+     *
+     * Those ratios are not noise and they are not four different bugs. They
+     * are the SOL/USD rate, drifting the way the SOL/USD rate drifts, which
+     * is the signature of exactly this conversion being absent.
+     *
+     * It also silently broke sizing in the other direction: capital recovery
+     * divided a SOL target by a USD position value, so it sold ~1/133 of what
+     * it needed to recover the entry.
+     *
+     * NOT A CAP AND NOT A THROTTLE (V5.9.1358). This changes no threshold and
+     * no fraction. It converts a currency. A genuine 1000x runner banks 1000x
+     * here, in SOL, which is what the ledger has always claimed to be counting.
+     */
+    private fun proceedsSol7029(qtyToken: Double, markPriceUsd: Double): Double? {
+        if (!qtyToken.isFinite() || qtyToken <= 0.0) return null
+        if (!markPriceUsd.isFinite() || markPriceUsd <= 0.0) return null
+        // Same 50 USD floor 6310 uses: below it the feed is cold or dead, and
+        // a bad rate would corrupt the conversion as surely as its absence.
+        val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        if (!solUsd.isFinite() || solUsd < 50.0) {
+            try {
+                PipelineHealthCollector.labelInc("PROCEEDS_SOL_UNCONVERTIBLE_7029")
+                ForensicLogger.lifecycle(
+                    "PROCEEDS_SOL_UNCONVERTIBLE_7029",
+                    "qty=$qtyToken markUsd=$markPriceUsd solUsd=$solUsd " +
+                        "action=refuse_rather_than_book_usd_as_sol",
+                )
+            } catch (_: Throwable) {}
+            return null
+        }
+        val sol = (qtyToken * markPriceUsd) / solUsd
+        return if (sol.isFinite() && sol >= 0.0) sol else null
+    }
     
     private fun getActualPrice(ts: TokenState): Double {
         // V5.0.6453 §P0-#7 — REAL PRICE CONTRACT. Stamp the freshness
@@ -5697,14 +5768,26 @@ class Executor(
             // target-recovery / expected net value, clamped to remaining position.
             // Never force a 25% minimum and never let a phantom multiple inflate
             // sell quantity/notional. Quantity is fraction of remaining tokens only.
-            val expectedNetPositionValueSol = (pos.qtyToken * actualPrice).takeIf { it.isFinite() && it > 0.0 } ?: currentValue
+            // V5.0.7029 — this was `pos.qtyToken * actualPrice`, which is USD,
+            // divided one line below by a SOL target. The recovery fraction was
+            // therefore ~1/133 of what it should be, so "sell enough to recover
+            // the entry" sold almost nothing and the position stayed fully
+            // exposed. The `?: currentValue` fallback was already SOL, so the
+            // two branches of the same variable were in different currencies.
+            val expectedNetPositionValueSol =
+                proceedsSol7029(pos.qtyToken, actualPrice)?.takeIf { it > 0.0 } ?: currentValue
             val targetRecoverySol = pos.costSol.coerceAtLeast(0.0)
             val sellFraction = (targetRecoverySol / expectedNetPositionValueSol)
                 .coerceIn(0.0, 1.0)
                 .coerceAtMost((100.0 - pos.partialSoldPct).coerceAtLeast(0.0) / 100.0)
             if (sellFraction <= 0.0) return false
             val sellQty = pos.qtyToken * sellFraction
-            val sellSol = sellQty * actualPrice
+            // V5.0.7029 — USD, not SOL; see proceedsSol7029. This value is
+            // stamped onto the position as capitalRecoveredSol and
+            // lockedProfitFloor below, so an unconverted figure did not merely
+            // misreport a number — it set a SOL-denominated profit FLOOR from
+            // a USD quantity, ~133x too high, which no later exit could clear.
+            val sellSol = proceedsSol7029(sellQty, actualPrice) ?: 0.0
             
             onLog("🔒 CAPITAL RECOVERY REQUEST: ${ts.symbol} @ ${gainMultiple.fmt(2)}x (threshold: ${capitalRecoveryThreshold.fmt(2)}x) — attempting to sell ${(sellFraction*100).toInt()}% to recover initial", ts.mint)
             try { PipelineHealthCollector.labelInc("CAPITAL_RECOVERY_NOTIFY_DEFERRED_UNTIL_FINALITY_4585") } catch (_: Throwable) {}
@@ -5753,7 +5836,8 @@ class Executor(
             val sellFraction = 0.50.coerceAtMost(remainingFraction)
             if (sellFraction <= 0.0) return false
             val sellQty = pos.qtyToken * sellFraction
-            val sellSol = sellQty * actualPrice
+            // V5.0.7029 — USD, not SOL; see proceedsSol7029.
+            val sellSol = proceedsSol7029(sellQty, actualPrice) ?: 0.0
             
             onLog("🔐 PROFIT LOCK REQUEST: ${ts.symbol} @ ${gainMultiple.fmt(2)}x (threshold: ${profitLockThreshold.fmt(2)}x) — attempting to lock 50% of remaining profits", ts.mint)
             try { PipelineHealthCollector.labelInc("PROFIT_LOCK_NOTIFY_DEFERRED_UNTIL_FINALITY_4585") } catch (_: Throwable) {}
@@ -5831,11 +5915,30 @@ class Executor(
         }
         // Paper branch — mirror the capital_recovery / profit_lock paper accounting.
         val sellQty = pos.qtyToken * sellFraction
-        val sellSol = sellQty * actualPrice
+        // V5.0.7029 — was `sellQty * actualPrice`: tokens x USD-per-token, i.e.
+        // USD, handed to the canonical ledger as SOL proceeds. This is the
+        // runner-harvest path, so it is the one that books the BIG numbers —
+        // which is why the operator's inflated partials are all winners.
+        // See proceedsSol7029 for the unit derivation and the evidence.
+        val sellSol = proceedsSol7029(sellQty, actualPrice)
+        if (sellSol == null) {
+            try {
+                ForensicLogger.lifecycle(
+                    "PAPER_PROFIT_LOCK_DECLINED_UNCONVERTIBLE_7029",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} frac=$sellFraction " +
+                        "qty=$sellQty markUsd=$actualPrice reason=$reason " +
+                        "action=decline_position_stays_open",
+                )
+                PipelineHealthCollector.labelInc("PAPER_PROFIT_LOCK_DECLINED_UNCONVERTIBLE_7029")
+            } catch (_: Throwable) {}
+            return
+        }
         val pid6510 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
         val paperFeeEstimate6510 = (pos.costSol * sellFraction) * MEME_TRADING_FEE_PERCENT
         val partial6510 = com.lifecyclebot.engine.truth.CanonicalPaperPartialOperation6510.commit(
             pid6510, ts.mint, ts.symbol, sellFraction, sellSol, paperFeeEstimate6510, reason,
+            markPriceUsd7029 = actualPrice,
+            solUsd7029 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 },
         )
         if (!partial6510.applied) return
         val decimals6510 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid6510)?.quantityScale ?: 0
@@ -8483,11 +8586,24 @@ class Executor(
                 }
             }
         }
-        val sellSol      = sellQty * actualPrice
+        // V5.0.7029 §THE_SELL_LEG_NEVER_GOT_THE_6310_UNITS_FIX.
+        //
+        // `sellQty * actualPrice` is tokens x USD-per-token, so it is USD. It
+        // was assigned to a variable called sellSol, subtracted from costSol
+        // (which really is SOL) to make paperPnlSol, handed to the canonical
+        // ledger as gross proceeds and paid into the paper wallet. Every one
+        // of those is off by the SOL/USD rate. proceedsSol7029 carries the
+        // derivation and the operator's four worked examples.
+        //
+        // Null means the SOL/USD feed is too cold to convert; the paper branch
+        // below refuses on it before anything is committed, so the 0.0 here
+        // can never reach a ledger.
+        val grossSol7029 = proceedsSol7029(sellQty, actualPrice)
+        val sellSol      = grossSol7029 ?: 0.0
         val newSoldPct   = soldPct + sellFraction * 100.0
         val newQty       = pos.qtyToken - sellQty
         val newCost      = pos.costSol * (1.0 - sellFraction)
-        val paperPnlSol  = sellQty * actualPrice - pos.costSol * sellFraction
+        val paperPnlSol  = sellSol - pos.costSol * sellFraction
         val triggerPct   = nextMilestone ?: 0.0
         
         val milestoneLabel = when (partialLevel) {
@@ -8501,7 +8617,7 @@ class Executor(
 
         val wrRecovTag = if (partialLevel == 0) " [${WrRecoveryPartial.statusTag()}]" else ""
         val partialCostBasisEstimate = pos.costSol * sellFraction
-        val partialGrossEstimate = sellQty * actualPrice
+        val partialGrossEstimate = sellSol
         val partialNetEstimate = partialGrossEstimate - partialCostBasisEstimate
         val partialPctEstimate = pct(partialCostBasisEstimate, partialGrossEstimate)
         // V5.0.4562 — PARTIAL FINALITY TRUTH.
@@ -8535,11 +8651,28 @@ class Executor(
             return false
         }
         if (pos.isPaperPosition) {
+            // V5.0.7029 — no convertible SOL/USD rate means this sale has no
+            // SOL value, and booking the USD figure is what produced the
+            // operator's 46.59 SOL of unsupported partial profit. Refuse; the
+            // milestone rearms on the next tick once the rate warms.
+            if (grossSol7029 == null) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "PAPER_PARTIAL_DECLINED_UNCONVERTIBLE_7029",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} frac=$sellFraction " +
+                            "qty=$sellQty markUsd=$actualPrice action=decline_retry_next_tick",
+                    )
+                    PipelineHealthCollector.labelInc("PAPER_PARTIAL_DECLINED_UNCONVERTIBLE_7029")
+                } catch (_: Throwable) {}
+                return false
+            }
             val paperPartialFee = (pos.costSol * sellFraction) * MEME_TRADING_FEE_PERCENT
             val paperPartialReason = if (newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct"
             val pid6510 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
             val partial6510 = com.lifecyclebot.engine.truth.CanonicalPaperPartialOperation6510.commit(
-                pid6510, ts.mint, ts.symbol, sellFraction, sellQty * actualPrice, paperPartialFee, paperPartialReason,
+                pid6510, ts.mint, ts.symbol, sellFraction, sellSol, paperPartialFee, paperPartialReason,
+                markPriceUsd7029 = actualPrice,
+                solUsd7029 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 },
             )
             if (!partial6510.applied) return false
             val decimals6510 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid6510)?.quantityScale ?: 0
@@ -8598,15 +8731,15 @@ class Executor(
             // PARTIAL_SELL but never credited the paper wallet, unlike manual
             // partials/full sells/profit locks. Credit principal+P&L less any
             // treasury share so balance, trade count, and journal move together.
-            onPaperBalanceChange?.invoke((sellQty * actualPrice) - paperPartialTreasuryShare6041)
-            try { ForensicLogger.lifecycle("PARTIAL_SELL_WALLET_CREDITED_6041", "mode=paper mint=${ts.mint.take(10)} symbol=${ts.symbol} gross=${(sellQty * actualPrice).fmtSol()} treasury=${paperPartialTreasuryShare6041.fmtSol()} delta=${((sellQty * actualPrice) - paperPartialTreasuryShare6041).fmtSol()} reason=${trade.reason}") } catch (_: Throwable) {}
+            onPaperBalanceChange?.invoke(sellSol - paperPartialTreasuryShare6041)
+            try { ForensicLogger.lifecycle("PARTIAL_SELL_WALLET_CREDITED_6041", "mode=paper mint=${ts.mint.take(10)} symbol=${ts.symbol} gross=${sellSol.fmtSol()} treasury=${paperPartialTreasuryShare6041.fmtSol()} delta=${(sellSol - paperPartialTreasuryShare6041).fmtSol()} reason=${trade.reason}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("PARTIAL_SELL_WALLET_CREDITED_6041") } catch (_: Throwable) {}
             try { ForensicLogger.lifecycle("PARTIAL_SELL_ACCOUNTING",
-                "mode=paper mint=${ts.mint.take(10)} symbol=${ts.symbol} soldPct=${(sellFraction*100).fmt(1)} cost=${partial6510.soldCostBasis.fmtSol()} gross=${(sellQty * actualPrice).fmtSol()} pnl=${paperPnlSol.fmtSignedSol()} net=${paperPartialNetPnl.fmtSignedSol()} pct=${pct(partial6510.soldCostBasis, sellQty * actualPrice).fmtPctPrecise()} reason=${trade.reason}") } catch (_: Throwable) {}
+                "mode=paper mint=${ts.mint.take(10)} symbol=${ts.symbol} soldPct=${(sellFraction*100).fmt(1)} cost=${partial6510.soldCostBasis.fmtSol()} gross=${sellSol.fmtSol()} pnl=${paperPnlSol.fmtSignedSol()} net=${paperPartialNetPnl.fmtSignedSol()} pct=${pct(partial6510.soldCostBasis, sellSol).fmtPctPrecise()} reason=${trade.reason}") } catch (_: Throwable) {}
             onLog("PAPER PARTIAL SELL ${(sellFraction*100).toInt()}% | " +
-                  "cost=${partial6510.soldCostBasis.fmtSol()} gross=${(sellQty * actualPrice).fmtSol()} pnl=${paperPnlSol.fmtSignedSol()} (${pct(partial6510.soldCostBasis, sellQty * actualPrice).fmtPctPrecise()})", ts.mint)
+                  "cost=${partial6510.soldCostBasis.fmtSol()} gross=${sellSol.fmtSol()} pnl=${paperPnlSol.fmtSignedSol()} (${pct(partial6510.soldCostBasis, sellSol).fmtPctPrecise()})", ts.mint)
             onNotify("💰 $milestoneLabel",
-                 "${ts.symbol}: sold ${(sellFraction*100).toInt()}% | PnL ${pct(partial6510.soldCostBasis, sellQty * actualPrice).fmtPctPrecise()} (${paperPartialNetPnl.fmtSignedSol()} SOL net)",
+                 "${ts.symbol}: sold ${(sellFraction*100).toInt()}% | PnL ${pct(partial6510.soldCostBasis, sellSol).fmtPctPrecise()} (${paperPartialNetPnl.fmtSignedSol()} SOL net)",
                  com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             sounds?.playMilestone(gainPct)
         } else {
@@ -8713,7 +8846,7 @@ class Executor(
                 if (pumpSig != null) {
                     sig = pumpSig
                     // Estimate solBack from current mark + sold quantity.
-                    solBack = sellQty * actualPrice
+                    solBack = sellSol
                     val partialAcct = liveSellAccountingAuthority(ts, pos.costSol * sellFraction, solBack, livePartialReason, "partial.pump")
                     livePnl = partialAcct.pnlSol
                     liveScore = partialAcct.pnlPct
@@ -20795,12 +20928,69 @@ class Executor(
         // real numbers, not a zero placeholder. Guarded — if entryPrice is
         // also invalid, we keep the 0.0 default and the reason-allowlist
         // below is the last line of defense.
-        val pnlPct = if (pnlVerdict6038.ok) {
+        // V5.0.7029 §THE_GATE_FALLBACK_BECAME_THE_PRICE.
+        //
+        // OPERATOR EVIDENCE (paper CSV export vs 00:47:50 snapshot):
+        //
+        //   twelve canonical partial sells reported   +46.9204 SOL
+        //   the same twelve, priced from their own
+        //   entry/exit prices in the same export      + 0.3320 SOL
+        //
+        //   4bs8G6aR  entry 0.00001034647  exit 0.000057  = +451%
+        //             partial row reported                 +60,166.5%
+        //             on a 0.01125 SOL slice, booked       +6.768788 SOL
+        //
+        // 0.01125 x 601.665 = 6.7687, so the reported profit IS this line's
+        // output, exactly. And +60,166% against a real +451% is a factor of
+        // ~133 — which is not a random corruption, it is the SOL/USD rate.
+        // The ratios on the other three are 134.3, 139.5 and 144.8: the same
+        // quantity, drifting the way a SOL price drifts.
+        //
+        // WHAT THE TWO BRANCHES BELOW USED TO BE. If OpenPnlSanity returned a
+        // verdict, use it; otherwise recompute (current - entry) / entry
+        // inline. The second branch is the defect, and it is worse than a
+        // missing check: OpenPnlSanity REFUSES a cost/qty-derived basis on
+        // purpose (its own §6636 says "carry/recovery entries derived from
+        // cost/qty are SOL/token, not USD/token ... can never authorize a
+        // numeric USD-mark PnL"). So the fallback recomputed, by hand, the
+        // precise number the authority had just refused, using the precise
+        // mismatch it refused it FOR — dividing a USD mark by a SOL basis.
+        //
+        // V5.0.6261 added it for a real reason: a fallback of 0.0 was tripping
+        // PARTIAL_BLOCKED_BELOW_BREAKEVEN on positions sitting at +62%. That
+        // fix was right about the GATE and wrong about everything downstream,
+        // because the same variable is then multiplied into money:
+        //     profitSol = soldValueSol * (pnlPct / 100.0)
+        // A number good enough to decide "not obviously a loser, let the
+        // ladder run" is not good enough to decide how many SOL just arrived.
+        //
+        // WHY NO EXISTING CHECK CAUGHT IT. Once committed, the corrupted
+        // proceeds are what every ledger records, so conservation is exactly
+        // zero, qtyMismatch is zero and arithDivergences is zero — they prove
+        // the ledgers agree with each other, never that the originating
+        // economics were right. The magnitude guards did not fire either:
+        // +60,166% is well under ABSURD_GAIN_MULTIPLE's +100,000%, and it has
+        // to be, because a runner really can do 1000x (V5.9.1358).
+        //
+        // Split in two. The gate keeps its fallback. The money does not get
+        // one: an unpriceable basis means the SALE is not priced, full stop.
+        val gatePnlPct7029 = if (pnlVerdict6038.ok) {
             pnlVerdict6038.pnlPct
         } else if (ts.position.entryPrice > 0.0 && currentPrice > 0.0) {
             (currentPrice - ts.position.entryPrice) / ts.position.entryPrice * 100.0
         } else {
             0.0
+        }
+        val pnlPct = gatePnlPct7029
+        // The ONLY pnl allowed to price a sale. Null when the basis authority
+        // refused, and the paper branch below then declines the partial rather
+        // than booking a number nothing can stand behind.
+        val economicPnlPct7029: Double? = if (pnlVerdict6038.ok) pnlVerdict6038.pnlPct else null
+        if (economicPnlPct7029 == null) {
+            try {
+                PipelineHealthCollector.labelInc("PARTIAL_ECONOMICS_UNPRICEABLE_7029")
+                PipelineHealthCollector.labelInc("PARTIAL_ECONOMICS_UNPRICEABLE_7029_${pnlVerdict6038.reason}")
+            } catch (_: Throwable) {}
         }
 
         // V5.9.1515 — P0 FIX 3: NEVER partial-ladder a deeply red position.
@@ -20863,14 +21053,45 @@ class Executor(
                 return
             }
             try { ForensicLogger.lifecycle("PAPER_PARTIAL_CLOSE_REQUESTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pct=$pct qty=${pos.qtyToken}") } catch (_: Throwable) {}
+            // V5.0.7029 — see the §THE_GATE_FALLBACK_BECAME_THE_PRICE block
+            // above. A partial whose basis the authority refused is DECLINED,
+            // not priced from a hand-recomputed percentage.
+            //
+            // Declining is safe and is not a lost exit: a partial is an
+            // optional ladder step, the position stays open, and every exit
+            // path — protective scheduler, universal sweep, risk clock — still
+            // owns it and will close it on a mark it can actually stand
+            // behind. The alternative is what shipped: 46.59 SOL of paper
+            // profit that no price anywhere in the export supports, feeding
+            // equity, expectancy and every reward the learners consume.
+            if (economicPnlPct7029 == null) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "PAPER_PARTIAL_DECLINED_UNPRICEABLE_BASIS_7029",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} pct=$pct " +
+                            "reason=${pnlVerdict6038.reason} entry=${pos.entryPrice} mark=$currentPrice " +
+                            "gatePnl=${"%.2f".format(gatePnlPct7029)} " +
+                            "action=decline_partial_position_stays_open_for_full_exit",
+                    )
+                    PipelineHealthCollector.labelInc("PAPER_PARTIAL_DECLINED_UNPRICEABLE_BASIS_7029")
+                } catch (_: Throwable) {}
+                return
+            }
             val soldValueSol = pos.costSol * pct
-            val profitSol = soldValueSol * (pnlPct / 100.0)
+            val profitSol = soldValueSol * (economicPnlPct7029 / 100.0)
             val newSoldPct = pos.partialSoldPct + (pct * 100.0)
             val partialSellFee = soldValueSol * MEME_TRADING_FEE_PERCENT
             val manualReason6510 = if (newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct"
             val pid6510 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
             val partial6510 = com.lifecyclebot.engine.truth.CanonicalPaperPartialOperation6510.commit(
                 pid6510, ts.mint, ts.symbol, pct, soldValueSol + profitSol, partialSellFee, manualReason6510,
+                // V5.0.7029 — hand the commit the two figures it needs to
+                // reconstruct these proceeds independently. Without them
+                // grossProceeds is an opaque number that every ledger simply
+                // agrees with, which is how 46.59 SOL of unsupported profit
+                // passed conservation, qtyMismatch and arithDivergences.
+                markPriceUsd7029 = currentPrice,
+                solUsd7029 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 },
             )
             if (!partial6510.applied) return
             val decimals6510 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid6510)?.quantityScale ?: 0

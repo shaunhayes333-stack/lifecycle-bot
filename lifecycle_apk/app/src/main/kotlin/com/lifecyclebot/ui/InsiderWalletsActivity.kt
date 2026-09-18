@@ -29,6 +29,9 @@ class InsiderWalletsActivity : AppCompatActivity() {
     private lateinit var tabPolitical: TextView
     private lateinit var tabSmartMoney: TextView
     private lateinit var tabCustom: TextView
+    // V5.0.7028 — the render's exposure graph and its headline figure.
+    private var flowGraph7028: FlowGraphView7028? = null
+    private var tvFlowValue7028: TextView? = null
 
     private val scope = CoroutineScope(Dispatchers.Main + Job())
     private var currentFilter: InsiderCategory? = null // null = ALL
@@ -56,6 +59,8 @@ class InsiderWalletsActivity : AppCompatActivity() {
         tabPolitical = findViewById(R.id.tabPolitical)
         tabSmartMoney = findViewById(R.id.tabSmartMoney)
         tabCustom = findViewById(R.id.tabCustom)
+        flowGraph7028 = findViewById(R.id.flowGraphInsiders)
+        tvFlowValue7028 = findViewById(R.id.tvInsiderFlowValue)
 
         // Init tracker if not already
         InsiderWalletTracker.init(applicationContext)
@@ -84,17 +89,67 @@ class InsiderWalletsActivity : AppCompatActivity() {
         val tabs = listOf(tabAll, tabPolitical, tabSmartMoney, tabCustom)
         val cats: List<InsiderCategory?> = listOf(null, InsiderCategory.POLITICAL, InsiderCategory.SMART_MONEY, InsiderCategory.CUSTOM)
 
+        // V5.0.7028 — the render's tabs are rounded pills whose SELECTED state
+        // is a brighter cyan edge, not a different hue. setBackgroundColor()
+        // replaced the whole drawable with a flat fill, so the moment a tab was
+        // touched it lost its corners and its hairline and became a coloured
+        // rectangle — which is why the tab strip looked nothing like the render
+        // after the first tap regardless of what the layout declared.
         tabs.forEachIndexed { index, tab ->
             if (cats[index] == category) {
-                tab.setTextColor(purple)
-                tab.setBackgroundColor(AateUi.SURFACE)
+                tab.setTextColor(0xFF67E8F9.toInt())
+                tab.setBackgroundResource(R.drawable.aate_tab_pill_on)
             } else {
-                tab.setTextColor(muted)
-                tab.setBackgroundColor(0x00000000)
+                tab.setTextColor(0xFF8FA3C8.toInt())
+                tab.setBackgroundResource(R.drawable.aate_tab_pill_off)
             }
         }
 
         buildWalletList()
+    }
+
+    /**
+     * V5.0.7028 — feed the exposure graph from cached holdings only.
+     *
+     * Line weight is each wallet's share of the tracked total, colour is its
+     * category. A wallet with no cached fetch contributes no line, so a screen
+     * opened before anything has been fetched draws an empty card and says
+     * "not fetched" rather than showing a graph of nothing.
+     */
+    private fun refreshFlowGraph7028() {
+        val graph = flowGraph7028 ?: return
+        val totals = try { InsiderWalletTracker.cachedTotalsSnapshot7028() } catch (_: Throwable) { emptyMap() }
+        val wallets = try { InsiderWalletTracker.getTrackedWallets() } catch (_: Throwable) { emptyList() }
+        val priced = wallets.mapNotNull { w ->
+            val usd = totals[w.address] ?: return@mapNotNull null
+            if (usd <= 0.0) null else w to usd
+        }.sortedByDescending { it.second }.take(8)
+
+        if (priced.isEmpty()) {
+            graph.setFlows(IntArray(0), FloatArray(0))
+            tvFlowValue7028?.apply {
+                text = "not fetched"
+                setTextColor(muted)
+            }
+            return
+        }
+
+        val total = priced.sumOf { it.second }
+        graph.setFlows(
+            priced.map { (w, _) ->
+                when (w.category) {
+                    InsiderCategory.POLITICAL -> AateUi.AMBER
+                    InsiderCategory.SMART_MONEY -> AateUi.GREEN
+                    InsiderCategory.CUSTOM -> AateUi.CYAN
+                }
+            }.toIntArray(),
+            priced.map { (_, usd) -> (usd / total).toFloat() }.toFloatArray(),
+        )
+        graph.poolColor = AateUi.GREEN
+        tvFlowValue7028?.apply {
+            text = "$" + String.format(Locale.US, "%,.0f", total) + " · " + priced.size + "w"
+            setTextColor(green)
+        }
     }
 
     private fun buildWalletList() {
@@ -106,7 +161,8 @@ class InsiderWalletsActivity : AppCompatActivity() {
             InsiderWalletTracker.getWalletsByCategory(currentFilter!!)
         }
 
-        tvWalletCount.text = "${wallets.size} wallets tracked"
+        tvWalletCount.text = "${wallets.size} tracked"
+        refreshFlowGraph7028()
 
         if (wallets.isEmpty()) {
             llWalletList.addView(TextView(this).apply {
@@ -125,11 +181,19 @@ class InsiderWalletsActivity : AppCompatActivity() {
     }
 
     private fun addWalletCard(wallet: InsiderWallet) {
-        // Card container
+        // Card container.
+        // V5.0.7028 — the render's row surface: a 14dp rounded gradient with a
+        // hairline, separated by a 7dp gap. A flat setBackgroundColor over the
+        // full width made the list one continuous slab, which is why the
+        // screen read as a table of text rather than as a stack of rows.
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(12))
-            setBackgroundColor(surface)
+            setPadding(dp(11), dp(10), dp(11), dp(10))
+            setBackgroundResource(R.drawable.aate_row_card)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dp(7) }
         }
 
         // Row 1: Category badge + Label + Active toggle
@@ -149,11 +213,17 @@ class InsiderWalletsActivity : AppCompatActivity() {
             InsiderCategory.SMART_MONEY -> "WHALE"
             InsiderCategory.CUSTOM -> "CUSTOM"
         }
+        // V5.0.7028 — the render's chip: a rounded tint carrying the category's
+        // own hue, not a hard black-on-solid rectangle. Tinting one shared
+        // rounded drawable keeps this to a single file for all three lanes.
         headerRow.addView(TextView(this).apply {
             text = badgeText
-            textSize = 9f
-            setTextColor(0xFF000000.toInt())
-            setBackgroundColor(badgeColor)
+            textSize = 8f
+            setTextColor(badgeColor)
+            background = androidx.core.content.ContextCompat
+                .getDrawable(this@InsiderWalletsActivity, R.drawable.aate_chip_tint)
+                ?.mutate()
+                ?.also { it.setTint((badgeColor and 0x00FFFFFF) or 0x28000000) }
             setPadding(dp(6), dp(2), dp(6), dp(2))
             typeface = android.graphics.Typeface.DEFAULT_BOLD
         })

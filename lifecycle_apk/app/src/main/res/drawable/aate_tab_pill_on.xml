@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.7028 — selected tab, from the render's tab strip.
+
+  12px radius, rgba(34,211,238,.14) fill on a rgba(34,211,238,.50) edge. The
+  shipped tab_active_bg was a square-ish purple block; the render's tabs are
+  rounded and cyan, and the selected one is distinguished by EDGE brightness,
+  not by a different hue from its neighbours.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#2422D3EE"/>
+    <stroke android:width="1dp" android:color="#8022D3EE"/>
+    <corners android:radius="12dp"/>
+</shape>

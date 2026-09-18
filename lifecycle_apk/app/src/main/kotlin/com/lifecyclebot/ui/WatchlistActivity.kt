@@ -128,38 +128,145 @@ class WatchlistActivity : AppCompatActivity() {
         addDivider()
 
         items.forEach { item ->
+            // V5.0.7028 — project/Watchlist.dc.html's row.
+            //
+            // The render's row is HORIZONTAL and reads left to right as
+            // identity -> context -> shape -> verdict:
+            //
+            //   [CW]  catwifout  ALERT        ╱╲╱   74
+            //         DEX_BOOSTED · QUALITY        score
+            //
+            // The shipped row was a vertical stack of symbol / price / change
+            // with two text links under it, so every row was four lines tall,
+            // eight rows filled the screen, and none of them showed whether
+            // the price was going anywhere. Same data, a quarter of the
+            // height, plus the one thing that was missing: the trail.
+            val changeColor = if (item.change24hPct >= 0) green else red
+            val alertCount = WatchlistEngine.getAlertsForSymbol(item.symbol).count { it.isActive }
+
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(16), dp(10), dp(16), dp(10))
-                setBackgroundColor(surface)
+                setPadding(dp(11), dp(10), dp(11), dp(10))
+                setBackgroundResource(
+                    if (alertCount > 0) R.drawable.aate_row_card_hot else R.drawable.aate_row_card
+                )
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply { bottomMargin = dp(7) }
             }
 
-            // Row 1: Symbol + Price + Change
             val row1 = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
             }
-            row1.addView(TextView(this).apply {
-                text = item.symbol
-                textSize = 16f
-                setTextColor(white)
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                layoutParams = LinearLayout.LayoutParams(dp(80), LinearLayout.LayoutParams.WRAP_CONTENT)
+
+            // Identity tile. The render gives each row a 30px rounded square
+            // carrying the first two letters, tinted by whether the row is
+            // live — it is what makes a list of tickers scannable by shape
+            // instead of by reading every name.
+            row1.addView(GradientTileView7028(this).apply {
+                cornerDp = 10f
+                labelSizeSp = 11f
+                val hot = alertCount > 0
+                setTile(
+                    item.symbol.take(2).uppercase(),
+                    if (hot) 0xFF34D399.toInt() else 0xFF2B4570.toInt(),
+                    if (hot) 0xFF22D3EE.toInt() else 0xFF18244A.toInt(),
+                    if (hot) AateUi.BG else AateUi.TEXT,
+                )
+                layoutParams = LinearLayout.LayoutParams(dp(30), dp(30)).apply {
+                    marginEnd = dp(9)
+                }
             })
-            row1.addView(TextView(this).apply {
-                text = if (item.lastPrice > 0) "$${"%,.2f".format(item.lastPrice)}" else "---"
-                textSize = 14f
-                setTextColor(white)
+
+            val idCol = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            })
-            val changeColor = if (item.change24hPct >= 0) green else red
-            row1.addView(TextView(this).apply {
-                text = "${if (item.change24hPct >= 0) "+" else ""}${"%.2f".format(item.change24hPct)}%"
-                textSize = 14f
-                setTextColor(changeColor)
+            }
+            val nameRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            nameRow.addView(TextView(this).apply {
+                text = item.symbol
+                textSize = 12f
+                setTextColor(white)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
+            })
+            if (alertCount > 0) {
+                nameRow.addView(TextView(this).apply {
+                    text = if (alertCount > 1) "$alertCount ALERTS" else "ALERT"
+                    textSize = 8f
+                    setTextColor(0xFFFDE68A.toInt())
+                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                    background = androidx.core.content.ContextCompat
+                        .getDrawable(this@WatchlistActivity, R.drawable.aate_chip_tint)
+                        ?.mutate()?.also { it.setTint(0x28FBBF24) }
+                    setPadding(dp(6), dp(2), dp(6), dp(2))
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                    ).apply { marginStart = dp(6) }
+                })
+            }
+            idCol.addView(nameRow)
+            idCol.addView(TextView(this).apply {
+                // The render's second line is the SOURCE. The app's watchlist
+                // items carry a signal and a price instead, so that is what
+                // this says — the layout is the render's, the content is what
+                // this screen actually knows.
+                text = buildString {
+                    append(if (item.lastPrice > 0) "$" + "%,.4f".format(item.lastPrice) else "no mark")
+                    if (item.signal.isNotBlank() && item.signal != "NEUTRAL") {
+                        append(" · ").append(item.signal)
+                    }
+                }
+                textSize = 9f
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            })
+            row1.addView(idCol)
+
+            // The trail. Drawn only when the scan has actually recorded two or
+            // more points; a single observation gets no line, because a flat
+            // stroke would assert a steady price nobody watched.
+            val trail = try { WatchlistEngine.priceTrail7028(item.symbol) } catch (_: Throwable) { FloatArray(0) }
+            if (trail.size >= 2) {
+                row1.addView(SparklineView7009(this).apply {
+                    lineColor = changeColor
+                    strokeWidthDp = 1.5f
+                    setSeries(trail, animate = false)
+                    layoutParams = LinearLayout.LayoutParams(dp(44), dp(20)).apply {
+                        marginStart = dp(8)
+                        marginEnd = dp(8)
+                    }
+                })
+            }
+
+            val verdict = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.END
+            }
+            verdict.addView(TextView(this).apply {
+                text = "${if (item.change24hPct >= 0) "+" else ""}${"%.1f".format(item.change24hPct)}%"
+                textSize = 12f
+                setTextColor(changeColor)
+                typeface = android.graphics.Typeface.create(
+                    android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD,
+                )
                 gravity = Gravity.END
             })
+            verdict.addView(TextView(this).apply {
+                text = "24h"
+                textSize = 8f
+                setTextColor(0xFF566B90.toInt())
+                typeface = android.graphics.Typeface.MONOSPACE
+                gravity = Gravity.END
+            })
+            row1.addView(verdict)
             card.addView(row1)
 
             // Row 2: Actions
@@ -185,15 +292,9 @@ class WatchlistActivity : AppCompatActivity() {
                     buildContent()
                 }
             })
-            val alertCount = WatchlistEngine.getAlertsForSymbol(item.symbol).count { it.isActive }
-            if (alertCount > 0) {
-                row2.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 0, 1f) })
-                row2.addView(TextView(this).apply {
-                    text = "$alertCount alert${if (alertCount > 1) "s" else ""}"
-                    textSize = 10f
-                    setTextColor(amber)
-                })
-            }
+            // V5.0.7028 — the alert count moved up into the row's ALERT chip,
+            // where the render puts it. Repeating it here as a third trailing
+            // label is what made the old row four lines tall.
             card.addView(row2)
 
             llContent.addView(card)

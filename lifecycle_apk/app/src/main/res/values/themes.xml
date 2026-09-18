@@ -162,27 +162,73 @@
 
     <!-- ── TYPE SCALE ─────────────────────────────────────────────────── -->
 
-    <!-- Screen title: "NEURAL PERSONALITY" / "TRADE JOURNAL" -->
+    <!--
+      Screen title: "Watchlist", "Insider Wallets", "Trade Journal".
+
+      V5.0.7028 §THE_HEADER_WAS_WRONG_ON_ALL_TWENTY_ONE_SCREENS.
+
+      This style was 19sp MONOSPACE, ALL CAPS, letterSpacing .10 — so every
+      screen in the app opened with "TRADE JOURNAL" spaced out in a terminal
+      face. Not one artboard does that. The render's titles are 18px Space
+      Grotesk, bold, SENTENCE CASE, no tracking, and it is the uppercase
+      LETTERSPACED line UNDERNEATH that carries the terminal character.
+
+      That inversion is most of why the operator kept saying the screens were
+      "not close": the first thing the eye lands on, on every screen, was set
+      in the wrong case, the wrong face and the wrong rhythm. Fixing it here
+      fixes all twenty-one at once, because every one of them uses this style
+      — which is also why nobody caught it: it was never wrong on ONE screen.
+
+      sans-serif-medium, not monospace: Space Grotesk is not bundled, and of
+      the system faces it is the geometric sans that sits closest. The mono
+      face is kept for NUMBERS, where it belongs and where the render also
+      uses it (JetBrains Mono on every figure).
+    -->
     <style name="AateScreenTitle">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:textColor">@color/aate_text</item>
-        <item name="android:textSize">19sp</item>
+        <item name="android:textSize">18sp</item>
         <item name="android:textStyle">bold</item>
-        <item name="android:fontFamily">monospace</item>
-        <item name="android:letterSpacing">0.10</item>
-        <item name="android:textAllCaps">true</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:letterSpacing">0.0</item>
+        <item name="android:textAllCaps">false</item>
     </style>
 
-    <!-- Sub-title under a screen title: "Instinct · Plasticity · Layer Health" -->
+    <!--
+      Sub-title under a screen title: "DISCOVER · TRACK · PROMOTE".
+
+      V5.0.7028 — now the uppercase tracked line the render actually uses
+      (10px, #7E93BC, letter-spacing .05), and the place the terminal voice
+      moved to when the title above it stopped shouting.
+    -->
     <style name="AateScreenSubtitle">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:textColor">@color/aate_text_muted</item>
+        <item name="android:textColor">#7E93BC</item>
         <item name="android:textSize">10sp</item>
-        <item name="android:fontFamily">monospace</item>
-        <item name="android:letterSpacing">0.06</item>
+        <item name="android:letterSpacing">0.05</item>
+        <item name="android:textAllCaps">true</item>
         <item name="android:layout_marginTop">2dp</item>
+    </style>
+
+    <!--
+      V5.0.7028 — one PIN keypad key. project/Security.dc.html: 62px tall,
+      21px radius, Space Grotesk 600 at 22px. Declared here rather than
+      repeated twelve times in the layout.
+    -->
+    <style name="AateKeypadKey">
+        <item name="android:layout_width">78dp</item>
+        <item name="android:layout_height">62dp</item>
+        <item name="android:layout_margin">6dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textColor">@color/aate_text</item>
+        <item name="android:textSize">22sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:background">@drawable/aate_keypad_key</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
     </style>
 
     <!-- Card/section heading: "COLLECTIVE INTELLIGENCE", "ENTRY GATES" -->

@@ -1,4 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.7028 — Insiders, rebuilt against project/Insiders.dc.html.
+
+  WHAT THE RENDER HAS THAT THE SHIPPED SCREEN DID NOT. A NET FLOW · 1H card:
+  six dashed lines, one per tracked cluster, weighted by size and marching
+  from source dots on the left into a POOL block on the right. It is the only
+  element that answers the question the screen exists to ask — is smart money
+  moving IN or OUT right now — and the shipped screen had a tab bar, a
+  "0 wallets tracked" line and a vertical list of addresses, none of which
+  answer it. You could read the whole screen and still not know the direction.
+
+  Also from the render and now present: the bordered back tile, the pink
+  live-count with a pulsing dot, rounded pill tabs on a cyan edge rather than
+  square purple blocks, and the closing advisory card that states the rule
+  (copy-trade shapes size, it never bypasses the rug scan) instead of leaving
+  the user to assume one.
+
+  Every id the activity binds is preserved: btnInsiderBack, tvWalletCount,
+  btnRefreshAll, btnAddWallet, tabAll, tabPolitical, tabSmartMoney, tabCustom,
+  progressLoading, llWalletList.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -6,26 +27,27 @@
     android:orientation="vertical"
     android:fitsSystemWindows="true">
 
-    <!-- ── TOP BAR ── -->
+    <!-- ── HEADER ── -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="@dimen/screen_padding"
-        android:paddingEnd="@dimen/screen_padding"
-        android:paddingTop="10dp"
-        android:paddingBottom="8dp"
-        android:background="@drawable/aate_screen_bg">
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="13dp"
+        android:paddingBottom="8dp">
 
         <TextView
             android:id="@+id/btnInsiderBack"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:gravity="center"
             android:text="←"
-            android:textColor="@color/aate_text"
-            android:textSize="22sp"
-            android:paddingEnd="12dp"
+            android:textColor="@color/aate_text_secondary"
+            android:textSize="16sp"
+            android:background="@drawable/aate_back_tile"
+            android:contentDescription="Back"
             android:clickable="true"
             android:focusable="true"/>
 
@@ -33,106 +55,223 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:orientation="vertical">
-            <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_marginStart="11dp"
             android:orientation="vertical">
 
             <TextView
                 style="@style/AateScreenTitle"
-                android:text="Insider Tracker"/>
+                android:text="Insider Wallets"/>
 
             <TextView
-                style="@style/AateScreenSubtitle"
-                android:text="Track · Cluster · Alert"/>
-        </LinearLayout>
-            <TextView android:id="@+id/tvWalletCount"
-                android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="0 wallets tracked" android:textColor="@color/aate_text_muted"
-                android:textSize="9sp" android:fontFamily="monospace"/>
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="SMART MONEY · FOLLOW · FADE"
+                android:textColor="#7E93BC"
+                android:textSize="10sp"
+                android:letterSpacing="0.05"/>
         </LinearLayout>
 
-        <TextView android:id="@+id/btnRefreshAll"
-            android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:text="↻" android:textColor="@color/aate_green" android:textSize="18sp"
-            android:paddingEnd="10dp" android:clickable="true" android:focusable="true"/>
+        <!-- Live tracked count. The render puts this in the header, not in a
+             second line under the title, because it is a STATE not a caption. -->
+        <View
+            android:id="@+id/dotInsiderLive"
+            android:layout_width="5dp"
+            android:layout_height="5dp"
+            android:layout_marginEnd="5dp"
+            android:background="@drawable/dot_pink"/>
 
-        <TextView android:id="@+id/btnAddWallet"
-            android:layout_width="wrap_content" android:layout_height="32dp"
+        <TextView
+            android:id="@+id/tvWalletCount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0 tracked"
+            android:textColor="@color/aate_pink_soft"
+            android:textSize="10sp"/>
+
+        <TextView
+            android:id="@+id/btnRefreshAll"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="↻"
+            android:textColor="@color/aate_cyan"
+            android:textSize="15sp"
+            android:paddingStart="10dp"
+            android:paddingEnd="8dp"
+            android:contentDescription="Refresh all"
+            android:clickable="true"
+            android:focusable="true"/>
+
+        <TextView
+            android:id="@+id/btnAddWallet"
+            android:layout_width="wrap_content"
+            android:layout_height="26dp"
             android:gravity="center"
-            android:text="+ Add" android:textColor="@color/aate_bg_deep" android:textSize="11sp"
+            android:text="+ Add"
+            android:textColor="#67E8F9"
+            android:textSize="10sp"
             android:textStyle="bold"
-            android:background="@drawable/pill_bg_green"
-            android:paddingStart="12dp" android:paddingEnd="12dp"
-            android:clickable="true" android:focusable="true"/>
+            android:background="@drawable/aate_pill_cyan"
+            android:paddingStart="11dp"
+            android:paddingEnd="11dp"
+            android:clickable="true"
+            android:focusable="true"/>
     </LinearLayout>
 
-    <!-- Category tabs -->
+    <!-- ── NET FLOW · 1H ── -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="40dp"
-        android:orientation="horizontal"
-        android:paddingStart="@dimen/screen_padding"
-        android:paddingEnd="@dimen/screen_padding"
-        android:paddingTop="4dp"
-        android:paddingBottom="4dp"
-        android:background="@drawable/aate_screen_bg">
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginTop="4dp"
+        android:padding="12dp"
+        android:background="@drawable/aate_accent_card_pink">
 
-        <TextView android:id="@+id/tabAll"
-            android:layout_width="0dp" android:layout_height="match_parent"
-            android:layout_weight="1" android:gravity="center"
-            android:text="ALL" android:textColor="@color/aate_purple" android:textSize="11sp"
-            android:textStyle="bold" android:fontFamily="monospace"
-            android:background="@drawable/tab_active_bg"
-            android:layout_marginEnd="4dp"
-            android:clickable="true" android:focusable="true"
-        android:letterSpacing="0.12" />
-        <TextView android:id="@+id/tabPolitical"
-            android:layout_width="0dp" android:layout_height="match_parent"
-            android:layout_weight="1" android:gravity="center"
-            android:text="POLITICAL" android:textColor="@color/aate_text_muted" android:textSize="11sp"
-            android:fontFamily="monospace"
-            android:background="@drawable/tab_inactive_bg"
-            android:layout_marginEnd="4dp"
-            android:clickable="true" android:focusable="true"
-        android:letterSpacing="0.12" />
-        <TextView android:id="@+id/tabSmartMoney"
-            android:layout_width="0dp" android:layout_height="match_parent"
-            android:layout_weight="1" android:gravity="center"
-            android:text="SMART $" android:textColor="@color/aate_text_muted" android:textSize="11sp"
-            android:fontFamily="monospace"
-            android:background="@drawable/tab_inactive_bg"
-            android:layout_marginEnd="4dp"
-            android:clickable="true" android:focusable="true"
-        android:letterSpacing="0.12" />
-        <TextView android:id="@+id/tabCustom"
-            android:layout_width="0dp" android:layout_height="match_parent"
-            android:layout_weight="1" android:gravity="center"
-            android:text="CUSTOM" android:textColor="@color/aate_text_muted" android:textSize="11sp"
-            android:fontFamily="monospace"
-            android:background="@drawable/tab_inactive_bg"
-            android:clickable="true" android:focusable="true"
-        android:letterSpacing="0.12" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="6dp">
+
+            <!--
+              The render captions this "NET FLOW · 1H" against a mocked
+              +412 SOL. InsiderWalletTracker holds no flow series — it caches
+              a portfolio TOTAL per wallet and nothing time-resolved — so
+              shipping the render's caption would put a number on this screen
+              that measures something other than what it says, which is the
+              exact defect the rest of this session has been removing. The
+              graph is real; the caption matches what feeds it.
+            -->
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="TRACKED EXPOSURE"
+                android:textColor="#7E93BC"
+                android:textSize="9sp"
+                android:letterSpacing="0.14"/>
+
+            <TextView
+                android:id="@+id/tvInsiderFlowValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="—"
+                android:textColor="@color/aate_green"
+                android:textSize="11sp"
+                android:fontFamily="monospace"/>
+        </LinearLayout>
+
+        <com.lifecyclebot.ui.FlowGraphView7028
+            android:id="@+id/flowGraphInsiders"
+            android:layout_width="match_parent"
+            android:layout_height="96dp"/>
     </LinearLayout>
 
-    <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="@drawable/aate_universe_list_bg"/>
+    <!-- ── TABS ── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginTop="10dp">
+
+        <TextView android:id="@+id/tabAll"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:gravity="center"
+            android:text="ALL" android:textColor="#67E8F9" android:textSize="11sp"
+            android:textStyle="bold"
+            android:paddingTop="9dp" android:paddingBottom="9dp"
+            android:background="@drawable/aate_tab_pill_on"
+            android:layout_marginEnd="6dp"
+            android:clickable="true" android:focusable="true"/>
+
+        <TextView android:id="@+id/tabPolitical"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:gravity="center"
+            android:text="POLITICAL" android:textColor="#8FA3C8" android:textSize="11sp"
+            android:textStyle="bold"
+            android:paddingTop="9dp" android:paddingBottom="9dp"
+            android:background="@drawable/aate_tab_pill_off"
+            android:layout_marginEnd="6dp"
+            android:clickable="true" android:focusable="true"/>
+
+        <TextView android:id="@+id/tabSmartMoney"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:gravity="center"
+            android:text="SMART $" android:textColor="#8FA3C8" android:textSize="11sp"
+            android:textStyle="bold"
+            android:paddingTop="9dp" android:paddingBottom="9dp"
+            android:background="@drawable/aate_tab_pill_off"
+            android:layout_marginEnd="6dp"
+            android:clickable="true" android:focusable="true"/>
+
+        <TextView android:id="@+id/tabCustom"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:gravity="center"
+            android:text="CUSTOM" android:textColor="#8FA3C8" android:textSize="11sp"
+            android:textStyle="bold"
+            android:paddingTop="9dp" android:paddingBottom="9dp"
+            android:background="@drawable/aate_tab_pill_off"
+            android:clickable="true" android:focusable="true"/>
+    </LinearLayout>
 
     <ProgressBar android:id="@+id/progressLoading"
         android:layout_width="match_parent" android:layout_height="3dp"
         style="@android:style/Widget.ProgressBar.Horizontal"
         android:indeterminate="true"
-        android:progressTint="@color/aate_purple"
+        android:progressTint="@color/aate_pink"
+        android:layout_marginTop="6dp"
         android:visibility="gone"/>
 
-    <ScrollView android:layout_width="match_parent" android:layout_height="match_parent">
+    <!-- ── WALLETS ── -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:scrollbars="none">
+
         <LinearLayout android:id="@+id/llWalletList"
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:paddingStart="@dimen/screen_padding"
-            android:paddingEnd="@dimen/screen_padding"
-            android:paddingTop="8dp"
-            android:paddingBottom="32dp"/>
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="12dp"
+            android:paddingBottom="12dp"/>
     </ScrollView>
+
+    <!-- ── THE RULE ── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="16dp"
+        android:paddingStart="13dp"
+        android:paddingEnd="13dp"
+        android:paddingTop="11dp"
+        android:paddingBottom="11dp"
+        android:background="@drawable/aate_note_amber">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="ⓘ"
+            android:textColor="#FDE68A"
+            android:textSize="13sp"
+            android:layout_marginEnd="9dp"/>
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Copy-trade signals are advisory. They shape size, never bypass the rug scan."
+            android:textColor="#FDE68A"
+            android:textSize="10sp"
+            android:lineSpacingMultiplier="1.4"/>
+    </LinearLayout>
 </LinearLayout>

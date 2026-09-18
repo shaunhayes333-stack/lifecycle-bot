@@ -124,6 +124,9 @@ object WatchlistEngine {
         watchlist.entries.removeAll { it.value.symbol.equals(symbol, true) }
         // Remove associated alerts
         alerts.entries.removeAll { it.value.symbol == symbol }
+        // V5.0.7028 — and its price trail, so re-adding a symbol starts a new
+        // series rather than resuming one recorded before it was dropped.
+        priceTrail7028.remove(symbol)
         saveWatchlist()
         saveAlerts()
     }
@@ -190,6 +193,7 @@ object WatchlistEngine {
                     item.change24hPct = mintToken.priceChange24h
                     item.volume24h = mintToken.volume24h
                     item.lastUpdated = now
+                    noteTrail7028(symbol, item.lastPrice)
                     checkAlerts(symbol, item.lastPrice, item.change24hPct, item.volume24h)
                     continue
                 }
@@ -201,11 +205,54 @@ object WatchlistEngine {
                 item.change24hPct = data.priceChange24hPct
                 item.volume24h = data.volume24h
                 item.lastUpdated = now
+                noteTrail7028(symbol, data.price)
                 checkAlerts(symbol, data.price, data.priceChange24hPct, data.volume24h)
             } catch (e: Exception) {
                 ErrorLogger.debug(TAG, "Scan error for $symbol: ${e.message}")
             }
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // V5.0.7028 — PRICE TRAIL, so the watchlist row can carry a sparkline.
+    //
+    // project/Watchlist.dc.html draws a 44x20 line on every row, and the app
+    // had nowhere to draw one from: WatchlistItem holds lastPrice and a 24h
+    // percentage and no series at all. A sparkline is the one element on that
+    // screen that shows SHAPE rather than a level — whether a mint is grinding
+    // up, bleeding, or chopping — and none of the three numbers on the row
+    // answer that.
+    //
+    // A bounded per-symbol ring buffer appended by the scan that already has
+    // the price in hand. Twenty-four points, no extra fetch, no new provider,
+    // and it is dropped the moment a symbol leaves the watchlist.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    private const val TRAIL_POINTS_7028 = 24
+    private val priceTrail7028 = ConcurrentHashMap<String, ArrayDeque<Double>>()
+
+    private fun noteTrail7028(symbol: String, price: Double) {
+        if (!price.isFinite() || price <= 0.0) return
+        val q = priceTrail7028.getOrPut(symbol) { ArrayDeque(TRAIL_POINTS_7028 + 1) }
+        synchronized(q) {
+            // An unchanged tick is still a tick: a flat stretch is information
+            // about the mint, not a reason to compress the series.
+            q.addLast(price)
+            while (q.size > TRAIL_POINTS_7028) q.removeFirst()
+        }
+    }
+
+    /**
+     * The recorded trail for one symbol, oldest first. Fewer than two points
+     * means there is nothing to draw — callers must render NOTHING rather than
+     * a flat line, because a flat line claims a steady price that was never
+     * observed.
+     */
+    fun priceTrail7028(symbol: String): FloatArray {
+        val q = priceTrail7028[symbol] ?: return FloatArray(0)
+        val snap = synchronized(q) { q.toList() }
+        if (snap.size < 2) return FloatArray(0)
+        return FloatArray(snap.size) { snap[it].toFloat() }
     }
 
     private fun checkAlerts(symbol: String, price: Double, change: Double, volume: Double) {

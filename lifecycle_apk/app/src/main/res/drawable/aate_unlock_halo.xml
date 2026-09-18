@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.7028 — the unlock screen's halo.
+
+  project/Security.dc.html: a 320px circle of
+  `radial-gradient(circle, rgba(139,92,246,.30) 0%, rgba(139,92,246,0) 68%)`
+  breathing behind the lock. splash_glow is cyan-to-green and belongs to the
+  splash; this one is violet, which is what makes the two screens read as
+  different moments rather than as the same screen twice.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <gradient
+        android:type="radial"
+        android:gradientRadius="160dp"
+        android:startColor="#4D8B5CF6"
+        android:centerColor="#1F8B5CF6"
+        android:endColor="#00000000"/>
+</shape>

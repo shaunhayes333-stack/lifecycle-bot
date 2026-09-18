@@ -700,6 +700,19 @@ object InsiderWalletTracker {
         )
     }
 
+    /**
+     * V5.0.7028 — cached portfolio total per wallet, address -> USD.
+     *
+     * Read-only and NETWORK-FREE: the Insiders exposure graph draws from this,
+     * and a chart that triggers a fetch every time it lays out would put the
+     * screen's decoration on the same rate budget as its data. A wallet whose
+     * holdings have never been fetched is simply absent, so the graph can draw
+     * nothing rather than a placeholder line — an exposure chart with an
+     * invented bar claims a position the operator does not hold.
+     */
+    fun cachedTotalsSnapshot7028(): Map<String, Double> =
+        holdingsCache.entries.associate { it.key to it.value.totalUsdValue }
+
     fun clearCache() {
         holdingsCache.clear()
         recentTxCache.clear()

@@ -53,8 +53,36 @@ object CanonicalPaperPartialOperation6510 {
         val grossProceeds: Double, val fees: Double, val realizedPnl: Double,
     )
 
+    /**
+     * V5.0.7029 §PROCEEDS_THAT_NOTHING_COULD_RECONSTRUCT.
+     *
+     * How far grossProceeds may sit from quantity x price before this refuses.
+     *
+     * The band is deliberately enormous. Fees, slippage, a stale SOL/USD rate
+     * and a mark taken a few seconds before the book moves are all legitimate
+     * reasons for the two figures to disagree, and on a thin memecoin pool
+     * they can disagree by a lot. What is NOT legitimate is disagreeing by two
+     * orders of magnitude, which is what a currency-unit defect produces: the
+     * operator's four worst partials were out by 133x, 134x, 139x and 145x,
+     * i.e. by the SOL/USD rate, drifting the way that rate drifts.
+     *
+     * 25x passes everything a market can do and catches everything a unit
+     * error can do. It is a UNIT check wearing a magnitude threshold, not a
+     * cap on gains — the runner doctrine (V5.9.1358, never cap, never
+     * throttle) is untouched, because a genuine 1000x runner has proceeds
+     * that reconstruct perfectly from its own quantity and its own price.
+     */
+    private const val PROCEEDS_RECONSTRUCTION_BAND_7029 = 25.0
+
     fun commit(positionId: String, mint: String, symbol: String, fraction: Double,
-               grossProceeds: Double, fees: Double, exitReason: String): Receipt {
+               grossProceeds: Double, fees: Double, exitReason: String,
+               // V5.0.7029 — the mark that produced grossProceeds, and the rate
+               // needed to put it in the same currency as the ledger. Both zero
+               // means the caller cannot supply them and the check is skipped;
+               // the counter below still says so, so a silently unchecked
+               // commit path cannot hide.
+               markPriceUsd7029: Double = 0.0,
+               solUsd7029: Double = 0.0): Receipt {
         val pre = CanonicalPositionAuthority6441.getPosition(positionId)
             ?: return empty(positionId, "", 0L, "UNKNOWN_POSITION")
         if (pre.mode != "paper" || fraction <= 0.0 || fraction > 1.0 || pre.remainingQtyRaw <= BigInteger.ZERO)
@@ -78,6 +106,63 @@ object CanonicalPaperPartialOperation6510 {
             .setScale(0, RoundingMode.HALF_UP).toBigInteger().coerceIn(BigInteger.ONE, pre.remainingQtyRaw)
         val preCost = (pre.entryCostSol - pre.soldCostBasisSol).coerceAtLeast(0.0)
         val soldBasis = (preCost * soldRaw.toBigDecimal().divide(pre.remainingQtyRaw.toBigDecimal(), 18, RoundingMode.HALF_UP).toDouble()).coerceIn(0.0, preCost)
+        // V5.0.7029 §PROCEEDS_THAT_NOTHING_COULD_RECONSTRUCT.
+        //
+        // grossProceeds arrives here as an opaque SOL figure. Every ledger
+        // downstream — the paper capital authority, EconomicEventSchema, the
+        // journal, the replay — then records THAT number, so they all agree
+        // with each other no matter what it is. That is why the operator's
+        // snapshot could report `CONSERVATION Δ -0.000000`, `qtyMismatch=0`
+        // and `arithDivergences=0` over twelve partials carrying 46.59 SOL of
+        // profit that no price in the same export supports. Conservation
+        // proves the ledgers agree; it has never proved the originating
+        // economics were right, and nothing else was checking.
+        //
+        // A sale has an independent identity: quantity x price. Reconstruct it
+        // here, at the one boundary every paper partial passes through, and
+        // refuse a figure that cannot be explained by the position's own
+        // quantity and its own mark. This is the check whose absence made the
+        // defect invisible rather than merely present.
+        run {
+            if (markPriceUsd7029 > 0.0 && solUsd7029 > 0.0 && grossProceeds > 0.0) {
+                val soldQty7029 = try {
+                    soldRaw.toBigDecimal().movePointLeft(pre.quantityScale.coerceIn(0, 18)).toDouble()
+                } catch (_: Throwable) { 0.0 }
+                val expectedSol7029 = soldQty7029 * (markPriceUsd7029 / solUsd7029)
+                if (soldQty7029 > 0.0 && expectedSol7029 > 0.0) {
+                    val ratio7029 = grossProceeds / expectedSol7029
+                    if (ratio7029 > PROCEEDS_RECONSTRUCTION_BAND_7029 ||
+                        ratio7029 < 1.0 / PROCEEDS_RECONSTRUCTION_BAND_7029
+                    ) {
+                        try {
+                            com.lifecyclebot.engine.PipelineHealthCollector
+                                .labelInc("PARTIAL_PROCEEDS_UNRECONSTRUCTABLE_7029")
+                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                "PARTIAL_PROCEEDS_UNRECONSTRUCTABLE_7029",
+                                "positionId=$positionId mint=${mint.take(10)} symbol=$symbol " +
+                                    "claimedSol=${"%.6f".format(grossProceeds)} " +
+                                    "qty=${"%.6f".format(soldQty7029)} markUsd=$markPriceUsd7029 " +
+                                    "solUsd=${"%.2f".format(solUsd7029)} " +
+                                    "reconstructedSol=${"%.6f".format(expectedSol7029)} " +
+                                    "ratio=${"%.1f".format(ratio7029)}x " +
+                                    "band=${PROCEEDS_RECONSTRUCTION_BAND_7029}x " +
+                                    "action=refuse_commit_proceeds_not_explained_by_qty_times_price",
+                            )
+                        } catch (_: Throwable) {}
+                        // Release the tier so a later, well-priced attempt at
+                        // the same ladder step is not permanently locked out by
+                        // this refusal.
+                        tierStates6613.remove(tierKey)
+                        return empty(positionId, "", 0L, "PROCEEDS_UNRECONSTRUCTABLE_7029")
+                    }
+                }
+            } else {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector
+                        .labelInc("PARTIAL_PROCEEDS_UNCHECKED_7029")
+                } catch (_: Throwable) {}
+            }
+        }
         tierStates6613[tierKey] = TierState6613.EXECUTING
         val r = CanonicalPaperTerminalBridge6469.finalizeSell(
             positionId, mint, symbol, pre.openedAtMs, operationId, soldRaw, pre.remainingQtyRaw,

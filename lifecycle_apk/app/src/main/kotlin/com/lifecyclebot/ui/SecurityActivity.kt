@@ -50,6 +50,14 @@ class SecurityActivity : AppCompatActivity() {
         private const val KEY_IS_SETUP = "is_setup"
         private const val KEY_USE_BIOMETRIC = "use_biometric"
         private const val MAX_ATTEMPTS = 3
+
+        /**
+         * V5.0.7028 — dots drawn and digits accepted. Matches the EditText's
+         * android:maxLength and the 4-6 range the setup validator enforces:
+         * six slots are shown so a 4-digit PIN reads as complete-at-four with
+         * room left, which is what the render does.
+         */
+        private const val MAX_PIN_DIGITS_7028 = 6
     }
 
     private lateinit var prefs: SharedPreferences
@@ -100,6 +108,66 @@ class SecurityActivity : AppCompatActivity() {
 
         btnSubmit.setOnClickListener { handlePinSubmit() }
         btnBiometric.setOnClickListener { showBiometricPrompt() }
+        // V5.0.7028 — the render's footer carries the build. Read from the
+        // package rather than typed into the layout, so it cannot go stale the
+        // way a hard-coded "AATE v5.0" does.
+        findViewById<TextView>(R.id.tvSecurityVersion)?.text = try {
+            "AATE v" + packageManager.getPackageInfo(packageName, 0).versionName
+        } catch (_: Throwable) { "AATE" }
+        wireKeypad7028()
+    }
+
+    /**
+     * V5.0.7028 — project/Security.dc.html's keypad and dots.
+     *
+     * The keypad does not own the PIN. It types into etSecurityPin, which is
+     * what every existing path already reads, and its check key calls
+     * performClick() on btnSecuritySubmit rather than calling
+     * handlePinSubmit() directly — deliberately, because showPinConfirm()
+     * REPLACES that button's listener mid-flow, and a keypad that called the
+     * original handler would silently break the confirm step of first-run
+     * setup. Routing through the button means the keypad never needs to know
+     * which of the three flows is active.
+     *
+     * The dots follow the field rather than the taps, so a setText("") from
+     * anywhere in the activity clears them too.
+     */
+    private fun wireKeypad7028() {
+        val dots = findViewById<PinDotsView7028>(R.id.pinDotsSecurity)
+        findViewById<GradientTileView7028>(R.id.tileSecurityLock)?.apply {
+            cornerDp = 22f
+            // Violet -> cyan, the render's lock gradient. No label: the lock
+            // glyph is a vector drawn over the tile, not text inside it.
+            setTile("", 0xFF8B5CF6.toInt(), 0xFF22D3EE.toInt(), 0xFF04060D.toInt())
+        }
+
+        fun sync() {
+            dots?.setProgress(etPin.text?.length ?: 0, MAX_PIN_DIGITS_7028)
+        }
+
+        etPin.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) { sync() }
+        })
+
+        val digits = listOf(
+            R.id.key0 to '0', R.id.key1 to '1', R.id.key2 to '2', R.id.key3 to '3',
+            R.id.key4 to '4', R.id.key5 to '5', R.id.key6 to '6', R.id.key7 to '7',
+            R.id.key8 to '8', R.id.key9 to '9',
+        )
+        for ((id, ch) in digits) {
+            findViewById<View>(id)?.setOnClickListener {
+                val cur = etPin.text?.toString() ?: ""
+                if (cur.length < MAX_PIN_DIGITS_7028) etPin.setText(cur + ch)
+            }
+        }
+        findViewById<View>(R.id.keyDel)?.setOnClickListener {
+            val cur = etPin.text?.toString() ?: ""
+            if (cur.isNotEmpty()) etPin.setText(cur.dropLast(1))
+        }
+        findViewById<View>(R.id.keyOk)?.setOnClickListener { btnSubmit.performClick() }
+        sync()
     }
 
     private fun checkSecurityState() {
