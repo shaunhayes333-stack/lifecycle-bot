@@ -100,8 +100,53 @@ object ExecutableEntryAuthority6450 {
         gates.incrementAndGet()
         val mode = currentMode()
         val key = cohortKey(mode, lane)
-        val streak = cohortLosses[key]?.get() ?: 0L
-        val cooling = (cohortCooldownMs[key] ?: 0L) > System.currentTimeMillis()
+        // V5.0.7035 §THE_ONE_LEARNER_THAT_REALLY_DID_RESET_ON_THE_FLIP.
+        //
+        // This read was `cohortLosses[key]?.get() ?: 0L` with no cross-mode
+        // fallback, so the flip to live started every lane at zero losses, no
+        // cooldown and a neutral 1.00 multiplier — however hard that lane had
+        // been bleeding in paper, and at the exact moment the money became
+        // real.
+        //
+        // ColdStreakDamper (6991) and ForwardOutcomeModel (6869/6991) were both
+        // repaired for this and this one was missed, because the parity census
+        // that was supposed to find it reports every learner as resetting in a
+        // paper-only session — see PaperLiveParityCreed6439.resetsOnFlip, fixed
+        // in the same build.
+        //
+        // A loss streak and a cooldown are PROTECTIVE evidence and simulation
+        // understates live costs, so they transfer at full strength through the
+        // same PaperSeededPrior6991 the other two use: live opens guarded and
+        // the damper is already trimming on the first real trade in a lane
+        // paper knows is bad. Live losses accumulate into the live cohort
+        // directly, so maxOf hands authority back to live the moment it has
+        // its own view.
+        val ownStreak7035 = cohortLosses[key]?.get() ?: 0L
+        val ownCooldown7035 = cohortCooldownMs[key] ?: 0L
+        val streak: Long
+        val coolUntil7035: Long
+        if (mode == "LIVE") {
+            val paperKey7035 = cohortKey("PAPER", lane)
+            val paperStreak7035 = cohortLosses[paperKey7035]?.get() ?: 0L
+            val seeded7035 = PaperSeededPrior6991.seedProtective(paperStreak7035, ownStreak7035)
+            if (seeded7035 > ownStreak7035) {
+                try {
+                    PaperSeededPrior6991.noteProtectiveSeed(
+                        "ExecutableEntryAuthority6450.lossStreak[${normalizedLane(lane)}]",
+                        paperStreak7035, ownStreak7035,
+                    )
+                } catch (_: Throwable) {}
+            }
+            streak = seeded7035
+            // The cooldown is a timestamp, not a magnitude, so it is inherited
+            // as-is rather than weighted: a lane paper stopped out sixty
+            // seconds ago is still cooling when live picks it up.
+            coolUntil7035 = maxOf(ownCooldown7035, cohortCooldownMs[paperKey7035] ?: 0L)
+        } else {
+            streak = ownStreak7035
+            coolUntil7035 = ownCooldown7035
+        }
+        val cooling = coolUntil7035 > System.currentTimeMillis()
         val mult = when {
             streak >= STREAK_HARD_LIMIT || cooling -> 0.35
             streak >= STREAK_TIGHTEN_TWO -> 0.35

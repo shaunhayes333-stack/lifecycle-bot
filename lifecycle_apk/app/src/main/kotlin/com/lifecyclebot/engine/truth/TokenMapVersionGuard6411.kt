@@ -102,10 +102,29 @@ object TokenMapVersionGuard6411 {
     fun statusLine(): String =
         "mappingVersion=${mappingVersion.get()} laneRoutingVersion=${laneRoutingVersion.get()} " +
             "mapStaleDrops=${try { PipelineHealthCollector.labelCountSnapshot("TOKEN_MAP_VERSION_STALE_DROP_6411") } catch (_: Throwable) { 0L }} " +
-            "laneStaleDrops=${try { PipelineHealthCollector.labelCountSnapshot("LANE_ROUTING_VERSION_STALE_DROP_6411") } catch (_: Throwable) { 0L }}"
+            "laneStaleDrops=${try { PipelineHealthCollector.labelCountSnapshot("LANE_ROUTING_VERSION_STALE_DROP_6411") } catch (_: Throwable) { 0L }}" + NO_CALLERS_7035
 
     internal fun resetForTest() {
         mappingVersion.set(1L)
         laneRoutingVersion.set(1L)
     }
+
+    /**
+     * V5.0.7035 §AN_AUTHORITY_THAT_ONLY_REPORTS_IS_NOT_AN_AUTHORITY.
+     *
+     * Every function this object declares EXCEPT statusLine has zero callers
+     * anywhere in the app. It is not half-wired; it is fully dead, and the
+     * only thing the engine does with it is print its zeros into the operator
+     * snapshot once a run — where they read as "this guard ran and found
+     * nothing", which is the opposite of the truth.
+     *
+     * Wiring it is a trading decision, not a cleanup: it would start refusing
+     * things the engine currently permits. Until that decision is made the
+     * snapshot says so out loud, because a zero from a guard that never ran
+     * and a zero from a guard that ran and passed must not look the same.
+     *
+     * Remove this marker in the same change that gives the object a caller.
+     */
+    private const val NO_CALLERS_7035 = " ⚠NO_CALLERS_7035"
+
 }
