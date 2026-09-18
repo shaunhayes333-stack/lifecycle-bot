@@ -189,8 +189,41 @@ object ExecutableEntryAuthority6450 {
         }
     }
 
-    fun consecutiveLossesFor6488(lane: String, mode: String = currentMode()): Long =
-        cohortLosses[cohortKey(mode, lane)]?.get() ?: 0L
+    /**
+     * V5.0.6991 — live inherits paper's LOSS STREAK, at full strength.
+     *
+     * This used to read only its own mode's cohort, so a flip to live reported
+     * zero consecutive losses for every lane no matter how badly paper had
+     * bled. The defensive reflex, its score-floor delta and its size
+     * multiplier all started neutral at the exact moment the money was real.
+     *
+     * A loss streak is PROTECTIVE evidence, and paper understates rather than
+     * overstates how bad live will be — live adds slippage, partial fills and
+     * failed routes that a simulation never charges. So it transfers whole,
+     * per PaperSeededPrior6991: live takes the worse of the two views and
+     * starts guarded. The opposite direction, a paper WIN streak, is not
+     * seeded anywhere — that would size up real money on simulated wins.
+     *
+     * Once live has its own cohort the live value wins on its own merits,
+     * because maxOf picks it as soon as it is the larger one, and live losses
+     * accumulate into it directly.
+     */
+    fun consecutiveLossesFor6488(lane: String, mode: String = currentMode()): Long {
+        val own = cohortLosses[cohortKey(mode, lane)]?.get() ?: 0L
+        val isLive = try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
+        if (!isLive) return own
+        val paper = cohortLosses[cohortKey("PAPER", lane)]?.get() ?: 0L
+        if (paper <= own) return own
+        val seeded = PaperSeededPrior6991.seedProtective(paper, own)
+        if (seeded > own) {
+            try {
+                PaperSeededPrior6991.noteProtectiveSeed(
+                    "ExecutableEntryAuthority6450.lossStreak[$lane]", paper, own,
+                )
+            } catch (_: Throwable) {}
+        }
+        return seeded
+    }
 
     fun defensiveActiveFor6488(lane: String, mode: String = currentMode()): Boolean =
         consecutiveLossesFor6488(lane, mode) > 0L

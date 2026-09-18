@@ -88,7 +88,7 @@ object ColdStreakDamper {
      *   20+         : 0.25 (floor)
      */
     fun sizeMultiplier(lane: String, isPaper: Boolean): Double {
-        val n = get(lane, isPaper).lossStreak.get()
+        val n = effectiveLossStreak6991(lane, isPaper)
         val mult = when {
             n <= 2  -> 1.00
             n <= 5  -> 0.75
@@ -102,8 +102,50 @@ object ColdStreakDamper {
         return mult
     }
 
+    /**
+     * V5.0.6991 — the loss streak live should act on, seeded from paper.
+     *
+     * key(lane, isPaper) scopes every streak to its mode, so a flip to live
+     * started each lane at zero losses and a neutral 1.00 size multiplier,
+     * however hard that lane had been bleeding in paper.
+     *
+     * A loss streak is PROTECTIVE evidence and simulation understates live
+     * costs, so it transfers whole (PaperSeededPrior6991): live opens guarded
+     * and the damper is already trimming size on the first real trade in a
+     * lane paper knows is bad.
+     *
+     * The WIN streak is deliberately NOT seeded — see currentWinStreak. Live
+     * losses accumulate into the live streak directly, so once live has its
+     * own view maxOf selects it.
+     */
+    fun effectiveLossStreak6991(lane: String, isPaper: Boolean): Int {
+        val own = get(lane, isPaper).lossStreak.get()
+        if (isPaper) return own
+        val paper = streaks[key(lane, true)]?.lossStreak?.get() ?: 0
+        if (paper <= own) return own
+        val seeded = com.lifecyclebot.engine.truth.PaperSeededPrior6991.seedProtective(paper, own)
+        if (seeded > own) {
+            try {
+                com.lifecyclebot.engine.truth.PaperSeededPrior6991.noteProtectiveSeed(
+                    "ColdStreakDamper.lossStreak[$lane]", paper, own,
+                )
+            } catch (_: Throwable) {}
+        }
+        return seeded
+    }
+
     /** Per-lane current loss streak (for UI / snapshot). */
-    fun currentLossStreak(lane: String, isPaper: Boolean): Int = get(lane, isPaper).lossStreak.get()
+    fun currentLossStreak(lane: String, isPaper: Boolean): Int = effectiveLossStreak6991(lane, isPaper)
+
+    /**
+     * V5.0.6991 — NOT seeded from paper, on purpose.
+     *
+     * A win streak is optimistic evidence, and optimism is the direction
+     * simulation overstates: paper never pays slippage, never gets a partial
+     * fill and never loses a route leg. Seeding it would let live size up real
+     * money on the strength of wins that were free to earn. Live earns its own
+     * win streak with its own money.
+     */
     fun currentWinStreak(lane: String, isPaper: Boolean): Int = get(lane, isPaper).winStreak.get()
 
     fun snapshot(): Map<String, Map<String, Int>> = streaks.mapValues {

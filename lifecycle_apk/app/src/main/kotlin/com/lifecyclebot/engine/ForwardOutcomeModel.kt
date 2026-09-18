@@ -61,13 +61,17 @@ object ForwardOutcomeModel {
      * V5.0.6988 — how many learned signatures exist per MODE.
      *
      * Every key here is prefixed by modeTag6869: "P|" in paper, "L|" in live.
-     * That means the counterfactual edge map this model publishes does not
-     * carry across the paper→live flip — on the first live trade every
-     * signature becomes "L|…" and resolves to zero samples.
      *
-     * PaperLiveParityCreed6439 declares that exact situation to be a bug, but
-     * only ever printed a hardcoded list of intentions. This gives it
-     * something real to measure. Read-only.
+     * CORRECTED IN V5.0.6991: the 6988 version of this note said the edge map
+     * therefore resolves to zero samples on the flip. That was WRONG. forecast()
+     * has cross-read the other mode's cell as a prior since V5.0.6869 (the
+     * "fine_paper_prior" / "coarse_paper_prior" sources), so live does inherit
+     * paper's shape. The real defect was that it inherited it at FULL STRENGTH,
+     * which 6991 fixes by shrinking the optimistic terms while passing pRug
+     * whole.
+     *
+     * The census remains useful and remains honest about what it counts: how
+     * much evidence each mode holds in its own right. Read-only.
      */
     fun modeCensus6988(): Pair<Int, Int> {
         var paper = 0
@@ -259,7 +263,50 @@ object ForwardOutcomeModel {
             val dispPenalty = (cell.stdev / 100.0).coerceAtMost(0.25)  // wide outcomes → trim
             val nudge = (1.0 + edge * 0.35 + expSign - rugPenalty - dispPenalty)
                 .coerceIn(NUDGE_FLOOR, NUDGE_CAP)
-            Forecast(cell.pWin, cell.mean, cell.pRug, cell.stdev, cell.n, nudge, src)
+            // V5.0.6991 §PAPER_MAY_WARN_LIVE_AT_FULL_VOLUME_AND_ENCOURAGE_IT_ONLY_SOFTLY.
+            //
+            // 6869 already lets live fall back to the paper cell when its own
+            // evidence is thin — the "fine_paper_prior" / "coarse_paper_prior"
+            // sources above. That part was right, and my V5.0.6988 note
+            // claiming this model resolves to zero samples on the flip was
+            // wrong; it does not.
+            //
+            // What was wrong is the STRENGTH. `cell = ofc` handed live the
+            // paper cell verbatim: its pWin, its mean, its sample count, all at
+            // face value, feeding the conviction nudge that sizes real orders.
+            // Paper fills cost nothing — no slippage, no partial fills, no MEV,
+            // no failed route legs — so a paper win rate is the one number in
+            // this system that is systematically too good.
+            //
+            // Operator doctrine: "anything passed from paper must be
+            // intelligently assessed before directly passed into live trading."
+            // So when live is leaning on paper:
+            //
+            //   pWin and mean  shrink toward neutral and fade out entirely by
+            //                  LIVE_AUTONOMY_N live samples (optimism)
+            //   pRug           passes WHOLE (caution — paper understates it)
+            //
+            // A paper cell can therefore still stop live from taking a rugging
+            // signature at full force, while only mildly encouraging it into a
+            // winning one. Own-mode cells are untouched.
+            val fromPaperPrior6991 = !isPaper && src.endsWith("_paper_prior")
+            if (!fromPaperPrior6991) {
+                return Forecast(cell.pWin, cell.mean, cell.pRug, cell.stdev, cell.n, nudge, src)
+            }
+            val liveN6991 = ((fc?.n ?: 0L) + (cc?.n ?: 0L))
+            val pWin6991 = com.lifecyclebot.engine.truth.PaperSeededPrior6991
+                .shrinkOptimism(cell.pWin, 0.5, liveN6991)
+            val mean6991 = com.lifecyclebot.engine.truth.PaperSeededPrior6991
+                .shrinkOptimism(cell.mean, 0.0, liveN6991)
+            val edge6991 = (pWin6991 - 0.5) * 2.0
+            val expSign6991 = if (mean6991 > 0) (mean6991 / 100.0).coerceAtMost(0.18)
+                              else (mean6991 / 60.0).coerceAtLeast(-0.40)
+            val nudge6991 = (1.0 + edge6991 * 0.35 + expSign6991 - rugPenalty - dispPenalty)
+                .coerceIn(NUDGE_FLOOR, NUDGE_CAP)
+            try {
+                PipelineHealthCollector.labelInc("FORWARD_PAPER_PRIOR_ASSESSED_6991")
+            } catch (_: Throwable) {}
+            Forecast(pWin6991, mean6991, cell.pRug, cell.stdev, cell.n, nudge6991, src + "_assessed6991")
         } catch (_: Throwable) { Forecast(0.5, 0.0, 0.0, 0.0, 0L, 1.0, "bootstrap") }
     }
 
