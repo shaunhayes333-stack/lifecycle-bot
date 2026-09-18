@@ -1,4 +1,4 @@
-tier	owner	function	file
+tier	owner	function	file	verdict
 A_PREDICT	AITrustNetworkAI	recordPositivePrediction	v3/scoring/AITrustNetworkAI.kt
 G_PROTOCOL	AcceptanceInvariantAuthority6501	checkJournalVsLedger	engine/truth/AcceptanceInvariantAuthority6501.kt
 E_INFILE	AdaptiveLearningEngine	calculateOutcomeScore	engine/AdaptiveLearningEngine.kt
@@ -17,7 +17,7 @@ E_INFILE	CashGenerationAI	getCurrentConfidenceThreshold	v3/scoring/CashGeneratio
 E_INFILE	CashGenerationAI	getCurrentScoreThreshold	v3/scoring/CashGenerationAI.kt
 A_PREDICT	ClassificationProvenanceGuard6450	qualifyQuality	engine/truth/ClassificationProvenanceGuard6450.kt
 A_PREDICT	CoinGeckoTrending	getSolanaEcosystemMomentum	network/CoinGeckoTrending.kt
-A_PREDICT	ColdStartPriors	coldStartScoreFloor	engine/ColdStartPriors.kt
+A_PREDICT	ColdStartPriors	coldStartScoreFloor	engine/ColdStartPriors.kt	WIRED 6984 — cold-start score floor now caps the tuned entry floor while isColdStart(); liquidity half was already wired, score half had zero callers
 D_DISPLAY	CollectiveBrainActivity	updateBoostState	ui/CollectiveBrainActivity.kt
 A_PREDICT	CollectiveIntelligenceAI	analyzePatternQuality	v3/scoring/CollectiveIntelligenceAI.kt
 A_PREDICT	CollectiveIntelligenceAI	getCreatorReputation	v3/scoring/CollectiveIntelligenceAI.kt
@@ -45,7 +45,7 @@ H_MUTATOR	EntryRejectionTelemetry6396	emitScoreFloorReject	engine/truth/EntryRej
 F_DEAD	ExecutableEntryAuthority6450	scoreFloorDelta6487	engine/truth/ExecutableEntryAuthority6450.kt
 A_PREDICT	ExecutableEntryAuthority6450	scoreFloorDeltaFor6488	engine/truth/ExecutableEntryAuthority6450.kt
 E_INFILE	ExecutableOpenGate	mutableSignalCanVeto6519	engine/ExecutableOpenGate.kt
-A_PREDICT	ExplorationBudget	allowShadowSignal	engine/learning/ExplorationBudget.kt
+A_PREDICT	ExplorationBudget	allowShadowSignal	engine/learning/ExplorationBudget.kt	RETIRED 6984 — deliberately not wired. Capping shadow signals throttles the learning path (6131 shadow evals/session are how lanes form opinions). Doctrine: never throttle learning. The capital-spending half, allowPaperMicroTrade, IS enforced (6967).
 D_DISPLAY	FluidLearning	getExitTagWinRate	engine/FluidLearning.kt
 F_DEAD	FluidLearningAI	getAltsSpotScoreThreshold	v3/scoring/FluidLearningAI.kt
 E_INFILE	FluidLearningAI	getBootstrapConfidenceBoost	v3/scoring/FluidLearningAI.kt
@@ -118,7 +118,7 @@ D_DISPLAY	ShadowLearningEngine	getAvoidAccuracy	v3/learning/ShadowLearningEngine
 A_PREDICT	ShadowLearningEngine	getPerformanceByConfidence	v3/learning/ShadowLearningEngine.kt
 E_INFILE	ShadowLearningEngine	getPerformanceRanking	engine/ShadowLearningEngine.kt
 A_PREDICT	SignalQualityTracker	isPredictive	engine/SignalQualityTracker.kt
-A_PREDICT	SmartExitOptimizer	getMinConfidenceAdvisory	engine/SmartExitOptimizer.kt
+A_PREDICT	SmartExitOptimizer	getMinConfidenceAdvisory	engine/SmartExitOptimizer.kt	RETIRED 6984 — superseded. shapedConfidenceFloor4262 is the live confidence-floor authority and already blends multiple inputs incl. copilotConfFloor6965.
 A_PREDICT	SocialVelocityAI	getBoostAmount	v3/scoring/SocialVelocityAI.kt
 A_PREDICT	SocialVelocityAI	isBoosted	v3/scoring/SocialVelocityAI.kt
 A_PREDICT	SocialVelocityAI	refreshBoostedTokens	v3/scoring/SocialVelocityAI.kt
@@ -133,7 +133,7 @@ A_PREDICT	ToxicModeCircuitBreaker	isToxicPattern	engine/ToxicModeCircuitBreaker.
 H_MUTATOR	TradeDatabase	clearBadPattern	engine/TradeDatabase.kt
 A_PREDICT	TradeDatabase	getSignalWinRate	engine/TradeDatabase.kt
 A_PREDICT	TradeHistoryStore	getWinRate24h	engine/TradeHistoryStore.kt
-A_PREDICT	TradeLessonRecorder	getWinRateForLane	v4/meta/TradeLessonRecorder.kt
+A_PREDICT	TradeLessonRecorder	getWinRateForLane	v4/meta/TradeLessonRecorder.kt	RETIRED 6984 — unusable signature (requires the caller to pass TradeLessonRecorder's own private lane map) AND superseded by LaneExpectancyDamper / StrategyTelemetry per-lane WR, both live in the snapshot.
 F_DEAD	TradeLifecycle	noSignal	engine/TradeLifecycle.kt
 A_PREDICT	TradingCopilot	confidenceFloor	engine/TradingCopilot.kt
 G_PROTOCOL	TradingCopilot	convictionBoost	engine/TradingCopilot.kt
@@ -151,7 +151,7 @@ B_RISK	AdaptiveVetoConsensusAuthority6728	isHardVeto	engine/truth/AdaptiveVetoCo
 B_RISK	AntiRewardHackingGuard6439	canExpandRisk	engine/truth/AntiRewardHackingGuard6439.kt
 B_RISK	BaseQuoteMintGuard	isBlockedMint	engine/guard/BaseQuoteMintGuard.kt
 B_RISK	BaseQuoteMintGuard	isBlockedSymbol	engine/guard/BaseQuoteMintGuard.kt
-B_RISK	BotBrain	isInDangerZone	engine/BotBrain.kt
+B_RISK	BotBrain	isInDangerZone	engine/BotBrain.kt	RETIRED 6984 — superseded by LosingPatternMemory (lane x score-band danger buckets), live and named in the Brain Consensus Gate authority list.
 G_PROTOCOL	CanonicalEconomicIdentity6470	breachCount	engine/truth/CanonicalEconomicIdentity6470.kt
 G_PROTOCOL	CanonicalFill6393	neverIncreaseRiskForBehindTarget	engine/truth/ForensicFinalityAndTuner6393.kt
 G_PROTOCOL	CanonicalFill6393	safetyHardBlock	engine/truth/ForensicFinalityAndTuner6393.kt
@@ -176,7 +176,7 @@ F_DEAD	LivePipelineTrace6431	bumpBlockReason	engine/truth/LivePipelineTrace6431.
 F_DEAD	LosingStreakReflex6439	shouldBlockNewBuys	engine/truth/LosingStreakReflex6439.kt
 D_DISPLAY	MemeExecutionRouteStack	stackExhausted	engine/execution/MemeExecutionRouteStack.kt
 D_DISPLAY	MemePipelineTracer	blockReasons	engine/MemePipelineTracer.kt
-B_RISK	MintWorkCoordinator6450	isOpenBlocked	engine/truth/MintWorkCoordinator6450.kt
+B_RISK	MintWorkCoordinator6450	isOpenBlocked	engine/truth/MintWorkCoordinator6450.kt	RETIRED 6984 — competing authority. ExecutableOpenGate already blocks same-mint opens via EmergentGuardrails.getPositionLayer (EXEC_OPEN_BLOCKED_SAME_MINT_ALREADY_OPEN_6371=190). Snapshot confirms the coordinator is inert: openMintBuyBlocks=0.
 B_RISK	MoonshotHoldProfileRegistry6415	shouldSuppressTp	engine/truth/MoonshotHoldProfileRegistry6415.kt
 G_PROTOCOL	OwnershipClassification6391	isRealExhaustion	engine/truth/SellOnlyHoldRepair6391.kt
 B_RISK	PerpsSandbox6463	evaluateRiskExit	engine/truth/PerpsSandbox6463.kt

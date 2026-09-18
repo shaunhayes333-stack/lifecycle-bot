@@ -11681,7 +11681,51 @@ class BotService : Service() {
             else com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450
                 .scoreFloorDeltaFor6488(lane).toDouble().coerceIn(0.0, 15.0)
         } catch (_: Throwable) { 0.0 }
-        val entryScoreTightenedFloor4591 = (entryScoreTightenedFloor4591Base + qualityWrRaise6044 + moonshotVolumeRelief6044 + streakFloorDelta6961).coerceIn(0.0, 95.0)
+        val entryScoreTightenedFloor4591Tuned6984 =
+            (entryScoreTightenedFloor4591Base + qualityWrRaise6044 + moonshotVolumeRelief6044 + streakFloorDelta6961)
+                .coerceIn(0.0, 95.0)
+        // V5.0.6984 §COLD_START_HAD_A_LIQUIDITY_FLOOR_AND_A_SCORE_FLOOR_AND_ONLY_ONE_WAS_WIRED.
+        //
+        // ColdStartPriors publishes two permissive priors for a bot with no
+        // history yet: coldStartLiquidityFloor(lane) and
+        // coldStartScoreFloor(lane). The liquidity half reaches the runtime
+        // through applyLiquidityFloor, which CashGenerationAI calls. The score
+        // half has no wrapper and no caller anywhere in the tree — the object's
+        // only consumer in the whole codebase is that one liquidity call.
+        //
+        // So a fresh install spends its first 30 trades with permissive
+        // liquidity and a fully-tightened score floor: the learned tighteners
+        // (lane WR raise, streak delta, regime) all apply from trade one, with
+        // no outcomes behind them to justify tightening. The lane that most
+        // needs to gather evidence is the one least able to.
+        //
+        // During cold start only, take the more permissive of the tuned floor
+        // and the lane's cold-start prior. After COLD_START_TRADE_THRESHOLD
+        // (30 stored trades) isColdStart() is false and this is a no-op, so it
+        // changes nothing for an established install — the operator's own
+        // runtime has 190 lifetime trades and will not see it move. It is the
+        // first-run path this fixes.
+        //
+        // Never raises a floor; only ever lowers one, and only while cold.
+        val coldStartFloor6984 = try {
+            if (com.lifecyclebot.engine.ColdStartPriors.isColdStart()) {
+                com.lifecyclebot.engine.ColdStartPriors.coldStartScoreFloor(lane).toDouble()
+            } else Double.NaN
+        } catch (_: Throwable) { Double.NaN }
+        val entryScoreTightenedFloor4591 =
+            if (coldStartFloor6984.isFinite() && coldStartFloor6984 < entryScoreTightenedFloor4591Tuned6984) {
+                try {
+                    PipelineHealthCollector.labelInc("COLD_START_SCORE_FLOOR_APPLIED_6984")
+                    ForensicLogger.lifecycle(
+                        "COLD_START_SCORE_FLOOR_APPLIED_6984",
+                        "lane=$lane tuned=${"%.1f".format(entryScoreTightenedFloor4591Tuned6984)} " +
+                            "coldStart=${"%.1f".format(coldStartFloor6984)} " +
+                            "threshold=${com.lifecyclebot.engine.ColdStartPriors.COLD_START_TRADE_THRESHOLD} " +
+                            "action=use_permissive_prior_until_evidence_exists",
+                    )
+                } catch (_: Throwable) {}
+                coldStartFloor6984
+            } else entryScoreTightenedFloor4591Tuned6984
         if (streakFloorDelta6961 > 0.0) {
             try {
                 PipelineHealthCollector.labelInc("STREAK_SCORE_FLOOR_RAISED_6961")
@@ -11696,7 +11740,7 @@ class BotService : Service() {
         if (qualityWrRaise6044 > 0.0 || moonshotVolumeRelief6044 != 0.0) {
             try {
                 PipelineHealthCollector.labelInc("LANE_QUALITY_MOONSHOT_FLOOR_TUNE_6044")
-                ForensicLogger.lifecycle("LANE_QUALITY_MOONSHOT_FLOOR_TUNE_6044", "lane=$lane qualityRaise=${"%.1f".format(qualityWrRaise6044)} moonshotRelief=${"%.1f".format(moonshotVolumeRelief6044)} base=${"%.1f".format(entryScoreTightenedFloor4591Base)} tuned=${"%.1f".format(entryScoreTightenedFloor4591)}")
+                ForensicLogger.lifecycle("LANE_QUALITY_MOONSHOT_FLOOR_TUNE_6044", "lane=$lane qualityRaise=${"%.1f".format(qualityWrRaise6044)} moonshotRelief=${"%.1f".format(moonshotVolumeRelief6044)} base=${"%.1f".format(entryScoreTightenedFloor4591Base)} tuned=${"%.1f".format(entryScoreTightenedFloor4591Tuned6984)}")
             } catch (_: Throwable) {}
         }
         if (entryScoreTightenedFloor4591 != structuralFloor6020) {
