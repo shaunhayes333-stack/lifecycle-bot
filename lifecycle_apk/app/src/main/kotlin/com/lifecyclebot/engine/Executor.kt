@@ -12143,10 +12143,57 @@ class Executor(
             "sourceBrain", "scannerLaneCohesion6292", "bandDamper6301", "uph",
             "hypothesis", "superBrain", "metaCognition", "scoreBandWR4510",
         )
-        val convictionProduct6909 = sizingStackComponents4285.entries
+        // V5.0.6978 §A_PRODUCT_OF_FOURTEEN_DAMPERS_IS_NOT_A_BELIEF.
+        //
+        // 6909 computed conviction as the PRODUCT of up to fourteen evidence
+        // multipliers. That is not a measure of how strongly the intelligence
+        // condemned the trade; it is a measure of how many learners happened to
+        // have an opinion. Fourteen mild 0.9s multiply to 0.23. The refusal
+        // floor is 0.15, so conviction collapse became the default state.
+        //
+        // The operator's 5.0.6972 snapshot is unambiguous:
+        //
+        //     Entry conviction (§6909): stamps=2024
+        //     ENTRY_CONVICTION_COLLAPSED_6909:            2023
+        //     ORDER_SIZE_CONVICTION_REFUSED_MIN_PROMOTION_6909: 1851
+        //     Order size resolver (§6441): resolves=4019 exec=2168 skip=1851
+        //
+        // 2023 of 2024 — 99.95%. And two terms from that same snapshot are
+        // enough to prove it needs no help from the other twelve:
+        //
+        //     Regime detector:      sizeMult=0.35        (regime, global CHOP state)
+        //     LaneExpectancyDamper: CORE×0.29            (laneEv)
+        //     0.35 × 0.29 = 0.1015  <  0.15 floor
+        //
+        // Every CORE entry was condemned before any learner with an actual
+        // opinion about the token was consulted. 1851 refused sizings is the
+        // largest single kill in the funnel, and it is cap-to-dust by another
+        // name — exactly what the doctrine forbids.
+        //
+        // FIXED: conviction is the GEOMETRIC MEAN of the terms that actually
+        // voted — "how negative is the typical learner" — which is scale-free
+        // in the number of voters. A term of exactly 1.0 is no opinion and is
+        // excluded rather than counted as agreement. One learner may still
+        // condemn alone: any single term at or below SINGLE_TERM_VETO_6978
+        // becomes the conviction outright, so a real veto still lands under the
+        // floor. The floor, the refusal, and the sizing stack are unchanged.
+        val convictionVotes6978 = sizingStackComponents4285.entries
             .filter { it.key in convictionKeys6909 }
-            .fold(1.0) { acc, e -> if (e.value.isFinite() && e.value >= 0.0) acc * e.value else acc }
-            .let { if (it.isFinite()) it.coerceIn(0.0, 1.0) else 1.0 }
+            .map { it.value }
+            .filter { it.isFinite() && it >= 0.0 && it < 1.0 }
+        val convictionProduct6909 = when {
+            convictionVotes6978.isEmpty() -> 1.0
+            // A single learner is allowed to condemn on its own.
+            convictionVotes6978.any {
+                it <= com.lifecyclebot.engine.truth.OrderSizeResolver6441.SINGLE_TERM_VETO_6978
+            } ->
+                (convictionVotes6978.minOrNull() ?: 1.0).coerceIn(0.0, 1.0)
+            else -> {
+                val logSum = convictionVotes6978.sumOf { Math.log(it.coerceAtLeast(1e-6)) }
+                Math.exp(logSum / convictionVotes6978.size)
+                    .let { if (it.isFinite()) it.coerceIn(0.0, 1.0) else 1.0 }
+            }
+        }
         try {
             com.lifecyclebot.engine.truth.EntryConvictionRegistry6909
                 .stamp6909(ts.mint, convictionProduct6909)
@@ -12161,8 +12208,10 @@ class Executor(
                     .joinToString(",") { e -> "${e.key}=${"%.2f".format(e.value)}" }
                 ForensicLogger.lifecycle(
                     "ENTRY_CONVICTION_COLLAPSED_6909",
-                    "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$laneTag score=${score.toInt()} " +
+                    "mint=${ts.mint.take(16)} sym=${ts.symbol} lane=$laneTag score=${score.toInt()} " +
                         "conviction=${"%.4f".format(convictionProduct6909)} " +
+                        "votes6978=${convictionVotes6978.size} " +
+                        "minVote6978=${"%.3f".format(convictionVotes6978.minOrNull() ?: 1.0)} " +
                         "rawProduct=${"%.4f".format(multiplierProductRaw)} " +
                         "evidence=$collapsedEvidence6909 " +
                         "action=sub_minimum_request_will_not_be_promoted",

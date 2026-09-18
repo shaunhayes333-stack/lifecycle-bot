@@ -116,6 +116,23 @@ object OrderSizeResolver6441 {
      */
     const val CONVICTION_PROMOTION_FLOOR_6909 = 0.15
 
+    /**
+     * V5.0.6978 — the threshold at which ONE evidence multiplier condemns alone.
+     *
+     * Conviction is now the geometric mean of the learners that actually voted
+     * (see Executor §A_PRODUCT_OF_FOURTEEN_DAMPERS_IS_NOT_A_BELIEF), because a
+     * product of fourteen mild dampers collapsed 99.95% of entries — 2023 of
+     * 2024 stamps in the operator's 5.0.6972 snapshot, refusing 1851 sizings.
+     *
+     * A mean alone would let one learner's genuine veto be averaged away by
+     * thirteen abstentions-turned-mild-opinions. So a term at or below this
+     * value becomes the conviction outright, landing it under the promotion
+     * floor. 0.10 is below anything the ordinary dampers emit (the regime
+     * multiplier bottoms at 0.35, lane expectancy at 0.15) and is reached only
+     * when a learner is actively refusing rather than merely trimming.
+     */
+    const val SINGLE_TERM_VETO_6978 = 0.10
+
     fun resolve(
         requestedSol: Double,
         laneName: String,

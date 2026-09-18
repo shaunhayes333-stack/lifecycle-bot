@@ -88,7 +88,7 @@ object SameMintCandidateEpoch6402 {
             if (newEntry.suppressCount <= 3L || newEntry.suppressCount % 10L == 0L) {
                 ForensicLogger.lifecycle(
                     "SAME_MINT_CANDIDATE_SUPPRESSED_6402",
-                    "mint=${mint.take(10)} epoch=${newEntry.epoch} suppressCount=${newEntry.suppressCount}",
+                    "mint=${ForensicLogger.mintTag6978(mint)} epoch=${newEntry.epoch} suppressCount=${newEntry.suppressCount}",
                 )
             }
         } catch (_: Throwable) {}
@@ -107,7 +107,7 @@ object SameMintCandidateEpoch6402 {
             PipelineHealthCollector.labelInc("SAME_MINT_EPOCH_BUMPED_6402")
             ForensicLogger.lifecycle(
                 "SAME_MINT_EPOCH_BUMPED_6402",
-                "mint=${mint.take(10)} oldEpoch=${prior.epoch} suppressCount=${prior.suppressCount} reason=$reason",
+                "mint=${ForensicLogger.mintTag6978(mint)} oldEpoch=${prior.epoch} suppressCount=${prior.suppressCount} reason=$reason",
             )
         } catch (_: Throwable) {}
     }

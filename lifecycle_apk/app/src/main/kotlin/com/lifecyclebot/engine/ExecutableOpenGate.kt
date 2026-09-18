@@ -2206,7 +2206,7 @@ object ExecutableOpenGate {
                         PipelineHealthCollector.labelInc("EXEC_OPEN_SAME_MINT_ALREADY_OPEN_COOLDOWN_6371")
                         ForensicLogger.lifecycle(
                             "EXEC_OPEN_SAME_MINT_ALREADY_OPEN_COOLDOWN_6371",
-                            "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol existing=$existingLayer6371 requestedLane=$lane action=blocked_before_paper_buy",
+                            "attemptId=$attemptId mint=${ForensicLogger.mintTag6978(mint)} symbol=$symbol existing=$existingLayer6371 requestedLane=$lane action=blocked_before_paper_buy",
                         )
                     } catch (_: Throwable) {}
                 }

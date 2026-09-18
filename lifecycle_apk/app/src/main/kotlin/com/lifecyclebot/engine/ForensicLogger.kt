@@ -167,6 +167,29 @@ object ForensicLogger {
         try { PipelineHealthCollector.onExec(action, symbol, fields) } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.6978 — a readable short form for a position key.
+     *
+     * Call sites overwhelmingly write `mint.take(10)`, which is fine for a
+     * base58 Solana mint but destroys a scheme-prefixed cross-asset key:
+     * `unresolved:DASH`, `unresolved:IOTA` and `unresolved:ZEN` all print as
+     * the single word "unresolved". The operator's 5.0.6972 log therefore read
+     * as though every alt-coin shared one identity and the same-mint dedup had
+     * collapsed the whole CRYPTO_ALT lane. It had not — the keys were distinct
+     * and the blocks were correct — but the log could not show that.
+     *
+     * For a `scheme:symbol` key, keep the whole thing. For a bare mint, keep
+     * the leading [n] characters as before.
+     */
+    fun mintTag6978(mint: String, n: Int = 10): String {
+        val m = mint.trim()
+        if (m.isEmpty()) return ""
+        val colon = m.indexOf(':')
+        // Scheme-prefixed keys are short and every character is meaning.
+        if (colon in 1..15 && m.length <= 48) return m
+        return m.take(n)
+    }
+
     fun lifecycle(event: String, fields: String) {
         if (!enabled) return
         // V5.0.6368 — hook into REJECTED_FATAL_V3 to populate the zero-liq
