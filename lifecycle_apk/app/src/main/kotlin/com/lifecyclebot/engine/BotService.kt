@@ -21266,12 +21266,38 @@ if (hotExitHandledSweep) {
                 }
                 floorPositionsProcessed++
                 try {
+                    // V5.0.7027 §THE_SWEEP_REPORTED_ITS_OWN_COMPLETION_NOT_ITS_WORK.
+                    //
+                    // These three guards were silent. A sweep could visit all
+                    // 24 positions in its slice, skip every one of them, and
+                    // still log "Exit sweep start/done 7/7" — which is exactly
+                    // what the operator's 5.0.7025 capture shows next to SELL
+                    // ok=0 and "close ledger: 0 mints stamped CLOSED". Three
+                    // independent reads of that snapshot, including mine,
+                    // concluded "the exit machinery is actually running" from
+                    // that line. It is running; it is doing nothing, and the
+                    // two looked identical.
+                    //
+                    // They also need opposite fixes: entryPrice<=0 is a LEDGER
+                    // fault, lastPrice<=0 is a FEED fault, and too-young is
+                    // correct behaviour that should not be confused with
+                    // either. Counted separately so the next snapshot names it.
                     val posAgeMs = nowMs - ts.position.entryTime
-                    if (posAgeMs < 45_000L) return@forEach
+                    if (posAgeMs < 45_000L) {
+                        try { PipelineHealthCollector.labelInc("UNIVERSAL_SWEEP_SKIP_7027_TOO_YOUNG") } catch (_: Throwable) {}
+                        return@forEach
+                    }
                     val entry = ts.position.entryPrice
-                    if (entry <= 0.0) return@forEach
+                    if (entry <= 0.0) {
+                        try { PipelineHealthCollector.labelInc("UNIVERSAL_SWEEP_SKIP_7027_NO_ENTRY_PRICE") } catch (_: Throwable) {}
+                        return@forEach
+                    }
                     val last = ts.lastPrice
-                    if (last <= 0.0) return@forEach
+                    if (last <= 0.0) {
+                        try { PipelineHealthCollector.labelInc("UNIVERSAL_SWEEP_SKIP_7027_NO_MARK") } catch (_: Throwable) {}
+                        return@forEach
+                    }
+                    try { PipelineHealthCollector.labelInc("UNIVERSAL_SWEEP_EVALUATED_7027") } catch (_: Throwable) {}
                     val rawPnlPct = ((last - entry) / entry) * 100.0
                     val execPx = try { executor.getActualPricePublic(ts).takeIf { it.isFinite() && it > 0.0 } } catch (_: Throwable) { null }
                     val exitPx4481 = walletCorrespondentOpenPrice4481(ts, execPx ?: last, "UNIVERSAL_EXIT_SWEEP")

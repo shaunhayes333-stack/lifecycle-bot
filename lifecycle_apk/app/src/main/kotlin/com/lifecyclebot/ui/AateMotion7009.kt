@@ -10,7 +10,6 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.util.AttributeSet
 import android.view.View
-import android.view.animation.LinearInterpolator
 
 /**
  * V5.0.7009 — the motion the render has and the app did not.
@@ -38,14 +37,22 @@ import android.view.animation.LinearInterpolator
  * ANR DISCIPLINE. This app has a documented history of main-thread stalls
  * driven by UI work (V5.9.1229 disabled position-row logos for exactly that
  * reason; 6997's snapshot still showed 21.7% stall). So:
- *   - every animator is a single ValueAnimator per view, cancelled in
- *     onDetachedFromWindow, so a scrolled-away view costs nothing;
+ *   - every animator is a single ValueAnimator per view, and every LOOPING
+ *     one is owned by AateLoopAnim7027 (V5.0.7027) so it runs only while the
+ *     view is genuinely on screen and repaints at ~15-20fps, not 60;
  *   - no allocation inside onDraw — Paint, Path and RectF are fields;
- *   - the pulse runs at 60fps for 1.6s per cycle and animates ONE float;
  *   - setSeries() ignores an unchanged series, so the 1Hz price tick does not
  *     restart a draw animation 80 times a second across a long list.
- * The 5.0.7003 snapshot measured 1 ANR hint and 0.2% stall, so there is room
- * for this — but it is written to stay cheap regardless.
+ *
+ * "CANCELLED IN onDetachedFromWindow, SO A SCROLLED-AWAY VIEW COSTS NOTHING"
+ * is what this comment used to say, and it is FALSE — detach is not what
+ * happens when a view scrolls out of sight or when its activity goes to the
+ * background; the view stays attached and keeps repainting. 7025 relied on
+ * that false claim while adding four infinite loops and the operator's device
+ * went from a 725ms worst frame to 32,636ms, from 0.1% stall to 16.5%, and
+ * from 17 executions in a session to none. On this app a UI loop competes
+ * with the exit sweeps and the journal writer for the same thread, so the
+ * cost of getting this wrong is measured in trades, not in frames.
  */
 
 /** A self-drawing price line. Set [series]; it animates from empty to full. */
@@ -69,7 +76,11 @@ class SparklineView7009 @JvmOverloads constructor(
     private var progress = 1f
     private var pulse = 0f
     private var animator: ValueAnimator? = null
-    private var pulseAnim: ValueAnimator? = null
+    // V5.0.7027 — was a raw INFINITE ValueAnimator that repainted at 60fps
+    // whenever the view was attached, visible or not. See AateLoopAnim7027.
+    private val pulseLoop = AateLoopAnim7027(
+        host = this, durationMs = 1600L, reverse = true,
+    ) { v -> pulse = v }
 
     /** Stroke colour. Callers usually pass green for gain, red for loss. */
     var lineColor: Int = 0xFF34D399.toInt()
@@ -109,19 +120,18 @@ class SparklineView7009 @JvmOverloads constructor(
         }
     }
 
-    private fun startPulse() {
-        if (pulseAnim != null) return
-        pulseAnim = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 1600L
-            repeatCount = ValueAnimator.INFINITE
-            repeatMode = ValueAnimator.REVERSE
-            interpolator = LinearInterpolator()
-            addUpdateListener { pulse = it.animatedValue as Float; invalidate() }
-            start()
-        }
-    }
+    private fun startPulse() { pulseLoop.request(true) }
 
-    private fun stopPulse() { pulseAnim?.cancel(); pulseAnim = null }
+    private fun stopPulse() { pulseLoop.request(false) }
+
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); pulseLoop.sync() }
+    override fun onWindowVisibilityChanged(v: Int) { super.onWindowVisibilityChanged(v); pulseLoop.sync() }
+    override fun onVisibilityAggregated(isVisible: Boolean) { super.onVisibilityAggregated(isVisible); pulseLoop.sync() }
+    override fun onDetachedFromWindow() {
+        pulseLoop.release()
+        animator?.cancel(); animator = null
+        super.onDetachedFromWindow()
+    }
 
     private fun rebuildShader() {
         if (fillColor == 0 || height <= 0) { fillPaint.shader = null; return }
@@ -225,11 +235,8 @@ class SparklineView7009 @JvmOverloads constructor(
         }
     }
 
-    override fun onDetachedFromWindow() {
-        animator?.cancel(); animator = null
-        stopPulse()
-        super.onDetachedFromWindow()
-    }
+    // V5.0.7027 — onDetachedFromWindow now lives with the other three
+    // lifecycle forwards above, next to the loop it releases.
 }
 
 /**
@@ -243,31 +250,28 @@ class PulseDotView7009 @JvmOverloads constructor(
     private val corePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private var phase = 0f
-    private var anim: ValueAnimator? = null
+    // V5.0.7027 — visibility-gated and rate-limited. A dot this small does not
+    // need 60 repaints a second, and there are several of them per screen.
+    private val beatLoop = AateLoopAnim7027(
+        host = this, durationMs = 1500L, reverse = true,
+    ) { v -> phase = v }
 
     var dotColor: Int = 0xFF34D399.toInt()
         set(v) { field = v; invalidate() }
 
     /** Stop the animation without removing the dot (paused / stopped states). */
     var beating: Boolean = true
-        set(v) { field = v; if (v) start() else { anim?.cancel(); anim = null; phase = 0f; invalidate() } }
+        set(v) { field = v; beatLoop.request(v); if (!v) { phase = 0f; invalidate() } }
 
-    init { ringPaint.strokeWidth = 1f * resources.displayMetrics.density }
-
-    private fun start() {
-        if (anim != null || !beating) return
-        anim = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 1500L
-            repeatCount = ValueAnimator.INFINITE
-            repeatMode = ValueAnimator.REVERSE
-            interpolator = LinearInterpolator()
-            addUpdateListener { phase = it.animatedValue as Float; invalidate() }
-            start()
-        }
+    init {
+        ringPaint.strokeWidth = 1f * resources.displayMetrics.density
+        beatLoop.request(true)
     }
 
-    override fun onAttachedToWindow() { super.onAttachedToWindow(); start() }
-    override fun onDetachedFromWindow() { anim?.cancel(); anim = null; super.onDetachedFromWindow() }
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); beatLoop.sync() }
+    override fun onWindowVisibilityChanged(v: Int) { super.onWindowVisibilityChanged(v); beatLoop.sync() }
+    override fun onVisibilityAggregated(isVisible: Boolean) { super.onVisibilityAggregated(isVisible); beatLoop.sync() }
+    override fun onDetachedFromWindow() { beatLoop.release(); super.onDetachedFromWindow() }
 
     override fun onDraw(canvas: Canvas) {
         val cx = width / 2f; val cy = height / 2f
@@ -415,11 +419,28 @@ class RingGaugeView7010 @JvmOverloads constructor(
         color = 0x668B5CF6
     }
     private var orbitDeg = 0f
-    private var orbitAnim: ValueAnimator? = null
+    // V5.0.7027 — ~15fps, not 60. A dashed ring completing one turn every six
+    // seconds moves 1 degree per frame at 60Hz; at 15Hz it moves 4, which is
+    // still below the dash pitch, so the motion is identical and the draw cost
+    // is a quarter.
+    private val orbitLoop = AateLoopAnim7027(
+        host = this, durationMs = 6_000L, to = 360f,
+        frameMs = AateLoopAnim7027.FRAME_MS_SLOW,
+    ) { v -> orbitDeg = v }
 
-    /** Set false for a still ring (used where the gauge is decorative). */
-    var orbiting: Boolean = true
-        set(v) { field = v; if (v) startOrbit() else { orbitAnim?.cancel(); orbitAnim = null; invalidate() } }
+    /**
+     * Opt IN to the rotating outer ring.
+     *
+     * V5.0.7027 — THIS DEFAULTED TO TRUE IN 7025 AND THAT WAS THE REGRESSION.
+     * RingGaugeView7010 is on almost every screen in the app, several per
+     * screen, so a default of true put the entire UI into a permanent 60fps
+     * repaint on the same main thread the exit sweeps and the journal writer
+     * run on. Executions went 17 -> 0 between 7024 and 7025.
+     *
+     * The render only spins the ONE hero gauge. Callers that want it say so.
+     */
+    var orbiting: Boolean = false
+        set(v) { field = v; orbitLoop.request(v); invalidate() }
 
     var caption: String = "HEALTH"
         set(v) { field = v; invalidate() }
@@ -443,21 +464,9 @@ class RingGaugeView7010 @JvmOverloads constructor(
         orbitPaint.pathEffect = android.graphics.DashPathEffect(floatArrayOf(3f * d, 7f * d), 0f)
     }
 
-    private fun startOrbit() {
-        orbitAnim?.cancel()
-        orbitAnim = ValueAnimator.ofFloat(0f, 360f).apply {
-            duration = 6_000L
-            repeatCount = ValueAnimator.INFINITE
-            interpolator = android.view.animation.LinearInterpolator()
-            addUpdateListener { orbitDeg = it.animatedValue as Float; invalidate() }
-            start()
-        }
-    }
-
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-        if (orbiting && orbitAnim == null) startOrbit()
-    }
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); orbitLoop.sync() }
+    override fun onWindowVisibilityChanged(v: Int) { super.onWindowVisibilityChanged(v); orbitLoop.sync() }
+    override fun onVisibilityAggregated(isVisible: Boolean) { super.onVisibilityAggregated(isVisible); orbitLoop.sync() }
 
     /** value is 0..1. */
     fun setValue(v: Float, animate: Boolean = true) {
@@ -510,7 +519,7 @@ class RingGaugeView7010 @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         anim?.cancel(); anim = null
-        orbitAnim?.cancel(); orbitAnim = null
+        orbitLoop.release()
         super.onDetachedFromWindow()
     }
 }

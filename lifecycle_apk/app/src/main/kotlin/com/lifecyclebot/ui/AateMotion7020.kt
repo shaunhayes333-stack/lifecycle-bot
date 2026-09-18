@@ -32,9 +32,14 @@ import android.view.View
  * capability is the easy half; wiring it to the screen that needs it is the
  * half that keeps not happening.
  *
- * ANR DISCIPLINE, carried from 7009 unchanged, because these run on screens
- * that already refresh every 2-4 seconds:
- *   - at most one ValueAnimator per view, cancelled in onDetachedFromWindow
+ * ANR DISCIPLINE, carried from 7009 and CORRECTED IN 7027, because these run
+ * on screens that already refresh every 2-4 seconds:
+ *   - at most one ValueAnimator per view; a LOOPING one is owned by
+ *     AateLoopAnim7027, which runs it only while the view is genuinely on
+ *     screen and repaints at ~15-20fps instead of 60. "Cancelled in
+ *     onDetachedFromWindow" was the old rule and it was not sufficient: a
+ *     view on a backgrounded activity is still attached, and the tape below
+ *     was one of the four loops that took 7025 from 17 executions to 0.
  *   - no allocation inside onDraw: every Paint, RectF and Shader is built once
  *     in init or on a setter, never per frame
  *   - every setter is a no-op when handed data equal to what it already holds,
@@ -276,7 +281,15 @@ class TickerTapeView7020 @JvmOverloads constructor(
     private var widths: FloatArray = FloatArray(0)
     private var runWidth = 0f
     private var offset = 0f
-    private var anim: ValueAnimator? = null
+    // V5.0.7027 — the tape drives its offset from a 0..1 phase scaled by the
+    // CURRENT runWidth rather than animating 0..runWidth directly, so adding or
+    // removing a symbol no longer needs the animator restarted, and the loop is
+    // visibility-gated and rate-limited. At 22s per pass and ~15fps the tape
+    // advances a couple of pixels a frame; nobody can tell it from 60.
+    private val scrollLoop = AateLoopAnim7027(
+        host = this, durationMs = 22_000L,
+        frameMs = AateLoopAnim7027.FRAME_MS_SLOW,
+    ) { phase -> offset = phase * runWidth }
 
     var symColor: Int = 0xFFC8D6EE.toInt()
         set(v) { field = v; symPaint.color = v; invalidate() }
@@ -310,19 +323,8 @@ class TickerTapeView7020 @JvmOverloads constructor(
         runWidth = widths.sum()
     }
 
-    private fun startScroll() {
-        anim?.cancel()
-        if (runWidth <= 0f) return
-        anim = ValueAnimator.ofFloat(0f, runWidth).apply {
-            // Match the render's pace: one full pass in ~22s regardless of how
-            // many symbols are in the tape.
-            duration = 22_000L
-            repeatCount = ValueAnimator.INFINITE
-            interpolator = android.view.animation.LinearInterpolator()
-            addUpdateListener { offset = it.animatedValue as Float; invalidate() }
-            start()
-        }
-    }
+    /** One full pass in ~22s regardless of how many symbols are in the tape. */
+    private fun startScroll() { scrollLoop.request(runWidth > 0f && syms.isNotEmpty()) }
 
     override fun onDraw(canvas: Canvas) {
         if (width <= 0 || height <= 0 || syms.isEmpty() || runWidth <= 0f) return
@@ -353,10 +355,9 @@ class TickerTapeView7020 @JvmOverloads constructor(
         }
     }
 
-    override fun onDetachedFromWindow() { anim?.cancel(); anim = null; super.onDetachedFromWindow() }
+    override fun onDetachedFromWindow() { scrollLoop.release(); super.onDetachedFromWindow() }
 
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-        if (syms.isNotEmpty() && anim == null) startScroll()
-    }
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); scrollLoop.sync() }
+    override fun onWindowVisibilityChanged(v: Int) { super.onWindowVisibilityChanged(v); scrollLoop.sync() }
+    override fun onVisibilityAggregated(isVisible: Boolean) { super.onVisibilityAggregated(isVisible); scrollLoop.sync() }
 }

@@ -1,6 +1,5 @@
 package com.lifecyclebot.ui
 
-import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.LinearGradient
@@ -33,9 +32,15 @@ import android.view.View
  * live), and the crossfade has to be driven by the same clock as the rotation
  * or a message can be half-replaced at the moment it changes.
  *
- * ANR discipline as 7009/7020/7021: two animators, both cancelled on detach,
- * nothing allocated in onDraw, and NOTHING DRAWN AT ALL when the caller has
- * given it no items.
+ * ANR discipline (CORRECTED IN 7027): two loops, both owned by
+ * AateLoopAnim7027, so they run only while this card is genuinely on screen
+ * and repaint at ~20fps rather than 60. Nothing is allocated in onDraw, and
+ * NOTHING IS DRAWN AT ALL when the caller has given it no items.
+ *
+ * The 7025 version of this comment claimed ANR discipline on the strength of
+ * "cancelled on detach", which is not the same claim and was not enough: this
+ * card sits on the home screen, so it stayed attached — and repainting — for
+ * the whole life of the app. It cost the bot every execution in that build.
  */
 class SignalTickerView7025 @JvmOverloads constructor(
     ctx: Context, attrs: AttributeSet? = null, defStyle: Int = 0
@@ -61,12 +66,37 @@ class SignalTickerView7025 @JvmOverloads constructor(
     private var sweepX = -0.4f
     private var pulse = 0f
 
-    private var rotateAnim: ValueAnimator? = null
-    private var sweepAnim: ValueAnimator? = null
     private var sweepShader: Shader? = null
 
-    /** How long each message holds before the next replaces it. */
-    var holdMs: Long = 3_600L
+    /**
+     * How long each message holds before the next replaces it.
+     *
+     * V5.0.7027 — read once, when the loop is built. It was never reassigned
+     * by any caller and a setter that silently did nothing would be worse than
+     * a constant.
+     */
+    val holdMs: Long = 3_600L
+
+    // V5.0.7027 — BOTH of these were raw INFINITE ValueAnimators calling
+    // invalidate() on every one of their 60 frames a second, on a card that is
+    // always on the home screen. Together with the ring orbit and the Markets
+    // tape they are the 7025 regression: maxFrameGap 725ms -> 32,636ms,
+    // stall 0.1% -> 16.5%, executions 17 -> 0. See AateLoopAnim7027.
+    private val rotateLoop = AateLoopAnim7027(
+        host = this, durationMs = holdMs,
+    ) { f ->
+        // Crossfade only in the last 12% of each hold, so the text is legible
+        // for the other 88% rather than perpetually half-faded.
+        fade = if (f > 0.88f) (1f - (f - 0.88f) / 0.12f) else 1f
+        pulse = kotlin.math.abs(kotlin.math.sin(f * Math.PI * 4).toFloat())
+    }.onRepeat {
+        if (msgs.isNotEmpty()) index = (index + 1) % msgs.size
+    }
+
+    private val sweepLoop = AateLoopAnim7027(
+        host = this, durationMs = 3_200L, from = -0.45f, to = 1.45f,
+        frameMs = AateLoopAnim7027.FRAME_MS_SLOW,
+    ) { v -> sweepX = v }
 
     init {
         val d = resources.displayMetrics.density
@@ -93,42 +123,13 @@ class SignalTickerView7025 @JvmOverloads constructor(
     }
 
     private fun startAll() {
-        if (rotateAnim == null) {
-            rotateAnim = ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = holdMs
-                repeatCount = ValueAnimator.INFINITE
-                interpolator = android.view.animation.LinearInterpolator()
-                addUpdateListener {
-                    val f = it.animatedValue as Float
-                    // Crossfade only in the last 12% of each hold, so the text
-                    // is legible for the other 88% rather than perpetually
-                    // half-faded.
-                    fade = if (f > 0.88f) (1f - (f - 0.88f) / 0.12f) else 1f
-                    pulse = kotlin.math.abs(kotlin.math.sin(f * Math.PI * 4).toFloat())
-                    invalidate()
-                }
-                addListener(object : android.animation.AnimatorListenerAdapter() {
-                    override fun onAnimationRepeat(a: android.animation.Animator) {
-                        if (msgs.isNotEmpty()) index = (index + 1) % msgs.size
-                    }
-                })
-                start()
-            }
-        }
-        if (sweepAnim == null) {
-            sweepAnim = ValueAnimator.ofFloat(-0.45f, 1.45f).apply {
-                duration = 3_200L
-                repeatCount = ValueAnimator.INFINITE
-                interpolator = android.view.animation.LinearInterpolator()
-                addUpdateListener { sweepX = it.animatedValue as Float; invalidate() }
-                start()
-            }
-        }
+        rotateLoop.request(true)
+        sweepLoop.request(true)
     }
 
     private fun stopAll() {
-        rotateAnim?.cancel(); rotateAnim = null
-        sweepAnim?.cancel(); sweepAnim = null
+        rotateLoop.request(false)
+        sweepLoop.request(false)
     }
 
     override fun onSizeChanged(w: Int, h: Int, ow: Int, oh: Int) {
@@ -195,13 +196,15 @@ class SignalTickerView7025 @JvmOverloads constructor(
         valPaint.alpha = 255
     }
 
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-        if (msgs.isNotEmpty()) startAll()
-    }
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); syncLoops() }
+    override fun onWindowVisibilityChanged(v: Int) { super.onWindowVisibilityChanged(v); syncLoops() }
+    override fun onVisibilityAggregated(isVisible: Boolean) { super.onVisibilityAggregated(isVisible); syncLoops() }
+
+    private fun syncLoops() { rotateLoop.sync(); sweepLoop.sync() }
 
     override fun onDetachedFromWindow() {
-        stopAll()
+        rotateLoop.release()
+        sweepLoop.release()
         super.onDetachedFromWindow()
     }
 }

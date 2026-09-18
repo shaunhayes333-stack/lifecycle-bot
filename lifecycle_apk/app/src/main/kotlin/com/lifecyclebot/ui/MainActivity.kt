@@ -1236,6 +1236,12 @@ class MainActivity : AppCompatActivity() {
                 // still reads against the 20% doctrine floor, because for a
                 // strategy whose edge is runner capture a low win rate is not
                 // automatically a failure — but the figure must be the truth.
+                // V5.0.7027 — the render spins ONE ring, the hero's. 7025 made
+                // `orbiting` default to true, which put every gauge in the app
+                // into a permanent repaint; the default is now false and the
+                // hero opts in here, which is the only place the render asks
+                // for it.
+                ring.orbiting = true
                 if (decisive7011 > 0 && wr7011 >= 0.0) {
                     ring.ringColor = when {
                         wr7011 >= 20.0 -> 0xFF34D399.toInt()

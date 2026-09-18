@@ -114,9 +114,36 @@ object ExitThroughputAuthority6727 {
         // Hard cap: absolute open count exceeds sanity ceiling regardless
         // of cash. Prevents runaway inventory even when a fresh deposit
         // temporarily lifts cashRatio.
-        if (openCount >= POSITION_HARD_CAP) {
+        //
+        // V5.0.7027 §THE_CAP_COUNTED_ROWS_IT_COULD_NOT_MANAGE. The ceiling now
+        // compares MANAGED rows, not canonical rows. A row whose token has had
+        // no usable mark for ten minutes cannot be stopped, trailed or taken
+        // profit on — the scheduler pings it with markPx=0 and the universal
+        // sweep skips it on `last <= 0.0` — so counting it here means the bot
+        // stops trading in proportion to how much of its book has gone dark.
+        // The operator's 5.0.7025 capture is that state at its limit: 100 open
+        // rows, zero closes in the session, 967 BUY verdicts, and every
+        // authorised entry resolved to size zero behind this very line.
+        //
+        // The discount is bounded inside the breaker so a total feed blackout
+        // cannot uncap the bot, and the cash gate below is untouched — this
+        // corrects an inventory COUNT, it does not widen capital exposure.
+        // See InventoryDeadlockBreaker7027 for the full rationale.
+        val relief7027 = try {
+            InventoryDeadlockBreaker7027.relief(m, POSITION_HARD_CAP)
+        } catch (_: Throwable) { null }
+        val managedCount7027 = relief7027?.managedRows ?: openCount
+        if (managedCount7027 >= POSITION_HARD_CAP) {
             try { PipelineHealthCollector.labelInc("EXIT_THROUGHPUT_BLOCKED_POSITION_HARD_CAP_6727") } catch (_: Throwable) {}
             return Verdict(false, "POSITION_HARD_CAP_EXIT_THROUGHPUT_6727", openCount, cash, equity, cashRatio)
+        }
+        if (relief7027 != null && relief7027.discounted > 0 && openCount >= POSITION_HARD_CAP) {
+            // The cap WOULD have blocked this and the dark-row discount is the
+            // only reason it did not. Named, because a silent relaxation of a
+            // safety ceiling is worse than the deadlock it fixes.
+            try {
+                PipelineHealthCollector.labelInc("EXIT_THROUGHPUT_HARD_CAP_RELIEVED_7027")
+            } catch (_: Throwable) {}
         }
 
         // V5.0.6732 §LANE_SCOPED_CAPITAL_FAIRNESS — if this admission
