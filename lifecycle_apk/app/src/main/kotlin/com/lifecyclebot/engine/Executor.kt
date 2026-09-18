@@ -5576,6 +5576,53 @@ class Executor(
             }
             else -> rawGainMultiple.coerceAtMost(100.0)
         }
+        // V5.0.7049 §THE_SELL_PATH_BANKED_A_PRICE_THE_PNL_PATH_HAD_REFUSED.
+        //
+        // One mint, one price, one tick, two opposite verdicts (5.0.7047):
+        //
+        //   OPEN_PNL_BASIS_REJECTED  reason=PRICE_BASIS_UNTRUSTED_EXTREME_RATIO
+        //     context=BotService.rapidStop/RENDER/rndrizKT
+        //     entry=0.002848705866  current=0.8075859836903634  ratio=283.49
+        //
+        //   PARTIAL_SELL rndriz sol=18.954276 pnl=+18.886642 cost=0.0673
+        //     reason=ultra_runner_bank_100.0x
+        //
+        // OpenPnlSanity refused that ratio as a corrupt basis. Profit-lock took
+        // the same number and banked 18.89 SOL on it. Note the "100.0x" in the
+        // reason is not a measurement — it is the coerceAtMost(100.0) ceiling
+        // twelve lines up, so a 283x basis artifact and a genuine 100x runner
+        // print the identical string.
+        //
+        // AND THE GUARD ABOVE CANNOT CATCH IT. PHANTOM_MULTIPLE_GUARD compares
+        // rawGainMultiple against priceMoveMultiple, but on the PAPER branch
+        // both are `actualPrice / pos.entryPrice` — the same expression. Its
+        // test is `raw > priceMove * 5.0`, i.e. `x > 5x`, which is false for
+        // every positive x. It has never fired for a paper position and cannot.
+        // It works only on the LIVE branch, where raw uses qtyToken.
+        //
+        // So consult the authority that already has an opinion. This does NOT
+        // throttle runners, cap a multiple, or narrow a trigger: when the mark
+        // is trusted every threshold behaves exactly as before. It refuses to
+        // realise a gain from a price this same app has declared false, which
+        // is the difference between capturing a runner and inventing one.
+        val pricingTruth7049 = try {
+            OpenPnlSanity.pricingTruth(ts, "Executor.profitLock/${ts.symbol}/${ts.mint.take(8)}", emit = false)
+        } catch (_: Throwable) { null }
+        if (pricingTruth7049 != null && !pricingTruth7049.trusted && gainMultiple > 1.0) {
+            try {
+                PipelineHealthCollector.labelInc("PROFIT_LOCK_REFUSED_UNTRUSTED_BASIS_7049")
+                ForensicLogger.lifecycle(
+                    "PROFIT_LOCK_REFUSED_UNTRUSTED_BASIS_7049",
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} entry=${pos.entryPrice} mark=$actualPrice " +
+                        "gainMultiple=${"%.2f".format(gainMultiple)} costSol=${"%.4f".format(pos.costSol)} " +
+                        "reason=${pricingTruth7049.reason} src=${ts.lastPriceSource} " +
+                        "action=hold_position_no_bank_on_refused_mark",
+                )
+            } catch (_: Throwable) {}
+            // Hold. The position is untouched and every exit that does not
+            // depend on this mark — stop loss, catastrophe, time — still runs.
+            return false
+        }
         val currentValue = pos.costSol * gainMultiple
         val gainPct = (gainMultiple - 1.0) * 100.0
 

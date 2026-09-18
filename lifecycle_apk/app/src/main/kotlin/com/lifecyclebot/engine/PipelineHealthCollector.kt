@@ -812,7 +812,46 @@ object PipelineHealthCollector {
                     // uptime > 15s is a robust "past boot" gate.
                     val uptimeMs = System.currentTimeMillis() - startedAtMs.get()
                     val pastBootWarmup = uptimeMs > 15_000L
-                    if (deltaMs > LONG_FRAME_THRESHOLD_MS && deltaMs <= MAX_REAL_STALL_MS && pastBootWarmup) {
+                    // V5.0.7049 §THE_ANR_METRIC_WAS_TIMING_THE_OPERATOR.
+                    //
+                    // The 60s screen-off guard above is not enough. The
+                    // Choreographer stops receiving vsync whenever NO ACTIVITY
+                    // IS VISIBLE, not only when the screen is off — so an
+                    // operator who backgrounds the app for 46 seconds to take a
+                    // screenshot comes back to a 46,467ms "frame gap" that is
+                    // under the 60s ceiling and past the 15s boot gate, and it
+                    // is booked as a main-thread stall.
+                    //
+                    // That is exactly what the 5.0.7047 snapshot shows, and the
+                    // proof is in the same block:
+                    //
+                    //   Max frame gap: 46467 ms · Stall 19.3%
+                    //   Watchdog samples taken: 0
+                    //   MAIN_UI_STOP_INACTIVATED_6300: 6
+                    //
+                    // The watchdog thread exists to sample the main thread WHILE
+                    // IT IS BLOCKED. If the main thread had genuinely been stuck
+                    // for 46 seconds it would have sampled it many times over.
+                    // It sampled it ZERO times, and the rolling pre-freeze trace
+                    // shows nothing but ~250ms idle gaps. Nothing was blocked;
+                    // the app was in the background.
+                    //
+                    // This sent us at MainActivity.onCreate and a 6,884-line
+                    // layout, which is why the "ANR" appeared at 41s in 7044,
+                    // vanished to 0ms in 7045 and returned at 46s in 7047 with
+                    // no code change in between — it was tracking how long the
+                    // operator spent in another app, not how long the UI froze.
+                    //
+                    // Gate on the visibility authority the rest of the app
+                    // already uses (BotService:539 reads the same call). An
+                    // invisible-window gap is recorded under its own label so it
+                    // stays auditable instead of silently vanishing.
+                    val uiVisible7049 = try {
+                        com.lifecyclebot.AATEApp.isAnyActivityVisible6487()
+                    } catch (_: Throwable) { true }
+                    if (deltaMs > LONG_FRAME_THRESHOLD_MS && !uiVisible7049) {
+                        bump(labelCounts, "FRAME_GAP_WHILE_UI_NOT_VISIBLE_7049")
+                    } else if (deltaMs > LONG_FRAME_THRESHOLD_MS && deltaMs <= MAX_REAL_STALL_MS && pastBootWarmup) {
                         anrHintCount.incrementAndGet()
                         totalFrameStallMs.addAndGet(deltaMs)
                         var prevMax = maxFrameGapMs.get()
