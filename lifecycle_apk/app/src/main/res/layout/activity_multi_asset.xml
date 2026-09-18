@@ -108,185 +108,188 @@
         </LinearLayout>
 
         <!-- ══════════════════════════════════════════════════════════
-             HERO BALANCE + STATS STRIP
+             V5.0.7020 — the render's Markets hero.
+
+             Operator: "its not just colours. the format lack of graphs and
+             animations etc shown in your renders."
+
+             project/Markets.dc.html carries, above the fold: a scrolling
+             ticker tape, a portfolio card whose figure sits beside a
+             five-segment allocation donut, and a fourteen-bar sector-heat
+             strip. What shipped was a balance, four pill-shaped stat boxes
+             and no graph of any kind.
+
+             Every id below is preserved; what changes is the composition
+             and the fact that three of these elements now MOVE.
              ══════════════════════════════════════════════════════════ -->
+
+        <com.lifecyclebot.ui.TickerTapeView7020
+            android:id="@+id/marketsTicker"
+            android:layout_width="match_parent"
+            android:layout_height="26dp"
+            android:layout_marginBottom="11dp"
+            android:background="@drawable/aate_ticker_bg"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/aate_markets_hero_bg"
+            android:layout_marginStart="14dp"
+            android:layout_marginEnd="14dp"
+            android:layout_marginBottom="11dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="15dp"
+            android:paddingBottom="12dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:baselineAligned="false">
+
+                <LinearLayout
+                    android:id="@+id/balanceContainer"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="PORTFOLIO" style="@style/T.Body.Caption"/>
+
+                    <TextView
+                        android:id="@+id/tvTotalBalance"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="$0.00"
+                        android:textColor="@color/aate_text"
+                        android:textSize="32sp"
+                        android:textStyle="bold"
+                        android:fontFamily="@font/aate_mono"
+                        android:letterSpacing="-0.02"
+                        android:maxLines="1"
+                        android:autoSizeTextType="uniform"
+                        android:autoSizeMinTextSize="18sp"
+                        android:autoSizeMaxTextSize="32sp"
+                        android:autoSizeStepGranularity="1sp"
+                        android:layout_marginTop="2dp"/>
+
+                    <TextView
+                        android:id="@+id/tvBalanceSecondary"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="—"
+                        android:textColor="@color/aate_text_secondary"
+                        android:textSize="11.5sp"
+                        android:fontFamily="@font/aate_mono"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:layout_marginTop="2dp"/>
+                </LinearLayout>
+
+                <!-- Allocation: bound in MultiAssetActivity to real per-class
+                     exposure. Draws nothing until there is exposure, so an
+                     empty ring and a zeroed ring never look alike. -->
+                <com.lifecyclebot.ui.DonutView7020
+                    android:id="@+id/marketsDonut"
+                    android:layout_width="76dp"
+                    android:layout_height="76dp"
+                    android:layout_marginStart="12dp"/>
+            </LinearLayout>
+
+            <com.lifecyclebot.ui.HeatBarsView7020
+                android:id="@+id/marketsHeat"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:layout_marginTop="11dp"/>
+        </LinearLayout>
+
+        <!-- Engine pills: each carries its OWN accent, as the render does,
+             rather than three copies of one blue outline. -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
-            android:paddingBottom="10dp">
+            android:baselineAligned="false"
+            android:layout_marginStart="14dp"
+            android:layout_marginEnd="14dp"
+            android:layout_marginBottom="11dp">
 
-            <!-- Balance column -->
             <LinearLayout
-                android:id="@+id/balanceContainer"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical"
-                android:clickable="true"
-                android:focusable="true">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="PORTFOLIO"
-                    android:textColor="@color/aate_text_muted"
-                    android:textSize="8.5sp"
-                    android:letterSpacing="0.12"
-                    android:fontFamily="monospace"/>
-
-                <TextView
-                    android:id="@+id/tvTotalBalance"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="$0.00"
-                    android:textColor="@color/aate_green"
-                    android:textSize="26sp"
-                    android:textStyle="bold"
-                    android:maxLines="1"
-                    android:autoSizeTextType="uniform"
-                    android:autoSizeMinTextSize="14sp"
-                    android:autoSizeMaxTextSize="26sp"/>
-
-                <TextView
-                    android:id="@+id/tvBalanceSecondary"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="•"
-                    android:textColor="@color/aate_text_muted"
-                    android:textSize="10sp"/>
+                android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:orientation="vertical"
+                android:background="@drawable/aate_accent_card_purple"
+                android:paddingStart="11dp" android:paddingEnd="11dp"
+                android:paddingTop="10dp" android:paddingBottom="10dp"
+                android:layout_marginEnd="7dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="OPEN" android:textColor="@color/aate_purple_bright"
+                    android:textSize="9.5sp" android:textStyle="bold" android:letterSpacing="0.10"/>
+                <TextView android:id="@+id/tvActivePositions"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="0" android:textColor="@color/aate_text"
+                    android:textSize="17sp" android:textStyle="bold"
+                    android:fontFamily="@font/aate_mono" android:maxLines="1"
+                    android:layout_marginTop="3dp"/>
             </LinearLayout>
 
-            <!-- Quick stat pills (vertical 2x2) -->
             <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
+                android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:orientation="vertical"
+                android:background="@drawable/aate_accent_card_cyan"
+                android:paddingStart="11dp" android:paddingEnd="11dp"
+                android:paddingTop="10dp" android:paddingBottom="10dp"
+                android:layout_marginEnd="7dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="P&amp;L" android:textColor="@color/aate_cyan"
+                    android:textSize="9.5sp" android:textStyle="bold" android:letterSpacing="0.10"/>
+                <TextView android:id="@+id/tvTodayPnl"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="—" android:textColor="@color/aate_green"
+                    android:textSize="17sp" android:textStyle="bold"
+                    android:fontFamily="@font/aate_mono" android:maxLines="1"
+                    android:layout_marginTop="3dp"/>
+            </LinearLayout>
 
-                <!-- Row 1: positions + P&L -->
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginBottom="4dp">
+            <LinearLayout
+                android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:orientation="vertical"
+                android:background="@drawable/aate_accent_card_amber"
+                android:paddingStart="11dp" android:paddingEnd="11dp"
+                android:paddingTop="10dp" android:paddingBottom="10dp"
+                android:layout_marginEnd="7dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="WIN" android:textColor="@color/aate_amber"
+                    android:textSize="9.5sp" android:textStyle="bold" android:letterSpacing="0.10"/>
+                <TextView android:id="@+id/tvWinRate"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="—" android:textColor="@color/aate_text"
+                    android:textSize="17sp" android:textStyle="bold"
+                    android:fontFamily="@font/aate_mono" android:maxLines="1"
+                    android:layout_marginTop="3dp"/>
+            </LinearLayout>
 
-                    <LinearLayout
-                        android:layout_width="64dp"
-                        android:layout_height="36dp"
-                        android:orientation="vertical"
-                        android:gravity="center"
-                        android:background="@drawable/aate_universe_panel_bg"
-                        android:layout_marginEnd="4dp"
-        android:layout_marginStart="@dimen/screen_padding"
-        android:layout_marginBottom="12dp">
-                        <TextView
-                            android:id="@+id/tvActivePositions"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="0"
-                            android:textColor="@color/aate_text"
-                            android:textSize="13sp"
-                            android:textStyle="bold"/>
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="OPEN"
-                            android:textColor="@color/aate_text_muted"
-                            android:textSize="7sp"
-                            android:fontFamily="monospace"
-        android:letterSpacing="0.12" />
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="64dp"
-                        android:layout_height="36dp"
-                        android:orientation="vertical"
-                        android:gravity="center"
-                        android:background="@drawable/aate_universe_panel_bg"
-        android:layout_marginStart="@dimen/screen_padding"
-        android:layout_marginEnd="@dimen/screen_padding"
-        android:layout_marginBottom="12dp">
-                        <TextView
-                            android:id="@+id/tvTodayPnl"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="+$0"
-                            android:textColor="@color/aate_green"
-                            android:textSize="11sp"
-                            android:textStyle="bold"/>
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="P&amp;L"
-                            android:textColor="@color/aate_text_muted"
-                            android:textSize="7sp"
-                            android:fontFamily="monospace"/>
-                    </LinearLayout>
-                </LinearLayout>
-
-                <!-- Row 2: win rate + AI score -->
-                <LinearLayout
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal">
-
-                    <LinearLayout
-                        android:layout_width="64dp"
-                        android:layout_height="36dp"
-                        android:orientation="vertical"
-                        android:gravity="center"
-                        android:background="@drawable/aate_universe_panel_bg"
-                        android:layout_marginEnd="4dp"
-        android:layout_marginStart="@dimen/screen_padding"
-        android:layout_marginBottom="12dp">
-                        <TextView
-                            android:id="@+id/tvWinRate"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="—%"
-                            android:textColor="@color/aate_green"
-                            android:textSize="13sp"
-                            android:textStyle="bold"/>
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="WIN"
-                            android:textColor="@color/aate_text_muted"
-                            android:textSize="7sp"
-                            android:fontFamily="monospace"
-        android:letterSpacing="0.12" />
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="64dp"
-                        android:layout_height="36dp"
-                        android:orientation="vertical"
-                        android:gravity="center"
-                        android:background="@drawable/aate_universe_panel_bg"
-        android:layout_marginStart="@dimen/screen_padding"
-        android:layout_marginEnd="@dimen/screen_padding"
-        android:layout_marginBottom="12dp">
-                        <TextView
-                            android:id="@+id/tvStatsAiScore"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="—"
-                            android:textColor="@color/aate_purple"
-                            android:textSize="13sp"
-                            android:textStyle="bold"/>
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="AI"
-                            android:textColor="@color/aate_text_muted"
-                            android:textSize="7sp"
-                            android:fontFamily="monospace"
-        android:letterSpacing="0.12" />
-                    </LinearLayout>
-                </LinearLayout>
+            <LinearLayout
+                android:layout_width="0dp" android:layout_weight="1"
+                android:layout_height="wrap_content" android:orientation="vertical"
+                android:background="@drawable/aate_accent_card_pink"
+                android:paddingStart="11dp" android:paddingEnd="11dp"
+                android:paddingTop="10dp" android:paddingBottom="10dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="AI" android:textColor="@color/aate_pink_soft"
+                    android:textSize="9.5sp" android:textStyle="bold" android:letterSpacing="0.10"/>
+                <TextView android:id="@+id/tvStatsAiScore"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="—" android:textColor="@color/aate_text"
+                    android:textSize="17sp" android:textStyle="bold"
+                    android:fontFamily="@font/aate_mono" android:maxLines="1"
+                    android:layout_marginTop="3dp"/>
             </LinearLayout>
         </LinearLayout>
 

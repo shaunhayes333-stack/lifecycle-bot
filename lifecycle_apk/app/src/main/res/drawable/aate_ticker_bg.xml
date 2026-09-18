@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.7020 — the ticker tape's band.
+  Render: background rgba(6,10,20,.6) with a 1px rgba(124,196,255,.12) rule
+  above and below. Square, full-bleed, and quiet — it frames motion rather than
+  competing with it, which is why it is the one strip here with no radius.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#99060A14"/>
+        </shape>
+    </item>
+    <item android:top="0dp" android:bottom="25dp">
+        <shape android:shape="rectangle"><solid android:color="#1F7CC4FF"/></shape>
+    </item>
+    <item android:top="25dp">
+        <shape android:shape="rectangle"><solid android:color="#1F7CC4FF"/></shape>
+    </item>
+</layer-list>

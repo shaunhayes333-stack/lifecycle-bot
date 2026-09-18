@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.7020 — the Markets hero, at the render's actual values.
+
+  Taken directly from project/Markets.dc.html rather than from memory:
+
+    background: linear-gradient(155deg, rgba(16,60,52,.90), rgba(9,15,30,.97))
+    border: 1px solid rgba(52,211,153,.36)
+
+  Two things the app's other cards get wrong and this one does not:
+
+  1. THE FILL IS TINTED TOWARD THE CARD'S OWN MEANING. This is the portfolio
+     card, so it is green. The learning card in the same render is purple, the
+     engine pills are purple/cyan/amber. Every card in the app currently shares
+     one blue-grey fill, which is most of why the screens read as a list of
+     identical boxes.
+
+  2. ONE HAIRLINE, AT 36% ALPHA. The app's cards carry three concentric strokes
+     (3dp at 0x24, 2dp at 0x4E, 1dp at 0xAD). A CSS box-shadow is a soft bloom;
+     three stacked strokes is a hard ring, and stacking them on every surface is
+     what turned every element into an outlined capsule.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient android:type="linear" android:angle="295"
+        android:startColor="#E6103C34" android:endColor="#F7090F1E"/>
+    <stroke android:width="1dp" android:color="#5C34D399"/>
+    <corners android:radius="24dp"/>
+</shape>

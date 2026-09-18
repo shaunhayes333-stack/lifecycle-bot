@@ -941,6 +941,27 @@ class MultiAssetActivity : AppCompatActivity() {
             tvStatsTotalPnl.text = "${if (totalPnlUsd >= 0) "+" else ""}\$${"%,.0f".format(totalPnlUsd)}"
             tvStatsTotalPnl.setTextColor(if (totalPnlUsd >= 0) AateUi.GREEN else AateUi.RED)
 
+            // V5.0.7020 — feed the three views the render has and this screen
+            // never had. Called from here because this is where the per-class
+            // totals are already computed; giving the donut and the bars their
+            // own route to the traders is how two surfaces start disagreeing.
+            renderMarketsMotion7020(
+                perClassTrades = intArrayOf(
+                    TokenizedStockTrader.getTotalTrades(),
+                    CommoditiesTrader.getTotalTrades(),
+                    MetalsTrader.getTotalTrades(),
+                    ForexTrader.getTotalTrades(),
+                    PerpsTraderAI.getLifetimeTrades(),
+                ),
+                perClassWins = intArrayOf(
+                    TokenizedStockTrader.getWinningTrades(),
+                    CommoditiesTrader.getWinningTrades(),
+                    MetalsTrader.getWinningTrades(),
+                    ForexTrader.getWinningTrades(),
+                    PerpsTraderAI.getLifetimeWins(),
+                ),
+            )
+
             val readiness = calculateMarketsReadiness()
             tvStatsAiScore.text = "${readiness.readinessScore}"
             tvStatsAiScore.setTextColor(when {
@@ -2997,6 +3018,117 @@ class MultiAssetActivity : AppCompatActivity() {
         builder.setNegativeButton("Cancel", null)
         builder.show()
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // V5.0.7020 §THE_RENDER_HAS_GRAPHS_AND_THIS_SCREEN_HAD_BOXES
+    //
+    // Operator: "its not just colours. the format lack of graphs and
+    // animations etc shown in your renders."
+    //
+    // project/Markets.dc.html carries a scrolling ticker, a five-segment
+    // allocation donut and a fourteen-bar heat strip above the fold. What
+    // shipped was four empty titled boxes. Four restyle passes went into
+    // palettes and border alphas, which could never close that gap, because
+    // the gap was content and motion.
+    //
+    // Every one of these is bound to an authority that already exists. None
+    // of them invents a number, and each draws NOTHING rather than a zeroed
+    // placeholder when it has no data — the V5.0.7013 rule, after a ring read
+    // 100 beside a rail reading 24.
+    // ─────────────────────────────────────────────────────────────────────
+
+    /** Colours for the five market classes, in the order the arrays arrive. */
+    private val classColours7020 = intArrayOf(
+        AateUi.CYAN,     // tokenized stocks
+        AateUi.GREEN,    // commodities
+        AateUi.AMBER,    // metals
+        AateUi.PURPLE,   // forex
+        AateUi.PINK,     // perps
+    )
+
+    private fun renderMarketsMotion7020(perClassTrades: IntArray, perClassWins: IntArray) {
+        // ── Allocation donut: where the activity actually is ──────────────
+        //
+        // Deliberately TRADES per class, not notional. Notional exposure is
+        // not held per class on this screen, and inventing an allocation from
+        // what is to hand would be exactly the "optimistic default that does
+        // not tie to a ledger" V5.0.6078 banned. Trades per class is real,
+        // and the caption says so rather than implying capital.
+        try {
+            findViewById<DonutView7020>(R.id.marketsDonut)?.let { donut ->
+                val total = perClassTrades.sum()
+                if (total > 0) {
+                    val active = perClassTrades.count { it > 0 }
+                    donut.centreText = active.toString()
+                    donut.centreCaption = "CLASSES"
+                    donut.setSegments(
+                        FloatArray(perClassTrades.size) { perClassTrades[it].toFloat() },
+                        classColours7020,
+                    )
+                }
+            }
+        } catch (_: Throwable) {}
+
+        // ── Heat strip: per-class win rate against the combined rate ──────
+        //
+        // Bar height is the class's win rate; colour is whether it is pulling
+        // the book up or down. A class with no settled trades is left at zero
+        // height rather than drawn at the average, so "no data" and "exactly
+        // average" cannot look the same.
+        try {
+            findViewById<HeatBarsView7020>(R.id.marketsHeat)?.let { bars ->
+                val totalT = perClassTrades.sum()
+                if (totalT > 0) {
+                    val totalW = perClassWins.sum()
+                    val overall = totalW.toFloat() / totalT.toFloat()
+                    val n = perClassTrades.size
+                    val heights = FloatArray(n)
+                    val cols = IntArray(n)
+                    for (i in 0 until n) {
+                        val t = perClassTrades[i]
+                        if (t <= 0) { heights[i] = 0f; cols[i] = AateUi.TEXT_MUTED; continue }
+                        val wr = perClassWins[i].toFloat() / t.toFloat()
+                        heights[i] = wr.coerceIn(0f, 1f)
+                        cols[i] = if (wr >= overall) AateUi.GREEN else AateUi.RED
+                    }
+                    bars.setBars(heights, cols)
+                }
+            }
+        } catch (_: Throwable) {}
+
+        // ── Ticker tape: cached market prices, never a fetch ──────────────
+        //
+        // getCachedPrice only reads what the fetcher already has, so this
+        // cannot put a network call on the render path — the thing
+        // HOT_PATH_PROVIDER_CALL_SENTINEL_4295 exists to catch. A market with
+        // no cached quote is simply left out of the tape rather than shown at
+        // zero.
+        try {
+            findViewById<TickerTapeView7020>(R.id.marketsTicker)?.let { tape ->
+                val wanted = listOf(
+                    PerpsMarket.BTC, PerpsMarket.ETH, PerpsMarket.SOL,
+                    PerpsMarket.XAU, PerpsMarket.BRENT,
+                    PerpsMarket.EURUSD, PerpsMarket.AAPL, PerpsMarket.TSLA,
+                )
+                val syms = ArrayList<String>()
+                val vals = ArrayList<String>()
+                val cols = ArrayList<Int>()
+                for (m in wanted) {
+                    val d = try { PerpsMarketDataFetcher.getCachedPrice(m) } catch (_: Throwable) { null }
+                        ?: continue
+                    val pct = d.priceChange24hPct
+                    if (!pct.isFinite()) continue
+                    syms.add(m.symbol)
+                    vals.add((if (pct >= 0) "+" else "") + "%.2f".format(pct) + "%")
+                    cols.add(if (pct >= 0) AateUi.GREEN else AateUi.RED)
+                }
+                if (syms.isNotEmpty()) {
+                    tape.setItems(syms.toTypedArray(), vals.toTypedArray(), cols.toIntArray())
+                }
+            }
+        } catch (_: Throwable) {}
+    }
+
 }
 
 
