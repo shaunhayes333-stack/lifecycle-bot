@@ -122,6 +122,12 @@ object PaperLiveParityCreed6439 {
             val (p, l) = ExecutableEntryAuthority6450.modeCensus6988()
             out.add(LearnerCensus6988("ExecutableEntryAuthority6450.streakCohorts", p, l))
         } catch (_: Throwable) {}
+        try {
+            // V5.0.6990 — third learner of this shape: key(lane, isPaper)
+            // prefixes every streak with PAPER or LIVE.
+            val (p, l) = com.lifecyclebot.engine.runtime.ColdStreakDamper.modeCensus6988()
+            out.add(LearnerCensus6988("ColdStreakDamper.laneStreaks", p, l))
+        } catch (_: Throwable) {}
         return out
     }
 

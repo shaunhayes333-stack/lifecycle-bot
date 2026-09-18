@@ -26,6 +26,33 @@ object ColdStreakDamper {
     private fun key(lane: String, isPaper: Boolean): String =
         "${if (isPaper) "PAPER" else "LIVE"}|${lane.uppercase().take(24)}"
 
+    /**
+     * V5.0.6990 — streak state held per MODE.
+     *
+     * key(lane, isPaper) prefixes every lane's streak with PAPER or LIVE, so
+     * the cold-streak damper starts from zero on the paper→live flip: no loss
+     * streak, no win streak, size multiplier back to neutral, at the exact
+     * moment the money becomes real. Third learner found with this shape,
+     * after ForwardOutcomeModel and ExecutableEntryAuthority6450 (V5.0.6988).
+     *
+     * Returned as (paperLanes, liveLanes) for PaperLiveParityCreed6439's
+     * census. Read-only.
+     */
+    fun modeCensus6988(): Pair<Int, Int> {
+        var paper = 0
+        var live = 0
+        try {
+            for (k in streaks.keys) {
+                val head = k.substringBefore('|').uppercase()
+                when {
+                    head.startsWith("PAPER") -> paper++
+                    head.startsWith("LIVE") -> live++
+                }
+            }
+        } catch (_: Throwable) {}
+        return paper to live
+    }
+
     private fun get(lane: String, isPaper: Boolean): Streak =
         streaks.computeIfAbsent(key(lane, isPaper)) {
             Streak(AtomicInteger(0), AtomicInteger(0), AtomicLong(0L))
