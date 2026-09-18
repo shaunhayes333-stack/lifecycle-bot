@@ -98,6 +98,13 @@ jobs:
         with:
           name: AATE_v${{ steps.aate_build.outputs.version_name }}
           path: lifecycle_apk/app/build/outputs/apk/release/AATE_v${{ steps.aate_build.outputs.version_name }}.apk
+          # V5.0.6981 — STORE, do not deflate. GitHub wraps every artifact in a
+          # zip, and an APK is already a compressed zip, so re-deflating it at
+          # the default level 6 buys ~nothing in size while producing a slower,
+          # heavier archive for a phone to unpack. The operator hit "6976
+          # archive is corrupt" unpacking a 116 MB download on-device; a
+          # stored entry is the most robust thing a mobile unzip can be handed.
+          compression-level: 0
 
       # Legacy source-layout regression tests currently assert pre-refactor file
       # placement (for example learned exit authority in Executor.kt even though
