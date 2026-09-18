@@ -48,14 +48,18 @@ class JournalActivity : AppCompatActivity() {
     private var lastRenderedStoreCount: Int = -1
     private var lastRenderedFilter: String? = "__INIT__"
 
-    private val white = 0xFFF5F7FF.toInt()
-    private val muted = 0xFF63759B.toInt()
-    private val green = 0xFF16E6A1.toInt()
-    private val red = 0xFFFF4D6D.toInt()
-    private val amber = 0xFFFFB020.toInt()
-    private val buyBlue = 0xFF60A5FA.toInt()
-    private val surface = 0xFF111118.toInt()
-    private val divider = 0xFF101E33.toInt()
+    // V5.0.7014 — bound to AateUi (which mirrors res/values/colors.xml).
+    // This screen carried its own literal scheme, invented before the design
+    // system existed, so every restyle of colors.xml and the drawables missed
+    // it entirely. Same names, same call sites, one palette.
+    private val white = AateUi.TEXT
+    private val muted = AateUi.TEXT_MUTED
+    private val green = AateUi.GREEN
+    private val red = AateUi.RED
+    private val amber = AateUi.AMBER
+    private val buyBlue = AateUi.BLUE
+    private val surface = AateUi.SURFACE
+    private val divider = AateUi.SURFACE_3
 
     private val sdf = SimpleDateFormat("MMM dd HH:mm", Locale.US)
 

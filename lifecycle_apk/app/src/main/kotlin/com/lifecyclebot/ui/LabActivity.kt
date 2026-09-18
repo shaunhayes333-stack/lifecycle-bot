@@ -73,20 +73,24 @@ class LabActivity : AppCompatActivity() {
     private lateinit var btnChatSend: TextView
 
     // ── Cyberpunk palette ────────────────────────────────────────────────
-    private val ink     = 0xFF050508.toInt()
-    private val white   = 0xFFF5F7FF.toInt()
-    private val muted   = 0xFF63759B.toInt()
-    private val grey    = 0xFFA7B7D8.toInt()
-    private val green   = 0xFF16E6A1.toInt()
-    private val red     = 0xFFFF3B6B.toInt()
-    private val amber   = 0xFFFFB020.toInt()
-    private val purple  = 0xFFB36BFF.toInt()
-    private val deepP   = 0xFF9A4DFF.toInt()
-    private val cyan    = 0xFF22D3EE.toInt()
-    private val magenta = 0xFFE879F9.toInt()
-    private val cardLo  = 0xFF0E0E18.toInt()
-    private val cardHi  = 0xFF1A0F2E.toInt()
-    private val divLine = 0xFF1F1B33.toInt()
+    // V5.0.7014 — bound to AateUi (which mirrors res/values/colors.xml).
+    // This screen carried its own literal scheme, invented before the design
+    // system existed, so every restyle of colors.xml and the drawables missed
+    // it entirely. Same names, same call sites, one palette.
+    private val ink     = AateUi.BG_DEEP
+    private val white   = AateUi.TEXT
+    private val muted   = AateUi.TEXT_MUTED
+    private val grey    = AateUi.TEXT_SECONDARY
+    private val green   = AateUi.GREEN
+    private val red     = AateUi.RED
+    private val amber   = AateUi.AMBER
+    private val purple  = AateUi.PURPLE_BRIGHT
+    private val deepP   = AateUi.PURPLE
+    private val cyan    = AateUi.CYAN
+    private val magenta = AateUi.PINK
+    private val cardLo  = AateUi.SURFACE
+    private val cardHi  = AateUi.SURFACE_3
+    private val divLine = AateUi.STROKE_SOFT
 
     private val sdf = SimpleDateFormat("HH:mm:ss", Locale.US)
 

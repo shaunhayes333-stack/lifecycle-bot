@@ -3,7 +3,6 @@ package com.lifecyclebot.ui
 import android.app.Activity
 import android.content.ClipDescription
 import android.content.Intent
-import android.graphics.Color
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Bundle
@@ -220,13 +219,13 @@ class PersonaStudioActivity : AppCompatActivity() {
             }
             val title = TextView(this).apply {
                 text = def.title
-                setTextColor(Color.parseColor("#F5F7FF"))
+                setTextColor(AateUi.TEXT)
                 textSize = 12f
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             }
             val valueTv = TextView(this).apply {
                 text = "0.00"
-                setTextColor(Color.parseColor("#A7B7D8"))
+                setTextColor(AateUi.TEXT_SECONDARY)
                 textSize = 10f
                 typeface = android.graphics.Typeface.MONOSPACE
             }
@@ -246,13 +245,13 @@ class PersonaStudioActivity : AppCompatActivity() {
             }
             labels.addView(TextView(this).apply {
                 text = def.negLabel
-                setTextColor(Color.parseColor("#63759B"))
+                setTextColor(AateUi.TEXT_MUTED)
                 textSize = 9f
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             })
             labels.addView(TextView(this).apply {
                 text = def.posLabel
-                setTextColor(Color.parseColor("#63759B"))
+                setTextColor(AateUi.TEXT_MUTED)
                 textSize = 9f
                 gravity = Gravity.END
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
@@ -531,18 +530,18 @@ class PersonaStudioActivity : AppCompatActivity() {
             }
             val head = TextView(this).apply {
                 text = m.type.name.replace('_', ' ')
-                setTextColor(Color.parseColor("#F5F7FF"))
+                setTextColor(AateUi.TEXT)
                 textSize = 11f
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
             }
             val body = TextView(this).apply {
                 text = m.detail.ifBlank { "—" }
-                setTextColor(Color.parseColor("#A7B7D8"))
+                setTextColor(AateUi.TEXT_SECONDARY)
                 textSize = 10f
             }
             val time = TextView(this).apply {
                 text = "${fmt.format(Date(m.timestamp))} · weight ${String.format(Locale.US, "%.2f", m.weight)}"
-                setTextColor(Color.parseColor("#63759B"))
+                setTextColor(AateUi.TEXT_MUTED)
                 textSize = 9f
                 typeface = android.graphics.Typeface.MONOSPACE
             }
@@ -555,9 +554,9 @@ class PersonaStudioActivity : AppCompatActivity() {
     }
 
     private fun weightColor(w: Double): Int = when {
-        w >= 0.70 -> Color.parseColor("#16E6A1")
-        w >= 0.40 -> Color.parseColor("#FFB020")
-        else      -> Color.parseColor("#63759B")
+        w >= 0.70 -> AateUi.GREEN
+        w >= 0.40 -> AateUi.AMBER
+        else      -> AateUi.TEXT_MUTED
     }
 
     // ──────────────────────────────────────────────────────────────────
@@ -574,35 +573,53 @@ class PersonaStudioActivity : AppCompatActivity() {
         }
         tvChatEmpty.visibility = View.GONE
         val fmt = SimpleDateFormat("HH:mm", Locale.US)
+        // V5.0.7014 — the chat log becomes a conversation.
+        //
+        // Every turn was an 11sp line on a generic pill drawable, full screen
+        // width whichever side it came from, so a reply and a question were the
+        // same shape and the thread had no direction. The renders give the two
+        // speakers different surfaces and stop a bubble short of the far edge,
+        // which is the whole of what makes a log read as a conversation.
+        val maxBubble = (resources.displayMetrics.widthPixels * 0.78f).toInt()
         turns.forEach { t ->
             val isUser = t.role.equals("user", ignoreCase = true)
+            val accent = if (isUser) AateUi.PURPLE else AateUi.CYAN
             val bubble = TextView(this).apply {
-                text = (if (isUser) "🧑 " else "🤖 ") + t.text
-                setTextColor(Color.parseColor("#F5F7FF"))
-                textSize = 11f
-                setPadding(dp(10), dp(6), dp(10), dp(6))
-                setBackgroundResource(if (isUser) R.drawable.pill_bg else R.drawable.stats_pill_bg)
+                text = t.text
+                setTextColor(AateUi.TEXT)
+                textSize = 13f
+                setLineSpacing(0f, 1.25f)
+                maxWidth = maxBubble
+                setPadding(dp(13), dp(9), dp(13), dp(9))
+                background = AateUi.cardBackground(
+                    this@PersonaStudioActivity,
+                    top = if (isUser) AateUi.withAlpha(accent, 0x3D) else AateUi.SURFACE_2,
+                    bottom = if (isUser) AateUi.withAlpha(accent, 0x24) else AateUi.SURFACE,
+                    stroke = AateUi.withAlpha(accent, 0x6E),
+                    radiusDp = 14f,
+                )
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                 ).apply {
-                    topMargin = dp(3)
-                    bottomMargin = dp(3)
+                    topMargin = dp(4)
                     gravity = if (isUser) Gravity.END else Gravity.START
                 }
             }
             val wrap = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = if (isUser) Gravity.END else Gravity.START
+                setPadding(0, dp(3), 0, dp(3))
             }
-            wrap.addView(bubble)
             wrap.addView(TextView(this).apply {
-                text = "${fmt.format(Date(t.timestamp))} · ${t.personaId}"
-                setTextColor(Color.parseColor("#63759B"))
-                textSize = 8f
-                typeface = android.graphics.Typeface.MONOSPACE
+                text = (if (isUser) "YOU" else t.personaId.uppercase()) +
+                    "  ·  " + fmt.format(Date(t.timestamp))
+                setTextColor(AateUi.TEXT_MUTED)
+                textSize = 8.5f
+                letterSpacing = 0.14f
                 gravity = if (isUser) Gravity.END else Gravity.START
             })
+            wrap.addView(bubble)
             llChat.addView(wrap)
         }
     }
@@ -730,11 +747,11 @@ class PersonaStudioActivity : AppCompatActivity() {
             if (f.exists() && f.length() > 0) {
                 val kb = f.length() / 1024L
                 s.status.text = "custom · ${kb}KB"
-                s.status.setTextColor(Color.parseColor("#16E6A1"))
+                s.status.setTextColor(AateUi.GREEN)
                 s.reset.visibility = View.VISIBLE
             } else {
                 s.status.text = "default"
-                s.status.setTextColor(Color.parseColor("#63759B"))
+                s.status.setTextColor(AateUi.TEXT_MUTED)
                 s.reset.visibility = View.GONE
             }
         }

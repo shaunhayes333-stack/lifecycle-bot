@@ -115,452 +115,412 @@
             android:paddingTop="@dimen/card_margin"
             android:paddingBottom="@dimen/content_bottom_padding">
 
-            <!-- ── BRAIN ANIMATION ── -->
-            <com.lifecyclebot.ui.AnimatedBrainView
-                android:id="@+id/brainView"
-                android:layout_width="match_parent"
-                android:layout_height="200dp"
-                android:layout_gravity="center"
-                android:layout_marginBottom="@dimen/card_margin"/>
+            <!--
+                 V5.0.7014 §THE_HIVE_HAD_NINE_EQUAL_TILES_AND_NO_SUBJECT.
 
-            <!-- ── BOOST BUTTON ── -->
-            <TextView
-                android:id="@+id/btnBoost"
-                android:layout_width="match_parent"
-                android:layout_height="42dp"
-                android:gravity="center"
-                android:text="SIGNAL BOOST — Scan &amp; Backtest"
-                android:textColor="@color/aate_bg_deep"
-                android:textSize="12sp"
-                android:textStyle="bold"
-                android:fontFamily="monospace"
-                android:letterSpacing="0.05"
-                android:background="@drawable/pill_bg_yellow"
-                android:layout_marginBottom="@dimen/card_margin"
-                android:clickable="true"
-                android:focusable="true"/>
+                 The screen carried three identical three-up rows: nine figures
+                 at one weight (22sp mono over an 8sp caption), with nothing
+                 saying which of the nine the operator opened the screen to
+                 read. The render answers that first — one subject, stated
+                 large, with its supporting figures demoted around it — and then
+                 separates groups with a tracked rule rather than a 3dp bar.
 
-            <!-- ── NODE STATS ROW — The network's heartbeat ── -->
+                 It also carried a real alignment bug: the parent already pads
+                 by screen_padding, and the first and last tile of each row
+                 ALSO set layout_marginStart/End="@dimen/screen_padding". So
+                 every row was inset twice on its outer edges and once in the
+                 middle, which is why the tiles never lined up with anything
+                 above or below them. Gone — one gutter, from the parent.
+
+                 Every id is preserved. Nothing here reads a new source.
+            -->
+
+            <!-- ── HERO: the hive itself, and the one number it is about ── -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginBottom="@dimen/inner_gap">
+                android:orientation="vertical"
+                android:background="@drawable/aate_hero_premium_bg"
+                android:paddingStart="16dp" android:paddingEnd="16dp"
+                android:paddingTop="14dp" android:paddingBottom="16dp">
 
-                <!-- Total Trades -->
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:background="@drawable/aate_universe_panel_bg"
-                    android:padding="@dimen/card_padding"
-                    android:layout_marginEnd="3dp"
-        android:layout_marginStart="@dimen/screen_padding"
-        android:layout_marginBottom="12dp">
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:baselineAligned="false">
 
-                    <TextView
-                        android:id="@+id/tvBrainTotalTrades"
+                    <com.lifecyclebot.ui.AnimatedBrainView
+                        android:id="@+id/brainView"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:layout_height="150dp"/>
+
+                    <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="0"
-                        android:textColor="@color/aate_text"
-                        android:textSize="22sp"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"/>
+                        android:orientation="vertical"
+                        android:gravity="center_horizontal"
+                        android:layout_marginStart="12dp">
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="TRADES"
-                        android:textColor="@color/aate_text_muted"
-                        android:textSize="8sp"
-                        android:fontFamily="monospace"
-                        android:letterSpacing="0.10"/>
-
+                        <!-- Bound in CollectiveBrainActivity to displayWrFinal —
+                             the same figure the WIN RATE tile below prints. -->
+                        <com.lifecyclebot.ui.RingGaugeView7010
+                            android:id="@+id/hiveHealthRing"
+                            android:layout_width="78dp"
+                            android:layout_height="78dp"/>
+                    </LinearLayout>
                 </LinearLayout>
 
-                <!-- Active Nodes -->
-                <LinearLayout
-                    android:layout_width="0dp"
+                <TextView
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="TRADES LEARNED FROM" style="@style/T.Body.Caption"
+                    android:layout_marginTop="10dp"/>
+
+                <TextView
+                    android:id="@+id/tvBrainTotalTrades"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:background="@drawable/aate_universe_panel_bg"
-                    android:padding="@dimen/card_padding"
-                    android:layout_marginStart="3dp"
-                    android:layout_marginEnd="3dp"
-        android:layout_marginBottom="12dp">
+                    android:text="0"
+                    android:textColor="@color/aate_text"
+                    android:textSize="36sp"
+                    android:textStyle="bold"
+                    android:fontFamily="@font/aate_mono"
+                    android:letterSpacing="-0.03"
+                    android:maxLines="1"
+                    android:autoSizeTextType="uniform"
+                    android:autoSizeMinTextSize="20sp"
+                    android:autoSizeMaxTextSize="36sp"
+                    android:autoSizeStepGranularity="1sp"/>
 
-                    <TextView
-                        android:id="@+id/tvBrainActiveInstances"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="—"
-                        android:textColor="@color/aate_purple"
-                        android:textSize="22sp"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"/>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="NODES"
-                        android:textColor="@color/aate_text_muted"
-                        android:textSize="8sp"
-                        android:fontFamily="monospace"
-                        android:letterSpacing="0.10"/>
-
-                </LinearLayout>
-
-                <!-- Patterns Learned -->
-                <LinearLayout
-                    android:layout_width="0dp"
+                <TextView
+                    android:id="@+id/tvBrainTotalProfit"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
+                    android:text="—"
+                    android:textColor="@color/aate_text_secondary"
+                    android:textSize="12sp"
+                    android:fontFamily="@font/aate_mono"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:layout_marginTop="2dp"/>
+
+                <TextView
+                    android:id="@+id/btnBoost"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp"
                     android:gravity="center"
-                    android:background="@drawable/aate_universe_panel_bg"
-                    android:padding="@dimen/card_padding"
-                    android:layout_marginStart="3dp"
-        android:layout_marginEnd="@dimen/screen_padding"
-        android:layout_marginBottom="12dp">
-
-                    <TextView
-                        android:id="@+id/tvBrainPatternsLearned"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="0"
-                        android:textColor="@color/aate_green"
-                        android:textSize="22sp"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"/>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="PATTERNS"
-                        android:textColor="@color/aate_text_muted"
-                        android:textSize="8sp"
-                        android:fontFamily="monospace"
-                        android:letterSpacing="0.10"/>
-
-                </LinearLayout>
-
+                    android:text="SIGNAL BOOST — SCAN &amp; BACKTEST"
+                    android:textColor="@color/aate_bg_deep"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:fontFamily="@font/aate_body"
+                    android:letterSpacing="0.10"
+                    android:background="@drawable/pill_bg_yellow"
+                    android:layout_marginTop="14dp"
+                    android:clickable="true"
+                    android:focusable="true"/>
             </LinearLayout>
 
-            <!-- ── COLLECTIVE PERFORMANCE ROW ── -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginBottom="@dimen/card_margin">
-
-                <!-- 24h Profit -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:background="@drawable/aate_universe_panel_bg"
-                    android:padding="12dp"
-                    android:layout_marginEnd="3dp"
-        android:layout_marginStart="@dimen/screen_padding"
-        android:layout_marginBottom="12dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="24h PROFIT"
-                        android:textColor="@color/aate_text_muted"
-                        android:textSize="8sp"
-                        android:fontFamily="monospace"
-                        android:letterSpacing="0.08"
-                        android:layout_marginBottom="4dp"/>
-
-                    <TextView
-                        android:id="@+id/tvBrainTotalProfit"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="--"
-                        android:textColor="@color/aate_green"
-                        android:textSize="@dimen/token_name_size"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"/>
-
-                </LinearLayout>
-
-                <!-- Win Rate -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:background="@drawable/aate_universe_panel_bg"
-                    android:padding="12dp"
-                    android:layout_marginStart="3dp"
-                    android:layout_marginEnd="3dp"
-        android:layout_marginBottom="12dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="WIN RATE"
-                        android:textColor="@color/aate_text_muted"
-                        android:textSize="8sp"
-                        android:fontFamily="monospace"
-                        android:letterSpacing="0.08"
-                        android:layout_marginBottom="4dp"/>
-
-                    <TextView
-                        android:id="@+id/tvBrainWinRate"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="--"
-                        android:textColor="@color/aate_purple"
-                        android:textSize="@dimen/token_name_size"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"/>
-
-                </LinearLayout>
-
-                <!-- Avg Hold -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:background="@drawable/aate_universe_panel_bg"
-                    android:padding="12dp"
-                    android:layout_marginStart="3dp"
-        android:layout_marginEnd="@dimen/screen_padding"
-        android:layout_marginBottom="12dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="AVG HOLD"
-                        android:textColor="@color/aate_text_muted"
-                        android:textSize="8sp"
-                        android:fontFamily="monospace"
-                        android:letterSpacing="0.08"
-                        android:layout_marginBottom="4dp"/>
-
-                    <TextView
-                        android:id="@+id/tvBrainAvgHold"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="--"
-                        android:textColor="@color/aate_text"
-                        android:textSize="@dimen/token_name_size"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"/>
-
-                </LinearLayout>
-
-            </LinearLayout>
-
-            <!-- ── HIVE INTELLIGENCE ROW — blacklist + total loss ── -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginBottom="@dimen/card_margin">
-
-                <!-- Blacklisted tokens -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:background="@drawable/aate_universe_panel_bg"
-                    android:padding="12dp"
-                    android:layout_marginEnd="3dp"
-        android:layout_marginStart="@dimen/screen_padding"
-        android:layout_marginBottom="12dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="BLACKLISTED"
-                        android:textColor="@color/aate_text_muted"
-                        android:textSize="8sp"
-                        android:fontFamily="monospace"
-                        android:letterSpacing="0.08"
-                        android:layout_marginBottom="4dp"/>
-
-                    <TextView
-                        android:id="@+id/tvBrainBlacklistedTokens"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="0"
-                        android:textColor="@color/aate_red"
-                        android:textSize="@dimen/token_name_size"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"/>
-
-                </LinearLayout>
-
-                <!-- Total network loss prevented -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:background="@drawable/aate_universe_panel_bg"
-                    android:padding="12dp"
-                    android:layout_marginStart="3dp"
-                    android:layout_marginEnd="3dp"
-        android:layout_marginBottom="12dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="NETWORK SOURCE"
-                        android:textColor="@color/aate_text_muted"
-                        android:textSize="8sp"
-                        android:fontFamily="monospace"
-                        android:letterSpacing="0.08"
-                        android:layout_marginBottom="4dp"/>
-
-                    <TextView
-                        android:id="@+id/tvBrainTotalLoss"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Local"
-                        android:textColor="@color/aate_text_muted"
-                        android:textSize="@dimen/token_name_size"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"/>
-
-                </LinearLayout>
-
-                <!-- Top mode -->
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:background="@drawable/aate_universe_panel_bg"
-                    android:padding="12dp"
-                    android:layout_marginStart="3dp"
-        android:layout_marginEnd="@dimen/screen_padding"
-        android:layout_marginBottom="12dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="TOP MODE"
-                        android:textColor="@color/aate_text_muted"
-                        android:textSize="8sp"
-                        android:fontFamily="monospace"
-                        android:letterSpacing="0.08"
-                        android:layout_marginBottom="4dp"/>
-
-                    <TextView
-                        android:id="@+id/tvBrainTopMode"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="—"
-                        android:textColor="@color/aate_green"
-                        android:textSize="10sp"
-                        android:textStyle="bold"
-                        android:fontFamily="monospace"/>
-
-                </LinearLayout>
-
-            </LinearLayout>
-
-            <!-- ── WORST MODE + SECTION HEADER ── -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:layout_marginBottom="@dimen/inner_gap">
-
-                <View
-                    android:layout_width="3dp"
-                    android:layout_height="14dp"
-                    android:background="@color/aate_red"
-                    android:layout_marginEnd="8dp"/>
-
+                android:layout_marginTop="20dp"
+                android:layout_marginBottom="8dp">
                 <TextView
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="NETWORK"
+                    android:textColor="@color/aate_cyan"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:fontFamily="@font/aate_body"
+                    android:letterSpacing="0.20"/>
+                <View
+                    android:layout_width="0dp" android:layout_weight="1" android:layout_height="1dp"
+                    android:layout_marginStart="10dp" android:layout_marginEnd="10dp"
+                    android:background="@color/aate_stroke_soft"/>
+            </LinearLayout>
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:baselineAligned="false">
+                <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="AVOID"
-                    android:textColor="@color/aate_red"
-                    android:textSize="@dimen/section_title_size"
-                    android:textStyle="bold"
-                    android:fontFamily="monospace"
-                    android:letterSpacing="0.12"/>
-
-                <TextView
-                    android:id="@+id/tvBrainWorstMode"
-                    android:layout_width="wrap_content"
+                    android:orientation="vertical"
+                    android:background="@drawable/aate_metric_card_bg"
+                    android:paddingStart="10dp" android:paddingEnd="10dp"
+                    android:paddingTop="12dp" android:paddingBottom="12dp"
+                    android:layout_marginStart="0dp" android:layout_marginEnd="5dp">
+                    <TextView
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="NODES" style="@style/T.Body.Caption"/>
+                    <TextView
+                        android:id="@+id/tvBrainActiveInstances"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="—"
+                        android:textColor="@color/aate_purple"
+                        android:textSize="20sp"
+                        android:textStyle="bold"
+                        android:fontFamily="@font/aate_mono"
+                        android:letterSpacing="-0.02"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:layout_marginTop="4dp"/>
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:text="—"
-                    android:textColor="@color/aate_red"
-                    android:textSize="11sp"
-                    android:textStyle="bold"
-                    android:fontFamily="monospace"/>
-
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:background="@drawable/aate_metric_card_bg"
+                    android:paddingStart="10dp" android:paddingEnd="10dp"
+                    android:paddingTop="12dp" android:paddingBottom="12dp"
+                    android:layout_marginStart="5dp" android:layout_marginEnd="5dp">
+                    <TextView
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="PATTERNS" style="@style/T.Body.Caption"/>
+                    <TextView
+                        android:id="@+id/tvBrainPatternsLearned"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="0"
+                        android:textColor="@color/aate_green"
+                        android:textSize="20sp"
+                        android:textStyle="bold"
+                        android:fontFamily="@font/aate_mono"
+                        android:letterSpacing="-0.02"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:layout_marginTop="4dp"/>
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:background="@drawable/aate_metric_card_bg"
+                    android:paddingStart="10dp" android:paddingEnd="10dp"
+                    android:paddingTop="12dp" android:paddingBottom="12dp"
+                    android:layout_marginStart="5dp" android:layout_marginEnd="0dp">
+                    <TextView
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="BLOCKED" style="@style/T.Body.Caption"/>
+                    <TextView
+                        android:id="@+id/tvBrainBlacklistedTokens"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="0"
+                        android:textColor="@color/aate_red"
+                        android:textSize="20sp"
+                        android:textStyle="bold"
+                        android:fontFamily="@font/aate_mono"
+                        android:letterSpacing="-0.02"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:layout_marginTop="4dp"/>
+                </LinearLayout>
             </LinearLayout>
 
-            <!-- ── MODE STATS CONTAINER (dynamic, filled by Kotlin) ── -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="20dp"
+                android:layout_marginBottom="8dp">
+                <TextView
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="PERFORMANCE"
+                    android:textColor="@color/aate_green"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:fontFamily="@font/aate_body"
+                    android:letterSpacing="0.20"/>
+                <View
+                    android:layout_width="0dp" android:layout_weight="1" android:layout_height="1dp"
+                    android:layout_marginStart="10dp" android:layout_marginEnd="10dp"
+                    android:background="@color/aate_stroke_soft"/>
+            </LinearLayout>
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:baselineAligned="false">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:background="@drawable/aate_metric_card_bg"
+                    android:paddingStart="10dp" android:paddingEnd="10dp"
+                    android:paddingTop="12dp" android:paddingBottom="12dp"
+                    android:layout_marginStart="0dp" android:layout_marginEnd="5dp">
+                    <TextView
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="WIN RATE" style="@style/T.Body.Caption"/>
+                    <TextView
+                        android:id="@+id/tvBrainWinRate"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="--"
+                        android:textColor="@color/aate_text"
+                        android:textSize="20sp"
+                        android:textStyle="bold"
+                        android:fontFamily="@font/aate_mono"
+                        android:letterSpacing="-0.02"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:layout_marginTop="4dp"/>
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:background="@drawable/aate_metric_card_bg"
+                    android:paddingStart="10dp" android:paddingEnd="10dp"
+                    android:paddingTop="12dp" android:paddingBottom="12dp"
+                    android:layout_marginStart="5dp" android:layout_marginEnd="5dp">
+                    <TextView
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="AVG HOLD" style="@style/T.Body.Caption"/>
+                    <TextView
+                        android:id="@+id/tvBrainAvgHold"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="--"
+                        android:textColor="@color/aate_text"
+                        android:textSize="20sp"
+                        android:textStyle="bold"
+                        android:fontFamily="@font/aate_mono"
+                        android:letterSpacing="-0.02"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:layout_marginTop="4dp"/>
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:background="@drawable/aate_metric_card_bg"
+                    android:paddingStart="10dp" android:paddingEnd="10dp"
+                    android:paddingTop="12dp" android:paddingBottom="12dp"
+                    android:layout_marginStart="5dp" android:layout_marginEnd="0dp">
+                    <TextView
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="W / L" style="@style/T.Body.Caption"/>
+                    <TextView
+                        android:id="@+id/tvBrainTotalLoss"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="—"
+                        android:textColor="@color/aate_text_secondary"
+                        android:textSize="20sp"
+                        android:textStyle="bold"
+                        android:fontFamily="@font/aate_mono"
+                        android:letterSpacing="-0.02"
+                        android:maxLines="1"
+                        android:ellipsize="end"
+                        android:layout_marginTop="4dp"/>
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="20dp"
+                android:layout_marginBottom="8dp">
+                <TextView
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="LANES"
+                    android:textColor="@color/aate_amber"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:fontFamily="@font/aate_body"
+                    android:letterSpacing="0.20"/>
+                <View
+                    android:layout_width="0dp" android:layout_weight="1" android:layout_height="1dp"
+                    android:layout_marginStart="10dp" android:layout_marginEnd="10dp"
+                    android:background="@color/aate_stroke_soft"/>
+                <TextView
+                    android:id="@+id/tvBrainTopMode"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="—"
+                    android:textColor="@color/aate_green"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:fontFamily="@font/aate_mono"/>
+            </LinearLayout>
             <LinearLayout
                 android:id="@+id/llBrainModeStats"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:background="@drawable/aate_universe_panel_bg"
-                android:padding="@dimen/card_padding"
-                android:layout_marginBottom="@dimen/card_margin"
-        android:layout_marginStart="@dimen/screen_padding"
-        android:layout_marginEnd="@dimen/screen_padding"/>
+                android:background="@drawable/aate_metric_card_bg"
+                android:paddingStart="14dp" android:paddingEnd="14dp"
+                android:paddingTop="12dp" android:paddingBottom="12dp"/>
 
-            <!-- ── TOP PATTERNS SECTION ── -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:layout_marginBottom="@dimen/inner_gap">
-
-                <View
-                    android:layout_width="3dp"
-                    android:layout_height="14dp"
-                    android:background="@color/aate_purple"
-                    android:layout_marginEnd="8dp"/>
-
+                android:layout_marginTop="20dp"
+                android:layout_marginBottom="8dp">
                 <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="TOP PATTERNS"
-                    android:textColor="@color/aate_purple"
-                    android:textSize="@dimen/section_title_size"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="AVOID"
+                    android:textColor="@color/aate_red"
+                    android:textSize="10sp"
                     android:textStyle="bold"
-                    android:fontFamily="monospace"
-                    android:letterSpacing="0.12"/>
-
+                    android:fontFamily="@font/aate_body"
+                    android:letterSpacing="0.20"/>
+                <View
+                    android:layout_width="0dp" android:layout_weight="1" android:layout_height="1dp"
+                    android:layout_marginStart="10dp" android:layout_marginEnd="10dp"
+                    android:background="@color/aate_stroke_soft"/>
+                <TextView
+                    android:id="@+id/tvBrainWorstMode"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="—"
+                    android:textColor="@color/aate_red"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:fontFamily="@font/aate_mono"/>
             </LinearLayout>
 
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="20dp"
+                android:layout_marginBottom="8dp">
+                <TextView
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="TOP PATTERNS"
+                    android:textColor="@color/aate_purple"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:fontFamily="@font/aate_body"
+                    android:letterSpacing="0.20"/>
+                <View
+                    android:layout_width="0dp" android:layout_weight="1" android:layout_height="1dp"
+                    android:layout_marginStart="10dp" android:layout_marginEnd="10dp"
+                    android:background="@color/aate_stroke_soft"/>
+            </LinearLayout>
             <LinearLayout
                 android:id="@+id/llBrainPatterns"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:layout_marginBottom="@dimen/card_margin">
+                android:background="@drawable/aate_metric_card_bg"
+                android:paddingStart="14dp" android:paddingEnd="14dp"
+                android:paddingTop="6dp" android:paddingBottom="6dp">
 
                 <TextView
                     android:id="@+id/tvNoBrainData"
@@ -568,56 +528,48 @@
                     android:layout_height="wrap_content"
                     android:text="Learning from live trades…"
                     android:textColor="@color/aate_text_muted"
-                    android:textSize="11sp"
-                    android:fontFamily="monospace"
+                    android:textSize="11.5sp"
                     android:gravity="center"
                     android:padding="20dp"/>
-
             </LinearLayout>
 
-            <!-- ── RECENT SIGNALS SECTION ── -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:layout_marginBottom="@dimen/inner_gap">
-
-                <View
-                    android:layout_width="3dp"
-                    android:layout_height="14dp"
-                    android:background="@color/aate_green"
-                    android:layout_marginEnd="8dp"/>
-
+                android:layout_marginTop="20dp"
+                android:layout_marginBottom="8dp">
                 <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:text="NETWORK SIGNALS"
                     android:textColor="@color/aate_green"
-                    android:textSize="@dimen/section_title_size"
+                    android:textSize="10sp"
                     android:textStyle="bold"
-                    android:fontFamily="monospace"
-                    android:letterSpacing="0.12"/>
-
+                    android:fontFamily="@font/aate_body"
+                    android:letterSpacing="0.20"/>
+                <View
+                    android:layout_width="0dp" android:layout_weight="1" android:layout_height="1dp"
+                    android:layout_marginStart="10dp" android:layout_marginEnd="10dp"
+                    android:background="@color/aate_stroke_soft"/>
             </LinearLayout>
-
             <LinearLayout
                 android:id="@+id/llBrainSignals"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical">
+                android:orientation="vertical"
+                android:background="@drawable/aate_metric_card_bg"
+                android:paddingStart="14dp" android:paddingEnd="14dp"
+                android:paddingTop="6dp" android:paddingBottom="6dp">
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Awaiting signals from the hive…"
                     android:textColor="@color/aate_text_muted"
-                    android:textSize="11sp"
-                    android:fontFamily="monospace"
+                    android:textSize="11.5sp"
                     android:gravity="center"
                     android:padding="20dp"/>
-
             </LinearLayout>
 
         </LinearLayout>

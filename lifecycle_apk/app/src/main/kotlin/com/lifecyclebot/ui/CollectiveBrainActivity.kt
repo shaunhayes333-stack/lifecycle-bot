@@ -51,12 +51,16 @@ class CollectiveBrainActivity : AppCompatActivity() {
     private var llSentiencePanel: android.widget.LinearLayout? = null
     private lateinit var btnForceSync: TextView
     
-    private val purple = 0xFF9A4DFF.toInt()
-    private val green = 0xFF16E6A1.toInt()
-    private val red = 0xFFFF4D6D.toInt()
-    private val white = 0xFFF5F7FF.toInt()
-    private val muted = 0xFF63759B.toInt()
-    private val surface = 0xFF111118.toInt()
+    // V5.0.7014 — bound to AateUi (which mirrors res/values/colors.xml).
+    // This screen carried its own literal scheme, invented before the design
+    // system existed, so every restyle of colors.xml and the drawables missed
+    // it entirely. Same names, same call sites, one palette.
+    private val purple = AateUi.PURPLE
+    private val green = AateUi.GREEN
+    private val red = AateUi.RED
+    private val white = AateUi.TEXT
+    private val muted = AateUi.TEXT_MUTED
+    private val surface = AateUi.SURFACE
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -448,10 +452,34 @@ class CollectiveBrainActivity : AppCompatActivity() {
             tvWinRate.text = if (displayWrFinal > 0) "${displayWrFinal.toInt()}%" else "--"
             tvWinRate.setTextColor(when {
                 displayWrFinal >= 60 -> green
-                displayWrFinal >= 50 -> 0xFF16E6A1.toInt()
-                displayWrFinal > 0  -> 0xFFFFB020.toInt()
+                displayWrFinal >= 50 -> AateUi.GREEN
+                displayWrFinal > 0  -> AateUi.AMBER
                 else -> muted
             })
+
+            // V5.0.7014 — the hero ring, bound to THIS number and no other.
+            //
+            // The gauge prints (value * 100), so it is fed the win rate over
+            // 100 and reads the same figure the WIN RATE tile below prints.
+            // V5.0.7013 fixed exactly this contradiction on the main screen,
+            // where a ring scaled to a doctrine floor read 100 beside a rail
+            // reading 24. One authority, one number, both surfaces.
+            //
+            // With no win rate yet the ring is left undrawn rather than drawn
+            // at zero: an empty gauge and a failing gauge must not look alike.
+            try {
+                findViewById<RingGaugeView7010>(R.id.hiveHealthRing)?.let { ring ->
+                    if (displayWrFinal > 0) {
+                        ring.caption = "WIN %"
+                        ring.ringColor = when {
+                            displayWrFinal >= 50 -> AateUi.GREEN
+                            displayWrFinal >= 30 -> AateUi.AMBER
+                            else -> AateUi.RED
+                        }
+                        ring.setValue((displayWrFinal / 100.0).toFloat())
+                    }
+                }
+            } catch (_: Throwable) {}
             
             // AVG HOLD — derive from local trade history (avgHoldMins field)
             val avgHoldMins = try { localStats.avgHoldTimeMinutes.toDouble() } catch (_: Exception) { 0.0 }
