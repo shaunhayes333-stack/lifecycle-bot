@@ -538,6 +538,52 @@ class JournalActivity : AppCompatActivity() {
         tvJournalPnl.text = currency.format(stats.totalPnlSol, showPlus = true)
         tvJournalPnl.setTextColor(if (stats.totalPnlSol >= 0.0) green else red)
 
+        // V5.0.7021 §THE_GRAPH_A_JOURNAL_IS_FOR.
+        //
+        // Four tiles answered "how much" and "how often". None answered "which
+        // way, and when did it turn", which is the question you open a journal
+        // to ask — and it is one cumulative sum away from data already in hand.
+        //
+        // Built from sellEntries, the exact set the stats above are computed
+        // from and the rows below are drawn from, so the curve cannot tell a
+        // different story about the same session. Chronological, because a
+        // curve over an arbitrary sort order is a decoration, not a measurement.
+        try {
+            val curve7021 = findViewById<SparklineView7009>(R.id.journalEquityCurve)
+            val note7021 = findViewById<android.widget.TextView>(R.id.tvJournalCurveNote)
+            if (curve7021 != null) {
+                val closed7021 = sellEntries.sortedBy { it.ts }
+                if (closed7021.size >= 3) {
+                    var run7021 = 0.0
+                    val series7021 = FloatArray(closed7021.size) { i ->
+                        run7021 += closed7021[i].pnlSol
+                        run7021.toFloat()
+                    }
+                    val up7021 = series7021.last() >= 0f
+                    curve7021.lineColor = if (up7021) green else red
+                    curve7021.fillColor = if (up7021) green else red
+                    curve7021.showHead = true
+                    curve7021.setSeries(series7021, animate = true)
+
+                    // Peak-to-trough on the realised curve. The journal already
+                    // knows every number this needs and has never shown it.
+                    var peak7021 = series7021[0]
+                    var maxDd7021 = 0f
+                    for (v in series7021) {
+                        if (v > peak7021) peak7021 = v
+                        val dd = peak7021 - v
+                        if (dd > maxDd7021) maxDd7021 = dd
+                    }
+                    note7021?.text = "${closed7021.size} CLOSED · MAX DD ${"%.3f".format(maxDd7021)}◎"
+                } else {
+                    // Under three closes there is no shape to draw. Say that
+                    // rather than draw a flat line, which would read as "no
+                    // movement" instead of "not enough trades yet".
+                    note7021?.text = "NEEDS 3+ CLOSED"
+                }
+            }
+        } catch (_: Throwable) {}
+
         tvJournalWinRate.text = "${stats.winRate.toInt()}%  (${stats.totalWins}W/${stats.totalLosses}L)"
         tvJournalCount.text = entries.size.toString()
         tvJournalAvgWin.text = if (stats.totalWins > 0) {

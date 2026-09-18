@@ -184,6 +184,17 @@ class TuningActivity : Activity() {
         )
         try {
             val snap = com.lifecyclebot.engine.ScoreExpectancyTracker.snapshot()
+            // V5.0.7021 §YOU_CANNOT_SEE_A_CORRELATION_IN_A_LIST.
+            //
+            // This section's own text says it: "Higher bands SHOULD show higher
+            // mean PnL. If they don't, the scorer isn't predictive." That is a
+            // question about SLOPE, and it was answered with forty rows of
+            // BLUECHIP[70-79]n=22/mu=+103.8%. Nobody can hold forty points in
+            // their head and estimate a trend; that is what a scatter is for.
+            //
+            // The tracker's own line is parsed rather than re-derived, so the
+            // plot and the rows beneath it are the same numbers by construction.
+            addScatterFromSnapshot7021(snap)
             renderTokenizedSnapshot(snap)
         } catch (t: Throwable) {
             addText("(score expectancy unavailable)", AateUi.TEXT_MUTED)
@@ -412,4 +423,60 @@ class TuningActivity : Activity() {
             setPadding(0, pad, 0, pad)
         })
     }
+
+    /**
+     * V5.0.7021 — plot the calibration the section asks about.
+     *
+     * Tokens look like `LANE[lo-hi]n=N/mu=+X%`. X is the band midpoint, Y the
+     * mean return, dot area the sample count — so a band with n=1 cannot shout
+     * down a band with n=22, which reading the list flat encourages.
+     *
+     * A rising trend means the scorer is predictive. A flat or falling one is
+     * the finding, and now it is visible at a glance instead of derivable.
+     */
+    private fun addScatterFromSnapshot7021(snapshot: String) {
+        if (snapshot.isBlank() || snapshot == "no samples yet") return
+        val xs = ArrayList<Float>()
+        val ys = ArrayList<Float>()
+        val ws = ArrayList<Float>()
+        // NOTE: this is a Kotlin RAW string, which does not process \uXXXX
+        // escapes — so the mu is written as the character itself. Spelling it
+        // \u03bc here would have searched for a literal backslash-u-0-3-b-c and
+        // matched nothing, silently, on every refresh.
+        val re = Regex("""\[(\d+)\s*-\s*(\d+)\][^\s]*?n=(\d+)[^\s]*?μ=([+-]?[0-9.]+)""")
+        for (m in re.findAll(snapshot)) {
+            val lo = m.groupValues[1].toFloatOrNull() ?: continue
+            val hi = m.groupValues[2].toFloatOrNull() ?: continue
+            val n = m.groupValues[3].toFloatOrNull() ?: continue
+            val mu = m.groupValues[4].toFloatOrNull() ?: continue
+            if (!mu.isFinite()) continue
+            xs.add((lo + hi) / 2f)
+            ys.add(mu)
+            ws.add(n)
+        }
+        // Two points define a line through themselves and prove nothing; below
+        // four bands the plot would imply a confidence the data has not earned.
+        if (xs.size < 4) return
+
+        val host = target()
+        host.addView(
+            ScatterView7021(this).apply {
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    (104 * resources.displayMetrics.density).toInt(),
+                ).apply { topMargin = (6 * resources.displayMetrics.density).toInt() }
+                setPoints(xs.toFloatArray(), ys.toFloatArray(), ws.toFloatArray())
+            },
+        )
+        host.addView(
+            android.widget.TextView(this).apply {
+                text = "SCORE BAND →   ·   dot = sample size   ·   line = fitted trend"
+                textSize = 9.5f
+                setTextColor(AateUi.TEXT_MUTED)
+                letterSpacing = 0.06f
+                setPadding(0, (4 * resources.displayMetrics.density).toInt(), 0, 0)
+            },
+        )
+    }
+
 }

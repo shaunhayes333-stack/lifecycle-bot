@@ -266,6 +266,50 @@ class PipelineHealthActivity : AppCompatActivity() {
                     )
                     currentSectionIndex = 0
                 }
+                // V5.0.7021 — draw the funnel this screen is named after.
+                //
+                // "Intake · Decision · Execution" is the subtitle; the stages
+                // were a list of counts, which makes the reader subtract each
+                // from the one above to find where the drop is. Same numbers,
+                // out of the same snapshot, in the shape they already have.
+                try {
+                    val fv7021 = findViewById<FunnelView7021>(R.id.pipelineFunnel)
+                    if (fv7021 != null) {
+                        val stages7021 = arrayOf("INTAKE", "SAFETY", "V3", "LANE EVAL", "FDG", "EXEC")
+                        val counts7021 = longArrayOf(
+                            snap.phaseCounts["INTAKE"] ?: 0L,
+                            snap.phaseCounts["SAFETY"] ?: 0L,
+                            snap.phaseCounts["V3"] ?: 0L,
+                            snap.phaseCounts["LANE_EVAL"] ?: 0L,
+                            snap.phaseCounts["FDG"] ?: 0L,
+                            snap.phaseCounts["EXEC"] ?: 0L,
+                        )
+                        if (counts7021.any { it > 0L }) {
+                            fv7021.setStages(
+                                stages7021, counts7021,
+                                intArrayOf(
+                                    AateUi.CYAN, AateUi.GREEN, AateUi.BLUE,
+                                    AateUi.PURPLE, AateUi.AMBER, AateUi.PINK,
+                                ),
+                            )
+                            // Name the worst surviving step, which is the whole
+                            // reason to look at a funnel at all.
+                            var worstI7021 = -1
+                            var worstPct7021 = 101.0
+                            for (i in 1 until counts7021.size) {
+                                val above = counts7021[i - 1]
+                                if (above <= 0L) continue
+                                val pct = counts7021[i] * 100.0 / above
+                                if (pct < worstPct7021) { worstPct7021 = pct; worstI7021 = i }
+                            }
+                            findViewById<android.widget.TextView>(R.id.tvFunnelNote)?.text =
+                                if (worstI7021 > 0) {
+                                    "TIGHTEST ${stages7021[worstI7021]} ${"%.0f".format(worstPct7021)}%"
+                                } else "—"
+                        }
+                    }
+                } catch (_: Throwable) {}
+
                 statLoop.text     = loopTxt
                 statExec.text     = execTxt
                 statJrnl.text     = jrnlTxt

@@ -154,6 +154,45 @@
         </LinearLayout>
     </LinearLayout>
 
+    <!-- ══ EQUITY CURVE (V5.0.7021) ════════════════════════════════════
+         The graph a trade journal most obviously wants and this one never
+         had. Four stat tiles above answered "how much" and "how often"; none
+         of them answered "which way, and when did it turn" — which is the
+         question you open a journal to ask. Cumulative realised P&L over the
+         closed trades the journal is already listing below, so the curve and
+         the rows can never disagree about the same session.
+         ═══════════════════════════════════════════════════════════════ -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@drawable/aate_metric_card_bg"
+        android:layout_marginStart="@dimen/screen_padding"
+        android:layout_marginEnd="@dimen/screen_padding"
+        android:layout_marginBottom="14dp"
+        android:paddingStart="14dp" android:paddingEnd="14dp"
+        android:paddingTop="12dp" android:paddingBottom="12dp">
+
+        <LinearLayout
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:gravity="center_vertical">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="EQUITY CURVE" style="@style/T.Body.Caption"/>
+            <View android:layout_width="0dp" android:layout_weight="1" android:layout_height="1dp"
+                android:layout_marginStart="10dp" android:layout_marginEnd="10dp"
+                android:background="@color/aate_stroke_soft"/>
+            <TextView android:id="@+id/tvJournalCurveNote"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="—" style="@style/T.Mono.Small"/>
+        </LinearLayout>
+
+        <com.lifecyclebot.ui.SparklineView7009
+            android:id="@+id/journalEquityCurve"
+            android:layout_width="match_parent"
+            android:layout_height="72dp"
+            android:layout_marginTop="8dp"/>
+    </LinearLayout>
+
     <!-- ══ TRADE LIST ══════════════════════════════════════════════════ -->
     <ScrollView
         android:layout_width="match_parent"
