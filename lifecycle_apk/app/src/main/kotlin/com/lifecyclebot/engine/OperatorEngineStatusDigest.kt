@@ -27,12 +27,24 @@ object OperatorEngineStatusDigest {
                 .joinToString(",") { "${it.key}=${it.value}" }
                 .ifBlank { "none" }
         } catch (_: Throwable) { "MemePipelineTracer.blockReasons unavailable" }
+        // V5.0.6967 — per-lane exploration usage (micro, shadow) for the hour.
+        // The ceilings this is measured against are now ENFORCED (they were not
+        // before this version), so a lane sitting at its cap is the budget doing
+        // its job rather than a symptom.
+        val explorationBudget6967 = try {
+            com.lifecyclebot.engine.learning.ExplorationBudget.snapshot().entries
+                .filter { it.value.first > 0 || it.value.second > 0 }
+                .sortedByDescending { it.value.first }
+                .take(6)
+                .joinToString(",") { "${it.key}:micro=${it.value.first}/shadow=${it.value.second}" }
+                .ifBlank { "none" }
+        } catch (_: Throwable) { "ExplorationBudget unavailable" }
         val cycle = try { CycleTimingTracker.snapshot().toString().take(140) } catch (_: Throwable) { "CycleTimingTracker unavailable" }
         val copilot = try { TradingCopilot.snapshot().toString().take(140) } catch (_: Throwable) { "TradingCopilot unavailable" }
         val fdg = try { com.lifecyclebot.engine.learning.FdgRouteVerdict.snapshot().toString().take(140) } catch (_: Throwable) { "FdgRouteVerdict unavailable" }
         val runtimeGuards = "RuntimeRegressionGuards summary requires supplied check list"
         val behaviorLearning = "BehaviorLearning summary is instance-scoped"
         val ev = "EVCalculator summary is result-scoped"
-        return "OPERATOR_ENGINE_STATUS_DIGEST_4371 sizing=[$sizing] keys=[$keys] tokenMeta=[$tokenMeta] endpoint=[$endpoint] memeTrace=[$memeTrace] memeBlockReasons=[$memeBlockReasons] cycle=[$cycle] copilot=[$copilot] fdg=[$fdg] runtimeGuards=[$runtimeGuards] behaviorLearning=[$behaviorLearning] ev=[$ev] report_only=true no_gate_change=true no_execution_authority=true"
+        return "OPERATOR_ENGINE_STATUS_DIGEST_4371 sizing=[$sizing] keys=[$keys] tokenMeta=[$tokenMeta] endpoint=[$endpoint] memeTrace=[$memeTrace] memeBlockReasons=[$memeBlockReasons] explorationBudget6967=[$explorationBudget6967] cycle=[$cycle] copilot=[$copilot] fdg=[$fdg] runtimeGuards=[$runtimeGuards] behaviorLearning=[$behaviorLearning] ev=[$ev] report_only=true no_gate_change=true no_execution_authority=true"
     }
 }

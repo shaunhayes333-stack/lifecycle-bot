@@ -11783,6 +11783,20 @@ class BotService : Service() {
                 // regime reports CHOP/DUMP the WR is by definition
                 // collapsed; only 1-in-N zero-signal probes fire so the
                 // learner isn't fed WAIT candidates every cycle.
+                // V5.0.6967 — the per-lane hourly exploration budget, applied to
+                // the zero-signal path as well as the dust path. See the longer
+                // note at the DUST_PROBE site below: this ceiling and its
+                // bleeding-lane collapse are the operator's own configured §4
+                // budget and had zero callers, so the only limiter was the global
+                // 1-in-N sampler on the line above, which cannot tell QUALITY
+                // (24 straight losses) from a lane that is winning.
+                if (!com.lifecyclebot.engine.learning.ExplorationBudget.allowPaperMicroTrade(lane)) {
+                    try {
+                        PipelineHealthCollector.labelInc("EXPLORATION_BUDGET_REFUSED_ZERO_SIGNAL_6967")
+                        PipelineHealthCollector.labelInc("EXPLORATION_BUDGET_REFUSED_ZERO_SIGNAL_6967_${lane.uppercase()}")
+                    } catch (_: Throwable) {}
+                    return laneBase.copy(signal = "WAIT", finalSignal = "WAIT", shouldTrade = false, blockReason = "EXPLORATION_BUDGET_REFUSED_ZERO_SIGNAL_6967")
+                }
                 if (!com.lifecyclebot.engine.ExecutableOpenGate.probeShouldEmit6747("ZERO_SIGNAL")) {
                     return laneBase.copy(signal = "WAIT", finalSignal = "WAIT", shouldTrade = false, blockReason = "EXPLORATION_DAMPED_ZERO_SIGNAL_6747")
                 }
@@ -11893,6 +11907,55 @@ class BotService : Service() {
             // become the dominant learning input.
             if (!com.lifecyclebot.engine.ExecutableOpenGate.probeShouldEmit6747("DUST_PROBE")) {
                 return laneBase.copy(signal = "WAIT", finalSignal = "WAIT", shouldTrade = false, blockReason = "EXPLORATION_DAMPED_DUST_PROBE_6747")
+            }
+            // V5.0.6967 §THE_EXPLORATION_BUDGET_THAT_NEVER_ONCE_SAID_NO.
+            //
+            // Operator snapshot, build 5.0.6966, after an hour of running:
+            //
+            //     QUALITY|S0-10    losses=24  wins=0  meanPnl=-31.28%
+            //     BLUECHIP|S0-10   losses=13  wins=0  meanPnl=-28.36%
+            //     QUALITY overall  n=40  W/L=1/39  EV=-20.55%/trade  -0.5084 SOL
+            //
+            // QUALITY alone is 31% of the session's entire -1.6455 SOL loss, and
+            // its S0-10 bucket is 24 losses against ZERO wins. Those are probes:
+            // score 0-10 is the zero-signal band, below the minScore=15 entry
+            // authority, admitted only because a DUST_PROBE / ZERO_SIGNAL_PROBE
+            // overrides the WAIT.
+            //
+            // ExplorationBudget exists for precisely this. It defines a per-lane
+            // hourly ceiling (QUALITY 40 micro-trades/hr, BLUECHIP 40, MOONSHOT
+            // 60...) under a comment reading "Defaults per operator's §4", AND a
+            // magnitude-aware multiplier that collapses a BLEEDING lane's ceiling
+            // to a quarter of its default. It enforces none of it:
+            //
+            //     allowPaperMicroTrade   0 callers
+            //     allowShadowSignal      0 callers
+            //     peekLaneMagnitudeMult  used only inside the dead function
+            //     budgetFor              1 caller — StrategyVariantStore, and it
+            //                            reads only minSamplesBeforePromotion /
+            //                            Retirement, never the rate ceilings
+            //
+            // So the only limiter on probes has been probeShouldEmit6747 above: a
+            // crude GLOBAL 1-in-3 sampler in CHOP/DUMP with no idea which lane it
+            // is sampling or whether that lane is bleeding. QUALITY was free to
+            // probe into zero-signal tokens all session at a 0% win rate, and the
+            // mechanism built to stop exactly that was never asked.
+            //
+            // This is not new policy and it is not a throttle. It is the
+            // operator's own configured budget, finally consulted — and it binds
+            // only on PROBES, which are by definition the zero/low-signal trades.
+            // A real signal above the score floor never reaches this branch, so
+            // no lane is disabled and genuine throughput is untouched. The
+            // bleeding-lane collapse inside allowPaperMicroTrade is the part that
+            // matters most here: it is what turns QUALITY's 40/hr into 10/hr
+            // while QUALITY is losing, automatically, which is the behaviour the
+            // -31.28% mean on 24 straight losses was crying out for.
+            if (!com.lifecyclebot.engine.learning.ExplorationBudget.allowPaperMicroTrade(lane)) {
+                try {
+                    PipelineHealthCollector.labelInc("EXPLORATION_BUDGET_REFUSED_DUST_PROBE_6967")
+                    PipelineHealthCollector.labelInc("EXPLORATION_BUDGET_REFUSED_DUST_PROBE_6967_${lane.uppercase()}")
+                } catch (_: Throwable) {}
+                return laneBase.copy(signal = "WAIT", finalSignal = "WAIT", shouldTrade = false, blockReason = "EXPLORATION_BUDGET_REFUSED_DUST_PROBE_6967")
             }
             return laneBase.copy(
                 signal = "BUY", finalSignal = "BUY", shouldTrade = true,
