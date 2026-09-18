@@ -4441,9 +4441,56 @@ for legal compliance.
         val openPos = openModel6078.allSorted
         cardOpenPositions.visibility = if (openPos.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
         if (openPos.isNotEmpty()) {
-            tvTotalExposure.setTextIfChanged(openModel6078.totalExposureSol.fastFixed(3) + "◎ at risk")
-            tvTotalUnrealisedPnl.setTextIfChanged(openModel6078.totalUnrealizedSol.fastSigned(4) + "◎")
-            tvTotalUnrealisedPnl.setTextColor(if (openModel6078.totalUnrealizedSol >= 0) green else red)
+            // V5.0.7047 §THE_THIRD_ACCOUNT_AUTHORITY.
+            //
+            // This header read HeroSnapshotAuthority6503 (MainActivity:3138) —
+            // a third account authority beside UnifiedAccountSnapshot6635 and
+            // CanonicalCapitalAuthority6450 — and on 5.0.7044 it printed
+            //
+            //     18.706◎ at risk  ·  +5547.0532◎
+            //
+            // while the canonical account read openMV=42.0695 and unrealized
+            // =0.6795 with conservation Δ=-0.000000. Both numbers were wrong by
+            // different amounts from different sources, on a book that was
+            // clean. 7045 put the hero on one snapshot; this puts the positions
+            // card on the same one, which is the whole of the operator's
+            // "one canonical account snapshot" directive applied to the surface
+            // that was furthest off.
+            //
+            // The row-sum is still computed and COMPARED rather than shown, so
+            // a header/rows split (the V5.0.6523 defect: header +483◎ against
+            // rows summing +55.83◎) is counted at its origin instead of being
+            // silently re-papered by binding them to one number.
+            val acct7047 = if (state.config.paperMode) {
+                try { com.lifecyclebot.engine.truth.HeroAccountSnapshot7045.read("POSITIONS_CARD") } catch (_: Throwable) { null }
+            } else null
+            if (state.config.paperMode && acct7047?.renderable != true) {
+                // Fail closed, exactly as the hero does. A frozen or invented
+                // exposure figure is worse than no figure.
+                tvTotalExposure.setTextIfChanged("-- at risk")
+                tvTotalUnrealisedPnl.setTextIfChanged("--")
+            } else if (acct7047 != null) {
+                if (kotlin.math.abs(openModel6078.totalUnrealizedSol - acct7047.unrealizedSol) >= 0.01) {
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("POSITIONS_CARD_ROWS_VS_ACCOUNT_DIVERGENCE_7047")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "POSITIONS_CARD_ROWS_VS_ACCOUNT_DIVERGENCE_7047",
+                            "rows=${openPos.size} rowsUnrealized=${"%.4f".format(openModel6078.totalUnrealizedSol)} " +
+                                "accountUnrealized=${"%.4f".format(acct7047.unrealizedSol)} " +
+                                "rowsExposure=${"%.4f".format(openModel6078.totalExposureSol)} " +
+                                "accountOpenMv=${"%.4f".format(acct7047.openMarketSol)} rev=${acct7047.revision}",
+                        )
+                    } catch (_: Throwable) {}
+                }
+                tvTotalExposure.setTextIfChanged(acct7047.openMarketSol.fastFixed(3) + "◎ at risk")
+                tvTotalUnrealisedPnl.setTextIfChanged(acct7047.unrealizedSol.fastSigned(4) + "◎")
+                tvTotalUnrealisedPnl.setTextColor(if (acct7047.unrealizedSol >= 0) green else red)
+            } else {
+                // LIVE mode keeps its existing source; this repair is paper-scoped.
+                tvTotalExposure.setTextIfChanged(openModel6078.totalExposureSol.fastFixed(3) + "◎ at risk")
+                tvTotalUnrealisedPnl.setTextIfChanged(openModel6078.totalUnrealizedSol.fastSigned(4) + "◎")
+                tvTotalUnrealisedPnl.setTextColor(if (openModel6078.totalUnrealizedSol >= 0) green else red)
+            }
             // V5.0.6078 — header totals and row list now bind the same off-main
             // OpenPositionsModel. No synchronous buildUnifiedOpenPositions() on Main,
             // and no divergent header/list source during ANR shed.
