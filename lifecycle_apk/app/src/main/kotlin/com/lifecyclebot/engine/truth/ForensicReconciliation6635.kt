@@ -275,6 +275,21 @@ object ForensicReconciliation6635 {
                 )
             } catch (_: Throwable) {}
         }
+        // V5.0.7036 §THE_THIRD_LEG_WAS_BUILT_AND_NEVER_STOOD_ON.
+        //
+        // AcceptanceInvariantAuthority6501.checkJournalVsLedger has existed
+        // since 6502 with zero callers. Its own comment says it exists to
+        // catch "the class of bug where reported and canonical are BOTH wrong
+        // in the SAME direction", and the operator's 5.0.7027 snapshot is that
+        // bug at full size: ledger=92.519955 journal=0.632539.
+        //
+        // This is the one place in the app that already holds both figures, so
+        // it is the one place that can feed it. Read-only: the authority logs
+        // and counts, it does not gate anything, so wiring it changes no
+        // trading decision — it makes an existing divergence say its own name.
+        try {
+            AcceptanceInvariantAuthority6501.checkJournalVsLedger(realizedJournal)
+        } catch (_: Throwable) {}
         if (realizedDelta > DELTA_TOLERANCE_SOL) {
             failedChecks.incrementAndGet()
             try {
