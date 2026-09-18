@@ -110,6 +110,7 @@ class WalletActivity : AppCompatActivity() {
         setupListeners()
         // V5.9.495z26 — inject Treasury Wallet card into the connected layout.
         injectTreasuryWalletCard()
+        injectDeployableCapitalCard6986()
         injectMainMultiChainWalletCard6645()
 
         lifecycleScope.launch {
@@ -194,6 +195,82 @@ class WalletActivity : AppCompatActivity() {
      * Sits at the top of the layoutConnected LinearLayout so it's visible
      * regardless of whether the trading wallet is connected.
      */
+    /**
+     * V5.0.6986 — DEPOSITED CAPITAL, NOT JUST SOL.
+     *
+     * The operator asked to be able to "just straight deposit USDC to the
+     * wallet". That already works as capital and always has:
+     * UniversalBridgeEngine.scanWalletCapacity values every SPL balance in the
+     * wallet, and prepareCapital explicitly prefers USDC over SOL when picking
+     * a funding source. Nothing needed building for the bot to USE it.
+     *
+     * What did not exist was any way to SEE it. This screen rendered
+     * `ws.solBalance` and `ws.balanceUsd` and nothing else, so USDC sent to the
+     * trading wallet was invisible — no confirmation it arrived, no sign it was
+     * counted as deployable, and the USD figure did not move. From the
+     * operator's side a working deposit and a lost deposit look identical.
+     *
+     * So this card renders what the bridge engine already computes: total
+     * deployable USD across every token, the USDC balance specifically, the
+     * source the engine would fund the next trade from, and the address to
+     * send to. Read-only — it calls the same scanWalletCapacity the executor
+     * uses, so it cannot disagree with what the bot will actually spend.
+     */
+    private fun injectDeployableCapitalCard6986() {
+        try {
+            val container = layoutConnected as? android.view.ViewGroup ?: return
+            val card = AateUi.card(this, AateUi.CYAN)
+            val body = AateUi.cardBody(card)
+            body.addView(AateUi.headerRow(this, "DEPLOYABLE CAPITAL", "SOL + SPL", AateUi.CYAN))
+            body.addView(AateUi.gap(this, 10))
+
+            val tvTotal = AateUi.valueText(this, "—", AateUi.TEXT, sizeSp = 24f)
+            body.addView(tvTotal)
+            body.addView(AateUi.labelText(this, "TOTAL ACROSS ALL WALLET TOKENS"))
+            body.addView(AateUi.divider(this))
+
+            val tileUsdc = AateUi.kpiTile(this, "USDC", "—", AateUi.GREEN)
+            val tileSol = AateUi.kpiTile(this, "SOL", "—", AateUi.PURPLE_BRIGHT)
+            val tileSrc = AateUi.kpiTile(this, "NEXT SOURCE", "—", AateUi.TEXT_SECONDARY)
+            body.addView(AateUi.kpiRow(this, listOf(tileUsdc, tileSol, tileSrc)))
+            body.addView(AateUi.gap(this, 10))
+
+            body.addView(AateUi.bodyText(
+                this,
+                "Send SOL or USDC (SPL) to the wallet address above. USDC is used " +
+                    "as funding capital directly — the router prefers it over SOL and " +
+                    "swaps it to the target token on entry.",
+                AateUi.TEXT_MUTED,
+                sizeSp = 10.5f,
+            ))
+
+            container.addView(card, 0)
+
+            fun tileValue(tile: android.widget.LinearLayout): TextView? =
+                tile.getChildAt(0) as? TextView
+
+            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val wallet = com.lifecyclebot.engine.WalletManager.getWallet()
+                        ?: return@launch
+                    val cap = com.lifecyclebot.engine.UniversalBridgeEngine.scanWalletCapacity(wallet)
+                    val usdcUi = cap.allBalances[com.lifecyclebot.engine.UniversalBridgeEngine.USDC_MINT] ?: 0.0
+                    val solUi = cap.allBalances[com.lifecyclebot.engine.UniversalBridgeEngine.SOL_MINT]
+                        ?: try { wallet.getSolBalance() } catch (_: Throwable) { 0.0 }
+                    val srcLabel = try {
+                        com.lifecyclebot.engine.UniversalBridgeEngine.mintLabel(cap.bestSourceMint)
+                    } catch (_: Throwable) { "—" }
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        tvTotal.text = "$" + "%.2f".format(cap.totalUsdValue)
+                        tileValue(tileUsdc)?.text = "%.2f".format(usdcUi)
+                        tileValue(tileSol)?.text = "%.4f".format(solUi)
+                        tileValue(tileSrc)?.text = srcLabel
+                    }
+                } catch (_: Throwable) { /* read-only card; never break the screen */ }
+            }
+        } catch (_: Throwable) { }
+    }
+
     private fun injectTreasuryWalletCard() {
         try {
             val ctx = this

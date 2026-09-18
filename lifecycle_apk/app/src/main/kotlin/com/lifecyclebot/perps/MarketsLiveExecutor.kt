@@ -1624,6 +1624,37 @@ object MarketsLiveExecutor {
         // side of the same phantom class that Executor.kt V5.9.102 fixed.
         val sellBalanceBefore = readTokenUi(wallet, inputMint) ?: 0.0
 
+        // V5.0.6986 §THE_RETURN_LEG_PROVED_THE_BURN_AND_NEVER_THE_PROCEEDS.
+        //
+        // The bridge round trip is "source -> USDC -> target" out and
+        // "target -> SOL/USDC" back. UniversalBridgeEngine.releaseCapital is
+        // the documented return leg and proves BOTH sides of the swap: it
+        // snapshots the output balance, retries the delta read five times with
+        // backoff, and returns proofState=SIGNATURE_ONLY_UNPROVED when the
+        // proceeds cannot be shown to have landed.
+        //
+        // It has zero callers. This close path reimplements it inline — the
+        // comment forty lines up literally says "Use
+        // UniversalBridgeEngine.releaseCapital to swap back to SOL" — and the
+        // reimplementation kept only half the proof. verifySellExecuted below
+        // confirms the input BURNED; nothing confirms the SOL ARRIVED. A swap
+        // that burns the target and lands nothing (failed route leg, output
+        // stranded as intermediate USDC) is recorded as CLOSE SUCCESS.
+        //
+        // Deliberately NOT calling releaseCapital instead: it sells the whole
+        // wallet balance of the mint, while this path correctly sells only
+        // canonicalPos6486.remainingQtyRaw. Swapping to it would over-sell any
+        // concurrent position on the same mint. The missing half is the proof,
+        // not the sizing, so the proof is what gets added.
+        //
+        // Control flow is unchanged: the burn is verified, so the close is
+        // real and the position must still be marked closed. An unproved
+        // OUTPUT is reported, never silently swallowed, and never used to
+        // reopen a position whose tokens are already gone.
+        // Native SOL is not an SPL token account, so read it directly rather
+        // than through readTokenUi (which only sees token accounts).
+        val outBalanceBefore6986 = try { wallet.getSolBalance() } catch (_: Throwable) { Double.NaN }
+
         val signature = executeJupiterSwap(
             wallet        = wallet,
             walletAddress = walletAddress,
@@ -1643,6 +1674,45 @@ object MarketsLiveExecutor {
             }
         }
         
+        // V5.0.6986 — prove the PROCEEDS landed, the half releaseCapital had
+        // and this path lost. Same shape as releaseCapital's SOL branch:
+        // retry the delta read with backoff, because the balance lags the
+        // signature. Reports only; the burn is already verified above so the
+        // close itself stands either way.
+        if (signature != null && outBalanceBefore6986.isFinite()) {
+            var outDelta6986 = 0.0
+            for (attempt in 0 until 5) {
+                kotlinx.coroutines.delay(longArrayOf(1_200L, 2_000L, 3_000L, 4_000L, 5_000L)[attempt])
+                val now = try { wallet.getSolBalance() } catch (_: Throwable) { Double.NaN }
+                if (now.isFinite()) {
+                    outDelta6986 = now - outBalanceBefore6986
+                    if (outDelta6986 > 0.0) break
+                }
+            }
+            if (outDelta6986 > 0.0) {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CLOSE_OUTPUT_PROVED_6986")
+                } catch (_: Throwable) {}
+            } else {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CLOSE_OUTPUT_UNPROVED_6986")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "CLOSE_OUTPUT_UNPROVED_6986",
+                        "symbol=$closeSymbol inputMint=${inputMint.take(10)} units=$amountUnits " +
+                            "sig=${signature.take(20)} solBefore=${"%.6f".format(outBalanceBefore6986)} " +
+                            "deltaAfterRetries=${"%.6f".format(outDelta6986)} " +
+                            "read=input_burn_verified_but_proceeds_never_observed_check_for_stranded_intermediate",
+                    )
+                } catch (_: Throwable) {}
+                if (cryptoDiagClose) try {
+                    com.lifecyclebot.perps.crypto.CryptoUniverseForensics.logClosePhase(
+                        "CU_CLOSE_OUTPUT_UNPROVED_6986", closeSymbol, targetMint, inputMint, SOL_MINT,
+                        amountUnits, signature, true, "burn verified; SOL delta never observed",
+                    )
+                } catch (_: Throwable) {}
+            }
+        }
+
         return@withContext if (signature != null) {
             // V5.7.7: Collect fee on close as well
             val feePercent = if (leverage <= 1.0) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT
