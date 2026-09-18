@@ -310,7 +310,31 @@ object CollectiveLearning {
         }
         lastReconnectAttempt = now
 
+        // V5.0.6989 §THE_HIVE_COULD_ONLY_RECONNECT_IF_IT_HAD_ALREADY_CONNECTED.
+        //
+        // appContext is assigned in exactly one place: inside init(), at the
+        // top. But ensureConnected needs appContext IN ORDER TO CALL init().
+        // So if the first init never landed — BotService not yet started, the
+        // Collective screen never opened, an early throw — appContext stays
+        // null, and every subsequent reconnect attempt fails on the same line
+        // with "No application context captured for Turso init". The supervisor
+        // then retries on a backoff forever against a condition that can never
+        // change by itself.
+        //
+        // The operator's 5.0.6972 snapshot is that state exactly:
+        //
+        //     🔴 turso  sr=50%  s=1  net=1
+        //          last_err: No application context captured for Turso init
+        //
+        // With the hive store unreachable, CollectiveLearning.isEnabled() is
+        // false, so the hive contributes nothing — no shared blacklist, no
+        // shared patterns, no cross-device mode stats — while
+        // HIVE_SUPERVISOR_CONNECTED_6943 in the same dump reports a connection.
+        //
+        // The fallback already existed in this very file (line ~1525 reads
+        // AATEApp.appContextOrNull()); this path just never used it.
         val ctx = appContext
+            ?: try { com.lifecyclebot.AATEApp.appContextOrNull() } catch (_: Throwable) { null }
         if (ctx == null) {
             lastInitError = "No application context captured for Turso init"
             return false
