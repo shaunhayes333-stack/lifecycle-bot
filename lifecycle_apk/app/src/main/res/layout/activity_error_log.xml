@@ -1,4 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.7031 — Forensics, rebuilt against project/Logs.dc.html.
+
+  WHAT CHANGED AND WHY IT IS NOT ONLY A LOOK. The severity filter was a
+  Spinner: one closed control that shows the CURRENT level and hides the other
+  four, and shows no counts at all. The render uses four pills carrying their
+  own counts, so "how many errors are there" is answered by looking at the
+  screen instead of by opening a dropdown and reading a separate stats line.
+  On a forensics screen that is the difference between scanning and hunting.
+
+  The Spinner is still here, GONE, because it is the model: ErrorLogActivity
+  binds it, maps its position 0-4 onto ErrorLogger.Level and reloads on
+  selection. The pills set its selection, so the existing filter logic runs
+  untouched and this layout does not need to know what a Level is — the same
+  approach 7028 used for the PIN keypad, and for the same reason.
+
+  Every bound id is preserved: backButton, titleText, refreshButton,
+  statsText, filterSpinner, exportButton, clearButton,
+  openPipelineHealthButton, emptyText, logsRecyclerView.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -6,160 +26,321 @@
     android:orientation="vertical"
     android:fitsSystemWindows="true">
 
-    <!-- ── TOP BAR ── -->
+    <!-- ── HEADER ── -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingStart="@dimen/screen_padding"
-        android:paddingEnd="@dimen/screen_padding"
-        android:paddingTop="10dp"
-        android:paddingBottom="8dp"
-        android:background="@drawable/aate_screen_bg">
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="14dp"
+        android:paddingBottom="8dp">
 
         <ImageButton
             android:id="@+id/backButton"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
             android:src="@drawable/ic_arrow_back"
-            android:background="@android:color/transparent"
-            android:padding="8dp"
-            android:contentDescription="Back"
-            android:clickable="true"
-            android:focusable="true"/>
+            android:background="@drawable/aate_back_tile"
+            android:padding="7dp"
+            android:stateListAnimator="@null"
+            android:contentDescription="Back"/>
 
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:layout_marginStart="11dp"
             android:orientation="vertical">
 
             <TextView
-                style="@style/AateScreenTitle"
                 android:id="@+id/titleText"
-                android:text="Error Logs"/>
+                style="@style/AateScreenTitle"
+                android:text="Forensics"/>
 
+            <!-- The render puts runId · epoch here. Both are real and already
+                 emitted (§AJ "Forensic envelope"); statsText carries them. -->
             <TextView
-                style="@style/AateScreenSubtitle"
-                android:text="Diagnose · Trace · Resolve"/>
+                android:id="@+id/statsText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="…"
+                android:textColor="#7E93BC"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:maxLines="1"
+                android:ellipsize="end"/>
         </LinearLayout>
+
+        <View
+            android:id="@+id/dotForensicsRec"
+            android:layout_width="5dp"
+            android:layout_height="5dp"
+            android:layout_marginEnd="5dp"
+            android:background="@drawable/dot_green"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="REC"
+            android:textColor="@color/aate_green"
+            android:textSize="10sp"
+            android:fontFamily="monospace"/>
 
         <TextView
             android:id="@+id/refreshButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="↻"
-            android:textColor="@color/aate_purple"
-            android:textSize="18sp"
+            android:textColor="@color/aate_cyan"
+            android:textSize="16sp"
             android:paddingStart="12dp"
-            android:paddingEnd="4dp"
+            android:contentDescription="Refresh"
             android:clickable="true"
             android:focusable="true"/>
     </LinearLayout>
 
-    <!-- Stats bar -->
-    <TextView
-        android:id="@+id/statsText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:paddingStart="@dimen/screen_padding"
-        android:paddingEnd="@dimen/screen_padding"
-        android:paddingTop="8dp"
-        android:paddingBottom="8dp"
-        android:textColor="@color/aate_text_muted"
-        android:textSize="11sp"
-        android:fontFamily="monospace"
-        android:text="Loading…"/>
-
-    <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="@drawable/aate_universe_list_bg"/>
-
-    <!-- Filter row -->
+    <!-- ── SEVERITY ── -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingStart="@dimen/screen_padding"
-        android:paddingEnd="@dimen/screen_padding"
-        android:paddingTop="8dp"
-        android:paddingBottom="8dp">
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginTop="4dp">
 
-        <Spinner
-            android:id="@+id/filterSpinner"
+        <TextView android:id="@+id/sevAll"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:gravity="center"
+            android:text="ALL" android:textColor="#67E8F9" android:textSize="10sp"
+            android:textStyle="bold" android:fontFamily="monospace"
+            android:paddingTop="7dp" android:paddingBottom="7dp"
+            android:background="@drawable/aate_tab_pill_on"
+            android:layout_marginEnd="6dp"
+            android:clickable="true" android:focusable="true"/>
+
+        <TextView android:id="@+id/sevInfo"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:gravity="center"
+            android:text="INFO" android:textColor="#9DB8E4" android:textSize="10sp"
+            android:textStyle="bold" android:fontFamily="monospace"
+            android:paddingTop="7dp" android:paddingBottom="7dp"
+            android:background="@drawable/aate_tab_pill_off"
+            android:layout_marginEnd="6dp"
+            android:clickable="true" android:focusable="true"/>
+
+        <TextView android:id="@+id/sevWarn"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:gravity="center"
+            android:text="WARN" android:textColor="#FDE68A" android:textSize="10sp"
+            android:textStyle="bold" android:fontFamily="monospace"
+            android:paddingTop="7dp" android:paddingBottom="7dp"
+            android:background="@drawable/aate_tab_pill_off"
+            android:layout_marginEnd="6dp"
+            android:clickable="true" android:focusable="true"/>
+
+        <TextView android:id="@+id/sevErr"
+            android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:gravity="center"
+            android:text="ERR" android:textColor="#FCA5A5" android:textSize="10sp"
+            android:textStyle="bold" android:fontFamily="monospace"
+            android:paddingTop="7dp" android:paddingBottom="7dp"
+            android:background="@drawable/aate_tab_pill_off"
+            android:clickable="true" android:focusable="true"/>
+    </LinearLayout>
+
+    <!--
+      The model behind the pills. GONE, still bound, still driving
+      currentFilter through its existing onItemSelectedListener.
+    -->
+    <Spinner
+        android:id="@+id/filterSpinner"
+        android:layout_width="1dp"
+        android:layout_height="1dp"
+        android:visibility="gone"/>
+
+    <!-- ── COUNTERS ── -->
+    <LinearLayout
+        android:id="@+id/forensicsCounters"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginTop="11dp"
+        android:paddingStart="13dp"
+        android:paddingEnd="13dp"
+        android:paddingTop="11dp"
+        android:paddingBottom="11dp"
+        android:background="@drawable/section_card_bg">
+
+        <TextView
+            android:id="@+id/chipTotal"
             android:layout_width="0dp"
-            android:layout_height="36dp"
+            android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:background="@drawable/edit_text_bg"
-            android:padding="8dp"
-            android:layout_marginEnd="8dp"/>
+            android:gravity="center"
+            android:text="—"
+            android:textColor="#67E8F9"
+            android:textSize="9sp"
+            android:fontFamily="monospace"/>
+
+        <TextView
+            android:id="@+id/chipErrors"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="—"
+            android:textColor="#FCA5A5"
+            android:textSize="9sp"
+            android:fontFamily="monospace"/>
+
+        <TextView
+            android:id="@+id/chipCrashes"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="—"
+            android:textColor="#FDE68A"
+            android:textSize="9sp"
+            android:fontFamily="monospace"/>
+
+        <TextView
+            android:id="@+id/chipShown"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="—"
+            android:textColor="#C4B5FD"
+            android:textSize="9sp"
+            android:fontFamily="monospace"/>
+    </LinearLayout>
+
+    <!-- ── STREAM ── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginTop="11dp"
+        android:background="@drawable/aate_stream_card">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="LIFECYCLE STREAM"
+                android:textColor="#5D6E91"
+                android:textSize="9sp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.1"/>
+
+            <TextView
+                android:id="@+id/tvForensicsRate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textColor="@color/aate_green"
+                android:textSize="9sp"
+                android:fontFamily="monospace"/>
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#1F7CC4FF"/>
+
+        <TextView
+            android:id="@+id/emptyText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:paddingTop="40dp"
+            android:paddingBottom="40dp"
+            android:text="No entries at this level"
+            android:textColor="@color/aate_text_muted"
+            android:textSize="12sp"
+            android:visibility="gone"/>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/logsRecyclerView"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="9dp"
+            android:paddingBottom="9dp"
+            android:clipToPadding="false"
+            android:scrollbars="none"/>
+    </LinearLayout>
+
+    <!-- ── ACTIONS ── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginTop="11dp">
 
         <Button
             android:id="@+id/exportButton"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:text="Export"
-            android:textSize="11sp"
-            android:textColor="@color/aate_text"
-            android:backgroundTint="@color/aate_surface_2"
-            android:fontFamily="monospace"
-            android:layout_marginEnd="8dp"
-            android:minWidth="0dp"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"/>
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="Copy snapshot"
+            android:textAllCaps="false"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="#C8D6EE"
+            android:stateListAnimator="@null"
+            android:background="@drawable/aate_action_neutral"
+            android:layout_marginEnd="8dp"/>
 
         <Button
             android:id="@+id/clearButton"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
             android:text="Clear"
-            android:textSize="11sp"
-            android:textColor="@color/aate_red"
-            android:backgroundTint="@color/aate_surface_2"
-            android:fontFamily="monospace"
-            android:minWidth="0dp"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"/>
+            android:textAllCaps="false"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:textColor="#FCA5A5"
+            android:stateListAnimator="@null"
+            android:background="@drawable/aate_action_danger"/>
     </LinearLayout>
 
-    <!-- V5.9.666: Pipeline Health launcher (CI funnel mirror + ANR + recent events) -->
     <Button
         android:id="@+id/openPipelineHealthButton"
         android:layout_width="match_parent"
         android:layout_height="40dp"
-        android:layout_marginStart="@dimen/screen_padding"
-        android:layout_marginEnd="@dimen/screen_padding"
-        android:layout_marginTop="6dp"
-        android:layout_marginBottom="6dp"
-        android:text="OPEN PIPELINE HEALTH (funnel + ANR + clipboard export)"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="16dp"
+        android:text="Pipeline health"
+        android:textAllCaps="false"
         android:textSize="12sp"
-        android:textColor="@color/aate_text"
-        android:backgroundTint="@color/aate_surface_3"
-        android:fontFamily="monospace"/>
-
-    <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="@drawable/aate_universe_list_bg"/>
-
-    <!-- Empty state -->
-    <TextView
-        android:id="@+id/emptyText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center"
-        android:padding="48dp"
-        android:text="No errors logged.\n\nLogs will appear here when errors occur."
-        android:textColor="@color/aate_text_muted"
-        android:textSize="14sp"
-        android:visibility="gone"/>
-
-    <!-- Logs list -->
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/logsRecyclerView"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:clipToPadding="false"
-        android:padding="@dimen/screen_padding"/>
-
+        android:textStyle="bold"
+        android:textColor="#C4B5FD"
+        android:stateListAnimator="@null"
+        android:background="@drawable/aate_note_purple"/>
 </LinearLayout>

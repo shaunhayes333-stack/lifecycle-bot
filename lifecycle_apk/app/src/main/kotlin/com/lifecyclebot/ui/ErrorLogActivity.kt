@@ -123,6 +123,49 @@ class ErrorLogActivity : AppCompatActivity() {
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
+        wireSeverityPills7031()
+    }
+
+    /**
+     * V5.0.7031 — project/Logs.dc.html's severity pills.
+     *
+     * They do not own the filter. Each sets the Spinner's selection, which
+     * fires the listener above, which sets currentFilter and reloads — so the
+     * existing filter path is the only filter path, and this method never
+     * needs to know what an ErrorLogger.Level is. A second place that decided
+     * the level would be a second definition of the same fact, which is the
+     * shape of half the defects this session has removed.
+     *
+     * Positions match the Spinner's own mapping: 0 DEBUG (= everything, since
+     * getRecentLogs treats it as a floor), 1 INFO, 2 WARN, 3 ERROR.
+     */
+    private fun wireSeverityPills7031() {
+        val pills = listOf(
+            findViewById<TextView>(R.id.sevAll) to 0,
+            findViewById<TextView>(R.id.sevInfo) to 1,
+            findViewById<TextView>(R.id.sevWarn) to 2,
+            findViewById<TextView>(R.id.sevErr) to 3,
+        )
+        val restColours = listOf(0xFF9DB8E4.toInt(), 0xFF9DB8E4.toInt(), 0xFFFDE68A.toInt(), 0xFFFCA5A5.toInt())
+        fun paint(selected: Int) {
+            pills.forEachIndexed { i, (pill, _) ->
+                if (pill == null) return@forEachIndexed
+                if (i == selected) {
+                    pill.setBackgroundResource(R.drawable.aate_tab_pill_on)
+                    pill.setTextColor(0xFF67E8F9.toInt())
+                } else {
+                    pill.setBackgroundResource(R.drawable.aate_tab_pill_off)
+                    pill.setTextColor(restColours[i])
+                }
+            }
+        }
+        pills.forEachIndexed { i, (pill, position) ->
+            pill?.setOnClickListener {
+                paint(i)
+                filterSpinner.setSelection(position)
+            }
+        }
+        paint(0)
     }
 
     private fun loadLogs() {
@@ -140,7 +183,17 @@ class ErrorLogActivity : AppCompatActivity() {
             Handler(Looper.getMainLooper()).post {
                 if (isFinishing || isDestroyed) return@post
                 adapter.updateLogs(logs)
-                statsText.text = "Total: ${stats["total"]} | Errors: ${stats["errors"]} | Crashes: ${stats["crashes"]} | Session: ${stats["sessionId"]}"
+                // V5.0.7031 — the render splits this one long line in two:
+                // the header carries the run identity (runId · epoch in the
+                // artboard; session id here, which is the same idea and is
+                // what this app actually has), and the counts move into
+                // their own chip row where they can be read at a glance
+                // instead of parsed out of a pipe-delimited sentence.
+                statsText.text = "session ${stats["sessionId"] ?: "—"}"
+                findViewById<TextView>(R.id.chipTotal)?.text = "TOTAL ${stats["total"] ?: 0}"
+                findViewById<TextView>(R.id.chipErrors)?.text = "ERR ${stats["errors"] ?: 0}"
+                findViewById<TextView>(R.id.chipCrashes)?.text = "CRASH ${stats["crashes"] ?: 0}"
+                findViewById<TextView>(R.id.chipShown)?.text = "SHOWN ${logs.size}"
                 emptyText.visibility = if (logs.isEmpty()) View.VISIBLE else View.GONE
                 recyclerView.visibility = if (logs.isEmpty()) View.GONE else View.VISIBLE
             }
@@ -332,21 +385,40 @@ class ErrorLogActivity : AppCompatActivity() {
         override fun onBindViewHolder(holder: ViewHolder, position: Int) {
             val log = logs[position]
             
+            // V5.0.7031 — the render's stream row. Severity is a coloured DOT
+            // and coloured TEXT, not a coloured row background: with 200 rows
+            // of near-black tinted blocks the screen read as banding, and the
+            // four tints (#1a2a1a / #2a2a1a / #2a1a1a / #3a0a0a) were close
+            // enough to each other that the level was easier to read from the
+            // icon glyph than from the colour that was supposed to encode it.
+            //
+            // The component name is folded into the message rather than given
+            // its own column, because a fixed column for "BotService" spends a
+            // third of a 390dp row on a string that is the same on most lines.
             holder.timeText.text = log.timeFormatted
-            holder.levelText.text = log.levelIcon
-            holder.componentText.text = log.component
-            holder.messageText.text = log.messagePreview
-            
-            // Color based on level
-            val bgColor = when (log.level) {
-                ErrorLogger.Level.DEBUG -> AateUi.SURFACE
-                ErrorLogger.Level.INFO -> Color.parseColor("#1a2a1a")
-                ErrorLogger.Level.WARN -> Color.parseColor("#2a2a1a")
-                ErrorLogger.Level.ERROR -> Color.parseColor("#2a1a1a")
-                ErrorLogger.Level.CRASH -> Color.parseColor("#3a0a0a")
+            val hue7031 = when (log.level) {
+                ErrorLogger.Level.DEBUG -> 0xFF5D6E91.toInt()
+                ErrorLogger.Level.INFO -> AateUi.CYAN
+                ErrorLogger.Level.WARN -> AateUi.AMBER
+                ErrorLogger.Level.ERROR -> AateUi.RED
+                ErrorLogger.Level.CRASH -> AateUi.PINK
             }
-            holder.container.setBackgroundColor(bgColor)
-            
+            val ink7031 = when (log.level) {
+                ErrorLogger.Level.DEBUG -> 0xFF8394B4.toInt()
+                ErrorLogger.Level.INFO -> 0xFFA9BBDA.toInt()
+                ErrorLogger.Level.WARN -> 0xFFFDE68A.toInt()
+                ErrorLogger.Level.ERROR -> 0xFFFCA5A5.toInt()
+                ErrorLogger.Level.CRASH -> 0xFFF9A8D4.toInt()
+            }
+            holder.levelText.text = ""
+            holder.levelText.background?.mutate()?.setTint(hue7031)
+            holder.componentText.text = log.component
+            holder.messageText.text =
+                if (log.component.isNotBlank()) "${log.component} · ${log.messagePreview}"
+                else log.messagePreview
+            holder.messageText.setTextColor(ink7031)
+            holder.container.setBackgroundColor(Color.TRANSPARENT)
+
             holder.itemView.setOnClickListener { onClick(log) }
         }
 

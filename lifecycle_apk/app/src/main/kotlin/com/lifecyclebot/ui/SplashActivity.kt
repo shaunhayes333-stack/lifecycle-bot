@@ -83,6 +83,9 @@ class SplashActivity : AppCompatActivity() {
         
         // Start neural pathway particle animation
         startParticleAnimation(particleContainer)
+
+        // V5.0.7031 — the render's boot rail, driven by the real bootstrap.
+        startBootProgress7031()
         
         // Animate glow pulsing
         val glowPulse = ObjectAnimator.ofFloat(glow, "alpha", 0.2f, 0.5f, 0.2f).apply {
@@ -150,6 +153,38 @@ class SplashActivity : AppCompatActivity() {
      * Creates twinkling particles that flow from edges toward the center
      * like data streaming into the hivemind.
      */
+    /**
+     * V5.0.7031 — project/Splash.dc.html's boot rail and stage caption.
+     *
+     * Polls BootstrapProgress7031 four times a second and stops as soon as the
+     * bootstrap reports ready or the splash leaves the screen. Four reads a
+     * second of two volatile fields is nothing, and the alternative — a
+     * listener the bootstrap has to remember to call — is the wiring that
+     * keeps not happening in this codebase.
+     *
+     * The rail is a clip-level drawable rather than an animated width, so what
+     * it shows is the stage fraction and cannot drift away from the caption
+     * beside it. If the boot wedges, the bar stops where the app actually got
+     * to and the caption names the stage it stopped in. A rail that kept
+     * creeping on a timer would be the app narrating progress it has not made.
+     */
+    private fun startBootProgress7031() {
+        val track = findViewById<View>(R.id.splashBootTrack) ?: return
+        val stage = findViewById<TextView>(R.id.tvSplashStage) ?: return
+        val handler = Handler(Looper.getMainLooper())
+        val tick = object : Runnable {
+            override fun run() {
+                if (isFinishing || isDestroyed) return
+                val f = try { com.lifecyclebot.engine.BootstrapProgress7031.fraction() } catch (_: Throwable) { 0f }
+                val cap = try { com.lifecyclebot.engine.BootstrapProgress7031.caption() } catch (_: Throwable) { "" }
+                try { track.background?.level = (f * 10_000f).toInt().coerceIn(0, 10_000) } catch (_: Throwable) {}
+                if (stage.text != cap) stage.text = cap
+                if (f < 1f) handler.postDelayed(this, 250L)
+            }
+        }
+        handler.post(tick)
+    }
+
     private fun startParticleAnimation(container: FrameLayout) {
         val screenWidth = resources.displayMetrics.widthPixels
         val screenHeight = resources.displayMetrics.heightPixels

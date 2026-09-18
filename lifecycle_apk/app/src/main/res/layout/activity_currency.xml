@@ -18,12 +18,15 @@
 
         <TextView
             android:id="@+id/btnBack"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:gravity="center"
             android:text="←"
-            android:textColor="@color/aate_text"
-            android:textSize="22sp"
-            android:paddingEnd="12dp"
+            android:textColor="@color/aate_text_secondary"
+            android:textSize="16sp"
+            android:background="@drawable/aate_back_tile"
+            android:layout_marginEnd="11dp"
+            android:contentDescription="Back"
             android:clickable="true"
             android:focusable="true"/>
 

@@ -1,56 +1,68 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.7031 — one line of the Forensics stream, from project/Logs.dc.html.
+
+  The render's row is a single baseline: timestamp, a severity dot, then the
+  message in monospace, wrapping under itself. The shipped row was a two-line
+  card — a header row carrying LEVEL / component / time, then the message
+  beneath — so eight entries filled the screen and the eye had to cross a
+  boxed header before reaching any content. On a screen whose whole job is to
+  let you scan a few hundred lines quickly, that is the wrong trade.
+
+  The component name is not lost: it is prepended to the message by the
+  adapter, which is where the render puts a log's origin too.
+
+  Ids preserved for ErrorLogActivity.LogViewHolder: logContainer, levelText,
+  componentText, timeText, messageText. levelText is now the dot (a 4dp view
+  the adapter tints) and componentText is gone from the layout tree — see the
+  adapter for how it is folded into messageText.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/logContainer"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="12dp"
-    android:layout_marginBottom="4dp"
-    android:background="@color/aate_surface_2">
+    android:orientation="horizontal"
+    android:paddingTop="3dp"
+    android:paddingBottom="3dp"
+    android:baselineAligned="false">
 
-    <LinearLayout
-        android:layout_width="match_parent"
+    <TextView
+        android:id="@+id/timeText"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
+        android:text=""
+        android:textColor="#43546F"
+        android:textSize="8.5sp"
+        android:fontFamily="monospace"
+        android:layout_marginEnd="7dp"/>
 
-        <TextView
-            android:id="@+id/levelText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textSize="16sp"
-            android:text="ℹ️" />
+    <!-- The severity dot. A TextView so the existing binder's setTextColor
+         still types the same object; it draws a tinted circle, no glyph. -->
+    <TextView
+        android:id="@+id/levelText"
+        android:layout_width="4dp"
+        android:layout_height="4dp"
+        android:layout_marginTop="5dp"
+        android:layout_marginEnd="7dp"
+        android:text=""
+        android:textSize="1sp"
+        android:background="@drawable/dot_bg"/>
 
-        <TextView
-            android:id="@+id/componentText"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:textColor="#4fc3f7"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            android:text="Component" />
-
-        <TextView
-            android:id="@+id/timeText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="#888888"
-            android:textSize="12sp"
-            android:text="12:34:56" />
-
-    </LinearLayout>
+    <TextView
+        android:id="@+id/componentText"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:text=""
+        android:visibility="gone"/>
 
     <TextView
         android:id="@+id/messageText"
-        android:layout_width="match_parent"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:textColor="#cccccc"
-        android:textSize="13sp"
-        android:maxLines="3"
-        android:ellipsize="end"
-        android:text="Error message here..." />
-
+        android:layout_weight="1"
+        android:text=""
+        android:textColor="#A9BBDA"
+        android:textSize="9.5sp"
+        android:fontFamily="monospace"
+        android:lineSpacingMultiplier="1.4"/>
 </LinearLayout>

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.7031 — the splash boot rail.
+
+  A clip-level layer so the fill can be driven to a real fraction rather than
+  animated on a timer: `splashBootTrack.background.level = 0..10000`. The
+  render's rail is `linear-gradient(90deg,#8B5CF6,#22D3EE)` on a
+  rgba(124,196,255,.14) track.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#247CC4FF"/>
+            <corners android:radius="999dp"/>
+        </shape>
+    </item>
+    <item>
+        <clip android:clipOrientation="horizontal" android:gravity="start">
+            <shape android:shape="rectangle">
+                <gradient android:type="linear" android:angle="0"
+                    android:startColor="#FF8B5CF6" android:endColor="#FF22D3EE"/>
+                <corners android:radius="999dp"/>
+            </shape>
+        </clip>
+    </item>
+</layer-list>

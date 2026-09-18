@@ -158,6 +158,47 @@
         android:letterSpacing="0.08"
         android:visibility="invisible"/>
 
+    <!--
+      V5.0.7031 — the render's boot bar and stage line.
+
+      project/Splash.dc.html carries a 188px gradient progress rail with a
+      stage caption under it: "canonical ledger …", "fill-lot registry …",
+      "council probe …", "scanner queue …", "ready". The shipped splash showed
+      a logo, a wordmark and nothing about what the app was doing, so a slow
+      boot and a hung boot looked identical for four seconds.
+
+      This is not a timer pretending to be progress. SplashActivity drives it
+      from the bootstrap phases that already exist and already emit
+      (SERVICE_BOOTSTRAP_PHASE_6516 / CANONICAL_BOOTSTRAP_READY_6515), so the
+      line names the stage the app is genuinely in — which is the only version
+      of this worth building, and the difference between a progress bar and a
+      decoration that happens to move.
+    -->
+    <LinearLayout
+        android:layout_width="188dp"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="128dp"
+        android:orientation="vertical"
+        android:gravity="center_horizontal">
+
+        <View
+            android:id="@+id/splashBootTrack"
+            android:layout_width="match_parent"
+            android:layout_height="3dp"
+            android:background="@drawable/aate_boot_track"/>
+
+        <TextView
+            android:id="@+id/tvSplashStage"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text=""
+            android:textColor="#6E82A8"
+            android:textSize="10sp"
+            android:fontFamily="monospace"/>
+    </LinearLayout>
+
     <!-- Legal — low contrast, stays out of the way -->
     <LinearLayout
         android:layout_width="match_parent"

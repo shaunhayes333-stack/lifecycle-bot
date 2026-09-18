@@ -1806,6 +1806,11 @@ class BotService : Service() {
                             "phase=$phase durMs=${android.os.SystemClock.elapsedRealtime() - serviceStarted6516}",
                         )
                     } catch (_: Throwable) {}
+                    // V5.0.7031 — the same fact, on a channel the splash can
+                    // read. Six named stages have been emitted here since 6516
+                    // and only ever to the forensic log, which is not open
+                    // during launch and which the splash cannot reach.
+                    try { BootstrapProgress7031.note(phase) } catch (_: Throwable) {}
                 }
                 try {
                     canonicalBootstrapJob6515?.join()
@@ -2889,6 +2894,8 @@ class BotService : Service() {
                     try {
                         ForensicLogger.lifecycle("SERVICE_BOOTSTRAP_READY_6516", "durMs=${android.os.SystemClock.elapsedRealtime() - serviceStarted6516} thread=${Thread.currentThread().name}")
                         PipelineHealthCollector.labelInc("SERVICE_BOOTSTRAP_READY_6516")
+                        // V5.0.7031 — the splash's "ready".
+                        try { BootstrapProgress7031.markReady() } catch (_: Throwable) {}
                     } catch (_: Throwable) {}
                 } catch (t: Throwable) {
                     serviceBootstrapSucceeded6516 = false

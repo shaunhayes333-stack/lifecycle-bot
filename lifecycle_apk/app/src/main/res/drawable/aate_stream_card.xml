@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.7031 — the Forensics log stream container.
+
+  project/Logs.dc.html gives the stream its own surface, DARKER than the page
+  (rgba(3,6,13,.92)) with a 16px radius and a hairline. Everything else on the
+  screen sits above the ground; the stream sits below it, which is what makes a
+  wall of monospace read as a terminal rather than as more of the same card.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#EB03060D"/>
+    <stroke android:width="1dp" android:color="#2E7CC4FF"/>
+    <corners android:radius="16dp"/>
+</shape>
