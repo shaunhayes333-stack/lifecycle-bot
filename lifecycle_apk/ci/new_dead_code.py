@@ -33,8 +33,14 @@ import re
 import subprocess
 import sys
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = os.path.join(REPO, "lifecycle_apk/app/src/main")
+# lifecycle_apk/ci/new_dead_code.py -> repo root is three levels up.
+# This file lives beside the other build validators (comment_balance,
+# res_validate, layout_contract, palette_drift) because build.yml runs with
+# working-directory: lifecycle_apk. V5.0.7032's first attempt put it in the
+# repo-root ci/ directory, where the OFFLINE analysis scripts live, and the
+# step died on file-not-found — which the gate then reported as a failure,
+# indistinguishable from a real finding.
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Declarations worth checking. Private/override/local ones are excluded:
 # an override is called through its interface and a private symbol is by
@@ -63,13 +69,20 @@ EXEMPT = {
 
 
 def changed_files_and_decls(base):
+    """Returns (declarations, diff_ok). diff_ok is False when the base commit
+    is unavailable — CI checks out shallow, so HEAD~1 may genuinely not exist.
+
+    The two cases are returned separately ON PURPOSE. Collapsing "the diff
+    could not run" into "the diff found nothing" would make this gate report
+    success while doing no work, which is the same defect it exists to catch.
+    """
     try:
         diff = subprocess.run(
             ["git", "diff", "-U0", base, "--", "lifecycle_apk/app/src/main"],
             cwd=REPO, capture_output=True, text=True, check=True,
         ).stdout
     except subprocess.CalledProcessError:
-        return []
+        return [], False
     out, cur = [], None
     for line in diff.splitlines():
         if line.startswith("+++ b/"):
@@ -82,7 +95,7 @@ def changed_files_and_decls(base):
         m = DECL.match(line)
         if m:
             out.append((cur, m.group(1)))
-    return out
+    return out, True
 
 
 def referenced_outside(name, declaring_file):
@@ -100,7 +113,14 @@ def referenced_outside(name, declaring_file):
 
 def main():
     base = sys.argv[1] if len(sys.argv) > 1 else "HEAD~1"
-    decls = changed_files_and_decls(base)
+    decls, diff_ok = changed_files_and_decls(base)
+    if not diff_ok:
+        # Shallow checkout without the base commit. Say so rather than
+        # reporting a pass: a silent no-op gate is worse than no gate,
+        # because it is mistaken for coverage.
+        print("new_dead_code: SKIPPED — base '%s' unavailable "
+              "(shallow clone?); no check performed" % base)
+        return 0
     if not decls:
         print("new_dead_code: no new declarations in this change")
         return 0
