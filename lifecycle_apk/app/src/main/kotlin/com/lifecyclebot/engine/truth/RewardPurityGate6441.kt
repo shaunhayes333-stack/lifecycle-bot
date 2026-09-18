@@ -65,6 +65,29 @@ object RewardPurityGate6441 {
             try { PipelineHealthCollector.labelInc("REWARD_PURITY_REJECT_LIFECYCLE_6441") } catch (_: Throwable) {}
             return false
         }
+        // V5.0.7032 — a position carrying a pre-7032 paper partial cannot have
+        // its economics substantiated (the partial recorded no exit mark and no
+        // SOL/USD rate, so its proceeds are indistinguishable from a genuine
+        // runner's), and a later full close inherits the error through a basis
+        // the partial already reduced. Blocked here, at the one boundary every
+        // learner's reward passes through, rather than in fifteen consumers.
+        // See ContaminatedPartialQuarantine7032 for why this is a quarantine
+        // and not a restatement.
+        val contaminated7032 = try {
+            ContaminatedPartialQuarantine7032.isContaminated(positionId)
+        } catch (_: Throwable) { false }
+        if (contaminated7032) {
+            rejectedAccounting.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("REWARD_PURITY_REJECT_CONTAMINATED_7032")
+                ForensicLogger.lifecycle(
+                    "REWARD_PURITY_REJECT_CONTAMINATED_7032",
+                    "positionId=$positionId mint=${pos.mint.take(12)} " +
+                        "reason=pre_7032_partial_unreconstructible action=exclude_from_learning",
+                )
+            } catch (_: Throwable) {}
+            return false
+        }
         // V5.0.6710 — defence in depth at the canonical reward boundary.
         // EconomicPurityGate6504 is marked by stale/unverified close paths.
         // A CLOSED lifecycle alone is not proof that the exit price was valid.

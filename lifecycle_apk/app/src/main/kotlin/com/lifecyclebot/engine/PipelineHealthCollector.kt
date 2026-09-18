@@ -1991,6 +1991,12 @@ object PipelineHealthCollector {
             sb.append("  Reward purity gate (§6441):   ").append(
                 com.lifecyclebot.engine.truth.RewardPurityGate6441.statusLine()
             ).append("\n")
+            // V5.0.7032 — say out loud how much of the history the learners are
+            // refusing and why. A quarantine nobody can see in the snapshot is
+            // the same failure as the corruption it exists to contain.
+            sb.append("  Contaminated cohort (§7032):  ").append(
+                com.lifecyclebot.engine.truth.ContaminatedPartialQuarantine7032.statusLine()
+            ).append("\n")
             sb.append("  Learner budget (§6441) [MAINTENANCE SLICES; reward queries use separate counter]: ").append(
                 com.lifecyclebot.engine.truth.LearnerRuntimeBudgetGuard6441.statusLine()
             ).append("\n")

@@ -168,6 +168,12 @@ object CanonicalPaperPartialOperation6510 {
             positionId, mint, symbol, pre.openedAtMs, operationId, soldRaw, pre.remainingQtyRaw,
             preCost, grossProceeds.coerceAtLeast(0.0), soldBasis, fees.coerceAtLeast(0.0), pre.lane,
             exitReason, soldRaw >= pre.remainingQtyRaw, directPositionMutation6486 = true,
+            // V5.0.7032 — the two figures the 7029 guard above already
+            // reconstructs this sale from, recorded onto the durable event so
+            // the same check can be run on it a month from now. Their absence
+            // on older rows is what makes those rows unreconstructible.
+            exitPriceUsd7032 = markPriceUsd7029,
+            solUsdAtExit7032 = solUsd7029,
         )
         val post = CanonicalPositionAuthority6441.getPosition(positionId) ?: pre
         if (r.applied) {

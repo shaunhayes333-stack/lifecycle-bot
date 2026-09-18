@@ -103,6 +103,33 @@ object EconomicEventSchema6464 {
         val realizedReturnPct: Double,
         val remainingQty: java.math.BigInteger,
         val remainingCostBasisSol: Double,
+        /**
+         * V5.0.7032 §A_SALE_MUST_CARRY_WHAT_PRICED_IT.
+         *
+         * The mark this sale was priced at (USD per token) and the SOL/USD
+         * rate used to express its proceeds in SOL. Both default to 0.0, and
+         * that default is load-bearing: a Sell row with solUsdAtExit = 0 was
+         * written before 7032 and therefore CANNOT BE RECONSTRUCTED.
+         *
+         * WHY THIS MATTERS AND WHY IT WAS MISSING. V5.0.7029 found that the
+         * paper partial paths computed `sellQty * actualPrice` — tokens times
+         * USD per token, i.e. USD — and booked it as SOL proceeds, inflating
+         * them by the SOL/USD rate. 7029 fixed the live path and added a
+         * commit-boundary check that reconstructs proceeds as quantity x
+         * price, which it can do because it holds both.
+         *
+         * It cannot be done to the rows already on disk. grossProceedsSol is
+         * recorded; the mark that produced it is not, and neither is the rate.
+         * So a corrupted partial and a genuine 140x runner are, in the stored
+         * data, THE SAME ROW. That is why this repair is a quarantine and not
+         * a restatement: dividing history by today's SOL price would be
+         * inventing the number rather than recovering it, which is the defect
+         * class this whole repair exists to remove.
+         *
+         * Recorded from here on so the question is answerable forever after.
+         */
+        val exitPriceUsd: Double = 0.0,
+        val solUsdAtExit: Double = 0.0,
     ) : Event()
 
     data class ReplayCarry6489(
@@ -156,6 +183,12 @@ object EconomicEventSchema6464 {
             PipelineHealthCollector.labelInc("ECONOMIC_EVENTS_DURABLE_LOADED_6486")
             ForensicLogger.lifecycle("ECONOMIC_EVENTS_DURABLE_LOADED_6486", "events=${events.size}")
         } catch (_: Throwable) {}
+        // V5.0.7032 — the moment the durable events are in memory is the only
+        // moment the contaminated cohort can be identified, and it must happen
+        // before the first close of the session reaches a learner. Scanning
+        // here rather than from a bootstrap step means it cannot be missed by
+        // an ordering change: the data and the scan arrive together.
+        try { ContaminatedPartialQuarantine7032.scan() } catch (_: Throwable) {}
     }
 
     fun recordBuy(
@@ -200,6 +233,10 @@ object EconomicEventSchema6464 {
         idempotencyKey: String, partial: Boolean, soldQty: java.math.BigInteger,
         preRemainingQty: java.math.BigInteger, preRemainingCostBasisSol: Double,
         grossProceedsSol: Double, exitFeesSol: Double,
+        // V5.0.7032 — what priced this sale. Defaulted so every existing
+        // call site compiles unchanged; a row that leaves them at zero is
+        // self-identifying as unreconstructible. See the Sell fields.
+        exitPriceUsd: Double = 0.0, solUsdAtExit: Double = 0.0,
     ) {
         val idKey = idempotencyKey.ifBlank { "sell_${System.nanoTime()}" }
         val gross = grossProceedsSol.coerceAtLeast(0.0)
@@ -228,6 +265,8 @@ object EconomicEventSchema6464 {
             realizedReturnPct = ret,
             remainingQty = remainingQ,
             remainingCostBasisSol = remainingCost,
+            exitPriceUsd = exitPriceUsd,
+            solUsdAtExit = solUsdAtExit,
         )
         if (!appendBounded(e)) return
         if (partial) recordedPartials.incrementAndGet() else recordedSells.incrementAndGet()

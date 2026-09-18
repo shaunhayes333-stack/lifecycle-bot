@@ -86,6 +86,17 @@ jobs:
       - name: Palette drift guard
         run: python3 ci/palette_drift.py
 
+      # V5.0.7032 — five defects this session had one shape: the capability was
+      # built correctly and the thing that needed it never called it (6994,
+      # 6999, 6958, 7026, 7030). Two of them cost the operator days of a bot
+      # that could not trade. This only inspects what the CURRENT change adds,
+      # so it is never held hostage by the historical UNWIRED_LEDGER backlog,
+      # and a green build means the new work is actually wired.
+      - name: New dead-code guard
+        run: |
+          git fetch --deepen=2 --quiet || true
+          python3 ci/new_dead_code.py HEAD~1
+
       - name: Build Release APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}

@@ -120,6 +120,12 @@ object CanonicalPaperTerminalBridge6469 {
         terminal: Boolean,
         directPositionMutation6486: Boolean = false,
         suppressLearningFanout6490: Boolean = false,
+        // V5.0.7032 — what priced this sale, carried through to the durable
+        // economic event so a future audit can reconstruct it. Zero means the
+        // caller could not supply them, and the row is then self-identifying
+        // as unreconstructible; see ContaminatedPartialQuarantine7032.
+        exitPriceUsd7032: Double = 0.0,
+        solUsdAtExit7032: Double = 0.0,
     ): Result {
         val canonicalBefore6522 = CanonicalPositionAuthority6441.getPosition(positionId)
         val sellDecimals6522 = canonicalBefore6522?.quantityScale ?: -1
@@ -385,6 +391,8 @@ object CanonicalPaperTerminalBridge6469 {
                 preRemainingCostBasisSol = preRemainingCostBasisSol,
                 grossProceedsSol = grossProceedsSol,
                 exitFeesSol = feesSol,
+                exitPriceUsd = exitPriceUsd7032,
+                solUsdAtExit = solUsdAtExit7032,
             )
         } catch (_: Throwable) {}
 
