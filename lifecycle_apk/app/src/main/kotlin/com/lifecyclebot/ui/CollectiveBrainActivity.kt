@@ -632,12 +632,34 @@ class CollectiveBrainActivity : AppCompatActivity() {
         })
         row.addView(android.widget.TextView(this).apply {
             val pnlStr = if (totalPnl >= 0) "+${totalPnl.toInt()}%" else "${totalPnl.toInt()}%"
-            text = "${trades}× · ${winRatePct.toInt()}% · $pnlStr"
-            textSize = 11f
+            text = "${trades}× · $pnlStr"
+            textSize = 11.5f
             setTextColor(if (isPositive) green else red)
             typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
         })
         llBrainPatterns.addView(row)
+
+        // V5.0.7022 — the win rate becomes a rail instead of the third figure
+        // in a run-on line.
+        //
+        // Every pattern row already carried "23× · 41% · +18%": three numbers
+        // at one weight, where the only one you can compare BETWEEN rows at a
+        // glance is the one with a length. Ranking patterns by eye is the whole
+        // purpose of this list, and it was the one thing the shape prevented.
+        //
+        // Converted at the row builder, so all four pattern sections — best,
+        // worst, and both their headers' lists — change together.
+        try {
+            llBrainPatterns.addView(
+                AateComponents6994.barRow(
+                    this,
+                    label = "WIN RATE",
+                    value = winRatePct.coerceIn(0.0, 100.0),
+                    accent = if (isPositive) green else red,
+                    labelWidthDp = 62,
+                ),
+            )
+        } catch (_: Throwable) {}
     }
 
     /**

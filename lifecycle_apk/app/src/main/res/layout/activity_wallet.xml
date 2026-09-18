@@ -89,11 +89,30 @@
             android:letterSpacing="0.12"
             android:fontFamily="monospace"/>
 
+        <!-- V5.0.7022 — the balance beside where it can actually go.
+             This screen already computes treasury / tradeable / gas reserve and
+             prints two of the three as bare figures. A wallet's real question
+             is not "how much" but "how much of it can I use", and that is a
+             split, so it is drawn as one. -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="bottom">
+            android:gravity="center_vertical"
+            android:baselineAligned="false">
+
+            <com.lifecyclebot.ui.DonutView7020
+                android:id="@+id/walletAllocDonut"
+                android:layout_width="64dp"
+                android:layout_height="64dp"
+                android:layout_marginEnd="12dp"/>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="bottom">
             <TextView
                 android:id="@+id/tvSolBalance"
                 android:layout_width="0dp"
@@ -117,6 +136,7 @@
                 android:textSize="13sp"
                 android:layout_marginStart="8dp"
                 android:layout_marginBottom="4dp"/>
+            </LinearLayout>
         </LinearLayout>
 
         <LinearLayout

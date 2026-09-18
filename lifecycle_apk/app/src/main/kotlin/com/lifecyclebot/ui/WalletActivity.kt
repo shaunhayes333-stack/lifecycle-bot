@@ -845,6 +845,33 @@ class WalletActivity : AppCompatActivity() {
         val tradeable = (ws.solBalance - 0.05 - treasury).coerceAtLeast(0.0)
         tvWithdrawTreasuryBal.text = "${"%.4f".format(treasury)}◎"
         tvWithdrawTradeable.text   = "${"%.4f".format(tradeable)}◎"
+
+        // V5.0.7022 — the same three numbers, as the split they are.
+        //
+        // treasury / tradeable / gas reserve is already computed right here and
+        // two of the three were printed as bare figures on a different card.
+        // "How much of this can I actually trade with" is the question a wallet
+        // is opened to answer, and it is a proportion, so it gets a ring.
+        //
+        // The 0.05 reserve is not a rounding allowance — it is the gas floor
+        // subtracted on the line above, so it is shown rather than absorbed
+        // into one of the other two.
+        try {
+            findViewById<DonutView7020>(R.id.walletAllocDonut)?.let { d ->
+                val reserve = kotlin.math.min(0.05, ws.solBalance).coerceAtLeast(0.0)
+                val total = tradeable + treasury + reserve
+                if (total > 0.0) {
+                    d.centreText = if (ws.solBalance > 0.0) {
+                        "${(tradeable / ws.solBalance * 100.0).toInt()}"
+                    } else "0"
+                    d.centreCaption = "% FREE"
+                    d.setSegments(
+                        floatArrayOf(tradeable.toFloat(), treasury.toFloat(), reserve.toFloat()),
+                        intArrayOf(AateUi.GREEN, AateUi.PURPLE, AateUi.TEXT_MUTED),
+                    )
+                }
+            }
+        } catch (_: Throwable) {}
         // Refresh SOL amount label when balance updates
         val wdAmt = treasury * withdrawPct / 100.0
         tvWithdrawSolAmt.text = "≈ ${"%.4f".format(wdAmt)}◎ (${"$%.2f".format(wdAmt * solPx)})"

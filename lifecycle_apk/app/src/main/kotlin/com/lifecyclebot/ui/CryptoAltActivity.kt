@@ -2142,6 +2142,38 @@ class CryptoAltActivity : AppCompatActivity() {
         })
         card.addView(row1)
 
+        // V5.0.7022 §A_BAR_YOU_CAN_COMPARE_BETWEEN_ROWS.
+        //
+        // Every row already ended in a signed percentage. Scanning a list of
+        // signed percentages to find the movers is precisely the job a length
+        // does better than a numeral, and this is the app's highest-traffic
+        // list.
+        //
+        // NOT A SPARKLINE, deliberately. DynToken carries price,
+        // priceChange24h, mcap and volume — and no price HISTORY. A sparkline
+        // here would have to be synthesised from a single number, which is
+        // drawing a shape the data cannot support. The 24h change is real, so
+        // that is what gets drawn.
+        //
+        // Mapped on a FIXED +/-50% scale rather than normalised per row, because
+        // a bar normalised to its own row is only comparable with itself — and
+        // comparing rows is the entire point. Past 50% it saturates, and the
+        // numeral beside it still carries the exact figure.
+        if (change != 0.0 && change.isFinite()) {
+            try {
+                card.addView(
+                    AateComponents6994.barRow(
+                        this,
+                        label = if (change >= 0) "24H UP" else "24H DOWN",
+                        value = (kotlin.math.abs(change) / 50.0 * 100.0).coerceIn(0.0, 100.0),
+                        accent = changeCol,
+                        showValue = false,
+                        labelWidthDp = 58,
+                    ),
+                )
+            } catch (_: Throwable) {}
+        }
+
         // ── Row 2: Source badge | RC | trending/boosted tags ──────────────────
         val row2 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
