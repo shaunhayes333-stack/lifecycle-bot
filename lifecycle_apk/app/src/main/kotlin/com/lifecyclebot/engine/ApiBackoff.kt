@@ -18,11 +18,23 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object ApiBackoff {
 
+    /**
+     * V5.0.6968 — a half-open probe fires only inside the last 10s of a lockout.
+     * Before this, the test was `remaining > 10_000`, i.e. the probe fired at the
+     * START of the window and never at the end, which is the inverse of what a
+     * half-open circuit is for.
+     */
+    private const val HALF_OPEN_TAIL_MS = 10_000L
+
+
     private data class State(
         val consecutiveFailures: AtomicInteger = AtomicInteger(0),
         val lockoutUntilMs: AtomicLong = AtomicLong(0L),
         val lastFailureCode: AtomicInteger = AtomicInteger(0),
         val totalLockouts: AtomicLong = AtomicLong(0L),
+        // V5.0.6968 — the lockout deadline this host has already spent its one
+        // half-open probe on. Without it, "one probe" was one probe PER CALL.
+        val halfOpenUsedForUntilMs: AtomicLong = AtomicLong(0L),
     )
 
     private val state = ConcurrentHashMap<String, State>()
@@ -118,13 +130,56 @@ object ApiBackoff {
             if (lastCode == 429 || lastCode == 401 || lastCode == 403) return true
 
             val remaining = until - now
-            if (remaining > 10_000L) {
-                // One soft half-open probe. CAS prevents a fan-out stampede.
-                if (s.lockoutUntilMs.compareAndSet(until, now + 5_000L)) {
+            // V5.0.6968 §THE_BACKOFF_THAT_DEFEATED_ITSELF_IN_THE_SAME_MILLISECOND.
+            //
+            // This was:
+            //
+            //     if (remaining > 10_000L) {
+            //         if (s.lockoutUntilMs.compareAndSet(until, now + 5_000L)) return false
+            //     }
+            //
+            // Two defects compounding, and together they removed the backoff
+            // entirely for exactly the hosts that needed it most.
+            //
+            // 1. IT PROBED AT THE START OF THE WINDOW, NOT THE END. A freshly
+            //    armed 30s lockout has remaining≈29_900, which is > 10_000, so
+            //    the very next call half-opened. "Half-open" means wait out the
+            //    window then test once; this tested immediately and waited never.
+            //
+            // 2. "ONE PROBE" WAS ONE PROBE PER CALL. Nothing recorded that a
+            //    probe had been spent. The CAS only prevents two threads racing
+            //    the same deadline — it does not stop the NEXT call, against the
+            //    new deadline, from probing again. And because the probe rewrote
+            //    the deadline to now+5s, a failed probe SHORTENED the penalty
+            //    from 30s to 5s.
+            //
+            // The operator's own log shows the result in one timestamp:
+            //
+            //     13:22:29.606  API_BACKOFF_ARMED       host=pumpfun untilSec=30
+            //     13:22:29.606  API_BACKOFF_HALF_OPEN_PROBE  host=pumpfun remainingMs=29927
+            //
+            // Armed for thirty seconds and defeated in the same millisecond.
+            // Session-wide: 1228 arms, 1031 half-open probes — 84% of every
+            // backoff ever armed was walked straight through.
+            //
+            // THE COST. pumpfun ran at sr=6% with 4025 failed calls at 753ms
+            // average = 3031 SECONDS of wall time in a 3608-second session.
+            // Jupiter added 1455s, jupiter_quote 886s. Roughly 5480 seconds of
+            // blocking on providers that were already known to be failing, which
+            // is what put bot-loop cycles at 50-72s against a 12s average.
+            //
+            // FIXED: probe in the TAIL of the window (the last 10s, which is what
+            // half-open is for), at most ONCE per lockout deadline, and never
+            // shorten the lockout to do it. A failed probe now leaves the
+            // original penalty intact and noteFailure escalates from there.
+            if (remaining <= HALF_OPEN_TAIL_MS) {
+                val spentFor = s.halfOpenUsedForUntilMs.get()
+                if (spentFor != until && s.halfOpenUsedForUntilMs.compareAndSet(spentFor, until)) {
                     try {
                         ForensicLogger.lifecycle(
                             "API_BACKOFF_HALF_OPEN_PROBE",
-                            "host=${key(host)} lastCode=$lastCode remainingMs=$remaining",
+                            "host=${key(host)} lastCode=$lastCode remainingMs=$remaining " +
+                                "window=tail oncePerLockout=true lockoutPreserved=true",
                         )
                     } catch (_: Throwable) {}
                     return false

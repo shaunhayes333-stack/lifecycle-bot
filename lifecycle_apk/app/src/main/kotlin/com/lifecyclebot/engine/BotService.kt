@@ -12883,14 +12883,46 @@ class BotService : Service() {
             // 100× less log volume.
             var heldBlockedThisPass = 0
             var heldBlockedFirstMint = ""
-            for (entry in pumpEntries.take(excess)) {
+            // V5.0.6968 §LOCK_CONVOY_AGAINST_THE_BOT_LOOP.
+            //
+            // This loop took synchronized(status.tokens) THREE times per entry —
+            // once for the open/pending check, once for lastLiquidityUsd, once
+            // for the removal — and it is submitted to the maintenance worker on
+            // every intake sighting (946 runs this session, avg 1032ms, max
+            // 36038ms). status.tokens is the same monitor the bot loop holds
+            // throughout INTAKE, which is the phase SlowCycleDiagnostic6437
+            // named as worst at 72414ms.
+            //
+            // The function is also NOT suspend, so the withTimeoutOrNull(2500)
+            // budget MaintenanceWorker6448 wraps it in cannot cancel it: there is
+            // no suspension point to cancel at. A 2.5s budget measured 36s
+            // because the budget was unenforceable, not because it was ignored.
+            //
+            // Snapshot every field this pass needs under ONE lock, decide
+            // outside the lock, then apply removals under ONE more. 3N
+            // acquisitions become 2. The reads and the decision order are
+            // otherwise identical — demotions in this pass cannot change another
+            // mint's open state, so hoisting the check is equivalent.
+            val candidates6968 = pumpEntries.take(excess)
+            val snap6968: Map<String, Pair<Boolean, Double>> = try {
+                synchronized(status.tokens) {
+                    candidates6968.associate { e ->
+                        val tsSnap = status.tokens[e.mint]
+                        val pos = tsSnap?.position
+                        e.mint to Pair(
+                            pos?.isOpen == true || pos?.pendingVerify == true || (pos?.qtyToken ?: 0.0) > 0.0,
+                            tsSnap?.lastLiquidityUsd ?: 0.0,
+                        )
+                    }
+                }
+            } catch (_: Throwable) { emptyMap() }
+            val toRemove6968 = ArrayList<String>(candidates6968.size)
+            for (entry in candidates6968) {
                 // V5.0.3685 — guard: never evict a mint that is in-flight (pendingVerify)
                 // or already open. mid-buy verification sets pendingVerify=true BEFORE
                 // confirming token arrival; evicting here loses the position permanently.
-                val open = try { synchronized(status.tokens) {
-                    val pos = status.tokens[entry.mint]?.position
-                    pos?.isOpen == true || pos?.pendingVerify == true || (pos?.qtyToken ?: 0.0) > 0.0
-                } } catch (_: Throwable) { false }
+                // V5.0.6968 — read from the single-lock snapshot above.
+                val open = snap6968[entry.mint]?.first ?: false
                 if (open || liveHeldOrManagedMint(entry.mint)) {
                     if (heldBlockedThisPass == 0) heldBlockedFirstMint = entry.mint
                     heldBlockedThisPass++
@@ -12901,10 +12933,8 @@ class BotService : Service() {
                 // immediately demoted as SOURCE_BALANCE_PUMP_DOMINANCE with liq=$0
                 // because rebalance runs before status.tokens hydration. Use registry
                 // intake metadata first, then any live TokenState fallback.
-                val demoteLiq = try {
-                    val liveLiq = synchronized(status.tokens) { status.tokens[entry.mint]?.lastLiquidityUsd ?: 0.0 }
-                    maxOf(entry.initialLiquidityUsd, liveLiq)
-                } catch (_: Throwable) { entry.initialLiquidityUsd }
+                // V5.0.6968 — snapshot read; same maxOf(intake, live) semantics.
+                val demoteLiq = maxOf(entry.initialLiquidityUsd, snap6968[entry.mint]?.second ?: 0.0)
                 val demoteConf = entry.initialConfidence.coerceAtLeast(0)
                 val ok = try {
                     com.lifecyclebot.engine.GlobalTradeRegistry.demoteWatchlistToProbation(
@@ -12916,9 +12946,16 @@ class BotService : Service() {
                     )
                 } catch (_: Throwable) { false }
                 if (ok) {
-                    try { synchronized(status.tokens) { status.tokens.remove(entry.mint) } } catch (_: Throwable) {}
+                    // V5.0.6968 — batched; applied under one lock after the loop.
+                    toRemove6968.add(entry.mint)
                     demoted++
                 }
+            }
+            // V5.0.6968 — single removal lock for the whole pass.
+            if (toRemove6968.isNotEmpty()) {
+                try {
+                    synchronized(status.tokens) { toRemove6968.forEach { status.tokens.remove(it) } }
+                } catch (_: Throwable) {}
             }
             if (demoted > 0) {
                 try {
