@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  V5.0.6995 — the glow card from the operator's renders, as one drawable.
+
+  Every card in the render set has a LUMINOUS hairline edge, not a flat stroke.
+  That single property is most of what separates the mockups from the current
+  screens, and it is the thing a colour change could never deliver.
+
+  Three concentric rounded rects at decreasing alpha:
+    halo   3dp at ~10% — the bloom that reads as light spill
+    ring   2dp at ~24% — the mid falloff
+    core   1dp at ~54% over the surface gradient — the crisp edge
+
+  Applied as android:background on any card container in any layout, which is
+  why it lives here rather than in Kotlin: the 21 XML screens already have the
+  card containers: they were only ever missing the surface. Restyling them is
+  mostly pointing them at this.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- outer bloom -->
+    <item>
+        <shape android:shape="rectangle">
+            <stroke android:width="3dp" android:color="#1A4C8DFF"/>
+            <corners android:radius="20dp"/>
+        </shape>
+    </item>
+
+    <!-- mid falloff -->
+    <item android:left="1dp" android:top="1dp" android:right="1dp" android:bottom="1dp">
+        <shape android:shape="rectangle">
+            <stroke android:width="2dp" android:color="#3D4C8DFF"/>
+            <corners android:radius="19dp"/>
+        </shape>
+    </item>
+
+    <!-- surface + crisp edge -->
+    <item android:left="2dp" android:top="2dp" android:right="2dp" android:bottom="2dp">
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="linear"
+                android:angle="270"
+                android:startColor="#0B1424"
+                android:endColor="#080F1C"/>
+            <stroke android:width="1dp" android:color="#8A4C8DFF"/>
+            <corners android:radius="18dp"/>
+        </shape>
+    </item>
+
+</layer-list>

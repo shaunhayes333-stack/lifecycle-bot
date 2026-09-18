@@ -1,16 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  V5.0.6931 — splash restyled onto the AATE vNext visual system.
+  V5.0.6995 — splash rebuilt against the operator's render, artifacts removed.
 
-  Every id referenced by SplashActivity is preserved exactly: ivSplashLogo,
-  layoutParticles, tvSplashTagline, tvSplashVersion, viewGlow. The particle
-  container stays the first child so code-driven particles render behind the
-  logo, and AnimatedBrainLogoView keeps its slot between the bloom and the mark.
+  THE ARTIFACTS. The 6931 version stacked FOUR competing visual layers on the
+  same centre point:
 
-  The background is now the same @drawable/aate_screen_bg the app uses, so the
-  splash and the first real screen share one backdrop and there is no palette
-  jump at hand-off. Theme.AATE.Splash carries the same drawable as its
-  windowBackground so there is no black flash before this layout inflates.
+      layoutParticles      40 code-created Views animating edge -> centre
+      viewGlow             360dp bloom
+      AnimatedBrainLogoView 340dp pulsing rings
+      ivSplashLogo         252dp logo
+
+  A 340dp ring set and a 360dp bloom behind a 252dp mark means the rings and
+  the bloom both extend well past the logo in every direction, with particles
+  crossing through all of it. That is what reads as "weird with remaining
+  artifacts" — nothing is contained, so nothing has an edge.
+
+  The render solves it by CONTAINING the mark: one bounded glow card holding
+  the logo and the wordmark, everything else behind and smaller than the card.
+
+  WHAT CHANGED
+    - the lockup now sits in a bounded @drawable/aate_glow_card_bg card
+    - viewGlow 360dp -> 300dp so the bloom stays behind the card rather than
+      haloing past it
+    - AnimatedBrainLogoView 340dp -> 288dp, likewise contained
+    - ivSplashLogo 252dp -> 168dp so the mark sits INSIDE its card with margin
+      instead of filling and overflowing it
+    - the wordmark now reads AATe(R) over ADAPTIVE INTELLIGENCE, matching the
+      brand card in the render rather than a bare subtitle
+
+  EVERY ID SplashActivity TOUCHES IS PRESERVED: ivSplashLogo, layoutParticles,
+  tvSplashTagline, tvSplashVersion, viewGlow, animatedBrainLogo,
+  tvSplashTrademark, tvSplashCopyright. findViewById on a removed id would
+  crash the first screen the operator sees, so none were removed.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -18,60 +39,75 @@
     android:background="@drawable/aate_screen_bg"
     android:fitsSystemWindows="false">
 
-    <!-- Neural pathway particles container (animated in code) -->
+    <!-- Neural pathway particles (animated in code) — behind everything -->
     <FrameLayout
         android:id="@+id/layoutParticles"
         android:layout_width="match_parent"
         android:layout_height="match_parent"/>
 
-    <!-- Glow bloom behind the mark -->
+    <!-- Glow bloom, now smaller than the card so it reads as backlight -->
     <View
         android:id="@+id/viewGlow"
-        android:layout_width="360dp"
-        android:layout_height="360dp"
+        android:layout_width="300dp"
+        android:layout_height="300dp"
         android:layout_gravity="center"
         android:background="@drawable/splash_glow"
-        android:alpha="0.40"/>
+        android:alpha="0.30"/>
 
-    <!-- Pulsing brain-wave rings BEHIND the logo -->
+    <!-- Pulsing brain-wave rings, contained behind the card -->
     <com.lifecyclebot.ui.AnimatedBrainLogoView
         android:id="@+id/animatedBrainLogo"
-        android:layout_width="340dp"
-        android:layout_height="340dp"
+        android:layout_width="288dp"
+        android:layout_height="288dp"
         android:layout_gravity="center"/>
 
-    <!-- Centred brand lockup -->
+    <!-- Centred brand lockup, CONTAINED in a glow card as the render shows -->
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
         android:orientation="vertical"
         android:gravity="center"
-        android:elevation="4dp">
+        android:background="@drawable/aate_glow_card_bg"
+        android:paddingStart="34dp"
+        android:paddingEnd="34dp"
+        android:paddingTop="26dp"
+        android:paddingBottom="22dp"
+        android:elevation="6dp">
 
         <ImageView
             android:id="@+id/ivSplashLogo"
-            android:layout_width="252dp"
-            android:layout_height="252dp"
+            android:layout_width="168dp"
+            android:layout_height="168dp"
             android:src="@drawable/logo"
             android:scaleType="fitCenter"
             android:contentDescription="AATE Logo"/>
 
-        <!-- Wordmark subtitle — always visible, sets the brand tone -->
+        <!-- Wordmark — matches the brand card in the render -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
+            android:layout_marginTop="10dp"
+            android:text="AATe®"
+            android:textColor="@color/aate_text"
+            android:textSize="26sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.14"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
             android:text="ADAPTIVE INTELLIGENCE"
             android:textColor="@color/aate_cyan"
-            android:textSize="11sp"
+            android:textSize="10sp"
             android:textStyle="bold"
             android:fontFamily="monospace"
-            android:letterSpacing="0.32"/>
+            android:letterSpacing="0.30"/>
 
         <!-- Hairline rule under the wordmark -->
         <View
-            android:layout_width="180dp"
+            android:layout_width="150dp"
             android:layout_height="1dp"
             android:layout_marginTop="14dp"
             android:background="@color/aate_stroke"/>
@@ -81,19 +117,19 @@
             android:id="@+id/tvSplashTagline"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="13dp"
             android:text="AUTONOMOUS ALGORITHMIC TRADING ENGINE"
             android:textColor="@color/aate_purple_bright"
-            android:textSize="10sp"
+            android:textSize="9sp"
             android:fontFamily="monospace"
-            android:letterSpacing="0.14"
+            android:letterSpacing="0.12"
             android:visibility="invisible"/>
 
-        <!-- Doctrine strip, matches the brand card in the design set -->
+        <!-- Doctrine strip, as the render's brand card carries it -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
+            android:layout_marginTop="9dp"
             android:text="TRADE  ·  EVOLVE  ·  REPEAT"
             android:textColor="@color/aate_text_muted"
             android:textSize="9sp"
