@@ -339,7 +339,7 @@ class ErrorLogActivity : AppCompatActivity() {
             
             // Color based on level
             val bgColor = when (log.level) {
-                ErrorLogger.Level.DEBUG -> Color.parseColor("#0D192B")
+                ErrorLogger.Level.DEBUG -> AateUi.SURFACE
                 ErrorLogger.Level.INFO -> Color.parseColor("#1a2a1a")
                 ErrorLogger.Level.WARN -> Color.parseColor("#2a2a1a")
                 ErrorLogger.Level.ERROR -> Color.parseColor("#2a1a1a")

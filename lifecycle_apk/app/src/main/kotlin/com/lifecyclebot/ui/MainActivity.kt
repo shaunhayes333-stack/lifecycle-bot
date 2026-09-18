@@ -560,7 +560,7 @@ class MainActivity : AppCompatActivity() {
     private var settingsPopulated = false
 
     // colours
-    private val purple  = 0xFF9A4DFF.toInt()
+    private val purple  = AateUi.PURPLE
     // ═══════════════════════════════════════════════════════════════
     // V5.9.709 — Render deduplication guards.
     // Heavy render methods (removeAllViews + inflate per token) were
@@ -721,11 +721,11 @@ class MainActivity : AppCompatActivity() {
     private val looseMainHandlers = mutableListOf<android.os.Handler>()
     private val looseMainRunnables = mutableListOf<Runnable>()
 
-        private val green   = 0xFF16E6A1.toInt()
-    private val red     = 0xFFFF4D6D.toInt()
-    private val amber   = 0xFFFFB020.toInt()
-    private val muted   = 0xFF63759B.toInt()
-    private val white   = 0xFFF5F7FF.toInt()
+        private val green   = AateUi.GREEN
+    private val red     = AateUi.RED
+    private val amber   = AateUi.AMBER
+    private val muted   = AateUi.TEXT_MUTED
+    private val white   = AateUi.TEXT
 
     // V5.9.1278 — set TextView text only when it actually changes. A redundant
     // `.text =` assignment still flags the view dirty and schedules a measure/
@@ -1504,7 +1504,7 @@ class MainActivity : AppCompatActivity() {
             id = BATTERY_OPT_BANNER_VIEW_ID
             text = "WARN Battery optimisation is ON — bot will freeze when screen turns off. Tap to fix."
             setTextColor(0xFF0A0A0F.toInt())
-            setBackgroundColor(0xFFFFB020.toInt())
+            setBackgroundColor(AateUi.AMBER)
             setPadding(40, 28, 40, 28)
             textSize = 13f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -1611,9 +1611,9 @@ class MainActivity : AppCompatActivity() {
                         val exec = snap.phaseCounts["EXEC"] ?: 0L
                         text = "ANR $anr · EXEC $exec"
                         color = when {
-                            anr == 0  -> 0xFF16E6A1.toInt()
-                            anr < 5   -> 0xFFFFB020.toInt()
-                            else      -> 0xFFFF4D6D.toInt()
+                            anr == 0  -> AateUi.GREEN
+                            anr < 5   -> AateUi.AMBER
+                            else      -> AateUi.RED
                         }
                     } catch (_: Throwable) {
                         return@execute
@@ -2278,10 +2278,10 @@ for legal compliance.
         barLogPress = try { findViewById(R.id.barLogPress) } catch (_: Exception) { null }
         barLogMom   = try { findViewById(R.id.barLogMom)   } catch (_: Exception) { null }
         try {
-            barLogEntry?.label = "ENTRY"; barLogEntry?.barColor = 0xFF9A4DFF.toInt()
-            barLogVol?.label   = "VOL";   barLogVol?.barColor   = 0xFF4C8DFF.toInt()
-            barLogPress?.label = "BUY%";  barLogPress?.barColor = 0xFF16E6A1.toInt()
-            barLogMom?.label   = "MOM";   barLogMom?.barColor   = 0xFFFFB020.toInt()
+            barLogEntry?.label = "ENTRY"; barLogEntry?.barColor = AateUi.PURPLE
+            barLogVol?.label   = "VOL";   barLogVol?.barColor   = AateUi.BLUE
+            barLogPress?.label = "BUY%";  barLogPress?.barColor = AateUi.GREEN
+            barLogMom?.label   = "MOM";   barLogMom?.barColor   = AateUi.AMBER
         } catch (_: Throwable) {}
         tvLogExit     = try { findViewById(R.id.tvLogExit)   } catch (_: Exception) { TextView(this) }
         tvLogVol      = try { findViewById(R.id.tvLogVol)    } catch (_: Exception) { TextView(this) }
@@ -2372,7 +2372,7 @@ for legal compliance.
                 advancedExpanded = !advancedExpanded
                 layoutAdvanced.visibility = if (advancedExpanded) View.VISIBLE else View.GONE
                 tvAdvancedToggle.text = if (advancedExpanded) "▼ Advanced settings (tap to hide)" else "► Advanced settings (tap to show)"
-                tvAdvancedToggle.setTextColor(if (advancedExpanded) 0xFF16E6A1.toInt() else 0xFF63759B.toInt())
+                tvAdvancedToggle.setTextColor(if (advancedExpanded) AateUi.GREEN else AateUi.TEXT_MUTED)
             } catch (e: Exception) {
                 android.widget.Toast.makeText(this, "Error: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
             }
@@ -2500,7 +2500,7 @@ for legal compliance.
             }
             axisLeft.apply {
                 setDrawGridLines(true)
-                gridColor    = 0xFF101E33.toInt()
+                gridColor    = AateUi.SURFACE_3
                 textColor    = muted
                 textSize     = 9f
                 axisLineColor = Color.TRANSPARENT
@@ -2526,7 +2526,7 @@ for legal compliance.
             }
             axisLeft.apply {
                 setDrawGridLines(true)
-                gridColor    = 0xFF101E33.toInt()
+                gridColor    = AateUi.SURFACE_3
                 textColor    = muted
                 textSize     = 9f
                 axisLineColor = Color.TRANSPARENT
@@ -2610,13 +2610,13 @@ for legal compliance.
 
         val ds = com.github.mikephil.charting.data.CandleDataSet(entries, "").apply {
             setDrawIcons(false)
-            shadowColor = 0xFF63759B.toInt()
+            shadowColor = AateUi.TEXT_MUTED
             shadowWidth = 0.7f
-            decreasingColor = 0xFFFF4D6D.toInt()
+            decreasingColor = AateUi.RED
             decreasingPaintStyle = android.graphics.Paint.Style.FILL
-            increasingColor = 0xFF16E6A1.toInt()
+            increasingColor = AateUi.GREEN
             increasingPaintStyle = android.graphics.Paint.Style.FILL
-            neutralColor = 0xFF63759B.toInt()
+            neutralColor = AateUi.TEXT_MUTED
             setDrawValues(false)
         }
 
@@ -2702,13 +2702,13 @@ for legal compliance.
         val snap = com.lifecyclebot.network.LiveReadinessChecker.current()
         val (dot, textColor, bgDrawable) = when (snap.state) {
             com.lifecyclebot.network.LiveReadinessChecker.State.GREEN ->
-                Triple("OK", 0xFFA7B7D8.toInt(), R.drawable.aate_status_strip_green)
+                Triple("OK", AateUi.TEXT_SECONDARY, R.drawable.aate_status_strip_green)
             com.lifecyclebot.network.LiveReadinessChecker.State.YELLOW ->
-                Triple("WARN", 0xFFFFB020.toInt(), R.drawable.aate_status_strip_yellow)
+                Triple("WARN", AateUi.AMBER, R.drawable.aate_status_strip_yellow)
             com.lifecyclebot.network.LiveReadinessChecker.State.RED ->
                 Triple("FAIL", 0xFFF87171.toInt(), R.drawable.aate_status_strip_red)
             com.lifecyclebot.network.LiveReadinessChecker.State.UNKNOWN ->
-                Triple("INIT", 0xFF63759B.toInt(), R.drawable.aate_status_strip_unknown)
+                Triple("INIT", AateUi.TEXT_MUTED, R.drawable.aate_status_strip_unknown)
         }
         tvReadinessDot.setTextIfChanged(dot)
         tvReadinessStatus.setTextIfChanged(snap.summary)
@@ -2856,9 +2856,9 @@ for legal compliance.
             else      -> "Bot stopped"
         })
         tvBotStatus.setTextColorIfChanged(when {
-            isHalted -> 0xFFFF4D6D.toInt()
+            isHalted -> AateUi.RED
             isPaused -> amber
-            else     -> 0xFFA7B7D8.toInt()
+            else     -> AateUi.TEXT_SECONDARY
         })
 
         tvMode.setTextIfChanged(when {
@@ -3431,11 +3431,11 @@ for legal compliance.
                 else       -> "STATE"
             }
             val moodColor = when (sc.emotionalState) {
-                "PANIC"    -> 0xFFFF4D6D.toInt()
-                "FEARFUL"  -> 0xFFFFB020.toInt()
-                "EUPHORIC" -> 0xFF16E6A1.toInt()
-                "GREEDY"   -> 0xFFFFB020.toInt()
-                else       -> 0xFF9A4DFF.toInt()
+                "PANIC"    -> AateUi.RED
+                "FEARFUL"  -> AateUi.AMBER
+                "EUPHORIC" -> AateUi.GREEN
+                "GREEDY"   -> AateUi.AMBER
+                else       -> AateUi.PURPLE
             }
             findViewById<TextView>(R.id.tvSymHomeMood)?.text       = moodEmoji
             findViewById<TextView>(R.id.tvSymHomeMoodLabel)?.apply {
@@ -3469,9 +3469,9 @@ for legal compliance.
                 // Only surface once copilot has emitted at least one directive.
                 if (com.lifecyclebot.engine.TradingCopilot.lastUpdated() > 0 && ageMs < 30L * 60_000L) {
                     val (label, color) = when (d.learningHealth) {
-                        com.lifecyclebot.engine.TradingCopilot.LearningHealth.EXCELLENT -> "EXCELLENT" to 0xFF16E6A1.toInt()
-                        com.lifecyclebot.engine.TradingCopilot.LearningHealth.STEADY    -> "STEADY"    to 0xFFA7B7D8.toInt()
-                        com.lifecyclebot.engine.TradingCopilot.LearningHealth.DRIFTING  -> "DRIFTING"  to 0xFFFFB020.toInt()
+                        com.lifecyclebot.engine.TradingCopilot.LearningHealth.EXCELLENT -> "EXCELLENT" to AateUi.GREEN
+                        com.lifecyclebot.engine.TradingCopilot.LearningHealth.STEADY    -> "STEADY"    to AateUi.TEXT_SECONDARY
+                        com.lifecyclebot.engine.TradingCopilot.LearningHealth.DRIFTING  -> "DRIFTING"  to AateUi.AMBER
                         // V5.9.495z35 — never call our own layers POISONED.
                         // Show the coaching curriculum count instead so the
                         // operator sees we're tutoring, not dying.
@@ -3479,7 +3479,7 @@ for legal compliance.
                             val count = try {
                                 com.lifecyclebot.engine.CoachingCurriculum.count()
                             } catch (_: Throwable) { 0 }
-                            (if (count > 0) "COACHING ($count)" else "COACHING") to 0xFF9A4DFF.toInt()
+                            (if (count > 0) "COACHING ($count)" else "COACHING") to AateUi.PURPLE
                         }
                     }
                     pill.setTextIfChanged(label)
@@ -3552,10 +3552,10 @@ for legal compliance.
                 lp.text = "$icon TIER $tier · $statusSuffix · $trades trades · WR=${"%.1f".format(actual)}% " +
                     "(target ${"%.1f".format(target)}%) · size×${"%.2f".format(sizeMult)}"
                 val color = when (tier) {
-                    0    -> 0xFF63759B.toInt()
-                    1, 2 -> 0xFFFFB020.toInt()
-                    3, 4 -> 0xFFFFB020.toInt()
-                    else -> 0xFFFF4D6D.toInt()
+                    0    -> AateUi.TEXT_MUTED
+                    1, 2 -> AateUi.AMBER
+                    3, 4 -> AateUi.AMBER
+                    else -> AateUi.RED
                 }
                 lp.setTextColor(color)
                 lp.visibility = android.view.View.VISIBLE
@@ -3607,7 +3607,7 @@ for legal compliance.
                 if (streakBlocks == 0 && distrustPauses == 0 && coachingCount == 0 &&
                     recoveryLocks == 0 && amountViolations == 0 && wrRecoveryTag.isEmpty()) {
                     gs.setTextIfChanged("GUARDS · CLEAR" + appendDeferTile())
-                    gs.setTextColor(0xFF63759B.toInt())
+                    gs.setTextColor(AateUi.TEXT_MUTED)
                 } else {
                     val parts = mutableListOf<String>()
                     if (streakBlocks > 0) parts += "$streakBlocks streak-block${if (streakBlocks == 1) "" else "s"}"
@@ -3617,7 +3617,7 @@ for legal compliance.
                     if (amountViolations > 0) parts += "$amountViolations amount-violation${if (amountViolations == 1) "" else "s"}"
                     if (wrRecoveryTag.isNotEmpty()) parts += wrRecoveryTag
                     gs.setTextIfChanged("GUARDS · " + parts.joinToString(" · ") + appendDeferTile())
-                    gs.setTextColor(if (distrustPauses > 0 || streakBlocks > 0 || amountViolations > 0) 0xFFFFB020.toInt() else 0xFFA7B7D8.toInt())
+                    gs.setTextColor(if (distrustPauses > 0 || streakBlocks > 0 || amountViolations > 0) AateUi.AMBER else AateUi.TEXT_SECONDARY)
                 }
                 gs.visibility = android.view.View.VISIBLE
                 }
@@ -5477,7 +5477,7 @@ for legal compliance.
                 footer = TextView(this).apply {
                     id = laneFooterId
                     textSize = 11f
-                    setTextColor(0xFFA7B7D8.toInt())
+                    setTextColor(AateUi.TEXT_SECONDARY)
                     setPadding(0, 8, 0, 0)
                 }
                 (llOpenPositions.parent as? android.view.ViewGroup)?.addView(footer)
@@ -5516,9 +5516,9 @@ for legal compliance.
                     else                    -> "PAPER ${paperCount} paper · LIVE ${liveCount} live$laneChip"
                 }
                 chip.setTextColor(when {
-                    paperCount > 0 && liveCount > 0 -> 0xFFFFB020.toInt()  // mixed = amber
+                    paperCount > 0 && liveCount > 0 -> AateUi.AMBER  // mixed = amber
                     paperCount > 0                  -> 0xFFB58CFF.toInt()  // paper = purple
-                    else                            -> 0xFF16E6A1.toInt()  // live = green
+                    else                            -> AateUi.GREEN  // live = green
                 })
             }
         } catch (_: Throwable) { /* best-effort */ }
@@ -5961,7 +5961,7 @@ for legal compliance.
                     info.addView(TextView(this).apply {
                         text = "RISK SETTLE 0:${"%02d".format(remainSec)}"
                         textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
-                        setTextColor(0xFFFFB020.toInt()) // amber/gold
+                        setTextColor(AateUi.AMBER) // amber/gold
                         typeface = android.graphics.Typeface.DEFAULT_BOLD
                     })
                 }
@@ -5997,7 +5997,7 @@ for legal compliance.
                     "Entry: ${if (entryToRender6634 > 0.0) entryToRender6634.fmtPrice() else "pricing wait"}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
                 }
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
-                setTextColor(if (invariantBroken6500) 0xFFFFB020.toInt() else muted)
+                setTextColor(if (invariantBroken6500) AateUi.AMBER else muted)
                 typeface = android.graphics.Typeface.MONOSPACE
             })
             // Entry size and token amount
@@ -6013,7 +6013,7 @@ for legal compliance.
                     "Size: %.4f◎  ·  %s tokens".format(repairedCostSol6412, tokenAmtStr)
                 }
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
-                setTextColor(if (invariantBroken6500) 0xFFFFB020.toInt() else muted)
+                setTextColor(if (invariantBroken6500) AateUi.AMBER else muted)
                 typeface = android.graphics.Typeface.MONOSPACE
             })
             row.addView(info)
@@ -6154,7 +6154,7 @@ for legal compliance.
             val div = View(this).apply {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = 10 }
-                setBackgroundColor(0xFF101E33.toInt())
+                setBackgroundColor(AateUi.SURFACE_3)
             }
             llOpenPositions.addView(row)
             llOpenPositions.addView(div)
@@ -6199,7 +6199,7 @@ for legal compliance.
             llOpenPositions.addView(TextView(this).apply {
                 text = "+ $hiddenCount still held/managed below top $RENDER_CAP — order high→low: $hiddenSummary6039${if (hiddenCount > 12) " …" else ""}"
                 textSize = 11f
-                setTextColor(0xFFFFB020.toInt())  // amber so it stands out
+                setTextColor(AateUi.AMBER)  // amber so it stands out
                 setPadding(0, 12, 0, 4)
                 gravity = android.view.Gravity.CENTER_HORIZONTAL
             })
@@ -6335,7 +6335,7 @@ for legal compliance.
                 layoutParams = LinearLayout.LayoutParams(4, LinearLayout.LayoutParams.MATCH_PARENT).also {
                     it.marginEnd = 12
                 }
-                setBackgroundColor(0xFFFFB020.toInt())
+                setBackgroundColor(AateUi.AMBER)
             }
             row.addView(bar)
 
@@ -6347,7 +6347,7 @@ for legal compliance.
             info.addView(TextView(this).apply {
                 text = "TREASURY ${pos.symbol}"
                 textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
-                setTextColor(0xFFFFB020.toInt())
+                setTextColor(AateUi.AMBER)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
             })
             info.addView(TextView(this).apply {
@@ -6394,7 +6394,7 @@ for legal compliance.
             val div = View(this).apply {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = 10 }
-                setBackgroundColor(0xFF101E33.toInt())
+                setBackgroundColor(AateUi.SURFACE_3)
             }
             llTreasuryPositions.addView(row)
             llTreasuryPositions.addView(div)
@@ -6469,7 +6469,7 @@ for legal compliance.
                 layoutParams = LinearLayout.LayoutParams(4, LinearLayout.LayoutParams.MATCH_PARENT).also {
                     it.marginEnd = 12
                 }
-                setBackgroundColor(0xFF4C8DFF.toInt()) // Blue color
+                setBackgroundColor(AateUi.BLUE) // Blue color
             }
             row.addView(bar)
 
@@ -6481,7 +6481,7 @@ for legal compliance.
             info.addView(TextView(this).apply {
                 text = "BLUECHIP ${pos.symbol}"
                 textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
-                setTextColor(0xFF4C8DFF.toInt()) // Blue
+                setTextColor(AateUi.BLUE) // Blue
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
             })
             info.addView(TextView(this).apply {
@@ -6527,7 +6527,7 @@ for legal compliance.
             val div = View(this).apply {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = 10 }
-                setBackgroundColor(0xFF101E33.toInt())
+                setBackgroundColor(AateUi.SURFACE_3)
             }
             llBlueChipPositions.addView(row)
             llBlueChipPositions.addView(div)
@@ -6598,7 +6598,7 @@ for legal compliance.
                 layoutParams = LinearLayout.LayoutParams(4, LinearLayout.LayoutParams.MATCH_PARENT).also {
                     it.marginEnd = 12
                 }
-                setBackgroundColor(0xFFFFB020.toInt())
+                setBackgroundColor(AateUi.AMBER)
             }
             row.addView(bar)
 
@@ -6610,7 +6610,7 @@ for legal compliance.
             info.addView(TextView(this).apply {
                 text = "STAR ${pos.symbol}"
                 textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
-                setTextColor(0xFFFFB020.toInt())
+                setTextColor(AateUi.AMBER)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
             })
             info.addView(TextView(this).apply {
@@ -6653,7 +6653,7 @@ for legal compliance.
             val div = View(this).apply {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = 10 }
-                setBackgroundColor(0xFF101E33.toInt())
+                setBackgroundColor(AateUi.SURFACE_3)
             }
             llQualityPositions.addView(row)
             llQualityPositions.addView(div)
@@ -6811,9 +6811,9 @@ for legal compliance.
             // Colour bar on left (orange for ShitCoin)
             val barColor = when (pos.launchPlatform) {
                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.PUMP_FUN -> 0xFFFFB800.toInt() // Gold
-                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.RAYDIUM -> 0xFF4C8DFF.toInt()  // Blue
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.RAYDIUM -> AateUi.BLUE  // Blue
                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.MOONSHOT -> 0xFF9333EA.toInt() // Purple
-                else -> 0xFFFFB020.toInt() // Default orange
+                else -> AateUi.AMBER // Default orange
             }
             val bar = View(this).apply {
                 layoutParams = LinearLayout.LayoutParams(4, LinearLayout.LayoutParams.MATCH_PARENT).also {
@@ -6831,7 +6831,7 @@ for legal compliance.
             info.addView(TextView(this).apply {
                 text = "${pos.launchPlatform.emoji} ${pos.symbol}"
                 textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
-                setTextColor(0xFFFFB020.toInt()) // Orange
+                setTextColor(AateUi.AMBER) // Orange
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
             })
             info.addView(TextView(this).apply {
@@ -6887,7 +6887,7 @@ for legal compliance.
             val div = View(this).apply {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = 10 }
-                setBackgroundColor(0xFF101E33.toInt())
+                setBackgroundColor(AateUi.SURFACE_3)
             }
             llShitCoinPositions.addView(row)
             llShitCoinPositions.addView(div)
@@ -6995,7 +6995,7 @@ for legal compliance.
 
             val div = View(this).apply {
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = 10 }
-                setBackgroundColor(0xFF101E33.toInt())
+                setBackgroundColor(AateUi.SURFACE_3)
             }
             llExpressPositions.addView(row)
             llExpressPositions.addView(div)
@@ -7074,7 +7074,7 @@ for legal compliance.
 
             val bar = View(this).apply {
                 layoutParams = LinearLayout.LayoutParams(4, LinearLayout.LayoutParams.MATCH_PARENT).also { it.marginEnd = 12 }
-                setBackgroundColor(0xFFFF4D6D.toInt()) // Dark red for manipulated
+                setBackgroundColor(AateUi.RED) // Dark red for manipulated
             }
             row.addView(bar)
 
@@ -7085,7 +7085,7 @@ for legal compliance.
             info.addView(TextView(this).apply {
                 text = "MANIP ${pos.symbol}  score=${pos.manipScore}"
                 textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
-                setTextColor(0xFFFF4D6D.toInt())
+                setTextColor(AateUi.RED)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
             })
             info.addView(TextView(this).apply {
@@ -7131,7 +7131,7 @@ for legal compliance.
 
             val div = View(this).apply {
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = 10 }
-                setBackgroundColor(0xFF101E33.toInt())
+                setBackgroundColor(AateUi.SURFACE_3)
             }
             llManipPositions.addView(row)
             llManipPositions.addView(div)
@@ -7156,7 +7156,7 @@ for legal compliance.
                 val hasPrice = cp != null && pos.entryPrice > 0.0
                 val p = if (hasPrice) ((cp!! - pos.entryPrice) / pos.entryPrice * 100) else 0.0
                 val hm = (System.currentTimeMillis() - pos.entryTime) / 60000
-                val col = if (!hasPrice) muted else if (p >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt()
+                val col = if (!hasPrice) muted else if (p >= 0) AateUi.GREEN else AateUi.RED
                 llMoonshotPositions.findViewWithTag<android.widget.TextView>("msentry_${pos.mint}")
                     ?.setTextIfChanged(if (hasPrice) "${pos.entryPrice.fmtPrice()} → ${cp!!.fmtPrice()}" else "${pos.entryPrice.fmtPrice()} → pricing wait")
                 llMoonshotPositions.findViewWithTag<android.widget.TextView>("mspnl_${pos.mint}")
@@ -7225,7 +7225,7 @@ for legal compliance.
             // Symbol
             val tvSymbol = TextView(this).apply {
                 text = pos.symbol
-                setTextColor(0xFFB36BFF.toInt())  // Purple for moonshots
+                setTextColor(AateUi.PURPLE_BRIGHT)  // Purple for moonshots
                 textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -7235,7 +7235,7 @@ for legal compliance.
             val tvEntry = TextView(this).apply {
                 tag = "msentry_${pos.mint}"   // V5.9.1458 recycle target
                 text = if (currentPrice != null) "${pos.entryPrice.fmtPrice()} → ${currentPrice!!.fmtPrice()}" else "${pos.entryPrice.fmtPrice()} → pricing wait"
-                setTextColor(0xFF63759B.toInt())
+                setTextColor(AateUi.TEXT_MUTED)
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.2f)
@@ -7245,7 +7245,7 @@ for legal compliance.
             val tvPnl = TextView(this).apply {
                 tag = "mspnl_${pos.mint}"   // V5.9.1458 recycle target
                 text = "${if (pnlPct >= 0) "+" else ""}${String.format("%.1f", pnlPct)}%"
-                setTextColor(if (pnlPct >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
+                setTextColor(if (pnlPct >= 0) AateUi.GREEN else AateUi.RED)
                 textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.5f)
@@ -7255,7 +7255,7 @@ for legal compliance.
             val tvHold = TextView(this).apply {
                 tag = "mshold_${pos.mint}"   // V5.9.1458 recycle target
                 text = "${holdMins}m"
-                setTextColor(0xFF63759B.toInt())
+                setTextColor(AateUi.TEXT_MUTED)
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.3f)
@@ -7269,7 +7269,7 @@ for legal compliance.
             val div = View(this).apply {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = 6 }
-                setBackgroundColor(0xFF101E33.toInt())
+                setBackgroundColor(AateUi.SURFACE_3)
             }
             llMoonshotPositions.addView(row)
             llMoonshotPositions.addView(div)
@@ -7313,11 +7313,11 @@ for legal compliance.
             // Update stats
             tvNetworkSignalCount.text = "$totalActive active"
             tvNetworkMegaWinners.text = "MEGA: $megaCount"
-            tvNetworkMegaWinners.setTextColor(if (megaCount > 0) 0xFFFFB020.toInt() else 0xFF63759B.toInt())
+            tvNetworkMegaWinners.setTextColor(if (megaCount > 0) AateUi.AMBER else AateUi.TEXT_MUTED)
             tvNetworkHotTokens.text = "HOT: $hotCount"
-            tvNetworkHotTokens.setTextColor(if (hotCount > 0) 0xFF16E6A1.toInt() else 0xFF63759B.toInt())
+            tvNetworkHotTokens.setTextColor(if (hotCount > 0) AateUi.GREEN else AateUi.TEXT_MUTED)
             tvNetworkAvoid.text = "AVOID: $avoidCount"
-            tvNetworkAvoid.setTextColor(if (avoidCount > 0) 0xFFFF4D6D.toInt() else 0xFF63759B.toInt())
+            tvNetworkAvoid.setTextColor(if (avoidCount > 0) AateUi.RED else AateUi.TEXT_MUTED)
 
             // Get last sync time from CollectiveIntelligenceAI
             val lastRefresh = com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.getLastRefreshTime()
@@ -7372,10 +7372,10 @@ for legal compliance.
                 val tvSymbol = TextView(this).apply {
                     text = signal.symbol.take(10)
                     setTextColor(when (signal.signalType) {
-                        "MEGA_WINNER" -> 0xFFFFB020.toInt()
-                        "HOT_TOKEN" -> 0xFF16E6A1.toInt()
-                        "AVOID" -> 0xFFFF4D6D.toInt()
-                        else -> 0xFFF5F7FF.toInt()
+                        "MEGA_WINNER" -> AateUi.AMBER
+                        "HOT_TOKEN" -> AateUi.GREEN
+                        "AVOID" -> AateUi.RED
+                        else -> AateUi.TEXT
                     })
                     textSize = 13f
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -7383,7 +7383,7 @@ for legal compliance.
                 }
 
                 // PnL %
-                val pnlColor = if (signal.pnlPct >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt()
+                val pnlColor = if (signal.pnlPct >= 0) AateUi.GREEN else AateUi.RED
                 val pnlSign = if (signal.pnlPct >= 0) "+" else ""
                 val tvPnl = TextView(this).apply {
                     text = "$pnlSign${signal.pnlPct.toInt()}%"
@@ -7396,7 +7396,7 @@ for legal compliance.
                 // Source (broadcaster truncated)
                 val tvSource = TextView(this).apply {
                     text = "from ${signal.broadcasterId.take(6)}..."
-                    setTextColor(0xFF63759B.toInt())
+                    setTextColor(AateUi.TEXT_MUTED)
                     textSize = 10f
                     typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.35f)
@@ -7452,7 +7452,7 @@ for legal compliance.
             tvSniperRank.text = "STAR${lifetimeStats.generals} MEDAL${lifetimeStats.colonels + lifetimeStats.majors}"
             tvSniperWinRate.text = "${dailyStats.kills}K/${dailyStats.kia}KIA"
 
-            val pnlColor = if (dailyStats.pnlSol >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt()
+            val pnlColor = if (dailyStats.pnlSol >= 0) AateUi.GREEN else AateUi.RED
             val pnlSign = if (dailyStats.pnlSol >= 0) "+" else ""
             tvSniperDailyPnl.text = "Day: $pnlSign${String.format("%.2f", dailyStats.pnlSol)}"
             tvSniperDailyPnl.setTextColor(pnlColor)
@@ -7494,14 +7494,14 @@ for legal compliance.
                 // Symbol
                 val tvSymbol = TextView(this).apply {
                     text = mission.symbol.take(8)
-                    setTextColor(0xFFFF4D6D.toInt())
+                    setTextColor(AateUi.RED)
                     textSize = 12f
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.3f)
                 }
 
                 // PnL
-                val pnlTextColor = if (pnlPct >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt()
+                val pnlTextColor = if (pnlPct >= 0) AateUi.GREEN else AateUi.RED
                 val tvPnl = TextView(this).apply {
                     text = "${if (pnlPct >= 0) "+" else ""}${String.format("%.1f", pnlPct)}%"
                     setTextColor(pnlTextColor)
@@ -7513,7 +7513,7 @@ for legal compliance.
                 // Hold time
                 val tvTime = TextView(this).apply {
                     text = "${holdTimeSecs}s"
-                    setTextColor(0xFF63759B.toInt())
+                    setTextColor(AateUi.TEXT_MUTED)
                     textSize = 10f
                     typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.15f)
@@ -7522,7 +7522,7 @@ for legal compliance.
                 // Entry age
                 val tvAge = TextView(this).apply {
                     text = "@${mission.tokenAgeSecs}s"
-                    setTextColor(0xFF63759B.toInt())
+                    setTextColor(AateUi.TEXT_MUTED)
                     textSize = 10f
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.15f)
                 }
@@ -7530,7 +7530,7 @@ for legal compliance.
                 // Size
                 val tvSize = TextView(this).apply {
                     text = String.format("%.2f◎", mission.entrySol)
-                    setTextColor(0xFF63759B.toInt())
+                    setTextColor(AateUi.TEXT_MUTED)
                     textSize = 10f
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.2f)
                 }
@@ -7569,8 +7569,8 @@ for legal compliance.
                 chartTimeRange = range
                 // Update button styles
                 for ((r, b) in timeButtons) {
-                    b?.setTextColor(if (r == range) 0xFFF5F7FF.toInt() else 0xFF63759B.toInt())
-                    b?.setBackgroundColor(if (r == range) 0xFF4C8DFF.toInt() else 0xFF0D192B.toInt())
+                    b?.setTextColor(if (r == range) AateUi.TEXT else AateUi.TEXT_MUTED)
+                    b?.setBackgroundColor(if (r == range) AateUi.BLUE else AateUi.SURFACE)
                 }
                 // V5.8.0: Refresh candle chart for new timeframe
                 val activeTs = try {
@@ -7589,8 +7589,8 @@ for legal compliance.
                 chartType = type
                 // Update button styles
                 for ((t, b) in typeButtons) {
-                    b?.setTextColor(if (t == type) 0xFFF5F7FF.toInt() else 0xFF63759B.toInt())
-                    b?.setBackgroundColor(if (t == type) 0xFF16E6A1.toInt() else 0xFF0D192B.toInt())
+                    b?.setTextColor(if (t == type) AateUi.TEXT else AateUi.TEXT_MUTED)
+                    b?.setBackgroundColor(if (t == type) AateUi.GREEN else AateUi.SURFACE)
                 }
                 // Toggle chart visibility
                 priceChart.visibility = if (type == "line") android.view.View.VISIBLE else android.view.View.GONE
@@ -7628,7 +7628,7 @@ for legal compliance.
             vol5m > 0 -> "$${vol5m.toInt()}"
             else -> "$0"
         }
-        tvChart5mVol?.setTextColor(if (vol5m > 10000) green else if (vol5m > 1000) 0xFF16E6A1.toInt() else 0xFF63759B.toInt())
+        tvChart5mVol?.setTextColor(if (vol5m > 10000) green else if (vol5m > 1000) AateUi.GREEN else AateUi.TEXT_MUTED)
 
         // Liquidity
         tvChartLiq?.text = when {
@@ -7638,7 +7638,7 @@ for legal compliance.
         }
         tvChartLiq?.setTextColor(when {
             ts.lastLiquidityUsd >= 50000 -> green
-            ts.lastLiquidityUsd >= 10000 -> 0xFF4C8DFF.toInt()
+            ts.lastLiquidityUsd >= 10000 -> AateUi.BLUE
             else -> amber
         })
 
@@ -7657,7 +7657,7 @@ for legal compliance.
         tvChartBuyPressure?.text = "${buyPressure.toInt()}%"
         tvChartBuyPressure?.setTextColor(when {
             buyPressure >= 65 -> green
-            buyPressure >= 50 -> 0xFF16E6A1.toInt()
+            buyPressure >= 50 -> AateUi.GREEN
             buyPressure >= 35 -> amber
             else -> red
         })
@@ -7726,7 +7726,7 @@ for legal compliance.
                 else "HUNTING"
             } catch (_: Exception) { "IDLE" }
             tvAiTreasury.text = treasuryStatus
-            tvAiTreasury.setTextColor(0xFFFFB020.toInt())
+            tvAiTreasury.setTextColor(AateUi.AMBER)
 
             // ShitCoin Mode Status
             val shitCoinStatus = try {
@@ -7740,7 +7740,7 @@ for legal compliance.
                 }
             } catch (_: Exception) { "IDLE" }
             tvAiShitCoin.text = shitCoinStatus
-            tvAiShitCoin.setTextColor(0xFFFFB020.toInt()) // Orange
+            tvAiShitCoin.setTextColor(AateUi.AMBER) // Orange
 
             // V5.2: Learning Progress - use RunTracker30D if active, else FluidLearningAI
             val learningPct = try {
@@ -7762,7 +7762,7 @@ for legal compliance.
             tvAiLearning.setTextColor(when {
                 learningPct >= 50.0 -> green
                 learningPct >= 20.0 -> amber
-                else -> 0xFF4C8DFF.toInt() // blue
+                else -> AateUi.BLUE // blue
             })
 
             // V5.6: ML Engine Status - show training progress
@@ -7833,7 +7833,7 @@ for legal compliance.
             tvV3Stats.setTextColor(when {
                 learningPct >= 50 -> green
                 learningPct >= 20 -> amber
-                else -> 0xFF4C8DFF.toInt() // blue (learning)
+                else -> AateUi.BLUE // blue (learning)
             })
         } catch (_: Exception) { tvV3Stats.text = "—" }
 
@@ -8032,7 +8032,7 @@ for legal compliance.
             tv25AIsStats?.setTextColor(when {
                 learningPct >= 50.0 -> green
                 learningPct >= 20.0 -> amber
-                else -> 0xFF4C8DFF.toInt() // blue
+                else -> AateUi.BLUE // blue
             })
         } catch (_: Exception) { tv25AIsStats?.text = "—" }
     }
@@ -8082,15 +8082,15 @@ for legal compliance.
             val pnlPct = state.dailyPnlPct
             val pnlSign = if (pnlPct >= 0) "+" else ""
             tvPerpsPnl?.text = "$pnlSign${"%.2f".format(pnlPct)}%"
-            tvPerpsPnl?.setTextColor(if (pnlPct >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
+            tvPerpsPnl?.setTextColor(if (pnlPct >= 0) AateUi.GREEN else AateUi.RED)
 
             // Win Rate
             val winRate = perpsAI.getWinRatePct()
             tvPerpsWinRate?.text = "${winRate}%"
             tvPerpsWinRate?.setTextColor(when {
-                winRate >= 55 -> 0xFF16E6A1.toInt()
-                winRate >= 45 -> 0xFFFFB020.toInt()
-                else -> 0xFFFF4D6D.toInt()
+                winRate >= 55 -> AateUi.GREEN
+                winRate >= 45 -> AateUi.AMBER
+                else -> AateUi.RED
             })
 
             // Trades
@@ -8125,7 +8125,7 @@ for legal compliance.
                         val changeSign = if (sol.priceChange24hPct >= 0) "+" else ""
                         tvPerpsSolChange?.text = "$changeSign${"%.1f".format(sol.priceChange24hPct)}%"
                         tvPerpsSolChange?.setTextColor(
-                            if (sol.priceChange24hPct >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt()
+                            if (sol.priceChange24hPct >= 0) AateUi.GREEN else AateUi.RED
                         )
                     } else {
                         tvPerpsSolPrice?.text = "$—"
@@ -8204,10 +8204,10 @@ for legal compliance.
 
     private fun getScoreColor(score: Int): Int {
         return when {
-            score >= 80 -> 0xFF16E6A1.toInt()  // Green
-            score >= 60 -> 0xFFFFB020.toInt()  // Amber
-            score >= 40 -> 0xFF4C8DFF.toInt()  // Blue
-            else -> 0xFFFF4D6D.toInt()          // Red
+            score >= 80 -> AateUi.GREEN  // Green
+            score >= 60 -> AateUi.AMBER  // Amber
+            score >= 40 -> AateUi.BLUE  // Blue
+            else -> AateUi.RED          // Red
         }
     }
 
@@ -8695,7 +8695,7 @@ This cannot be undone!
                 }
                 else -> {
                     tvLiveReadinessBadge.text = "NOT READY"
-                    tvLiveReadinessBadge.setTextColor(Color.parseColor("#F5F7FF"))
+                    tvLiveReadinessBadge.setTextColor(AateUi.TEXT)
                     tvLiveReadinessBadge.setCachedBackground(R.drawable.pill_bg_red)
                     val needed = mutableListOf<String>()
                     if (meaningfulTrades < TRADES_READY)  needed.add("${TRADES_READY - meaningfulTrades} more trades")
@@ -8760,7 +8760,7 @@ This cannot be undone!
         })
 
         tvReadinessPhase.text = phase
-        tvReadinessPhase.setTextColor(Color.parseColor("#9A4DFF"))
+        tvReadinessPhase.setTextColor(AateUi.PURPLE)
 
         tvReadinessProgress.text = "$readinessScore%"
         val params = viewReadinessProgressBar.layoutParams
@@ -8795,7 +8795,7 @@ This cannot be undone!
             }
             else -> {
                 tvLiveReadinessBadge.text = "NOT READY"
-                tvLiveReadinessBadge.setTextColor(Color.parseColor("#F5F7FF"))
+                tvLiveReadinessBadge.setTextColor(AateUi.TEXT)
                 tvLiveReadinessBadge.setCachedBackground(R.drawable.pill_bg_red)
                 val needed = mutableListOf<String>()
                 if (gatingTrades < TRADES_READY) needed.add("${TRADES_READY - gatingTrades} more trades")
@@ -8945,7 +8945,7 @@ This cannot be undone!
             else               -> "MATURING"
         }
         tvReadinessPhase.text = phaseLabel
-        tvReadinessPhase.setTextColor(Color.parseColor("#9A4DFF"))
+        tvReadinessPhase.setTextColor(AateUi.PURPLE)
 
         tvReadinessProgress.text = "$readinessScore%"
         val params = viewReadinessProgressBar.layoutParams
@@ -8985,7 +8985,7 @@ This cannot be undone!
             }
             else -> {
                 tvLiveReadinessBadge.text = "NOT READY"
-                tvLiveReadinessBadge.setTextColor(Color.parseColor("#F5F7FF"))
+                tvLiveReadinessBadge.setTextColor(AateUi.TEXT)
                 tvLiveReadinessBadge.setCachedBackground(R.drawable.pill_bg_red)
                 val needed = mutableListOf<String>()
                 if (totalTrades < TRADES_READY)    needed.add("${TRADES_READY - totalTrades} more trades")
@@ -9022,7 +9022,7 @@ This cannot be undone!
                 t.setTypeface(null, android.graphics.Typeface.BOLD)
             } else {
                 t.setBackgroundResource(R.drawable.aate_tab_inactive_bg)
-                t.setTextColor(Color.parseColor("#A7B7D8"))
+                t.setTextColor(AateUi.TEXT_SECONDARY)
                 t.setTypeface(null, android.graphics.Typeface.NORMAL)
             }
         }
@@ -9104,7 +9104,7 @@ This cannot be undone!
             val finalColor = when {
                 blendedWR >= 50.0 -> green
                 blendedWR >= 45.0 -> amber
-                totalDecisive == 0 -> Color.parseColor("#A7B7D8")
+                totalDecisive == 0 -> AateUi.TEXT_SECONDARY
                 else              -> red
             }
             // Post the finished string + color to the TextView on the MAIN thread.
@@ -9206,7 +9206,7 @@ This cannot be undone!
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 1
                 ).also { it.topMargin = 10 }
-                setBackgroundColor(0xFF101E33.toInt())
+                setBackgroundColor(AateUi.SURFACE_3)
             }
 
             llTradeList.addView(row)
@@ -11606,22 +11606,22 @@ This action cannot be undone.
         }
         val btnLong = android.widget.Button(this).apply {
             text = "MARKET LONG"
-            setBackgroundColor(0xFF16E6A1.toInt())
-            setTextColor(0xFFF5F7FF.toInt())
+            setBackgroundColor(AateUi.GREEN)
+            setTextColor(AateUi.TEXT)
             setOnClickListener {
                 selectedDirection = com.lifecyclebot.perps.PerpsDirection.LONG
-                setBackgroundColor(0xFF16E6A1.toInt())
-                (directionLayout.getChildAt(1) as android.widget.Button).setBackgroundColor(0xFF63759B.toInt())
+                setBackgroundColor(AateUi.GREEN)
+                (directionLayout.getChildAt(1) as android.widget.Button).setBackgroundColor(AateUi.TEXT_MUTED)
             }
         }
         val btnShort = android.widget.Button(this).apply {
             text = "DOWNTICK SHORT"
-            setBackgroundColor(0xFF63759B.toInt())
-            setTextColor(0xFFF5F7FF.toInt())
+            setBackgroundColor(AateUi.TEXT_MUTED)
+            setTextColor(AateUi.TEXT)
             setOnClickListener {
                 selectedDirection = com.lifecyclebot.perps.PerpsDirection.SHORT
-                setBackgroundColor(0xFFFF4D6D.toInt())
-                (directionLayout.getChildAt(0) as android.widget.Button).setBackgroundColor(0xFF63759B.toInt())
+                setBackgroundColor(AateUi.RED)
+                (directionLayout.getChildAt(0) as android.widget.Button).setBackgroundColor(AateUi.TEXT_MUTED)
             }
         }
         directionLayout.addView(btnLong, android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
@@ -11630,7 +11630,7 @@ This action cannot be undone.
         // Leverage input
         val leverageLabel = android.widget.TextView(this).apply {
             text = "Leverage: 2x"
-            setTextColor(0xFFF5F7FF.toInt())
+            setTextColor(AateUi.TEXT)
         }
         val leverageSeekBar = android.widget.SeekBar(this).apply {
             max = 19  // 1-20x
@@ -11648,7 +11648,7 @@ This action cannot be undone.
         // Size input
         val sizeLabel = android.widget.TextView(this).apply {
             text = "Position Size: 5% of balance"
-            setTextColor(0xFFF5F7FF.toInt())
+            setTextColor(AateUi.TEXT)
         }
         val sizeSeekBar = android.widget.SeekBar(this).apply {
             max = 24  // 1-25%
@@ -11663,14 +11663,14 @@ This action cannot be undone.
             })
         }
 
-        layout.addView(android.widget.TextView(this).apply { text = "Market:"; setTextColor(0xFFF5F7FF.toInt()) })
+        layout.addView(android.widget.TextView(this).apply { text = "Market:"; setTextColor(AateUi.TEXT) })
         layout.addView(marketSpinner)
-        layout.addView(android.widget.TextView(this).apply { text = "\nDirection:"; setTextColor(0xFFF5F7FF.toInt()) })
+        layout.addView(android.widget.TextView(this).apply { text = "\nDirection:"; setTextColor(AateUi.TEXT) })
         layout.addView(directionLayout)
-        layout.addView(android.widget.TextView(this).apply { text = "\n"; setTextColor(0xFFF5F7FF.toInt()) })
+        layout.addView(android.widget.TextView(this).apply { text = "\n"; setTextColor(AateUi.TEXT) })
         layout.addView(leverageLabel)
         layout.addView(leverageSeekBar)
-        layout.addView(android.widget.TextView(this).apply { text = "\n"; setTextColor(0xFFF5F7FF.toInt()) })
+        layout.addView(android.widget.TextView(this).apply { text = "\n"; setTextColor(AateUi.TEXT) })
         layout.addView(sizeLabel)
         layout.addView(sizeSeekBar)
 
@@ -11970,22 +11970,22 @@ Trading outside hours may have wider spreads.
         }
         val btnLong = android.widget.Button(this).apply {
             text = "MARKET LONG"
-            setBackgroundColor(0xFF16E6A1.toInt())
-            setTextColor(0xFFF5F7FF.toInt())
+            setBackgroundColor(AateUi.GREEN)
+            setTextColor(AateUi.TEXT)
             setOnClickListener {
                 selectedDirection = com.lifecyclebot.perps.PerpsDirection.LONG
-                setBackgroundColor(0xFF16E6A1.toInt())
-                (directionLayout.getChildAt(1) as android.widget.Button).setBackgroundColor(0xFF63759B.toInt())
+                setBackgroundColor(AateUi.GREEN)
+                (directionLayout.getChildAt(1) as android.widget.Button).setBackgroundColor(AateUi.TEXT_MUTED)
             }
         }
         val btnShort = android.widget.Button(this).apply {
             text = "DOWNTICK SHORT"
-            setBackgroundColor(0xFF63759B.toInt())
-            setTextColor(0xFFF5F7FF.toInt())
+            setBackgroundColor(AateUi.TEXT_MUTED)
+            setTextColor(AateUi.TEXT)
             setOnClickListener {
                 selectedDirection = com.lifecyclebot.perps.PerpsDirection.SHORT
-                setBackgroundColor(0xFFFF4D6D.toInt())
-                (directionLayout.getChildAt(0) as android.widget.Button).setBackgroundColor(0xFF63759B.toInt())
+                setBackgroundColor(AateUi.RED)
+                (directionLayout.getChildAt(0) as android.widget.Button).setBackgroundColor(AateUi.TEXT_MUTED)
             }
         }
         directionLayout.addView(btnLong, android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
@@ -11994,7 +11994,7 @@ Trading outside hours may have wider spreads.
         // Leverage input (max 10x for stocks)
         val leverageLabel = android.widget.TextView(this).apply {
             text = "Leverage: 2x"
-            setTextColor(0xFFF5F7FF.toInt())
+            setTextColor(AateUi.TEXT)
         }
         val leverageSeekBar = android.widget.SeekBar(this).apply {
             max = 9  // 1-10x for stocks
@@ -12012,7 +12012,7 @@ Trading outside hours may have wider spreads.
         // Size input
         val sizeLabel = android.widget.TextView(this).apply {
             text = "Position Size: 5% of balance"
-            setTextColor(0xFFF5F7FF.toInt())
+            setTextColor(AateUi.TEXT)
         }
         val sizeSeekBar = android.widget.SeekBar(this).apply {
             max = 24  // 1-25%
@@ -12027,14 +12027,14 @@ Trading outside hours may have wider spreads.
             })
         }
 
-        layout.addView(android.widget.TextView(this).apply { text = "Stock:"; setTextColor(0xFFF5F7FF.toInt()) })
+        layout.addView(android.widget.TextView(this).apply { text = "Stock:"; setTextColor(AateUi.TEXT) })
         layout.addView(marketSpinner)
-        layout.addView(android.widget.TextView(this).apply { text = "\nDirection:"; setTextColor(0xFFF5F7FF.toInt()) })
+        layout.addView(android.widget.TextView(this).apply { text = "\nDirection:"; setTextColor(AateUi.TEXT) })
         layout.addView(directionLayout)
-        layout.addView(android.widget.TextView(this).apply { text = "\n"; setTextColor(0xFFF5F7FF.toInt()) })
+        layout.addView(android.widget.TextView(this).apply { text = "\n"; setTextColor(AateUi.TEXT) })
         layout.addView(leverageLabel)
         layout.addView(leverageSeekBar)
-        layout.addView(android.widget.TextView(this).apply { text = "\n"; setTextColor(0xFFF5F7FF.toInt()) })
+        layout.addView(android.widget.TextView(this).apply { text = "\n"; setTextColor(AateUi.TEXT) })
         layout.addView(sizeLabel)
         layout.addView(sizeSeekBar)
 
@@ -12109,7 +12109,7 @@ Trading outside hours may have wider spreads.
             val totalTrades = stockTrader.getTotalTrades()
 
             tvStocksPnl?.text = "${if (stockPnlPct >= 0) "+" else ""}${"%.2f".format(stockPnlPct)}%"
-            tvStocksPnl?.setTextColor(if (stockPnlPct >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
+            tvStocksPnl?.setTextColor(if (stockPnlPct >= 0) AateUi.GREEN else AateUi.RED)
 
             tvStocksWinRate?.text = "${winRate.toInt()}%"
             tvStocksTrades?.text = "$totalTrades"
@@ -12131,22 +12131,22 @@ Trading outside hours may have wider spreads.
                                     com.lifecyclebot.perps.PerpsMarket.AAPL -> {
                                         tvStocksAaplPrice?.text = "$${"%.2f".format(data.price)}"
                                         tvStocksAaplChange?.text = "${if (data.priceChange24hPct >= 0) "+" else ""}${"%.1f".format(data.priceChange24hPct)}%"
-                                        tvStocksAaplChange?.setTextColor(if (data.priceChange24hPct >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
+                                        tvStocksAaplChange?.setTextColor(if (data.priceChange24hPct >= 0) AateUi.GREEN else AateUi.RED)
                                     }
                                     com.lifecyclebot.perps.PerpsMarket.TSLA -> {
                                         tvStocksTslaPrice?.text = "$${"%.2f".format(data.price)}"
                                         tvStocksTslaChange?.text = "${if (data.priceChange24hPct >= 0) "+" else ""}${"%.1f".format(data.priceChange24hPct)}%"
-                                        tvStocksTslaChange?.setTextColor(if (data.priceChange24hPct >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
+                                        tvStocksTslaChange?.setTextColor(if (data.priceChange24hPct >= 0) AateUi.GREEN else AateUi.RED)
                                     }
                                     com.lifecyclebot.perps.PerpsMarket.NVDA -> {
                                         tvStocksNvdaPrice?.text = "$${"%.2f".format(data.price)}"
                                         tvStocksNvdaChange?.text = "${if (data.priceChange24hPct >= 0) "+" else ""}${"%.1f".format(data.priceChange24hPct)}%"
-                                        tvStocksNvdaChange?.setTextColor(if (data.priceChange24hPct >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
+                                        tvStocksNvdaChange?.setTextColor(if (data.priceChange24hPct >= 0) AateUi.GREEN else AateUi.RED)
                                     }
                                     com.lifecyclebot.perps.PerpsMarket.GOOGL -> {
                                         tvStocksGooglPrice?.text = "$${"%.2f".format(data.price)}"
                                         tvStocksGooglChange?.text = "${if (data.priceChange24hPct >= 0) "+" else ""}${"%.1f".format(data.priceChange24hPct)}%"
-                                        tvStocksGooglChange?.setTextColor(if (data.priceChange24hPct >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
+                                        tvStocksGooglChange?.setTextColor(if (data.priceChange24hPct >= 0) AateUi.GREEN else AateUi.RED)
                                     }
                                     com.lifecyclebot.perps.PerpsMarket.AMZN -> {
                                         tvStocksAmznPrice?.text = "$${"%.2f".format(data.price)}"
@@ -12198,7 +12198,7 @@ Trading outside hours may have wider spreads.
             tvCryptoAltsModeBadge?.setBackgroundResource(
                 if (isLive) R.drawable.pill_bg_red else R.drawable.pill_bg_yellow)
             tvCryptoAltsModeBadge?.setTextColor(
-                if (isLive) 0xFFF5F7FF.toInt() else 0xFF000000.toInt())
+                if (isLive) AateUi.TEXT else 0xFF000000.toInt())
 
             // Balance
             val bal = altTrader.getBalance()
@@ -12207,15 +12207,15 @@ Trading outside hours may have wider spreads.
             // PnL
             val pnl = altTrader.getTotalPnlSol()
             tvCryptoAltsPnl?.text = "${if (pnl >= 0) "+" else ""}${"%.3f".format(pnl)}◎"
-            tvCryptoAltsPnl?.setTextColor(if (pnl >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
+            tvCryptoAltsPnl?.setTextColor(if (pnl >= 0) AateUi.GREEN else AateUi.RED)
 
             // Win rate
             val wr = altTrader.getWinRate()
             tvCryptoAltsWinRate?.text = "${wr.toInt()}%"
             tvCryptoAltsWinRate?.setTextColor(when {
-                wr >= 55 -> 0xFF16E6A1.toInt()
-                wr >= 45 -> 0xFFFFB020.toInt()
-                else     -> 0xFFFF4D6D.toInt()
+                wr >= 55 -> AateUi.GREEN
+                wr >= 45 -> AateUi.AMBER
+                else     -> AateUi.RED
             })
 
             // Trades
@@ -12229,12 +12229,12 @@ Trading outside hours may have wider spreads.
             // Readiness phase
             val trades = altTrader.getTotalTrades()
             val (phase, phasePct, phaseColor, phaseText) = when {
-                trades < 500  -> Quadruple("BOOTSTRAP BOOTSTRAP",  trades / 500.0,  0xFFFFB020.toInt(), "Learning alt market patterns — paper mode only")
-                trades < 1500 -> Quadruple("AI LEARNING",   (trades - 500) / 1000.0,  0xFFFFB020.toInt(), "Building alt pattern memory")
-                trades < 3000 -> Quadruple("VALIDATING VALIDATING", (trades - 1500) / 1500.0, 0xFF4C8DFF.toInt(), "Validating signal reliability")
-                trades < 5000 -> Quadruple("SIGNAL MATURING",   (trades - 3000) / 2000.0, 0xFF9A4DFF.toInt(), "Refining alt execution strategy")
-                wr >= 55      -> Quadruple("OK READY",       1.0, 0xFF16E6A1.toInt(), "Alt trader is ready for live trading")
-                else          -> Quadruple("SIGNAL MATURING",   0.9, 0xFF9A4DFF.toInt(), "Improving win rate before live mode")
+                trades < 500  -> Quadruple("BOOTSTRAP BOOTSTRAP",  trades / 500.0,  AateUi.AMBER, "Learning alt market patterns — paper mode only")
+                trades < 1500 -> Quadruple("AI LEARNING",   (trades - 500) / 1000.0,  AateUi.AMBER, "Building alt pattern memory")
+                trades < 3000 -> Quadruple("VALIDATING VALIDATING", (trades - 1500) / 1500.0, AateUi.BLUE, "Validating signal reliability")
+                trades < 5000 -> Quadruple("SIGNAL MATURING",   (trades - 3000) / 2000.0, AateUi.PURPLE, "Refining alt execution strategy")
+                wr >= 55      -> Quadruple("OK READY",       1.0, AateUi.GREEN, "Alt trader is ready for live trading")
+                else          -> Quadruple("SIGNAL MATURING",   0.9, AateUi.PURPLE, "Improving win rate before live mode")
             }
             tvCryptoAltsPhase?.text = phase
             tvCryptoAltsPhase?.setTextColor(phaseColor)
@@ -12270,7 +12270,7 @@ Trading outside hours may have wider spreads.
                                 priceView?.text = if (price > 1000) "$${"%.0f".format(price)}"
                                                   else "$${"%.4f".format(price)}"
                                 changeView?.text = "${if (change >= 0) "+" else ""}${"%.1f".format(change)}%"
-                                changeView?.setTextColor(if (change >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
+                                changeView?.setTextColor(if (change >= 0) AateUi.GREEN else AateUi.RED)
                             }
                         }
                     } catch (_: Exception) {}
@@ -12283,7 +12283,7 @@ Trading outside hours may have wider spreads.
             for (pos in openPositions) {
                 try {
                     val pnlPct = pos.getPnlPct()
-                    val pnlColor = if (pnlPct >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt()
+                    val pnlColor = if (pnlPct >= 0) AateUi.GREEN else AateUi.RED
                     val row = android.widget.LinearLayout(this).apply {
                         orientation = android.widget.LinearLayout.HORIZONTAL
                         setPadding(0, 4, 0, 4)
@@ -12291,13 +12291,13 @@ Trading outside hours may have wider spreads.
                     val tvSymbol = TextView(this).apply {
                         text = "${pos.market.emoji} ${pos.market.symbol}"
                         textSize = 11f
-                        setTextColor(0xFFF5F7FF.toInt())
+                        setTextColor(AateUi.TEXT)
                         layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     }
                     val tvDir = TextView(this).apply {
                         text = "${pos.direction.emoji} ${pos.leverageLabel}"
                         textSize = 10f
-                        setTextColor(0xFFA7B7D8.toInt())
+                        setTextColor(AateUi.TEXT_SECONDARY)
                         layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     }
                     val tvPnl = TextView(this).apply {
@@ -12357,7 +12357,7 @@ Trading outside hours may have wider spreads.
 
                 val headerText = TextView(this).apply {
                     text = "${position.market.emoji} ${position.market.symbol} ${position.direction.symbol} ${position.leverage.toInt()}x"
-                    setTextColor(0xFFF5F7FF.toInt())
+                    setTextColor(AateUi.TEXT)
                     textSize = 14f
                     setTypeface(null, android.graphics.Typeface.BOLD)
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -12368,7 +12368,7 @@ Trading outside hours may have wider spreads.
                 val pnlPct = position.getUnrealizedPnlPct()
                 val pnlBadge = TextView(this).apply {
                     text = "${if (pnlPct >= 0) "+" else ""}${String.format("%.2f", pnlPct)}%"
-                    setTextColor(if (pnlPct >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
+                    setTextColor(if (pnlPct >= 0) AateUi.GREEN else AateUi.RED)
                     textSize = 14f
                     setTypeface(null, android.graphics.Typeface.BOLD)
                 }
@@ -12392,12 +12392,12 @@ Trading outside hours may have wider spreads.
                 }
                 entryCol.addView(TextView(this).apply {
                     text = "Entry"
-                    setTextColor(0xFFA7B7D8.toInt())
+                    setTextColor(AateUi.TEXT_SECONDARY)
                     textSize = 10f
                 })
                 entryCol.addView(TextView(this).apply {
                     text = "$${String.format("%.2f", position.entryPrice)}"
-                    setTextColor(0xFFF5F7FF.toInt())
+                    setTextColor(AateUi.TEXT)
                     textSize = 12f
                 })
                 dataGrid.addView(entryCol)
@@ -12409,7 +12409,7 @@ Trading outside hours may have wider spreads.
                 }
                 currentCol.addView(TextView(this).apply {
                     text = "Current"
-                    setTextColor(0xFFA7B7D8.toInt())
+                    setTextColor(AateUi.TEXT_SECONDARY)
                     textSize = 10f
                 })
 
@@ -12422,9 +12422,9 @@ Trading outside hours may have wider spreads.
                     else -> "•"
                 }
                 val changeColor = when {
-                    priceChangePct > 0.1 -> 0xFF16E6A1.toInt()
-                    priceChangePct < -0.1 -> 0xFFFF4D6D.toInt()
-                    else -> 0xFFF5F7FF.toInt()
+                    priceChangePct > 0.1 -> AateUi.GREEN
+                    priceChangePct < -0.1 -> AateUi.RED
+                    else -> AateUi.TEXT
                 }
 
                 currentCol.addView(TextView(this).apply {
@@ -12441,12 +12441,12 @@ Trading outside hours may have wider spreads.
                 }
                 sizeCol.addView(TextView(this).apply {
                     text = "Size"
-                    setTextColor(0xFFA7B7D8.toInt())
+                    setTextColor(AateUi.TEXT_SECONDARY)
                     textSize = 10f
                 })
                 sizeCol.addView(TextView(this).apply {
                     text = "${String.format("%.2f", position.sizeSol)} SOL"
-                    setTextColor(0xFFF5F7FF.toInt())
+                    setTextColor(AateUi.TEXT)
                     textSize = 12f
                 })
                 dataGrid.addView(sizeCol)
@@ -12458,13 +12458,13 @@ Trading outside hours may have wider spreads.
                 }
                 pnlCol.addView(TextView(this).apply {
                     text = "P&L"
-                    setTextColor(0xFFA7B7D8.toInt())
+                    setTextColor(AateUi.TEXT_SECONDARY)
                     textSize = 10f
                 })
                 val pnlSol = position.getUnrealizedPnlSol()
                 pnlCol.addView(TextView(this).apply {
                     text = "${if (pnlSol >= 0) "+" else ""}${String.format("%.4f", pnlSol)}◎"
-                    setTextColor(if (pnlSol >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
+                    setTextColor(if (pnlSol >= 0) AateUi.GREEN else AateUi.RED)
                     textSize = 12f
                 })
                 dataGrid.addView(pnlCol)
@@ -12482,20 +12482,20 @@ Trading outside hours may have wider spreads.
                 }
                 tpSlRow.addView(TextView(this).apply {
                     text = "TP: ${if (position.takeProfitPrice != null) "$${String.format("%.2f", position.takeProfitPrice)}" else "---"}"
-                    setTextColor(0xFF16E6A1.toInt())
+                    setTextColor(AateUi.GREEN)
                     textSize = 10f
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 })
                 tpSlRow.addView(TextView(this).apply {
                     text = "SL: ${if (position.stopLossPrice != null) "$${String.format("%.2f", position.stopLossPrice)}" else "---"}"
-                    setTextColor(0xFFFF4D6D.toInt())
+                    setTextColor(AateUi.RED)
                     textSize = 10f
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 })
                 val holdTime = (System.currentTimeMillis() - position.entryTime) / 60000
                 tpSlRow.addView(TextView(this).apply {
                     text = "⏱️ ${holdTime}m"
-                    setTextColor(0xFFA7B7D8.toInt())
+                    setTextColor(AateUi.TEXT_SECONDARY)
                     textSize = 10f
                 })
                 cardLayout.addView(tpSlRow)
@@ -12542,7 +12542,7 @@ Trading outside hours may have wider spreads.
 
                 val headerText = TextView(this).apply {
                     text = "${position.market.emoji} ${position.market.symbol} ${position.direction.symbol} ${position.leverage.toInt()}x"
-                    setTextColor(0xFFF5F7FF.toInt())
+                    setTextColor(AateUi.TEXT)
                     textSize = 14f
                     setTypeface(null, android.graphics.Typeface.BOLD)
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -12553,7 +12553,7 @@ Trading outside hours may have wider spreads.
                 val pnlPct = position.getUnrealizedPnlPct()
                 val pnlBadge = TextView(this).apply {
                     text = "${if (pnlPct >= 0) "+" else ""}${String.format("%.2f", pnlPct)}%"
-                    setTextColor(if (pnlPct >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
+                    setTextColor(if (pnlPct >= 0) AateUi.GREEN else AateUi.RED)
                     textSize = 14f
                     setTypeface(null, android.graphics.Typeface.BOLD)
                 }
@@ -12577,12 +12577,12 @@ Trading outside hours may have wider spreads.
                 }
                 entryCol.addView(TextView(this).apply {
                     text = "Entry"
-                    setTextColor(0xFFA7B7D8.toInt())
+                    setTextColor(AateUi.TEXT_SECONDARY)
                     textSize = 10f
                 })
                 entryCol.addView(TextView(this).apply {
                     text = "$${String.format("%.2f", position.entryPrice)}"
-                    setTextColor(0xFFF5F7FF.toInt())
+                    setTextColor(AateUi.TEXT)
                     textSize = 12f
                 })
                 dataGrid.addView(entryCol)
@@ -12594,7 +12594,7 @@ Trading outside hours may have wider spreads.
                 }
                 currentCol.addView(TextView(this).apply {
                     text = "Current"
-                    setTextColor(0xFFA7B7D8.toInt())
+                    setTextColor(AateUi.TEXT_SECONDARY)
                     textSize = 10f
                 })
 
@@ -12608,9 +12608,9 @@ Trading outside hours may have wider spreads.
                     else -> "•"
                 }
                 val changeColor = when {
-                    priceChangePct > 0.1 -> 0xFF16E6A1.toInt()
-                    priceChangePct < -0.1 -> 0xFFFF4D6D.toInt()
-                    else -> 0xFFF5F7FF.toInt()
+                    priceChangePct > 0.1 -> AateUi.GREEN
+                    priceChangePct < -0.1 -> AateUi.RED
+                    else -> AateUi.TEXT
                 }
 
                 currentCol.addView(TextView(this).apply {
@@ -12627,12 +12627,12 @@ Trading outside hours may have wider spreads.
                 }
                 sizeCol.addView(TextView(this).apply {
                     text = "Size"
-                    setTextColor(0xFFA7B7D8.toInt())
+                    setTextColor(AateUi.TEXT_SECONDARY)
                     textSize = 10f
                 })
                 sizeCol.addView(TextView(this).apply {
                     text = "${String.format("%.2f", position.sizeSol)} SOL"
-                    setTextColor(0xFFF5F7FF.toInt())
+                    setTextColor(AateUi.TEXT)
                     textSize = 12f
                 })
                 dataGrid.addView(sizeCol)
@@ -12644,13 +12644,13 @@ Trading outside hours may have wider spreads.
                 }
                 pnlCol.addView(TextView(this).apply {
                     text = "P&L"
-                    setTextColor(0xFFA7B7D8.toInt())
+                    setTextColor(AateUi.TEXT_SECONDARY)
                     textSize = 10f
                 })
                 val pnlUsd = position.getUnrealizedPnlUsd()
                 pnlCol.addView(TextView(this).apply {
                     text = "${if (pnlUsd >= 0) "+" else ""}$${String.format("%.2f", pnlUsd)}"
-                    setTextColor(if (pnlUsd >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
+                    setTextColor(if (pnlUsd >= 0) AateUi.GREEN else AateUi.RED)
                     textSize = 12f
                 })
                 dataGrid.addView(pnlCol)
@@ -12668,20 +12668,20 @@ Trading outside hours may have wider spreads.
                 }
                 tpSlRow.addView(TextView(this).apply {
                     text = "TP: ${if (position.takeProfitPrice != null) "$${String.format("%.2f", position.takeProfitPrice)}" else "---"}"
-                    setTextColor(0xFF16E6A1.toInt())
+                    setTextColor(AateUi.GREEN)
                     textSize = 10f
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 })
                 tpSlRow.addView(TextView(this).apply {
                     text = "SL: ${if (position.stopLossPrice != null) "$${String.format("%.2f", position.stopLossPrice)}" else "---"}"
-                    setTextColor(0xFFFF4D6D.toInt())
+                    setTextColor(AateUi.RED)
                     textSize = 10f
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 })
                 val holdTime = (System.currentTimeMillis() - position.entryTime) / 60000
                 tpSlRow.addView(TextView(this).apply {
                     text = "⏱️ ${holdTime}m"
-                    setTextColor(0xFFA7B7D8.toInt())
+                    setTextColor(AateUi.TEXT_SECONDARY)
                     textSize = 10f
                 })
                 cardLayout.addView(tpSlRow)
@@ -13018,14 +13018,14 @@ ${com.lifecyclebot.engine.SignalQualityTracker.detailBlock()}
 
                 val tvText = TextView(this).apply {
                     text = insight.title
-                    setTextColor(0xFFF5F7FF.toInt())
+                    setTextColor(AateUi.TEXT)
                     textSize = 9f
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 }
 
                 val tvTime = TextView(this).apply {
                     text = insight.getTimeAgo()
-                    setTextColor(0xFF63759B.toInt())
+                    setTextColor(AateUi.TEXT_MUTED)
                     textSize = 8f
                 }
 

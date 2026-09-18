@@ -96,7 +96,7 @@ class LiveTradeLogActivity : Activity() {
         val title = TextView(this).apply {
             // V5.0.6939 — screen title on the vNext scale (AateScreenTitle).
             text = "LIVE TRADE FORENSICS"
-            setTextColor(Color.parseColor("#F5F7FF"))
+            setTextColor(AateUi.TEXT)
             textSize = 19f
             letterSpacing = 0.10f
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
@@ -106,7 +106,7 @@ class LiveTradeLogActivity : Activity() {
         val clearBtn = Button(this).apply {
             text = "Clear"
             setBackgroundResource(com.lifecyclebot.R.drawable.aate_universe_panel_bg)
-            setTextColor(Color.parseColor("#FF4D6D"))
+            setTextColor(AateUi.RED)
             setOnClickListener {
                 LiveTradeLogStore.clear()
                 renderTimeline()
@@ -117,7 +117,7 @@ class LiveTradeLogActivity : Activity() {
         val exportBtn = Button(this).apply {
             text = "Export"
             setBackgroundResource(com.lifecyclebot.R.drawable.aate_universe_panel_bg)
-            setTextColor(Color.parseColor("#16E6A1"))
+            setTextColor(AateUi.GREEN)
             setOnClickListener {
                 android.widget.Toast.makeText(applicationContext,
                     "Preparing forensic export…", android.widget.Toast.LENGTH_SHORT).show()
@@ -145,7 +145,7 @@ class LiveTradeLogActivity : Activity() {
 
         summaryView = TextView(this).apply {
             text = ""
-            setTextColor(Color.parseColor("#A7B7D8"))
+            setTextColor(AateUi.TEXT_SECONDARY)
             textSize = 12f
             setPadding(0, dp(6), 0, dp(10))
         }
@@ -230,7 +230,7 @@ class LiveTradeLogActivity : Activity() {
         text = "No live trade events yet.\n\nStart the bot in LIVE mode and place a trade — every phase " +
                 "(quote, slippage, tx build, broadcast, confirmation, on-chain landing, " +
                 "host-wallet verification, sell, sweep) will appear here as it happens."
-        setTextColor(Color.parseColor("#63759B"))
+        setTextColor(AateUi.TEXT_MUTED)
         textSize = 13f
         setPadding(dp(8), dp(40), dp(8), dp(40))
         gravity = Gravity.CENTER
@@ -261,14 +261,14 @@ class LiveTradeLogActivity : Activity() {
         }
         val tagPill = TextView(this).apply {
             text = " ${g.traderTag} "
-            setTextColor(Color.parseColor("#B36BFF"))
+            setTextColor(AateUi.PURPLE_BRIGHT)
             textSize = 10f
             setPadding(dp(8), dp(4), dp(8), dp(4))
         }
         val phaseColor = colorForPhase(g.latestPhase)
         val statusPill = TextView(this).apply {
             text = " ${g.latestPhase.name.replace('_', ' ')} "
-            setTextColor(Color.parseColor("#F5F7FF"))
+            setTextColor(AateUi.TEXT)
             setBackgroundColor(phaseColor)
             textSize = 10f
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
@@ -285,7 +285,7 @@ class LiveTradeLogActivity : Activity() {
         val ageMs = now - g.firstTs
         val holdLine = TextView(this).apply {
             text = "${DateUtils.getRelativeTimeSpanString(g.firstTs, now, DateUtils.MINUTE_IN_MILLIS)} • duration ${formatDur(ageMs)} • ${g.events.size} events"
-            setTextColor(Color.parseColor("#63759B"))
+            setTextColor(AateUi.TEXT_MUTED)
             textSize = 11f
             setPadding(0, dp(4), 0, dp(2))
         }
@@ -293,7 +293,7 @@ class LiveTradeLogActivity : Activity() {
 
         val mintLine = TextView(this).apply {
             text = "mint: ${g.mint.take(8)}…${g.mint.takeLast(6)}"
-            setTextColor(Color.parseColor("#63759B"))
+            setTextColor(AateUi.TEXT_MUTED)
             textSize = 10f
             typeface = Typeface.MONOSPACE
             setPadding(0, 0, 0, dp(8))
@@ -309,7 +309,7 @@ class LiveTradeLogActivity : Activity() {
         if (g.events.size > MAX_EVENTS_PER_GROUP) {
             card.addView(TextView(this).apply {
                 text = "  … ${g.events.size - MAX_EVENTS_PER_GROUP} older event(s) hidden"
-                setTextColor(Color.parseColor("#63759B"))
+                setTextColor(AateUi.TEXT_MUTED)
                 textSize = 10f
                 setPadding(0, dp(2), 0, dp(2))
             })
@@ -321,14 +321,14 @@ class LiveTradeLogActivity : Activity() {
             }
             val tsTv = TextView(this).apply {
                 text = formatHms(e.ts)
-                setTextColor(Color.parseColor("#63759B"))
+                setTextColor(AateUi.TEXT_MUTED)
                 textSize = 10f
                 typeface = Typeface.MONOSPACE
                 width = dp(64)
             }
             val phaseTv = TextView(this).apply {
                 text = " ${e.phase.name} "
-                setTextColor(Color.parseColor("#F5F7FF"))
+                setTextColor(AateUi.TEXT)
                 setBackgroundColor(colorForPhase(e.phase))
                 textSize = 9f
                 setPadding(dp(6), dp(2), dp(6), dp(2))
@@ -338,7 +338,7 @@ class LiveTradeLogActivity : Activity() {
             }
             val msgTv = TextView(this).apply {
                 text = buildEventDetail(e)
-                setTextColor(Color.parseColor("#A7B7D8"))
+                setTextColor(AateUi.TEXT_SECONDARY)
                 textSize = 11f
                 layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
             }
@@ -385,7 +385,7 @@ class LiveTradeLogActivity : Activity() {
         Phase.OPEN_POSITION_RECOVERED_FROM_WALLET,
         Phase.POSITION_RECONCILED_FROM_WALLET,
         Phase.POSITION_CLOSED_BY_TX_PARSE,
-        Phase.POSITION_CLOSED_BY_WALLET_ZERO -> Color.parseColor("#16E6A1")        // green
+        Phase.POSITION_CLOSED_BY_WALLET_ZERO -> AateUi.GREEN        // green
 
         // red — terminal failure
         Phase.BUY_PHANTOM,
@@ -400,7 +400,7 @@ class LiveTradeLogActivity : Activity() {
         Phase.SELL_TX_ERR_CONFIRMED,
         Phase.SELL_ROUTE_FAILED_NO_SIGNATURE,
         Phase.SELL_FAILED_CONFIRMED,
-        Phase.ERROR -> Color.parseColor("#FF4D6D")             // red
+        Phase.ERROR -> AateUi.RED             // red
 
         // amber — caution / inconclusive / blocked
         Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
@@ -409,7 +409,7 @@ class LiveTradeLogActivity : Activity() {
         Phase.WATCHDOG_CANCELLED,
         Phase.FEE_RETRY_CANCELLED_FINAL_STATE,
         Phase.FEE_RETRY_CANCELLED_NON_RETRYABLE,
-        Phase.WARNING -> Color.parseColor("#FFB020")           // amber
+        Phase.WARNING -> AateUi.AMBER           // amber
 
         // blue — in-flight / informational (default for everything else)
         Phase.BUY_QUOTE_TRY,
@@ -460,7 +460,7 @@ class LiveTradeLogActivity : Activity() {
         Phase.INTAKE_PENDING_RUGCHECK,
         Phase.INTAKE_TRUE_HARD_BLOCK,
         Phase.INTAKE_COST_REJECT,
-        Phase.POSITION_COUNT_RECONCILED -> Color.parseColor("#4C8DFF")              // blue
+        Phase.POSITION_COUNT_RECONCILED -> AateUi.BLUE              // blue
     }
 
     private fun formatHms(ts: Long): String = fmtHms(ts)
@@ -525,7 +525,7 @@ class LiveTradeLogActivity : Activity() {
                 VT_EMPTY -> holder.container.addView(emptyState())
                 VT_FOOTER -> holder.container.addView(TextView(this@LiveTradeLogActivity).apply {
                     text = "… $omitted older trade group(s) not shown to keep UI responsive."
-                    setTextColor(Color.parseColor("#63759B"))
+                    setTextColor(AateUi.TEXT_MUTED)
                     textSize = 11f
                     setPadding(dp(8), dp(12), dp(8), dp(20))
                     gravity = Gravity.CENTER

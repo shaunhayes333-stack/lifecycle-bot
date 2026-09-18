@@ -20,18 +20,18 @@ class ScoreBarView @JvmOverloads constructor(
     var value: Int = 0
         set(v) { field = v.coerceIn(0, 100); invalidate() }
 
-    var barColor: Int = 0xFF16E6A1.toInt()
+    var barColor: Int = AateUi.GREEN
         set(v) { field = v; barPaint.color = v; invalidate() }
 
-    private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF0A1424.toInt() }
-    private val barPaint   = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF16E6A1.toInt() }
+    private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AateUi.SURFACE }
+    private val barPaint   = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AateUi.GREEN }
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color     = 0xFF63759B.toInt()
+        color     = AateUi.TEXT_MUTED
         textSize  = 28f
         typeface  = android.graphics.Typeface.MONOSPACE
     }
     private val valPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color     = 0xFFA7B7D8.toInt()
+        color     = AateUi.TEXT_SECONDARY
         textSize  = 28f
         typeface  = android.graphics.Typeface.MONOSPACE
         textAlign = Paint.Align.RIGHT

@@ -16,14 +16,14 @@ class AlertsActivity : AppCompatActivity() {
     private lateinit var llAlerts: LinearLayout
     private lateinit var history: NotificationHistory
 
-    private val white   = 0xFFF5F7FF.toInt()
-    private val muted   = 0xFF63759B.toInt()
-    private val green   = 0xFF16E6A1.toInt()
-    private val red     = 0xFFFF4D6D.toInt()
-    private val amber   = 0xFFFFB020.toInt()
-    private val purple  = 0xFF9A4DFF.toInt()
+    private val white   = AateUi.TEXT
+    private val muted   = AateUi.TEXT_MUTED
+    private val green   = AateUi.GREEN
+    private val red     = AateUi.RED
+    private val amber   = AateUi.AMBER
+    private val purple  = AateUi.PURPLE
     private val surface = 0xFF111118.toInt()
-    private val divider = 0xFF101E33.toInt()
+    private val divider = AateUi.SURFACE_3
     private val sdf     = SimpleDateFormat("MMM dd HH:mm:ss", Locale.US)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -108,7 +108,7 @@ class AlertsActivity : AppCompatActivity() {
             content.addView(TextView(this).apply {
                 text = entry.body
                 textSize = 12f
-                setTextColor(0xFFA7B7D8.toInt())
+                setTextColor(AateUi.TEXT_SECONDARY)
             })
             content.addView(TextView(this).apply {
                 text = sdf.format(Date(entry.ts))

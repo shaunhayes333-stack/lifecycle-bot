@@ -48,10 +48,10 @@ class WalletActivity : AppCompatActivity() {
     private lateinit var pnlChart: PnlChartView
 
     private var keyVisible = false
-    private val accentColor = 0xFF16E6A1.toInt()
-    private val mutedColor  = 0xFF63759B.toInt()
-    private val dangerColor = 0xFFFF4D6D.toInt()
-    private val warnColor   = 0xFFFFB020.toInt()
+    private val accentColor = AateUi.GREEN
+    private val mutedColor  = AateUi.TEXT_MUTED
+    private val dangerColor = AateUi.RED
+    private val warnColor   = AateUi.AMBER
 
     // Withdraw views
     private lateinit var tvWithdrawTreasuryBal: TextView
@@ -479,20 +479,20 @@ class WalletActivity : AppCompatActivity() {
             }
             val title = android.widget.TextView(ctx).apply {
                 text = "🏦 Treasury Wallet"
-                setTextColor(android.graphics.Color.parseColor("#FFB020"))
+                setTextColor(android.graphics.AateUi.AMBER)
                 textSize = 16f
                 typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
             }
             val tvPk = android.widget.TextView(ctx).apply {
                 text = com.lifecyclebot.engine.TreasuryWalletManager.publicKey().ifBlank { "(initialising…)" }
-                setTextColor(android.graphics.Color.parseColor("#F5F7FF"))
+                setTextColor(android.graphics.AateUi.TEXT)
                 textSize = 12f
                 typeface = android.graphics.Typeface.MONOSPACE
                 setPadding(0, (8 * resources.displayMetrics.density).toInt(), 0, 0)
             }
             val tvBal = android.widget.TextView(ctx).apply {
                 text = "Balance: ${"%.4f".format(com.lifecyclebot.engine.TreasuryWalletManager.getBalance())} SOL"
-                setTextColor(android.graphics.Color.parseColor("#A7B7D8"))
+                setTextColor(android.graphics.AateUi.TEXT_SECONDARY)
                 textSize = 13f
                 setPadding(0, (4 * resources.displayMetrics.density).toInt(), 0, (8 * resources.displayMetrics.density).toInt())
             }
@@ -503,7 +503,7 @@ class WalletActivity : AppCompatActivity() {
                 android.widget.Button(ctx).apply {
                     text = label
                     setBackgroundColor(android.graphics.Color.parseColor(color))
-                    setTextColor(android.graphics.Color.parseColor("#F5F7FF"))
+                    setTextColor(android.graphics.AateUi.TEXT)
                     textSize = 11f
                     val mPx = (4 * resources.displayMetrics.density).toInt()
                     val lp = android.widget.LinearLayout.LayoutParams(
@@ -730,7 +730,7 @@ class WalletActivity : AppCompatActivity() {
                 if (withdrawPct >= 100) android.view.View.VISIBLE else android.view.View.GONE
             // Highlight 100% button red, others reset
             btnWith100.backgroundTintList = android.content.res.ColorStateList.valueOf(
-                if (withdrawPct == 100) 0xFF3D1010.toInt() else 0xFF0A1424.toInt())
+                if (withdrawPct == 100) 0xFF3D1010.toInt() else AateUi.SURFACE)
         }
 
         seekWithdrawPct.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -765,14 +765,14 @@ class WalletActivity : AppCompatActivity() {
                 .setMessage(confirmMsg)
                 .setPositiveButton(if (withdrawPct >= 100) "WITHDRAW ALL" else "Withdraw") { dialog: android.content.DialogInterface, _: Int ->
                     tvWithdrawStatus.text = "Processing…"
-                    tvWithdrawStatus.setTextColor(0xFFFFB020.toInt())
+                    tvWithdrawStatus.setTextColor(AateUi.AMBER)
                     btnWithdrawConfirm.isEnabled = false
                     vm.withdrawFromTreasury(pct, dest) { result ->
                         btnWithdrawConfirm.isEnabled = true
                         val ok = result.startsWith("OK") || result.startsWith("PAPER")
                         tvWithdrawStatus.text  = result
                         tvWithdrawStatus.setTextColor(
-                            if (ok) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt())
+                            if (ok) AateUi.GREEN else AateUi.RED)
                         if (ok) {
                             Toast.makeText(this, "Withdrawal complete", Toast.LENGTH_LONG).show()
                             applyWithdrawPct(50)  // reset to 50% after success

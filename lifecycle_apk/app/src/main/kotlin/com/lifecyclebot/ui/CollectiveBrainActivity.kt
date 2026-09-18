@@ -406,8 +406,8 @@ class CollectiveBrainActivity : AppCompatActivity() {
             tvDataSource.text = dataSourceLabel
             tvDataSource.setTextColor(when {
                 hasNetworkData -> green
-                isActuallyConnected -> 0xFF16E6A1.toInt()  // Green for connected
-                isTursoEnabled -> 0xFFFFB020.toInt()       // Amber for connection issue
+                isActuallyConnected -> AateUi.GREEN  // Green for connected
+                isTursoEnabled -> AateUi.AMBER       // Amber for connection issue
                 else -> purple
             })
             
@@ -583,7 +583,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
             // Keep placeholder behaviour
             llBrainPatterns.addView(android.widget.TextView(this).apply {
                 text = "Learning from live trades…"
-                setTextColor(0xFF63759B.toInt())
+                setTextColor(AateUi.TEXT_MUTED)
                 textSize = 11f
                 gravity = android.view.Gravity.CENTER
                 setPadding(0, dp(20), 0, dp(20))
@@ -653,7 +653,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
         if (networkSignals.isEmpty() && hotTokens.isEmpty()) {
             llBrainSignals.addView(android.widget.TextView(this).apply {
                 text = "Awaiting signals from the hive…"
-                setTextColor(0xFF63759B.toInt())
+                setTextColor(AateUi.TEXT_MUTED)
                 textSize = 11f
                 gravity = android.view.Gravity.CENTER
                 setPadding(0, dp(20), 0, dp(20))
@@ -731,7 +731,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
             llSentiencePanel?.removeAllViews()
         } catch (_: Exception) { return }  // no layout slot → skip
 
-        fun addRow(label: String, value: String, color: Int = 0xFFA7B7D8.toInt()) {
+        fun addRow(label: String, value: String, color: Int = AateUi.TEXT_SECONDARY) {
             val row = android.widget.LinearLayout(this).apply {
                 orientation = android.widget.LinearLayout.HORIZONTAL
                 setPadding(0, dp(2), 0, dp(2))
@@ -739,7 +739,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
             row.addView(android.widget.TextView(this).apply {
                 text = label
                 textSize = 10f
-                setTextColor(0xFF63759B.toInt())
+                setTextColor(AateUi.TEXT_MUTED)
                 typeface = android.graphics.Typeface.MONOSPACE
                 layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             })
@@ -756,7 +756,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
             llSentiencePanel?.addView(android.widget.TextView(this).apply {
                 this.text = text
                 textSize = 10f
-                setTextColor(0xFFA7B7D8.toInt())
+                setTextColor(AateUi.TEXT_SECONDARY)
                 typeface = android.graphics.Typeface.MONOSPACE
                 setPadding(0, dp(6), 0, dp(2))
             })
@@ -774,7 +774,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
                 addRow("  Last thought", "[${ago}m ago] ${r.monologue.take(80)}")
             }
         } catch (_: Exception) {
-            addRow("  Status", "Warming up…", 0xFF63759B.toInt())
+            addRow("  Status", "Warming up…", AateUi.TEXT_MUTED)
         }
 
         // ── MetaCognition ─────────────────────────────────────────────────────
@@ -784,12 +784,12 @@ class CollectiveBrainActivity : AppCompatActivity() {
             val under = com.lifecyclebot.v3.scoring.MetaCognitionAI.getUnderperformingLayers().take(2)
             val total = com.lifecyclebot.v3.scoring.MetaCognitionAI.getTotalTradesAnalyzed()
             addRow("  Analysed", "$total trades")
-            addRow("  Top layers", top.joinToString(", ") { it.name.take(10) }, 0xFF16E6A1.toInt())
+            addRow("  Top layers", top.joinToString(", ") { it.name.take(10) }, AateUi.GREEN)
             if (under.isNotEmpty()) {
-                addRow("  Under-perf", under.joinToString(", ") { it.name.take(10) }, 0xFFFF4D6D.toInt())
+                addRow("  Under-perf", under.joinToString(", ") { it.name.take(10) }, AateUi.RED)
             }
         } catch (_: Exception) {
-            addRow("  Status", "N/A", 0xFF63759B.toInt())
+            addRow("  Status", "N/A", AateUi.TEXT_MUTED)
         }
 
         // ── Education SubLayer ────────────────────────────────────────────────
@@ -800,17 +800,17 @@ class CollectiveBrainActivity : AppCompatActivity() {
             val mutedCount = maturity.values.count { !it.isActive }
             val overallWr = maturity.values.filter { it.trades >= 5 }
                 .map { it.smoothedAccuracy * 100 }.average().takeIf { !it.isNaN() }?.toInt() ?: 0
-            addRow("  Trained layers", "$trained / ${maturity.size}", if (trained > 20) 0xFF16E6A1.toInt() else 0xFFFFB020.toInt())
-            addRow("  Muted layers", "$mutedCount", if (muted > 0) 0xFFFF4D6D.toInt() else 0xFF16E6A1.toInt())
-            addRow("  Avg layer WR", "$overallWr%", if (overallWr >= 50) 0xFF16E6A1.toInt() else 0xFFFFB020.toInt())
+            addRow("  Trained layers", "$trained / ${maturity.size}", if (trained > 20) AateUi.GREEN else AateUi.AMBER)
+            addRow("  Muted layers", "$mutedCount", if (muted > 0) AateUi.RED else AateUi.GREEN)
+            addRow("  Avg layer WR", "$overallWr%", if (overallWr >= 50) AateUi.GREEN else AateUi.AMBER)
             // Top 3
             val top3 = maturity.entries.filter { it.value.trades >= 5 }
                 .sortedByDescending { it.value.smoothedAccuracy }.take(3)
             top3.forEach { (k, v) ->
-                addRow("  ★ ${k.take(20)}", "${(v.smoothedAccuracy*100).toInt()}% (${v.trades}t)", 0xFF16E6A1.toInt())
+                addRow("  ★ ${k.take(20)}", "${(v.smoothedAccuracy*100).toInt()}% (${v.trades}t)", AateUi.GREEN)
             }
         } catch (_: Exception) {
-            addRow("  Status", "N/A", 0xFF63759B.toInt())
+            addRow("  Status", "N/A", AateUi.TEXT_MUTED)
         }
 
         // ── Symbolic Exit Reasoner ────────────────────────────────────────────
@@ -823,14 +823,14 @@ class CollectiveBrainActivity : AppCompatActivity() {
                 snap.entries.sortedByDescending { it.value }.take(4).forEach { (k, v) ->
                     val pct = (v.coerceIn(0.0, 1.0) * 100).toInt()
                     addRow("  $k", "$pct%", when {
-                        pct >= 70 -> 0xFFFF4D6D.toInt()
-                        pct >= 40 -> 0xFFFFB020.toInt()
-                        else -> 0xFF16E6A1.toInt()
+                        pct >= 70 -> AateUi.RED
+                        pct >= 40 -> AateUi.AMBER
+                        else -> AateUi.GREEN
                     })
                 }
             }
         } catch (_: Exception) {
-            addRow("  Status", "N/A", 0xFF63759B.toInt())
+            addRow("  Status", "N/A", AateUi.TEXT_MUTED)
         }
     }
 
@@ -941,39 +941,39 @@ class AnimatedBrainView @JvmOverloads constructor(
     }
     
     private val ringBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#101E33")
+        color = AateUi.SURFACE_3
         style = Paint.Style.STROKE
         strokeWidth = 24f  // V4.0: Thicker ring
         strokeCap = Paint.Cap.ROUND
     }
     
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#9A4DFF")
+        color = AateUi.PURPLE
         style = Paint.Style.STROKE
         strokeWidth = 24f  // V4.0: Thicker ring
         strokeCap = Paint.Cap.ROUND
     }
     
     private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#9A4DFF")
+        color = AateUi.PURPLE
         maskFilter = BlurMaskFilter(40f, BlurMaskFilter.Blur.OUTER)  // V4.0: Larger glow
     }
     
     private val brainPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#9A4DFF")
+        color = AateUi.PURPLE
         textSize = 160f  // V4.0: Larger brain emoji
         textAlign = Paint.Align.CENTER
     }
     
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#F5F7FF")
+        color = AateUi.TEXT
         textSize = 56f  // V4.0: Larger text
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
     }
     
     private val subtextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#63759B")
+        color = AateUi.TEXT_MUTED
         textSize = 28f  // V4.0: Larger subtext
         textAlign = Paint.Align.CENTER
     }

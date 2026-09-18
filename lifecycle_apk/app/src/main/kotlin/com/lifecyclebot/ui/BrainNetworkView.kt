@@ -54,17 +54,17 @@ class BrainNetworkView @JvmOverloads constructor(
         var altsAccuracy: Double = -1.0,    var altsSignals: Int = 0,
     ) {
         val color: Int get() = when {
-            !isActive -> 0xFFFFB020.toInt()       // Orange - dormant
-            accuracy >= 60 -> 0xFF16E6A1.toInt()  // Green - performing well
+            !isActive -> AateUi.AMBER       // Orange - dormant
+            accuracy >= 60 -> AateUi.GREEN  // Green - performing well
             accuracy >= 50 -> 0xFFFFFF00.toInt()  // Yellow - average
-            else -> 0xFFFF4D6D.toInt()            // Red - underperforming
+            else -> AateUi.RED            // Red - underperforming
         }
 
         fun engineColor(signals: Int, accuracy: Double): Int = when {
             signals <= 0   -> 0x66888888.toInt()   // Dim grey outline — no data yet
-            accuracy >= 60 -> 0xFF16E6A1.toInt()   // Green
+            accuracy >= 60 -> AateUi.GREEN   // Green
             accuracy >= 50 -> 0xFFFFFF00.toInt()   // Yellow
-            else           -> 0xFFFF4D6D.toInt()   // Red
+            else           -> AateUi.RED   // Red
         }
     }
     
@@ -151,7 +151,7 @@ class BrainNetworkView @JvmOverloads constructor(
     }
     
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFF5F7FF.toInt()
+        color = AateUi.TEXT
         textSize = 24f
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
@@ -165,7 +165,7 @@ class BrainNetworkView @JvmOverloads constructor(
     }
     
     private val statsPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF16E6A1.toInt()
+        color = AateUi.GREEN
         textSize = 32f
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
@@ -790,9 +790,9 @@ class BrainNetworkView @JvmOverloads constructor(
             return
         }
         val color = when {
-            accuracy >= 60 -> 0xFF16E6A1.toInt()
+            accuracy >= 60 -> AateUi.GREEN
             accuracy >= 50 -> 0xFFFFFF00.toInt()
-            else           -> 0xFFFF4D6D.toInt()
+            else           -> AateUi.RED
         }
         val pulseGlow = (sin(animationPhase * Math.PI * 2 + phase * Math.PI * 4) * 0.3 + 0.7).toFloat()
         nodeGlowPaint.color = (color and 0x00F5F7FF) or ((0x80 * pulseGlow).toInt() shl 24)
@@ -838,14 +838,14 @@ class BrainNetworkView @JvmOverloads constructor(
             cachedBrainRadial = if (isMegaBrain) {
                 RadialGradient(
                     cx, cy, quantised,
-                    intArrayOf(0xFFFFB020.toInt(), 0xFFFFB020.toInt(), 0xFFAA5500.toInt()),
+                    intArrayOf(AateUi.AMBER, AateUi.AMBER, 0xFFAA5500.toInt()),
                     floatArrayOf(0f, 0.6f, 1f),
                     Shader.TileMode.CLAMP
                 )
             } else {
                 RadialGradient(
                     cx, cy, quantised,
-                    intArrayOf(0xFF16E6A1.toInt(), 0xFF00AA55.toInt(), 0xFF006633.toInt()),
+                    intArrayOf(AateUi.GREEN, 0xFF00AA55.toInt(), 0xFF006633.toInt()),
                     floatArrayOf(0f, 0.6f, 1f),
                     Shader.TileMode.CLAMP
                 )
@@ -885,17 +885,17 @@ class BrainNetworkView @JvmOverloads constructor(
     private fun drawStats(canvas: Canvas, cx: Float, cy: Float, brainRadius: Float) {
         // Draw curriculum level at top
         textPaint.textSize = brainRadius * 0.35f
-        textPaint.color = if (isMegaBrain) 0xFFFFB020.toInt() else 0xFFFFB020.toInt()  // Gold
+        textPaint.color = if (isMegaBrain) AateUi.AMBER else AateUi.AMBER  // Gold
         canvas.drawText(curriculumIcon, cx, cy - brainRadius * 0.15f, textPaint)
         
         // Draw level name
         labelPaint.textSize = brainRadius * 0.22f
-        labelPaint.color = 0xFFF5F7FF.toInt()
+        labelPaint.color = AateUi.TEXT
         canvas.drawText(curriculumLevel, cx, cy + brainRadius * 0.2f, labelPaint)
         
         // Draw trade count or mega score
         labelPaint.textSize = brainRadius * 0.16f
-        labelPaint.color = if (isMegaBrain) 0xFFFFB020.toInt() else 0xFF888888.toInt()
+        labelPaint.color = if (isMegaBrain) AateUi.AMBER else 0xFF888888.toInt()
         
         val scoreText = if (isMegaBrain) {
             "⚡ ${megaScore.toInt()} pts"

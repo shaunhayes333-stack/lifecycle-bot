@@ -75,14 +75,14 @@ class PnlChartView @JvmOverloads constructor(
     // ── paints ────────────────────────────────────────────────────────
 
     private val linePaintPos = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color     = 0xFF16E6A1.toInt()
+        color     = AateUi.GREEN
         strokeWidth = 2.5f
         style     = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
     private val linePaintNeg = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color     = 0xFFFF4D6D.toInt()
+        color     = AateUi.RED
         strokeWidth = 2.5f
         style     = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
@@ -128,13 +128,13 @@ class PnlChartView @JvmOverloads constructor(
         setLayerType(LAYER_TYPE_SOFTWARE, null)
     }
     private val baselinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color     = 0xFF193250.toInt()
+        color     = AateUi.STROKE_SOFT
         strokeWidth = 1f
         style     = Paint.Style.STROKE
         pathEffect = DashPathEffect(floatArrayOf(8f, 6f), 0f)
     }
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color     = 0xFF63759B.toInt()
+        color     = AateUi.TEXT_MUTED
         textSize  = 10f * scaledDensity
         typeface  = Typeface.MONOSPACE
     }
@@ -144,19 +144,19 @@ class PnlChartView @JvmOverloads constructor(
         textAlign = Paint.Align.RIGHT
     }
     private val buyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF16E6A1.toInt()
+        color = AateUi.GREEN
         style = Paint.Style.FILL
     }
     private val sellWinPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF16E6A1.toInt()
+        color = AateUi.GREEN
         style = Paint.Style.FILL
     }
     private val sellLossPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFFF4D6D.toInt()
+        color = AateUi.RED
         style = Paint.Style.FILL
     }
     private val emptyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color     = 0xFF63759B.toInt()
+        color     = AateUi.TEXT_MUTED
         textSize  = 32f
         typeface  = Typeface.MONOSPACE
         textAlign = Paint.Align.CENTER
@@ -280,7 +280,7 @@ class PnlChartView @JvmOverloads constructor(
 
         // ── current P&L annotation ────────────────────────────────────
         val finalPnl = lastVal
-        pnlLabelPaint.color = if (finalPnl >= 0) 0xFF16E6A1.toInt() else 0xFFFF4D6D.toInt()
+        pnlLabelPaint.color = if (finalPnl >= 0) AateUi.GREEN else AateUi.RED
         canvas.drawText(
             "%+.4f◎".format(finalPnl),
             w - 4f, padT + 20f,

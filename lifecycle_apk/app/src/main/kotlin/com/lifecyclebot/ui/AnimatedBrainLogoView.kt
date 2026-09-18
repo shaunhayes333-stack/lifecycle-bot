@@ -29,11 +29,11 @@ class AnimatedBrainLogoView @JvmOverloads constructor(
 ) : View(context, attrs, defStyleAttr) {
 
     // Colors - Cyan brain wave theme
-    private val primaryCyan = Color.parseColor("#31C7FF")
+    private val primaryCyan = AateUi.CYAN
     private val deepTeal = Color.parseColor("#4ECDC4")
-    private val accentCyan = Color.parseColor("#31C7FF")
+    private val accentCyan = AateUi.CYAN
     private val darkTeal = Color.parseColor("#2FB8AC")
-    private val glowCyan = Color.parseColor("#31C7FF")
+    private val glowCyan = AateUi.CYAN
     
     // Animation phases (0f to 1f cycling)
     private var wavePhase1 = 0f

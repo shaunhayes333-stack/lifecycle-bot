@@ -165,10 +165,10 @@ class SplashActivity : AppCompatActivity() {
                 }
                 // Cyan/teal color palette matching AATE theme
                 val colors = listOf(
-                    Color.parseColor("#31C7FF"),  // Primary cyan
+                    AateUi.CYAN,  // Primary cyan
                     Color.parseColor("#4ECDC4"),  // Teal
                     Color.parseColor("#45B7AA"),  // Darker teal
-                    Color.parseColor("#31C7FF"),  // Light cyan
+                    AateUi.CYAN,  // Light cyan
                     Color.parseColor("#3AA89F"),  // Deep teal
                 )
                 setBackgroundColor(colors[Random.nextInt(colors.size)])

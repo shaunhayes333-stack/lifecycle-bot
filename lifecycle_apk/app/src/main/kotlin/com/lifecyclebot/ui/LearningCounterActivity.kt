@@ -267,7 +267,7 @@ class LearningCounterActivity : Activity() {
         addHeader("🎓 Layer Readiness")
         val readiness = LayerReadinessRegistry.snapshot()
         if (readiness.isEmpty()) {
-            addText("(no layers have received outcomes yet — start trading to populate)", Color.parseColor("#63759B"))
+            addText("(no layers have received outcomes yet — start trading to populate)", AateUi.TEXT_MUTED)
         } else {
             for ((layer, state) in readiness.entries.sortedBy { it.key }) {
                 val color = when (state) {
@@ -302,7 +302,7 @@ class LearningCounterActivity : Activity() {
         addHeader("📜 Recent Canonical Outcomes (last 50)")
         val recent = CanonicalOutcomeBus.recentSnapshot().take(50)
         if (recent.isEmpty()) {
-            addText("(no canonical events yet — close a trade to populate)", Color.parseColor("#63759B"))
+            addText("(no canonical events yet — close a trade to populate)", AateUi.TEXT_MUTED)
         } else {
             for (o in recent) {
                 val resultColor = when (o.result) {
@@ -325,7 +325,7 @@ class LearningCounterActivity : Activity() {
         rootColumn.addView(TextView(this).apply {
             // V5.0.6939 — matches @style/AateSectionTitle on the XML screens.
             this.text = text.uppercase()
-            setTextColor(Color.parseColor("#F5F7FF"))
+            setTextColor(AateUi.TEXT)
             textSize = 13f
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             letterSpacing = 0.14f
@@ -335,7 +335,7 @@ class LearningCounterActivity : Activity() {
     }
 
     private fun addKv(label: String, value: String) {
-        rootColumn.addView(makeKvRow(label, value, Color.parseColor("#A7B7D8")))
+        rootColumn.addView(makeKvRow(label, value, AateUi.TEXT_SECONDARY))
     }
 
     private fun addKvHighlight(label: String, value: String, hex: String) {
@@ -354,7 +354,7 @@ class LearningCounterActivity : Activity() {
         rootColumn.addView(makeKvRow(label, driftLabel, Color.parseColor(color)))
     }
 
-    private fun addText(s: String, color: Int = Color.parseColor("#A7B7D8"), small: Boolean = false) {
+    private fun addText(s: String, color: Int = AateUi.TEXT_SECONDARY, small: Boolean = false) {
         rootColumn.addView(TextView(this).apply {
             text = s
             setTextColor(color)
@@ -372,7 +372,7 @@ class LearningCounterActivity : Activity() {
             setPadding(0, pad, 0, pad)
             addView(TextView(this@LearningCounterActivity).apply {
                 text = label
-                setTextColor(Color.parseColor("#A7B7D8"))
+                setTextColor(AateUi.TEXT_SECONDARY)
                 textSize = 13f
                 typeface = Typeface.MONOSPACE
                 layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)

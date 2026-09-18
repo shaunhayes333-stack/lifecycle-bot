@@ -79,6 +79,13 @@ jobs:
       - name: Layout id contract check
         run: python3 ci/layout_contract.py
 
+      # V5.0.7015 — the app compiles and runs perfectly with two palettes, so
+      # the only previous signal was the operator opening it and saying the
+      # restyle did not land. That is an 18-minute build plus an install plus a
+      # judgement call. This is a second.
+      - name: Palette drift guard
+        run: python3 ci/palette_drift.py
+
       - name: Build Release APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}

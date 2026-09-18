@@ -240,9 +240,9 @@ class PipelineHealthActivity : AppCompatActivity() {
             val maxFrameTxt = "${snap.maxFrameGapMs} ms"
             val anrTxt = "ANR: ${snap.anrHints}"
             val anrColor = when {
-                snap.anrHints == 0  -> 0xFF16E6A1.toInt()
-                snap.anrHints < 5   -> 0xFFFFB020.toInt()
-                else                -> 0xFFFF4D6D.toInt()
+                snap.anrHints == 0  -> AateUi.GREEN
+                snap.anrHints < 5   -> AateUi.AMBER
+                else                -> AateUi.RED
             }
 
             mainHandler.post {

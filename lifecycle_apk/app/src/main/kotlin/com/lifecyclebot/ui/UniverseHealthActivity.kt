@@ -277,7 +277,7 @@ class UniverseHealthActivity : Activity() {
             "ⓘ When scoring mode shows CLASSIC, the modern symbolic outer ring is bypassed. " +
                 "The bot is NOT running 'full sentient symbolic trading' in that mode — it's the " +
                 "20-layer build-1920 pipeline. Flip the toggle in Settings → Scoring Mode to switch.",
-            Color.parseColor("#A7B7D8"),
+            AateUi.TEXT_SECONDARY,
             small = true,
         )
     }
@@ -293,7 +293,7 @@ class UniverseHealthActivity : Activity() {
                 text = label
                 isAllCaps = false
                 textSize = 12f
-                setTextColor(Color.parseColor("#F5F7FF"))
+                setTextColor(AateUi.TEXT)
                 setBackgroundColor(Color.parseColor(hex))
                 val lp = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
                 val m = (3 * resources.displayMetrics.density).toInt()
@@ -315,7 +315,7 @@ class UniverseHealthActivity : Activity() {
         rootColumn.addView(TextView(this).apply {
             // V5.0.6939 — matches @style/AateSectionTitle on the XML screens.
             this.text = text.uppercase()
-            setTextColor(Color.parseColor("#F5F7FF"))
+            setTextColor(AateUi.TEXT)
             textSize = 13f
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             letterSpacing = 0.14f
@@ -325,14 +325,14 @@ class UniverseHealthActivity : Activity() {
     }
 
     private fun addKv(label: String, value: String) {
-        rootColumn.addView(makeKvRow(label, value, Color.parseColor("#A7B7D8")))
+        rootColumn.addView(makeKvRow(label, value, AateUi.TEXT_SECONDARY))
     }
 
     private fun addKvHighlight(label: String, value: String, hex: String) {
         rootColumn.addView(makeKvRow(label, value, Color.parseColor(hex)))
     }
 
-    private fun addText(s: String, color: Int = Color.parseColor("#A7B7D8"), small: Boolean = false) {
+    private fun addText(s: String, color: Int = AateUi.TEXT_SECONDARY, small: Boolean = false) {
         rootColumn.addView(TextView(this).apply {
             text = s
             setTextColor(color)
@@ -350,7 +350,7 @@ class UniverseHealthActivity : Activity() {
             setPadding(0, pad, 0, pad)
             addView(TextView(this@UniverseHealthActivity).apply {
                 text = label
-                setTextColor(Color.parseColor("#A7B7D8"))
+                setTextColor(AateUi.TEXT_SECONDARY)
                 textSize = 13f
                 typeface = Typeface.MONOSPACE
                 layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)

@@ -154,8 +154,8 @@ class JournalActivity : AppCompatActivity() {
                     0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f
                 ).also { it.marginEnd = dp(4) }
                 gravity = android.view.Gravity.CENTER
-                setBackgroundColor(0xFF101E33.toInt())
-                setTextColor(if (filter == currentModeFilter) 0xFF16E6A1.toInt() else 0xFFA7B7D8.toInt())
+                setBackgroundColor(AateUi.SURFACE_3)
+                setTextColor(if (filter == currentModeFilter) AateUi.GREEN else AateUi.TEXT_SECONDARY)
                 setOnClickListener {
                     currentModeFilter = filter
                     currentPage = 1  // V5.9.330: reset pagination on filter change
@@ -192,8 +192,8 @@ class JournalActivity : AppCompatActivity() {
     }
 
     private fun updateTabColors() {
-        val active = 0xFF16E6A1.toInt()
-        val inactive = 0xFFA7B7D8.toInt()
+        val active = AateUi.GREEN
+        val inactive = AateUi.TEXT_SECONDARY
         tvFilterAll?.setTextColor(if (currentModeFilter == null) active else inactive)
         tvFilterLive?.setTextColor(if (currentModeFilter == "live") active else inactive)
         tvFilterPaper?.setTextColor(if (currentModeFilter == "paper") active else inactive)
@@ -693,7 +693,7 @@ class JournalActivity : AppCompatActivity() {
                 setTextColor(0xFF60A5FA.toInt())
                 gravity = android.view.Gravity.CENTER
                 typeface = Typeface.DEFAULT_BOLD
-                setBackgroundColor(0xFF101E33.toInt())
+                setBackgroundColor(AateUi.SURFACE_3)
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
@@ -779,7 +779,7 @@ class JournalActivity : AppCompatActivity() {
         fun mkBtn(label: String, color: Int, onClick: () -> Unit): android.widget.Button {
             return android.widget.Button(this).apply {
                 text = label
-                setTextColor(0xFFF5F7FF.toInt())
+                setTextColor(AateUi.TEXT)
                 setBackgroundColor(color)
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -792,13 +792,13 @@ class JournalActivity : AppCompatActivity() {
             }
         }
 
-        container.addView(mkBtn("Restore Paper Treasury", 0xFF16E6A1.toInt()) {
+        container.addView(mkBtn("Restore Paper Treasury", AateUi.GREEN) {
             showTreasuryInputDialog("Paper", true)
         })
-        container.addView(mkBtn("Restore Live Treasury", 0xFF9A4DFF.toInt()) {
+        container.addView(mkBtn("Restore Live Treasury", AateUi.PURPLE) {
             showTreasuryInputDialog("Live", false)
         })
-        container.addView(mkBtn("Restore Both", 0xFFFFB020.toInt()) {
+        container.addView(mkBtn("Restore Both", AateUi.AMBER) {
             showBothTreasuryInputDialog()
         })
 
@@ -855,12 +855,12 @@ class JournalActivity : AppCompatActivity() {
         
         layout.addView(TextView(this).apply { 
             text = "Paper Treasury:"
-            setTextColor(0xFF16E6A1.toInt())
+            setTextColor(AateUi.GREEN)
         })
         layout.addView(paperInput)
         layout.addView(TextView(this).apply { 
             text = "\nLive Treasury:"
-            setTextColor(0xFF9A4DFF.toInt())
+            setTextColor(AateUi.PURPLE)
         })
         layout.addView(liveInput)
         
