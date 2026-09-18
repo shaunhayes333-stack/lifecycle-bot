@@ -5,18 +5,27 @@
   graded bloom -> falloff -> lit core. Gradient, 18dp radius and corner wash
   are unchanged so geometry is identical.
 -->
+<!--
+  V5.0.7007 — same correction as aate_universe_panel_bg: lift the FILL.
+
+  V5.0.6998 brightened the hairline on this card and the operator could not see
+  the difference, because the difference was never the hairline. The surface was
+  so close to the page behind it that the card read as an outline. This raises
+  the fill into a visibly lighter blue slab, keeps the graded edge, and adds the
+  lit top rule. Geometry, radii and insets are unchanged.
+-->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
 
     <item>
         <shape android:shape="rectangle">
-            <stroke android:width="3dp" android:color="#164C8DFF"/>
+            <stroke android:width="3dp" android:color="#2422D3EE"/>
             <corners android:radius="18dp"/>
         </shape>
     </item>
 
     <item android:left="1dp" android:top="1dp" android:right="1dp" android:bottom="1dp">
         <shape android:shape="rectangle">
-            <stroke android:width="2dp" android:color="#384C8DFF"/>
+            <stroke android:width="2dp" android:color="#4E4C8DFF"/>
             <corners android:radius="17dp"/>
         </shape>
     </item>
@@ -24,8 +33,8 @@
     <item android:left="2dp" android:top="2dp" android:right="2dp" android:bottom="2dp">
         <shape android:shape="rectangle">
             <gradient android:type="linear" android:angle="135"
-                android:startColor="#E6112038" android:centerColor="#EA0A1628" android:endColor="#F0060E1A"/>
-            <stroke android:width="1dp" android:color="#8A5D8BC4"/>
+                android:startColor="#EB222E5C" android:centerColor="#F1131D42" android:endColor="#F7090E20"/>
+            <stroke android:width="1dp" android:color="#AD7CC4FF"/>
             <corners android:radius="16dp"/>
         </shape>
     </item>

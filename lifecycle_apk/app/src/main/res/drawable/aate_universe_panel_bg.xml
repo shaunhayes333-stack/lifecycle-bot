@@ -1,33 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  V5.0.6998 — the glow edge from the renders, on the app's main card surface.
+  V5.0.7007 — the card surface from the render, on the app's main container.
 
-  This one drawable is the background of 145 card containers across the 21
-  layouts, so restyling it restyles most of the app with no layout edit, no id
-  churn and no Kotlin change. That is the "80% is restyling what is already
-  there" the operator was pointing at.
+  This drawable is the background of 145 card containers across the 21 layouts,
+  so it is the single highest-leverage surface in the app.
 
-  WHAT CHANGED, and why it is the whole difference: the card had a SINGLE flat
-  1dp stroke at #385A86B8 — 22% alpha. Every card in every render has a
-  LUMINOUS hairline edge instead. A 22%-alpha hairline reads as a box drawn
-  around content; a graded edge reads as a lit surface, and that is what makes
-  the mockups look like a product.
+  WHY THIS IS A SECOND ATTEMPT, stated plainly. V5.0.6998 restyled this file by
+  lifting a 1dp hairline from 22% to 54% alpha and adding two faint outer
+  strokes. It shipped, it was green, and the operator's reply was "everything
+  still looks exactly the same" — correct. I had verified that the file was
+  referenced (80 times in activity_main.xml) and concluded the change had
+  landed; I never checked whether it was VISIBLE. A hairline going from 22% to
+  54% on a dark ground is a change you can measure and cannot see.
 
-  Added two concentric stroke layers OUTSIDE the existing surface — a 3dp
-  bloom at 10% and a 2dp falloff at 24% — and lifted the core stroke from 22%
-  to 54%. The gradient fill, the 20dp radius, the radial corner wash and the
-  top highlight rule are untouched, so nothing shifts position and every
-  existing screen keeps its exact geometry.
+  What actually separates the render from the shipped screen is not the stroke,
+  it is the FILL. The card was #E60D1A2E -> #EE050C18: near-black, barely
+  distinguishable from the page behind it, so every card read as a faint outline
+  rather than a lit surface. The render's card is a genuinely lighter blue slab
+  that sits clearly ABOVE its background, with the edge as a highlight on top of
+  that — not as the only thing present.
 
-  The layers are inset 1dp/2dp so the bloom occupies the container's own
-  padding rather than growing the card.
+  So this raises the fill by roughly three stops (#222E5C at the top-left,
+  falling to #090E20), keeps the three-layer graded edge from 6998, and adds the
+  inner top highlight that gives the slab its lit-from-above read.
+
+  Geometry is untouched: same 20dp outer radius, same inset structure, so no
+  layout shifts by a pixel and no id changes anywhere.
 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- outer bloom -->
+    <!-- outer bloom — sits in the container's existing padding -->
     <item>
         <shape android:shape="rectangle">
-            <stroke android:width="3dp" android:color="#1A4C8DFF"/>
+            <stroke android:width="3dp" android:color="#2622D3EE"/>
             <corners android:radius="20dp"/>
         </shape>
     </item>
@@ -35,37 +40,36 @@
     <!-- mid falloff -->
     <item android:left="1dp" android:top="1dp" android:right="1dp" android:bottom="1dp">
         <shape android:shape="rectangle">
-            <stroke android:width="2dp" android:color="#3D4C8DFF"/>
+            <stroke android:width="2dp" android:color="#4F4C8DFF"/>
             <corners android:radius="19dp"/>
         </shape>
     </item>
 
-    <!-- surface + crisp lit edge (was a single #385A86B8 hairline) -->
+    <!-- THE SURFACE. This is the change that is actually visible. -->
     <item android:left="2dp" android:top="2dp" android:right="2dp" android:bottom="2dp">
         <shape android:shape="rectangle">
-            <gradient android:type="linear" android:angle="135"
-                android:startColor="#E60D1A2E" android:centerColor="#E6091424" android:endColor="#EE050C18"/>
-            <stroke android:width="1dp" android:color="#8A5A86B8"/>
+            <gradient android:type="linear" android:angle="125"
+                android:startColor="#EB222E5C" android:centerColor="#F1131D42" android:endColor="#F7090E20"/>
+            <stroke android:width="1dp" android:color="#AD7CC4FF"/>
             <corners android:radius="18dp"/>
         </shape>
     </item>
 
-    <!-- corner wash, unchanged -->
+    <!-- corner wash, strengthened so it reads as light rather than noise -->
     <item android:left="2dp" android:top="2dp" android:right="2dp" android:bottom="2dp">
         <shape android:shape="rectangle">
-            <gradient android:type="radial" android:gradientRadius="190dp"
-                android:centerX="0.08" android:centerY="0.00"
-                android:startColor="#184C8DFF" android:endColor="#00000000"/>
+            <gradient android:type="radial" android:gradientRadius="210dp"
+                android:centerX="0.06" android:centerY="0.00"
+                android:startColor="#4422D3EE" android:endColor="#00000000"/>
             <corners android:radius="18dp"/>
         </shape>
     </item>
 
-    <!-- top highlight rule, unchanged -->
-    <item android:height="1dp" android:gravity="top" android:left="2dp" android:right="2dp" android:top="2dp">
+    <!-- inner top highlight: the lit-from-above edge -->
+    <item android:height="1dp" android:gravity="top" android:left="3dp" android:right="3dp" android:top="3dp">
         <shape android:shape="rectangle">
             <gradient android:type="linear" android:angle="0"
-                android:startColor="#004C8DFF" android:centerColor="#AA4C8DFF" android:endColor="#0031C7FF"/>
-            <corners android:topLeftRadius="18dp" android:topRightRadius="18dp"/>
+                android:startColor="#0022D3EE" android:centerColor="#D9BEE1FF" android:endColor="#008B5CF6"/>
         </shape>
     </item>
 

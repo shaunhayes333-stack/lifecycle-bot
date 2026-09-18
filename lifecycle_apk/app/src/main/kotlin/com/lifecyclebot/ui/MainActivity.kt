@@ -1098,7 +1098,77 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * V5.0.7007 §COME_BACK_TO_WHERE_I_WAS.
+     *
+     * Operator: "it automatically resumes to the users screen and text size
+     * while maintaining proper structure."
+     *
+     * MainActivity is a 6,740-line single scroll surface with three trader
+     * tabs, so "where I was" is two numbers: which tab, and how far down. The
+     * activity is paused every time the operator opens Pipeline, Wallet, Lab
+     * or any other screen, and on the way back it reset to MEME at scroll 0 —
+     * which on a screen this tall means hunting for your place several times a
+     * minute.
+     *
+     * Deliberately SharedPreferences and not savedInstanceState: the operator
+     * comes back after the process has been killed in the background (this app
+     * holds a foreground service and gets reaped often), and a Bundle does not
+     * survive that. V5.9.1484 also removed view-tree state saving here on
+     * purpose to kill an ANR class, so a Bundle round-trip is not available
+     * anyway.
+     *
+     * Scroll is restored with post() so it runs after the first layout pass —
+     * setting scrollY before children are measured silently does nothing.
+     */
+    private val uiSessionPrefs7007 by lazy {
+        getSharedPreferences("aate_ui_session_7007", MODE_PRIVATE)
+    }
+
+    /**
+     * V5.0.7007 — dp, not raw pixels.
+     *
+     * Views built in Kotlin take PIXELS, while everything authored in XML and
+     * every textSize in this file takes dp/sp. Mixing the two is why the
+     * open-position rows looked right on one device and wrong on the next, and
+     * why raising the system font size pulled the row apart: the type scaled
+     * and the boxes did not.
+     */
+    private fun dp7007(v: Int): Int =
+        (v * resources.displayMetrics.density).toInt().coerceAtLeast(1)
+
+    private fun saveUiSession7007() {
+        try {
+            val scroll = try { findViewById<androidx.core.widget.NestedScrollView>(R.id.mainScrollView)?.scrollY ?: 0 } catch (_: Throwable) { 0 }
+            uiSessionPrefs7007.edit()
+                .putString("tab", currentReadinessTab)
+                .putInt("scrollY", scroll)
+                .putLong("at", System.currentTimeMillis())
+                .apply()
+        } catch (_: Throwable) { /* never let a UI convenience break onPause */ }
+    }
+
+    private fun restoreUiSession7007() {
+        try {
+            // A resume hours later should land on a fresh screen, not a stale
+            // scroll position into positions that have since closed.
+            val age = System.currentTimeMillis() - uiSessionPrefs7007.getLong("at", 0L)
+            if (age > 6L * 60L * 60L * 1000L) return
+
+            val tab = uiSessionPrefs7007.getString("tab", null)
+            if (!tab.isNullOrBlank() && tab != currentReadinessTab) {
+                try { selectReadinessTab(tab) } catch (_: Throwable) {}
+            }
+            val y = uiSessionPrefs7007.getInt("scrollY", 0)
+            if (y > 0) {
+                val sv = try { findViewById<androidx.core.widget.NestedScrollView>(R.id.mainScrollView) } catch (_: Throwable) { null }
+                sv?.post { try { sv.scrollTo(0, y) } catch (_: Throwable) {} }
+            }
+        } catch (_: Throwable) {}
+    }
+
     override fun onPause() {
+        saveUiSession7007()
         try { mainInactiveHandler.removeCallbacks(markMainInactiveRunnable) } catch (_: Throwable) {}
         // V5.9.1164 — do not deactivate UI/runtime truth on ordinary navigation.
         // repeatOnLifecycle already pauses the render collector when Main is not
@@ -1194,6 +1264,7 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         try { mainInactiveHandler.removeCallbacks(markMainInactiveRunnable) } catch (_: Throwable) {}
         mainUiActive = true
+        restoreUiSession7007()
         // V5.0.6300 — register screen-off/on receiver (idempotent).
         if (!screenReceiverRegistered) {
             try {
@@ -5572,41 +5643,68 @@ for legal compliance.
             var trailLockTvRef: android.widget.TextView? = null
             var barViewRef: android.view.View? = null
 
+            // V5.0.7007 §THE_ROW_WAS_SIZED_IN_RAW_PIXELS.
+            //
+            // Operator: "while maintaining proper structure."
+            //
+            // Every box in this row was a raw PIXEL literal — a 40x40 logo, a
+            // 4px accent bar, 12px padding. On a 3x-density phone that draws
+            // the logo at about 13dp: a smudge beside 14sp text. And because
+            // the text here is set in sp (scale-aware) while the boxes around
+            // it were px (not), raising the system font size stretched the type
+            // while the containers stayed fixed — the structure came apart
+            // exactly when the operator most needed it to hold.
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
-                setPadding(0, 12, 0, 12)
+                setPadding(0, dp7007(9), 0, dp7007(9))
                 gravity = android.view.Gravity.CENTER_VERTICAL
             }
 
-            // V5.9.1229 — no ImageView/logo work while runtime is active.
-            // 3196 ANRs still showed renderOpenPositions/TextView allocation on Main.
-            if (runtimeActive) {
-                row.addView(TextView(this).apply {
-                    text = "●"
-                    textSize = 18f
-                    setTextColor(gainCol)
-                    gravity = android.view.Gravity.CENTER
-                    layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
-                })
-            } else {
-                val logoImg = android.widget.ImageView(this).apply {
-                    layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
-                    scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
-                    try { background = cachedDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
-                    val cachedLogo = try { ts.logoUrl.ifBlank { null } } catch (_: Exception) { null }
-                    load(cachedLogo ?: "https://cdn.dexscreener.com/tokens/solana/${ts.mint}") {
-                        crossfade(true); placeholder(tokenPlaceholderDrawable())
-                        error(tokenPlaceholderDrawable()); allowHardware(false)
-                        transformations(coil.transform.CircleCropTransformation())
-                    }
+            // V5.0.7007 §THE_LOGOS_WERE_OFF_WHENEVER_THE_BOT_WAS_ON.
+            //
+            // Operator: "ensure open positions get their token logos on the
+            // displays."
+            //
+            // They were never going to. Two separate defects sat here:
+            //
+            // 1. `if (runtimeActive)` swapped every logo for a coloured "●".
+            //    V5.9.1229 added that to shed ANR load, and the condition is
+            //    "the bot is running" — which is the entire time the operator
+            //    is looking at this screen. The logo branch was effectively
+            //    dead code. The ANR it was defending against is now measured
+            //    at 1 hint and 0.2% of uptime (5.0.7003 snapshot), down from
+            //    21.7%, and renderOpenPositions only rebuilds on a STRUCTURAL
+            //    change (see the hash at the top of this function), not on the
+            //    1Hz price tick — so the load happens when a position opens or
+            //    closes, not every second.
+            //
+            // 2. The DexScreener fallback URL had no file extension:
+            //       .../tokens/solana/${ts.mint}      <- 404, always
+            //    while the hero card 40 lines up uses the same URL WITH `.png`
+            //    and works. So even the rare non-runtime render fell through
+            //    to the placeholder. Both call sites now build the URL the
+            //    same way.
+            //
+            // Coil keeps its own memory + disk cache, so a logo is fetched once
+            // per mint per session and every later rebuild is a cache read.
+            val logoImg = android.widget.ImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(dp7007(36), dp7007(36)).also { it.marginEnd = dp7007(10) }
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                contentDescription = "${ts.symbol.ifBlank { "Token" }} logo"
+                try { background = cachedDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                val cachedLogo = try { ts.logoUrl.ifBlank { null } } catch (_: Exception) { null }
+                load(cachedLogo ?: "https://cdn.dexscreener.com/tokens/solana/${ts.mint}.png") {
+                    crossfade(true); placeholder(tokenPlaceholderDrawable())
+                    error(tokenPlaceholderDrawable()); allowHardware(false)
+                    transformations(coil.transform.CircleCropTransformation())
                 }
-                row.addView(logoImg)
             }
+            row.addView(logoImg)
 
             // Colour bar on left
             val bar = View(this).apply {
-                layoutParams = LinearLayout.LayoutParams(4, LinearLayout.LayoutParams.MATCH_PARENT).also {
-                    it.marginEnd = 12
+                layoutParams = LinearLayout.LayoutParams(dp7007(3), LinearLayout.LayoutParams.MATCH_PARENT).also {
+                    it.marginEnd = dp7007(11)
                 }
                 setBackgroundColor(gainCol)
             }

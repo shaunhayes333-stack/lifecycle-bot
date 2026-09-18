@@ -4,18 +4,27 @@
   The left accent rule is preserved exactly; only the flat #2E4E78 hairline
   gains its bloom and falloff. 16dp radius unchanged.
 -->
+<!--
+  V5.0.7007 — same correction as aate_universe_panel_bg: lift the FILL.
+
+  V5.0.6998 brightened the hairline on this card and the operator could not see
+  the difference, because the difference was never the hairline. The surface was
+  so close to the page behind it that the card read as an outline. This raises
+  the fill into a visibly lighter blue slab, keeps the graded edge, and adds the
+  lit top rule. Geometry, radii and insets are unchanged.
+-->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
 
     <item>
         <shape android:shape="rectangle">
-            <stroke android:width="3dp" android:color="#144C8DFF"/>
+            <stroke android:width="3dp" android:color="#2222D3EE"/>
             <corners android:radius="16dp"/>
         </shape>
     </item>
 
     <item android:left="1dp" android:top="1dp" android:right="1dp" android:bottom="1dp">
         <shape android:shape="rectangle">
-            <stroke android:width="2dp" android:color="#334C8DFF"/>
+            <stroke android:width="2dp" android:color="#4B4C8DFF"/>
             <corners android:radius="15dp"/>
         </shape>
     </item>
@@ -23,8 +32,8 @@
     <item android:left="2dp" android:top="2dp" android:right="2dp" android:bottom="2dp">
         <shape android:shape="rectangle">
             <gradient android:type="linear" android:angle="135"
-                android:startColor="#D90E1B2F" android:centerColor="#D9081323" android:endColor="#E6050B15"/>
-            <stroke android:width="1dp" android:color="#8A4E78B4"/>
+                android:startColor="#E81E2952" android:centerColor="#F0111A3C" android:endColor="#F6080D1E"/>
+            <stroke android:width="1dp" android:color="#A87CC4FF"/>
             <corners android:radius="14dp"/>
         </shape>
     </item>

@@ -1,22 +1,54 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- AATE vNext visual system. UI-only palette; no engine/runtime behavior. -->
-    <color name="aate_bg">#030712</color>
-    <color name="aate_bg_deep">#01040B</color>
-    <color name="aate_surface">#0A1424</color>
-    <color name="aate_surface_2">#0D192B</color>
-    <color name="aate_surface_3">#101E33</color>
-    <color name="aate_stroke">#2B4B78</color>
-    <color name="aate_stroke_soft">#193250</color>
-    <color name="aate_text">#F5F7FF</color>
-    <color name="aate_text_secondary">#A7B7D8</color>
-    <color name="aate_text_muted">#63759B</color>
-    <color name="aate_purple">#9A4DFF</color>
-    <color name="aate_purple_bright">#B36BFF</color>
+    <!--
+      AATE visual system — V5.0.7007, retuned to the operator-approved render.
+
+      UI-only. No engine or runtime behaviour reads these.
+
+      Every name is unchanged so nothing needs re-pointing; only the values
+      move. That is the point: this one file is referenced across all 21
+      layouts, so retuning it restyles the app without touching a single
+      layout, id or Kotlin call site.
+
+      What changed and why, since V5.0.6998's card edit was invisible: the old
+      palette was built around near-black surfaces (#0A1424) that sat almost on
+      top of the page colour (#030712), so containers had no presence and the
+      whole screen read flat. The render's surfaces are a genuinely lighter
+      blue that sits ABOVE the ground, with accents that are brighter and more
+      saturated. Text drops from near-white to a softer ink so the accents,
+      not the labels, carry the eye.
+    -->
+
+    <!-- Ground. Deeper and slightly cooler than before. -->
+    <color name="aate_bg">#04060D</color>
+    <color name="aate_bg_deep">#02040A</color>
+
+    <!-- Surfaces. Raised ~3 stops; this is the change you actually see. -->
+    <color name="aate_surface">#121C3A</color>
+    <color name="aate_surface_2">#18244A</color>
+    <color name="aate_surface_3">#222E5C</color>
+
+    <!-- Edges. The render's lit hairline, not a drawn box. -->
+    <color name="aate_stroke">#4E7CB8</color>
+    <color name="aate_stroke_soft">#2B4570</color>
+
+    <!-- Ink. Softer than pure white so accents lead. -->
+    <color name="aate_text">#E8EEFB</color>
+    <color name="aate_text_secondary">#8FA3C8</color>
+    <color name="aate_text_muted">#5D6E91</color>
+
+    <!-- Accents. -->
+    <color name="aate_purple">#8B5CF6</color>
+    <color name="aate_purple_bright">#C4B5FD</color>
     <color name="aate_blue">#4C8DFF</color>
-    <color name="aate_cyan">#31C7FF</color>
-    <color name="aate_green">#16E6A1</color>
-    <color name="aate_amber">#FFB020</color>
-    <color name="aate_red">#FF4D6D</color>
-    <color name="aate_scrim">#CC020611</color>
+    <color name="aate_cyan">#22D3EE</color>
+    <color name="aate_green">#34D399</color>
+    <color name="aate_amber">#FBBF24</color>
+    <color name="aate_red">#FB5E6D</color>
+
+    <!-- V5.0.7007 — the render's fifth accent, for runners and live alerts. -->
+    <color name="aate_pink">#F0409C</color>
+    <color name="aate_pink_soft">#F9A8D4</color>
+
+    <color name="aate_scrim">#CC02040A</color>
 </resources>
