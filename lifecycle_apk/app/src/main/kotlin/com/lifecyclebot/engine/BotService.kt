@@ -9124,6 +9124,13 @@ class BotService : Service() {
             com.lifecyclebot.network.EmergentLlmClient.configure(
                 apiKey = if (antKey.startsWith("sk-ant-")) antKey else ""
             )
+            // V5.0.6999 — probe the council once, off-thread, and log which
+            // members actually answered. Three builds running, "is the LLM
+            // alive" has been answerable only by inference; this makes the next
+            // snapshot say it outright.
+            Thread {
+                try { com.lifecyclebot.network.KeylessLlmClient.probeCouncil6999() } catch (_: Throwable) {}
+            }.apply { isDaemon = true; name = "llm-council-probe-6999" }.start()
         } catch (e: Exception) {
             ErrorLogger.warn("BotService", "EmergentLlmClient configure failed: ${e.message}")
         }
@@ -10589,11 +10596,19 @@ class BotService : Service() {
                 val nonSolanaSkipped6970 = openMints.size - solanaMints6970.size
                 val chunks = solanaMints6970.chunked(30)
                 val priceMap = HashMap<String, Double>(solanaMints6970.size)
+                // V5.0.6999 §THE_MARKS_ARRIVED_AND_THE_EXIT_ENGINE_NEVER_HEARD.
+                //
+                // Which provider actually answered for each mint. Two things
+                // downstream need it and neither had it — see the commit site
+                // at the bottom of this loop for why that stopped the bot
+                // trading.
+                val markSource6999 = HashMap<String, String>(solanaMints6970.size)
                 var rateLimitedChunks6970 = 0
                 if (chunks.size == 1) {
                     val one = try { dex.batchPriceFetch(chunks[0]) } catch (_: Throwable) { emptyMap() }
                     if (one.isEmpty() && chunks[0].isNotEmpty()) rateLimitedChunks6970++
                     priceMap.putAll(one)
+                    for (k in one.keys) markSource6999[k] = "DEXSCREENER_BATCH"
                 } else {
                     val parts = try {
                         kotlinx.coroutines.coroutineScope {
@@ -10609,6 +10624,7 @@ class BotService : Service() {
                     for ((idx, part) in parts.withIndex()) {
                         if (part.isEmpty() && chunks.getOrNull(idx)?.isNotEmpty() == true) rateLimitedChunks6970++
                         priceMap.putAll(part)
+                        for (k in part.keys) markSource6999[k] = "DEXSCREENER_BATCH"
                     }
                 }
                 // An empty batch was previously indistinguishable from "no data".
@@ -10680,7 +10696,10 @@ class BotService : Service() {
                             .fillMissing(missingBeforeKeyless6946Raw)
                         if (rescued6996.isNotEmpty()) {
                             for ((m, p) in rescued6996) {
-                                if (p.isFinite() && p > 0.0) priceMap[m] = p
+                                if (p.isFinite() && p > 0.0) {
+                                    priceMap[m] = p
+                                    markSource6999[m] = "KEYLESS_BATCH_6996"
+                                }
                             }
                             missingBeforeKeyless6946 = missingBeforeKeyless6946Raw.filter { it !in priceMap }
                             ForensicLogger.lifecycle(
@@ -10774,6 +10793,7 @@ class BotService : Service() {
                         val px = r?.priceUsd ?: 0.0
                         if (px > 0.0) {
                             priceMap[mint] = px
+                            markSource6999[mint] = "KEYLESS_" + (r?.source?.name ?: "UNKNOWN")
                             resolved6946++
                             try {
                                 PipelineHealthCollector.labelInc("MARK_KEYLESS_FALLBACK_6946_${r?.source?.name ?: "UNKNOWN"}")
@@ -10854,6 +10874,7 @@ class BotService : Service() {
                                 val price = try { birdeye.getTokenPriceEmergency(mint) } catch (_: Throwable) { null }
                                 if (price != null && price > 0.0) {
                                     priceMap[mint] = price
+                                    markSource6999[mint] = "BIRDEYE_PRICE_FALLBACK"
                                     // Reset chronic counter on success
                                     openPosFallbackFirstMiss.remove(mint)
                                     val tsRef = status.tokens[mint]
@@ -10974,10 +10995,61 @@ class BotService : Service() {
                         }
                     }
 
+                    // V5.0.6999 §THE_MARKS_ARRIVED_AND_THE_EXIT_ENGINE_NEVER_HEARD.
+                    //
+                    // Operator: "then the complete lack of trading".
+                    //
+                    // Their 5.0.6997 snapshot has all the pieces of the answer
+                    // on separate lines, and they only connect here:
+                    //
+                    //     defillama sr=100% s=222   MARK_KEYLESS_BATCH_RESCUE_6996: 222
+                    //     CANONICAL_EXIT_FEED_6512 ... missingMark=89 of 100
+                    //     Exit scheduler eval=51378  SL=0 CATA=0 TP=0 TRAIL=0
+                    //     Open positions 100 / POSITION_HARD_CAP 100
+                    //
+                    // 222 marks were being fetched successfully every pass and
+                    // 89 of 100 positions were still counted as unmarked. Both
+                    // are true, because the exit feed does not ask whether
+                    // `ts.lastPrice` is set — it asks
+                    // `QuoteFreshnessGuard6452.isFresh(mint)` (the 6651
+                    // provenance test). And this commit — the one place the
+                    // whole open-position loop writes a mark — never stamped
+                    // that guard. Grep said so plainly: `note()` had exactly
+                    // ONE caller in the entire codebase, inside Executor, on
+                    // the buy path.
+                    //
+                    // So every position not being actively bought had NO
+                    // provenance record, `provenanceFresh6651` was false
+                    // forever, `refreshNeeded6651` was permanently true, and
+                    // the exit engine declined to evaluate a stop, a target or
+                    // a trail on a position it was, in fact, pricing once a
+                    // second. 51,378 evaluations, zero exits. Nothing could
+                    // close, inventory filled to the 100 hard cap, and every
+                    // lane went SIZING_CHOKED behind POSITION_HARD_CAP — which
+                    // is the complete lack of trading.
+                    //
+                    // This is the house defect class again: sensing wired,
+                    // deciding dead. The feed worked the whole time; the part
+                    // that decides was reading a channel nobody wrote to.
+                    //
+                    // The source label was also a second, quieter bug: every
+                    // mark was stamped "DEXSCREENER_WS" regardless of who
+                    // actually answered, so DefiLlama's and Jupiter's rescues
+                    // were credited to DexScreener in every source-attribution
+                    // readout. Record the provider that really replied.
+                    val resolvedSource6999 = markSource6999[mint] ?: "DEXSCREENER_WS"
+                    try {
+                        com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.note(
+                            mint = mint,
+                            priceUsd = priceUsd,
+                            source = com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.Provenance.REST_LIVE,
+                        )
+                    } catch (_: Throwable) {}
+
                     synchronized(ts) {
                         ts.lastPrice = priceUsd
                         ts.lastPriceUpdate = now
-                        ts.lastPriceSource = "DEXSCREENER_WS"  // V5.9.744
+                        ts.lastPriceSource = resolvedSource6999  // V5.0.6999 (was always "DEXSCREENER_WS")
                         // Append a tick candle so trailing-stop + pattern AIs see motion.
                         // Keep history bounded — same 300-candle cap used elsewhere.
                         val candle = com.lifecyclebot.data.Candle(

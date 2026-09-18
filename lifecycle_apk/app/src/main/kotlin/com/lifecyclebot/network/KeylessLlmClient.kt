@@ -73,6 +73,23 @@ object KeylessLlmClient {
             .build()
     }
 
+    /**
+     * V5.0.6999 — every council call is now an OBSERVED call.
+     *
+     * Previously each provider did `httpClient.newCall(req).execute()`, which
+     * bypasses ApiHealthMonitor entirely. That is why the operator's 5.0.6997
+     * snapshot had no row for the providers added in 6996: their absence was
+     * not evidence they failed, and not evidence they ran — the log simply had
+     * nothing to say about them, which made the council unrepairable.
+     *
+     * Routing through HealthAwareHttp puts each member in the same health table
+     * as every data provider, so "is the LLM alive" becomes a number instead of
+     * a guess. It also means a member that starts 429ing gets the same backoff
+     * discipline as everything else rather than being hammered forever.
+     */
+    private fun exec(req: Request, host: String) =
+        com.lifecyclebot.engine.HealthAwareHttp.execute(httpClient, req, host = host)
+
     private val startIdx = AtomicInteger(0)
     private const val COOLDOWN_MS = 60_000L
     private val cooldownUntil = mutableMapOf<String, Long>()
@@ -161,7 +178,61 @@ object KeylessLlmClient {
         // keyed member is rate-limited, unpaid or unconfigured.
         list.add(Provider("pollinations") { s, u, m -> callPollinations(s, u, m) })
         list.add(Provider("pollinations_get") { s, u, m -> callPollinationsGet(s, u, m) })
+
+        // V5.0.6999 — a keyless surface that publishes its own catalogue.
+        //
+        // Operator, after 6996 shipped: "llm is still gone dude not good
+        // enough. I asked you to find and install and implement new free
+        // keyless providers!!!"
+        //
+        // Two Pollinations members were not enough, and worse, I could not tell
+        // whether they ran — see KeylessLlmProviders6999 for why. OVHcloud AI
+        // Endpoints serves an OpenAI-compatible API on a free ANONYMOUS tier
+        // (no key, no account, no signup) and its anonymous budget is per-IP
+        // PER MODEL, so each discovered model is an independent voice with its
+        // own rate limit. Three members here is three separate budgets, not
+        // three ways to hit the same wall.
+        //
+        // Models are not hard-coded — they are read from the endpoint's own
+        // /v1/models. Guessing a model string I cannot verify is precisely the
+        // mistake that made 6996 a no-op.
+        repeat(3) { slot ->
+            list.add(Provider("ovh_keyless_$slot") { s, u, m -> KeylessLlmProviders6999.chat(s, u, m) })
+        }
         return list
+    }
+
+    /**
+     * V5.0.6999 — ask every member once and say out loud what came back.
+     *
+     * The council's liveness has been a matter of inference for three builds
+     * running. A probe converts it into a line in the log the operator can read
+     * without me interpreting it, which is the only way to tell "the LLM is
+     * gone" from "the LLM is never called". Cheap: one short prompt per member,
+     * run once at startup.
+     */
+    fun probeCouncil6999(): String {
+        val results = ArrayList<String>()
+        for (p in buildProviderList()) {
+            val ok = try {
+                !p.call("You are a connectivity probe. Answer with one word.", "Say OK", 8).isNullOrBlank()
+            } catch (e: Exception) {
+                ErrorLogger.debug(TAG, "probe ${p.name}: ${e.message?.take(120)}")
+                false
+            }
+            results.add("${p.name}=${if (ok) "OK" else "DRY"}")
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                    "LLM_COUNCIL_PROBE_6999_" + (if (ok) "OK_" else "DRY_") + p.name.uppercase(),
+                )
+            } catch (_: Throwable) {}
+        }
+        val line = results.joinToString(" ")
+        try {
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("LLM_COUNCIL_PROBE_6999", line.take(400))
+            ErrorLogger.info(TAG, "council probe: $line")
+        } catch (_: Throwable) {}
+        return line
     }
 
     // ── Pollinations (GENUINELY keyless — no account, no signup) ───────────
@@ -181,7 +252,7 @@ object KeylessLlmClient {
             .header("Content-Type", "application/json")
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
-        httpClient.newCall(req).execute().use { resp ->
+        exec(req, "llm_pollinations").use { resp ->
             if (!resp.isSuccessful) return null
             val body = resp.body?.string() ?: return null
             // Documented shape is OpenAI-compatible, but this endpoint has
@@ -206,7 +277,7 @@ object KeylessLlmClient {
             .url("https://text.pollinations.ai/$encoded?model=openai")
             .get()
             .build()
-        httpClient.newCall(req).execute().use { resp ->
+        exec(req, "llm_pollinations_get").use { resp ->
             if (!resp.isSuccessful) return null
             return resp.body?.string()?.trim()?.ifBlank { null }
         }
@@ -228,7 +299,7 @@ object KeylessLlmClient {
             .header("Content-Type", "application/json")
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
-        httpClient.newCall(req).execute().use { resp ->
+        exec(req, "llm_emergent").use { resp ->
             if (!resp.isSuccessful) return null
             val body = resp.body?.string() ?: return null
             val j = JSONObject(body)
@@ -256,7 +327,7 @@ object KeylessLlmClient {
             .header("Content-Type", "application/json")
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
-        httpClient.newCall(req).execute().use { resp ->
+        exec(req, "llm_groq").use { resp ->
             if (!resp.isSuccessful) return null
             val body = resp.body?.string() ?: return null
             val j = JSONObject(body)
@@ -283,7 +354,7 @@ object KeylessLlmClient {
             .header("Content-Type", "application/json")
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
-        httpClient.newCall(req).execute().use { resp ->
+        exec(req, "llm_openrouter").use { resp ->
             if (!resp.isSuccessful) return null
             val body = resp.body?.string() ?: return null
             val j = JSONObject(body)
@@ -307,7 +378,7 @@ object KeylessLlmClient {
             .header("Content-Type", "application/json")
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
-        httpClient.newCall(req).execute().use { resp ->
+        exec(req, "llm_anthropic").use { resp ->
             if (!resp.isSuccessful) return null
             val body = resp.body?.string() ?: return null
             val j = JSONObject(body)

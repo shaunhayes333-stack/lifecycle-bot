@@ -35,6 +35,11 @@ object ApiBackoff {
         // V5.0.6968 — the lockout deadline this host has already spent its one
         // half-open probe on. Without it, "one probe" was one probe PER CALL.
         val halfOpenUsedForUntilMs: AtomicLong = AtomicLong(0L),
+        // V5.0.6999 — consecutive request-level (400/404/422) replies with no
+        // success in between. Routine "no route for this token" answers live
+        // here instead of in consecutiveFailures, so they never arm a lockout
+        // on a host that is demonstrably answering.
+        val requestLevelFailures6999: AtomicInteger = AtomicInteger(0),
     )
 
     private val state = ConcurrentHashMap<String, State>()
@@ -70,10 +75,72 @@ object ApiBackoff {
     private fun key(host: String): String = host.trim().lowercase()
     private fun stateFor(host: String): State = state.getOrPut(key(host)) { State() }
 
+    /**
+     * V5.0.6999 §THE_ROUTING_VERDICT_THAT_BANNED_THE_ROUTER.
+     *
+     * HTTP 400/404/422 answer a question about the REQUEST, not about the HOST.
+     * Jupiter's quote API returns 400 (`COULD_NOT_FIND_ANY_ROUTE`) whenever the
+     * pair or the size has no route right now — which for a memecoin scanner is
+     * an ordinary, expected, many-times-a-minute outcome. It means "not this
+     * token", never "Jupiter is down".
+     *
+     * Treating it as a host failure produced the operator's 5.0.6997 snapshot:
+     *
+     *     ✅ jupiter        sr=96%  s=149
+     *     🔴 jupiter_quote  sr=0%   s=0   4xx=5  5xx=3
+     *     API_BACKOFF_ARMED host=jupiter code=400 n=1 untilSec=2 mode=SOFT
+     *
+     * Five routeless tokens armed a lockout on `jupiter_quote`. JupiterApi then
+     * bails before the wire (`Jupiter GET skipped: jupiter_quote in backoff
+     * lockout`), so no call could ever succeed, so `markSuccess` could never
+     * clear it, so `consecutiveFailures` only ever escalated: 2s → 5s → 10s →
+     * 20s → 30s, forever. s=0 is not "Jupiter never answered" — it is "we never
+     * asked again". The same sr=0% then fed
+     * `ExecutionHealthGuard.healthy("jupiter_quote")`, which blocks buys.
+     *
+     * That is this codebase's standing defect class — the app reading its own
+     * refusal to act as evidence about the outside world (V5.0.6968, 6976,
+     * 6982) — arriving through a new door: not a synthetic response this time,
+     * but a real reply that was simply about something else.
+     *
+     * So: request-level codes do NOT arm a host lockout. They are still
+     * recorded in ApiHealthMonitor, because they are genuine observations and
+     * the health table should keep describing what really came back.
+     *
+     * THE ESCAPE HATCH. If a host truly breaks in a request-shaped way — an API
+     * version retired, a path removed — it will 400 *everything*. So they are
+     * counted, and once a host produces this many consecutive request-level
+     * failures with no success in between, it is promoted to a real host fault
+     * and backs off normally. Routine routing misses never reach the threshold
+     * because any successful quote resets the counter.
+     */
+    private val REQUEST_LEVEL_CODES_6999 = intArrayOf(400, 404, 405, 410, 422)
+    private const val REQUEST_LEVEL_PROMOTE_AFTER_6999 = 12
+
     fun markFailure(host: String, code: Int) {
         try {
             if (host.isBlank() || code !in 400..599) return
             val s = stateFor(host)
+
+            if (code in REQUEST_LEVEL_CODES_6999) {
+                val rn = s.requestLevelFailures6999.incrementAndGet()
+                if (rn < REQUEST_LEVEL_PROMOTE_AFTER_6999) {
+                    if (rn == 1 || rn % 4 == 0) {
+                        try {
+                            ForensicLogger.lifecycle(
+                                "API_BACKOFF_REQUEST_LEVEL_IGNORED_6999",
+                                "host=${key(host)} code=$code n=$rn promoteAt=$REQUEST_LEVEL_PROMOTE_AFTER_6999 " +
+                                    "reason=answers_about_request_not_host",
+                            )
+                        } catch (_: Throwable) {}
+                    }
+                    try { PipelineHealthCollector.labelInc("API_BACKOFF_REQUEST_LEVEL_IGNORED_6999") } catch (_: Throwable) {}
+                    return
+                }
+                // Promoted: the host really is answering everything this way.
+                try { PipelineHealthCollector.labelInc("API_BACKOFF_REQUEST_LEVEL_PROMOTED_6999") } catch (_: Throwable) {}
+            }
+
             val n = s.consecutiveFailures.incrementAndGet()
             s.lastFailureCode.set(code)
 
@@ -104,6 +171,10 @@ object ApiBackoff {
         try {
             if (host.isBlank()) return
             val s = state[key(host)] ?: return
+            // V5.0.6999 — a real answer proves the host is serving this API, so
+            // the request-level streak (which only exists to catch a retired
+            // endpoint) starts over.
+            s.requestLevelFailures6999.set(0)
             if (s.consecutiveFailures.get() > 0 || s.lockoutUntilMs.get() > 0L) {
                 s.consecutiveFailures.set(0)
                 s.lockoutUntilMs.set(0L)
