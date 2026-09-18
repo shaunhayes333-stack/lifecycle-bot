@@ -856,6 +856,27 @@ object CanonicalPositionAuthority6441 {
     }
 
     fun closedPositions(): List<Position> = positions.values.filter { it.lifecycle == Lifecycle.CLOSED }
+
+    /**
+     * V5.0.7018 — position ids this authority has QUARANTINED.
+     *
+     * ForensicReconciliation6635 compares the journal's open-position set
+     * against openPositions(), which filters to OPEN-with-quantity. Quarantined
+     * positions are deliberately excluded from that set and are still present
+     * in the journal replay, so every quarantined position shows up as a
+     * "journal-only divergence" — the two sides are built with different
+     * inclusion rules and the diff reports the difference in the rules, not a
+     * difference in the data.
+     *
+     * The operator's 5.0.7012 snapshot is exactly this: journalOnly=17,
+     * canonicalOnly=0, and sumCheck QUARANTINED=17. Same seventeen.
+     */
+    fun quarantinedPositionIds6635(mode: String? = null): Set<String> =
+        positions.values.asSequence()
+            .filter { it.lifecycle == Lifecycle.QUARANTINED }
+            .filter { mode == null || it.mode.equals(mode, true) }
+            .map { it.positionId }
+            .toSet()
     fun openCount(): Int {
         val n = openPositions().size
         // V5.0.6829 §INVENTORY_PRESSURE — feed the governor on every read

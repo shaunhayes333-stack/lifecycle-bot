@@ -148,10 +148,48 @@ object ForensicReconciliation6635 {
         //
         // Diff the key sets and name them. Pure diagnostics: no mutation, no
         // healing, no gating. The counters and status remain exactly as before.
-        val journalOnly6912 = journalRaw6647.keys - canonicalRaw6647.keys
+        // V5.0.7018 §THE_DIFF_WAS_REPORTING_THE_RULES_NOT_THE_DATA.
+        //
+        // canonicalRaw6647 is built from openPositions(), which filters to
+        // OPEN-with-quantity. QUARANTINED positions are deliberately excluded
+        // from that set and are still present in the journal replay — so every
+        // quarantined position appeared here as a "journal-only divergence".
+        // The two sides were built with different inclusion rules and the diff
+        // reported the difference in the rules.
+        //
+        // The operator's 5.0.7012 snapshot says so twice in one report:
+        //   FORENSIC_POSITION_SET_DIVERGENCE_6912 journalOnly=17 canonicalOnly=0
+        //   Canonical positions (§6441) sumCheck ... QUARANTINED=17
+        // Same seventeen. Seventeen ALT rows that canonical knows about, has
+        // quarantined on purpose, and this reconciler was calling missing.
+        //
+        // Split them out and name them for what they are. This does NOT net
+        // the money away: a quarantined position's basis really does sit in the
+        // journal and not in the ledger, so the cash/realized/openCost deltas
+        // above stay exactly as they were and the operator still sees them.
+        // What changes is that the position-set alarm stops crying "split
+        // write" about rows that were quarantined by design, so a genuine
+        // split write is visible again instead of buried in seventeen.
+        val quarantined7018 = try {
+            CanonicalPositionAuthority6441.quarantinedPositionIds6635("paper")
+        } catch (_: Throwable) { emptySet() }
+        val journalOnlyAll7018 = journalRaw6647.keys - canonicalRaw6647.keys
+        val journalOnlyQuarantined7018 = journalOnlyAll7018 intersect quarantined7018
+        val journalOnly6912 = journalOnlyAll7018 - quarantined7018
         val canonicalOnly6912 = canonicalRaw6647.keys - journalRaw6647.keys
         val qtyMismatched6912 = (journalRaw6647.keys intersect canonicalRaw6647.keys)
             .filter { journalRaw6647[it] != canonicalRaw6647[it] }
+        if (journalOnlyQuarantined7018.isNotEmpty()) {
+            try {
+                PipelineHealthCollector.labelInc("FORENSIC_JOURNAL_ONLY_IS_QUARANTINED_7018")
+                ForensicLogger.lifecycle(
+                    "FORENSIC_JOURNAL_ONLY_IS_QUARANTINED_7018",
+                    "quarantinedInJournal=${journalOnlyQuarantined7018.size} " +
+                        "ids=${journalOnlyQuarantined7018.take(5).joinToString(",") { it.take(40) }} " +
+                        "action=not_a_split_write_excluded_by_openPositions_filter_on_purpose",
+                )
+            } catch (_: Throwable) {}
+        }
         if (journalOnly6912.isNotEmpty() || canonicalOnly6912.isNotEmpty() || qtyMismatched6912.isNotEmpty()) {
             try {
                 PipelineHealthCollector.labelInc("FORENSIC_POSITION_SET_DIVERGENCE_6912")
@@ -159,8 +197,17 @@ object ForensicReconciliation6635 {
                     "FORENSIC_POSITION_SET_DIVERGENCE_6912",
                     "journalOnly=${journalOnly6912.size} canonicalOnly=${canonicalOnly6912.size} " +
                         "qtyMismatched=${qtyMismatched6912.size} " +
-                        "journalOnlyIds=${journalOnly6912.take(5).joinToString(",") { it.take(28) }} " +
-                        "canonicalOnlyIds=${canonicalOnly6912.take(5).joinToString(",") { it.take(28) }} " +
+                        // V5.0.7018 — 28 characters was shorter than the ids.
+                        // Canonical ALT ids look like
+                        // ALT:1:PAPER:ASSET_7e3ad4fd:BUY:CRYPTO:59657629:55,
+                        // so take(28) cut every one of them mid-hash and two
+                        // different positions printed as the same string. The
+                        // operator's snapshot shows ALT:1:PAPER:HZRCwxP2Vq9PCpPX
+                        // listed twice, which is not a duplicate row — it is one
+                        // truncation of two rows. A diagnostic that cannot
+                        // distinguish its own subjects is not a diagnostic.
+                        "journalOnlyIds=${journalOnly6912.take(5).joinToString(",") { it.take(52) }} " +
+                        "canonicalOnlyIds=${canonicalOnly6912.take(5).joinToString(",") { it.take(52) }} " +
                         "qtyMismatchedIds=${qtyMismatched6912.take(5).joinToString(",") { id ->
                             "${id.take(20)}(j=${journalRaw6647[id]},c=${canonicalRaw6647[id]})"
                         }} " +

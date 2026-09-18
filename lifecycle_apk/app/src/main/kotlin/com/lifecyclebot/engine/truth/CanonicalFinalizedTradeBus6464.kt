@@ -268,6 +268,19 @@ object CanonicalFinalizedTradeBus6464 {
     }
 
     fun canonicalUnique(): Int = canonicalSeen.size
+
+    /**
+     * V5.0.7018 — the positionIds this bus has actually seen.
+     *
+     * AcceptanceInvariantAudit6441 compares closedPositions().size against
+     * canonicalUnique() and, when they differ, reports "closed=174, bus=173".
+     * Twenty-three audit runs in the operator's 5.0.7012 snapshot, twenty-three
+     * failures, and not one of them says WHICH closed position never reached
+     * the bus — so the same one trade has been un-findable for the whole
+     * session. Envelope has carried positionId since 6464; nothing exposed it.
+     */
+    fun canonicalPositionIds7018(): Set<String> =
+        canonicalSeen.values.mapNotNullTo(HashSet()) { it.positionId.ifBlank { null } }
     fun consumerUnique(name: String): Int = canonicalSeen.keys.count {
         consumerAcks[name]?.contains(it) == true && !isExcluded(name, it)
     }

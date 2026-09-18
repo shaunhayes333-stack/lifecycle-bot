@@ -76,10 +76,41 @@ object AcceptanceInvariantAudit6441 {
         if (rewardParity6699) {
             passed.add("reward_terminal_pop==closed(processed=$rewardProcessed6699,excluded=$rewardExcluded6699,session=$sessionRewardProcessed6734)")
         } else {
+            // V5.0.7018 §NAME_THE_TRADE_THAT_NEVER_REACHED_THE_BUS.
+            //
+            // This invariant has failed on every audit run for the whole
+            // session — 23 runs, 23 failures — reporting closed=174 bus=173 and
+            // never once saying which of the 174 is the missing one. A count
+            // cannot be investigated; a positionId can be looked up in the
+            // journal, the ledger and the forensic log in about a minute.
+            //
+            // Same correction as V5.0.6912 made to the position-set diff, for
+            // the same reason: a diagnostic that reports a scalar about a set it
+            // is holding in memory is withholding the answer.
+            val missingFromBus7018 = try {
+                CanonicalPositionAuthority6441.closedPositions()
+                    .map { it.positionId }
+                    .toSet() - CanonicalFinalizedTradeBus6464.canonicalPositionIds7018()
+            } catch (_: Throwable) { emptySet<String>() }
             failed.add(
                 "reward_pop_mismatch:closed=$closedCount,bus=$busCanonical6699," +
-                    "processed=$rewardProcessed6699,excluded=$rewardExcluded6699,handled=$rewardHandled6699"
+                    "processed=$rewardProcessed6699,excluded=$rewardExcluded6699,handled=$rewardHandled6699" +
+                    (if (missingFromBus7018.isNotEmpty())
+                        ",missingFromBus=${missingFromBus7018.size}" +
+                            ",ids=${missingFromBus7018.take(3).joinToString("|") { it.take(52) }}"
+                    else "")
             )
+            try {
+                if (missingFromBus7018.isNotEmpty()) {
+                    ForensicLogger.lifecycle(
+                        "ACCEPTANCE_REWARD_POP_SUBJECT_7018",
+                        "closed=$closedCount bus=$busCanonical6699 " +
+                            "missing=${missingFromBus7018.size} " +
+                            "ids=${missingFromBus7018.take(5).joinToString(",") { it.take(52) }} " +
+                            "action=these_closed_positions_never_published_to_finalized_bus",
+                    )
+                }
+            } catch (_: Throwable) {}
         }
 
         // 5. OrderSizeResolver must have been queried on eligible entries.
