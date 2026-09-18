@@ -1004,6 +1004,45 @@ class Executor(
                         pos.lastRoutePriceTs = System.currentTimeMillis()
                         pos.markRefusedAtMs6907 = 0L
                         pos.markRefusedSinceMs7017 = 0L
+                        // V5.0.7046 §ONE_PRICE_PER_TOKEN — repair the field too.
+                        //
+                        // 7017 fixed this function's RETURN VALUE and pos
+                        // .lastRoutePrice and stopped there, leaving ts.lastPrice
+                        // holding the tick we just proved incomparable. Every
+                        // surface that reads the field directly — the Open
+                        // Positions rows above all — then drew that number with
+                        // full confidence. The operator's 5.0.7044 screen:
+                        //
+                        //   WOTF +99785.5%   entry 0.0101505  rawTick 10.138878
+                        //   header  18.706◎ at risk  ·  +5547.0532◎ unrealized
+                        //
+                        // against a canonical unrealized of 0.6795 SOL. The tick
+                        // is curMcap/1e6 while the entry was priced mcap/1e9 —
+                        // exactly 1000x — and CanonicalCapitalAuthority6450 was
+                        // right the whole time because 6604 quarantines the mark
+                        // at cost basis (2921 times in a 385s session).
+                        //
+                        // So before 7017 these positions read "unpriceable"; after
+                        // it they read confidently and enormously wrong. That is
+                        // worse, and it is the reason this write exists. Inside
+                        // this branch the raw tick is ALREADY PROVEN out of band
+                        // by 6895, so replacing it with the on-basis reconstruction
+                        // is strictly a repair — never a guess, and never applied
+                        // to a tick that passed.
+                        //
+                        // Source-stamped like every other writer (V5.9.744), so
+                        // the provenance says which path produced the number
+                        // rather than inheriting the rejected tick's label. A
+                        // later poll may overwrite this with another bad tick;
+                        // this runs again and repairs it again, and the counter
+                        // says how often, which is the measurement that tells us
+                        // whether the upstream unit bug is still live.
+                        try {
+                            ts.lastPrice = reconciled7017
+                            ts.lastPriceUpdate = System.currentTimeMillis()
+                            ts.lastPriceSource = "MARK_BASIS_RECONCILED_7046"
+                            PipelineHealthCollector.labelInc("TS_LAST_PRICE_REPAIRED_7046")
+                        } catch (_: Throwable) {}
                         return reconciled7017
                     }
 

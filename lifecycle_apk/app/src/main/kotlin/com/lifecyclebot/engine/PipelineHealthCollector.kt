@@ -2114,6 +2114,15 @@ object PipelineHealthCollector {
             sb.append("  Missing-mark exit veto (§6835):").append(
                 com.lifecyclebot.engine.truth.MissingMarkExitVeto6835.statusLine()
             ).append("\n")
+            // V5.0.7046 — 7017 shipped this status() with no callers, so the
+            // reconciler's own view of how many marks it rebuilt was invisible
+            // while MARK_BASIS_RECONCILED_7017 climbed to 5658 in one session.
+            // Read it with TS_LAST_PRICE_REPAIRED_7046: a high repair rate means
+            // the upstream tick is still arriving on the wrong basis, which is a
+            // provider/unit defect, not a market condition.
+            sb.append("  Mark basis reconciler (§7017): ").append(
+                com.lifecyclebot.engine.truth.MarkBasisReconciler7017.status()
+            ).append("\n")
             sb.append("  Reward bootstrap (§6453):     ").append(
                 com.lifecyclebot.engine.truth.CanonicalRewardBootstrap6453.statusLine()
             ).append("\n")
