@@ -55,6 +55,11 @@ object LiveReadinessChecker {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var lastCheckJob: Job? = null
 
+    /** V5.0.6976 — consecutive REAL Jupiter ping failures; synthetic blocks never count. */
+    @Volatile
+    private var consecutiveJupFails: Int = 0
+    private const val JUP_FAIL_CONFIRM = 2
+
     /** Returns the cached snapshot, triggering a refresh if stale. */
     fun current(): Snapshot {
         if (System.currentTimeMillis() - latest.lastCheckAt > RECHECK_MS) {
@@ -71,20 +76,44 @@ object LiveReadinessChecker {
 
     private suspend fun runCheck() {
         val jupiter = pingJupiter()
+        // V5.0.6976 — a circuit block is the absence of an observation. Hold the
+        // previous verdict rather than converting our own refusal into an outage.
+        if (lastPingWasSynthetic) {
+            latest = latest.copy(lastCheckAt = System.currentTimeMillis())
+            ErrorLogger.debug(TAG, "readiness: jupiter ping blocked locally — previous verdict held")
+            return
+        }
         val pyth = pingPyth()
 
         val jupOk = jupiter.first
         val pythOk = pyth.first
 
+        // V5.0.6976 §THE_BANNER_THAT_REPORTED_OUR_OWN_SILENCE_AS_THEIR_OUTAGE.
+        //
+        // One failed ping used to paint the banner red immediately and it stayed
+        // red for the full 30s recheck interval. Jupiter ran at sr=97% in the
+        // operator's 6970 log — 1 4xx and 1 5xx across 78 calls — and the banner
+        // still read "JUPITER UNREACHABLE", because a single unlucky sample is
+        // enough and because the ping was being answered by our own circuit
+        // rather than by Jupiter (now fixed by the probe bypass below).
+        //
+        // Require two consecutive real failures before declaring an outage. A
+        // lone miss holds the previous verdict and says so.
+        val fails = if (jupOk) { consecutiveJupFails = 0; 0 } else ++consecutiveJupFails
+        val jupDown = fails >= JUP_FAIL_CONFIRM
+
         val state = when {
             jupOk && pythOk -> State.GREEN
             jupOk && !pythOk -> State.YELLOW  // oracle down but can still swap
-            !jupOk && pythOk -> State.RED     // cannot execute
+            !jupDown -> State.YELLOW          // one miss — unconfirmed, not an outage
             else -> State.RED
         }
         val summary = when (state) {
             State.GREEN -> "🟢 APIs READY · Jupiter + Pyth healthy"
-            State.YELLOW -> "🟡 DEGRADED · Jupiter OK · Oracle slow/down"
+            State.YELLOW -> when {
+                !jupOk -> "🟡 Jupiter ping missed (1/$JUP_FAIL_CONFIRM) · re-checking"
+                else -> "🟡 DEGRADED · Jupiter OK · Oracle slow/down"
+            }
             State.RED -> if (!jupOk) "🔴 JUPITER UNREACHABLE · live swaps blocked" else "🔴 Oracle & swap down · stay in paper"
             State.UNKNOWN -> "Checking live readiness…"
         }
@@ -118,14 +147,30 @@ object LiveReadinessChecker {
         return httpPing(url)
     }
 
+    /** V5.0.6976 — true when the last ping was answered by our own circuit. */
+    @Volatile
+    private var lastPingWasSynthetic: Boolean = false
+
     private fun httpPing(url: String): Pair<Boolean, Long> {
         val start = System.currentTimeMillis()
         return try {
-            http.newCall(Request.Builder().url(url).build()).execute().use { r ->
+            // V5.0.6976 — mark as a probe so HostCircuitInterceptor lets it through.
+            // This client shares the app-wide interceptor stack, so before this
+            // header existed the readiness check was frequently answered by our
+            // own 599 and rendered as "Jupiter unreachable". A probe is exactly
+            // the call a circuit should permit: one low-rate request whose job is
+            // to find out whether the provider is back.
+            val req = Request.Builder()
+                .url(url)
+                .header(HostCircuitInterceptor.PROBE_HEADER_6976, "1")
+                .build()
+            http.newCall(req).execute().use { r ->
                 val elapsed = System.currentTimeMillis() - start
+                lastPingWasSynthetic = try { HostCircuitInterceptor.isSyntheticBlock(r) } catch (_: Throwable) { false }
                 r.isSuccessful to elapsed
             }
         } catch (_: Exception) {
+            lastPingWasSynthetic = false
             false to (System.currentTimeMillis() - start)
         }
     }

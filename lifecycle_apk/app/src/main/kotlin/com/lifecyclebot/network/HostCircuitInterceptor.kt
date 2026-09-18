@@ -68,6 +68,26 @@ object HostCircuitInterceptor : Interceptor {
     fun isSyntheticBlock(resp: Response): Boolean =
         resp.header(SYNTHETIC_HEADER_6969) != null
 
+    /**
+     * V5.0.6976 — a health PROBE opts out of the circuit.
+     *
+     * A circuit exists to stop ordinary traffic from hammering a provider that
+     * is already failing. A readiness probe is the opposite of ordinary traffic:
+     * it is the single low-rate call whose entire purpose is to discover whether
+     * the provider came back. Blocking it means the circuit can never observe
+     * recovery through that path, and — worse — the block is indistinguishable
+     * from the provider being down, so the UI renders "JUPITER UNREACHABLE"
+     * when what actually happened is that this app declined to look.
+     *
+     * Probes still record their outcome, so a successful probe clears the
+     * provider's ApiBackoff lockout. That is a correct half-open, done by the
+     * one caller that is rate-limited by construction.
+     *
+     * Birdeye is exempt: its budget is metered currency, not latency, and a
+     * probe would spend it.
+     */
+    const val PROBE_HEADER_6976 = "X-AATE-Probe"
+
     private fun synthetic(req: okhttp3.Request, code: Int, message: String): Response =
         Response.Builder()
             .request(req)
@@ -84,6 +104,8 @@ object HostCircuitInterceptor : Interceptor {
         val now = System.currentTimeMillis()
         val state = states.getOrPut(host) { HostState() }
         val provider = providerLabel(host)
+        // V5.0.6976 — probes bypass the circuit (never the Birdeye budget).
+        val isProbe = req.header(PROBE_HEADER_6976) != null && provider != "birdeye"
 
         // V5.0.6758 — Birdeye is a paid/escalation source. The runtime snapshot
         // showed 150000/150000 daily CU while raw callers were still reaching the
@@ -108,7 +130,7 @@ object HostCircuitInterceptor : Interceptor {
 
         // V5.0.6758 — all mapped providers now share ApiBackoff, so direct
         // SharedHttpClient users cannot bypass the reactive health authority.
-        if (provider.isNotBlank() && try {
+        if (!isProbe && provider.isNotBlank() && try {
                 com.lifecyclebot.engine.ApiBackoff.isLockedOut(provider)
             } catch (_: Throwable) { false }) {
             state.totalBypassed.incrementAndGet()
@@ -122,7 +144,7 @@ object HostCircuitInterceptor : Interceptor {
         }
 
         val cooldownUntil = state.cooldownUntilMs.get()
-        if (now < cooldownUntil) {
+        if (!isProbe && now < cooldownUntil) {
             state.totalBypassed.incrementAndGet()
             val remaining = cooldownUntil - now
             if (remaining > SERVER_FAIL_COOLDOWN_MS) totalNxBypass.incrementAndGet()
@@ -130,8 +152,13 @@ object HostCircuitInterceptor : Interceptor {
             return synthetic(req, 599, "HostCircuit cool-down active for $host (${remaining}ms remaining)")
         }
 
+        // The probe marker is an internal routing hint — never put it on the wire.
+        val wireReq = if (req.header(PROBE_HEADER_6976) != null) {
+            req.newBuilder().removeHeader(PROBE_HEADER_6976).build()
+        } else req
+
         val response: Response = try {
-            chain.proceed(req)
+            chain.proceed(wireReq)
         } catch (uhe: UnknownHostException) {
             state.cooldownUntilMs.set(now + NXDOMAIN_COOLDOWN_MS)
             throw uhe

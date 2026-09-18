@@ -4227,11 +4227,22 @@ class SolanaMarketScanner(
         val httpStart = System.currentTimeMillis()
         val resp = http.newCall(builder.build()).execute()
         val httpLatency = System.currentTimeMillis() - httpStart
-        try { com.lifecyclebot.engine.ApiHealthMonitor.record(host, resp.code, httpLatency) } catch (_: Throwable) {}
-        try {
-            if (resp.code in 200..299) com.lifecyclebot.engine.ApiBackoff.markSuccess(host)
-            else if (resp.code in 400..599) com.lifecyclebot.engine.ApiBackoff.markFailure(host, resp.code)
-        } catch (_: Throwable) {}
+        // V5.0.6976 — same rule as HealthAwareHttp: a synthetic circuit block is
+        // this app declining to call, not a provider failing. Recording it here
+        // let one provider's lockout spread into every other label the scanner
+        // uses, and kept those labels locked out on their own echo.
+        val synthetic6976 = try {
+            com.lifecyclebot.network.HostCircuitInterceptor.isSyntheticBlock(resp)
+        } catch (_: Throwable) { false }
+        if (!synthetic6976) {
+            try { com.lifecyclebot.engine.ApiHealthMonitor.record(host, resp.code, httpLatency) } catch (_: Throwable) {}
+            try {
+                if (resp.code in 200..299) com.lifecyclebot.engine.ApiBackoff.markSuccess(host)
+                else if (resp.code in 400..599) com.lifecyclebot.engine.ApiBackoff.markFailure(host, resp.code)
+            } catch (_: Throwable) {}
+        } else {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SYNTHETIC_BLOCK_NOT_RECORDED_6976") } catch (_: Throwable) {}
+        }
 
         if (resp.isSuccessful) {
             val body = resp.body?.string()

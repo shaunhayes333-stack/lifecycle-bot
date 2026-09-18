@@ -65,6 +65,9 @@ object HealthAwareHttp {
                     .protocol(Protocol.HTTP_1_1)
                     .code(503)
                     .message("ApiBackoff lockout (host=$host remainingMs=${ApiBackoff.lockoutRemainingMs(host)})")
+                    // V5.0.6976 — this 503 is OUR refusal, not the provider's reply.
+                    // Tagging it lets every downstream consumer tell the two apart.
+                    .header(com.lifecyclebot.network.HostCircuitInterceptor.SYNTHETIC_HEADER_6969, "1")
                     .body("{}".toResponseBody(emptyJsonMediaType))
                     .build()
             }
@@ -80,6 +83,41 @@ object HealthAwareHttp {
         try {
             val resp = client.newCall(finalRequest).execute()
             val latency = System.currentTimeMillis() - start
+
+            // V5.0.6976 §THE_HOST_THAT_LOCKED_ITSELF_OUT_ON_ITS_OWN_REFUSALS.
+            //
+            // HostCircuitInterceptor sits on the shared client, so when the
+            // provider "jupiter" (lite-api.jup.ag) is in lockout, this call
+            // never reaches the wire — it comes back as a synthetic 599.
+            // The lines below then read that 599 as evidence and wrote it
+            // against the CALLER's label, which for JupiterApi is the separate
+            // host key "jupiter_quote". So:
+            //
+            //   jupiter blips once  →  synthetic 599 on every jupiter_quote call
+            //   →  markFailure("jupiter_quote", 599)  →  jupiter_quote locked out
+            //   →  more 599s  →  escalating lockout  →  jupiter_quote never recovers
+            //
+            // The operator's 6970 log shows both halves of that sentence at once:
+            //
+            //     ✅ jupiter        sr=97% avg=330ms s=78 4xx=1 5xx=1
+            //     🔴 jupiter_quote  sr=28%
+            //     API_BACKOFF_ARMED host=jupiter_quote code=599
+            //
+            // 599 is not a code any provider emits. Every one of those arms was
+            // this app citing itself as proof that Jupiter was down. It then fed
+            // ExecutionHealthGuard.healthy("jupiter_quote"), which blocks buys.
+            //
+            // A synthetic response is the absence of an observation. Record
+            // nothing; leave the health table describing only real replies.
+            val synthetic = try {
+                com.lifecyclebot.network.HostCircuitInterceptor.isSyntheticBlock(resp)
+            } catch (_: Throwable) { false }
+
+            if (synthetic) {
+                try { PipelineHealthCollector.labelInc("SYNTHETIC_BLOCK_NOT_RECORDED_6976") } catch (_: Throwable) {}
+                return resp
+            }
+
             try { ApiHealthMonitor.record(host, resp.code, latency) } catch (_: Throwable) {}
             try {
                 if (resp.code in 200..299) ApiBackoff.markSuccess(host)
