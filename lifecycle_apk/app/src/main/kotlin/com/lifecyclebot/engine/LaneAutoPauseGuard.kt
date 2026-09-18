@@ -220,7 +220,27 @@ object LaneAutoPauseGuard {
             data class Agg(var sample: Int = 0, var wins: Int = 0, var pnlSum: Double = 0.0)
             val byLane = HashMap<String, Agg>()
             for (t in clean) {
-                val lane = canonLane(t.tradingMode.trim())
+                // V5.0.7053 §DO_NOT_DISABLE_A_LANE_FOR_THE_WINNERS_IT_GAVE_AWAY.
+                //
+                // t.tradingMode is the lane the position was in when it CLOSED.
+                // A position that runs is promoted mid-hold (BotService:1615,
+                // Executor:10739/10787/12060/15573) BEFORE it closes, so its
+                // win is credited to the destination lane. Losers never promote,
+                // because promotion is triggered by the gain.
+                //
+                // This aggregation decides `wins=0 && n>=15` — the auto-pause
+                // trigger. Under the operator's new directive a paused lane
+                // stays disabled until the lab reproves it, which turns that
+                // mis-attribution from a reporting error into a lane being
+                // switched off for picks that actually worked. The leak stops
+                // being cosmetic the moment the verdict has teeth.
+                //
+                // Same authority as V5.0.7051 used for LosingPatternMemory:
+                // LaneAttributionLedger6427 stamps the entry lane at buy time
+                // and no promotion rewrites it.
+                val lane = canonLane(
+                    com.lifecyclebot.engine.truth.EntryCohortAttribution7051.entryLaneFor(t).trim()
+                )
                 if (lane.isBlank()) continue
                 val promotionEpoch6684 = try { AdaptiveLaneReproof6684.activationEpochMs(lane) } catch (_: Throwable) { 0L }
                 if (promotionEpoch6684 > 0L && t.ts < promotionEpoch6684) continue
