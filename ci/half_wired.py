@@ -47,6 +47,34 @@ def called_externally(fn, owner_path, owner=None):
     return len(files)
 
 
+# V5.0.6971 — a function called only from INSIDE its own object is USED, just
+# not as an external authority. Requiring the owner qualifier (6963) fixed
+# name-collision false POSITIVES and created false NEGATIVES: a same-object call
+# carries no `Owner.` prefix. AdaptiveLearningEngine.extractPatterns was reported
+# dead while line 667 calls it on every 25th trade. Count in-file calls too, and
+# report the three states separately.
+CALL_IN_FILE = None
+
+
+def called_in_file(fn, owner_path):
+    """Non-declaration call sites for `fn` inside its own file."""
+    try:
+        src = open(os.path.join(REPO, owner_path), encoding="utf-8", errors="replace").read()
+    except OSError:
+        return 0
+    # V5.0.6971 — strip comments first. HotPathLaneGate.mayProceedHotPath was
+    # reported "used in file" on the strength of a KDoc line mentioning it.
+    src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+    src = re.sub(r"//[^\n]*", "", src)
+    hits = 0
+    for line in src.splitlines():
+        if re.search(r"\bfun\s+" + re.escape(fn) + r"\s*\(", line):
+            continue  # the declaration itself
+        if re.search(r"(?<![A-Za-z0-9_.])" + re.escape(fn) + r"\s*\(", line):
+            hits += 1
+    return hits
+
+
 out = []
 for relfile, entries in sorted(byfile.items()):
     path = os.path.normpath(os.path.join(SRC, relfile))
@@ -62,18 +90,28 @@ for relfile, entries in sorted(byfile.items()):
             declared.append(m.group(1))
     if not declared:
         continue
-    wired, dead = [], []
+    wired, infile, dead = [], [], []
     for fn in sorted(set(declared)):
-        (wired if called_externally(fn, path, owner) else dead).append(fn)
+        if called_externally(fn, path, owner):
+            wired.append(fn)
+        elif called_in_file(fn, path):
+            infile.append(fn)      # used internally — NOT inert
+        else:
+            dead.append(fn)        # genuinely uncalled anywhere
     unwired_here = {f for _, f in entries}
-    # half-wired = the object has live callers AND ledger entries that are dead
-    if wired and (unwired_here & set(dead)):
-        out.append((len(wired), relfile, entries[0][0], wired, sorted(unwired_here & set(dead))))
+    trulyDead = unwired_here & set(dead)
+    internal = unwired_here & set(infile)
+    if wired and (trulyDead or internal):
+        out.append((len(wired), relfile, entries[0][0], wired,
+                    sorted(trulyDead), sorted(internal)))
 
 out.sort(reverse=True)
 print(f"HALF-WIRED AUTHORITIES: {len(out)} objects\n")
-for nw, relfile, owner, wired, dead in out:
+for nw, relfile, owner, wired, dead, internal in out:
     print(f"{owner}  ({relfile})")
     print(f"   LIVE ({nw}): {', '.join(wired[:6])}{' …' if len(wired) > 6 else ''}")
-    print(f"   DEAD: {', '.join(dead)}")
+    if dead:
+        print(f"   DEAD (no caller anywhere): {', '.join(dead)}")
+    if internal:
+        print(f"   IN-FILE ONLY (used, not an external authority): {', '.join(internal)}")
     print()
