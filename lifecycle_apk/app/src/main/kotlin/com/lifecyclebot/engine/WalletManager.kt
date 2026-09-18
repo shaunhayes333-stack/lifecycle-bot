@@ -73,6 +73,87 @@ class WalletManager private constructor(private val ctx: Context) {
     // Fallback public RPC endpoints (free, no API key needed)
     companion object {
         @Volatile var lastKnownSolPrice: Double = 0.0
+
+        /**
+         * V5.0.7042 §THE_RATE_WAS_OBSERVED_AND_THEN_FORGOTTEN_EVERY_LAUNCH.
+         *
+         * lastKnownSolPrice starts at 0.0 on every process start and only warms
+         * once a fetch lands. Nothing persisted it, so "last known" was only
+         * ever last known WITHIN a session.
+         *
+         * That was survivable until V5.0.7029 made the sell path refuse to
+         * convert USD marks to SOL without a trustworthy rate — correctly, since
+         * booking USD as SOL is the defect that cost 92 SOL of fictional profit.
+         * But the operator's 5.0.7040 capture shows what refusing costs when the
+         * rate is simply cold:
+         *
+         *   PROCEEDS_SOL_UNCONVERTIBLE_7029             163
+         *   PAPER_PROFIT_LOCK_DECLINED_UNCONVERTIBLE_7029  122
+         *   PAPER_PARTIAL_DECLINED_UNCONVERTIBLE_7029       11
+         *
+         * 122 profit locks declined in 161 seconds. I stopped the bot inventing
+         * proceeds and in exchange stopped it banking them, which is its own
+         * kind of wrong.
+         *
+         * The repair is NOT to invent a rate — fetchSolPrice's 140.0 last resort
+         * is deliberately never written here, because a hardcoded number sitting
+         * in a field called "last known" would read as an observation and is
+         * exactly the class of defect this session has spent its time removing.
+         * What is persisted is a rate this device actually OBSERVED, with the
+         * time it was observed, so a cold start begins from real evidence rather
+         * than from zero.
+         */
+        private const val PREFS_SOL_7042 = "aate_sol_price_7042"
+        private const val KEY_SOL_PRICE_7042 = "last_observed_sol_usd"
+        private const val KEY_SOL_PRICE_AT_7042 = "last_observed_at_ms"
+        /** Beyond this an observation is too old to price a sale from. */
+        private const val SOL_PRICE_MAX_AGE_MS_7042 = 24L * 60L * 60L * 1000L
+
+        @Volatile private var solPrefs7042: android.content.SharedPreferences? = null
+
+        /**
+         * Record a rate this device really saw. Only called from the fetch
+         * chain's genuine successes, never from its fallback.
+         */
+        fun noteObservedSolPrice7042(price: Double) {
+            if (!price.isFinite() || price !in 50.0..1000.0) return
+            lastKnownSolPrice = price
+            try {
+                solPrefs7042?.edit()
+                    ?.putFloat(KEY_SOL_PRICE_7042, price.toFloat())
+                    ?.putLong(KEY_SOL_PRICE_AT_7042, System.currentTimeMillis())
+                    ?.apply()
+            } catch (_: Throwable) {}
+        }
+
+        /**
+         * Restore the last observed rate at process start. Refuses an
+         * observation older than a day: a stale rate is still a guess, and the
+         * guard would rather decline than price a sale from one.
+         */
+        fun restoreObservedSolPrice7042(ctx: Context) {
+            try {
+                val p = ctx.applicationContext.getSharedPreferences(PREFS_SOL_7042, Context.MODE_PRIVATE)
+                solPrefs7042 = p
+                if (lastKnownSolPrice in 50.0..1000.0) return
+                val v = p.getFloat(KEY_SOL_PRICE_7042, 0f).toDouble()
+                val at = p.getLong(KEY_SOL_PRICE_AT_7042, 0L)
+                val ageMs = System.currentTimeMillis() - at
+                if (v in 50.0..1000.0 && at > 0L && ageMs in 0..SOL_PRICE_MAX_AGE_MS_7042) {
+                    lastKnownSolPrice = v
+                    try {
+                        PipelineHealthCollector.labelInc("SOL_PRICE_RESTORED_7042")
+                        ForensicLogger.lifecycle(
+                            "SOL_PRICE_RESTORED_7042",
+                            "solUsd=$v ageMin=${ageMs / 60000L} " +
+                                "note=observed_rate_not_a_fallback_constant",
+                        )
+                    } catch (_: Throwable) {}
+                } else if (at > 0L) {
+                    try { PipelineHealthCollector.labelInc("SOL_PRICE_RESTORE_TOO_STALE_7042") } catch (_: Throwable) {}
+                }
+            } catch (_: Throwable) {}
+        }
         
         // Public RPC fallbacks (no API key required)
         // User should configure their own premium RPC (Helius, QuickNode) for better performance
@@ -113,7 +194,12 @@ class WalletManager private constructor(private val ctx: Context) {
         
         fun getInstance(ctx: Context): WalletManager {
             return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: WalletManager(ctx.applicationContext).also { INSTANCE = it }
+                INSTANCE ?: WalletManager(ctx.applicationContext).also {
+                    INSTANCE = it
+                    // V5.0.7042 — warm the rate from the last real observation
+                    // before anything tries to price a sale with it.
+                    restoreObservedSolPrice7042(ctx)
+                }
             }
         }
 
@@ -479,21 +565,21 @@ class WalletManager private constructor(private val ctx: Context) {
         // Try CoinGecko first (most reliable)
         val coinGeckoPrice = tryCoinGecko()
         if (coinGeckoPrice > 50.0) {  // Sanity check: SOL should be > $50
-            lastKnownSolPrice = coinGeckoPrice
+            noteObservedSolPrice7042(coinGeckoPrice)
             return coinGeckoPrice
         }
         
         // Try Binance as second source
         val binancePrice = tryBinance()
         if (binancePrice > 50.0) {
-            lastKnownSolPrice = binancePrice
+            noteObservedSolPrice7042(binancePrice)
             return binancePrice
         }
         
         // Try Jupiter price API as third source
         val jupiterPrice = tryJupiter()
         if (jupiterPrice > 50.0) {
-            lastKnownSolPrice = jupiterPrice
+            noteObservedSolPrice7042(jupiterPrice)
             return jupiterPrice
         }
         
