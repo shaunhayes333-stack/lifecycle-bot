@@ -144,6 +144,14 @@ object SolanaOhlcvFeed6916 {
     private val cooldownSkips = AtomicLong(0L)
     private val negativeHits = AtomicLong(0L)
 
+    /**
+     * V5.0.6982 — attempts the local rate gate declined, so nothing reached the
+     * provider. Kept separate from [emptyResults] because "we did not ask" and
+     * "there is nothing there" are different facts and only one of them is
+     * evidence about a mint.
+     */
+    private val localSkips6982 = AtomicLong(0L)
+
     /** True when a call may proceed now; also claims the slot. */
     private fun rateGateOpen6944(): Boolean {
         val now = System.currentTimeMillis()
@@ -197,7 +205,16 @@ object SolanaOhlcvFeed6916 {
         }
     }
 
-    private fun get(url: String): JSONObject? {
+    /**
+     * V5.0.6982 — the outcome of an ATTEMPT, which is not the outcome of a CALL.
+     *
+     * [askedProvider] is false when the local rate gate declined and nothing
+     * went on the wire. A null [json] then carries no information whatsoever
+     * about the mint or the provider, and must never be recorded as if it did.
+     */
+    private class Fetched6982(val json: JSONObject?, val askedProvider: Boolean)
+
+    private fun fetch6982(url: String): Fetched6982 {
         val started = System.currentTimeMillis()
         // The version-pinned Accept header and a real User-Agent are required:
         // V5.9.1567 recorded that plain `Accept: application/json` was 4xx'ing
@@ -213,21 +230,21 @@ object SolanaOhlcvFeed6916 {
             .build()
         // V5.0.6944 — the request budget gate. Without this the feed ran 7x over
         // GeckoTerminal's free-tier allowance and the host shed ~99% of calls.
-        if (!rateGateOpen6944()) return null
+        if (!rateGateOpen6944()) return Fetched6982(null, askedProvider = false)
         return try {
             http.newCall(req).execute().use { resp ->
                 try {
                     ApiHealthMonitor.record(HOST, resp.code, System.currentTimeMillis() - started)
                 } catch (_: Throwable) {}
                 noteResponse6944(resp.code)
-                if (!resp.isSuccessful) return null
+                if (!resp.isSuccessful) return Fetched6982(null, askedProvider = true)
                 val body = resp.body?.string()
-                if (body.isNullOrBlank()) return null
-                JSONObject(body)
+                if (body.isNullOrBlank()) return Fetched6982(null, askedProvider = true)
+                Fetched6982(JSONObject(body), askedProvider = true)
             }
         } catch (e: Throwable) {
             try { ApiHealthMonitor.recordNetworkError(HOST, e.message) } catch (_: Throwable) {}
-            null
+            Fetched6982(null, askedProvider = true)
         }
     }
 
@@ -237,15 +254,25 @@ object SolanaOhlcvFeed6916 {
      * `lastPricePoolAddr` for most tokens, so the common path costs no extra
      * request at all).
      */
-    private fun resolvePool(mint: String, poolHint: String): String? {
+    private class PoolLookup6982(val pool: String?, val askedProvider: Boolean)
+
+    private fun resolvePool(mint: String, poolHint: String): PoolLookup6982 {
         val hint = poolHint.trim()
         // A MINT_ROUTE:/UNKNOWN/PLACEHOLDER alias is not a pool address.
-        if (hint.length in 32..64 && !hint.contains(':') && !hint.equals("UNKNOWN", true)) return hint
-        poolCache[mint]?.let { if (System.currentTimeMillis() - it.atMs <= POOL_CACHE_TTL_MS) return it.pool }
+        if (hint.length in 32..64 && !hint.contains(':') && !hint.equals("UNKNOWN", true)) {
+            return PoolLookup6982(hint, askedProvider = false)
+        }
+        poolCache[mint]?.let {
+            if (System.currentTimeMillis() - it.atMs <= POOL_CACHE_TTL_MS) {
+                return PoolLookup6982(it.pool, askedProvider = false)
+            }
+        }
         poolResolves.incrementAndGet()
-        val json = get("$BASE/tokens/$mint/pools?page=1") ?: return null
-        return try {
-            val arr = json.optJSONArray("data") ?: return null
+        val fetched = fetch6982("$BASE/tokens/$mint/pools?page=1")
+        val json = fetched.json ?: return PoolLookup6982(null, fetched.askedProvider)
+        val resolved = try {
+            val arr = json.optJSONArray("data")
+                ?: return PoolLookup6982(null, askedProvider = true)
             var best: String? = null
             var bestLiq = -1.0
             for (i in 0 until arr.length()) {
@@ -259,6 +286,7 @@ object SolanaOhlcvFeed6916 {
             }
             best?.also { poolCache[mint] = PoolRef(it, System.currentTimeMillis()) }
         } catch (_: Throwable) { null }
+        return PoolLookup6982(resolved, askedProvider = true)
     }
 
     /**
@@ -290,13 +318,62 @@ object SolanaOhlcvFeed6916 {
             negativeCache.remove(mint)
         }
         fetches.incrementAndGet()
-        val pool = resolvePool(mint, poolHint) ?: run {
-            emptyResults.incrementAndGet()
-            negativeCache[mint] = now
+        // V5.0.6982 §WE_WROTE_DOWN_OUR_OWN_SILENCE_AS_THE_TOKEN_HAVING_NO_CHART.
+        //
+        // This used to be:
+        //
+        //     val pool = resolvePool(mint, poolHint) ?: run {
+        //         emptyResults.incrementAndGet()
+        //         negativeCache[mint] = now        // <-- poison
+        //         return emptyList()
+        //     }
+        //
+        // resolvePool returned null for two completely different reasons, and
+        // the caller could not tell them apart:
+        //
+        //   1. GeckoTerminal answered and this mint genuinely has no pool.
+        //      Negative-caching that is correct and is what 6944 added it for.
+        //   2. OUR OWN rate gate declined and nothing went on the wire. We
+        //      learned nothing. Negative-caching that records an answer we
+        //      never received.
+        //
+        // Case 2 dominates. The operator's 5.0.6972 snapshot:
+        //
+        //     fetches=895 served=1 empty=894 poolResolves=447
+        //     rateLimited6944=574 cooldownSkips6944=285
+        //     negCached6944=446 negativeHits6944=1654
+        //
+        // 574 + 285 = 859 of 895 attempts never reached the network, and
+        // negCached (446) tracks poolResolves (447) almost exactly — i.e.
+        // essentially every pool resolve that got throttled then marked its
+        // mint as chartless. Those 446 entries went on to refuse 1654 further
+        // requests without asking anyone. One mint in 895 got candles.
+        //
+        // That is why ts.history is empty across the board and every pattern
+        // engine downstream sees a flat chart: not because the data is absent,
+        // but because we told ourselves it was after declining to look.
+        //
+        // A local decline is the absence of an observation. Return empty for
+        // now — there genuinely are no bars this instant — but write nothing
+        // down, and count it as a skip rather than as an empty result.
+        val lookup6982 = resolvePool(mint, poolHint)
+        val pool = lookup6982.pool
+        if (pool == null) {
+            if (lookup6982.askedProvider) {
+                emptyResults.incrementAndGet()
+                negativeCache[mint] = now
+            } else {
+                localSkips6982.incrementAndGet()
+            }
             return emptyList()
         }
         val url = "$BASE/pools/$pool/ohlcv/$unit?aggregate=$aggregate&limit=$n&currency=usd"
-        val json = get(url) ?: run { emptyResults.incrementAndGet(); return emptyList() }
+        val candles6982 = fetch6982(url)
+        val json = candles6982.json ?: run {
+            if (candles6982.askedProvider) emptyResults.incrementAndGet()
+            else localSkips6982.incrementAndGet()
+            return emptyList()
+        }
         val list = try {
             json.optJSONObject("data")?.optJSONObject("attributes")?.optJSONArray("ohlcv_list")
                 ?: json.optJSONArray("ohlcv_list")
@@ -357,6 +434,7 @@ object SolanaOhlcvFeed6916 {
             "cached=${cache.size} keyless=true host=$HOST " +
             "rateLimited6944=${rateLimited.get()} cooldownSkips6944=${cooldownSkips.get()} " +
             "negativeHits6944=${negativeHits.get()} negCached6944=${negativeCache.size} " +
+            "localSkips6982=${localSkips6982.get()} " +
             "minIntervalMs=$MIN_INTERVAL_MS"
 
     internal fun resetForTest() {
@@ -364,6 +442,6 @@ object SolanaOhlcvFeed6916 {
         fetches.set(0L); served.set(0L); cacheHits.set(0L); emptyResults.set(0L)
         poolResolves.set(0L); barsDelivered.set(0L); rowsRejected.set(0L)
         negativeCache.clear(); lastCallAtMs.set(0L); cooldownUntilMs.set(0L)
-        consecutiveRejects.set(0L); rateLimited.set(0L); cooldownSkips.set(0L); negativeHits.set(0L)
+        consecutiveRejects.set(0L); rateLimited.set(0L); cooldownSkips.set(0L); negativeHits.set(0L); localSkips6982.set(0L)
     }
 }
