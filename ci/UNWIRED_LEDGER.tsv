@@ -98,10 +98,10 @@ E_INFILE	PerpsPerformanceAttribution	getLayerRankings	perps/PerpsPerformanceAttr
 A_PREDICT	PerpsTradeHeatmap	getAIRecommendation	perps/PerpsTradeHeatmap.kt
 A_PREDICT	PerpsTradeHeatmap	getHeatScore	perps/PerpsTradeHeatmap.kt
 A_PREDICT	PerpsTraderAI	getLifetimeWinRatePct	perps/PerpsTraderAI.kt
-A_PREDICT	PositionSizing	getRecommendedSize	engine/PositionSizing.kt
+F_DEAD	PositionSizing	getRecommendedSize	engine/PositionSizing.kt
 A_PREDICT	PythOracle	getConfidencePct	perps/PythOracle.kt
 A_PREDICT	QualityTraderAI	getRecommendedLeverage	v3/scoring/QualityTraderAI.kt
-A_PREDICT	QuantMetrics	calculateWinRateStats	engine/quant/QuantMetrics.kt
+E_INFILE	QuantMetrics	calculateWinRateStats	engine/quant/QuantMetrics.kt
 A_PREDICT	QuantMindV2	getEdgeDecay	engine/quant/QuantMindV2.kt
 F_DEAD	QuantMindV2	getMomentumDecomposition	engine/quant/QuantMindV2.kt
 E_INFILE	QuantMindV2	getMomentumState	engine/quant/QuantMindV2.kt
@@ -181,7 +181,7 @@ B_RISK	MoonshotHoldProfileRegistry6415	shouldSuppressTp	engine/truth/MoonshotHol
 G_PROTOCOL	OwnershipClassification6391	isRealExhaustion	engine/truth/SellOnlyHoldRepair6391.kt
 B_RISK	PerpsSandbox6463	evaluateRiskExit	engine/truth/PerpsSandbox6463.kt
 B_RISK	PositionIdentity6411	guardMerge	engine/truth/PositionIdentity6411.kt
-B_RISK	PositionSizing	calculateRiskBasedSize	engine/PositionSizing.kt
+F_DEAD	PositionSizing	calculateRiskBasedSize	engine/PositionSizing.kt
 B_RISK	ProfitabilityLayer	shouldBlockFeeBandExit	engine/ProfitabilityLayer.kt
 D_DISPLAY	ReentryGuard	getBlockedCount	engine/ReentryGuard.kt
 D_DISPLAY	ReentryGuard	getBlockedMints	engine/ReentryGuard.kt
@@ -248,10 +248,10 @@ G_PROTOCOL	ExecutorCanonicalMirror6442	sellIdempotencyKey	engine/truth/ExecutorC
 C_EXIT	ExitIntelligence	confirmPartialExit	engine/ExitIntelligence.kt
 C_EXIT	ExitIntelligence	getLearnedMaxHoldMinutes	engine/ExitIntelligence.kt
 C_EXIT	ExitIntelligence	getProfitableRate	engine/ExitIntelligence.kt
-C_EXIT	ExitManager	shouldPartialSell	engine/ExitManager.kt
+F_DEAD	ExitManager	shouldPartialSell	engine/ExitManager.kt
 G_PROTOCOL	ExitPipelineInvariant6411	onExitSweepStart	engine/truth/ExitPipelineInvariant6411.kt
 H_MUTATOR	FeeAccumulator	setFlushThresholdSol	engine/FeeAccumulator.kt
-C_EXIT	FinalizedSellProof6386	classifyPartial	engine/truth/FinalizedSellProof6386.kt
+G_PROTOCOL	FinalizedSellProof6386	classifyPartial	engine/truth/FinalizedSellProof6386.kt
 D_DISPLAY	FluidLearning	getSimulatedPeak	engine/FluidLearning.kt
 E_INFILE	FluidLearningAI	calculateNetPnl	v3/scoring/FluidLearningAI.kt
 F_DEAD	FluidLearningAI	getAltsLevTpPct	v3/scoring/FluidLearningAI.kt
@@ -264,7 +264,7 @@ E_INFILE	FluidLearningAI	getMarketsTakeProfitPct	v3/scoring/FluidLearningAI.kt
 F_DEAD	FluidLearningAI	getMarketsUncappedTpPct	v3/scoring/FluidLearningAI.kt
 C_EXIT	FluidLearningAI	getMinProfitableExitPct	v3/scoring/FluidLearningAI.kt
 C_EXIT	FluidLearningAI	isHoldTimeExceeded	v3/scoring/FluidLearningAI.kt
-C_EXIT	FluidLearningAI	isNetProfitable	v3/scoring/FluidLearningAI.kt
+D_DISPLAY	FluidLearningAI	isNetProfitable	v3/scoring/FluidLearningAI.kt
 E_INFILE	ForexStrategy	tpSlPips	perps/strategy/ForexStrategy.kt
 C_EXIT	ForexStrategy	tpSlPrices	perps/strategy/ForexStrategy.kt
 H_MUTATOR	GlobalCapitalArbitration6617	recordSpecialistProposal6617	engine/truth/GlobalCapitalArbitration6617.kt
@@ -289,7 +289,7 @@ C_EXIT	LiveContinuityPolicy6392	inventoryConservationHolds	engine/truth/LiveCont
 C_EXIT	LiveContinuityPolicy6392	profitPartialAcceptable	engine/truth/LiveContinuity6392.kt
 F_DEAD	LiveExecutionGate	sellCompleted	engine/LiveExecutionGate.kt
 G_PROTOCOL	LiveExecutionGate	trySell	engine/LiveExecutionGate.kt
-C_EXIT	LiveExitOnlyMode6387	classifyForStop	engine/truth/LiveTruthExitAuthority6387.kt
+D_DISPLAY	LiveExitOnlyMode6387	classifyForStop	engine/truth/LiveTruthExitAuthority6387.kt
 H_MUTATOR	LivePositionCloseAuthority	purgeSellResidue	engine/sell/LivePositionCloseAuthority.kt
 C_EXIT	LiveSafetyCircuitBreaker	isSessionDrawdownPressureActive	engine/LiveSafetyCircuitBreaker.kt
 D_DISPLAY	LiveSafetyCircuitBreaker	sessionDrawdownPressureReason	engine/LiveSafetyCircuitBreaker.kt
@@ -326,7 +326,7 @@ C_EXIT	PriceDenomination6387	isAuthoritativeForExit	engine/truth/CanonicalTokenP
 E_INFILE	ProcessorAmountPlanner	planSellFromConfirmed	engine/ProcessorAmountPlanner.kt
 C_EXIT	PumpPortalKillSwitch	recentPartialAttempts	engine/sell/PumpPortalKillSwitch.kt
 H_MUTATOR	PumpPortalKillSwitch	recordPartialAttempt	engine/sell/PumpPortalKillSwitch.kt
-C_EXIT	QuantMetrics	calculateProfitFactor	engine/quant/QuantMetrics.kt
+E_INFILE	QuantMetrics	calculateProfitFactor	engine/quant/QuantMetrics.kt
 H_MUTATOR	ReEntryLockout	clearOnNewPeak	engine/ReEntryLockout.kt
 H_MUTATOR	RecoveredHoldGuard	clearOnFullExit	engine/RecoveredHoldGuard.kt
 E_INFILE	RecoveredHoldGuard	isEmergencyExitOverride	engine/RecoveredHoldGuard.kt
@@ -341,7 +341,7 @@ C_EXIT	SellIntentQuantityAuthority6401	validateSellIntentFromUi	engine/truth/Sel
 G_PROTOCOL	SellQuantityBoundary6459	admitSell	engine/truth/SellQuantityBoundary6459.kt
 D_DISPLAY	SentienceHooks	lastPostMortemAgeMs	engine/SentienceHooks.kt
 C_EXIT	ShadowLearningEngine	getPerformanceByMode	v3/learning/ShadowLearningEngine.kt
-C_EXIT	SmartExitOptimizer	getExitPressure	engine/SmartExitOptimizer.kt
+F_DEAD	SmartExitOptimizer	getExitPressure	engine/SmartExitOptimizer.kt
 H_MUTATOR	SmartSizer	resetSessionPeak	engine/SmartSizer.kt
 D_DISPLAY	SolanaWallet	getPublicKeyOnly	network/SolanaWallet.kt
 C_EXIT	SourceTimingRegistry	getPriceChangeSinceFirstSeen	v3/arb/SourceTimingRegistry.kt
