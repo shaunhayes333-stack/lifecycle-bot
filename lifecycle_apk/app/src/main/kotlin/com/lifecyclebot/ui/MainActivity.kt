@@ -1156,6 +1156,18 @@ class MainActivity : AppCompatActivity() {
     private val equityTrail7011 = ArrayDeque<Float>(64)
     private var lastTrailValue7011 = 0.0
 
+    /**
+     * V5.0.7012 — lane occupancy, published by the one function that holds it.
+     *
+     * renderOpenPositions is handed the canonical open-position list; the hero
+     * render is not. Rather than give the hero a second way to reach positions
+     * (which is how two surfaces start disagreeing), the list's owner writes
+     * the count here and the hero reads it. Empty until the first position
+     * render, which is correct: the strip then draws nothing rather than
+     * claiming zero lanes are active.
+     */
+    @Volatile private var laneCounts7011: Map<String, Int> = emptyMap()
+
     private fun renderHeroShape7011(equitySol: Double) {
         try {
             if (equitySol.isFinite() && equitySol > 0.0 &&
@@ -1180,7 +1192,7 @@ class MainActivity : AppCompatActivity() {
             // Win rate and realised PnL come from the journal's own lifetime
             // snapshot — the same authority the analytics block reports — so the
             // rail can never disagree with the Journal screen.
-            val life7011 = try { TradeHistoryStore.getLifetimeStats() } catch (_: Throwable) { null }
+            val life7011 = try { com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats() } catch (_: Throwable) { null }
             val wr7011 = life7011?.winRate ?: -1.0
             val decisive7011 = (life7011?.totalWins ?: 0) + (life7011?.totalLosses ?: 0)
             // The render's fourth slot is profit factor, but LifetimeSnapshot
@@ -1222,14 +1234,14 @@ class MainActivity : AppCompatActivity() {
 
             // Lane pressure: open-position weight per lane, normalised to the
             // busiest lane so the strip shows relative load rather than raw counts.
-            val byLane7011 = try {
-                synchronized(status.tokens) {
-                    status.tokens.values.asSequence()
-                        .filter { it.position.isOpen }
-                        .groupingBy { it.position.tradingMode.ifBlank { "OTHER" }.uppercase() }
-                        .eachCount()
-                }
-            } catch (_: Throwable) { emptyMap() }
+            // V5.0.7012 — read the snapshot renderOpenPositions publishes.
+            //
+            // My 7011 draft reached for `status.tokens` here. MainActivity does
+            // not own `status` — it RECEIVES the position list as a parameter —
+            // so that did not compile, and neither did the TradeHistoryStore
+            // call beside it, which is not imported in this file. Both were
+            // assumptions I never checked; see the 7012 note on laneCounts7011.
+            val byLane7011 = laneCounts7011
 
             findViewById<LaneBarsView7009>(R.id.heroLaneBars)?.let { bars ->
                 if (byLane7011.isNotEmpty()) {
@@ -5330,6 +5342,18 @@ for legal compliance.
     private val openPosCardCache = LinkedHashMap<String, OpenPosCard>(48)
 
     private fun renderOpenPositions(positions: List<TokenState>, preSorted6078: Boolean = false) {
+        // V5.0.7012 — publish lane occupancy for the hero's pressure strip.
+        // This function is the one place holding the canonical open-position
+        // list, so it is the only honest place to count lanes from. Cheap: one
+        // grouping over a list already in hand, no new state and no new source.
+        try {
+            laneCounts7011 = positions
+                .asSequence()
+                .filter { it.position.isOpen }
+                .groupingBy { it.position.tradingMode.ifBlank { "OTHER" }.uppercase() }
+                .eachCount()
+        } catch (_: Throwable) { /* presentation only */ }
+
         // V5.9.749 — STRUCTURAL-only hash. Excludes ts.ref (live price) on
         // purpose: price drift from the 1Hz tick loop must NOT trigger a
         // full card rebuild — that was the dominant ANR blocker (92.8%
