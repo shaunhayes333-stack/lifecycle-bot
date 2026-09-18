@@ -1205,25 +1205,50 @@ class MainActivity : AppCompatActivity() {
             val realized7011 = life7011?.realizedPnlSol ?: Double.NaN
 
             findViewById<RingGaugeView7010>(R.id.heroHealthRing)?.let { ring ->
-                // The ring reads win rate against the doctrine floor the app
-                // already publishes (20% live bootstrap), so a full ring means
-                // "at the floor", not "perfect". With no decisive closes yet it
-                // is left untouched rather than drawn at zero, because an empty
-                // ring and a failing ring must not look the same.
+                // V5.0.7013 §THE_RING_AND_THE_RAIL_DISAGREED.
+                //
+                // My 7011 binding set the ring to (winRate / 20), the fraction
+                // of the doctrine floor reached, and captioned it "WR". The
+                // device shows what that produces: RingGaugeView prints
+                // (value * 100) as its figure, so a 24% win rate clamped to 1.0
+                // and the card read
+                //
+                //     [ 100 ]            WR
+                //       WR               24%
+                //
+                // — two different answers to the same question, side by side,
+                // with the wrong one drawn larger and in green. That is the
+                // exact defect class this session exists to remove: a surface
+                // that reports something other than what it measures.
+                //
+                // The gauge now IS the win rate. Arc and figure are the same
+                // number as the rail, so they cannot drift. Only the COLOUR
+                // still reads against the 20% doctrine floor, because for a
+                // strategy whose edge is runner capture a low win rate is not
+                // automatically a failure — but the figure must be the truth.
                 if (decisive7011 > 0 && wr7011 >= 0.0) {
-                    val health7011 = (wr7011 / 20.0).coerceIn(0.0, 1.0)
                     ring.ringColor = when {
-                        health7011 >= 0.66 -> 0xFF34D399.toInt()
-                        health7011 >= 0.33 -> 0xFFFBBF24.toInt()
+                        wr7011 >= 20.0 -> 0xFF34D399.toInt()
+                        wr7011 >= 12.0 -> 0xFFFBBF24.toInt()
                         else -> 0xFFFB5E6D.toInt()
                     }
-                    ring.caption = "WR"
-                    ring.setValue(health7011.toFloat())
+                    ring.caption = "WIN %"
+                    ring.setValue((wr7011 / 100.0).toFloat())
                 }
             }
 
-            if (decisive7011 > 0 && wr7011 >= 0.0) {
-                findViewById<TextView>(R.id.tvHeroWr)?.setTextIfChanged("${wr7011.toInt()}%")
+            // The rail's third cell no longer repeats the ring. For a
+            // runner-capture strategy the number that makes a low win rate
+            // survivable is the size of the wins, so the cell carries average
+            // win — the other half of expectancy, from the same snapshot.
+            if ((life7011?.totalWins ?: 0) > 0) {
+                val avgWin7013 = life7011?.avgWinPct ?: Double.NaN
+                if (avgWin7013.isFinite()) {
+                    findViewById<TextView>(R.id.tvHeroWr)?.apply {
+                        setTextIfChanged(String.format("%+.0f%%", avgWin7013))
+                        setTextColor(if (avgWin7013 >= 0.0) 0xFF34D399.toInt() else 0xFFFB5E6D.toInt())
+                    }
+                }
             }
             if (realized7011.isFinite()) {
                 findViewById<TextView>(R.id.tvHeroPf)?.apply {

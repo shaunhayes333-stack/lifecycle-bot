@@ -53,11 +53,15 @@ import android.widget.TextView
  */
 object AateComponents6994 {
 
-    // Ground and surfaces sampled from the renders. Slightly deeper than the
-    // 6977 tokens because the mockups sit on near-black with an aurora wash.
-    const val GROUND = 0xFF05070F.toInt()
-    const val SURFACE_TOP = 0xFF0B1424.toInt()
-    const val SURFACE_BOTTOM = 0xFF080F1C.toInt()
+    // V5.0.7013 — re-sampled to match res/drawable/aate_metric_card_bg.xml
+    // exactly. These constants were sampled from the render PNGs in 6994 and
+    // then V5.0.7007 raised the XML card fill three stops without touching
+    // them, so a Kotlin-built card and an XML-built card sitting on the same
+    // screen were different slabs. Same stops as the drawable now.
+    const val GROUND = 0xFF04060D.toInt()
+    const val SURFACE_TOP = 0xFF222E5C.toInt()
+    const val SURFACE_MID = 0xFF131D42.toInt()
+    const val SURFACE_BOTTOM = 0xFF090E20.toInt()
 
     private fun dp(ctx: Context, v: Number) = AateUi.dp(ctx, v)
 
@@ -67,23 +71,29 @@ object AateComponents6994 {
      * A card whose border GLOWS. Three concentric rounded rects: a wide faint
      * halo, a mid ring, and the crisp inner hairline. Insetting each layer
      * inward keeps the halo outside the content box so nothing shifts.
+     *
+     * V5.0.7013 — alphas and the lit hairline now match aate_metric_card_bg
+     * (0x24 halo / 0x4E ring / 0xAD core on #7CC4FF), and the fill carries the
+     * drawable's three-stop diagonal gradient rather than a two-stop vertical
+     * one. This is what makes a card built here indistinguishable from a card
+     * declared in XML, which is the entire point of having both.
      */
-    fun glowCard(ctx: Context, accent: Int = AateUi.BLUE, radiusDp: Float = 20f): Drawable {
+    fun glowCard(ctx: Context, accent: Int = AateUi.BLUE, radiusDp: Float = 18f): Drawable {
         val r = radiusDp * ctx.resources.displayMetrics.density
         val halo = GradientDrawable().apply {
             cornerRadius = r
-            setStroke(maxOf(1, dp(ctx, 3)), AateUi.withAlpha(accent, 0x1A))
+            setStroke(maxOf(1, dp(ctx, 3)), AateUi.withAlpha(AateUi.CYAN, 0x24))
         }
         val ring = GradientDrawable().apply {
             cornerRadius = r
-            setStroke(maxOf(1, dp(ctx, 2)), AateUi.withAlpha(accent, 0x3D))
+            setStroke(maxOf(1, dp(ctx, 2)), AateUi.withAlpha(accent, 0x4E))
         }
         val core = GradientDrawable(
-            GradientDrawable.Orientation.TOP_BOTTOM,
-            intArrayOf(SURFACE_TOP, SURFACE_BOTTOM),
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(SURFACE_TOP, SURFACE_MID, SURFACE_BOTTOM),
         ).apply {
             cornerRadius = r
-            setStroke(maxOf(1, dp(ctx, 1)), AateUi.withAlpha(accent, 0x8A))
+            setStroke(maxOf(1, dp(ctx, 1)), AateUi.withAlpha(0xFF7CC4FF.toInt(), 0xAD))
         }
         return LayerDrawable(arrayOf(halo, ring, core)).apply {
             setLayerInset(1, dp(ctx, 1), dp(ctx, 1), dp(ctx, 1), dp(ctx, 1))
@@ -91,15 +101,110 @@ object AateComponents6994 {
         }
     }
 
+    // ── section header ────────────────────────────────────────────────────
+
+    /**
+     * The render's section rule: a wide-tracked uppercase label, a hairline
+     * that runs to the edge, and an optional figure at the right. Every render
+     * screen separates its blocks this way; the painted screens separate theirs
+     * with a bold 13sp line and nothing else, which is why they scan as a log.
+     */
+    fun sectionHeader(
+        ctx: Context,
+        label: String,
+        trailing: CharSequence? = null,
+        accent: Int = AateUi.CYAN,
+    ): LinearLayout = LinearLayout(ctx).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { topMargin = dp(ctx, 18); bottomMargin = dp(ctx, 8) }
+        setPadding(dp(ctx, 16), 0, dp(ctx, 16), 0)
+
+        addView(TextView(ctx).apply {
+            text = label.uppercase()
+            setTextColor(accent)
+            textSize = 10f
+            typeface = Typeface.DEFAULT_BOLD
+            letterSpacing = 0.20f
+            includeFontPadding = false
+        })
+        addView(View(ctx).apply {
+            setBackgroundColor(AateUi.withAlpha(AateUi.STROKE_SOFT, 0xCC))
+            layoutParams = LinearLayout.LayoutParams(0, maxOf(1, dp(ctx, 1)), 1f)
+                .apply { marginStart = dp(ctx, 10); marginEnd = dp(ctx, 10) }
+        })
+        if (!trailing.isNullOrBlank()) {
+            addView(TextView(ctx).apply {
+                text = trailing
+                setTextColor(AateUi.TEXT_MUTED)
+                textSize = 9.5f
+                letterSpacing = 0.10f
+            })
+        }
+    }
+
+    // ── metric row ────────────────────────────────────────────────────────
+
+    /**
+     * A label on the left, a figure on the right, in the render's weights:
+     * tracked caption against a bold mono number. Replaces the
+     * `"LANE: WR=24% mu=+1.2% net=-0.03"` single mono run that the painted
+     * screens use for every line they have.
+     */
+    fun metricRow(
+        ctx: Context,
+        label: CharSequence,
+        value: CharSequence,
+        valueColor: Int = AateUi.TEXT,
+        sub: CharSequence? = null,
+    ): LinearLayout = LinearLayout(ctx).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+        ).apply { topMargin = dp(ctx, 5); bottomMargin = dp(ctx, 5) }
+
+        addView(LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            addView(TextView(ctx).apply {
+                text = label
+                setTextColor(AateUi.TEXT)
+                textSize = 12.5f
+                typeface = Typeface.DEFAULT_BOLD
+            })
+            if (!sub.isNullOrBlank()) {
+                addView(TextView(ctx).apply {
+                    text = sub
+                    setTextColor(AateUi.TEXT_MUTED)
+                    textSize = 10f
+                    setPadding(0, dp(ctx, 2), 0, 0)
+                })
+            }
+        })
+        addView(TextView(ctx).apply {
+            text = value
+            setTextColor(valueColor)
+            textSize = 14f
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            gravity = Gravity.END
+            setPadding(dp(ctx, 8), 0, 0, 0)
+        })
+    }
+
     /** A card container with the glow border and the renders' padding. */
     fun card(ctx: Context, accent: Int = AateUi.BLUE): LinearLayout =
         LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             background = glowCard(ctx, accent)
-            setPadding(dp(ctx, 16), dp(ctx, 16), dp(ctx, 16), dp(ctx, 16))
+            setPadding(dp(ctx, 15), dp(ctx, 14), dp(ctx, 15), dp(ctx, 14))
+            // 16dp horizontal, matching sectionHeader's gutter so a card and the
+            // rule above it line up on the same edge.
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { setMargins(dp(ctx, 14), dp(ctx, 8), dp(ctx, 14), dp(ctx, 8)) }
+            ).apply { setMargins(dp(ctx, 16), dp(ctx, 4), dp(ctx, 16), dp(ctx, 8)) }
         }
 
     // ── typography ────────────────────────────────────────────────────────

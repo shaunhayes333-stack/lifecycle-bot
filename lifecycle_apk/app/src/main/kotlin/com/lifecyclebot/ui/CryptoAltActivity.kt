@@ -75,21 +75,33 @@ import java.util.*
 class CryptoAltActivity : AppCompatActivity() {
 
     // ─── Palette ─────────────────────────────────────────────────────────────
-    private val bg      = 0xFF0A0A0F.toInt()
-    private val card    = 0xFF0D192B.toInt()
-    private val card2   = 0xFF12122A.toInt()
-    private val divBg   = 0xFF101E33.toInt()
-    private val white   = 0xFFF5F7FF.toInt()
-    private val muted   = 0xFF63759B.toInt()
-    private val green   = 0xFF16E6A1.toInt()
-    private val red     = 0xFFFF4D6D.toInt()
-    private val amber   = 0xFFFFB020.toInt()
-    private val purple  = 0xFFB36BFF.toInt()
-    private val blue    = 0xFF60A5FA.toInt()
-    private val teal    = 0xFF14B8A6.toInt()
-    private val pink    = 0xFFF472B6.toInt()
+    //
+    // V5.0.7013 — bound to AateUi, which is bound to res/values/colors.xml.
+    //
+    // This screen carried its own fifteen-colour scheme, invented before there
+    // was a design system and never revisited. It is the single largest reason
+    // the operator reported the restyle "kind of landed": the Crypto Alts tabs
+    // are ~470 addView calls that all read THESE constants, so retuning
+    // colors.xml and the drawables could not touch one pixel of them. The
+    // screen kept a warmer purple, a mint green and a near-black ground while
+    // every XML screen moved to the render's palette.
+    //
+    // Same names, same call sites, now the same colours as the rest of the app.
+    private val bg      = AateUi.BG
+    private val card    = AateUi.SURFACE
+    private val card2   = AateUi.SURFACE_2
+    private val divBg   = AateUi.SURFACE_3
+    private val white   = AateUi.TEXT
+    private val muted   = AateUi.TEXT_MUTED
+    private val green   = AateUi.GREEN
+    private val red     = AateUi.RED
+    private val amber   = AateUi.AMBER
+    private val purple  = AateUi.PURPLE_BRIGHT
+    private val blue    = AateUi.BLUE
+    private val teal    = AateUi.CYAN
+    private val pink    = AateUi.PINK
     private val orange  = 0xFFFB923C.toInt()
-    private val indigo  = 0xFF818CF8.toInt()
+    private val indigo  = AateUi.PURPLE
     private val sdf     = SimpleDateFormat("MMM dd HH:mm", Locale.US)
     private val timeFmt = SimpleDateFormat("HH:mm", Locale.US)
 
@@ -4002,18 +4014,58 @@ class CryptoAltActivity : AppCompatActivity() {
         if (mono) typeface = android.graphics.Typeface.MONOSPACE
     }
 
+    /**
+     * V5.0.7013 §THE_TWO_FUNCTIONS_THAT_ARE_THIS_SCREEN.
+     *
+     * Almost every panel, row, tile and strip in Crypto Alts is an hBox or a
+     * vBox. Both painted a FLAT, SQUARE, hard-edged rectangle —
+     * setBackgroundColor and nothing else — which is precisely the shape the
+     * renders do not have and the shape the operator kept seeing after three
+     * restyle passes. Restyling here restyles the screen; restyling anywhere
+     * else restyles one panel.
+     *
+     * Two changes, both at this one site:
+     *
+     *  1. SURFACE. A flat fill becomes the render's card: 14dp radius, a
+     *     top-to-bottom gradient so the slab has a light source, and the
+     *     hairline stroke that separates it from the aurora ground behind it.
+     *
+     *  2. PADDING UNITS. Every call site passes its padding as raw PIXELS
+     *     (`hBox(card, 12, 6)`), so on a 3x phone a "12" gutter was 4dp and the
+     *     whole screen read as a dense table. The numbers were always meant as
+     *     dp — they were written on a 1x mental model — so they are converted
+     *     here rather than edited at 470 call sites. This is most of the
+     *     breathing room the renders have and this screen did not.
+     */
+    private fun boxSurface(fill: Int): android.graphics.drawable.GradientDrawable =
+        AateUi.cardBackground(
+            this,
+            top = fill,
+            bottom = AateUi.withAlpha(fill, 0xE6),
+            stroke = AateUi.withAlpha(AateUi.STROKE_SOFT, 0xCC),
+            radiusDp = 14f,
+        )
+
     private fun hBox(bg: Int = 0, padH: Int = 0, padV: Int = 0) = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
-        if (bg != 0) setBackgroundColor(bg)
-        if (padH > 0 || padV > 0) setPadding(padH, padV, padH, padV)
+        if (bg != 0) background = boxSurface(bg)
+        if (padH > 0 || padV > 0) {
+            setPadding(AateUi.dp(context, padH), AateUi.dp(context, padV), AateUi.dp(context, padH), AateUi.dp(context, padV))
+        }
         layoutParams = llp(match, wrap)
     }
 
     private fun vBox(bg: Int = 0, padH: Int = 0, padV: Int = 0) = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        if (bg != 0) setBackgroundColor(bg)
-        if (padH > 0 || padV > 0) setPadding(padH, padV, padH, padV)
-        layoutParams = llp(match, wrap).apply { bottomMargin = 3 }
+        if (bg != 0) background = boxSurface(bg)
+        if (padH > 0 || padV > 0) {
+            setPadding(AateUi.dp(context, padH), AateUi.dp(context, padV), AateUi.dp(context, padH), AateUi.dp(context, padV))
+        }
+        // Cards need a gap between them to read as separate cards at all. The
+        // old 3px margin was a hairline on every real device.
+        layoutParams = llp(match, wrap).apply {
+            bottomMargin = AateUi.dp(context, if (bg != 0) 8 else 3)
+        }
     }
 
     private val match = LinearLayout.LayoutParams.MATCH_PARENT

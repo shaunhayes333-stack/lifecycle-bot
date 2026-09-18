@@ -52,23 +52,37 @@ import android.widget.TextView
 object AateUi {
 
     // ── Palette — mirrors res/values/colors.xml ───────────────────────────
-    const val BG = 0xFF030712.toInt()
-    const val BG_DEEP = 0xFF01040B.toInt()
-    const val SURFACE = 0xFF0A1424.toInt()
-    const val SURFACE_2 = 0xFF0D192B.toInt()
-    const val SURFACE_3 = 0xFF101E33.toInt()
-    const val STROKE = 0xFF2B4B78.toInt()
-    const val STROKE_SOFT = 0xFF193250.toInt()
-    const val TEXT = 0xFFF5F7FF.toInt()
-    const val TEXT_SECONDARY = 0xFFA7B7D8.toInt()
-    const val TEXT_MUTED = 0xFF63759B.toInt()
-    const val PURPLE = 0xFF9A4DFF.toInt()
-    const val PURPLE_BRIGHT = 0xFFB36BFF.toInt()
-    const val BLUE = 0xFF4C8DFF.toInt()
-    const val CYAN = 0xFF31C7FF.toInt()
-    const val GREEN = 0xFF16E6A1.toInt()
-    const val AMBER = 0xFFFFB020.toInt()
-    const val RED = 0xFFFF4D6D.toInt()
+    //
+    // V5.0.7013 §ONE_PALETTE_TWO_LANGUAGES, ENFORCED.
+    //
+    // This block's whole claim is that it mirrors colors.xml. It stopped being
+    // true at V5.0.7007, when the XML palette was retuned to the render and
+    // these constants were not. Every screen painted in Kotlin therefore kept
+    // the old scheme — deeper blue-black ground, a bluer purple, a mint green —
+    // while every screen built from XML moved to the render's. Two schemes in
+    // one app is worse than either, and it is a large part of why the restyle
+    // "kind of landed": half the app landed.
+    //
+    // Re-synced value-for-value against res/values/colors.xml. If one side
+    // moves again, both must.
+    const val BG = 0xFF04060D.toInt()          // aate_bg
+    const val BG_DEEP = 0xFF02040A.toInt()     // aate_bg_deep
+    const val SURFACE = 0xFF121C3A.toInt()     // aate_surface
+    const val SURFACE_2 = 0xFF18244A.toInt()   // aate_surface_2
+    const val SURFACE_3 = 0xFF222E5C.toInt()   // aate_surface_3
+    const val STROKE = 0xFF4E7CB8.toInt()      // aate_stroke
+    const val STROKE_SOFT = 0xFF2B4570.toInt() // aate_stroke_soft
+    const val TEXT = 0xFFE8EEFB.toInt()        // aate_text
+    const val TEXT_SECONDARY = 0xFF8FA3C8.toInt()
+    const val TEXT_MUTED = 0xFF5D6E91.toInt()
+    const val PURPLE = 0xFF8B5CF6.toInt()      // aate_purple
+    const val PURPLE_BRIGHT = 0xFFC4B5FD.toInt()
+    const val BLUE = 0xFF4C8DFF.toInt()        // aate_blue (unchanged)
+    const val CYAN = 0xFF22D3EE.toInt()        // aate_cyan
+    const val GREEN = 0xFF34D399.toInt()       // aate_green
+    const val AMBER = 0xFFFBBF24.toInt()       // aate_amber
+    const val RED = 0xFFFB5E6D.toInt()         // aate_red
+    const val PINK = 0xFFF0409C.toInt()        // aate_pink — added 7008, never mirrored
 
     // ── Geometry ──────────────────────────────────────────────────────────
     const val RADIUS_CARD_DP = 16f
