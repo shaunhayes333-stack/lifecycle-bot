@@ -68,6 +68,30 @@ object JournalEconomicReplay6619 {
         val totalsComplete6899: Boolean = true,
         val invariantFailures: List<String> = emptyList(),
         val openRawQtyByPosition: Map<String, java.math.BigInteger> = emptyMap(),
+        /**
+         * V5.0.6980 — per-position SELL economics, so a reconciler can name the
+         * divergent row instead of only its scalar delta.
+         *
+         * The 6979 CI smoke run produced the shape that motivated this:
+         *
+         *     cashLedger=2.801693  cashJournal=2.856536  cashDelta=0.054842
+         *     realizedLedger=-0.179132 realizedJournal=-0.124290 realizedDelta=0.054842
+         *     openCostDelta=0.000000   quantityDeltaRaw=1000000000
+         *
+         * PaperAccountLedger6430.onSellAtomic6632 and this replay apply the
+         * IDENTICAL formulas — cash += (gross - fee), openCost -= basis,
+         * realized += (gross - basis), fees += fee — so the delta cannot come
+         * from a formula split. With openCostDelta exactly 0 the basis flows
+         * agree, and with cashDelta == realizedDelta the fee flows agree too.
+         * Subtracting those leaves one possibility: the two sides applied a
+         * different GROSS PROCEEDS for the same position, on the same basis.
+         *
+         * A scalar cannot say which one. These maps can.
+         */
+        val sellGrossByPosition6980: Map<String, Double> = emptyMap(),
+        val sellBasisByPosition6980: Map<String, Double> = emptyMap(),
+        val sellFeeByPosition6980: Map<String, Double> = emptyMap(),
+        val sellCountByPosition6980: Map<String, Int> = emptyMap(),
         val openBasisByPosition: Map<String, Double> = emptyMap(),
     )
 
@@ -122,6 +146,12 @@ object JournalEconomicReplay6619 {
         var sells = 0
         var partials = 0
         var totalRows = 0
+        // V5.0.6980 — per-position SELL economics, so a divergence can be
+        // attributed to a row rather than reported as a bare scalar.
+        val sellGross6980 = mutableMapOf<String, Double>()
+        val sellBasis6980 = mutableMapOf<String, Double>()
+        val sellFee6980 = mutableMapOf<String, Double>()
+        val sellCount6980 = mutableMapOf<String, Int>()
         // V5.0.6868 — basis that a terminal SELL left behind on its lot. Tracked so
         // the residual is a readable quantity instead of being silently carried as
         // open cost (or, before this fix, silently dropping the whole sell event).
@@ -355,6 +385,11 @@ object JournalEconomicReplay6619 {
                     openCost -= basis
                     realized += (gross - basis)
                     fees += fee
+                    // V5.0.6980 — record what this side actually applied.
+                    sellGross6980[t.positionId] = (sellGross6980[t.positionId] ?: 0.0) + gross
+                    sellBasis6980[t.positionId] = (sellBasis6980[t.positionId] ?: 0.0) + basis
+                    sellFee6980[t.positionId] = (sellFee6980[t.positionId] ?: 0.0) + fee
+                    sellCount6980[t.positionId] = (sellCount6980[t.positionId] ?: 0) + 1
                     lot.basisSol = nextBasis
                     lot.rawQty = nextRaw
                     lot.displayQty = nextDisplay
@@ -410,6 +445,10 @@ object JournalEconomicReplay6619 {
             invariantFailures = failures.toList(),
             openRawQtyByPosition = lots.mapValues { it.value.rawQty },
             openBasisByPosition = lots.mapValues { it.value.basisSol },
+            sellGrossByPosition6980 = sellGross6980.toMap(),
+            sellBasisByPosition6980 = sellBasis6980.toMap(),
+            sellFeeByPosition6980 = sellFee6980.toMap(),
+            sellCountByPosition6980 = sellCount6980.toMap(),
         )
         lastResult.set(result)
 

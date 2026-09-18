@@ -167,6 +167,49 @@ object ForensicReconciliation6635 {
                         "action=identify_split_write_subject",
                 )
             } catch (_: Throwable) {}
+
+            // V5.0.6980 §NAME_THE_PROCEEDS_NOT_JUST_THE_POSITION.
+            //
+            // 6912 names WHICH positions differ. It still cannot say WHAT about
+            // them differs, and the 6979 CI smoke run shows why that matters:
+            //
+            //     cashDelta=0.054842  realizedDelta=0.054842  openCostDelta=0.000000
+            //     quantityDeltaRaw=1000000000
+            //
+            // PaperAccountLedger6430.onSellAtomic6632 and JournalEconomicReplay6619
+            // apply the identical formulas — cash += (gross - fee),
+            // openCost -= basis, realized += (gross - basis), fees += fee — so no
+            // formula split can produce this. openCostDelta of exactly 0 says the
+            // basis flows agree; cashDelta == realizedDelta says the fee flows
+            // agree. Once basis and fee are eliminated, a single quantity is left
+            // that can move cash and realized together by the same amount and
+            // leave open cost untouched: the GROSS PROCEEDS of a sell.
+            //
+            // So print the journal's own sell economics for the divergent
+            // positions. Whatever the ledger applied, this is what the journal
+            // did, per position, and the difference has somewhere to be read
+            // from. Pure diagnostics — no mutation, no healing, no gating.
+            try {
+                val suspects6980 = (qtyMismatched6912 + journalOnly6912 + canonicalOnly6912).distinct().take(5)
+                if (suspects6980.isNotEmpty()) {
+                    val detail6980 = suspects6980.joinToString(" ") { id ->
+                        val g = replay6647?.sellGrossByPosition6980?.get(id) ?: 0.0
+                        val b = replay6647?.sellBasisByPosition6980?.get(id) ?: 0.0
+                        val f = replay6647?.sellFeeByPosition6980?.get(id) ?: 0.0
+                        val n = replay6647?.sellCountByPosition6980?.get(id) ?: 0
+                        "${id.take(20)}[sells=$n gross=${"%.6f".format(g)} basis=${"%.6f".format(b)} " +
+                            "fee=${"%.6f".format(f)} pnl=${"%+.6f".format(g - b)}]"
+                    }
+                    PipelineHealthCollector.labelInc("FORENSIC_SELL_ECONOMICS_NAMED_6980")
+                    ForensicLogger.lifecycle(
+                        "FORENSIC_SELL_ECONOMICS_NAMED_6980",
+                        "cashDelta=${"%.6f".format(cashDelta)} realizedDelta=${"%.6f".format(realizedDelta)} " +
+                            "openCostDelta=${"%.6f".format(openCostDelta)} " +
+                            "journalSellEconomics=$detail6980 " +
+                            "read=basis_and_fee_agree_so_a_nonzero_cash_eq_realized_delta_is_a_proceeds_disagreement",
+                    )
+                }
+            } catch (_: Throwable) {}
         }
 
         lastCashLedger.set(cashLedger); lastCashJournal.set(cashJournal); lastCashDelta.set(cashDelta)
