@@ -1137,6 +1137,120 @@ class MainActivity : AppCompatActivity() {
     private fun dp7007(v: Int): Int =
         (v * resources.displayMetrics.density).toInt().coerceAtLeast(1)
 
+    /**
+     * V5.0.7011 §THE_HERO_HAD_NO_SHAPE — feed the restructured command card.
+     *
+     * The render's hero answers three questions at a glance: how much (the
+     * figure), which way (the curve), how well (the ring and the rail). The app
+     * only ever answered the first, so an account that had drifted 4% and one
+     * that had run 400% looked identical until the operator opened the journal.
+     *
+     * Everything here is a projection of state the dashboard already holds —
+     * the canonical equity snapshot, the lane funnel, the analytics window. No
+     * new fetch, no new authority, and nothing here can affect a trade.
+     *
+     * Kept cheap deliberately: the equity trail is a bounded 64-point ring,
+     * appended only when the value actually moves, and each view no-ops on an
+     * unchanged input, so the 1Hz render loop cannot thrash an animation.
+     */
+    private val equityTrail7011 = ArrayDeque<Float>(64)
+    private var lastTrailValue7011 = 0.0
+
+    private fun renderHeroShape7011(equitySol: Double) {
+        try {
+            if (equitySol.isFinite() && equitySol > 0.0 &&
+                kotlin.math.abs(equitySol - lastTrailValue7011) > 1e-9
+            ) {
+                lastTrailValue7011 = equitySol
+                equityTrail7011.addLast(equitySol.toFloat())
+                while (equityTrail7011.size > 64) equityTrail7011.removeFirst()
+            }
+
+            findViewById<SparklineView7009>(R.id.heroEquitySpark)?.let { spark ->
+                if (equityTrail7011.size >= 3) {
+                    val arr = equityTrail7011.toFloatArray()
+                    val up = arr.last() >= arr.first()
+                    spark.lineColor = if (up) 0xFF34D399.toInt() else 0xFFFB5E6D.toInt()
+                    spark.fillColor = if (up) 0xFF22D3EE.toInt() else 0xFFFB5E6D.toInt()
+                    spark.showHead = true
+                    spark.setSeries(arr, animate = true)
+                }
+            }
+
+            // Win rate and realised PnL come from the journal's own lifetime
+            // snapshot — the same authority the analytics block reports — so the
+            // rail can never disagree with the Journal screen.
+            val life7011 = try { TradeHistoryStore.getLifetimeStats() } catch (_: Throwable) { null }
+            val wr7011 = life7011?.winRate ?: -1.0
+            val decisive7011 = (life7011?.totalWins ?: 0) + (life7011?.totalLosses ?: 0)
+            // The render's fourth slot is profit factor, but LifetimeSnapshot
+            // does not carry gross loss, so PF cannot be computed here — and a
+            // derived stand-in would be exactly the "optimistic default that
+            // does not tie to StrategyTruthLedger" V5.0.6078 banned. The slot
+            // shows realised PnL instead: same question (is this working), an
+            // authority that actually exists, and the number the operator would
+            // check next anyway.
+            val realized7011 = life7011?.realizedPnlSol ?: Double.NaN
+
+            findViewById<RingGaugeView7010>(R.id.heroHealthRing)?.let { ring ->
+                // The ring reads win rate against the doctrine floor the app
+                // already publishes (20% live bootstrap), so a full ring means
+                // "at the floor", not "perfect". With no decisive closes yet it
+                // is left untouched rather than drawn at zero, because an empty
+                // ring and a failing ring must not look the same.
+                if (decisive7011 > 0 && wr7011 >= 0.0) {
+                    val health7011 = (wr7011 / 20.0).coerceIn(0.0, 1.0)
+                    ring.ringColor = when {
+                        health7011 >= 0.66 -> 0xFF34D399.toInt()
+                        health7011 >= 0.33 -> 0xFFFBBF24.toInt()
+                        else -> 0xFFFB5E6D.toInt()
+                    }
+                    ring.caption = "WR"
+                    ring.setValue(health7011.toFloat())
+                }
+            }
+
+            if (decisive7011 > 0 && wr7011 >= 0.0) {
+                findViewById<TextView>(R.id.tvHeroWr)?.setTextIfChanged("${wr7011.toInt()}%")
+            }
+            if (realized7011.isFinite()) {
+                findViewById<TextView>(R.id.tvHeroPf)?.apply {
+                    setTextIfChanged(String.format("%+.2f", realized7011))
+                    setTextColor(if (realized7011 >= 0.0) 0xFF34D399.toInt() else 0xFFFB5E6D.toInt())
+                }
+            }
+
+            // Lane pressure: open-position weight per lane, normalised to the
+            // busiest lane so the strip shows relative load rather than raw counts.
+            val byLane7011 = try {
+                synchronized(status.tokens) {
+                    status.tokens.values.asSequence()
+                        .filter { it.position.isOpen }
+                        .groupingBy { it.position.tradingMode.ifBlank { "OTHER" }.uppercase() }
+                        .eachCount()
+                }
+            } catch (_: Throwable) { emptyMap() }
+
+            findViewById<LaneBarsView7009>(R.id.heroLaneBars)?.let { bars ->
+                if (byLane7011.isNotEmpty()) {
+                    val top = byLane7011.entries.sortedByDescending { it.value }.take(9)
+                    val max = (top.firstOrNull()?.value ?: 1).coerceAtLeast(1)
+                    val palette = intArrayOf(
+                        0xFF22D3EE.toInt(), 0xFF8B5CF6.toInt(), 0xFFF0409C.toInt(),
+                        0xFFFBBF24.toInt(), 0xFF34D399.toInt(),
+                    )
+                    bars.setBars(
+                        FloatArray(top.size) { i -> top[i].value.toFloat() / max },
+                        palette,
+                        animate = true,
+                    )
+                    findViewById<TextView>(R.id.tvLanePressureNote)
+                        ?.setTextIfChanged("${byLane7011.values.sum()} OPEN · ${byLane7011.size} LANES")
+                }
+            }
+        } catch (_: Throwable) { /* presentation only — never break the render loop */ }
+    }
+
     private fun saveUiSession7007() {
         try {
             val scroll = try { findViewById<androidx.core.widget.NestedScrollView>(R.id.mainScrollView)?.scrollY ?: 0 } catch (_: Throwable) { 0 }
@@ -3192,6 +3306,11 @@ for legal compliance.
                     .recordHeroRender("MEME", displayedCash6616, displayedEquity6616)
                 com.lifecyclebot.engine.truth.JournalEconomicAuthority6616
                     .probeHeroBinding("MEME", displayedCash6616, displayedEquity6616)
+
+                // V5.0.7011 — feed the render's hero: curve, ring, rail, lanes.
+                // Bound to the SAME canonical snapshot the figure above uses, so
+                // the shape can never disagree with the number printed beside it.
+                renderHeroShape7011(displayedEquity6616)
             } catch (_: Throwable) {}
         }
 
@@ -3290,6 +3409,16 @@ for legal compliance.
                 "edge ${(sc.edgeStrength * 100).toInt()}%  " +
                 "risk ${(sc.overallRisk * 100).toInt()}%  " +
                 "health ${(sc.marketHealth * 100).toInt()}%"
+
+            // V5.0.7011 — the same three numbers, promoted into the hero rail.
+            // They were already computed here and buried in one 9sp run-on line
+            // where nothing could be read at a glance; the render gives edge and
+            // risk their own cells. Same authority, no second source, so the rail
+            // and the strip can never disagree.
+            findViewById<TextView>(R.id.tvHeroEdge)
+                ?.setTextIfChanged("${(sc.edgeStrength * 100).toInt()}%")
+            findViewById<TextView>(R.id.tvHeroRisk)
+                ?.setTextIfChanged("${(sc.overallRisk * 100).toInt()}%")
         } catch (_: Exception) {}
 
         // V5.9.453: Brain Health pill + Ladder pill + Guards strip + Leaderboard.

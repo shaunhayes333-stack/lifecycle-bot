@@ -357,6 +357,14 @@
                     android:gravity="bottom"
                     android:layout_marginTop="10dp">
 
+                    <!--
+                         V5.0.7011 — the render's dominant figure.
+                         Equity is the one number the operator opens the app to
+                         read, and it was set at the same weight as five other
+                         pills around it. Mono face (tabular figures), tighter
+                         tracking, and the render's 38sp ceiling so it leads the
+                         card. autoSize still protects 320dp screens.
+                    -->
                     <TextView
                         android:id="@+id/tvBalanceLarge"
                         android:layout_width="0dp"
@@ -364,14 +372,24 @@
                         android:layout_height="wrap_content"
                         android:text="—"
                         android:textColor="@color/aate_text"
-                        android:textSize="32sp"
+                        android:textSize="38sp"
                         android:textStyle="bold"
+                        android:fontFamily="@font/aate_mono"
+                        android:letterSpacing="-0.03"
                         android:maxLines="1"
                         android:ellipsize="end"
                         android:autoSizeTextType="uniform"
-                        android:autoSizeMinTextSize="18sp"
-                        android:autoSizeMaxTextSize="32sp"
+                        android:autoSizeMinTextSize="20sp"
+                        android:autoSizeMaxTextSize="38sp"
                         android:autoSizeStepGranularity="1sp"/>
+
+                    <!-- V5.0.7011 — health as a gauge beside the figure, not a pill below it. -->
+                    <com.lifecyclebot.ui.RingGaugeView7010
+                        android:id="@+id/heroHealthRing"
+                        android:layout_width="58dp"
+                        android:layout_height="58dp"
+                        android:layout_marginStart="10dp"
+                        android:layout_marginBottom="2dp"/>
 
                     <TextView
                         android:id="@+id/btnCurrencySelector"
@@ -424,6 +442,118 @@
                         android:ellipsize="end"
                         android:layout_marginStart="8dp"/>
                 </LinearLayout>
+
+                <!--
+                     V5.0.7011 §THE_HERO_HAD_NO_SHAPE.
+                     The render's hero answers three questions in one glance:
+                     how much (the figure), which way (this curve), and how well
+                     (the ring + rail). The app had only the first, so a number
+                     that had moved 4% and one that had moved 400% looked
+                     identical until you opened the journal.
+                     Fed from the equity history the dashboard already holds.
+                -->
+                <com.lifecyclebot.ui.SparklineView7009
+                    android:id="@+id/heroEquitySpark"
+                    android:layout_width="match_parent"
+                    android:layout_height="58dp"
+                    android:layout_marginTop="8dp"/>
+
+                <!-- V5.0.7011 — the render's stat rail: four figures, equal weight, mono. -->
+                <LinearLayout
+                    android:id="@+id/heroStatRail"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="8dp"
+                    android:baselineAligned="false">
+
+                    <LinearLayout
+                        android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="wrap_content" android:orientation="vertical"
+                        android:background="@drawable/aate_metric_card_bg"
+                        android:paddingStart="8dp" android:paddingEnd="8dp"
+                        android:paddingTop="6dp" android:paddingBottom="6dp"
+                        android:layout_marginEnd="5dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="EDGE" style="@style/T.Body.Caption"/>
+                        <TextView android:id="@+id/tvHeroEdge"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="—" android:textColor="@color/aate_cyan"
+                            android:textSize="15sp" android:textStyle="bold"
+                            android:fontFamily="@font/aate_mono"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="wrap_content" android:orientation="vertical"
+                        android:background="@drawable/aate_metric_card_bg"
+                        android:paddingStart="8dp" android:paddingEnd="8dp"
+                        android:paddingTop="6dp" android:paddingBottom="6dp"
+                        android:layout_marginEnd="5dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="RISK" style="@style/T.Body.Caption"/>
+                        <TextView android:id="@+id/tvHeroRisk"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="—" android:textColor="@color/aate_amber"
+                            android:textSize="15sp" android:textStyle="bold"
+                            android:fontFamily="@font/aate_mono"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="wrap_content" android:orientation="vertical"
+                        android:background="@drawable/aate_metric_card_bg"
+                        android:paddingStart="8dp" android:paddingEnd="8dp"
+                        android:paddingTop="6dp" android:paddingBottom="6dp"
+                        android:layout_marginEnd="5dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="WR" style="@style/T.Body.Caption"/>
+                        <TextView android:id="@+id/tvHeroWr"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="—" android:textColor="@color/aate_text"
+                            android:textSize="15sp" android:textStyle="bold"
+                            android:fontFamily="@font/aate_mono"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp" android:layout_weight="1"
+                        android:layout_height="wrap_content" android:orientation="vertical"
+                        android:background="@drawable/aate_metric_card_bg"
+                        android:paddingStart="8dp" android:paddingEnd="8dp"
+                        android:paddingTop="6dp" android:paddingBottom="6dp">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="REALIZED" style="@style/T.Body.Caption"/>
+                        <TextView android:id="@+id/tvHeroPf"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="—" android:textColor="@color/aate_green"
+                            android:textSize="15sp" android:textStyle="bold"
+                            android:fontFamily="@font/aate_mono"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- V5.0.7011 — the render's lane-pressure strip. -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="10dp">
+                    <TextView
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="LANE PRESSURE" style="@style/T.Body.Caption"/>
+                    <View android:layout_width="0dp" android:layout_weight="1" android:layout_height="1dp"
+                        android:layout_marginStart="8dp" android:layout_marginEnd="8dp"
+                        android:background="@color/aate_stroke_soft"/>
+                    <TextView android:id="@+id/tvLanePressureNote"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="—" style="@style/T.Mono.Small"/>
+                </LinearLayout>
+
+                <com.lifecyclebot.ui.LaneBarsView7009
+                    android:id="@+id/heroLaneBars"
+                    android:layout_width="match_parent"
+                    android:layout_height="34dp"
+                    android:layout_marginTop="6dp"/>
 
                 <!-- Brain/edge rail integrated into the hero instead of another full row -->
                 <LinearLayout

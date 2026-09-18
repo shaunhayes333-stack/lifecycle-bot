@@ -282,3 +282,85 @@ class LaneBarsView7009 @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() { anim?.cancel(); anim = null; super.onDetachedFromWindow() }
 }
+
+/**
+ * V5.0.7011 — the render's health ring.
+ *
+ * A single arc that sweeps to its value on change, with the number inside it.
+ * The render puts this beside the equity figure because the two answer
+ * different questions — "how much" and "is the machine well" — and the app
+ * previously buried health in a text pill among five other pills, where it read
+ * as one more label rather than as a gauge.
+ *
+ * Same discipline as the rest of this file: one animator, cancelled on detach,
+ * no allocation in onDraw.
+ */
+class RingGaugeView7010 @JvmOverloads constructor(
+    ctx: Context, attrs: AttributeSet? = null, defStyle: Int = 0
+) : View(ctx, attrs, defStyle) {
+
+    private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+    private val arcPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
+    private val capPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
+    private val oval = RectF()
+
+    private var target = 0f
+    private var shown = 0f
+    private var anim: ValueAnimator? = null
+
+    var caption: String = "HEALTH"
+        set(v) { field = v; invalidate() }
+
+    var ringColor: Int = 0xFF34D399.toInt()
+        set(v) { field = v; arcPaint.color = v; invalidate() }
+
+    var textColor: Int = 0xFFE8EEFB.toInt()
+        set(v) { field = v; labelPaint.color = v; invalidate() }
+
+    init {
+        val d = resources.displayMetrics.density
+        trackPaint.strokeWidth = 5f * d
+        trackPaint.color = 0x1F7CC4FF
+        arcPaint.strokeWidth = 5f * d
+        arcPaint.color = ringColor
+        labelPaint.color = textColor
+        labelPaint.isFakeBoldText = true
+        capPaint.color = 0xFF6E82A8.toInt()
+    }
+
+    /** value is 0..1. */
+    fun setValue(v: Float, animate: Boolean = true) {
+        val t = v.coerceIn(0f, 1f)
+        if (kotlin.math.abs(t - target) < 0.005f) return
+        target = t
+        if (!animate) { shown = t; invalidate(); return }
+        anim?.cancel()
+        val from = shown
+        anim = ValueAnimator.ofFloat(from, t).apply {
+            duration = 850L
+            interpolator = android.view.animation.DecelerateInterpolator(1.8f)
+            addUpdateListener { shown = it.animatedValue as Float; invalidate() }
+            start()
+        }
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        if (width <= 0 || height <= 0) return
+        val d = resources.displayMetrics.density
+        val inset = arcPaint.strokeWidth / 2f + 1f
+        val size = minOf(width, height).toFloat()
+        val cx = width / 2f
+        val cy = height / 2f
+        oval.set(cx - size / 2f + inset, cy - size / 2f + inset, cx + size / 2f - inset, cy + size / 2f - inset)
+        canvas.drawArc(oval, -90f, 360f, false, trackPaint)
+        canvas.drawArc(oval, -90f, 360f * shown, false, arcPaint)
+
+        labelPaint.textSize = size * 0.30f
+        canvas.drawText("${(shown * 100f).toInt()}", cx, cy + labelPaint.textSize * 0.16f, labelPaint)
+        capPaint.textSize = size * 0.13f
+        canvas.drawText(caption, cx, cy + size * 0.30f, capPaint)
+    }
+
+    override fun onDetachedFromWindow() { anim?.cancel(); anim = null; super.onDetachedFromWindow() }
+}
