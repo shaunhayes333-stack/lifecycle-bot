@@ -68,5 +68,106 @@ object PaperLiveParityCreed6439 {
         try { PipelineHealthCollector.labelInc("PAPER_LIVE_PARITY_CREED_6439") } catch (_: Throwable) {}
     }
 
-    fun statusLine(): String = "artefactsDeclared=${ARTEFACTS.size} mode=parity_required"
+    // ═══════════════════════════════════════════════════════════════════════
+    // V5.0.6988 — THE CREED DECLARED PARITY AND NEVER ONCE MEASURED IT.
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // Everything above this line is a list of intentions. logCreed() prints the
+    // ten hardcoded names it was written with; statusLine() returned
+    // `artefactsDeclared=${ARTEFACTS.size}` — the LENGTH OF THAT LIST. It never
+    // opened a store, never read a key, never compared paper against live.
+    //
+    // So "Paper↔live parity (§6439): artefactsDeclared=10 mode=parity_required"
+    // in every operator snapshot means nothing was checked. The module whose
+    // entire purpose is to make a rogue mode-gated store "loud and visible" was
+    // itself the reason none were visible.
+    //
+    // The operator's question is the right one: does the stack actually carry
+    // its edge into real money, or is it paper fluff? A census answers it.
+    //
+    // MEASURED, NOT DECLARED. Two learners key their stores by runtime mode:
+    //
+    //   ForwardOutcomeModel        every signature is prefixed "P|" or "L|"
+    //                              (modeTag6869). The counterfactual edge map —
+    //                              pWin, E[pnl], pRug per lane×band×regime —
+    //                              resolves to zero samples on the first live
+    //                              trade.
+    //   ExecutableEntryAuthority6450  cohortKey(mode, lane) prefixes every
+    //                              losing-streak cohort with the mode. The
+    //                              defensive reflex, its score-floor delta and
+    //                              its size multiplier all restart from no
+    //                              history at the exact moment real money is
+    //                              at risk.
+    //
+    // Both are precisely what the creed above calls a bug. This does not change
+    // either store — silently merging paper and live samples would assert that
+    // simulated fills and real fills are the same evidence, which is a trading
+    // decision and the operator's to make. It reports, loudly, with numbers.
+    data class LearnerCensus6988(
+        val learner: String,
+        val paperKeys: Int,
+        val liveKeys: Int,
+    ) {
+        /** Paper has learned something that live will not inherit. */
+        val resetsOnFlip: Boolean get() = paperKeys > 0 && liveKeys == 0
+    }
+
+    fun census6988(): List<LearnerCensus6988> {
+        val out = ArrayList<LearnerCensus6988>(2)
+        try {
+            val (p, l) = com.lifecyclebot.engine.ForwardOutcomeModel.modeCensus6988()
+            out.add(LearnerCensus6988("ForwardOutcomeModel.signatures", p, l))
+        } catch (_: Throwable) {}
+        try {
+            val (p, l) = ExecutableEntryAuthority6450.modeCensus6988()
+            out.add(LearnerCensus6988("ExecutableEntryAuthority6450.streakCohorts", p, l))
+        } catch (_: Throwable) {}
+        return out
+    }
+
+    /**
+     * Run the census and emit one loud event per learner that would lose its
+     * learning on the paper→live flip. Called alongside logCreed at boot, and
+     * safe to call again at any time.
+     */
+    fun verify6988() {
+        val rows = census6988()
+        var gated = 0
+        for (r in rows) {
+            if (!r.resetsOnFlip) continue
+            gated++
+            try {
+                PipelineHealthCollector.labelInc("PARITY_LEARNER_MODE_GATED_6988")
+                ForensicLogger.lifecycle(
+                    "PARITY_LEARNER_MODE_GATED_6988",
+                    "learner=${r.learner} paperKeys=${r.paperKeys} liveKeys=${r.liveKeys} " +
+                        "effect=this_learning_does_not_transfer_on_paper_to_live_flip " +
+                        "creed=PaperLiveParityCreed6439_declares_mode_gated_stores_a_bug",
+                )
+            } catch (_: Throwable) {}
+        }
+        try {
+            ForensicLogger.lifecycle(
+                "PAPER_LIVE_PARITY_VERIFIED_6988",
+                "learnersChecked=${rows.size} modeGated=$gated " +
+                    "artefactsDeclaredButUnverified=${ARTEFACTS.size} " +
+                    "read=declared_is_not_measured_only_the_census_is_evidence",
+            )
+        } catch (_: Throwable) {}
+    }
+
+    fun statusLine(): String {
+        val rows = try { census6988() } catch (_: Throwable) { emptyList() }
+        if (rows.isEmpty()) {
+            return "artefactsDeclared=${ARTEFACTS.size} measured=0 " +
+                "mode=parity_DECLARED_NOT_MEASURED"
+        }
+        val detail = rows.joinToString(" · ") { r ->
+            "${r.learner.substringBefore('.')}[paper=${r.paperKeys} live=${r.liveKeys}" +
+                (if (r.resetsOnFlip) " RESETS_ON_FLIP" else "") + "]"
+        }
+        val gated = rows.count { it.resetsOnFlip }
+        return "artefactsDeclared=${ARTEFACTS.size}(unverified) measuredLearners=${rows.size} " +
+            "modeGated=$gated · $detail"
+    }
 }

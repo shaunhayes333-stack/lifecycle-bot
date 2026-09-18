@@ -1934,7 +1934,9 @@ object PipelineHealthCollector {
                 com.lifecyclebot.engine.truth.FeeAccrualObservability6439.statusLine()
             ).append("\n")
             sb.append("  Paper↔live parity (§6439):    ").append(
-                com.lifecyclebot.engine.truth.PaperLiveParityCreed6439.statusLine()
+                com.lifecyclebot.engine.truth.PaperLiveParityCreed6439
+                    .also { try { it.verify6988() } catch (_: Throwable) {} }
+                    .statusLine()
             ).append("\n")
             // V5.0.6440 — learner reward bridge + runner ladder + runtime alive.
             sb.append("  Learner reward bridge (§6440):").append(

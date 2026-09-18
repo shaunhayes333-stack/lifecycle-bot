@@ -210,6 +210,32 @@ object ExecutableEntryAuthority6450 {
     }
 
     // Compatibility telemetry only. Global values must not be used for entry authority.
+    /**
+     * V5.0.6988 — losing-streak cohorts held per MODE.
+     *
+     * cohortKey(mode, lane) prefixes every cohort with the runtime mode, so a
+     * flip from paper to live resets every streak to zero: the defensive
+     * reflex, its score-floor delta and its size multiplier all start again
+     * from no history at exactly the moment real money is at risk.
+     *
+     * Returned as (paperCohorts, liveCohorts) for the parity verifier.
+     * Read-only.
+     */
+    fun modeCensus6988(): Pair<Int, Int> {
+        var paper = 0
+        var live = 0
+        try {
+            for (k in cohortLosses.keys) {
+                val head = k.substringBefore('|').uppercase()
+                when {
+                    head.startsWith("PAPER") -> paper++
+                    head.startsWith("LIVE") -> live++
+                }
+            }
+        } catch (_: Throwable) {}
+        return paper to live
+    }
+
     fun consecutiveLossesNow6487(): Long = cohortLosses.values.maxOfOrNull { it.get() } ?: 0L
     fun defensiveActive6487(): Boolean = cohortLosses.values.any { it.get() > 0L }
     fun scoreFloorDelta6487(): Int = 0

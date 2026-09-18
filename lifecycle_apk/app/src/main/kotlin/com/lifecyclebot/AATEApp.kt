@@ -131,6 +131,11 @@ class AATEApp : Application() {
                 "CapitalPreservationCreed6439: ${com.lifecyclebot.engine.truth.CapitalPreservationCreed6439.statusLine()}",
             )
             com.lifecyclebot.engine.truth.PaperLiveParityCreed6439.logCreed()
+            // V5.0.6988 — and then actually check it. logCreed only ever
+            // printed the hardcoded artefact list; verify6988 runs a real
+            // census of the mode-keyed learners and names any whose learning
+            // would not survive the paper→live flip.
+            com.lifecyclebot.engine.truth.PaperLiveParityCreed6439.verify6988()
         } catch (e: Exception) {
             ErrorLogger.warn("App", "Creed emit failed: ${e.message}")
         }

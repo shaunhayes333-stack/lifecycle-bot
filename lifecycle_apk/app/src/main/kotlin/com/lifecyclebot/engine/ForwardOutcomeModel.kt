@@ -58,6 +58,32 @@ object ForwardOutcomeModel {
     fun signatureCount(): Int = fine.size  // V5.9.1355 P0.5 audit
 
     /**
+     * V5.0.6988 — how many learned signatures exist per MODE.
+     *
+     * Every key here is prefixed by modeTag6869: "P|" in paper, "L|" in live.
+     * That means the counterfactual edge map this model publishes does not
+     * carry across the paper→live flip — on the first live trade every
+     * signature becomes "L|…" and resolves to zero samples.
+     *
+     * PaperLiveParityCreed6439 declares that exact situation to be a bug, but
+     * only ever printed a hardcoded list of intentions. This gives it
+     * something real to measure. Read-only.
+     */
+    fun modeCensus6988(): Pair<Int, Int> {
+        var paper = 0
+        var live = 0
+        try {
+            for (k in fine.keys) {
+                when {
+                    k.startsWith("P|") -> paper++
+                    k.startsWith("L|") -> live++
+                }
+            }
+        } catch (_: Throwable) {}
+        return paper to live
+    }
+
+    /**
      * V5.0.6911 §COHORT_EVIDENCE_MUST_SURVIVE_A_REGIME_FLIP.
      *
      * OPERATOR EVIDENCE (5.0.6909 snapshot):
