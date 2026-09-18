@@ -118,7 +118,26 @@ jobs:
           echo "Building AATE v${{ steps.aate_build.outputs.version_name }}"
           echo "versionCode = $((500 + AATE_BUILD_NUMBER))"
           echo "========================================"
-          ./gradlew assembleRelease --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
+          # V5.0.7041 — REPEAT THE COMPILER ERRORS AT THE END OF THE LOG.
+          #
+          # Kotlin prints `e: file:...` right after compileReleaseKotlin and
+          # then Gradle buries it under ~150 lines of its own stack trace. Every
+          # programmatic log reader returns the TAIL, so the one line naming the
+          # file and the error is exactly the line that never survives the trip.
+          # 7036-7039 were four red builds where the compiler said precisely
+          # what was wrong every time and it could not be read, and the fix was
+          # reverted blind because of it.
+          #
+          # Echoing them last costs nothing and makes the next failure legible
+          # in one look instead of a guess.
+          set -o pipefail
+          if ! ./gradlew assembleRelease --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME 2>&1 | tee /tmp/gradle_build.log; then
+            echo ""
+            echo "################ KOTLIN COMPILE ERRORS (repeated for log tail) ################"
+            grep -E "^e: |^error: " /tmp/gradle_build.log | head -40 || echo "(no 'e:' lines — failure was not a Kotlin compile error)"
+            echo "################ END COMPILE ERRORS ################"
+            exit 1
+          fi
           python3 ci/build_gate_summary.py
           echo "Built APK:"
           ls -la app/build/outputs/apk/release/
