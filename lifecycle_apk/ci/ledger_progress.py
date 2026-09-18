@@ -29,6 +29,17 @@ for dp,_,fs in os.walk(ROOT):
             p=os.path.join(dp,fn)
             t=open(p,encoding="utf-8",errors="replace").read()
             files[p]=re.sub(r'//[^\n]*','',re.sub(r'/\*.*?\*/','',t,flags=re.S))
+# V5.0.6985 — how many objects declare each function name. A name declared once
+# in the whole tree cannot be confused with another owner's, which is what makes
+# an unqualified call site admissible evidence below.
+DECL_COUNTS=collections.Counter()
+_DECL=re.compile(r'\s*(?:override\s+|private\s+|internal\s+|public\s+|suspend\s+|inline\s+)*'
+                 r'fun\s+(?:<[^>]*>\s*)?([a-zA-Z_][A-Za-z0-9_]*)\s*\(')
+for _t in files.values():
+    for _line in _t.splitlines():
+        _m=_DECL.match(_line)
+        if _m: DECL_COUNTS[_m.group(1)]+=1
+
 LEDGER=os.path.join(BASE,"ci","UNWIRED_LEDGER.tsv")
 if not os.path.exists(LEDGER):
     LEDGER=os.path.join(os.path.dirname(BASE),"ci","UNWIRED_LEDGER.tsv")
@@ -40,13 +51,37 @@ for r in major:
     own=os.path.normpath(os.path.join(ROOT,r["file"]))
     # A real call is qualified by the owner: Owner.fn(  — or the file imports the
     # owner AND calls .fn( on something. Require the owner name to be present.
+    # V5.0.6985 — align with ci/half_wired.py so the two tools stop disagreeing.
+    #
+    # They gave opposite verdicts on BotBrain.effectiveExitThreshold: this script
+    # called it wired, half_wired.py called it dead. Neither rule was right.
+    #
+    #   half_wired.py demanded `Owner.fn(`, so it missed instance receivers
+    #     (Executor.kt:15651 calls b.effectiveExitThreshold, where b is a
+    #     BotBrain) and reported false DEAD.
+    #   this script accepted any `.fn(` in a file that merely MENTIONS Owner
+    #     anywhere, which is the V5.0.6963 collision hazard wearing a hat —
+    #     SellQuantityBoundary6459.recordBuyFill vs FillLotLedger6504.recordBuyFill
+    #     in a file that names both would count for whichever was asked about.
+    #
+    # One rule for both: a function name declared EXACTLY ONCE in the tree cannot
+    # collide, so any call to it is unambiguous evidence. Ambiguous names require
+    # the owner qualifier. Nothing is guessed from mere co-mention.
     qual=re.compile(r'\b'+re.escape(own_cls)+r'\s*(?:\.|\?\.)\s*'+re.escape(fn)+r'\s*\(')
-    bare=re.compile(r'(?:\.|\?\.)\s*'+re.escape(fn)+r'\s*\(')
+    # The bare form must never match the DECLARATION. Dropping the old rule's
+    # leading `\.` made `fun foo(` itself a match, which reported 162/162 wired
+    # on the first run of this change — a result that is obviously false and is
+    # exactly why the percentage is recomputed from source every time rather
+    # than trusted from the verdict column.
+    bare=re.compile(r'(?<![A-Za-z0-9_])'+re.escape(fn)+r'\s*\(')
+    decl=re.compile(r'\bfun\s+(?:<[^>]*>\s*)?'+re.escape(fn)+r'\s*\(')
+    unique = DECL_COUNTS.get(fn, 0) <= 1
     hit=False
     for p,t in files.items():
         if os.path.normpath(p)==own: continue
         if qual.search(t): hit=True; break
-        if own_cls in t and bare.search(t): hit=True; break
+        if unique and any(bare.search(ln) and not decl.search(ln) for ln in t.splitlines()):
+            hit=True; break
     if hit: wired[r["tier"]]+=1
     else: left[r["tier"]].append(f'{own_cls}.{fn}  ({r["file"]})')
 print(f"{'tier':<12}{'total':>6}{'wired':>7}{'left':>7}  progress")

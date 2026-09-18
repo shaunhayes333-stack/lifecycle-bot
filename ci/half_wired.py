@@ -28,12 +28,63 @@ for r in major:
     byfile[r["file"]].append((r["owner"], r["function"]))
 
 
+# V5.0.6985 — THIRD FALSE VERDICT IN THIS DETECTOR, AND THE COSTLIEST SO FAR.
+#
+# BotBrain.effectiveExitThreshold was reported DEAD. It is not: V5.0.6954 wired
+# it, and Executor.kt:15651 calls it on every exit-threshold read —
+#
+#     private fun brainAdjustedExitThreshold6954(rawThreshold: Double): Double {
+#         val b = brain ?: return rawThreshold
+#         return b.effectiveExitThreshold(rawThreshold)      <-- here
+#
+# The 6963 owner-qualifier rule looks for `BotBrain.effectiveExitThreshold(`.
+# A call through an INSTANCE receiver carries the variable's name, not the
+# type's, so nothing matched. The 6971 in-file scan does not help either —
+# the call lives in a different file.
+#
+# That is three failure modes now: bare-name collisions gave false LIVE (6963),
+# same-object calls gave false DEAD (6971), and instance receivers give false
+# DEAD (here). Each one sent me to re-triage functions that were already wired.
+#
+# The fix keeps 6963's guarantee without its blind spot. A bare `fn(` match is
+# only ambiguous when more than one object declares that name. So: count every
+# `fun NAME(` declaration in the tree, and when a name is declared EXACTLY ONCE,
+# an unqualified call to it anywhere is unambiguous evidence — no collision is
+# possible by construction. Ambiguous names keep the strict owner-qualified
+# rule. This is the pre-6963 behaviour, applied only where it cannot be wrong.
+def _declaration_counts():
+    counts = defaultdict(int)
+    root = os.path.join(REPO, SRC)
+    for dirpath, _dirs, files in os.walk(root):
+        for name in files:
+            if not name.endswith(".kt"):
+                continue
+            try:
+                src = open(os.path.join(dirpath, name), encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            src = re.sub(r"/\*.*?\*/", "", src, flags=re.S)
+            src = re.sub(r"//[^\n]*", "", src)
+            for line in src.splitlines():
+                m = re.match(r"\s*(?:override\s+|private\s+|internal\s+|public\s+|suspend\s+|inline\s+)*"
+                             r"fun\s+(?:<[^>]*>\s*)?([a-zA-Z_][A-Za-z0-9_]*)\s*\(", line)
+                if m:
+                    counts[m.group(1)] += 1
+    return counts
+
+
+DECL_COUNTS = _declaration_counts()
+
+
 def called_externally(fn, owner_path, owner=None):
     # V5.0.6963 — a bare `fn(` match is not evidence that THIS object's fn is
     # called. SellQuantityBoundary6459.recordBuyFill was reported LIVE because
     # FillLotLedger6504.recordBuyFill exists and shares the name. Require the
     # owner qualifier (Owner.fn( or Owner\n  .fn() when we know the owner.
-    if owner:
+    # V5.0.6985 — a globally unique function name cannot collide, so an
+    # unqualified call to it is unambiguous and catches instance receivers
+    # (`b.effectiveExitThreshold(...)`) that the owner-qualified pattern misses.
+    if owner and DECL_COUNTS.get(fn, 0) > 1:
         pat = re.escape(owner) + r"\s*(?:\.|\?\.)\s*" + re.escape(fn) + r"\s*\("
     else:
         pat = r"(?<![A-Za-z0-9_])" + re.escape(fn) + r"\s*\("

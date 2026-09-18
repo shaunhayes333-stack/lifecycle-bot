@@ -208,7 +208,7 @@ F_DEAD	AdvisorIntegrityHold6466	isHold	engine/truth/AdvisorIntegrityHold6466.kt
 D_DISPLAY	AnimatedBrainLogoView	stopAnimations	ui/AnimatedBrainLogoView.kt
 C_EXIT	BehaviorAI	getStopLossModPct	v3/scoring/BehaviorAI.kt
 C_EXIT	BirdeyeApi	getHolderDistribution	network/BirdeyeApi.kt
-C_EXIT	BotBrain	effectiveExitThreshold	engine/BotBrain.kt
+C_EXIT	BotBrain	effectiveExitThreshold	engine/BotBrain.kt	WIRED since 6954 — NOT dead. Executor.kt:15651 brainAdjustedExitThreshold6954 calls it via an instance receiver (b.effectiveExitThreshold). The detector's owner-qualified rule could not see that; fixed in 6985.
 H_MUTATOR	BotBrain	resetThresholds	engine/BotBrain.kt
 C_EXIT	BotRuntimeController	runtimeJobActiveButUiStopped	engine/BotRuntimeController.kt
 H_MUTATOR	BuyResult6621	assertOpenedOrCountPremature6621	engine/truth/BuyResult6621.kt
@@ -259,7 +259,7 @@ F_DEAD	FluidLearningAI	getAltsSpotConfThreshold	v3/scoring/FluidLearningAI.kt
 F_DEAD	FluidLearningAI	getAltsSpotTpPct	v3/scoring/FluidLearningAI.kt
 D_DISPLAY	FluidLearningAI	getBreakoutThreshold	v3/scoring/FluidLearningAI.kt
 E_INFILE	FluidLearningAI	getFeeAdjustedTakeProfit	v3/scoring/FluidLearningAI.kt
-C_EXIT	FluidLearningAI	getLayerHoldParams	v3/scoring/FluidLearningAI.kt
+C_EXIT	FluidLearningAI	getLayerHoldParams	v3/scoring/FluidLearningAI.kt	RETIRED 6985 — pure wrapper. Its three constituents are independently wired: getFluidMinHoldMinutes (4 external callers), getFluidMaxHoldMinutes (1), getLearningProgress (92). The wrapper adds no behaviour.
 E_INFILE	FluidLearningAI	getMarketsTakeProfitPct	v3/scoring/FluidLearningAI.kt
 F_DEAD	FluidLearningAI	getMarketsUncappedTpPct	v3/scoring/FluidLearningAI.kt
 C_EXIT	FluidLearningAI	getMinProfitableExitPct	v3/scoring/FluidLearningAI.kt
@@ -283,7 +283,7 @@ G_PROTOCOL	IdempotencyKeyStore6437	sellKey	engine/truth/IdempotencyKeyStore6437.
 G_PROTOCOL	JournalReceiptAccounting6663	getPaperStats	engine/TradeJournal.kt
 C_EXIT	JupiterPerps	getPoolInfo	perps/JupiterPerps.kt
 E_INFILE	LaneStrategyEvaluator	defaultProfiles	engine/LaneStrategyEvaluator.kt
-C_EXIT	LearnerRuntimeBudgetGuard6441	shouldStop	engine/truth/LearnerRuntimeBudgetGuard6441.kt
+C_EXIT	LearnerRuntimeBudgetGuard6441	shouldStop	engine/truth/LearnerRuntimeBudgetGuard6441.kt	RETIRED 6985 — the slice lifecycle is never begun. beginSlice() appears only in its own KDoc, so activeSliceStart is always 0 and shouldStop() can only return false. Snapshot confirms the module is unstarted: Learner budget (6441) slices=0 budgetHits=0.
 G_PROTOCOL	LiveContinuityPolicy6392	cadenceInvariantHolds	engine/truth/LiveContinuity6392.kt
 C_EXIT	LiveContinuityPolicy6392	inventoryConservationHolds	engine/truth/LiveContinuity6392.kt
 C_EXIT	LiveContinuityPolicy6392	profitPartialAcceptable	engine/truth/LiveContinuity6392.kt
@@ -299,8 +299,8 @@ E_INFILE	LiveStrategyTuner	tpMultiplier	engine/LiveStrategyTuner.kt
 C_EXIT	LiveWinDNAStore	holdTimeStats	engine/LiveWinDNAStore.kt
 C_EXIT	LiveWinDNAStore	losingExitReasons	engine/LiveWinDNAStore.kt
 C_EXIT	LiveWinDNAStore	winningExitReasons	engine/LiveWinDNAStore.kt
-C_EXIT	MarketStructureRouter	fluidThreshold	v3/modes/MarketStructureRouter.kt
-C_EXIT	MarketStructureRouter	getPositionParams	v3/modes/MarketStructureRouter.kt
+C_EXIT	MarketStructureRouter	fluidThreshold	v3/modes/MarketStructureRouter.kt	RETIRED 6985 — generic helper (baseValue * getFluidScale()) with no threshold assigned to it. Siblings fluidMin (2 sites) and fluidScoreBonus (3) cover the applied cases; wiring this one means inventing a threshold no caller asked for.
+C_EXIT	MarketStructureRouter	getPositionParams	v3/modes/MarketStructureRouter.kt	RETIRED 6985 — competing authority. Live exit params come from FluidLearningAI.getDynamicFluidStop / getFluidTakeProfit plus LaneExitTuner (both in the snapshot). getPositionParams, getRawPositionParams and FluidLearningAI.getModeParams form an orphaned parallel stack keyed on StructureMode instead of lane.
 E_INFILE	ModeSpecificScanners	getMinLiquidityThreshold	engine/ModeSpecificScanners.kt
 C_EXIT	MoonshotHoldProfileRegistry6415	trailStopPctFromPeak	engine/truth/MoonshotHoldProfileRegistry6415.kt
 E_INFILE	OrderbookImbalancePulseAI	getRecentPulse	v3/scoring/OrderbookImbalancePulseAI.kt
@@ -331,7 +331,7 @@ H_MUTATOR	ReEntryLockout	clearOnNewPeak	engine/ReEntryLockout.kt
 H_MUTATOR	RecoveredHoldGuard	clearOnFullExit	engine/RecoveredHoldGuard.kt
 E_INFILE	RecoveredHoldGuard	isEmergencyExitOverride	engine/RecoveredHoldGuard.kt
 E_INFILE	RecoveredHoldGuard	isInHoldGrace	engine/RecoveredHoldGuard.kt
-C_EXIT	RouteValidator	validateFinalOutput	engine/execution/RouteValidator.kt
+C_EXIT	RouteValidator	validateFinalOutput	engine/execution/RouteValidator.kt	RETIRED 6985 — its whole module is unused. UniversalRouteEngine.plan() has zero callers (only a SOL_MINT constant reference), so RouteValidator is a parallel execution planner the live path never enters. SEPARATE REAL GAP: MarketsLiveExecutor.executeJupiterSwap performs NO post-trade output validation at all.
 C_EXIT	RuntimeRepairState	requestPaperMode	engine/RuntimeRepairState.kt
 C_EXIT	ScannerHeatPublisher6398	currentPct01	engine/truth/ScannerHeatPublisher6398.kt
 E_INFILE	SellAmountAuthority	isEmergencyExitReason	engine/sell/SellAmountAuthority.kt
