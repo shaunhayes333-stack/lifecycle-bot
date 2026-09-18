@@ -5701,6 +5701,39 @@ for legal compliance.
             }
             row.addView(logoImg)
 
+            // V5.0.7009 — the render's per-row sparkline.
+            //
+            // Every position row in the render carries its own price trace, and
+            // it is the fastest read on the whole screen: shape before number.
+            // ts.history is already a bounded 300-candle deque maintained by the
+            // open-position tick, so this is a projection of data the app is
+            // holding anyway — no new fetch, no new state.
+            //
+            // Kept deliberately cheap: last 24 candles, no fill, no pulsing head
+            // (those are for the hero curve), and SparklineView7009.setSeries()
+            // no-ops on an unchanged series so the 1Hz tick cannot restart a
+            // draw animation across a long list. This function only rebuilds on
+            // a STRUCTURAL change anyway.
+            run {
+                val pts = try {
+                    val h = ts.history
+                    if (h.size >= 4) {
+                        val take = h.toList().takeLast(24)
+                        FloatArray(take.size) { i -> take[i].priceUsd.toFloat() }
+                    } else null
+                } catch (_: Throwable) { null }
+                if (pts != null && pts.size >= 4) {
+                    row.addView(SparklineView7009(this).apply {
+                        layoutParams = LinearLayout.LayoutParams(dp7007(46), dp7007(22)).also {
+                            it.marginEnd = dp7007(9)
+                        }
+                        lineColor = gainCol
+                        strokeWidthDp = 1.6f
+                        setSeries(pts, animate = true)
+                    })
+                }
+            }
+
             // Colour bar on left
             val bar = View(this).apply {
                 layoutParams = LinearLayout.LayoutParams(dp7007(3), LinearLayout.LayoutParams.MATCH_PARENT).also {
