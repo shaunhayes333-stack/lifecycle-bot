@@ -4328,16 +4328,9 @@ for legal compliance.
             // Build panel on first run
             if (cardCyclicPanel == null) {
                 val parent = cardMoonshotPositions.parent as? android.view.ViewGroup ?: return
-                val card = LinearLayout(this).apply {
-                    orientation = LinearLayout.VERTICAL
-                    setPadding((14 * resources.displayMetrics.density).toInt(), (12 * resources.displayMetrics.density).toInt(), (14 * resources.displayMetrics.density).toInt(), (12 * resources.displayMetrics.density).toInt())
-                    setBackgroundColor(android.graphics.Color.parseColor("#0D192B"))
-                    val lp = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply { setMargins((12 * resources.displayMetrics.density).toInt(), (8 * resources.displayMetrics.density).toInt(), (12 * resources.displayMetrics.density).toInt(), (4 * resources.displayMetrics.density).toInt()) }
-                    layoutParams = lp
-                }
+                // V5.0.6977 — real card surface: rounded, stroked, gradient, with
+                // a lane accent rule. Was a flat square #0D192B rectangle.
+                val card = AateUi.card(this, AateUi.PURPLE)
                 // Insert BEFORE cardMoonshotPositions
                 val idx = parent.indexOfChild(cardMoonshotPositions)
                 parent.addView(card, if (idx >= 0) idx else parent.childCount)
@@ -4346,7 +4339,8 @@ for legal compliance.
 
             val card = cardCyclicPanel ?: return
             card.visibility = android.view.View.VISIBLE
-            card.removeAllViews()
+            val body = AateUi.cardBody(card)
+            body.removeAllViews()
 
             val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 150.0
             val ringUsd   = engine.ringBalanceUsd
@@ -4371,117 +4365,91 @@ for legal compliance.
 
             val winRate = if (cycles > 0) (wins * 100 / cycles) else 0
             val growthPct = ((ringUsd - 500.0) / 500.0 * 100.0)
-            val modeColor = if (isLive) android.graphics.Color.parseColor("#FF4D6D") else amber
-            val modeLabel = if (isLive) "FAIL LIVE" else "PAPER"
+            val modeColor = if (isLive) AateUi.RED else AateUi.AMBER
+            val modeLabel = if (isLive) "LIVE" else "PAPER"
 
-            // ── Row 1: Header ─────────────────────────────────────────────────
-            card.addView(LinearLayout(this).apply {
+            // ── Header: title + mode pill ────────────────────────────────────
+            body.addView(AateUi.headerRow(this, "CYCLIC · \$500 → \$1M", modeLabel, modeColor))
+            body.addView(AateUi.gap(this, 10))
+
+            // ── Headline: ring balance, growth, and a real progress rail ─────
+            // V5.0.6977 — the ring's whole purpose is a journey to $1M and the
+            // old panel expressed that as a line of text. It is a progress bar.
+            body.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
-                gravity = android.view.Gravity.CENTER_VERTICAL
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { setMargins(0, 0, 0, (6 * resources.displayMetrics.density).toInt()) }
-
-                addView(TextView(this@MainActivity).apply {
-                    text = "SYNC Cyclic $500→$1M"
-                    setTextColor(android.graphics.Color.parseColor("#F5F7FF"))
-                    textSize = 13f
-                    typeface = android.graphics.Typeface.DEFAULT_BOLD
+                gravity = android.view.Gravity.BOTTOM
+                addView(AateUi.valueText(
+                    this@MainActivity,
+                    "$" + ringUsd.fastWhole(),
+                    if (ringUsd >= 500.0) AateUi.GREEN else AateUi.RED,
+                    sizeSp = 26f,
+                ).apply {
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 })
-                addView(TextView(this@MainActivity).apply {
-                    text = modeLabel
-                    setTextColor(modeColor)
-                    textSize = 11f
-                    typeface = android.graphics.Typeface.DEFAULT_BOLD
-                })
+                addView(AateUi.bodyText(
+                    this@MainActivity,
+                    growthPct.fastSigned(1) + "%",
+                    AateUi.signed(growthPct),
+                    sizeSp = 13f,
+                ).apply { typeface = android.graphics.Typeface.DEFAULT_BOLD })
             })
+            body.addView(AateUi.gap(this, 8))
+            // log10 progress — $500 to $1,000,000 is 3.3 decades, so a linear
+            // bar would read as empty for the entire first half of the run.
+            val ringProgress = if (ringUsd > 500.0) {
+                (Math.log10(ringUsd / 500.0) / Math.log10(1_000_000.0 / 500.0))
+            } else 0.0
+            body.addView(AateUi.progressRail(this, ringProgress, AateUi.PURPLE_BRIGHT))
+            body.addView(AateUi.gap(this, 4))
+            body.addView(AateUi.labelText(this, "PROGRESS TO \$1M · ${"%.1f".format(ringProgress * 100.0)}%"))
 
-            // ── Row 2: Ring balance + growth ─────────────────────────────────
-            card.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { setMargins(0, 0, 0, (4 * resources.displayMetrics.density).toInt()) }
+            body.addView(AateUi.divider(this))
 
-                addView(TextView(this@MainActivity).apply {
-                    text = "Ring: \$${ringUsd.fastWhole()}"
-                    setTextColor(if (ringUsd >= 500.0) green else red)
-                    textSize = 14f
-                    typeface = android.graphics.Typeface.DEFAULT_BOLD
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                })
-                val growthColor = if (growthPct >= 0) green else red
-                addView(TextView(this@MainActivity).apply {
-                    text = growthPct.fastSigned(1) + "% growth"
-                    setTextColor(growthColor)
-                    textSize = 12f
-                })
-            })
+            // ── KPI tiles, replacing the old "Label: value" text run ─────────
+            body.addView(AateUi.kpiRow(this, listOf(
+                AateUi.kpiTile(this, "CYCLES", "$cycles", AateUi.TEXT),
+                AateUi.kpiTile(this, "W / L", "$wins/$losses", if (wins >= losses) AateUi.GREEN else AateUi.RED),
+                AateUi.kpiTile(this, "WIN RATE", "$winRate%", AateUi.rateColor(winRate)),
+                AateUi.kpiTile(this, "PNL SOL", totalPnlSol.fastSigned(3), AateUi.signed(totalPnlSol)),
+            )))
 
-            // ── Row 3: Cycles | WR | Total PnL ───────────────────────────────
-            card.addView(LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply { setMargins(0, 0, 0, (4 * resources.displayMetrics.density).toInt()) }
-
-                fun stat(label: String, value: String, color: Int) = TextView(this@MainActivity).apply {
-                    text = "$label $value"
-                    setTextColor(color)
-                    textSize = 11f
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                }
-                addView(stat("Cycles:", "$cycles", white))
-                addView(stat("W/L:", "$wins/$losses", if (wins >= losses) green else red))
-                addView(stat("WR:", "$winRate%", if (winRate >= 50) green else if (winRate >= 35) amber else red))
-                addView(stat("PnL:", totalPnlSol.fastSigned(4) + " SOL",
-                    if (totalPnlSol >= 0) green else red))
-            })
-
-            // ── Row 4: Current position (if in one) ───────────────────────────
+            // ── Open position block ──────────────────────────────────────────
             if (isInPos && symbol.isNotBlank()) {
                 val holdSec = (System.currentTimeMillis() - entryTime) / 1000
                 val holdMin = holdSec / 60
                 val holdStr = if (holdMin > 0) "${holdMin}m ${holdSec % 60}s" else "${holdSec}s"
 
-                card.addView(LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    setBackgroundColor(android.graphics.Color.parseColor("#0D2040"))
-                    setPadding((8 * resources.displayMetrics.density).toInt(), (6 * resources.displayMetrics.density).toInt(), (8 * resources.displayMetrics.density).toInt(), (6 * resources.displayMetrics.density).toInt())
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply { setMargins(0, (2 * resources.displayMetrics.density).toInt(), 0, 0) }
-
-                    addView(TextView(this@MainActivity).apply {
-                        text = "SIGNAL $symbol"
-                        setTextColor(android.graphics.Color.parseColor("#00CFFF"))
-                        textSize = 12f
-                        typeface = android.graphics.Typeface.DEFAULT_BOLD
-                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                body.addView(AateUi.gap(this, 10))
+                body.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    background = AateUi.tileBackground(
+                        this@MainActivity,
+                        fill = AateUi.withAlpha(AateUi.CYAN, 0x14),
+                        stroke = AateUi.withAlpha(AateUi.CYAN, 0x4D),
+                    )
+                    setPadding(
+                        AateUi.dp(this@MainActivity, 10), AateUi.dp(this@MainActivity, 9),
+                        AateUi.dp(this@MainActivity, 10), AateUi.dp(this@MainActivity, 9),
+                    )
+                    addView(LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = android.view.Gravity.CENTER_VERTICAL
+                        addView(AateUi.sectionTitle(this@MainActivity, symbol, AateUi.CYAN).apply {
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        })
+                        addView(AateUi.pill(this@MainActivity, holdStr, AateUi.AMBER))
                     })
-                    addView(TextView(this@MainActivity).apply {
-                        text = "⏱ $holdStr"
-                        setTextColor(amber)
-                        textSize = 11f
-                    })
-                })
-
-                // Status line
-                card.addView(TextView(this@MainActivity).apply {
-                    text = cyclicStatusDisplay
-                    setTextColor(android.graphics.Color.parseColor("#A7B7D8"))
-                    textSize = 10f
-                    setPadding((2 * resources.displayMetrics.density).toInt(), (2 * resources.displayMetrics.density).toInt(), 0, 0)
+                    addView(AateUi.gap(this@MainActivity, 6))
+                    addView(AateUi.bodyText(
+                        this@MainActivity,
+                        cyclicStatusDisplay,
+                        if (cyclicPriceFresh) AateUi.TEXT_SECONDARY else AateUi.AMBER,
+                        sizeSp = 10.5f,
+                    ))
                 })
             } else {
-                // Scanning
-                card.addView(TextView(this@MainActivity).apply {
-                    text = status
-                    setTextColor(android.graphics.Color.parseColor("#A7B7D8"))
-                    textSize = 10f
-                    setPadding((2 * resources.displayMetrics.density).toInt(), (2 * resources.displayMetrics.density).toInt(), 0, 0)
-                })
+                body.addView(AateUi.gap(this, 8))
+                body.addView(AateUi.bodyText(this, status, AateUi.TEXT_MUTED, sizeSp = 10.5f))
             }
 
         } catch (_: Exception) {}
