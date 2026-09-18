@@ -1997,13 +1997,6 @@ object PipelineHealthCollector {
             sb.append("  Contaminated cohort (§7032):  ").append(
                 com.lifecyclebot.engine.truth.ContaminatedPartialQuarantine7032.statusLine()
             ).append("\n")
-            // V5.0.7036 — first readers for the intelligence circuit's unread
-            // outputs. Read-only; see UnreadIntelligenceSurface7036.
-            try {
-                sb.append("\n").append(
-                    com.lifecyclebot.engine.truth.UnreadIntelligenceSurface7036.report()
-                ).append("\n")
-            } catch (_: Throwable) {}
             sb.append("  Learner budget (§6441) [MAINTENANCE SLICES; reward queries use separate counter]: ").append(
                 com.lifecyclebot.engine.truth.LearnerRuntimeBudgetGuard6441.statusLine()
             ).append("\n")
