@@ -146,16 +146,35 @@ object SemanticPatternGraph {
             }
             if (similar.isEmpty()) return EntryBias(1.0, 0, "dna:none")
             val raw = biasFromNodes(similar, "dna")
-            EntryBias(raw.sizeMult.coerceIn(0.92, 1.08), raw.scoreDelta.coerceIn(0, 5), raw.reason + " n=${similar.size}")
+            EntryBias(raw.sizeMult.coerceIn(0.92, 1.08), raw.scoreDelta.coerceIn(-5, 5), raw.reason + " n=${similar.size}")
         } catch (_: Throwable) { EntryBias(1.0, 0, "dna:error") }
     }
 
+    /**
+     * V5.0.7112 §THE_GRAPH_COULD_ONLY_EVER_SAY_GOOD.
+     *
+     * The weak branch returned scoreDelta = 0 — byte-identical to the neutral
+     * branch. So a cohort of similar setups averaging -15% or worse produced
+     * exactly the same score verdict as a cohort the graph had no opinion about.
+     * On the SIZE axis the knowledge survived (0.94), but on the SCORE axis —
+     * which is what every entry floor gates on — it was discarded.
+     *
+     * This graph holds 1,600 learned edges on the operator's device and could
+     * only ever nudge a score upward. Same class as V5.0.7111's entry floor: a
+     * control that can observe it was wrong in one direction and is
+     * structurally unable to act on it. Found by ci/one_way_control_scan.py,
+     * which exists because 7111 was found by reading and that does not scale.
+     *
+     * The negative is the exact mirror of the positive already here — -4 against
+     * +4 — so no new magnitude is invented and the soft-shaping character is
+     * unchanged. It remains advisory: a -4 on a score, not a veto.
+     */
     private fun biasFromNodes(similar: List<PatternNode>, prefix: String): EntryBias {
         val avgPnl = similar.map { it.pnlPct }.average()
         val runnerRate = similar.count { it.peakGainPct >= 100.0 || it.pnlPct >= 50.0 }.toDouble() / similar.size.toDouble()
         return when {
             avgPnl >= 25.0 || runnerRate >= 0.35 -> EntryBias(1.06, 4, "$prefix:runner avg=${avgPnl.fmt1()} rr=${runnerRate.fmt1()}")
-            avgPnl <= -15.0 -> EntryBias(0.94, 0, "$prefix:weak avg=${avgPnl.fmt1()}")
+            avgPnl <= -15.0 -> EntryBias(0.94, -4, "$prefix:weak avg=${avgPnl.fmt1()}")
             else -> EntryBias(1.0, 0, "$prefix:neutral avg=${avgPnl.fmt1()}")
         }
     }

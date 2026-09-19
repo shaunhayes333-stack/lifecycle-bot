@@ -430,8 +430,9 @@ object ManipulatedTraderAI {
         try {
             val edgeCard4329 = com.lifecyclebot.engine.UltimateEdgeEngine.cached(mint, "MANIPULATED")
             if (edgeCard4329 != null) {
-                val edgeBias4329 = edgeCard4329.scoreBias.coerceIn(0, 5)
-                if (edgeBias4329 > 0) score = (score + edgeBias4329).coerceAtLeast(0)
+                // V5.0.7112 — accept the graph's negative verdict too.
+                val edgeBias4329 = edgeCard4329.scoreBias.coerceIn(-5, 5)
+                if (edgeBias4329 != 0) score = (score + edgeBias4329).coerceAtLeast(0)
                 val edgeSize4329 = edgeCard4329.sizeMult.coerceIn(0.90, 1.08)
                 positionSizeSol = (positionSizeSol * edgeSize4329).coerceAtLeast(0.01)
                 if (edgeSize4329 != 1.0) {

@@ -87,7 +87,20 @@ object AsiSsiReauditSweeper {
                 id = "SEMANTIC_ENTRY_READBACK_WIRED_SOFT_ONLY_4257",
                 passed = semantic.contains("fun entryBias") && semantic.contains("fun entryDnaBias") &&
                     shit.contains("SemanticPatternGraph.entryDnaBias") && shit.contains("SHITCOIN_DNA_SEMANTIC_ENTRY_READBACK_4278") &&
-                    shit.contains("if (semanticBias.scoreDelta > 0)") && semantic.contains("avgPnl <= -15.0 -> EntryBias(0.94, 0"),
+                    // V5.0.7112 — this assertion PINNED THE DEFECT. It required
+                    // `if (scoreDelta > 0)` and a weak branch returning 0, which
+                    // is how the graph came to be structurally unable to express a
+                    // negative verdict at all. Its own `detail` states the real
+                    // contract — SOFT, never a hard rejection — and a bounded -4
+                    // on a score satisfies that completely. The intent was right;
+                    // the implementation of it went to zero and got locked there.
+                    // Assert the contract instead of the over-correction: bounded
+                    // both ways, and the score still floors at 0 so no consumer
+                    // can be driven negative.
+                    shit.contains("if (semanticBias.scoreDelta != 0)") &&
+                    shit.contains("coerceAtLeast(0)") &&
+                    semantic.contains("avgPnl <= -15.0 -> EntryBias(0.94, -4") &&
+                    semantic.contains("raw.scoreDelta.coerceIn(-5, 5)"),
                 detail = "semantic memory must be consumed as cached soft-shape, never hard entry rejection",
             ),
             Finding(

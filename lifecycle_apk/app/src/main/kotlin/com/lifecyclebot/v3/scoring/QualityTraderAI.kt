@@ -523,8 +523,12 @@ object QualityTraderAI {
         try {
             val edgeCard4328 = com.lifecyclebot.engine.UltimateEdgeEngine.cached(mint, "QUALITY")
             if (edgeCard4328 != null) {
-                val edgeBias4328 = edgeCard4328.scoreBias.coerceIn(0, 5)
-                if (edgeBias4328 > 0) qualityScore = (qualityScore + edgeBias4328).coerceAtLeast(0)
+                // V5.0.7112 — accept the graph's negative verdict too. QUALITY is
+                // the lane the device reports at EV -38.99%, so it is the one with
+                // the most for the pattern memory to say and the least reason to
+                // hear only half of it.
+                val edgeBias4328 = edgeCard4328.scoreBias.coerceIn(-5, 5)
+                if (edgeBias4328 != 0) qualityScore = (qualityScore + edgeBias4328).coerceAtLeast(0)
                 qualityUltimateEdgeSizeMult4328 = edgeCard4328.sizeMult.coerceIn(0.90, 1.08)
                 if (qualityUltimateEdgeSizeMult4328 != 1.0) {
                     ErrorLogger.debug(TAG, "📊🧠 ULTIMATE_EDGE_QUALITY_CACHE_SHAPE_4328: $symbol score+$edgeBias4328 size×${qualityUltimateEdgeSizeMult4328.fmt(3)} ${edgeCard4328.semanticReason.take(90)}")

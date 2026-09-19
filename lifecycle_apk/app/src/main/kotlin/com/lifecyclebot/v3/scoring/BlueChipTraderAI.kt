@@ -1031,8 +1031,9 @@ object BlueChipTraderAI {
         try {
             val edgeCard4328 = com.lifecyclebot.engine.UltimateEdgeEngine.cached(mint, "BLUECHIP")
             if (edgeCard4328 != null) {
-                val edgeBias4328 = edgeCard4328.scoreBias.coerceIn(0, 5)
-                if (edgeBias4328 > 0) blueChipScore = (blueChipScore + edgeBias4328).coerceAtLeast(0)
+                // V5.0.7112 — accept the graph's negative verdict too.
+                val edgeBias4328 = edgeCard4328.scoreBias.coerceIn(-5, 5)
+                if (edgeBias4328 != 0) blueChipScore = (blueChipScore + edgeBias4328).coerceAtLeast(0)
                 val edgeSize4328 = edgeCard4328.sizeMult.coerceIn(0.90, 1.08)
                 positionSol *= edgeSize4328
                 if (edgeSize4328 != 1.0) {

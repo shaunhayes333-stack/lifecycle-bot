@@ -1389,9 +1389,11 @@ object ShitCoinTraderAI {
                 dnaKey = dnaKey4278,
             )
             semanticEntrySizeMult4255 = semanticBias.sizeMult.coerceIn(0.92, 1.08)
-            if (semanticBias.scoreDelta > 0) {
+            // V5.0.7112 — accept the graph's negative verdict too. Still soft:
+            // a bounded score nudge, never a veto, and the score floors at 0.
+            if (semanticBias.scoreDelta != 0) {
                 shitScore = (shitScore + semanticBias.scoreDelta).coerceAtLeast(0)
-                scoreReasons.add("sem+${semanticBias.scoreDelta}")
+                scoreReasons.add(if (semanticBias.scoreDelta > 0) "sem+${semanticBias.scoreDelta}" else "sem${semanticBias.scoreDelta}")
             }
             if (semanticEntrySizeMult4255 != 1.0) {
                 ErrorLogger.debug(TAG, "💩🧬 SHITCOIN_DNA_SEMANTIC_ENTRY_READBACK_4278: $symbol ${semanticBias.reason} score=$shitScore size×${semanticEntrySizeMult4255.fmt(2)}")
@@ -1599,10 +1601,11 @@ object ShitCoinTraderAI {
         try {
             val edgeCard4324 = com.lifecyclebot.engine.UltimateEdgeEngine.cached(mint, "SHITCOIN")
             if (edgeCard4324 != null) {
-                val edgeBias4324 = edgeCard4324.scoreBias.coerceIn(0, 5)
-                if (edgeBias4324 > 0) {
+                // V5.0.7112 — accept the graph's negative verdict too.
+                val edgeBias4324 = edgeCard4324.scoreBias.coerceIn(-5, 5)
+                if (edgeBias4324 != 0) {
                     shitScore = (shitScore + edgeBias4324).coerceAtLeast(0)
-                    scoreReasons.add("uee+$edgeBias4324")
+                    scoreReasons.add(if (edgeBias4324 > 0) "uee+$edgeBias4324" else "uee$edgeBias4324")
                 }
                 ultimateEdgeSizeMult4324 = edgeCard4324.sizeMult.coerceIn(0.90, 1.08)
                 if (ultimateEdgeSizeMult4324 != 1.0) {

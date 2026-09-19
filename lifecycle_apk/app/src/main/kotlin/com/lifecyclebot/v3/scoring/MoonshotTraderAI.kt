@@ -793,8 +793,9 @@ object MoonshotTraderAI {
         try {
             val edgeCard4326 = com.lifecyclebot.engine.UltimateEdgeEngine.cached(mint, "MOONSHOT")
             if (edgeCard4326 != null) {
-                val edgeBias4326 = edgeCard4326.scoreBias.coerceIn(0, 5)
-                if (edgeBias4326 > 0) score = (score + edgeBias4326).coerceAtLeast(0)
+                // V5.0.7112 — accept the graph's negative verdict too.
+                val edgeBias4326 = edgeCard4326.scoreBias.coerceIn(-5, 5)
+                if (edgeBias4326 != 0) score = (score + edgeBias4326).coerceAtLeast(0)
                 val edgeSize4326 = edgeCard4326.sizeMult.coerceIn(0.90, 1.08)
                 sizeSol = (sizeSol * edgeSize4326).coerceAtLeast(0.01)
                 if (edgeSize4326 != 1.0) {

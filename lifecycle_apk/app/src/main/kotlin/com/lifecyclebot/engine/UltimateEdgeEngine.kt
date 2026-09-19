@@ -96,7 +96,9 @@ object UltimateEdgeEngine {
             symbol = symbol,
             lane = safeLane,
             source = safeSource,
-            scoreBias = semantic.scoreDelta.coerceIn(0, 5),
+            // V5.0.7112 — was coerceIn(0, 5), which discarded the graph's negative
+            // verdict a second time after biasFromNodes had already flattened it.
+            scoreBias = semantic.scoreDelta.coerceIn(-5, 5),
             sizeMult = sizeMult,
             semanticReason = semantic.reason,
             sourceSummary = sourceSummary,

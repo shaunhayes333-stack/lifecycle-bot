@@ -590,8 +590,9 @@ object ShitCoinExpress {
         try {
             val edge4325 = com.lifecyclebot.engine.UltimateEdgeEngine.cached(mint, "EXPRESS")
             if (edge4325 != null) {
-                val scoreBoost4325 = edge4325.scoreBias.coerceIn(0, 4)
-                if (scoreBoost4325 > 0) expressScore = (expressScore + scoreBoost4325).coerceAtLeast(0)
+                // V5.0.7112 — accept the graph's negative verdict too.
+                val scoreBoost4325 = edge4325.scoreBias.coerceIn(-4, 4)
+                if (scoreBoost4325 != 0) expressScore = (expressScore + scoreBoost4325).coerceAtLeast(0)
                 expressUltimateEdgeSizeMult4325 = edge4325.sizeMult.coerceIn(0.90, 1.08)
                 ErrorLogger.debug(TAG, "💩🚂🧠 ULTIMATE_EDGE_EXPRESS_CACHE_SHAPE_4325: $symbol score+$scoreBoost4325 size×${expressUltimateEdgeSizeMult4325.fmt(2)}")
             }

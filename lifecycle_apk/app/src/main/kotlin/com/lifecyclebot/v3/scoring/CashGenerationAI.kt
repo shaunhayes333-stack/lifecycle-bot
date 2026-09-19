@@ -956,10 +956,12 @@ object CashGenerationAI {
         try {
             val edgeCard4327 = com.lifecyclebot.engine.UltimateEdgeEngine.cached(mint, "TREASURY")
             if (edgeCard4327 != null) {
-                val edgeBias4327 = edgeCard4327.scoreBias.coerceIn(0, 5)
-                if (edgeBias4327 > 0) {
+                // V5.0.7112 — the clamp AND the `> 0` guard each discarded the
+                // graph's negative verdict. The score itself still floors at 0.
+                val edgeBias4327 = edgeCard4327.scoreBias.coerceIn(-5, 5)
+                if (edgeBias4327 != 0) {
                     treasuryScore = (treasuryScore + edgeBias4327).coerceAtLeast(0)
-                    scoreReasons.add("uee+$edgeBias4327")
+                    scoreReasons.add(if (edgeBias4327 > 0) "uee+$edgeBias4327" else "uee$edgeBias4327")
                 }
                 val edgeSize4327 = edgeCard4327.sizeMult.coerceIn(0.90, 1.08)
                 positionSol *= edgeSize4327
