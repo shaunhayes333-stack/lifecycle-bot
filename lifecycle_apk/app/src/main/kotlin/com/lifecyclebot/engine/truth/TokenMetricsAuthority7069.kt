@@ -238,10 +238,12 @@ object TokenMetricsAuthority7069 {
         // Cap present, supply known, but the feed gave no price. The identity
         // SUPPLIES one — this is a measurement, not a guess: the cap is real and
         // the supply is on file.
+        // V5.0.7087 — a price DERIVED from an unverified cap is still an
+        // invented number. No price reported means no price, not a made-up one.
         if (price <= 0.0) {
-            priceRepaired.incrementAndGet()
-            try { PipelineHealthCollector.labelInc("TOKEN_PRICE_DERIVED_FROM_MCAP_7069") } catch (_: Throwable) {}
-            return Metrics7069(impliedPrice, mcap, storedSupply, repaired = true, verifiable = true)
+            unverifiable.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("TOKEN_PRICE_ABSENT_NOT_DERIVED_7087") } catch (_: Throwable) {}
+            return Metrics7069(0.0, mcap, storedSupply, repaired = false, verifiable = false)
         }
 
         val ratio = price / impliedPrice
@@ -250,11 +252,60 @@ object TokenMetricsAuthority7069 {
             return Metrics7069(price, mcap, storedSupply, repaired = false, verifiable = true)
         }
 
+        // V5.0.7087 §THE REPAIR WAS MANUFACTURING THE ABSURD PRICES.
+        //
+        // Operator, on the 5.0.7082 device report: "your excluding wins all over
+        // the place because your not getting the data right. stop inventing
+        // fucking data."
+        //
+        // He is right, and the proof is in his own log:
+        //
+        //   XsueG8Btpq  entry=6.785963270317651E-4
+        //               current=0.8223581771278282
+        //               src=PUMP_PORTAL_WS,PUMP_PORTAL+MCAP_IDENTITY_7069
+        //
+        // The +MCAP_IDENTITY_7069 tag is appended ONLY when this function
+        // replaced the price. And the arithmetic names the culprit exactly:
+        //
+        //   entry 6.786e-4 x 1e9 supply =       $678,596  ~= reported cap 675,220
+        //   "repaired" 0.8223581771 x 1e9 = $822,358,177
+        //
+        // So ts.lastMcap was momentarily $822 MILLION instead of $675 thousand,
+        // and this function believed it and invented a price 1211x too high.
+        // Xsc9qvGR1e is the same shape: 2.1338 x 1e9 = $2.13 BILLION.
+        // priceRepaired=119 worstBreak=87994x are not detections. They are
+        // fabrications.
+        //
+        // AND THE WRITE-BACK MADE A TRANSIENT TICK PERMANENT. The bad cap
+        // corrected itself — §4481 reads entryMcap=675220 currentMcap=675220
+        // mcapGain=0.0 on the same mint, seconds later. But the invented price
+        // had already been written into ts.lastPrice, so it outlived its cause
+        // and every downstream guard then saw a 1211x it had to refuse:
+        // PROFIT_LOCK_REFUSED_UNTRUSTED_BASIS_7049, STALE_PRICE_QUARANTINED,
+        // OPEN_PNL_BASIS_REJECTED, and a "4th partial (100x MOONSHOT!)" on a
+        // token whose market cap never moved. That is the operator's "excluding
+        // wins all over the place", and I caused it.
+        //
+        // WHY THE ORIGINAL DOCTRINE WAS WRONG. V5.0.7069 argued "across every
+        // incident on record the cap was right and the price was wrong", and
+        // recorded that as an empirical claim to be measured. This run falsifies
+        // it. The identity has THREE quantities and only SUPPLY is verified
+        // on-chain, so a broken identity proves one of price/cap is wrong and
+        // says NOTHING about which. Choosing the cap is an inference, and the
+        // operator's standing rule is that there are no inferred values.
+        //
+        // SO THIS AUTHORITY NOW CLASSIFIES AND NEVER SUBSTITUTES. A broken
+        // identity is reported as UNVERIFIABLE and the reported price passes
+        // through EXACTLY as the provider sent it. Nothing is invented, nothing
+        // is written back, and a transient bad cap can no longer poison durable
+        // state. DataLegitimacyAuthority7077 already refuses to qualify a mint
+        // whose identity does not hold, which is the correct response to "one of
+        // these two numbers is wrong": do not trade it, rather than guess which.
         identityBroken.incrementAndGet()
-        priceRepaired.incrementAndGet()
         noteWorst(ratio)
         try {
             PipelineHealthCollector.labelInc("METRICS_IDENTITY_BROKEN_7069")
+            PipelineHealthCollector.labelInc("METRICS_IDENTITY_BROKEN_NO_SUBSTITUTION_7087")
             if (identityBroken.get() % 20L == 1L) {
                 ForensicLogger.lifecycle(
                     "METRICS_IDENTITY_BROKEN_7069",
@@ -262,11 +313,11 @@ object TokenMetricsAuthority7069 {
                         "reportedPrice=$price impliedPrice=$impliedPrice " +
                         "mcap=${mcap.toLong()} supply=${storedSupply.toLong()} " +
                         "ratio=${"%.6g".format(ratio)} " +
-                        "action=market_cap_and_stored_supply_win_price_recomputed",
+                        "action=unverifiable_price_passes_through_untouched_no_substitution_7087",
                 )
             }
         } catch (_: Throwable) {}
-        return Metrics7069(impliedPrice, mcap, storedSupply, repaired = true, verifiable = true)
+        return Metrics7069(price, mcap, storedSupply, repaired = false, verifiable = false)
     }
 
     /**
@@ -303,7 +354,13 @@ object TokenMetricsAuthority7069 {
     fun status(): String =
         "observed=${observed.get()} supplyCaptured=${supplyCaptured.get()} " +
             "identityHeld=${identityHeld.get()} identityBroken=${identityBroken.get()} " +
-            "priceRepaired=${priceRepaired.get()} unverifiable=${unverifiable.get()} " +
+            // V5.0.7087 — priceRepaired is RETIRED, pinned at 0, and kept in the
+            // line on purpose: it read 119 with worstBreak=87994x on the
+            // operator's 5.0.7082 device, and every one of those was a price
+            // this authority invented from a bad market cap. Seeing it stay at
+            // zero is the acceptance test for this build, which is worth more
+            // than deleting the field and losing the comparison.
+            "priceRepaired=${priceRepaired.get()}(retired_7087) unverifiable=${unverifiable.get()} " +
             "supplyConflicts=${supplyConflicts.get()} " +
             "worstBreak=${"%.3f".format(worstBreakMilli.get() / 1000.0)}x"
 }

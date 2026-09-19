@@ -841,23 +841,22 @@ class Executor(
                 source = ts.lastPriceSource.ifBlank { "UNKNOWN" },
             )
         } catch (_: Throwable) { null }
-        if (metrics7069 != null && metrics7069.repaired &&
-            metrics7069.priceUsd.isFinite() && metrics7069.priceUsd > 0.0
-        ) {
-            try {
-                ts.lastPrice = metrics7069.priceUsd
-                ts.lastPriceUpdate = System.currentTimeMillis()
-                // Provider stays as the source PREFIX so
-                // MarkAuthorityIntegrityGate6496's whitelist still matches (the
-                // V5.0.7048 regression); the transform is appended and the
-                // substringBefore keeps it idempotent across repeated repairs.
-                val base7069 = ts.lastPriceSource
-                    .substringBefore("+MCAP_IDENTITY_7069")
-                    .takeIf { it.isNotBlank() } ?: "MCAP_IDENTITY"
-                ts.lastPriceSource = "$base7069+MCAP_IDENTITY_7069"
-                PipelineHealthCollector.labelInc("TS_LAST_PRICE_REPAIRED_7069")
-            } catch (_: Throwable) {}
-        }
+        // V5.0.7087 §THE WRITE-BACK IS GONE, AND IT WAS THE POISON.
+        //
+        // This block used to copy TokenMetricsAuthority7069's substituted price
+        // into ts.lastPrice and stamp "+MCAP_IDENTITY_7069" onto the source. That
+        // is the tag on every absurd row in the operator's 5.0.7082 report, and
+        // the write-back is what made a ONE-TICK bad market cap permanent:
+        // ts.lastMcap corrected itself seconds later (§4481 reads entryMcap ==
+        // currentMcap == 675220, mcapGain=0.0) but the invented 0.8224 price had
+        // already been persisted, so every later reader saw a 1211x no feed had
+        // ever reported.
+        //
+        // 7069 no longer substitutes anything — it classifies and returns the
+        // provider's price untouched — so there is nothing to write back and the
+        // block is deleted rather than left inert. TS_LAST_PRICE_REPAIRED_7069
+        // is retired with it; its absence from the next report is the acceptance
+        // test for this build.
 
         val livePrice = ts.lastPrice.takeIf { it > 0 && it.isFinite() }
         val pos = ts.position
