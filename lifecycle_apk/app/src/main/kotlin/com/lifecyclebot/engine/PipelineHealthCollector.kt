@@ -2034,6 +2034,18 @@ object PipelineHealthCollector {
             sb.append("  Learner degeneracy (§7102):   ").append(
                 com.lifecyclebot.engine.truth.LearnedPolicyDegeneracyWatch7102.statusLine7102()
             ).append("\n")
+            // V5.0.7104 — the evolution engine. The LLM Lab invents strategies
+            // nobody wrote, proves them in a sandbox, and auto-promotes the
+            // survivors into LabPromotedFeed, which Executor.doBuy and
+            // MoonshotTraderAI read. It had NO line in this report at all, so it
+            // could be inventing nothing for want of an LLM provider and every
+            // snapshot would look normal. maxGen is the number that answers "is
+            // it evolving": gen 1 is the three seeded genesis strategies, and a
+            // maxGen stuck at 1 means the population is only being selected
+            // from, never extended.
+            sb.append("  LLM Lab evolution (§7104):    ").append(
+                com.lifecyclebot.engine.lab.LlmLabEngine.statusLine7104()
+            ).append("\n")
             // V5.0.6916 — keyless OHLCV. barsDelivered is the single number
             // that says whether the chart/pattern layer is fed at all: every
             // pattern engine needs 3-5 bars and every OHLCV path in the app

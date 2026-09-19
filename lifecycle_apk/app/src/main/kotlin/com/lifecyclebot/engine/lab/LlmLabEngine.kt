@@ -2,6 +2,7 @@ package com.lifecyclebot.engine.lab
 
 import android.content.Context
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.GeminiCopilot
 import com.lifecyclebot.engine.PipelineHealthCollector
 import com.lifecyclebot.engine.SentienceHooks
@@ -153,6 +154,46 @@ object LlmLabEngine {
             lastCullMs.set(now)
             runCatching { runCullCycle() }
         }
+    }
+
+    /**
+     * V5.0.7104 — the Lab's line in the operator report.
+     *
+     * There was none. The Lab is the stack's evolution engine — the only place
+     * a strategy nobody wrote comes into existence — and the one artefact the
+     * operator actually reads said nothing about it whatsoever. It could be ON,
+     * ticking, and inventing nothing for want of an LLM provider, and every
+     * snapshot would look entirely normal.
+     *
+     * `maxGen` is the number that answers "is this thing evolving". Generation 1
+     * is the three seeded genesis strategies. A maxGen that stays at 1 means the
+     * population is only being selected from, never extended — self-tuning
+     * inside a fixed set, which is a different and much smaller claim.
+     *
+     * `llm` states whether the evolution step can run at all. Read-only.
+     */
+    fun statusLine7104(): String = try {
+        val all = LlmLabStore.allStrategies()
+        val active = all.count { it.status == LabStrategyStatus.ACTIVE }
+        val promoted = all.count { it.status == LabStrategyStatus.PROMOTED }
+        val archived = all.count { it.status == LabStrategyStatus.ARCHIVED }
+        val maxGen = all.maxOfOrNull { it.generation } ?: 0
+        val trades = all.sumOf { it.paperTrades }
+        val pnl = all.sumOf { it.paperPnlSol }
+        val configured = try { GeminiCopilot.isConfigured() } catch (_: Throwable) { false }
+        val degraded = try { GeminiCopilot.isAIDegraded() } catch (_: Throwable) { true }
+        val llm = when {
+            !configured -> "NO_PROVIDER"
+            degraded -> "DEGRADED"
+            else -> "ok"
+        }
+        val ageMin = ((System.currentTimeMillis() - LlmLabStore.getLastCreationMs()) / 60_000L)
+            .coerceAtLeast(0L)
+        "enabled=${LlmLabStore.isEnabled()} llm=$llm strategies=${all.size} " +
+            "(active=$active promoted=$promoted archived=$archived) maxGen=$maxGen " +
+            "paperTrades=$trades paperPnl=${"%+.3f".format(pnl)} lastCreationMinAgo=$ageMin"
+    } catch (t: Throwable) {
+        "unavailable(${t.javaClass.simpleName})"
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -327,12 +368,44 @@ object LlmLabEngine {
     }
 
     private fun runCreationCycle() {
+        // V5.0.7104 §AN_EVOLUTION_ENGINE_THAT_IS_NOT_EVOLVING_MUST_SAY_SO.
+        //
+        // Creation is THE evolution step: it is the only place a strategy that
+        // nobody wrote comes into existence. Everything else in this object —
+        // evaluation, culling, promotion — operates on a population that already
+        // exists. So if creation stops, the Lab stops evolving and starts merely
+        // selecting among the three seeded genesis strategies, which is
+        // self-TUNING inside a fixed population, not self-evolution.
+        //
+        // Both ways that happens were reported with ErrorLogger.info and no
+        // counter, and there is no Lab section in the operator report at all.
+        // The Lab could therefore be inert for want of an LLM key for an entire
+        // session and every snapshot would look normal. That is the same defect
+        // this codebase keeps producing — a capability that cannot report its
+        // own absence — and it is worst here, because this is the capability the
+        // whole "self-evolving" claim rests on.
         val live = LlmLabStore.activeStrategies().size
         if (live >= MAX_LIVE_STRATEGIES) {
+            try { PipelineHealthCollector.labelInc("LAB_CREATION_SKIPPED_AT_CAP_7104") } catch (_: Throwable) {}
             ErrorLogger.info(TAG, "🧪 Creation skipped — at cap ($live/$MAX_LIVE_STRATEGIES)")
             return
         }
         if (!GeminiCopilot.isConfigured() || GeminiCopilot.isAIDegraded()) {
+            // Two different facts, and they call for different answers: no
+            // provider is configured at all, versus configured providers that
+            // are all failing. The first is setup, the second is an outage.
+            val configured7104 = try { GeminiCopilot.isConfigured() } catch (_: Throwable) { false }
+            try {
+                PipelineHealthCollector.labelInc(
+                    if (!configured7104) "LAB_CREATION_SKIPPED_NO_LLM_PROVIDER_7104"
+                    else "LAB_CREATION_SKIPPED_LLM_DEGRADED_7104"
+                )
+                ForensicLogger.lifecycle(
+                    "LAB_CREATION_SKIPPED_7104",
+                    "configured=$configured7104 activeStrategies=$live " +
+                        "action=no_new_strategy_invented_lab_is_selecting_not_evolving",
+                )
+            } catch (_: Throwable) {}
             ErrorLogger.info(TAG, "🧪 Creation skipped — LLM unavailable")
             return
         }
@@ -373,11 +446,21 @@ Reply with just the JSON object, nothing else.
                 maxTokens = 400
             )
         } catch (e: Throwable) {
+            // V5.0.7104 — a failed creation call is a generation that did not
+            // happen. Counted, not just warned.
+            try { PipelineHealthCollector.labelInc("LAB_CREATION_LLM_CALL_FAILED_7104") } catch (_: Throwable) {}
             ErrorLogger.warn(TAG, "Creation LLM call failed: ${e.message}")
             null
-        } ?: return
+        } ?: run {
+            try { PipelineHealthCollector.labelInc("LAB_CREATION_LLM_EMPTY_REPLY_7104") } catch (_: Throwable) {}
+            return
+        }
 
         val parsed = parseStrategyJson(raw) ?: run {
+            // V5.0.7104 — the LLM answered and we could not use it. That is a
+            // different fault from it not answering, and a persistently high
+            // count here means the prompt contract has drifted from the model.
+            try { PipelineHealthCollector.labelInc("LAB_CREATION_PARSE_FAILED_7104") } catch (_: Throwable) {}
             ErrorLogger.warn(TAG, "🧪 Strategy parse failed; reply: ${raw.take(160)}")
             return
         }
@@ -395,6 +478,18 @@ Reply with just the JSON object, nothing else.
             status = LabStrategyStatus.ACTIVE,
         )
         LlmLabStore.addStrategy(s)
+        // V5.0.7104 — the denominator. Without a success counter the skip
+        // counters above cannot be read as a rate, and "0 skips" is
+        // indistinguishable from "the cycle never ran".
+        try {
+            PipelineHealthCollector.labelInc("LAB_STRATEGY_CREATED_7104")
+            ForensicLogger.lifecycle(
+                "LAB_STRATEGY_CREATED_7104",
+                "name=${s.name.take(40)} asset=${s.asset} gen=$gen parent=${parent?.name?.take(30) ?: "none"} " +
+                    "entryScoreMin=${s.entryScoreMin} regime=${s.entryRegime} tp=${s.takeProfitPct} " +
+                    "sl=${s.stopLossPct} holdMins=${s.maxHoldMins} sizeSol=${s.sizingSol}",
+            )
+        } catch (_: Throwable) {}
         ErrorLogger.info(TAG, "🧪 LLM created strategy: ${s.name} (${s.asset}, gen=$gen, parent=${parent?.name ?: "none"})")
     }
 
