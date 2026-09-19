@@ -778,6 +778,29 @@ object ToolkitSignalSheet {
             // stamp and gives the intentId to grep for.
             if (s.phantomSizedOnly > 0) {
                 appendLine("$lane phantomMissing=${s.phantomMissing6883.entries.sortedByDescending { it.value }.joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "NONE" }} phantomSampleIntentId=${s.phantomSampleIntentId6883.ifBlank { "NONE" }}")
+                // V5.0.7086 — the RAW stage tally beside the validated one.
+                //
+                // `sizedExecutable`, `ticket` and `exec` above are causally
+                // validated: MemeExecutionFunnelReceivers6625 only tallies a
+                // stage when the same record also carries its predecessors, and
+                // Stage.TICKET/Stage.EXEC both require Stage.INTENT. So a lane
+                // whose phantomMissing is dominated by NO_INTENT reports
+                // ticket=0 exec=0 WHETHER OR NOT tickets were built.
+                //
+                // Print both and the ambiguity disappears:
+                //   rawTicket=0   -> nothing built. A real execution choke.
+                //   rawTicket>0   -> tickets built, the count was suppressed by
+                //                    a missing INTENT stamp. A TELEMETRY defect,
+                //                    and aiming an authority rewrite at it would
+                //                    be repairing a report.
+                val raw7086 = s.rawCounts7086
+                appendLine(
+                    "$lane rawSized=${raw7086[com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.SIZE] ?: 0}" +
+                        " rawTicket=${raw7086[com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.TICKET] ?: 0}" +
+                        " rawExec=${raw7086[com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.EXEC] ?: 0}" +
+                        " rawOpen=${raw7086[com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.OPEN] ?: 0}" +
+                        " read=rawTicket_gt_0_with_ticket_eq_0_is_a_suppressed_count_not_a_choke",
+                )
             }
         }
         appendLine("ownerLaneChangedAfterSelection=${causalIssue6600("ownerLaneChangedAfterSelection")}")

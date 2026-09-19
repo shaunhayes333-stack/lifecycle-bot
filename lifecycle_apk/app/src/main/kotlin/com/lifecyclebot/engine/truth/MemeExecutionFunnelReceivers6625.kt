@@ -449,6 +449,32 @@ object SpecialistCausalFunnel6625 {
         /** V5.0.6883 — one representative orphaned intentId, so the operator
          *  can grep the exact key rather than infer it. */
         val phantomSampleIntentId6883: String = "",
+        /**
+         * V5.0.7086 §"ticket=0" DID NOT MEAN NO TICKET WAS CREATED.
+         *
+         * `counts` is CAUSALLY VALIDATED, not raw. A stage is only tallied when
+         * the same keyed record also carries its predecessors:
+         *
+         *     Stage.TICKET -> Stage.INTENT in r.stages && fdgAllowed
+         *                     && executableSize && markReady
+         *
+         * So a record missing Stage.INTENT reports ticket=0 and exec=0 no matter
+         * how many tickets it actually reached. The operator's report has
+         * QUALITY at sized=20 ticket=0 with phantomMissing MOSTLY NO_INTENT, and
+         * PROJECT_SNIPER at 27 phantoms the same way — which is exactly the
+         * condition that zeroes the two stages being read as a choke.
+         *
+         * That makes "TICKET_CHOKED" ambiguous between two very different
+         * states: no ticket was built, or a ticket was built and the funnel
+         * refused to count it. §1 and §2 of the directive are aimed at the
+         * first. Aiming a high-risk authority change at the second would repeat
+         * V5.0.7084, where "forced=34" turned out to be a second count of the
+         * open book and the target was unreachable by construction.
+         *
+         * So the raw stage tally is carried alongside the validated one. No
+         * behaviour changes; this decides whether §1/§2 have a defect to fix.
+         */
+        val rawCounts7086: Map<Stage, Int> = emptyMap(),
     )
     fun laneSnapshot6647(lane: String): LaneSnapshot6647 {
         val counts = mutableMapOf<Stage, Int>()
@@ -461,6 +487,7 @@ object SpecialistCausalFunnel6625 {
         // and on which key, was computed here and thrown away — so every
         // diagnosis of it has been inference. Record the breakdown.
         val phantomMissing6883 = mutableMapOf<String, Int>()
+        val rawCounts7086 = mutableMapOf<Stage, Int>()
         var phantomSample6883 = ""
         for (r in records.values) {
             if (!r.key.lane.equals(lane, true)) continue
@@ -477,6 +504,11 @@ object SpecialistCausalFunnel6625 {
                     if (phantomSample6883.isEmpty()) phantomSample6883 = r.key.intentId.take(48)
                 }
                 for (stage in r.stages.keys) {
+                    // V5.0.7086 — the raw tally, recorded before validation so
+                    // the two can be compared. This is what the record actually
+                    // reached; `counts` below is what it reached WITH a complete
+                    // causal lineage.
+                    rawCounts7086[stage] = (rawCounts7086[stage] ?: 0) + 1
                     // Later stages are executable telemetry only when the
                     // same keyed record contains its causal predecessors.
                     val valid = when (stage) {
@@ -496,6 +528,7 @@ object SpecialistCausalFunnel6625 {
             lane, counts, outcomes, phantom,
             phantomMissing6883 = phantomMissing6883,
             phantomSampleIntentId6883 = phantomSample6883,
+            rawCounts7086 = rawCounts7086,
         )
     }
 
