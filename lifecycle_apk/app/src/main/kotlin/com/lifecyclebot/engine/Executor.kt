@@ -712,7 +712,19 @@ class Executor(
             } catch (_: Throwable) {}
             return null
         }
-        val sol = (qtyToken * markPriceUsd) / solUsd
+        // V5.0.7061 §1 — ONE CONVERSION FUNCTION IN THE APP.
+        //
+        // This used to spell the division out inline. So did the exit path, the
+        // mark provider, the partial gate and the 7057 multiple repair — five
+        // separate copies of tokens x (USD/token) / (USD/SOL), and three of
+        // them have shipped it wrong at least once (7029 omitted the divisor,
+        // 7057 inverted the denominator, 6496 returned USD labelled SOL). A
+        // conversion written five times is a conversion that will be written
+        // wrong a sixth. Route it through the named function so a crossing has
+        // one place to be caught and one place to be fixed.
+        val sol = com.lifecyclebot.engine.truth.EconomicUnitInvariant7061
+            .usdToSol(com.lifecyclebot.engine.truth.EconomicUnitInvariant7061
+                .proceedsUsd(qtyToken, markPriceUsd), solUsd)
         return if (sol.isFinite() && sol >= 0.0) sol else null
     }
     

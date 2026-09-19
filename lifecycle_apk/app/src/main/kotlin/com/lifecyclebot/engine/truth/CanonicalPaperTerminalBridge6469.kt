@@ -175,6 +175,47 @@ object CanonicalPaperTerminalBridge6469 {
                 )
             }
         }
+        // V5.0.7061 §2 — THE DIMENSIONAL INVARIANT, ahead of every mutation.
+        //
+        // Directive §8: "existing conservation is insufficient because
+        // internally consistent bad units still pass." Every balance check in
+        // this file passed throughout V5.0.7057's 113x defect, because balance
+        // survives any error applied uniformly. This asks the one question a
+        // uniform unit error cannot survive — can the claimed SOL be
+        // reconstructed from the token quantity and the USD price that
+        // produced it.
+        //
+        // Applied to TERMINALS as well as partials, which is wider than
+        // V5.0.7056's scope. That is safe here only because an UNPRICED sale
+        // returns ok: the three terminal call sites that supply no exit price
+        // are counted, not blocked, so no position is stranded — the same
+        // reasoning that scoped 7056, applied at a finer grain instead of by
+        // excluding the whole class.
+        val units7061 = try {
+            EconomicUnitInvariant7061.validate(
+                positionId = positionId,
+                soldQtyRaw = soldQtyRaw,
+                preRemainingRaw = preRemainingRaw,
+                quantityScale = canonicalBefore6522?.quantityScale ?: sellDecimals6522,
+                preRemainingCostBasisSol = preRemainingCostBasisSol,
+                allocatedCostSol = soldCostBasisSol,
+                proceedsSol = grossProceedsSol,
+                feeSol = feesSol,
+                exitPriceUsdPerToken = exitPriceUsd7032,
+                solUsdPrice = solUsdAtExit7032,
+            )
+        } catch (_: Throwable) { null }
+        if (units7061 != null && !units7061.ok) {
+            EconomicUnitInvariant7061.logRejection(positionId, mint, symbol, units7061)
+            // No cash, no realized, no journal economics, no learning publish.
+            // The position stays whole and the reconstructed figure is in the
+            // log, so a correctly-priced retry still succeeds and §10's replay
+            // has the corrected number.
+            return Result(
+                applied = false, terminalClaimed = false, busPublished = false,
+                reason = "ECONOMIC_UNIT_${units7061.reason}_7061",
+            )
+        }
         val qtyAdmission6498 = SellQtyBoundaryClamp6427.admitRaw(positionId, soldQtyRaw, mint, symbol)
         if (!qtyAdmission6498.allowed) {
             try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_QTY_REJECTED_6498") } catch (_: Throwable) {}

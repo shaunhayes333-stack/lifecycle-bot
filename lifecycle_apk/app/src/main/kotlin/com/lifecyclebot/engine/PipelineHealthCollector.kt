@@ -2175,6 +2175,15 @@ object PipelineHealthCollector {
             sb.append("  Mark resolution   (§7059): ").append(
                 com.lifecyclebot.engine.truth.CanonicalMarkResolution7059.status()
             ).append("\n")
+            // V5.0.7061 — directive §2. `rejected` is the count of sells whose
+            // claimed SOL could not be reconstructed from their own quantity
+            // and price; `worstRatio` names the size of the largest crossing
+            // seen (≈113x means a USD figure booked as SOL). `unpriced` is the
+            // remainder this check cannot speak to — terminal exits that carry
+            // no exit price — and is the honest measure of its blind spot.
+            sb.append("  Economic units    (§7061): ").append(
+                com.lifecyclebot.engine.truth.EconomicUnitInvariant7061.status()
+            ).append("\n")
             // V5.0.7051 — size the promotion leak BEFORE anything is shaped
             // against the cohort. leakWins is the count of runners the entering
             // lane was never credited with; while it is non-trivial, a "losses=9
