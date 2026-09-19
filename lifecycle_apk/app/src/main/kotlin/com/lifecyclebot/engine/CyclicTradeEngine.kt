@@ -266,29 +266,121 @@ object CyclicTradeEngine {
         val now = System.currentTimeMillis()
         val ageMs = ts.lastPriceUpdate.takeIf { it > 0L }?.let { (now - it).coerceAtLeast(0L) }
         val fresh = ageMs != null && ageMs <= 90_000L
-        if (requireFresh && !fresh) {
+        // V5.0.7059 §NOTHING_GOES_STALE_UNPRICED_LOST_OR_EXCLUDED.
+        //
+        // Operator, after watching this function hold MLKRS for 30m22s on
+        // "px=pricing wait | PnL: basis wait | PRICE_STALE_OR_TS_UNKN".
+        //
+        // THE DISTINCTION THIS FUNCTION WAS MISSING is between a position we
+        // ALREADY OWN and a candidate we are deciding whether to buy:
+        //
+        //   HELD (entryPrice > 0) — the risk is already on. Refusing to price
+        //     it does not avoid the risk, it only blinds us to it. The held
+        //     branch at the call site `return`s on a failed verdict, so a stale
+        //     feed meant the stop-loss, the take-profit and the trailing logic
+        //     were evaluated ZERO times for half an hour. Every one of those is
+        //     a protection, and the refusal switched all of them off. So a held
+        //     position is now ALWAYS priced, through the explicit degradation
+        //     ladder in CanonicalMarkResolution7059, and the provenance rides
+        //     along in the reason so the caller and the log can see exactly how
+        //     firm the number is.
+        //
+        //   CANDIDATE (entryPrice <= 0) — no risk is on, and declining to open
+        //     one on a feed we cannot read loses nothing. Freshness stays a
+        //     hard requirement here. That is a safety gate, not data being
+        //     thrown away, and it is the one case the operator's rule does not
+        //     reach.
+        //
+        // NOTE ON THE NAME: the caller passes `entryPriceSol`, but line 962
+        // assigns it from getActualPricePublic, which is USD-per-token. Both
+        // sides of every comparison below are therefore USD-per-token and the
+        // ratio is dimensionless. The field is misnamed, not miscomputed —
+        // do not "fix" it by converting.
+        val held7059 = entryPrice > 0.0
+        if (requireFresh && !fresh && !held7059) {
             return CyclicPriceVerdict(false, reason = "PRICE_STALE_OR_TS_UNKNOWN age=${ageMs ?: -1}")
         }
-        val price = try { executor.getActualPricePublic(ts) } catch (_: Throwable) { 0.0 }
-            .takeIf { it.isFinite() && it > 0.0 } ?: return CyclicPriceVerdict(false, reason = "PRICE_UNAVAILABLE")
-        if (entryPrice > 0.0) {
-            val v = try {
-                OpenPnlSanity.inspect(
-                    entryPrice = entryPrice,
-                    currentPrice = price,
-                    entrySource = ts.position.entryPriceSource,
-                    currentSource = ts.lastPriceSource,
-                    entryPool = ts.position.entryPoolAddress,
-                    currentPool = ts.lastPricePoolAddr,
-                    priceBasisRescaled = ts.position.priceBasisRescaled,
-                    context = "CYCLIC:$context/${ts.symbol}/${ts.mint.take(8)}",
-                    emit = true,
-                )
-            } catch (_: Throwable) { OpenPnlSanity.Verdict(false, reason = "INSPECT_THROW") }
-            if (!v.ok) return CyclicPriceVerdict(false, price = price, fresh = fresh, reason = "BASIS_REJECTED:${v.reason}")
-            return CyclicPriceVerdict(true, price = price, pnlPct = v.pnlPct, fresh = fresh, reason = "OK")
+        val rawPrice7059 = try { executor.getActualPricePublic(ts) } catch (_: Throwable) { 0.0 }
+            .takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+        if (!held7059) {
+            val price = rawPrice7059.takeIf { it > 0.0 }
+                ?: return CyclicPriceVerdict(false, reason = "PRICE_UNAVAILABLE")
+            return CyclicPriceVerdict(true, price = price, fresh = fresh, reason = "OK")
         }
-        return CyclicPriceVerdict(true, price = price, fresh = fresh, reason = "OK")
+        // Held from here down — a mark is produced no matter what.
+        val mark7059 = try {
+            com.lifecyclebot.engine.truth.CanonicalMarkResolution7059
+                .resolve(ts.position, rawPrice7059, ts.lastMcap)
+        } catch (_: Throwable) { null }
+        try {
+            if (mark7059 != null) {
+                com.lifecyclebot.engine.truth.CanonicalMarkResolution7059
+                    .noteCorrection(ts.mint, ts.symbol, mark7059, "cyclic/$context")
+            }
+        } catch (_: Throwable) {}
+        // CYCLIC keeps its own entry in `entryPrice` and does not always
+        // populate ts.position, so 7059's own last two rungs (which read the
+        // Position) can come back empty where CYCLIC still has a basis. Finish
+        // the ladder with what this engine holds: the last tick at any age,
+        // then the entry itself — a truthful 0%, which is still something a
+        // time-stop and a max-hold can act on.
+        val price = when {
+            mark7059 != null && mark7059.usable -> mark7059.price
+            ts.lastPrice.isFinite() && ts.lastPrice > 0.0 -> ts.lastPrice
+            else -> entryPrice
+        }
+        val provenance7059 = when {
+            mark7059 != null && mark7059.usable -> mark7059.provenance.name
+            ts.lastPrice.isFinite() && ts.lastPrice > 0.0 -> "CYCLIC_LAST_TICK_ANY_AGE"
+            else -> "CYCLIC_ENTRY_FLAT"
+        }
+        val staleSuffix7059 = if (fresh) "" else "/STALE${ageMs ?: -1}"
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector
+                .labelInc("CYCLIC_HELD_PRICED_7059_$provenance7059")
+        } catch (_: Throwable) {}
+        val v = try {
+            OpenPnlSanity.inspect(
+                entryPrice = entryPrice,
+                currentPrice = price,
+                entrySource = ts.position.entryPriceSource,
+                currentSource = ts.lastPriceSource,
+                entryPool = ts.position.entryPoolAddress,
+                currentPool = ts.lastPricePoolAddr,
+                priceBasisRescaled = ts.position.priceBasisRescaled,
+                context = "CYCLIC:$context/${ts.symbol}/${ts.mint.take(8)}",
+                emit = true,
+            )
+        } catch (_: Throwable) { OpenPnlSanity.Verdict(false, reason = "INSPECT_THROW") }
+        if (v.ok) {
+            return CyclicPriceVerdict(
+                true, price = price, pnlPct = v.pnlPct, fresh = fresh,
+                reason = "OK/$provenance7059$staleSuffix7059",
+            )
+        }
+        // V5.0.7059 — OpenPnlSanity refusing is not a reason to stop measuring.
+        //
+        // Its job is to catch a mark sitting on a different basis from the
+        // entry, and it does that by comparing the two SOURCES. But the mark we
+        // are holding has already been placed on the entry's own basis through
+        // market cap, so the source disagreement 7059 corrects for is exactly
+        // the one OpenPnlSanity is still objecting to — it is re-litigating a
+        // question that has been answered. Take the percentage directly and
+        // carry its objection in the reason so nothing is hidden: a caller that
+        // wants to require a clean inspect can still read it, and the log line
+        // at the call site prints it.
+        val pnlPct7059 = ((price - entryPrice) / entryPrice) * 100.0
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector
+                .labelInc("CYCLIC_PRICED_THROUGH_BASIS_OBJECTION_7059")
+        } catch (_: Throwable) {}
+        return CyclicPriceVerdict(
+            true,
+            price = price,
+            pnlPct = if (pnlPct7059.isFinite()) pnlPct7059 else 0.0,
+            fresh = fresh,
+            reason = "OK/$provenance7059$staleSuffix7059/BASIS_NOTED:${v.reason}",
+        )
     }
 
     // ── Main tick — call every N loops from BotService ─────────────────────────

@@ -988,6 +988,76 @@ class Executor(
                         } catch (_: Throwable) {}
                     }
                 }
+                // V5.0.7059 §THE_SAME_SOURCE_TICK_IS_THE_ONE_NOBODY_CHECKS.
+                //
+                // Everything 6895 and 7017 built — the band, the reconciler,
+                // the refusal, the repair — lives in the `else` arm below, i.e.
+                // it runs ONLY when the tick's source differs from the entry's.
+                // A tick from the SAME source has, until this build, been
+                // cached and served with no cross-check of any kind. Matching
+                // provenance was being read as proof of correctness, and it is
+                // not: a provider that starts dividing by the wrong supply, or
+                // quoting a new pool under its old name, reports a wrong price
+                // under exactly the right label.
+                //
+                // That is the operator's F9CBDp ladder. Four partial rungs,
+                // market cap flat at $3,146 across all of them, ~79 SOL of
+                // proceeds booked against ~0.089 SOL of basis. Every rung had
+                // the market cap that disproves it sitting on the same
+                // TokenState, and nothing on this path ever looked at it.
+                //
+                // So look at it. Market cap is basis-independent — supply
+                // cancels — so entryPrice x (curMcap / entryMcap) places this
+                // tick on the position's own basis exactly. When the two
+                // corroborate, the raw tick is served untouched, which is every
+                // genuine runner: a real move carries price and market cap
+                // together and CanonicalMarkResolution7059 stays silent through
+                // all 1000x of it. Only when they disagree by more than 3x does
+                // the invariant quantity win — and then it is a repair, because
+                // the two cannot both be describing the same token.
+                //
+                // Note the backfill immediately above makes this self-
+                // consistent on a position's FIRST same-source tick: the entry
+                // market cap is derived from this very price, so mcapImplied
+                // reduces to livePrice and the comparison is an identity. The
+                // check can only bite once the relationship between the two
+                // reported numbers has actually broken.
+                val curMcap7059 = ts.lastMcap
+                val mark7059 = try {
+                    com.lifecyclebot.engine.truth.CanonicalMarkResolution7059
+                        .resolve(pos, livePrice, curMcap7059)
+                } catch (_: Throwable) { null }
+                if (mark7059 != null && mark7059.usable &&
+                    mark7059.provenance == com.lifecyclebot.engine.truth
+                        .CanonicalMarkResolution7059.Provenance.MCAP_RECONCILED
+                ) {
+                    try {
+                        com.lifecyclebot.engine.truth.CanonicalMarkResolution7059
+                            .noteCorrection(ts.mint, ts.symbol, mark7059, "getActualPrice/same_source")
+                    } catch (_: Throwable) {}
+                    // Repair the cached fields as well as the return value.
+                    // V5.0.7046 learned this the hard way: 7017 fixed only what
+                    // it returned and left ts.lastPrice holding the number it
+                    // had just disproved, so every surface reading the field
+                    // directly drew the wrong figure with full confidence.
+                    pos.lastRoutePrice = mark7059.price
+                    pos.lastRoutePriceTs = System.currentTimeMillis()
+                    try {
+                        ts.lastPrice = mark7059.price
+                        ts.lastPriceUpdate = System.currentTimeMillis()
+                        // Provider stays as the prefix so
+                        // MarkAuthorityIntegrityGate6496's prefix whitelist
+                        // still matches (the 7046 regression, fixed in 7048);
+                        // the transform is appended, and substringBefore keeps
+                        // it idempotent across repeated repairs.
+                        val base7059 = ts.lastPriceSource
+                            .substringBefore("+MCAP_RECONCILED_7059")
+                            .takeIf { it.isNotBlank() } ?: "RECONCILED"
+                        ts.lastPriceSource = "$base7059+MCAP_RECONCILED_7059"
+                        PipelineHealthCollector.labelInc("TS_LAST_PRICE_REPAIRED_7059")
+                    } catch (_: Throwable) {}
+                    return mark7059.price
+                }
             } else {
                 val ratio6895 = livePrice / pos.entryPrice
                 val outOfBand6895 = !ratio6895.isFinite() ||

@@ -2162,6 +2162,19 @@ object PipelineHealthCollector {
             sb.append("  Mark basis reconciler (§7017): ").append(
                 com.lifecyclebot.engine.truth.MarkBasisReconciler7017.status()
             ).append("\n")
+            // V5.0.7059 — the single mark ladder. Read it two ways.
+            //
+            // `corrected` / `worstDivergence` size the INFLATION: every one is a
+            // same-source tick that contradicted the market cap reported beside
+            // it, which before this build was served to the ledger unexamined.
+            // A worstDivergence in the hundreds is a provider unit defect.
+            //
+            // `carried_route` / `entry_flat` size what used to be REFUSED: each
+            // is a position that would previously have gone unpriced, and every
+            // protection on it unevaluated, for as long as the gap lasted.
+            sb.append("  Mark resolution   (§7059): ").append(
+                com.lifecyclebot.engine.truth.CanonicalMarkResolution7059.status()
+            ).append("\n")
             // V5.0.7051 — size the promotion leak BEFORE anything is shaped
             // against the cohort. leakWins is the count of runners the entering
             // lane was never credited with; while it is non-trivial, a "losses=9
