@@ -75,7 +75,7 @@ object LiveCanonicalRecovery6686 {
 
                 else -> {
                     val fill = try { CanonicalBuyFillRegistry.get(mint) } catch (_: Throwable) { null }
-                    if (fill != null && fill.solSpentNet.isFinite() && fill.solSpentNet > 0.0) {
+                    val fromFill7126: Basis? = if (fill != null && fill.solSpentNet.isFinite() && fill.solSpentNet > 0.0) {
                         val usd = when {
                             fill.entryPriceUsd.isFinite() && fill.entryPriceUsd > 0.0 -> fill.entryPriceUsd
                             fill.entryPriceSol.isFinite() && fill.entryPriceSol > 0.0 -> {
@@ -95,6 +95,32 @@ object LiveCanonicalRecovery6686 {
                             identity = fill.buySignature.ifBlank { "fill" },
                         ) else null
                     } else null
+                    // V5.0.7126 — THE DURABLE LEDGER IS THE FOURTH SOURCE, AND IT
+                    // WAS NEVER CONSULTED.
+                    //
+                    // Operator: "just make sure any buy recorded live in the bot is
+                    // displayed in the open position panels by the system that
+                    // bought them. you can see the held token metrics via the
+                    // ledger, rebuild the position and update them on update
+                    // install."
+                    //
+                    // The three sources above are the runtime position (lost on
+                    // process death), the persisted position (lost when the write
+                    // did not land) and CanonicalBuyFillRegistry (an in-session
+                    // cache: the device read CANONICAL_BUY_FILL_RECORDED_6320=2
+                    // against EXEC_LIVE_BUY_OK=20). All three are volatile, so
+                    // after a restart or an APK update a genuinely bought, still
+                    // held token had no recoverable basis and this bridge skipped
+                    // it — LIVE_WALLET_CANONICAL_RECOVERY_BASIS_MISSING_6686=159.
+                    //
+                    // FillLotLedger6504 is the one durable, insert-only record of
+                    // what was actually paid: 141 lots on that same device, with
+                    // lamports, quantity, timestamp, paper flag and the owning
+                    // lane. It survives restarts and reinstalls. Asking it is not
+                    // inventing a basis — it is reading the receipt that was
+                    // already written, which is the distinction this file's header
+                    // draws and continues to honour.
+                    fromFill7126 ?: ledgerBasis7126(mint, amount)
                 }
             }
 
@@ -154,5 +180,92 @@ object LiveCanonicalRecovery6686 {
             }
         }
         return repaired
+    }
+
+    /**
+     * V5.0.7126 — rebuild an entry basis from the durable fill-lot ledger.
+     *
+     * WHY THIS IS NOT "INVENTING A BASIS". This file's contract, stated in its
+     * own header, is that a wallet mint is promoted to canonical LIVE only when
+     * something PROVES a positive cost and entry price. FillLotLedger6504 is
+     * exactly such a proof: an insert-only SQLite record written at fill time
+     * carrying the lamports actually paid, the raw quantity actually received,
+     * the timestamp, whether it was paper, and the lane that bought it. Nothing
+     * here is estimated from a current price or back-solved from a mark.
+     *
+     * LIVE LOTS ONLY. Paper lots are excluded outright — promoting a simulated
+     * fill into a live position would be the exact inverse of the defect this
+     * build exists to fix, and would put fake money in the operator's ledger.
+     *
+     * WEIGHTED AVERAGE, AND SAID SO. The cost attributed is the average lamports
+     * per raw token across the live BUY lots, applied to the quantity the wallet
+     * ACTUALLY still holds. That is deliberately not FIFO: a FIFO basis needs the
+     * matching SELL lots to have been finalized in order, and on a wallet that
+     * has been partially sold outside the bot's view that ordering is not
+     * trustworthy. Average cost over the real held quantity cannot drift from the
+     * true total spend by more than the sell ordering, and it can never fabricate
+     * a cost for tokens the wallet does not hold.
+     *
+     * THE LANE IS CARRIED, NOT DEFAULTED. lot.source is the lane recorded at fill
+     * time, so the rebuilt position surfaces in the panel of the trader that
+     * actually bought it. Falling back to WALLET_RECOVERED only when the ledger
+     * genuinely has no owner is what keeps the operator's "displayed by the
+     * system that bought them" true rather than approximately true.
+     */
+    private fun ledgerBasis7126(mint: String, amount: CanonicalTokenAmount): Basis? {
+        val heldRaw = amount.raw
+        if (heldRaw.signum() <= 0) return null
+        val lots = try {
+            com.lifecyclebot.engine.truth.FillLotLedger6504.lotsOf(mint)
+        } catch (_: Throwable) { return null }
+        if (lots.isEmpty()) return null
+
+        val liveBuys = lots.filter {
+            !it.isPaper && it.side.equals("BUY", true) &&
+                it.qtyTokenRaw.signum() > 0 && it.lamports.signum() > 0
+        }
+        if (liveBuys.isEmpty()) return null
+
+        var totalQtyRaw = BigInteger.ZERO
+        var totalLamports = BigInteger.ZERO
+        for (l in liveBuys) {
+            totalQtyRaw = totalQtyRaw.add(l.qtyTokenRaw)
+            totalLamports = totalLamports.add(l.lamports)
+        }
+        if (totalQtyRaw.signum() <= 0 || totalLamports.signum() <= 0) return null
+
+        val costLamportsForHeld = totalLamports.multiply(heldRaw).divide(totalQtyRaw)
+        val entryCostSol = costLamportsForHeld.toDouble() / 1_000_000_000.0
+        if (!entryCostSol.isFinite() || entryCostSol <= 0.0) return null
+
+        val decimals = amount.decimals.coerceIn(0, 18)
+        val heldTokens = try {
+            heldRaw.toBigDecimal().movePointLeft(decimals).toDouble()
+        } catch (_: Throwable) { 0.0 }
+        if (!heldTokens.isFinite() || heldTokens <= 0.0) return null
+
+        val entryPriceSol = entryCostSol / heldTokens
+        val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        val entryPriceUsd = if (solUsd > 0.0) entryPriceSol * solUsd else 0.0
+        // openPosition requires a positive entry price. Without a SOL/USD price
+        // this basis is incomplete, and an incomplete basis is skipped rather
+        // than shipped with a zero — the same refusal the caller already makes.
+        if (!entryPriceUsd.isFinite() || entryPriceUsd <= 0.0) return null
+
+        val owner = liveBuys.lastOrNull { it.source.isNotBlank() }?.source.orEmpty()
+        val openedAt = liveBuys.minOf { it.tsMs }.takeIf { it > 0L } ?: System.currentTimeMillis()
+        try {
+            PipelineHealthCollector.labelInc("LIVE_BASIS_REBUILT_FROM_FILL_LOTS_7126")
+        } catch (_: Throwable) {}
+        return Basis(
+            entryCostSol = entryCostSol,
+            entryPriceUsd = entryPriceUsd,
+            lane = owner.ifBlank { "WALLET_RECOVERED" },
+            openedAtMs = openedAt,
+            source = "FILL_LOT_LEDGER_BASIS_7126",
+            pool = "",
+            dex = "",
+            identity = liveBuys.first().lotId.ifBlank { "lot" },
+        )
     }
 }
