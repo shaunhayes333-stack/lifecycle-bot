@@ -10807,7 +10807,76 @@ class BotService : Service() {
                 // GeckoTerminal) is Solana-only, so feeding it eth|0x… and
                 // bsc|0x… guaranteed a miss on every provider in the chain and
                 // consumed the per-tick cap that real Solana mints needed.
-                val missingBeforeKeyless6946Raw = solanaMints6970.filter { it !in priceMap }
+                // V5.0.7093 §A STALE PRICE IS AS USELESS AS A MISSING ONE.
+                //
+                // Operator: "fix the quote stale throughput next."
+                //
+                // This filtered on ABSENCE alone — `it !in priceMap` — so the
+                // whole rescue chain (§6996 batch, §6946 per-mint, and §7088's
+                // six-feed fan-out) only ever ran for mints NO provider answered
+                // for. A mint DexScreener still lists but has stopped updating is
+                // present in priceMap with an old number, so it was never
+                // refreshed by anything.
+                //
+                // That is why the 5.0.7091 device reads the way it does:
+                //
+                //   Quote freshness (§6452): fresh=5492  stale=7068  missing=1693
+                //   QUOTE_STALE_6452 mint=AdKHpWDF5B ageMs=83960
+                //   QUOTE_STALE_6452 mint=XsueG8Btpq ageMs=108680
+                //   QUOTE_STALE_6452 mint=H4Skfd2SfX ageMs=159231
+                //   §7088  passes=1
+                //
+                // Stale reads OUTNUMBER fresh ones, three positions sat 84-159
+                // seconds old against a 60s limit, and the fan-out built to fix
+                // exactly this ran ONCE in 186 seconds — because those mints were
+                // never classified as needing help.
+                //
+                // Note what QUOTE_STALE=7068 is and is not: it counts READS, not
+                // positions. The exit scheduler alone evaluated 12,931 times, so a
+                // handful of unrefreshed mints produce thousands of stale reads.
+                // The fix is therefore to refresh the few, not to throttle the
+                // many — no cadence, batch size or rate limit is touched here.
+                //
+                // REGRESSION SHAPE, deliberately conservative:
+                //   · only ADDS mints to a background rescue that already runs;
+                //     nothing is removed from it and no mint is excluded.
+                //   · the staleness bar is the SAME 60s §6452 already uses to call
+                //     a quote stale, so this cannot disagree with the counter it
+                //     is answering.
+                //   · a rescue that returns nothing leaves the existing price
+                //     exactly as it was — an empty result has always meant "no
+                //     marks this pass", never "worthless" (V5.0.6982).
+                //   · a mint with no TokenState is treated as fresh, not stale, so
+                //     a missing record cannot manufacture work.
+                val quoteStaleLimitMs7093 = 60_000L
+                val nowForStale7093 = System.currentTimeMillis()
+                // `status.tokens` is guarded by `synchronized` everywhere else in
+                // this file (e.g. the liveOpenSet build), so this read takes the
+                // same lock once for the whole scan rather than per mint.
+                val staleInPriceMap7093 = try {
+                    synchronized(status.tokens) {
+                        solanaMints6970.filter { m ->
+                            if (m !in priceMap) return@filter false
+                            val st = status.tokens[m] ?: return@filter false
+                            val stamped = st.lastPriceUpdate
+                            stamped > 0L && (nowForStale7093 - stamped) >= quoteStaleLimitMs7093
+                        }
+                    }
+                } catch (_: Throwable) { emptyList() }
+                if (staleInPriceMap7093.isNotEmpty()) {
+                    try {
+                        PipelineHealthCollector.labelInc("MARK_STALE_QUEUED_FOR_RESCUE_7093")
+                        ForensicLogger.lifecycle(
+                            "MARK_STALE_QUEUED_FOR_RESCUE_7093",
+                            "stalePriced=${staleInPriceMap7093.size} solanaOpens=${solanaMints6970.size} " +
+                                "limitMs=$quoteStaleLimitMs7093 " +
+                                "mints=${staleInPriceMap7093.take(6).joinToString(",") { it.take(8) }} " +
+                                "action=present_but_old_now_counts_as_needing_a_mark",
+                        )
+                    } catch (_: Throwable) {}
+                }
+                val missingBeforeKeyless6946Raw =
+                    (solanaMints6970.filter { it !in priceMap } + staleInPriceMap7093).distinct()
 
                 // V5.0.6996 §ONE_DEAD_PROVIDER_STOPPED_THE_WHOLE_BOT_TRADING.
                 //
