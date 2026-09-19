@@ -24331,7 +24331,38 @@ class Executor(
         // side effect. Blank/unknown positionId => fail closed (return
         // ALREADY_CLOSED). Prevents DsXR94-style repeat live SELLs from
         // ever reaching cash mutation / journal / reward.
-        val terminalPidLive6455 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
+        // V5.0.7129 — USE THE BUY-COMMITTED ANCHOR, NOT A FABRICATED ID.
+        //
+        // positionIdOf() ends in `?: "${mode}:$cm:$runIdHash"`. When it cannot
+        // find the canonical open position by mint it INVENTS an id — and
+        // reserveTerminalSell has never seen that id, so it returns
+        // REJECTED_UNKNOWN and this sell fails closed. On the operator's 5.0.7128
+        // device that was every terminal sell: reserved=0 rej=86, with
+        // TERMINAL_SELL_UNKNOWN_POSITION_6454 = 86.
+        //
+        // The proof is in their own log. GyrdGn9yrZ was bought at 05:59:27 as
+        // pid=pump:33950:2 and the exit one minute later, on a +50.7% peak giving
+        // back to -7.9%, was refused against positionId=LIVE:GyrdGn9. Two ids for
+        // one position: the buy registered the real one, the sell reserved an
+        // invented one.
+        //
+        // The PAPER path already resolves this correctly and records why —
+        // V5.0.6635 §6, operator directive: "resolve the open position using
+        // canonical positionId first ... ts.position.positionId is the
+        // BUY-committed anchor that PersistedPositionRegistry attaches at OPEN —
+        // never fall back to mint-scan when it is present + resolvable." The LIVE
+        // path skipped straight to the mirror and so never honoured it.
+        //
+        // The mirror remains the fallback for positions with no runtime anchor
+        // (reconciler requeues, wallet-recovered rows). This only stops a REAL id
+        // from being discarded in favour of a synthetic one.
+        val anchorPidLive7129 = ts.position.positionId.trim()
+        val terminalPidLive6455 = if (anchorPidLive7129.isNotBlank()) {
+            try { PipelineHealthCollector.labelInc("LIVE_SELL_PID_FROM_BUY_ANCHOR_7129") } catch (_: Throwable) {}
+            anchorPidLive7129
+        } else {
+            com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
+        }
         val reserveResultLive6455 = com.lifecyclebot.engine.truth.PositionStateLedger6454
             .reserveTerminalSell(terminalPidLive6455, reason)
         if (reserveResultLive6455 != com.lifecyclebot.engine.truth.PositionStateLedger6454.ReserveResult.RESERVED) {
