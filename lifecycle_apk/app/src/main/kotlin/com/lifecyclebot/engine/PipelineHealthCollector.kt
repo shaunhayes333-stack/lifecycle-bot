@@ -2060,6 +2060,18 @@ object PipelineHealthCollector {
             // estimate, and noEvidence counts genuine cold starts.
             sb.append("  Predictive oracle (§6915):    ").append(
                 com.lifecyclebot.engine.truth.PredictiveEntryOracle6915.statusLine()
+            ).append(
+                // V5.0.7120 — how many verdicts this oracle was NOT allowed to
+                // act on because 7102 had it flagged DEGENERATE. Without this
+                // the demotion is invisible: the §6915 counters keep printing
+                // the raw collapse (deliberately — see the ordering note in
+                // PredictiveEntryOracle6915), so the only way to tell a demoted
+                // oracle from an ignored one is to count the suppressions.
+                try {
+                    val d7120 = com.lifecyclebot.engine.truth.PredictiveEntryOracle6915
+                        .degenerateDemotions7120()
+                    if (d7120 > 0L) " failedOpenNeutral7120=$d7120" else ""
+                } catch (_: Throwable) { "" }
             ).append("\n")
             // V5.0.7102 — the line above is where "evals=894 admit=0" was
             // reported on 5.0.7088 and correctly ignored, because a ratio in a

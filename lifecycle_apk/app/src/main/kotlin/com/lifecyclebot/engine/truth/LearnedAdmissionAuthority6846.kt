@@ -263,7 +263,38 @@ object LearnedAdmissionAuthority6846 {
         //
         // PROBE_ONLY, not DENY, and metered by the same cohort budget as §2b:
         // a grave still gets a trickle so it can prove it has healed.
-        if (inputs.cohortSample >= ORACLE_MIN_CONFIDENT_N_6915 &&
+        // V5.0.7120 — a DEGENERATE oracle may not meter throughput.
+        //
+        // This branch is where the oracle's expectancy becomes a refusal or a
+        // metered probe, and on the operator's 5.0.7117 device it spent 152
+        // denials as ORACLE_PROBE_BUDGET_6915 while the oracle itself read
+        // n=1783 top=REFUSE@1.00:DEGENERATE. Demoting the oracle's own verdict
+        // (see PredictiveEntryOracle6915 §7120) is not sufficient on its own,
+        // because this branch does not read that verdict — it reads
+        // `inputs.expectedPnl`, which LearnedAdmissionInputs6909 sources from
+        // the SAME collapsed estimator. Without this guard the demotion would
+        // look complete in the oracle's status line and change nothing here.
+        //
+        // Operator's rule, verbatim: "authority = ADVISORY, decision multiplier
+        // = 1.0 / neutral, cannot consume probe budget." So the branch is
+        // skipped entirely — no refusal, no probe, and crucially no call to
+        // cohortProbeBudgetAllows6909, which would otherwise burn a cohort's
+        // budget on a verdict this build has already decided not to trust.
+        //
+        // Everything below this branch still applies: §2b cohort evidence,
+        // regime tests and win-rate tests are unaffected, so this is a demotion
+        // of one collapsed input and not a loosening of admission. The operator
+        // was explicit that zero-signal FDG protection stays as it is.
+        val oracleDegenerate7120 = try {
+            PredictiveEntryOracle6915.isDegenerateNow7120()
+        } catch (_: Throwable) { false }
+        if (oracleDegenerate7120) {
+            try {
+                PipelineHealthCollector.labelInc("ORACLE_AUTHORITY_DEMOTED_ADVISORY_7120")
+            } catch (_: Throwable) {}
+        }
+        if (!oracleDegenerate7120 &&
+            inputs.cohortSample >= ORACLE_MIN_CONFIDENT_N_6915 &&
             inputs.expectedPnl <= ORACLE_REFUSE_EV_6915
         ) {
             val cohortKey6915 = "$laneKey|S${inputs.scoreBand}|ORACLE"

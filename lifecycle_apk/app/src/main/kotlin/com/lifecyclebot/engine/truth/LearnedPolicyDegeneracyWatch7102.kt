@@ -129,6 +129,43 @@ object LearnedPolicyDegeneracyWatch7102 {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.7120 — is [authority] currently collapsed onto one verdict?
+     *
+     * V5.0.7102 built this watch as detection only and said so: "changes no
+     * verdict". That was the right first step and the wrong resting place. The
+     * operator's 5.0.7117 device:
+     *
+     *     evals=1784 admit=0 probe=0 refuse=1783
+     *     PredictiveEntryOracle6915:n=1783 top=REFUSE@1.00:DEGENERATE
+     *     ORACLE_PROBE_BUDGET_6915 = 152 blocks
+     *
+     * — a learner the app has already diagnosed as collapsed, still spending
+     * executable throughput. Operator: "When 7102 declares an inference
+     * component DEGENERATE, it should automatically fall back to
+     * advisory/neutral weight, not continue contributing authoritative REFUSE
+     * decisions... Don't remove the oracle. Fail it open to neutral while it
+     * rehydrates/retrains."
+     *
+     * Same threshold as the report, read from the same tally, so the status
+     * line and the behaviour can never disagree — an authority that PRINTS
+     * DEGENERATE is an authority that IS demoted, with no second definition to
+     * drift. Below MIN_SAMPLE_7102 this is false: too little evidence to judge
+     * is not the same as healthy, but it is also not grounds to demote.
+     */
+    fun isDegenerate7102(authority: String): Boolean {
+        if (authority.isBlank()) return false
+        return try {
+            val t = tallies[authority] ?: return false
+            val total = t.total.get()
+            if (total < MIN_SAMPLE_7102) return false
+            val dominant = t.counts.entries.maxByOrNull { it.value.get() } ?: return false
+            dominant.value.get().toDouble() / total.toDouble() >= DEGENERATE_FRACTION_7102
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     private fun distributionOf7102(t: Tally7102): String =
         t.counts.entries
             .sortedByDescending { it.value.get() }

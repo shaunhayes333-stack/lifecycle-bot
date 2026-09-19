@@ -842,19 +842,86 @@ object PredictiveEntryOracle6915 {
         // verdict to the watch so a collapsed policy reports itself as a fault
         // about the learner instead of being inferred from a report.
         try {
-            LearnedPolicyDegeneracyWatch7102.observe7102("PredictiveEntryOracle6915", verdict.name)
+            LearnedPolicyDegeneracyWatch7102.observe7102(ORACLE_AUTHORITY_7120, verdict.name)
         } catch (_: Throwable) {}
-        val f = Forecast(verdict, finalE, blendedPWin, confidence, contributions, reason)
-        if (verdict != Verdict.ADMIT) try {
-            PipelineHealthCollector.labelInc("PREDICTIVE_ORACLE_${verdict.name}_6915")
-            PipelineHealthCollector.labelInc("PREDICTIVE_ORACLE_${verdict.name}_6915_$laneKey")
-            if (verdict == Verdict.REFUSE) ForensicLogger.lifecycle(
+
+        // V5.0.7120 §A_COLLAPSED_CLASSIFIER_IS_NOT_AN_OPINION.
+        //
+        // Operator on the 5.0.7117 device: "evals=1784 admit=0 probe=0
+        // refuse=1783 ... That's not intelligence; it's a collapsed classifier.
+        // Don't remove the oracle. Fail it open to neutral while it
+        // rehydrates/retrains."
+        //
+        // They are right, and the inputs say why it collapsed rather than
+        // learned: Keyless OHLCV served=0 barsDelivered=0, local candle synth
+        // candles=0, GeckoTerminal at 23% with 779 rate limits. The oracle has
+        // no usable candle history and is still returning REFUSE at 1.00
+        // consistency. A verdict with no variance carries no information, so
+        // acting on it is acting on noise with a confident face.
+        //
+        // NOTE THE ORDER: observe7102 above receives the RAW verdict, always.
+        // If the demoted verdict were fed back to the watch, the tally would
+        // fill with PROBE, share would fall below the threshold, the watch
+        // would declare recovery and the oracle would be re-armed on the
+        // strength of its own suppression — a learner grading its own
+        // convalescence. Recovery must be earned by the RAW estimator
+        // discriminating again, which is exactly what the raw stream measures.
+        val degenerate7120 = try {
+            LearnedPolicyDegeneracyWatch7102.isDegenerate7102(ORACLE_AUTHORITY_7120)
+        } catch (_: Throwable) { false }
+        val effectiveVerdict7120 = if (degenerate7120 && verdict != Verdict.PROBE) {
+            degenerateDemotions7120.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("ORACLE_DEGENERATE_FAILED_OPEN_7120")
+                PipelineHealthCollector.labelInc("ORACLE_DEGENERATE_FAILED_OPEN_7120_${verdict.name}")
+            } catch (_: Throwable) {}
+            Verdict.PROBE
+        } else {
+            verdict
+        }
+        val effectiveReason7120 =
+            if (effectiveVerdict7120 != verdict) "DEGENERATE_LEARNER_FAILED_OPEN_NEUTRAL_7120"
+            else reason
+
+        val f = Forecast(
+            effectiveVerdict7120, finalE, blendedPWin, confidence, contributions, effectiveReason7120,
+        )
+        if (effectiveVerdict7120 != Verdict.ADMIT) try {
+            PipelineHealthCollector.labelInc("PREDICTIVE_ORACLE_${effectiveVerdict7120.name}_6915")
+            PipelineHealthCollector.labelInc("PREDICTIVE_ORACLE_${effectiveVerdict7120.name}_6915_$laneKey")
+            if (effectiveVerdict7120 == Verdict.REFUSE) ForensicLogger.lifecycle(
                 "PREDICTIVE_ORACLE_REFUSED_6915",
                 "lane=$laneKey score=$s src=${sourceFamily.take(24)} ${f.line()}",
             )
         } catch (_: Throwable) {}
         return f
     }
+
+    /**
+     * V5.0.7120 — the authority name this oracle registers with
+     * LearnedPolicyDegeneracyWatch7102.
+     *
+     * One spelling, used by both the observe call and the degeneracy read, so
+     * the watch can never be written under one name and questioned under
+     * another. It stays PRIVATE: LearnedAdmissionAuthority6846 asks
+     * [isDegenerateNow7120] rather than passing the string itself, which is
+     * what keeps the name from becoming a literal shared across files. This
+     * session removed fourteen functions that each held their own spelling of
+     * one lane name, and ci/new_dead_code.py rejected the public version of
+     * this constant for exactly the reason it should have.
+     */
+    private const val ORACLE_AUTHORITY_7120 = "PredictiveEntryOracle6915"
+
+    /** V5.0.7120 — verdicts suppressed because the estimator had collapsed. */
+    private val degenerateDemotions7120 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /** V5.0.7120 — true while the oracle must not refuse or meter anything. */
+    fun isDegenerateNow7120(): Boolean = try {
+        LearnedPolicyDegeneracyWatch7102.isDegenerate7102(ORACLE_AUTHORITY_7120)
+    } catch (_: Throwable) { false }
+
+    /** V5.0.7120 — for the operator report's §6915 line. */
+    fun degenerateDemotions7120(): Long = degenerateDemotions7120.get()
 
     /**
      * V5.0.6927 — recorded rug count at which a creator is refused outright.
