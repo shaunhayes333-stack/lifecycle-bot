@@ -27,38 +27,64 @@ class Bundle6385AccountingRepairModeTest {
 
     @Before
     fun setup() {
-        // Default state — repair mode ACTIVE.
+        // V5.0.7123 — the BLOCKING tests below still need the halt armed, so
+        // arm it explicitly here rather than relying on a default. A test that
+        // depends on a production default is a test that silently changes
+        // meaning when the default changes, which is how this file ended up
+        // asserting an unreachable halt was correct.
         LiveAccountingRepairMode6385.setTestOverride(true)
     }
 
     @After
     fun teardown() {
-        // Leave the flag in its production-safe default (ACTIVE) after tests.
-        LiveAccountingRepairMode6385.setTestOverride(true)
+        // V5.0.7123 — leave it in the PRODUCTION default, which is now OFF.
+        LiveAccountingRepairMode6385.setTestOverride(false)
     }
 
     // ── Section 1 — Repair mode invariants ────────────────────────────
 
+    /**
+     * V5.0.7123 — INVERTED, deliberately.
+     *
+     * This asserted the halt was ACTIVE by default. That default was only
+     * defensible while the Bundle 6386-90 canary gate was going to arrive and
+     * call disable(). It never did — disable() had zero production callers for
+     * hundreds of builds, so the "temporary" halt was permanent and the
+     * operator had no way to lift it. On the 5.0.7118 device that was 231
+     * blocked live buys against 36 clean sells.
+     *
+     * The invariant that actually matters is not "the halt is on" — it is "the
+     * halt is REACHABLE IN BOTH DIRECTIONS", which is what the original design
+     * lacked and what is tested below.
+     */
     @Test
-    fun repair_mode_is_active_by_default_on_fresh_load() {
-        // Even without the test override, the static default must be ACTIVE.
-        // Simulate a fresh process by re-reading the runtime flag.
-        assertTrue(
-            "V5.0.6385: repair mode MUST default to ACTIVE (operator directive Section 1 verbatim: 'IMMEDIATELY force live operation into SELL_ONLY_ACCOUNTING_REPAIR mode')",
+    fun repair_mode_defaults_off_so_live_can_be_tested_end_to_end() {
+        LiveAccountingRepairMode6385.disable()
+        assertFalse(
+            "V5.0.7123: repair mode must default OFF — a halt with no reachable " +
+                "off switch made the live path untestable",
             LiveAccountingRepairMode6385.isActive(),
         )
     }
 
     @Test
-    fun repair_mode_can_be_flipped_via_disable_only() {
+    fun repair_mode_can_be_flipped_in_both_directions() {
+        LiveAccountingRepairMode6385.enable()
+        assertTrue("V5.0.7123: enable() must re-arm the halt",
+            LiveAccountingRepairMode6385.isActive())
+        LiveAccountingRepairMode6385.disable()
+        assertFalse("V5.0.7123: disable() must lift the halt",
+            LiveAccountingRepairMode6385.isActive())
+
         val src = File("src/main/kotlin/com/lifecyclebot/engine/LiveAccountingRepairMode6385.kt").readText()
-        assertTrue(
-            "V5.0.6385: disable() must be INTERNAL (only canary gate may call it)",
+        assertFalse(
+            "V5.0.7123: disable() must NOT be internal again — that is exactly " +
+                "what made it unreachable from any production call site",
             src.contains("internal fun disable()"),
         )
-        assertFalse(
-            "V5.0.6385: no public enable/disable API surface (canary gate is the ONLY caller)",
-            src.contains("fun disable()") && !src.contains("internal fun disable()"),
+        assertTrue(
+            "V5.0.7123: re-arming must stay available to the operator",
+            src.contains("fun enable()"),
         )
     }
 

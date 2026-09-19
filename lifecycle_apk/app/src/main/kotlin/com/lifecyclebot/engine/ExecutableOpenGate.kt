@@ -1962,11 +1962,18 @@ object ExecutableOpenGate {
             }
         }
         // V5.0.6385 — LIVE ACCOUNTING REPAIR MODE (operator directive Section 1).
-        // Hard-reject every new LIVE BUY signature until Bundles 6386-6390 land
-        // the finalized-proof BUY/SELL rails. Paper + shadow evaluation, existing
-        // live monitoring, and verified exits (SELL path) are unaffected — we only
-        // block NEW live openings. Once the canary gate criteria pass, Bundle 6390
-        // will call `LiveAccountingRepairMode6385.disable()`.
+        // Hard-reject every new LIVE BUY signature while the halt is armed. Paper +
+        // shadow evaluation, existing live monitoring, and verified exits (SELL
+        // path) are unaffected — we only block NEW live openings.
+        //
+        // V5.0.7123 — this comment used to promise that "Bundle 6390 will call
+        // LiveAccountingRepairMode6385.disable()". Bundle 6390 was never built, so
+        // the promised call site never existed and the halt defaulted ON forever:
+        // 231 blocked live buys against 36 clean sells on the operator's 5.0.7118
+        // device. The flag now defaults OFF and enable()/disable() are both public
+        // and reachable. This gate is unchanged — it still honours the flag exactly
+        // as before; what changed is that the flag is now a control rather than a
+        // one-way door.
         if (mode.equals("LIVE", ignoreCase = true) && LiveAccountingRepairMode6385.isActive()) {
             try {
                 val canonLane = canonicalLane(lane)

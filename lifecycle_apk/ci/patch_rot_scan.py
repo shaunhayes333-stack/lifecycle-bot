@@ -208,6 +208,26 @@ def main() -> int:
     require(errors, open_gate, "MemeOwnershipInvariant6620.SPECIALIST_LANES) return true",
             "CORE_EXECUTABLE_VIA_SPECIALIST_ENUM_7117")
 
+    # V5.0.7123 — the temporary halt that had no off switch.
+    #
+    # LiveAccountingRepairMode6385 defaulted to `true` and the only thing that
+    # could clear it was `internal fun disable()` with ZERO production callers.
+    # The Bundle 6390 canary gate that the comment promised would call it was
+    # never built, so SELL_ONLY_ACCOUNTING_REPAIR was permanent: 231 blocked
+    # live buys against 36 clean sells on the operator's 5.0.7118 device, and no
+    # reachable control to lift it.
+    #
+    # This pin does NOT forbid the halt. It forbids the halt being UNREACHABLE.
+    # Re-arming is still one call; what must not come back is a default-on flag
+    # whose off switch is file-local.
+    repair_mode = (SRC / "com/lifecyclebot/engine/LiveAccountingRepairMode6385.kt").read_text()
+    require(errors, repair_mode, "private var active: Boolean = false",
+            "LIVE_REPAIR_HALT_DEFAULTS_OFF_7123")
+    forbid(errors, repair_mode, "internal fun disable()",
+           "LIVE_REPAIR_DISABLE_UNREACHABLE_RETIRED_7123")
+    require(errors, repair_mode, "fun enable()",
+            "LIVE_REPAIR_REARM_AVAILABLE_7123")
+
     # 6702 exit-liveness contracts.
     paper_close = (SRC / "com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").read_text()
     pending_sell = (SRC / "com/lifecyclebot/engine/PendingSellQueue.kt").read_text()

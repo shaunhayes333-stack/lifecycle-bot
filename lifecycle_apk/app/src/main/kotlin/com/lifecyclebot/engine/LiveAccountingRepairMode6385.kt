@@ -49,21 +49,81 @@ package com.lifecyclebot.engine
 object LiveAccountingRepairMode6385 {
 
     /**
-     * Static volatile flag. Repair mode is ACTIVE by default per operator
-     * directive Section 1. Only an explicit call to `disable()` opens live
-     * BUYs — that call site does not exist in this bundle. Bundles 6386-90
-     * will land the finalized-proof rails, then a canary UI or programmatic
-     * toggle will call `disable()` after the canary gate criteria pass.
+     * V5.0.7123 §THE_TEMPORARY_HALT_THAT_HAD_NO_OFF_SWITCH.
+     *
+     * Operator: "its not meant to be in a disabled mode bro. im trying to test
+     * the whole fucking system".
+     *
+     * This flag defaulted to `true` and the ONLY thing that could clear it was
+     * an `internal`-visibility disable(), which had ZERO production callers — the KDoc
+     * above says so itself ("that call site does not exist in this bundle"),
+     * and the Bundles 6386-90 canary gate that was supposed to call it was
+     * never built. So every live BUY through ExecutableOpenGate has been hard
+     * blocked since V5.0.6385, with no way for the operator to lift it.
+     *
+     * The operator's 5.0.7118 device, in LIVE mode:
+     *
+     *     EXEC_LIVE_BUY_OK=23   EXEC_LIVE_BUY_FAIL=203
+     *     LIVE_BUY_BLOCKED_ACCOUNTING_REPAIR_MODE_6385 = 231
+     *     EXEC_LIVE_SELL_OK=36  EXEC_LIVE_SELL_FAIL=0
+     *
+     * 36 sells, 0 sell failures, 231 buys refused. That is SELL_ONLY behaving
+     * exactly to spec — and it made the system untestable end to end, which is
+     * the opposite of what a temporary repair halt is for.
+     *
+     * The KDoc above also claimed `isActive()` "reads from a single persisted
+     * SharedPref key so the operator can flip it OFF via SharedPreferences".
+     * It never did. It was a plain in-memory `true` with no reader anywhere.
+     *
+     * DEFAULT IS NOW OFF, and the switch is real in both directions. This does
+     * NOT retire the safety — `enable()` re-arms it in one call, the block
+     * reason and its telemetry are unchanged, and every other live-entry gate
+     * (FDG, safety, finality, provider quorum, entry authority) is untouched.
+     * What changes is that a halt the operator cannot lift is no longer the
+     * thing standing between them and a live test.
+     *
+     * HONEST CAVEAT, recorded rather than buried: the accounting divergence
+     * 6385 was written to guard is not fully resolved — the same snapshot shows
+     * LEDGER_VS_JOURNAL_DIVERGENCE_6502=233 and four acceptance invariants
+     * failing (J_CASH_DELTA, J_BASIS_DELTA, J_REALIZED_DELTA, J_QUANTITY_DELTA).
+     * Live realized PnL and the learners fed from it may still be recorded
+     * wrong. The operator has been told this explicitly and is testing
+     * deliberately; the guard is available with one call if they want it back.
      */
-    @Volatile private var active: Boolean = true
+    @Volatile private var active: Boolean = false
 
     fun isActive(): Boolean = active
 
     /**
-     * Only Bundle 6390's canary gate (after 20 consecutive clean finalized
-     * round trips) may call this. Not exposed via UI in this bundle.
+     * V5.0.7123 — re-arm SELL_ONLY_ACCOUNTING_REPAIR. Public because the whole
+     * defect was a halt with no reachable control: a safety the operator cannot
+     * turn back ON is as broken as one they cannot turn OFF.
      */
-    internal fun disable() { active = false }
+    fun enable() {
+        active = true
+        try {
+            PipelineHealthCollector.labelInc("LIVE_ACCOUNTING_REPAIR_MODE_ARMED_7123")
+            ForensicLogger.lifecycle(
+                "LIVE_ACCOUNTING_REPAIR_MODE_ARMED_7123",
+                "active=true action=sell_only_live_buys_blocked",
+            )
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.7123 — lift the halt. Was `internal` with no caller; now public and
+     * reachable, and it says so in the log when it fires.
+     */
+    fun disable() {
+        active = false
+        try {
+            PipelineHealthCollector.labelInc("LIVE_ACCOUNTING_REPAIR_MODE_LIFTED_7123")
+            ForensicLogger.lifecycle(
+                "LIVE_ACCOUNTING_REPAIR_MODE_LIFTED_7123",
+                "active=false action=live_buys_permitted",
+            )
+        } catch (_: Throwable) {}
+    }
 
     /**
      * Test hook only.
