@@ -1856,8 +1856,19 @@ class BotService : Service() {
                         // reports nothing known rather than guessing, so this
                         // install is what turns verification on at all.
                         try {
-                            val rpc7075 = com.lifecyclebot.engine.ConfigStore.load(cacheCtx).rpcUrl
-                                .ifBlank { "https://api.mainnet-beta.solana.com" }
+                            // V5.0.7078 — ConfigStore lives in com.lifecyclebot.data,
+                            // not .engine. The wrong package compiled to
+                            // `Unresolved reference: ConfigStore` and broke every
+                            // build from 7075 to 7077 inclusive. The enclosing
+                            // try/catch could not save it: an unresolved symbol is
+                            // a COMPILE failure, and a runtime guard around it
+                            // reads as safety while providing none.
+                            val cfg7075 = com.lifecyclebot.data.ConfigStore.load(cacheCtx)
+                            val rpc7075 = cfg7075.rpcUrl.trim().ifBlank {
+                                if (cfg7075.heliusApiKey.isNotBlank()) {
+                                    "https://mainnet.helius-rpc.com/?api-key=${cfg7075.heliusApiKey}"
+                                } else "https://api.mainnet-beta.solana.com"
+                            }
                             com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.installRpc7075(rpc7075)
                         } catch (_: Throwable) {}
                         // Schedule periodic flush + prune.

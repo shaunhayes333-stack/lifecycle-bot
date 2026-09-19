@@ -157,6 +157,16 @@ object JournalEconomicReplay6619 {
         // open cost (or, before this fix, silently dropping the whole sell event).
         var residualBasisWrittenOff6868 = 0.0
         var residualLotCount6868 = 0
+        // V5.0.7078 — the SOL that a skipped event took with it, per reason.
+        //
+        // V5.0.6899 added `skippedEvents6899`, a COUNT. A count cannot be
+        // compared against a SOL delta, so when ForensicReconciliation6635
+        // reported `ledger realized 15.1088 vs journal 7.8393 delta 7.2695`
+        // there was no way to tell whether that 7.2695 was a real hole or the
+        // arithmetic of events this replay refused to apply. These name it.
+        val skippedCashByReason7078 = mutableMapOf<String, Double>()
+        val skippedRealizedByReason7078 = mutableMapOf<String, Double>()
+        val skippedCountByReason7078 = mutableMapOf<String, Int>()
 
         val rows = try {
             TradeHistoryStore.getAllValidTradesSnapshot(limit = 20_000)
@@ -195,7 +205,31 @@ object JournalEconomicReplay6619 {
         fun reject(t: com.lifecyclebot.data.Trade, eventId: String, reason: String, skipped: Boolean = true) {
             val identity = "$eventId:$reason"
             failures += identity
-            if (skipped) skippedEvents6899 += 1
+            if (skipped) {
+                skippedEvents6899 += 1
+                // V5.0.7078 — a skipped SELL is a credit this replay declined
+                // to apply while the matching BUY's debit was already applied
+                // earlier in the same walk. That asymmetry IS the ledger/journal
+                // delta, so it is measured in the same units the delta is
+                // reported in rather than left as a count to be guessed at.
+                try {
+                    val sideUp = t.side.uppercase()
+                    if (sideUp == "SELL" || sideUp == "PARTIAL_SELL") {
+                        val g = t.grossProceedsSol.takeIf { it.isFinite() && it > 0.0 } ?: t.sol
+                        val b = t.soldCostBasisSol
+                        val f = t.feeSol
+                        if (g.isFinite() && g > 0.0) {
+                            skippedCashByReason7078[reason] =
+                                (skippedCashByReason7078[reason] ?: 0.0) + (g - (if (f.isFinite()) f else 0.0))
+                            if (b.isFinite()) {
+                                skippedRealizedByReason7078[reason] =
+                                    (skippedRealizedByReason7078[reason] ?: 0.0) + (g - b)
+                            }
+                        }
+                    }
+                    skippedCountByReason7078[reason] = (skippedCountByReason7078[reason] ?: 0) + 1
+                } catch (_: Throwable) {}
+            }
             try {
                 LearningQuarantineGate6470.quarantinePositionId("EVENT:$eventId", reason)
                 if (t.positionId.isNotBlank()) LearningQuarantineGate6470.quarantinePositionId(t.positionId, "EVENT:$eventId:$reason")
@@ -295,7 +329,38 @@ object JournalEconomicReplay6619 {
                     val fee = t.feeSol
                     var lot = lots[t.positionId]
 
-                    if (lot == null && side == "SELL" && t.economicEventId.startsWith("paper_full_")) {
+                    // V5.0.7078 §THE RECOVERY COVERED TERMINALS AND LEFT THE
+                    // PARTIALS TO FALL THROUGH.
+                    //
+                    // V5.0.6664 built this so a terminal SELL whose BUY predates
+                    // the journal window could rebuild its entry lot from its own
+                    // receipt instead of being rejected as
+                    // SELL_WITHOUT_MATCHING_BUY_LOT — a rejection that drops the
+                    // sell's credit after the walk has already applied every
+                    // matching buy's debit. It was gated to `side == "SELL"` and
+                    // the `paper_full_` event prefix, so a PARTIAL_SELL in the
+                    // same position hit `reject(); continue` and took its
+                    // proceeds out of the journal totals.
+                    //
+                    // That is the shape of the operator's residual split: the
+                    // 5.0.7072 device reconciles perfectly under the canonical
+                    // replay (cashΔ 0.0000, realizedΔ 0.0000, qtyMismatch 0)
+                    // while this walk reports ledger 19.2765 vs journal 11.9567.
+                    // The two deltas differ by 0.0503 — cash misses gross-fee and
+                    // realized misses gross-basis, so their difference is the
+                    // skipped basis, which is the signature of dropped SELL
+                    // credits and not of a cash hole.
+                    //
+                    // A partial has no fixed event prefix (6510 mints
+                    // `positionId:sequence`), so the prefix test is replaced for
+                    // that side by the check that was doing the real work
+                    // anyway: the receipt must PROVE the entry — a positive sold
+                    // basis, a resolvable raw quantity and an entry price
+                    // snapshot. Nothing is reconstructed from a receipt that
+                    // cannot evidence it.
+                    val recoverableSide7078 = (side == "SELL" && t.economicEventId.startsWith("paper_full_")) ||
+                        side == "PARTIAL_SELL"
+                    if (lot == null && recoverableSide7078) {
                         val recoveredRaw = t.canonicalConsumedRaw.takeIf { it > java.math.BigInteger.ZERO }
                             ?: displayToRaw(t.soldQtyToken, t.tokenDecimals.takeIf { it >= 0 } ?: t.entryDecimals)
                         val recoveredDisplay = t.soldQtyToken.takeIf { it.isFinite() && it > 0.0 }
@@ -312,6 +377,13 @@ object JournalEconomicReplay6619 {
                             try {
                                 if (reportedEmbeddedEntryRecoveries6664.add(eventId)) {
                                     PipelineHealthCollector.labelInc("JOURNAL_EMBEDDED_ENTRY_RECOVERED_6664")
+                                    // V5.0.7078 — counted separately so the
+                                    // effect of widening the recovery to
+                                    // partials is measurable on its own, and
+                                    // reversible if it is not the cause.
+                                    if (side == "PARTIAL_SELL") {
+                                        PipelineHealthCollector.labelInc("JOURNAL_EMBEDDED_PARTIAL_ENTRY_RECOVERED_7078")
+                                    }
                                     ForensicLogger.lifecycle(
                                         "JOURNAL_EMBEDDED_ENTRY_RECOVERED_6664",
                                         "economicEventId=${eventId.take(40)} positionId=${t.positionId.take(24)} " +
@@ -424,6 +496,36 @@ object JournalEconomicReplay6619 {
                         "note=terminal_sells_left_basis_on_lot_applied_and_written_off",
                 )
                 PipelineHealthCollector.labelInc("JOURNAL_TERMINAL_RESIDUAL_LOTS_6868")
+            } catch (_: Throwable) {}
+        }
+
+        // V5.0.7078 — say where the skipped SOL went, by reason, in the same
+        // units ForensicReconciliation6635 reports its delta in. The operator's
+        // 5.0.7072 device showed this walk at `ledger 19.2765 vs journal 11.9567`
+        // while the canonical replay reported cashΔ=0.0000 on the same instant.
+        // Two replays over one fact disagreeing by 7.3198 SOL is not an
+        // accounting hole until something says which events account for it —
+        // and if these lines sum to the delta, the delta is this walk's own
+        // refusals and not a missing 7.3 SOL.
+        if (skippedCashByReason7078.isNotEmpty()) {
+            try {
+                val detail7078 = skippedCashByReason7078.entries
+                    .sortedByDescending { kotlin.math.abs(it.value) }
+                    .take(6)
+                    .joinToString(" ") { (reason, cashSol) ->
+                        "$reason[n=${skippedCountByReason7078[reason] ?: 0} " +
+                            "cash=${"%.6f".format(cashSol)} " +
+                            "realized=${"%.6f".format(skippedRealizedByReason7078[reason] ?: 0.0)}]"
+                    }
+                PipelineHealthCollector.labelInc("JOURNAL_SKIPPED_ECONOMICS_NAMED_7078")
+                ForensicLogger.lifecycle(
+                    "JOURNAL_SKIPPED_ECONOMICS_NAMED_7078",
+                    "skippedEvents=$skippedEvents6899 " +
+                        "skippedCashTotal=${"%.6f".format(skippedCashByReason7078.values.sum())} " +
+                        "skippedRealizedTotal=${"%.6f".format(skippedRealizedByReason7078.values.sum())} " +
+                        "byReason=$detail7078 " +
+                        "read=compare_these_totals_to_the_6635_ledger_journal_delta",
+                )
             } catch (_: Throwable) {}
         }
 

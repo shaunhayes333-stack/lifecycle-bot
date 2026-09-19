@@ -163,7 +163,7 @@ object DataLegitimacyAuthority7077 {
      * V5.0.7068, where a gate that could not tell "bad token" from "resolver
      * not running" refused 37 of 41 partials.
      */
-    fun isArmed7077(): Boolean {
+    private fun isArmed7077(): Boolean {
         if (!OnChainSupplyAuthority7075.rpcReady7075()) return false
         val resolved = OnChainSupplyAuthority7075.resolvedCount7075()
         val failed = OnChainSupplyAuthority7075.failedCount7075()
@@ -175,8 +175,14 @@ object DataLegitimacyAuthority7077 {
     /**
      * Quantify [mint] from the numbers in hand. Pure classification — this
      * changes no price, writes no field and caps nothing.
+     *
+     * Deliberately PRIVATE. The two decisions that exist — may this open, and
+     * what does this close book at — are the public surface, and they are both
+     * wired. Exposing the classifier as well would invite a third call site to
+     * re-decide the same question differently, which is the duplicate-authority
+     * defect this session has now found four times.
      */
-    fun qualify7077(mint: String, priceUsd: Double, mcapUsd: Double): Qualification {
+    private fun qualify7077(mint: String, priceUsd: Double, mcapUsd: Double): Qualification {
         asked.incrementAndGet()
         val price = if (priceUsd.isFinite() && priceUsd > 0.0) priceUsd else 0.0
         val mcap = if (mcapUsd.isFinite() && mcapUsd > 0.0) mcapUsd else 0.0
@@ -224,8 +230,11 @@ object DataLegitimacyAuthority7077 {
         return Qualification(Verdict.REJECTED, "identity_broken_ratio=${"%.4g".format(ratio)}", price, mcap, supply)
     }
 
-    /** The last mark that passed qualification for [mint], if there was one. */
-    fun lastQualifiedMark7077(mint: String): QualifiedMark? = lastQualified[mint]
+    // A `lastQualifiedMark7077(mint)` accessor was written here and removed
+    // before commit: ci/new_dead_code.py refused it as added-and-never-called,
+    // and it was right. closePrice7077 reads the map directly, which is the only
+    // thing that needed it. An unwired accessor is the NO_CALLERS shape that
+    // 6994/6999/6958/7026/7030 all were.
 
     /**
      * Should an OPEN proceed on this mint? Returns null to proceed, or the
