@@ -8894,7 +8894,64 @@ class Executor(
         // Null means the SOL/USD feed is too cold to convert; the paper branch
         // below refuses on it before anything is committed, so the 0.0 here
         // can never reach a ledger.
-        val grossSol7029 = proceedsSol7029(sellQty, actualPrice)
+        // V5.0.7076 §PRICE THE SALE FROM TWO MEASURED FACTS, NOT ONE.
+        //
+        // Operator: "full real data integrity or nothing."
+        //
+        // THE TRACE. This path is not bypassing the mark authority — it calls
+        // getActualPrice above, where V5.0.7069/7075 sit. It failed anyway,
+        // because those verify through SUPPLY and the operator's device had
+        // chain-confirmed supply for 63 of 2518 mints. With no supply the mark
+        // is unverifiable, so the raw tick passes through untouched, and the
+        // raw tick is what gets multiplied into cash.
+        //
+        //   19:11:48  PARTIAL_SELL 8A6dzN sol=2.079820 cost=0.0144 partial_25pct
+        //   19:12:36  EXIT_TRIGGER_BASIS_REBASED_4481 same mint,
+        //             rawGain=14429.6%  mcapGain=0.0%
+        //             entryMcap = currentMcap = 28,501,075
+        //
+        // 8175 tokens x 0.0285 raw / 113 = 2.06 SOL, which is the row. Priced
+        // on the cap instead: 8175 x 0.000196 / 113 = 0.0142 SOL, against a
+        // 0.0144 basis — flat, which is what a flat market cap means.
+        //
+        // walletCorrespondentOpenPrice4481 had BOTH caps and walled that exact
+        // mint 48 seconds later. The data was present; this function simply
+        // never asked for it.
+        //
+        // SUPPLY IS NOT NEEDED FOR THIS. entryMcap and currentMcap are each
+        // reported directly by the provider, and the position's true multiple
+        // is their ratio — supply cancels. entryPrice x (curMcap / entryMcap)
+        // is therefore the sale price derived from two measurements and no
+        // inference, which is the standard V5.0.7075 set.
+        //
+        // NOT A CLAMP: a genuine 1000x carries a 1000x cap and this returns all
+        // of it. It only acts when the tick and the cap disagree about the same
+        // move, and then prefers the pair that cannot be wrong about the basis.
+        val capPrice7076 = try {
+            com.lifecyclebot.engine.truth.MarkBasisReconciler7017
+                .reconcileForPosition(pos, ts.lastMcap)
+        } catch (_: Throwable) { 0.0 }
+        val priceForSale7076 = if (
+            capPrice7076.isFinite() && capPrice7076 > 0.0 &&
+            actualPrice.isFinite() && actualPrice > 0.0
+        ) {
+            val ratio7076 = actualPrice / capPrice7076
+            if (ratio7076 > 1.25 || ratio7076 < 0.8) {
+                try {
+                    PipelineHealthCollector.labelInc("PARTIAL_PRICED_ON_MARKET_CAP_7076")
+                    ForensicLogger.lifecycle(
+                        "PARTIAL_PRICED_ON_MARKET_CAP_7076",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} " +
+                            "rawTick=$actualPrice capPrice=$capPrice7076 " +
+                            "ratio=${"%.4g".format(ratio7076)} " +
+                            "entryMcap=${pos.entryMcap.toLong()} curMcap=${ts.lastMcap.toLong()} " +
+                            "action=two_measured_caps_outrank_one_unverified_tick",
+                    )
+                } catch (_: Throwable) {}
+                capPrice7076
+            } else actualPrice
+        } else actualPrice
+        val grossSol7029 = proceedsSol7029(sellQty, priceForSale7076)
         val sellSol      = grossSol7029 ?: 0.0
         // V5.0.7062 §5 — was `soldPct + sellFraction * 100.0`, which adds a
         // fraction OF WHAT REMAINS to a percentage OF THE ORIGINAL. Two
