@@ -20568,11 +20568,71 @@ if (hotExitHandledSweep) {
         val live = lastReapLiveOpenSet
         val paperRuntime = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { try { ConfigStore.load(applicationContext).paperMode } catch (_: Throwable) { false } }
         val ghostOpenNow = if (paperRuntime) 0 else forcedOpenClean.count { isGhostMint(it, live) }
-        val paperOpenNow = if (paperRuntime) currentPaperOpenMintsFromLedger().size else forcedOpenCount
+        val paperLedgerOpenMints7084 = if (paperRuntime) currentPaperOpenMintsFromLedger() else emptySet()
+        val paperOpenNow = if (paperRuntime) paperLedgerOpenMints7084.size else forcedOpenCount
+        // V5.0.7084 §"forced" WAS A SECOND COUNT OF OPEN POSITIONS.
+        //
+        // Operator directive §4 targets `forced=34 open=40` and asks for
+        // "forced < 5", treating it as slot-cleanup lag. It is not lag. In PAPER
+        // runtime this call site passed the SAME QUANTITY to both parameters:
+        //
+        //     forcedOpen    = currentPaperOpenMintsFromLedger().size
+        //     openPositions = currentPaperOpenMintsFromLedger().size
+        //
+        // SlotHealthGate.publish then rebuilt `open` from
+        // CanonicalPositionAuthority6441.activeMintProjections6490("paper") and
+        // left `forced` as the raw ledger count, clamped to it. So 34 vs 40 is
+        // not forced-versus-open at all — it is TWO VIEWS OF THE OPEN BOOK
+        // disagreeing by six, with the smaller one printed under a name that
+        // means "stuck".
+        //
+        // That makes the directive's target unreachable by construction: while
+        // the bot legitimately holds 34 paper positions, `forced` cannot fall
+        // below 5 no matter how perfectly cleanup runs. Any work aimed at the
+        // number would have been chasing a quantity that was never measuring
+        // the thing it is named after — the defect class that has produced the
+        // most wasted effort in this codebase.
+        //
+        // WHAT FORCED SHOULD MEAN, and now does: ledger-open mints that the
+        // canonical authority does NOT consider active. A position that closed
+        // and released its slot leaves this set immediately; one that is stuck
+        // stays in it. That is exactly the directive's own definition — "a
+        // CLOSED/QUARANTINED/non-open position must release its slot
+        // immediately after canonical commit" — expressed as a set difference
+        // rather than a subtraction of two counts.
+        //
+        // NO BEHAVIOUR CHANGE IN PAPER. V5.0.6692 already made forced
+        // fail-open for paper runtime (SlotHealthGate:199 emits
+        // PAPER_FORCED_OPEN_ADVISORY_6709 and deliberately does not defer), so
+        // paper buy admission is untouched. Turnover is still governed solely
+        // by 6709's adaptive cadence, which stays non-zero at every level. For
+        // LIVE runtime the existing deferral semantics are unchanged but now
+        // read a number that means what it says.
+        val paperForcedStale7084 = if (paperRuntime) {
+            try {
+                val canonicalActive = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+                    .activeMintProjections6490("paper")
+                    .map { it.mint }
+                    .toSet()
+                val stale = paperLedgerOpenMints7084.filterNot { it in canonicalActive }
+                if (stale.isNotEmpty()) {
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_SLOT_FORCED_IS_STALE_HOLD_7084")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "PAPER_SLOT_FORCED_IS_STALE_HOLD_7084",
+                            "ledgerOpen=${paperLedgerOpenMints7084.size} canonicalActive=${canonicalActive.size} " +
+                                "staleHolds=${stale.size} mints=${stale.take(8).joinToString(",") { it.take(8) }} " +
+                                "action=forced_now_counts_only_slots_canonical_does_not_hold",
+                        )
+                    } catch (_: Throwable) {}
+                }
+                stale.size
+            } catch (_: Throwable) { 0 }
+        } else forcedOpenCount
         val exitInFlight = try { fullExitSweepPending.get() || universalSlSweepPending.get() } catch (_: Throwable) { false }
         com.lifecyclebot.engine.SlotHealthGate.publish(
             ghostOpen = ghostOpenNow,
-            forcedOpen = if (paperRuntime) paperOpenNow else forcedOpenCount,
+            forcedOpen = paperForcedStale7084,
             openPositions = if (paperRuntime) paperOpenNow else forcedOpenCount,
             supActive = supervisorActive.get(),
             supCap = supervisorEffectiveCap(),

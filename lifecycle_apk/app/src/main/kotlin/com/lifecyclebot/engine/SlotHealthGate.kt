@@ -132,11 +132,24 @@ object SlotHealthGate {
         val paperRuntime = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
         val canonicalPaperOpen = if (paperRuntime) canonicalPaperOpenCount() else -1
         val effectiveOpen = if (paperRuntime && canonicalPaperOpen >= 0) canonicalPaperOpen else openPositions.coerceAtLeast(0)
-        val effectiveForced = if (paperRuntime && canonicalPaperOpen >= 0)
-            forcedOpen.coerceAtLeast(0).coerceAtMost(canonicalPaperOpen)
-        else forcedOpen.coerceAtLeast(0)
+        // V5.0.7084 — the clamp to canonicalPaperOpen is removed for paper.
+        //
+        // It existed when `forcedOpen` arrived as a raw SECOND COUNT of the open
+        // book, where bounding it by the canonical count was a sane way to stop
+        // a stale ledger inflating it. BotService now passes the set difference
+        // "ledger-open minus canonical-active", and clamping that to the
+        // canonical open count inverts the meaning at the worst moment: with
+        // canonicalPaperOpen == 0 and five stale holds still occupying slots,
+        // the clamp reports forced=0 — a clean bill of health precisely when
+        // every slot is stuck. A stale hold is BY DEFINITION not part of
+        // canonical open, so the canonical count is not an upper bound on it.
+        val effectiveForced = forcedOpen.coerceAtLeast(0)
+        // V5.0.7084 — the `effectiveForced != forcedOpen` half of this predicate
+        // is now dead by construction (nothing rewrites forced any more), so it
+        // is dropped rather than left as a term that can never be true. OPEN is
+        // the only value this rebuild still changes.
         if (paperRuntime && canonicalPaperOpen >= 0 &&
-            (effectiveForced != forcedOpen.coerceAtLeast(0) || effectiveOpen != openPositions.coerceAtLeast(0))) {
+            effectiveOpen != openPositions.coerceAtLeast(0)) {
             try { PipelineHealthCollector.labelInc("PAPER_SLOT_HEALTH_REBUILT_FROM_LEDGER") } catch (_: Throwable) {}
             try {
                 ForensicLogger.lifecycle(
