@@ -313,7 +313,10 @@ object ParallelMarkFanout7088 {
             try {
                 val url = "https://api-v3.raydium.io/mint/price?mints=${chunk.joinToString(",")}"
                 val req = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
-                http.newCall(req).execute().use { resp ->
+                // V5.0.7092 — same reasoning as the pump.fun source below. Raydium
+                // is healthy today (sr=100%, 670 quotes) but a raw execute() means
+                // the day it is not, nothing throttles.
+                com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "raydium").use { resp ->
                     if (!resp.isSuccessful) return@use
                     val body = resp.body?.string() ?: return@use
                     val data = JSONObject(body).optJSONObject("data") ?: return@use
@@ -388,7 +391,17 @@ object ParallelMarkFanout7088 {
                     try {
                         val url = "https://frontend-api-v3.pump.fun/coins/$mint"
                         val req = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
-                        http.newCall(req).execute().use { resp ->
+                        // V5.0.7092 — through HealthAwareHttp so ApiBackoff can SEE
+                        // this host fail. V5.0.7088 called execute() raw, which is
+                        // why the operator's 5.0.7091 device reports
+                        // `pumpfun sr=0% 5xx=233`: the circuit breaker never
+                        // observed the failures, so nothing ever backed off and the
+                        // fan-out kept hammering a host that was returning 500 to
+                        // every request. DexscreenerApi's own V5.0.6495 note says
+                        // exactly this — "never bypass HealthAwareHttp/ApiBackoff" —
+                        // and I bypassed it while building the thing meant to make
+                        // provider failure cheap.
+                        com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "pumpfun").use { resp ->
                             if (!resp.isSuccessful) return@use
                             val body = resp.body?.string() ?: return@use
                             // V5.0.7090 — use the authority that already owns this

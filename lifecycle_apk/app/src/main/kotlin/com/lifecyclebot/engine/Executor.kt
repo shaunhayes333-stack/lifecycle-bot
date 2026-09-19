@@ -9056,7 +9056,32 @@ class Executor(
             val pid6510 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
             val partial6510 = com.lifecyclebot.engine.truth.CanonicalPaperPartialOperation6510.commit(
                 pid6510, ts.mint, ts.symbol, sellFraction, sellSol, paperPartialFee, paperPartialReason,
-                markPriceUsd7029 = actualPrice,
+                // V5.0.7092 §VALIDATE THE PRICE THE SALE ACTUALLY USED.
+                //
+                // This passed `actualPrice` — the RAW mark — while `sellSol`
+                // above was computed as proceedsSol7029(sellQty,
+                // priceForSale7077), i.e. from the price
+                // DataLegitimacyAuthority7077.closePrice7077 resolved. Two
+                // different numbers: the sale executed on one and was audited
+                // against the other.
+                //
+                // The operator's 5.0.7091 device names it exactly:
+                //
+                //   CLOSE_ON_MEASURED_CAP_7077:              140
+                //   §7061  checked=156  rejected=140  worstRatio=1.029x
+                //
+                // 140 and 140. Every partial that took the measured-cap price
+                // was then reconstructed from the raw mark, so the reconstruction
+                // disagreed and EconomicUnitInvariant7061 refused it —
+                // ECONOMIC_UNIT_INVARIANT_REJECTED fired 140 times on sales that
+                // were arithmetically correct.
+                //
+                // I was one edit away from widening TOLERANCE_FRACTION from 0.01
+                // to hide this, which would have blinded the one guard that
+                // catches USD/SOL crossings and decimal errors. The tolerance was
+                // never wrong; the input was. One authority owns the sale price,
+                // and it must be the same one on both sides of the audit.
+                markPriceUsd7029 = priceForSale7077,
                 solUsd7029 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 },
             )
             if (!partial6510.applied) return false
