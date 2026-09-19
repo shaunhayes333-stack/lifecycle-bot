@@ -2192,6 +2192,17 @@ object PipelineHealthCollector {
             sb.append("  Token metrics     (§7069): ").append(
                 com.lifecyclebot.engine.truth.TokenMetricsAuthority7069.status()
             ).append("\n")
+            // V5.0.7077 — the qualification gate. Read `armed` FIRST: while it
+            // is false the gate is measuring only and `wouldHoldDisarmed` is
+            // the number of opens it would have deferred, which is the honest
+            // preview of what arming costs. Once armed, `opensDeferred` should
+            // fall as `discovered` and §7075's `resolved` converge — a deferral
+            // is a chain call that has not landed yet, not a rejected token.
+            // `opensRefused` is the real signal: mints whose price and cap
+            // contradict their own on-chain supply.
+            sb.append("  Data legitimacy   (§7077): ").append(
+                com.lifecyclebot.engine.truth.DataLegitimacyAuthority7077.status()
+            ).append("\n")
             sb.append("  Mark resolution   (§7059): ").append(
                 com.lifecyclebot.engine.truth.CanonicalMarkResolution7059.status()
             ).append("\n")

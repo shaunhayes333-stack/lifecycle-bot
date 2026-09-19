@@ -174,6 +174,21 @@ object OnChainSupplyAuthority7075 {
         }
     }
 
+    /**
+     * V5.0.7077 — the resolver's own evidence, readable as numbers.
+     *
+     * DataLegitimacyAuthority7077 refuses to trade on unqualified data, and a
+     * refusal is only meaningful if it can be told apart from the resolver
+     * simply not running. These three let it check that first. `status()` is a
+     * string for the report; a gate must not parse a report line to decide
+     * whether money moves.
+     */
+    fun rpcReady7075(): Boolean = rpcUrl.isNotBlank()
+
+    fun resolvedCount7075(): Long = fetched.get()
+
+    fun failedCount7075(): Long = failed.get()
+
     /** Diagnostic line for the pipeline report. */
     fun status(): String =
         "rpc=${if (rpcUrl.isBlank()) "unset" else "set"} requested=${requested.get()} " +

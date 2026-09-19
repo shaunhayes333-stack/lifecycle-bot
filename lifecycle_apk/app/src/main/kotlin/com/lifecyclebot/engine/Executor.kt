@@ -8924,34 +8924,62 @@ class Executor(
         // is therefore the sale price derived from two measurements and no
         // inference, which is the standard V5.0.7075 set.
         //
-        // NOT A CLAMP: a genuine 1000x carries a 1000x cap and this returns all
-        // of it. It only acts when the tick and the cap disagree about the same
-        // move, and then prefers the pair that cannot be wrong about the basis.
-        val capPrice7076 = try {
-            com.lifecyclebot.engine.truth.MarkBasisReconciler7017
-                .reconcileForPosition(pos, ts.lastMcap)
-        } catch (_: Throwable) { 0.0 }
-        val priceForSale7076 = if (
-            capPrice7076.isFinite() && capPrice7076 > 0.0 &&
-            actualPrice.isFinite() && actualPrice > 0.0
+        // V5.0.7077 SUPERSEDES THE 1.25/0.8 BAND THAT V5.0.7076 SHIPPED HERE.
+        //
+        // Operator, correcting me: "we dont cap or limit wins. we quantify the
+        // data and trade as legitimate before opening or closing it."
+        //
+        // 7076 substituted the cap price when the tick disagreed with it by
+        // more than 25%. That is the sixth band in a row, and a band is exactly
+        // what must not be here: at 1.25 it fires on any real move, and a
+        // memecoin partial ladder exists BECAUSE of real moves. The band also
+        // decided at the moment money moved, which is the latest and worst time
+        // to discover the data was never trustworthy.
+        //
+        // The decision now lives at the open (doBuy, §7077): a position can
+        // only exist on a mint whose economics were measured. So by the time
+        // this line runs, either the facts agree and the mark is used IN FULL
+        // AT ANY MAGNITUDE — a 1000x books 1000x, no threshold to trip — or the
+        // sale is priced from cap / on-chain supply, which is two measurements
+        // and equally unbounded. Neither path compares the mark to the entry
+        // basis, and neither has a ratio in it.
+        var priceForSale7077 = try {
+            com.lifecyclebot.engine.truth.DataLegitimacyAuthority7077
+                .closePrice7077(ts.mint, actualPrice, ts.lastMcap)
+        } catch (_: Throwable) { actualPrice }
+
+        // LEGACY RESIDUE. Positions opened before the qualification gate armed
+        // can still be holding a mint with no chain supply on file, so nothing
+        // above applies. For those — and only those — the two-cap measurement
+        // from V5.0.7076 remains the best available answer: entryMcap and
+        // currentMcap are both reported directly, supply cancels between them,
+        // and the ratio is uncapped. The band is gone; this fires whenever the
+        // measurement exists at all. The population shrinks to zero as the open
+        // gate takes effect, and OPEN_ON_QUALIFIED_DATA_7077 measures that.
+        if (priceForSale7077 == actualPrice &&
+            !com.lifecyclebot.engine.truth.DataLegitimacyAuthority7077.openedOnQualifiedData7077(ts.mint)
         ) {
-            val ratio7076 = actualPrice / capPrice7076
-            if (ratio7076 > 1.25 || ratio7076 < 0.8) {
+            val capPrice7076 = try {
+                com.lifecyclebot.engine.truth.MarkBasisReconciler7017
+                    .reconcileForPosition(pos, ts.lastMcap)
+            } catch (_: Throwable) { 0.0 }
+            if (capPrice7076.isFinite() && capPrice7076 > 0.0 &&
+                actualPrice.isFinite() && actualPrice > 0.0 && capPrice7076 != actualPrice
+            ) {
                 try {
-                    PipelineHealthCollector.labelInc("PARTIAL_PRICED_ON_MARKET_CAP_7076")
+                    PipelineHealthCollector.labelInc("PARTIAL_PRICED_ON_LEGACY_CAP_PAIR_7077")
                     ForensicLogger.lifecycle(
-                        "PARTIAL_PRICED_ON_MARKET_CAP_7076",
+                        "PARTIAL_PRICED_ON_LEGACY_CAP_PAIR_7077",
                         "mint=${ts.mint.take(10)} sym=${ts.symbol} " +
                             "rawTick=$actualPrice capPrice=$capPrice7076 " +
-                            "ratio=${"%.4g".format(ratio7076)} " +
                             "entryMcap=${pos.entryMcap.toLong()} curMcap=${ts.lastMcap.toLong()} " +
-                            "action=two_measured_caps_outrank_one_unverified_tick",
+                            "action=pre_qualification_position_priced_on_two_reported_caps",
                     )
                 } catch (_: Throwable) {}
-                capPrice7076
-            } else actualPrice
-        } else actualPrice
-        val grossSol7029 = proceedsSol7029(sellQty, priceForSale7076)
+                priceForSale7077 = capPrice7076
+            }
+        }
+        val grossSol7029 = proceedsSol7029(sellQty, priceForSale7077)
         val sellSol      = grossSol7029 ?: 0.0
         // V5.0.7062 §5 — was `soldPct + sellFraction * 100.0`, which adds a
         // fraction OF WHAT REMAINS to a percentage OF THE ORIGINAL. Two
@@ -12185,6 +12213,67 @@ class Executor(
                 return
             }
         } catch (_: Throwable) {}
+        // ═══════════════════════════════════════════════════════════════
+        // V5.0.7077 — QUALIFY THE DATA BEFORE OPENING. NO BANDS ANYWHERE.
+        // ═══════════════════════════════════════════════════════════════
+        // Operator, twice: "we dont cap or limit wins. we quantify the data and
+        // trade as legitimate before opening or closing it."
+        //
+        // Five builds (6895, 7017, 7059, 7068, 7076) argued about how large a
+        // price move may be before it is disbelieved. That argument cannot be
+        // won: a 1000x runner and a decimal-basis feed bug produce the same
+        // number, so every band that catches the bug also throws away the thing
+        // this app exists to catch. V5.0.7068's 1.25 band refused 37 of 41
+        // partials proving it.
+        //
+        // The question is moved EARLIER and asked about the data instead of the
+        // move: is this mint's economics measured — chain supply resolved, a
+        // reported price, a reported cap, and price x supply == cap? If yes,
+        // open; every later mark on it can then be believed AT ANY MAGNITUDE,
+        // because the thing that made big moves ambiguous has been settled.
+        //
+        // NOT AN EXCLUSION. PENDING means the chain call is still in flight, so
+        // the lane election is RELEASED and the candidate is re-elected next
+        // cycle with the answer in hand — the same defer shape as
+        // EXEC_AUTHORITY_MISSING_DEFERRED_6512 above. Nothing is dropped,
+        // blacklisted or marked bad ("nothing should ever go stale, un priced,
+        // lost, excluded for bad data").
+        //
+        // AND IT CANNOT MISFIRE AT SCALE: holdOpenReason7077 returns null while
+        // the resolver lacks the sample to distinguish "bad mint" from "resolver
+        // not running", counting what it WOULD have held instead. That is the
+        // check V5.0.7068 did not have.
+        try {
+            // Settle the mark BEFORE qualifying it. getActualPrice runs the
+            // §7069 identity — cap and on-chain supply recompute a price that
+            // disagrees with them — and writes the result back to ts.lastPrice.
+            // Qualifying the unsettled intake value instead would hold mints
+            // whose only fault is the pump.fun 1B-supply seed at line 14372,
+            // which the identity corrects on sight. The return value is unused
+            // on purpose; the write-back is the point.
+            try { getActualPrice(ts) } catch (_: Throwable) {}
+            val hold7077 = com.lifecyclebot.engine.truth.DataLegitimacyAuthority7077
+                .holdOpenReason7077(ts.mint, ts.lastPrice, ts.lastMcap)
+            if (hold7077 != null) {
+                val laneFor7077 = normalizeExecutionLane(tradeId.executionLane)
+                val versionFor7077 = try { LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { 0L }
+                val released7077 = try {
+                    LaneExecutionCoordinator.releaseIfPrimary(ts.mint, laneFor7077, "DATA_NOT_QUALIFIED_7077", versionFor7077)
+                } catch (_: Throwable) { false }
+                try {
+                    PipelineHealthCollector.labelInc("FDG_BUY_TO_AUTH_DROP_DATA_NOT_QUALIFIED_7077")
+                    ForensicLogger.lifecycle(
+                        "OPEN_HELD_DATA_NOT_QUALIFIED_7077",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} hold=$hold7077 " +
+                            "price=${ts.lastPrice} mcap=${ts.lastMcap.toLong()} " +
+                            "lane=$laneFor7077 electionReleased=$released7077 " +
+                            "action=defer_re_elect_when_chain_supply_lands",
+                    )
+                } catch (_: Throwable) {}
+                return
+            }
+        } catch (_: Throwable) {}
+
         // V5.0.4578 — SOURCE FIX for live INVALID_SCORE floods. Runtime 4575
         // showed 26/30 live BUY failures as INVALID_SCORE even though candidates
         // had already passed intake/lane/FDG. That means a caller sentinel

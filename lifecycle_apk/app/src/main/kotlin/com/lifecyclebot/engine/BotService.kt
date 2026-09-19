@@ -14355,6 +14355,27 @@ class BotService : Service() {
                     // V5.9.769 — max-take (was `<= 0.0`).
                     ts.lastMcap = trustedMarketCapUsd6492
                 }
+                // V5.0.7077 §LOCK THE FACTS IN AT DISCOVERY, NOT AT THE TRADE.
+                //
+                // Operator: "if we cant lock in full data integrity at
+                // discovery the app is fucking worthless trading real money."
+                //
+                // This is the coverage fix for V5.0.7075. That build asked
+                // chain state for a mint's supply lazily, from the MARK path —
+                // which only runs for tokens already being priced for a
+                // position. The 5.0.7072 device carried 2518 live rows and 63
+                // supplies for exactly that reason. Intake runs for all 2518,
+                // so the ask belongs here: by the time anything wants to trade
+                // the mint, `getTokenSupply` has already answered and
+                // DataLegitimacyAuthority7077 can qualify it on measured facts
+                // instead of deferring.
+                //
+                // Async, deduplicated per mint, and a no-op when the RPC is not
+                // installed — intake never waits on it
+                // (HOT_PATH_PROVIDER_CALL_SENTINEL_4295).
+                try {
+                    com.lifecyclebot.engine.truth.DataLegitimacyAuthority7077.noteDiscovery7077(mint)
+                } catch (_: Throwable) {}
                 // V5.9.655 — operator triage: 391 of 392 PumpPortal tokens
                 // were never reaching SAFETY/V3/LANE_EVAL because
                 // synthesizeFallbackPair() requires ts.lastPrice > 0.0 and
