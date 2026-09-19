@@ -2186,6 +2186,17 @@ object PipelineHealthCollector {
             // `resolved` against §7069's `unverifiable`: while resolution lags,
             // those marks are passing through unchecked and nothing economic
             // should be trusted on them.
+            // V5.0.7088 — the parallel fan-out. Read `corroborated` against
+            // `singleSource` and `contested`: a corroborated mark is one at
+            // least two INDEPENDENT feeds agreed on, which is the only kind of
+            // evidence that could have caught the $822M cap V5.0.7069 believed.
+            // `quotesBySource` says which feeds are actually answering — on the
+            // 5.0.7082 device dexscreener was at sr=0% and jupiter_quote at 20%,
+            // so a fan-out carried by raydium/helius/pumpfun is the expected
+            // shape, not a fault.
+            sb.append("  Parallel marks    (§7088): ").append(
+                com.lifecyclebot.network.ParallelMarkFanout7088.status()
+            ).append("\n")
             sb.append("  On-chain supply   (§7075): ").append(
                 com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.status()
             ).append("\n")

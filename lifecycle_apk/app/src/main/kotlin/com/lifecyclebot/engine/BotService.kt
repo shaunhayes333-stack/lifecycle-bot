@@ -1870,6 +1870,12 @@ class BotService : Service() {
                                 } else "https://api.mainnet-beta.solana.com"
                             }
                             com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.installRpc7075(rpc7075)
+                            // V5.0.7088 — the same endpoint drives Helius DAS
+                            // getAssetBatch in the parallel mark fan-out. The
+                            // operator asked for Helius to be used again, and it
+                            // is the healthiest provider on the device
+                            // (sr=100% while dexscreener sat at 0%).
+                            com.lifecyclebot.network.ParallelMarkFanout7088.installRpc7088(rpc7075)
                         } catch (_: Throwable) {}
                         // Schedule periodic flush + prune.
                         Thread {
@@ -10829,10 +10835,66 @@ class BotService : Service() {
                 // chain's workload, so the cap below is spent on genuinely
                 // hard mints instead of on the bulk.
                 var missingBeforeKeyless6946 = missingBeforeKeyless6946Raw
+                // V5.0.7088 §ASK EVERY FEED AT ONCE, BEFORE ANY SERIAL CHAIN RUNS.
+                //
+                // Operator: "dont do a fall back chain run then in parallel
+                // please. use helius again. there's too many holes."
+                //
+                // Everything below this block is serial. 6996's fillMissing runs
+                // DefiLlama then Jupiter for the remainder; 6946's loop runs
+                // PriceResolverFallback ONE MINT AT A TIME and is capped at 8
+                // (24 when boosted). With dexscreener at sr=0% and jupiter_quote
+                // at sr=20% on the 5.0.7082 device, that chain left three open
+                // positions stale for 83-159 seconds.
+                //
+                // So six feeds are asked SIMULTANEOUSLY first — DexScreener,
+                // DefiLlama, Jupiter, Raydium, Helius DAS and pump.fun — on one
+                // 4s deadline. Total latency is the slowest feed rather than the
+                // sum, a dead provider costs only its own absence, and the
+                // serial paths below keep their existing behaviour on whatever
+                // is genuinely left.
+                //
+                // The second gain matters more than the speed: agreement between
+                // independent feeds is EVIDENCE. The $822,358,177 cap that
+                // V5.0.7069 believed and turned into a 1211x could not survive
+                // five other feeds reporting $675k — it loses on count, and the
+                // outlier shows up in the spread instead of in the book.
                 if (missingBeforeKeyless6946Raw.isNotEmpty()) {
                     try {
+                        val fanout7088 = com.lifecyclebot.network.ParallelMarkFanout7088
+                            .resolve7088(missingBeforeKeyless6946Raw)
+                        if (fanout7088.isNotEmpty()) {
+                            var corroborated7088 = 0
+                            for ((m, mk) in fanout7088) {
+                                if (!mk.priceUsd.isFinite() || mk.priceUsd <= 0.0) continue
+                                priceMap[m] = mk.priceUsd
+                                // The source label carries the corroboration
+                                // state so every downstream reader — and the
+                                // operator reading a row — can tell a mark two
+                                // feeds agreed on from one nobody could check.
+                                markSource6999[m] = if (mk.corroborated) {
+                                    "FANOUT_CORROBORATED_7088_x${mk.agreeingCount}"
+                                } else {
+                                    "FANOUT_UNCORROBORATED_7088"
+                                }
+                                if (mk.corroborated) corroborated7088++
+                            }
+                            missingBeforeKeyless6946 = missingBeforeKeyless6946Raw.filter { it !in priceMap }
+                            PipelineHealthCollector.labelInc("MARK_PARALLEL_FANOUT_7088")
+                            ForensicLogger.lifecycle(
+                                "MARK_PARALLEL_FANOUT_7088",
+                                "requested=${missingBeforeKeyless6946Raw.size} priced=${fanout7088.size} " +
+                                    "corroborated=$corroborated7088 " +
+                                    "stillMissing=${missingBeforeKeyless6946.size} " +
+                                    "note=six_feeds_in_parallel_before_any_serial_chain",
+                            )
+                        }
+                    } catch (_: Throwable) { /* fail-soft: every serial path below still runs */ }
+                }
+                if (missingBeforeKeyless6946.isNotEmpty()) {
+                    try {
                         val rescued6996 = com.lifecyclebot.network.KeylessPriceSources6996
-                            .fillMissing(missingBeforeKeyless6946Raw)
+                            .fillMissing(missingBeforeKeyless6946)
                         if (rescued6996.isNotEmpty()) {
                             for ((m, p) in rescued6996) {
                                 if (p.isFinite() && p > 0.0) {
