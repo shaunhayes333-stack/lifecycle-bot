@@ -329,6 +329,19 @@ object OpenPnlSanity {
         return PricingTruth(mark, pnlPct, pnlSol, verdict.ok, verdict.reason, src)
     }
 
+    /**
+     * V5.0.7083 — reject reasons that prove the PRICE BASIS itself is wrong, as
+     * opposed to the trade merely going badly.
+     *
+     * Deliberately excludes OPEN_PNL_BELOW_TOTAL_LOSS and OPEN_PNL_NOT_FINITE:
+     * the first is a real loss that must keep teaching, and the second is a
+     * transient NaN that says nothing durable about the mint.
+     */
+    private val LEARNING_POISON_REASONS_7083 = setOf(
+        "OPEN_PNL_ABSURD_GAIN_6854",
+        "TOKEN_DECIMAL_SCALE_DISCONTINUITY_6701",
+    )
+
     private fun reject(reason: String, entry: Double, current: Double, context: String, emit: Boolean, mint: String = ""): Verdict {
         // V5.0.6246 — DeadTokenQuarantine strike + emit-suppression. Bumps the
         // per-mint strike counter for blacklisted reasons; once STRIKE_THRESHOLD
@@ -337,6 +350,46 @@ object OpenPnlSanity {
         val alreadyDead = mint.isNotBlank() && try { DeadTokenQuarantine.isDead(mint) } catch (_: Throwable) { false }
         if (!alreadyDead && mint.isNotBlank()) {
             try { DeadTokenQuarantine.recordStrike(mint, reason) } catch (_: Throwable) {}
+        }
+        // V5.0.7083 §A DIMENSIONALLY IMPOSSIBLE MARK MUST NOT TEACH ANYTHING.
+        //
+        // Operator directive §7: "exclude any terminal outcome whose price basis
+        // was ever tagged OPEN_PNL_ABSURD_GAIN / PRICE_BASIS_UNTRUSTED_EXTREME_
+        // RATIO / METRICS_IDENTITY_BROKEN ... from StrategyExpectancy,
+        // ForwardOutcomeModel, UnifiedPolicyHead, TacticSwitcher,
+        // HypothesisEngine, LosingPatternMemory."
+        //
+        // This function already detects exactly those marks — the device report
+        // shows it catching ratios of 839x, 972x, 1006x, 1019x, 1047x and 1658x,
+        // and the CSV carries a terminal sell at roughly 1,176,272x. What it did
+        // NOT do is tell the learners. It recorded a DeadTokenQuarantine strike,
+        // which suppresses log noise and needs STRIKE_THRESHOLD hits to fire,
+        // and it never touched LearningQuarantineGate6470 — the gate that
+        // CanonicalTradeStream6501, PaperAccountLedger6430 and
+        // EconomicPurityGate6504 all consult before an outcome is allowed to
+        // teach.
+        //
+        // So a mark could be refused for PnL and still train the models through
+        // its terminal row. That is how "WR 15.5% / PF 2.38 / EV +107.8%" can be
+        // arithmetically true and economically meaningless at the same time: the
+        // giant winners carrying the average are the same marks this authority
+        // classifies as impossible.
+        //
+        // Quarantine is per MINT and immediate — one proven-impossible mark is
+        // sufficient evidence about that mint's price basis, and requiring a
+        // threshold would let the first few contaminated outcomes through, which
+        // is precisely the ones that matter because they are the largest.
+        //
+        // Restricted to the BASIS-INTEGRITY reasons. A mint that merely went to
+        // zero (OPEN_PNL_BELOW_TOTAL_LOSS) is a real loss and MUST keep
+        // teaching — that is the most valuable lesson the bot gets, and
+        // quarantining it would bias the learned set towards survivors.
+        if (mint.isNotBlank() && reason in LEARNING_POISON_REASONS_7083) {
+            try {
+                com.lifecyclebot.engine.truth.LearningQuarantineGate6470
+                    .quarantineMint(mint, "PRICE_BASIS_IMPOSSIBLE_$reason")
+                PipelineHealthCollector.labelInc("LEARNING_QUARANTINED_IMPOSSIBLE_BASIS_7083")
+            } catch (_: Throwable) {}
         }
         val silentEmit = emit && !alreadyDead
         if (silentEmit) {

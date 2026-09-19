@@ -230,7 +230,70 @@ object CausalFeedbackAuthority6715 {
                 val hasReservation = reservations[attemptId] != null
                 val stampAgeMs = System.currentTimeMillis() - stamp.stampedAtMs
                 val withinGrace = stampAgeMs in 0..LEARNER_REVISION_GRACE_MS
-                if (!staleByTerminal && !hasReservation && withinGrace) {
+                // V5.0.7083 §THE_CONTRACT_IS_UNSATISFIABLE_AT_THIS_CLOSE_RATE.
+                //
+                // Operator directive: "A sealed FDG authorization must remain
+                // executable for its ticket TTL unless a MATERIAL invalidator
+                // occurs." A close on a DIFFERENT mint in the same lane+band is
+                // not on that list, and the device report shows what excluding
+                // it costs:
+                //
+                //   QUALITY          sized=20  ticket=0   status=TICKET_CHOKED
+                //   SHITCOIN         sized=7   ticket=0   status=TICKET_CHOKED
+                //   PROJECT_SNIPER   sized=3   ticket=0   status=TICKET_CHOKED
+                //
+                // This is the LAST remaining hard block in this authority.
+                // V5.0.6721 converted every other one to soft mode — the
+                // unresolved cap and the pendingLearning gate both emit
+                // _SOFT_MISS_6721 and fall through. Three lanes sitting at
+                // exactly zero tickets with twenty, seven and three sized
+                // candidates is this branch and nothing else.
+                //
+                // AND IT CANNOT CONVERGE. terminalEpoch is keyed on
+                // (mode, lane, scoreBand), so ANY clean close in a lane
+                // invalidates EVERY pending stamp in it. That run closed 142
+                // terminal sells in 166 seconds — one per 1.17s — against a
+                // 5.1s bot cycle. A stamp must survive at least one cycle to
+                // reach admit, so in a busy lane its chance of doing so is
+                // near zero. Dropping it forces a full FDG round trip that
+                // hits the same wall on the next pass. That is a LIVELOCK, not
+                // a per-decision safety property: the lanes that DO convert
+                // (MOONSHOT 2/2, EXPRESS 1/1) are the ones with almost no flow.
+                //
+                // WHY THIS IS NOT V5.0.6730's BLANKET GRACE, which V5.0.6732
+                // reverted for violating the integrity contract. The contract's
+                // actual requirement is stated in its own header: "trade N
+                // cannot execute on a pre-outcome decision after trade N-1
+                // changed the learned state." The remedy for that is for the
+                // decision to SEE the outcome — which re-stamping under the new
+                // epoch does — not for the decision to be destroyed. Dropping
+                // is only necessary while the outcome is UNABSORBED.
+                //
+                // So the re-stamp is conditional on the learner having actually
+                // absorbed it: pendingLearning must be empty across every scope.
+                // If a terminal is still waiting on its learner ACK, the hard
+                // block stands exactly as before. That is the discriminator
+                // 6730 lacked.
+                val terminalsLearned7083 = currentStates.values.all { it.pendingLearning.isEmpty() }
+                val withinTerminalGrace7083 = stampAgeMs in 0..LEARNED_TERMINAL_GRACE_MS_7083
+                val refreshOnLearnedTerminal7083 =
+                    staleByTerminal && !hasReservation && terminalsLearned7083 && withinTerminalGrace7083
+                if (refreshOnLearnedTerminal7083) {
+                    val refreshedSnap7083 = ks.associateWith { k ->
+                        state(k).let { ScopeStamp(it.terminalEpoch, it.learningRevision) }
+                    }
+                    ticketStamps[attemptId] = stamp.copy(
+                        scopes = refreshedSnap7083,
+                        stampedAtMs = System.currentTimeMillis(),
+                    )
+                    emit(
+                        "CAUSAL_STAMP_REFRESHED_ON_LEARNED_TERMINAL_7083",
+                        "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl " +
+                            "band=$band stampAgeMs=$stampAgeMs " +
+                            "action=restamp_under_post_outcome_state_learner_has_acked",
+                    )
+                    // Fall through to reservation issuance under the fresh stamp.
+                } else if (!staleByTerminal && !hasReservation && withinGrace) {
                     val refreshedSnap = ks.associateWith { k ->
                         state(k).let { ScopeStamp(it.terminalEpoch, it.learningRevision) }
                     }
@@ -248,7 +311,15 @@ object CausalFeedbackAuthority6715 {
                     val why = if (staleByTerminal) "TERMINAL_EPOCH_CHANGED" else "LEARNER_REVISION_CHANGED"
                     emit(
                         "CAUSAL_EXEC_STALE_EPOCH_6715",
-                        "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band reason=$why hasReservation=$hasReservation stampAgeMs=$stampAgeMs",
+                        "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band reason=$why hasReservation=$hasReservation stampAgeMs=$stampAgeMs " +
+                            // V5.0.7083 — say WHY the re-stamp was refused, so a
+                            // block that survives this build is attributable to
+                            // one of three causes instead of being one
+                            // undifferentiated count. Without this the next
+                            // reading of STALE_FEEDBACK_EPOCH_REVALIDATE cannot
+                            // tell "learner is behind" from "stamp aged out".
+                            "terminalsLearned=$terminalsLearned7083 withinTerminalGrace=$withinTerminalGrace7083 " +
+                            "pendingLearning=${currentStates.values.sumOf { it.pendingLearning.size }}",
                     )
                     return Admission(false, "STALE_FEEDBACK_EPOCH_REVALIDATE_6715", forceRevalidate = true)
                 }
@@ -544,6 +615,23 @@ object CausalFeedbackAuthority6715 {
      * stale decision beyond this window still triggers revalidation.
      */
     private const val LEARNER_REVISION_GRACE_MS = 3_000L
+
+    /**
+     * V5.0.7083 — how long a stamp may be re-stamped after a LEARNED terminal
+     * advanced its scope's epoch.
+     *
+     * Wider than LEARNER_REVISION_GRACE_MS because this window has to contain a
+     * slower sequence: close -> terminal ingested -> learner ACK -> next admit.
+     * The 3s revision grace only had to cover an ACK landing on an
+     * already-terminalized position. 15s is still well inside a ticket TTL and
+     * comfortably under the 60s reservation sweep, so a re-stamped attempt
+     * cannot outlive the machinery that cleans up after it.
+     *
+     * A stamp OLDER than this is not re-stamped: at that age the decision has
+     * been sitting unexecuted long enough that re-entering FDG is the right
+     * outcome rather than a wasted round trip.
+     */
+    private const val LEARNED_TERMINAL_GRACE_MS_7083 = 15_000L
 
     fun cohortLoserAdvisoryForLane(mode: String, lane: String): CohortLoserAdvisory? {
         if (!isMemeOwnerLane(lane)) return null
