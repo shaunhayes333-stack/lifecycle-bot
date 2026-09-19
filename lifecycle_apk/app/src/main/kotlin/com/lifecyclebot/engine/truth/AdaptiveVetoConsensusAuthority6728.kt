@@ -27,11 +27,9 @@ object AdaptiveVetoConsensusAuthority6728 {
     private data class Key(val mode: String, val lane: String, val mint: String, val signal: Signal)
     private data class Evidence(val id: String, val atMs: Long)
     private val observations = ConcurrentHashMap<Key, Evidence>()
-    private fun normaliseLane(raw: String): String = when (val n = raw.trim().uppercase().replace('-', '_')) {
-        "BLUE_CHIP" -> "BLUECHIP"
-        "PRESALE_SNIPE" -> "PROJECT_SNIPER"
-        else -> n
-    }
+    // V5.0.7115 §ONE_LANE_IDENTITY — delegated; both folds moved to the authority.
+    private fun normaliseLane(raw: String): String =
+        CanonicalLaneIdentity6506.canonical(raw)
     data class Verdict(val hardVeto: Boolean, val activeSignals: List<Signal>, val quorum: Int)
 
     /** Re-reading the same evidence never refreshes its expiry. */

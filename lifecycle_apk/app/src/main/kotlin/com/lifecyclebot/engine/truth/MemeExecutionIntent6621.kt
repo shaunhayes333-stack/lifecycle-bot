@@ -190,16 +190,13 @@ object MemeExecutionIntent6621 {
      * §11 explicit rule) and never fold CASHGEN into TREASURY.
      */
     fun canonicaliseLane6621(raw: String): String {
-        val u = raw.uppercase().trim().replace('-', '_').replace(' ', '_')
-        return when (u) {
-            "BLUE_CHIP"      -> "BLUECHIP"
-            "SHIT_COIN"      -> "SHITCOIN"
-            "SNIPE"          -> "PROJECT_SNIPER"
-            "PROJECTSNIPER"  -> "PROJECT_SNIPER"
-            "DIPHUNTER"      -> "DIP_HUNTER"
-            "CASH_GEN"       -> "CASHGEN"
-            else -> u.ifBlank { "STANDARD" }
-        }
+        // V5.0.7115 §ONE_LANE_IDENTITY — the six folds that were spelled out here
+        // now live in CanonicalLaneIdentity6506 along with the other seven copies'
+        // folds. The §11 rule above is preserved: that table merges neither
+        // CORE/STANDARD/V3_CORE nor CASHGEN/TREASURY, and a CI gate keeps it so.
+        // The blank -> STANDARD default stays here because it is this parser's
+        // contract, not a lane alias.
+        return CanonicalLaneIdentity6506.canonical(raw).ifBlank { "STANDARD" }
     }
 
     fun statusLine(): String =

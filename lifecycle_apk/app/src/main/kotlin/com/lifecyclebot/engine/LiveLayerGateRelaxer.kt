@@ -122,12 +122,16 @@ object LiveLayerGateRelaxer {
     }
 
     private fun canonicalLaneKey(raw: String?): String {
-        val r = raw?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: return "STANDARD"
-        return when (r) {
-            "BLUE_CHIP" -> "BLUECHIP"
-            "MANIP" -> "MANIPULATED"
+        // V5.0.7115 §ONE_LANE_IDENTITY — the BLUE_CHIP and MANIP folds moved to
+        // CanonicalLaneIdentity6506. The wallet-copy family stays local: it maps
+        // several TRADER TAGS onto one counter bucket, which is a classification,
+        // not a spelling of a lane, and WALLET_RECOVERED is not in the executable
+        // lane set.
+        val c = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(raw)
+        if (c.isBlank()) return "STANDARD"
+        return when (c) {
             "COPYTRADE", "COPY_TRADE", "WALLET_COPY", "WALLET_RECOVERED" -> "WALLET_RECOVERED"
-            else -> r
+            else -> c
         }
     }
 

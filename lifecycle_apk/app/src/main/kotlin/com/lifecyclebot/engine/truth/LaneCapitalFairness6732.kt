@@ -52,10 +52,9 @@ object LaneCapitalFairness6732 {
         val utilization: Double,
     )
 
+    // V5.0.7115 §ONE_LANE_IDENTITY — delegated; both folds moved to the authority.
     private fun normLane(raw: String): String =
-        raw.trim().uppercase().replace('-', '_').replace(' ', '_').let {
-            when (it) { "BLUE_CHIP" -> "BLUECHIP"; "PRESALE_SNIPE" -> "PROJECT_SNIPER"; else -> it }
-        }
+        CanonicalLaneIdentity6506.canonical(raw)
 
     /**
      * Compute per-lane headroom. Non-meme lanes fail open (headroom always true).

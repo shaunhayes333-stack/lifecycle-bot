@@ -17996,18 +17996,23 @@ class Executor(
                 PipelineHealthCollector.labelInc("LIVE_ENTRY_DECISION")
             } catch (_: Throwable) {}
         }
+        // V5.0.7115 §ONE_LANE_IDENTITY — this was the THIRD copy of
+        // CanonicalLaneIdentity6506's alias table, and the only one that knew
+        // CASH_GENERATION -> CASHGEN rather than -> TREASURY, i.e. the only one
+        // that was right about it. All of its folds now live in the authority;
+        // it delegates.
+        //
+        // V3 -> CORE stays local and deliberately does NOT move into the shared
+        // table. It is an executor-side view: the executor's executableLaneSet
+        // holds CORE and not V3, so resolving V3 to CORE here only decides
+        // whether this lane is one the executor may open. Folding it in the
+        // shared authority would additionally make ExecutableOpenGate treat V3 as
+        // a SOURCE BUCKET, which changes lane-mismatch forgiveness on a lane
+        // BotService still routes by name (laneUpperForFloor4591 == "V3"). No
+        // measured symptom asks for that, so it is not in this change.
         fun canonicalExecutableLane(raw: String): String {
-            val r = raw.uppercase().trim().replace('-', '_').replace(' ', '_')
-            return when (r) {
-                "BLUE_CHIP" -> "BLUECHIP"
-                "SHIT_COIN" -> "SHITCOIN"
-                "MANIP" -> "MANIPULATED"
-                "DIP" -> "DIP_HUNTER"
-                "PROJECT", "SNIPER" -> "PROJECT_SNIPER"
-                "CASH_GENERATION" -> "CASHGEN"
-                "V3" -> "CORE"
-                else -> r
-            }
+            val c = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(raw)
+            return if (c == "V3") "CORE" else c
         }
         val executableLaneSet = setOf("PROJECT_SNIPER", "MOONSHOT", "SHITCOIN", "EXPRESS", "QUALITY", "BLUECHIP", "TREASURY", "STANDARD", "CORE", "MANIPULATED", "DIP_HUNTER", "CASHGEN", "CYCLIC")
         fun observeOnlyLiveEntry(reason: String, laneRaw: String, decisionLabel: String): Boolean {

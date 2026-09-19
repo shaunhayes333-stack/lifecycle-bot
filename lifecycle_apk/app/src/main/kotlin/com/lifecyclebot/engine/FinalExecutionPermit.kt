@@ -215,11 +215,13 @@ object FinalExecutionPermit {
             recordPermitFalseReturn4416("AUTHORITY_INVARIANT_FAILURE")
             return false
         }
-        val requestedLane6494 = when (layer.uppercase().replace('-', '_').replace(' ', '_')) {
-            "BLUE_CHIP" -> "BLUECHIP"
-            "SHIT_COIN" -> "SHITCOIN"
-            else -> layer.uppercase().replace('-', '_').replace(' ', '_')
-        }
+        // V5.0.7115 §ONE_LANE_IDENTITY — this was a fourth private copy of
+        // CanonicalLaneIdentity6506's alias table, and the thinnest: it knew
+        // BLUE_CHIP and SHIT_COIN and none of the other nine folds. Its result is
+        // compared for EQUALITY against the sealed ticket's lane two lines below
+        // to raise IMMUTABLE_ELECTION_LANE_MISMATCH_6494, so every alias it did
+        // not know was a permit refused on a spelling.
+        val requestedLane6494 = com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(layer)
         if (executionTicket6494.lane != requestedLane6494) {
             try {
                 ForensicLogger.lifecycle(

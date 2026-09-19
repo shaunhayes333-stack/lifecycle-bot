@@ -57,11 +57,34 @@ class Aate6621MemeExecutionIntentContractCoverageTest {
                     "requestedSol", "sealedSol", "createdAtMs")
                     .all { src.contains("val $it") }
         )
+        // V5.0.7115 §ONE_LANE_IDENTITY — the six alias literals this used to look
+        // for here moved into CanonicalLaneIdentity6506, which is now the only
+        // lane-alias authority (ci/lane_identity_authority_scan.py enforces that;
+        // thirteen hand-copies existed and one of them, in ExecutableOpenGate,
+        // folded CASHGEN into TREASURY and cost every CASHGEN entry its sealed
+        // authority). The §11 contract is unchanged — the boundary parser still
+        // exists and still normalises legacy aliases at the seal moment — so this
+        // asserts the same thing in the place the folds now live, and
+        // aate6621_seal_emits_normalised_lane_and_authority_version below proves
+        // it behaviourally through seal6621(rawLane = "BLUE_CHIP").
         assertTrue(
             "V5.0.6621: canonicaliseLane6621 must exist as §11 boundary parser",
             src.contains("fun canonicaliseLane6621(raw: String)") &&
-                src.contains("\"BLUE_CHIP\"") && src.contains("\"BLUECHIP\"") &&
-                src.contains("\"SNIPE\"") && src.contains("\"PROJECT_SNIPER\"")
+                src.contains("CanonicalLaneIdentity6506.canonical")
+        )
+        val laneAuthority = java.io.File(
+            "src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalLaneIdentity6506.kt"
+        ).readText()
+        assertTrue(
+            "V5.0.7115: the lane authority must carry the §11 legacy aliases",
+            laneAuthority.contains("\"BLUE_CHIP\" to \"BLUECHIP\"") &&
+                laneAuthority.contains("\"SNIPE\" to \"PROJECT_SNIPER\"") &&
+                laneAuthority.contains("\"SHIT_COIN\" to \"SHITCOIN\"") &&
+                laneAuthority.contains("\"CASH_GEN\" to \"CASHGEN\"")
+        )
+        assertTrue(
+            "V5.0.7115: §11 forbids folding CASHGEN into TREASURY",
+            !laneAuthority.contains("to \"TREASURY\"")
         )
     }
 

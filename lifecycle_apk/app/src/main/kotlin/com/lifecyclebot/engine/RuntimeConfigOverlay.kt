@@ -79,14 +79,16 @@ object RuntimeConfigOverlay {
         return "hardQualityOnly=${isHardQualityOnlyActive()} forcedPrimary=${forcedPrimaryLane() ?: "none"} disabled=$disabled"
     }
     fun resetForTests() = commands.clear()
-    fun normalizeLane(lane: String): String = lane.uppercase().replace("-", "_").replace(" ", "_").let {
-        when (it) {
-            "BLUE_CHIP" -> "BLUECHIP"
-            "PROJECTSNIPER", "SNIPER" -> "PROJECT_SNIPER"
-            "EXPRESS", "SHITCOIN_EXPRESS" -> "EXPRESS"
-            else -> it
+    // V5.0.7115 §ONE_LANE_IDENTITY — BLUE_CHIP, PROJECTSNIPER and SNIPER moved to
+    // CanonicalLaneIdentity6506. SHITCOIN_EXPRESS stays local and deliberately:
+    // this overlay folds it to EXPRESS, while Executor's behaviour bucket folds it
+    // to SHITCOIN. Those two disagree, no measured symptom names either, and
+    // picking a winner here would be a hand-set lane routing change rather than a
+    // de-duplication. Recorded in ci/lane_identity_authority_scan.py instead.
+    fun normalizeLane(lane: String): String =
+        com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane).let {
+            if (it == "SHITCOIN_EXPRESS") "EXPRESS" else it
         }
-    }
     private fun active(key: String): Boolean = activeCommand(key) != null
     private fun activeCommand(key: String): Command? { prune(); return commands[key]?.takeIf { it.expiresAtMs > now() } }
     private fun prune() { val n = now(); commands.entries.removeIf { it.value.expiresAtMs <= n } }

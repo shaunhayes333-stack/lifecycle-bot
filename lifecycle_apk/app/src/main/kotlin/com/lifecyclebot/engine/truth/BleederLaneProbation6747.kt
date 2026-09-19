@@ -148,13 +148,9 @@ object BleederLaneProbation6747 {
         "onProbation=${probationSince.keys.joinToString(",")} refused=${admissionsRefused.get()} " +
             "probeAdmitted=${probeAdmissionsAllowed.get()}"
 
-    private fun canonicalLane(raw: String): String? {
-        val u = raw.trim().uppercase().replace('-', '_').replace(' ', '_')
-        if (u.isBlank()) return null
-        return when (u) {
-            "BLUE_CHIP" -> "BLUECHIP"
-            "SHIT_COIN" -> "SHITCOIN"
-            else -> u
-        }
-    }
+    // V5.0.7115 §ONE_LANE_IDENTITY — delegated; both folds moved to the authority.
+    // The nullable-on-blank contract is this store's own (a blank lane must not
+    // open a probation record) and stays here.
+    private fun canonicalLane(raw: String): String? =
+        CanonicalLaneIdentity6506.canonical(raw).takeIf { it.isNotBlank() }
 }

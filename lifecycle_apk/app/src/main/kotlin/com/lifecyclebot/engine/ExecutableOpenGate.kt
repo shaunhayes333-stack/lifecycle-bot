@@ -703,18 +703,46 @@ object ExecutableOpenGate {
     // V5.9.1476 (spec item 4) — per-(mint,log) last-emit ms for PRE_FDG_NOT_BUY drop throttle.
     private val preFdgDropDedupe = ConcurrentHashMap<String, Long>()
 
-    private fun canonicalLane(lane: String): String {
-        val raw = lane.uppercase().trim().replace('-', '_').replace(' ', '_')
-        return when (raw) {
-            "BLUE_CHIP" -> "BLUECHIP"
-            "SHIT_COIN" -> "SHITCOIN"
-            "MANIP", "MANIPULATED" -> "MANIPULATED"
-            "DIP", "DIP_HUNTER" -> "DIP_HUNTER"
-            "PROJECT", "PROJECT_SNIPER", "SNIPER" -> "PROJECT_SNIPER"
-            "CASHGEN", "CASH_GENERATION" -> "TREASURY"
-            else -> raw
-        }
-    }
+    /**
+     * V5.0.7115 §ONE_LANE_IDENTITY — this was a private second copy of
+     * CanonicalLaneIdentity6506's alias table, in the same file as the consumer
+     * that compares its output for equality. It now delegates, and the table is
+     * gone.
+     *
+     * THE DEFECT IT CAUSED, which the operator's 5.0.7113 snapshot measured at
+     * 1,251 events against 66 EXEC_GATE allows:
+     *
+     *     SEALED_INTENT_REJECTED_LANE_MISMATCH_7096:  1251
+     *
+     * The copy carried `"CASHGEN", "CASH_GENERATION" -> "TREASURY"`. Nothing
+     * else in the stack folds CASHGEN into TREASURY — MemeOwnershipInvariant6620
+     * lists both in its executable set, Executor's executableLaneSet lists both,
+     * UnifiedExitPolicyHead seeds a separate cold-start bias for each, and the
+     * comment on isShadowReadOnlyLane6487 forty lines above says outright
+     * "CASHGEN is a canonical executable MemeTrader specialist".
+     *
+     * So a CASHGEN candidate sealed its ExecutionIntent with canonicalLane
+     * "CASHGEN" — Aate6705CashgenExecutionAuthorityTest asserts exactly that —
+     * and then resolveSealedIntent6613 looked for it with requestedLane
+     * canonicalLane("CASHGEN") == "TREASURY". "CASHGEN" != "TREASURY", and
+     * TREASURY is not a source bucket, so the lane predicate refused the intent,
+     * returned a bare null, and the gate lost its sealed authority for every
+     * single CASHGEN entry. The producer and the consumer of one field disagreed
+     * about the name of the lane they were both looking at.
+     *
+     * The same copy also made `priority6641`'s trailing "CASHGEN" entry
+     * unreachable: canonicalLane() could never return it, so every CASHGEN
+     * proposal reached SpecialistProposalArbiter6629 wearing TREASURY's name and
+     * TREASURY's priority.
+     *
+     * Two further drifts, harmless only because canOpenExecutablePosition
+     * already folds at its boundary with the real authority: this copy did NOT
+     * know MOON_SHOT -> MOONSHOT or MICRO_CAP -> MICRO. On the paths that
+     * bypass that boundary — recordFdgAndGetIntent6533, the path that SEALS the
+     * intent — it did not know them at all.
+     */
+    private fun canonicalLane(lane: String): String =
+        com.lifecyclebot.engine.truth.CanonicalLaneIdentity6506.canonical(lane)
 
     /**
      * V5.0.6871 §TWO_COPIES_OF_ONE_LIST_THAT_DRIFTED — isSourceBucketLane and
@@ -1221,7 +1249,12 @@ object ExecutableOpenGate {
                 ExecutionIntent(
                     attemptId = canonicalExecutionKey(mint, mode = mode, side = "BUY", lane = lane, candidateVersion = candidateVersion),
                     candidateId = "$mint:$candidateVersion", candidateVersion = candidateVersion,
-                    mint = mint, mode = mode, canonicalLane = lane.uppercase(),
+                    // V5.0.7115 — canonicalLane(), not uppercase(). The field is
+                    // named canonicalLane and resolveSealedIntent6613 compares it
+                    // against canonicalLane(requestedLane); sealing it with a bare
+                    // uppercase meant the producer and the consumer of this one
+                    // field ran two different functions over the same string.
+                    mint = mint, mode = mode, canonicalLane = canonicalLane(lane),
                     fdgVerdict = verdict, fdgAllowed = true, authorityVersion = 0L,
                     resolvedSize = resolvedSizeSol6558, createdAt = System.currentTimeMillis(), symbol = symbol,
                     authoritativeSignal = "BUY", safetyVerdict = safetyTier,
@@ -1230,7 +1263,7 @@ object ExecutableOpenGate {
                     requiresSolanaTokenMap = requiresSolanaTokenMap,
                     finalDecision6613 = if (verdict == "PROBE_ONLY") CanonicalFinalDecision6613.PROBE_ONLY else CanonicalFinalDecision6613.BUY,
                     decisionAuthorityId6613 = "FDG_FALLBACK:$candidateVersion",
-                    fdgDecisionId6613 = "$mode:$mint:$candidateVersion:${lane.uppercase()}",
+                    fdgDecisionId6613 = "$mode:$mint:$candidateVersion:${canonicalLane(lane)}",
                     fdgEvidence6613 = "fdgCan=true;preFdg=$verdict;safety=$safetyTier;hardNo=0;fallback=secondary_projection_failure",
                     expiresAtMs6613 = System.currentTimeMillis() + if (mode == "PAPER")
                         com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626()
@@ -1554,7 +1587,13 @@ object ExecutableOpenGate {
                         ?: try { com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(mint)?.takeIf { it > 0.0 } } catch (_: Throwable) { null }
                         ?: resolvedSizeSol6558.takeIf { it.isFinite() && it > 0.0 }
                         ?: 0.0
-                    val canonicalLane6519 = winner.selectedLane.uppercase()
+                    // V5.0.7115 — see the note on canonicalLane(). This is the
+                    // second of the two sites that sealed an intent's lane with a
+                    // bare uppercase while the consumer canonicalised; the
+                    // attemptId built from it on the next line already ran
+                    // canonicalLane() internally, so the key and the field it keys
+                    // did not even agree with each other.
+                    val canonicalLane6519 = canonicalLane(winner.selectedLane)
                     // V5.0.7096 §FDG_SEAL_ATOMICITY — these three reads used to sit
                     // inline in the ExecutionIntent argument list below, unguarded.
                     // A throw from the mark registry therefore aborted the one call

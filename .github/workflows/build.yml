@@ -138,6 +138,14 @@ jobs:
       - name: Kotlin expression-body return guard
         run: python3 ci/kotlin_expression_body_return.py
 
+      # V5.0.7115 — lane names are compared for EQUALITY to match a sealed
+      # execution authority to its requester. Thirteen hand-copies of the alias
+      # table existed and they disagreed; one folded CASHGEN into TREASURY, which
+      # cost every CASHGEN entry its sealed authority (1,251 events on the 7113
+      # snapshot). CanonicalLaneIdentity6506 is the only authority now.
+      - name: Lane identity authority guard
+        run: python3 ci/lane_identity_authority_scan.py
+
       - name: Build Release APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
