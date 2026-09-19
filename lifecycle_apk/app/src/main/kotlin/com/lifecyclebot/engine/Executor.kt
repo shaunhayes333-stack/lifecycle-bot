@@ -655,6 +655,46 @@ class Executor(
      * no fraction. It converts a currency. A genuine 1000x runner banks 1000x
      * here, in SOL, which is what the ledger has always claimed to be counting.
      */
+    /**
+     * V5.0.7057 §1 — canonical SOL-denominated gain multiple for a position
+     * priced in USD per token.
+     *
+     * OPERATOR PROOF (WOTF):
+     *   soldQty       = 382.963755 tokens
+     *   exitPriceUsd  = 0.072585 USD/token
+     *   qty x price   = 27.797563 USD
+     *   committed as    27.797563 SOL      <- inflated by solUsd (~113.24x)
+     *   correct         27.797563 / 113.24 = 0.245475 SOL
+     *
+     * `qtyToken * markPriceUsd` is a USD notional. `costSol` is SOL. Their
+     * ratio is USD/SOL, not a multiple, and it overstates the gain by exactly
+     * the SOL price — which is how 108 partial rows cleared |1000%| and put
+     * ~+599 SOL of unsupported profit into the ledger.
+     *
+     * Converts the notional to SOL BEFORE dividing, using the same rate and
+     * the same 50 USD sanity floor proceedsSol7029 uses.
+     *
+     * Returns 1.0 (flat, no gain claimed) when the rate is unavailable. A
+     * missing SOL price must never be allowed to manufacture a multiple — 1.0
+     * claims nothing, whereas the old expression claimed a 113x win.
+     */
+    private fun gainMultipleFromNotional7057(
+        qtyToken: Double,
+        markPriceUsd: Double,
+        costSol: Double,
+    ): Double {
+        if (!costSol.isFinite() || costSol <= 0.0) return 1.0
+        val notionalSol = proceedsSol7029(qtyToken, markPriceUsd)
+        if (notionalSol == null || !notionalSol.isFinite() || notionalSol <= 0.0) {
+            try {
+                PipelineHealthCollector.labelInc("GAIN_MULTIPLE_UNCONVERTIBLE_FLAT_7057")
+            } catch (_: Throwable) {}
+            return 1.0
+        }
+        val m = notionalSol / costSol
+        return if (m.isFinite() && m > 0.0) m else 1.0
+    }
+
     private fun proceedsSol7029(qtyToken: Double, markPriceUsd: Double): Double? {
         if (!qtyToken.isFinite() || qtyToken <= 0.0) return null
         if (!markPriceUsd.isFinite() || markPriceUsd <= 0.0) return null
@@ -5442,11 +5482,18 @@ class Executor(
         val holdTimeMinutes = holdTimeMs / 60_000.0
         
         val actualPrice = getActualPrice(ts)
+        // V5.0.7057 §2 — the else branch is `tokens x USD-per-token / SOL`,
+        // a USD numerator over a SOL denominator, inflated by the whole SOL
+        // price (~113x). It is reached by any position with entryPrice <= 0,
+        // INCLUDING paper ones — and a paper position can absolutely have no
+        // entry price (PAPER_BUY_EFFECTIVE_PRICE_SENTINEL_REJECTED_6911,
+        // OPEN_POSITION_ZERO_ENTRY_QTY_6627, and the legacy replay rows that
+        // open at entryPriceUsd=0.0). Convert the numerator to SOL first.
         val gainMultiple = if (pos.costSol > 0) {
             if (pos.isPaperPosition && pos.entryPrice > 0.0) {
                 (actualPrice / pos.entryPrice)
             } else {
-                (pos.qtyToken * actualPrice) / pos.costSol
+                gainMultipleFromNotional7057(pos.qtyToken, actualPrice, pos.costSol)
             }
         } else 1.0
         val currentValue = pos.costSol * gainMultiple
@@ -5542,10 +5589,14 @@ class Executor(
         // qty/basis drift produced fake 240x/75,000x rows. Paper has no on-chain
         // token balance; its value is cost basis × resolved price return. LIVE keeps
         // qtyToken math because chain token quantity is real ground truth.
+        // V5.0.7057 §2 — see gainMultipleFromNotional7057. `qtyToken *
+        // actualPrice` is USD; dividing it by a SOL cost basis inflates the
+        // multiple by the SOL price. Reached whenever entryPrice <= 0, which
+        // paper positions do hit.
         val rawGainMultiple = if (pos.isPaperPosition && pos.entryPrice > 0.0) {
             (actualPrice / pos.entryPrice)
         } else {
-            (pos.qtyToken * actualPrice) / pos.costSol
+            gainMultipleFromNotional7057(pos.qtyToken, actualPrice, pos.costSol)
         }
         // V5.9.1510 — PHANTOM-MULTIPLE GUARD (operator export: USD1 bought @ $64.978,
         // "sold" @ $64.972 — price FELL — yet booked +254513% / capital_recovery_2546.1x,

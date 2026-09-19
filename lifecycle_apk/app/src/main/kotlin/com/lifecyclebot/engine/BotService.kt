@@ -19465,13 +19465,43 @@ if (hotExitHandledSweep) {
         val jobAlive = exitSweepCoordinatorJob?.isActive == true
         val heartbeatFresh = (now - exitCoordinatorStartHeartbeatMs6647.get()) < heartbeatStalenessMs
         if (jobAlive && heartbeatFresh) return
-        // Only a truly stuck coordinator gets here.
-        if (exitCoordinatorStartHeartbeatMs6647.get() >= requestedAt) return
+        // V5.0.7057 §SECONDARY — "started once" is not "still alive".
+        //
+        // This guard used to read `heartbeat >= requestedAt -> return`, with no
+        // freshness term. A coordinator that started and then HUNG has a
+        // heartbeat newer than the last request forever, so the watchdog stood
+        // down at any staleness — which is the operator's jobAlive=true with
+        // heartbeatAge ~550s against a 15s threshold, sitting next to
+        // EXIT_COORDINATOR_STALE_RESET. The one condition that proves liveness
+        // (a moving heartbeat) was the one the early return ignored.
+        //
+        // Now: a heartbeat that has gone stale past the threshold always earns
+        // a replacement, no matter when it last started. The requestedAt term
+        // is kept only for the FRESH case, where it still prevents relaunching
+        // a coordinator that genuinely started after the request.
+        val heartbeatAgeMs7057 = now - exitCoordinatorStartHeartbeatMs6647.get()
+        if (heartbeatAgeMs7057 < heartbeatStalenessMs &&
+            exitCoordinatorStartHeartbeatMs6647.get() >= requestedAt
+        ) return
+        if (heartbeatAgeMs7057 >= heartbeatStalenessMs) {
+            try {
+                PipelineHealthCollector.labelInc("EXIT_COORDINATOR_STALE_HEARTBEAT_REPLACED_7057")
+                ForensicLogger.lifecycle(
+                    "EXIT_COORDINATOR_STALE_HEARTBEAT_REPLACED_7057",
+                    "jobAlive=$jobAlive heartbeatAgeMs=$heartbeatAgeMs7057 " +
+                        "thresholdMs=$heartbeatStalenessMs requestedAt=$requestedAt " +
+                        "action=cancel_join_clear_lease_launch_exactly_one_replacement",
+                )
+            } catch (_: Throwable) {}
+        }
         synchronized(exitSweepCoordinatorLock) {
             val stillAlive = exitSweepCoordinatorJob?.isActive == true
-            val stillFresh = (System.currentTimeMillis() - exitCoordinatorStartHeartbeatMs6647.get()) < heartbeatStalenessMs
+            val stillAgeMs7057 = System.currentTimeMillis() - exitCoordinatorStartHeartbeatMs6647.get()
+            val stillFresh = stillAgeMs7057 < heartbeatStalenessMs
             if (stillAlive && stillFresh) return
-            if (exitCoordinatorStartHeartbeatMs6647.get() >= requestedAt) return
+            // Same correction under the lock: only a FRESH heartbeat may use
+            // the requestedAt shortcut.
+            if (stillFresh && exitCoordinatorStartHeartbeatMs6647.get() >= requestedAt) return
             exitSweepCoordinatorJob?.cancel()
             exitSweepCoordinatorJob = null
             try {
