@@ -366,6 +366,46 @@ object SpecialistCausalFunnel6625 {
                     removed++
                 }
             }
+            // V5.0.7099 §THE_SOFT_CAP_NEVER_CAPPED_ANYTHING.
+            //
+            // 6899 named a soft cap and then only ever used it as a TRIGGER for
+            // an age sweep. Age is a 30-minute TTL, so inside the first 30
+            // minutes of a process nothing is evictable and the map grows with
+            // no bound at all. 5.0.7091, 31 minutes of uptime:
+            //
+            //     §P5 CAUSAL_FUNNEL records=14839 ... softCap=12000
+            //
+            // 2839 records over a cap that had no authority to refuse them. And
+            // 6899's own header predicted the consequence — laneSnapshot6647
+            // visits every record once per desk — which is the same report the
+            // device now shows stalling: ANR_HINTS=3, position_parity_audit_6464
+            // 6608ms against a 3000ms budget.
+            //
+            // So the cap binds. Anything still over it after the age pass is
+            // evicted oldest-first until it is not. Nothing of value is lost: an
+            // acceptance window is 120 seconds and the newest RECORD_SOFT_CAP
+            // records are the ones kept. This bounds a diagnostic buffer; it
+            // throttles no lane and blocks no trade.
+            if (records.size > RECORD_SOFT_CAP_6899) {
+                val overflow = records.size - RECORD_SOFT_CAP_6899
+                val oldestFirst = records.entries
+                    .map { it.key to newestStageMs6899(it.value) }
+                    .sortedBy { it.second }
+                    .take(overflow)
+                var overflowRemoved = 0L
+                for ((k, _) in oldestFirst) if (records.remove(k) != null) overflowRemoved++
+                if (overflowRemoved > 0L) {
+                    removed += overflowRemoved
+                    try {
+                        PipelineHealthCollector.labelInc("CAUSAL_FUNNEL_RECORDS_EVICTED_OVER_CAP_7099")
+                        ForensicLogger.lifecycle(
+                            "CAUSAL_FUNNEL_RECORDS_EVICTED_OVER_CAP_7099",
+                            "removedOverCap=$overflowRemoved remaining=${records.size} " +
+                                "softCap=$RECORD_SOFT_CAP_6899 action=oldest_first_the_cap_now_binds",
+                        )
+                    } catch (_: Throwable) {}
+                }
+            }
             if (removed > 0L) {
                 evicted6899.addAndGet(removed)
                 try {
