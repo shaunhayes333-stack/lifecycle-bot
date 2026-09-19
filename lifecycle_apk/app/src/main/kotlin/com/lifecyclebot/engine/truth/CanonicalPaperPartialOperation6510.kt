@@ -157,10 +157,36 @@ object CanonicalPaperPartialOperation6510 {
                     }
                 }
             } else {
+                // V5.0.7056 §5 — FAIL CLOSED. This branch used to count
+                // "PARTIAL_PROCEEDS_UNCHECKED_7029" and then fall through and
+                // commit the sale anyway. That is a fail-OPEN guard: whenever
+                // the mark or the SOL rate was unavailable, the one check that
+                // could refuse an impossible proceeds figure was skipped and
+                // the money moved regardless. V5.0.7042 measured how often that
+                // happened — PROCEEDS_SOL_UNCONVERTIBLE_7029 fired 163 times in
+                // a 161-second window — so the escape hatch was the normal
+                // path, not the rare one. It is the leak that let 108 partial
+                // rows above |1000%| contribute ~+599 SOL to a ledger whose
+                // clean canonical performance was -1.3565 SOL.
+                //
+                // The operator's directive §5 is explicit: an unreconstructible
+                // partial is quarantined, never credited. Mine was the code
+                // doing the opposite.
                 try {
                     com.lifecyclebot.engine.PipelineHealthCollector
-                        .labelInc("PARTIAL_PROCEEDS_UNCHECKED_7029")
+                        .labelInc("PARTIAL_PROCEEDS_UNRECONSTRUCTABLE_7056_NO_PRICE")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "PARTIAL_PROCEEDS_UNRECONSTRUCTABLE_7056_NO_PRICE",
+                        "positionId=$positionId mint=${mint.take(10)} symbol=$symbol " +
+                            "claimedSol=${"%.6f".format(grossProceeds)} " +
+                            "markUsd=$markPriceUsd7029 solUsd=$solUsd7029 " +
+                            "action=refuse_commit_cannot_reconstruct_qty_times_price",
+                    )
                 } catch (_: Throwable) {}
+                // Release the tier exactly as the priced-refusal branch does, so
+                // a later attempt with a usable mark is not locked out.
+                tierStates6613.remove(tierKey)
+                return empty(positionId, "", 0L, "PROCEEDS_UNPRICED_7056")
             }
         }
         tierStates6613[tierKey] = TierState6613.EXECUTING

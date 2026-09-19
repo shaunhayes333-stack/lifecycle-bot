@@ -137,6 +137,44 @@ object CanonicalPaperTerminalBridge6469 {
         if (!qtyValidation6522.allowed) {
             return Result(false, false, false, "CANONICAL_QTY_${qtyValidation6522.reason}")
         }
+        // V5.0.7056 §5 + §6 — VALIDATE PARTIAL ECONOMICS BEFORE ANY MUTATION.
+        //
+        // This is the earliest point at which the canonical position, the sold
+        // quantity, the claimed basis, the claimed proceeds and the exit price
+        // are all in hand, and it is upstream of every mutation below: the
+        // canonical position mutation, the lot mutation, the qty commit and the
+        // PaperAccountLedger cash credit.
+        //
+        // ContaminatedPartialQuarantine7032 filters reward and learning AFTER
+        // the fact, by which time cash has already moved — which is why the
+        // operator's ledger reads +550.9932 SOL against -1.3565 SOL of clean
+        // canonical performance, and why 108 of 124 partial rows above |1000%|
+        // contributed ~+599 SOL. Directive §6: the quarantine belongs here.
+        //
+        // PARTIALS ONLY. A terminal full exit is untouched — three of the four
+        // finalizeSell call sites are full exits that supply no exit price, and
+        // failing those closed would strand positions the bot could no longer
+        // exit, which is a worse failure than the one being repaired.
+        if (!terminal) {
+            val econ7056 = try {
+                PaperPartialEconomicsGate7056.validate(
+                    positionId = positionId, mint = mint, pos = canonicalBefore6522,
+                    soldQtyRaw = soldQtyRaw, grossProceedsSol = grossProceedsSol,
+                    callerBasisSol = soldCostBasisSol, feesSol = feesSol,
+                    exitPriceUsd = exitPriceUsd7032, solUsdAtExit = solUsdAtExit7032,
+                )
+            } catch (_: Throwable) { null }
+            if (econ7056 != null && !econ7056.ok) {
+                PaperPartialEconomicsGate7056.logRefusal(positionId, mint, symbol, econ7056)
+                // No claim taken, no event opened, no position touched, no cash.
+                // The position stays whole and a later, well-priced attempt at
+                // the same ladder step can still succeed.
+                return Result(
+                    applied = false, terminalClaimed = false, busPublished = false,
+                    reason = "PARTIAL_ECONOMICS_${econ7056.reason}_7056",
+                )
+            }
+        }
         val qtyAdmission6498 = SellQtyBoundaryClamp6427.admitRaw(positionId, soldQtyRaw, mint, symbol)
         if (!qtyAdmission6498.allowed) {
             try { PipelineHealthCollector.labelInc("CANONICAL_PAPER_SELL_QTY_REJECTED_6498") } catch (_: Throwable) {}

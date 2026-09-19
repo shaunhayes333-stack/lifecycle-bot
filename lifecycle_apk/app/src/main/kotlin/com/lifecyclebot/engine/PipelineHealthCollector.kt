@@ -2182,6 +2182,12 @@ object PipelineHealthCollector {
             sb.append("  Local candle synth (§7055):   ").append(
                 com.lifecyclebot.engine.truth.LocalCandleSynthesis7055.statusLine7055()
             ).append("\n")
+            // V5.0.7056 — every refusal here is a partial that never reached
+            // cash. Read against PAPER_LEDGER_VS_JOURNAL_DIVERGENCE_6502: these
+            // two moving together is the acceptance test for the partial repair.
+            sb.append("  Partial economics gate(§7056):").append(
+                com.lifecyclebot.engine.truth.PaperPartialEconomicsGate7056.statusLine7056()
+            ).append("\n")
             sb.append("  Reward bootstrap (§6453):     ").append(
                 com.lifecyclebot.engine.truth.CanonicalRewardBootstrap6453.statusLine()
             ).append("\n")
