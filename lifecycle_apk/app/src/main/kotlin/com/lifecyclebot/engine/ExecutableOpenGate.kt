@@ -404,8 +404,37 @@ object ExecutableOpenGate {
     // MemeOwnershipInvariant6620 names only STANDARD/V3_CORE as observer-only.
     // Keeping CASHGEN here contradicted that source contract and suppressed its
     // FDG/ExecutionIntent publication before the trader could ever open.
+    //
+    // V5.0.7117 — and STANDARD leaves for the same reason CASHGEN did.
+    // Operator, twice: "core and standard are trading lanes."
+    //
+    // This predicate is not advisory. It returns early out of recordFdg, so a
+    // lane named here never gets an FDG decision or an ExecutionIntent at all,
+    // and it blocks the open outright at EXEC_OPEN_BLOCKED_SHADOW_LANE_6487. On
+    // the 5.0.7115 snapshot STANDARD took 1,485 lane evaluations — joint most
+    // of any lane in the book — and every one of them was scored, reported and
+    // learned from while being denied a decision.
+    //
+    // The device also shows STANDARD holding and closing real positions:
+    // Lane Exit Tuner lifetime=6, LiveProbabilityEngine STANDARD pWin=48% n=5,
+    // a TICK_CATASTROPHIC_CONFIRMED_-90PCT stop, and a doBuy.final sizing row.
+    // Those got through only via the two exemptions on this check —
+    // allowTrunkExecutionHandoff6533 at the recordFdg site and a non-null
+    // immutableAuthority6513 at the open site. So STANDARD was already trading
+    // through the side doors while the front door called it read-only.
+    //
+    // V3_CORE STAYS. The operator named CORE and STANDARD, not V3_CORE, and
+    // directive §11 is explicit that the three must not be aliased together:
+    // "Do NOT automatically alias CORE/STANDARD/V3_CORE together. Preserve
+    // their actual design semantics."
+    //
+    // MemeOwnershipInvariant6620's own NON_EXECUTABLE set is deliberately NOT
+    // changed here. It answers a different question — may this lane take an
+    // execution slot AWAY from a specialist that already owns the candidate —
+    // and the answer to that is still no. A lane may trade a candidate no
+    // specialist owns without being allowed to steal one that is owned.
     private fun isShadowReadOnlyLane6487(rawLane: String): Boolean =
-        rawLane.uppercase().trim().replace('-', '_').replace(' ', '_') in setOf("V3_CORE", "STANDARD")
+        rawLane.uppercase().trim().replace('-', '_').replace(' ', '_') in setOf("V3_CORE")
 
     /**
      * V5.0.6909 — the entry score this gate already holds for a mint.
@@ -795,11 +824,65 @@ object ExecutableOpenGate {
     fun lanesCompatibleForTests(selectedLane: String, requestedLane: String): Boolean =
         selectedLaneMatchesRequest(selectedLane, requestedLane)
 
-    // V5.0.6871 — derived from the one shared set (see SOURCE_BUCKET_LANES_6871).
-    // A real execution lane is a non-blank lane that is not a scanner source bucket.
+    // V5.0.7117 — Aate7117CoreAndStandardAreTradingLanesTest reads both halves of
+    // the CORE exception: that CORE is executable, and that the exception is
+    // exactly one lane wide. The second needs the bucket set itself, because
+    // asserting the INTERSECTION is what stops a future edit to either set from
+    // silently widening a documented one-lane carve-out.
+    fun isRealExecutionLaneForTests7117(lane: String): Boolean = isRealExecutionLane(lane)
+
+    fun sourceBucketLanesForTests7117(): Set<String> = SOURCE_BUCKET_LANES_6871
+
+    /**
+     * V5.0.6871 — derived from the one shared set (see SOURCE_BUCKET_LANES_6871).
+     * A real execution lane is a non-blank lane that is not a scanner source bucket.
+     *
+     * V5.0.7117 §CORE_IS_A_TRUNK_AND_A_TRADING_LANE. Operator, twice: "core and
+     * standard are trading lanes."
+     *
+     * "Is this a scanner source bucket?" and "is this a real execution lane?"
+     * are the same question for every entry in that set EXCEPT ONE. CORE is
+     * genuinely both: it is the trunk that downstream executors request through
+     * — which is why isSourceBucketLane must keep forgiving a MOONSHOT-sealed
+     * intent requested via CORE, the EXEC_RESTORED_SPECIALIST_VIA_TRUNK_6692
+     * path — and it is ALSO a MemeTrader specialist in its own right.
+     * MemeOwnershipInvariant6620 says so outright: CORE is in SPECIALIST_LANES,
+     * and its comment reads "Note CORE is deliberately NOT in this set [the
+     * non-executable observers] — it is itself a MemeTrader specialist per
+     * operator directive §11".
+     *
+     * Deriving BOTH answers from the bucket set made CORE non-executable, and
+     * the resolution chain in canOpenExecutablePositionInternal ends with
+     * `isRealExecutionLane(lane) -> requestedLane` before falling to "UNKNOWN".
+     * So a CORE candidate with no immutable authority, no election receipt and
+     * no real state.selectedLane resolved to UNKNOWN and was dropped as
+     * CANON_LANE_UNRESOLVED — 452 of them on the operator's 5.0.7115 snapshot,
+     * against CORE being the single busiest lane in the book:
+     *
+     *     CORE  ownerSelected=285  buyIntent=304  ...  exec=0  positionOpened=0
+     *           rawSized=18 rawTicket=13 rawExec=2 rawOpen=2   status=EXEC_CHOKED
+     *
+     * The lane election elects CORE as owner 285 times and the execution gate
+     * refuses to believe CORE can own anything. Same class as V5.0.7115: two
+     * authorities over one fact, here "is CORE an executable specialist".
+     *
+     * THE FIX IS DELIBERATELY NOT "REMOVE CORE FROM THE BUCKET SET". That would
+     * break the trunk forgiveness in selectedLaneMatchesRequest and
+     * resolveSealedIntent6613 and flood the log with the false lane mismatches
+     * V5.9.1169 and V5.0.7115 were written to remove. CORE has to be in the
+     * bucket set AND be a real execution lane, so the specialist enum — the
+     * authority that already owns "which lanes may trade" — answers first.
+     *
+     * The intersection of SPECIALIST_LANES and SOURCE_BUCKET_LANES_6871 is
+     * exactly {CORE}, so this changes the answer for CORE and for nothing else.
+     * Aate7117CoreAndStandardAreTradingLanesTest pins that intersection, so a
+     * future edit to either set cannot silently widen this exception.
+     */
     private fun isRealExecutionLane(lane: String): Boolean {
         val l = canonicalLane(lane)
-        return l.isNotBlank() && l !in SOURCE_BUCKET_LANES_6871
+        if (l.isBlank()) return false
+        if (l in com.lifecyclebot.engine.truth.MemeOwnershipInvariant6620.SPECIALIST_LANES) return true
+        return l !in SOURCE_BUCKET_LANES_6871
     }
 
     private fun laneForRelease(selectedLane: String, requestedLane: String): String {

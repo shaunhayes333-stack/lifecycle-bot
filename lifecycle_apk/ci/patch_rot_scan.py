@@ -175,10 +175,25 @@ def main() -> int:
 
     # 6705 specialist liveness contract. CASHGEN is explicitly executable in
     # MemeOwnershipInvariant6620; only STANDARD/V3_CORE may be shadow-only.
+    #
+    # V5.0.7117 — STANDARD is no longer shadow-only either. Operator, twice:
+    # "core and standard are trading lanes." The shadow set is V3_CORE alone, so
+    # the pin moves with it rather than being deleted: re-adding either CASHGEN
+    # or STANDARD to that set still fails the build. V3_CORE stays pinned IN,
+    # because directive §11 forbids aliasing CORE/STANDARD/V3_CORE together and
+    # the operator named the other two, not V3_CORE.
     open_gate = (SRC / "com/lifecyclebot/engine/ExecutableOpenGate.kt").read_text()
     forbid(errors, open_gate, 'setOf("V3_CORE", "STANDARD", "CASHGEN")', "CASHGEN_SHADOW_DISABLE_RETIRED_6705")
-    require(errors, open_gate, 'setOf("V3_CORE", "STANDARD")', "OBSERVER_ONLY_LANES_6705")
+    forbid(errors, open_gate, 'setOf("V3_CORE", "STANDARD")', "STANDARD_SHADOW_DISABLE_RETIRED_7117")
+    require(errors, open_gate, 'setOf("V3_CORE")', "OBSERVER_ONLY_LANES_7117")
     require(errors, open_gate, "CASHGEN is a canonical executable MemeTrader specialist", "CASHGEN_EXECUTABLE_SOURCE_CONTRACT_6705")
+    # V5.0.7117 — CORE must stay executable. It is in SOURCE_BUCKET_LANES_6871
+    # (it is the trunk) AND in MemeOwnershipInvariant6620.SPECIALIST_LANES (it is
+    # a trading lane), so isRealExecutionLane has to ask the specialist enum
+    # before the bucket set. Reverting that ordering silently reinstates the 452
+    # CANON_LANE_UNRESOLVED drops the 5.0.7115 snapshot measured.
+    require(errors, open_gate, "MemeOwnershipInvariant6620.SPECIALIST_LANES) return true",
+            "CORE_EXECUTABLE_VIA_SPECIALIST_ENUM_7117")
 
     # 6702 exit-liveness contracts.
     paper_close = (SRC / "com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").read_text()

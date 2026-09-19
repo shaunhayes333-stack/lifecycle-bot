@@ -51,8 +51,13 @@ class Aate6705CashgenExecutionAuthorityTest {
         val body = gate.substringAfter("private fun isShadowReadOnlyLane6487")
             .substringBefore("fun recordEntryAuthority6487")
         assertTrue(body.contains("V3_CORE"))
-        assertTrue(body.contains("STANDARD"))
         assertFalse(body.contains("CASHGEN"))
+        // V5.0.7117 — STANDARD left this set for exactly the reason CASHGEN did.
+        // Operator: "core and standard are trading lanes." V3_CORE stays, because
+        // directive §11 forbids aliasing CORE/STANDARD/V3_CORE together and the
+        // operator named the other two.
+        assertFalse("V5.0.7117: STANDARD is a trading lane, not a shadow lane",
+            body.contains("STANDARD"))
 
         val ownership = File("src/main/kotlin/com/lifecyclebot/engine/truth/MemeOwnershipInvariant6620.kt").readText()
         assertTrue(ownership.contains("\"MANIPULATED\", \"TREASURY\", \"CASHGEN\""))

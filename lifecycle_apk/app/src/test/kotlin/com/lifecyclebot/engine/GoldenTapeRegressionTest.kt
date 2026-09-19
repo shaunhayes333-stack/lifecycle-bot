@@ -7850,9 +7850,19 @@ class GoldenTapeRegressionTest {
 
         assertTrue("6487 entry authority is recorded before executable lane work",
             bot.indexOf("recordEntryAuthority6487") >= 0 && bot.indexOf("recordEntryAuthority6487") < bot.indexOf("FinalDecisionGate.evaluate("))
+        // V5.0.7117 — this asserted the FILE mentioned V3_CORE/STANDARD/CASHGEN,
+        // which a comment satisfies, so it could not tell membership of the set
+        // from discussion of it. It now reads the predicate's own body: V3_CORE
+        // is the only shadow lane left. CASHGEN left in 6705 and STANDARD left in
+        // 7117 (operator: "core and standard are trading lanes"); §11 keeps
+        // V3_CORE distinct from the other two.
+        val shadowBody7117 = gate.substringAfter("private fun isShadowReadOnlyLane6487")
+            .substringBefore("fun recordEntryAuthority6487")
         assertTrue("6487 named shadow lanes cannot create FDG tickets or executable opens",
-            gate.contains("isShadowReadOnlyLane6487") && gate.contains("V3_CORE") && gate.contains("STANDARD") && gate.contains("CASHGEN") &&
+            gate.contains("isShadowReadOnlyLane6487") && shadowBody7117.contains("V3_CORE") &&
                 gate.contains("SHADOW_LANE_FDG_SUPPRESSED_6487") && gate.contains("EXEC_OPEN_BLOCKED_SHADOW_LANE_6487"))
+        assertFalse("V5.0.7117: STANDARD and CASHGEN are trading lanes, not shadow lanes",
+            shadowBody7117.contains("STANDARD") || shadowBody7117.contains("CASHGEN"))
         assertTrue("6487 one mint/version has one executable BUY claim",
             gate.contains("executableBuyClaim6487.putIfAbsent") && gate.contains("ONE_EXECUTABLE_BUY_PER_MINT_VERSION") && gate.contains("EXEC_BUY_MINT_VERSION_DUPLICATE_SUPPRESSED_6487"))
         assertFalse("6487 FDG recording cannot publish early tickets",
