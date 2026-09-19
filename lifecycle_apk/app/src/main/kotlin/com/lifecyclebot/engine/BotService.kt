@@ -22504,7 +22504,25 @@ if (hotExitHandledSweep) {
                     TradingMemory.learnFromRug(
                         mint = mint,
                         symbol = ts.symbol,
-                        creatorWallet = null,  // Would need API to get this
+                        // V5.0.7070 — was `null, // Would need API to get this`.
+                        //
+                        // No API was ever needed. PumpFunWebSocket delivers the
+                        // creator on every launch as `traderPublicKey`,
+                        // DataOrchestrator.handleNewPumpToken already stores it
+                        // via OperatorRegistry.set(mint, devWallet), and it has
+                        // been sitting there the whole time.
+                        //
+                        // Because this was null, the `if (!creatorWallet
+                        // .isNullOrBlank())` branch inside learnFromRug never
+                        // ran, so creatorBlacklist was PERMANENTLY EMPTY and
+                        // TradingMemory.isCreatorBlacklisted could only ever
+                        // return false. A rug-creator blacklist that has no
+                        // entries is not a weak defence, it is no defence — and
+                        // the comment claiming an API was required is why
+                        // nobody looked again.
+                        creatorWallet = try {
+                            OperatorRegistry.getDevWallet(mint)
+                        } catch (_: Throwable) { null },
                         liquidityDropPct = liqDropPct,
                         priceDropPct = priceDropPct,
                         volumeSpikeBeforeRug = volumeSpike,

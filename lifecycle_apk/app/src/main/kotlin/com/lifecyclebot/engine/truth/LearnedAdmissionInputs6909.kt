@@ -171,9 +171,42 @@ object LearnedAdmissionInputs6909 {
         } catch (_: Throwable) { null }
         val symbolHint6917 = try { tsForBrains6917?.symbol.orEmpty() } catch (_: Throwable) { "" }
         val liquidityUsdHint6917 = try { tsForBrains6917?.lastLiquidityUsd ?: 0.0 } catch (_: Throwable) { 0.0 }
+        // V5.0.7070 — THE CREATOR DEFENCE WAS STARVED AT BOTH ENDS.
+        //
+        // PredictiveEntryOracle6915 scales a penalty by creator rug count and
+        // hardSafetyRefusal6927 refuses serial ruggers outright. That defence
+        // is complete and correctly wired, and it has never fired once,
+        // because neither end of it was ever fed:
+        //
+        //   WRITE: BotService passed `creatorWallet = null` into learnFromRug
+        //          with the comment "Would need API to get this", so the
+        //          blacklist was permanently empty. (Fixed this build.)
+        //
+        //   READ:  this line asks Birdeye, which is dead — sr=0%, http 401,
+        //          BIRDEYE_KEY_DEAD_401_STICKY_6503 — and the free DexScreener
+        //          seeder explicitly leaves creatorAddress blank. So `creator`
+        //          arrived empty at the oracle and the whole branch was skipped
+        //          on every candidate.
+        //
+        // No API was ever needed at either end. PumpFunWebSocket delivers the
+        // creator as `traderPublicKey` on every launch and
+        // DataOrchestrator.handleNewPumpToken already stores it in
+        // OperatorRegistry — free, keyless, and by far the dominant intake
+        // source on this bot. Birdeye stays FIRST because when it is alive it
+        // covers non-pump mints too; the registry is the fallback that makes
+        // the defence work at all today.
         val creatorHint6917 = try {
-            com.lifecyclebot.engine.BirdeyeCreationInfoProvider.peekCached(mint)?.creatorAddress.orEmpty()
+            com.lifecyclebot.engine.BirdeyeCreationInfoProvider.peekCached(mint)?.creatorAddress
+                ?.takeIf { it.isNotBlank() }
+                ?: com.lifecyclebot.engine.OperatorRegistry.getDevWallet(mint).orEmpty()
         } catch (_: Throwable) { "" }
+        try {
+            if (creatorHint6917.isNotBlank()) {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CREATOR_RESOLVED_FOR_ADMISSION_7070")
+            } else {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CREATOR_UNRESOLVED_FOR_ADMISSION_7070")
+            }
+        } catch (_: Throwable) {}
 
         // V5.0.6915 — realised per-source expectancy. Read once here and
         // shared with 6846's §5, which has been inert since 6909 only because
