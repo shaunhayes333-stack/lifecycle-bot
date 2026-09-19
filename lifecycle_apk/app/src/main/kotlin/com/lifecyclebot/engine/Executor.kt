@@ -8464,6 +8464,49 @@ class Executor(
                         else -> "DEFAULT"
                     }
                 }) — force-exit", ts.mint)
+                // V5.0.7122 §AN_8_PERCENT_STOP_THAT_BOOKS_AT_32_IS_A_MISSED_EVALUATION.
+                //
+                // Operator directive P0-3: "Assert paper stop economics:
+                // STRICT_SL_-X may exceed X only when an explicit
+                // GAP/STALE_MARK/PRICE_DISCONTINUITY reason is attached." Their
+                // CSV: STRICT_SL_-8 closed at -32.65%, STRICT_SL_-4 at -19.01%.
+                //
+                // This branch fires the instant pnlPctNow <= hardFloor, and in
+                // PAPER there is no slippage between trigger and fill — the close
+                // books at the mark. So a floor of -8 booking at -32.65 does not
+                // mean the stop executed badly. It means nothing evaluated this
+                // position while it fell the intervening 24 points. The overshoot
+                // is therefore a direct measure of protective-path downtime, and
+                // it was previously invisible: the reason string carries the
+                // CONFIGURED floor, never the realised one, so every one of these
+                // is indistinguishable from a clean stop in the journal.
+                //
+                // Classified, not merely counted. A stale mark is a data problem
+                // and an honest explanation; an overshoot with a FRESH mark means
+                // the sweep simply was not running, which is the V5.0.7121
+                // heartbeat defect and the number that proves whether it is fixed.
+                // 3 points of tolerance absorbs ordinary tick granularity — the
+                // cases the operator found are 11 and 24 points past the floor.
+                val overshootPts7122 = hardFloor - pnlPctNow
+                if (overshootPts7122 > 3.0) {
+                    val markAgeMs7122 = (System.currentTimeMillis() - ts.lastPriceUpdate).coerceAtLeast(0L)
+                    val staleMark7122 = markAgeMs7122 >= 60_000L
+                    try {
+                        PipelineHealthCollector.labelInc("STRICT_SL_OVERSHOT_7122")
+                        PipelineHealthCollector.labelInc(
+                            if (staleMark7122) "STRICT_SL_OVERSHOT_7122_STALE_MARK"
+                            else "STRICT_SL_OVERSHOT_7122_UNEXPLAINED_MISSED_EVALUATION"
+                        )
+                        ForensicLogger.lifecycle(
+                            "STRICT_SL_OVERSHOT_7122",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} " +
+                                "configuredFloor=${hardFloor.fmt(2)} realisedPnl=${pnlPctNow.fmt(2)} " +
+                                "overshootPts=${overshootPts7122.fmt(2)} markAgeMs=$markAgeMs7122 " +
+                                "cause=${if (staleMark7122) "STALE_MARK" else "UNEXPLAINED_MISSED_EVALUATION"} " +
+                                "action=stop_fired_late_capital_already_lost_before_this_evaluation",
+                        )
+                    } catch (_: Throwable) {}
+                }
                 doSell(ts, "STRICT_SL_${hardFloor.toInt()}", wallet, walletSol)
                 return
             }
