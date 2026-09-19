@@ -19563,6 +19563,44 @@ if (hotExitHandledSweep) {
         if (heartbeatAgeMs7057 < heartbeatStalenessMs &&
             exitCoordinatorStartHeartbeatMs6647.get() >= requestedAt
         ) return
+        // V5.0.7067 §A_RELAUNCH_THAT_NEVER_STARTS_IS_NOT_A_REPAIR.
+        //
+        // Operator's 5.0.7065 device report:
+        //     EXIT_COORDINATOR_NO_START_RELAUNCHED_6647   437
+        //     EXIT_COORDINATOR_STALE_HEARTBEAT_REPLACED   437
+        //     EXIT_COORDINATOR_STARTED                      1
+        //
+        // 437 relaunches, ONE coordinator body that ever ran. Every replacement
+        // after the first was stillborn — cancelled or never scheduled before
+        // its first line — and because a job that never starts also never
+        // writes a heartbeat, the watchdog saw a stale heartbeat again on the
+        // very next cycle and paid another cancel+launch. A self-sustaining
+        // churn loop at roughly one relaunch every 6.6 seconds.
+        //
+        // V5.0.6897 already counts exactly this (ineffectiveRelaunches, cleared
+        // when the body actually runs) and already logs it once per 20
+        // attempts. It just never acted on it: the log named the condition and
+        // then relaunched anyway.
+        //
+        // So back off on the evidence already being collected. After the first
+        // few ineffective attempts the retry interval doubles, capped, which
+        // stops a starved dispatcher from being hammered by the very mechanism
+        // meant to rescue it. A single successful start clears the counter and
+        // restores per-cycle vigilance immediately, so a genuinely hung
+        // coordinator is still replaced promptly — this only slows the case
+        // that has already proven it cannot start.
+        val ineffective7067 = exitCoordinatorIneffectiveRelaunches6897.get()
+        if (ineffective7067 >= 3L) {
+            val backoffCycles7067 = minOf(1L shl minOf((ineffective7067 - 2L).toInt(), 5), 32L)
+            val currentCycle7067 = executionSpineCycle6647.get()
+            if (currentCycle7067 - exitCoordinatorLastRelaunchCycle7067.get() < backoffCycles7067) {
+                try {
+                    PipelineHealthCollector.labelInc("EXIT_COORDINATOR_RELAUNCH_BACKOFF_7067")
+                } catch (_: Throwable) {}
+                return
+            }
+        }
+        exitCoordinatorLastRelaunchCycle7067.set(executionSpineCycle6647.get())
         if (heartbeatAgeMs7057 >= heartbeatStalenessMs) {
             try {
                 PipelineHealthCollector.labelInc("EXIT_COORDINATOR_STALE_HEARTBEAT_REPLACED_7057")
@@ -19597,6 +19635,14 @@ if (hotExitHandledSweep) {
 
     /** V5.0.6897 — consecutive relaunches that produced no coordinator start. */
     private val exitCoordinatorIneffectiveRelaunches6897 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /**
+     * V5.0.7067 — execution-spine cycle of the last relaunch attempt, so the
+     * backoff above is measured in bot cycles rather than wallclock. Cycles are
+     * the unit the deadline check already works in, and they stretch with load
+     * — which is exactly when a starved dispatcher most needs to be left alone.
+     */
+    private val exitCoordinatorLastRelaunchCycle7067 = java.util.concurrent.atomic.AtomicLong(-1L)
 
     private fun ensureExitSweepCoordinator() {
         val existing = exitSweepCoordinatorJob

@@ -84,6 +84,8 @@ object ProtectiveExitScheduler6450 {
     //             it must never be silent again.
     private val armed = AtomicLong(0L)
     private val noMark = AtomicLong(0L)
+    // V5.0.7067 — deliberate markPx=0 liveness pings, counted apart from noMark.
+    private val heartbeats = AtomicLong(0L)
     private val noThreshold = AtomicLong(0L)
     private val stopsTriggered = AtomicLong(0L)
     private val catastrophesTriggered = AtomicLong(0L)
@@ -109,7 +111,27 @@ object ProtectiveExitScheduler6450 {
         // no fresh mark). Bump heartbeat above but skip trigger logic —
         // NEVER latch on a zero/placeholder price.
         if (markPx <= 0.0) {
-            noMark.incrementAndGet()
+            // V5.0.7067 §A_COUNTER_THAT_MERGES_TWO_THINGS_REPORTS_NEITHER.
+            //
+            // `noMark` read 173,194 on the operator's 5.0.7065 report against
+            // eval=184,139 — 94%, which looks exactly like an exit layer that
+            // cannot price anything. It is not. BotService:15444 pings EVERY
+            // open canonical position with markPx=0.0 once per cycle BY DESIGN,
+            // purely to keep this scheduler's heartbeat alive, and 62 positions
+            // over 508 cycles is most of that number.
+            //
+            // I read the merged counter as a fault and started fixing an exit
+            // path that was working: armed=10,880 genuine comparisons had in
+            // fact run. A counter that merges an intentional no-op with a real
+            // failure will mislead whoever reads it next, so they are split.
+            // `heartbeats` is the deliberate ping; `noMark` now means only what
+            // its name says — a caller that wanted an evaluation and had no
+            // usable price.
+            if (stopPx <= 0.0 && catastrophePx <= 0.0 && tpPx <= 0.0 && trailPx <= 0.0) {
+                heartbeats.incrementAndGet()
+            } else {
+                noMark.incrementAndGet()
+            }
             return null
         }
         if (latches.containsKey(positionId)) return latches[positionId]?.kind
@@ -208,7 +230,8 @@ object ProtectiveExitScheduler6450 {
         // snapshots but it is the total including heartbeats, not the work.
         return "hb=$hb armed=${armed.get()} SL=${stopsTriggered.get()} CATA=${catastrophesTriggered.get()} " +
             "TP=${tpTriggered.get()} TRAIL=${trailingsTriggered.get()} latched=${latches.size} " +
-            "eval=${evaluations.get()} noMark=${noMark.get()} noThreshold=${noThreshold.get()} " +
+            "eval=${evaluations.get()} heartbeats=${heartbeats.get()} noMark=${noMark.get()} " +
+            "noThreshold=${noThreshold.get()} " +
             "starvations=${starvations.get()} untriggerDenied=${untriggerAttempts.get()}"
     }
 }
