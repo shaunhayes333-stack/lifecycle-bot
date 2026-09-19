@@ -395,10 +395,27 @@ object GeminiCopilot {
         return null
     }
 
+    /**
+     * V5.0.7119 — the operator typed this. Every provider attempt underneath
+     * waives our own local cooldown once; see the note in callAnyProvider.
+     *
+     * The body moved into [chatReplyInternal7119] unchanged rather than being
+     * wrapped in place: it has three callText calls and five return points, and
+     * a flag set at the top with clears before each return is the shape that
+     * leaks on the path someone forgets.
+     */
     fun chatReply(
         userMessage: String,
         contextSummary: String,
         persona: com.lifecyclebot.engine.Personalities.Persona? = null
+    ): String? = withOperatorTurn7119 {
+        chatReplyInternal7119(userMessage, contextSummary, persona)
+    }
+
+    private fun chatReplyInternal7119(
+        userMessage: String,
+        contextSummary: String,
+        persona: com.lifecyclebot.engine.Personalities.Persona?
     ): String? {
         if (!isConfigured()) {
             lastBlipDiagnostic = "no providers"
@@ -562,10 +579,56 @@ Default to a natural, normal LLM-style reply with emotional range.
 
         val failures = ArrayList<String>()
 
+        // V5.0.7119 §OUR_OWN_COOLDOWN_REPORTED_AS_THE_PROVIDER'S_SILENCE.
+        //
+        // Operator, with working keys in Settings: "ive put legit groq and
+        // gemini keys into settings they should would!!!" — and the device
+        // agrees with them:
+        //
+        //     KeyValidator: gemini live=true http=200 GEMINI_HEALTHY
+        //                   groq   live=true http=200 GROQ_HEALTHY
+        //     Inference:    GEMINI success=7 failure=8 capacity=AVAILABLE
+        //
+        // while the Persona chat answered a typed question with
+        // "LLM connection blipped" and the reason list
+        // "gemini_direct:rate-limited | ... | groq:rate-limited".
+        //
+        // Nothing rate-limited us on that turn. rateLimitedUntilByProvider is
+        // OUR OWN map, and a provider inside its window is skipped here before
+        // any request is made — so the chat prints our refusal as the
+        // provider's silence. Worse, the skip is self-sealing: a cooled
+        // provider is never called, so resetRateLimit (which only runs on a
+        // successful response) can never fire, and a 10-minute quarantine
+        // outlives a 6-minute session no matter how healthy the key is.
+        //
+        // HealthAwareHttp already wrote the rule for this, one layer over, in
+        // V5.0.7016: "Backoff exists to stop a background loop hammering a sore
+        // host thousands of times an hour. It was never meant to answer a
+        // question the operator just typed, and when it does the app reports
+        // its own refusal as the provider's silence." That fix gave ApiBackoff
+        // an allowDuringLockout waiver. GeminiCopilot's private cooldown map
+        // never got one.
+        //
+        // An operator turn is ONE request, rarely, so waiving the local
+        // cooldown for it costs the provider nothing and is the difference
+        // between the chat answering and the chat apologising. Background
+        // callers — SentienceHooks, SsiPilotCouncil, AutoPipelineAdvisor6462,
+        // LlmLabEngine, InternetEdgeDesk, AdaptiveLaneReproof6684 — are
+        // unchanged and still respect every cooldown.
+        val operatorTurn7119 = isOperatorTurn7119()
+
         for (provider in providers) {
             if (isRateLimited(provider.name)) {
-                failures.add(provider.name + ":rate-limited")
-                continue
+                if (!operatorTurn7119) {
+                    failures.add(provider.name + ":rate-limited")
+                    continue
+                }
+                try {
+                    PipelineHealthCollector.labelInc(
+                        "LLM_COOLDOWN_WAIVED_OPERATOR_TURN_7119_" +
+                            provider.name.uppercase(Locale.US).take(24),
+                    )
+                } catch (_: Throwable) {}
             }
 
             try {
@@ -1095,7 +1158,19 @@ Not one sentence unless the moment truly calls for it.
                                     errorBody.contains("model", ignoreCase = true) && (errorBody.contains("does not exist", ignoreCase = true) || errorBody.contains("access", ignoreCase = true)) -> "model_unavailable"
                                     else -> "http_" + response.code
                                 }
-                                recordProviderCooldown(provider.name, fatalLabel, MAX_BACKOFF_MS)
+                                // V5.0.7119 — only a QUARANTINE-WORTHY 4xx earns the
+                                // ten-minute lockout. budget_exceeded and
+                                // model_unavailable are statements about this key or
+                                // this model that will still be true in a minute, so
+                                // they keep MAX_BACKOFF_MS. A bare 400/404 is usually
+                                // request-shaped and transient, and ten minutes is
+                                // longer than the operator's whole session — the
+                                // 5.0.7116 snapshot ran 352 seconds. It also sat
+                                // inconsistently beside the `else` branch below, where
+                                // every OTHER 4xx already cools for 120s: a 402 got two
+                                // minutes and a 400 got ten.
+                                val cooldown7119 = if (fatalLabel == "http_" + response.code) 120_000L else MAX_BACKOFF_MS
+                                recordProviderCooldown(provider.name, fatalLabel, cooldown7119)
                                 ErrorLogger.warn(TAG, provider.name + " HTTP " + response.code + " quarantined " + fatalLabel + ": " + errorBody)
                                 hardFail = true
                             }
@@ -1241,6 +1316,31 @@ Not one sentence unless the moment truly calls for it.
     private fun isRateLimited(providerName: String): Boolean {
         val until = rateLimitedUntilByProvider[providerName] ?: 0L
         return System.currentTimeMillis() < until
+    }
+
+    /**
+     * V5.0.7119 — true only while an operator-typed chat turn is in flight on
+     * this thread.
+     *
+     * ThreadLocal rather than a parameter because callText/rawText have eight
+     * background callers whose signatures should not change to express
+     * something none of them ever set, and because several LLM calls can be in
+     * flight at once — the same reason KeylessLlmClient.forcedAttempt7016 is a
+     * ThreadLocal. Scoped by [withOperatorTurn7119] so it cannot leak past the
+     * turn that set it, even on an exception.
+     */
+    private val operatorTurnFlag7119 = ThreadLocal.withInitial { false }
+
+    private fun isOperatorTurn7119(): Boolean = operatorTurnFlag7119.get() == true
+
+    private fun <T> withOperatorTurn7119(block: () -> T): T {
+        val prior = operatorTurnFlag7119.get() == true
+        operatorTurnFlag7119.set(true)
+        try {
+            return block()
+        } finally {
+            operatorTurnFlag7119.set(prior)
+        }
     }
 
     private fun recordRateLimit(providerName: String) {
