@@ -72,7 +72,23 @@ object CanonicalPaperPartialOperation6510 {
      * throttle) is untouched, because a genuine 1000x runner has proceeds
      * that reconstruct perfectly from its own quantity and its own price.
      */
-    private const val PROCEEDS_RECONSTRUCTION_BAND_7029 = 25.0
+    /**
+     * V5.0.7068 — WAS 25.0.
+     *
+     * This compares claimed SOL proceeds against soldQty x markUsd / solUsd.
+     * Correctly computed proceeds agree with that to floating point; it is an
+     * arithmetic identity between three numbers the caller is holding, not a
+     * market judgement. A 25x band meant a sale could claim twenty-five times
+     * what its own quantity and price produce and still commit. That is not a
+     * safety margin, it is permission.
+     *
+     * EconomicUnitInvariant7061 runs the same reconstruction at 1% at the
+     * bridge and reported rejected=0 on the device, so the priced path is
+     * already clean and this tightening should be a no-op for correct data —
+     * which is the point. It is the second gate, and a second gate set twenty
+     * times wider than the first is not a gate.
+     */
+    private const val PROCEEDS_RECONSTRUCTION_BAND_7029 = 1.10
 
     /**
      * V5.0.7066 — ceiling on proceeds-to-basis for a basis-derived partial.

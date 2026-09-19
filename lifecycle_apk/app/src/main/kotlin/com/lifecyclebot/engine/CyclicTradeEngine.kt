@@ -352,34 +352,138 @@ object CyclicTradeEngine {
                 emit = true,
             )
         } catch (_: Throwable) { OpenPnlSanity.Verdict(false, reason = "INSPECT_THROW") }
+        // V5.0.7068 §THE_PNL_MUST_AGREE_WITH_THE_MARKET_CAP.
+        //
+        // Operator's 5.0.7067 device capture, CARDSc on this lane:
+        //
+        //   entry e=0.00067738  exit x=0.00167541   → a real 2.47x
+        //   journal row         → +27379.0%          i.e. 274.8x
+        //   274.8 / 2.47        = 111                ≈ the SOL/USD rate
+        //   market cap          = $674,010 on EVERY rung, dead flat
+        //
+        // Twelve partial rungs in 44 seconds booked ~31.8 SOL against a 0.1207
+        // SOL position, on a token whose market cap did not move at all.
+        //
+        // A price-per-token ratio can be wrong in exactly this way, because it
+        // depends on the basis both sides were quoted in. A MARKET CAP RATIO
+        // cannot: supply cancels, so curMcap/entryMcap is the position's true
+        // multiple no matter who quoted what. When both caps are known it is
+        // simply the better measurement, and a flat cap means a flat position —
+        // which is the answer that stops this ladder dead.
+        //
+        // This is NOT a runner clamp (V5.9.1358). A genuine 1000x carries a
+        // 1000x market cap and this returns all 1000x of it. It only overrides
+        // when the two disagree, and then it prefers the one that cannot be
+        // fooled by a basis error.
+        val entryMcap7068 = try {
+            com.lifecyclebot.engine.truth.MarkBasisReconciler7017.entryMcapOf(ts.position)
+        } catch (_: Throwable) { 0.0 }
+        val curMcap7068 = ts.lastMcap
+        val mcapPnlPct7068 =
+            if (entryMcap7068.isFinite() && entryMcap7068 > 0.0 &&
+                curMcap7068.isFinite() && curMcap7068 > 0.0
+            ) ((curMcap7068 / entryMcap7068) - 1.0) * 100.0 else Double.NaN
+
+        fun reconcilePnl7068(pricePnlPct: Double): Double {
+            if (!mcapPnlPct7068.isFinite()) return pricePnlPct
+            if (!pricePnlPct.isFinite()) return mcapPnlPct7068
+            val priceMult = 1.0 + pricePnlPct / 100.0
+            val mcapMult = 1.0 + mcapPnlPct7068 / 100.0
+            if (mcapMult <= 0.0 || priceMult <= 0.0) return mcapPnlPct7068
+            val ratio = priceMult / mcapMult
+            if (ratio in 0.5..2.0) return pricePnlPct
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("CYCLIC_PNL_REBASED_ON_MARKET_CAP_7068")
+                ForensicLogger.lifecycle(
+                    "CYCLIC_PNL_REBASED_ON_MARKET_CAP_7068",
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} ctx=$context " +
+                        "pricePnl=${"%.2f".format(pricePnlPct)}% " +
+                        "mcapPnl=${"%.2f".format(mcapPnlPct7068)}% " +
+                        "entryMcap=${entryMcap7068.toLong()} curMcap=${curMcap7068.toLong()} " +
+                        "ratio=${"%.4g".format(ratio)} " +
+                        "action=market_cap_is_basis_independent_so_it_wins",
+                )
+            } catch (_: Throwable) {}
+            return mcapPnlPct7068
+        }
+
         if (v.ok) {
             return CyclicPriceVerdict(
-                true, price = price, pnlPct = v.pnlPct, fresh = fresh,
+                true, price = price, pnlPct = reconcilePnl7068(v.pnlPct), fresh = fresh,
                 reason = "OK/$provenance7059$staleSuffix7059",
             )
         }
-        // V5.0.7059 — OpenPnlSanity refusing is not a reason to stop measuring.
+        // V5.0.7068 §I_CLAIMED_A_CORROBORATION_I_NEVER_CHECKED_FOR.
         //
-        // Its job is to catch a mark sitting on a different basis from the
-        // entry, and it does that by comparing the two SOURCES. But the mark we
-        // are holding has already been placed on the entry's own basis through
-        // market cap, so the source disagreement 7059 corrects for is exactly
-        // the one OpenPnlSanity is still objecting to — it is re-litigating a
-        // question that has been answered. Take the percentage directly and
-        // carry its objection in the reason so nothing is hidden: a caller that
-        // wants to require a clean inspect can still read it, and the log line
-        // at the call site prints it.
-        val pnlPct7059 = ((price - entryPrice) / entryPrice) * 100.0
+        // What V5.0.7059 said here: "the mark we are holding has already been
+        // placed on the entry's own basis through market cap, so OpenPnlSanity
+        // is re-litigating a question that has been answered."
+        //
+        // It had not been answered. `price` above is whatever
+        // CanonicalMarkResolution7059 returned, and that is the RAW TICK
+        // whenever the tick and the market cap agree within 3x — provenance
+        // TICK_MCAP_AGREED, no reconciliation performed. CARDSc diverged by
+        // 2.47x against a flat market cap, sailed under the band, and arrived
+        // here as an untouched raw tick. I then waved OpenPnlSanity's objection
+        // away on the strength of a correction that had not happened.
+        //
+        // Before 7059 this branch returned ok=false and the CYCLIC held path
+        // returned early, so the partial ladder never ran. That guard was the
+        // only thing standing between this basis defect and the ledger, and I
+        // removed it while describing it as redundant.
+        //
+        // The override survives ONLY where the claim is true: a mark this
+        // engine actually rebased through market cap (MCAP_RECONCILED) is on
+        // the entry's basis by construction, and OpenPnlSanity's source
+        // comparison genuinely is stale for it. Everything else keeps the
+        // refusal.
+        //
+        // NOTE ON THE STANDING RULE that nothing goes unpriced: a refusal here
+        // no longer blinds the position. `price` is still resolved and still
+        // returned, so the stop-loss, the take-profit and the trailing logic
+        // all still see a mark — that half of 7059 stands and is why the rule
+        // is still honoured. What is refused is the AUTHORITY TO TRADE ON A
+        // P&L the basis check rejects. Measuring and acting are different
+        // permissions, and merging them is what caused this.
+        // THE RULE: there is no acceptable bad price. Either the market cap
+        // gives us the true multiple — in which case the P&L is CORRECT, not
+        // merely permitted, and the lane trades on it normally — or we have
+        // nothing, and nothing is refused outright. There is no third state
+        // where a figure the basis check rejected is passed along anyway.
+        if (mcapPnlPct7068.isFinite()) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("CYCLIC_BASIS_REPAIRED_FROM_MARKET_CAP_7068")
+            } catch (_: Throwable) {}
+            // The mark itself is corrected too, not just the percentage, so
+            // nothing downstream re-derives the rejected number from a price
+            // that was left wrong. V5.0.7046's lesson: fixing the return value
+            // and leaving the field is how a repaired number gets un-repaired.
+            val repairedPrice7068 = entryPrice * (1.0 + mcapPnlPct7068 / 100.0)
+            return CyclicPriceVerdict(
+                true,
+                price = if (repairedPrice7068.isFinite() && repairedPrice7068 > 0.0)
+                    repairedPrice7068 else price,
+                pnlPct = mcapPnlPct7068,
+                fresh = fresh,
+                reason = "OK/MCAP_REPAIRED_7068/$provenance7059$staleSuffix7059",
+            )
+        }
         try {
             com.lifecyclebot.engine.PipelineHealthCollector
-                .labelInc("CYCLIC_PRICED_THROUGH_BASIS_OBJECTION_7059")
+                .labelInc("CYCLIC_BASIS_REFUSED_NO_MARKET_CAP_7068")
+            ForensicLogger.lifecycle(
+                "CYCLIC_BASIS_REFUSED_NO_MARKET_CAP_7068",
+                "mint=${ts.mint.take(10)} sym=${ts.symbol} ctx=$context " +
+                    "entry=$entryPrice tick=$price inspect=${v.reason} " +
+                    "entryMcap=$entryMcap7068 curMcap=$curMcap7068 " +
+                    "action=basis_rejected_and_no_market_cap_to_repair_it",
+            )
         } catch (_: Throwable) {}
         return CyclicPriceVerdict(
-            true,
-            price = price,
-            pnlPct = if (pnlPct7059.isFinite()) pnlPct7059 else 0.0,
-            fresh = fresh,
-            reason = "OK/$provenance7059$staleSuffix7059/BASIS_NOTED:${v.reason}",
+            false, price = price, fresh = fresh,
+            reason = "BASIS_REJECTED:${v.reason}/$provenance7059$staleSuffix7059",
         )
     }
 

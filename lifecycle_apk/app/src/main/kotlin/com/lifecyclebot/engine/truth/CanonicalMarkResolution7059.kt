@@ -83,11 +83,35 @@ object CanonicalMarkResolution7059 {
 
     /**
      * How far the raw tick may sit from the market-cap-implied price before the
-     * market cap wins. Loose on purpose — see the class note. A real supply
-     * event moves this by tens of percent; the defects it catches move it by
-     * 100x or more.
+     * market cap wins.
+     *
+     * V5.0.7068 — WAS 3.0, AND THE BAND WAS THE DEFECT.
+     *
+     * I set it loose "so real supply events pass", and that slack is exactly
+     * what CARDSc walked through. Its tick diverged 2.47x from the cap-implied
+     * price while the market cap sat dead flat at $674,010; 2.47 is under 3, so
+     * this object declared the two CORROBORATING, returned the raw tick
+     * untouched as TICK_MCAP_AGREED, and the downstream P&L came out at
+     * +27,379% on a position that had not moved. Twelve partial rungs and ~31.8
+     * SOL of proceeds off a 0.1207 SOL position followed.
+     *
+     * Price and market cap come from the same provider payload and describe the
+     * same instant. They do not legitimately disagree by 147%. A band wide
+     * enough to wave that through is not tolerance, it is a hole, and "bad data
+     * is acceptable within a range" is not a rule this book can carry.
+     *
+     * 1.25 leaves room for read skew between the two fields and nothing else.
+     * Runners are still untouched, for the same reason as before: a genuine
+     * 1000x moves price AND cap together, so the ratio stays at 1.0 and this
+     * object never speaks. Tightening the band cannot clamp a runner; it can
+     * only catch the two numbers disagreeing about the same move.
+     *
+     * A real supply event (burn/mint) does legitimately break the relationship,
+     * and it will now be corrected rather than passed. That is the right trade:
+     * such events are rare on this venue, the correction is exact arithmetic on
+     * the entry's own basis, and the alternative is the ledger above.
      */
-    private const val MCAP_DIVERGENCE_MAX = 3.0
+    private const val MCAP_DIVERGENCE_MAX = 1.25
 
     enum class Provenance {
         TICK_MCAP_AGREED,
