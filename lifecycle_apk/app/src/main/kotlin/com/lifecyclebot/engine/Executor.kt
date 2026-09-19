@@ -21241,14 +21241,65 @@ class Executor(
                 )
             } catch (_: Throwable) { null }
             if (exitEligibility6570 != null && !exitEligibility6570.eligible) {
-                try {
-                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                        "EXIT_REJECTED_NO_CANONICAL_POSITION_6501",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol ?: "?"} reason=$reason eligibility=${exitEligibility6570?.reason} action=refuse_before_executor",
-                    )
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_REJECTED_NO_CANONICAL_POSITION_6501")
-                } catch (_: Throwable) {}
-                return SellResult.ALREADY_CLOSED
+                // V5.0.7128 — A MISSING RECORD IS NOT A CLOSED POSITION.
+                //
+                // Operator: "a round trip means from discovery to sell thru the
+                // aate system on a token dude... it shouldn't be blocking sells."
+                //
+                // This branch refused the exit and returned ALREADY_CLOSED, which
+                // tells every caller the position is gone. For a mint the WALLET
+                // STILL HOLDS that is not merely wrong, it is unsellable: the
+                // protective path declines, reports the position closed, and the
+                // tokens sit on chain with no exit the bot will take.
+                //
+                // That is precisely the set of tokens this session has been
+                // chasing. LiveCanonicalRecovery6686 skips a wallet mint whose
+                // basis it cannot prove — 126 to 159 skips per snapshot — so those
+                // mints have no canonical position, and every one of them was
+                // landing here and being refused. Real money, bought by the bot,
+                // held by the bot, with the stop-loss path answering "already
+                // closed".
+                //
+                // The eligibility check is still right for its real job: refusing
+                // a duplicate or phantom exit on something the wallet does NOT
+                // hold. So the refusal is now conditioned on that, and on-chain
+                // holding is the deciding evidence rather than the ledger's
+                // ability to explain itself.
+                //
+                // DIRECTION OF THE ASYMMETRY. Wrongly allowing an exit on a token
+                // we hold sells something we own — recoverable, and the executor's
+                // own quantity and route guards still apply downstream. Wrongly
+                // refusing strands the position permanently. On real money the
+                // safe failure is to let the protective exit proceed.
+                //
+                // This does not widen anything else: the bypass list immediately
+                // above already lets ORPHAN_RECONCIL / BOOTUP_RESURRECT /
+                // STARTUP_SWEEP exits through this same gate, so the downstream
+                // path is already required to cope with an exit that has no
+                // canonical position. This build stops that tolerance from
+                // depending on which reason string the caller happened to use.
+                val walletStillHolds7128 = try {
+                    val held7128 = HostWalletTokenTracker.getEntry(ts.mint)
+                    held7128 != null && held7128.uiAmount > 0.0
+                } catch (_: Throwable) { false }
+                if (walletStillHolds7128) {
+                    try {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "EXIT_ALLOWED_WALLET_HOLDS_NO_CANONICAL_7128",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol ?: "?"} reason=$reason eligibility=${exitEligibility6570?.reason} uiAmount=${HostWalletTokenTracker.getEntry(ts.mint)?.uiAmount} action=allow_protective_exit_wallet_holds_tokens",
+                        )
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_ALLOWED_WALLET_HOLDS_NO_CANONICAL_7128")
+                    } catch (_: Throwable) {}
+                } else {
+                    try {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "EXIT_REJECTED_NO_CANONICAL_POSITION_6501",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol ?: "?"} reason=$reason eligibility=${exitEligibility6570?.reason} walletHolds=false action=refuse_before_executor",
+                        )
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_REJECTED_NO_CANONICAL_POSITION_6501")
+                    } catch (_: Throwable) {}
+                    return SellResult.ALREADY_CLOSED
+                }
             }
         }
         val requestReason = if (reason.isBlank() || reason.equals("exit", ignoreCase = true)) {
