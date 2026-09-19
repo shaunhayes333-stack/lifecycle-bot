@@ -4796,19 +4796,30 @@ class BotService : Service() {
         // exactly as the provider above applies them — this path is not a way
         // around either of them.
         try {
+            // V5.0.7098 — every bail inside this provider leaves
+            // CanonicalCapitalAuthority6450 with no corroboration verdict, and its
+            // 6604 clamp then holds the position at cost basis. Several of these
+            // conditions say nothing about whether the mark is true, so each one
+            // names itself: the 468 UNEVALUATED quarantines on 5.0.7091 resolve to
+            // a cause here rather than to "market cap disagreed", which is not
+            // what happened.
+            fun bail7098(reason: String): com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.MarkQuote7060? {
+                try { PipelineHealthCollector.labelInc("MARK_QUOTE_7060_UNAVAILABLE_$reason") } catch (_: Throwable) {}
+                return null
+            }
             com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.installMarkQuoteProvider7060 { mint ->
                 try {
-                    val ts = status.tokens[mint] ?: return@installMarkQuoteProvider7060 null
+                    val ts = status.tokens[mint] ?: return@installMarkQuoteProvider7060 bail7098("NO_TOKEN_STATE")
                     val pos = ts.position
-                    if (!pos.isOpen) return@installMarkQuoteProvider7060 null
+                    if (!pos.isOpen) return@installMarkQuoteProvider7060 bail7098("POSITION_NOT_OPEN")
                     val eligible7060 = try {
                         com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
                             .isRuntimeOpenEligible6636(mint, pos)
                     } catch (_: Throwable) { false }
-                    if (!eligible7060) return@installMarkQuoteProvider7060 null
+                    if (!eligible7060) return@installMarkQuoteProvider7060 bail7098("NOT_RUNTIME_OPEN_ELIGIBLE_6636")
                     val mark7060 = com.lifecyclebot.engine.truth.CanonicalMarkResolution7059
                         .resolve(pos, ts.lastPrice, ts.lastMcap)
-                    if (!mark7060.usable) return@installMarkQuoteProvider7060 null
+                    if (!mark7060.usable) return@installMarkQuoteProvider7060 bail7098("MARK_NOT_USABLE_7059_${mark7060.provenance.name}")
                     val provOk7060 = try {
                         com.lifecyclebot.engine.truth.MarkAuthorityIntegrityGate6496.isAuthoritative(
                             mint = mint,
@@ -4820,20 +4831,20 @@ class BotService : Service() {
                             isKnownOpenMint6596 = true,
                         )
                     } catch (_: Throwable) { false }
-                    if (!provOk7060) return@installMarkQuoteProvider7060 null
+                    if (!provOk7060) return@installMarkQuoteProvider7060 bail7098("NOT_AUTHORITATIVE_6496")
                     val solUsd7060 = try {
                         com.lifecyclebot.engine.EfficiencyLayer.getCachedPrice()?.solPriceUsd
                             ?: com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
                     } catch (_: Throwable) { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice }
                     if (!solUsd7060.isFinite() || solUsd7060 <= 50.0 || solUsd7060 >= 5000.0) {
-                        return@installMarkQuoteProvider7060 null
+                        return@installMarkQuoteProvider7060 bail7098("SOL_USD_OUTSIDE_SANITY_BAND")
                     }
                     // Units: (USD/token) / (USD/SOL) = SOL/token. Stated because
                     // V5.0.7029 and V5.0.7057 were both this product booked in
                     // the wrong denomination.
                     val solPerToken7060 = mark7060.price / solUsd7060
                     if (!solPerToken7060.isFinite() || solPerToken7060 <= 0.0) {
-                        return@installMarkQuoteProvider7060 null
+                        return@installMarkQuoteProvider7060 bail7098("SOL_PER_TOKEN_NOT_POSITIVE")
                     }
                     // Only a mark the market cap has actually corroborated may
                     // lift the 6604 clamp. TICK_ONLY and the carried/flat rungs
@@ -4844,11 +4855,17 @@ class BotService : Service() {
                             .CanonicalMarkResolution7059.Provenance.TICK_MCAP_AGREED ||
                         mark7060.provenance == com.lifecyclebot.engine.truth
                             .CanonicalMarkResolution7059.Provenance.MCAP_RECONCILED
+                    try {
+                        PipelineHealthCollector.labelInc(
+                            if (corroborated7060) "MARK_QUOTE_7060_CORROBORATED"
+                            else "MARK_QUOTE_7060_UNCORROBORATED_${mark7060.provenance.name}"
+                        )
+                    } catch (_: Throwable) {}
                     com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.MarkQuote7060(
                         solPerToken = solPerToken7060,
                         corroborated = corroborated7060,
                     )
-                } catch (_: Throwable) { null }
+                } catch (_: Throwable) { bail7098("PROVIDER_THREW") }
             }
         } catch (_: Throwable) {}
         // V5.0.6521 — canonical-raw reconstruction before quarantine; never abandon/force-close.

@@ -208,11 +208,46 @@ object CanonicalCapitalAuthority6450 {
             }
             if (perPositionInflated6604 && !corroborated7060) {
                 try {
+                    // V5.0.7098 §UNKNOWN_IS_NOT_REFUTED — 5.0.7091 reports this
+                    // counter 468 times and the number cannot be investigated,
+                    // because `!corroborated7060` collapses two unrelated facts:
+                    //
+                    //   REFUTED    a quote arrived and the market cap did NOT
+                    //              agree with it — real evidence of a corrupt
+                    //              mark, and the clamp is doing its job.
+                    //   UNEVALUATED  no quote arrived at all. The installed
+                    //              7060 provider returns null on six separate
+                    //              conditions, several of which say nothing
+                    //              whatever about this mark's truth (position
+                    //              not runtime-open-eligible, 6496 not
+                    //              authoritative, SOL/USD outside its sanity
+                    //              band). Corroboration was never asked.
+                    //
+                    // In the UNEVALUATED case `fresh` also came from a DIFFERENT
+                    // source — the whole-mint markProvider fallback at the top of
+                    // this block — so the clamp is judging one source's number
+                    // with a verdict about a mark it never received. That is the
+                    // same shape as every other defect in this codebase where two
+                    // facts share one field.
+                    //
+                    // The clamp itself is unchanged in both cases: holding at cost
+                    // basis is the conservative choice for HERO accounting and a
+                    // 4570x uncorroborated mark must not enter openMv. What
+                    // changes is that the 468 now says which of the two it is, so
+                    // a real runner being held at +0% is distinguishable from a
+                    // corrupt mark being contained.
+                    val quoteEvaluated7098 = quote7060 != null
                     PipelineHealthCollector.labelInc("HERO_OPENMV_PER_POSITION_QUARANTINE_6604")
+                    PipelineHealthCollector.labelInc(
+                        if (quoteEvaluated7098) "HERO_OPENMV_QUARANTINE_MCAP_REFUTED_7098"
+                        else "HERO_OPENMV_QUARANTINE_UNEVALUATED_7098"
+                    )
                     com.lifecyclebot.engine.ForensicLogger.lifecycle(
                         "HERO_OPENMV_PER_POSITION_QUARANTINE_6604",
                         "mint=${aggregate.mint.take(10)} costBasis=${"%.6f".format(costBasis6604)} " +
                             "rawMark=${"%.6f".format(fresh)} ratio=${"%.1f".format(fresh / costBasis6604)}x " +
+                            "corroboration=${if (quoteEvaluated7098) "REFUTED" else "UNEVALUATED_NO_QUOTE"} " +
+                            "markSource=${if (quoteEvaluated7098) "quote_provider_7060" else "whole_mint_markProvider"} " +
                             "action=treat_as_fallback_mark",
                     )
                 } catch (_: Throwable) {}
