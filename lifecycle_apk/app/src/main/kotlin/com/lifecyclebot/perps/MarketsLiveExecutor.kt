@@ -610,23 +610,48 @@ object MarketsLiveExecutor {
             // BotService flushes buckets once per live scan cycle when they cross
             // the threshold. This makes all live trading tools/traders use the
             // same pooled-send path instead of per-trade fee TX spam.
+            // V5.0.7124 — SELF-REDIRECT, which this path never had.
+            // Executor.sendFeeSplit has resolved a self-addressed fee wallet to
+            // the other one since V5.9.1504. This path passed FEE_WALLET_1 raw,
+            // so if the operator's trading wallet ever equals a fee wallet, the
+            // markets/perps share was accrued into a bucket that
+            // FeeAccumulator.tryFlush can never send — stranded for the life of
+            // the install, growing, invisible. Same resolver, same meaning: if a
+            // destination is self, use the other one; if both are self, skip
+            // cleanly rather than bank an unpayable share.
+            val selfPk7124 = try { wallet.publicKeyB58 } catch (_: Throwable) { "" }
+            fun dest7124(primary: String, fallback: String): String? = when {
+                !primary.equals(selfPk7124, false) -> primary
+                !fallback.equals(selfPk7124, false) -> fallback
+                else -> null
+            }
             var accruedAny = false
             if (feeWallet1 >= MIN_FEE_SOL) {
-                try {
-                    com.lifecyclebot.engine.FeeAccumulator.accrue(FEE_WALLET_1, feeWallet1, "markets_${tradeAction}_w1")
-                    accruedAny = true
-                } catch (e: Exception) {
-                    ErrorLogger.warn(TAG, "  Fee wallet 1 pool failed: ${e.message}")
-                    try { com.lifecyclebot.engine.FeeRetryQueue.enqueue(FEE_WALLET_1, feeWallet1, "markets_${tradeAction}_w1_pool_fail") } catch (_: Exception) {}
+                val d1 = dest7124(FEE_WALLET_1, FEE_WALLET_2)
+                if (d1 == null) {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_FEE_SKIPPED_BOTH_WALLETS_SELF_7124")
+                } else {
+                    try {
+                        com.lifecyclebot.engine.FeeAccumulator.accrue(d1, feeWallet1, "markets_${tradeAction}_w1")
+                        accruedAny = true
+                    } catch (e: Exception) {
+                        ErrorLogger.warn(TAG, "  Fee wallet 1 pool failed: ${e.message}")
+                        try { com.lifecyclebot.engine.FeeRetryQueue.enqueue(d1, feeWallet1, "markets_${tradeAction}_w1_pool_fail") } catch (_: Exception) {}
+                    }
                 }
             }
             if (feeWallet2 >= MIN_FEE_SOL) {
-                try {
-                    com.lifecyclebot.engine.FeeAccumulator.accrue(FEE_WALLET_2, feeWallet2, "markets_${tradeAction}_w2")
-                    accruedAny = true
-                } catch (e: Exception) {
-                    ErrorLogger.warn(TAG, "  Fee wallet 2 pool failed: ${e.message}")
-                    try { com.lifecyclebot.engine.FeeRetryQueue.enqueue(FEE_WALLET_2, feeWallet2, "markets_${tradeAction}_w2_pool_fail") } catch (_: Exception) {}
+                val d2 = dest7124(FEE_WALLET_2, FEE_WALLET_1)
+                if (d2 == null) {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_FEE_SKIPPED_BOTH_WALLETS_SELF_7124")
+                } else {
+                    try {
+                        com.lifecyclebot.engine.FeeAccumulator.accrue(d2, feeWallet2, "markets_${tradeAction}_w2")
+                        accruedAny = true
+                    } catch (e: Exception) {
+                        ErrorLogger.warn(TAG, "  Fee wallet 2 pool failed: ${e.message}")
+                        try { com.lifecyclebot.engine.FeeRetryQueue.enqueue(d2, feeWallet2, "markets_${tradeAction}_w2_pool_fail") } catch (_: Exception) {}
+                    }
                 }
             }
             if (accruedAny) {

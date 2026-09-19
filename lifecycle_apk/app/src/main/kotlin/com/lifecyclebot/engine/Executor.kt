@@ -350,10 +350,24 @@ class Executor(
         private const val TRADING_FEE_WALLET_2 = "82CAPB9HxXKZK97C12pqkWcjvnkbpMLCg2Ex2hPrhygA"
 
         /**
-         * V5.9.1504 — SELF-LOOP FEE FIX. Operator's trading wallet is
-         * A8QPQr…kkpd, which is identical to TRADING_FEE_WALLET_1, so every
+         * V5.9.1504 — SELF-LOOP FEE FIX. At the time, the operator's trading
+         * wallet was A8QPQr…kkpd, identical to TRADING_FEE_WALLET_1, so every
          * fee_w1 send was a transfer-to-self → "Account loaded twice" failure
          * on EVERY sell, the fee share permanently stuck in the retry queue.
+         *
+         * V5.0.7124 — THAT IS NO LONGER TRUE, AND THE SENTENCE ABOVE USED TO
+         * ASSERT IT IN THE PRESENT TENSE. The operator's trading wallet is
+         * cVD9iLb…v6ks, which appears nowhere in this codebase; both
+         * TRADING_FEE_WALLET_1 and _2 are confirmed fee destinations they own
+         * and expect a 50/50 split across. So `self` matches NEITHER, the
+         * resolver below is a no-op in the current configuration, and every
+         * share goes to its intended wallet. The stale claim cost real
+         * diagnostic time — it is the reason the redirect was first suspected
+         * of collapsing both shares onto wallet 2, which it does not do. A
+         * comment that names a wallet is a comment that expires when the
+         * wallet rotates; the resolver is kept precisely so the code does not
+         * depend on which one is true today.
+         *
          * This sender resolves the real destination per share: if a fee wallet
          * equals the sending wallet's own address, that share is REDIRECTED to
          * the other fee wallet (so the fee is still collected, not lost). If
@@ -390,8 +404,21 @@ class Executor(
                 val d = dest(TRADING_FEE_WALLET_1, TRADING_FEE_WALLET_2)
                 if (d != null) {
                     // V5.0.6439 — observability. Prove the fee actually reached the pipe.
-                    try { com.lifecyclebot.engine.truth.FeeAccrualObservability6439.noteAccrue(d, amount1, "${tag}_w1", false) } catch (_: Throwable) {}
-                    try { FeeAccumulator.accrue(d, amount1, "${tag}_w1"); accrued = true }
+                    // V5.0.7124 — MOVED AFTER the accrual, and made conditional on it.
+                    // It used to fire first, unconditionally, so a share that accrue()
+                    // then dropped (uninitialised prefs returned 0.0 without throwing)
+                    // was counted as having reached the pipe. That is the exact shape
+                    // of instrument that turns "fees never send" into an unfalsifiable
+                    // complaint: the counter agreed the fee had been taken.
+                    try {
+                        val bucket7124 = FeeAccumulator.accrue(d, amount1, "${tag}_w1")
+                        if (bucket7124 > 0.0) {
+                            accrued = true
+                            try { com.lifecyclebot.engine.truth.FeeAccrualObservability6439.noteAccrue(d, amount1, "${tag}_w1", false) } catch (_: Throwable) {}
+                        } else {
+                            PipelineHealthCollector.labelInc("FEE_ACCRUE_RETURNED_ZERO_7124")
+                        }
+                    }
                     catch (e: Exception) {
                         // Accumulator persistence failed — fall back to immediate retry queue
                         FeeRetryQueue.enqueue(d, amount1, "${tag}_w1_acc_fail")
@@ -406,9 +433,16 @@ class Executor(
             if (amount2 >= FEE_SEND_MIN_SOL) {
                 val d = dest(TRADING_FEE_WALLET_2, TRADING_FEE_WALLET_1)
                 if (d != null) {
-                    // V5.0.6439 — observability.
-                    try { com.lifecyclebot.engine.truth.FeeAccrualObservability6439.noteAccrue(d, amount2, "${tag}_w2", false) } catch (_: Throwable) {}
-                    try { FeeAccumulator.accrue(d, amount2, "${tag}_w2"); accrued = true }
+                    // V5.0.6439 — observability. V5.0.7124 — see the w1 share above.
+                    try {
+                        val bucket7124 = FeeAccumulator.accrue(d, amount2, "${tag}_w2")
+                        if (bucket7124 > 0.0) {
+                            accrued = true
+                            try { com.lifecyclebot.engine.truth.FeeAccrualObservability6439.noteAccrue(d, amount2, "${tag}_w2", false) } catch (_: Throwable) {}
+                        } else {
+                            PipelineHealthCollector.labelInc("FEE_ACCRUE_RETURNED_ZERO_7124")
+                        }
+                    }
                     catch (e: Exception) {
                         FeeRetryQueue.enqueue(d, amount2, "${tag}_w2_acc_fail")
                     }
@@ -25535,6 +25569,26 @@ class Executor(
                     
                     onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.5% of entry) split 50/50", tradeId.mint)
                     ErrorLogger.info("Executor", "💸 LIVE SELL FEE: ${feeAmountSol} SOL split to both wallets (entry-basis, pnl-agnostic)")
+                } else {
+                    // V5.0.7124 — the silent branch. A live sell whose fee rounds
+                    // below the send minimum charged NOTHING and said nothing, so
+                    // "fees are not being sent on every trade" and "fees were never
+                    // due on that trade" were the same observation.
+                    //
+                    // The basis is pos.costSol, and the acceptance audit on this
+                    // build is failing J_BASIS_DELTA. A live position whose cost
+                    // basis is recorded as zero therefore produces a zero fee on an
+                    // otherwise perfectly good sell. Splitting the two cases here is
+                    // what decides whether the fee complaint is a fee-path defect or
+                    // a cost-basis defect wearing its clothes.
+                    if (pos.costSol <= 0.0) {
+                        PipelineHealthCollector.labelInc("FEE_SKIPPED_ZERO_COST_BASIS_7124")
+                        ErrorLogger.warn("Executor",
+                            "🚨 LIVE SELL FEE SKIPPED — cost basis is ${pos.costSol} for ${ts.symbol}. " +
+                                "No fee was charged because there is no basis to charge it against.")
+                    } else {
+                        PipelineHealthCollector.labelInc("FEE_SKIPPED_DUST_BASIS_7124")
+                    }
                 }
             } catch (feeEx: Exception) {
                 ErrorLogger.error("Executor", "🚨 FEE SEND FAILED — TRADING fee NOT sent, will retry next trade: ${feeEx.message}")

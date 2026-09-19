@@ -71,13 +71,48 @@ object FeeAccumulator {
     /**
      * Record a pending fee share. The amount is added to the bucket keyed by
      * destination address. Returns the new accrued balance for diagnostics.
-     * Self-loops (destination == sender) are silently dropped — caller is
-     * responsible for redirecting before calling accrue().
+     *
+     * V5.0.7124 — THIS KDoc USED TO SAY: "Self-loops (destination == sender)
+     * are silently dropped — caller is responsible for redirecting before
+     * calling accrue()." Neither half of that was true. There was no self
+     * check in this function at all, so a self-addressed share was written
+     * into a bucket that tryFlush() below can never send (its self-loop guard
+     * hits `continue` every cycle, forever). And one caller does NOT redirect:
+     * MarketsLiveExecutor.collectTradingFee passed FEE_WALLET_1 raw. The KDoc
+     * described a contract that was neither implemented here nor honoured
+     * there, which is the worst of both — a reader checking either end would
+     * conclude the other end handled it.
+     *
+     * The check is now real, and it REFUSES rather than drops: a fee the bot
+     * cannot pay to itself is a caller bug, and it is reported as one instead
+     * of quietly becoming a bucket that grows forever.
      */
     fun accrue(toAddress: String, amountSol: Double, tag: String): Double {
         if (amountSol <= 0.0) return 0.0
+        // V5.0.7124 — self-loop refusal. Backstop only; callers are expected to
+        // resolve the destination first. Counted, because "the operator's fee
+        // wallet is also the trading wallet" is a real configuration state and
+        // it must be visible rather than inferred from a bucket that never moves.
+        try {
+            val selfPk = WalletManager.getWallet()?.publicKeyB58
+            if (selfPk != null && selfPk.equals(toAddress, ignoreCase = false)) {
+                PipelineHealthCollector.labelInc("FEE_ACCRUE_REFUSED_SELF_7124")
+                ErrorLogger.warn("FeeAccumulator",
+                    "⛔ accrue refused: destination $toAddress is the trading wallet itself " +
+                        "(${amountSol.fmt(6)} SOL, $tag). Caller must resolve the destination first.")
+                return 0.0
+            }
+        } catch (_: Throwable) { /* best-effort guard — never block a fee on this */ }
         val p = prefs ?: run {
-            ErrorLogger.error("FeeAccumulator", "⚠ Not initialized — fee lost: ${amountSol.fmt(6)} SOL → $toAddress ($tag)")
+            // V5.0.7124 — this used to log an error and return 0.0, and that is
+            // the single most complete way to lose a fee in this codebase: no
+            // throw, so the caller's catch never fires and the retry queue never
+            // sees it; a 0.0 return that callers do not inspect; and in Executor
+            // the observability note had ALREADY been recorded, so the counter
+            // said the fee reached the pipe. Hand it to the retry queue instead.
+            PipelineHealthCollector.labelInc("FEE_ACCUMULATOR_UNINITIALIZED_7124")
+            ErrorLogger.error("FeeAccumulator", "⚠ Not initialized — routing to retry queue: ${amountSol.fmt(6)} SOL → $toAddress ($tag)")
+            try { FeeRetryQueue.enqueue(toAddress, amountSol, "${tag}_accumulator_uninit_7124") } catch (_: Throwable) {}
             return 0.0
         }
         val buckets = loadBuckets(p)
@@ -121,6 +156,12 @@ object FeeAccumulator {
             // Self-loop guard — accrue() should already prevent this, but
             // double-check in case the configured fee wallet was rotated.
             if (dest.equals(selfPk, ignoreCase = false)) {
+                // V5.0.7124 — this branch is the permanent-stranding branch, and
+                // until now it was a warn line only. A bucket that hits it is not
+                // retried, not dropped and not counted: it sits at the same value
+                // every cycle for the life of the install. Name it, so "fees are
+                // not arriving" resolves to a number instead of a search.
+                PipelineHealthCollector.labelInc("FEE_BUCKET_STRANDED_SELF_7124")
                 ErrorLogger.warn("FeeAccumulator",
                     "⛔ Flush skipped: bucket destination $dest equals wallet self. ${accrued.fmt(5)} SOL stranded — fix fee wallet config.")
                 continue
@@ -133,6 +174,9 @@ object FeeAccumulator {
                 // wallets while the wallet balance was shrinking.
                 val sendable = (balance - MIN_WALLET_RESERVE_SOL).coerceAtLeast(0.0)
                 if (sendable < MIN_SENDABLE_SOL) {
+                    // V5.0.7124 — a deferral that repeats every cycle is
+                    // indistinguishable from a fee that was never charged. Count it.
+                    PipelineHealthCollector.labelInc("FEE_FLUSH_DEFERRED_LOW_BALANCE_7124")
                     ErrorLogger.warn("FeeAccumulator",
                         "⏸ Flush deferred: wallet=${balance.fmt(5)} SOL < accrued=${accrued.fmt(5)} SOL + reserve=${MIN_WALLET_RESERVE_SOL}. Retry next cycle.")
                     continue
@@ -155,6 +199,9 @@ object FeeAccumulator {
             }
             try {
                 wallet.sendSol(dest, accrued)
+                // V5.0.7124 — the only proof-of-payment counter in the fee path.
+                // Everything else here counts a reason it did NOT happen.
+                PipelineHealthCollector.labelInc("FEE_FLUSH_SENT_7124")
                 ErrorLogger.warn("FeeAccumulator",
                     "✅ Flushed ${accrued.fmt(5)} SOL → $dest (totalPending=${totalPending.fmt(5)} SOL threshold=${flushThresholdSol} SOL)")
                 buckets.remove(dest)
@@ -162,6 +209,7 @@ object FeeAccumulator {
                 totalSent += accrued
                 changed = true
             } catch (e: Exception) {
+                PipelineHealthCollector.labelInc("FEE_FLUSH_SEND_FAILED_7124")
                 // Send failed — leave bucket intact, fall back to FeeRetryQueue
                 // so the next drain cycle retries with backoff.
                 ErrorLogger.warn("FeeAccumulator",
