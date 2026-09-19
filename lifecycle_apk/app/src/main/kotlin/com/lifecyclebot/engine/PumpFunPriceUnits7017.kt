@@ -122,21 +122,58 @@ object PumpFunPriceUnits7017 {
             }
         }
 
-        // 2. No usable decimals field. Choose the interpretation that yields a
-        //    plausible whole-token count, most-scaled first — a raw count is
-        //    always the larger reading, so testing the divisions before the bare
-        //    value is what stops us re-adopting the 5.0.7012 behaviour whenever
-        //    both happen to fall in band.
+        // 2. No usable decimals field.
+        //
+        // V5.0.7110 §MOST_SCALED_FIRST_WAS_STILL_A_GUESS, AND IT WAS WRONG BY 1e3.
+        //
+        // This loop ran intArrayOf(9, 8, 6) and returned the FIRST plausible
+        // reading. For the standard pump.fun mint — 1e9 whole tokens at 6
+        // decimals, so total_supply = 1e15 raw — that is:
+        //
+        //     d=9 → 1e15 / 1e9 = 1e6   plausible (band is 1e3..1e12) → RETURNED
+        //     d=6 → 1e15 / 1e6 = 1e9   correct, never reached
+        //
+        // Supply resolved to 1e6 instead of 1e9, so every pump.fun price came
+        // out exactly 1000x too high. The operator's 5.0.7106 device says it in
+        // one line, with the chain supply next to the derived one:
+        //
+        //   METRICS_IDENTITY_BROKEN_7069 mint=DZ84Quh3Fw src=PUMP_FUN_FRONTEND_API
+        //     reportedPrice=0.020919707  impliedPrice=0.000020919707
+        //     mcap=20919  supply=1000000000  ratio=1000.00
+        //
+        // and every quarantined mint in that log divides out the same:
+        // gainMultiple 5296.1 -> 5.3, 1005.5 -> 1.005, 1000.8 -> 1.0008,
+        // 4635.0 -> 4.6. Those are ordinary holdings, not absurd ones.
+        //
+        // 7017 fixed a 1e6 error by preferring the most-scaled reading and, in
+        // doing so, replaced one guess with another. First-match ordering is not
+        // a decision procedure — it is whichever candidate happens to be tried
+        // first, and with a band three orders wide on each side, several are.
+        //
+        // Choose by DISTANCE FROM THE DOCUMENTED STANDARD instead. pump.fun's
+        // mint is 1e9 whole tokens and that constant is already declared above,
+        // so "the reading closest to the supply this venue actually issues" is
+        // evidence rather than ordering. It still self-corrects: a genuinely
+        // different supply wins whenever it is the only plausible candidate, and
+        // the chosen decimals are named in telemetry either way.
+        data class Candidate7110(val label: String, val value: Double)
+        val candidates7110 = ArrayList<Candidate7110>(4)
         for (d in intArrayOf(9, 8, 6)) {
             val scaled = raw / Math.pow(10.0, d.toDouble())
-            if (plausible(scaled)) {
-                note("SUPPLY_INFERRED_DECIMALS_$d")
-                return scaled
-            }
+            if (plausible(scaled)) candidates7110 += Candidate7110("INFERRED_DECIMALS_$d", scaled)
         }
-        if (plausible(raw)) {
-            note("SUPPLY_ALREADY_WHOLE")
-            return raw
+        if (plausible(raw)) candidates7110 += Candidate7110("ALREADY_WHOLE", raw)
+        val best7110 = candidates7110.minByOrNull {
+            kotlin.math.abs(kotlin.math.log10(it.value / STANDARD_WHOLE_SUPPLY))
+        }
+        if (best7110 != null) {
+            note("SUPPLY_${best7110.label}")
+            if (candidates7110.size > 1) {
+                // More than one reading was in band, which is exactly the
+                // condition first-match ordering silently resolved the wrong way.
+                note("SUPPLY_AMBIGUOUS_RESOLVED_BY_STANDARD_7110")
+            }
+            return best7110.value
         }
 
         // 3. Nothing was plausible. Say so rather than dividing by a number we

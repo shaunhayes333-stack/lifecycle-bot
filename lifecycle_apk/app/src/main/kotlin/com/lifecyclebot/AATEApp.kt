@@ -29,6 +29,28 @@ class AATEApp : Application() {
         private val visibleActivities6487 = java.util.concurrent.atomic.AtomicInteger(0)
         fun appContextOrNull(): android.content.Context? = _appCtx
         fun isAnyActivityVisible6487(): Boolean = visibleActivities6487.get() > 0
+
+        /**
+         * V5.0.7109 — when the app last had NO visible activity.
+         *
+         * V5.0.7049 correctly diagnosed that Choreographer frame gaps were
+         * timing how long the operator spent in another app, and gated the
+         * accounting on isAnyActivityVisible6487(). But that question is asked
+         * in the frame callback — which by definition only runs once a frame
+         * ARRIVES, and a frame only arrives once the app is visible again. So
+         * the gate is evaluated at the END of the gap it is meant to classify,
+         * and always sees `true`.
+         *
+         * The device proves it: MAIN_UI_STOP_INACTIVATED_6300 = 7 background
+         * cycles, and FRAME_GAP_WHILE_UI_NOT_VISIBLE_7049 = 0. The label 7049
+         * added has never once fired, while maxFrameGap reports 41,791ms.
+         *
+         * A gap has to be judged over its DURATION, not at its end. This stamp
+         * lets the collector ask the only question that answers that: was the
+         * app invisible at any point inside this window.
+         */
+        @Volatile private var lastInvisibleAtMs7109: Long = 0L
+        fun lastInvisibleAtMs7109(): Long = lastInvisibleAtMs7109
     }
 
     override fun onCreate() {
@@ -452,6 +474,12 @@ class AATEApp : Application() {
 
                 override fun onActivityStopped(activity: android.app.Activity) {
                     val remaining = visibleActivities6487.updateAndGet { if (it > 0) it - 1 else 0 }
+                    // V5.0.7109 — stamp the moment the app has nothing visible,
+                    // BEFORE the delayed background-check below, because the
+                    // Choreographer stops receiving vsync from right here. This
+                    // is the instant a frame gap starts accruing for a reason
+                    // that is not a main-thread stall.
+                    if (remaining == 0) lastInvisibleAtMs7109 = System.currentTimeMillis()
                     if (remaining == 0) {
                         // Delay one beat so in-app Activity transitions (Main -> Pipeline,
                         // Main -> Journal, etc.) can start the next Activity without being

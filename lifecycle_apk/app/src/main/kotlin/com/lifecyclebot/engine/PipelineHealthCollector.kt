@@ -846,8 +846,31 @@ object PipelineHealthCollector {
                     // already uses (BotService:539 reads the same call). An
                     // invisible-window gap is recorded under its own label so it
                     // stays auditable instead of silently vanishing.
+                    // V5.0.7109 §7049_ASKED_THE_RIGHT_QUESTION_AT_THE_WRONG_TIME.
+                    //
+                    // isAnyActivityVisible6487() is read HERE, inside the frame
+                    // callback — and a frame callback only runs once a frame
+                    // arrives, which only happens once the app is visible again.
+                    // So the 7049 gate was evaluated at the END of the very gap
+                    // it classifies and always saw `true`. The device shows the
+                    // consequence exactly: MAIN_UI_STOP_INACTIVATED_6300 = 7
+                    // background cycles, FRAME_GAP_WHILE_UI_NOT_VISIBLE_7049 = 0.
+                    // The label 7049 introduced has never fired, while
+                    // maxFrameGap reports 41,791ms and the pre-freeze trace shows
+                    // nothing but ~250ms idle polls on nativePollOnce.
+                    //
+                    // A gap must be judged over its DURATION. If the app had
+                    // nothing visible at any point inside [now - deltaMs, now],
+                    // the Choreographer was starved of vsync for that reason and
+                    // the main thread was not stuck.
+                    val nowMs7109 = System.currentTimeMillis()
+                    val gapStart7109 = nowMs7109 - deltaMs
+                    val invisibleDuringGap7109 = try {
+                        val stamp = com.lifecyclebot.AATEApp.lastInvisibleAtMs7109()
+                        stamp > 0L && stamp >= gapStart7109 && stamp <= nowMs7109
+                    } catch (_: Throwable) { false }
                     val uiVisible7049 = try {
-                        com.lifecyclebot.AATEApp.isAnyActivityVisible6487()
+                        com.lifecyclebot.AATEApp.isAnyActivityVisible6487() && !invisibleDuringGap7109
                     } catch (_: Throwable) { true }
                     if (deltaMs > LONG_FRAME_THRESHOLD_MS && !uiVisible7049) {
                         bump(labelCounts, "FRAME_GAP_WHILE_UI_NOT_VISIBLE_7049")
