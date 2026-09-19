@@ -362,8 +362,75 @@ object TreasuryManager {
     const val SEED_FLOOR_SOL = 5.8824    // ≈ $500 USD at $85/SOL
     const val SEED_FLOOR_USD = 500.0
 
-    /** V5.9.399 — fraction of realized profit siphoned into treasury per meme sell. */
+    /**
+     * V5.9.399 — fraction of realized profit siphoned into treasury per meme sell.
+     *
+     * V5.0.7125 — THIS IS THE TOP BAND, NOT THE RATE. It applies only at or
+     * above TREASURY_TOP_BAND_SOL_7125. Read contributeFromMemeSell() for the
+     * ladder that actually selects a rate; several comments in this file (and
+     * in LiveRestoreExecutionPolicy) still describe this constant as though it
+     * were the flat split, which it has not been since V5.0.4112.
+     */
     const val MEME_SELL_TREASURY_PCT = 0.25  // V5.9.1543 — operator: profit split is 75/25 (75% trading wallet / 25% treasury), was 0.30
+
+    /**
+     * V5.0.7125 — the compounding floor rate, and the value the ladder falls
+     * back to whenever the trading balance cannot be read.
+     *
+     * Operator: "the live trading treasury split is only meant to be 5% of
+     * profit if the balance is under 2 sol."
+     */
+    // Private on purpose: outside readers must go through currentSplitPct(),
+    // which is the whole point of V5.0.7125. A second file holding its own copy
+    // of a rate is exactly how LiveRestoreExecutionPolicy came to assume 25%.
+    private const val TREASURY_FLOOR_PCT_7125 = 0.05
+
+    // V5.0.7125 — the band edges, 1x / 3x / 10x of the operator-stated floor.
+    // That progression is the V5.0.4112 ladder's own shape ($50 / $150 / $500),
+    // re-anchored onto SOL instead of USD. Private because this file is the one
+    // authority that selects a split rate, and the defect class this session has
+    // spent ten builds removing is a second copy of a number drifting from the
+    // first — LiveRestoreExecutionPolicy already assumes a flat 25% and is wrong
+    // to; exporting these would invite a third reader to assume something else.
+    private const val TREASURY_FLOOR_BALANCE_SOL_7125 = 2.0
+    private const val TREASURY_MID_BAND_SOL_7125 = 6.0
+    private const val TREASURY_TOP_BAND_SOL_7125 = 20.0
+
+    /**
+     * V5.0.7125 — THE SINGLE AUTHORITY FOR "what fraction of this win goes to
+     * treasury right now". Extracted so there is exactly one place that answers
+     * it.
+     *
+     * It was not one place before. LiveRestoreExecutionPolicy.sellSideBreakEvenOk
+     * read MEME_SELL_TREASURY_PCT directly and divided its break-even bar by
+     * (1 - 0.25), i.e. it assumed a flat 25% skim that has not been flat since
+     * V5.0.4112. In the floor band the real skim is 5%, so the bot was demanding
+     * roughly 27% more profit than necessary before it would take a win:
+     *
+     *     4.0% all-in cost -> required 5.33% under the assumed 25%
+     *                      -> required 4.21% under the actual 5%
+     *
+     * That is a profit-taking deferral built on a stale constant — the same
+     * "two authorities over one fact" shape this session has removed repeatedly,
+     * and it worked directly against the compounding the floor band exists to
+     * protect.
+     *
+     * UNKNOWN BALANCE RESOLVES TO THE FLOOR, NOT THE CEILING. The old code
+     * returned the full 25% when the balance read as zero, so a cold start or a
+     * cache miss took the most aggressive skim available at exactly the moment
+     * the bot knew least. Under-skimming leaves profit in the wallet where the
+     * next close can correct it; over-skimming has already moved it out.
+     */
+    fun currentSplitPct(): Double = try {
+        val walletSolNow = com.lifecyclebot.engine.WalletManager.cachedSolBalance()
+        when {
+            walletSolNow <= 0.0                            -> TREASURY_FLOOR_PCT_7125
+            walletSolNow < TREASURY_FLOOR_BALANCE_SOL_7125 -> TREASURY_FLOOR_PCT_7125
+            walletSolNow < TREASURY_MID_BAND_SOL_7125      -> 0.10
+            walletSolNow < TREASURY_TOP_BAND_SOL_7125      -> 0.15
+            else                                           -> MEME_SELL_TREASURY_PCT
+        }
+    } catch (_: Throwable) { TREASURY_FLOOR_PCT_7125 }
 
     /**
      * V5.9.495z17 — operator-mandated dust filter. Profits below this floor
@@ -432,36 +499,78 @@ object TreasuryManager {
         // treasury ledger doesn't fill with rounding-error events.
         // V5.9.663b — paper mode uses a 30x lower floor because there's no
         // gas cost. See MEME_SELL_MIN_PROFIT_SOL_PAPER doc.
-        val isPaper = try {
+        // V5.0.7125 — THE CALLER'S ARGUMENT WAS BEING THROWN AWAY.
+        //
+        // This was `val isPaper = ...`, which SHADOWS the `isPaper` parameter
+        // declared in this function's own signature. Every caller that passed
+        // isPaper = true — Executor's paper close paths at 9223, 21802, 22984 —
+        // had its answer silently discarded and replaced by the GLOBAL config
+        // paperMode.
+        //
+        // The consequence is not cosmetic. The resolved value is handed to
+        // triggerOnChainTransferIfLive() further down. So a paper-tagged position
+        // closing while the bot is globally LIVE resolved to isPaper = false and
+        // could fire a REAL on-chain treasury transfer against a simulated
+        // profit. The comment at the transfer site claims that class of drain was
+        // fixed at source; this parameter is how it survived.
+        //
+        // The fix is deliberately one-directional: an explicit isPaper = true
+        // from the caller now sticks, while callers that do not pass it keep the
+        // existing config lookup. This can only ever PREVENT a real transfer,
+        // never cause one, which is the right asymmetry for a money-moving path.
+        val effectiveIsPaper7125 = isPaper || try {
             val svc = BotService.instance
             if (svc != null) com.lifecyclebot.data.ConfigStore.load(svc.applicationContext).paperMode else true
         } catch (_: Throwable) { true }  // default to paper-floor on error
-        val floor = if (isPaper) MEME_SELL_MIN_PROFIT_SOL_PAPER else MEME_SELL_MIN_PROFIT_SOL
+        if (isPaper) {
+            try { PipelineHealthCollector.labelInc("TREASURY_CALLER_PAPER_FLAG_HONOURED_7125") } catch (_: Throwable) {}
+        }
+        val floor = if (effectiveIsPaper7125) MEME_SELL_MIN_PROFIT_SOL_PAPER else MEME_SELL_MIN_PROFIT_SOL
         if (realizedProfitSol < floor) {
             ErrorLogger.debug("Treasury",
-                "🪙 75/25 SPLIT skipped: profit=${realizedProfitSol.fmtSol()}◎ < ${if (isPaper) "paper" else "live"} dust floor ${floor}◎")
+                "🪙 TREASURY SPLIT skipped: profit=${realizedProfitSol.fmtSol()}◎ < ${if (effectiveIsPaper7125) "paper" else "live"} dust floor ${floor}◎")
             return 0.0
         }
         // V5.0.4112 — COMPOUND-AWARE SPLIT RATIO.
         // Operator: "treasury split is dragging the sustainability down,
-        // especially with such tiny returns." Below ~$50 USD trading wallet
-        // the 25% cut starves compounding (the bot needs every basis-point
-        // to scale the position floor / aggression ramp). Above ~$500 the
-        // standard 25% applies; in between we ramp linearly. This lets the
-        // bot compound out of the dust regime fast, then siphon profits
-        // normally once it has real capital to protect.
-        val splitPct: Double = try {
-            val walletSolNow = com.lifecyclebot.engine.WalletManager.cachedSolBalance()
-            val px = if (solPrice > 0.0) solPrice else 0.0
-            val walletUsd = walletSolNow * px
-            when {
-                walletUsd <= 0.0   -> MEME_SELL_TREASURY_PCT       // unknown → safe default
-                walletUsd < 50.0   -> 0.05                          // microcap: keep 95% to compound
-                walletUsd < 150.0  -> 0.10
-                walletUsd < 500.0  -> 0.15
-                else               -> MEME_SELL_TREASURY_PCT       // 25% normal regime
-            }
-        } catch (_: Throwable) { MEME_SELL_TREASURY_PCT }
+        // especially with such tiny returns." Below the floor balance the 25%
+        // cut starves compounding (the bot needs every basis-point to scale the
+        // position floor / aggression ramp). Above the top band the standard
+        // 25% applies. This lets the bot compound out of the dust regime fast,
+        // then siphon profits normally once it has real capital to protect.
+        //
+        // V5.0.7125 — RE-DENOMINATED IN SOL. Operator: "the live trading
+        // treasury split is only meant to be 5% of profit if the balance is
+        // under 2 sol. over 2 sol start scaling as designed as win increase the
+        // overall cash balance."
+        //
+        // The 4112 ladder was expressed in USD and its 5% band ended at $50.
+        // At ~$200/SOL that is about 0.25 SOL, so a wallet anywhere between
+        // 0.25 and 2 SOL — the entire range the bot actually operates in — was
+        // being skimmed at 10-15%, two to three times the intended rate. The
+        // floor the operator has been asking for was never expressible in the
+        // old units, because the ladder measured the wrong thing.
+        //
+        // THE BAND SHAPE IS PRESERVED, NOT REINVENTED. The 4112 breakpoints sat
+        // at 1x / 3x / 10x of its own floor ($50 / $150 / $500). Anchoring that
+        // same 1x / 3x / 10x progression to the operator's stated 2 SOL floor
+        // gives 2 / 6 / 20 SOL. So "scaling as designed" is literally the
+        // designed curve, moved onto the axis the operator specified.
+        //
+        // Denominating in SOL also removes the SOL/USD price from the decision
+        // entirely, which closes the hole below.
+        val splitPct: Double = currentSplitPct()
+        try {
+            // V5.0.7125 — name the band that was applied. The split rate has
+            // been a silent derived number: the log line below prints the amount
+            // moved but never the rate or the balance that chose it, so an
+            // operator seeing a treasury credit could not tell 5% from 25%
+            // without recomputing it by hand. That is how a ladder measuring the
+            // wrong unit survived from 4112 to 7125.
+            PipelineHealthCollector.labelInc(
+                "TREASURY_SPLIT_BAND_7125_${(splitPct * 100).toInt()}PCT",
+            )
+        } catch (_: Throwable) {}
         val contribSol = realizedProfitSol * splitPct
         // V5.9.425 — removed the 0.0001 SOL floor so small wins still accumulate;
         // negligible rounding (<1e-6) is the only thing skipped.
@@ -487,7 +596,9 @@ object TreasuryManager {
         ))
         forceSave()  // V5.9.1473 — write-through (was throttled autoSave); APK-update-safe
         // V5.9.495z26 — live mode: also push the SOL on-chain trading→treasury.
-        triggerOnChainTransferIfLive(contribSol, "MEME_SELL_75_25", isPaperSell = isPaper)
+        // V5.0.7125 — the money-moving call. This is the line the shadowed
+        // parameter above was feeding, and the reason the shadow mattered.
+        triggerOnChainTransferIfLive(contribSol, "MEME_SELL_75_25", isPaperSell = effectiveIsPaper7125)
         return contribSol
     }
 

@@ -194,11 +194,19 @@ object LiveRestoreExecutionPolicy {
     // token is held in a positive state. It must consider the profit split
     // so it both feeds the treasury and doesn't self-starve the bot."
     //
-    // Treasury takes MEME_SELL_TREASURY_PCT (25%) of realized profit. So the
-    // trading wallet only nets (1 - 0.25) = 75% of the realized pnl. For the
-    // trade to be net-positive AFTER costs AND treasury feed:
-    //     0.75 × pnlPct >= allInCostPct + safetyMargin
-    //   ⇒ pnlPct        >= (allInCostPct + safetyMargin) / 0.75
+    // Treasury takes a share of realized profit, so the trading wallet nets
+    // (1 - share) of the realized pnl. For the trade to be net-positive AFTER
+    // costs AND treasury feed:
+    //     (1 - share) × pnlPct >= allInCostPct + safetyMargin
+    //   ⇒ pnlPct              >= (allInCostPct + safetyMargin) / (1 - share)
+    //
+    // V5.0.7125 — THE SHARE IS NOT 25% AND HAS NOT BEEN SINCE V5.0.4112.
+    // This read MEME_SELL_TREASURY_PCT directly and hardcoded 0.75 in the prose
+    // above, but the live rate comes from a balance-banded ladder that returns
+    // 5% below 2 SOL. Assuming 25% inflated the break-even bar by about 27% in
+    // that band, so the bot held winners waiting for profit it did not need —
+    // working directly against the compounding the 5% floor exists to protect.
+    // It now asks the ladder, which is the only thing that knows.
     //
     // Call this from profit-taking exits ONLY (TP, trailing, profit-lock).
     // Do NOT call from stop-loss / hard-floor / emergency / rug exits —
@@ -213,7 +221,7 @@ object LiveRestoreExecutionPolicy {
         if (currentPnlPct <= 0.0) return true  // stop-loss handles negative side
         val be = breakEvenCheck(ts, ts.position.costSol.coerceAtLeast(0.01),
             NONE, walletSol = 1.0, signalScore = ts.entryScore)
-        val treasurySharePct = com.lifecyclebot.engine.TreasuryManager.MEME_SELL_TREASURY_PCT
+        val treasurySharePct = com.lifecyclebot.engine.TreasuryManager.currentSplitPct()
         val safetyMarginPct = 1.0
         val effectiveBreakEven = (be.allInCostPct + safetyMarginPct) / (1.0 - treasurySharePct)
         val ok = currentPnlPct >= effectiveBreakEven
