@@ -1762,9 +1762,34 @@ object CryptoAltTrader {
         try {
             val narHeat = NarrativeFlowAI.getNarrativeHeat(market.symbol)
             if (narHeat > 0.6) {
-                val boost = ((NarrativeFlowAI.getNarrativeMultiplier(market.symbol) - 1.0) * 10).toInt().coerceIn(0, 15)
+                // V5.0.7114 §A_HOT_EXHAUSTING_NARRATIVE_SCORED_LIKE_A_HEALTHY_ONE.
+                //
+                // This read coerceIn(0, 15). getNarrativeMultiplier returns five
+                // distinct phases and THREE of them are below 1.0:
+                //
+                //     EXPANDING  1.2  -> +2
+                //     MATURE     1.0  ->  0
+                //     EMERGING   0.9  -> -1   clamped to 0
+                //     EXHAUSTING 0.5  -> -5   clamped to 0
+                //     DEAD       0.7  -> -3   clamped to 0
+                //
+                // So only EXPANDING survived, and the other four were
+                // indistinguishable from "no opinion". This gate fires ONLY when
+                // narHeat > 0.6 — a HOT narrative — which makes the discarded
+                // case the important one: high attention with momentum rolling
+                // over is the most dangerous setup there is, the AI detects it
+                // exactly (NarrativePhase.EXHAUSTING), and the clamp threw the
+                // detection away.
+                //
+                // Third instance of the class V5.0.7112 and V5.0.7113 fixed,
+                // found by the same ci/one_way_control_scan.py. The layer
+                // directly below this one — StrategyTrustAI, `trust < 0.3 ->
+                // score -= 8` — is two-sided, so the intent was never in doubt.
+                //
+                // Symmetric with the +15 ceiling already here; no new magnitude.
+                val boost = ((NarrativeFlowAI.getNarrativeMultiplier(market.symbol) - 1.0) * 10).toInt().coerceIn(-15, 15)
                 score += boost; confidence += boost / 2
-                reasons.add("📣 Narrative: ${"%.0f".format(narHeat * 100)}% (+$boost)")
+                reasons.add("📣 Narrative: ${"%.0f".format(narHeat * 100)}% (${if (boost >= 0) "+" else ""}$boost)")
                 layerVotes["NarrativeHeat"] = direction
             }
         } catch (_: Exception) {}
