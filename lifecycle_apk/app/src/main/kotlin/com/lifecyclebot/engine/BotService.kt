@@ -1850,6 +1850,16 @@ class BotService : Service() {
                         try {
                             com.lifecyclebot.engine.truth.TokenMetricsAuthority7069.installCache7069(cache)
                         } catch (_: Throwable) {}
+                        // V5.0.7075 — the supply the metrics identity checks
+                        // against must come from CHAIN STATE, not from
+                        // mcap/price. Without an RPC endpoint the authority
+                        // reports nothing known rather than guessing, so this
+                        // install is what turns verification on at all.
+                        try {
+                            val rpc7075 = com.lifecyclebot.engine.ConfigStore.load(cacheCtx).rpcUrl
+                                .ifBlank { "https://api.mainnet-beta.solana.com" }
+                            com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.installRpc7075(rpc7075)
+                        } catch (_: Throwable) {}
                         // Schedule periodic flush + prune.
                         Thread {
                             while (true) {

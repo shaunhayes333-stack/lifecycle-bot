@@ -104,27 +104,70 @@ object TokenMetricsAuthority7069 {
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.7075 §THERE IS NO SUCH THING AS AN INFERRED SUPPLY.
+     *
+     * Operator: "there should never be an inferred value. if we cant lock in
+     * full data integrity at discovery the app is fucking worthless trading
+     * real money."
+     *
+     * V5.0.7069 derived supply as `mcap / price` from the first observation
+     * that carried both, then used that supply to verify every later price.
+     * That is circular: a check derived from the thing it checks. If the first
+     * price was wrong the supply is wrong by the same factor, the identity
+     * holds perfectly, and correct prices get "repaired" TOWARDS the error.
+     * The 8A6dzN partial booked 2.0798 SOL from a 0.0144 SOL basis — a 144x —
+     * while §4481 reported mcapGain=0.0% on the same mint seconds later.
+     *
+     * The inference is deleted. Supply now comes from ONE place:
+     * OnChainSupplyAuthority7075, which reads `getTokenSupply` from chain
+     * state. It is a fact, it does not depend on any price, and a bad tick
+     * cannot corrupt it.
+     *
+     * A mint with no on-chain supply yet is NOT verifiable and NOT repairable,
+     * and the resolve is requested so it becomes both. Nothing is guessed in
+     * the meantime.
+     */
     private fun storedSupplyOf(mint: String): Double {
-        supplyByMint[mint]?.let { if (it.isFinite() && it >= MIN_SUPPLY) return it }
-        val durable = try { cacheRef.get()?.supplyOf7069(mint) ?: 0.0 } catch (_: Throwable) { 0.0 }
-        if (durable.isFinite() && durable >= MIN_SUPPLY) {
-            supplyByMint[mint] = durable
-            return durable
+        val onChain = try { OnChainSupplyAuthority7075.supplyOf7075(mint) } catch (_: Throwable) { 0.0 }
+        if (onChain.isFinite() && onChain >= MIN_SUPPLY) {
+            supplyByMint[mint] = onChain
+            return onChain
         }
+        // Durable cache holds ON-CHAIN values only (V5.0.7075); a pre-7075
+        // archive may still contain inferred rows, so it is read but any value
+        // it returns is re-confirmed against chain state by the request below.
+        val durable = try { cacheRef.get()?.supplyOf7069(mint) ?: 0.0 } catch (_: Throwable) { 0.0 }
+        try { OnChainSupplyAuthority7075.requestAsync7075(mint) } catch (_: Throwable) {}
+        if (durable.isFinite() && durable >= MIN_SUPPLY) return durable
         return 0.0
     }
 
-    private fun captureSupply(mint: String, supply: Double) {
-        val prior = supplyByMint.putIfAbsent(mint, supply)
-        if (prior != null) {
-            val ratio = if (prior > 0.0) supply / prior else -1.0
-            if (ratio < 0.995 || ratio > 1.005) noteSupplyConflict7069(mint, prior, supply)
-            return
-        }
+    /**
+     * V5.0.7075 — chain state arrived. It OVERRIDES anything held, including a
+     * pre-7075 inferred archive value, because a measured fact outranks a
+     * derived one. Returns true when it actually replaced a different number,
+     * which is the count of positions that were being priced against a guess.
+     */
+    fun acceptOnChainSupply7075(mint: String, supply: Double): Boolean {
+        if (!supply.isFinite() || supply < MIN_SUPPLY) return false
+        val prior = supplyByMint.put(mint, supply)
         supplyCaptured.incrementAndGet()
-        try { PipelineHealthCollector.labelInc("TOKEN_SUPPLY_CAPTURED_ON_ARRIVAL_7069") } catch (_: Throwable) {}
         try { cacheRef.get()?.upsertSupply7069(mint, supply) } catch (_: Throwable) {}
+        val differed = prior != null && prior > 0.0 &&
+            (supply / prior < 0.995 || supply / prior > 1.005)
+        if (differed) noteSupplyConflict7069(mint, prior!!, supply)
+        return differed
     }
+
+    // V5.0.7075 — the admission gate (`supplyConfirmed`) is deliberately NOT
+    // shipped in this build. It belongs on the economic path, and turning it on
+    // before chain-supply coverage is measured could refuse every mark at once
+    // and stop the bot dead — the same mistake as V5.0.7068's band, which took
+    // 37 of 41 partials with it. This build MEASURES coverage
+    // (OnChainSupplyAuthority7075.status: resolved / failed) and the gate lands
+    // on that evidence. Shipping the accessor unwired would just be another
+    // NO_CALLERS authority, which is the defect this session keeps finding.
 
     private val observed = AtomicLong(0L)
     private val supplyCaptured = AtomicLong(0L)
@@ -167,16 +210,13 @@ object TokenMetricsAuthority7069 {
         // ARRIVAL — no supply on file yet. Capture it from this observation and
         // let the price stand; there is nothing to check it against yet, and
         // inventing a check would be inventing data.
+        // V5.0.7075 — no chain-confirmed supply means nothing here can be
+        // verified. The price passes through UNCHANGED and unverified; it is
+        // never "repaired" against a number derived from itself. storedSupplyOf
+        // has already asked chain state for the real one.
         if (storedSupply <= 0.0) {
-            if (price > 0.0 && mcap > 0.0) {
-                val supply = mcap / price
-                if (supply.isFinite() && supply >= MIN_SUPPLY) {
-                    captureSupply(mint, supply)
-                    return Metrics7069(price, mcap, supply, repaired = false, verifiable = false)
-                }
-            }
             unverifiable.incrementAndGet()
-            try { PipelineHealthCollector.labelInc("TOKEN_METRICS_UNVERIFIABLE_NO_SUPPLY_7069") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("TOKEN_METRICS_UNVERIFIABLE_NO_ONCHAIN_SUPPLY_7075") } catch (_: Throwable) {}
             return Metrics7069(price, mcap, 0.0, repaired = false, verifiable = false)
         }
 

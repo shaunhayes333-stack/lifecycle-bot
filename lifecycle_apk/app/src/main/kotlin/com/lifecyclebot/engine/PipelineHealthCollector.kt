@@ -2180,6 +2180,15 @@ object PipelineHealthCollector {
             // number of distinct mints seen — if it stalls while observed
             // climbs, arrivals are not carrying both a price and a cap and the
             // identity cannot be evaluated for them.
+            // V5.0.7075 — supply provenance. `resolved` is chain-confirmed
+            // mints; `correctedInference` counts mints that were being priced
+            // against a pre-7075 GUESS until chain state replaced it. Read
+            // `resolved` against §7069's `unverifiable`: while resolution lags,
+            // those marks are passing through unchecked and nothing economic
+            // should be trusted on them.
+            sb.append("  On-chain supply   (§7075): ").append(
+                com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.status()
+            ).append("\n")
             sb.append("  Token metrics     (§7069): ").append(
                 com.lifecyclebot.engine.truth.TokenMetricsAuthority7069.status()
             ).append("\n")
