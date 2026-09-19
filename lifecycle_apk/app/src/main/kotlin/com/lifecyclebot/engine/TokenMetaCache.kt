@@ -55,6 +55,19 @@ class TokenMetaCache private constructor(ctx: Context) :
         // with the unit guard weakened. Archive it like the mint address:
         // once known, never re-fetched, and shared across the hive.
         var decimals: Int = -1,
+        // V5.0.7069 §SUPPLY_IS_THE_LINK_BETWEEN_PRICE_AND_MARKET_CAP.
+        //
+        // Without this field price and market cap are two unrelated numbers
+        // and neither can check the other, which is how a 2.47x price move
+        // against a DEAD FLAT market cap was even representable. Supply is
+        // what ties them: mcap = price x supply, always, by definition.
+        //
+        // Captured once from the first observation that carries both, and
+        // treated as immutable afterwards exactly like `decimals` — an SPL
+        // mint's supply does not drift, so a later disagreement is a DATA
+        // FAULT to surface rather than a new value to accept.
+        var supplyTokens: Double = 0.0,
+        var supplyCapturedAtMs: Long = 0L,
         // V5.0.6908 §ARCHIVED_UNTIL_INTERACTED_WITH_AGAIN.
         // Wallclock of the last time AATE actually executed against this
         // mint (buy/sell/partial), as opposed to merely observing it in a
@@ -134,6 +147,9 @@ class TokenMetaCache private constructor(ctx: Context) :
         val additive = listOf(
             "ALTER TABLE token_meta ADD COLUMN decimals INTEGER NOT NULL DEFAULT -1",
             "ALTER TABLE token_meta ADD COLUMN last_interacted_ms INTEGER NOT NULL DEFAULT 0",
+            // V5.0.7069 — supply, so price and market cap can verify each other.
+            "ALTER TABLE token_meta ADD COLUMN supply_tokens REAL NOT NULL DEFAULT 0",
+            "ALTER TABLE token_meta ADD COLUMN supply_captured_ms INTEGER NOT NULL DEFAULT 0",
         )
         var applied = 0
         for (stmt in additive) {
@@ -169,7 +185,7 @@ class TokenMetaCache private constructor(ctx: Context) :
                     "last_price_source, last_price_pool_addr, last_price_dex, " +
                     "last_price, last_mcap, last_liquidity_usd, last_fdv, " +
                     "creation_time_ms, first_seen_ms, last_seen_ms, hit_count, " +
-                    "decimals, last_interacted_ms " +
+                    "decimals, last_interacted_ms, supply_tokens, supply_captured_ms " +
                     // V5.0.6908 — interacted rows load first and are never
                     // truncated by the row cap: a token the bot actually traded
                     // is the one whose archived pool/dex/decimals we most need
@@ -202,6 +218,8 @@ class TokenMetaCache private constructor(ctx: Context) :
                         hitCount = c.getLong(16),
                         decimals = c.getInt(17),
                         lastInteractedMs = c.getLong(18),
+                        supplyTokens = c.getDouble(19),
+                        supplyCapturedAtMs = c.getLong(20),
                     )
                     live[mint] = e
                     hydrated++
@@ -291,6 +309,48 @@ class TokenMetaCache private constructor(ctx: Context) :
         if (changed || (e.hitCount % FLUSH_EVERY_N_HITS == 0L)) dirty.add(key)
     }
 
+    /**
+     * V5.0.7069 — record a mint's token supply, once.
+     *
+     * Immutable by the same reasoning as `decimals`: an SPL mint's supply does
+     * not drift, so a later disagreement is a data fault to surface rather than
+     * a new value to accept. Silently overwriting would destroy the one stored
+     * quantity that lets price and market cap verify each other, which is the
+     * whole point of storing it.
+     */
+    fun upsertSupply7069(mint: String, supplyTokens: Double) {
+        val key = com.lifecyclebot.data.CanonicalMint.normalize(mint)
+        if (key.isEmpty()) return
+        if (!supplyTokens.isFinite() || supplyTokens < 1.0) return
+        val now = System.currentTimeMillis()
+        val e = live.computeIfAbsent(key) { Entry(mint = key, firstSeenMs = now) }
+        val archived = e.supplyTokens
+        if (archived.isFinite() && archived >= 1.0) {
+            // Same-supply re-observation is the normal case and is silent.
+            val ratio = supplyTokens / archived
+            if (ratio < 0.995 || ratio > 1.005) {
+                try {
+                    com.lifecyclebot.engine.truth.TokenMetricsAuthority7069
+                        .noteSupplyConflict7069(key, archived, supplyTokens)
+                } catch (_: Throwable) {}
+            }
+            return
+        }
+        e.supplyTokens = supplyTokens
+        e.supplyCapturedAtMs = now
+        e.lastSeenMs = now
+        dirty.add(key)
+        totalWrites.incrementAndGet()
+    }
+
+    /** V5.0.7069 — stored supply, or 0.0 when never captured. */
+    fun supplyOf7069(mint: String): Double {
+        val key = com.lifecyclebot.data.CanonicalMint.normalize(mint)
+        if (key.isEmpty()) return 0.0
+        val s = live[key]?.supplyTokens ?: 0.0
+        return if (s.isFinite() && s >= 1.0) s else 0.0
+    }
+
     /** Persist all dirty rows. Safe from any thread. Returns rows flushed. */
     fun flushNow(): Int {
         if (dirty.isEmpty()) return 0
@@ -324,6 +384,8 @@ class TokenMetaCache private constructor(ctx: Context) :
                             put("hit_count", e.hitCount)
                             put("decimals", e.decimals)
                             put("last_interacted_ms", e.lastInteractedMs)
+                            put("supply_tokens", e.supplyTokens)
+                            put("supply_captured_ms", e.supplyCapturedAtMs)
                         }
                         db.insertWithOnConflict("token_meta", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
                         written++
@@ -473,7 +535,7 @@ class TokenMetaCache private constructor(ctx: Context) :
         private const val DB_NAME = "lifecycle_token_meta.db"
         // V5.0.6908 — 1 -> 2 adds decimals + last_interacted_ms. Safe to bump
         // now that onUpgrade migrates additively instead of dropping the table.
-        private const val DB_VERSION = 2
+        private const val DB_VERSION = 3
         private const val MAX_LIVE_ROWS = 50_000
         private const val FLUSH_EVERY_N_HITS = 32L
 

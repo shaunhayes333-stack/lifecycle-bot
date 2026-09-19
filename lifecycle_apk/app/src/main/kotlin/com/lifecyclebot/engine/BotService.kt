@@ -1842,6 +1842,14 @@ class BotService : Service() {
                         val cache = com.lifecyclebot.engine.TokenMetaCache.get(cacheCtx)
                         val n = cache.warmStart()
                         ErrorLogger.info("BotService", "TokenMetaCache warmStart hydrated=$n rows")
+                        // V5.0.7069 — hand the durable store to the metrics
+                        // identity. The authority already works without it
+                        // (session-local supply map), so this is the upgrade
+                        // from "correct this run" to "correct across restarts",
+                        // never a precondition for it running at all.
+                        try {
+                            com.lifecyclebot.engine.truth.TokenMetricsAuthority7069.installCache7069(cache)
+                        } catch (_: Throwable) {}
                         // Schedule periodic flush + prune.
                         Thread {
                             while (true) {

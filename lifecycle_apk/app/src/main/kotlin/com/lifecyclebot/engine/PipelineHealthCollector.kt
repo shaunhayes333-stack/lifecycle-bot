@@ -2172,6 +2172,17 @@ object PipelineHealthCollector {
             // `carried_route` / `entry_flat` size what used to be REFUSED: each
             // is a position that would previously have gone unpriced, and every
             // protection on it unevaluated, for as long as the gap lasted.
+            // V5.0.7069 — the identity, ahead of every band-based guard below
+            // it. `identityBroken` counts observations where the reported price
+            // contradicted mcap/storedSupply; `worstBreak` is the largest such
+            // contradiction. A healthy feed shows identityHeld climbing and
+            // identityBroken near zero. `supplyCaptured` should track the
+            // number of distinct mints seen — if it stalls while observed
+            // climbs, arrivals are not carrying both a price and a cap and the
+            // identity cannot be evaluated for them.
+            sb.append("  Token metrics     (§7069): ").append(
+                com.lifecyclebot.engine.truth.TokenMetricsAuthority7069.status()
+            ).append("\n")
             sb.append("  Mark resolution   (§7059): ").append(
                 com.lifecyclebot.engine.truth.CanonicalMarkResolution7059.status()
             ).append("\n")

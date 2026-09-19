@@ -807,6 +807,58 @@ class Executor(
         // pos.priceBasisRescaled). After it fires, all future ticks on
         // the new source feed normally into PnL.
 
+        // V5.0.7069 §THE_IDENTITY_RUNS_BEFORE_ANYTHING_ELSE.
+        //
+        // Operator: "all token metrics should be stored on arrival with the
+        // metrics updating in real time. there should be no imagined gains and
+        // bullshit profit."
+        //
+        // Every price guard below this line — the 6052 route lock, the 6895
+        // band, the 7017 reconciler, the 7059 ladder — argues about how far
+        // wrong a mark may be before it is refused. That argument only exists
+        // because price and market cap arrive as two unrelated numbers with
+        // nothing linking them. TokenMetaCache now stores the link, so it is
+        // settled here, arithmetically, before any of them run:
+        //
+        //     marketCap = price x supply     therefore     price = mcap / supply
+        //
+        // Supply is captured from the first observation that carries both and
+        // is immutable thereafter. A cap that has not moved means a price that
+        // has not moved — not "within tolerance of not moved". The CARDSc rows
+        // (2.47x price against a dead flat $674,010 cap) become arithmetically
+        // impossible rather than merely improbable.
+        //
+        // The repair is written back to ts.lastPrice, not just returned, so no
+        // later reader re-derives the wrong number from a field left stale —
+        // V5.0.7046's lesson, applied at the top of the chain instead of the
+        // bottom.
+        val metrics7069 = try {
+            com.lifecyclebot.engine.truth.TokenMetricsAuthority7069.observe(
+                mint = ts.mint,
+                symbol = ts.symbol ?: "",
+                rawPriceUsd = ts.lastPrice,
+                rawMcapUsd = ts.lastMcap,
+                source = ts.lastPriceSource.ifBlank { "UNKNOWN" },
+            )
+        } catch (_: Throwable) { null }
+        if (metrics7069 != null && metrics7069.repaired &&
+            metrics7069.priceUsd.isFinite() && metrics7069.priceUsd > 0.0
+        ) {
+            try {
+                ts.lastPrice = metrics7069.priceUsd
+                ts.lastPriceUpdate = System.currentTimeMillis()
+                // Provider stays as the source PREFIX so
+                // MarkAuthorityIntegrityGate6496's whitelist still matches (the
+                // V5.0.7048 regression); the transform is appended and the
+                // substringBefore keeps it idempotent across repeated repairs.
+                val base7069 = ts.lastPriceSource
+                    .substringBefore("+MCAP_IDENTITY_7069")
+                    .takeIf { it.isNotBlank() } ?: "MCAP_IDENTITY"
+                ts.lastPriceSource = "$base7069+MCAP_IDENTITY_7069"
+                PipelineHealthCollector.labelInc("TS_LAST_PRICE_REPAIRED_7069")
+            } catch (_: Throwable) {}
+        }
+
         val livePrice = ts.lastPrice.takeIf { it > 0 && it.isFinite() }
         val pos = ts.position
 
