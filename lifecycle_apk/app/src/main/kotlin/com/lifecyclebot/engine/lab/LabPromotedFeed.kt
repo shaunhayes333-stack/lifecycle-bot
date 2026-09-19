@@ -83,7 +83,8 @@ object LabPromotedFeed {
     // is deliberate: a lifetime cap eventually silences every strategy that
     // ever worked, which is a slow death disguised as a safety feature. A
     // rolling window bounds the damage any one strategy can do in a day and
-    // then forgives it.
+    // then forgives it. V5.0.7107 made its SIZE a fraction of spendable cash
+    // rather than a constant, so it stays the same rule as the account grows.
     //
     // CRITICAL PROPERTY, and the reason this is safe to run unattended: failing
     // either test NEVER blocks a trade. It drops the strategy's NUDGE, and the
@@ -97,9 +98,56 @@ object LabPromotedFeed {
     private const val LIVE_MIN_WR_PCT_7106 = 40.0
     /** Three times the paper PnL proof. */
     private const val LIVE_MIN_PNL_SOL_7106 = 0.15
-    /** Rolling ceiling on real SOL one strategy may direct per day. */
-    private const val LIVE_MAX_EXPOSURE_SOL_PER_DAY_7106 = 2.0
+    /**
+     * V5.0.7107 §THE_CAP_MOVES_WITH_THE_CASH.
+     *
+     * 7106 shipped a flat 2.0 SOL/day, a number I picked without knowing the
+     * balance it was protecting. A fixed cap is wrong in both directions as the
+     * account moves: on a small balance it is not a bound at all, and on a large
+     * one it silently becomes the binding constraint on the best strategy the
+     * Lab has produced — a throttle nobody chose, arriving as a reward for
+     * growth.
+     *
+     * A fraction of spendable cash is the same rule at every size. One strategy
+     * may direct a quarter of the wallet per rolling day; four equally-proven
+     * strategies could in principle direct all of it, which is what "the LLM
+     * runs the book" means and is the design the operator asked for.
+     *
+     * BASIS IS MODE-CORRECT AND IT MATTERS. The cap exists to bound REAL money,
+     * so in live it reads the live wallet — WalletManager.cachedSolBalance() —
+     * not PaperCapitalAuthority6577's paper cash. Reading paper cash to bound
+     * real spend is the same class of error as V5.0.7106's test for
+     * paper spend consuming the real-money ledger.
+     *
+     * CASH, NOT EQUITY. Equity includes open positions, which cannot be spent.
+     * A cap sized on equity would authorise spending money that is already in
+     * the market.
+     */
+    private const val LIVE_EXPOSURE_CAP_FRACTION_7107 = 0.25
     private const val EXPOSURE_WINDOW_MS_7106 = 24L * 60L * 60L * 1000L
+
+    /**
+     * Test seam. A cap expressed as a fraction of cash cannot be exercised
+     * without a cash figure, and a unit test has no wallet and no paper ledger
+     * — it would read 0.0 and every case would collapse into the same
+     * cash-unknown refusal, proving nothing. Production never sets this.
+     */
+    @Volatile private var cashOverrideForTest7107: Double? = null
+    internal fun setCashForTest7107(sol: Double?) { cashOverrideForTest7107 = sol }
+
+    /** Spendable cash in the mode that is actually running. */
+    private fun spendableCashSol7107(): Double = cashOverrideForTest7107 ?: try {
+        val paper = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }
+        val v = if (paper) {
+            com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol()
+        } else {
+            com.lifecyclebot.engine.WalletManager.cachedSolBalance()
+        }
+        if (v.isFinite() && v > 0.0) v else 0.0
+    } catch (_: Throwable) { 0.0 }
+
+    /** The resolved per-strategy rolling cap, in SOL. */
+    private fun exposureCapSol7107(): Double = spendableCashSol7107() * LIVE_EXPOSURE_CAP_FRACTION_7107
 
     private val liveSpend7106 = ConcurrentHashMap<String, ArrayDeque<Pair<Long, Double>>>()
 
@@ -149,10 +197,16 @@ object LabPromotedFeed {
             if (s.winRatePct() < LIVE_MIN_WR_PCT_7106) return "LIVE_BAR_WR_${"%.0f".format(s.winRatePct())}_OF_${LIVE_MIN_WR_PCT_7106.toInt()}"
             if (s.paperPnlSol < LIVE_MIN_PNL_SOL_7106) return "LIVE_BAR_PNL_${"%.3f".format(s.paperPnlSol)}_OF_$LIVE_MIN_PNL_SOL_7106"
         }
+        val cap = exposureCapSol7107()
+        // V5.0.7107 — a cap of zero means the cash reading failed or the wallet
+        // is empty, NOT that this strategy is untrustworthy. Named separately so
+        // it can never be read as a verdict about the strategy, and it self-heals
+        // the moment a balance is available. The entry still proceeds either way.
+        if (cap <= 0.0) return "EXPOSURE_CAP_CASH_UNKNOWN_OR_ZERO"
         val used = liveExposureSol7106(strategyId)
         val proposed = if (proposedSol.isFinite() && proposedSol > 0.0) proposedSol else 0.0
-        if (used + proposed > LIVE_MAX_EXPOSURE_SOL_PER_DAY_7106) {
-            return "EXPOSURE_CAP_${"%.2f".format(used)}_PLUS_${"%.3f".format(proposed)}_OVER_$LIVE_MAX_EXPOSURE_SOL_PER_DAY_7106"
+        if (used + proposed > cap) {
+            return "EXPOSURE_CAP_${"%.3f".format(used)}_PLUS_${"%.3f".format(proposed)}_OVER_${"%.3f".format(cap)}"
         }
         return null
     }
@@ -162,8 +216,11 @@ object LabPromotedFeed {
         val promoted = LlmLabStore.allStrategies().filter { it.status == LabStrategyStatus.PROMOTED }
         val cleared = promoted.count { liveNudgeRefusal7106(it.id, 0.0) == null }
         val exposure = promoted.sumOf { liveExposureSol7106(it.id) }
+        val cash = spendableCashSol7107()
+        val cap = exposureCapSol7107()
         "promoted=${promoted.size} liveBarCleared=$cleared revoked=${liveRevoked.size} " +
-            "rolling24hSol=${"%.3f".format(exposure)} capPerStrategy=$LIVE_MAX_EXPOSURE_SOL_PER_DAY_7106 " +
+            "rolling24hSol=${"%.3f".format(exposure)} " +
+            "capPerStrategy=${"%.3f".format(cap)}(${(LIVE_EXPOSURE_CAP_FRACTION_7107 * 100).toInt()}%_of_cash_${"%.3f".format(cash)}) " +
             "bar=n$LIVE_MIN_TRADES_7106/wr${LIVE_MIN_WR_PCT_7106.toInt()}/pnl$LIVE_MIN_PNL_SOL_7106"
     } catch (t: Throwable) { "unavailable(${t.javaClass.simpleName})" }
 

@@ -5,9 +5,11 @@ import com.lifecyclebot.engine.lab.LabPromotedFeed
 import com.lifecyclebot.engine.lab.LabStrategy
 import com.lifecyclebot.engine.lab.LabStrategyStatus
 import com.lifecyclebot.engine.lab.LlmLabStore
+import org.junit.After
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 /**
@@ -19,6 +21,13 @@ import org.junit.Test
  * bar; that one is the reason the bar is safe to run unattended.
  */
 class Aate7106LiveProofBarTest {
+
+    // V5.0.7107 — the cap is now 25% of spendable cash, so every case needs a
+    // known basis. 8.0 SOL cash => a 2.0 SOL per-strategy rolling cap, which is
+    // exactly the figure 7106's fixed constant used, so the cases below still
+    // read as they did.
+    @Before fun setUp() { LabPromotedFeed.setCashForTest7107(8.0) }
+    @After fun tearDown() { LabPromotedFeed.setCashForTest7107(null) }
 
     private fun strategy(
         id: String,
@@ -109,6 +118,38 @@ class Aate7106LiveProofBarTest {
         val refusal = LabPromotedFeed.liveNudgeRefusal7106(s.id, 0.1)
         assertNotNull("one strategy must not direct unbounded real money", refusal)
         assertTrue("the refusal states the arithmetic: $refusal", refusal!!.startsWith("EXPOSURE_CAP"))
+    }
+
+    @Test
+    fun theCapMovesWithTheCashBalance() {
+        val s = strategy("s7106h", trades = 60, wins = 30, pnlSol = 0.20)
+        LlmLabStore.addStrategy(s)
+        repeat(20) { LabPromotedFeed.recordLiveSpend7106(s.id, 0.1) }   // 2.0 SOL spent
+
+        // At 8 SOL cash the cap is 2.0 and 2.0 + 0.1 is over it.
+        assertNotNull("bound at the smaller balance", LabPromotedFeed.liveNudgeRefusal7106(s.id, 0.1))
+
+        // Grow the account and the SAME spend is comfortably inside the cap.
+        // This is the property the operator asked for: one rule at every size.
+        LabPromotedFeed.setCashForTest7107(40.0)                        // cap = 10.0
+        assertNull("the cap must grow with the cash", LabPromotedFeed.liveNudgeRefusal7106(s.id, 0.1))
+
+        // And shrink with it.
+        LabPromotedFeed.setCashForTest7107(4.0)                         // cap = 1.0
+        assertNotNull("and tighten when the account draws down", LabPromotedFeed.liveNudgeRefusal7106(s.id, 0.1))
+    }
+
+    @Test
+    fun anUnreadableCashBalanceIsNotAVerdictAboutTheStrategy() {
+        val s = strategy("s7106i", trades = 60, wins = 30, pnlSol = 0.20)
+        LlmLabStore.addStrategy(s)
+        LabPromotedFeed.setCashForTest7107(0.0)
+        val refusal = LabPromotedFeed.liveNudgeRefusal7106(s.id, 0.05)
+        assertNotNull(refusal)
+        assertTrue(
+            "a missing cash reading must name itself, not masquerade as a failed proof bar: $refusal",
+            refusal == "EXPOSURE_CAP_CASH_UNKNOWN_OR_ZERO",
+        )
     }
 
     @Test
