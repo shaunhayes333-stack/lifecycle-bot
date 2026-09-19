@@ -14463,8 +14463,80 @@ class BotService : Service() {
                 // pre-seed it so the bot can start scoring/safety-checking
                 // immediately instead of waiting for an oracle round-trip
                 // that often fails for fresh launches.
-                if (trustedMarketCapUsd6492 > 0.0 && ts.lastPrice <= 0.0) {
-                    ts.lastPrice = trustedMarketCapUsd6492 / 1_000_000_000.0
+                // V5.0.7089 §THE 1e9 SUPPLY CONSTANT WAS APPLIED TO TOKENS THAT
+                // ARE NOT PUMP.FUN TOKENS, AND THAT IS WHERE THE FAKE ENTRY
+                // PRICES COME FROM.
+                //
+                // The comment above is correct that pump.fun fixes bonding-curve
+                // supply at 1e9 BY PROTOCOL, so mcap/1e9 is exact FOR A PUMP.FUN
+                // MINT. It was never gated on the mint actually being one.
+                //
+                // V5.0.7088's parallel fan-out exposed it within one session:
+                //
+                //   METRICS_IDENTITY_BROKEN_7069  mint=Xsv9hRk1z5
+                //     src=FANOUT_CORROBORATED_7088_x3
+                //     reportedPrice=401.72  impliedPrice=5.796
+                //     mcap=673892  supply=116268
+                //
+                // THREE independent feeds agreed that token is ~$401, and chain
+                // state says its supply is 116,268 — not a billion. But the entry
+                // was booked at 0.00067726171, and 673892 / 0.00067726171 is
+                // 995,000,000. That entry price is this line's output.
+                //
+                // The mint is an xStocks tokenised equity ("Xs" prefix), relayed
+                // through PUMP_PORTAL_WS like everything else. So a source check
+                // is not enough — PumpPortal carries non-pump mints. The
+                // authoritative test is the MINT SUFFIX, which is what
+                // PumpFunDirectApi.isPumpFunMint checks and what the pid tails in
+                // the operator's own BUY rows show: `pid=ump:...` ends in "pump",
+                // while `D3re`, `B263`, `axm`, `SMoT` do not.
+                //
+                // THIS IS THE ROOT CAUSE OF THE WHOLE 1211x / 593,158x FAMILY.
+                // V5.0.7069 blamed the mark and "repaired" it; V5.0.7087 stopped
+                // that substitution. Both were downstream of the real defect: the
+                // ENTRY was fabricated, so every honest mark that arrived later
+                // looked like an impossible gain and got quarantined. That is the
+                // operator's "excluding wins all over the place" — the wins were
+                // never wins, and the losses were never losses either.
+                //
+                // Three cases now, in order of evidence:
+                //   1. genuine pump.fun mint      -> mcap/1e9, a protocol constant
+                //   2. chain supply known (§7075) -> mcap/supply, two measurements
+                //   3. neither                    -> LEAVE IT UNPRICED. §7088 asks
+                //                                    six feeds in parallel and will
+                //                                    price it with corroboration;
+                //                                    an invented price is worse
+                //                                    than no price.
+                val isPumpMint7089 = try {
+                    com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint)
+                } catch (_: Throwable) { false }
+                val chainSupply7089 = try {
+                    com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.supplyOf7075(mint)
+                } catch (_: Throwable) { 0.0 }
+                val seedPrice7089: Double = when {
+                    isPumpMint7089 -> trustedMarketCapUsd6492 / 1_000_000_000.0
+                    chainSupply7089 >= 1.0 -> trustedMarketCapUsd6492 / chainSupply7089
+                    else -> 0.0
+                }
+                if (trustedMarketCapUsd6492 > 0.0 && ts.lastPrice <= 0.0 && seedPrice7089 <= 0.0) {
+                    try {
+                        PipelineHealthCollector.labelInc("INTAKE_PRICE_NOT_SEEDED_UNKNOWN_SUPPLY_7089")
+                        com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.requestAsync7075(mint)
+                    } catch (_: Throwable) {}
+                }
+                if (trustedMarketCapUsd6492 > 0.0 && ts.lastPrice <= 0.0 && seedPrice7089 > 0.0) {
+                    if (!isPumpMint7089) {
+                        try {
+                            PipelineHealthCollector.labelInc("INTAKE_PRICE_SEEDED_FROM_CHAIN_SUPPLY_7089")
+                            ForensicLogger.lifecycle(
+                                "INTAKE_PRICE_SEEDED_FROM_CHAIN_SUPPLY_7089",
+                                "mint=${mint.take(10)} mcap=${trustedMarketCapUsd6492.toLong()} " +
+                                    "onChainSupply=${chainSupply7089.toLong()} price=$seedPrice7089 " +
+                                    "action=not_a_pump_mint_so_1e9_constant_would_have_been_wrong",
+                            )
+                        } catch (_: Throwable) {}
+                    }
+                    ts.lastPrice = seedPrice7089
                     ts.lastPriceUpdate = System.currentTimeMillis()
                     // V5.9.744 — tag synthetic source. Pump.Fun protocol guarantees
                     // 1B fixed supply on BC, so mcap/1B is the exact per-token price
@@ -14488,8 +14560,25 @@ class BotService : Service() {
                     // staleness. The 1B-supply formula is still exact for
                     // pump.fun BC tokens. After graduation to Raydium,
                     // lastPriceSource flips and this branch stops firing.
-                    val newPrice = trustedMarketCapUsd6492 / 1_000_000_000.0
-                    if (newPrice != ts.lastPrice) {
+                    // V5.0.7089 — the SAME ungated constant, refreshed on every WS
+                    // tick. This is the half that keeps a fabricated price alive:
+                    // the seed above sets it once, this re-asserts it continuously,
+                    // so a non-pump mint's price never gets a chance to be
+                    // corrected by a real feed. Gated on the mint suffix for the
+                    // reasons in the §7089 block above, then on chain supply, then
+                    // it declines to write anything.
+                    val isPumpMintWs7089 = try {
+                        com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint)
+                    } catch (_: Throwable) { false }
+                    val chainSupplyWs7089 = try {
+                        com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.supplyOf7075(mint)
+                    } catch (_: Throwable) { 0.0 }
+                    val newPrice = when {
+                        isPumpMintWs7089 -> trustedMarketCapUsd6492 / 1_000_000_000.0
+                        chainSupplyWs7089 >= 1.0 -> trustedMarketCapUsd6492 / chainSupplyWs7089
+                        else -> 0.0
+                    }
+                    if (newPrice > 0.0 && newPrice != ts.lastPrice) {
                         ts.lastPrice = newPrice
                         ts.lastPriceUpdate = System.currentTimeMillis()
                         // V5.0.7055 — bin the observation into a 1m candle for
@@ -22192,8 +22281,15 @@ if (hotExitHandledSweep) {
                 // oracle fallbacks. Operator directive: "Pump.fun
                 // and Raydium source-native routes must not fail
                 // when DexScreener is down."
-                val isPumpSource = ts.source.contains("PUMP", ignoreCase = true) ||
-                        ts.source.contains("PUMPPORTAL", ignoreCase = true)
+                // V5.0.7089 — the third site, and the one whose gate LOOKED right.
+                // `isPumpSource` tests the SOURCE, and PUMP_PORTAL_WS relays mints
+                // that are not pump.fun tokens — the xStocks equity in the
+                // operator's 5.0.7088 report arrived on exactly this source with
+                // 116,268 supply, not a billion. Source says who told us about the
+                // mint; only the mint suffix says what the mint IS.
+                val isPumpSource = try {
+                    com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint)
+                } catch (_: Throwable) { false }
                 if (isPumpSource && ts.lastPrice <= 0.0 && ts.lastMcap > 0.0) {
                     val seededPrice = ts.lastMcap / 1_000_000_000.0
                     synchronized(ts) {
