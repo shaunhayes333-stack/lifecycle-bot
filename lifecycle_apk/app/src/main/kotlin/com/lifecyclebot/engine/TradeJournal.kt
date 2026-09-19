@@ -163,6 +163,12 @@ class TradeJournal(private val ctx: Context) {
         val entryPoolAddress: String = "",
         val soldCostBasisSol: Double = 0.0,
         val grossProceedsSol: Double = 0.0,
+        // V5.0.7063 §4 — the durable identity of the economic event this row
+        // projects. The journal carried positionId but not this, so the export
+        // had no immutable key to deduplicate on and fell back to emitting
+        // every projection it was handed: 50 PARTIAL_SELL rows for 25 canonical
+        // events. Blank means the row predates event ids.
+        val economicEventId: String = "",
     )
 
     private fun journalEntryFromTrade(trade: Trade, symbol: String, mint: String): JournalEntry {
@@ -204,6 +210,7 @@ class TradeJournal(private val ctx: Context) {
             entryPoolAddress = trade.entryPoolAddress,
             soldCostBasisSol = trade.soldCostBasisSol,
             grossProceedsSol = trade.grossProceedsSol,
+            economicEventId = trade.economicEventId,
         )
     }
 
@@ -390,10 +397,54 @@ class TradeJournal(private val ctx: Context) {
         filePrefix: String
     ): Intent? {
         val allEntries = buildJournal(tokens)
-        val entries = if (modeFilter != null) {
+        val filtered7063 = if (modeFilter != null) {
             allEntries.filter { it.mode.equals(modeFilter, ignoreCase = true) }
         } else {
             allEntries
+        }
+
+        // V5.0.7063 §4 — DEDUPLICATE ON THE IMMUTABLE ECONOMIC IDENTITY.
+        //
+        // Operator: runtime reports PARTIAL ok = 25, the CSV reports
+        // PARTIAL_SELL = 50. Exactly 25 duplicate representations of the same
+        // 25 events.
+        //
+        // The journal is a PROJECTION of the economic log, and the same durable
+        // event can be projected more than once — V5.0.7058 found one route
+        // (an id that failed accounting validation on load never entered the
+        // dedupe set, so the next replay wrote it again as new). Fixing each
+        // route one at a time leaves the export trusting that no route remains.
+        // The export should not have to trust that: it should key on the
+        // event's own immutable identity and emit each one once.
+        //
+        // Key is positionId + economicEventId, per §4. Explicitly NOT
+        // timestamp/symbol/reason — those are what a re-projection reproduces
+        // identically, which is precisely why they cannot separate a duplicate
+        // from a genuine second sale at the same instant. A row with no event
+        // id predates the scheme and is keyed on its full economic content so
+        // it is never silently merged with a different sale.
+        val seen7063 = HashSet<String>()
+        var dupes7063 = 0
+        val entries = filtered7063.filter { e ->
+            val key = if (e.economicEventId.isNotBlank()) {
+                "EVT|${e.positionId}|${e.economicEventId}"
+            } else {
+                "RAW|${e.positionId}|${e.mint}|${e.side}|${e.ts}|${e.soldQtyToken}|" +
+                    "${e.grossProceedsSol}|${e.soldCostBasisSol}|${e.reason}"
+            }
+            if (seen7063.add(key)) true else { dupes7063++; false }
+        }
+        if (dupes7063 > 0) {
+            try {
+                PipelineHealthCollector.labelInc("CSV_DUPLICATE_PROJECTION_SUPPRESSED_7063")
+                ForensicLogger.lifecycle(
+                    "CSV_DUPLICATE_PROJECTION_SUPPRESSED_7063",
+                    "prefix=$filePrefix mode=${modeFilter ?: "all"} " +
+                        "in=${filtered7063.size} out=${filtered7063.size - dupes7063} " +
+                        "suppressed=$dupes7063 " +
+                        "action=one_row_per_canonical_economic_event",
+                )
+            } catch (_: Throwable) {}
         }
 
         if (entries.isEmpty()) return null
@@ -465,9 +516,20 @@ class TradeJournal(private val ctx: Context) {
             val notes = if (legacyInvalid) "INVALID_LEGACY: zero price/proceeds with non-zero PnL"
                         else if (acct.invariantViolations.isNotEmpty()) "INVARIANT_VIOLATED"
                         else "Trading bot automated trade"
+            // V5.0.7063 §4 — an INVALID_LEGACY row is a diagnostic, not a
+            // trade. It was being emitted under rowType TRADE with an
+            // explanatory note, which means every downstream reader that
+            // filters on rowType — the operator's own reconciliation
+            // included — counted it as accounting. A note is not a filter.
+            // FORENSIC keeps the row exportable (nothing is deleted or
+            // hidden, per the standing rule that nothing may be lost) while
+            // taking it out of the trade schema it does not belong to.
+            if (legacyInvalid) {
+                try { PipelineHealthCollector.labelInc("CSV_INVALID_LEGACY_ROW_DEMOTED_7063") } catch (_: Throwable) {}
+            }
             sb.appendLine(
                 listOf(
-                    "TRADE",
+                    if (legacyInvalid) "FORENSIC" else "TRADE",
                     sdf.format(Date(e.ts)),
                     e.symbol.csvEscape(),
                     e.mint,
