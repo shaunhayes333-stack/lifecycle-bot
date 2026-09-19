@@ -119,6 +119,18 @@ jobs:
           git fetch --deepen=2 --quiet || true
           python3 ci/new_dead_code.py HEAD~1
 
+      # V5.0.7078 — one wrong package segment
+      # (com.lifecyclebot.engine.ConfigStore against a declaration in
+      # com.lifecyclebot.data) failed builds 7075, 7076 and 7077 on the same
+      # line: three builds and 54 minutes of CI, for a claim about where a
+      # declaration lives that is checkable from source in under a second. It
+      # sat inside a try/catch, which cannot catch a compile error and made the
+      # line look guarded. Runs over the whole module rather than the diff —
+      # 4281 references in ~1s — so a path that rots when a file MOVES is
+      # caught too, not only one typed wrong today.
+      - name: Qualified-reference package guard
+        run: python3 ci/qualified_reference_check.py --all
+
       - name: Build Release APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
