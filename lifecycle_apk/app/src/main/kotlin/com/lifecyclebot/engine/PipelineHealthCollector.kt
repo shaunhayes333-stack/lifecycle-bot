@@ -2025,6 +2025,15 @@ object PipelineHealthCollector {
             sb.append("  Predictive oracle (§6915):    ").append(
                 com.lifecyclebot.engine.truth.PredictiveEntryOracle6915.statusLine()
             ).append("\n")
+            // V5.0.7102 — the line above is where "evals=894 admit=0" was
+            // reported on 5.0.7088 and correctly ignored, because a ratio in a
+            // status line is not a fault until somebody computes it. This line
+            // computes it. DEGENERATE means a learned authority has collapsed
+            // onto one verdict over a large sample and is no longer
+            // discriminating — a fault about the LEARNER, not about the market.
+            sb.append("  Learner degeneracy (§7102):   ").append(
+                com.lifecyclebot.engine.truth.LearnedPolicyDegeneracyWatch7102.statusLine7102()
+            ).append("\n")
             // V5.0.6916 — keyless OHLCV. barsDelivered is the single number
             // that says whether the chart/pattern layer is fed at all: every
             // pattern engine needs 3-5 bars and every OHLCV path in the app

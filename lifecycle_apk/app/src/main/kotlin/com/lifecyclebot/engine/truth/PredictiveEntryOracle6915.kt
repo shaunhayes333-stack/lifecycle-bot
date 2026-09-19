@@ -822,6 +822,14 @@ object PredictiveEntryOracle6915 {
             Verdict.PROBE -> probes.incrementAndGet()
             Verdict.REFUSE -> refuses.incrementAndGet()
         }
+        // V5.0.7102 — these three counters already knew, on 5.0.7088, that this
+        // oracle had run 894 evaluations and admitted nothing. The number sat in
+        // a status line waiting for someone to read a ratio. Hand the same
+        // verdict to the watch so a collapsed policy reports itself as a fault
+        // about the learner instead of being inferred from a report.
+        try {
+            LearnedPolicyDegeneracyWatch7102.observe7102("PredictiveEntryOracle6915", verdict.name)
+        } catch (_: Throwable) {}
         val f = Forecast(verdict, finalE, blendedPWin, confidence, contributions, reason)
         if (verdict != Verdict.ADMIT) try {
             PipelineHealthCollector.labelInc("PREDICTIVE_ORACLE_${verdict.name}_6915")
