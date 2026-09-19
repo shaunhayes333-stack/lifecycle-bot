@@ -183,9 +183,22 @@ def main() -> int:
     # because directive §11 forbids aliasing CORE/STANDARD/V3_CORE together and
     # the operator named the other two, not V3_CORE.
     open_gate = (SRC / "com/lifecyclebot/engine/ExecutableOpenGate.kt").read_text()
-    forbid(errors, open_gate, 'setOf("V3_CORE", "STANDARD", "CASHGEN")', "CASHGEN_SHADOW_DISABLE_RETIRED_6705")
-    forbid(errors, open_gate, 'setOf("V3_CORE", "STANDARD")', "STANDARD_SHADOW_DISABLE_RETIRED_7117")
     require(errors, open_gate, 'setOf("V3_CORE")', "OBSERVER_ONLY_LANES_7117")
+
+    # V5.0.7118 — these two forbids were scoped to ExecutableOpenGate.kt, and the
+    # IDENTICAL literal survived in BotService.kt on the CANDIDATE -> PROPOSED
+    # path, which holds the only call site reaching TradeAuthorizer.authorize().
+    # So CASHGEN stayed shadow-only from 6705 all the way to 7118 while the pin
+    # that was supposed to prevent exactly that reported clean. An observer-lane
+    # set is a claim about the whole runtime, so it is checked against the whole
+    # tree now — a fifth copy cannot hide in a sixth file.
+    for kt in sorted(SRC.rglob("*.kt")):
+        text = kt.read_text(encoding="utf-8", errors="replace")
+        rel = kt.relative_to(SRC)
+        forbid(errors, text, 'setOf("V3_CORE", "STANDARD", "CASHGEN")',
+               f"CASHGEN_SHADOW_DISABLE_RETIRED_6705 [{rel}]")
+        forbid(errors, text, 'setOf("V3_CORE", "STANDARD")',
+               f"STANDARD_SHADOW_DISABLE_RETIRED_7117 [{rel}]")
     require(errors, open_gate, "CASHGEN is a canonical executable MemeTrader specialist", "CASHGEN_EXECUTABLE_SOURCE_CONTRACT_6705")
     # V5.0.7117 — CORE must stay executable. It is in SOURCE_BUCKET_LANES_6871
     # (it is the trunk) AND in MemeOwnershipInvariant6620.SPECIALIST_LANES (it is

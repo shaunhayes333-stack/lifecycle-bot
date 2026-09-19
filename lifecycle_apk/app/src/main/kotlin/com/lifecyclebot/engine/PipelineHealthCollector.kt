@@ -308,6 +308,19 @@ object PipelineHealthCollector {
 
     private const val RING_CAP = 150  // V5.9.916 — reduced from 300: 16KB dumpText.setText every 2s was main-thread ANR storm
 
+    /**
+     * V5.0.7118 — how many NON-pinned labelled counters the dump renders.
+     *
+     * Its own budget, not a share of one. See the note at the "Labelled
+     * counters" section: the previous arithmetic subtracted the pinned
+     * LIFECYCLE/SNAP row count from a total of 40, so once the pinned list
+     * passed 40 rows — years of builds ago — every labelInc()-only counter
+     * became permanently invisible. 60 rows costs ~3KB against the several
+     * hundred pinned rows already rendered, and the hidden tail is counted on a
+     * summary line rather than dropped silently.
+     */
+    private const val NON_PINNED_LABEL_BUDGET_7118 = 60
+
     // V5.9.1082 — operator complaint: every snapshot displayed
     // "Tag: V5.9.1078" no matter which APK was actually installed
     // (because BUILD_TAG was hardcoded). That meant the operator was
@@ -2426,12 +2439,45 @@ object PipelineHealthCollector {
             // Fill remaining slots up to 40 with the highest-count NON-pinned
             // entries so high-volume tags (TRADEJRNL_REC, BOT_LOOP_TICK, gate
             // tags) still appear when they out-rank lifecycle singletons.
-            val remainingSlots = (40 - lifecycle.size - snaps.size).coerceAtLeast(0)
-            all.asSequence()
+            //
+            // V5.0.7118 §THE_40_WAS_A_TOTAL_BUDGET_AND_THE_PINNED_ROWS_ATE_IT_ALL.
+            //
+            // This read `(40 - lifecycle.size - snaps.size).coerceAtLeast(0)`.
+            // The intent (V5.9.915) was that pinned LIFECYCLE/SNAP rows render
+            // first and the rest fill up to 40 slots — but the 40 was a TOTAL
+            // budget with the pinned count subtracted from it, so the moment the
+            // pinned list passed 40 the non-pinned budget went to zero and stayed
+            // there. The operator's 5.0.7115 snapshot carries several hundred
+            // LIFECYCLE/ rows, so remainingSlots was 0 and NOT ONE non-pinned
+            // counter was rendered.
+            //
+            // labelInc() writes the BARE key — no LIFECYCLE/ prefix — and its own
+            // doc says "Routes through labelCounts so the snapshot dump picks it
+            // up automatically". It did not. Every counter emitted only through
+            // labelInc(), with no matching ForensicLogger.lifecycle() of the same
+            // name, has been invisible in every snapshot for many builds.
+            //
+            // What that cost, concretely: V5.0.7003 added
+            // TRADE_AUTHORIZE_ENTERED_7003_<lane> for the express purpose of
+            // settling whether TREASURY/CASHGEN/MANIPULATED/DIP_HUNTER were
+            // blocked upstream of TradeAuthorizer.authorize() or whether the
+            // funnel's record keying was lying. Its own comment says "This
+            // counter settles it". It could never be read, so the question stayed
+            // open from 6997 to 7117 and was re-investigated from scratch.
+            //
+            // The budget is now the non-pinned list's OWN, and the tail is
+            // counted rather than dropped in silence — a suppressed row that
+            // announces itself can be chased; one that vanishes cannot.
+            val nonPinned7118 = all.asSequence()
                 .filter { it.key !in pinnedKeys }
                 .sortedByDescending { it.value }
-                .take(remainingSlots)
+                .toList()
+            nonPinned7118.take(NON_PINNED_LABEL_BUDGET_7118)
                 .forEach { sb.append(line("${it.key}:", it.value)).append('\n') }
+            val hidden7118 = nonPinned7118.size - NON_PINNED_LABEL_BUDGET_7118
+            if (hidden7118 > 0) {
+                sb.append("  (+$hidden7118 more non-pinned counters above 0, not shown)\n")
+            }
             sb.append('\n')
         }
 

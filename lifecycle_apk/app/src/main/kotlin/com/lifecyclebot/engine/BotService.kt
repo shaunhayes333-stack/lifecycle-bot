@@ -28456,8 +28456,37 @@ if (hotExitHandledSweep) {
         // If position IS open: fall through to exit management
     }
     
+    // V5.0.7118 §THE_SET_6705_DELETED_SURVIVED_IN_A_SECOND_FILE.
+    //
+    // This excluded three lanes — V3_CORE, STANDARD and CASHGEN — and the block it
+    // opens is the CANDIDATE -> PROPOSED path that contains the ONLY call site
+    // reaching TradeAuthorizer.authorize() through executionBookForLane6494. So a
+    // cyclePrimaryLane of CASHGEN or STANDARD skipped candidate, proposal, lane
+    // election and authorization entirely — which is precisely the
+    // ownerSelected=0 buyIntent=0 INTENT_CHOKED shape the operator's funnel has
+    // been showing for CASHGEN since 6997:
+    //
+    //     CASHGEN  discovered=214 qualified=214 ownerSelected=0 buyIntent=0
+    //              fdgAllow=22 fdgBlock=53 markReady=0 ... INTENT_CHOKED
+    //
+    // BUY_INTENT is stamped on entry to authorize(), before any gate, so
+    // buyIntent=0 could only ever have meant authorize() was never called. It
+    // never was, and this line is why.
+    //
+    // That three-lane set was the EXACT literal V5.0.6705
+    // removed from ExecutableOpenGate.isShadowReadOnlyLane6487, with the finding
+    // that CASHGEN is a canonical executable MemeTrader specialist and that
+    // keeping it there "suppressed its FDG/ExecutionIntent publication before the
+    // trader could ever open". 6705 even added a patch-rot pin forbidding that
+    // literal — scoped to ExecutableOpenGate.kt, so this identical copy one file
+    // over was never checked. The pin is tree-wide as of 7118.
+    //
+    // STANDARD leaves for the reason V5.0.7117 removed it from the gate's shadow
+    // set: operator, twice, "core and standard are trading lanes." V3_CORE stays
+    // — the operator named the other two, and directive §11 forbids aliasing
+    // CORE/STANDARD/V3_CORE together.
     if (!ts.position.isOpen && decision.finalSignal == "BUY" && canProposeEarly &&
-        cyclePrimaryLane.uppercase() !in setOf("V3_CORE", "STANDARD", "CASHGEN")) {
+        cyclePrimaryLane.uppercase() !in setOf("V3_CORE")) {
         // ═══════════════════════════════════════════════════════════════════
         // TRADE IDENTITY: Mark as candidate
         // ═══════════════════════════════════════════════════════════════════
