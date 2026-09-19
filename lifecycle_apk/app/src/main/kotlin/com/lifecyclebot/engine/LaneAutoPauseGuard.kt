@@ -55,13 +55,11 @@ object LaneAutoPauseGuard {
     private const val MIN_SAMPLE = 5
     private const val ZERO_WIN_MIN_SAMPLE = 5
     private const val TOXIC_WR_PCT = 20.0
-    // V5.0.6305 — LANE BLEED AUTO-RECOVERY thresholds. A paused lane can be
-    // auto-unpaused once its RECENT trainable sample climbs back to WR>=25%
-    // and EV>=0 — matches operator directive "recent-100 WR above 25%".
-    // RECOVERY_MIN_SAMPLE is higher than pause thresholds to avoid flapping.
-    private const val RECOVERY_MIN_SAMPLE = 20
-    private const val RECOVERY_WR_PCT = 25.0
-    private const val RECOVERY_EV_PCT = 0.0
+    // V5.0.7105 — the three RECOVERY_* constants that stood here were removed.
+    // V5.0.6684 replaced WR-based auto-unpause with proof-gated reproof, but
+    // left the constants and their doc comment behind, so the file described a
+    // recovery rule it did not implement. Recovery now lives entirely in
+    // AdaptiveLaneReproof6684; see the note in evaluateLive().
     private const val TOXIC_EV_PCT = -8.0
     private const val TOXIC_MIN_SAMPLE = 8
 
@@ -294,16 +292,34 @@ object LaneAutoPauseGuard {
             // V5.0.6684 — PROOF-GATED RECOVERY ONLY. A paused lane cannot
             // resurrect from aggregate WR alone; an exact Lab replacement must
             // paper-prove, promote, and open a fresh strategy epoch.
-
-            // "let a paused live lane auto-reset when its recent-100 WR climbs
-            // back above 25% so stale toxic_wr8 tags don't hold live capacity
-            // hostage forever". Previously only manualResume() (LLM-Lab shadow
-            // proof or human tap) could unpause a lane — but the paused lane
-            // still received shadow paper samples (V5.0.6304 paper-mode
-            // bypass), so its WR can legitimately climb back. If the RECENT
-            // window (same clean-truth journal read) shows n>=RECOVERY_MIN_SAMPLE
-            // and WR>=RECOVERY_WR_PCT and EV>=RECOVERY_EV_PCT, auto-unpause.
-            // Legacy V5.0.6305 WR-only auto-recovery removed by 6684.
+            //
+            // V5.0.7105 §THIS_BLOCK_DESCRIBED_A_MECHANISM_THAT_IS_NOT_HERE.
+            //
+            // What stood here was eleven lines of present-tense prose for a
+            // WR-based auto-unpause — "if the RECENT window shows
+            // n>=RECOVERY_MIN_SAMPLE and WR>=RECOVERY_WR_PCT and
+            // EV>=RECOVERY_EV_PCT, auto-unpause" — followed by one line
+            // admitting 6684 had removed it. No code implemented any of it, and
+            // RECOVERY_MIN_SAMPLE / RECOVERY_WR_PCT / RECOVERY_EV_PCT appeared
+            // nowhere but inside that prose.
+            //
+            // It is not a stale comment on a cosmetic path. It is the recovery
+            // contract for a guard that switches LIVE lanes off, and reading it
+            // tells you lanes heal by a mechanism that does not exist. Deleted,
+            // with the constants, and replaced by what actually happens:
+            //
+            //   AdaptiveLaneReproof6684.requestReproof(lane) is called for every
+            //   paused lane. It seeds a DETERMINISTIC replacement strategy —
+            //   deterministicSeed(), no LLM required — registers it as a reproof
+            //   target, and only then additionally tries inventReplacementAsync()
+            //   for an LLM-authored candidate. The seed paper-trades in the Lab,
+            //   and when it clears MIN_TRADES / MIN_WR / MIN_PNL the reproof
+            //   calls manualResume() and the lane returns.
+            //
+            // That path needs no operator tap and no LLM provider, which is the
+            // property that matters for running unattended: a lane that bleeds
+            // is switched off, re-proved from evidence, and switched back on by
+            // the bot itself.
             if (mutated) persistAsync()
         } catch (_: Throwable) {}
     }

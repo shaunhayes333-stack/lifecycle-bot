@@ -12439,6 +12439,36 @@ class Executor(
                     reason = "Lab strategy '${labNudge.strategyName}' wants to spend ${"%.3f".format(sol)}◎ on ${ts.symbol} (score=${score.toInt()}).",
                 )
             } catch (_: Throwable) {}
+            // V5.0.7105 §THE_ONE_PLACE_A_HUMAN_TAP_STOPS_LIVE_TRADING.
+            //
+            // This is not a nudge being declined — it is the ENTRY being
+            // abandoned. `return` exits doBuy, so a live buy that would
+            // otherwise have proceeded on its own merits does not happen at
+            // all, because a promoted Lab strategy happened to match its asset
+            // and score and has not been granted live authority by a tap.
+            //
+            // The Lab auto-promotes on paper proof with no approval, so
+            // promoted strategies WILL exist, and entryNudge returns the
+            // strongest match — which means this gate fires on ordinary live
+            // entries rather than on exotic ones. Under a design where the app
+            // is meant to run unattended once funded, this is the single
+            // remaining hard stop in the live path, and it was invisible: an
+            // onLog line, no counter, so its cost in refused live entries could
+            // not be measured from a snapshot.
+            //
+            // Counted, not changed. Whether an LLM-authored strategy may spend
+            // real money without a human is an operator decision about
+            // authority, not a defect for me to quietly flip.
+            try {
+                PipelineHealthCollector.labelInc("LIVE_ENTRY_BLOCKED_AWAITING_LAB_APPROVAL_7105")
+                ForensicLogger.lifecycle(
+                    "LIVE_ENTRY_BLOCKED_AWAITING_LAB_APPROVAL_7105",
+                    "mint=${tradeId.mint.take(10)} symbol=${ts.symbol} score=${score.toInt()} " +
+                        "sizeSol=${"%.4f".format(sol)} strategy=${labNudge.strategyId} " +
+                        "name=${labNudge.strategyName.take(40)} " +
+                        "action=live_entry_abandoned_pending_operator_grant",
+                )
+            } catch (_: Throwable) {}
             onLog("🧪 LAB AWAITING APPROVAL: ${labNudge.strategyName} → ${ts.symbol} (live trade queued)", tradeId.mint)
             return
         }
