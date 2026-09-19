@@ -15188,6 +15188,58 @@ class BotService : Service() {
     private val exitCoordinatorStartHeartbeatMs6647 = java.util.concurrent.atomic.AtomicLong(0L)
     private val exitCoordinatorCompletedAtMs6647 = java.util.concurrent.atomic.AtomicLong(0L)
     private val exitCoordinatorErrorAtMs6647 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /**
+     * V5.0.7121 §LIVENESS_AND_PROGRESS_ARE_DIFFERENT_FACTS.
+     *
+     * Operator directive P0-1: "Repair ExitCoordinator heartbeat ownership. One
+     * persistent coordinator only. Heartbeat must advance independently of full
+     * sweep completion. Do not repeatedly cancel/relaunch a live worker. Alarm
+     * if heartbeat > 2 sweep periods."
+     *
+     * exitCoordinatorStartHeartbeatMs6647 was stamped at the TOP OF EACH LOOP
+     * ITERATION, which made it a measure of PROGRESS, not of life. A sweep that
+     * hung froze it, and enforceExitStartDeadline6647 — which treats a stale
+     * heartbeat as a dead coordinator — then cancelled a worker that was alive
+     * and mid-sweep. The cancel killed the in-flight sweep, the relaunch was
+     * usually stillborn, and the next cycle saw the same stale heartbeat again.
+     *
+     * Operator's 5.0.7117 device:
+     *     EXIT_COORDINATOR_STALE_HEARTBEAT_REPLACED_7057  58
+     *     EXIT_COORDINATOR_NO_START_RELAUNCHED_6647       58
+     *     heartbeatAgeMs                              334906   (5.5 minutes)
+     *     Universal SL start/done                        2 / 1
+     * against 38 canonical active mints — and STRICT_SL_-8 closing at -32.65%,
+     * STRICT_SL_-4 at -19.01%. An -8% stop that lands at -32.65% is not an entry
+     * problem; it is a protective path that was not running when it mattered.
+     *
+     * V5.0.6902 already treated one instance of this (a mark-refresh pass too
+     * slow for the heartbeat window) by bounding that pass. That was a fix to
+     * one symptom of the wrong definition. This is the definition:
+     *
+     *   heartbeat  = the coroutine and its dispatcher are alive   (ticker, 1s)
+     *   iteration  = how long the CURRENT sweep pass has been running
+     *
+     * With those separated, a stale heartbeat once again means what
+     * enforceExitStartDeadline6647 believes it means, and a hung sweep is
+     * reported as an overrun instead of being silently converted into a cancel.
+     */
+    private val exitSweepIterationStartedAtMs7121 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /** V5.0.7121 — iteration already alarmed, so one hang reports once. */
+    private val exitSweepOverrunReportedFor7121 = java.util.concurrent.atomic.AtomicLong(-1L)
+
+    /** V5.0.7121 — heartbeat cadence; well inside the 15s staleness window. */
+    private val exitHeartbeatTickMs7121 = 1_000L
+
+    /**
+     * V5.0.7121 — "> 2 sweep periods", per the directive. The staleness window
+     * enforceExitStartDeadline6647 uses is 15s, so a single pass still running
+     * after 30s is the alarm. This never cancels anything; it makes a hang
+     * visible, which is the thing the old design could not do because the hang
+     * and the cure looked identical in the counters.
+     */
+    private val exitSweepOverrunMs7121 = 30_000L
     // V5.0.6721 §STALE_MARK_REFRESH — per-mint cooldown map so the proactive
     // refresh in the exit sweep loop doesn't pound the mark registry for the
     // same mint every 200ms while the observation is genuinely offline.
@@ -20026,9 +20078,54 @@ if (hotExitHandledSweep) {
                 exitCoordinatorStartHeartbeatMs6647.set(start6647)
                 com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onCoordinatorStarted(executionSpineCycle6647.get())
                 try { ForensicLogger.lifecycle("EXIT_COORDINATOR_STARTED", "thread=dedicated_exit requestedAt=${exitCoordinatorRequestedAtMs6647.get()} startDelayMs=${start6647 - exitCoordinatorRequestedAtMs6647.get()}") } catch (_: Throwable) {}
+                // V5.0.7121 — the heartbeat gets its own ticker. See the field
+                // note on exitSweepIterationStartedAtMs7121 for why.
+                //
+                // Deliberately NOT wrapped around the loop in try/finally: this
+                // is a child of the coordinator's own scope, so structured
+                // concurrency cancels it whenever the coordinator is cancelled,
+                // and the `status.running` test ends it on a clean stop. That
+                // keeps the edit to an insertion — re-indenting 233 lines of
+                // live exit-path code to add a finally block is the kind of
+                // change whose diff nobody can read, on the one path where a
+                // mistake costs real money.
+                //
+                // It terminates on the same condition as the loop it watches,
+                // so it cannot outlive the coordinator and hold the parent job
+                // ACTIVE after the body has finished — which would have been a
+                // new way to lie to enforceExitStartDeadline6647, this time by
+                // reporting a finished coordinator as a running one.
+                val heartbeatTicker7121 = launch {
+                    while (status.running && isActive) {
+                        try {
+                            val nowTick7121 = System.currentTimeMillis()
+                            exitCoordinatorStartHeartbeatMs6647.set(nowTick7121)
+                            val iterStart7121 = exitSweepIterationStartedAtMs7121.get()
+                            if (iterStart7121 > 0L && nowTick7121 - iterStart7121 >= exitSweepOverrunMs7121 &&
+                                exitSweepOverrunReportedFor7121.getAndSet(iterStart7121) != iterStart7121
+                            ) {
+                                PipelineHealthCollector.labelInc("EXIT_SWEEP_ITERATION_OVERRUN_7121")
+                                ForensicLogger.lifecycle(
+                                    "EXIT_SWEEP_ITERATION_OVERRUN_7121",
+                                    "runningMs=${nowTick7121 - iterStart7121} " +
+                                        "thresholdMs=$exitSweepOverrunMs7121 " +
+                                        "openPositions=${try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().size } catch (_: Throwable) { -1 }} " +
+                                        "action=sweep_pass_is_hung_coordinator_is_alive_not_relaunching",
+                                )
+                            }
+                        } catch (_: Throwable) {}
+                        try { delay(exitHeartbeatTickMs7121) } catch (_: Throwable) { break }
+                    }
+                }
                 while (status.running) {
                     try {
-                        exitCoordinatorStartHeartbeatMs6647.set(System.currentTimeMillis())
+                        // V5.0.7121 — this stamp now records PROGRESS (when the
+                        // current pass began) and the ticker above owns LIVENESS.
+                        // The heartbeat is still set here as well so a stop that
+                        // races the ticker cannot leave it stale for a tick.
+                        val iterationStart7121 = System.currentTimeMillis()
+                        exitSweepIterationStartedAtMs7121.set(iterationStart7121)
+                        exitCoordinatorStartHeartbeatMs6647.set(iterationStart7121)
                         com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onCoordinatorStarted(executionSpineCycle6647.get())
                         val now = System.currentTimeMillis()
                         // V5.0.6721 §STALE_MARK_REFRESH — proactive refresh
@@ -20224,16 +20321,35 @@ if (hotExitHandledSweep) {
                                     // slStart=7 slDone=6, exactly one orphan; this
                                     // guarantees start==done from here on.
                                     val sweepId = com.lifecyclebot.engine.truth.UniversalSlLeaseRegistry6402.acquire()
+                                    // V5.0.7121 — DONE proves the log is balanced, NOT that the
+                                    // sweep did its job. V5.0.6402 §C put START in the try and
+                                    // DONE in the finally, so an errored sweep emits DONE exactly
+                                    // like a clean one. The operator therefore cannot tell
+                                    // "evaluated 38 positions" from "threw on the third" — and
+                                    // when an -8% stop lands at -32.65%, that is precisely the
+                                    // distinction they need. DONE now carries its outcome.
+                                    var sweepOutcome7121 = "INCOMPLETE"
+                                    val sweepBegan7121 = System.currentTimeMillis()
                                     try {
                                         com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onExitSweepStarted()
                                         try { ForensicLogger.lifecycle("EXIT_COORDINATOR_UNIVERSAL_START", "ageMs=$age sweepId=$sweepId") } catch (_: Throwable) {}
-                                        try { runUniversalSlSafetyNetSweep(snap.cfg, snap.wallet) }
-                                        catch (t: Throwable) { ErrorLogger.warn("BotService", "exit coordinator universal sweep error: ${t.message}") }
+                                        try {
+                                            runUniversalSlSafetyNetSweep(snap.cfg, snap.wallet)
+                                            sweepOutcome7121 = "COMPLETED"
+                                        } catch (t: Throwable) {
+                                            sweepOutcome7121 = "ERROR_" + t.javaClass.simpleName
+                                            try { PipelineHealthCollector.labelInc("EXIT_UNIVERSAL_SWEEP_ERROR_7121") } catch (_: Throwable) {}
+                                            ErrorLogger.warn("BotService", "exit coordinator universal sweep error: ${t.message}")
+                                        }
                                     } finally {
                                         com.lifecyclebot.engine.truth.ExecutionSpineAcceptanceWindow6647.onExitSweepDone()
                                         exitCoordinatorCompletedAtMs6647.set(System.currentTimeMillis())
                                         if (!fullExitSweepPending.get() && !universalSlSweepPending.get()) exitCoordinatorRequestedCycle6647.set(-1L)
-                                        try { ForensicLogger.lifecycle("EXIT_COORDINATOR_UNIVERSAL_DONE", "ageMs=$age sweepId=$sweepId") } catch (_: Throwable) {}
+                                        val sweepMs7121 = System.currentTimeMillis() - sweepBegan7121
+                                        if (sweepOutcome7121 != "COMPLETED") {
+                                            try { PipelineHealthCollector.labelInc("EXIT_UNIVERSAL_SWEEP_NOT_COMPLETED_7121") } catch (_: Throwable) {}
+                                        }
+                                        try { ForensicLogger.lifecycle("EXIT_COORDINATOR_UNIVERSAL_DONE", "ageMs=$age sweepId=$sweepId outcome=$sweepOutcome7121 sweepMs=$sweepMs7121") } catch (_: Throwable) {}
                                         try { com.lifecyclebot.engine.truth.UniversalSlLeaseRegistry6402.release(sweepId) } catch (_: Throwable) {}
                                     }
                                     // V5.9.1470 (spec item 4) — universal SL sweep also counts as
@@ -20260,6 +20376,16 @@ if (hotExitHandledSweep) {
                         try { kotlinx.coroutines.delay(1_000L) } catch (_: Throwable) { break }
                     }
                 }
+                // V5.0.7121 — end the ticker with the body rather than waiting
+                // for it to notice status.running on its next tick. Without
+                // this the parent job stays ACTIVE for up to one tick after the
+                // loop exits, and `isActive` is exactly what
+                // enforceExitStartDeadline6647 reads to decide whether a
+                // coordinator exists. Cancelling here also clears the progress
+                // marker so a stopped coordinator cannot be alarmed as a hung
+                // sweep on restart.
+                try { heartbeatTicker7121.cancel() } catch (_: Throwable) {}
+                exitSweepIterationStartedAtMs7121.set(0L)
                 try { ForensicLogger.lifecycle("EXIT_COORDINATOR_STOPPED", "running=${status.running}") } catch (_: Throwable) {}
             }
         }
