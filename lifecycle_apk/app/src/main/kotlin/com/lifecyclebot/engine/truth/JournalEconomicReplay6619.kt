@@ -243,6 +243,60 @@ object JournalEconomicReplay6619 {
             } catch (_: Throwable) {}
         }
 
+        // V5.0.7085 §MY OWN INSTRUMENT HAD A BLIND SPOT WHERE THE MONEY WENT.
+        //
+        // V5.0.7078 tallied skipped economics from inside reject(), so it can
+        // only see rows that reached the accounting body. TWO paths `continue`
+        // BEFORE `totalRows++` — the 6659 CryptoAlt display-sell filter and the
+        // 6697 cross-asset superseded-BUY filter — and those exclusions were
+        // invisible to it. That is exactly where an unexplained remainder would
+        // hide, and the operator's numbers say one is hiding:
+        //
+        //     canonical cash     179.360844   journal 113.282212   d 66.078632
+        //     canonical realized 182.181055   journal 116.552986   d 65.628069
+        //     canonical openCost                                   d  0.361095
+        //     7078 skipped economics: 15 events, 9.212758 SOL
+        //
+        // Read the three deltas together. cashD ~= realizedD with openCostD
+        // ~= 0 is the signature of positions whose BUY *and* SELL were BOTH
+        // excluded: dropping the buy removes -(cost+fee), dropping the sell
+        // removes +(gross-fee), so journal cash is short by the PnL and
+        // openCost is left untouched. If only sells were dropped, openCostD
+        // would carry their whole basis — and it is 0.36, not 66.
+        //
+        // Directive §6: "No event may simply be skipped." So every pre-accounting
+        // exclusion now reports its economics in the same units as the delta,
+        // signed the way the replay would have applied them. This does not change
+        // the projection — it is the measurement that says whether these filters
+        // account for the gap or whether something else does.
+        fun noteExcluded7085(t: com.lifecyclebot.data.Trade, side: String, reason: String) {
+            try {
+                skippedCountByReason7078[reason] = (skippedCountByReason7078[reason] ?: 0) + 1
+                val fee = if (t.feeSol.isFinite() && t.feeSol >= 0.0) t.feeSol else 0.0
+                if (side == "BUY") {
+                    val cost = t.sol
+                    if (cost.isFinite() && cost > 0.0) {
+                        // The buy would have DEBITED cash, so its absence leaves
+                        // journal cash HIGH by that amount. Signed accordingly so
+                        // the totals can be added rather than interpreted.
+                        skippedCashByReason7078[reason] =
+                            (skippedCashByReason7078[reason] ?: 0.0) - (cost + fee)
+                    }
+                } else {
+                    val gross = t.grossProceedsSol.takeIf { it.isFinite() && it > 0.0 } ?: t.sol
+                    val basis = t.soldCostBasisSol
+                    if (gross.isFinite() && gross > 0.0) {
+                        skippedCashByReason7078[reason] =
+                            (skippedCashByReason7078[reason] ?: 0.0) + (gross - fee)
+                        if (basis.isFinite()) {
+                            skippedRealizedByReason7078[reason] =
+                                (skippedRealizedByReason7078[reason] ?: 0.0) + (gross - basis)
+                        }
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
+
         for (t in rows) {
             if (!t.mode.equals("paper", ignoreCase = true)) continue
             val side = t.side.uppercase()
@@ -258,6 +312,12 @@ object JournalEconomicReplay6619 {
                 if (reportedReplaySupersessions6699.add("CRYPTO_DISPLAY:$eventId")) {
                     try { PipelineHealthCollector.labelInc("CRYPTO_LEGACY_DISPLAY_ROW_SUPERSEDED_6659") } catch (_: Throwable) {}
                 }
+                // V5.0.7085 — counted on EVERY replay, not once per event id.
+                // The supersession LOG is deduplicated (6699, correctly — a
+                // historical row must not emit forever), but the ECONOMICS are a
+                // property of this pass and have to be totalled on this pass or
+                // they cannot be compared against this pass's delta.
+                noteExcluded7085(t, side, "PRE_ACCOUNTING_CRYPTOALT_DISPLAY_SELL_6659")
                 continue
             }
 
@@ -277,6 +337,13 @@ object JournalEconomicReplay6619 {
                         )
                     } catch (_: Throwable) {}
                 }
+                // V5.0.7085 — the other pre-accounting exclusion. This one drops
+                // a BUY, so its absence leaves journal cash HIGH by cost+fee and
+                // leaves openCost LOW by cost. If a position's buy is excluded
+                // here and its sell is excluded by the 6659 filter above, the two
+                // cancel in openCost and leave journal cash short by exactly the
+                // position's PnL — which is the shape of the operator's numbers.
+                noteExcluded7085(t, side, "PRE_ACCOUNTING_CROSS_ASSET_SUPERSEDED_BUY_6697")
                 continue
             }
 
@@ -518,13 +585,28 @@ object JournalEconomicReplay6619 {
                             "realized=${"%.6f".format(skippedRealizedByReason7078[reason] ?: 0.0)}]"
                     }
                 PipelineHealthCollector.labelInc("JOURNAL_SKIPPED_ECONOMICS_NAMED_7078")
+                // V5.0.7085 — split the two populations, because they answer
+                // different questions and summing them hides both.
+                //   PRE_ACCOUNTING_*  rows excluded before the walk ever saw
+                //                     them. 7078 could not see these at all.
+                //   everything else   rows that entered the body and were
+                //                     refused by an invariant.
+                val preKeys7085 = skippedCashByReason7078.keys.filter { it.startsWith("PRE_ACCOUNTING_") }
+                val preCash7085 = preKeys7085.sumOf { skippedCashByReason7078[it] ?: 0.0 }
+                val preCount7085 = preKeys7085.sumOf { skippedCountByReason7078[it] ?: 0 }
+                val inBodyCash7085 = skippedCashByReason7078.entries
+                    .filterNot { it.key.startsWith("PRE_ACCOUNTING_") }
+                    .sumOf { it.value }
                 ForensicLogger.lifecycle(
                     "JOURNAL_SKIPPED_ECONOMICS_NAMED_7078",
                     "skippedEvents=$skippedEvents6899 " +
                         "skippedCashTotal=${"%.6f".format(skippedCashByReason7078.values.sum())} " +
                         "skippedRealizedTotal=${"%.6f".format(skippedRealizedByReason7078.values.sum())} " +
+                        "preAccountingEvents=$preCount7085 " +
+                        "preAccountingCash=${"%.6f".format(preCash7085)} " +
+                        "inBodyCash=${"%.6f".format(inBodyCash7085)} " +
                         "byReason=$detail7078 " +
-                        "read=compare_these_totals_to_the_6635_ledger_journal_delta",
+                        "read=preAccountingCash_plus_inBodyCash_should_equal_the_6635_ledger_minus_journal_cash_delta",
                 )
             } catch (_: Throwable) {}
         }
