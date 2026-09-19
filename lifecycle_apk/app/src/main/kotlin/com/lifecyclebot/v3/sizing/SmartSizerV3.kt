@@ -39,6 +39,46 @@ data class SizeResult(
 class SmartSizerV3(
     private val config: TradingConfigV3
 ) {
+    private companion object {
+        /**
+         * V5.0.7127 — the live floor band. See the derivation at the use site.
+         *
+         * These are PRIVATE on purpose. The floor is a computed function of
+         * balance and SOL price, not a number other files should copy; a second
+         * reader holding its own idea of "the minimum live trade" is exactly the
+         * drift this session has spent a dozen builds removing.
+         */
+
+        /** Smallest fill a DEX will actually route, expressed in dollars. From
+         *  V5.0.6269's own finding: "pump.fun tokens simply have no executable
+         *  route below ~$5". Converted at the live SOL price each call, so the
+         *  floor tracks the market instead of freezing at one exchange rate. */
+        const val LIVE_ROUTABLE_MIN_USD_7127 = 5.0
+
+        /** Hard lower bound on the converted routable minimum. Guards against a
+         *  bad or spiking SOL price producing a floor small enough to reinstate
+         *  the ROUTE_FAILED dust that V5.0.6269 was built to stop. */
+        const val LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127 = 0.010
+
+        /** The historical fixed floor, retained as the band's CEILING so a
+         *  funded wallet sizes exactly as it did before this change. */
+        const val LIVE_FLOOR_CEILING_SOL_7127 = 0.05
+
+        /** Used only when the SOL price is unknown. Falls back to the old
+         *  constant rather than guessing a cheaper floor we cannot justify. */
+        const val LIVE_FLOOR_FALLBACK_SOL_7127 = 0.05
+
+        /** The floor tracks this share of tradeable balance between the routable
+         *  minimum and the ceiling. 10% keeps a floor-promoted trade in the same
+         *  proportion the lane allocations already target. */
+        const val LIVE_FLOOR_WALLET_PCT_7127 = 0.10
+
+        /** A single floor-promoted trade may never exceed this share of tradeable
+         *  balance. Without it, a small wallet would be forced to concentrate
+         *  most of itself into one memecoin just to clear a routing minimum. */
+        const val LIVE_FLOOR_MAX_WALLET_SHARE_7127 = 0.25
+    }
+
     /**
      * Compute position size based on:
      * - Decision band
@@ -169,15 +209,81 @@ class SmartSizerV3(
         // gets a routable trade. Sub-dust (essentially zero) still blocks —
         // that only happens on a zero-liq or zero-tradeable input. Confidence
         // and score selectivity remain the operator's responsibility upstream.
-        val liveNoDustFloor6269 = 0.05  // MIN_POSITION_SOL — mirrors CashGenerationAI floor
+        // V5.0.7127 — THE FLOOR IS NOW FLUID AND BALANCE-AWARE.
+        //
+        // Operator: "the live floor trade size is meant to be fluid and balance
+        // aware!"
+        //
+        // The floor was the constant 0.05 SOL, and on a shrinking wallet it
+        // failed in BOTH directions at once:
+        //
+        //   BLOCKED EVERYTHING. The operator's wallet reached 0.2922 SOL with
+        //   per-lane targets of 0.0203-0.0275 SOL. Every candidate therefore
+        //   sized below 0.05, needed promotion to 0.05, and the headroom test
+        //   below refused it — SMART_SIZER_V3_DUST_BLOCK_NO_HEADROOM_6271 fired
+        //   104 times in a 244-second session with EXEC=0. No round trips at all.
+        //
+        //   AND OVER-SIZED WHEN IT DID FIRE. Promoting to a fixed 0.05 on a
+        //   0.29 SOL wallet is 17% of everything in one memecoin position. The
+        //   constant was calibrated for a wallet several times larger, so as the
+        //   balance fell it silently became a concentration risk right up until
+        //   the moment it became a total block.
+        //
+        // A floor exists for ONE reason: routability. V5.0.6269 recorded it —
+        // CHILLINU at 0.0062 SOL got ROUTE_FAILED_NO_OPEN_COMMITTED, and
+        // "pump.fun tokens simply have no executable route below ~$5". That is a
+        // statement about DOLLARS ON A DEX, not about a SOL constant, so it is
+        // now expressed as dollars and converted at the live SOL price. The old
+        // 0.05 is kept as the CEILING of the band, so a funded wallet behaves
+        // exactly as it does today and nothing about this change loosens sizing
+        // for an operator who has capital.
+        //
+        // Three bounds, each doing one job:
+        //   routable minimum — below this a DEX will not fill; sending it burns
+        //                      gas for a guaranteed failure
+        //   wallet share     — one floor-promoted trade may not exceed a quarter
+        //                      of tradeable balance, so a small wallet is never
+        //                      concentrated into a single position to satisfy a
+        //                      routing minimum
+        //   old 0.05 ceiling — unchanged behaviour once the wallet is funded
+        //
+        // The hard block REMAINS, but now it only fires when the routable
+        // minimum genuinely cannot be afforded at a safe concentration. That is
+        // a real economic refusal rather than an artefact of a stale constant.
+        val solUsd7127 = try {
+            com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+        } catch (_: Throwable) { 0.0 }
+        // The USD->SOL division goes through the single authority for it.
+        // economic_units_scan rejected the first version of this line for doing
+        // the divide inline, which was the right call: 7029 omitted this divisor
+        // and 7057 inverted it, and a sizing floor is not the place to become the
+        // sixth copy. usdToSol returns NaN when the price is unusable, which is
+        // the signal to fall back rather than size on a bad number.
+        val routableRawSol7127 = try {
+            com.lifecyclebot.engine.truth.EconomicUnitInvariant7061
+                .usdToSol(LIVE_ROUTABLE_MIN_USD_7127, solUsd7127)
+        } catch (_: Throwable) { Double.NaN }
+        val routableMinSol7127 = if (routableRawSol7127.isFinite() && routableRawSol7127 > 0.0) {
+            routableRawSol7127.coerceIn(LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127, LIVE_FLOOR_CEILING_SOL_7127)
+        } else {
+            // No usable SOL price: fall back to the historical constant rather
+            // than guessing a cheaper floor we cannot justify.
+            LIVE_FLOOR_FALLBACK_SOL_7127
+        }
+        val liveNoDustFloor6269 = (tradeable * LIVE_FLOOR_WALLET_PCT_7127)
+            .coerceIn(routableMinSol7127, LIVE_FLOOR_CEILING_SOL_7127)
         val effectiveSize = if (isLive && cappedSize > 0.0 && cappedSize < liveNoDustFloor6269) {
-            if (tradeable < liveNoDustFloor6269) {
-                // Not enough wallet headroom to send even a floor-sized trade — hard block.
+            if (liveNoDustFloor6269 > tradeable * LIVE_FLOOR_MAX_WALLET_SHARE_7127) {
+                // The smallest routable trade would be too large a share of this
+                // wallet. Refusing is correct: the alternative is either a route
+                // that cannot fill or a single position holding most of the
+                // balance. Named so the operator sees WHICH bound refused.
                 try {
                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SMART_SIZER_V3_DUST_BLOCK_NO_HEADROOM_6271")
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_FLOOR_BLOCK_ROUTABLE_MIN_EXCEEDS_SHARE_7127")
                     com.lifecyclebot.engine.ForensicLogger.lifecycle(
                         "SMART_SIZER_V3_DUST_BLOCK_NO_HEADROOM_6271",
-                        "band=$band conf=$confidence tradeable=${"%.4f".format(tradeable)} floor=$liveNoDustFloor6269 note=wallet_below_floor_cannot_promote"
+                        "band=$band conf=$confidence tradeable=${"%.4f".format(tradeable)} floor=${"%.4f".format(liveNoDustFloor6269)} routableMin=${"%.4f".format(routableMinSol7127)} solUsd=${"%.2f".format(solUsd7127)} maxShare=$LIVE_FLOOR_MAX_WALLET_SHARE_7127 note=routable_minimum_exceeds_safe_wallet_share"
                     )
                 } catch (_: Throwable) {}
                 return SizeResult(sizeSol = 0.0)
@@ -186,7 +292,7 @@ class SmartSizerV3(
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SMART_SIZER_V3_DUST_PROMOTED_6271")
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
                     "SMART_SIZER_V3_DUST_PROMOTED_6271",
-                    "band=$band conf=$confidence liq=${candidate.liquidityUsd.toInt()} raw=${"%.4f".format(cappedSize)} promotedTo=$liveNoDustFloor6269 note=v3_execute_gate_passed_promote_to_min_position_sol"
+                    "band=$band conf=$confidence liq=${candidate.liquidityUsd.toInt()} raw=${"%.4f".format(cappedSize)} promotedTo=${"%.4f".format(liveNoDustFloor6269)} tradeable=${"%.4f".format(tradeable)} routableMin=${"%.4f".format(routableMinSol7127)} solUsd=${"%.2f".format(solUsd7127)} sharePct=${"%.1f".format(if (tradeable > 0.0) liveNoDustFloor6269 / tradeable * 100.0 else 0.0)} note=v3_execute_gate_passed_promote_to_balance_aware_floor_7127"
                 )
             } catch (_: Throwable) {}
             liveNoDustFloor6269
