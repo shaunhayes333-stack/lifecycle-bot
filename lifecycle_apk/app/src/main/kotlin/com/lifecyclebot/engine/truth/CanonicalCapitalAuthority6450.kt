@@ -82,6 +82,41 @@ object CanonicalCapitalAuthority6450 {
     }
 
     /**
+     * V5.0.7060 §8 — A PRICE, NOT A VALUE, AND A REASON TO BELIEVE IT.
+     *
+     * The Double provider above answers "what is this mint worth in SOL", and
+     * it computed that from the DATA-LAYER pos.qtyToken while this file
+     * compared the answer against the CANONICAL remainingCostBasisSol. Two
+     * quantity sources, one ratio — which is precisely directive §8's "do not
+     * mix". After an 87% partial the canonical basis is 13% of the original
+     * while the data-layer quantity may still read whole, so the ratio inflates
+     * by ~7.7x on arithmetic alone, and repeated rungs compound it. That is a
+     * large part of HERO_OPENMV_PER_POSITION_QUARANTINE_6604 firing 584 times
+     * in one session: the clamp was measuring its own unit mismatch.
+     *
+     * This provider returns SOL PER TOKEN instead, so the quantity is supplied
+     * here, from the same canonical projection that supplies the cost basis.
+     * One source, one scale, no ratio to invent.
+     *
+     * [MarkQuote7060.corroborated] is the second half. The 6604 clamp treats
+     * any mark above 100x cost basis as corrupt, which silently includes every
+     * genuine 100-bagger — a direct contradiction of V5.9.1358, and the exact
+     * inverse of the inflation it was written to stop. Market cap can tell the
+     * two apart: a real 100x carries a 100x market cap, a broken supply divisor
+     * does not. CanonicalMarkResolution7059 already makes that judgement, so
+     * the caller passes it through and the clamp finally has grounds.
+     */
+    data class MarkQuote7060(val solPerToken: Double, val corroborated: Boolean)
+
+    private val markQuoteProviderRef =
+        java.util.concurrent.atomic.AtomicReference<((String) -> MarkQuote7060?)?>(null)
+
+    fun installMarkQuoteProvider7060(provider: (String) -> MarkQuote7060?) {
+        markQuoteProviderRef.set(provider)
+        try { PipelineHealthCollector.labelInc("CAPITAL_MARK_QUOTE_PROVIDER_INSTALLED_7060") } catch (_: Throwable) {}
+    }
+
+    /**
      * Compute the canonical snapshot. Caller supplies a mark provider that
      * returns current SOL market value for a mint (0.0 = mark unknown, use
      * costBasis fallback so unrealized reads as 0 rather than -100%).
@@ -112,7 +147,24 @@ object CanonicalCapitalAuthority6450 {
         val activeMintSet6492 = activeMints.map { it.mint }.toSet()
         lastGoodMark6492.keys.removeIf { it !in activeMintSet6492 }
         val markedValue6492 = activeMints.sumOf { aggregate ->
-            val fresh = try { markProvider(aggregate.mint) } catch (_: Throwable) { 0.0 }
+            // V5.0.7060 §8 — prefer the per-token quote and supply the quantity
+            // from THIS projection, so market value and cost basis are derived
+            // from one canonical row. Falls back to the whole-mint provider
+            // when no quote provider is installed, so nothing depends on
+            // install order.
+            val quote7060 = try { markQuoteProviderRef.get()?.invoke(aggregate.mint) } catch (_: Throwable) { null }
+            val corroborated7060 = quote7060?.corroborated == true
+            val fresh = if (quote7060 != null && quote7060.solPerToken.isFinite() && quote7060.solPerToken > 0.0) {
+                val qtyTokens7060 = try {
+                    java.math.BigDecimal(aggregate.remainingQtyRaw)
+                        .movePointLeft(aggregate.quantityScale.coerceIn(0, 18))
+                        .toDouble()
+                } catch (_: Throwable) { 0.0 }
+                val v7060 = quote7060.solPerToken * qtyTokens7060
+                if (v7060.isFinite() && v7060 > 0.0) v7060 else 0.0
+            } else {
+                try { markProvider(aggregate.mint) } catch (_: Throwable) { 0.0 }
+            }
             // V5.0.6604 §PER_POSITION_MARK_QUARANTINE (operator P1 fix).
             //   The 6602 aggregate clamp masked the inflation but never
             //   located WHICH position's mark was corrupt. Add a per-mint
@@ -128,7 +180,33 @@ object CanonicalCapitalAuthority6450 {
             val SANITY_MULT_6604 = 100.0
             val perPositionInflated6604 = fresh.isFinite() && fresh > 0.0 &&
                 costBasis6604 > 0.0 && fresh > costBasis6604 * SANITY_MULT_6604
-            if (perPositionInflated6604) {
+            // V5.0.7060 §RUNNER_CAPTURE_IS_NOT_NEGOTIABLE (V5.9.1358).
+            //
+            // This clamp reads "above 100x cost basis" as "corrupt mark". That
+            // is also the definition of a 100-bagger, which is the single
+            // outcome this bot exists to capture — and when one arrived, the
+            // hero showed it at cost basis, i.e. +0%. The clamp could not tell
+            // a real runner from a broken supply divisor because it only ever
+            // looked at one number.
+            //
+            // Market cap tells them apart: a genuine 100x carries a 100x market
+            // cap, a corrupt price does not. CanonicalMarkResolution7059 makes
+            // that call upstream and the quote provider carries the verdict, so
+            // a corroborated mark is no longer quarantined at any magnitude.
+            // An uncorroborated one still is — nothing was loosened, the
+            // decision was simply given evidence it never had.
+            if (perPositionInflated6604 && corroborated7060) {
+                try {
+                    PipelineHealthCollector.labelInc("HERO_RUNNER_CORROBORATED_BY_MCAP_7060")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "HERO_RUNNER_CORROBORATED_BY_MCAP_7060",
+                        "mint=${aggregate.mint.take(10)} costBasis=${"%.6f".format(costBasis6604)} " +
+                            "markSol=${"%.6f".format(fresh)} ratio=${"%.1f".format(fresh / costBasis6604)}x " +
+                            "action=real_runner_market_cap_agrees_do_not_clamp",
+                    )
+                } catch (_: Throwable) {}
+            }
+            if (perPositionInflated6604 && !corroborated7060) {
                 try {
                     PipelineHealthCollector.labelInc("HERO_OPENMV_PER_POSITION_QUARANTINE_6604")
                     com.lifecyclebot.engine.ForensicLogger.lifecycle(

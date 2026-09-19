@@ -4736,6 +4736,86 @@ class BotService : Service() {
                 } catch (_: Throwable) { 0.0 }
             }
         } catch (_: Throwable) {}
+        // V5.0.7060 §8 — THE SAME MARK, AS A PRICE, WITH ITS EVIDENCE.
+        //
+        // Two defects in the provider above, both of them mine to fix:
+        //
+        //   (a) it multiplies by pos.qtyToken, the DATA-LAYER quantity, while
+        //       CanonicalCapitalAuthority6450 compares the result against the
+        //       CANONICAL remainingCostBasisSol. Mixed sources, one ratio. A
+        //       partial decrements the canonical basis immediately; the
+        //       data-layer field is a different row written by a different
+        //       path, so after an 87% rung the ratio inflates on arithmetic
+        //       alone. Returning SOL PER TOKEN hands the quantity back to 6450,
+        //       which reads it off the same projection as the basis.
+        //
+        //   (b) it reads ts.lastPrice RAW, bypassing getActualPrice and with it
+        //       the whole 6895/7017/7059 correction chain. It only ever saw a
+        //       corrected number when some other caller had already run
+        //       getActualPrice and written the repair back into the field.
+        //       Equity was one poll-order accident away from the raw tick.
+        //
+        // Resolving through CanonicalMarkResolution7059 fixes (b) and produces
+        // the corroboration flag that lets 6604 stop clamping real runners. The
+        // 6636 eligibility check and the 6496 authority gate are applied
+        // exactly as the provider above applies them — this path is not a way
+        // around either of them.
+        try {
+            com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.installMarkQuoteProvider7060 { mint ->
+                try {
+                    val ts = status.tokens[mint] ?: return@installMarkQuoteProvider7060 null
+                    val pos = ts.position
+                    if (!pos.isOpen) return@installMarkQuoteProvider7060 null
+                    val eligible7060 = try {
+                        com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
+                            .isRuntimeOpenEligible6636(mint, pos)
+                    } catch (_: Throwable) { false }
+                    if (!eligible7060) return@installMarkQuoteProvider7060 null
+                    val mark7060 = com.lifecyclebot.engine.truth.CanonicalMarkResolution7059
+                        .resolve(pos, ts.lastPrice, ts.lastMcap)
+                    if (!mark7060.usable) return@installMarkQuoteProvider7060 null
+                    val provOk7060 = try {
+                        com.lifecyclebot.engine.truth.MarkAuthorityIntegrityGate6496.isAuthoritative(
+                            mint = mint,
+                            priceUsd = mark7060.price,
+                            mcapUsd = ts.lastMcap,
+                            liquidityUsd = ts.lastLiquidityUsd,
+                            source = ts.lastPriceSource.ifBlank { "UNKNOWN" },
+                            poolAddress = ts.lastPricePoolAddr.ifBlank { "MINT_ROUTE:${mint.take(8)}" },
+                            isKnownOpenMint6596 = true,
+                        )
+                    } catch (_: Throwable) { false }
+                    if (!provOk7060) return@installMarkQuoteProvider7060 null
+                    val solUsd7060 = try {
+                        com.lifecyclebot.engine.EfficiencyLayer.getCachedPrice()?.solPriceUsd
+                            ?: com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+                    } catch (_: Throwable) { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice }
+                    if (!solUsd7060.isFinite() || solUsd7060 <= 50.0 || solUsd7060 >= 5000.0) {
+                        return@installMarkQuoteProvider7060 null
+                    }
+                    // Units: (USD/token) / (USD/SOL) = SOL/token. Stated because
+                    // V5.0.7029 and V5.0.7057 were both this product booked in
+                    // the wrong denomination.
+                    val solPerToken7060 = mark7060.price / solUsd7060
+                    if (!solPerToken7060.isFinite() || solPerToken7060 <= 0.0) {
+                        return@installMarkQuoteProvider7060 null
+                    }
+                    // Only a mark the market cap has actually corroborated may
+                    // lift the 6604 clamp. TICK_ONLY and the carried/flat rungs
+                    // are usable marks but they are not evidence of a runner,
+                    // so they stay clampable.
+                    val corroborated7060 =
+                        mark7060.provenance == com.lifecyclebot.engine.truth
+                            .CanonicalMarkResolution7059.Provenance.TICK_MCAP_AGREED ||
+                        mark7060.provenance == com.lifecyclebot.engine.truth
+                            .CanonicalMarkResolution7059.Provenance.MCAP_RECONCILED
+                    com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.MarkQuote7060(
+                        solPerToken = solPerToken7060,
+                        corroborated = corroborated7060,
+                    )
+                } catch (_: Throwable) { null }
+            }
+        } catch (_: Throwable) {}
         // V5.0.6521 — canonical-raw reconstruction before quarantine; never abandon/force-close.
         try {
             // V5.0.6538 §LEGACY_MINT_ATTRIBUTION_SWEEP — the operator's

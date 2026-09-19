@@ -1439,6 +1439,13 @@ object CanonicalPositionAuthority6441 {
         val remainingQtyRaw: BigInteger,
         val remainingCostBasisSol: Double,
         val lotCount: Int,
+        // V5.0.7060 §8 — the projection carried a raw quantity and no way to
+        // read it. Every consumer that wanted tokens had to find a scale
+        // somewhere else, and CanonicalCapitalAuthority6450 solved that by
+        // taking the quantity from the DATA-LAYER position instead — which is
+        // the mixed-source defect directive §8 forbids. Carry the scale with
+        // the quantity so the pair can never be split again.
+        val quantityScale: Int = 0,
     )
 
     fun activeMintProjections6489(): List<ActiveMintProjection6489> = activeMintProjections6490()
@@ -1459,6 +1466,9 @@ object CanonicalPositionAuthority6441 {
                 remainingQtyRaw = lots.fold(BigInteger.ZERO) { acc, p -> acc + p.remainingQtyRaw },
                 remainingCostBasisSol = lots.sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) },
                 lotCount = lots.size,
+                // V5.0.7060 — lots of one mint share a decimals scale by
+                // definition; the representative's is the mint's.
+                quantityScale = representative.quantityScale.coerceIn(0, 18),
             )
         }
 
