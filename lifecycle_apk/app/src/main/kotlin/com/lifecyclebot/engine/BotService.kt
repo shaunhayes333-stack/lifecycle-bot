@@ -23681,7 +23681,18 @@ if (hotExitHandledSweep) {
                 lane = cyclePrimaryLane,
                 mint = identity.mint,
                 requestedSizeSol = 1.0,
-                entryScore = ExecutableOpenGate.entryScoreFor6909(identity.mint),
+                // V5.0.7108 — this is the PRE-FDG gate, so for a fresh launch
+                // ExecutableOpenGate has no stamped state and its score reads
+                // "unknown" (-1). The real score is already on `ts`: line ~23495
+                // of this same function wrote `ts.entryScore = result.entryScore`
+                // from strategy.evaluateWithDecision, 185 lines above this call.
+                // It was being discarded and replaced with 0, which is band S00 —
+                // see entryScoreFor6909's note for what that did to the oracle.
+                // Prefer the sealed gate score when one exists; otherwise use the
+                // score this cycle just computed.
+                entryScore = ExecutableOpenGate.entryScoreFor6909(identity.mint)
+                    .takeIf { it >= 0 }
+                    ?: ts.entryScore.toInt().coerceIn(0, 100),
                 minExecutableSol = 0.0,
                 probeSizeSol = 1.0,
                 // V5.0.6915 — see ExecutableOpenGate's matching call.

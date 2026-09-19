@@ -419,8 +419,36 @@ object ExecutableOpenGate {
      * lowest band and therefore judges the candidate against the cohort it
      * actually belongs to rather than a flattering default.
      */
+    /**
+     * V5.0.7108 §A_MINT_NOBODY_HAS_SCORED_YET_IS_NOT_A_ZERO.
+     *
+     * This read `?: 0`, so a mint with NO stamped state returned the same value
+     * as a mint genuinely scored zero. `states` is populated by recordFdg /
+     * recordV3, so a fresh mint has no entry at all — and the PRE-FDG admission
+     * gate in BotService asks this question BEFORE FDG has ever run for that
+     * candidate. Every fresh launch therefore reached the learned admission
+     * authority and PredictiveEntryOracle6915 carrying score 0, which lands in
+     * band S00, the worst cohort in the model.
+     *
+     * The device says it outright. $GOAT, 5.0.7106:
+     *
+     *   00:54:24.377  PREDICTIVE_ORACLE_REFUSED_6915  score=0  E=-17.91%
+     *                   [cellScoreExp(n=4,E=-11.6) cellFwd(pooled,n=4,...)]
+     *   00:54:24.378  LEARNED_ADMISSION_6909          score=0
+     *   00:54:24.381  PHASE/V3  $GOAT                 score=45
+     *
+     * The oracle was asked about score 0 four milliseconds before V3 published
+     * 45. PUMP_PORTAL_WS intake is almost entirely fresh launches, so this was
+     * the normal path, not an edge case — and it is why the oracle reports
+     * evals=11312 admit=0 refuse=11296 and LearnedPolicyDegeneracyWatch7102
+     * flags it DEGENERATE at REFUSE@1.00. It had been judging nearly every
+     * candidate in the bot's worst score band, on a four-sample cohort.
+     *
+     * Returns -1 for "no score recorded" so a caller can tell the two apart.
+     * Both existing call sites already test `> 0`, so neither changes meaning.
+     */
     fun entryScoreFor6909(mint: String): Int =
-        try { states[mint]?.entryScore?.takeIf { it >= 0 } ?: 0 } catch (_: Throwable) { 0 }
+        try { states[mint]?.entryScore?.takeIf { it >= 0 } ?: -1 } catch (_: Throwable) { -1 }
 
     fun recordEntryAuthority6487(
         mint: String,
@@ -2804,7 +2832,11 @@ object ExecutableOpenGate {
                 lane = lane,
                 mint = mint,
                 requestedSizeSol = 1.0,
-                entryScore = scoreNow6909,
+                // V5.0.7108 — entryScoreFor6909 now returns -1 for "not scored
+                // yet". Clamp here so an unknown cannot travel into the model as
+                // a negative band; behaviour at this site is identical to before,
+                // because by the time the exec gate runs FDG has stamped a state.
+                entryScore = scoreNow6909.coerceAtLeast(0),
                 minExecutableSol = 0.0,
                 probeSizeSol = 1.0,
                 // V5.0.6915 — discovery source reaches the oracle so realised
