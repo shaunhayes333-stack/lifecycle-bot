@@ -233,13 +233,31 @@ object ExecutableOpenGate {
         requestedLane: String,
     ): ExecutionIntent? {
         val byAttempt = executionTickets[attemptId]
-        val candidate = sequenceOf(byAttempt, activeExecutionIntent6519(mode, mint, candidateVersion))
+        val byVersion7096 = activeExecutionIntent6519(mode, mint, candidateVersion)
+        val candidate = sequenceOf(byAttempt, byVersion7096)
             .filterNotNull()
             .firstOrNull {
                 it.mint == mint && it.mode.equals(mode, true) &&
                     (it.canonicalLane.equals(requestedLane, true) ||
                         isSourceBucketLane(requestedLane))
             }
+        // V5.0.7096 — the `byAttempt != null` case below has always been counted.
+        // The symmetric case was not: a sealed intent exists in the intent store
+        // for this mint+mode, but the lane predicate rejects it and we return a
+        // bare null. The caller then cannot tell "no authority was ever sealed"
+        // from "an authority exists and I refused it", which is the whole
+        // difference between an integrity fault and a lane-identity mismatch.
+        if (byAttempt == null && byVersion7096 != null && candidate == null) {
+            try {
+                PipelineHealthCollector.labelInc("SEALED_INTENT_REJECTED_LANE_MISMATCH_7096")
+                ForensicLogger.lifecycle(
+                    "SEALED_INTENT_REJECTED_LANE_MISMATCH_7096",
+                    "requested=$mode:${mint.take(10)}:$candidateVersion:$requestedLane " +
+                        "sealed=${byVersion7096.mode}:${byVersion7096.mint.take(10)}:${byVersion7096.candidateVersion}:${byVersion7096.canonicalLane} " +
+                        "action=return_null_authority_exists_but_lane_differs",
+                )
+            } catch (_: Throwable) {}
+        }
         if (byAttempt != null && candidate == null) {
             try {
                 PipelineHealthCollector.labelInc("RESTORED_TICKET_IMMUTABLE_IDENTITY_MISMATCH_6641")
@@ -1461,15 +1479,41 @@ object ExecutableOpenGate {
                     // V5.0.6613a — canonical decision snapshot/intent MUST publish before
                     // projection-side TradeIdentity mutation. A malformed/restored identity
                     // must not throw inside this broad compatibility block and erase an FDG BUY.
-                    com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.record(
-                        com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot(
-                            mint = mint, candidateVersion = winner.candidateVersion,
-                            verdict = winner.preFdgVerdict, executionLane = winner.selectedLane,
-                            score = winner.entryScore.toDouble(), generatedAtMs = System.currentTimeMillis(),
-                            authoritativeSignal = "BUY", safetyVerdict = winner.safetyTier,
-                            resolvedSizeSol = try { com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(mint) ?: 0.0 } catch (_: Throwable) { 0.0 },
+                    //
+                    // V5.0.7096 §FDG_SEAL_ATOMICITY — 6613a got the ORDER right and the
+                    // ISOLATION wrong. Snapshot record, intent publish, identity projection
+                    // and fabric record all sat inside ONE `catch (_: Throwable) {}`. The
+                    // FDG approval (`fdgCan = true`) is written to `state` by the `put`
+                    // block ABOVE, inside the election lock, and is already durable by the
+                    // time we get here. So a throw in the FIRST step silently skipped the
+                    // SECOND — leaving an approved candidate with no sealed authority at
+                    // all. ExecutableOpenGate's own invariant then reads exactly that
+                    // shape (fdgCan=true, no ticket, no snapshot) and reports
+                    // AUTHORITY_INVARIANT_FAILURE / FDG_ALLOW_WITHOUT_EXEC_INTENT — the
+                    // 5.0.7091 device snapshot shows 69 and 33 of those against 0 in
+                    // 5.0.7088, which is when volume came back and this path started
+                    // running at all. Each seal step is now independently guarded and
+                    // independently counted, so a failure in one can never consume the
+                    // others and can never again be invisible.
+                    try {
+                        com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.record(
+                            com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot(
+                                mint = mint, candidateVersion = winner.candidateVersion,
+                                verdict = winner.preFdgVerdict, executionLane = winner.selectedLane,
+                                score = winner.entryScore.toDouble(), generatedAtMs = System.currentTimeMillis(),
+                                authoritativeSignal = "BUY", safetyVerdict = winner.safetyTier,
+                                resolvedSizeSol = try { com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(mint) ?: 0.0 } catch (_: Throwable) { 0.0 },
+                            )
                         )
-                    )
+                    } catch (t: Throwable) {
+                        try {
+                            PipelineHealthCollector.labelInc("FDG_SEAL_SNAPSHOT_FAILED_7096")
+                            ForensicLogger.lifecycle(
+                                "FDG_SEAL_SNAPSHOT_FAILED_7096",
+                                "mint=${mint.take(10)} symbol=$symbol lane=${winner.selectedLane} version=${winner.candidateVersion} verdict=${winner.preFdgVerdict} err=${t.javaClass.simpleName} action=continue_to_intent_publish",
+                            )
+                        } catch (_: Throwable) {}
+                    }
                     val mode6512 = if (paperRuntime) "PAPER" else "LIVE"
                     val immutableAuthority6519 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510
                         .currentForMint(mint, winner.candidateVersion, mode6512)
@@ -1483,7 +1527,21 @@ object ExecutableOpenGate {
                         ?: resolvedSizeSol6558.takeIf { it.isFinite() && it > 0.0 }
                         ?: 0.0
                     val canonicalLane6519 = winner.selectedLane.uppercase()
-                    publishFdgIntent6519(
+                    // V5.0.7096 §FDG_SEAL_ATOMICITY — these three reads used to sit
+                    // inline in the ExecutionIntent argument list below, unguarded.
+                    // A throw from the mark registry therefore aborted the one call
+                    // that seals the intent, before publishFdgIntent6519 was even
+                    // entered. The mark is decoration on the intent (provenance for
+                    // the entry quote); it is not the authority, and losing it must
+                    // never cost us the authority. Resolve it defensively first.
+                    val entryMark7096 = try {
+                        com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(
+                            mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
+                        )
+                    } catch (_: Throwable) { null }
+                    var intentPublished7096 = false
+                    try {
+                        publishFdgIntent6519(
                         ExecutionIntent(
                             attemptId = canonicalExecutionKey(mint, mode = mode6512, side = "BUY", lane = canonicalLane6519, candidateVersion = winner.candidateVersion),
                             candidateId = "$mint:${winner.candidateVersion}", candidateVersion = winner.candidateVersion,
@@ -1510,11 +1568,36 @@ object ExecutableOpenGate {
                                 // V5.0.6626 §RUNTIME_LOOP_UNCHOKE §2 — adaptive TTL on fresh ticket seal.
                                 com.lifecyclebot.engine.truth.AdaptiveTicketTtl6626.paperTicketTtlMs6626()
                             else LIVE_EXECUTION_TICKET_TTL_MS,
-                            markId6614 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE)?.let { "${it.mint}:${it.pairId}:${it.timestampMs}" } ?: "",
-                            markVersion6614 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE)?.timestampMs ?: 0L,
-                            markTimestampMs6614 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get(mint, com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE)?.timestampMs ?: 0L,
+                            markId6614 = entryMark7096?.let { "${it.mint}:${it.pairId}:${it.timestampMs}" } ?: "",
+                            markVersion6614 = entryMark7096?.timestampMs ?: 0L,
+                            markTimestampMs6614 = entryMark7096?.timestampMs ?: 0L,
                         ),
                     )
+                        intentPublished7096 = true
+                    } catch (t: Throwable) {
+                        try {
+                            PipelineHealthCollector.labelInc("FDG_SEAL_INTENT_FAILED_7096")
+                            ForensicLogger.lifecycle(
+                                "FDG_SEAL_INTENT_FAILED_7096",
+                                "mint=${mint.take(10)} symbol=$symbol lane=$canonicalLane6519 version=${winner.candidateVersion} verdict=${winner.preFdgVerdict} size=$resolvedSize6519 err=${t.javaClass.simpleName} action=fdg_allow_left_unsealed",
+                            )
+                        } catch (_: Throwable) {}
+                    }
+                    // V5.0.7096 — the FDG approval is already durable in `state`. Prove
+                    // that at least one sealed authority now exists to match it, and name
+                    // the gap here rather than letting the downstream gate discover it as
+                    // an anonymous AUTHORITY_INVARIANT_FAILURE 490 lines later.
+                    if (!intentPublished7096) {
+                        try {
+                            val snapshotPresent7096 = com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510
+                                .currentForMint(mint, winner.candidateVersion, mode6512) != null
+                            PipelineHealthCollector.labelInc("FDG_ALLOW_SEAL_INCOMPLETE_7096")
+                            ForensicLogger.lifecycle(
+                                "FDG_ALLOW_SEAL_INCOMPLETE_7096",
+                                "mint=${mint.take(10)} symbol=$symbol lane=$canonicalLane6519 version=${winner.candidateVersion} verdict=${winner.preFdgVerdict} snapshot=$snapshotPresent7096 intent=false action=fdg_approval_has_no_execution_authority",
+                            )
+                        } catch (_: Throwable) {}
+                    }
                     try {
                         val identity6512 = TradeIdentityManager.getOrCreate(mint, winner.symbol)
                         identity6512.executionLane = winner.selectedLane
@@ -2557,7 +2640,20 @@ object ExecutableOpenGate {
                 // reason, so smoke acceptance could report a false clean zero.
                 PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT")
                 try { PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_EXEC_INTENT_LANE_6727_${canonicalSelectedLane.uppercase()}") } catch (_: Throwable) {}
-                ForensicLogger.lifecycle("AUTHORITY_INVARIANT_FAILURE", "attemptId=$attemptId mint=${mint.take(10)} candidateVersion=$candidateVersion currentVersion=$currentCandidateVersion requestedLane=$requestedLane selectedLane=$canonicalSelectedLane preFdg=$preFdgVerdict reason=FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519 stateAgeMs=$stateAgeMs")
+                // V5.0.7096 — this line named the symptom and none of the three
+                // lookups that produced it, so six builds could not tell whether the
+                // authority was never sealed, sealed under another candidate version,
+                // or sealed and refused. Carry all three facts.
+                val anyIntentForMint7096 = try { activeExecutionIntent6519(modeUpper, mint, 0L) } catch (_: Throwable) { null }
+                ForensicLogger.lifecycle(
+                    "AUTHORITY_INVARIANT_FAILURE",
+                    "attemptId=$attemptId mint=${mint.take(10)} candidateVersion=$candidateVersion currentVersion=$currentCandidateVersion " +
+                        "authorityVersionUsed=$authorityCandidateVersion6513 stateVersion=${state?.candidateVersion} " +
+                        "anySealedIntent=${anyIntentForMint7096 != null} sealedIntentVersion=${anyIntentForMint7096?.candidateVersion} " +
+                        "sealedIntentLane=${anyIntentForMint7096?.canonicalLane} sealedIntentDecision=${anyIntentForMint7096?.finalDecision6613} " +
+                        "requestedLane=$requestedLane selectedLane=$canonicalSelectedLane preFdg=$preFdgVerdict " +
+                        "reason=FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519 stateAgeMs=$stateAgeMs",
+                )
             } catch (_: Throwable) {}
             return blocked("AUTHORITY_INVARIANT_FAILURE", "FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519", shadow = mode == "PAPER")
         }
