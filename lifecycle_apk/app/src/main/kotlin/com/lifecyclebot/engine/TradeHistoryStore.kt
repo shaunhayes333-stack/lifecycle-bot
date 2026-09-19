@@ -2318,11 +2318,48 @@ object TradeHistoryStore {
                         soldCostBasisSol = c.doubleOrZero("sold_cost_basis_sol"),
                         grossProceedsSol = c.doubleOrZero("gross_proceeds_sol"),
                     )
+                    // V5.0.7058 §6 + §7 — IDENTITY IS NOT ADMISSION.
+                    //
+                    // Registration used to sit INSIDE the isValidAccountingTrade
+                    // branch, so a row that failed accounting validation on load
+                    // was filtered out of `loaded` AND its economicEventId never
+                    // entered durableEconomicEventIds. The row still exists on
+                    // disk — it is just not trusted for accounting — but as far
+                    // as recordTrade's exact-event dedupe (line 753) was
+                    // concerned that event had never been seen. So the next
+                    // replay of CanonicalPaperTransaction6486.historyProjection
+                    // 6660 wrote it again as a brand-new economic row.
+                    //
+                    // That is the operator's 53 raw PARTIAL_SELL rows for 29
+                    // canonical partial events: the duplicate pairs carry the
+                    // SAME economicEventId (the bridge passes idempotencyKey =
+                    // economicEventId at CanonicalPaperTerminalBridge6469:439,
+                    // and EconomicEventSchema6464.recordSell stores it verbatim)
+                    // and differ only in the remainingQty projection — exactly
+                    // what a re-projection of an event the dedupe set had
+                    // forgotten looks like. It also explains why the duplicates
+                    // cluster on the contaminated high-percentage partials:
+                    // those are precisely the rows isValidAccountingTrade
+                    // rejects, so those are precisely the ids that fell out.
+                    //
+                    // Whether a row may be COUNTED and whether its event has
+                    // already HAPPENED are different questions. Register every
+                    // durable id; keep the accounting filter on `loaded` alone.
+                    if (row.economicEventId.isNotBlank()) {
+                        durableEconomicEventIds.add(row.economicEventId)
+                    }
                     if (isValidAccountingTrade(row)) {
                         loaded.add(row)
-                        if (row.economicEventId.isNotBlank()) durableEconomicEventIds.add(row.economicEventId)
                     }
-                    else try { ErrorLogger.warn("TradeHistoryStore", "TRADE_ACCOUNTING_DB_INIT_FILTERED mint=${row.mint.take(8)} side=${row.side} pnlPct=${row.pnlPct} pnl=${row.pnlSol} reason=${row.reason}") } catch (_: Throwable) {}
+                    else try {
+                        ErrorLogger.warn("TradeHistoryStore", "TRADE_ACCOUNTING_DB_INIT_FILTERED mint=${row.mint.take(8)} side=${row.side} pnlPct=${row.pnlPct} pnl=${row.pnlSol} reason=${row.reason}")
+                        // V5.0.7058 — a row filtered from accounting whose id is
+                        // now still registered. This count is the size of the
+                        // re-projection hole that used to exist: before this
+                        // build every one of these was an event the dedupe had
+                        // forgotten and the next replay could write again.
+                        PipelineHealthCollector.labelInc("DURABLE_ID_REGISTERED_ACCOUNTING_FILTERED_7058")
+                    } catch (_: Throwable) {}
                 }
             }
             val enrichedLoaded = enrichRowsBySequence(loaded)
