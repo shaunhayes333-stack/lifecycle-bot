@@ -73,6 +73,9 @@ jobs:
       - name: Repository patch-rot scan
         run: python3 ci/patch_rot_scan.py
 
+      - name: Economic unit / cash authority scan
+        run: python3 ci/economic_units_scan.py
+
       - name: Android resource pre-flight
         run: python3 ci/res_validate.py
 
