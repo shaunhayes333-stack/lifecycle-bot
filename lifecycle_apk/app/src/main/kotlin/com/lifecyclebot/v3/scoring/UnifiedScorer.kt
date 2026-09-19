@@ -457,8 +457,36 @@ class UnifiedScorer(
             "tokendnaclusteringai", "peeralphaverificationai", "newsshockai",
             "fundingrateawarenessai", "orderbookimbalancepulseai",
         )
+        /**
+         * V5.0.7113 §TWENTY_UNPROVEN_LAYERS_COULD_ONLY_EVER_ENCOURAGE.
+         *
+         * This scaled a new layer's contribution by newLayerNegScale — which
+         * starts at 0.10 and ramps to 1.0 as FluidLearningAI gains confidence —
+         * but only when the contribution was NEGATIVE. `if (c.value >= 0) return c`
+         * let every positive through at full strength from the first trade.
+         *
+         * So across the twenty layers listed above, an unproven scorer could add
+         * all of its points and subtract a tenth of them. That is a systematic
+         * optimism bias applied exactly when the bot has the least evidence, and
+         * it falls hardest on the layers whose entire job is to object:
+         * MEVDetectionAI, DrawdownCircuitAI, LiquidityExitPathAI, NewsShockAI,
+         * OrderBookImbalancePulseAI.
+         *
+         * Same class as V5.0.7112's semantic graph, found by the same scan
+         * (ci/one_way_control_scan.py): the discouraging half of a learned signal
+         * discarded while the encouraging half passes whole.
+         *
+         * Low confidence in a layer is a statement about the LAYER, not about the
+         * sign of what it happens to say. The ramp already encodes "we do not
+         * trust this one yet"; it now applies to everything that layer says. No
+         * new curve is invented — it is the same newLayerNegScale, used honestly.
+         *
+         * This will lower bootstrap scores, and that is the point: they were
+         * inflated. V5.0.7111's entry-floor tuner now moves the bar onto the
+         * bands that actually pay, so admission is driven by realised evidence
+         * rather than by an optimism bias standing in for it.
+         */
         fun fluidScale(c: ScoreComponent): ScoreComponent {
-            if (c.value >= 0) return c
             if (c.name.lowercase() !in newLayerNames) return c
             val scaled = (c.value * newLayerNegScale).toInt()
             return c.copy(value = scaled, reason = "${c.reason} | FLUID×${"%.2f".format(newLayerNegScale)}")

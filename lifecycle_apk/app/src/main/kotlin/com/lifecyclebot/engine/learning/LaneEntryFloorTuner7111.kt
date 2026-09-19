@@ -170,15 +170,24 @@ object LaneEntryFloorTuner7111 {
         } catch (_: Throwable) {}
     }
 
-    /** V5.0.7111 — operator report: what each lane's realised bands are saying. */
-    fun statusLine7111(lanes: List<String>): String = try {
-        if (lanes.isEmpty()) return "lanes=0"
-        val parts = lanes.mapNotNull { lane ->
-            val v = verdict7111(lane, 0.0)
-            if (v.evidenceBands == 0) null
-            else "${lane.uppercase().take(14)}:target=${v.targetFloor}(${v.reason.take(28)},bands=${v.evidenceBands})"
-        }
-        if (parts.isEmpty()) "lanes=${lanes.size} evidenced=0 (all bootstrap)"
-        else "evidenced=${parts.size}/${lanes.size} ${parts.joinToString(" ")}"
-    } catch (t: Throwable) { "unavailable(${t.javaClass.simpleName})" }
+    /**
+     * V5.0.7111 — operator report: what each lane's realised bands are saying.
+     *
+     * V5.0.7113: block body, not `= try { ... }`. An expression body cannot
+     * contain `return`, and the early-out for an empty lane list was one. That
+     * is what turned 7111 red and, because 7112 stacked on the same file, 7112
+     * with it.
+     */
+    fun statusLine7113(lanes: List<String>): String {
+        return try {
+            if (lanes.isEmpty()) return "lanes=0"
+            val parts = lanes.mapNotNull { lane ->
+                val v = verdict7111(lane, 0.0)
+                if (v.evidenceBands == 0) null
+                else "${lane.uppercase().take(14)}:target=${v.targetFloor}(${v.reason.take(28)},bands=${v.evidenceBands})"
+            }
+            if (parts.isEmpty()) "lanes=${lanes.size} evidenced=0 (all bootstrap)"
+            else "evidenced=${parts.size}/${lanes.size} ${parts.joinToString(" ")}"
+        } catch (t: Throwable) { "unavailable(${t.javaClass.simpleName})" }
+    }
 }

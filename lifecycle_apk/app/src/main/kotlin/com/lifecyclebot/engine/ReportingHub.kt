@@ -500,7 +500,7 @@ object ReportingHub {
         // band this lane has actually made money at.
         appendLine(safe("lane_entry_floor_tuner") {
             "Lane Entry Floor Tuner (§7111 - closed-loop entry bar): " +
-                com.lifecyclebot.engine.learning.LaneEntryFloorTuner7111.statusLine7111(
+                com.lifecyclebot.engine.learning.LaneEntryFloorTuner7111.statusLine7113(
                     listOf(
                         "QUALITY", "MOONSHOT", "SHITCOIN", "PROJECT_SNIPER", "CORE",
                         "TREASURY", "DIP_HUNTER", "BLUECHIP", "EXPRESS", "CYCLIC",

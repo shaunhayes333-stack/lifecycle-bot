@@ -131,6 +131,13 @@ jobs:
       - name: Qualified-reference package guard
         run: python3 ci/qualified_reference_check.py --all
 
+      # V5.0.7113 — every guard above is a Python scan over Kotlin SOURCE; none
+      # of them compile anything. A plain syntax error therefore passes all of
+      # them and is only caught four minutes into Gradle. 7111 and 7112 were
+      # both red on one such line. This catches that class in a second.
+      - name: Kotlin expression-body return guard
+        run: python3 ci/kotlin_expression_body_return.py
+
       - name: Build Release APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
