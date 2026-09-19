@@ -1,6 +1,5 @@
 tier	owner	function	file
 A_PREDICT	AITrustNetworkAI	recordPositivePrediction	v3/scoring/AITrustNetworkAI.kt
-A_PREDICT	AcceptanceInvariantAuthority6501	checkJournalVsLedger	engine/truth/AcceptanceInvariantAuthority6501.kt
 A_PREDICT	AdaptiveLearningEngine	calculateOutcomeScore	engine/AdaptiveLearningEngine.kt
 A_PREDICT	AdaptiveLearningEngine	extractPatterns	engine/AdaptiveLearningEngine.kt
 A_PREDICT	BehaviorLearning	getTopBadPatterns	engine/BehaviorLearning.kt
@@ -120,7 +119,7 @@ A_PREDICT	TursoClient	savePerpsPattern	collective/TursoClient.kt
 A_PREDICT	UnifiedPolicyHead	brierScore	engine/UnifiedPolicyHead.kt
 A_PREDICT	UnifiedScorer	scoreWithArb	v3/scoring/UnifiedScorer.kt
 RETIRED_DARK_7071	V3VerdictContract6622	softConfidenceMultiplier6622	engine/truth/V3VerdictContract6622.kt
-B_RISK	BotBrain	isInDangerZone	engine/BotBrain.kt
+REDUNDANT_VERIFIED_7073	BotBrain	isInDangerZone	engine/BotBrain.kt
 B_RISK	CanonicalEconomicIdentity6470	breachCount	engine/truth/CanonicalEconomicIdentity6470.kt
 RETIRED_DARK_7071	CanonicalFill6393	neverIncreaseRiskForBehindTarget	engine/truth/ForensicFinalityAndTuner6393.kt
 RETIRED_DARK_7071	CanonicalFill6393	safetyHardBlock	engine/truth/ForensicFinalityAndTuner6393.kt
@@ -129,15 +128,14 @@ RETIRED_DARK_7071	CanonicalLedger6387	canonicalRiskPositionMints	engine/truth/Ca
 B_RISK	CollectiveLearning	getCollectiveTotalTradeCount	collective/CollectiveLearning.kt
 B_RISK	DistributionFadeAvoider	clearSuppression	engine/DistributionFadeAvoider.kt
 B_RISK	EarlyEntryScout6390	isDistributionRisk	engine/truth/EarlyEntryAndPeakCapture6390.kt
-B_RISK	EdgeLearning	getVetoStickyMinutes	engine/EdgeLearning.kt
 RETIRED_DARK_7071	EntryGateBlockCache6398	shouldEmitCanonicalBlock	engine/truth/EntryGateBlockCache6398.kt
 B_RISK	EvidenceEpochFilter6388	canPassForensicRegressionGuard	engine/truth/GovernorRecoverySubstrate6388.kt
 B_RISK	ExitCoordinatorHeartbeat	duplicateSweepsSuppressedCount	engine/ExitCoordinatorHeartbeat.kt
 B_RISK	ExternalAlphaFeeds	enrichSafety	v4/meta/ExternalAlphaFeeds.kt
 B_RISK	GeminiCopilot	assessRisk	engine/GeminiCopilot.kt
-B_RISK	LaneShadowProofLoop	blacklistedLanes	engine/LaneShadowProofLoop.kt
-B_RISK	LaneShadowProofLoop	blockLaneResume	engine/LaneShadowProofLoop.kt
-B_RISK	LaneShadowProofLoop	isResumeBlocked	engine/LaneShadowProofLoop.kt
+REDUNDANT_VERIFIED_7073	LaneShadowProofLoop	blacklistedLanes	engine/LaneShadowProofLoop.kt
+REDUNDANT_VERIFIED_7073	LaneShadowProofLoop	blockLaneResume	engine/LaneShadowProofLoop.kt
+REDUNDANT_VERIFIED_7073	LaneShadowProofLoop	isResumeBlocked	engine/LaneShadowProofLoop.kt
 B_RISK	LivePipelineTrace6431	bumpBlockReason	engine/truth/LivePipelineTrace6431.kt
 B_RISK	LosingStreakReflex6439	shouldBlockNewBuys	engine/truth/LosingStreakReflex6439.kt
 B_RISK	MemeExecutionRouteStack	stackExhausted	engine/execution/MemeExecutionRouteStack.kt
@@ -157,7 +155,7 @@ B_RISK	TokenMapVersionGuard6411	guardMetricWrite	engine/truth/TokenMapVersionGua
 B_RISK	TradeDatabase	getSuppressionStrength	engine/TradeDatabase.kt
 B_RISK	TradeLifecycle	forceExpireBlocked	engine/TradeLifecycle.kt
 B_RISK	TradingMemory	getFeatureBucketRisk	engine/TradingMemory.kt
-B_RISK	TradingMemory	isCreatorBlacklisted	engine/TradingMemory.kt
+REDUNDANT_VERIFIED_7073	TradingMemory	isCreatorBlacklisted	engine/TradingMemory.kt
 B_RISK	V3Adapter	toRiskState	v3/bridge/V3Adapter.kt
 B_RISK	V3EngineManager	blockFatal	v3/V3EngineManager.kt
 C_EXIT	AdvancedExitManager	calculateExitTargets	v3/scoring/AdvancedExitManager.kt
@@ -202,7 +200,6 @@ C_EXIT	ExecutionAttemptLease	activeSellLeases	engine/ExecutionAttemptLease.kt
 C_EXIT	ExecutionCounterContract	recordJournalSellWrite	engine/runtime/ExecutionCounterContract.kt
 C_EXIT	ExecutorCanonicalMirror6442	sellIdempotencyKey	engine/truth/ExecutorCanonicalMirror6442.kt
 C_EXIT	ExitIntelligence	getLearnedMaxHoldMinutes	engine/ExitIntelligence.kt
-C_EXIT	ExitIntelligence	getProfitableRate	engine/ExitIntelligence.kt
 C_EXIT	ExitManager	shouldPartialSell	engine/ExitManager.kt
 C_EXIT	ExitPipelineInvariant6411	onExitSweepStart	engine/truth/ExitPipelineInvariant6411.kt
 C_EXIT	FeeAccumulator	setFlushThresholdSol	engine/FeeAccumulator.kt
@@ -213,11 +210,11 @@ C_EXIT	FluidLearningAI	getAltsLevTpPct	v3/scoring/FluidLearningAI.kt
 C_EXIT	FluidLearningAI	getAltsSpotConfThreshold	v3/scoring/FluidLearningAI.kt
 C_EXIT	FluidLearningAI	getAltsSpotTpPct	v3/scoring/FluidLearningAI.kt
 C_EXIT	FluidLearningAI	getBreakoutThreshold	v3/scoring/FluidLearningAI.kt
-C_EXIT	FluidLearningAI	getFeeAdjustedTakeProfit	v3/scoring/FluidLearningAI.kt
+REDUNDANT_VERIFIED_7073	FluidLearningAI	getFeeAdjustedTakeProfit	v3/scoring/FluidLearningAI.kt
 C_EXIT	FluidLearningAI	getLayerHoldParams	v3/scoring/FluidLearningAI.kt
 C_EXIT	FluidLearningAI	getMarketsTakeProfitPct	v3/scoring/FluidLearningAI.kt
 C_EXIT	FluidLearningAI	getMarketsUncappedTpPct	v3/scoring/FluidLearningAI.kt
-C_EXIT	FluidLearningAI	isNetProfitable	v3/scoring/FluidLearningAI.kt
+REDUNDANT_VERIFIED_7073	FluidLearningAI	isNetProfitable	v3/scoring/FluidLearningAI.kt
 C_EXIT	ForexStrategy	tpSlPips	perps/strategy/ForexStrategy.kt
 C_EXIT	ForexStrategy	tpSlPrices	perps/strategy/ForexStrategy.kt
 C_EXIT	GlobalCapitalArbitration6617	recordSpecialistProposal6617	engine/truth/GlobalCapitalArbitration6617.kt
@@ -359,6 +356,7 @@ D_DISPLAY	FirstTradeReadiness6348	snapshotBlock	engine/FirstTradeReadiness6348.k
 D_DISPLAY	FirstTradeReadiness6348	toSnapshot	engine/FirstTradeReadiness6348.kt
 D_DISPLAY	FluidLearningAI	getBootstrapStatus	v3/scoring/FluidLearningAI.kt
 D_DISPLAY	GlobalTradeRegistry	sourceMixSnapshot	engine/GlobalTradeRegistry.kt
+D_DISPLAY	HeroAccountSnapshot7045	statusLine7045	engine/truth/HeroAccountSnapshot7045.kt
 D_DISPLAY	HistoricalEconomicQuarantine6496	reportPaperReplayDivergence	engine/truth/HistoricalEconomicQuarantine6496.kt
 D_DISPLAY	HostWalletTokenTracker	purgeOrphanRecoveredRows	engine/HostWalletTokenTracker.kt
 D_DISPLAY	InsiderCopyEngine	activeSignalRows	engine/InsiderCopyEngine.kt
@@ -542,7 +540,6 @@ E_INFILE	MintEntryMarketSnapshot	tryRouteRealClaimMismatchHarvest6029	engine/Exe
 E_INFILE	ScannerLearning	getCachedRcScore	engine/SolanaMarketScanner.kt
 E_INFILE	ScannerLearning	getDiscoveryBonus	engine/SolanaMarketScanner.kt
 E_INFILE	ScannerLearning	getScannerPrefs	engine/SolanaMarketScanner.kt
-E_INFILE	ScannerLearning	getSourceWinRate	engine/SolanaMarketScanner.kt
 E_INFILE	ScannerLearning	getThroughputTelemetry	engine/SolanaMarketScanner.kt
 E_INFILE	ScannerLearning	hasZeroOutputFor	engine/SolanaMarketScanner.kt
 E_INFILE	ScannerLearning	markTokenRejected	engine/SolanaMarketScanner.kt
@@ -649,6 +646,7 @@ F_DEAD	CanaryReleaseGate6386	resetAllForTest	engine/truth/CanaryReleaseGate6386.
 F_DEAD	CandidateAccumulator6430	topProviderConfluence	engine/truth/CandidateAccumulator6430.kt
 F_DEAD	CanonicalAssetEntryCandidate6551	markDeferred	engine/truth/CanonicalAssetEntryContract6551.kt
 F_DEAD	CanonicalCapitalAuthority6450	installMarkProvider	engine/truth/CanonicalCapitalAuthority6450.kt
+F_DEAD	CanonicalCapitalAuthority6450	installMarkQuoteProvider7060	engine/truth/CanonicalCapitalAuthority6450.kt
 F_DEAD	CanonicalCloseAuthority	acceptDustRemaining	engine/sell/CanonicalCloseAuthority.kt
 F_DEAD	CanonicalCloseFinality6389	allocate	engine/truth/CanonicalSettlement6389.kt
 F_DEAD	CanonicalCloseFinality6389	auditCount	engine/truth/CanonicalSettlement6389.kt
@@ -882,6 +880,7 @@ F_DEAD	CryptoPositionState	liveOnlyCount	engine/CryptoPositionState.kt
 F_DEAD	CryptoWrappedAssetMapper	isNativeOnly	perps/crypto/CryptoWrappedAssetMapper.kt
 F_DEAD	CultMomentumAI	countWithin	v3/scoring/CultMomentumAI.kt
 F_DEAD	CycleProfiler6411	onCycleComplete	engine/truth/CycleProfiler6411.kt
+F_DEAD	CyclicTradeEngine	reconcilePnl7068	engine/CyclicTradeEngine.kt
 F_DEAD	DailyCompoundingTracker	progressToTarget	engine/DailyCompoundingTracker.kt
 F_DEAD	DashboardDataProvider	getIntelligenceDashboard	engine/DashboardDataProvider.kt
 F_DEAD	DashboardDataProvider	getTreasuryDashboard	engine/DashboardDataProvider.kt
@@ -1976,6 +1975,8 @@ F_DEAD	WalletAssetClass6387	isDeletedMint	engine/truth/WalletAssetClassification
 F_DEAD	WalletAssetClass6387	isLearningEligible	engine/truth/WalletAssetClassification6387.kt
 F_DEAD	WalletConnectionState	getCurrentRpcUrl	engine/WalletManager.kt
 F_DEAD	WalletConnectionState	loadMultiChainWallet	engine/WalletManager.kt
+F_DEAD	WalletConnectionState	noteObservedSolPrice7042	engine/WalletManager.kt
+F_DEAD	WalletConnectionState	restoreObservedSolPrice7042	engine/WalletManager.kt
 F_DEAD	WalletPositionLock	getBreakdown	engine/WalletPositionLock.kt
 F_DEAD	WalletPositionLock	getExposurePct	engine/WalletPositionLock.kt
 F_DEAD	WalletPositionLock	getTotalDeployed	engine/WalletPositionLock.kt
