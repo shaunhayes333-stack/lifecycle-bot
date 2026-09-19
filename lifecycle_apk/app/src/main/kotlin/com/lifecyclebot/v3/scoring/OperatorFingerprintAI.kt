@@ -88,8 +88,23 @@ object OperatorFingerprintAI {
         // as a coarse operator proxy — pump.fun mints carry a "pump" suffix and
         // share prefixes per deployer in many cases; worst case we cluster by
         // mint-family. Once the real scanner wires creator we auto-prefer it.
-        val creator = if (rawCreator.isNotBlank()) rawCreator
-                      else candidate.mint.takeIf { it.length >= 8 }?.take(8).orEmpty()
+        // V5.0.7074 — "Once the real scanner wires creator we auto-prefer it."
+        // It is wired. PumpFunWebSocket delivers the deployer on every launch
+        // as traderPublicKey and DataOrchestrator.handleNewPumpToken stores it
+        // in OperatorRegistry. Preferring it turns the mint-prefix PROXY — which
+        // is effectively unique per pump.fun token, so every candidate looked
+        // like a brand-new operator forever — into a real deployer identity.
+        //
+        // The proxy is kept as the last resort so nothing regresses for mints
+        // that arrived without a create event.
+        val registryCreator7074 = try {
+            com.lifecyclebot.engine.OperatorRegistry.getDevWallet(candidate.mint).orEmpty()
+        } catch (_: Throwable) { "" }
+        val creator = when {
+            rawCreator.isNotBlank() -> rawCreator
+            registryCreator7074.isNotBlank() -> registryCreator7074
+            else -> candidate.mint.takeIf { it.length >= 8 }?.take(8).orEmpty()
+        }
         if (creator.isBlank()) return ScoreComponent("OperatorFingerprintAI", 0, "NO_CREATOR")
         val rec = records[creator] ?: return ScoreComponent("OperatorFingerprintAI", 0, "NEW_OPERATOR")
         val v = rec.scoreHint()

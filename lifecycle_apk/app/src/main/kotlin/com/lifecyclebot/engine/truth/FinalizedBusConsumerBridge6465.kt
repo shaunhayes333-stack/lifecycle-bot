@@ -129,6 +129,7 @@ object FinalizedBusConsumerBridge6465 {
             "UnifiedExitPolicyHead" -> deliverToUnifiedExitPolicyHead6696(env)
             "CausalFeedback6715"  -> deliverToCausalFeedback6715(env)
             "Dashboard"           -> deliverToDashboard(env)
+            "OperatorFingerprint7074" -> deliverToOperatorFingerprint7074(env)
             else -> false
         }
         if (ok) delivered.incrementAndGet() else refused.incrementAndGet()
@@ -159,6 +160,48 @@ object FinalizedBusConsumerBridge6465 {
             env.positionId, env.mint, env.lane, env.entryTactic, env.mode,
             env.realizedReturnPct, env.realizedPnlSol, env.holdingTimeMs / 60_000.0,
         )
+    } catch (_: Throwable) { false }
+
+    /**
+     * V5.0.7074 — THE TRADE-CLOSE HOOK THAT WAS NEVER WRITTEN.
+     *
+     * OperatorFingerprintAI scores a candidate by its DEPLOYER's win/loss
+     * record — in this asset class the single most predictive thing knowable
+     * before entry, because a wallet that has rugged repeatedly is telling you
+     * what it does for a living.
+     *
+     * It has never scored anything. Its own source says so:
+     *   "Scanner rarely populates candidate.extra[creator] ... which kept this
+     *    layer 100% DEAD (z=1530 nz=0)"
+     *
+     * Dead at BOTH ends, the same shape as the creator blacklist V5.0.7070
+     * fixed:
+     *   WRITE  recordOutcome() had ZERO callers, so `records` was permanently
+     *          empty and every lookup returned NEW_OPERATOR / 0.
+     *   READ   score() keys on the first 8 chars of the MINT as an "operator
+     *          proxy", which for pump.fun is effectively unique per token — so
+     *          even a populated map would have been keyed wrong.
+     *
+     * DataOrchestrator:166 has said since V5.9.357 that OperatorRegistry exists
+     * "so OperatorFingerprintAI's trade-close hook can resolve the creator".
+     * That hook is this function. It was never written; the registry has been
+     * filled and unread for hundreds of builds.
+     *
+     * A finalized trade is exactly the right moment: the outcome is settled,
+     * the mint is known, and OperatorRegistry already holds the deployer from
+     * the pump.fun create event. No IO, no provider call, no new gate — one
+     * in-memory map write per closed trade.
+     */
+    private fun deliverToOperatorFingerprint7074(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
+        val creator7074 = com.lifecyclebot.engine.OperatorRegistry.getDevWallet(env.mint)
+        if (creator7074.isNullOrBlank()) {
+            try { PipelineHealthCollector.labelInc("OPERATOR_FINGERPRINT_NO_CREATOR_7074") } catch (_: Throwable) {}
+        } else {
+            com.lifecyclebot.v3.scoring.OperatorFingerprintAI
+                .recordOutcome(creator7074, env.realizedPnlSol > 0.0)
+            try { PipelineHealthCollector.labelInc("OPERATOR_FINGERPRINT_RECORDED_7074") } catch (_: Throwable) {}
+        }
+        true
     } catch (_: Throwable) { false }
 
     private fun deliverToLosingStreakReflex(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {

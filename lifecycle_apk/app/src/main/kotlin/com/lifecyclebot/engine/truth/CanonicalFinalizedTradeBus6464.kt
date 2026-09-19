@@ -81,6 +81,9 @@ object CanonicalFinalizedTradeBus6464 {
         "RewardPurity", "LearnerRewardBridge", "LosingStreakReflex", "GrowthRewardShaper", "TacticSwitcher",
         "Governor", "CapitalCreed", "EVEstimator", "AatePolicyReward", "StrategyHypothesisEngine", "MemeCausalLearning6568",
         "ForwardOutcomeModel", "UnifiedExitPolicyHead", "CausalFeedback6715", "Dashboard",
+        // V5.0.7074 — operator/deployer reputation. See
+        // FinalizedBusConsumerBridge6465.deliverToOperatorFingerprint7074.
+        "OperatorFingerprint7074",
     )
     fun ensureCanonicalConsumers6485() { CANONICAL_CONSUMERS_6485.forEach(::registerConsumer) }
 
