@@ -119,27 +119,54 @@ object CanonicalTradeFinalizedBus6450 {
                     "positionId=${event.positionId.take(16)} mint=${event.mint.take(10)} lane=${event.entryLane} mode=${event.mode} reason=$economicInvalid6495 pnlSol=${event.netRealizedPnlSol} returnPct=${event.netReturnPct} proof=${event.dataQuality}:${event.priceIntegrity}",
                 )
             } catch (_: Throwable) {}
-            return true
+            // V5.0.7097 §A_QUARANTINE_IS_NOT_A_DISAPPEARANCE — this used to
+            // `return true` here, reporting success to the caller while the
+            // closed trade never reached the 6464 finalized bus at all. The
+            // position stays CLOSED in CanonicalPositionAuthority6441 forever,
+            // so the acceptance audit's reward parity can never be satisfied:
+            // 5.0.7091 reports reward_pop_mismatch closed=63 bus=52
+            // missingFromBus=11, and no later pass can ever recover those 11.
+            //
+            // The bus was designed for exactly this case and it is not
+            // suppression. AcceptanceInvariantAudit6441's own contract (§4,
+            // written for 6697) is:
+            //     canonical CLOSED == finalized bus canonical population
+            //     canonical CLOSED == RewardPurity processed + excluded
+            // An ineligible terminal belongs ON the bus, marked excluded — that
+            // is what consumerExcludedUnique counts and why `exclude()` exists.
+            // Withholding publication breaks the very invariant 6697 built.
+            //
+            // Malformed economics still train nothing: the envelope publishes
+            // with learningEligible=false carrying the 6495 reason, and it is
+            // explicitly excluded for every canonical consumer before delivery
+            // is attempted. Nothing reads it as a win, a loss or expectancy.
+            // What changes is that the trade is accounted for instead of lost.
         }
-        published.incrementAndGet()
-        CanonicalFinalityPersistence6486.record(event)
-        val quarantined6485 = try {
-            LearningQuarantineGate6470.shouldDropForLearning(positionId = event.positionId, mint = event.mint)
-        } catch (_: Throwable) { true }
-        for (s in if (quarantined6485) emptyList() else subscribers.toList()) {
-            try { s.onEvent(event) } catch (t: Throwable) {
-                subscriberFailures.incrementAndGet()
-                try {
-                    ForensicLogger.lifecycle(
-                        "CANONICAL_TRADE_FINALIZE_SUB_FAIL_6450",
-                        "positionId=${event.positionId.take(12)} err=${t.message?.take(80)}",
-                    )
-                } catch (_: Throwable) {}
+        // Analytics/learner fanout stays exactly as before: a 6495-quarantined
+        // event is not `published`, is not persisted for replay, and is not
+        // handed to any 6450 subscriber. Only the 6464 parity fanout below runs
+        // for it, and there it lands excluded.
+        if (economicInvalid6495 == null) {
+            published.incrementAndGet()
+            CanonicalFinalityPersistence6486.record(event)
+            val quarantined6485 = try {
+                LearningQuarantineGate6470.shouldDropForLearning(positionId = event.positionId, mint = event.mint)
+            } catch (_: Throwable) { true }
+            for (s in if (quarantined6485) emptyList() else subscribers.toList()) {
+                try { s.onEvent(event) } catch (t: Throwable) {
+                    subscriberFailures.incrementAndGet()
+                    try {
+                        ForensicLogger.lifecycle(
+                            "CANONICAL_TRADE_FINALIZE_SUB_FAIL_6450",
+                            "positionId=${event.positionId.take(12)} err=${t.message?.take(80)}",
+                        )
+                    } catch (_: Throwable) {}
+                }
             }
+            try {
+                PipelineHealthCollector.labelInc("CANONICAL_TRADE_FINALIZED_6450_${event.outcome}")
+            } catch (_: Throwable) {}
         }
-        try {
-            PipelineHealthCollector.labelInc("CANONICAL_TRADE_FINALIZED_6450_${event.outcome}")
-        } catch (_: Throwable) {}
         // V5.0.6476 — one terminal identity across the rich 6450 event and
         // the 6464 parity fanout. PositionId is the dedup key; mode/proof
         // travel with the immutable event instead of being inferred later.
@@ -228,12 +255,29 @@ object CanonicalTradeFinalizedBus6450 {
                 marketRegime = entrySnap6567?.entryMarketRegime ?: "",
                 scoreBand = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(entryScore6567),
                 terminal = true,
-                learningEligible = learningEligibility6519.eligible,
-                learningEligibilityReason = learningEligibility6519.reason,
+                // V5.0.7097 — malformed settled economics can never be trainable,
+                // whatever PaperLearningEligibility6519 thinks of the position.
+                learningEligible = learningEligibility6519.eligible && economicInvalid6495 == null,
+                learningEligibilityReason = if (economicInvalid6495 != null)
+                    "ECONOMICS_QUARANTINED_6495:$economicInvalid6495"
+                else learningEligibility6519.reason,
                 assetClassTag = event.assetClassTag.ifBlank { entrySnap6567?.assetClassTag ?: AssetClass.fromLane(event.entryLane).tag },
                 economicEventId = event.economicEventId,
                 exitReason = event.exitReason,
             )
+            // V5.0.7097 — exclude BEFORE delivery is attempted, so no canonical
+            // consumer ever sees a malformed-economics terminal. deliverOne6734
+            // returns early on an exclusion, and redeliverPending6486 skips it,
+            // so the row is on the bus and reachable by the audit while being
+            // unreachable by every learner.
+            if (economicInvalid6495 != null) {
+                try {
+                    CanonicalFinalizedTradeBus6464.excludeForAllCanonicalConsumers7097(
+                        env.tradeId, "ECONOMICS_QUARANTINED_6495:$economicInvalid6495",
+                    )
+                    PipelineHealthCollector.labelInc("FINALIZED_BUS_PUBLISHED_EXCLUDED_ECONOMICS_7097")
+                } catch (_: Throwable) {}
+            }
             if (CanonicalFinalizedTradeBus6464.publish(env)) {
                 // The rich event is published while the journal durability
                 // commit may still be in flight. Redeliver exactly when the

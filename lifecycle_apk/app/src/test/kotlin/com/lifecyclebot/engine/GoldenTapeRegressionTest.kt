@@ -9320,4 +9320,60 @@ class GoldenTapeRegressionTest {
         )
     }
 
+    @Test
+    fun v5_0_7096_fdgApprovalAndSealedAuthorityAreIndependentlyGuarded() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        org.junit.Assert.assertTrue(
+            "V5.0.7096: a snapshot-record failure must be counted, not swallowed into the intent publish",
+            gate.contains("FDG_SEAL_SNAPSHOT_FAILED_7096") && gate.contains("FDG_SEAL_INTENT_FAILED_7096"),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.7096: an FDG allow left with no sealed authority must be named where it happens",
+            gate.contains("FDG_ALLOW_SEAL_INCOMPLETE_7096"),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.7096: the entry mark must be resolved defensively before the seal, not inline in its arguments",
+            gate.contains("val entryMark7096 = try {") && gate.contains("markId6614 = entryMark7096?.let"),
+        )
+        org.junit.Assert.assertFalse(
+            "V5.0.7096: the mark registry must not be read inside the ExecutionIntent argument list again",
+            gate.contains("markVersion6614 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.get("),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.7096: refusing an existing sealed intent on lane identity must be distinguishable from having none",
+            gate.contains("SEALED_INTENT_REJECTED_LANE_MISMATCH_7096"),
+        )
+    }
+
+    @Test
+    fun v5_0_7097_quarantinedEconomicsStayOnTheFinalizedBusAsExcluded() {
+        val bus6450 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalTradeFinalizedBus6450.kt").readText()
+        val bus6464 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalizedTradeBus6464.kt").readText()
+        org.junit.Assert.assertTrue(
+            "V5.0.7097: a 6495 quarantine must still publish to the 6464 bus, marked excluded for every consumer",
+            bus6450.contains("excludeForAllCanonicalConsumers7097") &&
+                bus6464.contains("fun excludeForAllCanonicalConsumers7097("),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.7097: malformed settled economics can never be learningEligible",
+            bus6450.contains("learningEligibility6519.eligible && economicInvalid6495 == null") &&
+                bus6450.contains("ECONOMICS_QUARANTINED_6495:"),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.7097: the analytics/learner fanout must stay suppressed for quarantined economics",
+            bus6450.contains("if (economicInvalid6495 == null) {") &&
+                bus6450.contains("FINALIZED_BUS_PUBLISHED_EXCLUDED_ECONOMICS_7097"),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.7097: the learner fanout must be gated by the quarantine test, not skipped by an early return",
+            bus6450.indexOf("if (economicInvalid6495 == null) {") in
+                1 until bus6450.indexOf("published.incrementAndGet()"),
+        )
+        org.junit.Assert.assertFalse(
+            "V5.0.7097: the quarantine branch must not report success and skip the 6464 parity fanout",
+            Regex("""quarantinedEconomics6495\.incrementAndGet\(\)[\s\S]{0,1200}?\n\s+return true\n""")
+                .containsMatchIn(bus6450),
+        )
+    }
+
 }

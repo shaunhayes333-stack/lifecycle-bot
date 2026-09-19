@@ -118,6 +118,25 @@ object CanonicalFinalizedTradeBus6464 {
         consumerExcluded[consumer]?.contains(tradeId) == true
 
     /**
+     * V5.0.7097 — mark one canonical event terminally ineligible for EVERY
+     * canonical consumer, in one call, before any delivery is attempted.
+     *
+     * A terminal that cannot be learned from must still be accounted for:
+     * AcceptanceInvariantAudit6441 §4 requires canonical CLOSED to equal the
+     * bus population AND to equal processed + excluded. The alternative that
+     * producers reached for instead — not publishing at all — makes the first
+     * of those two permanently unsatisfiable and loses the trade.
+     *
+     * The consumer list is private on purpose (one authority over who the
+     * canonical consumers are); this is how a producer addresses all of them
+     * without keeping a second copy of that list.
+     */
+    fun excludeForAllCanonicalConsumers7097(tradeId: String, reason: String) {
+        if (tradeId.isBlank()) return
+        CANONICAL_CONSUMERS_6485.forEach { exclude(it, tradeId, reason) }
+    }
+
+    /**
      * Publish a finalized trade. Returns true when this is a first
      * observation; false when duplicate. Consumers pull via `pending()`
      * or acknowledge one-shot via `ack(consumer, tradeId)`.
