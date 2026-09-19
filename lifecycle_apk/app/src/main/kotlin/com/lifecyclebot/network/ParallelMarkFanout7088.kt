@@ -104,8 +104,10 @@ object ParallelMarkFanout7088 {
     /** pump.fun is per-mint, so its fan-out is bounded to stay polite. */
     private const val PUMPFUN_MAX_MINTS = 12
 
-    /** pump.fun bonding-curve supply is fixed by protocol at 1e9. */
-    private const val PUMPFUN_SUPPLY = 1_000_000_000.0
+    // V5.0.7090 — the PUMPFUN_SUPPLY constant is gone. PumpFunPriceUnits7017
+    // owns the mcap -> price derivation for this endpoint and reads the payload's
+    // own supply; a second copy of the 1e9 constant here was exactly the
+    // assumption V5.0.7089 had to remove from intake.
 
     private val pool = Executors.newCachedThreadPool { r ->
         Thread(r, "mark-fanout-7088").apply { isDaemon = true }
@@ -161,7 +163,20 @@ object ParallelMarkFanout7088 {
             // instance (BotService:10753 does `dex.batchPriceFetch`). Calling it
             // statically is the exact mistake ci/static_call_check.py exists to
             // catch, and it has caught me three times this session.
-            "DEXSCREENER" to { safe { dexClient7088.batchPriceFetch(wanted) } },
+            // V5.0.7090 — CHUNKED AT 30, because batchPriceFetch does not chunk:
+            // it does `mints.take(30)` and SILENTLY DISCARDS the rest. BotService
+            // chunks at 30 before calling it (:10742) so that truncation never
+            // fired there — but V5.0.7088 passed the whole list, so every mint
+            // past the thirtieth was dropped with no counter and no log. A silent
+            // drop in a mark path is precisely the kind of hole this fan-out was
+            // built to close, and I introduced one while closing the others.
+            "DEXSCREENER" to {
+                safe {
+                    val acc = HashMap<String, Double>(wanted.size)
+                    wanted.chunked(30).forEach { c -> acc.putAll(dexClient7088.batchPriceFetch(c)) }
+                    acc
+                }
+            },
             "DEFILLAMA" to { safe { KeylessPriceSources6996.defiLlamaBatch(wanted) } },
             "JUPITER" to { safe { KeylessPriceSources6996.jupiterBatch(wanted) } },
             "RAYDIUM" to { safe { raydiumBatch7088(wanted) } },
@@ -376,11 +391,25 @@ object ParallelMarkFanout7088 {
                         http.newCall(req).execute().use { resp ->
                             if (!resp.isSuccessful) return@use
                             val body = resp.body?.string() ?: return@use
-                            val cap = JSONObject(body).optDouble("usd_market_cap", 0.0)
-                            if (cap.isFinite() && cap > 0.0) {
-                                val px = cap / PUMPFUN_SUPPLY
-                                if (px.isFinite() && px > 0.0) out[mint] = px
-                            }
+                            // V5.0.7090 — use the authority that already owns this
+                            // derivation. V5.0.7088 (mine, one build ago) divided
+                            // usd_market_cap by a HARDCODED 1e9, which is the exact
+                            // assumption class that produced V5.0.7089's fake entry
+                            // prices. PumpFunPriceUnits7017 exists because
+                            // `total_supply` from this endpoint is in RAW BASE
+                            // UNITS — 1e15 for a standard 1e9-token supply at 6
+                            // decimals — so dividing by it as though it were whole
+                            // tokens is wrong by exactly 1e6. Its ladder reads the
+                            // payload's own supply first and only falls back to the
+                            // 1e9 protocol constant when the payload cannot support
+                            // a number. Writing a second derivation beside it was
+                            // the duplicate-authority defect, committed by me while
+                            // fixing the same defect elsewhere.
+                            val px = try {
+                                com.lifecyclebot.engine.PumpFunPriceUnits7017
+                                    .priceUsd(JSONObject(body))
+                            } catch (_: Throwable) { 0.0 }
+                            if (px.isFinite() && px > 0.0) out[mint] = px
                         }
                     } catch (_: Throwable) {
                     } finally {
