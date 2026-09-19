@@ -76,8 +76,34 @@ object MaintenanceWorker6448 {
      * Submit a maintenance task. Returns immediately. If a task with the
      * same name is already running, coalesces (task not re-submitted).
      *
+     * V5.0.7101 §THE_BUDGET_IS_ADVISORY_FOR_BLOCKING_WORK.
+     *
+     * `budgetMs` was documented as "hard deadline — task is cancelled if it
+     * exceeds", and it is enforced with `withTimeoutOrNull`. Coroutine
+     * cancellation is COOPERATIVE: it takes effect at a suspension point. Every
+     * task submitted here is ordinary blocking Kotlin — ledger replays, parity
+     * audits, registry rebuilds — with no suspension point anywhere in the
+     * body, so the timeout cannot interrupt one. The block runs to completion
+     * and only then does withTimeoutOrNull get a chance to observe the clock.
+     *
+     * The device says this plainly: position_parity_audit_6464 is submitted with
+     * budgetMs = 3_000 and 5.0.7091 reports it at 6608ms — 3.6 seconds past a
+     * deadline that was supposed to have cancelled it. It was not cancelled; it
+     * could not be.
+     *
+     * This is left as it is, deliberately. Making the deadline real would mean
+     * threading cancellation checks through CanonicalPaperReplay6464,
+     * PositionRegistryParityAudit6464 and EventStreamReplay6467 — paper
+     * accounting and parity code — to gain the right to abandon an audit
+     * half-finished, which is worse than a slow one that completes. The
+     * important thing is that nobody reads `budgetMs` as a guarantee it does not
+     * give, and that an overrun is reported as an OVERRUN rather than
+     * disappearing into a generic "slow" bucket. See
+     * MAINTENANCE_BUDGET_OVERRUN_UNENFORCED_7101 below.
+     *
      * @param name unique task identifier (also the coalesce key)
-     * @param budgetMs hard deadline in ms — task is cancelled if it exceeds
+     * @param budgetMs advisory deadline in ms. Enforced by cancellation ONLY at
+     *   a suspension point; a fully blocking block will overrun it and complete.
      * @param block the maintenance work
      */
     fun submit(name: String, budgetMs: Long = 8_000L, block: suspend () -> Unit) {
@@ -125,11 +151,33 @@ object MaintenanceWorker6448 {
                 try { PipelineHealthCollector.labelInc("MAINTENANCE_DEFERRED_6448") } catch (_: Throwable) {}
             } else {
                 completed.incrementAndGet()
+                // V5.0.7101 — a task that COMPLETED past its own deadline did
+                // not merely run slowly: it proved the deadline unenforceable on
+                // its body (see the header). Name that separately from "slow",
+                // because the two call for different answers — one is a task to
+                // speed up, the other is a guarantee that does not exist.
+                if (elapsed > budgetMs) {
+                    try {
+                        PipelineHealthCollector.labelInc("MAINTENANCE_BUDGET_OVERRUN_UNENFORCED_7101")
+                        ForensicLogger.lifecycle(
+                            "MAINTENANCE_BUDGET_OVERRUN_UNENFORCED_7101",
+                            "name=$name elapsedMs=$elapsed budgetMs=$budgetMs " +
+                                "overrunMs=${elapsed - budgetMs} maxEver=${nextStat.maxElapsedMs} " +
+                                "action=block_has_no_suspension_point_deadline_could_not_cancel_it",
+                        )
+                    } catch (_: Throwable) {}
+                }
+                // This 3s threshold is absolute and stays absolute: "took a long
+                // time on a phone" is a real signal and its name claims nothing
+                // about any caller's budget. The budget-relative signal is the
+                // 7101 counter above; the two are deliberately separate rather
+                // than one counter answering to two names. The task's budget is
+                // carried in the line so a reader can compare them.
                 if (elapsed > 3_000L) {
                     try {
                         ForensicLogger.lifecycle(
                             "MAINTENANCE_SLOW_6448",
-                            "name=$name elapsedMs=$elapsed maxEver=${nextStat.maxElapsedMs}",
+                            "name=$name elapsedMs=$elapsed budgetMs=$budgetMs maxEver=${nextStat.maxElapsedMs}",
                         )
                     } catch (_: Throwable) {}
                     try { PipelineHealthCollector.labelInc("MAINTENANCE_SLOW_6448") } catch (_: Throwable) {}

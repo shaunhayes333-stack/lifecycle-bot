@@ -6230,6 +6230,13 @@ class Executor(
         val paperFeeEstimate6510 = (pos.costSol * sellFraction) * MEME_TRADING_FEE_PERCENT
         val partial6510 = com.lifecyclebot.engine.truth.CanonicalPaperPartialOperation6510.commit(
             pid6510, ts.mint, ts.symbol, sellFraction, sellSol, paperFeeEstimate6510, reason,
+            // V5.0.7101 — V5.0.7092 named this site as needing the same fix it
+            // made at :9084 "once its price provenance is traced". Traced: it
+            // does not. `sellSol` on the line above is proceedsSol7029(sellQty,
+            // actualPrice) and this is the same actualPrice, so the sale and the
+            // reconstruction already share one input. The :9084 defect was a
+            // divergence — sellSol from priceForSale7077, mark from actualPrice —
+            // and there is no divergence here. No change warranted.
             markPriceUsd7029 = actualPrice,
             solUsd7029 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 },
         )
@@ -21571,6 +21578,23 @@ class Executor(
                 // grossProceeds is an opaque number that every ledger simply
                 // agrees with, which is how 46.59 SOL of unsupported profit
                 // passed conservation, qtyMismatch and arithDivergences.
+                // V5.0.7101 — V5.0.7092 also named this site. Traced, and it
+                // needs no change either, for a different reason than :6233.
+                // These proceeds are not derived from a price at all:
+                // soldValueSol = pos.costSol * pct, and profitSol scales it by
+                // economicPnlPct7029, which is pnlVerdict6038.pnlPct — computed
+                // by OpenPnlSanity.inspectPosition from THIS currentPrice. So the
+                // percentage and the mark come from one number, not two.
+                //
+                // The residual question is a cross-basis one: proceeds are
+                // costFraction x (mark/entry) while the 7061 reconstruction is
+                // mark x qty / solUsd, and those agree only if SOL/USD has not
+                // moved since entry. Real in principle, and with no symptom: the
+                // device's §7061 rejected=140 was a 1:1 match with
+                // CLOSE_ON_MEASURED_CAP_7077=140, which is the :9084 site alone.
+                // Changing paper-partial arithmetic on a theory with no
+                // measurement, inside the accounting the HERO directive protects,
+                // is how V5.0.7084 wasted a build. Recorded, not touched.
                 markPriceUsd7029 = currentPrice,
                 solUsd7029 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 },
             )
