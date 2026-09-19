@@ -2191,6 +2191,20 @@ object PipelineHealthCollector {
             sb.append("  Partial ladder    (§7062): ").append(
                 com.lifecyclebot.engine.truth.PartialLadderSemantics7062.status()
             ).append("\n")
+            // V5.0.7064 — directive §9. While this epoch is open, every paper
+            // number produced at or after it was decided against a book that
+            // already held a dimensional error, and no realized figure from
+            // this run may be trained on or quoted as performance. It is
+            // cleared by §10's replay, not by time passing.
+            try {
+                val epoch7064 = com.lifecyclebot.engine.truth
+                    .ContaminatedPartialQuarantine7032.firstCorruptAtMs7064
+                if (epoch7064 > 0L) {
+                    sb.append("  ⚠ CONTAMINATION EPOCH (§9): open since ")
+                        .append(epoch7064)
+                        .append(" — realized P&L after this instant is not trainable and not reportable\n")
+                }
+            } catch (_: Throwable) {}
             // V5.0.7051 — size the promotion leak BEFORE anything is shaped
             // against the cohort. leakWins is the count of runners the entering
             // lane was never credited with; while it is non-trivial, a "losses=9

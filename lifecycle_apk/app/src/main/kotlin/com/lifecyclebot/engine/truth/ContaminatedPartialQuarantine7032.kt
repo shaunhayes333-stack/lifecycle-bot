@@ -83,7 +83,11 @@ object ContaminatedPartialQuarantine7032 {
         if (events.isEmpty()) return
         var partials = 0
         var unreconstructible = 0
+        var dimensional7064 = 0
         val ids = HashSet<String>()
+        // V5.0.7064 §9 — scale lookups are per position, not per event.
+        val scaleCache7064 = HashMap<String, Int>()
+        var firstCorrupt7064 = Long.MAX_VALUE
         for (e in events) {
             if (e !is EconomicEventSchema6464.Sell) continue
             if (!e.partial) continue
@@ -92,14 +96,73 @@ object ContaminatedPartialQuarantine7032 {
             // The marker. A partial written by 7032 or later carries the rate
             // its proceeds were converted with; one written before does not,
             // and nothing on disk can supply it after the fact.
-            if (e.solUsdAtExit > 0.0) continue
-            unreconstructible++
-            if (e.positionId.isNotBlank()) ids.add(e.positionId)
+            if (e.solUsdAtExit <= 0.0) {
+                unreconstructible++
+                if (e.positionId.isNotBlank()) ids.add(e.positionId)
+                continue
+            }
+            // V5.0.7064 §9 — A PARTIAL THAT CARRIES ITS RATE CAN BE CHECKED.
+            //
+            // 7032 quarantined only the partials that could NOT be
+            // reconstructed, and then stopped — a partial that recorded a rate
+            // was treated as clean without anyone performing the
+            // reconstruction it had just been handed the ingredients for. That
+            // is the gap the operator's +71.8922 SOL sits in: those rows carry
+            // an exit price and a rate, so 7032 waved them through, and their
+            // proceeds are still a USD figure wearing a SOL label.
+            //
+            // Directive §2's arithmetic, applied retrospectively to the log.
+            if (e.exitPriceUsd > 0.0 && e.solUsdAtExit >= 20.0 && e.positionId.isNotBlank()) {
+                val scale = scaleCache7064.getOrPut(e.positionId) {
+                    try {
+                        CanonicalPositionAuthority6441.getPosition(e.positionId)?.quantityScale ?: -1
+                    } catch (_: Throwable) { -1 }
+                }
+                if (scale in 0..18) {
+                    val soldTokens = try {
+                        java.math.BigDecimal(e.soldQty).movePointLeft(scale).toDouble()
+                    } catch (_: Throwable) { 0.0 }
+                    if (soldTokens.isFinite() && soldTokens > 0.0) {
+                        val expected = (soldTokens * e.exitPriceUsd) / e.solUsdAtExit
+                        val allowance = maxOf(1e-9, expected * 0.01)
+                        if (expected.isFinite() && expected > 0.0 &&
+                            kotlin.math.abs(e.grossProceedsSol - expected) > allowance
+                        ) {
+                            dimensional7064++
+                            ids.add(e.positionId)
+                            if (e.atMs in 1 until firstCorrupt7064) firstCorrupt7064 = e.atMs
+                        }
+                    }
+                }
+            }
+        }
+        // §9 — "quarantine every position/event DOWNSTREAM of the first corrupt
+        // partial economic commit". A dimensionally broken commit does not
+        // damage only its own row: it moves cash and realized P&L, and every
+        // position sized, scored or rewarded after that point was decided
+        // against a book that already held the error. Sweeping forward from the
+        // earliest one is the only honest boundary.
+        //
+        // Only a DIMENSIONAL failure opens the epoch, never a missing rate. A
+        // missing rate means "cannot be checked", and treating that as proof of
+        // corruption would let one unpriced legacy row disable learning for the
+        // whole book — the opposite of the operator's rule that nothing be
+        // excluded for want of data.
+        var downstream7064 = 0
+        if (firstCorrupt7064 != Long.MAX_VALUE) {
+            for (e in events) {
+                if (!e.mode.equals("paper", true)) continue
+                if (e.atMs < firstCorrupt7064) continue
+                if (e.positionId.isBlank()) continue
+                if (ids.add(e.positionId)) downstream7064++
+            }
+            firstCorruptAtMs7064 = firstCorrupt7064
         }
         contaminated.addAll(ids)
         partialsSeen = partials
         scanned = true
-        lastSummary = "partials=$partials unreconstructible=$unreconstructible positions=${ids.size}"
+        lastSummary = "partials=$partials unreconstructible=$unreconstructible " +
+            "dimensional=$dimensional7064 downstream=$downstream7064 positions=${ids.size}"
         try {
             PipelineHealthCollector.labelInc("CONTAMINATED_PARTIAL_QUARANTINE_7032")
             ForensicLogger.lifecycle(
@@ -124,6 +187,18 @@ object ContaminatedPartialQuarantine7032 {
         return contaminated.contains(positionId)
     }
 
+    /**
+     * V5.0.7064 §9 — wallclock of the earliest dimensionally corrupt paper
+     * partial found in the log, or 0 when none. Everything the paper book did
+     * at or after this instant was decided against an already-wrong balance.
+     * Reset by §10's replay, which is what actually clears the epoch; this is
+     * a measurement of the contamination, not a permanent state.
+     */
+    @Volatile
+    var firstCorruptAtMs7064: Long = 0L
+        private set
+
     fun statusLine(): String =
-        "scanned=$scanned quarantinedPositions=${contaminated.size} partialsSeen=$partialsSeen [$lastSummary]"
+        "scanned=$scanned quarantinedPositions=${contaminated.size} partialsSeen=$partialsSeen " +
+            "firstCorruptAtMs=$firstCorruptAtMs7064 [$lastSummary]"
 }
