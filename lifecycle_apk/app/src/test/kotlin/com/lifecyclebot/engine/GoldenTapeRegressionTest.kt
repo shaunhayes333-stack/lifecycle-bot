@@ -9376,4 +9376,28 @@ class GoldenTapeRegressionTest {
         )
     }
 
+    @Test
+    fun v5_0_7100_pumpFunIsOnlyAskedAboutPumpFunMintsAndNeverBypassesTheCircuit() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val resolver = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/PriceResolverFallback.kt").readText()
+        org.junit.Assert.assertTrue(
+            "V5.0.7100: both pump.fun price sites must gate on the one isPumpFunMint predicate",
+            bot.contains("PumpFunDirectApi.isPumpFunMint(mint)") &&
+                resolver.contains("PumpFunDirectApi.isPumpFunMint(mint)"),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.7100: a skipped non-pump.fun mint must be counted, not silent",
+            bot.contains("PUMPFUN_PRICE_SKIPPED_NOT_PUMPFUN_MINT_7100") &&
+                resolver.contains("PUMPFUN_PRICE_SKIPPED_NOT_PUMPFUN_MINT_7100"),
+        )
+        org.junit.Assert.assertTrue(
+            "V5.0.7100: the BotService pump.fun fetch must go through HealthAwareHttp, which owns ApiBackoff",
+            bot.contains("HealthAwareHttp.execute(\n                    client, request, host = \"pumpfun\",\n                )"),
+        )
+        org.junit.Assert.assertFalse(
+            "V5.0.7100: pump.fun must not be fetched with a raw newCall that never asks ApiBackoff",
+            bot.contains("com.lifecyclebot.engine.ApiHealthMonitor.record(\"pumpfun\", response.code"),
+        )
+    }
+
 }

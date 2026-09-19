@@ -400,6 +400,22 @@ object PriceResolverFallback {
      * PumpFunPriceUnits7017, which resolves the scaling explicitly.
      */
     private fun fetchPumpFunPrice6914(mint: String): Double {
+        // V5.0.7100 §ASK_PUMPFUN_ONLY_ABOUT_PUMPFUN_MINTS — see BotService's
+        // sibling call site. frontend-api-v3/coins/<mint> can only answer for a
+        // pump.fun mint; for any other mint a 404 is the correct reply and the
+        // request is spent for nothing, against a host the device reports at
+        // sr=17% with 306 4xx. One predicate for one fact: V5.0.7089's
+        // isPumpFunMint, not a second copy of it.
+        val pumpFunMint7100 = try {
+            com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint)
+        } catch (_: Throwable) { false }
+        if (!pumpFunMint7100) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("PUMPFUN_PRICE_SKIPPED_NOT_PUMPFUN_MINT_7100")
+            } catch (_: Throwable) {}
+            return 0.0
+        }
         val original = "https://frontend-api-v3.pump.fun/coins/$mint"
         val url = try {
             com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(original)

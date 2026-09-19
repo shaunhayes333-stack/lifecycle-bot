@@ -31211,25 +31211,41 @@ if (hotExitHandledSweep) {
         // V5.9.423 — also retry pump.fun if the last successful price is >120s
         // stale. Previously the `if (ts.lastPrice <= 0)` guard meant pump.fun
         // was only consulted on brand-new holds that had never been priced.
-        if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
+        // V5.0.7100 §ASK_PUMPFUN_ONLY_ABOUT_PUMPFUN_MINTS. The device reports
+        // pumpfun sr=17% 4xx=306 5xx=485. frontend-api-v3/coins/<mint> can only
+        // answer for a pump.fun mint; for anything else a 404 is the correct and
+        // inevitable reply, and we were spending the host's budget — and its
+        // circuit-breaker headroom — asking questions with a known answer.
+        // V5.0.7089 already established the predicate for the supply seed; this
+        // is the same fact and must use the same authority, not a second one.
+        val pumpFunMint7100 = try {
+            com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint)
+        } catch (_: Throwable) { false }
+        if (!pumpFunMint7100) {
+            try { PipelineHealthCollector.labelInc("PUMPFUN_PRICE_SKIPPED_NOT_PUMPFUN_MINT_7100") } catch (_: Throwable) {}
+        }
+        if (pumpFunMint7100 &&
+            (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L)) {
             try {
                 val client = com.lifecyclebot.network.SharedHttpClient.builder()
                     .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
                     .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS).build()
-                // V5.9.861 — health-aware execute: auto-migrate dead hosts + record telemetry
-                val originalUrl = "https://frontend-api-v3.pump.fun/coins/$mint"
-                val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(originalUrl) } catch (_: Throwable) { originalUrl }
                 val request = okhttp3.Request.Builder()
-                    .url(effectiveUrl)
+                    .url("https://frontend-api-v3.pump.fun/coins/$mint")
                     .header("Accept", "application/json").build()
-                val pumpStart = System.currentTimeMillis()
-                val response = try {
-                    client.newCall(request).execute()
-                } catch (e: Exception) {
-                    try { com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError("pumpfun", e.message) } catch (_: Throwable) {}
-                    throw e
-                }
-                try { com.lifecyclebot.engine.ApiHealthMonitor.record("pumpfun", response.code, System.currentTimeMillis() - pumpStart) } catch (_: Throwable) {}
+                // V5.0.7100 — this site called client.newCall(request).execute()
+                // directly. It recorded the outcome to ApiHealthMonitor, which is
+                // why the health table showed the 5xx storm, but it never asked
+                // ApiBackoff whether the host was locked out — so while pumpfun
+                // sat at 17% and the circuit was armed, this caller kept firing.
+                // The same violation the Golden Tape already forbids for
+                // DexScreener ("never bypass HealthAwareHttp/ApiBackoff with a
+                // raw retry"). HealthAwareHttp also owns the AutoEndpointMigrator
+                // rewrite and the health/backoff recording, so the duplicated
+                // copies of both are gone with it.
+                val response = com.lifecyclebot.engine.HealthAwareHttp.execute(
+                    client, request, host = "pumpfun",
+                )
                 if (response.isSuccessful) {
                     val body = response.body?.string()
                     if (body != null) {
