@@ -74,6 +74,19 @@ object CanonicalPaperPartialOperation6510 {
      */
     private const val PROCEEDS_RECONSTRUCTION_BAND_7029 = 25.0
 
+    /**
+     * V5.0.7066 — ceiling on proceeds-to-basis for a basis-derived partial.
+     *
+     * The expression is `soldBasis x (1 + pnlPct/100)`, so this cap is a cap on
+     * (1 + pnlPct/100) — i.e. it refuses a partial claiming more than a 1000x
+     * return on the slice it sold. That is not a runner clamp: a cross-asset
+     * paper position is leverage-bounded and cannot legitimately print 1000x on
+     * a single rung, and the memecoin path (which CAN) does not come through
+     * here. It exists to catch a corrupted pnlPct, which is the only way this
+     * arithmetic can go wrong.
+     */
+    private const val BASIS_DERIVED_MAX_RATIO_7066 = 1000.0
+
     fun commit(positionId: String, mint: String, symbol: String, fraction: Double,
                grossProceeds: Double, fees: Double, exitReason: String,
                // V5.0.7029 — the mark that produced grossProceeds, and the rate
@@ -82,7 +95,32 @@ object CanonicalPaperPartialOperation6510 {
                // the counter below still says so, so a silently unchecked
                // commit path cannot hide.
                markPriceUsd7029: Double = 0.0,
-               solUsd7029: Double = 0.0): Receipt {
+               solUsd7029: Double = 0.0,
+               // V5.0.7066 §MY_GUARD_WAS_THE_WRONG_SHAPE_FOR_THIS_ASSET_CLASS.
+               //
+               // True when the caller derived grossProceeds as
+               // `remainingBasisSol x fraction x (1 + pnlPct/100)` — SOL times
+               // a dimensionless ratio, which is SOL by construction and has no
+               // token-quantity-times-USD-price form to reconstruct.
+               //
+               // The cross-asset traders (Forex, CryptoAlt, Metals, Tokenized
+               // Stock) work this way: a position holds a CONTRACT COUNT, not a
+               // token balance, and its `currentPrice` is a quote in the
+               // instrument's own denomination, unrelated to its SOL cost by
+               // any supply ratio. The operator's own log shows it —
+               // `perps: entry=2.3947539 qty=1.000 cost=1.0000` — where
+               // 1 x 2.3947539 / solUsd is 0.021 SOL against a 1.0 SOL cost.
+               //
+               // My V5.0.7056 guard demanded the memecoin reconstruction from
+               // ALL of them and refused every one it could not perform:
+               // PARTIAL_PROCEEDS_UNRECONSTRUCTABLE_7056_NO_PRICE fired 512
+               // times against 26 partials that completed. A 95% refusal rate
+               // on profit-taking, caused by applying a token-shaped invariant
+               // to instruments that have no token in them.
+               //
+               // These commits are NOT unchecked. They are checked by the
+               // invariant that actually applies to them — see below.
+               basisDerivedProceeds7066: Boolean = false): Receipt {
         val pre = CanonicalPositionAuthority6441.getPosition(positionId)
             ?: return empty(positionId, "", 0L, "UNKNOWN_POSITION")
         if (pre.mode != "paper" || fraction <= 0.0 || fraction > 1.0 || pre.remainingQtyRaw <= BigInteger.ZERO)
@@ -172,6 +210,53 @@ object CanonicalPaperPartialOperation6510 {
                 // The operator's directive §5 is explicit: an unreconstructible
                 // partial is quarantined, never credited. Mine was the code
                 // doing the opposite.
+                // V5.0.7066 — the basis-derived path is checked here, by the
+                // invariant that fits it, instead of being refused for failing
+                // one that never could.
+                //
+                //     grossProceeds = (remainingBasisSol x fraction) x (1 + pnl%)
+                //
+                // SOL x ratio = SOL. There is no unit crossing available in
+                // that expression, which is precisely why it needs a different
+                // check rather than no check: what CAN go wrong is the ratio
+                // being absurd or the slice not matching the position, so that
+                // is what is verified. EconomicUnitInvariant7061's §6 pro-rata
+                // and conservation checks then run on it at the commit
+                // boundary exactly as they do for every other sale.
+                if (basisDerivedProceeds7066) {
+                    val remainingBasis7066 = (pre.entryCostSol - pre.soldCostBasisSol).coerceAtLeast(0.0)
+                    val impliedRatio7066 = if (soldBasis > 0.0) grossProceeds / soldBasis else -1.0
+                    val sane7066 = grossProceeds.isFinite() && grossProceeds >= 0.0 &&
+                        soldBasis.isFinite() && soldBasis > 0.0 &&
+                        soldBasis <= remainingBasis7066 + 1e-9 &&
+                        impliedRatio7066.isFinite() && impliedRatio7066 >= 0.0 &&
+                        impliedRatio7066 <= BASIS_DERIVED_MAX_RATIO_7066
+                    if (sane7066) {
+                        try {
+                            com.lifecyclebot.engine.PipelineHealthCollector
+                                .labelInc("PARTIAL_PROCEEDS_BASIS_DERIVED_VALIDATED_7066")
+                        } catch (_: Throwable) {}
+                        // Fall through to commit — checked, just not by the
+                        // token-quantity reconstruction.
+                        return@run
+                    }
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector
+                            .labelInc("PARTIAL_PROCEEDS_BASIS_DERIVED_REFUSED_7066")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "PARTIAL_PROCEEDS_BASIS_DERIVED_REFUSED_7066",
+                            "positionId=$positionId mint=${mint.take(10)} symbol=$symbol " +
+                                "claimedSol=${"%.6f".format(grossProceeds)} " +
+                                "soldBasis=${"%.6f".format(soldBasis)} " +
+                                "remainingBasis=${"%.6f".format(remainingBasis7066)} " +
+                                "impliedRatio=${"%.4g".format(impliedRatio7066)} " +
+                                "cap=${BASIS_DERIVED_MAX_RATIO_7066}x " +
+                                "action=refuse_basis_slice_or_ratio_not_credible",
+                        )
+                    } catch (_: Throwable) {}
+                    tierStates6613.remove(tierKey)
+                    return empty(positionId, "", 0L, "PROCEEDS_BASIS_DERIVED_REFUSED_7066")
+                }
                 try {
                     com.lifecyclebot.engine.PipelineHealthCollector
                         .labelInc("PARTIAL_PROCEEDS_UNRECONSTRUCTABLE_7056_NO_PRICE")

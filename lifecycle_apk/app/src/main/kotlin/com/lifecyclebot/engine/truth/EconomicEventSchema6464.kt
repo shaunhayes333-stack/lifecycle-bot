@@ -270,6 +270,20 @@ object EconomicEventSchema6464 {
         )
         if (!appendBounded(e)) return
         if (partial) recordedPartials.incrementAndGet() else recordedSells.incrementAndGet()
+        // V5.0.7066 §9 — RE-SCAN ON EVERY SELL, not only on durable load.
+        //
+        // The quarantine was wired to the load path alone, on the reasoning
+        // that "the data and the scan arrive together". That is true of rows
+        // written by a PREVIOUS session and false of every row written by this
+        // one — which is the entire session. The operator's 5.0.7065 report
+        // showed scanned=false against 166 events and 32 partials, so §9 never
+        // examined a single sale the bot actually made.
+        //
+        // A sell is the only event that can introduce a dimensionally corrupt
+        // partial, so it is the exact point at which the cohort can change.
+        // Scanning here means the contamination epoch opens on the sale that
+        // causes it, not on the next app start.
+        try { ContaminatedPartialQuarantine7032.scan() } catch (_: Throwable) {}
         try {
             PipelineHealthCollector.labelInc(if (partial) "ECONOMIC_EVENT_PARTIAL_SELL_6464" else "ECONOMIC_EVENT_SELL_6464")
         } catch (_: Throwable) {}

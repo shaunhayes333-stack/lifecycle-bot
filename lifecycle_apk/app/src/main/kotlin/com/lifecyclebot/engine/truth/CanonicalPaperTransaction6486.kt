@@ -577,6 +577,12 @@ object CanonicalPaperTransaction6486 {
         val fees = grossProceeds * feeRate
         val receipt = CanonicalPaperPartialOperation6510.commit(
             positionId, mint, symbol, fraction, grossProceeds, fees, exitReason,
+            // V5.0.7066 — grossProceeds above is `soldBasis x (1 + pnlPct/100)`:
+            // SOL times a dimensionless ratio. Declaring that lets 6510 check it
+            // with the invariant that fits instead of refusing it for failing a
+            // token-quantity reconstruction that cannot exist here. This is the
+            // cross-asset path — contract counts, not token balances.
+            basisDerivedProceeds7066 = true,
         )
         if (!receipt.applied) return@withLock PartialResult(false, positionId, receipt.reason,
             receipt.operationId, receipt.partialSequence, receipt.postCost, receipt.realizedPnl)

@@ -80,7 +80,30 @@ object ContaminatedPartialQuarantine7032 {
      */
     fun scan() {
         val events = try { EconomicEventSchema6464.snapshot() } catch (_: Throwable) { emptyList() }
-        if (events.isEmpty()) return
+        // V5.0.7066 §9 — THE SCAN RAN ONCE, ON AN EMPTY STORE, AND NEVER AGAIN.
+        //
+        // The operator's 5.0.7065 device report: "Contaminated cohort (§7032):
+        // scanned=false ... [not scanned]" — after 166 economic events, 36
+        // closes and 32 partials. The whole of §9 was inert on the device.
+        //
+        // Two reasons, and this early return is the second:
+        //   1. scan() is invoked only from EconomicEventSchema6464's durable
+        //      LOAD, which happens once at startup. Everything written during
+        //      the session is never examined.
+        //   2. On a cold install the durable store IS empty, so this line
+        //      returned BEFORE `scanned = true` was set — and because nothing
+        //      calls scan() again, that one early exit disabled the quarantine
+        //      permanently.
+        //
+        // Setting the flag here makes an empty store an honest "scanned, found
+        // nothing" rather than an indefinite "never looked". The re-scan on
+        // write is wired at the call site; this is the half that made the first
+        // scan a dead end.
+        if (events.isEmpty()) {
+            scanned = true
+            lastSummary = "partials=0 unreconstructible=0 dimensional=0 downstream=0 positions=0 (empty store)"
+            return
+        }
         var partials = 0
         var unreconstructible = 0
         var dimensional7064 = 0
