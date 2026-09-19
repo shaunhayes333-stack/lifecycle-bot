@@ -52,7 +52,38 @@ object CanonicalTradeFinalizedBus6450 {
         val settledAtMs: Long,
         val assetClassTag: String = "",
         val economicEventId: String = "",
+        /**
+         * V5.0.7103 §PHASE_0_AN_EPOCH_MUST_BE_NAMEABLE.
+         *
+         * Which build produced this terminal. Nothing can be retracted that
+         * cannot first be identified, and a poisoned cohort is always of the
+         * form "everything settled while defect X was live" — which, before
+         * this field, could only be named by wall-clock time. Time is a proxy:
+         * it does not survive a reinstall, it says nothing about which code
+         * wrote the row, and it cannot distinguish a device that sat on an old
+         * build for a day from one that updated an hour in.
+         *
+         * Stamped once at the producer, carried into
+         * CanonicalFinalityPersistence6486 and readable from the durable record
+         * forever. Rows written before 7103 decode as "pre_7103" and are
+         * addressable as exactly that, rather than as an empty string that
+         * could mean anything.
+         *
+         * See docs/AATE_UNLEARNING_SCOPE_7103.md. This field enables Phase 1;
+         * it does not retract anything on its own and nothing reads it as a
+         * gate.
+         */
+        val producedByVersion7103: String =
+            CanonicalTradeFinalizedBus6450.currentBuildVersion7103(),
     )
+
+    /** V5.0.7103 — the producing build, resolved once and never thrown. */
+    private val buildVersion7103: String by lazy {
+        try { com.lifecyclebot.BuildConfig.VERSION_NAME.ifBlank { "unknown" } }
+        catch (_: Throwable) { "unknown" }
+    }
+
+    internal fun currentBuildVersion7103(): String = buildVersion7103
 
     fun interface Subscriber { fun onEvent(event: Event) }
 

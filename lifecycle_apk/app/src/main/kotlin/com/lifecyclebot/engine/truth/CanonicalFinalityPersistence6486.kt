@@ -80,6 +80,12 @@ object CanonicalFinalityPersistence6486 {
         // Post-commit learning delivery must be able to prove the same event
         // after process death instead of falling back to position-only lookup.
         put("economicEventId", e.economicEventId)
+        // V5.0.7103 §PHASE_0 — which build produced this terminal. A poisoned
+        // cohort is always "everything settled while defect X was live", and
+        // until now that could only be named by wall-clock time. This is the
+        // field a repudiation rule will address. See
+        // docs/AATE_UNLEARNING_SCOPE_7103.md.
+        put("producedByVersion7103", e.producedByVersion7103)
     }.toString()
 
     private fun decode(raw: String): CanonicalTradeFinalizedBus6450.Event? = try {
@@ -97,6 +103,12 @@ object CanonicalFinalityPersistence6486 {
             mode = j.optString("mode", "unknown"), settledAtMs = j.getLong("settledAtMs"),
             assetClassTag = j.optString("assetClass", ""),
             economicEventId = j.optString("economicEventId", ""),
+            // V5.0.7103 — a row written before 7103 has no stamp. It decodes as
+            // "pre_7103" rather than as the CURRENT build (which the data class
+            // default would otherwise supply and which would be a lie about
+            // where the row came from) and rather than as "" (which could mean
+            // anything). "pre_7103" is a fact and is addressable as one.
+            producedByVersion7103 = j.optString("producedByVersion7103", "").ifBlank { "pre_7103" },
         )
     } catch (_: Throwable) { null }
 }

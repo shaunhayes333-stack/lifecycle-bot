@@ -126,45 +126,113 @@ object ForwardOutcomeModel {
         val pWin: Double,
         val expectedPnlPct: Double,
         val cells: Int,
+        /**
+         * V5.0.7103 — WHICH cohort answered. "regime_mode" is own-mode and
+         * regime-conditioned, "mode" is own-mode across regimes, "pooled" is the
+         * pre-7103 behaviour (every mode, every regime). A caller that reports
+         * this is saying how specific its evidence actually was, which is the
+         * difference between a prediction and an average.
+         */
+        val level: String = "pooled",
     )
 
-    fun cohortEvidence6911(lane: String, score: Int): CohortEvidence6911 {
+    /**
+     * V5.0.7103 §THE_ORACLE_ASKED_A_2D_QUESTION_OF_A_5D_MODEL.
+     *
+     * This model keys on SIX things — mode, lane, score band, quality, regime,
+     * edgePhase — and `forecast()` reads the exact cell. This accessor, written
+     * at 6911, matched on `|lane|band|` and averaged every other dimension away
+     * before returning. PredictiveEntryOracle6915 is its main caller, so the
+     * oracle's entire cell-level evidence was the UNCONDITIONAL mean for a
+     * (lane, band): a model that predicts the average predicts nothing.
+     *
+     * Two specific costs, and the second is a dated contradiction:
+     *
+     *   REGIME WAS DISCARDED. The oracle already receives `regime` and passed
+     *   it only to AutonomousMetaPolicy.conviction. The cohort it actually
+     *   judges on pooled every regime together, so a lane that is +40% in one
+     *   regime and -40% in another reported roughly zero and the oracle called
+     *   it neutral in both.
+     *
+     *   PAPER AND LIVE WERE POOLED AT FULL STRENGTH. V5.0.6869 exists because
+     *   "paper and live shared one predicted win rate"; V5.0.6991 then fixed
+     *   live inheriting paper at FULL strength in forecast(). This accessor was
+     *   written before both and never got the message — its needle starts with
+     *   a pipe, so it matches "P|CORE|S20|" and "L|CORE|S20|" alike. The
+     *   forecasting path and the admission path therefore disagreed about
+     *   whether paper outcomes may drive live admissions, and admission was
+     *   using the cruder answer.
+     *
+     * Now hierarchical, in the same shape as the oracle's own shrinkage: the
+     * most specific cohort that carries real evidence wins, and thinner levels
+     * fall back. `MIN_SAMPLES` is the model's own threshold, so this cannot
+     * invent confidence the model would not itself act on.
+     *
+     *     regime_mode  own mode, this regime      most specific
+     *     mode         own mode, any regime
+     *     pooled       any mode, any regime       exactly the pre-7103 answer
+     *
+     * STRICTLY A REFINEMENT. The worst case returns precisely what 6911
+     * returned, so no caller can end up with less evidence than it has today.
+     * The default `regime = ""` keeps every existing caller on the pooled
+     * answer until it passes one.
+     *
+     * Matching is now done by SEGMENT rather than by substring. The old needle
+     * carried a documented fragility — "the leading pipe is required, not
+     * cosmetic", because without it CORE also matched V3_CORE and pooled a
+     * read-only shadow lane into a real lane's admission evidence. A key that
+     * has to be searched carefully is a key that should be parsed.
+     */
+    fun cohortEvidence6911(
+        lane: String,
+        score: Int,
+        regime: String = "",
+    ): CohortEvidence6911 {
         val laneTag = lane.uppercase().take(14)
         val bandTag = band(score)
-        var n = 0L
-        var wins = 0L
-        var weighted = 0.0
-        var cells = 0
-        // Match the lane|band segments regardless of the mode, regime, quality
-        // or edgePhase around them. Uses the FINE map because that is the one
-        // the writer always populates; coarse is a derived parent and would
-        // double-count.
-        //
-        // The leading pipe is required, not cosmetic: without it "CORE|S20|"
-        // also matches the V3_CORE key "P|V3_CORE|S20|...", which would pool a
-        // read-only shadow lane's outcomes into a real lane's admission
-        // evidence. Legacy pre-6869 keys have no mode prefix and so start with
-        // the lane, which is why startsWith is checked as well — those cells
-        // are kept as a prior rather than silently dropped.
-        val needle = "|$laneTag|$bandTag|"
-        val legacyPrefix = "$laneTag|$bandTag|"
+        val regimeTag = regime.uppercase().take(10)
+        val ownMode = modeTag6869(currentIsPaper6869())
+
+        // Accumulate the three tiers in ONE pass over the map rather than three.
+        var nR = 0L; var wR = 0L; var eR = 0.0; var cR = 0
+        var nM = 0L; var wM = 0L; var eM = 0.0; var cM = 0
+        var nP = 0L; var wP = 0L; var eP = 0.0; var cP = 0
         try {
             for ((k, c) in fine) {
-                if (!k.contains(needle) && !k.startsWith(legacyPrefix)) continue
                 if (c.n <= 0L) continue
-                n += c.n
-                wins += c.wins
-                weighted += c.mean * c.n
-                cells++
+                val seg = k.split('|')
+                // New shape: mode|lane|band|quality|regime|edgePhase (6 parts).
+                // Legacy pre-6869 shape has no mode prefix (5 parts) and is kept
+                // readable as a prior rather than silently dropped.
+                val hasMode = seg.size >= 6
+                val keyLane = if (hasMode) seg.getOrNull(1) else seg.getOrNull(0)
+                val keyBand = if (hasMode) seg.getOrNull(2) else seg.getOrNull(1)
+                if (keyLane != laneTag || keyBand != bandTag) continue
+                val keyMode = if (hasMode) seg.getOrNull(0) else null
+                val keyRegime = if (hasMode) seg.getOrNull(4) else seg.getOrNull(3)
+
+                nP += c.n; wP += c.wins; eP += c.mean * c.n; cP++
+                if (keyMode == ownMode) {
+                    nM += c.n; wM += c.wins; eM += c.mean * c.n; cM++
+                    if (regimeTag.isNotBlank() && keyRegime == regimeTag) {
+                        nR += c.n; wR += c.wins; eR += c.mean * c.n; cR++
+                    }
+                }
             }
         } catch (_: Throwable) {}
-        if (n <= 0L) return CohortEvidence6911(0L, 0.5, 0.0, 0)
-        return CohortEvidence6911(
-            samples = n,
-            pWin = (wins.toDouble() / n).coerceIn(0.0, 1.0),
-            expectedPnlPct = weighted / n,
-            cells = cells,
-        )
+
+        fun build(n: Long, wins: Long, weighted: Double, cells: Int, level: String) =
+            CohortEvidence6911(
+                samples = n,
+                pWin = (wins.toDouble() / n).coerceIn(0.0, 1.0),
+                expectedPnlPct = weighted / n,
+                cells = cells,
+                level = level,
+            )
+        if (nR >= MIN_SAMPLES) return build(nR, wR, eR, cR, "regime_mode")
+        if (nM >= MIN_SAMPLES) return build(nM, wM, eM, cM, "mode")
+        if (nP > 0L) return build(nP, wP, eP, cP, "pooled")
+        return CohortEvidence6911(0L, 0.5, 0.0, 0, "none")
     }
     @Volatile private var totalUpdates = 0L
     @Volatile private var appContext: Context? = null

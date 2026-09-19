@@ -78,7 +78,12 @@ import java.util.concurrent.atomic.AtomicLong
  *                                             (the UN-thresholded accessor,
  *                                             previously used only for
  *                                             "bounded soft sizing")
- *   ForwardOutcomeModel.cohortEvidence6911    regime-agnostic cohort pWin/EV
+ *   ForwardOutcomeModel.cohortEvidence6911    cohort pWin/EV. V5.0.7103: was
+ *                                             regime-agnostic AND mode-pooled;
+ *                                             now own-mode and regime-
+ *                                             conditioned where the evidence
+ *                                             supports it, pooled where it
+ *                                             does not
  *   LiveProbabilityEngine.laneSnapshots       lane WR/EV/sample
  *   UnifiedPolicyHead.predictWinProb          the learned decider head
  *   AutonomousMetaPolicy.conviction           learned context conviction
@@ -655,12 +660,21 @@ object PredictiveEntryOracle6915 {
             }
         } catch (_: Throwable) {}
         try {
-            val agg = com.lifecyclebot.engine.ForwardOutcomeModel.cohortEvidence6911(laneKey, s)
+            // V5.0.7103 — pass the regime. This oracle has always RECEIVED a
+            // regime and spent it only on AutonomousMetaPolicy.conviction, while
+            // the cohort it actually judges on averaged every regime together. A
+            // lane that is +40% in one regime and -40% in another reported ~0
+            // and was called neutral in both. ForwardOutcomeModel keys on regime
+            // already; the evidence existed and was being discarded on the way
+            // in. Falls back to the pooled cohort when the conditioned one is
+            // thin, so this can only ever sharpen the estimate, never starve it.
+            val agg = com.lifecyclebot.engine.ForwardOutcomeModel
+                .cohortEvidence6911(laneKey, s, regime)
             if (agg.samples > 0L) {
                 val n = agg.samples.toDouble()
                 cellMean += agg.expectedPnlPct * n; cellN += n
                 cellPWin = agg.pWin
-                contributions += "cellFwd(n=${agg.samples},E=${"%+.1f".format(agg.expectedPnlPct)},pW=${"%.2f".format(agg.pWin)})"
+                contributions += "cellFwd(${agg.level},n=${agg.samples},E=${"%+.1f".format(agg.expectedPnlPct)},pW=${"%.2f".format(agg.pWin)})"
             }
         } catch (_: Throwable) {}
         val cell = if (cellN > 0.0) {
