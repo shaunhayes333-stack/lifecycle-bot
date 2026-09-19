@@ -2046,6 +2046,14 @@ object PipelineHealthCollector {
             sb.append("  LLM Lab evolution (§7104):    ").append(
                 com.lifecyclebot.engine.lab.LlmLabEngine.statusLine7104()
             ).append("\n")
+            // V5.0.7106 — what the LLM is authorised to spend of REAL money.
+            // liveBarCleared is the number that matters: promoted strategies
+            // that have also cleared the higher live bar and are inside their
+            // rolling 24h exposure cap. A promoted strategy that has not
+            // cleared it still trades — its nudge is simply not applied.
+            sb.append("  Lab live authority (§7106):   ").append(
+                com.lifecyclebot.engine.lab.LabPromotedFeed.liveAuthorityStatusLine7106()
+            ).append("\n")
             // V5.0.6916 — keyless OHLCV. barsDelivered is the single number
             // that says whether the chart/pattern layer is fed at all: every
             // pattern engine needs 3-5 bars and every OHLCV path in the app

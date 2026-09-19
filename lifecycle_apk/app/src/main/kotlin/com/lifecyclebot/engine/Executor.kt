@@ -12422,57 +12422,65 @@ class Executor(
                 score = score.toInt(),
             )
         } catch (_: Throwable) { null }
-        // If a promoted Lab strategy says the score is too weak, skip the entry.
-        if (labNudge != null && score.toInt() < labNudge.scoreFloor) {
-            onLog("🧪 LAB FLOOR: ${ts.symbol} score=${score.toInt()} < floor ${labNudge.scoreFloor} (${labNudge.strategyName})", tradeId.mint)
+        // V5.0.7106 §AUTO_GRANT_WITH_A_LIVE_PROOF_BAR (operator decision).
+        //
+        // In LIVE, a strategy's nudge applies only if it has cleared the live
+        // bar and is inside its rolling exposure cap. Resolved BEFORE the score
+        // floor below, because authority has to mean the same thing in both
+        // directions: a strategy not trusted to size a live trade is not
+        // trusted to veto one either.
+        //
+        // The refusal drops the NUDGE. It never drops the trade. That is the
+        // whole change from 7105, where an unauthorised strategy caused doBuy
+        // to `return` and a live entry that stood on its own merits simply did
+        // not happen, waiting on a human tap. Under a design where the app runs
+        // unattended once funded, that was the last hard stop in the live path.
+        val labNudgeEffective7106 = if (labNudge == null || isPaperRT()) labNudge else {
+            val refusal7106 = try {
+                com.lifecyclebot.engine.lab.LabPromotedFeed
+                    .liveNudgeRefusal7106(labNudge.strategyId, sol)
+            } catch (_: Throwable) { "REFUSAL_CHECK_THREW" }
+            if (refusal7106 == null) labNudge else {
+                try {
+                    PipelineHealthCollector.labelInc("LAB_LIVE_NUDGE_REFUSED_7106")
+                    PipelineHealthCollector.labelInc(
+                        "LAB_LIVE_NUDGE_REFUSED_7106_${refusal7106.substringBefore('_')}".take(60)
+                    )
+                    ForensicLogger.lifecycle(
+                        "LAB_LIVE_NUDGE_REFUSED_7106",
+                        "mint=${tradeId.mint.take(10)} symbol=${ts.symbol} score=${score.toInt()} " +
+                            "sizeSol=${"%.4f".format(sol)} strategy=${labNudge.strategyId} " +
+                            "name=${labNudge.strategyName.take(40)} refusal=$refusal7106 " +
+                            "action=nudge_dropped_entry_proceeds_on_own_merits",
+                    )
+                } catch (_: Throwable) {}
+                null
+            }
+        }
+        // If an authorised promoted Lab strategy says the score is too weak,
+        // skip the entry.
+        if (labNudgeEffective7106 != null && score.toInt() < labNudgeEffective7106.scoreFloor) {
+            onLog("🧪 LAB FLOOR: ${ts.symbol} score=${score.toInt()} < floor ${labNudgeEffective7106.scoreFloor} (${labNudgeEffective7106.strategyName})", tradeId.mint)
             return
         }
-        // Real-money guardrail: live mode + un-authorised promoted strategy
-        // → queue an approval and bail. Paper mode is unrestricted.
-        if (!isPaperRT() && labNudge != null &&
-            com.lifecyclebot.engine.lab.LabPromotedFeed.requireLiveApproval(labNudge.strategyId)) {
+        // V5.0.7106 — the LIVE_ENTRY_BLOCKED_AWAITING_LAB_APPROVAL_7105 branch
+        // that stood here is gone. It queued a per-trade approval and returned,
+        // abandoning a live entry that stood on its own merits. Authority is now
+        // resolved above by liveNudgeRefusal7106, which drops the nudge instead
+        // of the trade, so nothing in the live path waits on a human.
+        //
+        // Real money directed BY a nudge is recorded against that strategy's
+        // rolling 24h cap. Only counted when the nudge actually survived, and
+        // only in live — paper spends no real money and must not consume the
+        // cap that bounds real money.
+        if (!isPaperRT() && labNudgeEffective7106 != null) {
             try {
-                com.lifecyclebot.engine.lab.LlmLabEngine.requestSingleLiveTrade(
-                    strategyId = labNudge.strategyId,
-                    symbol = ts.symbol,
-                    amountSol = sol,
-                    reason = "Lab strategy '${labNudge.strategyName}' wants to spend ${"%.3f".format(sol)}◎ on ${ts.symbol} (score=${score.toInt()}).",
-                )
+                com.lifecyclebot.engine.lab.LabPromotedFeed
+                    .recordLiveSpend7106(labNudgeEffective7106.strategyId, sol)
+                PipelineHealthCollector.labelInc("LAB_LIVE_NUDGE_APPLIED_7106")
             } catch (_: Throwable) {}
-            // V5.0.7105 §THE_ONE_PLACE_A_HUMAN_TAP_STOPS_LIVE_TRADING.
-            //
-            // This is not a nudge being declined — it is the ENTRY being
-            // abandoned. `return` exits doBuy, so a live buy that would
-            // otherwise have proceeded on its own merits does not happen at
-            // all, because a promoted Lab strategy happened to match its asset
-            // and score and has not been granted live authority by a tap.
-            //
-            // The Lab auto-promotes on paper proof with no approval, so
-            // promoted strategies WILL exist, and entryNudge returns the
-            // strongest match — which means this gate fires on ordinary live
-            // entries rather than on exotic ones. Under a design where the app
-            // is meant to run unattended once funded, this is the single
-            // remaining hard stop in the live path, and it was invisible: an
-            // onLog line, no counter, so its cost in refused live entries could
-            // not be measured from a snapshot.
-            //
-            // Counted, not changed. Whether an LLM-authored strategy may spend
-            // real money without a human is an operator decision about
-            // authority, not a defect for me to quietly flip.
-            try {
-                PipelineHealthCollector.labelInc("LIVE_ENTRY_BLOCKED_AWAITING_LAB_APPROVAL_7105")
-                ForensicLogger.lifecycle(
-                    "LIVE_ENTRY_BLOCKED_AWAITING_LAB_APPROVAL_7105",
-                    "mint=${tradeId.mint.take(10)} symbol=${ts.symbol} score=${score.toInt()} " +
-                        "sizeSol=${"%.4f".format(sol)} strategy=${labNudge.strategyId} " +
-                        "name=${labNudge.strategyName.take(40)} " +
-                        "action=live_entry_abandoned_pending_operator_grant",
-                )
-            } catch (_: Throwable) {}
-            onLog("🧪 LAB AWAITING APPROVAL: ${labNudge.strategyName} → ${ts.symbol} (live trade queued)", tradeId.mint)
-            return
         }
-        val labMult = labNudge?.sizeMultiplier ?: 1.0
+        val labMult = labNudgeEffective7106?.sizeMultiplier ?: 1.0
         // V5.9.1273 — LaneExpectancyDamper: shrink size on PROVEN bleeder lanes
         // (size-only, never a veto; self-heals as the lane's live EV recovers).
         // Lane key resolved the same way finalityLane is (layerTag→identity.source),
