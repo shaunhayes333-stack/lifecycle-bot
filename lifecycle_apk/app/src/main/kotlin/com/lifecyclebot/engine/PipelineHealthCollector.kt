@@ -2184,6 +2184,13 @@ object PipelineHealthCollector {
             sb.append("  Economic units    (§7061): ").append(
                 com.lifecyclebot.engine.truth.EconomicUnitInvariant7061.status()
             ).append("\n")
+            // V5.0.7062 — directive §5. worstOverstate is in PERCENTAGE POINTS:
+            // how far the old add-the-fractions arithmetic had drifted from the
+            // true share of the original position. fullExitFailed counts exits
+            // labelled 100% that left real inventory behind.
+            sb.append("  Partial ladder    (§7062): ").append(
+                com.lifecyclebot.engine.truth.PartialLadderSemantics7062.status()
+            ).append("\n")
             // V5.0.7051 — size the promotion leak BEFORE anything is shaped
             // against the cohort. leakWins is the count of runners the entering
             // lane was never credited with; while it is non-trivial, a "losses=9

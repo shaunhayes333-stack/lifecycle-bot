@@ -6189,7 +6189,9 @@ class Executor(
         val pnlSol = partial6510.realizedPnl
         ts.position = if (partial6510.postQty <= java.math.BigInteger.ZERO) Position() else pos.copy(
             qtyToken = newQty, costSol = newCost,
-            partialSoldPct = (pos.partialSoldPct + sellFraction * 100.0).coerceAtMost(100.0),
+            // V5.0.7062 §5 — composition, not addition. See 7062.
+            partialSoldPct = com.lifecyclebot.engine.truth.PartialLadderSemantics7062
+                .compose7062(pos.partialSoldPct, sellFraction),
             lockedProfitFloor = pos.lockedProfitFloor + sellSol.coerceAtLeast(0.0),
         )
         val paperCostBasis = partial6510.soldCostBasis
@@ -8842,7 +8844,12 @@ class Executor(
         // can never reach a ledger.
         val grossSol7029 = proceedsSol7029(sellQty, actualPrice)
         val sellSol      = grossSol7029 ?: 0.0
-        val newSoldPct   = soldPct + sellFraction * 100.0
+        // V5.0.7062 §5 — was `soldPct + sellFraction * 100.0`, which adds a
+        // fraction OF WHAT REMAINS to a percentage OF THE ORIGINAL. Two
+        // different wholes; see PartialLadderSemantics7062 for the operator's
+        // F9CBDp ladder, where it read 87% sold with 37% still held.
+        val newSoldPct   = com.lifecyclebot.engine.truth.PartialLadderSemantics7062
+            .compose7062(soldPct, sellFraction)
         val newQty       = pos.qtyToken - sellQty
         val newCost      = pos.costSol * (1.0 - sellFraction)
         val paperPnlSol  = sellSol - pos.costSol * sellFraction
@@ -8917,6 +8924,14 @@ class Executor(
                 solUsd7029 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 },
             )
             if (!partial6510.applied) return false
+            // V5.0.7062 §5 — an exit may only be CALLED full if it left the
+            // position empty. Reports against the canonical remainder; it does
+            // not force a follow-up sale, because a wrong label is not a
+            // mandate to liquidate inventory the strategy did not ask to sell.
+            try {
+                com.lifecyclebot.engine.truth.PartialLadderSemantics7062
+                    .verifyFullExit7062(pid6510, ts.mint, ts.symbol ?: "?", paperPartialReason)
+            } catch (_: Throwable) {}
             val decimals6510 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(pid6510)?.quantityScale ?: 0
             val postQty6510 = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.decode(partial6510.postQty, decimals6510)
             val paperDustClosed = partial6510.postQty <= java.math.BigInteger.ZERO || partial6510.postCost <= 0.000_001
@@ -21321,7 +21336,9 @@ class Executor(
             }
             val soldValueSol = pos.costSol * pct
             val profitSol = soldValueSol * (economicPnlPct7029 / 100.0)
-            val newSoldPct = pos.partialSoldPct + (pct * 100.0)
+            // V5.0.7062 §5 — composition, not addition. See 7062.
+            val newSoldPct = com.lifecyclebot.engine.truth.PartialLadderSemantics7062
+                .compose7062(pos.partialSoldPct, pct)
             val partialSellFee = soldValueSol * MEME_TRADING_FEE_PERCENT
             val manualReason6510 = if (newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct"
             val pid6510 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
@@ -21507,7 +21524,9 @@ class Executor(
                     val sellQty = partialPlan.uiAmount
                     val newQty = (pos.qtyToken - sellQty).coerceAtLeast(0.0)
                     val newCost = pos.costSol * (newQty / pos.qtyToken.coerceAtLeast(0.000000001))
-                    val newSoldPct = pos.partialSoldPct + (pct * 100)
+                    // V5.0.7062 §5 — composition, not addition. See 7062.
+                    val newSoldPct = com.lifecyclebot.engine.truth.PartialLadderSemantics7062
+                        .compose7062(pos.partialSoldPct, pct)
                     var sellUnits = partialPlan.rawAmount
                     val sellSlippage = com.lifecyclebot.engine.sell.SellSafetyPolicy.initialSlippageBps(reason)
                     val broadcastSlipLadder = com.lifecyclebot.engine.sell.SellSafetyPolicy.ladder(reason)
