@@ -340,6 +340,23 @@ object OpenPnlSanity {
     private val LEARNING_POISON_REASONS_7083 = setOf(
         "OPEN_PNL_ABSURD_GAIN_6854",
         "TOKEN_DECIMAL_SCALE_DISCONTINUITY_6701",
+        // V5.0.7091 — PRICE_BASIS_UNTRUSTED_EXTREME_RATIO was MISSING from this
+        // set, and it is the reason that actually fired on the operator's book.
+        // The 5.0.7088 device shows it on CARDSccUMF at ratio=280.3 and on
+        // Xsv9hRk1z5 — exactly the mints whose entry price was fabricated by the
+        // 1e9 seed (V5.0.7089). So the contaminated outcomes were NOT quarantined
+        // and they trained the oracle:
+        //
+        //   Predictive oracle (§6915): evals=894 admit=0 probe=251 refuse=643
+        //   ENTRY_AUTHORITY_DENY_6846  oracleEV=-0.5498 pWin=0.14 effN=8
+        //   terminal by source: DEX_TRENDING... n=3 WR=0.0% avgPct=-99.9%
+        //
+        // 894 evaluations and ZERO admits. Those -99.9% "losses" are positions
+        // booked against an invented entry, so the oracle learned that everything
+        // loses and now refuses everything. V5.0.7089 stops new fabrications but
+        // cannot un-teach what is already persisted — this closes the hole that
+        // let it be taught, which is why both builds are needed.
+        "PRICE_BASIS_UNTRUSTED_EXTREME_RATIO",
     )
 
     private fun reject(reason: String, entry: Double, current: Double, context: String, emit: Boolean, mint: String = ""): Verdict {

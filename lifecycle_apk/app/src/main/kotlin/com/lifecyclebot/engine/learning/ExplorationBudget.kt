@@ -93,14 +93,44 @@ object ExplorationBudget {
     /** Returns true if a paper-micro trade is allowed under the hourly budget. */
     fun allowPaperMicroTrade(lane: String): Boolean {
         val budget = budgetFor(lane)
-        val taken = bumpHourly(microHourly, lane)
         // V5.0.6368 — apply magnitude-aware multiplier at check time so a
         // bleeding lane's ceiling collapses to a quarter of its default
         // without any call-site change or LanePolicy mutation.
         val mult = peekLaneMagnitudeMult(lane)
         val ceiling = (budget.maxPaperMicroTradesPerHour * mult).toInt().coerceAtLeast(1)
-        val ok = taken <= ceiling
-        if (!ok) {
+        // V5.0.7091 §THE BUDGET WAS COUNTING CHECKS, NOT TRADES.
+        //
+        // Operator, on the 5.0.7088 device: "seems to be rejecting most trades
+        // and volume is terrible." This is the single largest reason —
+        // EXPLORATION_BUDGET_REFUSED_ZERO_SIGNAL_6967 was 242 of 248 total FDG
+        // blocks, 88% of everything the gate refused.
+        //
+        // The line that did it was `val taken = bumpHourly(...)`: the counter was
+        // incremented on EVERY CALL, whether the trade was admitted or refused.
+        // So a refusal consumed budget, and each subsequent evaluation ratcheted
+        // the count further past the ceiling with no possibility of recovery
+        // inside the hour.
+        //
+        // The arithmetic is brutal at this eval rate. QUALITY logged 294 lane
+        // evaluations in 627 seconds. With a bleeding-lane multiplier of 0.25
+        // collapsing the ceiling into single digits, the budget was spent within
+        // the first handful of EVALUATIONS — not trades — and every one of the
+        // remaining ~290 checks both refused and incremented.
+        //
+        // The field is named maxPaperMicroTradesPerHour. It was measuring
+        // something other than its name, which is the defect class that has cost
+        // the most in this codebase (V5.0.7084's `forced`, V5.0.7086's `ticket`,
+        // V5.0.7089's entry price). A budget is consumed by SPENDING, not by
+        // asking the price.
+        //
+        // PEEK to decide, BUMP only on admit. The ceiling still bites — a lane
+        // genuinely firing more probes than its budget still gets refused — but
+        // it now bites after N probes instead of after N questions.
+        val taken = peekHourly(microHourly, lane)
+        val ok = taken < ceiling
+        if (ok) {
+            bumpHourly(microHourly, lane)
+        } else {
             try { PipelineHealthCollector.labelInc("EXPLORATION_BUDGET_EXCEEDED_PAPER_MICRO|${lane.uppercase().take(24)}") } catch (_: Throwable) {}
         }
         return ok
@@ -108,9 +138,14 @@ object ExplorationBudget {
 
     fun allowShadowSignal(lane: String): Boolean {
         val budget = budgetFor(lane)
-        val taken = bumpHourly(shadowHourly, lane)
-        val ok = taken <= budget.maxShadowSignalsPerHour
-        if (!ok) {
+        // V5.0.7091 — same defect, same fix. A refused shadow signal consumed
+        // shadow budget, so this ratcheted itself shut exactly like the micro
+        // budget above. Peek to decide, bump only on admit.
+        val taken = peekHourly(shadowHourly, lane)
+        val ok = taken < budget.maxShadowSignalsPerHour
+        if (ok) {
+            bumpHourly(shadowHourly, lane)
+        } else {
             try { PipelineHealthCollector.labelInc("EXPLORATION_BUDGET_EXCEEDED_SHADOW|${lane.uppercase().take(24)}") } catch (_: Throwable) {}
         }
         return ok
