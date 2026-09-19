@@ -494,6 +494,20 @@ object ReportingHub {
         })
         appendLine(safe("strategy_hypothesis") { StrategyHypothesisEngine.formatForPipelineDump().trim() }.ifBlank { "Strategy Hypothesis Engine: no active/promoted experiments" })
         appendLine(safe("lane_exit_tuner") { com.lifecyclebot.engine.learning.LaneExitTuner.formatForPipelineDump().trim() }.ifBlank { "Lane Exit Tuner: no lane tuning snapshot" })
+        // V5.0.7111 — the entry half of the same loop. LaneExitTuner has tuned
+        // the exit ladder from realised outcomes since V5.9.1379; the entry bar
+        // had no equivalent and could only ratchet upward. `target` is the score
+        // band this lane has actually made money at.
+        appendLine(safe("lane_entry_floor_tuner") {
+            "Lane Entry Floor Tuner (§7111 - closed-loop entry bar): " +
+                com.lifecyclebot.engine.learning.LaneEntryFloorTuner7111.statusLine7111(
+                    listOf(
+                        "QUALITY", "MOONSHOT", "SHITCOIN", "PROJECT_SNIPER", "CORE",
+                        "TREASURY", "DIP_HUNTER", "BLUECHIP", "EXPRESS", "CYCLIC",
+                        "CASHGEN", "MANIPULATED",
+                    )
+                )
+        })
         appendLine(safe("live_strategy_tuner") { LiveStrategyTuner.statusLine() })
         appendLine(safe("realized_wallet_compounding") { RealizedWalletCompoundingGovernor.statusLine() })
         // V5.0.6238 — feed the shared Compound-Growth Mentality then surface it

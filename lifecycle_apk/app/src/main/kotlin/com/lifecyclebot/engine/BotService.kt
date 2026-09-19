@@ -12085,8 +12085,50 @@ class BotService : Service() {
             else com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450
                 .scoreFloorDeltaFor6488(lane).toDouble().coerceIn(0.0, 15.0)
         } catch (_: Throwable) { 0.0 }
+        // V5.0.7111 §THE_ENTRY_FLOOR_COULD_ONLY_EVER_GO_UP.
+        //
+        // Every other term in this sum is a raise. moonshotVolumeRelief6044 is
+        // the single negative and it is a hardcoded -5.0 for one lane under one
+        // condition. So the entry bar was a one-way ratchet — the same shape
+        // V5.0.7091 removed from ExplorationBudget, where a gate that can only
+        // tighten eventually seals itself shut with nothing able to reopen it.
+        //
+        // It also could not move toward the money. The 5.0.7106 snapshot has the
+        // bot computing "Optimal entry score: 66-75" in its own analytics while
+        // admitting at minScore=15, with no path between the two.
+        //
+        // LaneEntryFloorTuner7111 is a pure function of ScoreExpectancyTracker's
+        // persisted per-(lane, score-band) realised pnl window — the same
+        // evidence PredictiveEntryOracle6915 judges on, so this cannot disagree
+        // with it. It puts the bar at the lowest band that has actually MADE
+        // money in this lane, or above the highest band that has demonstrably
+        // lost money, and does nothing at all when the bands are undecided or
+        // unsampled.
+        //
+        // Bidirectional by design — that is the whole repair. Bounded to
+        // [-15, +25] and still coerced into 0..95 below, so no lane can be
+        // floored out of existence; doctrine's "never disable a lane" holds.
+        val entryFloorTunerVerdict7111 = try {
+            com.lifecyclebot.engine.learning.LaneEntryFloorTuner7111.verdict7111(
+                lane,
+                entryScoreTightenedFloor4591Base + qualityWrRaise6044 +
+                    moonshotVolumeRelief6044 + streakFloorDelta6961,
+            )
+        } catch (_: Throwable) {
+            com.lifecyclebot.engine.learning.LaneEntryFloorTuner7111
+                .Verdict7111(0.0, 0, "TUNER_THREW", 0)
+        }
+        try {
+            com.lifecyclebot.engine.learning.LaneEntryFloorTuner7111.noteApplied7111(
+                lane,
+                entryScoreTightenedFloor4591Base + qualityWrRaise6044 +
+                    moonshotVolumeRelief6044 + streakFloorDelta6961,
+                entryFloorTunerVerdict7111,
+            )
+        } catch (_: Throwable) {}
         val entryScoreTightenedFloor4591Tuned6984 =
-            (entryScoreTightenedFloor4591Base + qualityWrRaise6044 + moonshotVolumeRelief6044 + streakFloorDelta6961)
+            (entryScoreTightenedFloor4591Base + qualityWrRaise6044 + moonshotVolumeRelief6044 +
+                streakFloorDelta6961 + entryFloorTunerVerdict7111.delta)
                 .coerceIn(0.0, 95.0)
         // V5.0.6984 §COLD_START_HAD_A_LIQUIDITY_FLOOR_AND_A_SCORE_FLOOR_AND_ONLY_ONE_WAS_WIRED.
         //
