@@ -66,6 +66,14 @@ object LearnedPolicyDegeneracyWatch7102 {
     private const val DEGENERATE_FRACTION_7102 = 0.99
 
     /**
+     * V5.0.7158 — warning tier. A learner is not dead at this share, but it
+     * is close enough to a constant that its output carries little
+     * information, and the gap between this and 0.99 is where a collapsing
+     * learner spends its whole decline unnoticed. Report-only.
+     */
+    private const val SKEWED_FRACTION_7158 = 0.85
+
+    /**
      * Re-report interval. A collapse that persists is still news an hour later,
      * but not every evaluation — this is a health signal, not a log storm.
      */
@@ -185,7 +193,30 @@ object LearnedPolicyDegeneracyWatch7102 {
             val dominant = t.counts.entries.maxByOrNull { it.value.get() }
             val share = if (dominant == null || total == 0L) 0.0
             else dominant.value.get().toDouble() / total.toDouble()
-            val flag = if (share >= DEGENERATE_FRACTION_7102) "DEGENERATE" else "ok"
+            // V5.0.7158 §0.99 ONLY CATCHES A LEARNER THAT HAS ALREADY DIED.
+            //
+            // Operator's 5.0.7155:
+            //   PredictiveEntryOracle6915: n=930 top=REFUSE@0.86:ok
+            //
+            // Reported as fine. The oracle emits three verdicts — ADMIT,
+            // PROBE, REFUSE — so uniform is 0.33, and it said REFUSE 86% of
+            // the time across 930 evaluations. In the 5.0.7145 session the
+            // same line read REFUSE@0.62, so it is not stable either: it is
+            // drifting toward a constant, which is precisely what this
+            // watcher exists to notice, and 0.99 will not notice it until
+            // there is nothing left to save.
+            //
+            // A discriminator that agrees with itself 86% of the time is
+            // barely discriminating. It is not yet provably dead, so calling
+            // it DEGENERATE would overstate; SKEWED says what is true and
+            // puts the number where the operator reads it. The hard 0.99
+            // threshold is unchanged, and this watcher gates nothing — it is
+            // report-only, so this widens what is seen, not what is done.
+            val flag = when {
+                share >= DEGENERATE_FRACTION_7102 -> "DEGENERATE"
+                share >= SKEWED_FRACTION_7158 -> "SKEWED"
+                else -> "ok"
+            }
             "$name:n=$total top=${dominant?.key ?: "NONE"}@${"%.2f".format(share)}:$flag"
         }
         return "watched=${tallies.size} reports=${reports.get()} ${parts.joinToString(" ")}"

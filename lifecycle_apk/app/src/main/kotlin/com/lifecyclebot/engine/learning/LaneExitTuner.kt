@@ -191,11 +191,62 @@ object LaneExitTuner {
             wr >= 0.45 && avgPeak >= 25.0 && giveBack >= 15.0 -> tp += STEP
             // Low-WR with small/no peaks — entry signal weak, exit shouldn't be widened
             // beyond neutral. Only bank-sooner when peaks themselves are tiny.
-            wr < 0.30 && avgPeak < 15.0 && avgReal <= -5.0 -> tp -= STEP
+            // V5.0.7158 §NEVER BANK SOONER ON A LANE THAT IS MAKING MONEY.
+            //
+            // Operator's 5.0.7155 strategy table against this tuner's output:
+            //
+            //   CYCLIC  n=11 WR=27.3% EV=+48.92%/trade PnL=+0.9348 SOL
+            //   tuner:  CYCLIC tpMult 1.00 -> 0.60   (TP_MIN)
+            //
+            // CYCLIC is the single most profitable lane in the book and the
+            // tuner moved it to bank as early as it is allowed to. Four lanes
+            // — CYCLIC, STANDARD, EXPRESS, PRESALE_SNIPE — now sit at exactly
+            // (0.60, 0.70), BOTH floors at once, on very different records.
+            // Independent learners converging on identical extremes is not
+            // learning.
+            //
+            // This file already fought this once. V5.9.1562, forty lines up:
+            // "the learner was actively choking the lane that needed to be
+            // widened", after MOONSHOT was cut to 0.84 on WR 18.7% with
+            // avgPeak +630%. The ordering was fixed so runner evidence wins.
+            // It was not made safe against the low-WR arm firing on a lane
+            // that is profitable anyway — which is the whole shape of a
+            // runner-capture book: 27% WR and positive expectancy.
+            //
+            // A lane whose realised mean is positive has no bank-sooner case
+            // by construction; cutting its TP can only reduce what it
+            // realises. The `avgReal <= -5.0` term should already prevent
+            // this, so if the guard below ever fires it means the tuner's
+            // outcome window and the strategy table DISAGREE about the same
+            // lane — and the counter says so out loud rather than silently
+            // clipping the best performer.
+            wr < 0.30 && avgPeak < 15.0 && avgReal <= -5.0 && avgReal < 0.0 -> tp -= STEP
             // Already tight lane that's banking too aggressively — nudge up.
             wr >= 0.50 && giveBack < 8.0 && tp < 1.0 -> tp += STEP * 0.5
         }
         st.tpMult = tp.coerceIn(TP_MIN, TP_MAX)
+        // V5.0.7158 — say what this recompute saw and what it did. Four lanes
+        // arrived at both floors with no record of how, because nothing here
+        // has ever logged its inputs. A closed loop that cannot be audited is
+        // indistinguishable from a broken one, and on the operator's device
+        // it clipped the best lane in the book.
+        try {
+            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                "LANE_EXIT_TUNER_RECOMPUTE_7158",
+                "n=$n wr=${"%.2f".format(wr)} avgPeak=${"%.1f".format(avgPeak)} " +
+                    "avgReal=${"%.1f".format(avgReal)} giveBack=${"%.1f".format(giveBack)} " +
+                    "slHitRate=${"%.2f".format(slHitRate)} avgLoss=${"%.1f".format(avgLoss)} " +
+                    "tpOut=${"%.2f".format(st.tpMult)}",
+            )
+            if (st.tpMult <= TP_MIN + 1e-9) {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LANE_EXIT_TUNER_TP_AT_FLOOR_7158")
+            }
+            if (avgReal > 0.0 && st.tpMult < 1.0) {
+                // A profitable window that is nonetheless banking sooner than
+                // neutral. Should not happen; if it does, the feed is wrong.
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LANE_EXIT_TUNER_TIGHT_ON_PROFITABLE_7158")
+            }
+        } catch (_: Throwable) {}
 
         var sl = st.slMult
         // V5.0.3921 — RUNNER-PRESERVATION SL FLOOR. Operator dump V5.0.3922

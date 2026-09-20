@@ -9849,7 +9849,46 @@ class Executor(
         // the trigger is emitted the moment the price tick arrives,
         // independent of scanner/learner/UI completion.
         try {
-            val pid6451 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
+            // V5.0.7158 §TWO PRODUCERS, TWO KEY SPACES, ONE LATCH MAP.
+            //
+            // Operator's 5.0.7155: armed=7206 latched=0, with noMark=0 and
+            // noThreshold=0 — so all 7206 were REAL comparisons against live
+            // marks and positive thresholds, and not one latched. Meanwhile
+            // stops plainly fired in the same session
+            // (RAPID_CATASTROPHE_STOP, FALLBACK_MOONSHOT_STOP_LOSS), through
+            // other paths.
+            //
+            // The latch map is keyed on positionId
+            // (ProtectiveExitScheduler6450:53) and has two producers that do
+            // not agree on what a positionId is:
+            //
+            //   CanonicalRiskClock6454:67  cb(p.positionId, p.mint)
+            //                              — the CANONICAL id.
+            //   here (pre-7158)            positionIdOf(ts.mint)
+            //                              — a MIRROR LOOKUP that, on a miss,
+            //                                FABRICATES "PAPER:$cm:$runIdHash"
+            //                                (6442:108) — note the PAPER
+            //                                prefix, returned even for a live
+            //                                mint.
+            //
+            // So the clock arms under one key and this path latches under
+            // another. isTriggered() and the caller's alreadyLatched check
+            // read the clock's key, never see this one, and the monotonic
+            // latch contract documented at 6450:20-22 is not in force across
+            // the pair.
+            //
+            // The position already knows its own id, and liveSell has used it
+            // as the anchor since 7129 for exactly this reason. Use it here
+            // too; fall back to the mirror only when it is blank, which is
+            // the pre-7158 behaviour for rows that genuinely have no id.
+            val anchorPid7158 = ts.position.positionId.trim()
+            val pid6451 = if (anchorPid7158.isNotEmpty()) {
+                try { PipelineHealthCollector.labelInc("EXIT_LATCH_KEY_FROM_POSITION_7158") } catch (_: Throwable) {}
+                anchorPid7158
+            } else {
+                try { PipelineHealthCollector.labelInc("EXIT_LATCH_KEY_FROM_MIRROR_FALLBACK_7158") } catch (_: Throwable) {}
+                com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
+            }
             // V5.0.6882 — thresholds now come from the single authority
             // (protectiveExitThresholds6882) so the wall-clock risk clock and
             // this hot path cannot diverge. It carries forward:

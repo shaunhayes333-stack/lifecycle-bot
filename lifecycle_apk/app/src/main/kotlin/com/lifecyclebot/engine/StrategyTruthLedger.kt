@@ -294,8 +294,45 @@ object StrategyTruthLedger {
         }
         val proceeds = basis + realized
         if (!proceeds.isFinite() || proceeds < -0.000001) return "NEGATIVE_PROCEEDS"
-        val pctFromSol = (realized / basis) * 100.0
-        if (!pctFromSol.isFinite() || kotlin.math.abs(pctFromSol - t.pnlPct) > 50.0) return "PNL_SOL_PERCENT_MISMATCH"
+        // V5.0.7158 §THE NUMERATOR AND THE DENOMINATOR DESCRIBED DIFFERENT
+        // POPULATIONS.
+        //
+        // Operator's 5.0.7155:
+        //   STRATEGY_FORENSIC_EXCLUDED_PNL_SOL_PERCENT_MISMATCH : 978
+        //   StrategyTruthLedger clean=147
+        //
+        // Nearly a thousand closes thrown out of strategy learning by this
+        // one comparison, and the reason is visible eleven lines up: :286
+        // VALIDATES that soldCostBasisSol is present and positive — the cost
+        // basis of the quantity actually sold — and then this line divides
+        // by entryCostSol, the basis of the WHOLE position.
+        //
+        // For a full exit those are the same number and the check works. For
+        // a PARTIAL they are not: economicSchema reports partials=18 this
+        // session, and a capital_recovery_4.0x bank sells a slice whose
+        // realized PnL is measured against a fraction of the entry. Dividing
+        // that slice's PnL by the full entry cost produces a percentage that
+        // cannot agree with t.pnlPct, the 50-point tolerance is breached, and
+        // a perfectly good trade is excluded as a data-quality failure.
+        //
+        // Worse, it discards them silently from the learners while the same
+        // rows stay in the P&L — so the strategy tables are computed on a
+        // biased subset that systematically drops partials, which are
+        // exactly the runner-capture exits the profitable lanes depend on.
+        //
+        // Use the basis that matches the realized figure. Full exits are
+        // unchanged because the two are equal there.
+        val pctBasis7158 = t.soldCostBasisSol.takeIf { it.isFinite() && it > 0.0 } ?: basis
+        val pctFromSol = (realized / pctBasis7158) * 100.0
+        if (!pctFromSol.isFinite() || kotlin.math.abs(pctFromSol - t.pnlPct) > 50.0) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                    if (pctBasis7158 != basis) "PNL_PCT_MISMATCH_ON_SOLD_BASIS_7158"
+                    else "PNL_PCT_MISMATCH_ON_FULL_BASIS_7158",
+                )
+            } catch (_: Throwable) {}
+            return "PNL_SOL_PERCENT_MISMATCH"
+        }
         if (live && proof.isBlank()) return "MISSING_LIVE_PROOF"
         val largePnl = kotlin.math.abs(realized) >= 0.25 || kotlin.math.abs(t.pnlPct) >= 1000.0
         val walletFinal = proof.contains("FINAL") || proof.contains("BALANCE") || proof.contains("TX_PARSE") || proof.contains("OWNER_DELTA")
