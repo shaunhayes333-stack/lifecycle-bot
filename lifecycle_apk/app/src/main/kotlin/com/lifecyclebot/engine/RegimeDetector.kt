@@ -39,6 +39,15 @@ object RegimeDetector {
     @Volatile private var cachedMode6679: String = ""
     private const val CACHE_TTL_MS = 30_000L
 
+    /**
+     * V5.0.7173 — how old CrossMarketRegimeAI's last assessment may be and
+     * still count as a reading of the market. The regime pulse runs on the
+     * bot loop (~5s), so ten minutes is many missed pulses, not a blip. Past
+     * it there is no market term and the base is neutral — an unread market
+     * is not a hostile one.
+     */
+    private const val MARKET_REGIME_MAX_AGE_MS_7173 = 10L * 60_000L
+
     private fun currentMode6679(): String =
         try { if (RuntimeModeAuthority.isPaper()) "paper" else "live" } catch (_: Throwable) { "live" }
 
@@ -59,6 +68,16 @@ object RegimeDetector {
         cachedMode6679 = ""
         cached.set(null)
     }
+
+    /** V5.0.7173 — name the market reading behind the regime, or say it is absent. */
+    private fun marketSourceLine7173(): String = try {
+        val tracked = com.lifecyclebot.v4.meta.CrossMarketRegimeAI.trackedMarketCount()
+        val ageMs = com.lifecyclebot.v4.meta.CrossMarketRegimeAI.lastAssessAgeMs()
+        val fresh = tracked > 0 && ageMs <= MARKET_REGIME_MAX_AGE_MS_7173
+        val mode = com.lifecyclebot.v4.meta.CrossMarketRegimeAI.getCurrentRegime().name
+        "  market(CrossMarketRegimeAI)=$mode tracked=$tracked assessAge=${ageMs / 1000L}s " +
+            "used=${if (fresh) "YES" else "NO_neutral_base"}\n"
+    } catch (_: Throwable) { "  market(CrossMarketRegimeAI)=unavailable used=NO_neutral_base\n" }
 
     private fun recompute(now: Long, mode6679: String = currentMode6679()): RegimeSnapshot {
         val recentSells = try {
@@ -106,7 +125,101 @@ object RegimeDetector {
             else                                                             -> Regime.NORMAL
         }
 
-        return RegimeSnapshot(regime, wr, meanPnl, v3Median, recentSells.size, now)
+        // V5.0.7173 §THE ENTRY GATE WAS WIRED TO THE WRONG REGIME AUTHORITY.
+        //
+        // Operator: "there's no trade volume at all... totally choked out",
+        // and then: "it's meant to look at the actual real market's
+        // sentiment. not the bot's."
+        //
+        // Their 5.0.7171:
+        //
+        //   regime=DUMP  wr=12.5%  meanPnl=-29.23%  n=16
+        //   EXEC_GATE allow=7 block=136
+        //     learned6846:REGIME_DUMP_STRONG_NEGATIVE_ = 82   (60% of blocks)
+        //   ENTRY_AUTHORITY_DENY_6846 = 668 · 5 closes in seven minutes
+        //
+        // Every input above this line is the bot's OWN closed trades. `wr` is
+        // its own win rate, `meanPnl` its own mean P&L. No market term exists
+        // in this computation — not SOL, not BTC, not breadth, not volume.
+        // "Regime" here has meant "how the bot has been doing lately", and it
+        // feeds scoreFloorDelta, sizeMult and LearnedAdmissionAuthority6846,
+        // which refuse entries on it. That closes a loop with no external
+        // input:
+        //
+        //   bad closes -> DUMP -> refuse entries -> no new closes
+        //     -> the same bad closes stay the window -> DUMP
+        //
+        // A detector whose output becomes its own input is a latch. Sixteen
+        // trades from an hour ago were still refusing every entry, and the
+        // sample could not be replaced because refusing is what stops new
+        // samples being created.
+        //
+        // The real market-sentiment engine already exists and is already fed.
+        // CrossMarketRegimeAI takes live price, 24h change and volume for
+        // SOL, BTC and ETH every regime pulse (BotServiceLifecycleExt:66) and
+        // grades majors-down count, momentum and volatility. It is read by the
+        // personality, the symbolic exit reasoner and the adaptive runtime —
+        // by everything EXCEPT the gate that decides whether to trade.
+        //
+        // So take the regime from the market, and demote own-performance to
+        // what it actually is: a performance term, not a market observation.
+        // The bot's P&L is already represented in the sizing stack four times
+        // over (LaneExpectancyDamper, ColdStreakDamper, LosingStreakReflex,
+        // GrowthRewardShaper); it does not also need to be the weather.
+        //
+        // It still tightens — a losing run should trade smaller — but by AT
+        // MOST ONE STEP, so own losses can never originate DUMP. DUMP now
+        // requires the market to be there: RISK_OFF is majors down on real
+        // volatility, which is a dump whoever is trading it.
+        val marketMode7173 = try {
+            com.lifecyclebot.v4.meta.CrossMarketRegimeAI.assessRegime().mode
+        } catch (_: Throwable) { null }
+        val marketFresh7173 = try {
+            com.lifecyclebot.v4.meta.CrossMarketRegimeAI.trackedMarketCount() > 0 &&
+                com.lifecyclebot.v4.meta.CrossMarketRegimeAI.lastAssessAgeMs() <= MARKET_REGIME_MAX_AGE_MS_7173
+        } catch (_: Throwable) { false }
+
+        // ROTATIONAL is also CrossMarketRegimeAI's explicit no-feed stance
+        // ("No live price feed yet — neutral stance"), so it maps to neutral
+        // rather than to caution. Absence of a reading is not a bad reading.
+        val marketBase7173 = when {
+            !marketFresh7173 || marketMode7173 == null -> Regime.NORMAL
+            marketMode7173 == com.lifecyclebot.v4.meta.GlobalRiskMode.RISK_OFF -> Regime.DUMP
+            marketMode7173 == com.lifecyclebot.v4.meta.GlobalRiskMode.CHAOTIC -> Regime.CHOP
+            marketMode7173 == com.lifecyclebot.v4.meta.GlobalRiskMode.MEAN_REVERT -> Regime.CHOP
+            else -> Regime.NORMAL
+        }
+
+        // Own performance may tighten one step, never more, and never from a
+        // market that is not already cautious into a full DUMP.
+        val ownWantsTighter7173 = wr < 25.0 && meanPnl < 0.0
+        val tightened7173 = if (!ownWantsTighter7173) marketBase7173 else when (marketBase7173) {
+            Regime.NORMAL, Regime.BULL_RIPPING -> Regime.CHOP
+            Regime.CHOP -> Regime.DUMP
+            else -> marketBase7173
+        }
+
+        // BULL_RIPPING still needs both: a market that is not hostile AND own
+        // evidence that the bot is actually capturing it. Unchanged bar.
+        val resolved7173 = if (
+            tightened7173 == Regime.NORMAL && marketBase7173 == Regime.NORMAL &&
+            wr >= 45.0 && meanPnl >= 3.0 && (v3Median < 0 || v3Median >= 35)
+        ) Regime.BULL_RIPPING else tightened7173
+
+        if (resolved7173 != regime) {
+            try {
+                PipelineHealthCollector.labelInc("REGIME_SOURCED_FROM_MARKET_7173")
+                PipelineHealthCollector.labelInc("REGIME_SOURCED_FROM_MARKET_7173_${regime.name}_TO_${resolved7173.name}")
+                ForensicLogger.lifecycle(
+                    "REGIME_SOURCED_FROM_MARKET_7173",
+                    "ownPnlSaid=$regime marketSaid=$marketMode7173 marketFresh=$marketFresh7173 " +
+                        "marketBase=$marketBase7173 ownTighten=$ownWantsTighter7173 resolved=$resolved7173 " +
+                        "wr=${"%.1f".format(wr)} meanPnl=${"%.2f".format(meanPnl)} n=${recentSells.size}",
+                )
+            } catch (_: Throwable) {}
+        }
+
+        return RegimeSnapshot(resolved7173, wr, meanPnl, v3Median, recentSells.size, now)
     }
 
     fun scoreFloorDelta(): Int {
@@ -176,6 +289,11 @@ object RegimeDetector {
         val mode = currentMode6679().uppercase()
         return "\n===== Regime detector (V5.9.806) =====\n" +
                "  mode=$mode regime=${s.regime}  wr=${"%.1f".format(s.recentWrPct)}%  meanPnl=${"%+.2f".format(s.recentMeanPnlPct)}%  v3Median=${s.v3Median}  n=${s.sampleSize}  age=${ageSec}s\n" +
+               // V5.0.7173 — the regime now comes from the market, so the
+               // report has to say which market reading produced it. Without
+               // this line the operator cannot tell a real RISK_OFF from the
+               // bot talking to itself, which is the whole bug 7173 fixes.
+               marketSourceLine7173() +
                "  → scoreFloorDelta=${scoreFloorDelta()}  sizeMult=${"%.2f".format(sizeMultiplier())}\n"
     }
 }
