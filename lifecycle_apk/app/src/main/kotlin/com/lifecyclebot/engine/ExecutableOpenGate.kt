@@ -479,12 +479,28 @@ object ExecutableOpenGate {
     fun entryScoreFor6909(mint: String): Int =
         try { states[mint]?.entryScore?.takeIf { it >= 0 } ?: -1 } catch (_: Throwable) { -1 }
 
+    /**
+     * V5.0.7189 — the candidate's PRIMARY lane, recorded structurally.
+     *
+     * The primary lane was already reaching this object, but only inside
+     * `decision.reason` as the text "lane=QUALITY". Ownership cannot be
+     * decided by parsing a log string: 6548, 7004 and 7148 each fixed the same
+     * defect where a consumer pattern-matched a label and silently rejected a
+     * valid one. So it is threaded as a field.
+     */
+    private val primaryLane7189 = ConcurrentHashMap<String, String>()
+
     fun recordEntryAuthority6487(
         mint: String,
         candidateVersion: Long,
         decision: com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Decision,
+        primaryLane7189In: String = "",
     ) {
         entryAuthority6487[authorityKey6487(mint, candidateVersion)] = decision
+        if (primaryLane7189In.isNotBlank()) {
+            primaryLane7189[authorityKey6487(mint, candidateVersion)] =
+                primaryLane7189In.trim().uppercase()
+        }
         try {
             ForensicLogger.lifecycle(
                 "PREFDG_ENTRY_AUTHORITY_6487",
@@ -1564,12 +1580,52 @@ object ExecutableOpenGate {
             // that object's header forbids it ("MUST NOT become a second
             // post-FDG execution authority", uncalled by production since
             // V5.0.6653/6679). Ownership stays where 6679 put it.
+            // V5.0.7189 §THE_SPECIALIST_THAT_OWNED_THE_CANDIDATE_LOST_IT_TO_WHOEVER_RAN_FIRST.
+            //
+            // Operator: "fix blue chip." BLUECHIP on the 5.0.7186 run:
+            //
+            //   buyIntent=162  ownerSelected=21  markReady=2  sized=0  ticket=0
+            //   status=SIZING_CHOKED   markReject=0   sizeReject=0
+            //
+            // Nothing was REJECTED — 141 of 162 intents lost the ELECTION and
+            // therefore never reached a mark, a size or a ticket at all.
+            // TradeAuthorizer stamps BUY_INTENT on entry and runs the election
+            // ten lines later, so that inversion is the literal stamp order.
+            // Its own log says who took them:
+            //
+            //   LANE_ELECTION_BOUND_TO_SEALED_FDG_6679 caller=BLUECHIP
+            //       sealedOwner=QUALITY action=caller_order_has_no_authority
+            //
+            // The action string is the contradiction. Caller order was the ONLY
+            // thing deciding it: ownerRank6910 was binary, so two real lanes
+            // tied and the `keepOld` branch below handed the candidate to
+            // whichever lane sealed first. QUALITY runs as a non-primary rescue
+            // lane earlier in the cycle than the primary authorize path, so it
+            // sealed first and BLUECHIP-primary candidates became QUALITY's.
+            //
+            // A third tier fixes it: the lane the cycle already elected as this
+            // candidate's PRIMARY outranks a non-primary lane that merely got
+            // there first. This is not a preference between lanes — it is the
+            // routing decision the cycle already made, being honoured instead of
+            // raced. The 6910 comment above reserves exactly this seat ("this
+            // only stops a non-owner from occupying the owner field").
+            //
+            // Conservative by construction: when the primary is unknown (blank)
+            // both lanes score 1 exactly as before, so behaviour is unchanged
+            // for every candidate whose primary was never recorded. Only a
+            // KNOWN primary can outrank.
+            val primaryForCandidate7189 = try {
+                primaryLane7189[authorityKey6487(mint, candidateVersion)].orEmpty()
+            } catch (_: Throwable) { "" }
             fun ownerRank6910(l: String?): Int {
                 val canon = try { canonicalLane(l ?: "") } catch (_: Throwable) { "" }
                 val ok = try {
                     com.lifecyclebot.engine.LaneExecutionCoordinator.laneCanOwnExecution6910(canon)
                 } catch (_: Throwable) { false }
-                return if (ok) 1 else 0
+                if (!ok) return 0
+                val isPrimary7189 = primaryForCandidate7189.isNotBlank() &&
+                    canon.equals(primaryForCandidate7189, true)
+                return if (isPrimary7189) 2 else 1
             }
             val incomingLane6910 = lane.uppercase()
             val oldLaneRank6910 = ownerRank6910(old?.selectedLane)

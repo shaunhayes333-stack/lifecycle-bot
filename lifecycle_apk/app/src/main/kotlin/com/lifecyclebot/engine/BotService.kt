@@ -11354,11 +11354,26 @@ class BotService : Service() {
                     // were credited to DexScreener in every source-attribution
                     // readout. Record the provider that really replied.
                     val resolvedSource6999 = markSource6999[mint] ?: "DEXSCREENER_WS"
+                    // V5.0.7188 — this is the ONE path that actually knows how
+                    // many independent feeds answered, because the fan-out
+                    // encodes it in the label it wrote here
+                    // ("FANOUT_CORROBORATED_7088_x3"). Every other note() site
+                    // is genuinely single-source and takes the default of 1.
+                    // Recovering the number here is what makes the guard's
+                    // corroboration counters mean independent feeds rather than
+                    // the derivation checks the other four organs call
+                    // "corroborated".
+                    val agreeing7188 = try {
+                        Regex("_x(\\d+)$").find(resolvedSource6999)
+                            ?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 1
+                    } catch (_: Throwable) { 1 }
                     try {
                         com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.note(
                             mint = mint,
                             priceUsd = priceUsd,
                             source = com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.Provenance.REST_LIVE,
+                            sourceCount7188 = agreeing7188,
+                            agreeingCount7188 = agreeing7188,
                         )
                     } catch (_: Throwable) {}
 
@@ -24096,7 +24111,15 @@ if (hotExitHandledSweep) {
                 com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Verdict.DENY_LOSING_STREAK, 0.0, "gate_error_fail_closed_6487",
             )
         }
-        ExecutableOpenGate.recordEntryAuthority6487(identity.mint, candidateVersion6487, preEntry6487)
+        // V5.0.7189 — pass the cycle's elected PRIMARY lane as a field, not as
+        // text inside decision.reason. ExecutableOpenGate's ownership rank uses
+        // it to stop a non-primary rescue lane taking a candidate purely by
+        // sealing first — the defect that left BLUECHIP with 162 buy intents
+        // and 21 ownerSelected.
+        ExecutableOpenGate.recordEntryAuthority6487(
+            identity.mint, candidateVersion6487, preEntry6487,
+            primaryLane7189In = cyclePrimaryLane,
+        )
     }
     try {
         ForensicLogger.lifecycle(

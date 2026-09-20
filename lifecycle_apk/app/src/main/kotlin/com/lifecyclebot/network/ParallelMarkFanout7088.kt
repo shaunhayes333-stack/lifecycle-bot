@@ -344,13 +344,40 @@ object ParallelMarkFanout7088 {
         mints.chunked(100).forEach { chunk ->
             try {
                 val ids = chunk.joinToString(",") { "\"$it\"" }
+                // V5.0.7188 §THE_SIXTH_FEED_HAS_NEVER_RETURNED_A_SINGLE_QUOTE.
+                //
+                // Operator 5.0.7186, 884s: quotesBySource=[RAYDIUM=4887,
+                // JUPITER=4158, DEFILLAMA=2044, DEXSCREENER=805, PUMPFUN=2].
+                // HELIUS_DAS is ABSENT — sourceWins only records a feed that
+                // returned a non-empty map, so this one has answered zero times
+                // since it was written, while `rpc=set` and helius health reads
+                // 100%. The fan-out that exists to make agreement possible has
+                // been running on four feeds, averaging 2.16 quotes per
+                // multi-source mark.
+                //
+                // Cause: Helius DAS treats fungible tokens as opt-in. Without
+                // `displayOptions.showFungible`, getAssetBatch omits the
+                // `token_info` object entirely for SPL tokens — and
+                // `token_info.price_info.price_per_token` is the only field
+                // this feed reads. So every response parsed cleanly, found no
+                // token_info, and produced an empty map. No error, no 4xx, no
+                // counter: a silent zero. The parse loop below was never wrong;
+                // it was being handed assets with the price section stripped.
+                //
+                // Recording is fixed in the same edit. This was the one feed
+                // calling http.newCall raw, so ApiBackoff/ApiHealthMonitor never
+                // observed it — `helius s=1` in that snapshot is one call for
+                // the whole app, which is why the outage was invisible. Every
+                // other feed in this file was moved onto HealthAwareHttp in
+                // V5.0.7092 for exactly this reason and this one was missed.
                 val payload =
-                    """{"jsonrpc":"2.0","id":"7088","method":"getAssetBatch","params":{"ids":[$ids]}}"""
+                    """{"jsonrpc":"2.0","id":"7088","method":"getAssetBatch",""" +
+                        """"params":{"ids":[$ids],"displayOptions":{"showFungible":true}}}"""
                 val req = Request.Builder()
                     .url(url)
                     .post(payload.toRequestBody("application/json".toMediaType()))
                     .build()
-                http.newCall(req).execute().use { resp ->
+                com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "helius").use { resp ->
                     if (!resp.isSuccessful) return@use
                     val body = resp.body?.string() ?: return@use
                     val arr = JSONObject(body).optJSONArray("result") ?: return@use
