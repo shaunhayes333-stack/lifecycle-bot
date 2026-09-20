@@ -43,6 +43,49 @@ object LaneExitTuner {
     // n>=8 real closes, not noise), but stops the bleed while lanes learn.
     private const val WINDOW       = 60
     private const val MIN_SAMPLE   = 8
+
+    /**
+     * V5.0.7186 §SIXTEEN_SPECIALISTS_ALL_STUCK_AT_EXACTLY_1.00.
+     *
+     * Every lane reported `tpMult=1.00 slMult=1.00 (bootstrap n=N - neutral)`
+     * on the operator's 5.0.7176 run. Not "learned neutral" — never ran. With
+     * 36 closes spread across 16 specialist lanes, no lane reaches
+     * MIN_SAMPLE=8, so `recompute` returned at its first line and the whole
+     * closed-loop TP/SL organ has produced nothing since it was written.
+     *
+     * A hard sample cliff is the wrong instrument here. The lanes are a hive:
+     * the question is not "does THIS lane have 8 closes" but "how much should
+     * this lane's own evidence move it away from neutral". That is a shrinkage
+     * question, and the codebase already answers it elsewhere —
+     * PredictiveEntryOracle6915 uses `weight = n / (n + SHRINK_K)` with
+     * SHRINK_K = 6.0 and blends cell -> lane -> global. Same K reused so the
+     * two organs shrink at the same rate.
+     *
+     * So the cliff becomes a ramp: recompute runs from MIN_SAMPLE_POOLED_7186
+     * closes, and the resulting adjustment is scaled by the lane's evidence
+     * weight. n=3 moves a third of the way, n=8 moves 57%, n=20 moves 77%,
+     * n=60 (the window cap) moves 91%. A lane with thin evidence nudges;
+     * a lane with real evidence commits.
+     *
+     * DELIBERATELY SAFE. This organ is soft-shape only — it multiplies TP/SL
+     * and can never veto, deny or expand position size (see the header). Every
+     * decision branch, every threshold and both clamps are untouched; only the
+     * MAGNITUDE of the step is scaled. The audit that produced this change
+     * specifically warned that dropping sample cliffs across the board would
+     * mostly unlock UPSIDE multipliers, because four organs read the same ~36
+     * closes and compound into size — so pooling is applied HERE and not to
+     * LaneExpectancyDamper's boost paths, UnifiedExitPolicyHead's stop veto,
+     * LearnedAdmissionAuthority6846's dump denial, or the lab promotion bars.
+     *
+     * MIN_SAMPLE itself is left at 8 and still governs `closedLoopMature`
+     * below, so the closed-loop-vs-replay-bias authority question is unchanged.
+     */
+    private const val MIN_SAMPLE_POOLED_7186 = 3
+    private const val SHRINK_K_7186 = 6.0
+
+    /** Shrinkage weight for a lane holding [n] matured closes. */
+    private fun evidenceWeight7186(n: Int): Double =
+        if (n <= 0) 0.0 else (n.toDouble() / (n.toDouble() + SHRINK_K_7186)).coerceIn(0.0, 1.0)
     private const val RECALC_EVERY = 5
 
     // V5.0.7164 — outcome-window schema stamp. A persisted window is only
@@ -256,7 +299,7 @@ object LaneExitTuner {
                 while (st.window.size > WINDOW) st.window.removeFirst()
                 st.lifetimeCloses++
                 st.sinceRecalc++
-                if (st.sinceRecalc >= RECALC_EVERY && st.window.size >= MIN_SAMPLE) {
+                if (st.sinceRecalc >= RECALC_EVERY && st.window.size >= MIN_SAMPLE_POOLED_7186) {
                     st.sinceRecalc = 0
                     recompute(st)
                 }
@@ -268,7 +311,11 @@ object LaneExitTuner {
     private fun recompute(st: LaneState) {
         val w = st.window.toList()
         val n = w.size
-        if (n < MIN_SAMPLE) return
+        if (n < MIN_SAMPLE_POOLED_7186) return
+        // V5.0.7186 — how far this lane's own evidence may move it off neutral.
+        val evidence7186 = evidenceWeight7186(n)
+        val priorTp7186 = st.tpMult
+        val priorSl7186 = st.slMult
         val wins = w.count { it.win }
         val wr = wins.toDouble() / n
         val avgPeak = w.map { it.peakPct }.average()
@@ -357,7 +404,11 @@ object LaneExitTuner {
             // Already tight lane that's banking too aggressively — nudge up.
             wr >= 0.50 && giveBack < 8.0 && tp < 1.0 -> tp += STEP * 0.5
         }
-        st.tpMult = tp.coerceIn(TP_MIN, TP_MAX)
+        // V5.0.7186 — shrink the step toward the prior by evidence weight. The
+        // branch that fired and its threshold are unchanged; only how far the
+        // lane travels on this recalc is scaled by how much it actually knows.
+        val shrunkTp7186 = priorTp7186 + (tp - priorTp7186) * evidence7186
+        st.tpMult = shrunkTp7186.coerceIn(TP_MIN, TP_MAX)
         // V5.0.7158 — say what this recompute saw and what it did. Four lanes
         // arrived at both floors with no record of how, because nothing here
         // has ever logged its inputs. A closed loop that cannot be audited is
@@ -428,7 +479,11 @@ object LaneExitTuner {
         // bleeding through its stop is unaffected.
         val profitableFloor7164 = avgReal > 0.0 && !stopLeakClamp
         val slFloor = if ((runnerLane || profitableFloor7164) && !stopLeakClamp) maxOf(SL_MIN, 1.0) else SL_MIN
-        st.slMult = sl.coerceIn(slFloor, slCap)
+        // V5.0.7186 — same shrinkage on the stop side. slFloor/slCap, which
+        // carry the 7164 profitable-lane protection, are applied after the
+        // blend exactly as before, so no clamp is weakened.
+        val shrunkSl7186 = priorSl7186 + (sl - priorSl7186) * evidence7186
+        st.slMult = shrunkSl7186.coerceIn(slFloor, slCap)
     }
 
     /**
