@@ -95,6 +95,36 @@ object AutoPipelineAdvisor6462 {
 
     private val lastRunMs = AtomicLong(0L)
     private val lastAppliedAtByKey = ConcurrentHashMap<String, Long>()
+
+    /**
+     * V5.0.7172 §THE ADVISOR'S HISTORY WAS FIFTEEN COPIES OF ONE REFUSAL.
+     *
+     * Operator's 5.0.7169 timeline holds sixteen entries. Fifteen are the
+     * same one:
+     *
+     *   LOW_AGREEMENT  exitScoreThreshold  Δ-2.0000  sev=med  agree=0.29..0.40
+     *   reason: CHRONIC_BLEEDER_LAB_REPROVE_6265 — lower exit floor …
+     *
+     * once every ~two minutes for the whole session. PER_KEY_COOLDOWN_MS
+     * exists and is ten minutes, but :235 reads it from lastAppliedAtByKey,
+     * which is only written on a SUCCESSFUL apply (:244). A proposal that is
+     * refused therefore has no cooldown at all and is regenerated verbatim on
+     * every tick, forever, because the condition that produced it has not
+     * changed — that is what "chronic" means.
+     *
+     * The cost is the audit surface. The timeline shows the last N decisions,
+     * so one stuck proposal evicts every other record of what this system did
+     * to itself; the single AUTO_APPLIED that actually moved a live trading
+     * parameter was one row from falling off the end.
+     *
+     * A repeat of an unchanged refusal is not new information. It is recorded
+     * once per cooldown window and counted in between, so the operator sees
+     * that it is still being proposed without it crowding out everything else.
+     * The suggestion itself still reaches the inbox on every tick — only the
+     * history entry is deduped.
+     */
+    private const val REPEAT_DECISION_COOLDOWN_MS_7172 = 10L * 60_000L
+    private val lastDecisionAtByShape7172 = ConcurrentHashMap<String, Long>()
     // V5.0.6507 §P1 — memoise last-seen PAPER_REPLAY_DIVERGENCE_6461 so
     // Rule R2 fires only on NEW divergences, not historical ones.
     private val lastSeenReplayDivergence6507 = AtomicLong(0L)
@@ -207,6 +237,24 @@ object AutoPipelineAdvisor6462 {
                 // beside it so a clamp is visible rather than silent.
                 val appliedDelta7170 =
                     if (oldValue.isFinite() && newValue.isFinite()) newValue - oldValue else c.delta
+                // V5.0.7172 — an unchanged refusal repeated is not a new
+                // decision. Anything that actually moved a value is always
+                // recorded; only the identical non-applied shapes are rested.
+                if (action != AdvisorDecisionHistory6463.Action.AUTO_APPLIED) {
+                    val shape7172 = "${action.name}|${c.key}|${"%.4f".format(c.delta)}"
+                    val now7172 = System.currentTimeMillis()
+                    val last7172 = lastDecisionAtByShape7172[shape7172] ?: 0L
+                    if (now7172 - last7172 < REPEAT_DECISION_COOLDOWN_MS_7172) {
+                        try {
+                            PipelineHealthCollector.labelInc("ADVISOR_REPEAT_DECISION_SUPPRESSED_7172")
+                            PipelineHealthCollector.labelInc(
+                                "ADVISOR_REPEAT_DECISION_SUPPRESSED_7172_" + c.key.take(32),
+                            )
+                        } catch (_: Throwable) {}
+                        return
+                    }
+                    lastDecisionAtByShape7172[shape7172] = now7172
+                }
                 AdvisorDecisionHistory6463.record(
                     AdvisorDecisionHistory6463.Decision(
                         atMs = System.currentTimeMillis(),

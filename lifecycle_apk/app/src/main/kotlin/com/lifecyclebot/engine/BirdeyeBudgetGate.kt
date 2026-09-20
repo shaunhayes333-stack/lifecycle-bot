@@ -108,8 +108,53 @@ object BirdeyeBudgetGate {
     // PumpPortal WS / RugCheck / CoinGecko On-chain) already cover 90%+ of
     // scanner-side data per doctrine #87.23 (FREE-SOURCE-FIRST). This just makes
     // the paid escalation legitimately free-only when the key is gone.
-    private fun birdeyeKeyIsUsable6275(): Boolean =
-        try { com.lifecyclebot.engine.KeyValidator.isLive("birdeye") } catch (_: Throwable) { true }
+    /**
+     * V5.0.7172 §THE ABSENCE OF A VERDICT WAS READ AS A WORKING KEY.
+     *
+     * Operator's 5.0.7169, 41 minutes in:
+     *
+     *   Birdeye budget:  daily calls 6000 · daily CU 150000/150000 (100.0%)
+     *   API health:      birdeye sr=0%  4xx=73
+     *   BIRDEYE_KEY_DEAD_401_STICKY_6503 = 1
+     *   PROVIDER_CIRCUIT_OPENED_BIRDEYE_AUTH_TERMINAL_6402 = 1
+     *   KeyValidator block: birdeye ABSENT
+     *
+     * The entire daily budget spent on a key that answers 401, and the gate
+     * meant to prevent exactly this said yes six thousand times.
+     *
+     * 6275 wired this predicate to KeyValidator.isLive, which is fail-open by
+     * design: KeyValidator:111 is `verdicts[service] ?: return true`, and :115
+     * also clears a DEAD verdict once it ages past DEAD_TTL_MS and returns
+     * true. That default is right for KeyValidator — a provider must not be
+     * disabled because the validator has not run yet — but it means "no
+     * verdict" and "the key works" are the same answer, and on this session
+     * birdeye had no verdict at all.
+     *
+     * Meanwhile three other places in the app already knew. BirdeyeApi:644
+     * calls ProviderCircuitBreaker6402.onAuthTerminal the first time it sees
+     * a 401, which latches authTerminal and makes shouldSkip refuse every
+     * subsequent call. The budget gate was the one authority that never asked.
+     *
+     * So ask it. An auth-terminal circuit is a positive statement — the
+     * provider itself told us the credential is rejected — not the absence of
+     * one, and it costs nothing to honour. KeyValidator's fail-open default
+     * stays exactly as it is for everyone else.
+     */
+    private fun birdeyeKeyIsUsable6275(): Boolean {
+        val authTerminal7172 = try {
+            com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.isAuthTerminal(
+                com.lifecyclebot.engine.truth.ProviderCircuitBreaker6402.Provider.BIRDEYE,
+            )
+        } catch (_: Throwable) { false }
+        if (authTerminal7172) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("BIRDEYE_BUDGET_REFUSED_AUTH_TERMINAL_7172")
+            } catch (_: Throwable) {}
+            return false
+        }
+        return try { com.lifecyclebot.engine.KeyValidator.isLive("birdeye") } catch (_: Throwable) { true }
+    }
 
     /** Emergency-only allowance for open-position price fallback. */
     fun canAffordOpenPositionEmergency(estimatedCalls: Int = 1): Boolean {
