@@ -68,6 +68,16 @@ object CanonicalRiskClock6454 {
                                 callbackFailures.incrementAndGet()
                             }
                         }
+                        // V5.0.7176 — this loop holds the authoritative open
+                        // set, so it is the honest place to retire scheduler
+                        // bookkeeping for positions that have actually closed.
+                        // Both of those maps previously grew for the whole life
+                        // of the process because nothing ever removed from them.
+                        try {
+                            ProtectiveExitScheduler6450.pruneClosed7176(
+                                open.mapTo(HashSet(open.size)) { it.positionId },
+                            )
+                        } catch (_: Throwable) {}
                     }
                     try { ProtectiveExitScheduler6450.checkStarvation() } catch (_: Throwable) {}
                 } catch (_: Throwable) {}

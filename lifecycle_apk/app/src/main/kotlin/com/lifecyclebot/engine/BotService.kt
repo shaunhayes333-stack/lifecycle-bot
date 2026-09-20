@@ -5101,6 +5101,13 @@ class BotService : Service() {
                     // protective exit, so an unresolvable or aged mark falls
                     // back to the original heartbeat-only ping.
                     val markUsable6882 = th6882 != null && th6882.markAgeMs <= 60_000L
+                    // V5.0.7176 — both branches need these now. A latch made
+                    // earlier on a fresh mark does not lapse because the feed
+                    // has since gone dark: the trigger decision is monotonic by
+                    // this module's mandate, and only its EXECUTION is pending.
+                    val paperMode7176 = riskClockCfg6882?.paperMode
+                        ?: try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }
+                    val posAgeMs6882 = System.currentTimeMillis() - (ts6882?.position?.entryTime ?: 0L)
                     if (!markUsable6882) {
                         com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.evaluate(
                             positionId = positionId, mint = mint, markPx = 0.0,
@@ -5130,6 +5137,28 @@ class BotService : Service() {
                                     PipelineHealthCollector.labelInc("RISK_CLOCK_BLOCKED_7001_MARK_STALE")
                             }
                         } catch (_: Throwable) {}
+                        // V5.0.7176 — the dark-feed branch used to be a pure
+                        // heartbeat, which meant a position that had ALREADY
+                        // latched a stop and then lost its feed would never be
+                        // dispatched again. Nothing new is decided here: the
+                        // latch is only read, never created, so a position with
+                        // no fresh mark still cannot acquire a new trigger.
+                        val darkLatch7176 = com.lifecyclebot.engine.truth
+                            .ProtectiveExitScheduler6450.latch(positionId)
+                        if (darkLatch7176 != null && ts6882 != null && posAgeMs6882 >= 45_000L &&
+                            com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450
+                                .shouldDispatch7176(positionId)
+                        ) {
+                            dispatchProtectiveExit7176(
+                                ts = ts6882, positionId = positionId, mint = mint,
+                                kind = darkLatch7176.kind,
+                                markPx = darkLatch7176.triggerPrice,
+                                markAgeMs = th6882?.markAgeMs ?: -1L,
+                                heldMs = posAgeMs6882,
+                                paperMode = paperMode7176,
+                                firstAttempt = false,
+                            )
+                        }
                     } else {
                         val th = th6882!!
                         val alreadyLatched6882 =
@@ -5157,55 +5186,45 @@ class BotService : Service() {
                             trailPx = 0.0,
                             quoteAgeMs = th.markAgeMs,
                         )
-                        // Act once, on the latch transition only — the latch is
-                        // monotonic, so without this guard every subsequent
-                        // 500ms tick would re-request the same sell.
+                        // V5.0.7176 — this guard used to be `!alreadyLatched6882`:
+                        // act ONLY on the tick the latch first appeared. Since
+                        // requestSell is launched fire-and-forget and its result
+                        // is discarded, any refusal that returned normally —
+                        // cash-starved, BELOW_MIN_NOTIONAL, ORDER_SIZE_BLOCKED, a
+                        // MissingMarkExitVeto6835 deferral — left the position
+                        // latched, unsold and permanently unexitable, because
+                        // nothing ever removes a latch. Reinstalling the app was
+                        // the only thing that cleared the map, which is precisely
+                        // the operator's "the only time it closes trades is when
+                        // I do an update".
+                        //
+                        // The trigger latch is unchanged and still monotonic. Only
+                        // the dispatch is now retryable, claimed through the
+                        // scheduler so attempts are spaced, and it stops by itself
+                        // when the position leaves openPositions().
+                        //
                         // The 45s post-buy grace matches the universal sweep so
                         // entry-tick noise can never stop out a fresh fill.
-                        val posAgeMs6882 = System.currentTimeMillis() - (ts6882?.position?.entryTime ?: 0L)
-                        if (kind6882 != null && !alreadyLatched6882 && ts6882 != null && posAgeMs6882 >= 45_000L) {
-                            try {
-                                PipelineHealthCollector.labelInc("RISK_CLOCK_PROTECTIVE_EXIT_ACTED_6882_$kind6882")
-                                ForensicLogger.lifecycle(
-                                    "RISK_CLOCK_PROTECTIVE_EXIT_ACTED_6882",
-                                    "positionId=${positionId.take(12)} mint=${mint.take(10)} kind=$kind6882 " +
-                                        "mark=${"%.8f".format(th.markPx)} entry=${"%.8f".format(ts6882.position.entryPrice)} " +
-                                        "markAgeMs=${th.markAgeMs} heldMs=$posAgeMs6882",
-                                )
-                            } catch (_: Throwable) {}
-                            // Execution is dispatched to IO, never run inline.
-                            // CanonicalRiskClock6454 ticks on Dispatchers.Default
-                            // (sized to CPU count) and requestSell is synchronous
-                            // network I/O on a live fill — BotService:5636 records
-                            // what happened the last time a burst of inline
-                            // requestSell blocked its scope: "cascade UI stalls".
-                            // Blocking the risk clock would also delay the very
-                            // detection cadence this fix exists to guarantee.
-                            // The !alreadyLatched6882 guard means exactly one
-                            // dispatch per latch, so this cannot fan out.
-                            val sellTs6882 = ts6882
-                            val sellReason6882 = "PROTECTIVE_EXIT_${kind6882}_6450_RISKCLOCK"
-                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                try {
-                                    executor.requestSell(
-                                        ts = sellTs6882,
-                                        reason = sellReason6882,
-                                        wallet = WalletManager.getWallet(),
-                                        walletSol = status.getEffectiveBalance(
-                                            riskClockCfg6882?.paperMode
-                                                ?: try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true },
-                                        ),
-                                    )
-                                } catch (t: Throwable) {
-                                    try {
-                                        PipelineHealthCollector.labelInc("RISK_CLOCK_PROTECTIVE_EXIT_SELL_ERROR_6882")
-                                        ForensicLogger.lifecycle(
-                                            "RISK_CLOCK_PROTECTIVE_EXIT_SELL_ERROR_6882",
-                                            "mint=${mint.take(10)} reason=$sellReason6882 err=${t.message?.take(120)}",
-                                        )
-                                    } catch (_: Throwable) {}
-                                }
-                            }
+                        // `!alreadyLatched6882 ||` keeps the FIRST attempt
+                        // instant. latchTrigger seeds the dispatch clock, so a
+                        // latch this tick just created would otherwise be held
+                        // 30s — reintroducing exactly the stop latency 6450 was
+                        // built to remove (avgStopMs=689425). The retry path is
+                        // the second half of the condition.
+                        if (kind6882 != null && ts6882 != null && posAgeMs6882 >= 45_000L &&
+                            (!alreadyLatched6882 ||
+                                com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450
+                                    .shouldDispatch7176(positionId))
+                        ) {
+                            dispatchProtectiveExit7176(
+                                ts = ts6882, positionId = positionId, mint = mint,
+                                kind = kind6882,
+                                markPx = th.markPx,
+                                markAgeMs = th.markAgeMs,
+                                heldMs = posAgeMs6882,
+                                paperMode = paperMode7176,
+                                firstAttempt = !alreadyLatched6882,
+                            )
                         }
                     }
                 } catch (_: Throwable) {}
@@ -31017,6 +31036,70 @@ if (hotExitHandledSweep) {
      * when Dexscreener doesn't have the pair.
      * Returns true if data was fetched successfully.
      */
+    /**
+     * V5.0.7176 — dispatch a protective exit the scheduler has already latched.
+     *
+     * Extracted because the risk-clock callback now reaches it from two places:
+     * the tick where the latch is first made (fresh mark in hand) and any later
+     * tick where the latch is still outstanding — including ticks where the
+     * feed has since gone dark. Duplicating a sell dispatch to serve those two
+     * callers would be exactly the kind of second copy that has bitten this
+     * codebase repeatedly, so there is one.
+     *
+     * The caller owns the decision. This only executes it.
+     */
+    private fun dispatchProtectiveExit7176(
+        ts: com.lifecyclebot.data.TokenState,
+        positionId: String,
+        mint: String,
+        kind: com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.TriggerKind,
+        markPx: Double,
+        markAgeMs: Long,
+        heldMs: Long,
+        paperMode: Boolean,
+        firstAttempt: Boolean,
+    ) {
+        try {
+            PipelineHealthCollector.labelInc("RISK_CLOCK_PROTECTIVE_EXIT_ACTED_6882_$kind")
+            ForensicLogger.lifecycle(
+                "RISK_CLOCK_PROTECTIVE_EXIT_ACTED_6882",
+                "positionId=${positionId.take(12)} mint=${mint.take(10)} kind=$kind " +
+                    "mark=${"%.8f".format(markPx)} entry=${"%.8f".format(ts.position.entryPrice)} " +
+                    "markAgeMs=$markAgeMs heldMs=$heldMs firstAttempt=$firstAttempt",
+            )
+        } catch (_: Throwable) {}
+        // Execution is dispatched to IO, never run inline. CanonicalRiskClock6454
+        // ticks on Dispatchers.Default (sized to CPU count) and requestSell is
+        // synchronous network I/O on a live fill — BotService:5636 records what
+        // happened the last time a burst of inline requestSell blocked its
+        // scope: "cascade UI stalls". Blocking the risk clock would also delay
+        // the very detection cadence this fix exists to guarantee.
+        //
+        // V5.0.7176 — fan-out is bounded by ProtectiveExitScheduler6450's
+        // dispatch claim (one per position per REDISPATCH_INTERVAL_MS), not by
+        // the old one-shot latch check, so a refused exit is retried instead of
+        // being abandoned for the life of the process.
+        val sellReason6882 = "PROTECTIVE_EXIT_${kind}_6450_RISKCLOCK"
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                executor.requestSell(
+                    ts = ts,
+                    reason = sellReason6882,
+                    wallet = WalletManager.getWallet(),
+                    walletSol = status.getEffectiveBalance(paperMode),
+                )
+            } catch (t: Throwable) {
+                try {
+                    PipelineHealthCollector.labelInc("RISK_CLOCK_PROTECTIVE_EXIT_SELL_ERROR_6882")
+                    ForensicLogger.lifecycle(
+                        "RISK_CLOCK_PROTECTIVE_EXIT_SELL_ERROR_6882",
+                        "mint=${mint.take(10)} reason=$sellReason6882 err=${t.message?.take(120)}",
+                    )
+                } catch (_: Throwable) {}
+            }
+        }
+    }
+
     // V5.9.423 — broadcast a successfully-resolved fallback price to every
     // sub-trader that actually holds this mint. Previously tryFallbackPriceData
     // only updated ts.lastPrice, so sub-trader rows (esp. Quality) still

@@ -161,6 +161,20 @@ object ProtectiveExitScheduler6450 {
         val latch = Latch(positionId, epoch, kind, mark, epoch, quoteAgeMs)
         val prior = latches.putIfAbsent(positionId, latch)
         if (prior == null) {
+            // V5.0.7176 — seed the dispatch clock at the moment of latching.
+            //
+            // Every path that latches dispatches its own sell immediately after:
+            // Executor.riskCheck sells inline on the scan path, and the risk
+            // clock dispatches on the latch transition. Seeding here means a
+            // latch made by ONE of those paths cannot be instantly re-dispatched
+            // by the other — the retry window opens REDISPATCH_INTERVAL_MS
+            // later, by which time a successful sell has closed the position and
+            // the risk clock has stopped ticking it entirely.
+            //
+            // Without this seed, a stop latched by riskCheck would be dispatched
+            // again by the very next 500ms clock tick, which is a duplicate sell
+            // the old one-shot guard happened to prevent.
+            lastDispatchMs[positionId] = epoch
             when (kind) {
                 TriggerKind.STOP_LOSS -> stopsTriggered.incrementAndGet()
                 TriggerKind.CATASTROPHE -> catastrophesTriggered.incrementAndGet()
@@ -181,6 +195,131 @@ object ProtectiveExitScheduler6450 {
     fun isTriggered(positionId: String): Boolean = latches.containsKey(positionId)
 
     fun latch(positionId: String): Latch? = latches[positionId]
+
+    // ─────────────────────────────────────────────────────────────────────
+    // V5.0.7176 §A_LATCH_IS_NOT_AN_EXECUTION.
+    //
+    // Operator: "the only time it closes trades is when I do an update."
+    //
+    // That sentence is a complete diagnosis and it points here. `latches` is
+    // an in-memory ConcurrentHashMap with no removal path anywhere in this
+    // file — no clear, no release, nothing. The risk-clock callback dispatched
+    // its sell under `!alreadyLatched6882`, i.e. ONLY on the tick where the
+    // latch first appeared. So a position got exactly ONE sell attempt per
+    // PROCESS LIFETIME, and requestSell is launched fire-and-forget on
+    // Dispatchers.IO with its return value discarded — only a thrown Throwable
+    // is logged. Every ordinary refusal that returns normally (cash-starved,
+    // BELOW_MIN_NOTIONAL, ORDER_SIZE_BLOCKED, a MissingMarkExitVeto6835
+    // deferral, a StalePriceExitGuard hold) vanished silently, and the latch
+    // stayed set forever saying the exit had been handled.
+    //
+    // Installing an update restarts the process, which clears this map, which
+    // gives every open position one fresh attempt — a burst of closes, then
+    // silence until the next update. That is exactly the reported symptom, and
+    // it is why 72 positions accumulated against 3.2 SOL of free cash.
+    //
+    // This also VIOLATES THIS MODULE'S OWN MANDATE, quoted at the top of the
+    // file: "A triggered STOP must NEVER subsequently become FINAL_NO_TRIGGER."
+    // A triggered STOP whose single dispatch was refused became precisely that.
+    //
+    // The fix keeps the trigger latch exactly as it is — monotonic, never
+    // untriggered, still the authority on WHETHER the position must exit — and
+    // separates it from the question of whether the exit has actually been
+    // EXECUTED. The latch means "this position is committed to exiting"; it
+    // must not also mean "we already asked once, so never ask again". So the
+    // dispatch becomes a spaced retry that continues until the position is no
+    // longer open.
+    //
+    // Re-dispatch is safe because of where it is called from:
+    // CanonicalRiskClock6454 ticks ONLY over
+    // CanonicalPositionAuthority6441.openPositions(), so the moment a position
+    // actually closes the clock stops ticking it and no further attempt can be
+    // made. Nothing here can sell a closed position.
+    //
+    // No threshold, no lane rule and no protective decision changes. This only
+    // makes an exit that was already decided keep being attempted.
+
+    /**
+     * Minimum spacing between attempts on the same latched position. Long
+     * enough that a refusal is not hammered, short enough that a position
+     * freed by an exit ahead of it in the queue is retried promptly.
+     */
+    private const val REDISPATCH_INTERVAL_MS = 30_000L
+
+    /**
+     * positionId -> wallclock of the most recent sell dispatch. Seeded by
+     * [latchTrigger], because a latch and its first dispatch are simultaneous
+     * by construction; this map therefore only ever gates RETRIES.
+     */
+    private val lastDispatchMs = ConcurrentHashMap<String, Long>()
+    private val redispatches = AtomicLong(0L)
+    private val pruned = AtomicLong(0L)
+
+    /**
+     * Claim the right to dispatch a sell for a latched position, at most once
+     * per [REDISPATCH_INTERVAL_MS]. The claim is atomic, so two clock ticks
+     * racing on the same position cannot both dispatch.
+     *
+     * Returns false for a position that is not latched — the trigger decision
+     * still belongs entirely to [evaluate].
+     */
+    fun shouldDispatch7176(positionId: String): Boolean {
+        if (positionId.isBlank()) return false
+        if (!latches.containsKey(positionId)) return false
+        val now = System.currentTimeMillis()
+        val prev = lastDispatchMs[positionId]
+        if (prev == null) {
+            // Defensive only — latchTrigger seeds this for every latch it
+            // creates, so a latched position without a dispatch stamp should
+            // not exist. Claim it rather than silently never retrying.
+            if (lastDispatchMs.putIfAbsent(positionId, now) != null) return false
+        } else {
+            if (now - prev < REDISPATCH_INTERVAL_MS) return false
+            if (!lastDispatchMs.replace(positionId, prev, now)) return false
+        }
+        redispatches.incrementAndGet()
+        try {
+            ForensicLogger.lifecycle(
+                "PROTECTIVE_EXIT_REDISPATCH_7176",
+                "positionId=${positionId.take(12)} kind=${latches[positionId]?.kind} " +
+                    "sinceLastMs=${if (prev == null) -1L else now - prev} " +
+                    "note=latched_exit_had_not_executed_retrying_until_position_closes",
+            )
+            PipelineHealthCollector.labelInc("PROTECTIVE_EXIT_REDISPATCH_7176")
+        } catch (_: Throwable) {}
+        return true
+    }
+
+    /**
+     * Drop bookkeeping for positions that are no longer open. Called from the
+     * risk clock, which already holds the authoritative open set each tick.
+     *
+     * A positionId is never reused, so a pruned latch cannot resurrect a
+     * decision — this bounds two maps that previously grew for the life of the
+     * process.
+     */
+    fun pruneClosed7176(openPositionIds: Set<String>) {
+        if (openPositionIds.isEmpty()) return
+        var removed = 0
+        val it = latches.keys.iterator()
+        while (it.hasNext()) {
+            val id = it.next()
+            if (id !in openPositionIds) {
+                it.remove()
+                lastDispatchMs.remove(id)
+                removed++
+            }
+        }
+        val it2 = lastDispatchMs.keys.iterator()
+        while (it2.hasNext()) {
+            val id = it2.next()
+            if (id !in openPositionIds) {
+                it2.remove()
+                removed++
+            }
+        }
+        if (removed > 0) pruned.addAndGet(removed.toLong())
+    }
 
     /**
      * Attempt to untrigger — always denied. Records the attempt as a red-
@@ -232,6 +371,13 @@ object ProtectiveExitScheduler6450 {
             "TP=${tpTriggered.get()} TRAIL=${trailingsTriggered.get()} latched=${latches.size} " +
             "eval=${evaluations.get()} heartbeats=${heartbeats.get()} noMark=${noMark.get()} " +
             "noThreshold=${noThreshold.get()} " +
+            // V5.0.7176 — dispatch is now reported apart from the latch.
+            // dispatched==latched with redispatched=0 means every latched exit
+            // executed first time; redispatched climbing means exits are being
+            // refused downstream and retried, which is the condition that used
+            // to be invisible and permanent.
+            "redispatched=${redispatches.get()} awaitingExec=${latches.size} " +
+            "prunedClosed=${pruned.get()} " +
             "starvations=${starvations.get()} untriggerDenied=${untriggerAttempts.get()}"
     }
 }
