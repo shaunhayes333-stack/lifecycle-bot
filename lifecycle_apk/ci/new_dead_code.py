@@ -83,6 +83,15 @@ EXEMPT = {
     # accidental rewrite quietly amputate working code. Restored as-is and
     # recorded here.
     "cohortLoserAdvisoryForBand",
+    # V5.0.7164 — called, but by an object in the SAME file.
+    #
+    # EntryStrategySnapshot6450.mintHasAnySnapshot7164 exists for exactly one
+    # caller: MemeCausalLearning6568.record, which is declared further down
+    # EntryStrategySnapshot6450.kt. It cannot be private because that object is
+    # a separate declaration, and it cannot move to the caller because it reads
+    # the authority's private snapshot map. So it is wired, and this check's
+    # "outside its own file" test is the wrong question for it.
+    "mintHasAnySnapshot7164",
 }
 
 

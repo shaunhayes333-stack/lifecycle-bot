@@ -1113,12 +1113,45 @@ object KeylessLlmClient {
     }
 
     // ── Groq (operator key) ────────────────────────────────────────────────
+    //
+    // V5.0.7164 §ONE MODEL IS ONE RATE-LIMIT BUCKET.
+    //
+    // The operator's 5.0.7161 device holds a working Groq key — KeyValidator
+    // reports GROQ_HEALTHY http=200 — and the provider still reads
+    //
+    //   llm_groq  sr=2%  4xx=209        llmPenalties7150: llm_groq:RATE
+    //
+    // sr=2% is the tell. A dead model or a rejected key answers 0%; two
+    // percent means the route works and the budget does not. Groq meters the
+    // free tier PER MODEL, and 6498 pins every caller to exactly one, so the
+    // council's entire Groq capacity is one model's daily allowance. Once
+    // that bucket empties the provider is finished for the day, and 7150
+    // benches it on RATE every sixty seconds to rediscover the same thing.
+    //
+    // A 429 on one model says nothing about another. Same ladder shape as
+    // 7150 used for OpenRouter's dead slugs, extended to rotate on 429: when
+    // a model is out of budget, ask the next one. PRIMARY_MODEL stays the
+    // head of the ladder and the canonical health route, so 6498's one-model
+    // authority still holds for everything that asks "is Groq configured".
+    private val GROQ_MODEL_LADDER_7164 = listOf(
+        GroqRouteConfig6498.PRIMARY_MODEL,
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "openai/gpt-oss-120b",
+        "qwen/qwen3-32b",
+    )
+    @Volatile private var groqModelIdx7164: Int = 0
+
     private fun callGroq(system: String, user: String, maxTokens: Int): String? {
+        val idx7164 = groqModelIdx7164.coerceIn(0, GROQ_MODEL_LADDER_7164.size - 1)
+        val model7164 = GROQ_MODEL_LADDER_7164[idx7164]
         val payload = JSONObject().apply {
             // V5.0.6691 — one model authority. A stale hard-coded Groq model
             // here could fail independently of the canonical route used by
             // every other Groq client and silently collapse the fallback chain.
-            put("model", GroqRouteConfig6498.PRIMARY_MODEL)
+            // V5.0.7164 — the head of the ladder IS that authority; the rest
+            // are only reached when the head refuses this specific call.
+            put("model", model7164)
             put("max_tokens", maxTokens)
             put("temperature", 0.2)
             put("messages", JSONArray()
@@ -1132,11 +1165,30 @@ object KeylessLlmClient {
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
         exec(req, "llm_groq").use { resp ->
-            if (!okOrThrow(resp, "llm_groq")) return null
+            if (!okOrThrow(resp, "llm_groq")) {
+                // 429 = this model's budget, 404/400 = this model's name.
+                // Both are verdicts on the MODEL, not on the account, so the
+                // ladder advances. 401/403 are account-level and are left to
+                // classifyAndPenalise7150 — no model would help.
+                if (resp.code == 429 || resp.code == 404 || resp.code == 400) {
+                    groqModelIdx7164 = (idx7164 + 1) % GROQ_MODEL_LADDER_7164.size
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_GROQ_MODEL_ROTATED_7164")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "LLM_GROQ_MODEL_ROTATED_7164",
+                            "from=$model7164 to=${GROQ_MODEL_LADDER_7164[groqModelIdx7164]} http=${resp.code}",
+                        )
+                    } catch (_: Throwable) {}
+                }
+                return null
+            }
             val body = resp.body?.string() ?: return null
             val j = JSONObject(body)
-            return j.optJSONArray("choices")?.optJSONObject(0)
+            val out7164 = j.optJSONArray("choices")?.optJSONObject(0)
                 ?.optJSONObject("message")?.optString("content", "")?.trim()?.ifBlank { null }
+            // Stay on the model that answered.
+            if (out7164 != null && groqModelIdx7164 != idx7164) groqModelIdx7164 = idx7164
+            return out7164
         }
     }
 

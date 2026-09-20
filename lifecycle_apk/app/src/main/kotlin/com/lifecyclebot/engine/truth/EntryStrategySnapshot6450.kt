@@ -152,6 +152,30 @@ object EntryStrategySnapshot6450 {
 
     fun snapshot(positionId: String): Snapshot? = snapshots[positionId] ?: restore6567(positionId)
 
+    /**
+     * V5.0.7164 — DIAGNOSTIC ONLY. Returns the positionId of any snapshot
+     * holding this mint, or null.
+     *
+     * MemeCausalLearning6568 refuses every close whose positionId has no
+     * snapshot — 210 of them on the operator's 5.0.7161, which is 100% of
+     * that consumer's traffic. Two very different things produce that
+     * refusal: a position we never entered (wallet-recovered inventory,
+     * where refusing is exactly right — there is no entry to learn from),
+     * and a position we did enter that is being looked up under a different
+     * key (a defect, and the class 7158 already found once in the exit
+     * latch). The counter could not tell them apart.
+     *
+     * This answers that one question and nothing else. It is NOT a fallback
+     * lookup: the 6450 mandate forbids inferring a position's entry identity
+     * from mint state after the fact, and a mint can legitimately hold
+     * several positions over a session. Callers may count it. They may not
+     * read a lane, tactic or score out of it.
+     */
+    fun mintHasAnySnapshot7164(mint: String): String? {
+        if (mint.isBlank()) return null
+        return try { snapshots.entries.firstOrNull { it.value.mint == mint }?.key } catch (_: Throwable) { null }
+    }
+
     /** Explicit canonical migration event. Rare; only used when the
      *  operator confirms a legitimate re-classification via a canonical
      *  migration flag on the position. */
@@ -201,6 +225,30 @@ object MemeCausalLearning6568 {
         ensureRestored()
         val snap = EntryStrategySnapshot6450.snapshot(env.positionId) ?: run {
             try { PipelineHealthCollector.labelInc("CAUSAL_ENTRY_SNAPSHOT_MISSING_6568") } catch (_:Throwable) {}
+            // V5.0.7164 — say WHICH kind of missing. This consumer refuses
+            // 100% of its traffic and the bare counter cannot distinguish a
+            // position we never entered from one we entered under another
+            // key. See EntryStrategySnapshot6450.mintHasAnySnapshot7164.
+            try {
+                val recovered7164 = env.lane.uppercase().contains("RECOVER") ||
+                    env.exitReason.uppercase().contains("RECOVER") ||
+                    env.entrySource.uppercase().contains("RECOVER")
+                val otherKey7164 = EntryStrategySnapshot6450.mintHasAnySnapshot7164(env.mint)
+                PipelineHealthCollector.labelInc(
+                    when {
+                        recovered7164 -> "CAUSAL_ENTRY_SNAPSHOT_MISSING_RECOVERED_INVENTORY_7164"
+                        otherKey7164 != null -> "CAUSAL_ENTRY_SNAPSHOT_MISSING_MINT_KEYED_ELSEWHERE_7164"
+                        else -> "CAUSAL_ENTRY_SNAPSHOT_MISSING_NO_ENTRY_EVIDENCE_7164"
+                    },
+                )
+                if (otherKey7164 != null && !recovered7164) {
+                    ForensicLogger.lifecycle(
+                        "CAUSAL_ENTRY_SNAPSHOT_KEY_MISMATCH_7164",
+                        "mint=${env.mint.take(12)} lane=${env.lane} closeKey=${env.positionId.take(24)} " +
+                            "entryKey=${otherKey7164.take(24)} exit=${env.exitReason.take(30)}",
+                    )
+                }
+            } catch (_:Throwable) {}
             return false
         }
         val row = Row(snap.entryLane, snap.entryTactic, env.realizedReturnPct > 0.5, snap.entryScore.toDouble(), snap.entryLiquidityUsd,
