@@ -147,11 +147,92 @@ object ExecutableEntryAuthority6450 {
             coolUntil7035 = ownCooldown7035
         }
         val cooling = coolUntil7035 > System.currentTimeMillis()
-        val mult = when {
-            streak >= STREAK_HARD_LIMIT || cooling -> 0.35
+        // V5.0.7181 §A_COUNTER_WAS_OUTVOTING_THE_BRAIN.
+        //
+        // Operator: "the whole thing is meant to be fluid adaptive predictive
+        // and brain driven" — and the dominant term in entry sizing was
+        // `if (streak >= 2) 0.35`.
+        //
+        // This ladder and LaneExpectancyDamper measure THE SAME THING: is this
+        // lane currently bleeding. They are applied in different places —
+        // the damper at Executor:12826 and SmartSizer:813, this at
+        // ExecutableOpenGate — so neither knows the other ran, and the same
+        // evidence is counted twice. From the operator's 5.0.7176 run:
+        //
+        //   PROJECT_SNIPER  damper 0.91 x streak 0.35 = 0.32x
+        //   QUALITY         damper 0.59 x streak 0.35 = 0.21x
+        //   MOONSHOT        damper 0.54 x streak 0.35 = 0.19x
+        //   EXPRESS         damper 1.11 x streak 0.35 = 0.39x
+        //
+        // The EXPRESS line is the one that matters. That lane is the only
+        // profitable meme lane in the book — 1W/2L at +258.6% per trade, and
+        // its single winner (+871%) is most of the meme P&L. The learned organ
+        // agrees: it returns 1.11, the highest weight of any lane, which is
+        // why LaneCapitalFairness6732 hands EXPRESS the largest budget in the
+        // book at targetSol=1.8901. And then this counter sizes its entries at
+        // 0.35 because it had two losses.
+        //
+        // Two losses is not evidence in a lane that wins one trade in three
+        // and pays 800% when it does. A positive-skew lane spends most of its
+        // life on a losing streak; that is the shape, not a fault. Shrinking on
+        // a raw loss count is structurally guaranteed to make the position
+        // small exactly when the payoff arrives, which is the whole game.
+        //
+        // LaneExpectancyDamper already knows all of this. It is evidence
+        // weighted (trades/(trades+3)), sample gated (MIN_TRADES=8), floored
+        // (MIN_MULT=0.18) and explicitly runner aware — isRunnerLane plus
+        // RUNNER_MEAN_PCT and WR_RUNNER_MIN_PCT let a low-win-rate lane with a
+        // positive mean be BOOSTED rather than damped, which is exactly how
+        // EXPRESS earned its 1.11. This ladder has none of that. It counts to
+        // two and multiplies by a constant.
+        //
+        // So the counter hands lane-expectancy authority to the learner and
+        // keeps only the job the learner cannot do: covering the cold start.
+        // sizeMultiplier returns exactly 1.0 when it has no opinion, so that
+        // is the handover test — no new accessor, no second source of truth.
+        //
+        //   * learner has an opinion -> this organ returns 1.0 and the damper's
+        //     verdict stands alone, applied once, downstream.
+        //   * learner is neutral (too few closes) -> the streak prior applies
+        //     as before, so a brand-new bleeding lane is still protected.
+        //
+        // `cooling` is deliberately left as an override. That is a separate,
+        // time-bounded protective authority (LosingStreakReflex 6439), not a
+        // second reading of lane expectancy, and it expires on its own.
+        //
+        // Nothing is disabled, no lane is throttled, and no threshold moves.
+        // One duplicated measurement is removed, and the organ that measures
+        // it properly is the one left holding the vote.
+        val learnedMult7181 = try {
+            com.lifecyclebot.engine.LaneExpectancyDamper.sizeMultiplier(lane)
+        } catch (_: Throwable) { 1.0 }
+        val learnedHasOpinion7181 = learnedMult7181.isFinite() &&
+            kotlin.math.abs(learnedMult7181 - 1.0) > 1e-6
+        val streakPrior7181 = when {
+            streak >= STREAK_HARD_LIMIT -> 0.35
             streak >= STREAK_TIGHTEN_TWO -> 0.35
             streak >= STREAK_TIGHTEN_ONE -> 0.65
             else -> 1.0
+        }
+        val mult = when {
+            cooling -> 0.35
+            learnedHasOpinion7181 -> 1.0
+            else -> streakPrior7181
+        }
+        if (learnedHasOpinion7181 && !cooling && streakPrior7181 < 1.0) {
+            try {
+                PipelineHealthCollector.labelInc("ENTRY_STREAK_DEFERRED_TO_LEARNER_7181")
+                PipelineHealthCollector.labelInc(
+                    "ENTRY_STREAK_DEFERRED_TO_LEARNER_7181_${normalizedLane(lane)}",
+                )
+                ForensicLogger.lifecycle(
+                    "ENTRY_STREAK_DEFERRED_TO_LEARNER_7181",
+                    "lane=${normalizedLane(lane)} streak=$streak " +
+                        "streakPrior=${"%.2f".format(streakPrior7181)} " +
+                        "learnedMult=${"%.2f".format(learnedMult7181)} " +
+                        "action=lane_expectancy_is_the_learners_vote_counter_is_cold_start_only",
+                )
+            } catch (_: Throwable) {}
         }
         val shaped = (requestedSizeSol * mult).coerceAtLeast(0.0)
         allows.incrementAndGet()
