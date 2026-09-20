@@ -4518,7 +4518,7 @@ class BotService : Service() {
             val builtGeneration = com.lifecyclebot.engine.BotRuntimeController.currentGeneration()
             val sc = SolanaMarketScanner(
                 cfg          = { ConfigStore.load(applicationContext) },
-                onTokenFound = onTokenFound@{ mint, symbol, name, source, score, liquidityUsd, volumeH1 ->
+                onTokenFound = onTokenFound@{ mint, symbol, name, source, score, liquidityUsd, volumeH1, mcapUsd ->
                     try {
                         // V5.0.3682 — generation+state guard. Drop the callback
                         // silently if this scanner instance was built for an old
@@ -4552,7 +4552,7 @@ class BotService : Service() {
                             symbol = symbol,
                             name = name.ifBlank { symbol },
                             source = "SCANNER_HEAL_${source.name}",
-                            marketCapUsd = liquidityUsd * 10.0,
+                            marketCapUsd = mcapUsd, // V5.0.7147 — measured by the scanner, not liquidityUsd * 10.0
                             liquidityUsd = liquidityUsd,
                             volumeH1 = volumeH1,
                             confidence = score.toInt().coerceIn(1, 100),
@@ -6389,7 +6389,7 @@ class BotService : Service() {
                 val startBotScannerGen = runtimeGeneration
                 marketScanner = SolanaMarketScanner(
                     cfg          = { ConfigStore.load(applicationContext) },
-                    onTokenFound = onTokenFound@{ mint, symbol, name, source, score, liquidityUsd, volumeH1 ->
+                    onTokenFound = onTokenFound@{ mint, symbol, name, source, score, liquidityUsd, volumeH1, mcapUsd ->
                         try {
                             // V5.0.3682 — generation+state guard at the source.
                             // Drop silently if this scanner is for an old runtime
@@ -6488,7 +6488,7 @@ class BotService : Service() {
                                     symbol = identity.symbol,
                                     name = name.ifBlank { identity.symbol },
                                     source = "SCANNER_DIRECT_${source.name}",
-                                    marketCapUsd = liquidityUsd * 10.0,
+                                    marketCapUsd = mcapUsd, // V5.0.7147 — measured by the scanner, not liquidityUsd * 10.0
                                     liquidityUsd = liquidityUsd,
                                     volumeH1 = volumeH1,
                                     confidence = score.toInt().coerceIn(1, 100),
@@ -6513,7 +6513,7 @@ class BotService : Service() {
                                     symbol = identity.symbol,
                                     name = name.ifBlank { identity.symbol },
                                     source = source.name,
-                                    marketCapUsd = liquidityUsd * 10.0,
+                                    marketCapUsd = mcapUsd, // V5.0.7147 — measured by the scanner, not liquidityUsd * 10.0
                                     liquidityUsd = liquidityUsd,
                                     volumeH1 = volumeH1,
                                     confidence = score.toInt().coerceIn(1, 100),
@@ -22573,7 +22573,19 @@ if (hotExitHandledSweep) {
                 // is now requested out-of-lease; this entry worker returns and
                 // a later cycle consumes the hydrated mark.
                 requestEntryHydration6647(mint, ts)
-                val refreshed = false
+                // V5.0.7147 — `val refreshed = false` was a hardcoded literal,
+                // so the oracleHit field in the gate line below reported false
+                // on every single pass and carried no information whatsoever.
+                // The hydration above is deliberately fire-and-forget, so this
+                // pass genuinely cannot have consumed it — but whether one is
+                // IN FLIGHT is a real, observable fact, and it is the whole
+                // difference between "no fallback exists" and "the fallback
+                // has not answered yet". NO_PAIR_NO_FALLBACK was recording the
+                // second as the first, 206 times, and its name says the thing
+                // that is not true.
+                val hydrationPending7147 = try {
+                    entryHydrationPending6647.contains(mint)
+                } catch (_: Throwable) { false }
                 val synth = if (ts.lastPrice > 0.0) synthesizeFallbackPair(ts) else null
                 if (synth == null) {
                     // V5.0.6401 §9 — record hydration state so
@@ -22604,8 +22616,17 @@ if (hotExitHandledSweep) {
                         ForensicLogger.PHASE.INTAKE,
                         ts.symbol,
                         allow = false,
-                        reason = "NO_PAIR_NO_FALLBACK src=${ts.source} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} lastPrice=${ts.lastPrice} oracleHit=$refreshed hydrationState=$stateLabel",
+                        reason = "NO_PAIR_NO_FALLBACK src=${ts.source} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} lastPrice=${ts.lastPrice} oraclePending=$hydrationPending7147 hydrationState=$stateLabel",
                     )
+                    // V5.0.7147 — split the counter so the two cases stop
+                    // sharing one number. Awaiting an answer is not the same
+                    // event as having no route to an answer.
+                    try {
+                        PipelineHealthCollector.labelInc(
+                            if (hydrationPending7147) "INTAKE_AWAITING_HYDRATION_7147"
+                            else "INTAKE_NO_PAIR_NO_FALLBACK_7147",
+                        )
+                    } catch (_: Throwable) {}
                     // No usable price — last-resort exit safety net.
                     if (ts.position.qtyToken > 0.0 && ts.position.entryPrice > 0.0) {
                         runFallbackSafetyExit(ts, cfg, wallet)

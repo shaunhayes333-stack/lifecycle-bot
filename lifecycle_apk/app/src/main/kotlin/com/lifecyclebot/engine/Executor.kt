@@ -16651,7 +16651,11 @@ class Executor(
             // so live buys can never skip the rug pre-filter. HARD_FAIL is
             // a definitive block. SOFT_FAIL still passes (with telemetry).
             try {
-                val rugFilter = com.lifecyclebot.engine.HardRugPreFilter.filter(ts, isPaperMode = false)
+                // V5.0.7147 — this is the money door, so it carries the live
+                // absent-data hard block that used to fire during screening too.
+                val rugFilter = com.lifecyclebot.engine.HardRugPreFilter.filter(
+                    ts, isPaperMode = false, spendAuthorization = true,
+                )
                 if (!rugFilter.pass && rugFilter.severity == com.lifecyclebot.engine.HardRugPreFilter.FilterSeverity.HARD_FAIL) {
                     return false to "RUG_PREFILTER_HARD_FAIL:${rugFilter.reason ?: "unknown"}"
                 }

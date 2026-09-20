@@ -52,7 +52,27 @@ object HardRugPreFilter {
      * to pass through until their first API poll completes. Prevents premature
      * ZERO_LIQUIDITY blocks before real data is fetched.
      */
-    fun filter(ts: TokenState, isPaperMode: Boolean = false): PreFilterResult {
+    /**
+     * V5.0.7147 — `spendAuthorization` separates the two jobs this one
+     * function was doing.
+     *
+     * There are exactly two callers. BotService:23377 runs it as a SCREENING
+     * pass, deciding whether a candidate is worth spending evaluation cycles
+     * on. Executor:16654 runs it at the live buy door, deciding whether to
+     * spend real money, and blocks only on HARD_FAIL. The grace-period arm
+     * below hard-failed LIVE at both, which meant a token whose liquidity had
+     * simply not arrived yet was thrown out of evaluation entirely — 256
+     * HARD_RUG stamps, 55% of all pre-V3 losses, and live-only. Paper saw the
+     * same candidates and passed them.
+     *
+     * The V5.0.3926 requirement it was written for — "live entry must block or
+     * probe-only if RugCheck/LP/holder proof is unknown" — is a statement
+     * about AUTHORIZING A BUY. It is fully preserved by keeping the hard fail
+     * at the money door. Screening a candidate is not authorizing anything,
+     * and refusing to even look at a token because its data has not landed is
+     * an absence recorded as a rug.
+     */
+    fun filter(ts: TokenState, isPaperMode: Boolean = false, spendAuthorization: Boolean = false): PreFilterResult {
         // V5.6.29d: GRACE PERIOD FOR NEW TOKENS
         // Tokens just added to watchlist may not have liquidity data yet because:
         // 1. Scanner didn't populate it (async race condition - now fixed to be sync)
@@ -81,13 +101,21 @@ object HardRugPreFilter {
             // buy on UNKNOWN data. This is the rug-prevention requirement:
             // 'live entry must block or probe-only if RugCheck/LP/holder
             // proof is unknown.'
-            if (!isPaperMode) {
+            if (!isPaperMode && spendAuthorization) {
                 ErrorLogger.debug(TAG, "⛔ GRACE_BLOCK_LIVE: ${ts.symbol} age=${tokenAgeMs/1000}s hist=${ts.history.size} — live needs proof")
                 return PreFilterResult(
                     pass = false,
                     reason = "GRACE_PERIOD_DATA_UNAVAILABLE_LIVE",
                     severity = FilterSeverity.HARD_FAIL,
                 )
+            }
+            if (!isPaperMode) {
+                // Screening only. The candidate stays in evaluation so the
+                // hydration this data is waiting on can actually run; the buy
+                // door above still refuses it until proof lands.
+                try {
+                    PipelineHealthCollector.labelInc("GRACE_SCREENED_NOT_RUG_LIVE_7147")
+                } catch (_: Throwable) {}
             }
             ErrorLogger.debug(TAG, "⏳ GRACE PERIOD: ${ts.symbol} - no liquidity yet (age=${tokenAgeMs/1000}s, hist=${ts.history.size})")
             return PreFilterResult(

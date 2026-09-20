@@ -660,7 +660,19 @@ object ModeLearning {
  */
 class SolanaMarketScanner(
     private val cfg: () -> BotConfig,
-    private val onTokenFound: (mint: String, symbol: String, name: String, source: TokenSource, score: Double, liquidityUsd: Double, volumeH1: Double) -> Unit,
+    // V5.0.7147 — mcapUsd added. The scanner MEASURES a real market cap
+    // (pair.candle.marketCap / pair.fdv, resolved at the source walkers and
+    // carried on the token as mcapUsd — it is handed to LiquidityDepthAI two
+    // lines above the emit) and then dropped it at this boundary. Every
+    // consumer downstream was therefore forced to invent one, and all three
+    // intake call sites in BotService settled on `liquidityUsd * 10.0`. That
+    // made market cap a pure function of liquidity, which (a) made liq=0 imply
+    // mcap=0 mechanically and broke the intake's own "double zeros means NO
+    // DATA, not no liquidity" detector, and (b) made the pump.fun
+    // bonding-curve price seed — which requires lastMcap > 0 — structurally
+    // unreachable for exactly the tokens it was written for, since a bonding
+    // curve has no DEX pool and reads zero liquidity. Carry the measurement.
+    private val onTokenFound: (mint: String, symbol: String, name: String, source: TokenSource, score: Double, liquidityUsd: Double, volumeH1: Double, mcapUsd: Double) -> Unit,
     private val onLog: (String) -> Unit,
     private val getBrain: () -> BotBrain? = { null },
 ) {
@@ -1587,7 +1599,14 @@ class SolanaMarketScanner(
                     ?: profile.optString("name", "").ifBlank { symbol }
                 val liq = (pair?.liquidity ?: 0.0).let { if (it > 0.0) it else 500.0 }
                 val vol = pair?.candle?.volumeH1 ?: 0.0
-                val mcap = pair?.candle?.marketCap ?: (liq * 10.0)
+                // V5.0.7147 — an unmeasured market cap is 0.0 (unknown), not
+                // a multiple of liquidity. Every other walker in this file
+                // already uses `?: 0.0`; this one alone fabricated a figure,
+                // and downstream that figure is indistinguishable from a
+                // measurement. Note `liq` itself is floored to 500.0 two lines
+                // up, so the old fallback could invent a $5,000 market cap for
+                // a token whose liquidity was never read at all.
+                val mcap = pair?.candle?.marketCap ?: 0.0
                 val ageHours = pair?.pairCreatedAtMs?.let { (System.currentTimeMillis() - it) / 3_600_000.0 } ?: 24.0
                 val tx = pair?.candle?.let { it.buysH1 + it.sellsH1 } ?: 0
 
@@ -4009,7 +4028,8 @@ class SolanaMarketScanner(
             adjustedToken.source,
             adjustedToken.score,
             adjustedToken.liquidityUsd,
-            adjustedToken.volumeH1
+            adjustedToken.volumeH1,
+            adjustedToken.mcapUsd,
         )
     }
 
