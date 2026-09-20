@@ -189,9 +189,62 @@ object MarkAuthorityIntegrityGate6496 {
         // DefiLlama ran at sr=100% in the same snapshot that blocked its marks,
         // and Raydium is a primary Solana AMM. Neither is a weaker observation
         // than the five already here; they were simply never written down.
-        val realPriceSource = canonicalSource6548 in setOf(
+        val knownProvider7148 = canonicalSource6548 in setOf(
             "DEXSCREENER", "GECKOTERMINAL", "BIRDEYE", "JUPITER", "PUMPFUN", "DEFILLAMA", "RAYDIUM",
         )
+        // V5.0.7148 §THE_THIRD_TIME_THIS_LIST_HAS_BLOCKED_A_REAL_MARK.
+        //
+        // CI runtime smoke, 5.0.7145:
+        //
+        //   MARK_AUTHORITY_GATE_BLOCKED_6496 provenance=AUTHORITATIVE
+        //   src=FANOUT_CORROBORATED_7088_x2 priceUsd=0.000336 mcap=293254
+        //   liq=29325 blockReason6547=SOURCE_NOT_WHITELISTED
+        //   priceValid=true liquidityValid=true poolValid=true fresh=true
+        //
+        // Every substantive check passed. The mark was discarded because a
+        // string was missing from a set — and the string in question,
+        // FANOUT_CORROBORATED, denotes agreement between two independent
+        // providers, which is STRONGER evidence than any single name already
+        // on the list.
+        //
+        // 6548 fixed this for transport suffixes. 7004 fixed it for the
+        // KEYLESS_ prefix and DefiLlama, and wrote the lesson down: "making a
+        // label honest is only half a change. Every consumer that
+        // pattern-matches that label has to learn the new vocabulary in the
+        // same commit, or the honest label is just a new way to fail." That
+        // lesson was correct and it does not scale — a fourth label will be
+        // coined and this list will silently reject it too, because the
+        // failure is the SHAPE. An allow-list of provider names answers "have
+        // I seen this word before", when the question the comment at the top
+        // of Executor.REAL_PRICE_SOURCES actually poses is "is this a market
+        // observation, or our own accounting handed back to us".
+        //
+        // So ask that question. The symbolic bases are a small, stable,
+        // enumerable family — cost basis, rehydrated basis, restored basis,
+        // synthetic cost/qty, blank, unknown. Everything else is admitted
+        // ONLY when MarketDataProvenance6471, which inspects the actual
+        // numbers rather than the label, independently rates the observation
+        // AUTHORITATIVE. A new honest provider works the day it is named; a
+        // cost-basis fake still cannot pass, because it fails both tests.
+        val symbolicBasis7148 = canonicalSource6548.isBlank() ||
+            canonicalSource6548 == "UNKNOWN" ||
+            canonicalSource6548.contains("COST_BASIS") ||
+            canonicalSource6548.contains("BASIS_UNKNOWN") ||
+            canonicalSource6548.contains("SYNTH_COST") ||
+            canonicalSource6548.contains("REHYDRATE") ||
+            canonicalSource6548.contains("RESTORED") ||
+            canonicalSource6548.contains("ENTRY_PRICE") ||
+            canonicalSource6548.contains("LAST_KNOWN") ||
+            canonicalSource6548.contains("PLACEHOLDER")
+        val provenanceVouched7148 = !knownProvider7148 && !symbolicBasis7148 &&
+            provenance == MarketDataProvenance6471.Provenance.AUTHORITATIVE
+        if (provenanceVouched7148) {
+            try {
+                PipelineHealthCollector.labelInc("MARK_ADMITTED_ON_PROVENANCE_NOT_NAME_7148")
+                PipelineHealthCollector.labelInc("MARK_ADMITTED_ON_PROVENANCE_NOT_NAME_7148|$canonicalSource6548")
+            } catch (_: Throwable) {}
+        }
+        val realPriceSource = knownProvider7148 || provenanceVouched7148
         val priceValidity = fresh && priceUsd.isFinite() && priceUsd > 0.0
         val liquidityValidity = liquidityUsd.isFinite() && liquidityUsd > 0.0
         // V5.0.6596 §MARK_AUTHORITY_MINT_ROUTE_FOR_KNOWN_OPEN — a known-open

@@ -21233,10 +21233,29 @@ class Executor(
         val intent = classifyLiveExitIntent(ts, reason)
         if (intent.severity.ordinal >= LiveExitSeverity.RUNNER_PROTECT.ordinal) return false
         val minProfit = learnedMinProfitExitPct(ts)
+        // V5.0.7148 §THE_GATE_WAS_MATCHING_ITS_OWN_HANDWRITING.
+        //
+        // `contains("EXIT_ROUTE_RETRY")` was removed. No caller anywhere ever
+        // supplies that token — requestSell MANUFACTURES it, sixty lines
+        // above this gate, out of a blank or "exit" reason:
+        //
+        //     val requestReason = if (reason.isBlank() || reason == "exit")
+        //         "EXIT_ROUTE_RETRY_${trackerStatus}_${closeState}" else reason
+        //
+        // and then handed that rewritten string straight back to this
+        // predicate, which matched it and deferred the sell. The gate was
+        // reading its own handwriting and treating it as the caller's intent.
+        // 347 deferrals.
+        //
+        // The call site now passes the CALLER's reason, so "exit" is still
+        // caught by the `== "EXIT"` clause below and a genuine scrap-profit
+        // take-profit is still deferred. A BLANK reason no longer defers:
+        // a caller that did not say why is an absence, and turning an
+        // absence into a decision to hold is the defect this whole build is
+        // about.
         val terminalOrMaintenance = intent.normalizedReason.startsWith("RECONCILER_REQUEUE") ||
             intent.normalizedReason.contains("TAKE_PROFIT") || intent.normalizedReason.contains("PROFIT") ||
-            intent.normalizedReason.contains("TRAIL") || intent.normalizedReason == "EXIT" ||
-            intent.normalizedReason.contains("EXIT_ROUTE_RETRY")
+            intent.normalizedReason.contains("TRAIL") || intent.normalizedReason == "EXIT"
         return terminalOrMaintenance && intent.rawPnlPct in 0.0..(minProfit - 0.001)
     }
 
@@ -21398,7 +21417,10 @@ class Executor(
         // V5.0.3963 — no scrap-profit terminal sells. This is learned, not a
         // fixed moonshot table: per-lane expectancy/MFE provides the first
         // meaningful-profit floor; hard safety exits bypass.
-        if (isLivePositionEarly && liveProfitDustExitShouldDefer(ts, requestReason)) {
+        // V5.0.7148 — classify on the CALLER's reason, not on requestReason,
+        // which this function rewrote itself a few lines above. Telemetry
+        // below still reports requestReason so the logs stay comparable.
+        if (isLivePositionEarly && liveProfitDustExitShouldDefer(ts, reason)) {
             try {
                 val px = ts.lastPrice.takeIf { it > 0.0 } ?: ts.position.entryPrice
                 val pnl = if (ts.position.entryPrice > 0.0) ((px - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else 0.0
