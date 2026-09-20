@@ -133,9 +133,12 @@ object MarketDataProvenance6471 {
         "UNKNOWN", "FALLBACK", "CACHE_DEFAULT", "CACHE_TEMPLATE", "SYNTHETIC",
         ARCHIVED_MARK_SOURCE_6908,
         // The pre-existing warm-boot label written by Executor's cached-pool
-        // recovery path. It was never in this set, and it is simultaneously
-        // listed in Executor.REAL_PRICE_SOURCES, so a disk-cached price counted
-        // as a real provider feed on both sides of the boundary.
+        // recovery path. It was never in this set, and Executor simultaneously
+        // counted it a real provider feed, so a disk-cached price passed as
+        // live on both sides of the boundary. It is a sentinel HERE, on
+        // freshness; Executor's priceBasisFamily7166 still reads it as the
+        // market basis, which is a different question — a stale AMM price is
+        // stale, not measured on some other scale.
         "TOKEN_META_CACHE",
     )
 

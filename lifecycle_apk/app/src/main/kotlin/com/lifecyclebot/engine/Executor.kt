@@ -115,33 +115,80 @@ private const val CATASTROPHE_LIQ_FLOOR_USD_6904: Double = 5_000.0
 private const val CATASTROPHE_UNAMBIGUOUS_PCT_6904: Double = -60.0
 
 // V5.0.6054 — REAL PRICE SOURCES for route-lock enforcement.
-// Anything NOT in this set is treated as symbolic/recovery basis (e.g.
+// Anything NOT real is treated as symbolic/recovery basis (e.g.
 // LIVE_PROOF_COST_BASIS, RESTORED_LIVE_BASIS_UNKNOWN, SYNTH_COST_DIV_QTY,
 // WALLET_REHYDRATE_BASIS_UNKNOWN, UNKNOWN). Symbolic sources can never
 // match a live tick source, so route-lock would freeze the position
 // forever. Bypass it and self-heal on the first real on-route tick.
-private val REAL_PRICE_SOURCES: Set<String> = setOf(
-    "DEXSCREENER_WS",
-    "DEXSCREENER_PAIR_POLL",
-    "DEXSCREENER_POLL",
-    "PUMP_FUN_BC_SYNTHETIC",
-    "PUMP_FUN_FRONTEND_API",
-    "PUMP_PORTAL_WS",
-    "BIRDEYE",
-    "BIRDEYE_OVERVIEW",
-    "BIRDEYE_PRICE_FALLBACK",
-    "PAIR_FALLBACK",
-    "TOKEN_META_CACHE",
-    "ORACLE_FALLBACK",
-    "ORACLE_ZOMBIE_REFRESH",
-    "DANGER_ZONE_FRESH",
-    "JUPITER_QUOTE",
-    "JUPITER_PRICE",
-    "GECKO_TERMINAL",
-)
+//
+// V5.0.7166 §THE ALLOW-LIST WAS WRITTEN BEFORE THE FEEDS IT HAD TO NAME.
+//
+// 6054 enumerated the sixteen source labels that existed in 2026-06. Since
+// then the mark path was rebuilt three times and every one of its labels is
+// absent from that list:
+//
+//   BotService:10783  "DEXSCREENER_BATCH"
+//   BotService:10971  "FANOUT_CORROBORATED_7088_x$n" / "FANOUT_UNCORROBORATED_7088"
+//   BotService:10998  "KEYLESS_BATCH_6996"
+//   BotService:11093  "KEYLESS_$provider"
+//   BotService:14492  "TOKEN_META_ARCHIVE_6908"
+//                     "DEFILLAMA_CROSSCHAIN_7004", "TOKEN_MAP_CACHE_6513"
+//
+// 6999 is where it broke. Before it, every REST mark was stamped
+// "DEXSCREENER_WS" whatever answered — that was a reporting bug, and fixing
+// it to name the real provider silently un-listed the entire REST mark path.
+// A corroborated six-feed price is now classified the same as
+// "BASIS_UNKNOWN". One of those labels cannot even be matched by a literal
+// set: the corroboration count is IN the string, so x2 and x3 are different
+// "sources" on consecutive ticks.
+//
+// What that switches off is not small. Three separate builds of protection
+// live behind `isRealPriceSource(entry) && isRealPriceSource(tick)`:
+// 6895's cross-basis refusal, 7017's entry-mcap backfill and 7059's
+// same-source mcap cross-check — the guard written because paper booked
+// +15,532% on one rung and taught every learner that QUALITY prints money.
+// None of them has run on a fanout-marked position.
+//
+// So stop maintaining a list of everything that exists and classify what a
+// label MEANS instead. There are only three kinds, and the closed set is the
+// symbolic one because we write those stamps ourselves:
+//
+//   SYMBOLIC — an accounting stamp. No market observed this number.
+//   PUMP_BC  — pre-graduation bonding-curve pricing (mcap/1B). A different
+//              BASIS, which is the switch 6895 exists to catch.
+//   MARKET   — an observed AMM/aggregator price.
+//
+// Comparing FAMILY rather than label is the other half, and it must ship
+// with it: promoting these labels to "real" while still demanding an exact
+// string match would make route-lock reject every tick whose provider
+// rotated, freeze the position on its entry price, and hide real losses.
+// DexScreener's WS and its batch poll are the same basis; a fanout mark and
+// a keyless mark are the same basis; the bonding curve is not.
+private const val PRICE_BASIS_SYMBOLIC_7166 = "SYMBOLIC"
+private const val PRICE_BASIS_PUMP_BC_7166 = "PUMP_BC"
+private const val PRICE_BASIS_MARKET_7166 = "MARKET"
+
+private fun priceBasisFamily7166(source: String): String {
+    val s = source.trim().uppercase()
+    if (s.isBlank()) return PRICE_BASIS_SYMBOLIC_7166
+    return when {
+        s == "UNKNOWN" ||
+            s.contains("BASIS_UNKNOWN") || s.contains("COST_BASIS") ||
+            s.contains("SYNTH_COST") || s.contains("REHYDRATE") ||
+            s.contains("RESTORED") || s.contains("REPLAY") ||
+            s.contains("QUARANTIN") || s.contains("UNRECOVERABLE") ||
+            s.contains("CAPPED_EXIT") || s.contains("PENDING_CALLER") -> PRICE_BASIS_SYMBOLIC_7166
+        s.contains("PUMP") -> PRICE_BASIS_PUMP_BC_7166
+        else -> PRICE_BASIS_MARKET_7166
+    }
+}
 
 private fun isRealPriceSource(source: String): Boolean =
-    source.uppercase() in REAL_PRICE_SOURCES
+    priceBasisFamily7166(source) != PRICE_BASIS_SYMBOLIC_7166
+
+/** Same observable basis? Route-lock and the paper basis guard both ask this. */
+private fun sameBasis7166(entrySource: String, tickSource: String): Boolean =
+    priceBasisFamily7166(entrySource) == priceBasisFamily7166(tickSource)
 
 private enum class SellRoutePriority6099 { PUMP_FIRST, JUPITER_FIRST, UNKNOWN_BUY_ROUTE }
 
@@ -921,7 +968,9 @@ class Executor(
             pos.entryPriceSource.isNotBlank() &&
             ts.lastPriceSource.isNotBlank() &&
             isRealPriceSource(pos.entryPriceSource)) {
-            if (pos.entryPriceSource == ts.lastPriceSource) {
+            // V5.0.7166 — same BASIS, not same label. A provider rotation
+            // inside one basis is not an off-route tick.
+            if (sameBasis7166(pos.entryPriceSource, ts.lastPriceSource)) {
                 // On-route tick — cache as the live source of truth for
                 // future off-route reads.
                 pos.lastRoutePrice = livePrice
@@ -1044,7 +1093,10 @@ class Executor(
             pos.entryPrice > 0.0 &&
             pos.entryPriceSource.isNotBlank() && ts.lastPriceSource.isNotBlank() &&
             isRealPriceSource(pos.entryPriceSource) && isRealPriceSource(ts.lastPriceSource)) {
-            if (pos.entryPriceSource == ts.lastPriceSource) {
+            // V5.0.7166 — same BASIS, not same label. 6895's discriminator is
+            // a basis switch (bonding curve -> AMM), which is what this asks
+            // now; two AMM feeds disagreeing is 7059's job, immediately below.
+            if (sameBasis7166(pos.entryPriceSource, ts.lastPriceSource)) {
                 // On-basis tick — cache it so a later cross-source read has
                 // something truthful to fall back to.
                 pos.lastRoutePrice = livePrice
@@ -7906,7 +7958,11 @@ class Executor(
                     pos.isPaperPosition -> true                              // paper: no route-lock
                     entrySrc.isBlank() || tickSrc.isBlank() -> true          // unknown source: assume on-route (existing behaviour)
                     !isRealPriceSource(entrySrc) -> true                    // entry stamp is symbolic/recovery: no lock possible
-                    else -> entrySrc == tickSrc                              // real route: exact match required
+                    // V5.0.7166 — the same basis, not the same label. This
+                    // read gates whether a cached price may feed a positive
+                    // exit trigger; a provider rotation must not suppress a
+                    // real one, and a bonding-curve tick must not authorize one.
+                    else -> sameBasis7166(entrySrc, tickSrc)
                 }
             } catch (_: Throwable) { true }
             val cachedPnlVerdict6038 = if (cachedPx > 0.0 && cachedOnRoute) OpenPnlSanity.inspectPosition(pos, cachedPx, "Executor.quote_outage_cached_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true, mint = ts.mint) else OpenPnlSanity.Verdict(false, reason = if (!cachedOnRoute) "CACHED_OFF_ROUTE_6245" else "NO_CACHED_PRICE")

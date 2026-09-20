@@ -215,9 +215,10 @@ object MarkAuthorityIntegrityGate6496 {
         // lesson was correct and it does not scale — a fourth label will be
         // coined and this list will silently reject it too, because the
         // failure is the SHAPE. An allow-list of provider names answers "have
-        // I seen this word before", when the question the comment at the top
-        // of Executor.REAL_PRICE_SOURCES actually poses is "is this a market
-        // observation, or our own accounting handed back to us".
+        // I seen this word before", when the question Executor's route-lock
+        // actually poses is "is this a market observation, or our own
+        // accounting handed back to us". (V5.0.7166 applied this same
+        // reshaping there: Executor.priceBasisFamily7166.)
         //
         // So ask that question. The symbolic bases are a small, stable,
         // enumerable family — cost basis, rehydrated basis, restored basis,
