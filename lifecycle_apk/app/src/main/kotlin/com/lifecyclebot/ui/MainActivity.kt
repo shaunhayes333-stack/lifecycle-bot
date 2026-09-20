@@ -5444,8 +5444,25 @@ for legal compliance.
         // panel shows the held bag instead of disappearing.
         try {
             if (!isPaperMode) {
-                com.lifecyclebot.engine.HostWalletTokenTracker.getOpenTrackedPositions().forEach { hp ->
+                // V5.0.7135 — iterate EVERY tracked row, not the cap-countable ones.
+                //
+                // getOpenTrackedPositions() filters on isCapCountable, whose
+                // evidence expires by design (5-minute wallet-proof TTL, 3-minute
+                // fresh-buy liability, 45-minute bot-buy liability) because its job
+                // is to release a slot it can no longer vouch for. A held bag whose
+                // last wallet read aged out therefore never even reached this loop,
+                // which is the other half of the disappearing rows.
+                //
+                // snapshot() is the unfiltered tracked set. The two conditions that
+                // belong on a display are applied directly: the wallet holds a
+                // positive balance, and the position has not been recorded closed.
+                com.lifecyclebot.engine.HostWalletTokenTracker.snapshot().forEach { hp ->
                     if (hp.mint.isBlank() || alreadyRendered.contains(hp.mint)) return@forEach
+                    if (!(hp.uiAmount.isFinite() && hp.uiAmount > 0.0)) return@forEach
+                    if (try {
+                            com.lifecyclebot.engine.PositionCloseLedger.isClosed(hp.mint)
+                        } catch (_: Throwable) { false }
+                    ) return@forEach
                     val entryPx6040 = firstPositive(hp.entryPriceUsd, hp.currentPriceUsd)
                     val currentPx6040 = firstPositive(hp.currentPriceUsd, hp.entryPriceUsd)
                     val costSol6040 = firstPositive(hp.entrySol, hp.currentValueSol)
@@ -5477,17 +5494,47 @@ for legal compliance.
                         entryDex = "HOST_WALLET_TRACKER",
                         positionId = state.tokens[hp.mint]?.position?.positionId.orEmpty(),
                     )
-                    val canonicalMatch6636 = try {
-                        com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
-                            .isRuntimeOpenEligible6636(hp.mint, synth6040.position)
-                    } catch (_: Throwable) { false }
-                    if (canonicalMatch6636) {
-                        merged += synth6040
-                        alreadyRendered += hp.mint
-                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_PANEL_HOST_TRACKER_SYNTH_6040") } catch (_: Throwable) {}
-                    } else {
-                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_PANEL_HOST_TRACKER_REJECTED_CANONICAL_6636") } catch (_: Throwable) {}
-                    }
+                    // V5.0.7135 — A HELD BAG IS DISPLAYED. FULL STOP.
+                    //
+                    // Operator: "no token should be left undisplayed if currently
+                    // held by the bot. it makes the user feel like the token is
+                    // unmanaged and their money is lost! no held token should have
+                    // a lost mark."
+                    //
+                    // This block's own 6040 header already states the rule — "UI
+                    // display must never go blank while the wallet/tracker says
+                    // positions are open" — and then 6636 bolted a canonical gate
+                    // onto it that inverts it. The row was built from PROVEN wallet
+                    // quantity and then thrown away for failing a test about
+                    // canonical bookkeeping, which is a statement about the bot's
+                    // records, not about whether the operator owns the tokens.
+                    //
+                    // Those are two different questions and only one of them
+                    // belongs on a display. The money is on chain either way; the
+                    // person looking at the screen needs to see it either way.
+                    // Hiding it is the worst available outcome, because an
+                    // unshown bag reads as a lost bag.
+                    //
+                    // The close ledger still applies below — a genuinely sold mint
+                    // leaves the panel. This only refuses to hide what is held.
+                    merged += synth6040
+                    alreadyRendered += hp.mint
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_PANEL_HOST_TRACKER_SYNTH_6040")
+                        val provenCanonical7135 = try {
+                            com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
+                                .isRuntimeOpenEligible6636(hp.mint, synth6040.position)
+                        } catch (_: Throwable) { false }
+                        if (!provenCanonical7135) {
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_PANEL_HELD_SHOWN_WITHOUT_CANONICAL_7135")
+                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                "OPEN_PANEL_HELD_SHOWN_WITHOUT_CANONICAL_7135",
+                                "mint=${hp.mint.take(12)} symbol=${hp.symbol ?: "?"} qty=${qty6040} " +
+                                    "costSol=$costSol6040 entryUsd=$entryPx6040 status=${hp.status.name} " +
+                                    "buySig=${hp.buySignature?.take(10) ?: "-"} action=render_held_row_canonical_pending",
+                            )
+                        }
+                    } catch (_: Throwable) {}
                 }
             }
         } catch (_: Throwable) {}
@@ -5500,11 +5547,35 @@ for legal compliance.
         // Falls back to entryTime when entryPrice/ref aren't set yet
         // (a fresh open with no tick yet) so newly-opened positions
         // still appear before stale ones at 0%/0%.
+        // V5.0.7135 — the last gate was a third copy of the same veto.
+        //
+        // Every row in `merged` has already passed the canonical test at its own
+        // entry point, so re-testing here changed nothing for them — its only
+        // effect was to delete the held rows the 6040 pass had just rescued, one
+        // statement after rescuing them.
+        //
+        // A row survives now if EITHER the canonical projection proves it OR the
+        // wallet still holds it. A sold mint is removed by the close ledger, which
+        // is a terminal monotonic fact; nothing else may hide a held bag.
+        fun heldByBot7135(ts: com.lifecyclebot.data.TokenState): Boolean {
+            if (ts.mint.isBlank()) return false
+            if (try { com.lifecyclebot.engine.PositionCloseLedger.isClosed(ts.mint) } catch (_: Throwable) { false }) return false
+            val entry7135 = try {
+                com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(ts.mint)
+            } catch (_: Throwable) { null } ?: return false
+            return entry7135.uiAmount.isFinite() && entry7135.uiAmount > 0.0
+        }
         return merged.filter { ts ->
-            try {
+            val canonical7135 = try {
                 com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
                     .isRuntimeOpenEligible6636(ts.mint, ts.position)
             } catch (_: Throwable) { false }
+            if (canonical7135) return@filter true
+            val held7135 = heldByBot7135(ts)
+            if (held7135) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_PANEL_RETAINED_ON_WALLET_HELD_7135") } catch (_: Throwable) {}
+            }
+            held7135
         }.sortedWith(
             compareByDescending<com.lifecyclebot.data.TokenState> { ts ->
                 val verdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "MainActivity.openSort/${ts.symbol}/${ts.mint.take(8)}", emit = false)
