@@ -31024,8 +31024,59 @@ if (hotExitHandledSweep) {
     // lastSeenPrice / lastPriceUpdateMs never got touched even when Birdeye
     // or pump.fun had fresh data. Each updateLivePrice is a no-op for
     // traders that don't hold the mint, so it's safe to fan out blindly.
-    private fun broadcastFallbackPrice(mint: String, priceUsd: Double) {
+    //
+    // V5.0.7175 §THE_THIRD_PLACE_THE_APP_WRITES_A_MARK.
+    //
+    // V5.0.6999 taught the Solana open-position tick loop to stamp
+    // QuoteFreshnessGuard when it commits a mark, because the exit feed tests
+    // PROVENANCE, not ts.lastPrice. V5.0.7010 found the same hole in the
+    // cross-asset router and stamped that too, and its own comment says the
+    // 6999 fix "covered one of the two places the app writes a mark."
+    //
+    // There were three. tryFallbackPriceData is the exit feed's OWN dedicated
+    // Solana refresh — the coroutine canonicalExitTokenSnapshot6512 launches
+    // for precisely the positions it just counted as unmarked — and all four
+    // of its success branches write ts.lastPrice and stamp nothing.
+    //
+    // That closes a loop that can never open:
+    //
+    //   refreshNeeded6651 = ... || !provenanceFresh6651     -> true
+    //     -> launch tryFallbackPriceData(mint, ts)
+    //       -> a provider answers, ts.lastPrice is committed, returns true
+    //         -> nothing is written to the guard the exit feed consults
+    //           -> provenanceFresh6651 is still false on the next tick
+    //             -> refreshNeeded6651 is true again, forever.
+    //
+    // The position is priced and the exit engine cannot see that it is priced,
+    // so MissingMarkExitVeto6835 keeps deferring, StalePriceExitGuard keeps
+    // returning refresh_hold_no_terminal, the basis stays in openCost and the
+    // cash never comes back. Operator 5.0.7174: missingMark=33 of 72 open,
+    // STALE_PRICE_EXIT_DEFERRED_6825=2081, cash 3.2096 against openCost 8.8572,
+    // INSUFFICIENT_SOL=108, BELOW_MIN_NOTIONAL=98. Funded entries were being
+    // refused for want of cash that unexitable inventory was sitting on.
+    //
+    // This is the ONE function all four commit branches already call, and every
+    // caller is a live REST provider reply (Birdeye overview, the DexScreener
+    // token-address endpoint, BirdeyeOracle, the pump.fun frontend) — verified
+    // by grep, four call sites, no synthetic or derived price reaches here. So
+    // the stamp belongs here, where a mark write and its provenance can no
+    // longer be separated by a fifth branch someone adds later.
+    //
+    // `provenanceSource7175` is REQUIRED rather than defaulted for that exact
+    // reason: a future caller must state where its number came from, and a
+    // caller holding a DERIVED price must not reach this function at all.
+    // Nothing about exit thresholds or protective logic changes here — this
+    // only lets the exit engine see marks it is already being given.
+    private fun broadcastFallbackPrice(mint: String, priceUsd: Double, provenanceSource7175: String) {
         if (priceUsd <= 0) return
+        try {
+            com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.note(
+                mint = mint,
+                priceUsd = priceUsd,
+                source = com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.Provenance.REST_LIVE,
+            )
+            PipelineHealthCollector.labelInc("EXIT_FALLBACK_MARK_STAMPED_7175_$provenanceSource7175")
+        } catch (_: Throwable) {}
         try { com.lifecyclebot.v3.scoring.QualityTraderAI.updateLivePrice(mint, priceUsd) } catch (_: Throwable) {}
         try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.updateLivePrice(mint, priceUsd) } catch (_: Throwable) {}
         try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.updateLivePrice(mint, priceUsd) } catch (_: Throwable) {}
@@ -31393,7 +31444,7 @@ if (hotExitHandledSweep) {
                         if (ts.history.size > 300) ts.history.removeFirst()
                     }
                 }
-                broadcastFallbackPrice(mint, ov.priceUsd)   // V5.9.423
+                broadcastFallbackPrice(mint, ov.priceUsd, "BIRDEYE_OVERVIEW")   // V5.9.423, V5.0.7175
                 addLog("📡 Birdeye: ${ts.symbol} \$${ov.priceUsd}", mint)
                 return true
             }
@@ -31416,7 +31467,7 @@ if (hotExitHandledSweep) {
                         ts.lastPriceUpdate = System.currentTimeMillis()
                         ts.lastPriceSource = "PAIR_FALLBACK"  // V5.9.744
                     }
-                    broadcastFallbackPrice(mint, priceUsd)
+                    broadcastFallbackPrice(mint, priceUsd, "DEXSCREENER_TOKEN")   // V5.0.7175
                     addLog("📊 DexScreener(token): ${ts.symbol} \$${priceUsd}", mint)
                     return true
                 }
@@ -31439,7 +31490,7 @@ if (hotExitHandledSweep) {
                         ts.lastPriceUpdate = System.currentTimeMillis()
                         ts.lastPriceSource = "PAIR_FALLBACK"  // V5.9.744
                     }
-                    broadcastFallbackPrice(mint, priceUsd)
+                    broadcastFallbackPrice(mint, priceUsd, "BIRDEYE_ORACLE")   // V5.0.7175
                     addLog("🐦 BirdeyeOracle: ${ts.symbol} \$${priceUsd}", mint)
                     return true
                 }
@@ -31523,7 +31574,7 @@ if (hotExitHandledSweep) {
                                 }
                             }
                             addLog("🎯 Pump.fun: ${ts.symbol} mcap=\$${mcap.toInt()} priceUsd=\$${String.format("%.10f", priceUsd)}", mint)
-                            broadcastFallbackPrice(mint, priceUsd)   // V5.9.423
+                            broadcastFallbackPrice(mint, priceUsd, "PUMPFUN_FRONTEND")   // V5.9.423, V5.0.7175
                             return true
                         }
                     }
