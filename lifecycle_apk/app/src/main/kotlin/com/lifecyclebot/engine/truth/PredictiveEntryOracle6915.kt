@@ -818,9 +818,72 @@ object PredictiveEntryOracle6915 {
             return f
         }
 
+        // ── V5.0.7174 §A REFUSAL ABOUT A CANDIDATE NEEDS EVIDENCE ABOUT THAT
+        //    CANDIDATE. ────────────────────────────────────────────────────
+        //
+        // Operator: "there's no trade volume at all... totally choked out",
+        // and "don't miss profitable trade opportunities if the capital is
+        // there to fund the trade."
+        //
+        // Their 5.0.7171, with 3.96 SOL of idle cash and most lanes under a
+        // fifth of their allocation:
+        //
+        //   Predictive oracle: evals=1837  admit=0  refuse=1837
+        //   Learner degeneracy: PredictiveEntryOracle6915 top=REFUSE@1.00:DEGENERATE
+        //   refusal reason: NEGATIVE_EXPECTANCY_WITH_EVIDENCE_6915
+        //                   [lane(n=4,E=-23.4,WR=25%) global(n=15,E=-30.1)]
+        //
+        // Every single evaluation refused. Work the arithmetic on that line:
+        // weight is n/(n+6), so lane n=4 gives 0.40 and global n=15 gives
+        // 0.71; confidence = max*0.5 + mean*0.5 = 0.64, which clears
+        // MIN_CONFIDENCE_TO_REFUSE = 0.45. The refusal is carried by GLOBAL.
+        //
+        // Global is "the whole book". It is not a property of this candidate
+        // at all — it is a property of the bot. Fifteen bad closes are enough
+        // to put global's weight over the bar on its own, so one bad run
+        // refuses every future candidate in every lane, which prevents the
+        // trades that would produce a different fifteen. Same shape as the
+        // regime latch 7173 fixed, one layer down.
+        //
+        // MIN_CONFIDENCE_TO_REFUSE's own doc says the bar exists so the stack
+        // "is allowed to be pessimistic, but not to act on pessimism it
+        // cannot support", and 6927 forty lines up says "you should not
+        // refuse an entry because a thin cohort produced a gloomy mean".
+        // Both are right and neither holds while a book-wide average can
+        // satisfy the bar by itself.
+        //
+        // So the REFUSE gate is measured on the CANDIDATE-SPECIFIC levels
+        // only — its cell and its lane. Global keeps its full influence on
+        // the estimate (finalE is unchanged, and the blend above still uses
+        // every level); it simply cannot be the evidence that authorises a
+        // refusal. ADMIT is deliberately left on the original confidence:
+        // the operator's instruction is not to miss funded opportunities, and
+        // tightening the admit bar here would do exactly that.
+        //
+        // With the operator's numbers this turns a REFUSE into a PROBE —
+        // lane n=4 alone is 0.40, below the bar — which is the honest verdict
+        // for four samples. A lane that has actually earned a refusal
+        // (n>=10 -> 0.63, n=20 -> 0.77) still refuses.
+        val specificLevels7174 = levels.filter { it.name != "global" }
+        val refuseConfidence7174 = if (specificLevels7174.isEmpty()) 0.0 else {
+            val sSum = specificLevels7174.sumOf { it.weight }
+            (specificLevels7174.maxOf { it.weight } * 0.5 +
+                (sSum / specificLevels7174.size.toDouble()) * 0.5).coerceIn(0.0, 1.0)
+        }
+        if (finalE <= REFUSE_EXPECTANCY_PCT && confidence >= MIN_CONFIDENCE_TO_REFUSE &&
+            refuseConfidence7174 < MIN_CONFIDENCE_TO_REFUSE
+        ) {
+            try {
+                PipelineHealthCollector.labelInc("ORACLE_REFUSE_DOWNGRADED_GLOBAL_ONLY_EVIDENCE_7174")
+                PipelineHealthCollector.labelInc(
+                    "ORACLE_REFUSE_DOWNGRADED_GLOBAL_ONLY_EVIDENCE_7174_${laneKey.take(20)}",
+                )
+            } catch (_: Throwable) {}
+        }
+
         // ── VERDICT ─────────────────────────────────────────────────────────
         val verdict = when {
-            finalE <= REFUSE_EXPECTANCY_PCT && confidence >= MIN_CONFIDENCE_TO_REFUSE -> Verdict.REFUSE
+            finalE <= REFUSE_EXPECTANCY_PCT && refuseConfidence7174 >= MIN_CONFIDENCE_TO_REFUSE -> Verdict.REFUSE
             finalE > ADMIT_EXPECTANCY_PCT && confidence >= MIN_CONFIDENCE_TO_REFUSE -> Verdict.ADMIT
             else -> Verdict.PROBE
         }
