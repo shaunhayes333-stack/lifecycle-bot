@@ -122,6 +122,17 @@ object LearnedAdmissionAuthority6846 {
     private const val COHORT_PROBE_WINDOW_NEGATIVE_MS_6909 = 300_000L
     private const val COHORT_BUDGET_MAX_KEYS_6909 = 2_000
 
+    /**
+     * V5.0.7139 — a probe is a quarter-size information purchase, not an entry.
+     *
+     * Chosen to sit below the regime damper already in force (DUMP applies
+     * sizeMult 0.35) and below the worst lane's expectancy damper
+     * (PROJECT_SNIPER x0.40 on the 7136 device), so a probe is unambiguously
+     * the smallest thing the system does rather than another full bet wearing
+     * a different label.
+     */
+    private const val PROBE_SIZE_FRACTION_7139: Double = 0.25
+
     private val cohortProbeLastMs6909 = ConcurrentHashMap<String, Long>()
 
     /**
@@ -223,9 +234,31 @@ object LearnedAdmissionAuthority6846 {
                 inputs.expectedPnl < 0.0 &&
                 lanePWin < DUMP_STRONG_PWIN_MAX
             if (strongNegative) {
-                // Deny normal, allow probe.
-                return probe("REGIME_DUMP_STRONG_NEGATIVE", inputs,
-                    "dump strong n=${inputs.cohortSample} lanePWin=${"%.2f".format(lanePWin)} EV=${"%.2f".format(inputs.expectedPnl)}")
+                // V5.0.7139 — the WORST cohort was the only one with no budget.
+                //
+                // "Deny normal, allow probe" had no meter on it, while the
+                // strictly WEAKER case below (COHORT_MATURE_NEGATIVE_6909) runs
+                // every probe through cohortProbeBudgetAllows6909. So the
+                // evidence ran backwards: the more certain the system was that a
+                // cohort loses money, the more freely it was allowed to keep
+                // buying it. The 7136 device shows the result —
+                // ENTRY_AUTHORITY_DENY_REASON_REGIME_DUMP_STRONG_NEGATIVE fired
+                // 716 times in 210 seconds, unmetered.
+                //
+                // Same meter, same fallback, same wording as the weaker branch:
+                // this is not a disable. The cohort is admitted again on the
+                // next window, so exploration continues at a rate the evidence
+                // justifies instead of continuously.
+                val dumpCohortKey7139 = "$laneKey|S${inputs.scoreBand}|$regimeKey"
+                val dumpBudgeted7139 = cohortProbeBudgetAllows6909(dumpCohortKey7139, provenDead = true)
+                val dumpDetail7139 = "dump strong n=${inputs.cohortSample} " +
+                    "lanePWin=${"%.2f".format(lanePWin)} EV=${"%.2f".format(inputs.expectedPnl)} " +
+                    "cohort=$dumpCohortKey7139 budgeted=$dumpBudgeted7139"
+                return if (dumpBudgeted7139) {
+                    probe("REGIME_DUMP_STRONG_NEGATIVE", inputs, dumpDetail7139)
+                } else {
+                    deny("REGIME_DUMP_STRONG_NEGATIVE_PROBE_BUDGET_7139", inputs, dumpDetail7139)
+                }
             }
             val matureNegative =
                 inputs.cohortSample >= DUMP_MATURE_MIN_N &&
@@ -499,9 +532,44 @@ object LearnedAdmissionAuthority6846 {
                     "category=$category $detail",
             )
         } catch (_: Throwable) {}
-        val probeSize = inputs.probeSizeSol
+        // V5.0.7139 — A PROBE WAS THE SAME SIZE AS A CONVICTION ENTRY.
+        //
+        // Operator: "it seems to be good at losing money live."
+        //
+        // Both callers of this authority pass requestedSizeSol = 1.0 AND
+        // probeSizeSol = 1.0 (ExecutableOpenGate:2970, BotService:23875) — these
+        // are size MULTIPLIERS, and the old arithmetic was:
+        //
+        //     probeSizeSol(1.0).coerceAtLeast(minExecutable 0.0)
+        //                      .coerceAtMost(requestedSizeSol 1.0)   ->  1.0
+        //
+        // So every "deny normal, allow probe" decision returned FULL SIZE. The
+        // word probe appeared in the verdict, the telemetry and the reason
+        // string, and nowhere in the arithmetic. On the 5.0.7136 device that
+        // produced 716 full-size entries under
+        // ENTRY_AUTHORITY_DENY_REASON_REGIME_DUMP_STRONG_NEGATIVE, in a DUMP
+        // regime, against V3 scores of -31 to -37, with the cohort at
+        // PROJECT_SNIPER|S0-10 losses=9 wins=1 meanPnl=-57.95%.
+        //
+        // A probe exists to BUY INFORMATION CHEAPLY. Its whole justification is
+        // that being wrong is affordable, which is false at 1.0. The fraction
+        // below restores that meaning, and the caller's own probe size still
+        // wins when it is smaller, so nothing that already asked for a small
+        // probe is made larger.
+        //
+        // The floor still applies: minExecutableSol and the fluid routable floor
+        // downstream (SmartSizerV3 7127) keep a probe executable rather than
+        // dust. This shrinks bets on no information; it does not disable a lane,
+        // block a probe, or change any threshold that decides WHETHER to enter.
+        val requested7139 = inputs.requestedSizeSol.coerceAtLeast(0.0)
+        val callerProbe7139 = inputs.probeSizeSol.coerceAtLeast(0.0)
+            .takeIf { it > 0.0 } ?: requested7139
+        val probeSize = minOf(callerProbe7139, requested7139 * PROBE_SIZE_FRACTION_7139)
             .coerceAtLeast(inputs.minExecutableSol.coerceAtLeast(0.0))
-            .coerceAtMost(inputs.requestedSizeSol.coerceAtLeast(0.0))
+            .coerceAtMost(requested7139)
+        try {
+            PipelineHealthCollector.labelInc("ENTRY_AUTHORITY_PROBE_SIZED_7139")
+        } catch (_: Throwable) {}
         return Decision(Verdict.PROBE_ONLY, probeSize, "probe:$category:$detail", category)
     }
 
