@@ -28,8 +28,16 @@ import java.util.concurrent.atomic.AtomicLong
  * close owner could leave Lifecycle.CLOSING forever; every later paper sell
  * then returned REJECTED_ALREADY_CLOSING and the position could never round
  * trip. PAPER may reclaim a proven-stale reservation while the canonical
- * position is still open. LIVE is deliberately unchanged/fail-closed because
- * live finality may legitimately wait on chain confirmation/balance proof.
+ * position is still open.
+ *
+ * V5.0.7146 — LIVE now has an age too, on a six-times-longer window, because
+ * liveSell reserves and never releases (no finally block, and no call to
+ * confirmTerminalSell or abandonTerminalSell anywhere in its body) and the
+ * 6702 fail-closed choice therefore made one failed attempt permanent. An
+ * unregistered id that the canonical authority proves still owns quantity is
+ * likewise reserved rather than refused: liveBuy never calls onEntry, so
+ * absence from this ledger is an absence of observation, not evidence that
+ * the position is gone.
  */
 object PositionStateLedger6454 {
 
@@ -53,6 +61,26 @@ object PositionStateLedger6454 {
     private const val PAPER_STALE_CLOSING_MS_6702 = 30_000L
     private const val PAPER_EMERGENCY_STALE_CLOSING_MS_6702 = 2_000L
 
+    // V5.0.7146 — live reservations leak, so live needs an age too.
+    //
+    // liveSell reserves at Executor:24367 and has no finally block and no call
+    // to confirmTerminalSell or abandonTerminalSell anywhere in its body; all
+    // four release call sites are inside paperSell. Every one of its non-terminal
+    // returns therefore strands Lifecycle.CLOSING forever, after which
+    // reserveTerminalSell answers REJECTED_ALREADY_CLOSING and exitEligibility6570
+    // answers TERMINAL_CLAIM_ACTIVE for the life of the process. Real tokens,
+    // permanently unsellable, from one failed attempt.
+    //
+    // The 6702 note reasoned that LIVE must stay fail-closed because live
+    // finality may legitimately wait on chain confirmation. That is true of a
+    // close that is IN FLIGHT; it is not true of one abandoned minutes ago. The
+    // window below is six times the paper window precisely so a genuinely
+    // pending confirmation is never interrupted, and recovery still requires the
+    // canonical authority to prove the position is economically open — if the
+    // close did land, remainingQtyRaw is zero and nothing is reclaimed.
+    private const val LIVE_STALE_CLOSING_MS_7146 = 180_000L
+    private const val LIVE_EMERGENCY_STALE_CLOSING_MS_7146 = 30_000L
+
     private fun emergencyReason6702(reason: String): Boolean {
         val r = reason.uppercase()
         return listOf(
@@ -64,6 +92,41 @@ object PositionStateLedger6454 {
     private fun canonicalOpenPaper6702(positionId: String): Boolean {
         val p = try { CanonicalPositionAuthority6441.getPosition(positionId) } catch (_: Throwable) { null }
         return p != null && p.mode.equals("paper", true) && p.remainingQtyRaw > java.math.BigInteger.ZERO
+    }
+
+    /** V5.0.7146 — canonical proof that a LIVE position still owns quantity. */
+    private fun canonicalOpenLive7146(positionId: String): Boolean {
+        val p = try { CanonicalPositionAuthority6441.getPosition(positionId) } catch (_: Throwable) { null }
+        return p != null && !p.mode.equals("paper", true) && p.remainingQtyRaw > java.math.BigInteger.ZERO
+    }
+
+    /** V5.0.7146 — canonical proof of remaining quantity, either mode. */
+    private fun canonicalOpenWithQty7146(positionId: String): Boolean {
+        val p = try { CanonicalPositionAuthority6441.getPosition(positionId) } catch (_: Throwable) { null }
+        return p != null && p.remainingQtyRaw > java.math.BigInteger.ZERO
+    }
+
+    /**
+     * V5.0.7146 — LIVE stale reservation recovery, the mirror of the 6702 paper
+     * path. Returns true only when this caller moves the exact stale CLOSING
+     * back to OPEN; the CAS in reserveTerminalSell then owns a fresh attempt.
+     */
+    private fun recoverStaleLiveClosing7146(positionId: String, reason: String, now: Long): Boolean {
+        if (!canonicalOpenLive7146(positionId)) return false
+        val since = closingSinceMs6702[positionId] ?: return false
+        val age = now - since
+        val ttl = if (emergencyReason6702(reason)) LIVE_EMERGENCY_STALE_CLOSING_MS_7146 else LIVE_STALE_CLOSING_MS_7146
+        if (age < ttl) return false
+        if (!states.replace(positionId, Lifecycle.CLOSING, Lifecycle.OPEN)) return false
+        closingSinceMs6702.remove(positionId, since)
+        try {
+            PipelineHealthCollector.labelInc("LIVE_TERMINAL_STALE_CLOSING_RECOVERED_7146")
+            ForensicLogger.lifecycle(
+                "LIVE_TERMINAL_STALE_CLOSING_RECOVERED_7146",
+                "positionId=${positionId.take(18)} ageMs=$age ttlMs=$ttl reason=${reason.take(80)} action=closing_to_open_retry",
+            )
+        } catch (_: Throwable) {}
+        return true
     }
 
     /**
@@ -146,6 +209,36 @@ object PositionStateLedger6454 {
         val now = System.currentTimeMillis()
         var prior = states.putIfAbsent(positionId, Lifecycle.CLOSING)
         if (prior == null) {
+            // V5.0.7146 — an unregistered id is an ABSENCE, not proof the
+            // position does not exist.
+            //
+            // Every call site of onEntry is paper-side (Executor:15450, :15598,
+            // :22753; CanonicalPaperTransaction6486:460, :526; the 6441 recovery
+            // carry). The live buy commit registers CanonicalLotQuantity6464,
+            // EconomicEventSchema6464, CanonicalMintOccupancyRegistry6464 and
+            // EntryStrategySnapshot6450 — and skips the one ledger the sell door
+            // reads. A live pid therefore only ever appears here once the
+            // periodic syncFromCanonical6519 projection has swept it, so
+            // refusing the sell means the position's sellability is a race
+            // against a maintenance pass rather than a property of the open.
+            //
+            // When the canonical authority can PROVE remaining quantity, the
+            // CLOSING that putIfAbsent just wrote IS the correct reservation.
+            // Keep it instead of rolling it back. Without canonical proof the
+            // original fail-closed refusal stands, unchanged.
+            if (canonicalOpenWithQty7146(positionId)) {
+                closingSinceMs6702[positionId] = now
+                reservations.incrementAndGet()
+                try {
+                    ForensicLogger.lifecycle(
+                        "TERMINAL_SELL_SEEDED_FROM_CANONICAL_7146",
+                        "positionId=${positionId.take(18)} reason=${reason.take(40)} action=unregistered_but_canonically_open",
+                    )
+                    PipelineHealthCollector.labelInc("TERMINAL_SELL_SEEDED_FROM_CANONICAL_7146")
+                    PipelineHealthCollector.labelInc("TERMINAL_SELL_RESERVED_6454")
+                } catch (_: Throwable) {}
+                return ReserveResult.RESERVED
+            }
             states.remove(positionId, Lifecycle.CLOSING)
             closingSinceMs6702.remove(positionId)
             reservationRejects.incrementAndGet()
@@ -162,7 +255,11 @@ object PositionStateLedger6454 {
         // V5.0.6702 — reclaim only PAPER reservations proven stale while their
         // canonical position remains economically open. Then continue through
         // the normal OPEN->CLOSING CAS below in this same call.
-        if (prior == Lifecycle.CLOSING && recoverStalePaperClosing6702(positionId, reason, now)) {
+        // V5.0.7146 extends the same treatment to LIVE on a longer window.
+        if (prior == Lifecycle.CLOSING &&
+            (recoverStalePaperClosing6702(positionId, reason, now) ||
+                recoverStaleLiveClosing7146(positionId, reason, now))
+        ) {
             prior = Lifecycle.OPEN
         }
 

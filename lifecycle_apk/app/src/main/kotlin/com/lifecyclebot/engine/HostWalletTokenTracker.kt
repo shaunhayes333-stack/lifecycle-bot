@@ -1211,6 +1211,20 @@ object HostWalletTokenTracker {
 
         purgeOrphanRecoveredRows("WALLET_SNAPSHOT")
         try { RecoveredHoldGuard.reconcileWithHeldMints(walletMints.keys) } catch (_: Throwable) {}
+        // V5.0.7146 — walletMints is POSITIVE proof the tokens are still here,
+        // and this is the only place in the tree that holds that proof at the
+        // moment it is fresh. LivePositionCloseAuthority blocks every sell whose
+        // state is not OPEN_CONFIRMED and, until now, nothing anywhere ever wrote
+        // OPEN_CONFIRMED into its map — the three writers only ever moved a mint
+        // deeper into CLOSING. Its own TTL comment asked for "a trusted zero/open
+        // wallet proof" to release the block; the proof existed and had nowhere
+        // to be delivered. This is that delivery.
+        try {
+            for (m in walletMints.keys) {
+                com.lifecyclebot.engine.sell.LivePositionCloseAuthority
+                    .releaseToOpenOnWalletProof7146(m, "WALLET_SNAPSHOT_STILL_HOLDS_7146", provenHeld = true)
+            }
+        } catch (_: Throwable) {}
         // Pass 2: zombie closure — open positions whose wallet balance is now zero.
         for (p in positions.values.toList()) {
             if (p.status !in OPEN_STATUSES) continue

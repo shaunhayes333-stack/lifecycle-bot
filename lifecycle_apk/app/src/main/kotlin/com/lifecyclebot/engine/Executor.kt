@@ -7558,7 +7558,10 @@ class Executor(
     }
 
     fun runManageOnly(ts: TokenState, wallet: SolanaWallet?, walletSol: Double) {
-        if (!ts.position.isOpen) return
+        // V5.0.7146 — this is the ONLY caller of STRICT_SL, partial sells and
+        // profit-lock. Gating it on Position.isOpen hid every position whose
+        // quantity was never written back from the entire managed ladder.
+        if (!manageableForExit7146(ts)) return
         val currentPrice = getActualPrice(ts)
         if (currentPrice > 0.0) {
             ts.position.highestPrice = maxOf(ts.position.highestPrice, currentPrice)
@@ -9735,6 +9738,38 @@ class Executor(
     // spread is strictly worse than paying it. Any future wiring must invert the
     // blocklist into an allowlist of genuinely advisory reasons.
     /**
+     * V5.0.7146 §THE_EXIT_ENGINE_GATE_WAS_NEVER_ABOUT_PRICES.
+     *
+     * Both entry points to protective exits opened with `if (!pos.isOpen)`:
+     * protectiveExitThresholds6882 returns null before it even resolves a
+     * mark, and runManageOnly — the only caller of STRICT_SL, partial sells
+     * and profit-lock — returns outright. And Position.isOpen answers false
+     * for `qtyToken <= 1.0` (Models.kt), a rule written for literal one-token
+     * SPL crumbs which also swallows every position whose fill quantity was
+     * never written back, i.e. qtyToken == 0.0. Those positions are invisible
+     * to the exit engine no matter how good the price feed is. That is the
+     * operator's "it buys tokens and then they just sit forever unmanaged",
+     * and it is an absence — a quantity we failed to record — being read as
+     * the fact that there is nothing to sell.
+     *
+     * The wallet knows better. When the host tracker can PROVE a positive
+     * balance for the mint, the position is manageable regardless of what the
+     * local quantity field says. Position.isOpen itself is left exactly as it
+     * was: it feeds capital exposure, open-slot counting and accounting, and
+     * none of that should change because the exit engine learned to look at
+     * the wallet. This predicate widens exit eligibility only.
+     */
+    private fun manageableForExit7146(ts: TokenState): Boolean {
+        if (ts.position.isOpen) return true
+        return try {
+            val held = HostWalletTokenTracker.getEntry(ts.mint)?.uiAmount ?: 0.0
+            if (held <= 0.0) return false
+            PipelineHealthCollector.labelInc("EXIT_ELIGIBLE_ON_WALLET_PROOF_7146")
+            true
+        } catch (_: Throwable) { false }
+    }
+
+    /**
      * V5.0.6882 §ONE_SET_OF_PROTECTIVE_THRESHOLDS.
      *
      * riskCheck computed the four ProtectiveExitScheduler6450 thresholds
@@ -9768,7 +9803,9 @@ class Executor(
         preResolvedMark6891: Double? = null,
     ): ProtectiveThresholds6882? {
         val pos = ts.position
-        if (!pos.isOpen) return null
+        // V5.0.7146 — wallet-proven holdings are manageable even when the
+        // local quantity field never landed. See manageableForExit7146.
+        if (!manageableForExit7146(ts)) return null
         val markPx = preResolvedMark6891
             ?: try { getActualPrice(ts) } catch (_: Throwable) { 0.0 }
         if (!markPx.isFinite() || markPx <= 0.0) return null

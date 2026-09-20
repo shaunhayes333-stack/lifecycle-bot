@@ -227,6 +227,13 @@ object LivePositionCloseAuthority {
         try { SellExecutionLocks.release(mint) } catch (_: Throwable) {}
         try { SellJobRegistry.markLanded(mint, signature = states[mint]?.signature) } catch (_: Throwable) {}
         try { BalanceProofWaitState.clear(mint, terminal) } catch (_: Throwable) {}
+        // V5.0.7146 — RecoveredHoldGuard.clearOnFullExit documented itself as
+        // "called on confirmed sell finality" and had ZERO callers tree-wide.
+        // The only surviving clear (reconcileWithHeldMints) removes mints the
+        // wallet no longer holds, so it could never release a held position.
+        // This purge IS confirmed sell finality; wire the documented call here,
+        // once, rather than letting each sell path grow its own.
+        try { com.lifecyclebot.engine.RecoveredHoldGuard.clearOnFullExit(mint) } catch (_: Throwable) {}
         try { GlobalTradeRegistry.closePosition(mint) } catch (_: Throwable) {}
         try { PositionPersistence.removePosition(mint) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.BotService.recentlyClosedMs[mint] = System.currentTimeMillis() } catch (_: Throwable) {}
@@ -272,12 +279,58 @@ object LivePositionCloseAuthority {
         return isTerminalOrClosing(mint)
     }
 
+    /**
+     * V5.0.7146 — the release this authority never had.
+     *
+     * preSellGuard blocks every sell whose state is not OPEN_CONFIRMED, and
+     * until now NOTHING in the tree ever wrote OPEN_CONFIRMED into `states`:
+     * the symbol appeared only in the enum, in that comparison, and in a
+     * returned value object. The three writers set CLOSING_PENDING_SIG,
+     * CLOSING_UNKNOWN and CLOSED; there was no states.remove and no
+     * states.clear. So a single markClosingUnknown — from a stale sell lock,
+     * say — made a mint unsellable for the entire process lifetime, and the
+     * operator watched real tokens sit unmanaged with no way to intervene.
+     *
+     * The TTL below was written to demand "a trusted zero/open wallet proof"
+     * before releasing. That proof exists and is already consulted two frames
+     * up in preSellGuard; it simply had nowhere to write its answer. This is
+     * that write. Release requires POSITIVE proof the wallet still holds the
+     * mint — an absent or unreadable snapshot keeps the block, so the
+     * conservative case is unchanged.
+     */
+    fun releaseToOpenOnWalletProof7146(mint: String, reason: String, provenHeld: Boolean = false): Boolean {
+        if (mint.isBlank()) return false
+        val st = states[mint] ?: return false
+        if (st.state == State.CLOSED || st.state == State.CLOSING_CONFIRMED) return false
+        if (runCatching { PositionCloseLedger.isClosed(mint) }.getOrDefault(false)) return false
+        val stillHeld = provenHeld || runCatching {
+            val p = HostWalletTokenTracker.snapshot().firstOrNull { it.mint == mint }
+            p != null && p.uiAmount > 0.0 && p.status !in setOf(
+                HostWalletTokenTracker.PositionStatus.CLOSED,
+                HostWalletTokenTracker.PositionStatus.CLOSED_SOLD_BY_AATE,
+                HostWalletTokenTracker.PositionStatus.CLOSED_EXTERNALLY_MANUAL_SWAP,
+                HostWalletTokenTracker.PositionStatus.SOLD_CONFIRMED,
+            )
+        }.getOrDefault(false)
+        if (!stillHeld) return false
+        st.state = State.OPEN_CONFIRMED
+        st.signature = null
+        st.reason = reason
+        st.updatedAtMs = System.currentTimeMillis()
+        emit("LIVE_CLOSE_RELEASED_ON_WALLET_PROOF_7146", mint, st.symbol, "reason=$reason action=closing_to_open_confirmed")
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_CLOSE_RELEASED_ON_WALLET_PROOF_7146") } catch (_: Throwable) {}
+        return true
+    }
+
     private fun pruneMint(mint: String) {
         val st = states[mint] ?: return
         if (st.state == State.CLOSING_PENDING_SIG || st.state == State.CLOSING_UNKNOWN) {
             if (System.currentTimeMillis() - st.updatedAtMs > CLOSING_TTL_MS) {
-                // TTL expiry moves to proof/reconcile, not OPEN. Keep it blocking until
-                // a trusted zero/open wallet proof changes state.
+                // TTL expiry moves to proof/reconcile, not OPEN — unless the
+                // wallet itself proves the tokens are still here. V5.0.7146
+                // supplies that reconcile step; without it the branch below
+                // simply re-stamped CLOSING_UNKNOWN forever.
+                if (releaseToOpenOnWalletProof7146(mint, "TTL_EXPIRED_WALLET_STILL_HOLDS")) return
                 st.state = State.CLOSING_UNKNOWN
                 st.updatedAtMs = System.currentTimeMillis()
                 emit("LIVE_CLOSE_UNKNOWN_TTL_PROOF_REQUIRED", mint, st.symbol, "reason=${st.reason}")

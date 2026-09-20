@@ -39,13 +39,23 @@ object RecoveredHoldGuard {
 
     private val recoveredAt = ConcurrentHashMap<String, Long>()
 
-    /** Called by WalletReconciler when an orphan/wallet-recovered mint
-     *  is reattached as an OPEN position. Idempotent — re-marking
-     *  refreshes the grace window if the bot saw the recovery again. */
+    /**
+     * Called by WalletReconciler when an orphan/wallet-recovered mint is
+     * reattached as an OPEN position.
+     *
+     * V5.0.7146 — this used to write `recoveredAt[mint] = now` unconditionally,
+     * described as "re-marking refreshes the grace window". WalletReconciler
+     * re-discovers the same wallet-held mint on every pass, so the refresh made
+     * the 15-minute window renew itself indefinitely: a mint with no canonical
+     * row was held, not for fifteen minutes, but for as long as the bot kept
+     * looking at it. A grace window has to start once and expire, or it is not
+     * a grace window. putIfAbsent keeps the first observation and lets the
+     * clock actually run.
+     */
     fun markRecovered(mint: String) {
         if (mint.isBlank()) return
         val now = System.currentTimeMillis()
-        recoveredAt[mint] = now
+        if (recoveredAt.putIfAbsent(mint, now) != null) return
         try {
             ErrorLogger.info(
                 TAG,
