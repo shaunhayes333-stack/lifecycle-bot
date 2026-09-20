@@ -417,47 +417,90 @@ object KeylessLlmClient {
         // no samples ranks above a member measured at zero — untried is not the
         // same as failed — and the cooldown clock only breaks ties.
         if (asked == 0 && providers.isNotEmpty()) {
-            val best = providers.maxWithOrNull(
-                compareBy<Provider> { p ->
+            // V5.0.7145 — WHEN NOBODY WAS ASKED, ASK EVERYBODY.
+            //
+            // Operator, after entering fresh Groq and Gemini keys: "there is no
+            // excuse that this is not working mate. fucking 0."
+            //
+            // They are right, and 7141's logging finally shows why. Their
+            // 5.0.7141 device:
+            //
+            //   LLM_COUNCIL_DRY_7016  members=9 asked=0 cooling=5 ownBackoff=4
+            //                         empty=1 err=0 forced=pollinations_get
+            //
+            // ASKED=0. Nine members, nobody contacted. Five in the council's own
+            // cooldown, four refused by our ApiBackoff. llm_groq does not even
+            // appear in that session's health table, because no Groq call was
+            // ever made — the operator's new key never reached the wire.
+            //
+            // This rescue existed for exactly that case and then tried ONE
+            // member. It picks `best` by health, which on this device is
+            // pollinations_get, whose body is the Pollinations "doesn't have
+            // enough credits" notice — correctly rejected by 7136, counted
+            // empty, and the council returns dry with eight untried members
+            // including both of the operator's keyed ones.
+            //
+            // One attempt is not a rescue. When a person has typed a question
+            // and the entire council is sidelined by OUR OWN timers, the right
+            // behaviour is to walk every member in health order and stop at the
+            // first real answer. The cooldowns exist to protect providers from
+            // a hot loop, not to stop a human being answered; there is exactly
+            // one of these sweeps per dry turn.
+            val ordered7145 = providers.sortedWith(
+                compareByDescending<Provider> { p ->
                     try {
                         if (com.lifecyclebot.engine.ApiHealthMonitor.hasSamples(p.healthHost)) {
                             com.lifecyclebot.engine.ApiHealthMonitor.successRate(p.healthHost)
                         } else {
-                            // Between "never tried" and "tried and failed
-                            // every time", try the untried one.
+                            // Between "never tried" and "tried and failed every
+                            // time", try the untried one.
                             0.5
                         }
                     } catch (_: Throwable) { 0.5 }
-                }.thenByDescending { p -> cooldownUntil[p.name] ?: 0L }
+                }.thenBy { p -> cooldownUntil[p.name] ?: 0L }
             )
-            if (best != null) {
-                forcedName7030 = best.name
-                try {
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
-                        "LLM_COUNCIL_FORCED_ATTEMPT_7016_" + best.name.uppercase(),
-                    )
-                } catch (_: Throwable) {}
-                forcedAttempt7016.set(true)
-                try {
-                    val text = best.call(system, user, maxTokens)
-                    if (!text.isNullOrBlank()) {
-                        lastCouncilDiagnostic7016 = ""
-                        cooldownUntil.remove(best.name)
-                        return text
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_COUNCIL_FORCED_SWEEP_7145")
+            } catch (_: Throwable) {}
+            forcedAttempt7016.set(true)
+            try {
+                for (p in ordered7145) {
+                    forcedName7030 = p.name
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                            "LLM_COUNCIL_FORCED_ATTEMPT_7016_" + p.name.uppercase(),
+                        )
+                    } catch (_: Throwable) {}
+                    try {
+                        val text = p.call(system, user, maxTokens)
+                        if (!text.isNullOrBlank()) {
+                            lastCouncilDiagnostic7016 = ""
+                            cooldownUntil.remove(p.name)
+                            try {
+                                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                                    "LLM_COUNCIL_FORCED_SWEEP_ANSWERED_7145_" + p.name.uppercase(),
+                                )
+                            } catch (_: Throwable) {}
+                            return text
+                        }
+                        empty++
+                        // V5.0.7030 — a member that answered with nothing is
+                        // still cooled, so the next turn rotates off it.
+                        cooldownUntil[p.name] = now + 15_000L
+                    } catch (e: OwnBackoffRefusal) {
+                        // Our own circuit, mid-sweep. It was never asked, so it
+                        // is not cooled — and the sweep continues to the next
+                        // member rather than ending the turn on our refusal.
+                        ownBackoff++
+                        ErrorLogger.debug(TAG, "sweep ${p.name} refused by own backoff (${e.host})")
+                    } catch (e: Exception) {
+                        errored++
+                        cooldownUntil[p.name] = now + COOLDOWN_MS
+                        ErrorLogger.debug(TAG, "sweep ${p.name}: ${e.message?.take(120)}")
                     }
-                    empty++
-                    // V5.0.7030 — a forced member that answered with nothing
-                    // must still be cooled, or the next turn re-picks it on an
-                    // identical (still empty) cooldown and the council can
-                    // never rotate off a dead member.
-                    cooldownUntil[best.name] = now + 15_000L
-                } catch (e: Exception) {
-                    errored++
-                    cooldownUntil[best.name] = now + COOLDOWN_MS
-                    ErrorLogger.debug(TAG, "forced ${best.name}: ${e.message?.take(120)}")
-                } finally {
-                    forcedAttempt7016.set(false)
                 }
+            } finally {
+                forcedAttempt7016.set(false)
             }
         }
 
