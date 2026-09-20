@@ -20097,6 +20097,43 @@ if (hotExitHandledSweep) {
         synchronized(exitSweepCoordinatorLock) {
             val again = exitSweepCoordinatorJob
             if (again?.isActive == true) return
+            // V5.0.7179 §THE_BACKOFF_READ_A_COUNTER_NOTHING_EVER_INCREMENTED.
+            //
+            // Operator 5.0.7176, 425 seconds of uptime:
+            //
+            //   EXIT_COORDINATOR_NO_START_RELAUNCHED_6647       68
+            //   EXIT_COORDINATOR_STALE_HEARTBEAT_REPLACED_7057  68
+            //   EXIT_COORDINATOR_STARTED                         1
+            //   EXIT_COORDINATOR_RELAUNCH_BACKOFF_7067      absent
+            //   EXIT_COORDINATOR_SCOPE_DEAD_6897            absent
+            //
+            // Sixty-eight cancel+relaunch decisions and ONE coordinator body
+            // that ever ran, so 67 launches were stillborn — and the V5.0.7067
+            // backoff built to stop exactly that never fired once.
+            //
+            // The reason is the counter it consults. 7067 tests
+            // `exitCoordinatorIneffectiveRelaunches6897 >= 3`, and its own
+            // comment describes that field as "launches that never started".
+            // The field is only ever INCREMENTED inside `if
+            // (!exitScope6647.isActive)` — i.e. solely when the entire scope is
+            // dead, which is a different fault with its own counter
+            // (EXIT_COORDINATOR_SCOPE_DEAD_6897, absent here). The scope is
+            // alive, so the field sits at 0 forever, so the backoff branch is
+            // unreachable, so a dispatcher that cannot start the body is
+            // hammered once per bot cycle indefinitely.
+            //
+            // The clear-on-run at the top of the body was already correct and
+            // is what makes the count mean what 7067 wants; it just had no
+            // matching increment. Bump it HERE, before the launch, so the pair
+            // is symmetric: incremented when a launch is issued, zeroed when a
+            // body proves it ran. Incrementing before rather than after the
+            // launch matters — the body can be dispatched on another thread and
+            // clear the counter before `launch` returns, and a post-increment
+            // would then resurrect a count the body had already retired.
+            //
+            // This does not change exit behaviour or cadence. It makes an
+            // existing, documented safety valve reachable.
+            exitCoordinatorIneffectiveRelaunches6897.incrementAndGet()
             exitSweepCoordinatorJob = exitScope6647.launch {
                 val start6647 = System.currentTimeMillis()
                 // V5.0.6897 — the body actually ran, so the relaunch was not
