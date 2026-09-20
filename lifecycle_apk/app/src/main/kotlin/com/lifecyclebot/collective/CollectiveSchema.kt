@@ -455,6 +455,52 @@ object CollectiveSchema {
 
 
 
+    /**
+     * V5.0.7190 §THE_HIVE_COULD_SHARE_NUMBERS_BUT_NOT_A_SENTENCE.
+     *
+     * Operator intent, verbatim: "the llm is meant to have free reign to
+     * develope its own personality, grow its intelligence, talk to other
+     * installed instances, free reign to respond in the way it wants."
+     *
+     * The transport for that already exists and works. Instances register in
+     * `instance_registry`, heartbeat, broadcast `network_signals` that peers
+     * will act on, and read each other's `hive_performance_genomes`. What was
+     * missing is that EVERY ONE of those tables carries numbers. A grep of the
+     * whole schema for personality, trait, llm or message returns nothing. Two
+     * installs could compare win rates and copy feature weights, but could not
+     * exchange a single sentence — so "talk to other instances" was the one
+     * part of the intent that did not exist to be unblocked. It had to be
+     * built, not unclamped.
+     *
+     * This is that channel, and it is deliberately the smallest honest
+     * addition: free text, addressed or broadcast, with a topic so consumers
+     * can filter and a TTL so the table cannot grow without bound. No schema
+     * for what a message MEANS — the whole point is that the LLM decides what
+     * it wants to say and in what form. Nothing here can execute anything;
+     * it carries words between peers and nothing else.
+     *
+     * `in_reply_to` exists so an exchange can actually be a conversation
+     * rather than a noticeboard, which is what "talk to" implies.
+     * `kind` separates a peer message from a personality broadcast from a
+     * strategy note, so a future consumer can subscribe narrowly without a new
+     * table each time.
+     */
+    const val CREATE_HIVE_MESSAGES_TABLE = """
+        CREATE TABLE IF NOT EXISTS hive_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender_id TEXT NOT NULL,
+            recipient_id TEXT NOT NULL DEFAULT '',
+            kind TEXT NOT NULL DEFAULT 'CHAT',
+            topic TEXT NOT NULL DEFAULT '',
+            body TEXT NOT NULL,
+            persona_id TEXT NOT NULL DEFAULT '',
+            app_version TEXT NOT NULL DEFAULT '',
+            in_reply_to INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL
+        )
+    """
+
     const val CREATE_HIVE_PERFORMANCE_GENOMES_TABLE = """
         CREATE TABLE IF NOT EXISTS hive_performance_genomes (
             instance_id TEXT PRIMARY KEY NOT NULL,
@@ -917,6 +963,9 @@ object CollectiveSchema {
         CREATE INDEX IF NOT EXISTS idx_registry_active ON instance_registry(last_active);
         CREATE INDEX IF NOT EXISTS idx_network_signals_mint ON network_signals(mint);
         CREATE INDEX IF NOT EXISTS idx_network_signals_expires ON network_signals(expires_at);
+        CREATE INDEX IF NOT EXISTS idx_hive_msg_created ON hive_messages(created_at);
+        CREATE INDEX IF NOT EXISTS idx_hive_msg_recipient ON hive_messages(recipient_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_hive_msg_expires ON hive_messages(expires_at);
         CREATE INDEX IF NOT EXISTS idx_network_signals_type ON network_signals(signal_type);
         CREATE INDEX IF NOT EXISTS idx_token_mints_symbol ON collective_token_mints(symbol);
         CREATE INDEX IF NOT EXISTS idx_token_mints_creator ON collective_token_mints(creator_address);
@@ -1047,6 +1096,11 @@ object CollectiveSchema {
         CREATE_LEGAL_AGREEMENTS_TABLE,
         CREATE_INSTANCE_HEARTBEATS_TABLE,
         CREATE_NETWORK_SIGNALS_TABLE,
+        // V5.0.7190 — the peer conversation channel. Must be in ALL_TABLES or
+        // the CREATE never runs and every send silently fails on a missing
+        // table, which is precisely the silent-zero failure shape this
+        // codebase keeps rediscovering.
+        CREATE_HIVE_MESSAGES_TABLE,
         CREATE_HIVE_PERFORMANCE_GENOMES_TABLE,
         CREATE_TOKEN_MINTS_TABLE,
         CREATE_ENDPOINT_HEALTH_TABLE,

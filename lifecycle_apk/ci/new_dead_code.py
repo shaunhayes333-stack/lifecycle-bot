@@ -92,6 +92,20 @@ EXEMPT = {
     # the authority's private snapshot map. So it is wired, and this check's
     # "outside its own file" test is the wrong question for it.
     "mintHasAnySnapshot7164",
+    # V5.0.7190 — wired by list membership, in the same file, by design.
+    #
+    # CollectiveSchema.CREATE_HIVE_MESSAGES_TABLE is referenced exactly once:
+    # from ALL_TABLES, a few hundred lines below it in CollectiveSchema.kt.
+    # ALL_TABLES is what TursoClient.initSchema() iterates to run every
+    # CREATE TABLE IF NOT EXISTS, so the constant is genuinely executed on
+    # every hive connect. Every other CREATE_*_TABLE constant in that file has
+    # the identical shape and is equally unreferenced externally; they simply
+    # predate this gate. The "outside its own file" test is the wrong question
+    # for a schema constant whose consumer is a list literal beside it.
+    #
+    # Verified, not assumed: TursoClient.kt:93 iterates ALL_TABLES, and
+    # CollectiveSchema.kt:1103 contains this name.
+    "CREATE_HIVE_MESSAGES_TABLE",
 }
 
 

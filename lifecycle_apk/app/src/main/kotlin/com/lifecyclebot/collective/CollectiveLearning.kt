@@ -615,6 +615,163 @@ object CollectiveLearning {
         }
     }
 
+    // ═════════════════════════════════════════════════════════════════════
+    // V5.0.7190 §THE_HIVE_WAS_A_STATISTICS_BUS_NOT_A_CONVERSATION
+    //
+    // Every one of the ~30 shared tables above carries numbers: win rates,
+    // PnL, feature weights, signal types, heartbeats. Peers already read each
+    // other's genomes and NetworkSignalAutoBuyer will act on another
+    // instance's broadcast. What did not exist anywhere was a channel for
+    // TEXT — no table, no endpoint, nothing an instance could use to say a
+    // sentence to another instance. The transport has been live the whole
+    // time (TursoClient, Bearer auth, HIVE_SUPERVISOR_CONNECTED_6943); only
+    // the conversation was missing.
+    //
+    // These two functions are that channel and nothing more. `body` is
+    // whatever the sender wrote — no schema, no vocabulary, no enum. That is
+    // the point: the operator's directive is free reign, and a channel that
+    // constrains the sentence is not free reign, it is another numeric bus
+    // with a string column.
+    //
+    // DELIBERATELY NOT AN ECONOMIC AUTHORITY. Nothing on the trade path reads
+    // hive_messages. A peer's sentence reaches the thought stream and the LLM
+    // prompt; it cannot size, enter, exit or veto. Remote text that could move
+    // capital is a remote-code-execution surface wearing a personality, and
+    // the operator's own DB is shared across installs.
+    // ═════════════════════════════════════════════════════════════════════
+
+    data class HiveMessage7190(
+        val id: Long,
+        val senderId: String,
+        val recipientId: String,
+        val kind: String,
+        val topic: String,
+        val body: String,
+        val personaId: String,
+        val appVersion: String,
+        val createdAtMs: Long,
+    ) {
+        /** Short stable label for attribution in the thought stream / UI. */
+        val senderTag7190: String get() = senderId.take(8).ifBlank { "peer" }
+    }
+
+    private const val HIVE_MESSAGE_TTL_MS_7190 = 48L * 60L * 60L * 1000L
+    private const val HIVE_MESSAGE_MAX_BODY_7190 = 1200
+
+    /**
+     * V5.0.7190 — say something to the other installs.
+     *
+     * [recipientId] blank means broadcast; a peer's instance id means direct.
+     * Returns false rather than throwing when the hive is on local cache, so
+     * a caller on a reflection loop never has to guard the offline case.
+     */
+    suspend fun sendHiveMessage7190(
+        body: String,
+        kind: String = "CHAT",
+        topic: String = "",
+        personaId: String = "",
+        recipientId: String = "",
+        inReplyTo: Long = 0L,
+    ): Boolean {
+        val clean = body.trim().take(HIVE_MESSAGE_MAX_BODY_7190)
+        if (clean.isBlank()) return false
+        if (!isEnabled()) return false
+        if (instanceId.isBlank()) return false
+        return withContext(Dispatchers.IO) {
+            try {
+                val now = System.currentTimeMillis()
+                val ctx = appContext
+                val appVersion = try {
+                    if (ctx == null) "" else
+                        (ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "")
+                } catch (_: Exception) { "" }
+                val result = client!!.execute(
+                    """
+                    INSERT INTO hive_messages
+                        (sender_id, recipient_id, kind, topic, body, persona_id,
+                         app_version, in_reply_to, created_at, expires_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """.trimIndent(),
+                    listOf(
+                        instanceId,
+                        recipientId.take(64),
+                        kind.take(24).ifBlank { "CHAT" },
+                        topic.take(80),
+                        clean,
+                        personaId.take(40),
+                        appVersion.take(40),
+                        inReplyTo.coerceAtLeast(0L),
+                        now,
+                        now + HIVE_MESSAGE_TTL_MS_7190,
+                    )
+                )
+                if (result.success) {
+                    Log.i(TAG, "hive message sent: kind=$kind topic=$topic chars=${clean.length}")
+                } else {
+                    Log.w(TAG, "hive message send failed: ${result.error}")
+                }
+                result.success
+            } catch (e: Exception) {
+                Log.e(TAG, "sendHiveMessage7190 error: ${e.message}")
+                false
+            }
+        }
+    }
+
+    /**
+     * V5.0.7190 — read what the other installs have said.
+     *
+     * Excludes this instance's own rows (an instance talking to itself is the
+     * self-referential feedback loop this codebase has shipped four times) and
+     * anything already past its TTL. Oldest-first so a caller can render or
+     * replay them in the order they were spoken.
+     */
+    suspend fun readHiveMessages7190(sinceMs: Long, limit: Int = 12): List<HiveMessage7190> {
+        if (!isEnabled()) return emptyList()
+        if (instanceId.isBlank()) return emptyList()
+        return withContext(Dispatchers.IO) {
+            try {
+                val now = System.currentTimeMillis()
+                val result = client!!.query(
+                    """
+                    SELECT id, sender_id, recipient_id, kind, topic, body, persona_id,
+                           app_version, created_at
+                    FROM hive_messages
+                    WHERE created_at > ? AND expires_at > ? AND sender_id != ?
+                      AND (recipient_id = '' OR recipient_id = ?)
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """.trimIndent(),
+                    listOf(
+                        sinceMs.coerceAtLeast(0L), now, instanceId, instanceId,
+                        limit.coerceIn(1, 50),
+                    )
+                )
+                if (!result.success) {
+                    Log.w(TAG, "readHiveMessages7190 failed: ${result.error}")
+                    return@withContext emptyList<HiveMessage7190>()
+                }
+                result.rows.mapNotNull { row ->
+                    val text = parseString(row["body"]).trim()
+                    if (text.isBlank()) null else HiveMessage7190(
+                        id = parseLong(row["id"]),
+                        senderId = parseString(row["sender_id"]),
+                        recipientId = parseString(row["recipient_id"]),
+                        kind = parseString(row["kind"]),
+                        topic = parseString(row["topic"]),
+                        body = text.take(HIVE_MESSAGE_MAX_BODY_7190),
+                        personaId = parseString(row["persona_id"]),
+                        appVersion = parseString(row["app_version"]),
+                        createdAtMs = parseLong(row["created_at"]),
+                    )
+                }.sortedBy { it.createdAtMs }
+            } catch (e: Exception) {
+                Log.e(TAG, "readHiveMessages7190 error: ${e.message}")
+                emptyList<HiveMessage7190>()
+            }
+        }
+    }
+
     suspend fun uploadTokenMint(
         mint: String,
         symbol: String,

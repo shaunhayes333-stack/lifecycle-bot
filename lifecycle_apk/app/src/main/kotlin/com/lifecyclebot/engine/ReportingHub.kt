@@ -538,6 +538,12 @@ object ReportingHub {
         // reported to ApiHealthMonitor nowhere and appeared in no report section,
         // so a silent fallback to local cache was invisible by construction.
         appendLine(safe("hive_6943") { com.lifecyclebot.collective.CollectiveLearning.statusLine6943() })
+        // V5.0.7190 — peer conversation counters. hive_6943 above proves the
+        // TRANSPORT is up; it says nothing about whether anything was ever
+        // SAID. heard=0 spoken=0 on a connected hive means this install is the
+        // only one running, or the LLM has chosen not to speak — two different
+        // facts that were previously indistinguishable from silence.
+        appendLine(safe("hive_chat_7190") { com.lifecyclebot.engine.SentienceOrchestrator.hiveChatStatusLine7190() })
         // V5.0.6925 — CAPTURE RATIO. Of the gain each position actually
         // reached, how much did we keep? Broken down by lane and by exit
         // reason, worst first, so the exit path that is clipping runners names
