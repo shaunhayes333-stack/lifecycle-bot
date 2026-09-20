@@ -156,6 +156,41 @@ object CryptoAltTrader {
     // amputating throughput.
     private const val DEFAULT_SIZE_PCT      = 6.0           // V5.0.6095: 3→6% balance base; no more crypto-only micro treadmill
     private const val DEFAULT_LEVERAGE      = 3.0           // Default leverage (when not SPOT)
+
+    /**
+     * V5.0.7183 §THERE_IS_NO_LEVERAGE_VENUE, SO THERE ARE NO LEVERAGED POSITIONS.
+     *
+     * Operator: "if it cant be done in real life disable it."
+     *
+     * This app holds a Solana wallet and routes through Jupiter. It has no CEX
+     * account, no perps program integration, and no signed perp order has ever
+     * left it — the sandbox reports `perpsSandbox enabled=true, txSubmitted=0`.
+     * `CryptoExecutionRoute.PERP_ONLY` is already classified not-real-tradeable
+     * for exactly this reason. Yet the trader kept minting leveraged positions,
+     * because leverage was decided here, upstream of that route check.
+     *
+     * What that cost, from the 5.0.7176 run:
+     *   * `getPnlPct` at :313 returns `verdict.pnlPct * dir * leverage`, so a
+     *     3x multiplier was applied to every CRYPTO_LEV outcome — a number no
+     *     venue would have paid.
+     *   * CRYPTO_SHORT_REROUTED_TO_PERP_6533 = 325. The SHORT branch below
+     *     treats `isPaperMode` ALONE as perp capability, so in paper every
+     *     short became a fictional 3x perp.
+     *   * CRYPTO_LEV then reported n=18 EV=+51.09%/trade PnL=+5.6738 SOL —
+     *     83% of the session's entire profit, on positions that could not be
+     *     opened with real money, at a leverage that does not exist.
+     *
+     * One flag in front of all four decision points rather than four patches,
+     * so the answer cannot drift apart again. A `val` and not a `const val`
+     * deliberately: the branches below stay compiled and reviewable rather
+     * than being folded away as unreachable, and wiring a real venue is then
+     * a one-line flip plus an adapter — see the audit note on Jupiter
+     * Perpetuals / Drift as the only Solana-native candidates.
+     *
+     * Spot trading of the crypto universe is UNAFFECTED. This removes
+     * leverage, not the lane.
+     */
+    private val LEVERAGE_VENUE_AVAILABLE_7183 = false
     // V5.9.8: DEFAULT_TP_SPOT removed — now dynamic via FluidLearningAI
     private const val DEFAULT_SL_SPOT       = 3.5           // SPOT stop-loss %
     // V5.9.8: DEFAULT_TP_LEV removed — now dynamic via FluidLearningAI
@@ -1136,7 +1171,10 @@ object CryptoAltTrader {
                     continue
                 }
                 // V5.9.3: respect UI toggle for DynScan signals too
-                val dynSpot = !preferLeverage.get()
+                // V5.0.7183 — the DynScan path had its own copy of the toggle
+                // read, so disabling leverage at the signal loop alone would
+                // have left this one still minting 3x positions. Same authority.
+                val dynSpot = if (LEVERAGE_VENUE_AVAILABLE_7183) !preferLeverage.get() else true
                 val dynLev  = if (dynSpot) 1.0 else DEFAULT_LEVERAGE
                 // V5.9.1548 — terminal-reject semantics: do not call this EXECUTE
                 // before executeSignal() runs price sanity, spread, FDG, sizing and
@@ -1448,13 +1486,25 @@ object CryptoAltTrader {
             }
 
             // V5.9.3: Respect the UI SPOT/LEVERAGE toggle instead of alternating by parity
-            val useSpotDefault = !preferLeverage.get()
+            // V5.0.7183 — the UI toggle can no longer request a venue that does
+            // not exist. With no perps integration, SPOT is the only executable
+            // shape, so the toggle is overridden rather than obeyed.
+            val useSpotDefault = if (LEVERAGE_VENUE_AVAILABLE_7183) !preferLeverage.get() else true
             var useSpot  = useSpotDefault
             var leverage = if (useSpot) 1.0 else DEFAULT_LEVERAGE
+            if (!LEVERAGE_VENUE_AVAILABLE_7183 && preferLeverage.get()) {
+                try {
+                    PipelineHealthCollector.labelInc("CRYPTO_LEVERAGE_DISABLED_NO_VENUE_7183")
+                } catch (_: Throwable) {}
+            }
 
             // V5.9.303: AUTO-ROUTE TO LEVERAGE when SPOT lacks a Solana mint but Flash supports the symbol.
             // This is the "currency bridge" the user expects — alt trader actually trades the whole market.
-            if (!isPaperMode.get() && useSpot) {
+            // V5.0.7183 — "Flash perps" is not integrated; there is no adapter
+            // and no signed perp order has ever left this app. An asset with no
+            // SPOT mint is simply unroutable, and the route gate below refuses
+            // it honestly instead of inventing a venue for it.
+            if (LEVERAGE_VENUE_AVAILABLE_7183 && !isPaperMode.get() && useSpot) {
                 val hasMint = com.lifecyclebot.perps.crypto.CryptoWrappedAssetMapper
                     .resolveWrappedMint(signal.market.symbol) != null
                 if (!hasMint && signal.market.symbol.uppercase() in FLASH_TRADE_PERPS_SYMBOLS) {
@@ -1490,7 +1540,16 @@ object CryptoAltTrader {
             } catch (_: Exception) {}
 
             if (signal.direction == PerpsDirection.SHORT && useSpot) {
-                val perpCapable6533 = isPaperMode.get() || signal.market.symbol.uppercase() in FLASH_TRADE_PERPS_SYMBOLS
+                // V5.0.7183 — this read `isPaperMode.get() || symbol in
+                // FLASH_TRADE_PERPS_SYMBOLS`, i.e. in paper EVERY short was
+                // "perp capable" and became a fictional 3x position
+                // (CRYPTO_SHORT_REROUTED_TO_PERP_6533 = 325 in one 26-minute
+                // run). Paper mode is not a venue. With no perps integration a
+                // spot-only wallet cannot short at all, so the signal falls
+                // through to the existing CRYPTO_ADAPTER_UNSUPPORTED_DIRECTION
+                // refusal below — which is the truthful outcome.
+                val perpCapable6533 = LEVERAGE_VENUE_AVAILABLE_7183 &&
+                    (isPaperMode.get() || signal.market.symbol.uppercase() in FLASH_TRADE_PERPS_SYMBOLS)
                 if (perpCapable6533) {
                     useSpot = false
                     leverage = DEFAULT_LEVERAGE
@@ -4248,7 +4307,11 @@ object CryptoAltTrader {
                     priceChange24h   = priceData?.priceChange24hPct ?: 0.0,
                     reasons          = listOf("LLM chat: ${reason.take(80)}"),
                     layerVotes       = emptyMap(),
-                    leverage         = DEFAULT_LEVERAGE,
+                    // V5.0.7183 — this is dispatched with isSpot=true, so a
+                    // 3x on the signal was already contradictory; it rode
+                    // along onto the position record and into getPnlPct's
+                    // `* leverage`. Stated honestly as 1.0.
+                    leverage         = if (LEVERAGE_VENUE_AVAILABLE_7183) DEFAULT_LEVERAGE else 1.0,
                 )
                 executeSignal(signal, isSpot = true)
                 try { com.lifecyclebot.engine.LlmTradeScore.recordOpen() } catch (_: Exception) {}
