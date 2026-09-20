@@ -128,8 +128,50 @@ object LaneExitTuner {
         "RAPID_ENTRY_PROTECT_STOP", "SWEEP_FLUID_FLOOR", "PROTECT_STOP"
     )
 
+    /**
+     * V5.0.7161 §THE TUNER WAS LEARNING FROM EXITS THE LEDGER THROWS AWAY.
+     *
+     * StrategyTruthLedger.forensicRejectReason:278 refuses any close whose
+     * reason contains STALE_FEED or DATA_QUALITY — 3,912 exclusions on the
+     * operator's 5.0.7155 session — because a position evicted for a stale
+     * price is a verdict on the PRICE FEED, not on the exit ladder.
+     *
+     * This tuner had no such filter. It takes every close from two separate
+     * feeds (FinalizedBusConsumerBridge6465:323 and V3JournalRecorder:322),
+     * including the scratch and timeout exits, and lets them vote on tpMult.
+     *
+     * That explains the anomaly 7158 instrumented and could not yet name.
+     * The only branch able to lower tpMult needs avgReal <= -5.0, and
+     * CYCLIC's strategy table reads EV=+48.92%/trade — because the TABLE
+     * excludes these rows and the TUNER counts them. Stale-feed and
+     * timeout-scratch exits are small, almost always negative, and
+     * numerous; a window full of them drags avgReal under the trigger while
+     * the lane's real trades are profitable. Four lanes — CYCLIC, STANDARD,
+     * EXPRESS, PRESALE_SNIPE — reached BOTH floors that way.
+     *
+     * Tightening take-profit because the price feed went stale is not
+     * learning. The tuner now honours the same contract the truth ledger
+     * does, extended to the family the ledger's substring test misses by a
+     * word: PAPER_STALE_PRICE_TIMEOUT_SCRATCH and DEAD_TOKEN_NO_PRICE_EXIT
+     * are "we could not price it", not "the strategy exited".
+     */
+    private val NON_STRATEGY_EXIT_REASONS_7161 = listOf(
+        "STALE_FEED", "DATA_QUALITY", "STALE_PRICE", "TIMEOUT_SCRATCH",
+        "NO_PRICE", "DEAD_TOKEN",
+    )
+
     fun recordClose(lane: String, pnlPct: Double, peakPct: Double, exitReason: String) {
         try {
+            val reasonUpper7161 = exitReason.uppercase()
+            if (NON_STRATEGY_EXIT_REASONS_7161.any { reasonUpper7161.contains(it) }) {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LANE_EXIT_TUNER_SKIPPED_NON_STRATEGY_EXIT_7161")
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                        "LANE_EXIT_TUNER_SKIPPED_NON_STRATEGY_EXIT_7161_${canon(lane).take(20)}",
+                    )
+                } catch (_: Throwable) {}
+                return
+            }
             val key = canon(lane)
             val st = lanes.getOrPut(key) { LaneState() }
             val stopHit = STOP_REASONS.any { exitReason.uppercase().contains(it) }

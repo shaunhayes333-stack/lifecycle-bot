@@ -2613,6 +2613,32 @@ object CryptoAltTrader {
             // regardless of open outcome. Live branch was correct; paper
             // is now brought into parity: markDispatch before the canonical
             // open, markConfirmed on success, markFailed on rejection.
+            // V5.0.7161 §THE COMMENT TWO LINES UP PROMISED THIS AND IT WAS
+            // NEVER WRITTEN.
+            //
+            // "markDispatch before the canonical open, markConfirmed on
+            // success, markFailed on rejection." markConfirmed and markFailed
+            // are both here. markDispatch is not — it exists only in the LIVE
+            // branch below (:2659+). So in PAPER the funnel reads:
+            //
+            //   CRYPTO_ALT candidate=16 submit=8 fdgAllow=8 sized=8
+            //              intent=8 dispatch=0 dispatchReject=108
+            //
+            // dispatch=0 is STRUCTURAL in paper, not a choke. And it is worse
+            // than a missing counter: CanonicalAssetEntryContract6551
+            // .releasePending6554 does
+            //
+            //   val wasDispatched6647 = dispatchedAttempts6569.remove(attemptId)
+            //   if (!wasDispatched6647) markDispatchRejectFor6569(...)
+            //
+            // and paper never adds to that set — so EVERY paper terminal
+            // release is recorded as a dispatch REJECT. That is most of the
+            // 108, and it made a working paper lane read as a lane that
+            // cannot dispatch.
+            //
+            // The stage means "handed to an executor", not "spent money". The
+            // paper executor is an executor.
+            com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markDispatch(canonicalCryptoIntent6565)
             val canonicalOpen6486 = try {
                 com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(
                     positionId = position.id, mint = position.canonicalAssetKey, symbol = mktSym,
