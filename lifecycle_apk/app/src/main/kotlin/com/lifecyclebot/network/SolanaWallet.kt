@@ -631,8 +631,13 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         for (endpoint in rpcsToTry) {
             for (attempt in 0..1) {
                 try {
+                    // V5.0.7131 — same bypass as the strict snapshot below. This
+                    // is the other multi-endpoint wallet read, and it walks the
+                    // same fallback list, so leaving it behind the host breaker
+                    // would keep exactly half the blindness.
                     val req = Request.Builder().url(endpoint)
                         .header("Content-Type", "application/json")
+                        .header(com.lifecyclebot.network.HostCircuitInterceptor.PROBE_HEADER_6976, "1")
                         .post(body.toRequestBody(JSON_MT)).build()
                     val resp = http.newCall(req).execute()
                     val code = resp.code
@@ -739,8 +744,50 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         val failures = mutableListOf<String>()
         for (endpoint in endpoints) {
             try {
+                // V5.0.7131 — THE FALLBACK CHAIN WAS NEVER CALLED.
+                //
+                // Operator: "there shouldn't be rpc issues we have fall back to
+                // guarantee coverage." They are right, and the coverage was
+                // defeated locally rather than by any provider.
+                //
+                // Their 5.0.7129 device logged "Tokenkeg:getTokenAccountsByOwner
+                // failed on 14 wallet endpoints: HTTP599|HTTP599|HTTP599...".
+                // HTTP 599 is not a provider response. SharedHttpClient documents
+                // it as ours: HostCircuitInterceptor "short-circuits NXDOMAIN and
+                // 5xx/429 storms with a 599 SYNTHETIC response — zero TLS, zero
+                // TCP, zero DNS during cool-down."
+                //
+                // So all fourteen endpoints were refused by our own breaker
+                // without a packet leaving the device, and the identical
+                // synthetic code on every one of them is the tell: fourteen
+                // independent providers do not fail in the same instant with the
+                // same non-standard status. The same snapshot has KeyValidator
+                // reporting helius live=true http=200 with getTokenAccountsByOwner
+                // explicitly OK, while this read called the wallet unreadable.
+                //
+                // What that cost: the reconciler read the resulting empty wallet
+                // as proof of an empty wallet and booked six live positions as
+                // EXTERNAL_RUG_CLOSE at -100% each. V5.0.7130 stopped the
+                // write-off; this stops the blindness that caused it.
+                //
+                // PROBE_HEADER_6976 already exists for exactly this — V5.0.6976
+                // added it so a readiness probe could opt out of the circuit, and
+                // isProbe bypasses the breaker for every provider except Birdeye
+                // (whose paid budget is enforced separately and is untouched
+                // here). The wallet token snapshot is the ground truth the entire
+                // position ledger rests on; it must be able to ASK, and a
+                // provider that genuinely fails still fails on the wire.
+                //
+                // This does not remove rate-limit protection from this path. The
+                // wallet keeps its own per-endpoint 30s cooldown (V5.0.4595) plus
+                // round-robin across all endpoints, and that layer is the correct
+                // one: it reacts to real responses, and its fail-safe already
+                // falls back to the full list so the snapshot never goes dark.
+                // The host breaker was redundant here and turned a degraded
+                // provider into total blindness.
                 val req = Request.Builder().url(endpoint)
                     .header("Content-Type", "application/json")
+                    .header(com.lifecyclebot.network.HostCircuitInterceptor.PROBE_HEADER_6976, "1")
                     .post(body.toRequestBody(JSON_MT)).build()
                 val resp = try {
                     fastHttp.newCall(req).execute()
