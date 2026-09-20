@@ -982,6 +982,39 @@ object DynamicAltTokenRegistry {
             append("fresh reaching V3/FDG=").append(freshReachedFdg6544.get()).append('\n')
             append("paper-only unavailable live route=").append(paperOnlyNoRoute6544.get()).append('\n')
             append("live-routable candidates=").append(liveRoutable6544.get()).append('\n')
+            // V5.0.7156 — WHY the crypto trader refuses, broken out by route.
+            //
+            // Operator: "crypto trader is making 0 trades." The refusal is
+            // CRYPTO_ENTRY_REFUSED_NOT_REAL_TRADEABLE_7005 (92 in their
+            // 5.0.7155 session) from CryptoAltTrader:2071, and the answer to
+            // "is that correct?" hinges entirely on WHICH route it saw:
+            //
+            //   NO_ROUTE_RESOLVED  — the resolver returned nothing. An
+            //                        ABSENCE. Refusing on it is the same
+            //                        defect class as every other one this
+            //                        run of builds has removed.
+            //   NO_ROUTE_AVAILABLE — the resolver looked and found none. A
+            //                        MEASUREMENT. Refusing is correct.
+            //   CEX_ONLY / other   — a real venue this app cannot reach.
+            //                        Refusing is correct.
+            //
+            // CryptoAltTrader:2076 has always written that distinction as a
+            // per-route counter, but it lands in the unprinted tail of ~1300
+            // labels, so the aggregate is all anyone ever sees — and the
+            // aggregate cannot answer the only question that matters. Same
+            // shape as RUNTIME_OPEN_REJECTED_INVARIANT_6636 before 7152: one
+            // number covering causes with opposite fixes.
+            try {
+                val byRoute7156 = com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelsWithPrefix7156("CRYPTO_ENTRY_REFUSED_NOT_REAL_TRADEABLE_7005_")
+                    .entries
+                    .sortedByDescending { it.value }
+                    .joinToString(",") {
+                        "${it.key.removePrefix("CRYPTO_ENTRY_REFUSED_NOT_REAL_TRADEABLE_7005_")}=${it.value}"
+                    }
+                    .ifBlank { "none" }
+                append("crypto refusal by route 7156=[").append(byRoute7156).append("]\n")
+            } catch (_: Throwable) {}
             append("static-vs-dynamic evaluation share=").append(staticEvaluated6544.get()).append('/').append(dynamicEvaluated6544.get()).append('\n')
             val terminal6567 = evaluationDisposition6567.values.sumOf { it.get() }
             append("evaluation terminal dispositions=started:").append(evaluationStarted6567.get())

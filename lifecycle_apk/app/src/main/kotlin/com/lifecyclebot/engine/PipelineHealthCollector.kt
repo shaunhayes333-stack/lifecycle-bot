@@ -3319,6 +3319,26 @@ object PipelineHealthCollector {
     }
 
     /**
+     * V5.0.7156 — read a family of labels by prefix.
+     *
+     * The snapshot prints the top N labels and hides the rest; on the
+     * operator's 5.0.7155 run that tail held ~1300 counters. Repeatedly the
+     * one counter that answers a question has BEEN there and been invisible —
+     * the per-consumer bridge refusals before 7154, the 6636 cause split
+     * before 7152, and now the crypto trader's per-route refusal. A section
+     * that knows which family it needs should be able to print it rather
+     * than hope it ranks.
+     */
+    fun labelsWithPrefix7156(prefix: String): Map<String, Long> {
+        if (prefix.isBlank()) return emptyMap()
+        return try {
+            labelCounts.entries
+                .filter { it.key.startsWith(prefix) }
+                .associate { it.key to it.value.get() }
+        } catch (_: Throwable) { emptyMap() }
+    }
+
+    /**
      * V5.0.6626 §RUNTIME_LOOP_UNCHOKE §2 — public read of the rolling
      * average cycle-time in ms, used by AdaptiveTicketTtl6626 to size
      * PAPER execution-ticket TTL against actual loop tempo. Uses the
