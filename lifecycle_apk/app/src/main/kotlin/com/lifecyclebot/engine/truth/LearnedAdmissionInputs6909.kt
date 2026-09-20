@@ -269,6 +269,11 @@ object LearnedAdmissionInputs6909 {
             // Maturity now means "the hierarchy carries enough weight", not
             // "this exact cell has 8 closes". No threshold in 6846 changed.
             cohortSample = maxOf(cohortSample, oracleEffectiveN6915),
+            // V5.0.7154 — carry the TRUE terminal count alongside the
+            // weight-inflated one. The line above is deliberate and stays,
+            // but it made the two indistinguishable downstream, and the
+            // ORACLE refusal in 6846 needs the real count. See that branch.
+            oracleRawCohortN7154 = cohortSample,
             laneWrPct = laneWrPct,
             laneLossRatePct = laneLossRatePct,
             // V5.0.6915 — §5 source-family adaptation is no longer inert. The

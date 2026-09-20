@@ -133,7 +133,15 @@ object FinalizedBusConsumerBridge6465 {
             else -> false
         }
         if (ok) delivered.incrementAndGet() else refused.incrementAndGet()
+        // V5.0.7154 — per-consumer tallies the report can actually print.
+        // The operator's snapshot said only "delivered=400 refused=522", which
+        // names no consumer and no cause; the per-consumer labels below have
+        // existed all along but sit in the unprinted tail of ~1900 counters,
+        // so in practice nobody has ever seen which learner is refusing.
         try {
+            (if (ok) deliveredBy7154 else refusedBy7154)
+                .computeIfAbsent(consumer) { java.util.concurrent.atomic.AtomicLong(0L) }
+                .incrementAndGet()
             PipelineHealthCollector.labelInc(
                 if (ok) "FINALIZED_CONSUMER_DELIVERED_${consumer}_6465"
                 else "FINALIZED_CONSUMER_REFUSED_${consumer}_6465"
@@ -142,12 +150,49 @@ object FinalizedBusConsumerBridge6465 {
         return ok
     }
 
+    private val deliveredBy7154 =
+        java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+    private val refusedBy7154 =
+        java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+
+    /**
+     * V5.0.7154 §A THROW AND A DECLINE ARE NOT THE SAME ANSWER.
+     *
+     * Every one of the fifteen delivery handlers ended `catch (_: Throwable)
+     * { false }`. A learner that crashed and a learner that legitimately said
+     * "not mine" therefore produced the identical outcome, and both landed in
+     * one `refused` total. On the operator's 5.0.7145 device that total is
+     * 522 against 400 delivered — more than half of every finalized trade
+     * failing to reach a learner, with no way to tell a bug from a policy.
+     *
+     * Swallowing the throwable also destroyed the one thing that would have
+     * identified the handler, since the dispatch is a `when` over a string
+     * and the stack was the only evidence of which arm ran. This records the
+     * exception type and the first com.lifecyclebot frame — enough to name
+     * the handler and the line — and still returns false, so behaviour is
+     * unchanged and only the silence is removed.
+     */
+    private fun threw7154(t: Throwable): Boolean {
+        try {
+            val frame = t.stackTrace.firstOrNull { it.className.startsWith("com.lifecyclebot") }
+            val at = frame?.let { "${it.className.substringAfterLast('.')}.${it.methodName}:${it.lineNumber}" } ?: "unknown"
+            PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_THREW_7154")
+            PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_THREW_7154|$at".take(60))
+            ForensicLogger.lifecycle(
+                "FINALIZED_CONSUMER_THREW_7154",
+                "error=${t.javaClass.simpleName} msg=${t.message?.take(140)} at=$at " +
+                    "action=counted_as_refused_but_it_is_a_crash",
+            )
+        } catch (_: Throwable) {}
+        return false
+    }
+
     /** Consumers that are NOT learning targets — quarantine does not gate them. */
     private val NON_LEARNING_CONSUMERS = setOf("Dashboard", "CausalFeedback6715")
 
     private fun deliverToCausalFeedback6715(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         CausalFeedbackAuthority6715.onTerminal(env)
-    } catch (_: Throwable) { false }
+    } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToRewardPurity(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean =
         RewardPurityGate6441.outcomeOf(env.positionId) != null ||
@@ -160,7 +205,7 @@ object FinalizedBusConsumerBridge6465 {
             env.positionId, env.mint, env.lane, env.entryTactic, env.mode,
             env.realizedReturnPct, env.realizedPnlSol, env.holdingTimeMs / 60_000.0,
         )
-    } catch (_: Throwable) { false }
+    } catch (t: Throwable) { threw7154(t) }
 
     /**
      * V5.0.7074 — THE TRADE-CLOSE HOOK THAT WAS NEVER WRITTEN.
@@ -202,19 +247,19 @@ object FinalizedBusConsumerBridge6465 {
             try { PipelineHealthCollector.labelInc("OPERATOR_FINGERPRINT_RECORDED_7074") } catch (_: Throwable) {}
         }
         true
-    } catch (_: Throwable) { false }
+    } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToLosingStreakReflex(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         com.lifecyclebot.engine.truth.LosingStreakReflex6439.onTradeClosed(env.realizedPnlSol, env.mint, env.mode, env.lane)
         true
-    } catch (_: Throwable) { false }
+    } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToGrowthRewardShaper(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         com.lifecyclebot.engine.truth.GrowthAlignedRewardShaper6439.shape(
             env.realizedPnlSol, (env.atMs - env.holdingTimeMs).coerceAtLeast(0L), env.atMs, env.mint,
         )
         true
-    } catch (_: Throwable) { false }
+    } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToTacticSwitcher(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         val band = env.scoreBand.ifBlank { com.lifecyclebot.engine.LosingPatternMemory.scoreBand(env.entryScore) }
@@ -222,30 +267,30 @@ object FinalizedBusConsumerBridge6465 {
             env.lane, band, env.entryTactic, env.realizedReturnPct,
         )
         true
-    } catch (_: Throwable) { false }
+    } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToGovernor(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         com.lifecyclebot.engine.LiveLaneGovernor.recordBypassOutcome(env.mint, env.realizedReturnPct)
         true
-    } catch (_: Throwable) { false }
+    } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToCapitalCreed(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         com.lifecyclebot.engine.truth.CapitalPreservationCreed6439.recordFinalized6486(env.positionId, env.realizedPnlSol)
-    } catch (_: Throwable) { false }
+    } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToEvEstimator(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(env.mint, env.realizedReturnPct)
         true
-    } catch (_: Throwable) { false }
+    } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToAatePolicyReward(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         AateDecisionFabric6512.onFinalized(env)
-    } catch (_: Throwable) { false }
+    } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToStrategyHypothesis(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(env.mint, env.realizedReturnPct)
         true
-    } catch (_: Throwable) { false }
+    } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToMemeCausalLearning6568(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         val memeLane = CausalFeedbackAuthority6715.isMemeOwnerLane(env.lane) ||
@@ -298,7 +343,7 @@ object FinalizedBusConsumerBridge6465 {
             }
             learned6713
         } else true
-    } catch (_: Throwable) { false }
+    } catch (t: Throwable) { threw7154(t) }
 
     // V5.0.6696 — these two heads previously depended on Executor's
     // synchronous REWARD_PURITY outcome lookup. RewardPurity cannot accept until
@@ -308,7 +353,7 @@ object FinalizedBusConsumerBridge6465 {
     private fun deliverToForwardOutcomeModel6696(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(env.mint, env.realizedReturnPct)
         true
-    } catch (_: Throwable) { false }
+    } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToUnifiedExitPolicyHead6696(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         val exitReason = env.exitReason.uppercase()
@@ -327,15 +372,25 @@ object FinalizedBusConsumerBridge6465 {
             )
         } catch (_: Throwable) {}
         true
-    } catch (_: Throwable) { false }
+    } catch (t: Throwable) { threw7154(t) }
 
     private fun deliverToDashboard(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         com.lifecyclebot.engine.DashboardDataProvider.onCanonicalTradeFinalized6485(env)
         true
-    } catch (_: Throwable) { false }
+    } catch (t: Throwable) { threw7154(t) }
 
-    fun statusLine(): String =
-        "delivered=${delivered.get()} refused=${refused.get()} excluded=${excluded.get()}"
+    fun statusLine(): String {
+        // V5.0.7154 — name the refusers. A bare refused=522 is a number the
+        // operator cannot act on; the same 522 attributed to two consumers is
+        // a bug report.
+        val worst7154 = refusedBy7154.entries
+            .sortedByDescending { it.value.get() }
+            .take(6)
+            .joinToString(",") { "${it.key}=${it.value.get()}" }
+            .ifBlank { "none" }
+        return "delivered=${delivered.get()} refused=${refused.get()} excluded=${excluded.get()} " +
+            "refusedBy7154=[$worst7154]"
+    }
 
     internal fun resetForTest() {
         delivered.set(0L); refused.set(0L); excluded.set(0L)

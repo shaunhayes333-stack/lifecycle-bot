@@ -187,6 +187,11 @@ object LearnedAdmissionAuthority6846 {
         val livePWin: Double,           // 0..1, from LiveProbabilityEngine / ForwardOutcomeModel
         val expectedPnl: Double,        // -1..+1
         val cohortSample: Int,          // n terminals for the (lane, scoreBand, regime, source) cohort
+        // V5.0.7154 — the TRUE terminal count for this cohort, before
+        // LearnedAdmissionInputs6909 maxes cohortSample with the oracle's
+        // effective weight. See the ORACLE branch in gate() for why the two
+        // must not be the same number.
+        val oracleRawCohortN7154: Int = 0,
         val laneWrPct: Double,          // 0..100
         val laneLossRatePct: Double,    // 0..100
         val sourceFamily: String,       // "PUMP_FUN_NEW" / "BIRDEYE_TRENDING" / …
@@ -326,6 +331,43 @@ object LearnedAdmissionAuthority6846 {
                 PipelineHealthCollector.labelInc("ORACLE_AUTHORITY_DEMOTED_ADVISORY_7120")
             } catch (_: Throwable) {}
         }
+        // V5.0.7154 §A CONFIDENCE WEIGHT IS NOT A SAMPLE COUNT.
+        //
+        // ORACLE_MIN_CONFIDENT_N_6915 = 8 is an OBSERVATION bar: "do not
+        // refuse a lane until eight terminals say so". What actually reaches
+        // it is LearnedAdmissionInputs6909's
+        //
+        //     cohortSample = maxOf(cohortSample, oracleEffectiveN6915)
+        //     oracleEffectiveN6915 = (oracle.confidence * 16.0).toInt()
+        //
+        // and PredictiveEntryOracle6915.Forecast documents `confidence` in
+        // its own KDoc as "Effective sample weight behind the estimate. NOT a
+        // raw count." So a confidence of 0.50 alone clears an eight-close bar
+        // with zero closes behind it, and maxOf guarantees the thinner, truer
+        // number can never win.
+        //
+        // Operator's 5.0.7145 device, the denial that fired 1263 times:
+        //
+        //   ENTRY_AUTHORITY_DENY_6846 cohort=QUALITY|S19|ORACLE effN=13
+        //     oracleEV=-0.2955 pWin=0.08 budgeted=false
+        //   PREDICTIVE_ORACLE_REFUSED_6915 E=-29.55% conf=0.82
+        //     [cellScoreExp(n=5,E=-45.9) cellFwd(pooled,n=1,E=-9.8,pW=0.00)
+        //      lane(n=14,E=-28.x)]
+        //
+        // effN=13 is exactly 0.82 x 16. The evidence it is standing in for is
+        // a cell of FIVE and a POOLED cell of ONE — pooled meaning
+        // ForwardOutcomeModel.cohortEvidence6911 blended paper and live with
+        // no shrink, so paper's losses are refusing live entries. Thirteen
+        // observations were reported; one and five existed.
+        //
+        // The threshold is NOT changed — 8 still means 8. The branch now
+        // reads the true terminal count for the bar, and where the weight
+        // says confident but the count does not, the candidate goes to the
+        // metered PROBE path that already exists rather than to a hard deny.
+        // Refusing on evidence we do not have is the same defect as every
+        // other absence-as-fact in this run; probing on thin evidence is how
+        // the bot earns the count that would justify refusing later.
+        val oracleThinEvidence7154 = inputs.oracleRawCohortN7154 < ORACLE_MIN_CONFIDENT_N_6915
         if (!oracleDegenerate7120 &&
             inputs.cohortSample >= ORACLE_MIN_CONFIDENT_N_6915 &&
             inputs.expectedPnl <= ORACLE_REFUSE_EV_6915
@@ -333,8 +375,18 @@ object LearnedAdmissionAuthority6846 {
             val cohortKey6915 = "$laneKey|S${inputs.scoreBand}|ORACLE"
             val budgeted = cohortProbeBudgetAllows6909(cohortKey6915, provenDead = true)
             val detail = "cohort=$cohortKey6915 effN=${inputs.cohortSample} " +
+                "rawN=${inputs.oracleRawCohortN7154} " +
                 "oracleEV=${"%.4f".format(inputs.expectedPnl)} " +
                 "pWin=${"%.2f".format(inputs.livePWin)} budgeted=$budgeted"
+            if (oracleThinEvidence7154) {
+                try {
+                    PipelineHealthCollector.labelInc("ORACLE_REFUSAL_ON_WEIGHT_NOT_COUNT_7154")
+                    PipelineHealthCollector.labelInc(
+                        "ORACLE_REFUSAL_ON_WEIGHT_NOT_COUNT_7154|$laneKey".take(60),
+                    )
+                } catch (_: Throwable) {}
+                return probe("ORACLE_THIN_EVIDENCE_PROBE_7154", inputs, detail)
+            }
             return if (budgeted) probe("ORACLE_NEGATIVE_EXPECTANCY_6915", inputs, detail)
             else deny("ORACLE_PROBE_BUDGET_6915", inputs, detail)
         }
