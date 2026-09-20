@@ -109,6 +109,59 @@ class StartupReconciler(
                 return ReconciliationResult(onChainSol, botStateSol, mismatch,
                     ghostCleared, verified, warnings)
             }
+            // V5.0.7130 — AN EMPTY WALLET READ IS NOT PROOF OF AN EMPTY WALLET.
+            //
+            // Operator: "its dead." Their 5.0.7129 device, 14:07:40, six SELLs in
+            // the same second, every one reason=EXTERNAL_RUG_CLOSE booked at
+            // -100% of cost. Nothing was rugged. The wallet RPC was down:
+            //
+            //   WALLET_TOKEN_READ_INDETERMINATE 176
+            //     "required SPL Token program failed; Tokenkeg:
+            //      getTokenAccountsByOwner failed on 14 wallet endpoints"
+            //   WALLET_RPC_ENDPOINT_COOLDOWN_4595 2745
+            //   Host wallet projection 0   (was 8-13)
+            //   JOURNAL_XREF_EXTERNAL_CLOSE 6
+            //
+            // The !ok abort above is correct and was NOT enough, because `ok`
+            // only means the call did not THROW. getTokenAccountsChecked returns
+            // ok=true whenever the strict read returns — INCLUDING when it
+            // returns an empty map. A degraded RPC that answers with an empty
+            // result set rather than an error is therefore indistinguishable
+            // from a genuinely empty wallet, and the journal-xref branch below
+            // reads "journal says open, wallet says zero" and writes the
+            // position off at -100%.
+            //
+            // The device proves the two readers disagreed: WALLET_TOKENS_ROBUST_OK
+            // fired 25 times while WALLET_TOKEN_READ_INDETERMINATE fired 176.
+            // One said trustworthy, the other said unknown, about the same fact.
+            //
+            // A wallet holding several positions does not empty completely
+            // between two reconciles. Simultaneous total disappearance of EVERY
+            // non-SOL holding is far better evidence of a dead read than of six
+            // independent rugs in the same second. So it is treated as untrusted
+            // and the pass defers, exactly as !ok does — the reconciler runs
+            // again in 90 seconds, and a wallet that really is empty will still
+            // be empty then, with a working RPC to prove it.
+            //
+            // This can only ever PREVENT a write-off. It never creates, closes
+            // or modifies a position, and when the wallet legitimately holds
+            // nothing AND no positions are open, nothing changes.
+            val nonSolHeld7130 = walletSnap.tokens.count { (m, q) ->
+                q > 0.0 && m != "So11111111111111111111111111111111111111112"
+            }
+            if (nonSolHeld7130 == 0 && openPositions.isNotEmpty()) {
+                onLog("⛔ RECONCILE ABORT: wallet read returned ZERO non-SOL tokens while ${openPositions.size} position(s) are open — treating as an untrusted read, NOT as an external close. Retrying next pass.")
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "RECONCILE_ABORT_EMPTY_WALLET_UNTRUSTED_7130",
+                        "openPositions=${openPositions.size} tokensReturned=${walletSnap.tokens.size} nonSolHeld=0 action=defer_no_external_close",
+                    )
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RECONCILE_ABORT_EMPTY_WALLET_UNTRUSTED_7130")
+                } catch (_: Throwable) {}
+                warnings.add("Wallet read returned zero tokens with open positions — reconcile deferred to protect positions")
+                return ReconciliationResult(onChainSol, botStateSol, mismatch,
+                    ghostCleared, verified, warnings)
+            }
             val tokenAccounts = walletSnap.tokens
             // V5.9.748 — adoption path: only TRULY open positions count as
             // "tracked". V5.9.739 added stale-pendingVerify positions
