@@ -1183,9 +1183,42 @@ class SolanaMarketScanner(
         // and lets the loop continue — a hung source degrades priority (streak++ via
         // its own per-source timeout) instead of stalling loop exit. No cycle >30s.
         val batchStart = System.currentTimeMillis()
-        val balancedActive6017 = active.sortedWith(compareBy<Pair<String, suspend () -> Unit>> {
-            // Rotate broad-network/non-Pump sources ahead of the noisy launch feeds so
-            // a cycle never spends its first permits only on Pump/Raydium.
+        // V5.0.7152 §A PRIORITY ORDER PLUS A PERMIT CAP IS A STARVATION MACHINE.
+        //
+        // Operator's 5.0.7145 intake, one session:
+        //
+        //   MEME_REGISTRY_RESTORE 160   PUMP_PORTAL_WS 139   (WS stream, not
+        //   batched)  ...  SCANNER_DIRECT_PUMP_FUN_NEW 5   PUMP_FUN_NEW 5
+        //   SCANNER_DIRECT_PUMP_FUN_GRADUATE 2
+        //
+        // A Solana memecoin bot whose fresh-launch feeds deliver five
+        // candidates a session is not discovering; it is recycling its own
+        // registry. The cause is the interaction of three separate limits
+        // that were each reasonable alone:
+        //
+        //   Semaphore(8)             — at most 8 sources in flight
+        //   SOURCE_SCAN_TIMEOUT_MS   — each may hold a permit for 5s
+        //   SCAN_BATCH_BUDGET_MS     — the whole batch is cancelled at 8s
+        //
+        // and this comparator, which sorted STRICTLY by tier with the launch
+        // feeds at tier 2. With ~16-20 sources the first eight permits all go
+        // to tier 0. On this device tier 0 contains geckoterminal at sr=26%
+        // with 44 fifth-hundreds — a source that reliably burns its whole 5s.
+        // Several such sources hold every permit for 5 of the 8 budgeted
+        // seconds; the launch feeds acquire what is left, and the batch is
+        // cancelled out from under them before they answer. They are not slow
+        // and they are not failing. They are queued behind the dead, every
+        // cycle, by construction — which is why the batch-cancel path does not
+        // even feed onTimeout, so they never trip the breaker, never get
+        // deprioritised, and the starvation is invisible.
+        //
+        // The comparator's own stated intent is "a cycle never spends its
+        // first permits only on Pump/Raydium". Strict tiering achieves the
+        // exact mirror of that: it spends them only on NOT-Pump. Interleave
+        // instead — round-robin across tiers so the first eight permits carry
+        // a mix. Tier order is preserved WITHIN each round, so the broad
+        // sources still go first; they simply no longer go first eight times.
+        val tiered7152 = active.groupBy {
             val n = it.first.uppercase()
             when {
                 n.contains("DEX") || n.contains("GECKO") || n.contains("BIRDEYE") || n.contains("BLUECHIP") || n.contains("TOPVOLUME") || n.contains("NARRATIVE") -> 0
@@ -1193,24 +1226,66 @@ class SolanaMarketScanner(
                 n.contains("PUMP") || n.contains("FRESH") -> 2
                 else -> 1
             }
-        }.thenBy { it.first })
+        }.toSortedMap().mapValues { (_, v) -> v.sortedBy { it.first } }
+        val balancedActive6017 = buildList {
+            val cursors = tiered7152.keys.associateWith { 0 }.toMutableMap()
+            var remaining = active.size
+            while (remaining > 0) {
+                var progressed = false
+                for (tier in tiered7152.keys) {
+                    val rows = tiered7152[tier] ?: continue
+                    val i = cursors[tier] ?: 0
+                    if (i >= rows.size) continue
+                    add(rows[i])
+                    cursors[tier] = i + 1
+                    remaining--
+                    progressed = true
+                }
+                if (!progressed) break
+            }
+        }
+        try {
+            ForensicLogger.lifecycle(
+                "SCANNER_TIER_INTERLEAVED_7152",
+                "sources=${active.size} tiers=${tiered7152.keys.joinToString("/")} " +
+                    "first8=${balancedActive6017.take(8).joinToString(",") { it.first }}",
+            )
+        } catch (_: Throwable) {}
+        // V5.0.7152 — record which sources actually finished, so a batch
+        // cancellation can name the ones it cut off. The old log said only
+        // "slow sources cancelled", which reads as a property of the sources;
+        // when the real cause is permit starvation the cancelled source was
+        // never slow, it was never started. Naming them is the difference
+        // between a diagnosis and a shrug.
+        val completed7152 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
         val finished = kotlinx.coroutines.withTimeoutOrNull(SCAN_BATCH_BUDGET_MS) {
             balancedActive6017.map { (name, block) ->
                 async(Dispatchers.IO) {
                     gate.acquire()
-                    try { runScan(name, block) } finally { gate.release() }
+                    try { runScan(name, block) } finally { gate.release(); completed7152.add(name) }
                 }
             }.awaitAll()
             true
         }
         if (finished == null) {
             val durMs = System.currentTimeMillis() - batchStart
+            val cut7152 = balancedActive6017.map { it.first }.filterNot { completed7152.contains(it) }
             ErrorLogger.warn("Scanner", "⏱ SCAN_BATCH_BUDGET_EXCEEDED durMs=$durMs budget=$SCAN_BATCH_BUDGET_MS — batch cancelled, loop continues")
             try {
                 ForensicLogger.lifecycle(
                     "SCANNER_BATCH_BUDGET_EXCEEDED",
-                    "durMs=$durMs budget=$SCAN_BATCH_BUDGET_MS sources=${balancedActive6017.size} permits=$permits (slow sources cancelled, priority degraded)",
+                    "durMs=$durMs budget=$SCAN_BATCH_BUDGET_MS sources=${balancedActive6017.size} permits=$permits " +
+                        "completed=${completed7152.size} cutOff=${cut7152.joinToString(",").take(240)}",
                 )
+                // A cancelled source is an ABSENCE — we stopped waiting. It is
+                // deliberately NOT fed to onTimeout (that would trip the
+                // breaker for our own impatience, and is why these never
+                // showed up in SCANNER_SOURCE_TIMEOUT). Counted separately so
+                // the starvation is visible without being blamed on the source.
+                for (name in cut7152) {
+                    PipelineHealthCollector.labelInc("SCANNER_SOURCE_CUT_BY_BATCH_BUDGET_7152")
+                    PipelineHealthCollector.labelInc("SCANNER_SOURCE_CUT_BY_BATCH_BUDGET_7152|$name".take(60))
+                }
             } catch (_: Throwable) {}
         }
     }

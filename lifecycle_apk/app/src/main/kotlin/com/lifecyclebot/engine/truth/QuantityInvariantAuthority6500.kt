@@ -298,8 +298,66 @@ object QuantityInvariantAuthority6500 {
      */
     fun isRuntimeOpenEligible6636(mint: String, pos: Position): Boolean {
         val check = check(mint, pos)
-        if (!check.ok || isQuarantined(mint)) {
-            try { PipelineHealthCollector.labelInc("RUNTIME_OPEN_REJECTED_INVARIANT_6636") } catch (_: Throwable) {}
+        val quarantined6636 = isQuarantined(mint)
+        if (!check.ok || quarantined6636) {
+            // V5.0.7152 §THE BIGGEST NUMBER IN THE REPORT SAID NOTHING.
+            //
+            // Operator's 5.0.7145 snapshot, 839 seconds of uptime:
+            //
+            //   RUNTIME_OPEN_REJECTED_INVARIANT_6636 : 195037
+            //
+            // Two orders of magnitude above every other counter, and
+            // undiagnosable. This gate rejects for at least four unrelated
+            // reasons — a structurally invalid runtime projection, a failed
+            // economic-notional identity, a canonical row that could not be
+            // bound, and a standing quarantine — and all four bumped the SAME
+            // label. A number that cannot distinguish "one mint is quarantined
+            // and the UI re-renders it two hundred times a second" from
+            // "fourteen positions are all structurally broken" is not
+            // evidence, and I spent this session reading past it because it
+            // had nothing to say.
+            //
+            // Worth stating plainly: the first rejection condition in check()
+            // is `!pos.isOpen`, which is Models.kt's `qtyToken <= 1.0` — the
+            // same predicate that was hiding seven of ten positions from the
+            // exit engine until V5.0.7146. If that is what is firing here,
+            // this gate is the DISPLAY-side twin of that bug, and the
+            // operator's "no held token should be left undisplayed" complaint
+            // and the unmanaged-positions complaint are one defect wearing two
+            // faces. The split below will say so outright in the next
+            // snapshot instead of leaving me to infer it.
+            //
+            // Behaviour is deliberately unchanged in this build. This gate
+            // also feeds hero totals and capital exposure, and widening what
+            // it admits without knowing which branch fires would be changing
+            // accounting arithmetic on a guess. Measure first.
+            val cause7152 = when {
+                quarantined6636 -> "QUARANTINED"
+                check.reason.startsWith("runtime_projection_structurally_invalid") ->
+                    if (!pos.isOpen) "STRUCTURAL_NOT_OPEN_QTY_LE_1" else "STRUCTURAL_INVALID_BASIS"
+                check.reason.startsWith("runtime_projection_vs_canonical_raw") -> "CANONICAL_PROJECTION_MISMATCH"
+                check.reason.startsWith("economic") || check.reason.contains("notional") -> "ECONOMIC_NOTIONAL"
+                else -> "OTHER"
+            }
+            try {
+                PipelineHealthCollector.labelInc("RUNTIME_OPEN_REJECTED_INVARIANT_6636")
+                PipelineHealthCollector.labelInc("RUNTIME_OPEN_REJECTED_INVARIANT_6636|$cause7152")
+                // Cardinality is the other half of the story: the same few
+                // mints rejected on every render read identically to a broad
+                // failure in a bare total. Count DISTINCT mints per cause, so
+                // 195k over 3 mints stops looking like 195k over 140.
+                if (rejectedMints7152.computeIfAbsent(cause7152) {
+                        java.util.concurrent.ConcurrentHashMap.newKeySet()
+                    }.add(mint)
+                ) {
+                    ForensicLogger.lifecycle(
+                        "RUNTIME_OPEN_REJECTED_FIRST_SEEN_7152",
+                        "mint=${mint.take(10)} cause=$cause7152 reason=${check.reason.take(120)} " +
+                            "qty=${pos.qtyToken} entry=${pos.entryPrice} cost=${pos.costSol} " +
+                            "isOpen=${pos.isOpen} pid=${pos.positionId.take(24)}",
+                    )
+                }
+            } catch (_: Throwable) {}
             return false
         }
         if (pos.positionId.isNotBlank() && LockedEntryMetrics6634.read6634(pos.positionId) == null) {
@@ -447,8 +505,18 @@ object QuantityInvariantAuthority6500 {
         return quarantined.containsKey(mint)
     }
 
-    fun statusLine(): String =
-        "validations=${validations.get()} breaks=${breaks.get()} quarantined=${quarantined.size}"
+    /** V5.0.7152 — distinct mints rejected, per cause. See isRuntimeOpenEligible6636. */
+    private val rejectedMints7152 =
+        java.util.concurrent.ConcurrentHashMap<String, MutableSet<String>>()
+
+    fun statusLine(): String {
+        val byCause7152 = rejectedMints7152.entries
+            .sortedByDescending { it.value.size }
+            .joinToString(",") { "${it.key}=${it.value.size}" }
+            .ifBlank { "none" }
+        return "validations=${validations.get()} breaks=${breaks.get()} quarantined=${quarantined.size} " +
+            "rejectedDistinctMintsByCause7152=[$byCause7152]"
+    }
 
     fun release(mint: String) {
         if (mint.isBlank()) return
