@@ -179,11 +179,91 @@ object KeylessLlmClient {
     @Volatile private var operatorGroqKey: String = ""
     @Volatile private var operatorOpenRouterKey: String = ""
     @Volatile private var operatorAnthropicKey: String = ""
+    @Volatile private var operatorGeminiKey: String = ""
 
-    fun setOperatorKeys(groq: String = "", openRouter: String = "", anthropic: String = "") {
+    fun setOperatorKeys(
+        groq: String = "",
+        openRouter: String = "",
+        anthropic: String = "",
+        // V5.0.7136 — the operator's Gemini key had nowhere to go.
+        //
+        // Operator: "I have a legitimate groq and gemini llm keys entered into
+        // and saved in settings. so there shouldn't be an issue."
+        //
+        // There was an issue, and it was here. BotService read cfg.geminiApiKey
+        // into a local named antKey and passed it to the ANTHROPIC slot behind
+        // `if (antKey.startsWith("sk-ant-"))`. A Gemini key starts with AIza, so
+        // that test is false for every real one and the key was discarded at the
+        // door. This council also had no Gemini member to give it to even if the
+        // test had passed. A key the operator entered, saved, and could see in
+        // Settings was therefore guaranteed never to be used by this class.
+        gemini: String = "",
+    ) {
         operatorGroqKey = groq.trim()
         operatorOpenRouterKey = openRouter.trim()
         operatorAnthropicKey = anthropic.trim()
+        operatorGeminiKey = gemini.trim()
+    }
+
+    /**
+     * V5.0.7136 — a provider's refusal is not the model's answer.
+     *
+     * Operator screenshot, Sentient Mind, rendered as PHILO's reply in the
+     * persona feed:
+     *
+     *   "The account behind this API key doesn't have enough credits. Please
+     *    top up or complete a quest, then try again. If this isn't your
+     *    Pollinations account, contact whoever runs the app or service you're
+     *    using."
+     *
+     * That is Pollinations telling us it will not serve the request. It arrives
+     * with HTTP 200 and a plain-text body, so okOrThrow passes it and the bare
+     * text branch hands it back as a completion. The council then counts it as
+     * a SUCCESS, stops asking anyone else, and the app prints a billing notice
+     * in the voice of the bot's own persona.
+     *
+     * This is the same shape as every other defect this session: a refusal read
+     * as a result. §6982 already states the rule — "a local decline is the
+     * absence of an observation ... count it as a skip rather than as an empty
+     * result." It applies to a remote decline that arrives dressed as prose.
+     *
+     * Deliberately narrow. It requires a short body AND a distinctive
+     * billing/auth phrase, because a real answer may legitimately discuss API
+     * keys or rate limits. A false positive costs one provider attempt and the
+     * council moves on; a false negative prints a vendor's dunning notice to the
+     * operator as if the bot said it.
+     */
+    private fun providerRefusalText7136(text: String): String? {
+        val t = text.trim()
+        if (t.isEmpty()) return null
+        if (t.length > 600) return null
+        val low = t.lowercase()
+        val markers = listOf(
+            "doesn't have enough credits", "does not have enough credits",
+            "insufficient credits", "insufficient_quota", "out of credits",
+            "please top up", "top-up?ref=", "complete a quest",
+            "quota exceeded", "exceeded your current quota",
+            "invalid api key", "incorrect api key", "api key not valid",
+            "unauthorized", "rate limit exceeded", "too many requests",
+            "contact whoever runs the app",
+        )
+        val hit = markers.firstOrNull { low.contains(it) } ?: return null
+        return hit
+    }
+
+    /** Returns the body when it is a real completion, or null when it is a refusal. */
+    private fun asCompletionOrNull7136(text: String?, provider: String): String? {
+        val t = text?.trim()?.ifBlank { null } ?: return null
+        val refusal = providerRefusalText7136(t) ?: return t
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_PROVIDER_REFUSAL_AS_TEXT_7136")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                "LLM_PROVIDER_REFUSAL_AS_TEXT_7136",
+                "provider=$provider marker=\"$refusal\" len=${t.length} " +
+                    "action=treat_as_failure_try_next_member body=${t.take(140).replace('\n', ' ')}",
+            )
+        } catch (_: Throwable) {}
+        return null
     }
 
     /**
@@ -394,6 +474,12 @@ object KeylessLlmClient {
         if (operatorAnthropicKey.isNotBlank()) {
             list.add(Provider("anthropic", "llm_anthropic") { s, u, m -> callAnthropic(s, u, m) })
         }
+        // V5.0.7136 — the operator's Gemini key gets a seat. Keyed members stay
+        // ahead of the keyless tail below, so a configured subscription is
+        // preferred and Pollinations only carries the load when it has to.
+        if (operatorGeminiKey.isNotBlank()) {
+            list.add(Provider("gemini", "llm_gemini_7136") { s, u, m -> callGemini7136(s, u, m) })
+        }
         // Emergent last-priority but ALWAYS present so we never return null
         // purely because no operator key was set.
         if (emergentKey.isNotBlank()) {
@@ -506,11 +592,12 @@ object KeylessLlmClient {
             // also been observed returning bare text. Accept both rather than
             // throwing away a usable answer over its envelope.
             val trimmed = body.trim()
-            if (!trimmed.startsWith("{")) return trimmed.ifBlank { null }
+            if (!trimmed.startsWith("{")) return asCompletionOrNull7136(trimmed, "pollinations")
             val j = JSONObject(trimmed)
-            return j.optJSONArray("choices")?.optJSONObject(0)
+            val content = j.optJSONArray("choices")?.optJSONObject(0)
                 ?.optJSONObject("message")?.optString("content", "")?.trim()?.ifBlank { null }
-                ?: trimmed.ifBlank { null }
+                ?: trimmed
+            return asCompletionOrNull7136(content, "pollinations")
         }
     }
 
@@ -526,7 +613,52 @@ object KeylessLlmClient {
             .build()
         exec(req, "llm_pollinations_get").use { resp ->
             if (!okOrThrow(resp, "llm_pollinations_get")) return null
-            return resp.body?.string()?.trim()?.ifBlank { null }
+            return asCompletionOrNull7136(resp.body?.string(), "pollinations_get")
+        }
+    }
+
+    /**
+     * V5.0.7136 — Gemini, using the key the operator actually entered.
+     *
+     * The council had seven members and not one of them was Gemini, while the
+     * operator's own Gemini key sat in Settings being tested for an Anthropic
+     * prefix. Direct generateContent, same endpoint GeminiCopilot uses, so this
+     * adds no new dependency and no new account — it spends a key that is
+     * already configured, already saved, and already expected to be in use.
+     *
+     * System and user are folded into one turn rather than sent as
+     * systemInstruction: the fold is what callPollinationsGet already does, it
+     * works on every v1beta model, and a council member that fails on an
+     * envelope detail is worth less than one that answers.
+     */
+    private fun callGemini7136(system: String, user: String, maxTokens: Int): String? {
+        val key = operatorGeminiKey
+        if (key.isBlank()) return null
+        val prompt = if (system.isBlank()) user else "$system\n\n$user"
+        val payload = JSONObject().apply {
+            put("contents", JSONArray().put(
+                JSONObject()
+                    .put("role", "user")
+                    .put("parts", JSONArray().put(JSONObject().put("text", prompt)))
+            ))
+            put("generationConfig", JSONObject()
+                .put("maxOutputTokens", maxTokens)
+                .put("temperature", 0.2))
+        }
+        val req = Request.Builder()
+            .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$key")
+            .header("Content-Type", "application/json")
+            .post(payload.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        exec(req, "llm_gemini_7136").use { resp ->
+            if (!okOrThrow(resp, "llm_gemini_7136")) return null
+            val body = resp.body?.string()?.trim()?.ifBlank { null } ?: return null
+            if (!body.startsWith("{")) return asCompletionOrNull7136(body, "gemini")
+            val text = JSONObject(body)
+                .optJSONArray("candidates")?.optJSONObject(0)
+                ?.optJSONObject("content")?.optJSONArray("parts")?.optJSONObject(0)
+                ?.optString("text", "")?.trim()?.ifBlank { null }
+            return asCompletionOrNull7136(text, "gemini")
         }
     }
 

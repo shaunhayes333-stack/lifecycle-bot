@@ -9278,10 +9278,20 @@ class BotService : Service() {
             // Feed operator-supplied paid keys to the keyless client so it can
             // upgrade to them when available, but keyless providers remain the
             // default so "LLM is gone" can't recur.
+            // V5.0.7136 — the Gemini key is a GEMINI key.
+            //
+            // cfg.geminiApiKey was read into `antKey` and offered only to the
+            // ANTHROPIC slot, behind a startsWith("sk-ant-") test. Google keys
+            // begin with AIza, so that test is false for every genuine one: the
+            // operator's saved key was read, rejected and dropped on every
+            // startup, and the council had no Gemini member to hand it to in
+            // any case. The anthropic slot still accepts a real sk-ant- key,
+            // because someone may legitimately paste one into that field.
             com.lifecyclebot.network.KeylessLlmClient.setOperatorKeys(
                 groq       = cfg.groqApiKey.trim(),
                 openRouter = cfg.openRouterApiKey.trim(),
                 anthropic  = if (antKey.startsWith("sk-ant-")) antKey else "",
+                gemini     = if (antKey.startsWith("sk-ant-")) "" else antKey,
             )
             com.lifecyclebot.network.EmergentLlmClient.configure(
                 apiKey = if (antKey.startsWith("sk-ant-")) antKey else ""
