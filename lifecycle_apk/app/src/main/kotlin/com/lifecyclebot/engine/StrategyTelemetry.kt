@@ -26,6 +26,65 @@ import com.lifecyclebot.data.Trade
  */
 object StrategyTelemetry {
 
+    /**
+     * V5.0.7184 §A_DUST_PROBE_IS_NOT_A_VOTE.
+     *
+     * meanPnlPct was `sumPnlPct / trades.size` in BOTH leaderboards — every
+     * close weighted identically. These leaderboards are what
+     * LaneExpectancyDamper reads for BLEEDER_MEAN_PCT / HEALTHY_MEAN_PCT /
+     * RUNNER_MEAN_PCT / CATASTROPHIC_MEAN_PCT, which set lane SIZE and the
+     * 6838 admission floor. The weighting here decides how much real capital
+     * each specialist gets.
+     *
+     * The book being averaged is not homogeneous. On the operator's 5.0.7176
+     * run, 159 of ~215 entries were DUST PROBES at LANE_DUST_PROBE_SIZE_MULT
+     * = 0.04 — nominally 0.05 SOL, the paper executable minimum — taken on
+     * candidates whose own lane signal said WAIT. The rest were conviction
+     * entries up to 1.76 SOL. Equal weighting let a 0.05 SOL probe on a token
+     * the lane did not want cast the same vote as a 1.76 SOL position the lane
+     * chose, and the probes were the MAJORITY. The noise floor was setting the
+     * size and the admission bar for real capital.
+     *
+     * Notional weighting is the right statistic, not a filter: a specialist's
+     * expectancy is the return on the SOL it actually committed, which is also
+     * what compounds. It needs no isProbe flag plumbed through the reward
+     * path — a probe de-weights itself by being small — and if probe sizing
+     * changes later the weighting stays correct automatically.
+     *
+     * Deliberately NOT applied to winRatePct, wins/losses or totalSolPnl:
+     * those are counts, or already SOL-denominated, and a hit rate is a count
+     * question by nature.
+     */
+    private const val NOTIONAL_WEIGHT_FLOOR_SOL_7184 = 0.01
+
+    /** Cost basis actually committed by a close, for 7184 weighting. */
+    private fun rowNotionalSol7184(t: Trade): Double {
+        val basis = when {
+            t.entryCostSol.isFinite() && t.entryCostSol > 0.0 -> t.entryCostSol
+            t.soldCostBasisSol.isFinite() && t.soldCostBasisSol > 0.0 -> t.soldCostBasisSol
+            t.sol.isFinite() && t.sol > 0.0 -> t.sol
+            else -> 0.0
+        }
+        // Floor so an unpriced or zero-basis row still votes — at probe
+        // weight, rather than silently at full weight as it did before.
+        return basis.coerceAtLeast(NOTIONAL_WEIGHT_FLOOR_SOL_7184)
+    }
+
+    /**
+     * Notional-weighted mean pnl%. Falls back to the old equal-weighted mean
+     * when no row carries a usable basis, so this can never return nothing.
+     * Same winsorization as the callers (-100%..+5000%).
+     */
+    private fun notionalWeightedMeanPct7184(trades: List<Trade>): Double {
+        if (trades.isEmpty()) return 0.0
+        fun sane(p: Double): Double = if (!p.isFinite()) 0.0 else p.coerceIn(-100.0, 5_000.0)
+        val weightSum = trades.sumOf { rowNotionalSol7184(it) }
+        if (!weightSum.isFinite() || weightSum <= 0.0) {
+            return trades.sumOf { sane(it.pnlPct) } / trades.size
+        }
+        return trades.sumOf { sane(it.pnlPct) * rowNotionalSol7184(it) } / weightSum
+    }
+
     data class StrategyMetric(
         val strategy: String,
         val trades: Int,
@@ -305,7 +364,9 @@ object StrategyTelemetry {
                 val losses = trades.count { rowPnlSol(it) < 0.0 }
                 val scratches = trades.size - wins - losses
                 val sumPnlPct = trades.sumOf { sanePct(it.pnlPct) }
-                val meanPnlPct = if (trades.isNotEmpty()) sumPnlPct / trades.size else 0.0
+                // V5.0.7184 — notional weighted, not trade-count weighted.
+                // sumPnlPct is kept unchanged for report continuity.
+                val meanPnlPct = notionalWeightedMeanPct7184(trades)
                 val wlDenom = wins + losses
                 val wr = if (wlDenom > 0) wins * 100.0 / wlDenom else 0.0
                 val totalSol = trades.sumOf { rowPnlSol(it) }
@@ -369,7 +430,9 @@ object StrategyTelemetry {
                 val losses = trades.count { rowPnlSol(it) < 0.0 }
                 val scratches = trades.size - wins - losses
                 val sumPnlPct = trades.sumOf { sanePct(it.pnlPct) }
-                val meanPnlPct = if (trades.isNotEmpty()) sumPnlPct / trades.size else 0.0
+                // V5.0.7184 — notional weighted, not trade-count weighted.
+                // sumPnlPct is kept unchanged for report continuity.
+                val meanPnlPct = notionalWeightedMeanPct7184(trades)
                 val wlDenom = wins + losses
                 val wr = if (wlDenom > 0) wins * 100.0 / wlDenom else 0.0
                 val totalSol = trades.sumOf { rowPnlSol(it) }
