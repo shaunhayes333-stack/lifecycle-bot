@@ -35,6 +35,14 @@ import kotlinx.coroutines.withContext
 object CrossAssetMarkRouter6530 {
 
     /**
+     * V5.0.7178 — oldest DynamicAltTokenRegistry price this router will
+     * publish as a live mark. Matches the registry's own PRICE_TTL_MS and the
+     * 60s bar the exit feed applies, so a stale registry row is refused here
+     * rather than laundered into the canonical surface as fresh.
+     */
+    private const val REGISTRY_MARK_MAX_AGE_MS_7178 = 60_000L
+
+    /**
      * Try to fetch and stamp an off-chain mark on the given TokenState.
      * Returns true when the mark was updated.
      *
@@ -77,7 +85,81 @@ object CrossAssetMarkRouter6530 {
                 emit("OK_KEYLESS_CROSSCHAIN_7004", assetClass, symbol, "price=$keylessPx7004 id=${ts.mint.take(24)}")
                 return true
             }
-            emit("UNROUTABLE_SYMBOL", assetClass, symbol, "no PerpsMarket entry and no keyless cross-chain mark for id=${ts.mint.take(24)}")
+            // V5.0.7178 §THE_PRICE_WAS_ALREADY_IN_THE_BUILDING.
+            //
+            // Operator: "why cant they be priced? are they not real world
+            // trading opportunities?" They are, and the bot already has their
+            // prices. It was asking the two sources least likely to have them.
+            //
+            // This branch tried exactly two things: a PerpsMarket symbol
+            // lookup, then DefiLlama's coins API. Both fail for the identities
+            // CryptoAltTrader actually holds:
+            //
+            //  * LLAMA_CHAIN_ALIASES_7004 keys twelve chains. The discovery
+            //    layer traded on arc, robinhood and tron as well, so
+            //    crossChainPrice returns 0.0 for those without issuing a
+            //    request at all (20 identities in the 5.0.7176 run).
+            //  * For chains it DOES key, DefiLlama's coins API carries
+            //    established tokens, not freshly-discovered pool tokens — so
+            //    solana|DTe5B1Qc… (BABYPHIL) fails on a perfectly valid alias.
+            //
+            // Meanwhile DynamicAltTokenRegistry is holding a live price for
+            // precisely these rows. It is keyed by canonicalIdentity6544,
+            // which is the same `chain|token` string ts.mint carries, and it
+            // is refreshed by CoinGecko and by ParallelMarkFanout7088 — the
+            // six-feed fan-out that returned JUPITER=3526, RAYDIUM=1512,
+            // DEFILLAMA=1364, DEXSCREENER=301 quotes in that same run. This
+            // router contained no reference to it.
+            //
+            // That is why the report could say `Economic units unpriced=24`
+            // and `UNROUTABLE_SYMBOL` while CryptoAltTrader was closing the
+            // same positions on real movement (HARD_TP: price=0.000686
+            // crossed TP=0.000499, +131.59%). The market was never missing;
+            // one of two parallel mark paths simply did not consult the
+            // authority that had the number.
+            //
+            // Reading the registry adds no network call and no new provider.
+            // The registry's own PRICE_TTL_MS is 60s, the same freshness bar
+            // the exit feed applies, so anything older is refused here rather
+            // than published as live.
+            val regTok7178 = try {
+                com.lifecyclebot.perps.DynamicAltTokenRegistry
+                    .getTokenByCanonicalIdentity6544(ts.mint)
+            } catch (_: Throwable) { null }
+            val regPx7178 = regTok7178?.price ?: 0.0
+            val regAgeMs7178 = if (regTok7178 == null) Long.MAX_VALUE else
+                (System.currentTimeMillis() - regTok7178.lastUpdatedMs).coerceAtLeast(0L)
+            if (regPx7178.isFinite() && regPx7178 > 0.0 && regAgeMs7178 <= REGISTRY_MARK_MAX_AGE_MS_7178) {
+                ts.lastPrice = regPx7178
+                ts.lastPriceSource = "ALT_REGISTRY_7178"
+                ts.lastPriceUpdate = System.currentTimeMillis()
+                // Stamp, for the same reason V5.0.7010 had to stamp the branch
+                // above and V5.0.7175 the third path: the exit feed tests
+                // provenance, not ts.lastPrice. A mark committed without a
+                // stamp is a mark the exit engine cannot see.
+                try {
+                    QuoteFreshnessGuard6452.note(
+                        mint = ts.mint,
+                        priceUsd = regPx7178,
+                        source = QuoteFreshnessGuard6452.Provenance.REST_LIVE,
+                    )
+                    PipelineHealthCollector.labelInc("CROSS_ASSET_MARK_FROM_ALT_REGISTRY_7178")
+                } catch (_: Throwable) {}
+                emit(
+                    "OK_ALT_REGISTRY_7178", assetClass, symbol,
+                    "price=$regPx7178 ageMs=$regAgeMs7178 id=${ts.mint.take(24)}",
+                )
+                return true
+            }
+            if (regTok7178 != null) {
+                // The registry knows this identity but its price is absent or
+                // stale. That is a refresh-cadence fault, not an unroutable
+                // asset, and the two need opposite fixes.
+                try {
+                    PipelineHealthCollector.labelInc("CROSS_ASSET_ALT_REGISTRY_MARK_STALE_7178")
+                } catch (_: Throwable) {}
+            }
+            emit("UNROUTABLE_SYMBOL", assetClass, symbol, "no PerpsMarket entry, no keyless cross-chain mark and no fresh alt-registry price for id=${ts.mint.take(24)} regKnown=${regTok7178 != null} regAgeMs=$regAgeMs7178")
             return false
         }
         return try {
