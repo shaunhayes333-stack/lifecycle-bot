@@ -140,6 +140,23 @@ object KeylessLlmClient {
 
     private val startIdx = AtomicInteger(0)
     private const val COOLDOWN_MS = 60_000L
+
+    /**
+     * V5.0.7151 — the whole council gets ONE wall clock, not one per member.
+     * Racing members means the deadline is the slowest answer we are willing
+     * to wait for, not the sum of every dead member's timeout.
+     */
+    private const val COUNCIL_WALL_MS_7151 = 9_000L
+
+    /**
+     * Daemon threads: a hung provider socket must never hold the process
+     * open, and the ring is IO-bound so the pool is sized for concurrency,
+     * not for cores.
+     */
+    private val councilPool7151: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newCachedThreadPool { r ->
+            Thread(r, "aate-llm-ring").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }
+        }
     // V5.0.7016 — concurrent. runChat is called from the entry dispatcher, the
     // sentience hooks and probeCouncil6999 at the same time; a plain
     // LinkedHashMap mutated from several threads can corrupt its own buckets.
@@ -214,8 +231,105 @@ object KeylessLlmClient {
                 "provider=$host http=${resp.code} msg=${resp.message.take(40)} " +
                     "body=${snippet.take(240)}",
             )
+            classifyAndPenalise7150(host, resp.code, snippet)
         } catch (_: Throwable) {}
         return false
+    }
+
+    /**
+     * V5.0.7150 §A DEAD PROVIDER IS NOT A SLOW ONE.
+     *
+     * Operator's 5.0.7145 device, 839 seconds of uptime:
+     *
+     *   LLM_PROVIDER_HTTP_ERROR_7141 : 2311      (~2.75 failures every second)
+     *   LLM_PROVIDER_HTTP_429_7141   : 1922
+     *   LLM_PROVIDER_COOLDOWN_4458   :   59      (cooldowns actually applied)
+     *   llm_emergent  4xx=384   llm_gemini_7136 4xx=385
+     *   llm_openrouter 4xx=389  llm_groq 4xx=384  ovh_llm_keyless 4xx=1230
+     *
+     * And what those bodies actually say, now that 7141 prints them:
+     *
+     *   emergent   : "Budget has been exceeded! ... Current cost: 761.1047,
+     *                 Max budget: 761.0983"  — the key is spent. Permanently.
+     *   openrouter : "This model is unavailable for free."  — the slug is
+     *                 retired. It will be retired tomorrow too.
+     *   gemini     : "You exceeded your current quota"  — free-tier daily cap.
+     *
+     * None of those get better in fifteen seconds, and every one was retried
+     * roughly four hundred times. 7145 fixed "nobody is asked" by asking
+     * everybody; this is the other half — everybody is now asked, and
+     * everybody is dead, so the council spends the whole session hammering
+     * corpses and the operator gets templated musings instead of an answer.
+     *
+     * A 15s cooldown is the right response to a transient. It is the wrong
+     * response to a spent budget, a retired model or a rejected key, and
+     * treating them the same is the same defect class as everything else in
+     * this run: refusing to read what the evidence actually says.
+     */
+    private const val PENALTY_TERMINAL_MS_7150 = 6L * 60 * 60 * 1000  // spent key / dead model
+    private const val PENALTY_QUOTA_MS_7150 = 30L * 60 * 1000          // daily or plan quota
+    private const val PENALTY_RATE_MS_7150 = 60L * 1000                // per-minute rate limit
+
+    private val providerPenaltyUntil7150 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val providerPenaltyReason7150 = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private fun classifyAndPenalise7150(host: String, code: Int, body: String) {
+        val b = body.lowercase()
+        val terminal = b.contains("budget has been exceeded") ||
+            b.contains("budget_exceeded") ||
+            b.contains("unavailable for free") ||
+            b.contains("no longer available") ||
+            b.contains("is not a valid model") ||
+            b.contains("api key not valid") ||
+            b.contains("invalid api key") ||
+            b.contains("incorrect api key") ||
+            code == 401 || code == 403
+        // A daily/plan quota names the plan or the billing account. A bare 429
+        // with no such wording is an ordinary per-minute rate limit, and those
+        // genuinely do clear in a minute.
+        val quota = !terminal && (
+            b.contains("exceeded your current quota") ||
+                b.contains("billing details") ||
+                b.contains("quota_exceeded") ||
+                b.contains("insufficient_quota") ||
+                b.contains("daily limit") ||
+                b.contains("credits")
+            )
+        val (ms, why) = when {
+            terminal -> PENALTY_TERMINAL_MS_7150 to "TERMINAL"
+            quota -> PENALTY_QUOTA_MS_7150 to "QUOTA"
+            code == 429 -> PENALTY_RATE_MS_7150 to "RATE"
+            else -> return
+        }
+        val until = System.currentTimeMillis() + ms
+        val prior = providerPenaltyUntil7150[host] ?: 0L
+        if (until <= prior) return
+        providerPenaltyUntil7150[host] = until
+        providerPenaltyReason7150[host] = why
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_PROVIDER_PENALISED_7150_$why")
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_PROVIDER_PENALISED_7150_${why}_$host".take(60))
+            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                "LLM_PROVIDER_PENALISED_7150",
+                "provider=$host http=$code class=$why penaltyMs=$ms action=stop_retrying_until_expiry",
+            )
+        } catch (_: Throwable) {}
+    }
+
+    /** V5.0.7150 — true while a provider is serving a classified penalty. */
+    private fun penalised7150(name: String, now: Long): Boolean =
+        (providerPenaltyUntil7150[name] ?: 0L) > now
+
+    /** V5.0.7150 — operator-facing summary of who is benched and why. */
+    fun penaltyStatusLine7150(): String {
+        val now = System.currentTimeMillis()
+        val rows = providerPenaltyUntil7150.entries
+            .filter { it.value > now }
+            .sortedByDescending { it.value }
+            .joinToString(" · ") {
+                "${it.key}:${providerPenaltyReason7150[it.key] ?: "?"}(${(it.value - now) / 1000}s)"
+            }
+        return if (rows.isBlank()) "llmPenalties7150: none" else "llmPenalties7150: $rows"
     }
 
     @Volatile private var operatorGroqKey: String = ""
@@ -329,33 +443,103 @@ object KeylessLlmClient {
         // V5.0.7030 — which member the forced attempt ended up asking.
         var forcedName7030 = ""
 
+        // ─────────────────────────────────────────────────────────────────
+        // V5.0.7151 §THE COUNCIL IS A RING, NOT A QUEUE.
+        //
+        // Operator: "they should all be parallelled rings not serial. stop
+        // letting one provider outage block the entire trading loop. that
+        // goes everywhere."
+        //
+        // This loop asked nine members ONE AT A TIME and returned on the
+        // first real answer. When every member is healthy that is cheap,
+        // because the first one answers. When members are dead — which on the
+        // operator's 5.0.7145 device is ALL of them, 2311 HTTP failures in
+        // 839 seconds — the caller pays every timeout end to end before
+        // learning the council is dry. Nine members at a couple of seconds
+        // each is most of a bot-loop cycle spent waiting on providers that
+        // already said no, and the whole point of having nine was that no
+        // single one could hold the loop up.
+        //
+        // A serial fallback chain makes availability MULTIPLICATIVE in
+        // latency and only additive in reliability. Racing them makes latency
+        // the FASTEST member's, not the sum of the dead ones'.
+        //
+        // So: every eligible member is asked at once, the first non-blank
+        // answer wins and the rest are cancelled. The whole council is bounded
+        // by one wall-clock deadline rather than by nine sequential timeouts.
+        //
+        // Members still running when the deadline passes are recorded as
+        // NOTHING — not empty, not errored. We did not observe a failure, we
+        // stopped waiting, and writing that down as a failure would cool a
+        // member for our own impatience. Same rule as the OwnBackoffRefusal
+        // branch below and §6982 throughout.
+        val eligible7151 = ArrayList<Provider>(n)
         for (offset in 0 until n) {
             val p = providers[(start + offset) % n]
-            val until = cooldownUntil[p.name] ?: 0L
-            if (until > now) { cooling++; continue }
+            // A provider serving a classified penalty (spent budget, retired
+            // model, rejected key, exhausted daily quota) is not asked. It
+            // answered already, in words, and that will not change this minute.
+            if (penalised7150(p.name, now)) { cooling++; continue }
+            if ((cooldownUntil[p.name] ?: 0L) > now) { cooling++; continue }
+            eligible7151.add(p)
+        }
+
+        if (eligible7151.isNotEmpty()) {
+            val ecs = java.util.concurrent.ExecutorCompletionService<Pair<String, Any?>>(councilPool7151)
+            val futures = ArrayList<java.util.concurrent.Future<Pair<String, Any?>>>(eligible7151.size)
+            for (p in eligible7151) {
+                futures.add(
+                    ecs.submit<Pair<String, Any?>> {
+                        try { p.name to (p.call(system, user, maxTokens) as Any?) }
+                        catch (t: Throwable) { p.name to t }
+                    },
+                )
+            }
+            asked += eligible7151.size
             try {
-                asked++
-                val text = p.call(system, user, maxTokens)
-                if (!text.isNullOrBlank()) {
-                    lastCouncilDiagnostic7016 = ""
-                    return text
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_COUNCIL_PARALLEL_RING_7151")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                    "LLM_COUNCIL_PARALLEL_RING_7151_N${eligible7151.size}",
+                )
+            } catch (_: Throwable) {}
+            val deadline7151 = System.currentTimeMillis() + COUNCIL_WALL_MS_7151
+            var winner7151: String? = null
+            try {
+                var settled = 0
+                while (settled < futures.size && winner7151 == null) {
+                    val remaining = deadline7151 - System.currentTimeMillis()
+                    if (remaining <= 0L) break
+                    val done = ecs.poll(remaining, java.util.concurrent.TimeUnit.MILLISECONDS) ?: break
+                    settled++
+                    val (pname, outcome) = try { done.get() } catch (t: Throwable) { "?" to t }
+                    when {
+                        outcome is OwnBackoffRefusal -> {
+                            // Never asked — our own circuit short-circuited it.
+                            // No cooldown, and it does not count as asked.
+                            asked--
+                            ownBackoff++
+                            ErrorLogger.debug(TAG, "provider=$pname refused by our own backoff")
+                        }
+                        outcome is Throwable -> {
+                            errored++
+                            cooldownUntil[pname] = now + COOLDOWN_MS
+                            ErrorLogger.debug(TAG, "provider=$pname err=${outcome.message?.take(120)}")
+                        }
+                        outcome is String && outcome.isNotBlank() -> winner7151 = outcome
+                        else -> {
+                            empty++
+                            cooldownUntil[pname] = now + 15_000L
+                        }
+                    }
                 }
-                empty++
-                cooldownUntil[p.name] = now + 15_000L
-            } catch (e: OwnBackoffRefusal) {
-                // V5.0.7016 — do NOT cool this member down. It was never asked:
-                // ApiBackoff short-circuited before the wire, so we have no
-                // evidence at all about the provider. Adding our own 60s
-                // cooldown on top of our own lockout is the app punishing a
-                // member for our refusal, and it is how one bad minute became
-                // a silent council for several.
-                asked--
-                ownBackoff++
-                ErrorLogger.debug(TAG, "provider=${p.name} refused by our own backoff (${e.host})")
-            } catch (e: Exception) {
-                errored++
-                cooldownUntil[p.name] = now + COOLDOWN_MS
-                ErrorLogger.debug(TAG, "provider=${p.name} err=${e.message?.take(120)}")
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            } finally {
+                for (f in futures) if (!f.isDone) f.cancel(true)
+            }
+            if (winner7151 != null) {
+                lastCouncilDiagnostic7016 = ""
+                return winner7151
             }
         }
 
@@ -462,45 +646,81 @@ object KeylessLlmClient {
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_COUNCIL_FORCED_SWEEP_7145")
             } catch (_: Throwable) {}
-            forcedAttempt7016.set(true)
-            try {
-                for (p in ordered7145) {
-                    forcedName7030 = p.name
+            // V5.0.7151 — the sweep races too.
+            //
+            // This branch only runs when NOBODY reached the wire, i.e. every
+            // member was locked out by our own backoff. Walking them one at a
+            // time to discover that was the worst case of all: the caller pays
+            // the full serial cost precisely on the turn when the council has
+            // the least to offer. forcedAttempt7016 is a ThreadLocal read by
+            // exec(), so each racer sets it on its OWN thread and clears it in
+            // a finally — the waiver travels with the request, not with the
+            // caller.
+            val sweep7151 = ordered7145.filter { !penalised7150(it.name, System.currentTimeMillis()) }
+            if (sweep7151.isNotEmpty()) {
+                val ecs2 = java.util.concurrent.ExecutorCompletionService<Pair<String, Any?>>(councilPool7151)
+                val futures2 = ArrayList<java.util.concurrent.Future<Pair<String, Any?>>>(sweep7151.size)
+                for (p in sweep7151) {
                     try {
                         com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
                             "LLM_COUNCIL_FORCED_ATTEMPT_7016_" + p.name.uppercase(),
                         )
                     } catch (_: Throwable) {}
-                    try {
-                        val text = p.call(system, user, maxTokens)
-                        if (!text.isNullOrBlank()) {
-                            lastCouncilDiagnostic7016 = ""
-                            cooldownUntil.remove(p.name)
-                            try {
-                                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
-                                    "LLM_COUNCIL_FORCED_SWEEP_ANSWERED_7145_" + p.name.uppercase(),
-                                )
-                            } catch (_: Throwable) {}
-                            return text
-                        }
-                        empty++
-                        // V5.0.7030 — a member that answered with nothing is
-                        // still cooled, so the next turn rotates off it.
-                        cooldownUntil[p.name] = now + 15_000L
-                    } catch (e: OwnBackoffRefusal) {
-                        // Our own circuit, mid-sweep. It was never asked, so it
-                        // is not cooled — and the sweep continues to the next
-                        // member rather than ending the turn on our refusal.
-                        ownBackoff++
-                        ErrorLogger.debug(TAG, "sweep ${p.name} refused by own backoff (${e.host})")
-                    } catch (e: Exception) {
-                        errored++
-                        cooldownUntil[p.name] = now + COOLDOWN_MS
-                        ErrorLogger.debug(TAG, "sweep ${p.name}: ${e.message?.take(120)}")
-                    }
+                    futures2.add(
+                        ecs2.submit<Pair<String, Any?>> {
+                            forcedAttempt7016.set(true)
+                            try { p.name to (p.call(system, user, maxTokens) as Any?) }
+                            catch (t: Throwable) { p.name to t }
+                            finally { forcedAttempt7016.set(false) }
+                        },
+                    )
                 }
-            } finally {
-                forcedAttempt7016.set(false)
+                forcedName7030 = sweep7151.first().name
+                val deadline2 = System.currentTimeMillis() + COUNCIL_WALL_MS_7151
+                var swept7151: String? = null
+                try {
+                    var settled = 0
+                    while (settled < futures2.size && swept7151 == null) {
+                        val remaining = deadline2 - System.currentTimeMillis()
+                        if (remaining <= 0L) break
+                        val done = ecs2.poll(remaining, java.util.concurrent.TimeUnit.MILLISECONDS) ?: break
+                        settled++
+                        val (pname, outcome) = try { done.get() } catch (t: Throwable) { "?" to t }
+                        when {
+                            outcome is OwnBackoffRefusal -> {
+                                ownBackoff++
+                                ErrorLogger.debug(TAG, "sweep $pname refused by own backoff")
+                            }
+                            outcome is Throwable -> {
+                                errored++
+                                cooldownUntil[pname] = now + COOLDOWN_MS
+                                ErrorLogger.debug(TAG, "sweep $pname: ${outcome.message?.take(120)}")
+                            }
+                            outcome is String && outcome.isNotBlank() -> {
+                                cooldownUntil.remove(pname)
+                                forcedName7030 = pname
+                                try {
+                                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                                        "LLM_COUNCIL_FORCED_SWEEP_ANSWERED_7145_" + pname.uppercase(),
+                                    )
+                                } catch (_: Throwable) {}
+                                swept7151 = outcome
+                            }
+                            else -> {
+                                empty++
+                                cooldownUntil[pname] = now + 15_000L
+                            }
+                        }
+                    }
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                } finally {
+                    for (f in futures2) if (!f.isDone) f.cancel(true)
+                }
+                if (swept7151 != null) {
+                    lastCouncilDiagnostic7016 = ""
+                    return swept7151
+                }
             }
         }
 
@@ -801,9 +1021,38 @@ object KeylessLlmClient {
     }
 
     // ── OpenRouter (operator key) ──────────────────────────────────────────
+    //
+    // V5.0.7150 — the pinned slug died and took the provider with it.
+    //
+    // Operator's 5.0.7145 device, in OpenRouter's own words:
+    //
+    //   http=404 {"error":{"message":"This model is unavailable for free.
+    //   The paid version is available now - use this slug instead:
+    //   meta-llama/llama-3.3-70b-instruct","code":404}}
+    //
+    // 389 times. A single hardcoded `:free` slug is a bet that a third party
+    // will keep one specific free tier alive forever, and that bet has now
+    // lost — the suggested replacement in that message is the PAID model, so
+    // taking the server's advice literally would start charging the operator.
+    //
+    // Free slugs are the thing that churns here, so the fix is a ladder
+    // rather than a better guess: try each, remember the one that answered,
+    // and start there next time. When a slug 404s the next is tried on the
+    // following call instead of the provider being written off.
+    private val OPENROUTER_FREE_MODELS_7150 = listOf(
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "meta-llama/llama-3.1-8b-instruct:free",
+        "google/gemma-2-9b-it:free",
+        "mistralai/mistral-7b-instruct:free",
+        "qwen/qwen-2-7b-instruct:free",
+    )
+    @Volatile private var openRouterModelIdx7150: Int = 0
+
     private fun callOpenRouter(system: String, user: String, maxTokens: Int): String? {
+        val idx = openRouterModelIdx7150.coerceIn(0, OPENROUTER_FREE_MODELS_7150.size - 1)
+        val model7150 = OPENROUTER_FREE_MODELS_7150[idx]
         val payload = JSONObject().apply {
-            put("model", "meta-llama/llama-3.3-70b-instruct:free")
+            put("model", model7150)
             put("max_tokens", maxTokens)
             put("temperature", 0.2)
             put("messages", JSONArray()
@@ -819,11 +1068,30 @@ object KeylessLlmClient {
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
         exec(req, "llm_openrouter").use { resp ->
-            if (!okOrThrow(resp, "llm_openrouter")) return null
+            if (!okOrThrow(resp, "llm_openrouter")) {
+                // V5.0.7150 — a model-level refusal advances the ladder; an
+                // account-level one (spent credits, bad key) does not, because
+                // no slug would help and classifyAndPenalise7150 has already
+                // benched the provider.
+                if (resp.code == 404 || resp.code == 400) {
+                    openRouterModelIdx7150 = (idx + 1) % OPENROUTER_FREE_MODELS_7150.size
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_OPENROUTER_MODEL_ROTATED_7150")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "LLM_OPENROUTER_MODEL_ROTATED_7150",
+                            "from=$model7150 to=${OPENROUTER_FREE_MODELS_7150[openRouterModelIdx7150]} http=${resp.code}",
+                        )
+                    } catch (_: Throwable) {}
+                }
+                return null
+            }
             val body = resp.body?.string() ?: return null
             val j = JSONObject(body)
-            return j.optJSONArray("choices")?.optJSONObject(0)
+            val out7150 = j.optJSONArray("choices")?.optJSONObject(0)
                 ?.optJSONObject("message")?.optString("content", "")?.trim()?.ifBlank { null }
+            // Remember the slug that actually answered.
+            if (out7150 != null && openRouterModelIdx7150 != idx) openRouterModelIdx7150 = idx
+            return out7150
         }
     }
 

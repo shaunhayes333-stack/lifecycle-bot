@@ -3100,6 +3100,13 @@ object PipelineHealthCollector {
                     "  ${h.provider} success=${h.successes} failure=${h.failures} capacity=${if (h.successes + h.failures == 0L) "UNKNOWN" else if (h.isHealthy) "AVAILABLE" else "DEGRADED"} lastAgeMs=${System.currentTimeMillis() - h.lastUpdateMs}",
                 )
             }
+            // V5.0.7150 — name who is benched and why. A provider at sr=0%
+            // with 384 4xx tells the operator nothing about whether the app
+            // will keep hammering it; this line does, and it distinguishes a
+            // spent key from a rate limit without them having to read bodies.
+            try {
+                sb.appendLine("  " + com.lifecyclebot.network.KeylessLlmClient.penaltyStatusLine7150())
+            } catch (_: Throwable) {}
             val keySnap = KeyValidator.snapshot()
             if (keySnap.isNotEmpty()) {
                 sb.append("\n===== Credential/connectivity verdicts (KeyValidator; not inference capacity) =====\n")

@@ -1039,7 +1039,16 @@ Not one sentence unless the moment truly calls for it.
         if (!asJson) {
             try {
                 val tools = JSONArray()
-                tools.put(JSONObject().put("google_search", JSONObject()))
+                // V5.0.7150 — googleSearch, not google_search.
+                //
+                // google_search is the PROTOBUF field name. The v1beta REST
+                // surface this file posts to takes lowerCamelCase, so every
+                // asJson=false call has been a guaranteed HTTP 400 for as long
+                // as this line has existed — the request never reached a model.
+                // That is one of the reasons the operator's musings never
+                // change: the copilot's free-text path could not succeed, so
+                // the caller always fell through to templated output.
+                tools.put(JSONObject().put("googleSearch", JSONObject()))
                 payload.put("tools", tools)
             } catch (_: Exception) {}
         }
