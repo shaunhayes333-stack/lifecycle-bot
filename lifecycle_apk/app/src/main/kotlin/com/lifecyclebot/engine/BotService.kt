@@ -11588,7 +11588,46 @@ class BotService : Service() {
                                         )
                                     } catch (_: Throwable) { Double.NaN }
                                     if (!lockedFloor.isNaN() && lockedFloor > 0.0) {
-                                        val highLockImmediate = peakPct >= 200.0 && pnlPctNow >= lockedFloor
+                                        // V5.0.7182 §THE_GUILLOTINE_AT_200_PERCENT.
+                                        //
+                                        // Was:
+                                        //   val highLockImmediate =
+                                        //       peakPct >= 200.0 && pnlPctNow >= lockedFloor
+                                        //   if (highLockImmediate || lockBreached) { requestSell(...) }
+                                        //
+                                        // Read the two together. lockBreached is
+                                        // `pnlPctNow < lockedFloor && pnlPctNow > 0`.
+                                        // So for any position at peak >= 200% with positive
+                                        // pnl, EITHER pnl >= lockedFloor (highLockImmediate)
+                                        // OR pnl < lockedFloor (lockBreached). The two
+                                        // branches partition the space — there is no third
+                                        // case. Once a position printed a 200% peak it was
+                                        // sold on the next tick that evaluated it, whether it
+                                        // was at its high or giving back. lockedFloor's value
+                                        // never mattered; it is guarded > 0.0 above.
+                                        //
+                                        // That is a hard ~3x ceiling on every meme winner, in
+                                        // a strategy whose entire P&L is the tail. The
+                                        // doctrine comment ~120 lines above this one says the
+                                        // lock "lets runners run but never gives back a 1000%
+                                        // ride" — the code never let one reach 1000% to give
+                                        // back. Operator 5.0.7176 closed TICK_PROFIT_LOCK_
+                                        // peak946_now946 only because the token crossed 200%
+                                        // and 946% between two evaluations of a stalled exit
+                                        // path.
+                                        //
+                                        // Give-back is what a profit lock is for, and
+                                        // lockBreached already implements it exactly: exit
+                                        // when price falls below the fluid floor, which
+                                        // getDynamicFluidStop tightens as the peak grows. So
+                                        // the redundant arm is removed and the give-back arm
+                                        // stands alone. A runner at its high now holds; a
+                                        // runner that retraces past the floor still exits at
+                                        // any peak, including a 1000% one.
+                                        //
+                                        // Nothing else changes: the hard-floor/catastrophe
+                                        // branch above is untouched, and the break-even and
+                                        // BLUECHIP buffer guards below still apply.
                                         // V5.0.6255 — BLUECHIP SMALL-LOSS BLEED FIX. Report 6254
                                         // showed every recent BLUECHIP close labelled
                                         // REALIZED_LOSS_AFTER_PROFIT_SIGNAL at -2% to -7%: TICK_PROFIT_LOCK
@@ -11605,7 +11644,7 @@ class BotService : Service() {
                                         } else {
                                             pnlPctNow < lockedFloor && pnlPctNow > 0.0
                                         }
-                                        if (highLockImmediate || lockBreached) {
+                                        if (lockBreached) {
                                             // V5.9.1566 — doctrine: never bank a positive
                                             // pnl that doesn't beat cost + treasury feed.
                                             // Stop-loss path is unaffected (this branch
@@ -22179,9 +22218,15 @@ if (hotExitHandledSweep) {
                             volatility = ts.volatility ?: 50.0,
                         )
                     } catch (_: Throwable) { Double.NaN }
-                    val highLockImmediate = peakPct >= 200.0 && fluidLockFloor.isFinite() && fluidLockFloor > 0.0 && pnlPct >= fluidLockFloor
+                    // V5.0.7182 — same guillotine as the tick loop, second copy.
+                    // `highLockImmediate` (peak >= 200 && pnl >= floor) and
+                    // `lockBreached` (peak >= 30 && pnl < floor) partition the
+                    // space for any peak >= 200 with positive pnl, so the
+                    // universal sweep also force-closed every position that had
+                    // printed a 3x, at its high. Removed; give-back alone
+                    // triggers the peak lock, at any peak.
                     val lockBreached = peakPct >= 30.0 && fluidLockFloor.isFinite() && fluidLockFloor > 0.0 && pnlPct < fluidLockFloor && pnlPct > 0.0
-                    val peakDrawdown = highLockImmediate || lockBreached
+                    val peakDrawdown = lockBreached
                     if (!hardFloor && !peakDrawdown) return@forEach
                     val reason = if (hardFloor)
                         "UNIVERSAL_HARD_FLOOR_${pnlPct.toInt()}PCT"

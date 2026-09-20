@@ -2071,7 +2071,10 @@ object CryptoAltTrader {
         // V5.0.7157 — pass the mode. PAPER_ONLY is the resolver's word for
         // "simulatable, not live-tradeable", and refusing it in PAPER stopped
         // the crypto lane opening anything at all (92 refusals, 0 opens).
-        val routeReal7005 = route?.route?.isRealTradeable7005(isPaperMode.get()) == true
+        // V5.0.7182 — the mode argument is gone: PAPER_ONLY is refused in both
+        // modes now, because the costs of a paper fill on an unroutable asset
+        // (slot, cash, poisoned learner) are only ever paid in paper.
+        val routeReal7005 = route?.route?.isRealTradeable7005() == true
         if (!routeReal7005) {
             hardNo += "NOT_REAL_TRADEABLE_7005:${route?.route?.name ?: "NO_ROUTE_RESOLVED"}"
             try {

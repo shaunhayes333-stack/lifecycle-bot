@@ -154,11 +154,41 @@ object CryptoUniverseDiagCodes {
  * flipping that flag — it would authorise real cross-chain money movement
  * through an executor that returns ROUND_TRIP_EXECUTOR_INCOMPLETE.
  */
-fun CryptoExecutionRoute.isRealTradeable7005(paperMode7157: Boolean = false): Boolean = when (this) {
-    // V5.0.7157 — the resolver's own word for "simulatable, not live".
-    // In paper that is a green light by definition; in live it is a refusal,
-    // unchanged from 7005.
-    CryptoExecutionRoute.PAPER_ONLY -> paperMode7157
+fun CryptoExecutionRoute.isRealTradeable7005(): Boolean = when (this) {
+    // V5.0.7182 §PAPER_ONLY_IS_THE_WHOLE_THING_7005_WAS_BUILT_TO_REFUSE.
+    //
+    // V5.0.7157 made this `paperMode7157` — "in paper that is a green light
+    // by definition" — which reverted 7005 for the only mode this bot
+    // actually runs in, and reopened every hole the header above describes.
+    //
+    // The header's own argument is the refutation. A paper fill on an
+    // unroutable asset consumes a position slot against the cap, consumes
+    // shared paper cash a routable candidate could have used, and trains
+    // every learner on an outcome that can never occur with real money. None
+    // of those three costs is smaller in paper — they are ONLY paid in paper.
+    // And the operator's doctrine quoted above is explicit: "paper is meant
+    // to seed the live trading engine only with things that can transfer and
+    // be used."
+    //
+    // The damage measured on 5.0.7176, twenty-six minutes:
+    //
+    //   paper-only unavailable live route = 608   live-routable = 40
+    //   CRYPTO_ALT candidate=44 submit=22 fdgAllow=22 fdgBlock=0 open=22
+    //   CRYPTO_LEV n=18 EV=+51.09%/trade PnL=+5.6738 SOL
+    //
+    // That +5.67 was 83% of the session's entire reported profit, booked on
+    // `base|0x…`, `eth|0x…`, `polygon_pos|…` and a symbol named `unresolved`,
+    // with qty=1.000 sentinels (CanonicalPositionAuthority6441:1079) whose
+    // percentages are a ratio of two junk prices. The same lane measured
+    // -7.80%/trade at 7003 and +7.06% at 6915. An expectancy that swings 59
+    // points across builds with no strategy change is measuring a mark bug,
+    // not an edge — and it is the number the operator would most reasonably
+    // have scaled up.
+    //
+    // Refused in BOTH modes now, so the parameter is gone rather than left
+    // unused. The 40 genuinely routable candidates below are unaffected;
+    // this removes the 608 that cannot be filled with real money.
+    CryptoExecutionRoute.PAPER_ONLY -> false
 
     // Reachable right now with a Solana wallet routing through Jupiter.
     CryptoExecutionRoute.SOLANA_SPL_DIRECT,

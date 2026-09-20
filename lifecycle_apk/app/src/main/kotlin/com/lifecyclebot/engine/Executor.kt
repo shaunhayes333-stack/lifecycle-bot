@@ -10089,8 +10089,53 @@ class Executor(
                     markPx = th6882.markPx,
                     stopPx = th6882.stopPx,
                     catastrophePx = th6882.catastrophePx,
-                    tpPx = th6882.tpPx,
-                    trailPx = th6882.trailPx,
+                    // V5.0.7182 §TWO_AUTHORITIES_ONE_VETOED_THE_BUG_THE_OTHER_SHIPPED_IT.
+                    //
+                    // Was `tpPx = th6882.tpPx, trailPx = th6882.trailPx`, i.e.
+                    // entry x 1.25 and peak x 0.90. The wall-clock risk clock
+                    // feeds the SAME scheduler and deliberately passes 0.0 for
+                    // both, with this comment (BotService ~5180):
+                    //
+                    //   "Firing a naked 25% TP from a 500ms wall-clock would cap
+                    //    every moonshot at +25% and break the runner-capture
+                    //    doctrine (V5.9.1358: never cap, never throttle).
+                    //    Worse, the scheduler latch is monotonic and first-come
+                    //    — a TP or trail latched here would permanently occupy
+                    //    the slot a real STOP_LOSS needs later."
+                    //
+                    // Every word of that applies here. This path latches
+                    // TAKE_PROFIT at +25% and returns it to :10951 doSell as a
+                    // FULL exit. In a book that is 1W/14L where the single
+                    // winner did +871%, capping the winner at +25% removes
+                    // essentially all of the gross edge — and the monotonic
+                    // latch (ProtectiveExitScheduler6450:137) then holds the
+                    // slot so a later stop cannot register.
+                    //
+                    // The 5.0.7176 winners only escaped because nothing
+                    // evaluated them in time (63s mean stop latency, 31k stale
+                    // marks). Fixing exit throughput without fixing this would
+                    // have started landing the cap reliably and deleted the fat
+                    // tail the book depends on.
+                    //
+                    // Upside is NOT unmanaged as a result — it moves to the
+                    // authority that was always meant to own it. The managed
+                    // ladder runs first (checkProfitLock -> checkPartialSell ->
+                    // riskCheck, in that order precisely so a runner is
+                    // laddered rather than clipped), and checkPartialSell's
+                    // milestones already run out to [20, 50, 100, 300, 1000,
+                    // 3000, 10000]. Those rungs were dead code behind a 25%
+                    // full exit.
+                    //
+                    // NOTE on V5.0.6581 §P0-7, which added this TP: it was
+                    // responding to "13,381 evaluations with TP=0 and +7.8 SOL
+                    // unrealised — every winner rolled to a stop". That is a
+                    // real failure mode and it is not being reintroduced: the
+                    // ladder banks de-risk rungs from +20% upward, and the
+                    // give-back profit lock still exits on a real retrace. What
+                    // is removed is only the FIXED 25% full exit, which is the
+                    // wrong instrument for a positive-skew lane.
+                    tpPx = 0.0,
+                    trailPx = 0.0,
                     quoteAgeMs = th6882.markAgeMs,
                 )
             if (canonicalExitTrigger6600 != null) {
