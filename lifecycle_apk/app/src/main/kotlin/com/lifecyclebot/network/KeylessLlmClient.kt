@@ -173,6 +173,48 @@ object KeylessLlmClient {
         // two definitions of one question is how 6976's tag came to be written
         // but never read in the first place.
         if (HostCircuitInterceptor.isSyntheticBlock(resp)) throw OwnBackoffRefusal(host)
+        // V5.0.7141 — SAY WHAT THE PROVIDER ACTUALLY SAID.
+        //
+        // Operator: "llm is still broken."
+        //
+        // Their 5.0.7140 device has every keyed member of the council at zero:
+        //
+        //   llm_gemini_7136  sr=0%  4xx=2      llm_groq        sr=0%  4xx=2
+        //   llm_openrouter   sr=0%  4xx=19     llm_emergent    sr=0%  4xx=2
+        //
+        // while KeyValidator reports groq live=true http=200 GROQ_HEALTHY. A
+        // valid key and a 4xx on the completion endpoint is a specific,
+        // knowable fault — wrong model, quota, region, API not enabled, bad
+        // body — and every one of those reasons arrives IN THE RESPONSE BODY.
+        //
+        // This function threw all of it away and returned a bare false. The
+        // health table could therefore only ever say "4xx", and I have twice
+        // now reasoned about which 4xx it might be instead of reading it.
+        // Guessing at a cause that the server is already stating is the same
+        // mistake as every absence-treated-as-fact in this session, with the
+        // added indignity that the fact was right there.
+        //
+        // Consuming the body here is safe: every caller returns immediately
+        // when this returns false, so nobody reads it afterwards. The key is
+        // stripped before anything is written, because Gemini carries it in
+        // the query string and a log line is not a place for it.
+        try {
+            val snippet = try {
+                resp.peekBody(600L).string().trim().replace('\n', ' ')
+            } catch (_: Throwable) { "" }
+            val safeUrl = resp.request.url.toString().substringBefore("?key=")
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_PROVIDER_HTTP_${resp.code}_7141")
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_PROVIDER_HTTP_${resp.code}_7141_$host".take(60))
+            ErrorLogger.warn(
+                TAG,
+                "provider=$host http=${resp.code} url=$safeUrl body=${snippet.take(400)}",
+            )
+            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                "LLM_PROVIDER_HTTP_ERROR_7141",
+                "provider=$host http=${resp.code} msg=${resp.message.take(40)} " +
+                    "body=${snippet.take(240)}",
+            )
+        } catch (_: Throwable) {}
         return false
     }
 
