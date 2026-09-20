@@ -266,14 +266,54 @@ class SmartSizerV3(
         val routableMinSol7127 = if (routableRawSol7127.isFinite() && routableRawSol7127 > 0.0) {
             routableRawSol7127.coerceIn(LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127, LIVE_FLOOR_CEILING_SOL_7127)
         } else {
-            // No usable SOL price: fall back to the historical constant rather
-            // than guessing a cheaper floor we cannot justify.
-            LIVE_FLOOR_FALLBACK_SOL_7127
+            // V5.0.7142 — A MISSING PRICE MUST NOT INFLATE THE FLOOR.
+            //
+            // 7127 fell back to LIVE_FLOOR_FALLBACK_SOL_7127 (0.05) here, "the
+            // historical constant rather than guessing a cheaper floor we
+            // cannot justify". That reasoning is backwards: 0.05 is the LARGEST
+            // floor this function can produce, so an unknown SOL price
+            // maximised the chance of the hard refusal below. On the operator's
+            // 5.0.7140 device that refusal outran the promotion it exists to
+            // enable — SMART_SIZER_V3_DUST_BLOCK_NO_HEADROOM_6271=281 against
+            // SMART_SIZER_V3_DUST_PROMOTED_6271=139 — on a ~0.3 SOL wallet
+            // where 0.05 exceeds a quarter of tradeable the moment open
+            // positions take their share.
+            //
+            // The SOL price is not always loaded when sizing runs:
+            // sol_price_refresh is a maintenance task measured at up to 5559ms
+            // in the same snapshot, and SOL_PRICE_RESTORED_7042 fires once at
+            // boot. So this branch is not an exotic edge; it is every sizing
+            // call in the warm-up window.
+            //
+            // Not knowing the price is an ABSENCE. It justifies declining to
+            // shrink the floor, which is what the absolute minimum already is —
+            // it does not justify raising it to the ceiling. The absolute
+            // minimum is the one value here chosen as the smallest trade that
+            // can still route, so it is the honest answer to "how small may
+            // this be" when the conversion is unavailable.
+            LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127
         }
         val liveNoDustFloor6269 = (tradeable * LIVE_FLOOR_WALLET_PCT_7127)
             .coerceIn(routableMinSol7127, LIVE_FLOOR_CEILING_SOL_7127)
+        // V5.0.7142 — refuse on the ROUTABLE minimum, clamp on the percentage.
+        //
+        // 7127's own comment states the intent exactly: "The hard block REMAINS,
+        // but now it only fires when the routable minimum genuinely cannot be
+        // afforded at a safe concentration." The code did not do that. It tested
+        // liveNoDustFloor6269, which is max(tradeable x 10%, routableMin) capped
+        // at the ceiling — so a floor inflated by the PERCENTAGE arm, or by the
+        // missing-price fallback above, produced the same hard zero as a genuine
+        // economic refusal.
+        //
+        // The two cases are not alike. If the smallest trade that can actually
+        // route exceeds a quarter of the wallet, refusing is right: the
+        // alternatives are a route that cannot fill or one position holding most
+        // of the balance. But if only the percentage arm is too large, the safe
+        // answer is the safe share itself — still routable, still concentrated
+        // no further than the guard allows, and a trade rather than a silence.
+        val safeShareCap7142 = tradeable * LIVE_FLOOR_MAX_WALLET_SHARE_7127
         val effectiveSize = if (isLive && cappedSize > 0.0 && cappedSize < liveNoDustFloor6269) {
-            if (liveNoDustFloor6269 > tradeable * LIVE_FLOOR_MAX_WALLET_SHARE_7127) {
+            if (routableMinSol7127 > safeShareCap7142) {
                 // The smallest routable trade would be too large a share of this
                 // wallet. Refusing is correct: the alternative is either a route
                 // that cannot fill or a single position holding most of the
@@ -295,7 +335,16 @@ class SmartSizerV3(
                     "band=$band conf=$confidence liq=${candidate.liquidityUsd.toInt()} raw=${"%.4f".format(cappedSize)} promotedTo=${"%.4f".format(liveNoDustFloor6269)} tradeable=${"%.4f".format(tradeable)} routableMin=${"%.4f".format(routableMinSol7127)} solUsd=${"%.2f".format(solUsd7127)} sharePct=${"%.1f".format(if (tradeable > 0.0) liveNoDustFloor6269 / tradeable * 100.0 else 0.0)} note=v3_execute_gate_passed_promote_to_balance_aware_floor_7127"
                 )
             } catch (_: Throwable) {}
-            liveNoDustFloor6269
+            // V5.0.7142 — the percentage arm may not exceed the safe share.
+            // Promote to the floor, but never past the concentration guard;
+            // the routable minimum has already been proven affordable above.
+            val promoted7142 = liveNoDustFloor6269.coerceAtMost(
+                maxOf(safeShareCap7142, routableMinSol7127),
+            )
+            if (promoted7142 < liveNoDustFloor6269) try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_FLOOR_CLAMPED_TO_SAFE_SHARE_7142")
+            } catch (_: Throwable) {}
+            promoted7142
         } else cappedSize
 
         return SizeResult(sizeSol = effectiveSize)
