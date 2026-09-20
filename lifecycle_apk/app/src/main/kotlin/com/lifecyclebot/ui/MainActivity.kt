@@ -6263,8 +6263,28 @@ for legal compliance.
             val entryToRender6634 = lockedEntry6634?.entryPriceUsd?.takeIf { it > 0.0 } ?: entryPriceForCard6321
             // Entry price per token and time — V5.0.6321 prefer canonical fill
             info.addView(TextView(this).apply {
+                // V5.0.7143 — A HELD BAG IS NOT AN ERROR MESSAGE.
+                //
+                // Operator, three times now: "no held token should have a lost
+                // mark", "it makes the user feel like the token is unmanaged and
+                // their money is lost".
+                //
+                // This card printed "INVARIANT_BROKEN_6500" where the entry
+                // price goes and "qty INVALID (invariant broken)" where the
+                // quantity goes. Both are internal identifiers for one specific
+                // condition — the COST BASIS could not be reconstructed — and
+                // neither is true of the thing the operator is looking at. The
+                // token is held, the wallet knows how much, and nothing is
+                // broken about the position itself.
+                //
+                // Printing a diagnostic code as if it were the entry price is
+                // the UI making the same mistake the engine kept making: an
+                // absence (no recoverable basis) rendered as a positive claim
+                // (this position is damaged). Say the true thing instead —
+                // the basis is unknown — and keep the amber so it still reads
+                // as needing attention rather than as normal.
                 text = if (invariantBroken6500) {
-                    "Entry: INVARIANT_BROKEN_6500  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
+                    "Entry: basis unknown  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
                 } else {
                     "Entry: ${if (entryToRender6634 > 0.0) entryToRender6634.fmtPrice() else "pricing wait"}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
                 }
@@ -6279,8 +6299,31 @@ for legal compliance.
                     tokenAmount >= 1_000     -> "%.2fK".format(tokenAmount / 1_000)
                     else                     -> "%.2f".format(tokenAmount)
                 }
+                // V5.0.7143 — show the quantity the WALLET proves, not "INVALID".
+                //
+                // The quantity was never invalid; it was simply not reconciled
+                // into the canonical projection. HostWalletTokenTracker holds
+                // the balance that the on-chain read proved, which is the
+                // number the operator can verify in Phantom, so print that and
+                // mark only what is genuinely unknown.
+                val heldQty7143 = try {
+                    com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(ts.mint)
+                        ?.uiAmount?.takeIf { it.isFinite() && it > 0.0 }
+                } catch (_: Throwable) { null }
+                val heldQtyStr7143 = heldQty7143?.let {
+                    when {
+                        it >= 1_000_000 -> "%.2fM".format(it / 1_000_000)
+                        it >= 1_000     -> "%.2fK".format(it / 1_000)
+                        else            -> "%.2f".format(it)
+                    }
+                }
                 text = if (invariantBroken6500) {
-                    "Size: %.4f◎  ·  qty INVALID (invariant broken)".format(repairedCostSol6412)
+                    if (heldQtyStr7143 != null) {
+                        "Size: %.4f◎  ·  %s tokens held  ·  basis unknown"
+                            .format(repairedCostSol6412, heldQtyStr7143)
+                    } else {
+                        "Size: %.4f◎  ·  held  ·  basis unknown".format(repairedCostSol6412)
+                    }
                 } else {
                     "Size: %.4f◎  ·  %s tokens".format(repairedCostSol6412, tokenAmtStr)
                 }
