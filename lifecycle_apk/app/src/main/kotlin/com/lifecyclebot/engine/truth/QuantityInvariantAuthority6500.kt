@@ -297,6 +297,33 @@ object QuantityInvariantAuthority6500 {
      * BUY snapshot that downstream readers depend on.
      */
     fun isRuntimeOpenEligible6636(mint: String, pos: Position): Boolean {
+        // V5.0.7155 — 7152 measured it, and the answer was not my guess.
+        //
+        //   RUNTIME_OPEN_REJECTED_INVARIANT_6636                     : 44358
+        //   ..._6636|STRUCTURAL_NOT_OPEN_QTY_LE_1                    : 42813
+        //   ..._6636|QUARANTINED                                     :  1540
+        //   RUNTIME_OPEN_REJECTED_FIRST_SEEN_7152 (distinct sightings):   230
+        //
+        // 96.5% on the !pos.isOpen arm, and I said in 7152 that if that arm
+        // dominated, this gate was the display-side twin of the exit bug
+        // fixed in 7146. It is not, and the cardinality is what says so: 230
+        // distinct mints against NINETEEN open positions and a ~219-row
+        // watchlist. The rejections are not held positions being hidden —
+        // they are watchlist rows that were never positions at all, being
+        // asked "are you an open position?" on every render and correctly
+        // answering no.
+        //
+        // So the largest counter in the operator's report was a filter doing
+        // its job, logged as a fault, 44 thousand times. That is its own
+        // defect: it buried QUARANTINED=1540 — which IS about real positions
+        // — under thirty times its volume in noise, and it cost a build to
+        // find out. A row with no quantity, no basis and no cost was never a
+        // candidate for this gate and must not be counted as a rejection.
+        val neverAPosition7155 = pos.qtyToken <= 0.0 && pos.costSol <= 0.0 && pos.entryPrice <= 0.0
+        if (neverAPosition7155 && !isQuarantined(mint)) {
+            try { PipelineHealthCollector.labelInc("RUNTIME_OPEN_SKIPPED_NOT_A_POSITION_7155") } catch (_: Throwable) {}
+            return false
+        }
         val check = check(mint, pos)
         val quarantined6636 = isQuarantined(mint)
         if (!check.ok || quarantined6636) {

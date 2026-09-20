@@ -65,8 +65,61 @@ object KeylessLlmClient {
         } catch (_: Throwable) { "" }
     }
 
+    /**
+     * V5.0.7155 §THE RING MUST NOT RACE THE TRADING LOOP FOR SOCKETS.
+     *
+     * V5.0.7151 made the council parallel, which was right, and built it on
+     * SharedHttpClient — which hands out the SAME Dispatcher and the SAME
+     * ConnectionPool the price providers use (maxRequests=96,
+     * maxRequestsPerHost=24). Up to nine LLM members now start at once, each
+     * able to hold a socket for the full 9s council wall clock, and the
+     * forced sweep can start nine more. On the operator's 5.0.7153 device,
+     * against 5.0.7145 on the same hardware:
+     *
+     *   dexscreener  sr=98% avg=541ms  ->  sr=48% avg=5165ms net=53
+     *   helius       sr=97% avg=393ms  ->  sr=13% avg=8506ms net=13
+     *   jupiter      sr=94% avg=169ms  ->  sr=16% avg=6597ms net=10
+     *   raydium      sr=100% avg=505ms ->  sr= 0%            net=1
+     *   defillama    sr=100% avg=548ms ->  sr= 0%            net=2
+     *
+     * Every provider roughly ten times slower, with network errors where
+     * there were none. That is the signature of dispatcher and connection
+     * pool contention, and its timing matches the ring exactly.
+     *
+     * The operator's instruction was "stop letting one provider outage block
+     * the entire trading loop". 7151 removed one way of doing that and
+     * introduced another: the council no longer blocks on nine serial
+     * timeouts, it starves the price feed instead. Parallel WITHIN the
+     * council, isolated FROM the trading path — both halves are required,
+     * and I only built the first.
+     *
+     * So the council gets its own client: its own Dispatcher, its own
+     * ConnectionPool, and a hard concurrency cap. Nothing it does can now
+     * consume a permit or a socket that a mark refresh or a swap quote needs.
+     *
+     * (Caveat stated plainly: that snapshot is 145s from boot, so some of the
+     * latency is cold start. The isolation is correct regardless of how much
+     * of the regression it explains, and the next snapshot will separate the
+     * two — if the price providers recover, the ring was the cause.)
+     */
+    private val llmDispatcher7155: okhttp3.Dispatcher = okhttp3.Dispatcher().apply {
+        // The ring races at most this many members at once; the rest queue.
+        // Nine simultaneous sockets is not worth a starved price feed, and a
+        // first answer from four is almost always the same answer.
+        maxRequests = LLM_RING_CONCURRENCY_7155
+        maxRequestsPerHost = 2
+    }
+
     private val httpClient: OkHttpClient by lazy {
+        // Derived from SharedHttpClient so the interceptor chain is inherited
+        // intact — HostCircuitInterceptor (which okOrThrow's OwnBackoffRefusal
+        // detection depends on) and the gzip request/decode pair, whose
+        // absence once "killed all Solana RPC reads" per the note in that
+        // file. Only the dispatcher and the connection pool are replaced, and
+        // those are exactly the two things being contended for.
         SharedHttpClient.builder()
+            .dispatcher(llmDispatcher7155)
+            .connectionPool(okhttp3.ConnectionPool(4, 60L, TimeUnit.SECONDS))
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(12, TimeUnit.SECONDS)
             .callTimeout(15, TimeUnit.SECONDS)
@@ -149,12 +202,21 @@ object KeylessLlmClient {
     private const val COUNCIL_WALL_MS_7151 = 9_000L
 
     /**
+     * V5.0.7155 — the ring's width, applied to BOTH the thread pool and the
+     * OkHttp dispatcher so the two cannot disagree. 7151 used an unbounded
+     * cached pool on the shared dispatcher, which let nine members hold nine
+     * sockets for nine seconds against the price feed.
+     */
+    private const val LLM_RING_CONCURRENCY_7155 = 4
+
+    /**
      * Daemon threads: a hung provider socket must never hold the process
-     * open, and the ring is IO-bound so the pool is sized for concurrency,
-     * not for cores.
+     * open. FIXED size, not cached: the ring is a race between a bounded
+     * number of members, and an unbounded pool is how a dry council turned
+     * into a starved scanner.
      */
     private val councilPool7151: java.util.concurrent.ExecutorService =
-        java.util.concurrent.Executors.newCachedThreadPool { r ->
+        java.util.concurrent.Executors.newFixedThreadPool(LLM_RING_CONCURRENCY_7155) { r ->
             Thread(r, "aate-llm-ring").apply { isDaemon = true; priority = Thread.MIN_PRIORITY }
         }
     // V5.0.7016 — concurrent. runChat is called from the entry dispatcher, the
