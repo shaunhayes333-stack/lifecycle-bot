@@ -185,13 +185,38 @@ object AutoPipelineAdvisor6462 {
             }
             fun histAction(action: AdvisorDecisionHistory6463.Action,
                            oldValue: Double = Double.NaN, newValue: Double = Double.NaN) {
+                // V5.0.7170 §THE LEDGER OF WHAT THE BOT DID TO ITSELF SAID A
+                // NUMBER THAT NEVER HAPPENED.
+                //
+                // Operator's 5.0.7169 advisor timeline, the first auto-apply
+                // this system has ever made:
+                //
+                //   AUTO_APPLIED minLiquidityUsd Δ+5000.0000 sev=high
+                //                agree=0.71 src=llm 500.0000→700.0000
+                //
+                // Δ+5000 against 500→700. Both are recorded here, and they
+                // disagree because `delta` is what the LLM ASKED FOR while
+                // oldValue/newValue are what LlmParameterTuner's step cap
+                // actually allowed. The request was clamped by a factor of
+                // twenty-five and the audit line kept the request.
+                //
+                // For a system that rewrites its own trading parameters, the
+                // record of what it changed is not decoration — it is the only
+                // way to reconstruct why the funnel moved. Record the delta
+                // that happened; `requestedDelta` keeps the asked-for figure
+                // beside it so a clamp is visible rather than silent.
+                val appliedDelta7170 =
+                    if (oldValue.isFinite() && newValue.isFinite()) newValue - oldValue else c.delta
                 AdvisorDecisionHistory6463.record(
                     AdvisorDecisionHistory6463.Decision(
                         atMs = System.currentTimeMillis(),
-                        key = c.key, delta = c.delta, severity = c.severity,
+                        key = c.key, delta = appliedDelta7170, severity = c.severity,
                         source = c.source, action = action,
                         brainAgreement = c.brainAgreement, votes = votesForHistory,
-                        reason = c.reason, oldValue = oldValue, newValue = newValue,
+                        reason = if (kotlin.math.abs(appliedDelta7170 - c.delta) > 1e-9)
+                            "[clamped from Δ${"%.4f".format(c.delta)}] ${c.reason}"
+                        else c.reason,
+                        oldValue = oldValue, newValue = newValue,
                     )
                 )
             }
@@ -222,8 +247,18 @@ object AutoPipelineAdvisor6462 {
                         oldValue = applyRes.oldValue, newValue = applyRes.newValue,
                     )
                     try {
+                        // V5.0.7170 — the revert negates this number
+                        // (AdvisorRegressionMonitor6463:134 `-audit.deltaApplied`),
+                        // so it has to be what was APPLIED, not what was asked
+                        // for. With the requested figure, a change clamped from
+                        // +5000 to +200 registers a -5000 undo; the tuner's step
+                        // cap happens to clamp that too, which is luck, not
+                        // design — a request clamped by a bound rather than a
+                        // step would leave the parameter permanently displaced
+                        // by an "undo" that undid the wrong amount.
                         AdvisorRegressionMonitor6463.registerApply(
-                            id = c.id, key = c.key, deltaApplied = c.delta,
+                            id = c.id, key = c.key,
+                            deltaApplied = applyRes.newValue - applyRes.oldValue,
                             reason = "auto6462:${c.reason.take(120)}",
                         )
                     } catch (_: Throwable) {}
