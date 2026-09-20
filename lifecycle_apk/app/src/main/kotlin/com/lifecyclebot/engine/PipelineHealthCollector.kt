@@ -885,7 +885,55 @@ object PipelineHealthCollector {
                     val uiVisible7049 = try {
                         com.lifecyclebot.AATEApp.isAnyActivityVisible6487() && !invisibleDuringGap7109
                     } catch (_: Throwable) { true }
-                    if (deltaMs > LONG_FRAME_THRESHOLD_MS && !uiVisible7049) {
+                    // V5.0.7144 — ASK THE INSTRUMENT THAT WAS ACTUALLY RUNNING.
+                    //
+                    // The operator's 5.0.7140 device reports maxFrameGap=36316ms
+                    // and "Stall 25.6% of uptime" from THREE hints, with
+                    // "Watchdog samples taken: 1" and every captured frame being
+                    // android.os.MessageQueue.nativePollOnce — the IDLE stack.
+                    //
+                    // Those two readings cannot both describe a blocked main
+                    // thread. The rolling ring below samples on a 250ms tick and
+                    // its last thirty entries are an unbroken ~250ms cadence
+                    // right up to the report. A main thread that is genuinely
+                    // stuck cannot post its own 250ms watchdog ticks; a
+                    // Choreographer starved of vsync while the thread keeps
+                    // running is exactly what an unbroken ring plus a huge frame
+                    // delta looks like.
+                    //
+                    // 7109 already saw this and checked lastInvisibleAtMs7109,
+                    // which only helps when an invisibility stamp happens to
+                    // land inside the window. When it does not — screen still
+                    // on, activity covered, or the stamp never written — a
+                    // rendering absence is counted as a stall and the operator
+                    // is shown a quarter of their uptime as frozen.
+                    //
+                    // So corroborate before accusing. If the ring kept ticking
+                    // across the gap, the main thread was alive and this is a
+                    // frame-delivery gap, not an ANR. Counted under its own
+                    // label so the number is still visible without being
+                    // conflated with a real stall. This changes ONLY the
+                    // classification of a measurement; nothing about scheduling,
+                    // work placement or the loop is touched.
+                    val ringAliveDuringGap7144 = try {
+                        val gapStart = nowMs7109 - deltaMs
+                        // A live sampler produces a tick roughly every 250ms.
+                        // Require several inside the window so one stale entry
+                        // cannot vouch for a long gap.
+                        val inWindow = stackRing.count { it.tsMs in gapStart..nowMs7109 }
+                        inWindow >= 3
+                    } catch (_: Throwable) { false }
+                    if (deltaMs > LONG_FRAME_THRESHOLD_MS && ringAliveDuringGap7144 && uiVisible7049) {
+                        bump(labelCounts, "FRAME_GAP_WITH_LIVE_MAIN_THREAD_7144")
+                        try {
+                            ForensicLogger.lifecycle(
+                                "FRAME_GAP_WITH_LIVE_MAIN_THREAD_7144",
+                                "deltaMs=$deltaMs ringSamplesInGap=${
+                                    stackRing.count { it.tsMs in (nowMs7109 - deltaMs)..nowMs7109 }
+                                } action=frame_delivery_gap_not_counted_as_stall",
+                            )
+                        } catch (_: Throwable) {}
+                    } else if (deltaMs > LONG_FRAME_THRESHOLD_MS && !uiVisible7049) {
                         bump(labelCounts, "FRAME_GAP_WHILE_UI_NOT_VISIBLE_7049")
                     } else if (deltaMs > LONG_FRAME_THRESHOLD_MS && deltaMs <= MAX_REAL_STALL_MS && pastBootWarmup) {
                         anrHintCount.incrementAndGet()
