@@ -39,6 +39,19 @@ object StrategyTruthLedger {
     // are enough to name the cause and will not flood the log.
     private val unreconciledSamples7164 = java.util.concurrent.atomic.AtomicInteger(0)
 
+    /**
+     * V5.0.7171 — the samples were written where nobody could read them.
+     *
+     * 7164 logged twelve full value vectors for the unreconcilable rows and
+     * the operator's next three snapshots all carried
+     * PNL_PCT_UNRECONCILABLE_SAMPLE_7164=12 — the counter proving they were
+     * written — with no way to see one. ForensicLogger goes to logcat; the
+     * pipeline snapshot is what actually gets read, and this is the one
+     * diagnosis that cannot be made from a count. Keep the same twelve in
+     * memory and print them where the exclusion is reported.
+     */
+    private val unreconciledVectors7171 = java.util.concurrent.CopyOnWriteArrayList<String>()
+
     private const val CLEAN_CACHE_TTL_MS: Long = 10_000L
     private val cleanCacheLock = Any()
     @Volatile private var cleanCacheKey: String = ""
@@ -359,16 +372,19 @@ object StrategyTruthLedger {
                 // Bounded forensic sample. A counter told us the 7158 fix
                 // missed; only the values can say why the next one would.
                 if (unreconciledSamples7164.getAndIncrement() < 12) {
-                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                        "PNL_PCT_UNRECONCILABLE_SAMPLE_7164",
+                    val vector7171 =
                         "mint=${t.mint.take(10)} side=$side mode=$mode reason=${t.reason.take(40)} " +
                             "reportedPct=${"%.4f".format(t.pnlPct)} fullPct=${"%.4f".format(pctFull7164)} " +
                             "realized=${"%.8f".format(realized)} pnlSol=${"%.8f".format(t.pnlSol)} " +
                             "netPnlSol=${"%.8f".format(t.netPnlSol)} feeSol=${"%.8f".format(t.feeSol)} " +
                             "entryCost=${"%.8f".format(basis)} soldCost=${"%.8f".format(t.soldCostBasisSol)} " +
                             "sol=${"%.8f".format(t.sol)} gross=${"%.8f".format(t.grossProceedsSol)} " +
-                            "soldQty=${"%.6f".format(t.soldQtyToken)}",
+                            "soldQty=${"%.6f".format(t.soldQtyToken)}"
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "PNL_PCT_UNRECONCILABLE_SAMPLE_7164", vector7171,
                     )
+                    // V5.0.7171 — and keep it where the snapshot can print it.
+                    if (unreconciledVectors7171.size < 12) unreconciledVectors7171.add(vector7171)
                 }
             } catch (_: Throwable) {}
             return "PNL_SOL_PERCENT_MISMATCH"
@@ -441,6 +457,14 @@ object StrategyTruthLedger {
         val result = clean(raw, limit)
         val inv = inventoryRecoveryRows(raw)
         val invPnl = inv.sumOf { it.netPnlSol.takeIf { v -> abs(v) > 0.0 } ?: it.pnlSol }
-        "StrategyTruthLedger: clean=${result.audit.cleaned} deduped=${result.audit.deduped} recovered=${result.audit.recoveryExcluded} partialNonTerminal=${result.audit.partialNotTerminal} badEntry=${result.audit.badEntryExcluded} inventory=${inv.size} inventoryPnl=${"%+.4f".format(invPnl)}"
+        val head7171 =
+            "StrategyTruthLedger: clean=${result.audit.cleaned} deduped=${result.audit.deduped} recovered=${result.audit.recoveryExcluded} partialNonTerminal=${result.audit.partialNotTerminal} badEntry=${result.audit.badEntryExcluded} inventory=${inv.size} inventoryPnl=${"%+.4f".format(invPnl)}"
+        // V5.0.7171 — print the rows the percentage check threw out. This is
+        // the largest single exclusion in the file and the only one whose
+        // cause cannot be read off a counter.
+        val vectors7171 = unreconciledVectors7171.toList()
+        if (vectors7171.isEmpty()) head7171
+        else head7171 + "\n  PNL_PCT_UNRECONCILABLE_7164 samples (first ${vectors7171.size}):\n" +
+            vectors7171.joinToString("\n") { "    $it" }
     } catch (_: Throwable) { "StrategyTruthLedger: unavailable" }
 }

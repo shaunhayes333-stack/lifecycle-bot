@@ -2196,15 +2196,66 @@ object CryptoAltTrader {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private suspend fun executeSignal(signal: AltSignal, isSpot: Boolean) {
-        fun terminalDisposition6613(reason: String) {
+        /**
+         * V5.0.7171 §TWO WRITERS FOR ONE REFUSAL, AND ONE OF THEM COUNTED
+         * CANDIDATES THAT NEVER BECAME INTENTS.
+         *
+         * Operator's 5.0.7169:
+         *
+         *   CRYPTO_ALT candidate=166 submit=83 fdgAllow=83 sized=83
+         *              intent=83 dispatch=3 dispatchReject=231 open=3
+         *
+         * 231 dispatch rejects against 83 intents. A number that large
+         * cannot be a per-intent count, and it is not one:
+         *
+         *  1. This helper stamps markDispatchRejectFor6569 at EVERY early
+         *     return, including the eight PRE_SUBMIT paths that run before
+         *     CanonicalEntryAuthority6551.submit — a candidate that never
+         *     became an intent cannot have failed to dispatch.
+         *  2. On the paths that DO have an intent, the authority already
+         *     stamps the reject itself: releasePending6554:285 fires
+         *     markDispatchRejectFor6569 for any attemptId not in
+         *     dispatchedAttempts, deduped through terminalByAttempt6647.
+         *     Calling markFailed AND this helper counts the same refusal
+         *     twice, and bypasses the dedup that exists to stop exactly that.
+         *
+         * So the funnel read "we tried 231 times and dispatched 3" when the
+         * truth is 83 intents of which 80 never reached dispatch — a real
+         * problem, but a different and much smaller one, and unreadable
+         * while the denominator was inflated.
+         *
+         * The registry disposition is this helper's actual job and always
+         * runs. The dispatch reject belongs to whoever owns the intent:
+         * before submit, nobody does, so this records it; after submit the
+         * authority does, and callers that release the intent pass
+         * [authorityOwnsReject] so it is counted once, by the deduped writer.
+         */
+        fun terminalDisposition6613(reason: String, rejectOwner7171: String = "THIS") {
             try {
                 val key = cryptoAssetKey(signal, isSpot)
                 DynamicAltTokenRegistry.markEvaluationDisposition6567(
                     DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(key), reason,
                 )
-                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markDispatchRejectFor6569(
-                    com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, signal.marketSymbol, reason,
-                )
+                when (rejectOwner7171) {
+                    // The intent exists and the authority released it, which
+                    // already stamped the reject through its own dedup.
+                    "AUTHORITY" ->
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_DISPATCH_REJECT_DEFERRED_TO_AUTHORITY_7171")
+                    // No intent was ever sealed. This is a refusal, but not a
+                    // dispatch refusal — and the funnel already shows it as
+                    // candidate minus submit. Counted under its own name so
+                    // the evidence survives without inflating dispatchReject.
+                    "PRE_SUBMIT" -> {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_REFUSED_BEFORE_INTENT_7171")
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                            "CRYPTO_REFUSED_BEFORE_INTENT_7171_" + reason.substringBefore(':').take(40),
+                        )
+                    }
+                    else ->
+                        com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markDispatchRejectFor6569(
+                            com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, signal.marketSymbol, reason,
+                        )
+                }
             } catch (_: Throwable) {}
         }
         // V5.9.1472 — DYNAMIC CRYPTO: resolve the REAL coin symbol once. For DYN
@@ -2295,7 +2346,7 @@ object CryptoAltTrader {
         sizeSol *= cryptoToxicSizeMult6095
 
         if (sizeSol < 0.01) {
-            terminalDisposition6613("PRE_SUBMIT_SIZE_BELOW_FLOOR")
+            terminalDisposition6613("PRE_SUBMIT_SIZE_BELOW_FLOOR", "PRE_SUBMIT")
             ErrorLogger.warn(TAG, "Insufficient balance for ${mktSym} (${sizeSol} SOL)")
             return
         }
@@ -2309,7 +2360,7 @@ object CryptoAltTrader {
         val totalRisk = positions.values.sumOf { it.sizeSol }
         val maxRisk   = balance * 0.80
         if (totalRisk + sizeSol > maxRisk) {
-            terminalDisposition6613("PRE_SUBMIT_EXPOSURE_CAP")
+            terminalDisposition6613("PRE_SUBMIT_EXPOSURE_CAP", "PRE_SUBMIT")
             ErrorLogger.info(TAG, "🛑 Exposure cap: ${"%.2f".format(totalRisk)}◎ at risk / ${"%.2f".format(maxRisk)}◎ max — skipping ${mktSym}")
             return
         }
@@ -2317,20 +2368,20 @@ object CryptoAltTrader {
         if (!isPaperMode.get()) {
             val walletBal = try { WalletManager.getWallet()?.getSolBalance() ?: 0.0 } catch (_: Exception) { 0.0 }
             if (!com.lifecyclebot.engine.WalletPositionLock.canOpen("CryptoAlt", sizeSol, walletBal)) {
-                terminalDisposition6613("PRE_SUBMIT_LIVE_WALLET_LOCK")
+                terminalDisposition6613("PRE_SUBMIT_LIVE_WALLET_LOCK", "PRE_SUBMIT")
                 return
             }
         }
         val cachedPriceData = PerpsMarketDataFetcher.getCachedPrice(signal.market)
         if (signal.price <= 0.0) {
-            terminalDisposition6613("PRE_SUBMIT_PRICE_ZERO")
+            terminalDisposition6613("PRE_SUBMIT_PRICE_ZERO", "PRE_SUBMIT")
             ErrorLogger.warn(TAG, "🪙 PRICE ZERO: ${mktSym} — REJECTING trade")
             return
         }
         if (cachedPriceData != null && cachedPriceData.price > 0) {
             val priceDiffPct = kotlin.math.abs(signal.price - cachedPriceData.price) / cachedPriceData.price * 100.0
             if (priceDiffPct > 90.0) {
-                terminalDisposition6613("PRE_SUBMIT_PRICE_SANITY_${priceDiffPct.toInt()}")
+                terminalDisposition6613("PRE_SUBMIT_PRICE_SANITY_${priceDiffPct.toInt()}", "PRE_SUBMIT")
                 ErrorLogger.warn(TAG, "🪙 PRICE SANITY FAIL: ${mktSym} signal=\$${signal.price} cached=\$${cachedPriceData.price} diff=${priceDiffPct.toInt()}% — REJECTING")
                 return
             }
@@ -2433,7 +2484,7 @@ object CryptoAltTrader {
                     reason = "SIZE_NOT_EXECUTABLE:${altSizingRes.reason}",
                 )
             } catch (_: Throwable) {}
-            terminalDisposition6613("PRE_SUBMIT_SIZE_NOT_EXECUTABLE:${altSizingRes.reason}")
+            terminalDisposition6613("PRE_SUBMIT_SIZE_NOT_EXECUTABLE:${altSizingRes.reason}", "PRE_SUBMIT")
             ErrorLogger.warn(TAG, "🪙 sizing gate declined ${mktSym}: ${altSizingRes.reason}")
             return
         }
@@ -2472,7 +2523,7 @@ object CryptoAltTrader {
             // blocked candidate does not suppress follow-up CRYPTO attempts for the same
             // asset until TTL. CRYPTO lane is isolated; this never touches Meme lanes.
             try { com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(candidate.assetKey, "CRYPTO", "CRYPTO_EXEC_BLOCKED") } catch (_: Throwable) {}
-            terminalDisposition6613("PRE_SUBMIT_FDG_OR_HARD_NO:${candidate.hardNoReasons.joinToString(",")}")
+            terminalDisposition6613("PRE_SUBMIT_FDG_OR_HARD_NO:${candidate.hardNoReasons.joinToString(",")}", "PRE_SUBMIT")
             return
         }
         try { ForensicLogger.phase(ForensicLogger.PHASE.LANE_EVAL, candidate.symbol, "lane=CRYPTO_ALT source=CANONICAL_HANDOFF_6566 score=${signal.score} confidence=${signal.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
@@ -2507,11 +2558,11 @@ object CryptoAltTrader {
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Allowed -> canonicalCryptoAdmission6565.intent
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Probe -> canonicalCryptoAdmission6565.intent
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Blocked -> {
-                terminalDisposition6613("CANONICAL_BLOCKED:${canonicalCryptoAdmission6565.reason}")
+                terminalDisposition6613("CANONICAL_BLOCKED:${canonicalCryptoAdmission6565.reason}", "PRE_SUBMIT")
                 return
             }
             is com.lifecyclebot.engine.truth.CanonicalAssetEntryResult6551.Deferred -> {
-                terminalDisposition6613("CANONICAL_DEFERRED:${canonicalCryptoAdmission6565.reason}")
+                terminalDisposition6613("CANONICAL_DEFERRED:${canonicalCryptoAdmission6565.reason}", "PRE_SUBMIT")
                 return
             }
         }
@@ -2541,7 +2592,7 @@ object CryptoAltTrader {
                 canonicalCryptoIntent6565,
                 "FINAL_EXECUTABLE_GATE:${finalExecutableVerdict6647.logName}:${finalExecutableVerdict6647.reason}",
             )
-            terminalDisposition6613("FINAL_EXECUTABLE_GATE_BLOCKED:${finalExecutableVerdict6647.reason}")
+            terminalDisposition6613("FINAL_EXECUTABLE_GATE_BLOCKED:${finalExecutableVerdict6647.reason}", "AUTHORITY")
             return
         }
         try {
@@ -2552,7 +2603,7 @@ object CryptoAltTrader {
         } catch (_: Throwable) {}
         if (!canonicalFinalSize6570.isFinite() || canonicalFinalSize6570 <= 0.0) {
             com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(canonicalCryptoIntent6565, "INVALID_SEALED_SIZE_6570")
-            terminalDisposition6613("CANONICAL_INVALID_SEALED_SIZE")
+            terminalDisposition6613("CANONICAL_INVALID_SEALED_SIZE", "AUTHORITY")
             return
         }
         val holdSetupQuality6663 = when {
@@ -2655,7 +2706,7 @@ object CryptoAltTrader {
                     canonicalCryptoIntent6565,
                     "CANONICAL_PAPER_OPEN_EXCEPTION:${t.javaClass.simpleName}",
                 )
-                terminalDisposition6613("CANONICAL_PAPER_OPEN_EXCEPTION:${t.javaClass.simpleName}")
+                terminalDisposition6613("CANONICAL_PAPER_OPEN_EXCEPTION:${t.javaClass.simpleName}", "AUTHORITY")
                 if (t is kotlinx.coroutines.CancellationException) throw t
                 return
             }
@@ -2667,7 +2718,7 @@ object CryptoAltTrader {
                     ForensicLogger.lifecycle("CRYPTO_CANONICAL_OPEN_REJECT_6647", "bucket=$rejectionBucket6647 symbol=$mktSym positionId=${position.id} attemptId=${canonicalCryptoIntent6565.attemptId} exactReason=${canonicalOpen6486.reason}")
                 } catch (_: Throwable) {}
                 com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(canonicalCryptoIntent6565, canonicalOpen6486.reason)
-                terminalDisposition6613("CANONICAL_PAPER_OPEN_REJECTED:${canonicalOpen6486.reason}")
+                terminalDisposition6613("CANONICAL_PAPER_OPEN_REJECTED:${canonicalOpen6486.reason}", "AUTHORITY")
                 return
             }
             // V5.0.6578 — success confirms the paper dispatch produced a canonical open.
@@ -2693,7 +2744,7 @@ object CryptoAltTrader {
                     canonicalCryptoIntent6565,
                     "CRYPTO_LIVE_BUY_EXCEPTION:${t.javaClass.simpleName}",
                 )
-                terminalDisposition6613("CRYPTO_LIVE_BUY_EXCEPTION:${t.javaClass.simpleName}")
+                terminalDisposition6613("CRYPTO_LIVE_BUY_EXCEPTION:${t.javaClass.simpleName}", "AUTHORITY")
                 if (t is kotlinx.coroutines.CancellationException) throw t
                 return
             }
@@ -2701,7 +2752,7 @@ object CryptoAltTrader {
                 ErrorLogger.warn(TAG, "🔴 LIVE alt trade failed: ${mktSym} — position not recorded")
                 com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(canonicalCryptoIntent6565, "CRYPTO_LIVE_BUY_NOT_OPENED")
                 try { com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(candidate.assetKey, "CRYPTO", "CRYPTO_LIVE_BUY_NOT_OPENED") } catch (_: Throwable) {}
-                terminalDisposition6613("CANONICAL_LIVE_OPEN_FAILED")
+                terminalDisposition6613("CANONICAL_LIVE_OPEN_FAILED", "AUTHORITY")
                 return
             }
             com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markConfirmed(canonicalCryptoIntent6565, position.id)

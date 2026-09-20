@@ -1197,10 +1197,33 @@ object DynamicAltTokenRegistry {
      * 0 and still terminates as PRICE_UNAVAILABLE, which is then a real
      * finding rather than a missing route.
      */
-    private const val SOL_RESCUE_TTL_MS_7167  = 60_000L
-    private const val SOL_RESCUE_MAX_MINTS_7167 = 60
+    // V5.0.7171 §ONE GLOBAL TIMER RATIONED A FIX FOR SEVEN THOUSAND TOKENS.
+    //
+    // 7167's rescue fired THREE times on the operator's 5.0.7169 —
+    // SOL_MARK_RESCUE_7167=3 against CRYPTO_EVAL_TERMINAL|PRICE_UNAVAILABLE
+    // =1374 — because one `solRescueAtMs7167` timer gated every mint. A 60s
+    // window and a 60-mint batch is 60 mints a minute at best; the universe
+    // reached 7,020 solana identities and 16 chains that session, and the
+    // evaluation loop walks it far faster than that. The rescue was real and
+    // rationed to irrelevance.
+    //
+    // A global clock is the wrong instrument because the thing being limited
+    // is per-mint work. Replaced with what actually needs bounding:
+    //
+    //   • a short floor between batches, so the fan-out is not hammered;
+    //   • a PER-MINT cooldown, so a mint nobody could price is not re-asked
+    //     every pass while a mint never tried goes straight through;
+    //   • a wider batch, since resolve7088 already chunks internally
+    //     (30/40/100 per source) and one pass costs the same round trip.
+    //
+    // A mint still returns 0 when no feed answers, and still terminates as
+    // PRICE_UNAVAILABLE. The difference is that it will have been asked.
+    private const val SOL_RESCUE_MIN_GAP_MS_7171 = 3_000L
+    private const val SOL_RESCUE_MISS_COOLDOWN_MS_7171 = 10L * 60_000L
+    private const val SOL_RESCUE_MAX_MINTS_7167 = 240
     @Volatile private var solRescueAtMs7167: Long = 0L
     private val solRescueLock7167 = Any()
+    private val solRescueMissAtMs7171 = ConcurrentHashMap<String, Long>()
 
     private fun rescueSolanaPriceBlocking7167(existing: DynToken): Double {
         val addr = existing.tokenAddress.trim()
@@ -1209,7 +1232,15 @@ object DynamicAltTokenRegistry {
         synchronized(solRescueLock7167) {
             val now = System.currentTimeMillis()
             val key = existing.canonicalIdentity6544
-            if (now - solRescueAtMs7167 < SOL_RESCUE_TTL_MS_7167) {
+            // This mint was asked recently and nobody answered. Asking again
+            // this minute cannot produce a different answer, and it would
+            // spend the batch on a known miss instead of an untried mint.
+            val missedAt7171 = solRescueMissAtMs7171[addr] ?: 0L
+            if (now - missedAt7171 < SOL_RESCUE_MISS_COOLDOWN_MS_7171) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SOL_MARK_RESCUE_MINT_COOLING_7171") } catch (_: Throwable) {}
+                return registry[key]?.price?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+            }
+            if (now - solRescueAtMs7167 < SOL_RESCUE_MIN_GAP_MS_7171) {
                 return registry[key]?.price?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
             }
             solRescueAtMs7167 = now
@@ -1222,6 +1253,9 @@ object DynamicAltTokenRegistry {
                 if (a.isBlank() || a.startsWith("cg:") || a.startsWith("static:")) continue
                 val age = (now - t.lastUpdatedMs).coerceAtLeast(0L)
                 if (t.price > 0.0 && age <= PRICE_TTL_MS) continue
+                // V5.0.7171 — spend the batch on mints nobody has tried, not
+                // on the ones that just came back empty.
+                if (now - (solRescueMissAtMs7171[a] ?: 0L) < SOL_RESCUE_MISS_COOLDOWN_MS_7171) continue
                 mints.add(a)
             }
             val marks = try {
@@ -1247,11 +1281,23 @@ object DynamicAltTokenRegistry {
                     repaired++
                 }
             }
+            // V5.0.7171 — remember who answered and who did not. A mint that
+            // priced is cleared immediately; a mint no feed returned is
+            // rested so the next batch can reach untried ones. Bounded so the
+            // map cannot outgrow the universe it describes.
+            if (solRescueMissAtMs7171.size > 16384) solRescueMissAtMs7171.clear()
+            var cooled7171 = 0
+            for (m in mints) {
+                val priced7171 = marks[m]?.priceUsd?.takeIf { it.isFinite() && it > 0.0 } != null
+                if (priced7171) solRescueMissAtMs7171.remove(m)
+                else { solRescueMissAtMs7171[m] = System.currentTimeMillis(); cooled7171++ }
+            }
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SOL_MARK_RESCUE_7167")
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
                     "SOL_MARK_RESCUE_7167",
-                    "asked=${mints.size} repaired=$repaired wanted=${addr.take(12)}",
+                    "asked=${mints.size} repaired=$repaired cooled=$cooled7171 " +
+                        "coolingNow=${solRescueMissAtMs7171.size} wanted=${addr.take(12)}",
                 )
             } catch (_: Throwable) {}
             return registry[key]?.price?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
