@@ -100,8 +100,15 @@ object CanonicalReconciler6441 {
                 )
             } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("RECONCILER_QUICK_BROKEN_6441") } catch (_: Throwable) {}
+            // V5.0.7138 — give the parity hold a heartbeat that exists.
+            // CanonicalLedgerParityHold6387 was cleared only by
+            // ReconciliationCoordinator6387.end(), which has no callers, so the
+            // hold could never lift and blocked every live BUY. This pass runs
+            // on a 5s cadence and already checks the invariants that hold names.
+            try { CanonicalLedgerParityHold6387.onInvariantFailure(invariants.first().take(80)) } catch (_: Throwable) {}
         } else {
             try { PipelineHealthCollector.labelInc("RECONCILER_QUICK_OK_6441") } catch (_: Throwable) {}
+            try { CanonicalLedgerParityHold6387.onCleanCycle() } catch (_: Throwable) {}
         }
         return rep
     }

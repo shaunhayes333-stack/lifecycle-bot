@@ -228,6 +228,22 @@ def main() -> int:
     require(errors, repair_mode, "fun enable()",
             "LIVE_REPAIR_REARM_AVAILABLE_7123")
 
+    # V5.0.7138 — the two 6387 safety holds blocked 100% of live buys and
+    # neither could be lifted: CanonicalLedgerParityHold6387 cleared only via
+    # ReconciliationCoordinator6387.end() (zero callers) and
+    # FalseProfitTriggerHold6387 only via an internal disable() (zero callers).
+    # Both now default off, and the parity hold is driven by
+    # CanonicalReconciler6441.quickCheck(), which actually runs. Pin all three
+    # facts so the stuck-on shape cannot come back.
+    holds_6387 = (SRC / "com/lifecyclebot/engine/truth/SafetyHolds6387.kt").read_text()
+    reconciler_6441 = (SRC / "com/lifecyclebot/engine/truth/CanonicalReconciler6441.kt").read_text()
+    forbid(errors, holds_6387, "private var active: Boolean = true",
+           "SAFETY_HOLD_6387_DEFAULTS_OFF_7138")
+    require(errors, holds_6387, "fun arm(reason: String)",
+            "FALSE_PROFIT_HOLD_REARM_REACHABLE_7138")
+    require(errors, reconciler_6441, "CanonicalLedgerParityHold6387.onCleanCycle()",
+            "PARITY_HOLD_HAS_LIVE_HEARTBEAT_7138")
+
     # 6702 exit-liveness contracts.
     paper_close = (SRC / "com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").read_text()
     pending_sell = (SRC / "com/lifecyclebot/engine/PendingSellQueue.kt").read_text()
