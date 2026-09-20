@@ -52,6 +52,20 @@ object ExitThroughputAuthority6727 {
     private const val VELOCITY_MIN_SELLS = 5
 
     /**
+     * V5.0.7177 — free-cash fraction of equity below which a lane's budget
+     * share is treated as a real limit rather than an accounting convenience.
+     *
+     * Above this, capital is uncontended: the lane's nominal share is being
+     * exceeded only because other lanes are not claiming theirs, and refusing
+     * a funded trade there is a brake the operator has explicitly ruled out.
+     *
+     * Deliberately just above CASH_STARVE_RATIO (0.20) so lane fairness
+     * re-engages slightly BEFORE the hard cash-starve gate, giving a graduated
+     * response instead of a cliff.
+     */
+    private const val LANE_BUDGET_CONTENTION_CASH_RATIO_7177 = 0.25
+
+    /**
      * V5.0.6912 — lane budget utilisation at which NEW OPENS for that lane
      * are refused. See the block in evaluate() for the full rationale.
      *
@@ -205,9 +219,73 @@ object ExitThroughputAuthority6727 {
             try { PipelineHealthCollector.labelInc("EXIT_THROUGHPUT_LANE_FAIRNESS_BYPASS_6732") } catch (_: Throwable) {}
             return Verdict(true, "LANE_HEADROOM_FAIRNESS_6732", openCount, cash, equity, cashRatio)
         }
+        // V5.0.7177 §A_SHARE_IS_ONLY_A_LIMIT_WHEN_SOMEONE_ELSE_WANTS_IT.
+        //
+        // Operator standing directive: "I dont necessarily want a portfolio
+        // brake. dont miss profitable trade opportunities if the capital is
+        // there to fund the trade."
+        //
+        // laneTargetSol divides sharedEquity across EVERY meme lane by
+        // expectancy weight, so the targets sum to the whole book whether or
+        // not a lane is using its share. Operator 5.0.7176 is that arithmetic
+        // at its worst:
+        //
+        //   CORE      used 2.3677  target 1.1854  = 2.00x  -> BLOCKED
+        //   QUALITY   used 2.0715  target 1.1854  = 1.75x  -> BLOCKED
+        //   BLUECHIP / SHITCOIN / EXPRESS / DIP_HUNTER /
+        //   MANIPULATED / TREASURY / CASHGEN        used 0.0000 each
+        //   CASH 6.6321 SOL idle, cashRatio 39.5%
+        //
+        // Roughly ten SOL of lane budget was claimed by nobody and 6.63 SOL of
+        // cash was sitting idle, and WBTC was still refused with
+        // FINALITY_EXEC_OPEN_BLOCKED_EXIT_THROUGHPUT_6727:LANE_OVERSPEND_6912
+        // as a HARD_SAFETY reject. That is precisely the miss the directive
+        // forbids: the capital was there, the trade was funded, and a
+        // bookkeeping share said no.
+        //
+        // 6912's purpose is kept intact. It exists because a lane at 368% of
+        // budget going 0-for-1 at -53% was crowding out the only profitable
+        // lane in the book — and crowding out is only possible when capital is
+        // CONTENDED. In that 5.0.6909 evidence cash was 2.1427 against 11.31
+        // of cost basis, a cashRatio of 19%: genuinely scarce, and the block
+        // was correct. At 39.5% nobody is being crowded out, so the same block
+        // is a pure brake.
+        //
+        // So the budget now binds only when free cash is actually scarce. This
+        // is deliberately graduated rather than a cliff: the threshold sits
+        // just above CASH_STARVE_RATIO, so lane fairness re-engages shortly
+        // BEFORE the hard cash-starve gate below, and a lane that runs away on
+        // idle capital re-enters enforcement by its own spending as the cash
+        // ratio falls. Nothing else is relaxed — POSITION_HARD_CAP, the
+        // cash-starve gate, the velocity guards and LaneExpectancyDamper's
+        // size shrink on a bleeding lane all still apply.
+        val laneBudgetContended7177 = cashRatio < LANE_BUDGET_CONTENTION_CASH_RATIO_7177
         if (laneHeadroom6732 != null &&
             laneHeadroom6732.targetSol > 0.0 &&
-            laneHeadroom6732.utilization >= OVERSPEND_BLOCK_RATIO_6912
+            laneHeadroom6732.utilization >= OVERSPEND_BLOCK_RATIO_6912 &&
+            !laneBudgetContended7177
+        ) {
+            try {
+                PipelineHealthCollector.labelInc("LANE_OVERSPEND_ALLOWED_UNCONTENDED_CASH_7177")
+                PipelineHealthCollector.labelInc(
+                    "LANE_OVERSPEND_ALLOWED_UNCONTENDED_CASH_7177_${laneHeadroom6732.lane}",
+                )
+                ForensicLogger.lifecycle(
+                    "LANE_OVERSPEND_ALLOWED_UNCONTENDED_CASH_7177",
+                    "mode=$m lane=${laneHeadroom6732.lane} " +
+                        "used=${"%.4f".format(laneHeadroom6732.usedSol)} " +
+                        "target=${"%.4f".format(laneHeadroom6732.targetSol)} " +
+                        "util=${"%.2f".format(laneHeadroom6732.utilization)}x " +
+                        "cash=${"%.4f".format(cash)} cashRatio=${"%.3f".format(cashRatio)} " +
+                        "contendAt=$LANE_BUDGET_CONTENTION_CASH_RATIO_7177 " +
+                        "action=fund_the_trade_lane_share_is_not_a_limit_while_cash_is_idle",
+                )
+            } catch (_: Throwable) {}
+        }
+        if (laneHeadroom6732 != null &&
+            laneHeadroom6732.targetSol > 0.0 &&
+            laneHeadroom6732.utilization >= OVERSPEND_BLOCK_RATIO_6912 &&
+            laneBudgetContended7177
         ) {
             try {
                 PipelineHealthCollector.labelInc("EXIT_THROUGHPUT_BLOCKED_LANE_OVERSPEND_6912")

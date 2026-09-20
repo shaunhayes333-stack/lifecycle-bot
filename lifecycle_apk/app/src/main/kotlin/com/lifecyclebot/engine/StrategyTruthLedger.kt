@@ -353,9 +353,46 @@ object StrategyTruthLedger {
             "FULL_ENTRY" to basis,
             "SOLD_LEG_SOL" to t.sol,
         )
-        val reconciled7164 = bases7164.firstOrNull { (_, b) ->
-            b.isFinite() && b > 0.0 &&
-                ((realized / b) * 100.0).let { it.isFinite() && kotlin.math.abs(it - t.pnlPct) <= 50.0 }
+        // V5.0.7177 §I_ENUMERATED_THE_DENOMINATORS_AND_FORGOT_THE_NUMERATOR.
+        //
+        // 7164 built a closed list of the three cost bases the writers use and
+        // divided `realized` by each. Every one of those divides the SAME
+        // numerator — realized, which is NET of fees — while the emitter
+        // computes pnlPct GROSS of fees. So the whole list could only ever
+        // reconcile rows whose fee was small enough to hide inside the 50pp
+        // tolerance, and it systematically failed the biggest winners, because
+        // the fee scales with proceeds while the basis does not.
+        //
+        // Operator 5.0.7176 prints the proof in its own sample line:
+        //
+        //   reportedPct = 853.1421   fullPct = 783.5685
+        //   realized = 0.48267820    feeSol = 0.04285732   entryCost = 0.06160000
+        //
+        //   (realized + fee) / entryCost = 0.52553552 / 0.0616 = 853.14%  <- exact
+        //
+        // Not a rounding drift: it reproduces the reported number to four
+        // decimals. 5,473 rows were excluded from the strategy ledger as
+        // PNL_SOL_PERCENT_MISMATCH for being correct, and because the gap
+        // grows with the size of the win, the exclusion was biased against
+        // winners — the learners were being fed a book with its best trades
+        // filtered out.
+        //
+        // The numerator is enumerated the same way the denominators were: off
+        // the emitters, as a closed list, with the tolerance untouched. A
+        // genuinely corrupt row still matches neither numerator against any
+        // basis and is still excluded.
+        val grossRealized7177 = realized + (if (t.feeSol.isFinite()) t.feeSol else 0.0)
+        val numerators7177 = listOf("" to realized, "_GROSS" to grossRealized7177)
+        var reconciled7164: String? = null
+        outer7177@ for ((basisName, b) in bases7164) {
+            if (!b.isFinite() || b <= 0.0) continue
+            for ((numSuffix, n) in numerators7177) {
+                val pct = (n / b) * 100.0
+                if (pct.isFinite() && kotlin.math.abs(pct - t.pnlPct) <= 50.0) {
+                    reconciled7164 = basisName + numSuffix
+                    break@outer7177
+                }
+            }
         }
         if (reconciled7164 == null) {
             val pctFull7164 = if (basis > 0.0) (realized / basis) * 100.0 else Double.NaN
@@ -390,7 +427,7 @@ object StrategyTruthLedger {
             return "PNL_SOL_PERCENT_MISMATCH"
         }
         try {
-            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PNL_PCT_RECONCILED_ON_${reconciled7164.first}_7164")
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PNL_PCT_RECONCILED_ON_${reconciled7164}_7164")
         } catch (_: Throwable) {}
         if (live && proof.isBlank()) return "MISSING_LIVE_PROOF"
         val largePnl = kotlin.math.abs(realized) >= 0.25 || kotlin.math.abs(t.pnlPct) >= 1000.0
