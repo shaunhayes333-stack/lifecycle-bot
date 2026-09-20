@@ -1358,8 +1358,33 @@ object PipelineHealthCollector {
                     val mature = liveMaturity.mature
                     val wrFloor = liveMaturity.wrFloorPct
                     val phaseTag = liveMaturity.phase
+                    // V5.0.7159 — a low win rate with POSITIVE expectancy is not
+                    // a fault, and naming it the root cause sends the operator
+                    // hunting the wrong thing.
+                    //
+                    // The floor was set to ensure positive EV back when EV was
+                    // not measurable per lane. It is now, and on the operator's
+                    // 5.0.7155 book the three lanes carrying the entire P&L —
+                    // CYCLIC +0.9348 SOL at 27.3% WR, MOONSHOT +0.1452 at 21.1%,
+                    // PROJECT_SNIPER +0.2551 at 9.5% — are all far under it.
+                    // Runner capture pays through a fat tail, not frequency.
+                    //
+                    // So WR below the floor is reported as a root cause only
+                    // when expectancy agrees something is wrong. When the book
+                    // is below the floor and still making money, that is said
+                    // plainly instead, because it means the FLOOR is the thing
+                    // out of date — not the bot.
                     if (perf.winRate < wrFloor) {
-                        rootCauses.add("WR_BELOW_FLOOR ($phaseTag wr=${"%.1f".format(perf.winRate)}% < floor=${wrFloor.toInt()}% n=${perf.totalTrades} live=${liveMaturity.liveTerminalCloses} lifetime=$lifetime)")
+                        val evPositive7159 = perf.expectancy > 0.0 && perf.profitFactor >= 1.0
+                        if (evPositive7159) {
+                            rootCauses.add(
+                                "WR_BELOW_FLOOR_BUT_EV_POSITIVE_7159 ($phaseTag wr=${"%.1f".format(perf.winRate)}% < floor=${wrFloor.toInt()}% " +
+                                    "exp=${"%.4f".format(perf.expectancy)}SOL/trade pf=${"%.2f".format(perf.profitFactor)} " +
+                                    "n=${perf.totalTrades} read=fat_tail_book_floor_is_a_proxy_not_a_verdict)",
+                            )
+                        } else {
+                            rootCauses.add("WR_BELOW_FLOOR ($phaseTag wr=${"%.1f".format(perf.winRate)}% < floor=${wrFloor.toInt()}% n=${perf.totalTrades} live=${liveMaturity.liveTerminalCloses} lifetime=$lifetime exp=${"%.4f".format(perf.expectancy)}SOL pf=${"%.2f".format(perf.profitFactor)})")
+                        }
                     }
                     // Negative P&L is only a "broken strategy" verdict in the full mature
                     // phase; LIVE_ADAPTIVE should tune aggressively without panic-resetting.

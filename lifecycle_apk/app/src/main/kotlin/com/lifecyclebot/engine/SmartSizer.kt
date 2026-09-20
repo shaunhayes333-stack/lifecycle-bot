@@ -763,10 +763,71 @@ object SmartSizer {
         // smaller positions (floor 0.50×). Performing lanes stay at 1.0×.
         // This is the ONLY place laneSizeMultiplier() is applied so there is
         // one source of truth for the WR-sensitive size sift.
+        // V5.0.7159 §WIN RATE WAS A PROXY FOR EXPECTANCY. USE EXPECTANCY.
+        //
+        // Operator: "the winrate target was set early to ensure the bot was
+        // returning positive ev." That is exactly what it was — a stand-in,
+        // chosen when the bot could not yet measure expectancy per lane. It
+        // can now, and a self-improving system should retire a hand-set
+        // proxy the moment the thing it proxies for becomes measurable.
+        //
+        // The proxy has gone wrong in the way proxies do. Operator's
+        // 5.0.7155 book:
+        //
+        //   CYCLIC          n=11 WR=27.3% EV=+48.92%/trade PnL=+0.9348 SOL
+        //   MOONSHOT        n=19 WR=21.1% EV=+14.63%       PnL=+0.1452
+        //   PROJECT_SNIPER  n=42 WR= 9.5% EV= +3.75%       PnL=+0.2551
+        //   ---- every other lane negative ----
+        //
+        // All three profitable lanes are far below the 45% doctrine floor,
+        // because runner capture pays through a fat tail, not through
+        // frequency. The WR sift shrinks precisely them.
+        //
+        // And the bot ALREADY runs the expectancy version of this same job.
+        // LaneExpectancyDamper produced, on that same snapshot:
+        //
+        //   EXPRESS x0.39 · QUALITY x0.52 · TREASURY x0.64 · CORE x0.73
+        //   BLUECHIP x0.73 · CYCLIC x1.00 · PROJECT_SNIPER x1.00
+        //
+        // Correct on every lane: the bleeders damped, the earners untouched.
+        // It is applied in the Executor multiplier stack, and THIS WR sift is
+        // then multiplied on top of it — so a profitable lane is penalised by
+        // the proxy after the real measurement already cleared it. Two
+        // dampers, one job, and the worse one gets the last word.
+        //
+        // So the proxy stands down once the measurement exists. When
+        // LaneExpectancyDamper has a verdict for this lane, its multiplier is
+        // the authority and the WR sift returns 1.0 rather than stacking a
+        // second penalty on the same evidence. When there is no expectancy
+        // yet — a new lane, a cold book — the WR proxy is unchanged and still
+        // does its bootstrap job, which is what it was written for.
+        //
+        // Nothing is loosened: the expectancy damper's own floors (MIN_MULT
+        // 0.18, CATASTROPHIC 0.08) are far harsher than LANE_SIZE_FLOOR, so a
+        // genuinely bleeding lane is damped MORE by this change, not less.
+        // What stops is punishing a lane for winning rarely while making
+        // money.
         val lanePhaseMult = if (laneMode.isNotBlank()) {
             try {
-                val laneWr = TradeHistoryStore.getLaneWinRate(laneMode, minTrades = 1)
-                FreeRangeMode.laneSizeMultiplier(laneWr)
+                val evMult7159 = try {
+                    com.lifecyclebot.engine.LaneExpectancyDamper.sizeMultiplier(laneMode)
+                } catch (_: Throwable) { 1.0 }
+                // A damper verdict that is not the neutral 1.0 means real
+                // expectancy evidence exists for this lane.
+                val evMeasured7159 = evMult7159.isFinite() && kotlin.math.abs(evMult7159 - 1.0) > 1e-9
+                if (evMeasured7159) {
+                    try {
+                        PipelineHealthCollector.labelInc("LANE_WR_SIFT_DEFERRED_TO_EXPECTANCY_7159")
+                        PipelineHealthCollector.labelInc(
+                            "LANE_WR_SIFT_DEFERRED_TO_EXPECTANCY_7159_${laneMode.uppercase().take(20)}",
+                        )
+                    } catch (_: Throwable) {}
+                    1.0
+                } else {
+                    val laneWr = TradeHistoryStore.getLaneWinRate(laneMode, minTrades = 1)
+                    try { PipelineHealthCollector.labelInc("LANE_WR_SIFT_BOOTSTRAP_PROXY_7159") } catch (_: Throwable) {}
+                    FreeRangeMode.laneSizeMultiplier(laneWr)
+                }
             } catch (_: Throwable) { 1.0 }
         } else 1.0
         if (lanePhaseMult < 1.0) {
