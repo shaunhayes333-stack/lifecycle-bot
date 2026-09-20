@@ -74,6 +74,9 @@ object LaneAutoPauseGuard {
     )
 
     private val paused = ConcurrentHashMap<String, PauseState>()
+    // V5.0.7193 — last observed post-pause record per paused lane, for the
+    // status line. Rebuilt every evaluateLive tick; never a decision input.
+    private val selfReproofProgress7193 = ConcurrentHashMap<String, String>()
     @Volatile private var loaded = false
     private val lastEvalMs = AtomicLong(0L)
 
@@ -217,6 +220,9 @@ object LaneAutoPauseGuard {
             // used side="EXIT" or similar in some code paths.
             data class Agg(var sample: Int = 0, var wins: Int = 0, var pnlSum: Double = 0.0)
             val byLane = HashMap<String, Agg>()
+            // V5.0.7193 — same rows, restricted to closes AFTER each paused
+            // lane's pausedAt. This is the lane's own recovery record.
+            val byLanePostPause7193 = HashMap<String, Agg>()
             for (t in clean) {
                 // V5.0.7053 §DO_NOT_DISABLE_A_LANE_FOR_THE_WINNERS_IT_GAVE_AWAY.
                 //
@@ -247,6 +253,22 @@ object LaneAutoPauseGuard {
                 val outcome6684 = com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.classifyReadonly(t.pnlPct)
                 if (outcome6684 == com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.WIN) agg.wins += 1
                 agg.pnlSum += t.pnlPct
+
+                // V5.0.7193 §THE_LANE'S_OWN_RECOVERY_EVIDENCE_WAS_COMPUTED_AND_DISCARDED.
+                //
+                // Only trades CLOSED AFTER the pause count toward recovery. The
+                // 2000-row window that proves a lane has recovered also contains
+                // the losses that paused it, so an unfiltered aggregate would let
+                // the very evidence that switched a lane off switch it back on.
+                val pausedState7193 = paused[lane]
+                if (pausedState7193 != null && t.ts > pausedState7193.pausedAt) {
+                    val postAgg7193 = byLanePostPause7193.getOrPut(lane) { Agg() }
+                    postAgg7193.sample += 1
+                    if (outcome6684 == com.lifecyclebot.engine.truth.CanonicalOutcomeClassifier6576.Class.WIN) {
+                        postAgg7193.wins += 1
+                    }
+                    postAgg7193.pnlSum += t.pnlPct
+                }
             }
             try {
                 ErrorLogger.info(
@@ -320,6 +342,87 @@ object LaneAutoPauseGuard {
             // property that matters for running unattended: a lane that bleeds
             // is switched off, re-proved from evidence, and switched back on by
             // the bot itself.
+            //
+            // ═════════════════════════════════════════════════════════════
+            // V5.0.7193 §A_SECOND_ROAD_HOME, WHICH THE LANE WALKS ITSELF.
+            //
+            // The Lab path above is real and stays exactly as it is. This adds
+            // a second one, because of what the loop above does on its FIRST
+            // line: `if (paused.containsKey(lane)) continue`.
+            //
+            // This function reads the clean-truth journal every 30 seconds and
+            // aggregates a fresh per-lane record for EVERY lane, paused ones
+            // included. It then skips every paused lane before looking at it.
+            // So the evidence of a lane's recovery is computed, held in memory,
+            // and discarded one line later — on every tick, forever.
+            //
+            // Meanwhile the asymmetry that leaves is stark. A lane is switched
+            // off by ITS OWN real record (8 straight losses, or n>=12 toxic).
+            // It may only be switched back on by a DIFFERENT subsystem's
+            // simulated record — a Lab seed reaching 30 sandbox paper trades.
+            // And shouldRunBuyLaneForCycle lets a paused lane keep trading in
+            // PAPER (PAPER_LANE_QUARANTINE_STILL_SAMPLING_6094), so the lane
+            // goes on producing exactly the evidence that would exonerate it,
+            // into a journal this function already reads, and nothing was ever
+            // allowed to act on it.
+            //
+            // Operator doctrine is never disable a lane, and the lanes were
+            // designed as specialist traders — a hive. A specialist that can be
+            // switched off by its own record and can never be switched back on
+            // by it is not paused, it is retired.
+            //
+            // THE BAR IS NOT LOWERED — IT IS THE SAME BAR, BY CONSTRUCTION.
+            // These read LlmLabStore's own promotion constants rather than
+            // copying their values, so this path and the Lab path cannot drift
+            // apart later. A lane resumes only on >=MIN_TRADES_BEFORE_PROMOTION
+            // closes that all happened AFTER it was paused, at or above
+            // MIN_WR_FOR_PROMOTION_PCT, with positive expectancy.
+            //
+            // UNITS: the Lab's third condition is paperPnlSol >= 0.05 SOL. This
+            // aggregate carries pnlPct, not SOL, so the analogous condition
+            // here is positive mean expectancy in percent. Named evPct7193 so
+            // the unit is legible and no later reader mistakes it for SOL.
+            // ═════════════════════════════════════════════════════════════
+            val minTrades7193 = com.lifecyclebot.engine.lab.LlmLabStore.MIN_TRADES_BEFORE_PROMOTION
+            val minWrPct7193 = com.lifecyclebot.engine.lab.LlmLabStore.MIN_WR_FOR_PROMOTION_PCT
+            selfReproofProgress7193.keys.retainAll(paused.keys)
+            for (lane in paused.keys) {
+                val a = byLanePostPause7193[lane]
+                selfReproofProgress7193[lane] = if (a == null || a.sample <= 0) {
+                    "0/$minTrades7193"
+                } else {
+                    "${a.sample}/$minTrades7193 wr=${"%.0f".format(a.wins * 100.0 / a.sample)}% " +
+                        "ev=${"%.0f".format(a.pnlSum / a.sample)}%"
+                }
+            }
+            for ((lane, postAgg) in byLanePostPause7193) {
+                val state = paused[lane] ?: continue
+                if (postAgg.sample < minTrades7193) continue
+                val wrPct7193 = postAgg.wins.toDouble() / postAgg.sample.toDouble() * 100.0
+                val evPct7193 = postAgg.pnlSum / postAgg.sample
+                if (wrPct7193 < minWrPct7193 || evPct7193 <= 0.0) continue
+                paused.remove(lane)
+                mutated = true
+                try {
+                    ErrorLogger.info(
+                        "LaneAutoPauseGuard",
+                        "✅ LANE_SELF_REPROVED_7193 lane=$lane " +
+                            "postPauseN=${postAgg.sample} wins=${postAgg.wins} " +
+                            "wr=${"%.1f".format(wrPct7193)}% ev=${"%.1f".format(evPct7193)}% " +
+                            "pausedFor=${(now - state.pausedAt) / 60_000L}m " +
+                            "originalReason=${state.reason} bar=n$minTrades7193/wr${minWrPct7193}/ev>0",
+                    )
+                    PipelineHealthCollector.labelInc("LANE_SELF_REPROVED_7193_$lane")
+                    PipelineHealthCollector.labelInc("LANE_SELF_REPROVED_7193")
+                    ForensicLogger.lifecycle(
+                        "LANE_SELF_REPROVED_7193",
+                        "lane=$lane postPauseN=${postAgg.sample} wr=${"%.1f".format(wrPct7193)} " +
+                            "ev=${"%.1f".format(evPct7193)} originalReason=${state.reason} " +
+                            "action=resumed_on_own_post_pause_record",
+                    )
+                } catch (_: Throwable) {}
+            }
+
             if (mutated) persistAsync()
         } catch (_: Throwable) {}
     }
@@ -345,7 +448,14 @@ object LaneAutoPauseGuard {
         ensureLoaded()
         if (paused.isEmpty()) return "$VERSION: no lanes paused"
         val s = paused.values.joinToString(" | ") { p ->
-            "${p.lane}(n=${p.sample} wr=${"%.0f".format(p.wrPct)}% ev=${"%.0f".format(p.evPct)}% reason=${p.reason})"
+            // V5.0.7193 — show how far each paused lane has walked back toward
+            // the bar on its own record. Without this the operator sees only
+            // "paused, reason=zero_win_n8" for hours and cannot tell a lane
+            // that is 28/30 of the way home from one that has closed nothing
+            // since it was switched off. Those look identical and are not.
+            val progress7193 = selfReproofProgress7193[p.lane].orEmpty()
+            "${p.lane}(n=${p.sample} wr=${"%.0f".format(p.wrPct)}% ev=${"%.0f".format(p.evPct)}% " +
+                "reason=${p.reason}${if (progress7193.isBlank()) "" else " reproof7193=$progress7193"})"
         }
         return "$VERSION: ${paused.size} paused → $s"
     }
