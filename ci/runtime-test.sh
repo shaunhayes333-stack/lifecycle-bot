@@ -124,12 +124,63 @@ sleep 5
 adb shell uiautomator dump /sdcard/ui_after_launch.xml >/dev/null 2>&1 || true
 adb pull /sdcard/ui_after_launch.xml "$WS/ui_after_launch.xml" >/dev/null 2>&1 || true
 
+# V5.0.7168 — one dump was one chance, and it has been losing.
+#
+# Runtime Smoke Test has failed on every build from 5.0.7155 to 5.0.7166 at
+# exactly the same line:
+#
+#   ##[error]UI target missing/disabled mode=id value=btnToggle dump=ui_start_1.xml
+#
+# btnToggle is not missing. MainActivity:2396 still does findViewById(R.id
+# .btnToggle) and :2432 sets isEnabled = true. What is missing is patience:
+# this function took ONE uiautomator dump, and both `dump` and `pull` are
+# `|| true`, so a dump that was slow, raced the first frame, or failed
+# outright left an empty or stale file and the parse found nothing. The run
+# then reports the app has no start button.
+#
+# The cost of that is the whole gate. Every assertion after this line —
+# start, stop, start again, first BOT_LOOP_TICK, and the receipt-derived
+# paper-buy evidence the job exits on — never ran. Twelve builds shipped with
+# the project's only end-to-end runtime proof dark, reporting a UI fault that
+# does not exist.
+#
+# Poll instead of guessing a settle time: re-dump until the target appears or
+# the deadline passes. A genuinely missing button still fails, just after
+# ~30s of asking rather than once. And when it does fail, print the dump so
+# the next failure is diagnosable from the log instead of the artifact.
+UI_TAP_TIMEOUT_S_7168=30
+
 ui_tap() {
     local mode="$1" value="$2" dump="$3"
-    adb shell uiautomator dump "/sdcard/$dump" >/dev/null 2>&1 || true
-    adb pull "/sdcard/$dump" "$WS/$dump" >/dev/null 2>&1 || true
-    local coords
-    coords=$(python3 - "$WS/$dump" "$mode" "$value" <<'PYTAP'
+    local deadline=$((SECONDS + UI_TAP_TIMEOUT_S_7168))
+    local coords=""
+    local attempts=0
+    while :; do
+        attempts=$((attempts + 1))
+        adb shell uiautomator dump "/sdcard/$dump" >/dev/null 2>&1 || true
+        adb pull "/sdcard/$dump" "$WS/$dump" >/dev/null 2>&1 || true
+        coords=$(ui_find_target_7168 "$WS/$dump" "$mode" "$value") || coords=""
+        [ -n "$coords" ] && break
+        [ "$SECONDS" -ge "$deadline" ] && break
+        sleep 2
+    done
+    if [ -z "$coords" ]; then
+        echo "::error::UI target missing/disabled mode=$mode value=$value dump=$dump"
+        echo "=== ui_tap gave up after $attempts dumps over ${UI_TAP_TIMEOUT_S_7168}s ==="
+        echo "=== last dump ($WS/$dump) head ==="
+        head -c 4000 "$WS/$dump" 2>/dev/null || echo "(no dump file)"
+        echo ""
+        adb logcat -d -v time > "$WS/logcat_full.txt" || true
+        adb shell dumpsys activity activities > "$WS/activity_dump.txt" || true
+        adb shell dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' || true
+        return 1
+    fi
+    echo "UI tap mode=$mode value=$value coords=$coords attempts=$attempts"
+    adb shell input tap $coords
+}
+
+ui_find_target_7168() {
+    python3 - "$1" "$2" "$3" <<'PYTAP'
 import re, sys, xml.etree.ElementTree as ET
 path, mode, value = sys.argv[1:]
 try:
@@ -147,16 +198,6 @@ for node in root.iter("node"):
         raise SystemExit(0)
 raise SystemExit(1)
 PYTAP
-) || true
-    if [ -z "$coords" ]; then
-        echo "::error::UI target missing/disabled mode=$mode value=$value dump=$dump"
-        adb logcat -d -v time > "$WS/logcat_full.txt" || true
-        adb shell dumpsys activity activities > "$WS/activity_dump.txt" || true
-        adb shell dumpsys window windows | grep -E 'mCurrentFocus|mFocusedApp' || true
-        return 1
-    fi
-    echo "UI tap mode=$mode value=$value coords=$coords"
-    adb shell input tap $coords
 }
 
 wait_log_marker() {
