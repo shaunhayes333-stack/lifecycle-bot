@@ -65,6 +65,24 @@ EXEMPT = {
     "onNothingSelected", "beforeTextChanged", "onTextChanged", "afterTextChanged",
     "onAnimationRepeat", "onAnimationEnd", "onAnimationStart", "run", "toString",
     "equals", "hashCode", "compareTo",
+    # V5.0.7134 — NOT authored by the build that appears to add it.
+    #
+    # CausalFeedbackAuthority6715.cohortLoserAdvisoryForBand shipped in
+    # V5.0.7115 and was green. V5.0.7132 accidentally committed a machine
+    # rewrite of that file (a ci/apply_verified_recovery_*.py patch-applier was
+    # still running in the background and its output was swept in by git add
+    # -A), which deleted this function along with cohortLoserAdvisoryForLane
+    # and terminalCohortSuppressionForBand. The latter two have external
+    # callers, so the APK failed to compile; this one does not, so restoring
+    # the file verbatim from the last green commit makes it look like a NEW
+    # unwired declaration against a HEAD~1 that no longer contains it.
+    #
+    # It is the per-band sibling of cohortLoserAdvisoryForLane, which
+    # LaneExpectancyDamper does call. Wiring it would be a live sizing
+    # behaviour change nobody asked for, and deleting it would let an
+    # accidental rewrite quietly amputate working code. Restored as-is and
+    # recorded here.
+    "cohortLoserAdvisoryForBand",
 }
 
 
