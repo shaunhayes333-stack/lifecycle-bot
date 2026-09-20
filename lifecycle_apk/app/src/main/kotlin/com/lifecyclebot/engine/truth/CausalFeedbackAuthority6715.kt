@@ -83,9 +83,24 @@ object CausalFeedbackAuthority6715 {
     private val learnedSeen = HashSet<String>()
 
     private fun normMode(mode: String): String = mode.trim().uppercase().ifBlank { "UNKNOWN" }
-    private fun normLane(raw: String): String = raw.trim().uppercase().replace('-', '_').replace(' ', '_').let {
-        when (it) { "BLUE_CHIP" -> "BLUECHIP"; "PRESALE_SNIPE" -> "PROJECT_SNIPER"; else -> it }
-    }
+    // V5.0.7133 — delegate to the one lane-identity authority.
+    //
+    // This was a hand-copy of two of CanonicalLaneIdentity6506's folds. It
+    // agreed with the authority on both (BLUE_CHIP -> BLUECHIP,
+    // PRESALE_SNIPE -> PROJECT_SNIPER) and on the dash/space handling, so the
+    // behaviour is unchanged for those inputs — but a duplicated table is a
+    // second authority over lane identity, and lane names are compared for
+    // EQUALITY to bind a sealed execution intent to its requester. The copy
+    // would have had to be edited in lockstep forever to stay honest, and
+    // lane_identity_authority_scan exists precisely because two of the other
+    // copies in this tree already drifted into folding the INVERSE direction.
+    //
+    // Delegating also picks up the authority's remaining PROJECT_SNIPER
+    // spellings (PROJECT, SNIPER, SNIPE, PROJECTSNIPER). Those all fold to a
+    // lane already present in MEME_LANES, so this recognises more spellings of
+    // the same lanes and neither adds nor removes one.
+    private fun normLane(raw: String): String =
+        CanonicalLaneIdentity6506.canonical(raw).ifBlank { "UNKNOWN" }
     fun isMemeOwnerLane(raw: String): Boolean = normLane(raw) in MEME_LANES
 
     fun scoreBand(score: Int): String = when {
