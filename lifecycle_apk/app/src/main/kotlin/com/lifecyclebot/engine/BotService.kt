@@ -20030,6 +20030,62 @@ if (hotExitHandledSweep) {
             // Same correction under the lock: only a FRESH heartbeat may use
             // the requestedAt shortcut.
             if (stillFresh && exitCoordinatorStartHeartbeatMs6647.get() >= requestedAt) return
+            // V5.0.7180 §CANCELLING_A_QUEUED_REPLACEMENT_GUARANTEES_IT_NEVER_RUNS.
+            //
+            // Operator 5.0.7176 at 1582s — the same build at 425s read 68/1:
+            //
+            //   EXIT_COORDINATOR_NO_START_RELAUNCHED_6647  245
+            //   EXIT_COORDINATOR_STARTED                     1
+            //   Exit sweep start/done                      3 / 3
+            //
+            // 245 replacement launches and ONE body that has ever run, over
+            // twenty-six minutes. exitExecutor6647 is
+            // Executors.newSingleThreadExecutor (BotService:644) — one thread
+            // for the whole exit scope, including the coordinator body and the
+            // 7121 heartbeat ticker that is launched as its child.
+            //
+            // So while the body holds that thread in a long non-suspending
+            // pass, the ticker cannot run either, the heartbeat ages past
+            // 15s, and this watchdog concludes the coordinator is hung. It
+            // then cancels and launches a replacement — which cannot start,
+            // because the one thread is still busy. On the next bot cycle
+            // (~6s) the heartbeat is still stale, so the watchdog cancels THAT
+            // replacement, still queued and still never dispatched, and
+            // launches another. Two hundred and forty-four times.
+            //
+            // The watchdog is destroying the very thing it is trying to
+            // create. A job that has not started is not hung — it is waiting
+            // for a thread, and cancelling it is strictly worse than leaving
+            // it alone, because a cancelled coroutine that never ran never
+            // will.
+            //
+            // A replacement is therefore left alone until its body has had a
+            // real chance to be dispatched. `startedAt < launchedAt` is the
+            // exact test for "this job has not run yet": the body's first act
+            // is to stamp exitCoordinatorStartedAtMs6647.
+            //
+            // This is complementary to the V5.0.7179 backoff, not a substitute
+            // — that bounds how OFTEN we retry once relaunches prove
+            // ineffective; this stops the retry from killing a replacement
+            // that was about to work. Neither changes exit behaviour: the
+            // risk clock is a separate scope and keeps stopping positions
+            // throughout.
+            val launchedAt7180 = exitCoordinatorLaunchedAtMs7180.get()
+            val startedAt7180 = exitCoordinatorStartedAtMs6647.get()
+            val neverRan7180 = launchedAt7180 > 0L && startedAt7180 < launchedAt7180
+            val waitedMs7180 = System.currentTimeMillis() - launchedAt7180
+            if (stillAlive && neverRan7180 && waitedMs7180 < COORDINATOR_DISPATCH_GRACE_MS_7180) {
+                try {
+                    PipelineHealthCollector.labelInc("EXIT_COORDINATOR_REPLACEMENT_AWAITING_DISPATCH_7180")
+                    ForensicLogger.lifecycle(
+                        "EXIT_COORDINATOR_REPLACEMENT_AWAITING_DISPATCH_7180",
+                        "waitedMs=$waitedMs7180 graceMs=$COORDINATOR_DISPATCH_GRACE_MS_7180 " +
+                            "launchedAt=$launchedAt7180 startedAt=$startedAt7180 " +
+                            "note=single_thread_exit_dispatcher_is_busy_job_is_queued_not_hung",
+                    )
+                } catch (_: Throwable) {}
+                return
+            }
             exitSweepCoordinatorJob?.cancel()
             exitSweepCoordinatorJob = null
             try {
@@ -20045,6 +20101,31 @@ if (hotExitHandledSweep) {
 
     /** V5.0.6897 — consecutive relaunches that produced no coordinator start. */
     private val exitCoordinatorIneffectiveRelaunches6897 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /**
+     * V5.0.7180 — wallclock when the most recent coordinator job was handed to
+     * the exit dispatcher. Compared against exitCoordinatorStartedAtMs6647 to
+     * distinguish a job that is QUEUED behind the single exit thread from one
+     * that is genuinely hung.
+     */
+    private val exitCoordinatorLaunchedAtMs7180 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /**
+     * V5.0.7180 — how long a launched-but-not-yet-running coordinator is left
+     * alone before the watchdog may replace it.
+     *
+     * exitExecutor6647 is single-threaded, so a replacement waits behind
+     * whatever the current body is doing. Generous on purpose: the failure
+     * this prevents (cancel a queued job, relaunch, cancel that one too) is
+     * unrecoverable, while waiting merely defers a replacement the risk clock
+     * is already covering for.
+     */
+    // NOTE: `val`, not `const val` — BotService is a class, and `const val` is
+    // only legal at top level or inside an object/companion. The Kotlin
+    // compiler is the only thing that catches this; none of the 14 validators
+    // can see declaration-site rules, and this exact mistake has cost a CI
+    // round trip before.
+    private val COORDINATOR_DISPATCH_GRACE_MS_7180 = 60_000L
 
     /**
      * V5.0.7067 — execution-spine cycle of the last relaunch attempt, so the
@@ -20134,6 +20215,11 @@ if (hotExitHandledSweep) {
             // This does not change exit behaviour or cadence. It makes an
             // existing, documented safety valve reachable.
             exitCoordinatorIneffectiveRelaunches6897.incrementAndGet()
+            // V5.0.7180 — when the replacement was HANDED to the dispatcher,
+            // as distinct from when its body actually ran. The gap between
+            // the two is queue time on the single exit thread, and the
+            // watchdog needs both numbers to tell "queued" from "hung".
+            exitCoordinatorLaunchedAtMs7180.set(System.currentTimeMillis())
             exitSweepCoordinatorJob = exitScope6647.launch {
                 val start6647 = System.currentTimeMillis()
                 // V5.0.6897 — the body actually ran, so the relaunch was not
