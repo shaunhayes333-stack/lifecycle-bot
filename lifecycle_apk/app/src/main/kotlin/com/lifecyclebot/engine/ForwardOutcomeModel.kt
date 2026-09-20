@@ -231,7 +231,60 @@ object ForwardOutcomeModel {
             )
         if (nR >= MIN_SAMPLES) return build(nR, wR, eR, cR, "regime_mode")
         if (nM >= MIN_SAMPLES) return build(nM, wM, eM, cM, "mode")
-        if (nP > 0L) return build(nP, wP, eP, cP, "pooled")
+        // V5.0.7160 §PAPER'S LOSSES WERE VETOING LIVE ENTRIES AT FULL WEIGHT.
+        //
+        // The accumulator above is unconditional — `nP += c.n` runs for EVERY
+        // mode — and this line used to return that raw blend as "pooled" on as
+        // little as nP > 0. One sample, from the other mode, decided a live
+        // entry.
+        //
+        // Operator's 5.0.7155 oracle contribution list, the refusal that fired
+        // 802 times:
+        //
+        //   cellScoreExp(n=5,E=-45.9) cellFwd(pooled,n=1,E=-9.8,pW=0.00)
+        //   lane(n=14,E=-28.x)
+        //
+        // cellFwd is this function. n=1, "pooled". And the parity line shows
+        // why it is always this branch: ForwardOutcomeModel[paper=51 live=3].
+        // Live evidence never reaches MIN_SAMPLES, so live decisions are made
+        // on paper's record at full strength — the exact thing
+        // PaperSeededPrior6991 exists to prevent, on a path that never
+        // consulted it.
+        //
+        // Two corrections, both conservative:
+        //
+        // 1. A pooled verdict needs a real sample. One observation is not a
+        //    cohort; below the floor this returns "none" and the caller treats
+        //    it as no evidence rather than as a prediction.
+        //
+        // 2. Cross-mode evidence is SHRUNK toward neutral by the share that is
+        //    actually own-mode. With 3 live against 51 paper the shrink is
+        //    ~0.06, so a -29% paper expectancy speaks as ~-1.7% — present, but
+        //    not decisive. It earns its voice back as live samples accumulate,
+        //    which is what a self-improving system should do instead of
+        //    inheriting another mode's history wholesale.
+        //
+        // In PAPER mode ownMode IS the pooled majority, so the shrink is ~1.0
+        // and paper behaviour is unchanged. This only ever loosens a refusal
+        // built on the other mode's evidence; it cannot manufacture optimism,
+        // because shrinking toward zero moves a negative expectancy UP toward
+        // neutral and a positive one DOWN toward neutral alike.
+        val POOLED_MIN_SAMPLES_7160 = 3L
+        if (nP >= POOLED_MIN_SAMPLES_7160) {
+            val ownShare7160 = if (nP > 0L) (nM.toDouble() / nP.toDouble()).coerceIn(0.0, 1.0) else 0.0
+            val pooled7160 = build(nP, wP, eP, cP, "pooled")
+            if (ownShare7160 >= 0.999) return pooled7160
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FWD_POOLED_CROSS_MODE_SHRUNK_7160")
+            } catch (_: Throwable) {}
+            return pooled7160.copy(
+                // Shrink expectancy toward 0 and pWin toward the 0.5 prior by
+                // the own-mode share. Sample count is reported honestly.
+                expectedPnlPct = pooled7160.expectedPnlPct * ownShare7160,
+                pWin = (0.5 + (pooled7160.pWin - 0.5) * ownShare7160).coerceIn(0.0, 1.0),
+                level = "pooled_shrunk_7160",
+            )
+        }
         return CohortEvidence6911(0L, 0.5, 0.0, 0, "none")
     }
     @Volatile private var totalUpdates = 0L

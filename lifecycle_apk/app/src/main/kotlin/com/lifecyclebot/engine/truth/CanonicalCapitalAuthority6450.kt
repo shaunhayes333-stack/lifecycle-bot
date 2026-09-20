@@ -264,7 +264,63 @@ object CanonicalCapitalAuthority6450 {
                 lastGoodMark6492[aggregate.mint] != null -> {
                     staleMarkMints6492++
                     try { PipelineHealthCollector.labelInc("PAPER_MARK_STALE_LAST_GOOD_6508") } catch (_: Throwable) {}
-                    lastGoodMark6492.getValue(aggregate.mint).wholeMintValueSol
+                    // V5.0.7160 §A STALE MARK MAY NOT MANUFACTURE PROFIT.
+                    //
+                    // Forty lines below, this same function states the rule it
+                    // is meant to enforce:
+                    //
+                    //   "Only fresh, authoritative marks may produce unrealized
+                    //    profit. Stale/fallback positions remain UNPRICED COST
+                    //    and contribute zero to growth, compounding, sizing, or
+                    //    learning rewards."
+                    //
+                    // This branch returned the last-good mark UNBOUNDED. It is
+                    // excluded from authoritativeOpenMv6508, so it never shows
+                    // up in `unrealized` — but it flows into markedValue6492,
+                    // then openMv, then equity = cash + reserved + openMv. So a
+                    // position last seen at +500% carries that +500% in equity
+                    // for as long as it stays stale, invisible to the very
+                    // figure meant to report unrealized gain.
+                    //
+                    // Operator's 5.0.7155, and the arithmetic that exposed it:
+                    //
+                    //   openCost=4.3455  openMV=10.5279  unrealized=+0.1769
+                    //   staleMarks=5  fallbackMarks=8  worstDivergence=107x
+                    //
+                    // openMV - openCost = 6.18 SOL of apparent gain. `unrealized`
+                    // accounts for 0.18 of it. The remaining ~6.0 is stale
+                    // last-good marks inflating equity, against this file's own
+                    // doctrine, with a mark resolver reporting a worst-case
+                    // divergence of 107x.
+                    //
+                    // That direction is the dangerous one for a compounding
+                    // system. Equity feeds the hero, the runner health gate and
+                    // the growth ladder; overstate it and the bot sizes up on
+                    // money it does not have. "Live money printer, 0 exceptions"
+                    // starts with the printer knowing what it actually holds.
+                    //
+                    // So a stale mark is capped at cost: it can no longer create
+                    // profit, and a stale mark BELOW cost still passes through
+                    // at its loss, because hiding a loss is the same defect
+                    // pointed the other way. Strictly more conservative — this
+                    // can only ever lower equity, never raise it.
+                    val lastGood7160 = lastGoodMark6492.getValue(aggregate.mint).wholeMintValueSol
+                    val cost7160 = aggregate.remainingCostBasisSol
+                    if (lastGood7160 > cost7160 && cost7160 > 0.0) {
+                        try {
+                            PipelineHealthCollector.labelInc("STALE_MARK_PROFIT_WITHHELD_7160")
+                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                "STALE_MARK_PROFIT_WITHHELD_7160",
+                                "mint=${aggregate.mint.take(10)} lastGood=${"%.6f".format(lastGood7160)} " +
+                                    "cost=${"%.6f".format(cost7160)} " +
+                                    "withheldSol=${"%.6f".format(lastGood7160 - cost7160)} " +
+                                    "action=hold_at_cost_stale_may_not_create_profit",
+                            )
+                        } catch (_: Throwable) {}
+                        cost7160
+                    } else {
+                        lastGood7160
+                    }
                 }
                 else -> {
                     fallbackMarkMints6492++
