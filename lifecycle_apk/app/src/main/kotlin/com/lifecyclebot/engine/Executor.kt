@@ -3368,7 +3368,12 @@ class Executor(
      *   - Refusal is reported per lane, so its cost in throughput is
      *     measurable and reversible rather than invisible.
      */
-    private const val COST_EDGE_MARGIN_7162 = 1.15
+    // V5.0.7163 — plain `val`, not `const val`. Executor is a CLASS, and
+    // Kotlin allows const only at top level, in a named object, or in a
+    // companion. The const vals added earlier this run compiled because
+    // their owners (KeylessLlmClient, LearnedPolicyDegeneracyWatch7102) are
+    // objects; this one is not, and 7162 went red on exactly that line.
+    private val COST_EDGE_MARGIN_7162 = 1.15
 
     private fun costExceedsEdge7162(
         ts: TokenState,
