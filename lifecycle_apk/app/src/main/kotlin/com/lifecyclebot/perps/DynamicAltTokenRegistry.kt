@@ -1075,12 +1075,116 @@ object DynamicAltTokenRegistry {
         return existing.price
     }
 
+    /**
+     * V5.0.7164 §"CANNOT USE A DEX ROUTE" WAS BEING READ AS "HAS NO PRICE".
+     *
+     * PRICE_UNAVAILABLE is the single largest terminal disposition in the
+     * crypto lane on the operator's 5.0.7161 device — 1,403 of them, against
+     * intent=113 and dispatch=1. CryptoAltTrader:813 dispositions a token
+     * PRICE_UNAVAILABLE the moment refreshPriceForMintBlocking returns 0, and
+     * for a `cg:` identity that function returned 0 by construction once the
+     * carry window lapsed: the only refresh route it knows is DexScreener by
+     * mint, a CoinGecko id has no mint, so the branch just gave up.
+     *
+     * Nothing else re-priced them either. fetchCoinGeckoMarkets() only runs on
+     * the discovery cycle and only covers the top-500-by-volume page set, so a
+     * `cg:` token discovered by trending — which arrives with price=0 — could
+     * never be priced at all. The absence of a DEX route was recorded as the
+     * absence of a price, which is the same substitution §6982 names.
+     *
+     * CoinGecko's keyless simple/price takes a comma-separated id list, so the
+     * whole cohort is repaired by ONE request. Batched, TTL'd to stay inside
+     * the free tier, and it never invents a number: ids CoinGecko does not
+     * return are left exactly as they were and still fall through to the carry
+     * window below.
+     */
+    private const val CG_BATCH_TTL_MS_7164   = 90_000L
+    private const val CG_BATCH_MAX_IDS_7164  = 100
+    @Volatile private var cgBatchAtMs7164: Long = 0L
+    private val cgBatchLock7164 = Any()
+
+    private fun refreshCoinGeckoPricesBlocking7164(wantedKey: String): Double {
+        synchronized(cgBatchLock7164) {
+            val now = System.currentTimeMillis()
+            val already = registry[wantedKey]?.price ?: 0.0
+            if (now - cgBatchAtMs7164 < CG_BATCH_TTL_MS_7164) {
+                // A sibling call already spent this window's request; whatever
+                // it wrote is the freshest reading available.
+                return already.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+            }
+            cgBatchAtMs7164 = now
+            val ids = LinkedHashSet<String>()
+            registry[wantedKey]?.tokenAddress?.removePrefix("cg:")?.trim()
+                ?.takeIf { it.isNotBlank() }?.let { ids.add(it) }
+            for (t in registry.values) {
+                if (ids.size >= CG_BATCH_MAX_IDS_7164) break
+                if (!t.tokenAddress.startsWith("cg:")) continue
+                val id = t.tokenAddress.removePrefix("cg:").trim()
+                if (id.isBlank()) continue
+                val age = (now - t.lastUpdatedMs).coerceAtLeast(0L)
+                if (t.price > 0.0 && age <= PRICE_TTL_MS) continue
+                ids.add(id)
+            }
+            if (ids.isEmpty()) return already.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+            val url = "https://api.coingecko.com/api/v3/simple/price" +
+                "?ids=${ids.joinToString(",")}" +
+                "&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true"
+            val body = httpGet(url)
+            if (body.isNullOrBlank()) {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CG_BATCH_PRICE_REFRESH_FAILED_7164")
+                } catch (_: Throwable) {}
+                return already.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+            }
+            var repaired = 0
+            try {
+                val json = JSONObject(body)
+                for (id in ids) {
+                    val row = json.optJSONObject(id) ?: continue
+                    val px = row.optDouble("usd", 0.0)
+                    if (!px.isFinite() || px <= 0.0) continue
+                    val key = "cg:$id"
+                    val tok = registry[key] ?: continue
+                    registry[key] = tok.copy(
+                        price = px,
+                        priceChange24h = row.optDouble("usd_24h_change", tok.priceChange24h)
+                            .takeIf { it.isFinite() } ?: tok.priceChange24h,
+                        volume24h = row.optDouble("usd_24h_vol", 0.0)
+                            .takeIf { it.isFinite() && it > 0.0 } ?: tok.volume24h,
+                        lastUpdatedMs = System.currentTimeMillis(),
+                    )
+                    repaired++
+                }
+            } catch (e: Throwable) {
+                ErrorLogger.warn(TAG, "CG batch price 7164: ${e.message}")
+            }
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CG_BATCH_PRICE_REFRESH_7164")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "CG_BATCH_PRICE_REFRESH_7164",
+                    "asked=${ids.size} repaired=$repaired wanted=${wantedKey.take(24)}",
+                )
+            } catch (_: Throwable) {}
+            return registry[wantedKey]?.price?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+        }
+    }
+
     fun refreshPriceForMintBlocking(identityOrAddress: String, forceRefresh: Boolean = false): Double {
         val existing = registry[identityOrAddress] ?: getTokenByMint(identityOrAddress) ?: return 0.0
         val ageMs = (System.currentTimeMillis() - existing.lastUpdatedMs).coerceAtLeast(0L)
         if (existing.price > 0.0 && (!forceRefresh || ageMs <= PRICE_TTL_MS)) return existing.price
-        // CoinGecko/static identities cannot use a DEX mint route — carry price for up to MARK_CARRY_TTL_MS.
-        if (existing.tokenAddress.startsWith("cg:") || existing.tokenAddress.startsWith("static:")) {
+        // V5.0.7164 — a CoinGecko identity has no DEX mint route, but it does
+        // have a price; ask the source that issued the id. Only when that comes
+        // back empty do we fall back to carrying the last known mark.
+        if (existing.tokenAddress.startsWith("cg:")) {
+            val fetched7164 = try {
+                refreshCoinGeckoPricesBlocking7164(existing.canonicalIdentity6544)
+            } catch (_: Throwable) { 0.0 }
+            if (fetched7164 > 0.0) return fetched7164
+            return existing.price.takeIf { it.isFinite() && it > 0.0 && ageMs <= MARK_CARRY_TTL_MS } ?: 0.0
+        }
+        // Static symbol placeholders still have no route of any kind.
+        if (existing.tokenAddress.startsWith("static:")) {
             return existing.price.takeIf { it.isFinite() && it > 0.0 && ageMs <= MARK_CARRY_TTL_MS } ?: 0.0
         }
         val chain = existing.chainId.trim().lowercase()

@@ -34,6 +34,11 @@ object StrategyTruthLedger {
     // only prevents the second-and-third readers in the SAME 10-second window
     // (LiveProbabilityEngine + leaderboard + strategy aggregator) from
     // redoing the O(N log N) sort + dedupe pass 3× per journal state.
+    // V5.0.7164 — bound on the unreconcilable-row forensic sample. The
+    // mismatch fires thousands of times a session; twelve full value vectors
+    // are enough to name the cause and will not flood the log.
+    private val unreconciledSamples7164 = java.util.concurrent.atomic.AtomicInteger(0)
+
     private const val CLEAN_CACHE_TTL_MS: Long = 10_000L
     private val cleanCacheLock = Any()
     @Volatile private var cleanCacheKey: String = ""
@@ -295,44 +300,82 @@ object StrategyTruthLedger {
         val proceeds = basis + realized
         if (!proceeds.isFinite() || proceeds < -0.000001) return "NEGATIVE_PROCEEDS"
         // V5.0.7158 §THE NUMERATOR AND THE DENOMINATOR DESCRIBED DIFFERENT
-        // POPULATIONS.
+        // POPULATIONS. This comparison excludes more closes from strategy
+        // learning than any other rule in this file — 978 on the operator's
+        // 5.0.7155 against clean=147, 1,920 on 5.0.7161 — so which cost basis
+        // it divides by decides what the learners are allowed to see. 7158
+        // routed it to soldCostBasisSol and instrumented the split to find
+        // out whether that was right. It was not; see below.
         //
-        // Operator's 5.0.7155:
-        //   STRATEGY_FORENSIC_EXCLUDED_PNL_SOL_PERCENT_MISMATCH : 978
-        //   StrategyTruthLedger clean=147
+        // V5.0.7164 §THE 7158 SPLIT COUNTER SAID THE 7158 FIX WAS WRONG.
         //
-        // Nearly a thousand closes thrown out of strategy learning by this
-        // one comparison, and the reason is visible eleven lines up: :286
-        // VALIDATES that soldCostBasisSol is present and positive — the cost
-        // basis of the quantity actually sold — and then this line divides
-        // by entryCostSol, the basis of the WHOLE position.
+        // 7158 assumed the mismatch was partials divided by the whole
+        // position's cost, and routed them to soldCostBasisSol. The operator's
+        // 5.0.7161 snapshot answered:
         //
-        // For a full exit those are the same number and the check works. For
-        // a PARTIAL they are not: economicSchema reports partials=18 this
-        // session, and a capital_recovery_4.0x bank sells a slice whose
-        // realized PnL is measured against a fraction of the entry. Dividing
-        // that slice's PnL by the full entry cost produces a percentage that
-        // cannot agree with t.pnlPct, the 50-point tolerance is breached, and
-        // a perfectly good trade is excluded as a data-quality failure.
+        //   PNL_PCT_MISMATCH_ON_FULL_BASIS_7158 : 1920
+        //   PNL_PCT_MISMATCH_ON_SOLD_BASIS_7158 : (absent)
+        //   STRATEGY_FORENSIC_EXCLUDED_PNL_SOL_PERCENT_MISMATCH : 1920
         //
-        // Worse, it discards them silently from the learners while the same
-        // rows stay in the P&L — so the strategy tables are computed on a
-        // biased subset that systematically drops partials, which are
-        // exactly the runner-capture exits the profitable lanes depend on.
+        // Every single exclusion took the FULL-basis path, which is to say
+        // soldCostBasisSol was never populated on any of them and the new
+        // denominator never once engaged. The partial hypothesis is dead.
         //
-        // Use the basis that matches the realized figure. Full exits are
-        // unchanged because the two are equal there.
-        val pctBasis7158 = t.soldCostBasisSol.takeIf { it.isFinite() && it > 0.0 } ?: basis
-        val pctFromSol = (realized / pctBasis7158) * 100.0
-        if (!pctFromSol.isFinite() || kotlin.math.abs(pctFromSol - t.pnlPct) > 50.0) {
+        // What the code actually says, read rather than assumed:
+        // Executor:3998 sets a PARTIAL_SELL row's percentage from
+        // `tradeWithMint.sol` — "partial SELL rows store the sold-leg cost in
+        // sol" — while soldCostBasisSol is only validated for canonical PAPER
+        // rows at :286 and is plain 0.0 everywhere else. So the writer
+        // divides by `sol` and this reader divides by entryCostSol, and the
+        // two disagree by exactly the fraction of the position that was sold.
+        //
+        // Rather than guess a third denominator: a row is coherent if ANY of
+        // the three cost bases its own writers use reproduces the reported
+        // percentage. That is a closed list read off the emitters, not a
+        // loosened tolerance — a genuinely corrupt row still reconciles
+        // against none of them and is still excluded, now with its numbers
+        // written down instead of a bare counter.
+        val bases7164 = listOf(
+            "SOLD_COST" to t.soldCostBasisSol,
+            "FULL_ENTRY" to basis,
+            "SOLD_LEG_SOL" to t.sol,
+        )
+        val reconciled7164 = bases7164.firstOrNull { (_, b) ->
+            b.isFinite() && b > 0.0 &&
+                ((realized / b) * 100.0).let { it.isFinite() && kotlin.math.abs(it - t.pnlPct) <= 50.0 }
+        }
+        if (reconciled7164 == null) {
+            val pctFull7164 = if (basis > 0.0) (realized / basis) * 100.0 else Double.NaN
             try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PNL_PCT_UNRECONCILABLE_7164")
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
-                    if (pctBasis7158 != basis) "PNL_PCT_MISMATCH_ON_SOLD_BASIS_7158"
-                    else "PNL_PCT_MISMATCH_ON_FULL_BASIS_7158",
+                    when {
+                        t.pnlPct == 0.0 -> "PNL_PCT_UNRECONCILABLE_REPORTED_ZERO_7164"
+                        !pctFull7164.isFinite() -> "PNL_PCT_UNRECONCILABLE_NO_BASIS_7164"
+                        pctFull7164 * t.pnlPct < 0.0 -> "PNL_PCT_UNRECONCILABLE_SIGN_FLIP_7164"
+                        else -> "PNL_PCT_UNRECONCILABLE_MAGNITUDE_7164"
+                    },
                 )
+                // Bounded forensic sample. A counter told us the 7158 fix
+                // missed; only the values can say why the next one would.
+                if (unreconciledSamples7164.getAndIncrement() < 12) {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "PNL_PCT_UNRECONCILABLE_SAMPLE_7164",
+                        "mint=${t.mint.take(10)} side=$side mode=$mode reason=${t.reason.take(40)} " +
+                            "reportedPct=${"%.4f".format(t.pnlPct)} fullPct=${"%.4f".format(pctFull7164)} " +
+                            "realized=${"%.8f".format(realized)} pnlSol=${"%.8f".format(t.pnlSol)} " +
+                            "netPnlSol=${"%.8f".format(t.netPnlSol)} feeSol=${"%.8f".format(t.feeSol)} " +
+                            "entryCost=${"%.8f".format(basis)} soldCost=${"%.8f".format(t.soldCostBasisSol)} " +
+                            "sol=${"%.8f".format(t.sol)} gross=${"%.8f".format(t.grossProceedsSol)} " +
+                            "soldQty=${"%.6f".format(t.soldQtyToken)}",
+                    )
+                }
             } catch (_: Throwable) {}
             return "PNL_SOL_PERCENT_MISMATCH"
         }
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PNL_PCT_RECONCILED_ON_${reconciled7164.first}_7164")
+        } catch (_: Throwable) {}
         if (live && proof.isBlank()) return "MISSING_LIVE_PROOF"
         val largePnl = kotlin.math.abs(realized) >= 0.25 || kotlin.math.abs(t.pnlPct) >= 1000.0
         val walletFinal = proof.contains("FINAL") || proof.contains("BALANCE") || proof.contains("TX_PARSE") || proof.contains("OWNER_DELTA")

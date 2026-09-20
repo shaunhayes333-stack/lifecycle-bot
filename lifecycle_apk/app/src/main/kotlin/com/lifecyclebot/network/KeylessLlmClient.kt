@@ -245,6 +245,56 @@ object KeylessLlmClient {
      */
     private class OwnBackoffRefusal(val host: String) : Exception("own-backoff:$host")
 
+    /**
+     * V5.0.7164 §THE RING WAS GENERATING ITS OWN RATE LIMIT.
+     *
+     * Pollinations answers, verbatim, on the operator's device:
+     *
+     *   "Queue full for IP: 1 requests already queued (max: 1)"
+     *
+     * One queued request per IP is the whole budget, and the provider list at
+     * :887-888 registers TWO members against that one host — `pollinations`
+     * (POST /openai) and `pollinations_get` (GET /$prompt). 7151 turned the
+     * council into a race, so from 7151 onward both are asked in the SAME
+     * instant, every turn. One of them is guaranteed to be refused, take an
+     * error cooldown, and be classified RATE by 7150. The snapshot agrees:
+     * both sit at RATE with llm_pollinations net=213 and pollinations_get
+     * net=105.
+     *
+     * A parallel ring is still right — the operator's instruction stands —
+     * but parallel across PROVIDERS is not the same as parallel across a
+     * provider's rate limit. Members that share a host now take turns on it:
+     * the first to claim the slot goes to the wire, the second is refused by
+     * our own backoff (never asked, never cooled, never penalised) and is
+     * free to win the next turn.
+     */
+    private val hostSlots7164 = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.Semaphore>()
+
+    private fun rateLimitHostOf7164(providerName: String): String? = when {
+        providerName.startsWith("pollinations") -> "pollinations.ai"
+        else -> null
+    }
+
+    /**
+     * Runs [body] holding the provider's shared-host slot, or returns an
+     * [OwnBackoffRefusal] when a sibling already holds it. Providers with no
+     * shared host run unimpeded.
+     */
+    private fun withHostSlot7164(providerName: String, body: () -> Any?): Any? {
+        val host = rateLimitHostOf7164(providerName) ?: return body()
+        val sem = hostSlots7164.getOrPut(host) { java.util.concurrent.Semaphore(1, true) }
+        if (!sem.tryAcquire()) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_HOST_SLOT_YIELDED_7164")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                    "LLM_HOST_SLOT_YIELDED_7164_" + providerName.uppercase(),
+                )
+            } catch (_: Throwable) {}
+            return OwnBackoffRefusal(host)
+        }
+        return try { body() } finally { sem.release() }
+    }
+
     private fun okOrThrow(resp: okhttp3.Response, host: String): Boolean {
         if (resp.isSuccessful) return true
         // HostCircuitInterceptor already owns this test. Re-reading the header
@@ -557,7 +607,7 @@ object KeylessLlmClient {
                     // submit(Runnable), which would discard the result.
                     ecs.submit(
                         java.util.concurrent.Callable<Pair<String, Any?>> {
-                            try { p.name to (p.call(system, user, maxTokens) as Any?) }
+                            try { p.name to withHostSlot7164(p.name) { p.call(system, user, maxTokens) } }
                             catch (t: Throwable) { p.name to t }
                         },
                     ),
@@ -738,7 +788,7 @@ object KeylessLlmClient {
                         ecs2.submit(
                             java.util.concurrent.Callable<Pair<String, Any?>> {
                                 forcedAttempt7016.set(true)
-                                try { p.name to (p.call(system, user, maxTokens) as Any?) }
+                                try { p.name to withHostSlot7164(p.name) { p.call(system, user, maxTokens) } }
                                 catch (t: Throwable) { p.name to t }
                                 finally { forcedAttempt7016.set(false) }
                             },

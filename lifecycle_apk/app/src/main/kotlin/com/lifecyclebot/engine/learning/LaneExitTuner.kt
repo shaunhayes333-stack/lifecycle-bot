@@ -45,6 +45,15 @@ object LaneExitTuner {
     private const val MIN_SAMPLE   = 8
     private const val RECALC_EVERY = 5
 
+    // V5.0.7164 — outcome-window schema stamp. A persisted window is only
+    // evidence under the contract it was collected with. Everything written
+    // before 7161 was collected WITHOUT the non-strategy-exit filter, so it
+    // contains stale-feed and timeout-scratch rows this tuner now refuses to
+    // learn from. Restoring it verbatim would re-derive the same floors from
+    // the same contaminated sample and the 7164 recovery path would never get
+    // a clean read. Bump this whenever the admission contract changes.
+    private const val STATE_SCHEMA_7164 = 7164
+
     private data class Outcome(
         val pnlPct: Double,
         val peakPct: Double,
@@ -263,6 +272,33 @@ object LaneExitTuner {
             // lane — and the counter says so out loud rather than silently
             // clipping the best performer.
             wr < 0.30 && avgPeak < 15.0 && avgReal <= -5.0 && avgReal < 0.0 -> tp -= STEP
+            // V5.0.7164 §THE WAY BACK UP WAS GATED ON THE ONE NUMBER A
+            // RUNNER LANE NEVER PRODUCES.
+            //
+            // 7161 stopped this tuner learning from stale-feed exits. It
+            // could not undo what those exits had already done. The
+            // operator's 5.0.7161 device still reads:
+            //
+            //   CYCLIC   tpMult=0.60  lifetime=614
+            //   strategy CYCLIC  EV=+39.84%/trade  PnL=+0.9176 SOL
+            //
+            // Count what can raise tp above. Three branches: one needs
+            // giveBack>=40 AND avgPeak>=30; the other two need wr>=0.45 and
+            // wr>=0.50. CYCLIC wins 23% of its trades. A fat-tail lane does
+            // not reach a 45% win rate — not reaching it is what makes it a
+            // fat-tail lane — so for exactly the lanes carrying the book,
+            // tpMult is a one-way downward ratchet. Once a contaminated
+            // window pushed them to TP_MIN there was no path home, and four
+            // lanes sat there.
+            //
+            // Apply the substitution 7159 already made for the WR sift: win
+            // rate is a PROXY for profitability, realised expectancy is the
+            // MEASUREMENT. A lane whose realised mean is positive has earned
+            // neutral take-profit whatever its win rate — nothing below
+            // neutral can be justified by a profit. This only climbs back TO
+            // 1.0; widening beyond neutral still requires the runner
+            // evidence at the top of this table.
+            avgReal > 0.0 && tp < 1.0 -> tp += if (avgReal >= 10.0) STEP * 2.0 else STEP
             // Already tight lane that's banking too aggressively — nudge up.
             wr >= 0.50 && giveBack < 8.0 && tp < 1.0 -> tp += STEP * 0.5
         }
@@ -327,7 +363,16 @@ object LaneExitTuner {
         // RUNNER-LANE FLOOR: never let the stop tighten below 1.0× when wins
         // dwarf losses by ≥10×. Widens further if existing tuner logic
         // already raised it; never pulls it back below neutral.
-        val slFloor = if (runnerLane && !stopLeakClamp) maxOf(SL_MIN, 1.0) else SL_MIN
+        // V5.0.7164 — the same ratchet on the stop side. `slHitRate < 0.25 &&
+        // avgLoss <= -10.0` tightens a lane that is barely hitting its stop,
+        // and nothing in this table ever loosens it again except the runner
+        // floor, which needs avgWin >= 10x|avgLoss|. The four floored lanes
+        // read slMult=0.70 alongside tpMult=0.60. A lane with positive
+        // realised expectancy gets the same neutral floor the runner lanes
+        // get — stop leakage still overrides it, so a lane that is genuinely
+        // bleeding through its stop is unaffected.
+        val profitableFloor7164 = avgReal > 0.0 && !stopLeakClamp
+        val slFloor = if ((runnerLane || profitableFloor7164) && !stopLeakClamp) maxOf(SL_MIN, 1.0) else SL_MIN
         st.slMult = sl.coerceIn(slFloor, slCap)
     }
 
@@ -413,6 +458,7 @@ object LaneExitTuner {
                 }
                 o.put("win", arr)
                 o.put("sr", st.sinceRecalc)
+                o.put("v", STATE_SCHEMA_7164)
                 root.put(lane, o)
             }
         }
@@ -428,6 +474,30 @@ object LaneExitTuner {
                 val lane = keys.next()
                 val o = root.optJSONObject(lane) ?: continue
                 val st = lanes.getOrPut(lane) { LaneState() }
+                val schema7164 = o.optInt("v", 0)
+                if (schema7164 < STATE_SCHEMA_7164) {
+                    // Pre-7161 window: collected before non-strategy exits were
+                    // filtered out. Retire the sample and the multipliers it
+                    // produced, keep the lifetime count so the audit trail
+                    // survives, and let the lane re-learn from clean closes.
+                    synchronized(st) {
+                        st.window.clear()
+                        st.sinceRecalc = 0
+                        st.lifetimeCloses = o.optLong("life", 0L)
+                        st.tpMult = 1.0
+                        st.slMult = 1.0
+                    }
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LANE_EXIT_TUNER_PRE7161_WINDOW_RETIRED_7164")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "LANE_EXIT_TUNER_PRE7161_WINDOW_RETIRED_7164",
+                            "lane=$lane retiredTp=${"%.2f".format(o.optDouble("tp", 1.0))} " +
+                                "retiredSl=${"%.2f".format(o.optDouble("sl", 1.0))} " +
+                                "retiredN=${o.optJSONArray("win")?.length() ?: 0} life=${st.lifetimeCloses}",
+                        )
+                    } catch (_: Throwable) {}
+                    continue
+                }
                 synchronized(st) {
                     st.tpMult = o.optDouble("tp", 1.0).coerceIn(TP_MIN, TP_MAX)
                     st.slMult = o.optDouble("sl", 1.0).coerceIn(SL_MIN, SL_MAX)
