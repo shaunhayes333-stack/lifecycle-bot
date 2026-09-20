@@ -489,10 +489,16 @@ object KeylessLlmClient {
             val futures = ArrayList<java.util.concurrent.Future<Pair<String, Any?>>>(eligible7151.size)
             for (p in eligible7151) {
                 futures.add(
-                    ecs.submit<Pair<String, Any?>> {
-                        try { p.name to (p.call(system, user, maxTokens) as Any?) }
-                        catch (t: Throwable) { p.name to t }
-                    },
+                    // V5.0.7153 — Callable is explicit. Kotlin refuses an
+                    // explicit type argument on the Java submit(Callable<V>)
+                    // overload, and a bare lambda is ambiguous against
+                    // submit(Runnable), which would discard the result.
+                    ecs.submit(
+                        java.util.concurrent.Callable<Pair<String, Any?>> {
+                            try { p.name to (p.call(system, user, maxTokens) as Any?) }
+                            catch (t: Throwable) { p.name to t }
+                        },
+                    ),
                 )
             }
             asked += eligible7151.size
@@ -667,12 +673,14 @@ object KeylessLlmClient {
                         )
                     } catch (_: Throwable) {}
                     futures2.add(
-                        ecs2.submit<Pair<String, Any?>> {
-                            forcedAttempt7016.set(true)
-                            try { p.name to (p.call(system, user, maxTokens) as Any?) }
-                            catch (t: Throwable) { p.name to t }
-                            finally { forcedAttempt7016.set(false) }
-                        },
+                        ecs2.submit(
+                            java.util.concurrent.Callable<Pair<String, Any?>> {
+                                forcedAttempt7016.set(true)
+                                try { p.name to (p.call(system, user, maxTokens) as Any?) }
+                                catch (t: Throwable) { p.name to t }
+                                finally { forcedAttempt7016.set(false) }
+                            },
+                        ),
                     )
                 }
                 forcedName7030 = sweep7151.first().name
