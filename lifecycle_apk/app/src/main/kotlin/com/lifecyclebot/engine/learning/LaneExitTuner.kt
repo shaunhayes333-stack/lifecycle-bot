@@ -56,7 +56,12 @@ object LaneExitTuner {
     // non-strategy-exit filter; 7167 retires windows collected while
     // unrecognised lanes were folded into STANDARD, for the same reason: the
     // rows in them are not attributable to the lane that holds them.
-    private const val STATE_SCHEMA_7164 = 7167
+    // V5.0.7169 — bumped once more. Every window written before 7169 was fed
+    // by FinalizedBusConsumerBridge6465's redelivery loop, which replayed a
+    // refused close's attribution on every retry: ~5,289 recorded closes from
+    // 344 real ones, weighted toward the refused rows. A window built from
+    // that is not a sample of this lane's exits.
+    private const val STATE_SCHEMA_7164 = 7169
 
     private data class Outcome(
         val pnlPct: Double,

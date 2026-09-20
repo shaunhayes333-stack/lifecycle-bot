@@ -133,6 +133,7 @@ object FinalizedBusConsumerBridge6465 {
             else -> false
         }
         if (ok) delivered.incrementAndGet() else refused.incrementAndGet()
+        retireIfPermanentlyRefused7169(consumer, env, ok)
         // V5.0.7154 — per-consumer tallies the report can actually print.
         // The operator's snapshot said only "delivered=400 refused=522", which
         // names no consumer and no cause; the per-consumer labels below have
@@ -148,6 +149,75 @@ object FinalizedBusConsumerBridge6465 {
             )
         } catch (_: Throwable) {}
         return ok
+    }
+
+    /**
+     * V5.0.7169 — attribution is a fact about a trade, so it happens once per
+     * trade however many times the envelope is redelivered. Bounded: the book
+     * holds hundreds of closes, not thousands, and if the cap is ever reached
+     * the worst case is one extra attribution pass, never a stuck consumer.
+     */
+    private val attributionApplied7169 = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+
+    private fun firstAttribution7169(tradeId: String): Boolean {
+        if (tradeId.isBlank()) return true
+        if (attributionApplied7169.size > 8192) attributionApplied7169.clear()
+        return attributionApplied7169.putIfAbsent(tradeId, true) == null
+    }
+
+    /**
+     * V5.0.7169 §A REFUSAL REPEATED IS A VERDICT, NOT A TRANSIENT.
+     *
+     * deliverOne6734 only acks on success, and redeliverPending6486 re-walks
+     * every unacked envelope against every consumer on every economic commit.
+     * That is the right shape for a learner waiting on durability — and the
+     * wrong shape for one that has already decided. MemeCausalLearning6568
+     * refuses a close whose positionId has no entry snapshot; the snapshot is
+     * written once, at entry, so it will never appear. That row is retried
+     * for the life of the process.
+     *
+     * The operator's 5.0.7166 pays for it twice: 521 refusals against 368
+     * deliveries, and a redelivery sweep that is 329 envelopes x 16 consumers
+     * per commit, on a device already reporting workerTimeout=57 and a
+     * 29,590 ms worst cycle.
+     *
+     * After three identical refusals the bus is told so explicitly. Exclusion
+     * is the mechanism the bridge already uses for a row a consumer will
+     * never take (learning-ineligible, quarantined), it is reported in the
+     * audit's excluded= column rather than hidden, and deliverOne6734 skips
+     * excluded rows — so the sweep shrinks to the envelopes still genuinely
+     * waiting. The consumer keeps its verdict; it just stops being asked.
+     */
+    private const val REFUSALS_BEFORE_RETIRE_7169 = 3
+    private val refusalStreak7169 =
+        java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
+
+    private fun retireIfPermanentlyRefused7169(
+        consumer: String,
+        env: CanonicalFinalizedTradeBus6464.Envelope,
+        ok: Boolean,
+    ) {
+        try {
+            val key = "$consumer|${env.tradeId}"
+            if (ok) { refusalStreak7169.remove(key); return }
+            if (env.tradeId.isBlank()) return
+            val n = refusalStreak7169
+                .computeIfAbsent(key) { java.util.concurrent.atomic.AtomicInteger(0) }
+                .incrementAndGet()
+            if (n < REFUSALS_BEFORE_RETIRE_7169) return
+            CanonicalFinalizedTradeBus6464.exclude(
+                consumer, env.tradeId, "CONSUMER_REFUSED_${n}_TIMES_7169",
+            )
+            excluded.incrementAndGet()
+            refusalStreak7169.remove(key)
+            PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_RETIRED_AFTER_REFUSALS_7169")
+            PipelineHealthCollector.labelInc("FINALIZED_CONSUMER_RETIRED_7169_$consumer")
+            ForensicLogger.lifecycle(
+                "FINALIZED_CONSUMER_RETIRED_AFTER_REFUSALS_7169",
+                "consumer=$consumer tradeId=${env.tradeId.take(24)} mint=${env.mint.take(10)} " +
+                    "lane=${env.lane} refusals=$n action=stop_redelivering",
+            )
+        } catch (_: Throwable) {}
     }
 
     private val deliveredBy7154 =
@@ -316,22 +386,66 @@ object FinalizedBusConsumerBridge6465 {
                 env.mfePct > 5000.0 -> 5000.0
                 else -> env.mfePct
             }
-            try { com.lifecyclebot.engine.ScoreExpectancyTracker.record(env.lane, env.entryScore, pnlPctLearn6707) } catch (_: Throwable) {}
-            try { com.lifecyclebot.engine.HoldDurationTracker.record(env.lane, holdMinutes6707, pnlPctLearn6707) } catch (_: Throwable) {}
-            try { com.lifecyclebot.engine.ExitReasonTracker.record(env.lane, env.exitReason, pnlPctLearn6707) } catch (_: Throwable) {}
-            try {
-                com.lifecyclebot.engine.learning.LaneExitTuner.recordClose(
-                    lane = env.lane,
-                    pnlPct = pnlPctLearn6707,
-                    peakPct = peakPct6707,
-                    exitReason = env.exitReason,
-                )
-            } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("MEME_ORIGINAL_ATTRIBUTION_RESTORED_6707_${env.lane.uppercase().take(24)}") } catch (_: Throwable) {}
+            // V5.0.7169 §A REFUSAL AT THE END OF THIS FUNCTION REPLAYED
+            // EVERYTHING AT THE START OF IT.
+            //
+            // The six learners below are unconditional side effects. The
+            // function's RETURN VALUE, forty lines down, is whatever
+            // MemeCausalLearning6568.record() says — and that refuses any
+            // close whose positionId has no entry snapshot. A false return is
+            // not an ack, so deliverOne6734:237 removes the tradeId from the
+            // ack set, redeliverPending6486:254 walks every unacked envelope
+            // on every economic commit, and requestRetry6486 fires it four
+            // more times. The close comes back, and these six run again.
+            // Forever.
+            //
+            // The operator's 5.0.7166, 765 seconds in:
+            //
+            //   Lane Exit Tuner lifetimes: PRESALE_SNIPE 1542 · STANDARD 1490
+            //     · MOONSHOT 688 · CYCLIC 836 · EXPRESS 677   (sum ~5,289)
+            //   Lifetime completed trades: 344
+            //   consumerBridge: delivered=368 refused=521
+            //     refusedBy7154=[MemeCausalLearning6568=521]
+            //
+            // Five thousand recorded closes from three hundred and forty-four
+            // real ones. And the amplification is not uniform — it multiplies
+            // exactly the closes that get refused, which are the ones with no
+            // entry snapshot: recovered inventory and write-offs, the worst
+            // rows in the book. That is why the tuner's window says a lane is
+            // bleeding while the strategy table says CYCLIC earns +45.95% and
+            // PROJECT_SNIPER +44.22%. Two builds of tuner fixes (7164, 7167)
+            // were reading a feed that counts the bad closes fifteen times.
+            //
+            // It reaches further than the tuner. ColdStreakDamper.noteOutcome
+            // is in this same block, so a cold streak is re-declared on every
+            // retry, and the sizing stack answers with CRYPTO_LEV x0.23 and
+            // MOONSHOT x0.26 — dust orders whose fixed round-trip cost is now
+            // 1.09 SOL against 1.71 realised. The fee problem and the tuner
+            // problem are the same bug.
+            //
+            // Attribution is a fact about a trade, so it applies once per
+            // trade. The causal learner below still retries on its own terms;
+            // only the side effects are made idempotent.
+            if (firstAttribution7169(env.tradeId)) {
+                try { com.lifecyclebot.engine.ScoreExpectancyTracker.record(env.lane, env.entryScore, pnlPctLearn6707) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.HoldDurationTracker.record(env.lane, holdMinutes6707, pnlPctLearn6707) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.ExitReasonTracker.record(env.lane, env.exitReason, pnlPctLearn6707) } catch (_: Throwable) {}
+                try {
+                    com.lifecyclebot.engine.learning.LaneExitTuner.recordClose(
+                        lane = env.lane,
+                        pnlPct = pnlPctLearn6707,
+                        peakPct = peakPct6707,
+                        exitReason = env.exitReason,
+                    )
+                } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("MEME_ORIGINAL_ATTRIBUTION_RESTORED_6707_${env.lane.uppercase().take(24)}") } catch (_: Throwable) {}
 
-            val win = pnlPctLearn6707 > 0.5; val loss = pnlPctLearn6707 < -0.5
-            com.lifecyclebot.engine.runtime.ColdStreakDamper.noteOutcome(env.lane, env.mode.equals("paper", true), win, loss)
-            com.lifecyclebot.engine.runtime.DamageControlGate.noteOutcome(pnlPctLearn6707)
+                val win = pnlPctLearn6707 > 0.5; val loss = pnlPctLearn6707 < -0.5
+                com.lifecyclebot.engine.runtime.ColdStreakDamper.noteOutcome(env.lane, env.mode.equals("paper", true), win, loss)
+                com.lifecyclebot.engine.runtime.DamageControlGate.noteOutcome(pnlPctLearn6707)
+            } else {
+                try { PipelineHealthCollector.labelInc("MEME_ATTRIBUTION_REPLAY_SUPPRESSED_7169") } catch (_: Throwable) {}
+            }
             val learned6713 = MemeCausalLearning6568.record(env)
             if (learned6713) {
                 try {
