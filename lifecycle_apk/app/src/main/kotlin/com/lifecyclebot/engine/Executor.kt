@@ -3091,6 +3091,32 @@ class Executor(
             spendable * (growthPolicy.maxWalletPct * 0.65)
         }
         val walletCapSol = (spendable * growthPolicy.maxWalletPct).coerceAtMost(growthPolicy.absoluteCapSol)
+        // V5.0.7191 — name the binding ceiling. Until this build there was no
+        // counter anywhere saying "the absolute cap decided this trade's size",
+        // so the terminal `else -> 3.000` rung could override every lane's
+        // designed share indefinitely without producing a single line of
+        // evidence. The snapshot showed the sizing inputs and never showed
+        // which one actually won. A ceiling that silently outranks the design
+        // is the same defect class as a gate whose output is structurally
+        // constant: invisible by construction.
+        //
+        // laneShare vs absolute tells the operator WHICH ceiling bound, so the
+        // next cap question is answered by the log instead of by reading
+        // Executor top to bottom.
+        val laneShareSol7191 = spendable * growthPolicy.maxWalletPct
+        if (laneShareSol7191 > growthPolicy.absoluteCapSol) {
+            try {
+                PipelineHealthCollector.labelInc("ENTRY_SIZE_ABSOLUTE_CAP_BOUND_7191")
+                ForensicLogger.lifecycle(
+                    "ENTRY_SIZE_ABSOLUTE_CAP_BOUND_7191",
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$laneKey " +
+                        "wallet=${walletSol.fmt(4)} laneShare=${laneShareSol7191.fmt(4)} " +
+                        "absoluteCap=${growthPolicy.absoluteCapSol.fmt(4)} bound=ABSOLUTE",
+                )
+            } catch (_: Throwable) {}
+        } else {
+            try { PipelineHealthCollector.labelInc("ENTRY_SIZE_LANE_SHARE_BOUND_7191") } catch (_: Throwable) {}
+        }
         // V5.0.6408 — GROWTH-CENTRIC RUNNER COMPOUNDING.
         // Operator directive: '$50 to $1M mindset — maintain growth-centric
         // trading, defend the wallet but target overall growth'. When

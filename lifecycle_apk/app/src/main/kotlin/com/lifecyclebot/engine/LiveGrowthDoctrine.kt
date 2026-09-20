@@ -112,12 +112,53 @@ object LiveGrowthDoctrine {
             "COPY_TRADE", "DIP_HUNTER", "CYCLIC" -> 0.14
             else -> 0.10
         }
+        // V5.0.7191 §THE_LADDER_HAD_NO_RUNG_ABOVE_TEN_SOL.
+        //
+        // Operator north-star, restated: "there is no reason the aate app cant
+        // take $50 of real money and thru smart Autonomous agentic intelligent
+        // trading turn that $50 into $1,000,000."
+        //
+        // $50 = 0.48 SOL. $1M = 9,615 SOL. That is 20,000x — 14.3 doublings.
+        //
+        // Every rung below scales with the wallet, which is what makes the
+        // first few doublings work. The old terminal rung did not: `else ->
+        // 3.000` was a FIXED ticket with no wallet term in it, and
+        // Executor.realisticEntrySize6867 binds it as
+        //     walletCapSol = (spendable * maxWalletPct).coerceAtMost(absoluteCapSol)
+        // so the constant wins the moment wallet * maxWalletPct exceeds it.
+        //
+        // For MOONSHOT (maxWalletPct 0.35) that is 3.0/0.35 = 8.57 SOL, about
+        // $890. Above that the lane's designed share was overridden forever:
+        // a 100 SOL wallet put 3 SOL into its best idea instead of 35, and a
+        // 1,000 SOL wallet still put in 3 — 0.3% of equity. Percentage-of-
+        // equity compounding was alive from $50 to roughly $1,000 and then the
+        // bot switched to a fixed ticket. Growth stopped being exponential and
+        // became linear. The architecture supported about 4.3 of the 14.3
+        // doublings, and the missing ten were blocked by this one line — not
+        // by entries, exits, or the brain.
+        //
+        // THE EXTENSION IS THE LADDER'S OWN RULE, NOT A NEW NUMBER. At the
+        // seam the old constant is exactly 30% of the wallet (3.000 / 10.0),
+        // so `walletSol * 0.30` evaluates to precisely 3.000 at 10 SOL. The
+        // function is continuous at the boundary and NO WALLET BELOW 10 SOL
+        // SEES ANY CHANGE AT ALL — this is a no-op until the bot has actually
+        // grown past ~$1,040, which is the only point at which it ever bit.
+        //
+        // The cap keeps its safety role. 0.30 sits just under the highest lane
+        // share (MOONSHOT 0.35), so it still binds slightly at every size and
+        // still refuses a single absurd ticket if the wallet reads wrong —
+        // which has happened on this install. maxWalletPct, liquidityCapSol
+        // and spendable all remain independent ceilings above it.
+        //
+        // coerceAtLeast(3.000) is defensive and redundant above 10 SOL: it
+        // makes it structurally impossible for this branch to return LESS than
+        // the value it replaced.
         val absoluteCap = when {
             walletSol < 0.25 -> 0.050
             walletSol < 1.0 -> 0.180
             walletSol < 2.0 -> 0.360
             walletSol < 10.0 -> 1.250
-            else -> 3.000
+            else -> (walletSol * 0.30).coerceAtLeast(3.000)
         }
         // V5.0.4021 — adaptive learned growth dust floor. Previous hidden floors
         // (0.012/0.026/0.040) fought BotConfig.minLiveBuySol=0.005 and kept
