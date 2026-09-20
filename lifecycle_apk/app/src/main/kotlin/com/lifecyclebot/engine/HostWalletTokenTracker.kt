@@ -1105,14 +1105,70 @@ object HostWalletTokenTracker {
                 } catch (_: Throwable) {}
                 continue
             }
+            // V5.0.7137 — ASK WHETHER WE BOUGHT IT BEFORE CALLING IT A STRANGER.
+            //
+            // Operator: "these aren't recovered. I cleared my wallet. these are
+            // fresh buys not being tracked correctly by the app."
+            //
+            // Correct. This branch is reached whenever positions[mint] is absent,
+            // and it concluded "the bot has no record of buying this" from that
+            // one lookup alone — while the bot's OTHER records were sitting right
+            // there. The 7135 device read EXEC_LIVE_BUY_OK=42 against
+            // TOKEN_TRACKER_BUY_CONFIRMED_WITH_PROOF=4, so most buys never reach
+            // this map at all, and the reconciler then meets the bot's own token
+            // in the wallet and adopts it as a stranger.
+            //
+            // The cost of that mistake is not cosmetic. An adopted orphan is
+            // created with entryPriceUsd = null and entrySol = null, so it renders
+            // "Entry: INVARIANT_BROKEN_6500 / qty INVALID (invariant broken)",
+            // and when it is later closed it is booked against a basis of nothing:
+            // WALLET_RECOVERED shows n=14 at mean -100.0% on that same device, and
+            // JOURNALED_SELL|WALLET_RECOVERED|EXTERNAL_RUG_CLOSE in the sell
+            // journal. Real buys, marked total losses, because the bot forgot it
+            // made them.
+            //
+            // So ask the records that actually persist before deciding. Canonical
+            // position authority knows the mint, its lane, its cost and its entry
+            // price for any lifecycle state; the buy-fill registry knows the
+            // wallet-verified fill. If either speaks for this mint, this is not an
+            // orphan — it is ours, and it is adopted with its real symbol, real
+            // basis and bot lineage so nothing downstream can price it at zero.
+            val canonicalOwn7137 = try {
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+                    .openPositions().firstOrNull { it.mint == mint && it.mode.equals("live", true) }
+            } catch (_: Throwable) { null }
+            val fillOwn7137 = try { CanonicalBuyFillRegistry.get(mint) } catch (_: Throwable) { null }
+            val ownedByBot7137 = canonicalOwn7137 != null || fillOwn7137 != null
+            val ownEntryUsd7137 = canonicalOwn7137?.entryPriceUsd?.takeIf { it.isFinite() && it > 0.0 }
+                ?: fillOwn7137?.entryPriceUsd?.takeIf { it.isFinite() && it > 0.0 }
+            val ownCostSol7137 = canonicalOwn7137?.entryCostSol?.takeIf { it.isFinite() && it > 0.0 }
+                ?: fillOwn7137?.solSpentNet?.takeIf { it.isFinite() && it > 0.0 }
+            val ownSymbol7137 = canonicalOwn7137?.symbol?.takeIf { it.isNotBlank() }
+            if (ownedByBot7137) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "WALLET_TOKEN_CLAIMED_BY_BOT_LINEAGE_7137",
+                        "mint=${mint.take(12)} symbol=${ownSymbol7137 ?: "?"} qty=$uiAmount " +
+                            "canonical=${canonicalOwn7137 != null} fillRegistry=${fillOwn7137 != null} " +
+                            "entryUsd=${ownEntryUsd7137 ?: 0.0} costSol=${ownCostSol7137 ?: 0.0} " +
+                            "action=adopt_as_bot_position_not_orphan",
+                    )
+                    PipelineHealthCollector.labelInc("WALLET_TOKEN_CLAIMED_BY_BOT_LINEAGE_7137")
+                } catch (_: Throwable) {}
+            }
+
             // True orphan — bot has no record of buying this. Recover.
             val recovered = TrackedTokenPosition(
-                mint = mint, symbol = "RECOVERED_${mint.take(6)}", name = "Wallet Recovered",
-                source = PositionSource.WALLET_RECONCILED,
+                mint = mint,
+                symbol = ownSymbol7137 ?: if (ownedByBot7137) mint.take(8) else "RECOVERED_${mint.take(6)}",
+                name = if (ownedByBot7137) (ownSymbol7137 ?: mint.take(8)) else "Wallet Recovered",
+                source = if (ownedByBot7137) PositionSource.TX_PARSE else PositionSource.WALLET_RECONCILED,
                 status = PositionStatus.OPEN_TRACKING,
-                buySignature = null, sellSignature = null,
-                buyTimeMs = null, firstSeenWalletMs = now, lastSeenWalletMs = now,
-                entryPriceUsd = null, entrySol = null, entryMarketCap = null,
+                buySignature = if (ownedByBot7137) fillOwn7137?.buySignature?.takeIf { it.isNotBlank() } else null,
+                sellSignature = null,
+                buyTimeMs = if (ownedByBot7137) fillOwn7137?.entryTsMs?.takeIf { it > 0L } else null,
+                firstSeenWalletMs = now, lastSeenWalletMs = now,
+                entryPriceUsd = ownEntryUsd7137, entrySol = ownCostSol7137, entryMarketCap = null,
                 rawAmount = rawExact.toString(), decimals = decimals, uiAmount = uiAmount,
                 currentPriceUsd = null, currentValueSol = null, currentValueAud = null,
                 highestPriceUsd = null, lowestPriceUsd = null,
