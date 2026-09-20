@@ -966,6 +966,29 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         if (!token2022Ok) {
             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKEN_2022_OPTIONAL_FAILED", "action=continue_with_spl successPrograms=1/2 failures=${failures.joinToString(";").take(180)}") } catch (_: Throwable) {}
         }
+        // V5.0.7140 — the snapshot now carries whether it is whole.
+        //
+        // Continuing on a Token-2022 failure is correct; calling the result
+        // COMPLETE is not. The operator's wallet held ten tokens while this
+        // read reported one, because Token-2022 did not answer (36 times) and
+        // the SPL-only result was published as if it were the wallet. Every
+        // consumer that asks "is this mint still held?" then read nine real
+        // holdings as gone — ABSENT_MINT_ZERO_CONFIRM 187, and a mint confirmed
+        // absent twice is closed as an external rug at -100%.
+        //
+        // Positive balances from a partial read stay trustworthy: a mint that
+        // IS in the map is held, and that needs no completeness. Only the
+        // absence inference does, and WalletSnapshotCompleteness7140 is what
+        // that inference now has to consult.
+        try {
+            if (token2022Ok) {
+                com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.markComplete()
+            } else {
+                com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.markPartial(
+                    "TOKEN_2022_PROGRAM_UNREAD:${failures.joinToString(";").take(120)}",
+                )
+            }
+        } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKENS_ROBUST_OK", "spl=true token2022=$token2022Ok count=${out.size}") } catch (_: Throwable) {}
         // V5.0.4173 — populate the wallet snapshot cache so subsequent
         // reads within 5s skip the RPC entirely.

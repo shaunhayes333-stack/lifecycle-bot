@@ -1216,6 +1216,40 @@ object HostWalletTokenTracker {
             if (p.status !in OPEN_STATUSES) continue
             val pair = walletMints[p.mint]
             if (pair == null) {
+                // V5.0.7140 — ABSENT FROM A PARTIAL MAP IS NOT ABSENT.
+                //
+                // This branch turns "the mint is not in the snapshot" into
+                // ABSENT_CONFIRMED, two zero-confirms and a terminal close at
+                // -100%. That is only sound if the snapshot is the WHOLE
+                // wallet. On the operator's device it was not: Token-2022 went
+                // unread 36 times and the SPL-only result was published as
+                // complete, so a ten-token wallet was reported as one token and
+                // nine live holdings were read as rugs
+                // (ABSENT_MINT_ZERO_CONFIRM 187, WALLET_RECOVERED at -100%).
+                //
+                // A mint the snapshot could not have seen is unobserved, not
+                // sold. Defer exactly as the fresh-buy branch below already
+                // does: no authority write, no confirm increment, no close. The
+                // next complete read decides, and a token that really is gone is
+                // still gone then.
+                if (try {
+                        com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.isLastPartial()
+                    } catch (_: Throwable) { false }
+                ) {
+                    p.lastWalletReconcileMs = now
+                    try {
+                        PipelineHealthCollector.labelInc("ABSENT_SKIPPED_PARTIAL_WALLET_SNAPSHOT_7140")
+                        ForensicLogger.lifecycle(
+                            "ABSENT_SKIPPED_PARTIAL_WALLET_SNAPSHOT_7140",
+                            "mint=${p.mint.take(12)} symbol=${p.symbol ?: "?"} status=${p.status.name} " +
+                                "walletHeld=${walletMints.size} reason=${
+                                    try { com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.lastReason() }
+                                    catch (_: Throwable) { "?" }
+                                } action=defer_absence_until_complete_read",
+                        )
+                    } catch (_: Throwable) {}
+                    continue
+                }
                 walletAuthority[p.mint] = WalletAuthoritySnapshot.ABSENT_CONFIRMED(
                     mint = p.mint,
                     sources = setOf("SELL_RECONCILER_NONEMPTY_SNAPSHOT", "MINT_ABSENT_FROM_TOKEN_ACCOUNTS"),
