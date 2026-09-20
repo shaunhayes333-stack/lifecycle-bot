@@ -103,6 +103,9 @@ object PositionPersistence {
         val isShitCoinPosition: Boolean,
         // V5.0.4124
         val entryTakeProfitPct: Double = 0.0,
+        // V5.0.7149 — the entry forecast the exit floor now reads.
+        val entryRequiredEdgePct: Double = 0.0,
+        val entryExpectedEdgePct: Double = 0.0,
         val isLongHold: Boolean,
         
         // Profit lock state
@@ -310,6 +313,8 @@ object PositionPersistence {
                 isBlueChipPosition = saved.isBlueChipPosition,
                 isShitCoinPosition = saved.isShitCoinPosition,
                 entryTakeProfitPct = saved.entryTakeProfitPct,
+                entryRequiredEdgePct = saved.entryRequiredEdgePct,
+                entryExpectedEdgePct = saved.entryExpectedEdgePct,
                 isLongHold = saved.isLongHold,
                 capitalRecovered = saved.capitalRecovered,
                 capitalRecoveredSol = saved.capitalRecoveredSol,
@@ -712,6 +717,8 @@ object PositionPersistence {
             isBlueChipPosition = pos.isBlueChipPosition,
             isShitCoinPosition = pos.isShitCoinPosition,
             entryTakeProfitPct = pos.entryTakeProfitPct,
+            entryRequiredEdgePct = pos.entryRequiredEdgePct,
+            entryExpectedEdgePct = pos.entryExpectedEdgePct,
             isLongHold = pos.isLongHold,
             capitalRecovered = pos.capitalRecovered,
             capitalRecoveredSol = pos.capitalRecoveredSol,
@@ -786,6 +793,8 @@ object PositionPersistence {
                 put("isBlueChipPosition", pos.isBlueChipPosition)
                 put("isShitCoinPosition", pos.isShitCoinPosition)
                 put("entryTakeProfitPct", pos.entryTakeProfitPct)
+                put("entryRequiredEdgePct", pos.entryRequiredEdgePct)
+                put("entryExpectedEdgePct", pos.entryExpectedEdgePct)
                 put("isLongHold", pos.isLongHold)
                 put("capitalRecovered", pos.capitalRecovered)
                 putPrice("capitalRecoveredSol", pos.capitalRecoveredSol)
@@ -874,6 +883,8 @@ object PositionPersistence {
                     isBlueChipPosition = obj.optBoolean("isBlueChipPosition", false),
                     isShitCoinPosition = obj.optBoolean("isShitCoinPosition", false),
                     entryTakeProfitPct = obj.optDouble("entryTakeProfitPct", 0.0),
+                    entryRequiredEdgePct = obj.optDouble("entryRequiredEdgePct", 0.0),
+                    entryExpectedEdgePct = obj.optDouble("entryExpectedEdgePct", 0.0),
                     isLongHold = obj.optBoolean("isLongHold", false),
                     capitalRecovered = obj.optBoolean("capitalRecovered", false),
                     capitalRecoveredSol = obj.getPrice("capitalRecoveredSol"),

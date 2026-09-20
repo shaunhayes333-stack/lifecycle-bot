@@ -187,6 +187,28 @@ data class Position(
     // the final TP to the position, the exit path falls back to the generic
     // fluid TP (15-20%), cutting runners that should run to 50-100%+.
     var entryTakeProfitPct: Double = 0.0,
+    // V5.0.7149 — THE PREDICTED TARGET THE BOT ALREADY MAKES AND THEN FORGETS.
+    //
+    // LiveStylePivotRouter computes both of these per candidate, before the
+    // buy, at Executor:18099 — and they were emitted into a log line and
+    // discarded. They were still in scope at position construction.
+    //
+    // entryRequiredEdgePct is the trade's own round-trip cost floor:
+    // buy slippage + liquidity-aware expected sell slippage + size-aware
+    // priority fee + 1% platform + spread + MEV buffer + lane giveback +
+    // lane min-profit buffer (LiveBreakEvenGuard:90-129). It is the real
+    // answer to "below what gain is exiting this specific position pointless",
+    // which the exit path had been answering with a lane-wide constant.
+    //
+    // entryExpectedEdgePct is the predicted upside for the same candidate
+    // (LiveBreakEvenGuard:29-72, 0..180), kept alongside so the exit path and
+    // the learners can compare what was forecast against what was realised.
+    //
+    // 0.0 means "not forecast" — paper positions and restored rows — and every
+    // consumer must treat that as unknown and fall back, never as a target
+    // of zero.
+    var entryRequiredEdgePct: Double = 0.0,
+    var entryExpectedEdgePct: Double = 0.0,
     // Top-up tracking
     val topUpCount: Int = 0,
     val topUpCostSol: Double = 0.0,

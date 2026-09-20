@@ -19705,6 +19705,15 @@ class Executor(
                         .getFluidTakeProfit(brainAdjustedExitThreshold6954(cfg().exitScoreThreshold).coerceAtLeast(20.0))
                     (baseFluidTp * ts.styleTpMult).coerceIn(5.0, 500.0)
                 } catch (_: Throwable) { 0.0 },
+                // V5.0.7149 — record the forecast this entry was actually
+                // made on. liveEntryDecision was computed at :18099 and, until
+                // now, survived only inside the LIVE_ENTRY_DECISION log string.
+                entryRequiredEdgePct = try {
+                    liveEntryDecision.requiredEdgePct.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+                } catch (_: Throwable) { 0.0 },
+                entryExpectedEdgePct = try {
+                    liveEntryDecision.expectedEdgePct.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+                } catch (_: Throwable) { 0.0 },
             )
             // V5.0.6637 — signature confirmation creates a provisional
             // wallet liability only. Journal, learning, alerts, sounds, and fee
@@ -21221,8 +21230,42 @@ class Executor(
         return LiveHoldDelay(ageMs, minHoldMs, lane, intent.rawPnlPct, styleHint)
     }
 
+    /**
+     * V5.0.7149 §THE_FLOOR_HAS_TO_BE_THIS_TRADE'S_FLOOR.
+     *
+     * This returned a lane-wide constant, and in practice it returned the
+     * same constant for every lane. WrRecoveryPartial.learnedExitRungs takes
+     * its telemetry path only when a lane has >= 5 LIVE terminal closes;
+     * below that it returns the band base, and every live band
+     * (AGGRESSIVE / MODERATE / FLUID / PERFORMING) has first = 50.0. On the
+     * telemetry path a non-runner lane still starts at 50.0 and the result is
+     * clamped into [50.0, 400.0] by MIN_PARTIAL_GAIN_PCT. So the effective
+     * answer was 50% for everything, and the 50.0 catch-fallback below it was
+     * never even reachable. Every live exit between 0% and +50% was refused
+     * on the strength of a number that had nothing to do with the trade.
+     *
+     * The bot already decides, before it buys, what this specific position
+     * needs to clear: LiveStylePivotRouter.requiredEdgePct, built from this
+     * candidate's buy slippage, its liquidity-implied sell slippage, the
+     * priority fee against this order's size, platform fee, spread, MEV
+     * buffer and the lane's own giveback and min-profit buffers. That figure
+     * was computed at entry and thrown into a log line. V5.0.7149 keeps it on
+     * the position, and this is where it earns its place.
+     *
+     * The lane rung stays as the fallback for anything with no forecast —
+     * paper positions, rows restored from before this build — because an
+     * absent forecast is unknown, not zero. And the forecast is floored at
+     * the round-trip cost either way: selling below cost is not a profit
+     * exit, it is a loss with extra steps.
+     */
     private fun learnedMinProfitExitPct(ts: TokenState): Double {
+        val forecast7149 = ts.position.entryRequiredEdgePct
+        if (forecast7149.isFinite() && forecast7149 > 0.0) {
+            try { PipelineHealthCollector.labelInc("MIN_PROFIT_FLOOR_FROM_ENTRY_FORECAST_7149") } catch (_: Throwable) {}
+            return forecast7149.coerceIn(0.5, 400.0)
+        }
         val lane = ts.position.tradingMode.ifBlank { if (ts.position.isShitCoinPosition) "SHITCOIN" else if (ts.position.isBlueChipPosition) "BLUECHIP" else if (ts.position.isTreasuryPosition) "TREASURY" else "STANDARD" }
+        try { PipelineHealthCollector.labelInc("MIN_PROFIT_FLOOR_FROM_LANE_RUNG_7149") } catch (_: Throwable) {}
         return try { WrRecoveryPartial.learnedExitRungs(lane).first } catch (_: Throwable) { 50.0 }
     }
 
