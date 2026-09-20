@@ -1169,6 +1169,95 @@ object DynamicAltTokenRegistry {
         }
     }
 
+    /**
+     * V5.0.7167 §THE LANE SPENT ITS WHOLE BUDGET ON TOKENS IT REFUSED TO PRICE.
+     *
+     * Operator's 5.0.7166:
+     *
+     *   evaluation terminal reasons = PRICE_UNAVAILABLE:989   (of 1000)
+     *   CRYPTO_ALT candidate=8 submit=4 ... open=2
+     *
+     * Ninety-nine percent of the crypto lane's evaluation budget terminates
+     * on "we could not price it", and CryptoAltTrader:813 issues that verdict
+     * the instant refreshPriceForMintBlocking returns 0. This function had
+     * exactly one price route for a real chain token: DexScreener, by mint.
+     * A Jupiter-strict-list mint with no DexScreener pair — and the universe
+     * holds 3,485 solana identities — could never be priced, so the lane
+     * re-discovered that about the same tokens on every pass.
+     *
+     * Meanwhile, on the same device, in the same minute:
+     *
+     *   defillama sr=100%   jupiter sr=100%   raydium sr=100%   helius sr=99%
+     *   §7088 quotesBySource=[JUPITER=82,DEFILLAMA=50,RAYDIUM=48,HELIUS_DAS=39]
+     *
+     * The marks path already prices solana mints from four healthy providers
+     * in parallel and had no connection to this one. Ask it. Batched, so one
+     * pass prices the cohort; TTL'd so a dead mint is not re-asked every
+     * cycle; and it invents nothing — a mint nobody can price still returns
+     * 0 and still terminates as PRICE_UNAVAILABLE, which is then a real
+     * finding rather than a missing route.
+     */
+    private const val SOL_RESCUE_TTL_MS_7167  = 60_000L
+    private const val SOL_RESCUE_MAX_MINTS_7167 = 60
+    @Volatile private var solRescueAtMs7167: Long = 0L
+    private val solRescueLock7167 = Any()
+
+    private fun rescueSolanaPriceBlocking7167(existing: DynToken): Double {
+        val addr = existing.tokenAddress.trim()
+        if (addr.isBlank() || addr.startsWith("cg:") || addr.startsWith("static:")) return 0.0
+        if (!existing.chainId.trim().equals("solana", true)) return 0.0
+        synchronized(solRescueLock7167) {
+            val now = System.currentTimeMillis()
+            val key = existing.canonicalIdentity6544
+            if (now - solRescueAtMs7167 < SOL_RESCUE_TTL_MS_7167) {
+                return registry[key]?.price?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+            }
+            solRescueAtMs7167 = now
+            val mints = LinkedHashSet<String>()
+            mints.add(addr)
+            for (t in registry.values) {
+                if (mints.size >= SOL_RESCUE_MAX_MINTS_7167) break
+                if (!t.chainId.trim().equals("solana", true)) continue
+                val a = t.tokenAddress.trim()
+                if (a.isBlank() || a.startsWith("cg:") || a.startsWith("static:")) continue
+                val age = (now - t.lastUpdatedMs).coerceAtLeast(0L)
+                if (t.price > 0.0 && age <= PRICE_TTL_MS) continue
+                mints.add(a)
+            }
+            val marks = try {
+                com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(mints.toList())
+            } catch (_: Throwable) { emptyMap() }
+            var repaired = 0
+            if (marks.isNotEmpty()) {
+                // One pass over the registry, not one per mark: the universe
+                // holds thousands of identities and this runs on the scan path.
+                val byAddress7167 = HashMap<String, DynToken>(marks.size * 2)
+                for (t in registry.values) {
+                    val a = t.tokenAddress.trim()
+                    if (a.isNotBlank() && marks.containsKey(a)) byAddress7167[a] = t
+                }
+                for ((mint, mark) in marks) {
+                    val px = mark.priceUsd
+                    if (!px.isFinite() || px <= 0.0) continue
+                    val tok = byAddress7167[mint] ?: continue
+                    registry[tok.canonicalIdentity6544] = tok.copy(
+                        price = px,
+                        lastUpdatedMs = System.currentTimeMillis(),
+                    )
+                    repaired++
+                }
+            }
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SOL_MARK_RESCUE_7167")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "SOL_MARK_RESCUE_7167",
+                    "asked=${mints.size} repaired=$repaired wanted=${addr.take(12)}",
+                )
+            } catch (_: Throwable) {}
+            return registry[key]?.price?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+        }
+    }
+
     fun refreshPriceForMintBlocking(identityOrAddress: String, forceRefresh: Boolean = false): Double {
         val existing = registry[identityOrAddress] ?: getTokenByMint(identityOrAddress) ?: return 0.0
         val ageMs = (System.currentTimeMillis() - existing.lastUpdatedMs).coerceAtLeast(0L)
@@ -1195,9 +1284,13 @@ object DynamicAltTokenRegistry {
         }
         val pair = try { dex.getBestPair(chain, existing.tokenAddress) } catch (_: Exception) { null }
         // V5.0.6819: transient DEX failure — carry last-known price rather than returning 0 after 60s.
-        if (pair == null) return carryForwardPrice6819(existing, ageMs)
+        if (pair == null) {
+            val carried6819 = carryForwardPrice6819(existing, ageMs)
+            if (carried6819 > 0.0) return carried6819
+            return rescueSolanaPriceBlocking7167(existing)
+        }
         val price = pair.candle.priceUsd
-        if (price <= 0.0) return 0.0
+        if (price <= 0.0) return rescueSolanaPriceBlocking7167(existing)
         val key = existing.canonicalIdentity6544
         registry[key] = existing.copy(
             price = price,

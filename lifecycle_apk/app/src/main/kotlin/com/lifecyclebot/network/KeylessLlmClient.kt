@@ -1220,9 +1220,81 @@ object KeylessLlmClient {
     )
     @Volatile private var openRouterModelIdx7150: Int = 0
 
+    /**
+     * V5.0.7167 §THE WHOLE LADDER DIED, NOT JUST THE RUNG 7150 REPLACED.
+     *
+     * 7150 answered a dead pinned slug with a ladder of five. The operator's
+     * 5.0.7166 shows the ladder walking itself to death:
+     *
+     *   LLM_OPENROUTER_MODEL_ROTATED_7150 : 83
+     *   http=404 {"error":{"message":"No endpoints found for
+     *            google/gemma-2-9b-it:free."}}   llm_openrouter sr=0% 4xx=84
+     *
+     * Every rung 404s, so rotating only picks the next corpse. 7150 wrote the
+     * lesson itself — "a single hardcoded slug is a bet that a third party
+     * will keep one specific free tier alive forever" — and then made the bet
+     * five times instead of once. A hardcoded ladder is still a hardcoded
+     * list; the only durable answer is to ask OpenRouter what it currently
+     * serves free.
+     *
+     * /api/v1/models is keyless and lists every model with its pricing. Take
+     * the ones that cost nothing, cache for six hours, and keep the static
+     * ladder as the fallback for when the catalogue itself cannot be read.
+     */
+    private const val OPENROUTER_CATALOGUE_TTL_MS_7167 = 6L * 60 * 60 * 1000
+    @Volatile private var openRouterCatalogue7167: List<String> = emptyList()
+    @Volatile private var openRouterCatalogueAtMs7167: Long = 0L
+
+    private fun openRouterModels7167(): List<String> {
+        val now = System.currentTimeMillis()
+        val cached = openRouterCatalogue7167
+        if (cached.isNotEmpty() && now - openRouterCatalogueAtMs7167 < OPENROUTER_CATALOGUE_TTL_MS_7167) return cached
+        if (now - openRouterCatalogueAtMs7167 < 60_000L) return cached.ifEmpty { OPENROUTER_FREE_MODELS_7150 }
+        openRouterCatalogueAtMs7167 = now
+        val fetched = try {
+            val req = Request.Builder()
+                .url("https://openrouter.ai/api/v1/models")
+                .header("Accept", "application/json")
+                .build()
+            exec(req, "openrouter_models_7167").use { resp ->
+                if (!resp.isSuccessful) null else {
+                    val arr = JSONObject(resp.body?.string() ?: "{}").optJSONArray("data")
+                    val out = ArrayList<String>()
+                    for (i in 0 until (arr?.length() ?: 0)) {
+                        val m = arr?.optJSONObject(i) ?: continue
+                        val id = m.optString("id", "")
+                        if (id.isBlank()) continue
+                        val pricing = m.optJSONObject("pricing")
+                        val promptCost = pricing?.optString("prompt", "0")?.toDoubleOrNull() ?: 0.0
+                        val completionCost = pricing?.optString("completion", "0")?.toDoubleOrNull() ?: 0.0
+                        // Free means free on BOTH legs. A model that bills for
+                        // completion is not a free model with a free prompt.
+                        if (promptCost <= 0.0 && completionCost <= 0.0) out.add(id)
+                    }
+                    out.takeIf { it.isNotEmpty() }
+                }
+            }
+        } catch (_: Throwable) { null }
+        return if (fetched != null) {
+            openRouterCatalogue7167 = fetched
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_OPENROUTER_CATALOGUE_7167")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "LLM_OPENROUTER_CATALOGUE_7167",
+                    "freeModels=${fetched.size} head=${fetched.take(3).joinToString(",")}",
+                )
+            } catch (_: Throwable) {}
+            fetched
+        } else {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_OPENROUTER_CATALOGUE_UNREAD_7167") } catch (_: Throwable) {}
+            cached.ifEmpty { OPENROUTER_FREE_MODELS_7150 }
+        }
+    }
+
     private fun callOpenRouter(system: String, user: String, maxTokens: Int): String? {
-        val idx = openRouterModelIdx7150.coerceIn(0, OPENROUTER_FREE_MODELS_7150.size - 1)
-        val model7150 = OPENROUTER_FREE_MODELS_7150[idx]
+        val ladder7167 = openRouterModels7167()
+        val idx = openRouterModelIdx7150.coerceIn(0, ladder7167.size - 1)
+        val model7150 = ladder7167[idx]
         val payload = JSONObject().apply {
             put("model", model7150)
             put("max_tokens", maxTokens)
@@ -1246,12 +1318,12 @@ object KeylessLlmClient {
                 // no slug would help and classifyAndPenalise7150 has already
                 // benched the provider.
                 if (resp.code == 404 || resp.code == 400) {
-                    openRouterModelIdx7150 = (idx + 1) % OPENROUTER_FREE_MODELS_7150.size
+                    openRouterModelIdx7150 = (idx + 1) % ladder7167.size
                     try {
                         com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_OPENROUTER_MODEL_ROTATED_7150")
                         com.lifecyclebot.engine.ForensicLogger.lifecycle(
                             "LLM_OPENROUTER_MODEL_ROTATED_7150",
-                            "from=$model7150 to=${OPENROUTER_FREE_MODELS_7150[openRouterModelIdx7150]} http=${resp.code}",
+                            "from=$model7150 to=${ladder7167[openRouterModelIdx7150]} http=${resp.code}",
                         )
                     } catch (_: Throwable) {}
                 }

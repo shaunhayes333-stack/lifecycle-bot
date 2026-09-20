@@ -52,7 +52,11 @@ object LaneExitTuner {
     // learn from. Restoring it verbatim would re-derive the same floors from
     // the same contaminated sample and the 7164 recovery path would never get
     // a clean read. Bump this whenever the admission contract changes.
-    private const val STATE_SCHEMA_7164 = 7164
+    // V5.0.7167 — bumped again. 7164 retired windows collected before the
+    // non-strategy-exit filter; 7167 retires windows collected while
+    // unrecognised lanes were folded into STANDARD, for the same reason: the
+    // rows in them are not attributable to the lane that holds them.
+    private const val STATE_SCHEMA_7164 = 7167
 
     private data class Outcome(
         val pnlPct: Double,
@@ -95,9 +99,48 @@ object LaneExitTuner {
             u.contains("QUALITY")                            -> "QUALITY"
             u.contains("BLUE")                               -> "BLUECHIP"
             u.contains("DIP")                                -> "DIP_HUNTER"
-            else                                            -> "STANDARD"
+            // V5.0.7167 §STANDARD WAS A JUNK DRAWER WEARING A LANE'S NAME.
+            //
+            // Operator's 5.0.7166:
+            //
+            //   STANDARD  tpMult=0.80  slMult=0.70  lifetime=1376
+            //
+            // 1,376 closes, and the bot barely trades a lane called STANDARD —
+            // the funnel reports it as shadow/read-only, 404 evaluations and
+            // zero executions. So almost none of those closes are STANDARD's.
+            // They are every lane name this `when` failed to match, swept into
+            // the default arm: CORE, CRYPTO_LEV, CRYPTO_SPOT, UNRESOLVED_OWNER
+            // _6741, WALLET_RECOVERED. That last one closes at μ=-91.1% on
+            // 0 wins from 9, because it is inventory the bot never bought and
+            // has no real basis for.
+            //
+            // Then CORE asks getTpMult("CORE"), lands in the same bucket, and
+            // is told to bank sooner and stop tighter because a wallet-recovery
+            // write-off was averaged into its window. Unmatched names now keep
+            // their own identity instead of inheriting a stranger's shape; a
+            // lane with too few closes of its own reads neutral, which is the
+            // honest answer.
+            else -> u.filter { it.isLetterOrDigit() || it == '_' }.take(24).ifBlank { "STANDARD" }
         }
     }
+
+    /**
+     * V5.0.7167 — recovered inventory is not an exit decision.
+     *
+     * StrategyTruthLedger.isRecoveryInventory:246 removes these from strategy
+     * truth — 12,100 exclusions on the operator's 5.0.7166 — because a
+     * position the bot never opened has no entry, no basis and therefore no
+     * strategy to judge. Its "-91%" is an accounting write-off, not a stop
+     * that fired too late.
+     *
+     * This tuner had no such test, so those write-offs voted on take-profit
+     * alongside real exits. Same vocabulary as the ledger's, read off the
+     * fields the envelope actually carries here.
+     */
+    private val RECOVERY_INVENTORY_MARKERS_7167 = listOf(
+        "WALLET_RECOVERED", "OPEN_RESTORED", "ADOPTED_FROM_WALLET",
+        "RECOVERED_", "RESTORED_", "INVENTORY_RECON",
+    )
 
     private fun refreshReplayBiasAsync(reason: String = "close") {
         val now = System.currentTimeMillis()
@@ -172,6 +215,13 @@ object LaneExitTuner {
     fun recordClose(lane: String, pnlPct: Double, peakPct: Double, exitReason: String) {
         try {
             val reasonUpper7161 = exitReason.uppercase()
+            val recoveryHay7167 = (lane + "|" + exitReason).uppercase()
+            if (RECOVERY_INVENTORY_MARKERS_7167.any { recoveryHay7167.contains(it) }) {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LANE_EXIT_TUNER_SKIPPED_RECOVERY_INVENTORY_7167")
+                } catch (_: Throwable) {}
+                return
+            }
             if (NON_STRATEGY_EXIT_REASONS_7161.any { reasonUpper7161.contains(it) }) {
                 try {
                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LANE_EXIT_TUNER_SKIPPED_NON_STRATEGY_EXIT_7161")
