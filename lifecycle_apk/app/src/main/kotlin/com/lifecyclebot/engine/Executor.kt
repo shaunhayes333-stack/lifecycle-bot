@@ -3329,6 +3329,128 @@ class Executor(
     }
 
     /**
+     * V5.0.7162 §COST WAS EATING 72% OF THE LOSS AND NOTHING WAS LOOKING AT IT.
+     *
+     * Operator's paper ledger, 5.0.7155:
+     *
+     *     realized = -0.8659 SOL      fees = 0.6224 SOL
+     *
+     * Gross of costs the book is about -0.24 SOL. Net of costs it is -0.87.
+     * Fees are SEVENTY-TWO PERCENT of the realised loss. That is not a
+     * strategy result, it is a cost structure, and no edge survives it.
+     *
+     * The mechanism is the sizing stack. Roughly twenty-five multipliers
+     * compound downward — ColdStreakDamper x0.25, laneCap 12%, regime DUMP
+     * x0.35, laneBias x0.50 — and every one of them SHRINKS. The order then
+     * lands on the 0.05 SOL floor. Round-trip cost (buy slip + liquidity-
+     * implied sell slip + priority fee + 1% platform + spread + MEV) is
+     * near-fixed per trade, so shrinking the notional raises cost as a
+     * PERCENTAGE of the position. A configuration that maximises trade count
+     * and minimises trade size is a cost-maximising configuration.
+     *
+     * The bot already computes both halves of the comparison and has never
+     * made it: LiveBreakEvenGuard.requiredEdgePct is this trade's full
+     * round-trip cost, and expectedEdgePct is its forecast upside. 7149 put
+     * both on the Position, but only AFTER the buy — as a record, not a
+     * decision.
+     *
+     * So make the decision. When the forecast edge cannot clear the cost of
+     * the round trip, REFUSE rather than shrink. A trade whose expected move
+     * is smaller than its fee is a donation, and taking it at dust size
+     * donates slightly less while still paying the fixed leg.
+     *
+     * DELIBERATELY NARROW, because throughput is the other half of the
+     * operator's goal and this must not become a new choke:
+     *   - Both figures must be present and positive. An absent forecast is
+     *     NOT evidence of no edge — that is the defect this whole run of
+     *     builds removed — so unknown proceeds untouched.
+     *   - A margin is required, not equality, so marginal trades still go.
+     *   - Refusal is reported per lane, so its cost in throughput is
+     *     measurable and reversible rather than invisible.
+     */
+    private const val COST_EDGE_MARGIN_7162 = 1.15
+
+    private fun costExceedsEdge7162(
+        ts: TokenState,
+        sizeSol: Double,
+        score: Double,
+        lane: String,
+    ): Boolean {
+        if (sizeSol <= 0.0) return false
+        return try {
+            val laneKey = lane.ifBlank { "STANDARD" }
+            val required = com.lifecyclebot.engine.LiveBreakEvenGuard.requiredEdgePct(
+                ts, laneKey, laneKey, cfg().slippageBps, sizeSol, score,
+            )
+            val expected = com.lifecyclebot.engine.LiveBreakEvenGuard.expectedEdgePct(laneKey, score)
+            // Absence is not a fact: no cost model or no forecast means no
+            // opinion, and no opinion means do not block.
+            if (!required.isFinite() || required <= 0.0) return false
+            if (!expected.isFinite()) return false
+            // V5.0.7162b §ZERO FROM THIS FUNCTION IS SOMETIMES A MEASUREMENT.
+            //
+            // expectedEdgePct gates EVERY evidence term on winRatePct >= 45
+            // and totalSolPnl > 0 (LiveBreakEvenGuard:36, :47, :56). For the
+            // operator's bleeders — EXPRESS 0% WR / -0.128 SOL, BLUECHIP 0% /
+            // -0.0999, QUALITY 5.9% / -0.29, CORE 0% / -0.046 — every term
+            // therefore returns 0.0 and only the score prior survives.
+            //
+            // So a 0.0 here means EITHER "no evidence" OR "evidence, and it
+            // says no edge", and the return value alone cannot tell them
+            // apart. Treating both as "proceed" — which is what I wrote first
+            // — would let exactly the four lanes bleeding the book keep
+            // paying full round-trip cost, which is the thing this gate
+            // exists to stop.
+            //
+            // LaneExpectancyDamper can tell them apart. A non-neutral
+            // multiplier means it has enough closes to hold an opinion; on
+            // that snapshot it read EXPRESS x0.39, QUALITY x0.52, CORE x0.73,
+            // BLUECHIP x0.73 against CYCLIC x1.00 and PROJECT_SNIPER x1.00.
+            // Mature evidence plus zero forecast edge against a real cost is
+            // a refusal. No evidence is still no opinion, and still proceeds.
+            //
+            // This is item 2 of the operator's plan — stop the bleeders —
+            // arriving as a consequence of item 1 rather than as a second
+            // hand-picked EV threshold. The lanes keep discovering,
+            // qualifying, rotating tactics and learning; they just stop
+            // paying fees to relearn what they have already shown. And the
+            // damper returns to neutral if expectancy recovers, so this
+            // releases itself without an operator unpause.
+            if (expected <= 0.0) {
+                val damperOpinion7162 = try {
+                    com.lifecyclebot.engine.LaneExpectancyDamper.sizeMultiplier(laneKey)
+                } catch (_: Throwable) { 1.0 }
+                val laneHasEvidence7162 =
+                    damperOpinion7162.isFinite() && kotlin.math.abs(damperOpinion7162 - 1.0) > 1e-9
+                if (!laneHasEvidence7162) return false
+                try {
+                    PipelineHealthCollector.labelInc("COST_EDGE_ZERO_WITH_LANE_EVIDENCE_7162")
+                } catch (_: Throwable) {}
+            }
+            val blocked = expected < required * COST_EDGE_MARGIN_7162
+            if (blocked) {
+                try {
+                    PipelineHealthCollector.labelInc("COST_EXCEEDS_EDGE_REFUSED_7162")
+                    PipelineHealthCollector.labelInc(
+                        "COST_EXCEEDS_EDGE_REFUSED_7162_${laneKey.uppercase().take(20)}",
+                    )
+                    ForensicLogger.lifecycle(
+                        "COST_EXCEEDS_EDGE_REFUSED_7162",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKey " +
+                            "sizeSol=${"%.4f".format(sizeSol)} score=${"%.1f".format(score)} " +
+                            "expectedEdgePct=${"%.2f".format(expected)} requiredEdgePct=${"%.2f".format(required)} " +
+                            "margin=$COST_EDGE_MARGIN_7162 liqUsd=${ts.lastLiquidityUsd.toInt()} " +
+                            "action=refuse_not_shrink_a_trade_smaller_than_its_fee_is_a_donation",
+                    )
+                } catch (_: Throwable) {}
+            } else {
+                try { PipelineHealthCollector.labelInc("COST_EDGE_CLEARED_7162") } catch (_: Throwable) {}
+            }
+            blocked
+        } catch (_: Throwable) { false }
+    }
+
+    /**
      * V5.9.1518 / V5.0.4202 — cap LIVE buy size only for REAL unresolved ledger drift.
      * Runtime 4199/4201 pictures showed InvariantGuardian/LLM reporting
      * reconciler.totalChecked=0 while LiveWalletReconciler logs had checked=2.
@@ -13575,6 +13697,18 @@ class Executor(
             ts, effSolRaw, walletSol, score, identity?.source ?: ts.source,
             if (RuntimeModeAuthority.isLive()) "doBuy.final" else "doBuy.final.paper",
         )
+
+        // V5.0.7162 — refuse a trade whose forecast edge cannot clear its own
+        // round-trip cost, rather than shrinking it to dust and paying the
+        // fixed leg anyway. See costExceedsEdge7162.
+        // (costExceedsEdge7162 logs the full comparison itself; no local
+        // trace helper here — buyAttemptTrace4576 is scoped to liveBuy.)
+        // doBuy returns Unit, and its header requires every early return to
+        // bump FDG_BUY_TO_AUTH_DROP_<reason>, so this one does.
+        if (costExceedsEdge7162(ts, effSol, score, laneTag)) {
+            try { PipelineHealthCollector.labelInc("FDG_BUY_TO_AUTH_DROP_COST_EXCEEDS_EDGE_7162") } catch (_: Throwable) {}
+            return
+        }
 
         try {
             LearningLifecycleBus.sizingDecision(
