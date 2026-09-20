@@ -544,6 +544,11 @@ object ReportingHub {
         // only one running, or the LLM has chosen not to speak — two different
         // facts that were previously indistinguishable from silence.
         appendLine(safe("hive_chat_7190") { com.lifecyclebot.engine.SentienceOrchestrator.hiveChatStatusLine7190() })
+        // V5.0.7192 — personality self-evolution. applied vs refused separates
+        // "the brain is steering itself" from "the brain keeps proposing risk
+        // expansion while under its 24h high and 6439 keeps refusing" — two
+        // very different states that both look like a flat trait vector.
+        appendLine(safe("trait_evolution_7192") { com.lifecyclebot.engine.SentienceOrchestrator.traitEvolutionStatusLine7192() })
         // V5.0.6925 — CAPTURE RATIO. Of the gain each position actually
         // reached, how much did we keep? Broken down by lane and by exit
         // reason, worst first, so the exit path that is clipping runners names

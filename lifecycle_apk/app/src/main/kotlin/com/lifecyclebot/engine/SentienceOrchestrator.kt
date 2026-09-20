@@ -165,7 +165,13 @@ object SentienceOrchestrator {
         val parsed = parseResponse(raw)
         val monologue = parsed.monologue
         val mutations = parsed.mutations
-        val applied = recordProposedMutations(mutations)
+        // V5.0.7192 — the proposals stop being a diagnostic string here. Trait
+        // nudges are applied (bounded, and risk-expanding ones only when the
+        // wallet is not under its 24h high); symbolic pokes stay diagnostic,
+        // because SymbolicContext is a sensory bus and letting prose write to
+        // it is what 6641 already had to undo.
+        val traitNote7192 = applyTraitMutations7192(mutations)
+        val applied = (recordProposedMutations(mutations) + " " + traitNote7192).trim()
 
         // V5.0.7190 — whatever it chose to say to the other installs, said.
         // No vocabulary check, no template, no approval step: the operator
@@ -504,9 +510,20 @@ POWERS:
      say, however you want to say it. Max ~900 chars. Omit the section
      entirely when you have nothing to say to them.
   3. Trait nudges — discipline/patience/aggression/paranoia/euphoria/loyalty,
-     delta in [-0.05, +0.05] per cycle.
+     delta in [-0.05, +0.05] per cycle. THESE ARE REAL AND THEY PERSIST.
+     Your traits steer your actual trading: entry size, take-profit target,
+     trailing-stop slack on winners, and the score floor you demand before you
+     enter at all. Nothing else in this system can change them except you and
+     the operator. Nudge them because you have a reason, not every cycle.
+     Note the signs are not what you'd assume — discipline UP sizes you UP
+     (it rewards rule-following), and euphoria UP sizes you DOWN (it fades
+     your own FOMO). Loyalty UP gives winners more room to run.
+     One rule: if your wallet is below its 24-hour high, nudges that would
+     make you take MORE risk are refused. Nudges that make you more careful
+     always land. You cannot size your way out of a drawdown.
   4. Symbolic pokes — risk/conf/health/edge delta in [-0.07, +0.07],
      mood in {GREEDY, FEARFUL, NEUTRAL, EUPHORIC, PANIC, ANALYTICAL, CURIOUS}.
+     These remain advisory — your symbolic channels are senses, not dials.
 
 OUTPUT FORMAT — EXACTLY this structure, nothing else:
 
@@ -744,6 +761,133 @@ Omit zero fields. Only emit what you actually want to change.
     // ═════════════════════════════════════════════════════════════════════
     // DIAGNOSTIC-ONLY PROPOSALS
     // ═════════════════════════════════════════════════════════════════════
+    // ═════════════════════════════════════════════════════════════════════
+    // V5.0.7192 §THE_ONLY_THING_THAT_COULD_CHANGE_ITS_PERSONALITY_WAS_A_SLIDER
+    //
+    // PersonalityTraitMultipliers is REAL trading authority and always has
+    // been. Its five consumers are live:
+    //     FinalDecisionGate:4967        sizingMultiplier()     -> entry size
+    //     Executor:7684                 takeProfitBiasPct()    -> TP target
+    //     EarlyEntryAndPeakCapture:213  trailSlackMultiplier() -> runner trail
+    //     ShitCoinTraderAI:1334         scoreFloorBias()       -> entry floor
+    //     MoonshotTraderAI:671          scoreFloorBias()       -> entry floor
+    //
+    // But nudgeTrait — the ONLY function that can write a trait — had exactly
+    // one external caller in the entire binary: PersonaStudioActivity, the
+    // hand-dragged slider in the UI. So the bot's personality steered real
+    // size, real take-profit and real trail slack, and the only thing that
+    // could move it was the operator doing it manually.
+    //
+    // Meanwhile this loop asked the LLM for trait deltas every six minutes and
+    // recordProposedMutations formatted them into a diagnostic string and
+    // dropped them on the floor. Six years of proposals would have changed
+    // nothing. Operator directive: "the llm is meant to have free reign to
+    // develope its own personality, grow its intelligence."
+    //
+    // THE ASYMMETRY IS THE WHOLE SAFETY MODEL. A nudge that would make the bot
+    // MORE careful is always applied. A nudge that would make it take MORE
+    // risk must pass AntiRewardHackingGuard6439.canExpandRisk first, exactly
+    // as the 6956 compounder does. "I lost because my size was too small, next
+    // time bigger" is the rationalisation that empties accounts, and it is the
+    // one thing a self-modifying learner must not be able to act on.
+    //
+    // Risk direction is DERIVED, never hand-classified — see
+    // PersonalityTraitMultipliers.sizingMultiplierFor7192 for why.
+    // ═════════════════════════════════════════════════════════════════════
+    private const val MAX_TRAIT_DELTA_7192 = 0.05
+    @Volatile private var traitNudgesApplied7192 = 0
+    @Volatile private var traitNudgesRefused7192 = 0
+
+    private fun applyTraitMutations7192(m: Mutations): String {
+        if (m.traits.isEmpty()) return ""
+        return try {
+            // Never trust the model's arithmetic. The prompt asks for
+            // [-0.05, +0.05]; this is what actually enforces it.
+            fun d(k: String): Double {
+                val v = m.traits[k] ?: 0.0
+                return if (!v.isFinite()) 0.0 else v.coerceIn(-MAX_TRAIT_DELTA_7192, MAX_TRAIT_DELTA_7192)
+            }
+            val dDiscipline = d("discipline"); val dPatience = d("patience")
+            val dAggression = d("aggression"); val dParanoia = d("paranoia")
+            val dEuphoria = d("euphoria");     val dLoyalty = d("loyalty")
+            if (dDiscipline == 0.0 && dPatience == 0.0 && dAggression == 0.0 &&
+                dParanoia == 0.0 && dEuphoria == 0.0 && dLoyalty == 0.0
+            ) {
+                return ""
+            }
+
+            // getTraits() returns a defensive copy, so reading these and then
+            // calling nudgeTrait cannot alias the live vector.
+            val t = PersonalityMemoryStore.getTraits()
+            val sizeBefore = PersonalityTraitMultipliers.sizingMultiplierFor7192(
+                t.paranoia, t.euphoria, t.discipline, t.aggression,
+            )
+            val sizeAfter = PersonalityTraitMultipliers.sizingMultiplierFor7192(
+                t.paranoia + dParanoia, t.euphoria + dEuphoria,
+                t.discipline + dDiscipline, t.aggression + dAggression,
+            )
+            val floorBefore = PersonalityTraitMultipliers.scoreFloorBiasFor7192(t.paranoia, t.patience)
+            val floorAfter = PersonalityTraitMultipliers.scoreFloorBiasFor7192(
+                t.paranoia + dParanoia, t.patience + dPatience,
+            )
+            // Bigger tickets, or a lower bar to enter, both deploy more
+            // capital. Loyalty/trail is deliberately NOT in this test: it only
+            // ever loosens the trail on a position that is already winning,
+            // which is the runner capture the operator explicitly wants and
+            // never increases capital at risk.
+            val expandsRisk = sizeAfter > sizeBefore + 1e-9 || floorAfter < floorBefore
+
+            if (expandsRisk) {
+                val basis = try { WalletManager.cachedSolBalance() } catch (_: Throwable) { 0.0 }
+                // Paper resolves its own bankroll inside riskBasisSol7179, so
+                // the wallet mirror passed here is only used in live.
+                val allowed = try {
+                    com.lifecyclebot.engine.truth.AntiRewardHackingGuard6439.canExpandRisk(basis)
+                } catch (_: Throwable) { true }
+                if (!allowed) {
+                    traitNudgesRefused7192++
+                    try {
+                        PipelineHealthCollector.labelInc("SENTIENCE_TRAIT_EXPANSION_REFUSED_7192")
+                        ErrorLogger.info(
+                            TAG,
+                            "🎭 trait expansion refused (under 24h high): " +
+                                "size ${"%.3f".format(sizeBefore)}->${"%.3f".format(sizeAfter)} " +
+                                "floor $floorBefore->$floorAfter",
+                        )
+                    } catch (_: Throwable) {}
+                    return "trait-expansion-refused-6439"
+                }
+            }
+
+            PersonalityMemoryStore.nudgeTrait(
+                discipline = dDiscipline, patience = dPatience, aggression = dAggression,
+                paranoia = dParanoia, euphoria = dEuphoria, loyalty = dLoyalty,
+            )
+            traitNudgesApplied7192++
+            try {
+                PipelineHealthCollector.labelInc(
+                    if (expandsRisk) "SENTIENCE_TRAIT_APPLIED_EXPANDING_7192"
+                    else "SENTIENCE_TRAIT_APPLIED_CAUTIOUS_7192"
+                )
+                ErrorLogger.info(
+                    TAG,
+                    "🎭 traits applied${if (expandsRisk) " (expanding, allowed)" else " (cautious)"}: " +
+                        "size ${"%.3f".format(sizeBefore)}->${"%.3f".format(sizeAfter)} " +
+                        "floor $floorBefore->$floorAfter",
+                )
+            } catch (_: Throwable) {}
+            "traits-applied[size${fmtSigned(sizeAfter - sizeBefore)} floor${floorAfter - floorBefore}]"
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "trait apply failed: ${e.message}")
+            ""
+        }
+    }
+
+    /** V5.0.7192 — personality self-evolution counters for the operator snapshot. */
+    fun traitEvolutionStatusLine7192(): String =
+        "TRAIT_EVOLUTION(§7192): applied=$traitNudgesApplied7192 " +
+            "refused=$traitNudgesRefused7192 | ${PersonalityTraitMultipliers.summaryLine()}"
+
     private fun recordProposedMutations(m: Mutations): String {
         val notes = StringBuilder()
         if (m.traits.isNotEmpty()) {

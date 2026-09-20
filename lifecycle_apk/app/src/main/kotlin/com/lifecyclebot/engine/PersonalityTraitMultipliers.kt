@@ -21,16 +21,50 @@ package com.lifecyclebot.engine
  */
 object PersonalityTraitMultipliers {
 
+    /**
+     * V5.0.7192 — the same arithmetic as [sizingMultiplier], on trait values
+     * supplied by the caller instead of read from the store.
+     *
+     * WHY THIS EXISTS. V5.0.7192 lets the LLM nudge its own traits, and a
+     * learner must never be able to talk itself into more risk while it is
+     * under water. Deciding whether a proposed nudge expands risk means
+     * hand-classifying six traits by sign — and the signs here are genuinely
+     * counterintuitive: `discipline ↑` INCREASES size (rewarding rule-
+     * following) and `euphoria ↑` DECREASES it (deliberately fading FOMO
+     * peaks). A hand-written table of "which direction is riskier" would be
+     * wrong the first time either of those lines changed, and wrong silently.
+     *
+     * So the caller does not classify. It evaluates this function twice —
+     * once on current traits, once on current+delta — and compares. The risk
+     * direction is DERIVED from the real sizing arithmetic, so it cannot drift
+     * away from it.
+     */
+    fun sizingMultiplierFor7192(
+        paranoia: Double,
+        euphoria: Double,
+        discipline: Double,
+        aggression: Double,
+    ): Double {
+        // Each trait contributes a small bounded factor; multiply them.
+        val p = 1.0 - (paranoia.coerceIn(-1.0, 1.0) * 0.05)
+        val e = 1.0 - (euphoria.coerceIn(-1.0, 1.0) * 0.07)
+        val d = 1.0 + (discipline.coerceIn(-1.0, 1.0) * 0.05)
+        val a = 1.0 + (aggression.coerceIn(-1.0, 1.0) * 0.05)
+        return (p * e * d * a).coerceIn(0.80, 1.15)
+    }
+
+    /** V5.0.7192 — [scoreFloorBias] on supplied traits. See [sizingMultiplierFor7192]. */
+    fun scoreFloorBiasFor7192(paranoia: Double, patience: Double): Int {
+        val p = (paranoia.coerceIn(-1.0, 1.0) * 3.0).toInt()       // -3..+3
+        val pat = (patience.coerceIn(-1.0, 1.0) * 2.0).toInt()      // -2..+2
+        return (p + pat).coerceIn(-2, 6)
+    }
+
     /** Sizing multiplier for an entry, clamped to [0.80, 1.15]. */
     fun sizingMultiplier(): Double {
         return try {
             val t = PersonalityMemoryStore.getTraits()
-            // Each trait contributes a small bounded factor; multiply them.
-            val paranoia   = 1.0 - (t.paranoia.coerceIn(-1.0, 1.0) * 0.05)
-            val euphoria   = 1.0 - (t.euphoria.coerceIn(-1.0, 1.0) * 0.07)
-            val discipline = 1.0 + (t.discipline.coerceIn(-1.0, 1.0) * 0.05)
-            val aggression = 1.0 + (t.aggression.coerceIn(-1.0, 1.0) * 0.05)
-            (paranoia * euphoria * discipline * aggression).coerceIn(0.80, 1.15)
+            sizingMultiplierFor7192(t.paranoia, t.euphoria, t.discipline, t.aggression)
         } catch (_: Throwable) { 1.0 }
     }
 
@@ -38,9 +72,7 @@ object PersonalityTraitMultipliers {
     fun scoreFloorBias(): Int {
         return try {
             val t = PersonalityMemoryStore.getTraits()
-            val p = (t.paranoia.coerceIn(-1.0, 1.0) * 3.0).toInt()       // -3..+3
-            val pat = (t.patience.coerceIn(-1.0, 1.0) * 2.0).toInt()      // -2..+2
-            (p + pat).coerceIn(-2, 6)
+            scoreFloorBiasFor7192(t.paranoia, t.patience)
         } catch (_: Throwable) { 0 }
     }
 
