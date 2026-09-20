@@ -2068,7 +2068,10 @@ object CryptoAltTrader {
         //
         // A null route is treated as untradeable rather than unknown. Route
         // resolution failing is not evidence that a venue exists.
-        val routeReal7005 = route?.route?.isRealTradeable7005() == true
+        // V5.0.7157 — pass the mode. PAPER_ONLY is the resolver's word for
+        // "simulatable, not live-tradeable", and refusing it in PAPER stopped
+        // the crypto lane opening anything at all (92 refusals, 0 opens).
+        val routeReal7005 = route?.route?.isRealTradeable7005(isPaperMode.get()) == true
         if (!routeReal7005) {
             hardNo += "NOT_REAL_TRADEABLE_7005:${route?.route?.name ?: "NO_ROUTE_RESOLVED"}"
             try {

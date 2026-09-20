@@ -115,7 +115,51 @@ object CryptoUniverseDiagCodes {
  * path inherits that too: a bridged position cannot be closed as fast as a
  * Solana one. Refusals for every other unroutable class are unchanged.
  */
-fun CryptoExecutionRoute.isRealTradeable7005(): Boolean = when (this) {
+/**
+ * V5.0.7157 §PAPER_ONLY MEANS SIMULATE IT.
+ *
+ * Operator: "there's a cross chain bridge. its paper it should be
+ * simulating the trade." Both halves are correct and this predicate was
+ * wrong on the second.
+ *
+ * CryptoUniverseRouteResolver:128 returns PAPER_ONLY as its fallback — a
+ * route whose entire meaning is "no live route proven; this is simulatable
+ * but not live-tradeable". CryptoBridgeAdapter.buySolToEvm says the same
+ * thing in its own rejection text: "paper-only/unavailable". Every layer
+ * beneath this predicate is saying SIMULATE, and 7005 grouped PAPER_ONLY
+ * with CEX_REQUIRED and NO_ROUTE_AVAILABLE under "needs something this app
+ * does not have" and refused it — in paper mode, where nothing is needed
+ * because nothing is bought.
+ *
+ * That produced the operator's "crypto trader is making 0 trades":
+ * CRYPTO_ENTRY_REFUSED_NOT_REAL_TRADEABLE_7005 = 92 against candidate=16
+ * submit=8 open=0, and a crypto lane that has learned nothing because it is
+ * not allowed to practise.
+ *
+ * 7005's actual mandate was "remove anything that cant be traded in real
+ * life" — a statement about REAL LIFE, i.e. about spending money. It is
+ * preserved exactly: PAPER_ONLY is still refused in live, every other
+ * unroutable class is still refused in both modes, and the bridge stays
+ * fail-closed. What changes is that the simulator is allowed to simulate.
+ *
+ * ON THE BRIDGE, PLAINLY: CryptoBridgeAdapter is real deBridge DLN code, but
+ * FULL_ROUND_TRIP_IMPLEMENTED is false because the destination signer, the
+ * ERC-20 approval, the sell-back submission, the receipt proof and the
+ * canonical close coordinator are not wired end to end. So LIVE bridging is
+ * not available, and 7006's decision to allow BRIDGE_REQUIRED could never
+ * take effect anyway: the resolver gates that branch on
+ * cryptoUniverseAllowBridgeAdapters, which is declared false and is never
+ * assigned true anywhere in the tree. Those assets fall through to
+ * PAPER_ONLY, so this change is what lets them be simulated. I am NOT
+ * flipping that flag — it would authorise real cross-chain money movement
+ * through an executor that returns ROUND_TRIP_EXECUTOR_INCOMPLETE.
+ */
+fun CryptoExecutionRoute.isRealTradeable7005(paperMode7157: Boolean = false): Boolean = when (this) {
+    // V5.0.7157 — the resolver's own word for "simulatable, not live".
+    // In paper that is a green light by definition; in live it is a refusal,
+    // unchanged from 7005.
+    CryptoExecutionRoute.PAPER_ONLY -> paperMode7157
+
     // Reachable right now with a Solana wallet routing through Jupiter.
     CryptoExecutionRoute.SOLANA_SPL_DIRECT,
     CryptoExecutionRoute.JUPITER_ROUTABLE,
@@ -134,7 +178,7 @@ fun CryptoExecutionRoute.isRealTradeable7005(): Boolean = when (this) {
     // perps venue, or any route at all.
     CryptoExecutionRoute.CEX_REQUIRED,
     CryptoExecutionRoute.PERP_ONLY,
-    CryptoExecutionRoute.PAPER_ONLY,
+    // PAPER_ONLY moved to the mode-aware branch above (V5.0.7157).
     CryptoExecutionRoute.NO_ROUTE_AVAILABLE,
     CryptoExecutionRoute.ROUTE_DISABLED,
     // Not a permanent property of the asset, but the order still cannot be
