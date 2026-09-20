@@ -79,11 +79,38 @@ object AntiRewardHackingGuard6439 {
             com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
         } catch (_: Throwable) { true }
         val modeTag7179 = if (paper7179) "paper" else "live"
+        // V5.0.7187 §THE_BASIS_WAS_RIGHT_AND_THE_CASH_WAS_FICTION.
+        //
+        // Operator: "its got the balance wrong its not reading paper balance.
+        // I havent even connected a live wallet to this install."
+        //
+        // Both callers hand this a WALLET MIRROR — BotService's `balanceSol`
+        // and Executor:3277's `walletSol`. On a paper-only install with no
+        // wallet connected that reads ~0.06 SOL while the paper bankroll is
+        // 9.30. So 7179's equity basis computed 0.06 + 6.08 open cost = 6.14
+        // against a 11.76 high, ratio 0.52, and vetoed every risk expansion:
+        // 533 vetoes and 0 allows on the 5.0.7186 run. The arithmetic was
+        // correct and the input was fiction.
+        //
+        // Resolved HERE rather than at the two call sites, for the same reason
+        // the basis itself is resolved here: if observation and decision are
+        // fed from different places they drift apart, and that drift IS the
+        // original defect. One function, one answer, both halves.
+        //
+        // PaperCapitalAuthority6577 is the same authority V5.0.6689 bound the
+        // sizing bridge to, so the guard, the sizing bridge and the order
+        // resolver now all price paper risk off one bankroll.
+        val cashSol7187 = if (!paper7179) observedCashSol else {
+            try {
+                PaperCapitalAuthority6577.cashSol().coerceAtLeast(0.0)
+                    .takeIf { it.isFinite() && it > 0.0 } ?: observedCashSol
+            } catch (_: Throwable) { observedCashSol }
+        }
         val openCost7179 = CanonicalPositionAuthority6441.openPositions()
             .filter { it.mode.equals(modeTag7179, true) }
             .sumOf { (it.entryCostSol - it.soldCostBasisSol).coerceAtLeast(0.0) }
-        val basis = observedCashSol + openCost7179
-        if (basis.isFinite() && basis > 0.0) basis else observedCashSol
+        val basis = cashSol7187 + openCost7179
+        if (basis.isFinite() && basis > 0.0) basis else cashSol7187
     } catch (_: Throwable) { observedCashSol }
 
     /**

@@ -13799,8 +13799,63 @@ class Executor(
         // V5.0.6867 — one growth policy surface. This was `if (isLive())`, so paper
         // skipped the doctrine floor/cap and every compounding lift with it. Both
         // books now size through the same authority against their own balance.
+        // V5.0.7187 §THE_SECOND_SIZING_SURFACE_NEVER_GOT_THE_PAPER_BANKROLL.
+        //
+        // Operator: "its got the balance wrong its not reading paper balance.
+        // I havent even connected a live wallet to this install."
+        //
+        // V5.0.6689 already established that paper must size against
+        // PaperCapitalAuthority6577 rather than a wallet mirror, and wired it
+        // into CanonicalSizingBridge6532 — which is why ORDER_SIZE_RESOLVED_6441
+        // correctly reports `cashCap=9.29970 final=0.44500 exec=true`. This
+        // call is the OTHER sizing surface and it was left on the raw
+        // `walletSol` parameter, so it sized against an observed wallet that
+        // does not exist on this install.
+        //
+        // The 5.0.7186 device run, one candidate, both surfaces side by side:
+        //
+        //   ORDER_SIZE_RESOLVED_6441      cashCap=9.29970  final=0.44500  OK
+        //   LIVE_REALISTIC_SIZE_AUTHORITY wallet=0.0600 spendable=0.0480
+        //                                 requested=0.0300 -> out=0.0134
+        //   COST_EXCEEDS_EDGE_REFUSED_7162: 501
+        //
+        // 0.0134 SOL cannot clear its own round-trip fee, so 7162 refused it —
+        // correctly — five hundred and one times. The refusal was right; the
+        // number it was refusing was fiction. Paper cash was 9.2997 the whole
+        // time.
+        //
+        // Same wrong figure also reached AntiRewardHackingGuard6439 through
+        // the wallet observation: `walletSol=6.14105 highSol=11.76000` is
+        // exactly 0.06 cash + 6.08 open cost, so the 7179 equity basis was
+        // computing correctly on a phantom balance and vetoing every risk
+        // expansion (533 vetoes, 0 allows).
+        //
+        // Bound to the same authority 6689 chose, in paper only. LIVE keeps the
+        // observed wallet from the wallet/finality path, untouched — a live
+        // book must size against real SOL. Divergence is named rather than
+        // silently corrected so a future caller passing a stale mirror is
+        // visible instead of merely overridden.
+        val paperSizing7187 = !RuntimeModeAuthority.isLive()
+        val sizingWalletSol7187 = if (!paperSizing7187) walletSol else {
+            try {
+                val paperCash7187 = com.lifecyclebot.engine.truth.PaperCapitalAuthority6577
+                    .cashSol().coerceAtLeast(0.0)
+                if (walletSol.isFinite() && kotlin.math.abs(walletSol - paperCash7187) > 0.001) {
+                    try {
+                        PipelineHealthCollector.labelInc("PAPER_ENTRY_SIZE_CASH_REBOUND_7187")
+                        ForensicLogger.lifecycle(
+                            "PAPER_ENTRY_SIZE_CASH_REBOUND_7187",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$laneTag " +
+                                "callerWallet=${walletSol.fmt(4)} paperCash=${paperCash7187.fmt(4)} " +
+                                "action=size_against_paper_bankroll_not_wallet_mirror",
+                        )
+                    } catch (_: Throwable) {}
+                }
+                paperCash7187
+            } catch (_: Throwable) { walletSol }
+        }
         val effSol = realisticEntrySize6867(
-            ts, effSolRaw, walletSol, score, identity?.source ?: ts.source,
+            ts, effSolRaw, sizingWalletSol7187, score, identity?.source ?: ts.source,
             if (RuntimeModeAuthority.isLive()) "doBuy.final" else "doBuy.final.paper",
         )
 

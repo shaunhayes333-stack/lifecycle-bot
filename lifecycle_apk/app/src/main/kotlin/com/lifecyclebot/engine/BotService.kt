@@ -18938,6 +18938,13 @@ class BotService : Service() {
                         // The guard vetoes any risk-expansion tune while the wallet
                         // is below its 24h high — this rewires learners so they
                         // cannot rationalise expanding risk after a losing streak.
+                        // V5.0.7187 — `balanceSol` is a wallet mirror and reads
+                        // ~0.06 on a paper-only install. The guard resolves the
+                        // paper bankroll itself now (see riskBasisSol7179), so
+                        // this caller is left as-is deliberately: fixing it here
+                        // and not at canExpandRisk's caller would make the two
+                        // halves disagree, which is the defect 7179 exists to
+                        // prevent.
                         try { com.lifecyclebot.engine.truth.AntiRewardHackingGuard6439.observeWalletBalance(balanceSol) } catch (_: Throwable) {}
                     }
                     // Gather all trades across all tokens for P&L - use synchronized copy
