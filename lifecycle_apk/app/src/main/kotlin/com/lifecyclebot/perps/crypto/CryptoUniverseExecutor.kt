@@ -266,11 +266,41 @@ object CryptoUniverseExecutor {
             return@runAwaited Outcome.ExecFailed(resolution, reason)
         }
         val filledRaw = java.math.BigInteger.valueOf(bridge.targetAmountRaw)
+        // V5.0.7132 — a Crypto Universe open must name its own asset class and
+        // its own USD basis.
+        //
+        // This call used to pass neither, and both defaults lie. `assetClass`
+        // defaults to SOLANA_TOKEN, so every non-SOL coin this lane bought on
+        // Solana was handed to the Solana meme mark/exit router instead of the
+        // crypto router — the operator's own reading of it ("non sol tokens are
+        // held by the crypto universe not the solana meme trader") was correct
+        // at the source. `entryPriceUsd` defaults to 0.0, and every runtime OPEN
+        // consumer refuses a canonical row without a positive USD entry
+        // (QuantityInvariantAuthority6500.check → canonical_economic_or_entry_
+        // invalid). A row opened here could therefore never appear in the open
+        // panel, hero totals, or exposure, and never be marked for an exit — a
+        // wallet-held bag with real capital in it, invisible to the whole app.
+        // That is what `CRYPTO_ALT dispatch=n open=0` has been reporting.
+        //
+        // The basis comes from the same authority the live meme path uses
+        // (realised cost ÷ proven quantity × SOL/USD), so the economic invariant
+        // holds by construction. The caller's market price is the fallback, as
+        // in the bridge branch above; a missing basis is left as a refusal for
+        // the canonical authority to log rather than a zero written down.
+        val entryUsd7132 = com.lifecyclebot.engine.truth.EntryPriceIntegrityAuthority6405
+            .deriveTrustedEntryUsd(
+                costSol = sizeSol,
+                qtyUi = bridge.targetAmountUi,
+                knownSolUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 },
+            )
         val mutation = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPosition(
             idempotencyKey = "CRYPTO_UNIVERSE6486:OPEN:$positionId:$sig", positionId = positionId,
             mint = mint, symbol = symbol, lane = traderType.uppercase(), runId = sig,
             entryCostSol = sizeSol, openedQtyRaw = filledRaw, tokenDecimals = bridge.targetDecimals,
             feesSol = 0.0, paperMode = false,
+            entryPriceUsd = entryUsd7132?.usdPerToken ?: priceUsd,
+            entryPriceSource = entryUsd7132?.source ?: "CRYPTO_UNIVERSE_CALLER_MARK_7132",
+            assetClass = com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT,
         )
         if (mutation != com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.APPLIED &&
             mutation != com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.DUPLICATE) {

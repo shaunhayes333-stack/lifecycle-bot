@@ -5166,14 +5166,57 @@ for legal compliance.
         // an old sub-trader active-map cache. In LIVE mode it must be host-wallet
         // cap/open truth and not closed by PositionCloseLedger. Paper remains the
         // simulator view.
+        // V5.0.7132 — canonical proof outranks the tracker's slot arithmetic.
+        //
+        // 4570 added liveOpenPanelTruth4570 as the live gate when the panel's
+        // only other source was a stale sub-trader active-map, and it was right
+        // to. But HostWalletTokenTracker.isCapCountable is a CAP predicate: its
+        // evidence is time-boxed on purpose (5-minute wallet-proof TTL,
+        // 3-minute fresh-buy liability, 45-minute bot-buy liability) because its
+        // job is to FREE A SLOT when it can no longer prove the holding. Saying
+        // "not countable" is how it declines to reserve a slot; it is not a
+        // statement that the position closed.
+        //
+        // Using it as a display veto means a canonically OPEN live position —
+        // one with a locked entry snapshot, a passing quantity invariant, and
+        // tokens actually in the wallet — leaves the panel the moment that
+        // window lapses, and returns on the next successful wallet read. That is
+        // the operator's "it drops them off the display", and the 6070 comment
+        // in HostWalletTokenTracker already names this exact coupling.
+        //
+        // So the order is now: an eligible canonical row is shown on its own
+        // proof. PositionCloseLedger keeps its veto — a close is a terminal,
+        // monotonic fact, not a time-boxed observation. The tracker keeps its
+        // veto over rows with NO canonical proof, which is the phantom case
+        // 4570 was written for and which the synthetic upsert() path below
+        // still runs through both gates.
         val merged = state.openPositions
             .filter { it.position.isPaperPosition == isPaperMode }
-            .filter { isPaperMode || liveOpenPanelTruth4570(it.mint) }
             .filter { ts ->
-                try {
+                val canonicalProven7132 = try {
                     com.lifecyclebot.engine.truth.QuantityInvariantAuthority6500
                         .isRuntimeOpenEligible6636(ts.mint, ts.position)
                 } catch (_: Throwable) { false }
+                if (!canonicalProven7132) return@filter false
+                if (isPaperMode) return@filter true
+                val ledgerClosed7132 = try {
+                    com.lifecyclebot.engine.PositionCloseLedger.isClosed(ts.mint)
+                } catch (_: Throwable) { false }
+                if (ledgerClosed7132) return@filter false
+                val capCountable7132 = try {
+                    com.lifecyclebot.engine.HostWalletTokenTracker.isCapCountable(ts.mint)
+                } catch (_: Throwable) { false }
+                if (!capCountable7132) {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_PANEL_SHOWN_ON_CANONICAL_OVER_CAP_7132") } catch (_: Throwable) {}
+                    try {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "OPEN_PANEL_SHOWN_ON_CANONICAL_OVER_CAP_7132",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} positionId=${ts.position.positionId.take(24)} " +
+                                "reason=canonical_open_proven_tracker_cap_evidence_lapsed action=render_row",
+                        )
+                    } catch (_: Throwable) {}
+                }
+                true
             }
             .toMutableList()
         val alreadyRendered = merged.map { it.mint }.toMutableSet()

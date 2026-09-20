@@ -48,14 +48,6 @@ object CausalFeedbackAuthority6715 {
         var terminalEpoch: Long = 0L,
         var learningRevision: Long = 0L,
         var cleanLearnedCloses: Int = 0,
-        // V5.0.6721 §COHORT_LOSER_ADVISORY — track wins/losses per scope so
-        // admit() can emit COHORT_LOSER_ADVISORY_6721 when a cohort has
-        // enough closes to be judged AND its winrate is below the crypto-
-        // deck-parity floor. Advisory only; matches the operator's cross-
-        // asset parity intent — the sizing damper and tactic switcher can
-        // consume this counter to reduce exposure without hard-blocking.
-        var wins: Int = 0,
-        var losses: Int = 0,
         val reservedAttempts: MutableSet<String> = linkedSetOf(),
         val openPositions: MutableSet<String> = linkedSetOf(),
         val pendingLearning: MutableSet<String> = linkedSetOf(),
@@ -91,9 +83,9 @@ object CausalFeedbackAuthority6715 {
     private val learnedSeen = HashSet<String>()
 
     private fun normMode(mode: String): String = mode.trim().uppercase().ifBlank { "UNKNOWN" }
-    // V5.0.7115 §ONE_LANE_IDENTITY — delegated; both folds moved to the authority.
-    private fun normLane(raw: String): String =
-        CanonicalLaneIdentity6506.canonical(raw)
+    private fun normLane(raw: String): String = raw.trim().uppercase().replace('-', '_').replace(' ', '_').let {
+        when (it) { "BLUE_CHIP" -> "BLUECHIP"; "PRESALE_SNIPE" -> "PROJECT_SNIPER"; else -> it }
+    }
     fun isMemeOwnerLane(raw: String): Boolean = normLane(raw) in MEME_LANES
 
     fun scoreBand(score: Int): String = when {
@@ -157,26 +149,16 @@ object CausalFeedbackAuthority6715 {
      */
     fun admit(attemptId: String, mint: String, mode: String, lane: String, score: Int): Admission {
         if (!isMemeOwnerLane(lane)) return Admission(true, "NON_MEME_FAIL_OPEN")
-        val nm = normMode(mode); val nl = normLane(lane); val admitBand = scoreBand(score)
+        val nm = normMode(mode); val nl = normLane(lane); val band = scoreBand(score)
+        val canonicalLaneOpen = try {
+            CanonicalPositionAuthority6441.openPositions().count {
+                it.mode.equals(nm, true) && normLane(it.lane) == nl
+            }
+        } catch (_: Throwable) { 0 }
         synchronized(lock) {
-            // V5.0.6720 §CAUSAL_RESERVATION_LIFECYCLE — sweep abandoned
-            // reservations INSIDE this lock so no other thread can re-insert
-            // between sweep and cap check. TTL is generous (60s — well past
-            // normal ticket-open of ~5s) so we never yank a live reservation.
-            // This is what unfroze the 1524 UNRESOLVED_FEEDBACK_CAP_6715
-            // blocks in the 5.0.6719 dump.
-            sweepStaleReservationsLocked(System.currentTimeMillis())
-            var stamp = ticketStamps[attemptId]
-            // V5.0.6719 §CAUSAL_STATE_ACCOUNTING — the stamp's scoreBand is the
-            // decision-time band. `entryScore` legitimately drifts between the
-            // decision stamp and this admit (fresher V3 ticks, mark updates),
-            // so we key every scope lookup on the STAMPED band, not the admit-
-            // time band. That eliminates a huge class of FEEDBACK_IDENTITY_
-            // DRIFT_REVALIDATE_6715 blocks that were nothing more than normal
-            // score drift wasting execution attempts.
-            val band = stamp?.scoreBand ?: admitBand
             val ks = keys(nm, nl, band)
             val currentStates = ks.associateWith(::state)
+            var stamp = ticketStamps[attemptId]
             if (stamp == null) {
                 val trulyCold = currentStates.values.all { it.terminalEpoch == 0L && it.learningRevision == 0L && it.cleanLearnedCloses == 0 }
                 if (!trulyCold) {
@@ -188,164 +170,20 @@ object CausalFeedbackAuthority6715 {
                 ticketStamps[attemptId] = stamp
                 emit("CAUSAL_TICKET_BOOTSTRAP_STAMPED_6715", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band")
             }
-            // V5.0.6719 §CAUSAL_STATE_ACCOUNTING — identity drift now only
-            // trips on mode/lane mismatch. Score-band drift is expected and
-            // absorbed by using the stamped band above.
-            if (stamp.mint != mint) {
+            if (stamp.mode != nm || stamp.lane != nl || stamp.scoreBand != band) {
                 releaseAttemptLocked(attemptId, removeStamp = true)
-                emit("CAUSAL_EXEC_STALE_EPOCH_6715", "attemptId=${attemptId.take(28)} reason=IDENTITY_DRIFT_MINT")
+                emit("CAUSAL_EXEC_STALE_EPOCH_6715", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} expected=$nm/$nl/$band stamped=${stamp.mode}/${stamp.lane}/${stamp.scoreBand} reason=IDENTITY_DRIFT")
                 return Admission(false, "FEEDBACK_IDENTITY_DRIFT_REVALIDATE_6715", forceRevalidate = true)
             }
-            if (stamp.mode != nm || stamp.lane != nl) {
-                releaseAttemptLocked(attemptId, removeStamp = true)
-                emit("CAUSAL_EXEC_STALE_EPOCH_6715", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} expected=$nm/$nl stamped=${stamp.mode}/${stamp.lane} reason=IDENTITY_DRIFT_MODE_OR_LANE")
-                return Admission(false, "FEEDBACK_IDENTITY_DRIFT_REVALIDATE_6715", forceRevalidate = true)
-            }
-            val staleByTerminal = stamp.scopes.any { (k, v) -> state(k).terminalEpoch != v.terminalEpoch }
-            val staleByRevision = stamp.scopes.any { (k, v) -> state(k).learningRevision != v.learningRevision }
-            val stale = staleByTerminal || staleByRevision
+            val stale = stamp.scopes.any { (k, v) -> state(k).let { it.terminalEpoch != v.terminalEpoch || it.learningRevision != v.learningRevision } }
             if (stale) {
-                // V5.0.6732 §LEARNER_REVISION_RACE_STAMP_ONLY_GRACE — 6731
-                // ran the pipeline into recurring learner-revision churn.
-                // The 6730 blanket grace was reverted because it violated
-                // the Aate6715 integrity contract (fresh terminal MUST
-                // invalidate pending stamps).
-                //
-                // Correct discriminator:
-                //   staleByTerminal → a real close landed in this scope.
-                //     The pending decision was made without knowledge of
-                //     that outcome. Integrity contract: MUST hard-block.
-                //   staleByRevision only → a learner ACK landed on an
-                //     ALREADY-terminalized position (markLearned path).
-                //     No new market truth arrived. Whether the pending
-                //     stamp saw the ACK or not is a self-tuning race, not
-                //     an integrity violation.
-                //
-                // Grace applies only when:
-                //   1. NOT stale by terminal (integrity preserved), AND
-                //   2. NO reservation exists yet (this is first admit —
-                //      the stamp was made pre-bump but no work has yet
-                //      committed under the old revision), AND
-                //   3. stamp is within LEARNER_REVISION_GRACE_MS.
-                val hasReservation = reservations[attemptId] != null
-                val stampAgeMs = System.currentTimeMillis() - stamp.stampedAtMs
-                val withinGrace = stampAgeMs in 0..LEARNER_REVISION_GRACE_MS
-                // V5.0.7083 §THE_CONTRACT_IS_UNSATISFIABLE_AT_THIS_CLOSE_RATE.
-                //
-                // Operator directive: "A sealed FDG authorization must remain
-                // executable for its ticket TTL unless a MATERIAL invalidator
-                // occurs." A close on a DIFFERENT mint in the same lane+band is
-                // not on that list, and the device report shows what excluding
-                // it costs:
-                //
-                //   QUALITY          sized=20  ticket=0   status=TICKET_CHOKED
-                //   SHITCOIN         sized=7   ticket=0   status=TICKET_CHOKED
-                //   PROJECT_SNIPER   sized=3   ticket=0   status=TICKET_CHOKED
-                //
-                // This is the LAST remaining hard block in this authority.
-                // V5.0.6721 converted every other one to soft mode — the
-                // unresolved cap and the pendingLearning gate both emit
-                // _SOFT_MISS_6721 and fall through. Three lanes sitting at
-                // exactly zero tickets with twenty, seven and three sized
-                // candidates is this branch and nothing else.
-                //
-                // AND IT CANNOT CONVERGE. terminalEpoch is keyed on
-                // (mode, lane, scoreBand), so ANY clean close in a lane
-                // invalidates EVERY pending stamp in it. That run closed 142
-                // terminal sells in 166 seconds — one per 1.17s — against a
-                // 5.1s bot cycle. A stamp must survive at least one cycle to
-                // reach admit, so in a busy lane its chance of doing so is
-                // near zero. Dropping it forces a full FDG round trip that
-                // hits the same wall on the next pass. That is a LIVELOCK, not
-                // a per-decision safety property: the lanes that DO convert
-                // (MOONSHOT 2/2, EXPRESS 1/1) are the ones with almost no flow.
-                //
-                // WHY THIS IS NOT V5.0.6730's BLANKET GRACE, which V5.0.6732
-                // reverted for violating the integrity contract. The contract's
-                // actual requirement is stated in its own header: "trade N
-                // cannot execute on a pre-outcome decision after trade N-1
-                // changed the learned state." The remedy for that is for the
-                // decision to SEE the outcome — which re-stamping under the new
-                // epoch does — not for the decision to be destroyed. Dropping
-                // is only necessary while the outcome is UNABSORBED.
-                //
-                // So the re-stamp is conditional on the learner having actually
-                // absorbed it: pendingLearning must be empty across every scope.
-                // If a terminal is still waiting on its learner ACK, the hard
-                // block stands exactly as before. That is the discriminator
-                // 6730 lacked.
-                val terminalsLearned7083 = currentStates.values.all { it.pendingLearning.isEmpty() }
-                val withinTerminalGrace7083 = stampAgeMs in 0..LEARNED_TERMINAL_GRACE_MS_7083
-                val refreshOnLearnedTerminal7083 =
-                    staleByTerminal && !hasReservation && terminalsLearned7083 && withinTerminalGrace7083
-                if (refreshOnLearnedTerminal7083) {
-                    val refreshedSnap7083 = ks.associateWith { k ->
-                        state(k).let { ScopeStamp(it.terminalEpoch, it.learningRevision) }
-                    }
-                    ticketStamps[attemptId] = stamp.copy(
-                        scopes = refreshedSnap7083,
-                        stampedAtMs = System.currentTimeMillis(),
-                    )
-                    emit(
-                        "CAUSAL_STAMP_REFRESHED_ON_LEARNED_TERMINAL_7083",
-                        "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl " +
-                            "band=$band stampAgeMs=$stampAgeMs " +
-                            "action=restamp_under_post_outcome_state_learner_has_acked",
-                    )
-                    // Fall through to reservation issuance under the fresh stamp.
-                } else if (!staleByTerminal && !hasReservation && withinGrace) {
-                    val refreshedSnap = ks.associateWith { k ->
-                        state(k).let { ScopeStamp(it.terminalEpoch, it.learningRevision) }
-                    }
-                    ticketStamps[attemptId] = stamp.copy(
-                        scopes = refreshedSnap,
-                        stampedAtMs = System.currentTimeMillis(),
-                    )
-                    emit(
-                        "CAUSAL_STAMP_REFRESHED_ON_REVISION_RACE_6732",
-                        "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band stampAgeMs=$stampAgeMs",
-                    )
-                    // Fall through to reservation issuance under the fresh stamp.
-                } else {
-                    releaseAttemptLocked(attemptId, removeStamp = true)
-                    val why = if (staleByTerminal) "TERMINAL_EPOCH_CHANGED" else "LEARNER_REVISION_CHANGED"
-                    emit(
-                        "CAUSAL_EXEC_STALE_EPOCH_6715",
-                        "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band reason=$why hasReservation=$hasReservation stampAgeMs=$stampAgeMs " +
-                            // V5.0.7083 — say WHY the re-stamp was refused, so a
-                            // block that survives this build is attributable to
-                            // one of three causes instead of being one
-                            // undifferentiated count. Without this the next
-                            // reading of STALE_FEEDBACK_EPOCH_REVALIDATE cannot
-                            // tell "learner is behind" from "stamp aged out".
-                            "terminalsLearned=$terminalsLearned7083 withinTerminalGrace=$withinTerminalGrace7083 " +
-                            "pendingLearning=${currentStates.values.sumOf { it.pendingLearning.size }}",
-                    )
-                    return Admission(false, "STALE_FEEDBACK_EPOCH_REVALIDATE_6715", forceRevalidate = true)
-                }
+                releaseAttemptLocked(attemptId, removeStamp = true)
+                emit("CAUSAL_EXEC_STALE_EPOCH_6715", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band reason=LEARNER_REVISION_CHANGED")
+                return Admission(false, "STALE_FEEDBACK_EPOCH_REVALIDATE_6715", forceRevalidate = true)
             }
             if (currentStates.values.any { it.pendingLearning.isNotEmpty() }) {
-                // V5.0.6721 §CAUSAL_ALIGN_TO_CROSS_ASSET_PARITY — SOFT MODE.
-                // Triage of 5.0.6720 dumps proved this admission gate is the
-                // "unfair tax" applied only to the meme deck. Crypto/perps
-                // decks return Admission(true, "NON_MEME_FAIL_OPEN") at the
-                // top of admit() and trade at 57% WR with 22 healthy opens
-                // while the meme deck is stuck at 8% WR with EXEC_GATE 92.6%
-                // blocked. Same shared paper ledger, mark registry, exit
-                // coordinator. The only differentiator is this authority.
-                //
-                // Fix: keep all telemetry (stamp, reservation, supersede, TTL
-                // sweep, learning ACK, terminal ingestion, epoch churn) but
-                // stop BLOCKING. Every former hard-block emits a
-                // _SOFT_MISS_6721 counter and returns Admission(true, ...)
-                // so we can measure exactly which conditions the pipeline
-                // would have refused, WITHOUT starving the deck of flow.
-                // If the meme deck's winrate climbs to crypto-deck-parity
-                // (~40-60%), that proves the block layer was the choke; if
-                // it stays low, the diagnosis was wrong and we re-enable
-                // the specific gates with data.
-                emit("CAUSAL_EXEC_SOFT_MISS_FEEDBACK_PENDING_6721", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band pending=${currentStates.values.sumOf { it.pendingLearning.size }}")
-                // Fall through to reservation issuance so the loop keeps flowing.
+                emit("CAUSAL_EXEC_BLOCK_FEEDBACK_PENDING_6715", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band pending=${currentStates.values.sumOf { it.pendingLearning.size }}")
+                return Admission(false, "TERMINAL_FEEDBACK_NOT_LEARNED_6715")
             }
             reservations[attemptId]?.let {
                 return Admission(true, "IDEMPOTENT_CAUSAL_RESERVATION_6715")
@@ -355,93 +193,18 @@ object CausalFeedbackAuthority6715 {
             val bandState = currentStates.getValue(bandKey(nm, nl, band))
             val laneCap = cap(laneState.cleanLearnedCloses, 6)
             val bandCap = cap(bandState.cleanLearnedCloses, 3)
-            // V5.0.6719 §CAUSAL_STATE_ACCOUNTING — count only the causal
-            // authority's OWN tracked openPositions against the cap.
-            val laneUnresolved = laneState.openPositions.size + laneState.reservedAttempts.size
+            val laneUnresolved = maxOf(laneState.openPositions.size, canonicalLaneOpen) + laneState.reservedAttempts.size
             val bandUnresolved = bandState.openPositions.size + bandState.reservedAttempts.size
             if (laneUnresolved >= laneCap || bandUnresolved >= bandCap) {
-                // V5.0.6721 §CAUSAL_ALIGN_TO_CROSS_ASSET_PARITY — SOFT MODE.
-                // Legacy behaviour: hard-rejected admission with the
-                // unresolved-cap reason. Now: emit soft-miss counter and
-                // let the attempt through.
-                // Cap is preserved as a diagnostic-only measurement so we can
-                // see when the deck WOULD have been throttled.
-                emit(
-                    "CAUSAL_EXEC_SOFT_MISS_UNRESOLVED_CAP_6721",
-                    "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band laneUnresolved=$laneUnresolved/$laneCap bandUnresolved=$bandUnresolved/$bandCap",
-                )
-                // Fall through — cap is now advisory.
-            }
-            // V5.0.6721 §COHORT_LOSER_ADVISORY — surface chronic-losing cohorts
-            // to downstream sizing dampers and the tactic switcher WITHOUT
-            // hard-blocking. Fires when a band scope has recorded at least 8
-            // decided closes and the winrate is under 20% (crypto-deck-parity
-            // floor). Advisory only — the AutonomousMetaPolicy / LanePolicy
-            // sizing damper can consume this counter to trim exposure. This
-            // is the P1 cohort auto-suppression the operator asked for,
-            // implemented as data rather than a hard block so it can't
-            // choke flow the way the previous UNRESOLVED_FEEDBACK_CAP did.
-            val bandDecided = bandState.wins + bandState.losses
-            if (bandDecided >= 8) {
-                val bandWr = bandState.wins.toDouble() / bandDecided.toDouble()
-                if (bandWr < 0.20) {
-                    emit(
-                        "COHORT_LOSER_ADVISORY_6721",
-                        "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band bandWr=${(bandWr * 100).toInt()}% bandN=$bandDecided wins=${bandState.wins} losses=${bandState.losses}",
-                    )
-                }
+                emit("CAUSAL_EXEC_BLOCK_FEEDBACK_PENDING_6715", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band laneUnresolved=$laneUnresolved/$laneCap bandUnresolved=$bandUnresolved/$bandCap reason=UNRESOLVED_CAP")
+                return Admission(false, "UNRESOLVED_FEEDBACK_CAP_6715", laneCap = laneCap, bandCap = bandCap, laneUnresolved = laneUnresolved, bandUnresolved = bandUnresolved)
             }
             val r = Reservation(attemptId, nm, mint, nl, band, ks, System.currentTimeMillis())
-            // V5.0.6720 §CAUSAL_RESERVATION_LIFECYCLE — supersede any prior
-            // live reservations for the same (mode, mint, lane) triple. When
-            // a fresher attempt gets admitted, the older ones are dead by
-            // definition (they lost owner election) and MUST NOT continue
-            // consuming the cap. This alone would have killed most of the
-            // 1524 blocks in the 5.0.6719 dump because the same mint kept
-            // rebooking attempts every 5-10s while old reservations lingered.
-            val superseded = reservations.values
-                .filter { it.mode == nm && it.mint == mint && it.lane == nl && it.attemptId != attemptId }
-                .toList()
-            if (superseded.isNotEmpty()) {
-                superseded.forEach { old ->
-                    old.scopeKeys.forEach { state(it).reservedAttempts.remove(old.attemptId) }
-                    reservations.remove(old.attemptId)
-                    ticketStamps.remove(old.attemptId)
-                }
-                emit(
-                    "CAUSAL_RESERVATION_SUPERSEDED_6720",
-                    "newAttemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl count=${superseded.size}",
-                )
-            }
             reservations[attemptId] = r
             ks.forEach { state(it).reservedAttempts.add(attemptId) }
             emit("CAUSAL_EXEC_ADMITTED_6715", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band lane=$laneUnresolved->$laneCap band=$bandUnresolved->$bandCap")
             return Admission(true, "CAUSAL_FRESH_6715", laneCap = laneCap, bandCap = bandCap, laneUnresolved = laneUnresolved, bandUnresolved = bandUnresolved)
         }
-    }
-
-    /**
-     * V5.0.6720 §CAUSAL_RESERVATION_LIFECYCLE — TTL sweep for abandoned
-     * reservations. An attempt should either reach onPositionOpened or die
-     * via releaseAttempt within ~5s of admit under any normal path. 60s TTL
-     * is generous enough to never yank a live reservation, but tight enough
-     * that leaked reservations from sized-but-not-ticketed / ticket-expired
-     * / mint-aliased / caller-forgot-to-release paths can't inflate the cap
-     * forever. Must be invoked inside `synchronized(lock)`.
-     */
-    private fun sweepStaleReservationsLocked(nowMs: Long) {
-        val ttlMs = 60_000L
-        val stale = reservations.values.filter { nowMs - it.reservedAtMs > ttlMs }.toList()
-        if (stale.isEmpty()) return
-        stale.forEach { r ->
-            r.scopeKeys.forEach { state(it).reservedAttempts.remove(r.attemptId) }
-            reservations.remove(r.attemptId)
-            ticketStamps.remove(r.attemptId)
-        }
-        emit(
-            "CAUSAL_RESERVATION_TTL_SWEPT_6720",
-            "count=${stale.size} ttlMs=$ttlMs oldestAgeMs=${stale.maxOf { nowMs - it.reservedAtMs }}",
-        )
     }
 
     /** Exact canonical OPEN boundary; converts a pending decision reservation into exposure. */
@@ -486,25 +249,15 @@ object CausalFeedbackAuthority6715 {
                 emit("CAUSAL_PENDING_INVALIDATED_ON_TERMINAL_6715", "positionId=${env.positionId.take(24)} lane=$nl count=${invalidated.size}")
             }
             val earlyAck = earlyLearnAcks.remove(env.positionId)
-            val isWin6721 = env.realizedReturnPct > 0.0
             if (env.learningEligible) {
                 if (earlyAck) {
-                    ks.forEach { k -> state(k).apply {
-                        learningRevision += 1L
-                        cleanLearnedCloses += 1
-                        if (isWin6721) wins += 1 else losses += 1
-                    } }
+                    ks.forEach { k -> state(k).apply { learningRevision += 1L; cleanLearnedCloses += 1 } }
                     learnedSeen.add(env.positionId)
                     positionScopes.remove(env.positionId)
-                    emit("CAUSAL_OWNER_LEARN_ACK_6715", "positionId=${env.positionId.take(24)} lane=$nl order=ACK_BEFORE_TERMINAL win=$isWin6721")
+                    emit("CAUSAL_OWNER_LEARN_ACK_6715", "positionId=${env.positionId.take(24)} lane=$nl order=ACK_BEFORE_TERMINAL")
                 } else {
                     ks.forEach { state(it).pendingLearning.add(env.positionId) }
                     positionScopes[env.positionId] = ks
-                    // Track W/L on terminal even before markLearned so cohort
-                    // advisory sees the truth immediately.
-                    ks.forEach { k -> state(k).apply {
-                        if (isWin6721) wins += 1 else losses += 1
-                    } }
                 }
             } else {
                 positionScopes.remove(env.positionId)
@@ -539,21 +292,6 @@ object CausalFeedbackAuthority6715 {
             learnedSeen.add(positionId)
             positionScopes.remove(positionId)
             emit("CAUSAL_OWNER_LEARN_ACK_6715", "positionId=${positionId.take(24)} scopes=${ks.joinToString(",")}")
-            // V5.0.6742 §PILLAR_7_WIRE — the owner-bound policy mutation
-            // just committed is the real production learning checkpoint
-            // for round-trip verification. `markLearned` is NEVER called
-            // outside of a real terminal-consumer path, so this cannot
-            // fabricate learning stages for shadow replays or partial
-            // sells. Guarded try/catch keeps the reconciler purely
-            // observational — never blocking a successful learning ack.
-            try {
-                CanonicalRoundTripReconciler6738.record(
-                    positionId = positionId,
-                    stage = CanonicalRoundTripReconciler6738.Stage.LEARNING_DELIVERED,
-                    lane = "",
-                    mode = "",
-                )
-            } catch (_: Throwable) {}
             return true
         }
     }
@@ -575,161 +313,6 @@ object CausalFeedbackAuthority6715 {
         val opens = scopes.filterKeys { it.startsWith("LANE|") }.values.sumOf { it.openPositions.size }
         val learned = scopes.filterKeys { it.startsWith("LANE|") }.values.sumOf { it.cleanLearnedCloses }
         "CausalFeedback6715 scopes=${scopes.size} learned=$learned pendingLearning=$pending reserved=$reserved trackedOpen=$opens tickets=${ticketStamps.size}"
-    }
-
-    /**
-     * V5.0.6724 §COHORT_LOSER_ADVISORY_CONSUMER — public snapshot of the
-     * chronic-loser advisory the same admit() path emits into telemetry.
-     * A cohort is chronic-losing when it has recorded >= MIN_DECIDED closes
-     * AND its winrate is under WR_FLOOR. The advisory is intentionally an
-     * observation, not a hard block; downstream sizing callers can choose to
-     * apply the returned floor multiplier without disturbing existing
-     * heuristic thresholds.
-     *
-     * Returns:
-     *  - `null` if the lane has no chronic-loser band on the given side
-     *    (or the lane is non-meme, which fails open).
-     *  - `Advisory(worstBand, worstWr, worstN, sizeMultiplier)` if any of
-     *    the lane's bands have crossed the chronic-loser threshold on the
-     *    given mode side. The multiplier scales down toward 0.4 as the
-     *    winrate approaches 0% (bounded so a single bad band cannot outright
-     *    freeze the lane).
-     */
-    data class CohortLoserAdvisory(
-        val worstBand: String,
-        val worstWinRatePct: Double,
-        val worstDecidedCount: Int,
-        val sizeMultiplier: Double,
-    )
-
-    private const val ADVISORY_MIN_DECIDED = 8
-    private const val ADVISORY_WR_FLOOR = 0.20
-    private const val ADVISORY_MULT_FLOOR = 0.40
-
-    /**
-     * V5.0.6730 §LEARNER_REVISION_RACE_GRACE — window within which an
-     * in-flight decision (already stamped at admission time) is
-     * protected from being invalidated by an unrelated cohort's
-     * terminal-learning revision bump. Longer than the typical
-     * stamp→exec latency (~1s) but short enough that a genuinely
-     * stale decision beyond this window still triggers revalidation.
-     */
-    private const val LEARNER_REVISION_GRACE_MS = 3_000L
-
-    /**
-     * V5.0.7083 — how long a stamp may be re-stamped after a LEARNED terminal
-     * advanced its scope's epoch.
-     *
-     * Wider than LEARNER_REVISION_GRACE_MS because this window has to contain a
-     * slower sequence: close -> terminal ingested -> learner ACK -> next admit.
-     * The 3s revision grace only had to cover an ACK landing on an
-     * already-terminalized position. 15s is still well inside a ticket TTL and
-     * comfortably under the 60s reservation sweep, so a re-stamped attempt
-     * cannot outlive the machinery that cleans up after it.
-     *
-     * A stamp OLDER than this is not re-stamped: at that age the decision has
-     * been sitting unexecuted long enough that re-entering FDG is the right
-     * outcome rather than a wasted round trip.
-     */
-    private const val LEARNED_TERMINAL_GRACE_MS_7083 = 15_000L
-
-    fun cohortLoserAdvisoryForLane(mode: String, lane: String): CohortLoserAdvisory? {
-        if (!isMemeOwnerLane(lane)) return null
-        val nm = normMode(mode)
-        val nl = normLane(lane)
-        synchronized(lock) {
-            val bandPrefix = "BAND|$nm|$nl|"
-            var worst: CohortLoserAdvisory? = null
-            for ((k, s) in scopes) {
-                if (!k.startsWith(bandPrefix)) continue
-                val decided = s.wins + s.losses
-                if (decided < ADVISORY_MIN_DECIDED) continue
-                val wr = s.wins.toDouble() / decided.toDouble()
-                if (wr >= ADVISORY_WR_FLOOR) continue
-                val band = k.removePrefix(bandPrefix)
-                // Linear scale: at wr==0 → ADVISORY_MULT_FLOOR; at wr==WR_FLOOR → 1.0.
-                val frac = (wr / ADVISORY_WR_FLOOR).coerceIn(0.0, 1.0)
-                val mult = (ADVISORY_MULT_FLOOR + (1.0 - ADVISORY_MULT_FLOOR) * frac).coerceIn(ADVISORY_MULT_FLOOR, 1.0)
-                if (worst == null || mult < worst.sizeMultiplier) {
-                    worst = CohortLoserAdvisory(band, wr * 100.0, decided, mult)
-                }
-            }
-            return worst
-        }
-    }
-
-    /**
-     * V5.0.6725 §COHORT_ADVISORY_PER_BAND — 6724 exposed advisory at
-     * lane granularity only, but the actual chronic-loser structure is
-     * per-band (EXPRESS|S61+ 0/11 alongside EXPRESS|S26-40 5/9 profitable).
-     * Sizing/tactic consumers with band context need to consult the
-     * EXACT band's advisory, not the lane-worst rollup. Returns non-null
-     * only when THIS specific (mode, lane, band) triple has crossed the
-     * chronic-loser threshold. Non-meme lanes still fail open (null).
-     */
-    fun cohortLoserAdvisoryForBand(mode: String, lane: String, band: String): CohortLoserAdvisory? {
-        if (!isMemeOwnerLane(lane)) return null
-        val nm = normMode(mode)
-        val nl = normLane(lane)
-        val nb = band.trim().uppercase()
-        if (nb.isBlank()) return null
-        synchronized(lock) {
-            val key = "BAND|$nm|$nl|$nb"
-            val s = scopes[key] ?: return null
-            val decided = s.wins + s.losses
-            if (decided < ADVISORY_MIN_DECIDED) return null
-            val wr = s.wins.toDouble() / decided.toDouble()
-            if (wr >= ADVISORY_WR_FLOOR) return null
-            val frac = (wr / ADVISORY_WR_FLOOR).coerceIn(0.0, 1.0)
-            val mult = (ADVISORY_MULT_FLOOR + (1.0 - ADVISORY_MULT_FLOOR) * frac).coerceIn(ADVISORY_MULT_FLOOR, 1.0)
-            return CohortLoserAdvisory(nb, wr * 100.0, decided, mult)
-        }
-    }
-
-    /**
-     * V5.0.6727 §COHORT_TERMINAL_SUPPRESSOR — the 6726 dump proved the
-     * 6725 soft-advisory tier is not enough: EXPRESS was still executing
-     * at 4.3% WR with a ×0.19 damper (39 admissions) and MOONSHOT at 0%.
-     * The user diagnostic: "self-tuning layer is learning, but it is not
-     * governing hard enough" — advisory is being seen and NOT acted on
-     * with sufficient force.
-     *
-     * This second tier is HARD-block, not advisory. When a specific
-     * (mode, lane, band) has decided N >= TERMINAL_MIN_DECIDED AND its
-     * winrate is under TERMINAL_WR_FLOOR (5%), the authority returns a
-     * non-null block reason. Callers at admission time MUST reject the
-     * admission. This overrides the advisory tier — you can't recover
-     * from a chronic 5% WR sample by widening TP; you have to stop
-     * feeding the cohort.
-     *
-     * Deliberately stricter thresholds than the advisory tier so this
-     * only fires on genuinely-terminal cohorts. Non-meme lanes still
-     * fail open (crypto/perps parity — never hard-block cross-asset).
-     */
-    private const val TERMINAL_MIN_DECIDED = 20
-    private const val TERMINAL_WR_FLOOR = 0.05
-
-    data class TerminalSuppression(
-        val band: String,
-        val winRatePct: Double,
-        val decidedCount: Int,
-    )
-
-    fun terminalCohortSuppressionForBand(mode: String, lane: String, band: String): TerminalSuppression? {
-        if (!isMemeOwnerLane(lane)) return null
-        val nm = normMode(mode)
-        val nl = normLane(lane)
-        val nb = band.trim().uppercase()
-        if (nb.isBlank()) return null
-        synchronized(lock) {
-            val key = "BAND|$nm|$nl|$nb"
-            val s = scopes[key] ?: return null
-            val decided = s.wins + s.losses
-            if (decided < TERMINAL_MIN_DECIDED) return null
-            val wr = s.wins.toDouble() / decided.toDouble()
-            if (wr >= TERMINAL_WR_FLOOR) return null
-            return TerminalSuppression(nb, wr * 100.0, decided)
-        }
     }
 
     internal fun resetForTest6715() = synchronized(lock) {

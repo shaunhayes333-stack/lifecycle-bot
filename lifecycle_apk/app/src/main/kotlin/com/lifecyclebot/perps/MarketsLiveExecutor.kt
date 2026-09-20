@@ -66,6 +66,51 @@ object MarketsLiveExecutor {
     // V5.9.104: hard slippage ceiling for ALL perps-family live swaps
     private const val MAX_SLIPPAGE_BPS = 500   // 5% — matches Executor.kt memecoin cap
 
+    /**
+     * V5.0.7132 — a Markets open must name its own asset class.
+     *
+     * `CanonicalPositionAuthority6441.openPosition` defaults `assetClass` to
+     * SOLANA_TOKEN. Every open in this file omitted it, so a tokenised stock,
+     * an FX pair, a metal and a commodity all entered the book claiming to be
+     * a Solana memecoin, and the cross-asset mark router dispatched them to the
+     * Birdeye / DexScreener / pump.fun path — the exact contamination
+     * AssetClass was introduced (6592) to make impossible.
+     */
+    private fun assetClass7132(market: PerpsMarket): com.lifecyclebot.engine.truth.AssetClass = when {
+        market.isStock -> com.lifecyclebot.engine.truth.AssetClass.STOCK
+        market.isMetal -> com.lifecyclebot.engine.truth.AssetClass.METAL
+        market.isCommodity -> com.lifecyclebot.engine.truth.AssetClass.COMMODITY
+        market.isForex -> com.lifecyclebot.engine.truth.AssetClass.FOREX
+        market.isCrypto -> com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT
+        else -> com.lifecyclebot.engine.truth.AssetClass.UNKNOWN
+    }
+
+    /**
+     * V5.0.7132 — the USD basis for a Markets open.
+     *
+     * `entryPriceUsd` also defaulted (to 0.0), and every runtime OPEN consumer
+     * refuses a canonical row without a positive USD entry
+     * (QuantityInvariantAuthority6500.check → canonical_economic_or_entry_
+     * invalid). A row opened without one is held in the wallet with real
+     * capital and is invisible to the panel, the hero totals, the exposure
+     * figure and the exit router — permanently.
+     *
+     * Derived through the same authority the live meme path uses, so the
+     * economic notional invariant holds by construction. The caller's market
+     * mark is the fallback when SOL/USD is not yet witnessed.
+     */
+    private fun entryUsd7132(costSol: Double, qtyUi: Double, callerMarkUsd: Double): Pair<Double, String> {
+        val derived = try {
+            com.lifecyclebot.engine.truth.EntryPriceIntegrityAuthority6405.deriveTrustedEntryUsd(
+                costSol = costSol,
+                qtyUi = qtyUi,
+                knownSolUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 },
+            )
+        } catch (_: Throwable) { null }
+        return if (derived != null) derived.usdPerToken to derived.source
+        else callerMarkUsd to "MARKETS_CALLER_MARK_7132"
+    }
+
     private fun configuredSlippageBps(): Int {
         val ctx = com.lifecyclebot.AATEApp.appContextOrNull() ?: return 100
         return try {
@@ -284,11 +329,18 @@ object MarketsLiveExecutor {
         val principal = if (!market.isCrypto && leverage > 1.0) sizeSol * leverage else sizeSol
         val fee = sizeSol * if (leverage <= 1.0) SPOT_TRADING_FEE_PERCENT else LEVERAGE_TRADING_FEE_PERCENT
         if (qty.signum() > 0 && targetMint != null) {
+            val qtyUi7132 = try {
+                qty.toBigDecimal().movePointLeft(decimals.coerceIn(0, 18)).toDouble()
+            } catch (_: Throwable) { 0.0 }
+            val (spotEntryUsd7132, spotEntrySource7132) = entryUsd7132(principal, qtyUi7132, priceUsd)
             val mutation = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPosition(
                 idempotencyKey = "MARKETS6486:OPEN:$positionId:$sig", positionId = positionId,
                 mint = targetMint, symbol = market.symbol, lane = traderType.uppercase(), runId = sig,
                 entryCostSol = principal, openedQtyRaw = qty, tokenDecimals = decimals,
                 feesSol = fee, paperMode = false,
+                entryPriceUsd = spotEntryUsd7132,
+                entryPriceSource = spotEntrySource7132,
+                assetClass = assetClass7132(market),
             )
             val accepted = mutation == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.APPLIED ||
                 mutation == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.DUPLICATE
@@ -304,9 +356,17 @@ object MarketsLiveExecutor {
                 if (!key.isNullOrBlank()) {
                     val syntheticQty = java.math.BigInteger.valueOf(1_000_000_000L)
                     val syntheticMint = "flash:${market.symbol}:${direction.name}"
+                    // The Flash unit is one synthetic token at 9 decimals, so
+                    // its USD basis is the principal, not the underlying's mark
+                    // — passing priceUsd here would put the implied SOL price
+                    // far outside the physical band and break the invariant.
+                    val (flashEntryUsd7132, flashEntrySource7132) = entryUsd7132(principal, 1.0, principal)
                     val mutation = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPosition(
                         "MARKETS6486:OPEN:$positionId:$sig", positionId, syntheticMint, market.symbol,
                         traderType.uppercase(), sig, principal, syntheticQty, 9, fee, false,
+                        entryPriceUsd = flashEntryUsd7132,
+                        entryPriceSource = flashEntrySource7132,
+                        assetClass = com.lifecyclebot.engine.truth.AssetClass.PERPS,
                     )
                     val accepted = mutation == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.APPLIED ||
                         mutation == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.MutateResult.DUPLICATE
@@ -322,6 +382,12 @@ object MarketsLiveExecutor {
                 "MARKETS6486:PENDING:$positionId:$sig", positionId,
                 targetMint ?: "pending:${market.symbol}", market.symbol, traderType.uppercase(), sig,
                 principal, java.math.BigInteger.ZERO, decimals, fee, false,
+                // A PENDING_ENTRY row carries no fill yet, so its basis is the
+                // caller's mark. The class is still known and must be recorded,
+                // or the promotion inherits SOLANA_TOKEN.
+                entryPriceUsd = priceUsd,
+                entryPriceSource = "MARKETS_PENDING_CALLER_MARK_7132",
+                assetClass = assetClass7132(market),
             )
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_LIVE_PENDING_PROOF_6486")
         } catch (_: Throwable) {}
