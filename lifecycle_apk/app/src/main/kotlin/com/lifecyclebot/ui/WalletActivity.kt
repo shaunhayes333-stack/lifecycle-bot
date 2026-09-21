@@ -856,17 +856,84 @@ class WalletActivity : AppCompatActivity() {
         // The 0.05 reserve is not a rounding allowance — it is the gas floor
         // subtracted on the line above, so it is shown rather than absorbed
         // into one of the other two.
+        // V5.0.7208 §THE_RING_CHARGED_THE_GAS_RESERVE_TWICE.
+        //
+        // Operator 5.0.7207, on this screen: 0.1000 SOL held, DEPLOYABLE
+        // CAPITAL $11.74, and this ring reading "0 % FREE". The same card said
+        // the whole balance was deployable and that none of it was.
+        //
+        // The ring was right about its own arithmetic and wrong about its
+        // inputs, twice over.
+        //
+        // (1) DOUBLE-CHARGED RESERVE. TreasuryManager.effectiveLockedSol caps
+        //     the lock at walletSol * (1 - MIN_TRADEABLE_PCT) - LIVE_TRADE_
+        //     BUFFER_SOL, i.e. it has ALREADY set aside 0.005 SOL for fees and
+        //     guaranteed MIN_TRADEABLE_PCT = 30% of the wallet stays tradeable.
+        //     `tradeable` above then subtracts a SEPARATE hard-coded 0.05 on
+        //     top — ten times the buffer the cap accounted for, and more than
+        //     the 0.03 that the 30% floor guaranteed on a 0.1 SOL wallet. So:
+        //
+        //       LIVE tradeable = 0.3*w - 0.045  ->  zero for any w < 0.15 SOL
+        //
+        //     Every live wallet under ~$17.60 displays 0% free, and the 30%
+        //     floor the cap exists to guarantee is consumed before it is shown.
+        //
+        // (2) PAPER TREASURY vs LIVE WALLET MIRROR. effectiveLockedSol returns
+        //     treasurySol RAW in paper mode (TreasuryManager:167) — only the
+        //     live branch caps it. The paper treasury accrued from an ~11 SOL
+        //     paper account, so 0.201 SOL is correct for that bankroll and
+        //     nonsense against a 0.1 SOL live wallet mirror. That is exactly
+        //     the category error V5.0.7187 fixed in the sizing path
+        //     ("size_against_paper_bankroll_not_wallet_mirror"); this screen
+        //     never got the same treatment.
+        //
+        // Fix: give the ring the bankroll the treasury was actually accrued
+        // from, and let the AUTHORITY do the capping against it rather than
+        // restating any arithmetic here. Passing isPaperMode = false is
+        // deliberate and is not a mode lie — it selects the CAPPING branch,
+        // which is the only branch that bounds a lock to its own bankroll, and
+        // it is handed the paper bankroll when in paper. One authority, one
+        // formula, correct base for the mode.
+        //
+        // Deliberately scoped to the ring. `treasury` / `tradeable` above feed
+        // tvWithdrawSolAmt and govern how much REAL SOL a withdrawal may
+        // request, and V5.9.495g capped them to the live wallet on purpose so
+        // a user cannot ask for SOL the wallet does not hold. Nothing here
+        // touches that path.
+        //
+        // Result on this device: live 0.1 SOL -> 30% free (exactly the
+        // MIN_TRADEABLE_PCT floor the cap promises, at any wallet size);
+        // paper -> measured against the paper account, so the ring and the
+        // DEPLOYABLE CAPITAL card finally agree.
         try {
             findViewById<DonutView7020>(R.id.walletAllocDonut)?.let { d ->
-                val reserve = kotlin.math.min(0.05, ws.solBalance).coerceAtLeast(0.0)
-                val total = tradeable + treasury + reserve
+                val paperBase7208 = if (!cfg.paperMode) 0.0 else try {
+                    com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.totalEquitySol()
+                        .takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+                } catch (_: Throwable) { 0.0 }
+                val base7208 = if (paperBase7208 > 0.0) paperBase7208 else ws.solBalance
+                val ringTreasury7208 = try {
+                    com.lifecyclebot.engine.TreasuryManager
+                        .effectiveLockedSol(base7208, isPaperMode = false)
+                } catch (_: Throwable) { 0.0 }
+                val ringReserve7208 = kotlin.math.min(
+                    com.lifecyclebot.engine.TreasuryManager.LIVE_TRADE_BUFFER_SOL,
+                    base7208,
+                ).coerceAtLeast(0.0)
+                val ringFree7208 =
+                    (base7208 - ringReserve7208 - ringTreasury7208).coerceAtLeast(0.0)
+                val total = ringFree7208 + ringTreasury7208 + ringReserve7208
                 if (total > 0.0) {
-                    d.centreText = if (ws.solBalance > 0.0) {
-                        "${(tradeable / ws.solBalance * 100.0).toInt()}"
+                    d.centreText = if (base7208 > 0.0) {
+                        "${(ringFree7208 / base7208 * 100.0).toInt()}"
                     } else "0"
                     d.centreCaption = "% FREE"
                     d.setSegments(
-                        floatArrayOf(tradeable.toFloat(), treasury.toFloat(), reserve.toFloat()),
+                        floatArrayOf(
+                            ringFree7208.toFloat(),
+                            ringTreasury7208.toFloat(),
+                            ringReserve7208.toFloat(),
+                        ),
                         intArrayOf(AateUi.GREEN, AateUi.PURPLE, AateUi.TEXT_MUTED),
                     )
                 }
