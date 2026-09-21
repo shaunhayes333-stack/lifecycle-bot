@@ -203,7 +203,61 @@ object LaneExitTuner {
                         "FLOOR_-15_LETRUN" -> ReplayBias(r.profile, tpMult = 1.10, slMult = 1.00, netSol = r.netSol, n = r.n)
                         "FLOOR_-15_TRAIL25" -> ReplayBias(r.profile, tpMult = 1.16, slMult = 1.08, netSol = r.netSol, n = r.n)
                         "EARLY_TP_+30" -> ReplayBias(r.profile, tpMult = 0.78, slMult = 0.85, netSol = r.netSol, n = r.n)
-                        "NO_TRADE" -> ReplayBias(r.profile, tpMult = 0.72, slMult = 0.70, netSol = r.netSol, n = r.n)
+                        // V5.0.7203 §A_VERDICT_ABOUT_ENTERING_WAS_BEING_SPENT_ON_EXITING.
+                        //
+                        // NO_TRADE is not an exit profile. LaneStrategyEvaluator
+                        // declares it as
+                        //     ExitProfile("NO_TRADE", stopPct = null,
+                        //                 trailFromPeakPct = null,
+                        //                 fullTpPct = null, noTrade = true)
+                        // and prints it as "STOP TRADING (no profile beats
+                        // sitting out)". stopPct is null because the profile
+                        // explicitly declines to recommend a stop. Mapping it to
+                        // slMult = 0.70 invented a stop opinion out of a verdict
+                        // that refused to give one — and applied it to positions
+                        // already open, which is a statement about entry being
+                        // spent on exit.
+                        //
+                        // MEASURED, 5.0.7202: BLUECHIP n=16 W/L=0/16 WR=0.0%
+                        // PnL=-1.0961 SOL, and terminal-by-lane avgPct = -5.0%
+                        // EXACTLY. Not approximately — every single BLUECHIP
+                        // position exits at the same number, because a 30%
+                        // tightened stop sits inside the asset's ordinary
+                        // volatility and harvests it. Largest single loss
+                        // contributor on a book that just went to -0.2005 SOL.
+                        //
+                        // The file already knew. UnifiedExitPolicyHead:227:
+                        //   "the paper-hands pattern seen across BLUECHIP/
+                        //    QUALITY/STANDARD where the STRICT_SL rule was
+                        //    cutting real assets at -5% during normal
+                        //    volatility while MOONSHOT held through and printed"
+                        //
+                        // And it is self-reinforcing: tighter stop -> more small
+                        // losses -> replay concludes NO_TRADE harder -> stop
+                        // tightens again. A lane cannot trade its way out of it.
+                        //
+                        // Returning null drops the lane from replayBiasByLane so
+                        // getTpMult/getSlMult fall through to `?: 1.0` — the
+                        // lane's DESIGNED stop, not a widened one. This removes
+                        // an invented tightening; it does not loosen anything
+                        // past default, and every catastrophic backstop
+                        // (TICK_HARD_FLOOR, CATASTROPHIC_HARD_BACKSTOP_25,
+                        // PROTECTIVE_EXIT_*) is untouched.
+                        //
+                        // NARROW BY CONSTRUCTION: getSlMult only consults the
+                        // replay bias when the closed-loop learner is NOT mature
+                        // (n < MIN_SAMPLE). QUALITY (lifetime=15) and
+                        // PRESALE_SNIPE (lifetime=17) are mature, so replay is
+                        // already ignored for them and they are unaffected. On
+                        // the 7202 snapshot BLUECHIP is the only NO_TRADE lane
+                        // with no closed-loop entry — the one lane that is
+                        // 16-for-16 losing at exactly the tightened stop.
+                        //
+                        // Entry-side suppression of a NO_TRADE lane is unchanged
+                        // and stays where it belongs: LosingPatternMemory's size
+                        // ladder, LaneExpectancyDamper (BLUECHIP x0.46) and the
+                        // brain consensus gate.
+                        "NO_TRADE" -> null
                         else -> null
                     }
                     if (b != null) canon(lane) to b else null
