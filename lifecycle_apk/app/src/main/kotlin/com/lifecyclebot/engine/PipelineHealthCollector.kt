@@ -2043,6 +2043,31 @@ object PipelineHealthCollector {
                 // exist at all, which had no status line anywhere until 7214.
                 sb.append("  Governor recovery (§6388): ")
                     .append(com.lifecyclebot.engine.truth.GovernorRecovery6388.statusLine()).append("\n")
+                // ── V5.0.7215 — the paper book that runs alongside live, and
+                // the guard that decides which route a request may take.
+                //
+                // Operator directive #4 and acceptance test J ("run >=20 clean
+                // paper closes before judging strategy quality") were both
+                // unanswerable from this report: the PAPER execution block
+                // describes the normal paper route, which is deliberately hard-
+                // blocked while the runtime is LIVE, and the shadow book that
+                // actually runs in its place appeared nowhere. Its five route
+                // counters existed and were read only by the JSON forensic
+                // exporter and InvariantGuardian — never by the report the
+                // operator reads.
+                sb.append("  Shadow paper book (§7215):  ")
+                    .append(com.lifecyclebot.engine.truth.ShadowBookTelemetry7215.statusLine7215())
+                    .append("\n")
+                sb.append("  Execution route guard:      ")
+                    .append("paperAllowed=").append(com.lifecyclebot.engine.ExecutionRouteGuard.paperAllowedCount())
+                    .append(" paperBlockedInLive=").append(com.lifecyclebot.engine.ExecutionRouteGuard.paperBlockedInLiveCount())
+                    .append(" shadowAllowed=").append(com.lifecyclebot.engine.ExecutionRouteGuard.shadowAllowedCount())
+                    .append(" liveAllowed=").append(com.lifecyclebot.engine.ExecutionRouteGuard.liveAllowedCount())
+                    .append(" liveBlocked=").append(com.lifecyclebot.engine.ExecutionRouteGuard.liveBlockedCount())
+                    .append("\n")
+                sb.append("     read=paperBlockedInLive is BY DESIGN (no paper fill may touch the live ledger);\n")
+                sb.append("          the shadow book is where paper evidence accrues while live. Acceptance J\n")
+                sb.append("          reads 'closes' above, and 'evictedUnclosed' is learning thrown away.\n")
             } catch (_: Throwable) {}
             // V5.0.6626 §RUNTIME_LOOP_UNCHOKE — coalescer + adaptive TTL status.
             try {

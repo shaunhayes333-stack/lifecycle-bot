@@ -580,6 +580,13 @@ class Executor(
     )
     private val shadowPositions = mutableMapOf<String, ShadowPosition>()
     private val MAX_SHADOW_POSITIONS = 20  // Limit to prevent memory bloat
+
+    // V5.0.7215 — the shadow paper book's counters live in
+    // ShadowBookTelemetry7215, not here. PipelineHealthCollector has no handle
+    // on the service's Executor instance, and acceptance test J (">=20 clean
+    // paper closes") has to be readable from the report. See that file for why
+    // this book was invisible and what its three silent evidence-destroying
+    // exits were.
     
     // ═══════════════════════════════════════════════════════════════════════════
     // V3.3: RECOVERY SCAN TRACKING
@@ -859,6 +866,65 @@ class Executor(
                     source = provenance,
                     quoteAgeMs = ageMs,
                 )
+                // ── V5.0.7215 §THE_CANDLE_BUILDER'S_ONLY_PRODUCER_COULD_NOT_FIRE.
+                //
+                // Operator directive #5: "repair market-data fallback — no hot
+                // path wait on Birdeye/CoinGecko/LLM; build candles locally."
+                //
+                // The builder exists and is correct. LocalCandleSynthesis7055's
+                // header names the chain it unblocks: ModeRouter gates
+                // BREAKOUT_CONTINUATION on hist.size>=10, REVERSAL_RECLAIM on
+                // >=8 and TREND_PULLBACK on >=15, and TREASURY, CASHGEN and
+                // DIP_HUNTER are reachable ONLY through the latter two. Those
+                // lanes sat at ownerSelected=0 against hundreds of qualified
+                // candidates, choked by an empty array rather than by any gate.
+                //
+                // It had exactly ONE producer — BotService:14836 — and that
+                // producer cannot fire. It derives its price as
+                // trustedMarketCapUsd / chainSupply and requires either a
+                // pump.fun mint or chainSupply >= 1.0, and the 5.0.7212
+                // snapshot says supply is resolved for 32 of 910 observed
+                // mints (TOKEN_METRICS_UNVERIFIABLE_NO_ONCHAIN_SUPPLY_7075 =
+                // 597). So the candle feed was gated behind a supply lookup
+                // that fails 96% of the time — a remedy behind a precondition
+                // it cannot reach, the same shape as 7148, 7154, 7204 and the
+                // 7086 raw-count gate fixed in 7214. Result:
+                //   Local candle synth (§7055): ticksBinned=0 candles=0
+                //   Keyless OHLCV (§6916): fetches=989 served=0 barsDelivered=0
+                //                          rateLimited6944=969
+                // 989 fetches, 969 rate-limited, not one bar, and the free
+                // keyless fallback built for exactly that never ran.
+                //
+                // This is where the raw material actually is. 7055's own header
+                // says so — "it polls a price for every watched mint every
+                // cycle (§6452 reported 17,053 quote notes in one session)" —
+                // and those 17,053 notes are this stamp, three lines up. The
+                // observation is already in hand and was being discarded.
+                //
+                // OBSERVED PRICES ONLY. A DERIVED or CACHED mark is refused,
+                // because a synthesised candle built from a carried-forward
+                // number would put motion into ts.history that the market never
+                // made, and ModeRouter would then classify on it. `note` itself
+                // adds the other guards: candidates only (it returns on an open
+                // position, which already gets per-tick candles), it stands down
+                // the moment a real OHLCV fetch delivers a bar with volume, and
+                // it discards single-tick buckets so hist.size cannot cross an
+                // archetype threshold on one observation counted twice.
+                //
+                // Free and keyless: arithmetic on data already fetched. No new
+                // provider, no key, no request, no threshold or lane change.
+                val observed7215 =
+                    provenance == com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.Provenance.REST_LIVE ||
+                        provenance == com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.Provenance.WS_LIVE
+                if (observed7215) {
+                    com.lifecyclebot.engine.truth.LocalCandleSynthesis7055.note(
+                        ts = ts,
+                        priceUsd = livePriceForStamp,
+                        mcapUsd = ts.lastMcap,
+                    )
+                } else {
+                    PipelineHealthCollector.labelInc("LOCAL_CANDLE_TICK_REFUSED_NOT_OBSERVED_7215_${provenance.name}")
+                }
             } catch (_: Throwable) {}
         }
         // V5.9.744 — POOL/SOURCE-AWARE PRICE RESOLVER.
@@ -13975,9 +14041,35 @@ class Executor(
                     if (guard.fatal) onNotify("🛑 Bot Halted", guard.reason, com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                     
                     livePreAttemptHardReject(ts, effSol, "LIVE_BUY_REJECTED_HARD_BLOCK_SECURITY_GUARD", guard.reason)
-                    if (cfg().shadowPaperEnabled) {
-                        runShadowPaperBuy(ts, effSol, score, quality, "blocked:${guard.reason.take(20)}", safeWallet, walletSol)
-                    }
+                    // V5.0.7215 §6073_WAS_APPLIED_TO_ONE_OF_THREE_CALL_SITES.
+                    //
+                    // V5.0.6073 made the shadow book "ALWAYS-ON: no toggle
+                    // gate" and removed the check at the parallel call site
+                    // below. The two REFUSAL sites — this one and the exposure
+                    // cap — kept `if (cfg().shadowPaperEnabled)`, and that flag
+                    // defaults to FALSE (BotConfig:79, turned off in V5.9.773
+                    // because default-on shadow paper bled into the LIVE UI).
+                    //
+                    // So the book learned from every candidate the bot was
+                    // ALLOWED to buy and from none of the ones it refused —
+                    // which is the wrong way round. A security-guard block or
+                    // an exposure cap is precisely the case where a free
+                    // counterfactual is worth having: it costs no real SOL and
+                    // it is the only way the brain ever learns what the
+                    // refusals would have done. Operator directive #4 wants
+                    // paper evidence accumulating independently of what the
+                    // live side is allowed to do, and acceptance J needs closes
+                    // from somewhere.
+                    //
+                    // The UI-bleed concern 5.9.773 was protecting against does
+                    // not apply here: this is runShadowPaperBuy, which holds a
+                    // ShadowPosition in memory only and never journals a paper
+                    // trade, never mutates TokenState.position, never touches
+                    // PaperCapitalAuthority and never bumps EXEC_PAPER_BUY_OK
+                    // (ExecutionRouteGuard:29-33 states that contract). That is
+                    // why 6073 could make the parallel site unconditional in
+                    // the first place. Completing it here.
+                    runShadowPaperBuy(ts, effSol, score, quality, "blocked:${guard.reason.take(20)}", safeWallet, walletSol)
                     return
                 }
                 is GuardResult.Allow -> {
@@ -14000,9 +14092,9 @@ class Executor(
                         } else {
                             onLog("🔒 Exposure cap: ${ts.symbol} blocked (wallet ${WalletPositionLock.getExposurePct(walletSol).toInt()}% deployed)", tradeId.mint)
                             livePreAttemptHardReject(ts, effSol, "LIVE_BUY_REJECTED_HARD_BLOCK_EXPOSURE_CAP", "walletExposurePct=${WalletPositionLock.getExposurePct(walletSol).toInt()}")
-                            if (cfg().shadowPaperEnabled) {
-                                runShadowPaperBuy(ts, effSol, score, quality, "exposure_cap", safeWallet, walletSol)
-                            }
+                            // V5.0.7215 — second of the two sites 6073 missed.
+                            // See the note at the security-guard block above.
+                            runShadowPaperBuy(ts, effSol, score, quality, "exposure_cap", safeWallet, walletSol)
                             return
                         }
                     }
@@ -14105,14 +14197,38 @@ class Executor(
             
             if (shadowPositions.size >= MAX_SHADOW_POSITIONS) {
                 val oldest = shadowPositions.values.minByOrNull { it.entryTime }
-                oldest?.let { shadowPositions.remove(it.mint) }
+                oldest?.let {
+                    shadowPositions.remove(it.mint)
+                    // V5.0.7215 — this position is removed WITHOUT being closed,
+                    // so brain.learnFromTrade never sees it and its outcome is
+                    // lost. With a 20-slot book and a 30-minute timeout, a busy
+                    // session can evict more than it closes, and acceptance J's
+                    // "20 clean paper closes" then recedes as candidates arrive.
+                    // The cap is left where it is — changing it is a capacity
+                    // decision for the operator, not a silent fix — but the cost
+                    // is now on the report instead of being invisible.
+                    try {
+                        com.lifecyclebot.engine.truth.ShadowBookTelemetry7215.onEvictedUnclosed7215(
+                            mint = it.mint,
+                            symbol = it.symbol,
+                            ageMs = System.currentTimeMillis() - it.entryTime,
+                            cap = MAX_SHADOW_POSITIONS,
+                        )
+                    } catch (_: Throwable) {}
+                }
             }
-            
-            if (shadowPositions.containsKey(ts.mint)) return
-            
+
+            if (shadowPositions.containsKey(ts.mint)) {
+                try { com.lifecyclebot.engine.truth.ShadowBookTelemetry7215.onSkipDuplicate7215() } catch (_: Throwable) {}
+                return
+            }
+
             val price = getActualPrice(ts)
-            if (price <= 0) return
-            
+            if (price <= 0) {
+                try { com.lifecyclebot.engine.truth.ShadowBookTelemetry7215.onSkipNoPrice7215() } catch (_: Throwable) {}
+                return
+            }
+
             val shadowPos = ShadowPosition(
                 mint = ts.mint,
                 symbol = ts.symbol,
@@ -14124,7 +14240,12 @@ class Executor(
                 source = ts.source,
             )
             shadowPositions[ts.mint] = shadowPos
-            
+            try {
+                com.lifecyclebot.engine.truth.ShadowBookTelemetry7215.onOpen7215(
+                    reason = reason, openCount = shadowPositions.size, cap = MAX_SHADOW_POSITIONS,
+                )
+            } catch (_: Throwable) {}
+
             onLog("👻 SHADOW BUY: ${ts.symbol} | $reason | ${sol.toString().take(6)} SOL @ ${price.toString().take(8)} | tracking=${shadowPositions.size}", ts.mint)
             
         } catch (e: Exception) {
@@ -14186,9 +14307,22 @@ class Executor(
                     pnlPct = pnlPct,
                 )
                 
+                // V5.0.7215 — the close acceptance test J counts. A shadow
+                // close is a complete round trip on observed prices with the
+                // learner already fed on the line above, which is exactly what
+                // "a clean paper close" means.
+                try {
+                    com.lifecyclebot.engine.truth.ShadowBookTelemetry7215.onClose7215(
+                        exitReason = shouldExit,
+                        isWin = isWin,
+                        pnlPct = pnlPct,
+                        openCount = (shadowPositions.size - toRemove.size - 1).coerceAtLeast(0),
+                    )
+                } catch (_: Throwable) {}
+
                 val emoji = if (isWin) "✅" else "❌"
                 onLog("👻 SHADOW EXIT: ${shadow.symbol} | $shouldExit | ${pnlPct.toInt()}% | ${pnlSol.toString().take(6)} SOL | $emoji ${if(isWin) "WIN" else "LOSS"} → LEARNING", mint)
-                
+
                 toRemove.add(mint)
             }
         }
@@ -14429,9 +14563,96 @@ class Executor(
         } catch (_: Throwable) {}
     }
 
+    /**
+     * V5.0.7215 §THE_ARCHIVE_HAD_4818_ROWS_AND_NO_READER.
+     *
+     * Operator directive #6: token meta cache at 0.0% hit rate, 4818 live rows,
+     * "decimals known: 270/4818 (5.6%)", "pair addr known: 185/4818 (3.8%)".
+     *
+     * The cache has exactly one rich reader — hydrateMintEntryMarketSnapshot-
+     * FromCache, above — and it has ZERO CALLERS anywhere in the module. A
+     * store the app writes 4818 times and reads through a dead function is the
+     * house defect in its plainest form: the capability is built and the thing
+     * that needs it never calls it.
+     *
+     * That dead reader is deliberately NOT wired, and this is its replacement
+     * rather than a call to it. It ends with `ts.lastPriceUpdate =
+     * System.currentTimeMillis()` on a price taken out of an archive, which
+     * fabricates freshness: QuoteFreshnessGuard6452, MissingMarkExitVeto6835
+     * and every protective threshold read that stamp, so an hours-old cached
+     * price would present as a live mark and could justify an entry or latch an
+     * exit. requireMintEntryMarketSnapshot, the natural call site, exists
+     * precisely to refuse that ("action=no_entry_no_fake_basis"). Wiring it
+     * would have made this function contradict itself.
+     *
+     * So only IDENTITY is hydrated: symbol, name, pair address, pair URL, pool
+     * address and dex. Those are immutable-to-slow-moving properties of the
+     * mint, they carry no freshness semantics, and they are exactly what the
+     * report says is missing — a blank pool address is what produces the
+     * MINT_ROUTE placeholder that LaneEntryContract6342's QUALITY check and the
+     * route-proof step both read. No price, no market cap, no liquidity, and no
+     * timestamp is written. A mark still has to be earned live.
+     */
+    private fun hydrateIdentityFromCache7215(ts: TokenState): Boolean {
+        val ctx = try { com.lifecyclebot.AATEApp.appContextOrNull() } catch (_: Throwable) { null } ?: return false
+        val cached = try { TokenMetaCache.get(ctx).lookup(ts.mint) } catch (_: Throwable) { null }
+        if (cached == null) {
+            try { PipelineHealthCollector.labelInc("TOKEN_META_IDENTITY_MISS_7215") } catch (_: Throwable) {}
+            return false
+        }
+        var changed = false
+        if (ts.symbol.isBlank() && cached.symbol.isNotBlank()) { ts.symbol = cached.symbol; changed = true }
+        if (ts.name.isBlank() && cached.name.isNotBlank()) { ts.name = cached.name; changed = true }
+        if (ts.pairAddress.isBlank() && cached.pairAddress.isNotBlank()) { ts.pairAddress = cached.pairAddress; changed = true }
+        // ts.pairUrl is a val (Models.kt:504) — cosmetic only, deliberately
+        // left alone rather than widened to var for a display string.
+        if (ts.lastPriceDex.isBlank() && cached.lastPriceDex.isNotBlank()) { ts.lastPriceDex = cached.lastPriceDex; changed = true }
+        val cachedPool7215 = cached.lastPricePoolAddr.ifBlank { cached.pairAddress }
+        if (ts.lastPricePoolAddr.isBlank() && cachedPool7215.isNotBlank() &&
+            !cachedPool7215.startsWith("MINT_ROUTE", true)
+        ) {
+            ts.lastPricePoolAddr = cachedPool7215
+            changed = true
+        }
+        try {
+            // The write-then-same-mint-read invariant the directive names,
+            // measured where both halves are observable: the row was found, so
+            // the read hit. Whether it CARRIED anything useful is the second
+            // question and it is counted separately.
+            PipelineHealthCollector.labelInc("TOKEN_META_IDENTITY_HIT_7215")
+            if (changed) {
+                PipelineHealthCollector.labelInc("TOKEN_META_IDENTITY_HYDRATED_7215")
+                ForensicLogger.lifecycle(
+                    "TOKEN_META_IDENTITY_HYDRATED_7215",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} pool=${ts.lastPricePoolAddr.take(16)} " +
+                        "dex=${ts.lastPriceDex} decimalsArchived=${cached.decimals} " +
+                        "note=identity_only_no_price_no_freshness_stamp",
+                )
+            } else {
+                PipelineHealthCollector.labelInc("TOKEN_META_IDENTITY_HIT_NOTHING_NEW_7215")
+            }
+        } catch (_: Throwable) {}
+        return changed
+    }
+
     private fun requireMintEntryMarketSnapshot(ts: TokenState, reason: String): MintEntryMarketSnapshot? {
         val snap = mintEntryMarketSnapshot(ts)
         if (snap != null) { persistMintEntryMarketSnapshot(ts, snap, reason); return snap }
+        // V5.0.7215 — before deferring, fill in the identity the archive
+        // already holds and try once more. A canonical mark can be
+        // unresolvable purely because the pool address is blank, and the app
+        // has been re-earning that address from providers on every encounter
+        // while 4818 archived rows sat unread. Identity only: if the retry
+        // still finds no mark, the entry still defers, because a basis is
+        // never hydrated from a cache.
+        if (hydrateIdentityFromCache7215(ts)) {
+            val retry7215 = mintEntryMarketSnapshot(ts)
+            if (retry7215 != null) {
+                try { PipelineHealthCollector.labelInc("ENTRY_SNAPSHOT_RECOVERED_BY_ARCHIVED_IDENTITY_7215") } catch (_: Throwable) {}
+                persistMintEntryMarketSnapshot(ts, retry7215, reason)
+                return retry7215
+            }
+        }
         try {
             ForensicLogger.lifecycle("ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason price=${ts.lastPrice} mcap=${ts.lastMcap} liq=${ts.lastLiquidityUsd} pool=${ts.lastPricePoolAddr.ifBlank { ts.pairAddress }.take(16)} source=${ts.lastPriceSource.ifBlank { ts.source }} action=no_entry_no_fake_basis")
             ForensicLogger.lifecycle("LIVE_ENTRY_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalLane=UNKNOWN originalStyle=UNKNOWN finalLane=LANE_PROOF_DEFER finalStyle=BASIS_PROOF_WAIT score=0 scoreBand=UNKNOWN sizeSol=0 sizeMultiplier=0 expectedEdgePct=0 requiredEdgePct=999 basisTrusted=false routeTrusted=false holderProof=false rugProof=false liquidityUsd=${ts.lastLiquidityUsd.toInt()} providerProof=${ts.lastPriceSource.isNotBlank()} pivotApplied=true pivotReasons=BASIS_MISSING decision=DEFER")

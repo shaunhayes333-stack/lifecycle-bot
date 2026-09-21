@@ -198,8 +198,31 @@ class TokenMetaCache private constructor(ctx: Context) :
                 while (c.moveToNext()) {
                     val mint = com.lifecyclebot.data.CanonicalMint.normalize(c.getString(0) ?: continue)
                     if (mint.isEmpty()) continue
+                    // V5.0.7215 §WRITE_THEN_SAME_MINT_READ_MUST_HIT.
+                    //
+                    // Operator directive #6 names this invariant, and the
+                    // 5.0.7212 snapshot fails it outright: 4818 live rows, 0
+                    // read hits, 175 read misses. `register` and `lookup` both
+                    // key on CanonicalMint.normalize(mint); this hydration path
+                    // did NOT — it keyed `live` on the raw DB string. Rows
+                    // written before the normalizer existed (the table survives
+                    // DB_VERSION 1 -> 3 because onUpgrade migrates additively
+                    // rather than dropping) therefore come back under a key no
+                    // normalized lookup can ever reach. The row is present, in
+                    // memory, holding the decimals and pair address the app is
+                    // re-earning from providers every cycle, and unreachable.
+                    //
+                    // Normalize on the way in so all three paths agree, and
+                    // count the disagreement rather than silently repairing it:
+                    // a non-trivial count means the archive on this device was
+                    // partly unreadable until now.
+                    val keyMint7215 = com.lifecyclebot.data.CanonicalMint.normalize(mint)
+                    if (keyMint7215.isEmpty()) continue
+                    if (keyMint7215 != mint) {
+                        try { PipelineHealthCollector.labelInc("TOKEN_META_KEY_RENORMALIZED_ON_WARMSTART_7215") } catch (_: Throwable) {}
+                    }
                     val e = Entry(
-                        mint = mint,
+                        mint = keyMint7215,
                         symbol = c.getString(1) ?: "",
                         name = c.getString(2) ?: "",
                         pairAddress = c.getString(3) ?: "",
@@ -221,7 +244,7 @@ class TokenMetaCache private constructor(ctx: Context) :
                         supplyTokens = c.getDouble(19),
                         supplyCapturedAtMs = c.getLong(20),
                     )
-                    live[mint] = e
+                    live[keyMint7215] = e
                     hydrated++
                 }
             }
@@ -395,6 +418,31 @@ class TokenMetaCache private constructor(ctx: Context) :
                     try { db.endTransaction() } catch (_: Throwable) {}
                 }
             } catch (t: Throwable) {
+                // V5.0.7215 §A_CACHE_THAT_CANNOT_PERSIST_LOOKED_LIKE_ONE_WITH_
+                // NOTHING_TO_WRITE.
+                //
+                // The 5.0.7212 snapshot reads "dirty rows: 4818" against
+                // "total writes: 32" with the 60s flush thread running for 727
+                // cycles. Either nothing was ever written, or this path fired
+                // repeatedly — and the only evidence it leaves is an
+                // ErrorLogger.warn, which does not reach the pipeline dump. So
+                // a cache whose every flush is failing and a cache with a clean
+                // backlog print the same two numbers.
+                //
+                // Count it. Dirty rows are correctly returned to the set on
+                // failure, so nothing is lost here — but a permanent failure
+                // means the archive never survives a restart, which is exactly
+                // why "decimals known" has sat at 5.6% and the app re-earns
+                // identity from providers every session.
+                try {
+                    PipelineHealthCollector.labelInc("TOKEN_META_FLUSH_FAILED_7215")
+                    ForensicLogger.lifecycle(
+                        "TOKEN_META_FLUSH_FAILED_7215",
+                        "rows=${snapshot.size} dirtyAfterRequeue=${dirty.size + snapshot.size} " +
+                            "err=${t.message?.take(140)} " +
+                            "note=archive_will_not_survive_restart_while_this_persists",
+                    )
+                } catch (_: Throwable) {}
                 ErrorLogger.warn(TAG, "flushNow failed (${snapshot.size} rows): ${t.message}")
                 dirty.addAll(snapshot)
                 return 0
@@ -476,6 +524,35 @@ class TokenMetaCache private constructor(ctx: Context) :
             .map { it.mint }
             .toList()
         if (victims.isEmpty()) return 0
+        // V5.0.7215 §AN_EVICTION_THAT_DISCARDED_WHAT_WAS_NEVER_WRITTEN.
+        //
+        // `dirty.remove(m)` beside `live.remove(m)` throws away a row's
+        // unflushed state. That is correct for a row being deleted from SQLite
+        // in the same breath — but the 5.0.7212 snapshot has 4818 dirty rows
+        // against 32 total writes, i.e. essentially the whole archive was
+        // unpersisted, and this runs on the SAME 60s tick as the flush, right
+        // after it. So on any tick where the flush fails or does not reach a
+        // row, its identity — pool address, dex, decimals, creation time — is
+        // dropped from memory and from disk, and the app re-earns it from
+        // providers on the next encounter. That is the mechanism behind
+        // "decimals known: 270/4818 (5.6%)" and "pair addr known: 3.8%" on a
+        // cache holding 4818 rows.
+        //
+        // Count it. This is silent data loss in the one store whose whole
+        // purpose is to stop paying providers twice for the same immutable
+        // facts, and the report had no way to show it was happening.
+        val dirtyVictims7215 = victims.count { it in dirty }
+        if (dirtyVictims7215 > 0) {
+            try {
+                PipelineHealthCollector.labelInc("TOKEN_META_EVICTED_DIRTY_UNFLUSHED_7215")
+                ForensicLogger.lifecycle(
+                    "TOKEN_META_EVICTED_DIRTY_UNFLUSHED_7215",
+                    "rows=$dirtyVictims7215 ofEvicted=${victims.size} dirtyBefore=${dirty.size} " +
+                        "live=${live.size} softMax=$softMax " +
+                        "note=unpersisted_identity_discarded_will_be_re_earned_from_providers",
+                )
+            } catch (_: Throwable) {}
+        }
         for (m in victims) { live.remove(m); dirty.remove(m) }
         synchronized(writeLock) {
             try {

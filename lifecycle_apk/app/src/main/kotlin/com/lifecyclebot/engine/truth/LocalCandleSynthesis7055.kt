@@ -156,8 +156,22 @@ object LocalCandleSynthesis7055 {
                 lowUsd = b.low,
                 openUsd = b.open,
             )
-            ts.history.addLast(candle)
-            while (ts.history.size > MAX_HISTORY) ts.history.removeFirst()
+            // V5.0.7215 — this module's producer is now Executor.getActualPrice
+            // (~17k observations per session, off several threads), where the
+            // raw material actually is; the previous sole producer derived its
+            // price from an on-chain supply lookup that resolves for 32 of 910
+            // mints and therefore never fired. ts.history is an ArrayDeque with
+            // two other writers — the open-position tick loop, which appends
+            // under synchronized(ts), and DataOrchestrator's fetched-kline
+            // write. A bucket rolls at most once per mint per minute so this
+            // monitor is effectively uncontended, and unsynchronised structural
+            // mutation of a deque from a hot multi-threaded read path is not
+            // something to leave to luck once the call rate goes up by four
+            // orders of magnitude.
+            synchronized(ts) {
+                ts.history.addLast(candle)
+                while (ts.history.size > MAX_HISTORY) ts.history.removeFirst()
+            }
             val n = candlesEmitted.incrementAndGet()
             PipelineHealthCollector.labelInc("LOCAL_CANDLE_SYNTHESISED_7055")
             // One line per 50 so a hundred watched mints cannot drown the log.
