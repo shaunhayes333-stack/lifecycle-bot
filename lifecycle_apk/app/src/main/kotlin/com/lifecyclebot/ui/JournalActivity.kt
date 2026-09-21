@@ -574,7 +574,19 @@ class JournalActivity : AppCompatActivity() {
                         val dd = peak7021 - v
                         if (dd > maxDd7021) maxDd7021 = dd
                     }
-                    note7021?.text = "${closed7021.size} CLOSED · MAX DD ${"%.3f".format(maxDd7021)}◎"
+                    // V5.0.7205 — "17 CLOSED" was sell EVENTS, of which 8 were
+                    // partial rungs on still-open or since-closed runners, while
+                    // canonical authority said 9 positions had actually closed.
+                    // Both halves are shown now: the curve itself is built from
+                    // every banked row (correct — each one moved real cash) and
+                    // the note names how many of those rows ended a position.
+                    val term7205 = closed7021.count { it.side.equals("SELL", ignoreCase = true) }
+                    val partial7205 = closed7021.size - term7205
+                    note7021?.text = if (partial7205 > 0) {
+                        "$term7205 CLOSED · $partial7205 PARTIAL · MAX DD ${"%.3f".format(maxDd7021)}◎"
+                    } else {
+                        "$term7205 CLOSED · MAX DD ${"%.3f".format(maxDd7021)}◎"
+                    }
                 } else {
                     // Under three closes there is no shape to draw. Say that
                     // rather than draw a flat line, which would read as "no
@@ -584,12 +596,58 @@ class JournalActivity : AppCompatActivity() {
             }
         } catch (_: Throwable) {}
 
-        tvJournalWinRate.text = "${stats.winRate.toInt()}%  (${stats.totalWins}W/${stats.totalLosses}L)"
-        tvJournalCount.text = entries.size.toString()
-        tvJournalAvgWin.text = if (stats.totalWins > 0) {
-            "%+.1f%%".format(stats.avgWinPct)
+        // V5.0.7205 §THE_LABELS_PROMISED_TRADES_AND_THE_NUMBERS_WERE_ROWS.
+        //
+        // Operator 5.0.7204: "ui display figures aren't lining up to trade
+        // truth." Three of the four header tiles were reading a different
+        // quantity from the one their label names:
+        //
+        //   TRADES    = entries.size          — every journal ROW, so
+        //                                       28 buys + 9 sells + 8 partials
+        //                                       rendered as "45 TRADES".
+        //   WIN RATE  = stats.winRate         — per sell EVENT. Mint E8sZ8k's
+        //                                       five profit rungs plus its close
+        //                                       counted six wins for one entry,
+        //                                       and because the ladder never
+        //                                       subdivides a loser this reads
+        //                                       66% against a per-position 37%.
+        //   AVG WIN   = stats.avgWinPct       — mean over winning rows, so a
+        //                                       wallet_growth_harvest_3.4x rung
+        //                                       contributed +235% and the tile
+        //                                       showed "+317.5%".
+        //
+        // A banked partial is a real win and keeps counting as one everywhere —
+        // see the note on TradeHistoryStore.lifetimeTerminalCloses7205. What
+        // changes here is only that a tile labelled TRADES now shows trades.
+        // The per-row totals are not discarded, they move onto the curve note
+        // beside the closes they belong to, so both views stay on screen.
+        // Fully qualified to match this file's convention (:102, :218) — there
+        // is no TradeHistoryStore import here and adding one for a single call
+        // would be the odd change, not the safe one.
+        val lifetime7205 = try {
+            com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats()
+        } catch (_: Throwable) { null }
+        if (lifetime7205 != null && lifetime7205.terminalCloses7205 > 0) {
+            tvJournalWinRate.text = "${lifetime7205.terminalWinRate7205.toInt()}%  " +
+                "(${lifetime7205.terminalWins7205}W/${lifetime7205.terminalLosses7205}L)"
+            tvJournalCount.text = lifetime7205.terminalCloses7205.toString()
+            tvJournalAvgWin.text = if (lifetime7205.terminalWins7205 > 0) {
+                "%+.1f%%".format(lifetime7205.terminalAvgWinPct7205)
+            } else {
+                "0.0%"
+            }
         } else {
-            "0.0%"
+            // No closed position yet. Fall back to the per-row figures rather
+            // than blanking the header — on a device upgrading into this build
+            // the per-position counters seed from whatever rows are in memory
+            // and can legitimately read zero for a while.
+            tvJournalWinRate.text = "${stats.winRate.toInt()}%  (${stats.totalWins}W/${stats.totalLosses}L)"
+            tvJournalCount.text = entries.size.toString()
+            tvJournalAvgWin.text = if (stats.totalWins > 0) {
+                "%+.1f%%".format(stats.avgWinPct)
+            } else {
+                "0.0%"
+            }
         }
 
         llJournalTrades.removeAllViews()

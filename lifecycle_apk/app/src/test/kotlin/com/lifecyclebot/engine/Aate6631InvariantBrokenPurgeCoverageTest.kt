@@ -43,8 +43,9 @@ class Aate6631InvariantBrokenPurgeCoverageTest {
         assertTrue("V5.0.6631c §B: gate must strictly reject zero/negative entry price",
             src.contains("CANONICAL_OPEN_FILTERED_ZERO_ENTRY_PRICE_6631") &&
                 src.contains("entry <= 0.0"))
-        assertTrue("V5.0.6631c §B: openPosition must auto-derive entryPriceUsd from cost/qty for legacy callers",
-            src.contains("OPEN_POSITION_DERIVED_FROM_COST_QTY_6631"))
+        assertTrue("V5.0.6743: openPosition must never derive USD/token from SOL cost divided by token qty",
+            !src.contains("OPEN_POSITION_DERIVED_FROM_COST_QTY_6631") &&
+                !src.contains("entryCostSol / qtyToken6631"))
         assertTrue("V5.0.6631 §B: gate must reject INVARIANT_BROKEN_6500 entryPriceSource",
             src.contains("CANONICAL_OPEN_FILTERED_INVARIANT_BROKEN_SOURCE_6631") &&
                 src.contains("INVARIANT_BROKEN_6500"))

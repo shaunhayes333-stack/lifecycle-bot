@@ -238,68 +238,22 @@ object CanonicalPaperReplay6464 {
         // consistent when the revision the replay observed matches the
         // revision at which the ledger totals were sampled.
         val journalRevisionAtStart = try { JournalEconomicAuthority6616.revision() } catch (_: Throwable) { 0L }
-        var snap = replay(startingCashSol)
-        val ledgerCash = try { PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { Double.NaN }
-        val ledgerRealized = try { PaperCapitalAuthority6577.realizedPnlSol() } catch (_: Throwable) { Double.NaN }
-        val ledgerOpen = try { PaperCapitalAuthority6577.openCostBasisSol() } catch (_: Throwable) { Double.NaN }
-        val ledgerFees = try { PaperCapitalAuthority6577.feesSol() } catch (_: Throwable) { Double.NaN }
-        // V5.0.6489 — one explicit migration from pre-event-authority state.
-        // This does not mutate money or lots: it checkpoints the historical
-        // prefix missing from the typed event window. Once established it is
-        // immutable except for deterministic folding of CAP-evicted events.
-        val carry = try { EconomicEventSchema6464.replayCarry6489() }
-            catch (_: Throwable) { EconomicEventSchema6464.ReplayCarry6489() }
-        if (!carry.established && ledgerCash.isFinite() && ledgerRealized.isFinite() && ledgerOpen.isFinite()) {
-            val canonical = try { CanonicalPositionAuthority6441.activeMintProjections6490("paper") } catch (_: Throwable) { emptyList() }
-            val canonicalQty = canonical.associate { it.mint to it.remainingQtyRaw }
-            val canonicalCost = canonical.associate { it.mint to it.remainingCostBasisSol }
-            val qtyOffset = (canonicalQty.keys + snap.perMintRemainingQty.keys).associateWith { mint ->
-                (canonicalQty[mint] ?: BigInteger.ZERO) - (snap.perMintRemainingQty[mint] ?: BigInteger.ZERO)
-            }
-            val costOffset = (canonicalCost.keys + snap.perMintRemainingCostSol.keys).associateWith { mint ->
-                (canonicalCost[mint] ?: 0.0) - (snap.perMintRemainingCostSol[mint] ?: 0.0)
-            }
-            val established = EconomicEventSchema6464.establishReplayCarry6489(
-                cashDeltaSol = ledgerCash - snap.cashSol,
-                openCostSol = ledgerOpen - snap.openCostBasisSol,
-                realizedPnlSol = ledgerRealized - snap.realizedPnlSol,
-                feesSol = if (ledgerFees.isFinite()) ledgerFees - snap.feesSol else 0.0,
-                perMintQty = qtyOffset,
-                perMintCostSol = costOffset,
-            )
-            if (established) snap = replay(startingCashSol)
-        }
-        var cashDelta = if (ledgerCash.isFinite()) snap.cashSol - ledgerCash else 0.0
-        var realizedDelta = if (ledgerRealized.isFinite()) snap.realizedPnlSol - ledgerRealized else 0.0
-        var openDelta = if (ledgerOpen.isFinite()) snap.openCostBasisSol - ledgerOpen else 0.0
-        // V5.0.6498 — stale carry repair is allowed only after CURRENT money
-        // conservation and position parity are clean. Ledger/canonical are the
-        // authorities; the historical prefix is the derived projection.
-        val currentConservationClean6498 = try { kotlin.math.abs(PaperEquityCalculator6467.lastSnapshot()?.conservationDelta ?: Double.POSITIVE_INFINITY) <= toleranceSol } catch (_: Throwable) { false }
-        val positionParityClean6498 = try {
-            val ps = PositionRegistryParityAudit6464.lastSnapshotOrNull()
-            ps != null && ps.delta == 0 && ps.missingFromCanonical.isEmpty() && ps.missingFromRegistry.isEmpty() &&
-                ps.stateMismatch.isEmpty() && ps.qtyMismatch.isEmpty() && ps.costBasisMismatch.isEmpty()
-        } catch (_: Throwable) { false }
-        val staleCarryDiverged6498 = kotlin.math.abs(cashDelta) > toleranceSol || kotlin.math.abs(realizedDelta) > toleranceSol || kotlin.math.abs(openDelta) > toleranceSol || snap.orphanLotCount > 0
-        if (carry.established && currentConservationClean6498 && positionParityClean6498 && staleCarryDiverged6498) {
-            val canonical6498 = try { CanonicalPositionAuthority6441.activeMintProjections6490("paper") } catch (_: Throwable) { emptyList() }
-            val canonicalQty6498 = canonical6498.associate { it.mint to it.remainingQtyRaw }
-            val canonicalCost6498 = canonical6498.associate { it.mint to it.remainingCostBasisSol }
-            val qtyCorrection6498 = (canonicalQty6498.keys + snap.perMintRemainingQty.keys).associateWith { mint ->
-                (canonicalQty6498[mint] ?: BigInteger.ZERO) - (snap.perMintRemainingQty[mint] ?: BigInteger.ZERO)
-            }.filterValues { it != BigInteger.ZERO }
-            val costCorrection6498 = (canonicalCost6498.keys + snap.perMintRemainingCostSol.keys).associateWith { mint ->
-                (canonicalCost6498[mint] ?: 0.0) - (snap.perMintRemainingCostSol[mint] ?: 0.0)
-            }.filterValues { kotlin.math.abs(it) > 1e-12 }
-            val feesDelta6498 = if (ledgerFees.isFinite()) snap.feesSol - ledgerFees else 0.0
-            if (EconomicEventSchema6464.reconcileReplayCarry6498(snap.eventVersion, cashDelta, openDelta, realizedDelta, feesDelta6498, qtyCorrection6498, costCorrection6498)) {
-                snap = replay(startingCashSol)
-                cashDelta = if (ledgerCash.isFinite()) snap.cashSol - ledgerCash else 0.0
-                realizedDelta = if (ledgerRealized.isFinite()) snap.realizedPnlSol - ledgerRealized else 0.0
-                openDelta = if (ledgerOpen.isFinite()) snap.openCostBasisSol - ledgerOpen else 0.0
-            }
-        }
+        val eventRevisionAtStart = try { EconomicEventSchema6464.version() } catch (_: Throwable) { 0L }
+        val snap = replay(startingCashSol)
+        // V5.0.6743 §ATOMIC_READ_ONLY_PARITY — one lock/one instant for
+        // cash, open cost, realized and fees. Never combine four snapshots.
+        val ledgerSnapshot6743 = try { PaperCapitalAuthority6577.snapshot() } catch (_: Throwable) { null }
+        val ledgerCash = ledgerSnapshot6743?.availableCashSol ?: Double.NaN
+        val ledgerRealized = ledgerSnapshot6743?.realizedPnlSol ?: Double.NaN
+        val ledgerOpen = ledgerSnapshot6743?.openMarketValueSol ?: Double.NaN
+        val ledgerFees = ledgerSnapshot6743?.feesSol ?: Double.NaN
+        // V5.0.6743 §READ_ONLY_VERIFIER — carry establishment/repair is
+        // an explicit migration concern, never a side effect of comparison.
+        // A verifier must not rewrite its historical baseline from the ledger
+        // deltas it is trying to independently measure.
+        val cashDelta = if (ledgerCash.isFinite()) snap.cashSol - ledgerCash else 0.0
+        val realizedDelta = if (ledgerRealized.isFinite()) snap.realizedPnlSol - ledgerRealized else 0.0
+        val openDelta = if (ledgerOpen.isFinite()) snap.openCostBasisSol - ledgerOpen else 0.0
         val qtyMismatches = snap.perMintRemainingQty.values.count { it < BigInteger.ZERO }
         // V5.0.6743 §OPEN_COST_SAME_LOT_SET (operator directive Feb
         //   2026): "make journal replay operate on the same run/epoch/
@@ -354,8 +308,10 @@ object CanonicalPaperReplay6464 {
         // economic mutation raced the compare and the parity we just
         // computed is a mixed-revision read. The guard treats a race as
         // fail-open (equivalent to stale parity).
+        val eventRevisionAtEnd = try { EconomicEventSchema6464.version() } catch (_: Throwable) { 0L }
         val journalRevisionAtEnd = try { JournalEconomicAuthority6616.revision() } catch (_: Throwable) { 0L }
-        val revisionRaceObserved = journalRevisionAtEnd != journalRevisionAtStart
+        val revisionRaceObserved = journalRevisionAtEnd != journalRevisionAtStart ||
+            eventRevisionAtEnd != eventRevisionAtStart || snap.eventVersion != eventRevisionAtStart
         val parity = Parity(
             cashDelta = cashDelta, realizedDelta = realizedDelta, openCostDelta = openDelta,
             qtyMismatchCount = qtyMismatches,
@@ -375,7 +331,7 @@ object CanonicalPaperReplay6464 {
                 PipelineHealthCollector.labelInc("PAPER_REPLAY_PARITY_REVISION_RACE_6742")
                 ForensicLogger.lifecycle(
                     "PAPER_REPLAY_PARITY_REVISION_RACE_6742",
-                    "eventRev=${snap.eventVersion} journalRevStart=$journalRevisionAtStart journalRevEnd=$journalRevisionAtEnd action=stamp_race_guard_fail_open",
+                    "eventRev=${snap.eventVersion} journalRevStart=$journalRevisionAtStart journalRevEnd=$journalRevisionAtEnd action=stamp_inconclusive_guard_fail_closed_6743",
                 )
             } catch (_: Throwable) {}
         }

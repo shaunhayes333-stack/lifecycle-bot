@@ -2648,6 +2648,33 @@ object PipelineHealthCollector {
                             appendLine("===== Separated WR metrics (V5.9.1378) =====")
                             appendLine("  Phase:        $phaseTag  (live terminal closes=${liveMaturity.liveTerminalCloses}; lifetime closes=${liveMaturity.lifetimeCloses}; doctrine floor=$floor)")
                             appendLine("  Blended WR:   ${"%.1f".format(stats.winRate)}%  (n=${stats.totalTrades} in window)")
+                            // V5.0.7205 — print BOTH denominators side by side.
+                            // Every WR above is counted per banked sell EVENT,
+                            // which on 5.0.7204 read 66% against a per-POSITION
+                            // 37% because the partial ladder subdivides winners
+                            // and never losers. Neither number is wrong; quoting
+                            // one of them as "the win rate" is. A banked partial
+                            // stays a win in the per-row figures — this line just
+                            // makes the two views impossible to confuse again.
+                            try {
+                                val lt7205 = com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats()
+                                appendLine(
+                                    "  Per-position: ${"%.1f".format(lt7205.terminalWinRate7205)}% " +
+                                        "(${lt7205.terminalWins7205}W/${lt7205.terminalLosses7205}L/" +
+                                        "${lt7205.terminalScratches7205}S over ${lt7205.terminalCloses7205} closes) " +
+                                        "avgWin=${"%+.1f".format(lt7205.terminalAvgWinPct7205)}%",
+                                )
+                                appendLine(
+                                    "  Per-sell-row: ${"%.1f".format(lt7205.winRate)}% " +
+                                        "(${lt7205.totalWins}W/${lt7205.totalLosses}L/" +
+                                        "${lt7205.totalScratches}S over ${lt7205.totalSells} banked rows) " +
+                                        "avgWin=${"%+.1f".format(lt7205.avgWinPct)}%",
+                                )
+                                appendLine(
+                                    "  Read: rows-minus-closes = partial rungs. " +
+                                        "hasProvenEdge reads PER-POSITION (§7205); realised P&L keeps every partial.",
+                                )
+                            } catch (_: Throwable) {}
                             val onFloor = stats.winRate >= liveMaturity.wrFloorPct
                             appendLine("  Floor status: ${if (onFloor) "✅ within band" else "🔴 BELOW $phaseTag floor"}")
                             val byPhase = stats.winRateByPhase

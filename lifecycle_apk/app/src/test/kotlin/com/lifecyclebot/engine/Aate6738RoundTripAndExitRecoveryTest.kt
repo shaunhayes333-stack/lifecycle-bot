@@ -50,6 +50,7 @@ class Aate6738RoundTripAndExitRecoveryTest {
     fun `crypto universe round trip is tracked independently and reconciles`() {
         val pid = "crypto-p1"
         assertTrue(CanonicalRoundTripReconciler6738.record(pid, Stage.BUY_COMMITTED, "CRYPTO_ALT", "PAPER"))
+        assertTrue(CanonicalRoundTripReconciler6738.record(pid, Stage.EXIT_DECIDED, "CRYPTO_ALT", "PAPER"))
         assertTrue(CanonicalRoundTripReconciler6738.record(pid, Stage.SELL_COMMITTED, "CRYPTO_ALT", "PAPER"))
         assertTrue(CanonicalRoundTripReconciler6738.record(pid, Stage.LEARNING_DELIVERED, "CRYPTO_ALT", "PAPER"))
         assertTrue(CanonicalRoundTripReconciler6738.tripOf(pid)!!.reconciled)
@@ -83,6 +84,7 @@ class Aate6738RoundTripAndExitRecoveryTest {
         val eventId = "evt-div-1"
         // Round trip is in flight
         assertTrue(CanonicalRoundTripReconciler6738.record(pid, Stage.BUY_COMMITTED))
+        assertTrue(CanonicalRoundTripReconciler6738.record(pid, Stage.EXIT_DECIDED))
         assertTrue(CanonicalRoundTripReconciler6738.record(pid, Stage.SELL_COMMITTED))
         // Later, the reconciler observes cash / open-cost drift for the
         // journal side of this position.
@@ -104,6 +106,7 @@ class Aate6738RoundTripAndExitRecoveryTest {
     fun `terminal learning delivered exactly once per positionId`() {
         val pid = "learn-p1"
         assertTrue(CanonicalRoundTripReconciler6738.record(pid, Stage.BUY_COMMITTED))
+        assertTrue(CanonicalRoundTripReconciler6738.record(pid, Stage.EXIT_DECIDED))
         assertTrue(CanonicalRoundTripReconciler6738.record(pid, Stage.SELL_COMMITTED))
         assertTrue(CanonicalRoundTripReconciler6738.record(pid, Stage.LEARNING_DELIVERED))
         assertFalse("second learning delivery must be refused",
@@ -121,6 +124,7 @@ class Aate6738RoundTripAndExitRecoveryTest {
         ProvenanceAuthority6737.classifyOnce(shadowEventId, ProvenanceAuthority6737.Origin.REPLAY_SHADOW)
 
         CanonicalRoundTripReconciler6738.record(genuinePid, Stage.BUY_COMMITTED)
+        CanonicalRoundTripReconciler6738.record(genuinePid, Stage.EXIT_DECIDED)
         CanonicalRoundTripReconciler6738.record(genuinePid, Stage.SELL_COMMITTED)
         CanonicalRoundTripReconciler6738.record(genuinePid, Stage.LEARNING_DELIVERED)
 

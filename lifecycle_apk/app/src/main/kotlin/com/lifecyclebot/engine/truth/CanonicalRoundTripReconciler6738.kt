@@ -6,39 +6,19 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * V5.0.6738 — §CANONICAL_ROUND_TRIP_RECONCILER.
+ * V5.0.6743 — owner-bound four-stage round-trip verifier.
  *
- * Pillar 4 — an owner-bound round-trip verifier. The operator called out
- * that Meme Trader and Crypto Universe are getting stuck at
- * ledger-divergence / exit-throughput blockers whose actual inputs were
- * never surfaced. Rather than hard-blocking every future admission when
- * a single event drifts, this reconciler:
+ * A reconciled terminal trade requires, in order:
+ * BUY_COMMITTED -> EXIT_DECIDED -> SELL_COMMITTED -> LEARNING_DELIVERED.
+ * Transitions are serialized per positionId. Accounting/stage divergence is
+ * sticky: later callbacks may complete telemetry but can never turn a known
+ * divergent trip back into a reconciled one.
  *
- *   • Records the four canonical checkpoints of a round trip:
- *       BUY_COMMITTED, EXIT_DECIDED, SELL_COMMITTED, LEARNING_DELIVERED.
- *   • Verifies each stage has arrived exactly once per positionId, in
- *     order, at the same authoritative revision.
- *   • On divergence, records the discrepancy AGAINST THE OFFENDING
- *     POSITION ID (not against the global admission gate). If a specific
- *     event ID is implicated, it can be tagged via
- *     `ProvenanceAuthority6737.classifyOnce(id, QUARANTINE_AMBIGUOUS, reason)`.
- *
- * Design invariants:
- *   • Learning MUST be delivered exactly once per positionId. A second
- *     delivery is REFUSED (returns false) with an explicit counter.
- *   • Shadow / quarantined positions are never counted as reconciled.
- *     (Pillar 1 already blocks them from committing at the ledger; this
- *     reconciler additionally excludes them from round-trip statistics.)
- *   • Does NOT bypass any safety or accounting guard — it only observes
- *     and reports.
- *
- * Never mutates ledger / capital / risk state.
+ * Observational only: never mutates capital, lots, risk, or execution state.
  */
 object CanonicalRoundTripReconciler6738 {
-
     enum class Stage { BUY_COMMITTED, EXIT_DECIDED, SELL_COMMITTED, LEARNING_DELIVERED }
 
-    /** In-order state of a round-trip for one positionId. */
     data class TripState(
         val positionId: String,
         val lane: String,
@@ -51,7 +31,6 @@ object CanonicalRoundTripReconciler6738 {
         @Volatile var divergenceReason: String = "",
     )
 
-    /** Immutable summary snapshot returned to callers / dashboards. */
     data class Summary(
         val openTrips: Int,
         val reconciled: Int,
@@ -67,13 +46,6 @@ object CanonicalRoundTripReconciler6738 {
     private val learningDuplicateRefused = AtomicLong(0L)
     private val shadowTripSkipped = AtomicLong(0L)
 
-    /**
-     * Record a stage arrival for a positionId. Idempotent per (positionId, stage).
-     * @param eventId if supplied, the reconciler consults ProvenanceAuthority6737
-     *   before recording. Shadow/quarantined event ids are counted separately
-     *   and do NOT enter the round-trip statistics.
-     * @return true when the stage was newly recorded, false on duplicate or shadow.
-     */
     fun record(
         positionId: String,
         stage: Stage,
@@ -87,67 +59,83 @@ object CanonicalRoundTripReconciler6738 {
             try { PipelineHealthCollector.labelInc("ROUND_TRIP_SHADOW_TRIP_SKIPPED_6738") } catch (_: Throwable) {}
             return false
         }
+        val st = trips.computeIfAbsent(positionId) { TripState(positionId, lane, mode) }
         val now = System.currentTimeMillis()
-        val st = trips.computeIfAbsent(positionId) {
-            TripState(positionId, lane, mode)
-        }
-        return when (stage) {
-            Stage.BUY_COMMITTED -> if (st.buyAtMs == 0L) { st.buyAtMs = now; true } else false
-            Stage.EXIT_DECIDED -> if (st.exitAtMs == 0L) { st.exitAtMs = now; true } else false
-            Stage.SELL_COMMITTED -> if (st.sellAtMs == 0L) {
-                st.sellAtMs = now
-                verifyAndMark(st)
-                true
-            } else false
-            Stage.LEARNING_DELIVERED -> {
-                if (st.learningAtMs != 0L) {
-                    learningDuplicateRefused.incrementAndGet()
-                    try {
-                        PipelineHealthCollector.labelInc("LEARNING_DELIVERY_DUPLICATE_REFUSED_6738")
-                        ForensicLogger.lifecycle(
-                            "LEARNING_DELIVERY_DUPLICATE_REFUSED_6738",
-                            "positionId=$positionId lane=${st.lane} mode=${st.mode} action=refuse_second_delivery",
-                        )
-                    } catch (_: Throwable) {}
-                    false
-                } else {
+        synchronized(st) {
+            fun diverge(reason: String) {
+                if (st.divergenceReason.isBlank()) st.divergenceReason = reason
+                st.reconciled = false
+                try {
+                    PipelineHealthCollector.labelInc("ROUND_TRIP_STAGE_DIVERGENCE_6743")
+                    ForensicLogger.lifecycle(
+                        "ROUND_TRIP_STAGE_DIVERGENCE_6743",
+                        "positionId=$positionId stage=$stage lane=${st.lane} mode=${st.mode} reason=${st.divergenceReason}",
+                    )
+                } catch (_: Throwable) {}
+            }
+
+            when (stage) {
+                Stage.BUY_COMMITTED -> {
+                    if (st.buyAtMs != 0L) return false
+                    st.buyAtMs = now
+                    if (st.exitAtMs != 0L || st.sellAtMs != 0L || st.learningAtMs != 0L) diverge("BUY_AFTER_LATER_STAGE")
+                }
+                Stage.EXIT_DECIDED -> {
+                    if (st.exitAtMs != 0L) return false
+                    st.exitAtMs = now
+                    if (st.buyAtMs == 0L) diverge("EXIT_WITHOUT_BUY")
+                    if (st.sellAtMs != 0L || st.learningAtMs != 0L) diverge("EXIT_AFTER_TERMINAL_STAGE")
+                }
+                Stage.SELL_COMMITTED -> {
+                    if (st.sellAtMs != 0L) return false
+                    st.sellAtMs = now
+                    if (st.buyAtMs == 0L) diverge("SELL_WITHOUT_BUY")
+                    else if (st.exitAtMs == 0L) diverge("SELL_WITHOUT_EXIT_DECISION")
+                    if (st.learningAtMs != 0L) diverge("SELL_AFTER_LEARNING")
+                }
+                Stage.LEARNING_DELIVERED -> {
+                    if (st.learningAtMs != 0L) {
+                        learningDuplicateRefused.incrementAndGet()
+                        try {
+                            PipelineHealthCollector.labelInc("LEARNING_DELIVERY_DUPLICATE_REFUSED_6738")
+                            ForensicLogger.lifecycle(
+                                "LEARNING_DELIVERY_DUPLICATE_REFUSED_6738",
+                                "positionId=$positionId lane=${st.lane} mode=${st.mode} action=refuse_second_delivery",
+                            )
+                        } catch (_: Throwable) {}
+                        return false
+                    }
                     st.learningAtMs = now
                     learningDeliveredOnce.incrementAndGet()
-                    verifyAndMark(st)
-                    true
+                    if (st.buyAtMs == 0L) diverge("LEARNING_WITHOUT_BUY")
+                    else if (st.exitAtMs == 0L) diverge("LEARNING_WITHOUT_EXIT_DECISION")
+                    else if (st.sellAtMs == 0L) diverge("LEARNING_WITHOUT_SELL")
                 }
             }
+            verifyAndMarkLocked6743(st)
+            return true
         }
     }
 
-    /**
-     * Mark a positionId's terminal outcome. This is a lower-cost path for
-     * callers who don't need per-stage attribution. Behaves as
-     * `record(SELL_COMMITTED)` immediately followed by
-     * `record(LEARNING_DELIVERED)` when learningDelivered=true.
-     */
-    fun markTerminal(positionId: String, lane: String = "", mode: String = "PAPER", learningDelivered: Boolean = true): Boolean {
+    fun markTerminal(
+        positionId: String,
+        lane: String = "",
+        mode: String = "PAPER",
+        learningDelivered: Boolean = true,
+    ): Boolean {
+        val exitOk = record(positionId, Stage.EXIT_DECIDED, lane, mode)
         val soldOk = record(positionId, Stage.SELL_COMMITTED, lane, mode)
         val learnOk = if (learningDelivered) record(positionId, Stage.LEARNING_DELIVERED, lane, mode) else false
-        return soldOk || learnOk
+        return exitOk || soldOk || learnOk
     }
 
-    /**
-     * Called by Pillar 3 reconciler to verify a specific position's
-     * canonical accounting matches its journal. If cash / open-cost /
-     * realized / quantity diverge for a given positionId, tag its
-     * originating event id as ambiguous (does NOT block admission
-     * globally — the guard already time-decays parity per 6733).
-     */
-    fun observeAccountingDivergence(
-        positionId: String,
-        eventId: String,
-        reason: String,
-    ) {
+    fun observeAccountingDivergence(positionId: String, eventId: String, reason: String) {
         if (positionId.isBlank() || reason.isBlank()) return
         val st = trips[positionId] ?: return
-        st.divergenceReason = reason
-        st.reconciled = false
+        synchronized(st) {
+            if (st.divergenceReason.isBlank()) st.divergenceReason = reason
+            st.reconciled = false
+        }
         if (eventId.isNotBlank()) {
             ProvenanceAuthority6737.classifyOnce(
                 eventId,
@@ -159,15 +147,20 @@ object CanonicalRoundTripReconciler6738 {
             PipelineHealthCollector.labelInc("ROUND_TRIP_DIVERGENCE_OBSERVED_6738")
             ForensicLogger.lifecycle(
                 "ROUND_TRIP_DIVERGENCE_OBSERVED_6738",
-                "positionId=$positionId eventId=${eventId.take(24)} reason=$reason action=tag_event_ambiguous_no_global_block",
+                "positionId=$positionId eventId=${eventId.take(24)} reason=$reason action=sticky_divergence_tag_event_ambiguous",
             )
         } catch (_: Throwable) {}
     }
 
-    private fun verifyAndMark(st: TripState) {
-        val complete = st.buyAtMs > 0L && st.sellAtMs > 0L && st.learningAtMs > 0L
+    private fun verifyAndMarkLocked6743(st: TripState) {
+        // Known divergence is sticky. A later callback cannot erase it.
+        if (st.divergenceReason.isNotBlank()) {
+            st.reconciled = false
+            return
+        }
+        val complete = st.buyAtMs > 0L && st.exitAtMs > 0L && st.sellAtMs > 0L && st.learningAtMs > 0L
         if (!complete) return
-        val ordered = st.buyAtMs <= st.sellAtMs && st.sellAtMs <= st.learningAtMs
+        val ordered = st.buyAtMs <= st.exitAtMs && st.exitAtMs <= st.sellAtMs && st.sellAtMs <= st.learningAtMs
         if (!ordered) {
             st.divergenceReason = "STAGE_ORDER_VIOLATED"
             st.reconciled = false
@@ -185,7 +178,10 @@ object CanonicalRoundTripReconciler6738 {
         val reasons = HashMap<String, Int>()
         for (t in trips.values) if (t.divergenceReason.isNotBlank()) reasons.merge(t.divergenceReason, 1, Int::plus)
         return Summary(
-            openTrips = open, reconciled = ok, diverged = bad, diverged_reasons = reasons,
+            openTrips = open,
+            reconciled = ok,
+            diverged = bad,
+            diverged_reasons = reasons,
             learningDeliveredOnce = learningDeliveredOnce.get(),
             learningDeliveredDuplicateRefused = learningDuplicateRefused.get(),
             shadowTripSkipped = shadowTripSkipped.get(),

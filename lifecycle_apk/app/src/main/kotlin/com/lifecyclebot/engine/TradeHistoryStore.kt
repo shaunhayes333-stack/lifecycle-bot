@@ -90,6 +90,55 @@ object TradeHistoryStore {
     @Volatile private var lifetimeWinPnlSum:     Double = 0.0
     @Volatile private var lifetimeRealizedPnlSol:Double = 0.0
 
+    // V5.0.7205 §THE LADDER ONLY EVER SUBDIVIDES THE WINNERS.
+    //
+    // Operator 5.0.7204: "ui display figures aren't lining up to trade truth."
+    // The journal header read 66% (10W/5L) over 45 "TRADES" and 17 CLOSED,
+    // while canonical authority said closed=9 and the terminal-by-lane tally
+    // said 3W/5L = 37.5%. Seven different win rates and five different trade
+    // counts in one snapshot.
+    //
+    // Operator, correctly, on the first framing of this: "a win is a win tho."
+    // It is. A PARTIAL_SELL banks real cash — partial_70pct, capital_recovery_3.3x,
+    // wallet_growth_harvest_3.4x are all profit-taking events and every one of
+    // them is a genuine win. Nothing below discounts them, and
+    // lifetimeRealizedPnlSol keeps every last lamport of them.
+    //
+    // The defect is the DENOMINATOR, not the numerator. Mint E8sZ8k produced
+    // five partials plus a final close — SIX winning rows from ONE position.
+    // Had the same position gone to zero it would have produced exactly ONE
+    // losing row. The partial ladder subdivides winners and never losers, so a
+    // win rate counted per ROW measures how many rungs the winners climbed, not
+    // what fraction of entries made money. Both numbers are real; they answer
+    // different questions.
+    //
+    // That distinction changes a real-money decision in exactly one place:
+    //
+    //   hasProvenEdge = meaningful >= 300 && winRate >= 50.0        (:329)
+    //
+    // `meaningful` is per-ROW. That gate is asking "does this bot have an edge
+    // worth trusting" and it is being handed the rung count. At the current
+    // ladder rate it reaches 300 roughly twice as fast as real trades do, and
+    // arrives carrying a win rate inflated by construction — the exact shape
+    // V5.0.6439's directive forbids: "Bad behaviour should NEVER be seen or
+    // recognised as good behaviour." DrawdownCircuitAI's maturity bar
+    // (DD_CIRCUIT_BOOTSTRAP_LIFETIME vs totalSells) has the same exposure.
+    //
+    // So: ADD the per-position view beside the per-row view. Nothing is
+    // removed, nothing is reweighted, no threshold moves. Each consumer is then
+    // handed the one it actually means.
+    @Volatile private var lifetimeTerminalCloses7205:    Int = 0
+    @Volatile private var lifetimeTerminalWins7205:      Int = 0
+    @Volatile private var lifetimeTerminalLosses7205:    Int = 0
+    @Volatile private var lifetimeTerminalScratches7205: Int = 0
+    // Same reasoning applied to the average-win magnitude. lifetimeWinPnlSum
+    // above sums pnlPct over every winning ROW, so a wallet_growth_harvest_3.4x
+    // rung contributes +235% to the mean and the journal header reported
+    // "AVG WIN +317.5%" for a book whose closed positions averaged nothing of
+    // the sort. The rung percentages are real; they are just not per-trade
+    // outcomes. Keep both.
+    @Volatile private var lifetimeTerminalWinPnlSum7205: Double = 0.0
+
     // V5.9.43: Cached proven-edge flag
     @Volatile private var cachedHasProvenEdge:   Boolean = false
     @Volatile private var cachedProvenWinRate:   Double  = 0.0
@@ -322,12 +371,35 @@ object TradeHistoryStore {
         val now = System.currentTimeMillis()
         if (now - lastStatsCacheMs > STATS_CACHE_MS) {
             try {
-                val s = getStats()
-                val meaningful = s.totalWins + s.totalLosses
+                // V5.0.7205 — this gate asks "does this bot have an edge worth
+                // trusting", so its denominator has to be POSITIONS, not sell
+                // events. Reading s.totalWins + s.totalLosses handed it the
+                // partial-ladder rung count: a runner that banked five rungs on
+                // the way up contributed five wins and one entry, and because
+                // the ladder never subdivides a loser the resulting win rate is
+                // biased upward by construction. On the 5.0.7204 device that
+                // was 66.7% against a true per-position 37.5%, and the 300-trade
+                // bar was being approached at roughly twice the real rate.
+                //
+                // Nothing about the bar moves: still >= 300 decisive and
+                // >= 50.0%. It is now counted over the thing it names. Where the
+                // per-position counters are unseeded they read 0, which fails
+                // the bar — deliberately the conservative direction, per the
+                // note at seedTerminalLifetimeIfAbsent7205.
+                //
+                // s.winRate and s.totalWins are left entirely alone for every
+                // other consumer; a banked partial is still a win to them.
+                val ls = getLifetimeStats()
+                val meaningful = ls.terminalWins7205 + ls.terminalLosses7205
                 cachedProvenTradeCount = meaningful
-                cachedProvenWinRate    = s.winRate
-                cachedHasProvenEdge    = meaningful >= 300 && s.winRate >= 50.0
+                cachedProvenWinRate    = ls.terminalWinRate7205
+                cachedHasProvenEdge    = meaningful >= 300 && ls.terminalWinRate7205 >= 50.0
                 lastStatsCacheMs       = now
+                try {
+                    PipelineHealthCollector.labelInc(
+                        "PROVEN_EDGE_ON_POSITIONS_NOT_LADDER_RUNGS_7205",
+                    )
+                } catch (_: Throwable) {}
             } catch (_: Exception) {}
         }
         return ProvenEdgeSnapshot(cachedHasProvenEdge, cachedProvenWinRate, cachedProvenTradeCount)
@@ -395,6 +467,11 @@ object TradeHistoryStore {
                     "♻️ Threshold version changed ($storedVer → $CURRENT_THRESHOLD_VER) — lifetime stats recomputed.")
             }
         } catch (_: Exception) { }
+
+        // V5.0.7205 — seed the per-position counters AFTER the loads and any
+        // threshold backfill above, so it reads the settled trade list. No-op
+        // on every run after the first (the persisted key gates it).
+        try { seedTerminalLifetimeIfAbsent7205() } catch (_: Exception) { }
 
         // V5.9.330: Trim in-memory list to most recent MAX_IN_MEMORY_TRADES after load.
         // SQLite retains the full history — Journal pages from it on export.
@@ -1965,7 +2042,37 @@ object TradeHistoryStore {
         val winRate:        Double,
         val avgWinPct:      Double,
         val realizedPnlSol: Double,
-    )
+        // V5.0.7205 — the per-POSITION view, defaulted so every existing
+        // construction site and consumer of this class compiles untouched.
+        // totalSells/totalWins/totalLosses above keep their exact meaning:
+        // banked sell EVENTS, partials included, a win still a win.
+        val terminalCloses7205:    Int = 0,
+        val terminalWins7205:      Int = 0,
+        val terminalLosses7205:    Int = 0,
+        val terminalScratches7205: Int = 0,
+        val terminalWinPnlSum7205: Double = 0.0,
+    ) {
+        /**
+         * V5.0.7205 — win rate over POSITIONS CLOSED, not sell events. Ask for
+         * this when the question is "what fraction of my entries made money";
+         * ask for [winRate] when the question is "what fraction of my sells
+         * banked money". On the 5.0.7204 device those read 37.5% and 66.7% and
+         * both were true.
+         */
+        val terminalWinRate7205: Double
+            get() {
+                val decisive = terminalWins7205 + terminalLosses7205
+                return if (decisive > 0) terminalWins7205 * 100.0 / decisive else 0.0
+            }
+
+        /**
+         * V5.0.7205 — mean win magnitude over POSITIONS, not ladder rungs. See
+         * [avgWinPct] for the per-row figure; a profit-taking rung of +235% is a
+         * real number but it is not the average outcome of a trade.
+         */
+        val terminalAvgWinPct7205: Double
+            get() = if (terminalWins7205 > 0) terminalWinPnlSum7205 / terminalWins7205 else 0.0
+    }
 
     fun getLifetimeStats(): LifetimeSnapshot {
         val decisive = lifetimeWins + lifetimeLosses
@@ -1982,6 +2089,11 @@ object TradeHistoryStore {
             winRate        = winRate,
             avgWinPct      = avgWin,
             realizedPnlSol = lifetimeRealizedPnlSol,
+            terminalCloses7205    = lifetimeTerminalCloses7205,
+            terminalWins7205      = lifetimeTerminalWins7205,
+            terminalLosses7205    = lifetimeTerminalLosses7205,
+            terminalScratches7205 = lifetimeTerminalScratches7205,
+            terminalWinPnlSum7205 = lifetimeTerminalWinPnlSum7205,
         )
     }
 
@@ -2450,9 +2562,61 @@ object TradeHistoryStore {
             lifetimeScratches      = obj.optInt("scratches", 0)
             lifetimeWinPnlSum      = obj.optDouble("winPnlSum", 0.0)
             lifetimeRealizedPnlSol = obj.optDouble("realizedPnlSol", 0.0)
+            // V5.0.7205 — a device upgrading into this build has the six
+            // original keys persisted and none of the terminal ones. Seeding is
+            // deliberately NOT done by bumping CURRENT_THRESHOLD_VER: that
+            // triggers backfillLifetimeFromTrades, which recomputes EVERY
+            // lifetime counter from the in-memory list — capped at
+            // MAX_IN_MEMORY_TRADES — and on a device with more history than the
+            // cap that would silently shrink correct lifetime totals. The whole
+            // point of this build is to stop lying about these numbers, so it
+            // must not destroy them on the way in.
+            //
+            // Instead: leave the originals exactly as loaded and seed only the
+            // new counters, from whatever rows are in memory. If that seed is
+            // incomplete the terminal counts come out LOW, which fails
+            // hasProvenEdge's `>= 300` bar — the conservative direction. An
+            // inflated edge claim is the failure mode that costs money; an
+            // under-claimed one only costs patience.
+            terminalSeeded7205 = obj.has("terminalCloses7205")
+            if (terminalSeeded7205) {
+                lifetimeTerminalCloses7205    = obj.optInt("terminalCloses7205", 0)
+                lifetimeTerminalWins7205      = obj.optInt("terminalWins7205", 0)
+                lifetimeTerminalLosses7205    = obj.optInt("terminalLosses7205", 0)
+                lifetimeTerminalScratches7205 = obj.optInt("terminalScratches7205", 0)
+                lifetimeTerminalWinPnlSum7205 = obj.optDouble("terminalWinPnlSum7205", 0.0)
+            }
         } catch (e: Exception) {
             ErrorLogger.error("TradeHistoryStore", "Failed to load lifetime stats: ${e.message}")
         }
+    }
+
+    @Volatile private var terminalSeeded7205 = false
+
+    /**
+     * V5.0.7205 — one-shot seed of the per-position counters for a device
+     * upgrading into this build. Touches ONLY the four 7205 fields; the six
+     * original lifetime counters are never written here. Idempotent via the
+     * persisted "terminalCloses7205" key.
+     */
+    private fun seedTerminalLifetimeIfAbsent7205() {
+        if (terminalSeeded7205) return
+        val terminal = synchronized(lock) {
+            trades.filter { isTerminalSell7205(it.side) && isValidAccountingTrade(it) }
+        }
+        lifetimeTerminalCloses7205    = terminal.size
+        lifetimeTerminalWins7205      = terminal.count { isWin(it) }
+        lifetimeTerminalLosses7205    = terminal.count { isLoss(it) }
+        lifetimeTerminalScratches7205 =
+            terminal.size - lifetimeTerminalWins7205 - lifetimeTerminalLosses7205
+        lifetimeTerminalWinPnlSum7205 = terminal.filter { isWin(it) }.sumOf { it.pnlPct }
+        terminalSeeded7205 = true
+        saveLifetimeStats()
+        ErrorLogger.info("TradeHistoryStore",
+            "📊 V5.0.7205 seeded per-position counters from ${terminal.size} terminal SELL rows " +
+                "(W=$lifetimeTerminalWins7205 L=$lifetimeTerminalLosses7205 " +
+                "S=$lifetimeTerminalScratches7205) — per-row counters untouched " +
+                "(sells=$lifetimeSells W=$lifetimeWins L=$lifetimeLosses)")
     }
 
     private fun saveLifetimeStats() {
@@ -2464,6 +2628,14 @@ object TradeHistoryStore {
                 put("scratches",     lifetimeScratches)
                 put("winPnlSum",     lifetimeWinPnlSum)
                 put("realizedPnlSol",lifetimeRealizedPnlSol)
+                // V5.0.7205 — new keys alongside the originals. Absence of
+                // "terminalCloses7205" on load is what triggers the one-shot
+                // seed, so this key must always be written once present.
+                put("terminalCloses7205",    lifetimeTerminalCloses7205)
+                put("terminalWins7205",      lifetimeTerminalWins7205)
+                put("terminalLosses7205",    lifetimeTerminalLosses7205)
+                put("terminalScratches7205", lifetimeTerminalScratches7205)
+                put("terminalWinPnlSum7205", lifetimeTerminalWinPnlSum7205)
             }
             prefs?.edit()?.putString(KEY_LIFETIME_STATS, obj.toString())?.apply()
         } catch (e: Exception) {
@@ -2481,8 +2653,31 @@ object TradeHistoryStore {
             else          ->   lifetimeScratches++
         }
         lifetimeRealizedPnlSol += trade.netPnlSol.takeIf { it != 0.0 } ?: trade.pnlSol
+        // V5.0.7205 — the per-POSITION view, kept beside the per-row view above
+        // rather than replacing it. Every line above is byte-for-byte unchanged:
+        // a partial is still a sell, still a win when it banked money, and still
+        // contributes its full realised P&L. This block only additionally counts
+        // the subset that ENDED a position, so a consumer that means "what
+        // fraction of my entries made money" can ask for that instead of
+        // receiving the partial-rung count by default.
+        if (isTerminalSell7205(trade.side)) {
+            lifetimeTerminalCloses7205++
+            when {
+                isWin(trade)  -> { lifetimeTerminalWins7205++; lifetimeTerminalWinPnlSum7205 += trade.pnlPct }
+                isLoss(trade) -> lifetimeTerminalLosses7205++
+                else          -> lifetimeTerminalScratches7205++
+            }
+        }
         saveLifetimeStats()
     }
+
+    /**
+     * V5.0.7205 — a row that ENDED a position, as opposed to one that banked a
+     * rung of the profit ladder. Deliberately narrower than isJournalSellLike:
+     * that predicate answers "did cash move", this one answers "is the position
+     * over". Both are needed and they are not the same question.
+     */
+    private fun isTerminalSell7205(side: String): Boolean = side.equals("SELL", ignoreCase = true)
 
     private fun backfillLifetimeFromTrades() {
         val sells = synchronized(lock) {
@@ -2495,9 +2690,22 @@ object TradeHistoryStore {
         lifetimeScratches      = sells.size - lifetimeWins - lifetimeLosses
         lifetimeWinPnlSum      = sells.filter { isWin(it) }.sumOf { it.pnlPct }
         lifetimeRealizedPnlSol = sells.sumOf { it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol }
+        // V5.0.7205 — recompute the per-position counters from the same rows, so
+        // a genuine threshold backfill cannot leave the two views disagreeing
+        // about the same history. Marked seeded: this IS the authoritative
+        // recompute, so the one-shot seed must not run afterwards and redo it.
+        val terminal7205 = sells.filter { isTerminalSell7205(it.side) }
+        lifetimeTerminalCloses7205    = terminal7205.size
+        lifetimeTerminalWins7205      = terminal7205.count { isWin(it) }
+        lifetimeTerminalLosses7205    = terminal7205.count { isLoss(it) }
+        lifetimeTerminalScratches7205 =
+            terminal7205.size - lifetimeTerminalWins7205 - lifetimeTerminalLosses7205
+        lifetimeTerminalWinPnlSum7205 = terminal7205.filter { isWin(it) }.sumOf { it.pnlPct }
+        terminalSeeded7205 = true
         saveLifetimeStats()
         ErrorLogger.info("TradeHistoryStore",
-            "📊 Back-filled lifetime stats from ${sells.size} valid SELL/PARTIAL_SELL trades (wins=$lifetimeWins, losses=$lifetimeLosses)")
+            "📊 Back-filled lifetime stats from ${sells.size} valid SELL/PARTIAL_SELL trades (wins=$lifetimeWins, losses=$lifetimeLosses) " +
+                "| per-position: ${terminal7205.size} closes (wins=$lifetimeTerminalWins7205, losses=$lifetimeTerminalLosses7205)")
     }
 
     private fun isWin(trade: Trade): Boolean  = trade.pnlPct >= WIN_THRESHOLD_PCT

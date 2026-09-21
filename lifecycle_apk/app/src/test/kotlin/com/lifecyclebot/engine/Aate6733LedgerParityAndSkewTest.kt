@@ -3,6 +3,7 @@ package com.lifecyclebot.engine
 import com.lifecyclebot.engine.truth.CanonicalPaperReplay6464
 import com.lifecyclebot.engine.truth.PaperLedgerDivergenceGuard6731
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -27,10 +28,10 @@ class Aate6733LedgerParityAndSkewTest {
     // ─── 1. Parity staleness guard ────────────────────────────────
 
     @Test
-    fun `guard fails open when no parity has ever been computed`() {
+    fun `guard fails closed when no parity has ever been computed`() {
         val v = PaperLedgerDivergenceGuard6731.evaluate()
-        assertTrue("no parity ever computed must fail-open, got reason=${v.reason}", v.allow)
-        assertEquals("OK_NO_PARITY", v.reason)
+        assertFalse("new admission requires a current parity proof, got reason=${v.reason}", v.allow)
+        assertEquals("PAPER_LEDGER_PARITY_UNAVAILABLE_6743", v.reason)
     }
 
     @Test
