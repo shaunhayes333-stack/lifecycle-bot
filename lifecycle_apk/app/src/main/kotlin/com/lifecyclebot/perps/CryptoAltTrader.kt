@@ -4175,11 +4175,71 @@ object CryptoAltTrader {
     // never a lane-local field. Previously BotService.status.paperWalletSol
     // was used, which could lag behind the canonical ledger during in-flight
     // trades — Crypto Alt UI displayed $648 while other lanes saw $1,190.
+    /**
+     * V5.0.7211 §THE_CRYPTO_LANE_COULD_NOT_AFFORD_TO_LEARN_WHAT_IT_COULD_AFFORD.
+     *
+     * Operator, live: "crypto lane doesn't trade or if it is positions aren't
+     * showing on the app." It does not trade, and this is why.
+     *
+     * `liveWalletBalance` is declared 0.0 at line 244 and its ONLY writer is
+     * updateLiveBalance(), called from attemptLiveBuy at line 2951 — i.e.
+     * INSIDE the live buy, AFTER sizing. But sizing reads it first:
+     *
+     *   :2348  val balance = getEffectiveBalance()        <- 0.0 in live
+     *   :2353  var sizeSol  = balance * (DEFAULT_SIZE_PCT/100) * ...   -> 0.0
+     *   :2612  evidence = mapOf(... "walletSol" to balance.toString())
+     *            -> OrderSizeResolver6441:345 authoritativeCash = walletSol = 0.0
+     *            -> not executable
+     *
+     * So the lane is told it has no money, sizes to zero, never opens a
+     * position, and therefore never reaches the line that would have told it
+     * how much money it has. A one-way latch of exactly the shape this run
+     * keeps finding — 7209's pause, 7193's reproof, 7154's refusal.
+     *
+     * The 5.0.7210 device says it precisely:
+     *
+     *   CRYPTO_ALT candidate=20 submit=10 fdgAllow=10 sized=10 intent=10
+     *              dispatch=10 dispatchReject=0 open=0
+     *   crypto refusal by route 7156=[PAPER_ONLY=31, INSUFFICIENT_SOL=21]
+     *   evaluation terminal reasons=... PRE_SUBMIT_SIZE_BELOW_FLOOR:64
+     *
+     * Ten dispatches, zero rejections, zero positions — because the size was
+     * already zero before the route was ever asked.
+     *
+     * Fix: ask the authority instead of a cache that only a successful trade
+     * can fill. BotService.status.walletSol is the live cash source the lane
+     * allocator itself uses (ToolkitSignalSheet:877, capitalSource
+     * LIVE_WALLET_AUTHORITY_6686), and on that same run it read 0.1950 SOL
+     * correctly while this cache read 0.0. One authority, one answer.
+     *
+     * Write-through keeps the cache warm so it remains a real fallback, and a
+     * non-positive authority reading falls back to the cache rather than
+     * overwriting a known-good value with zero — this may only ever raise the
+     * lane's view of its own wallet toward the truth, never lower it to zero.
+     * The 0.01 live floor at :2952 and every downstream cap are untouched, so
+     * this cannot size a trade the wallet cannot fund.
+     */
+    private fun liveWalletSol7211(): Double {
+        val cached = liveWalletBalance
+        val authority = try {
+            com.lifecyclebot.engine.BotService.status.walletSol
+        } catch (_: Throwable) { 0.0 }
+        if (!authority.isFinite() || authority <= 0.0) return cached
+        if (authority != cached) {
+            liveWalletBalance = authority
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("CRYPTO_LIVE_BALANCE_FROM_AUTHORITY_7211")
+            } catch (_: Throwable) {}
+        }
+        return authority
+    }
+
     fun getBalance()          : Double = getEffectiveBalance()
     fun getEffectiveBalance() : Double = if (isPaperMode.get())
         try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.availableCashSol() }
             catch (_: Throwable) { com.lifecyclebot.engine.BotService.status.paperWalletSol }
-        else liveWalletBalance
+        else liveWalletSol7211()
 
     fun setBalance(bal: Double) {
         paperBalance = bal

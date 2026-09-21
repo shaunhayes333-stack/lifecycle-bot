@@ -180,7 +180,39 @@ object CanonicalEntryAuthority6551 {
         val sizing = OrderSizeResolver6441.resolve(
             requestedSol = shapedSize,
             laneName = candidate.specialist.ifBlank { candidate.assetClass.tag },
-            walletSol = candidate.evidence["walletSol"]?.toDoubleOrNull() ?: Double.MAX_VALUE,
+            // V5.0.7211 §AN_ABSENT_WALLET_IS_NOT_AN_INFINITE_WALLET.
+            //
+            // Was `?: Double.MAX_VALUE`. OrderSizeResolver6441:345 reads
+            // `authoritativeCash = if (paperMode) PaperCapital… else walletSol`,
+            // so on a LIVE candidate whose producer omitted the walletSol
+            // evidence key this handed the resolver an infinite wallet. Both
+            // hard caps downstream are computed FROM that number —
+            // `cashCap = authoritativeCash` at :346 and
+            // `RunnerCompoundingLadder6440.recommendedSizeSol(walletSol)` at
+            // :336, whose result can LIFT the size via
+            // `laddered = max(nudgedRisk, ladderTarget)` at :338. So the one
+            // value that is supposed to bound an order also fed the thing that
+            // raises it, and a missing map key removed both bounds at once.
+            //
+            // All six current producers do set the key (ForexTrader:774,
+            // PerpsTraderAI:815, CryptoAltTrader:2612, MetalsTrader:710,
+            // TokenizedStockTrader:1315, CommoditiesTrader:709), so this is
+            // latent rather than firing today — but it is a default that makes
+            // real money unbounded the moment a seventh producer is added or
+            // one of those evidence maps changes shape, and it fails OPEN.
+            //
+            // 0.0 fails closed: the resolver refuses as not-executable and the
+            // block is named, which is a missed entry the operator can see
+            // rather than an unbounded one they cannot.
+            walletSol = candidate.evidence["walletSol"]?.toDoubleOrNull()
+                ?.takeIf { it.isFinite() && it >= 0.0 }
+                ?: run {
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector
+                            .labelInc("ENTRY_WALLET_EVIDENCE_ABSENT_FAIL_CLOSED_7211")
+                    } catch (_: Throwable) {}
+                    0.0
+                },
             paperMode = candidate.mode.equals("PAPER", true),
             laneRiskCapSol = candidate.evidence["laneRiskCapSol"]?.toDoubleOrNull() ?: OrderSizeResolver6441.DEFAULT_LANE_RISK_CAP_SOL,
             laneMinExecutableSol = candidate.evidence["laneMinExecutableSol"]?.toDoubleOrNull() ?: 0.001,

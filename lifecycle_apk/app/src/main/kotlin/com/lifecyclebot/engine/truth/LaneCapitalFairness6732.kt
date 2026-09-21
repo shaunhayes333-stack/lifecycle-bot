@@ -75,10 +75,56 @@ object LaneCapitalFairness6732 {
         }
         return try {
             val paperMode = mode.trim().equals("PAPER", true)
+            // V5.0.7211 §THE_LIVE_BRANCH_WAS_PAPER_CASH_UNDER_ANOTHER_NAME.
+            //
+            // This read, before 7211:
+            //
+            //   if (paperMode) PaperCapitalAuthority6577…availableCashSol
+            //   else           CanonicalCapitalAuthority6450.snapshot().cashSol
+            //
+            // A paper/live branch that is a distinction without a difference.
+            // CanonicalCapitalAuthority6450's own header documents its source
+            // as "CASH — PaperCapitalAuthority6577.cashSol", and :127-137 is
+            // hardwired to it with no live branch anywhere. So BOTH arms
+            // returned the paper bankroll and the else-arm only looked like it
+            // was about live.
+            //
+            // Cost on the operator's 5.0.7210 live run: the paper account sat
+            // idle at 11.7530 SOL cash while the live wallet had 0.1950 free.
+            // Every lane's headroom was therefore scaled against ~60x the
+            // capital that existed, which is why enforcedHeadroom=true sat on
+            // nearly every lane in that snapshot while sharedCash read 0.1950.
+            // This is the same paper-into-live bleed as 7187's sizing mirror
+            // and 7209's lane pause, in the lane budget.
+            //
+            // BotService.status.walletSol is the live cash source the lane
+            // allocator already uses and names LIVE_WALLET_AUTHORITY_6686
+            // (ToolkitSignalSheet:877); on that run it read 0.1950 correctly.
+            // Asking it here makes this authority and the allocator agree.
+            //
+            // NOTE ON SCOPE: CanonicalCapitalAuthority6450's arithmetic is on
+            // the operator's no-touch list and is NOT modified. It remains the
+            // paper account authority it is documented to be. What changes is
+            // which authority this CONSUMER asks when the mode is live — the
+            // paper number is still exactly right for the paper branch.
+            //
+            // Fails open on a non-positive or non-finite reading by falling
+            // back to the previous value, because this authority's contract
+            // (see headroomFor's KDoc) is that it never blocks by accident.
             val sharedCash = if (paperMode) {
                 PaperCapitalAuthority6577.snapshot().availableCashSol
             } else {
-                CanonicalCapitalAuthority6450.snapshot().cashSol
+                val live7211 = try {
+                    com.lifecyclebot.engine.BotService.status.walletSol
+                } catch (_: Throwable) { Double.NaN }
+                if (live7211.isFinite() && live7211 > 0.0) {
+                    try {
+                        PipelineHealthCollector.labelInc("LANE_HEADROOM_ON_LIVE_WALLET_7211")
+                    } catch (_: Throwable) {}
+                    live7211
+                } else {
+                    CanonicalCapitalAuthority6450.snapshot().cashSol
+                }
             }
             val positions = CanonicalPositionAuthority6441.openPositions()
             // V5.0.6912 §BUDGETS_MUST_NOT_BE_SCALED_BY_PHANTOM_UNREALISED_GAINS.

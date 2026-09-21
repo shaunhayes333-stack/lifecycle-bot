@@ -2246,7 +2246,43 @@ object PipelineHealthCollector {
             // shown on its own labeled line.
             try {
                 val ws6451 = com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.snapshot()
-                sb.append("\n===== WALLET SURFACES (§6451) =====\n")
+                // V5.0.7211 §THIS_BLOCK_NAMED_ITSELF_THE_WALLET_AND_MEANT_THE_PAPER_ACCOUNT.
+                //
+                // CanonicalCapitalAuthority6450 is the PAPER account authority
+                // — its own header documents CASH as
+                // PaperCapitalAuthority6577.cashSol and :127-137 is hardwired
+                // to it with no live branch. Printed under the unqualified
+                // heading "WALLET SURFACES", it told the operator this on a
+                // LIVE session with four open live positions:
+                //
+                //   CASH 11.7530 · OPEN MARKET VALUE 0.0000 · EQUITY 11.7530
+                //
+                // Every figure correct for the idle paper account and every
+                // one of them wrong as a statement about the live wallet,
+                // which held ~0.30 SOL with 0.195 free. openMV=0.0000 beside
+                // four open positions is the tell.
+                //
+                // The authority is not changed — it is the paper account and
+                // it is right about the paper account. What was broken is a
+                // report claiming to describe the wallet while describing
+                // something else. It now names the account it is reading and,
+                // in live mode, prints the live wallet beside it so the two
+                // can never be read as one number again.
+                val paperMode7211 = try {
+                    com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+                } catch (_: Throwable) { true }
+                val acct7211 = if (paperMode7211) "PAPER ACCOUNT" else "PAPER ACCOUNT (mode=LIVE)"
+                sb.append("\n===== WALLET SURFACES (§6451) — $acct7211 =====\n")
+                if (!paperMode7211) {
+                    val liveWallet7211 = try {
+                        com.lifecyclebot.engine.BotService.status.walletSol
+                    } catch (_: Throwable) { Double.NaN }
+                    sb.append("  LIVE WALLET SOL:   ")
+                        .append(if (liveWallet7211.isFinite()) "%.4f".format(liveWallet7211) else "unavailable")
+                        .append(" SOL  (LIVE_WALLET_AUTHORITY_6686 — the figure live sizing uses)\n")
+                    sb.append("  NOTE: the surfaces below are the PAPER account (§6450 reads\n")
+                    sb.append("        PaperCapitalAuthority6577); they are NOT the live wallet.\n")
+                }
                 sb.append("  CASH:              ").append("%.4f".format(ws6451.cashSol)).append(" SOL\n")
                 sb.append("  RESERVED:          ").append("%.4f".format(ws6451.reservedSol)).append(" SOL\n")
                 sb.append("  OPEN MARKET VALUE: ").append("%.4f".format(ws6451.openMarketValueSol)).append(" SOL\n")
