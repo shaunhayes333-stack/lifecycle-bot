@@ -212,6 +212,53 @@ object LaneAutoPauseGuard {
                 return
             }
 
+            // V5.0.7209 §A_PAPER_RECORD_WAS_DISABLING_LIVE_LANES.
+            //
+            // Operator went live and reported "stupidly quiet". The snapshot's
+            // second-largest counter, on a wallet with ONE closed live trade:
+            //
+            //   LANE_QUARANTINED_BLOCKED_ENTRY_6684                5503
+            //   LANE_QUARANTINED_BLOCKED_ENTRY_6684_QUALITY        2753
+            //   LANE_QUARANTINED_BLOCKED_ENTRY_6684_PROJECT_SNIPER 2750
+            //     reason=awaiting_exact_lab_proof
+            //
+            // QUALITY and PROJECT_SNIPER — the two highest-volume lanes — were
+            // quarantined, which is why both showed ownerSelected=0 buyIntent=0
+            // against candidateN=1214 and 592.
+            //
+            // One live close cannot pause a lane: ZERO_WIN_MIN_SAMPLE is 5 and
+            // TOXIC_MIN_SAMPLE is 8. Those pauses were earned in PAPER. This
+            // function reads getRecentCleanStrategyTerminalTrades(2000) with no
+            // mode filter and aggregates paper and live together, while
+            // isBlocked() above returns false in paper (line 178). So the
+            // consequence is invisible for the entire paper run and lands, in
+            // full, the instant real money is connected. The class docstring
+            // claims "Never touches paper / sandbox / lab paths — only LIVE
+            // admission"; that was true of enforcement and false of learning.
+            //
+            // Same shape as V5.0.7091's maxPaperMicroTradesPerHour and 7154's
+            // effN: a value measuring something other than what its name and
+            // its docstring promise. evaluateLive() now evaluates live.
+            //
+            // A lane's record in one mode is not evidence about its behaviour
+            // in the other — different sizes, different slippage, different
+            // fills. Paper is where a lane earns a paper verdict.
+            val modeTag7209 = try {
+                if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "paper" else "live"
+            } catch (_: Throwable) { "live" }
+            val modeClean7209 = clean.filter { it.mode.equals(modeTag7209, ignoreCase = true) }
+            try {
+                PipelineHealthCollector.labelInc("LANE_PAUSE_EVIDENCE_MODE_SCOPED_7209")
+                if (modeClean7209.size != clean.size) {
+                    ForensicLogger.lifecycle(
+                        "LANE_PAUSE_EVIDENCE_MODE_SCOPED_7209",
+                        "mode=$modeTag7209 kept=${modeClean7209.size} of ${clean.size} " +
+                            "droppedOtherMode=${clean.size - modeClean7209.size} " +
+                            "action=a_lanes_record_in_one_mode_is_not_evidence_about_the_other",
+                    )
+                }
+            } catch (_: Throwable) {}
+
             // Aggregate by tradingMode (lane) using the same win threshold
             // (V5.0.4102): pnlPct >= 5% counts as a win. V5.0.4593 — dropped
             // the side="SELL" filter because getRecentCleanStrategyTerminalTrades
@@ -223,7 +270,7 @@ object LaneAutoPauseGuard {
             // V5.0.7193 — same rows, restricted to closes AFTER each paused
             // lane's pausedAt. This is the lane's own recovery record.
             val byLanePostPause7193 = HashMap<String, Agg>()
-            for (t in clean) {
+            for (t in modeClean7209) {
                 // V5.0.7053 §DO_NOT_DISABLE_A_LANE_FOR_THE_WINNERS_IT_GAVE_AWAY.
                 //
                 // t.tradingMode is the lane the position was in when it CLOSED.
@@ -273,7 +320,11 @@ object LaneAutoPauseGuard {
             try {
                 ErrorLogger.info(
                     "LaneAutoPauseGuard",
-                    "$VERSION evaluateLive: clean=${clean.size} lanes=${byLane.size} paused=${paused.size} snapshot=" +
+                    // V5.0.7209 — print BOTH counts. "clean=2000" next to a
+                    // handful of live rows is what made the cross-mode
+                    // aggregation invisible in every prior snapshot.
+                    "$VERSION evaluateLive: mode=$modeTag7209 modeClean=${modeClean7209.size} " +
+                        "allModes=${clean.size} lanes=${byLane.size} paused=${paused.size} snapshot=" +
                         byLane.entries.joinToString(" ") { (l, a) -> "$l(n=${a.sample},w=${a.wins},ev=${"%.0f".format(if (a.sample > 0) a.pnlSum / a.sample else 0.0)}%)" },
                 )
             } catch (_: Throwable) {}
@@ -383,6 +434,66 @@ object LaneAutoPauseGuard {
             // here is positive mean expectancy in percent. Named evPct7193 so
             // the unit is legible and no later reader mistakes it for SOL.
             // ═════════════════════════════════════════════════════════════
+            // V5.0.7209 §THE_PAUSE_OUTLIVED_ITS_EVIDENCE_AND_COULD_NOT_BE_UNDONE.
+            //
+            // Scoping the aggregate above stops NEW cross-mode pauses. It does
+            // nothing about the ones already on disk, and those are a one-way
+            // latch by construction:
+            //
+            //   lane paused -> isBlocked() true in live -> lane takes no trades
+            //     -> byLanePostPause7193 stays empty -> the 7193 release needs
+            //        MIN_TRADES_BEFORE_PROMOTION (30) post-pause closes
+            //          -> never arrives -> lane paused forever
+            //
+            // V5.0.7193 built that recovery path and it cannot run for a lane
+            // that is blocked from trading; it only ever worked because paper
+            // ignores the pause and paper rows were being counted. Scoping the
+            // evidence correctly would have turned my own 7193 fix into a
+            // permanent retirement. Both halves have to land together.
+            //
+            // The rule is the pause predicate read backwards: a pause is a
+            // claim about how this lane behaves in THIS mode, so it survives
+            // only while this mode's own record still supports it. Same
+            // aggregate, same ZERO_WIN_MIN_SAMPLE / TOXIC_* thresholds — the
+            // bar is not lowered, it is applied to the evidence that belongs to
+            // the mode doing the blocking. A lane with no record in this mode
+            // has nothing held against it and is released.
+            //
+            // This cannot leak permission: the loop above re-pauses on the very
+            // next 30s tick the moment this mode's evidence does satisfy
+            // zeroWin or toxic. It is a release of an unevidenced claim, not an
+            // amnesty.
+            for (lane in paused.keys.toList()) {
+                val a = byLane[lane]
+                val wr7209 = if (a != null && a.sample > 0) a.wins.toDouble() / a.sample.toDouble() * 100.0 else 0.0
+                val ev7209 = if (a != null && a.sample > 0) a.pnlSum / a.sample else 0.0
+                val stillZeroWin7209 = a != null && a.sample >= ZERO_WIN_MIN_SAMPLE && a.wins == 0
+                val stillToxic7209 = a != null && a.sample >= TOXIC_MIN_SAMPLE &&
+                    wr7209 < TOXIC_WR_PCT && ev7209 <= TOXIC_EV_PCT
+                if (stillZeroWin7209 || stillToxic7209) continue
+                val state = paused.remove(lane) ?: continue
+                mutated = true
+                try {
+                    ErrorLogger.info(
+                        "LaneAutoPauseGuard",
+                        "✅ LANE_PAUSE_RELEASED_NO_EVIDENCE_IN_MODE_7209 lane=$lane mode=$modeTag7209 " +
+                            "modeN=${a?.sample ?: 0} modeWins=${a?.wins ?: 0} " +
+                            "wr=${"%.1f".format(wr7209)}% ev=${"%.1f".format(ev7209)}% " +
+                            "pausedFor=${(now - state.pausedAt) / 60_000L}m " +
+                            "originalReason=${state.reason} originalSample=${state.sample} " +
+                            "action=pause_was_earned_on_other_mode_evidence",
+                    )
+                    PipelineHealthCollector.labelInc("LANE_PAUSE_RELEASED_NO_EVIDENCE_IN_MODE_7209")
+                    PipelineHealthCollector.labelInc("LANE_PAUSE_RELEASED_NO_EVIDENCE_IN_MODE_7209_$lane")
+                    ForensicLogger.lifecycle(
+                        "LANE_PAUSE_RELEASED_NO_EVIDENCE_IN_MODE_7209",
+                        "lane=$lane mode=$modeTag7209 modeN=${a?.sample ?: 0} " +
+                            "originalReason=${state.reason} originalSample=${state.sample} " +
+                            "action=released_claim_this_modes_record_does_not_support",
+                    )
+                } catch (_: Throwable) {}
+            }
+
             val minTrades7193 = com.lifecyclebot.engine.lab.LlmLabStore.MIN_TRADES_BEFORE_PROMOTION
             val minWrPct7193 = com.lifecyclebot.engine.lab.LlmLabStore.MIN_WR_FOR_PROMOTION_PCT
             selfReproofProgress7193.keys.retainAll(paused.keys)
