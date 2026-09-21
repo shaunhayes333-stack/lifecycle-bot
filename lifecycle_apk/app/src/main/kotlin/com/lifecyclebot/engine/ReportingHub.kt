@@ -549,6 +549,13 @@ object ReportingHub {
         // expansion while under its 24h high and 6439 keeps refusing" — two
         // very different states that both look like a flat trait vector.
         appendLine(safe("trait_evolution_7192") { com.lifecyclebot.engine.SentienceOrchestrator.traitEvolutionStatusLine7192() })
+        // V5.0.7194 — the capital-recycle path, pinned. Its refusal reasons
+        // existed only as labelInc keys and the report truncates 1587
+        // non-pinned counters, so on the 5.0.7193 run the operator could see
+        // that 74 protective partials fired and 0 completed, and could not see
+        // why. requested=0 dup=N means latched; requested=N completed=0 means
+        // refused, and lastRefusal names it. Opposite problems.
+        appendLine(safe("partial_recycle_7194") { com.lifecyclebot.engine.truth.CanonicalPaperPartialOperation6510.statusLine7194() })
         // V5.0.6925 — CAPTURE RATIO. Of the gain each position actually
         // reached, how much did we keep? Broken down by lane and by exit
         // reason, worst first, so the exit path that is clipping runners names

@@ -916,7 +916,7 @@ object ToolkitSignalSheet {
                     " enforcedUtil=${"%.2f".format(enforced6912.utilization)}x" +
                     " enforcedHeadroom=${enforced6912.hasHeadroom}"
             } else " enforcedTargetSol=n/a enforcedUtil=n/a enforcedHeadroom=n/a"
-            appendLine("$lane targetAllocation=${"%.2f".format(targetPct)}%(advisory) targetSol=${"%.4f".format(targetSol)}(advisory)$enforcedTxt6912 availableAllocation=sharedCash:${"%.4f".format(sharedCash)} usedAllocation=${"%.4f".format(used)} openPositions=${owned.size} pendingIntents=$pending capitalStarved=${pending > 0L && sharedCash <= 0.0} starvedByLane=NONE allocationDecisionSource=${capitalSource6686}+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE")
+            appendLine("$lane targetAllocation=${"%.2f".format(targetPct)}%(advisory) targetSol=${"%.4f".format(targetSol)}(advisory)$enforcedTxt6912 availableAllocation=sharedCash:${"%.4f".format(sharedCash)} usedAllocation=${"%.4f".format(used)} openPositions=${owned.size} pendingIntents=$pending capitalStarved=${pending > 0L && (sharedCash <= 0.0 || com.lifecyclebot.engine.truth.OrderSizeResolver6441.capitalStarvedNow7194())} capitalRefusals7194=${com.lifecyclebot.engine.truth.OrderSizeResolver6441.capitalRefusalCount7194()} starvedByLane=NONE allocationDecisionSource=${capitalSource6686}+LANE_EXPECTANCY+OPPORTUNITY_PRESSURE")
         }
     }
 

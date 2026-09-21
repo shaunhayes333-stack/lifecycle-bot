@@ -14,6 +14,19 @@ object CanonicalPaperPartialOperation6510 {
     private val tierStates6613 = ConcurrentHashMap<String, TierState6613>()
     private val tierUpdatedAt6613 = ConcurrentHashMap<String, Long>()
 
+    // V5.0.7194 — the capital-recycle path had no scoreboard. Its refusal
+    // reasons existed only as labelInc keys, and the report truncates 1587
+    // non-pinned counters, so the number that explains why a bot sitting on
+    // +4.87 SOL unrealized cannot fund a 0.05 SOL buy was never shown. These
+    // are aggregated so statusLine7194 can be pinned instead.
+    private const val STALE_TIER_MS_7194 = 120_000L
+    private val requested7194 = AtomicLong(0L)
+    private val completed7194 = AtomicLong(0L)
+    private val failed7194 = AtomicLong(0L)
+    private val duplicate7194 = AtomicLong(0L)
+    private val staleTierRecovered7194 = AtomicLong(0L)
+    @Volatile private var lastRefusal7194: String = ""
+
     private fun normalizedTier6613(reason: String): String {
         val r = reason.uppercase()
         return when {
@@ -146,11 +159,69 @@ object CanonicalPaperPartialOperation6510 {
         // a real top-up changes originalQtyRaw and explicitly rearms a new lot epoch.
         val tier = normalizedTier6613(exitReason)
         val tierKey = "$positionId|${pre.originalQtyRaw}|$tier"
+
+        // V5.0.7194 §THE_TIMESTAMP_MAP_WITH_NO_READERS.
+        //
+        // tierUpdatedAt6613 is written here and at COMPLETE, removed on
+        // failure, and READ BY NOTHING. It is the sweep that was designed for
+        // this latch and never built — the same shape as the leaked live
+        // reservation 7146 had to recover and the queued-coordinator latch
+        // 7180 had to release.
+        //
+        // Why it matters: putIfAbsent below claims the tier. Every path between
+        // that claim and the first remove() at the proceeds checks can exit
+        // this function — a refused reconstruction, an unpriced sale, a throw —
+        // and the ones that return early WITHOUT reaching the failure branch
+        // leave the key at REQUESTED/QUANTITY_RESERVED/EXECUTING with no
+        // expiry. From then on every attempt at that tier returns
+        // duplicate=true, so the position's partial ladder is shut FOREVER.
+        //
+        // That is the capital-recycle path. A position latched here can never
+        // bank a slice, so its cost basis never returns to cash. On the
+        // 5.0.7193 run PROTECTIVE_PEAK_PARTIAL_FIRED_6064 fired 74 times while
+        // composed=0, PARTIAL ok=0 and partialRows=0 — 74 attempts, zero
+        // completions — against cash of 0.0087 SOL and 373 entries refused for
+        // size. A bot holding +4.87 SOL of unrealized profit could not fund a
+        // 0.05 SOL buy.
+        //
+        // COMPLETE is deliberately NOT swept. One claim per tier is the
+        // invariant this object exists to enforce, and a completed partial must
+        // stay completed. Only a NON-terminal claim older than the TTL is
+        // recovered, which is exactly the state a clean run never holds.
+        val nowTier7194 = System.currentTimeMillis()
+        val existingTier7194 = tierStates6613[tierKey]
+        if (existingTier7194 != null && existingTier7194 != TierState6613.COMPLETE) {
+            val since7194 = tierUpdatedAt6613[tierKey] ?: 0L
+            if (since7194 > 0L && nowTier7194 - since7194 > STALE_TIER_MS_7194) {
+                tierStates6613.remove(tierKey)
+                tierUpdatedAt6613.remove(tierKey)
+                staleTierRecovered7194.incrementAndGet()
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector
+                        .labelInc("PARTIAL_TIER_STALE_RECOVERED_7194")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "PARTIAL_TIER_STALE_RECOVERED_7194",
+                        "positionId=$positionId mint=${mint.take(10)} tier=$tier " +
+                            "stuckState=${existingTier7194.name} ageMs=${nowTier7194 - since7194} " +
+                            "action=released_latched_partial_ladder",
+                    )
+                } catch (_: Throwable) {}
+            }
+        }
+
         val priorState = tierStates6613.putIfAbsent(tierKey, TierState6613.REQUESTED)
         if (priorState != null) {
+            // V5.0.7194 — a duplicate is now counted and named. Previously the
+            // caller discarded the receipt, so "refused as duplicate" and
+            // "banked a slice" were indistinguishable at the call site, and the
+            // protective-peak block retried the identical operation on every
+            // tick because partialSoldPct never advanced.
+            duplicate7194.incrementAndGet()
+            lastRefusal7194 = "TIER_${priorState.name}"
             return empty(positionId, "", 0L, "PARTIAL_TIER_${priorState.name}").copy(duplicate = true)
         }
         tierUpdatedAt6613[tierKey] = System.currentTimeMillis()
+        requested7194.incrementAndGet()
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_PARTIAL_CLOSE_REQUESTED") } catch (_: Throwable) {}
         // V5.0.6566 — operation identity is position-local and monotonic.
         val sequence = nextSequence(positionId, tierKey)
@@ -374,17 +445,36 @@ object CanonicalPaperPartialOperation6510 {
             tierStates6613[tierKey] = TierState6613.COMPLETE
             tierUpdatedAt6613[tierKey] = System.currentTimeMillis()
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_PARTIAL_CLOSE_DONE") } catch (_: Throwable) {}
+            completed7194.incrementAndGet()
         } else {
             // Failed operations release entitlement and reserved quantity for a clean retry.
             tierStates6613.remove(tierKey)
             tierUpdatedAt6613.remove(tierKey)
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_PARTIAL_CLOSE_FAILED|${r.reason.take(80)}") } catch (_: Throwable) {}
+            failed7194.incrementAndGet()
+            lastRefusal7194 = r.reason.take(60)
         }
         return Receipt(r.applied, !r.applied && r.reason.contains("DUPLICATE", true), r.reason,
             positionId, operationId, sequence, pre.remainingQtyRaw, soldRaw, post.remainingQtyRaw,
             preCost, soldBasis, (post.entryCostSol - post.soldCostBasisSol).coerceAtLeast(0.0),
             grossProceeds, fees, grossProceeds - soldBasis - fees)
     }
+
+    /**
+     * V5.0.7194 — the capital-recycle scoreboard, pinned into the report.
+     *
+     * `requested` counts attempts that got past the tier claim; `dup` counts
+     * the ones refused because the tier was already held. A run with
+     * requested=0 dup=N means the ladder is LATCHED, not failing: the slices
+     * never ran. requested=N completed=0 means they ran and were refused, and
+     * `lastRefusal` names why. Those are opposite problems and they were
+     * indistinguishable before this line existed.
+     */
+    fun statusLine7194(): String =
+        "PARTIAL_RECYCLE(§7194): requested=${requested7194.get()} " +
+            "completed=${completed7194.get()} failed=${failed7194.get()} " +
+            "dup=${duplicate7194.get()} staleTierRecovered=${staleTierRecovered7194.get()}" +
+            (if (lastRefusal7194.isBlank()) "" else " lastRefusal=$lastRefusal7194")
 
     fun tierState6613(positionId: String, originalQtyRaw: BigInteger, reason: String): TierState6613 =
         tierStates6613["$positionId|$originalQtyRaw|${normalizedTier6613(reason)}"] ?: TierState6613.NONE

@@ -54,6 +54,28 @@ object OrderSizeResolver6441 {
     }
 
     private const val ABS_MIN_EXECUTABLE_SOL = 0.001
+
+    // V5.0.7194 — capital-refusal truth, so `capitalStarved` can stop being a
+    // comparison against literal zero. See the note at the increment site.
+    private val capitalRefusals7194 = java.util.concurrent.atomic.AtomicLong(0L)
+    @Volatile private var lastCapitalRefusalMs7194 = 0L
+    private const val STARVED_WINDOW_MS_7194 = 120_000L
+
+    /**
+     * V5.0.7194 — true when this resolver has actually refused an order for
+     * lack of fundable capital inside the recent window.
+     *
+     * This is a MEASURED refusal, not a threshold guess. Dust above zero is
+     * not solvency, and only the resolver knows the minimum that would have
+     * executed, because it computed it.
+     */
+    fun capitalStarvedNow7194(): Boolean {
+        val last = lastCapitalRefusalMs7194
+        return last > 0L && (System.currentTimeMillis() - last) <= STARVED_WINDOW_MS_7194
+    }
+
+    /** V5.0.7194 — lifetime count of capital-fundability refusals. */
+    fun capitalRefusalCount7194(): Long = capitalRefusals7194.get()
     private const val SOL_LAMPORTS_6491 = 1_000_000_000L
     private const val PAPER_ENTRY_FEE_RESERVE_RATE_6490 = 0.005
 
@@ -637,6 +659,23 @@ object OrderSizeResolver6441 {
         )
         lastResolution.set(res)
         if (actuallyExec) executableCount.incrementAndGet() else skippedCount.incrementAndGet()
+        // V5.0.7194 §THE_ONLY_THING_THAT_KNEW_WAS_NOT_ASKED.
+        //
+        // ToolkitSignalSheet prints `capitalStarved=${pending > 0L && sharedCash
+        // <= 0.0}` for every lane. Literal zero. On the 5.0.7193 run cash was
+        // 0.0087 SOL — above zero, so every lane reported capitalStarved=false
+        // and starvedByLane=NONE, while THIS function refused the same cash
+        // with CAPITAL_BELOW_MIN_EXECUTABLE_6490 and 373 opens died for size.
+        //
+        // LaneCapitalFairness6732 and InventoryDeadlockBreaker7027 both carry
+        // comments about this exact false negative. It was noticed twice and
+        // never fixed at the source, because the source is here: the resolver
+        // is the only thing that knows what "executable" means, and nothing
+        // ever asked it.
+        if (!actuallyExec && (reason == "CAPITAL_BELOW_MIN_EXECUTABLE_6490" || reason == "NO_WALLET")) {
+            capitalRefusals7194.incrementAndGet()
+            lastCapitalRefusalMs7194 = System.currentTimeMillis()
+        }
         try {
             ForensicLogger.lifecycle(
                 "ORDER_SIZE_RESOLVED_6441",
