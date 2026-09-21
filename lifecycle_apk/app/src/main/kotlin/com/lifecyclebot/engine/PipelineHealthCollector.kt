@@ -495,6 +495,22 @@ object PipelineHealthCollector {
             // V5.9.915 — block-reason histogram. Truncate to the first token of
             // the reason so we group "EXCEPTION cls=Foo" across distinct messages.
             val reasonKey = reason.substringBefore(' ').take(40).ifEmpty { "unspecified" }
+            // V5.0.7213 §ACCEPTANCE_A — "ok" must never be a block reason.
+            //
+            // OPERATOR DIRECTIVE 7212 §1: "An FDG result must be exactly
+            // ALLOW + explicit allow reason, or BLOCK + explicit block reason.
+            // 'ok' must never be counted as a block reason. Add invariant:
+            // FDG_BLOCK_REASON_OK == 0."
+            //
+            // The seven BotService call sites are fixed to fall back to
+            // approvalReason, but a central invariant is what makes that
+            // checkable and what catches the next caller written with `?: "ok"`.
+            // A gate that says no without saying why is a gate nobody can
+            // audit, and on the 5.0.7212 run it was 68 of 72 FDG blocks.
+            if (reasonKey.equals("ok", true) || reasonKey.equals("unspecified", true)) {
+                bump(labelCounts, "GATE_BLOCK_REASON_UNEXPLAINED_7213")
+                bump(labelCounts, "GATE_BLOCK_REASON_UNEXPLAINED_7213|$phaseTag")
+            }
             bump(blockReasonCounts, "$phaseTag/$reasonKey")
         }
         // V5.9.915 — per-mode FDG counters. Other phases don't get this
@@ -2301,6 +2317,66 @@ object PipelineHealthCollector {
             sb.append("  Exit scheduler (§6450):       ").append(
                 com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.statusLine()
             ).append("\n")
+            // V5.0.7213 §WHAT_IS_HELD_VS_WHAT_IS_PROTECTED.
+            //
+            // The 7212 snapshot read `hb=118369ms starvations=213` next to a
+            // risk clock at `running=true ticks=280 cbFail=0`, and the operator
+            // reasonably read that as a starved scheduler. It was not: the exit
+            // engine's open set was EMPTY, so the clock had nobody to evaluate
+            // and the heartbeat — stamped only from inside evaluate() — simply
+            // aged. 7213 separates those two clocks, but separating them is
+            // only half an answer. The question that actually matters with real
+            // money on the table is whether anything is HELD that the exit
+            // engine cannot see, and no line in this report answered it.
+            //
+            // Exit scope is `openPositions()` = lifecycle OPEN or
+            // PARTIALLY_CLOSED with remaining quantity > 0 (6441:833). A
+            // QUARANTINED row is therefore outside exit scope by construction
+            // while still being inventory, and an OPEN row drained to zero
+            // quantity is counted by the UI's lifecycle view but is invisible
+            // here. Both gaps are printed rather than inferred, because
+            // `exitScope=0` beside a screen full of positions is the shape of
+            // the operator's "displaying dead frozen tokens ... trading like
+            // utter shit or not at fucking all", and it must never again be
+            // reported only as a scheduler heartbeat.
+            try {
+                val exitScope7213 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+                    .openPositions().size
+                val lc7213 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+                    .classifyLifecycles()
+                val quarantined7213 = lc7213.byLifecycle[
+                    com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.QUARANTINED
+                ] ?: 0
+                val lifecycleOpen7213 =
+                    (lc7213.byLifecycle[
+                        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.OPEN
+                    ] ?: 0) +
+                        (lc7213.byLifecycle[
+                            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED
+                        ] ?: 0)
+                val drainedOpen7213 = (lifecycleOpen7213 - exitScope7213).coerceAtLeast(0)
+                sb.append("  Exit coverage (§7213):        ")
+                    .append("exitScope=").append(exitScope7213)
+                    .append(" lifecycleOpen=").append(lifecycleOpen7213)
+                    .append(" drainedOpenOutOfScope=").append(drainedOpen7213)
+                    .append(" quarantinedOutOfScope=").append(quarantined7213)
+                    .append(" ledgerTotal=").append(lc7213.total)
+                    .append("\n")
+                val unprotected7213 = drainedOpen7213 + quarantined7213
+                if (unprotected7213 > 0) {
+                    labelInc("PROTECTIVE_EXIT_HOLDINGS_OUTSIDE_EXIT_SCOPE_7213")
+                    sb.append("     ⚠️  $unprotected7213 ledger row(s) are inventory the protective exit\n")
+                    sb.append("         engine cannot reach: drained-open rows carry no quantity to sell\n")
+                    sb.append("         and QUARANTINED rows are excluded from openPositions() by\n")
+                    sb.append("         construction. Neither can latch a stop.\n")
+                }
+                if (exitScope7213 == 0 && lc7213.total > 0) {
+                    labelInc("PROTECTIVE_EXIT_SCOPE_EMPTY_WITH_LEDGER_ROWS_7213")
+                    sb.append("     ⚠️  exitScope=0 against ${lc7213.total} ledger row(s): the exit engine\n")
+                    sb.append("         has NOTHING to evaluate. Read the scheduler's emptyInvTicks, not\n")
+                    sb.append("         its starvations, and check admission (§6636 basis invariant).\n")
+                }
+            } catch (_: Throwable) {}
             sb.append("  Post-learn offloader (§6450): ").append(
                 com.lifecyclebot.engine.truth.PostLearningOffloader6450.statusLine()
             ).append("\n")
@@ -3155,10 +3231,15 @@ object PipelineHealthCollector {
                 val split7212 = labelCountSnapshot("FEE_SPLIT_FLUSH_6405")
                 val lowBal7212 = labelCountSnapshot("FEE_FLUSH_DEFERRED_LOW_BALANCE_7124")
                 val self7212 = labelCountSnapshot("FEE_BUCKET_STRANDED_SELF_7124")
-                val held7212 = labelCountSnapshot("FEE_FLUSH_HELD_NO_BUCKET_SENDABLE_7212")
+                // V5.0.7213 — 7212's "held" line is gone because 7212's hold is
+                // gone. It was my own regression: 21 flushes blocked, sent=0.
+                // Dust is now counted and PROCEEDS, so this reads as a note
+                // about payout size, not a reason nothing arrived.
+                val dust7213 = labelCountSnapshot("FEE_BUCKET_DUST_PROCEEDED_7213")
                 sb.append("  PAID (on-chain):     sent=$sent7212 splitSent=$split7212\n")
-                sb.append("  NOT paid, by cause:  heldNoBucketSendable=$held7212 ")
-                    .append("deferredLowBalance=$lowBal7212 strandedSelfWallet=$self7212\n")
+                sb.append("  NOT paid, by cause:  deferredLowBalance=$lowBal7212 ")
+                    .append("strandedSelfWallet=$self7212\n")
+                sb.append("  dust payouts (sent anyway, under the cost floor): $dust7213\n")
                 sb.append("  minSendablePerBucket: ${"%.5f".format(0.0002)} SOL")
                     .append("  (a bucket under this cannot be transferred)\n")
                 if (sent7212 + split7212 == 0L) {

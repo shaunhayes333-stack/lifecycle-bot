@@ -732,6 +732,63 @@ object LiveEntrySafetyHold {
                         continue
                     }
 
+                    // V5.0.7213 §A_WRITE_OFF_IS_NOT_A_TRADING_DECISION.
+                    //
+                    // OPERATOR DIRECTIVE 7212 §7: "WALLET_RECOVERED /
+                    // LIVE_BROADCAST / invalid-basis / reconstructed positions
+                    // must not train clean strategy WR/PF/EV unless provenance,
+                    // entry basis and economic identity are validated.
+                    // EXTERNAL_RUG_CLOSE on a reconstructed wallet holding must
+                    // not masquerade as a strategy-originated -100% loss."
+                    //
+                    // This cohort IS the live governor's evidence. On the
+                    // 5.0.7212 device it read canonicalN=11 wins=1 losses=10,
+                    // wr=9.1%, pf=0.09 — and that drove governor=HOLD, which
+                    // aborted every live buy before a quote was ever requested:
+                    //
+                    //   LIVE_BUY_ENTRY 69 = MEME_LIVE_EXEC_ENTRY 69
+                    //     = LIVE_ENTRY_POLICY_BLOCK_6388 69 = LIVE_BUY_ABORTED 69
+                    //   Jupiter quoteReq=0   EXEC_LIVE_BUY_OK=0
+                    //   Governor baseline/tight/hold = 0/0/25
+                    //
+                    // Meanwhile the Tactic Switcher carried three
+                    // WALLET_RECOVERED cohorts at mu=-100.0% — bags adopted
+                    // from the wallet with no recoverable basis and then closed
+                    // as EXTERNAL_RUG_CLOSE. The bot never chose those entries,
+                    // so they say nothing about entry quality, and a -100%
+                    // write-off is the single most destructive row a win-rate
+                    // and profit-factor window can contain.
+                    //
+                    // The predicate is NOT invented here: StrategyTruthLedger
+                    // already owns isRecoveryInventory() and already excludes
+                    // these rows from strategy stats — STRATEGY_RECOVERY_
+                    // EXCLUDED read 1820 on that same run. One authority was
+                    // excluding them and this one was not, which is the same
+                    // split-authority defect as 7209's lane pause.
+                    //
+                    // Deliberately narrow: a recovered row that DOES carry a
+                    // valid entry basis is a real trade and still counts. Only
+                    // a reconstructed holding with no verifiable basis is
+                    // dropped, because for those the P&L is an artefact of the
+                    // missing basis rather than a measured outcome.
+                    //
+                    // This does NOT force the governor open and changes no
+                    // threshold. It removes rows that were never evidence. If
+                    // the clean cohort is genuinely bad the governor still
+                    // holds, on real trades.
+                    val recoveryNoBasis7213 = try {
+                        com.lifecyclebot.engine.StrategyTruthLedger.isRecoveryInventory(t) &&
+                            !com.lifecyclebot.engine.StrategyTruthLedger.hasValidEntryBasis(t)
+                    } catch (_: Throwable) { false }
+                    if (recoveryNoBasis7213) {
+                        try {
+                            PipelineHealthCollector.labelInc(
+                                "GOVERNOR_COHORT_RECOVERY_NO_BASIS_EXCLUDED_7213",
+                            )
+                        } catch (_: Throwable) {}
+                        continue
+                    }
+
                     val pnl = if (t.netPnlSol != 0.0) t.netPnlSol else t.pnlSol
                     n += 1
                     netSol += pnl

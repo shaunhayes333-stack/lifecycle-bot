@@ -5190,6 +5190,86 @@ for legal compliance.
         // veto over rows with NO canonical proof, which is the phantom case
         // 4570 was written for and which the synthetic upsert() path below
         // still runs through both gates.
+    /**
+     * V5.0.7213 §THE_SAME_DEAD_BAG_RENDERED_SIX_TIMES.
+     *
+     * Operator: "its being weird as shit displaying dead frozen tokens,
+     * tokens that aren't in the wallet". The screenshots show
+     * RECOVERED_EiTkyg listed THREE times in one refresh and SIX in another —
+     * every copy with an identical size (0.0191) and an identical quantity
+     * (64.94), while the header read "Showing 5; managed total 5/10" and the
+     * snapshot read AUTHORITATIVE LIVE-OPEN POSITIONS: 0 with
+     * Host wallet projection: 1.
+     *
+     * Identical quantity on six supposedly separate positions is the tell:
+     * that is ONE wallet balance projected six times, not six buys.
+     *
+     * The panel de-duplicates everything it ADDS — the alreadyRendered guard
+     * at the synth sites below is correct — but that set is SEEDED from this
+     * base list (`alreadyRendered = merged.map { it.mint }`), so any duplicate
+     * already present in status.openPositions passes straight through. And
+     * status.openPositions is a List, not a mint-keyed map, so repeats are
+     * structurally possible: one row per positionId, several positionIds
+     * resolving to the same mint against the same wallet balance. The guard
+     * protects against adding a duplicate and never against arriving with one.
+     *
+     * One mint is one bag on screen. Where several rows claim the same mint,
+     * keep the most useful one and count the rest: a row with a real basis
+     * beats a basis-unknown row (a "basis wait" duplicate is exactly the dead
+     * frozen row the operator is seeing), then larger held quantity, then the
+     * newest entry. Nothing is hidden that is not a duplicate of something
+     * still shown, and the 6040 rule that a held bag must never go unshown is
+     * preserved — this only collapses copies of the same bag.
+     *
+     * Display only. No position is closed, no exit suppressed, no canonical
+     * record touched; the exit sweep still manages every underlying position.
+     */
+    private fun dedupeOpenRowsByMint7213(
+        rows: List<com.lifecyclebot.data.TokenState>,
+    ): List<com.lifecyclebot.data.TokenState> {
+        if (rows.size <= 1) return rows
+        val best = LinkedHashMap<String, com.lifecyclebot.data.TokenState>(rows.size)
+        var collapsed = 0
+        for (r in rows) {
+            val key = r.mint.trim()
+            if (key.isEmpty()) continue
+            val prior = best[key]
+            if (prior == null) { best[key] = r; continue }
+            collapsed++
+            if (preferOpenRow7213(r, prior)) best[key] = r
+        }
+        if (collapsed > 0) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("OPEN_PANEL_DUPLICATE_MINT_ROWS_COLLAPSED_7213")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "OPEN_PANEL_DUPLICATE_MINT_ROWS_COLLAPSED_7213",
+                    "inputRows=${rows.size} uniqueMints=${best.size} collapsed=$collapsed " +
+                        "action=one_mint_is_one_bag_on_screen",
+                )
+            } catch (_: Throwable) {}
+        }
+        return best.values.toList()
+    }
+
+    /** V5.0.7213 — true when [cand] is the more useful row to show for a mint. */
+    private fun preferOpenRow7213(
+        cand: com.lifecyclebot.data.TokenState,
+        prior: com.lifecyclebot.data.TokenState,
+    ): Boolean {
+        fun hasBasis(t: com.lifecyclebot.data.TokenState): Boolean =
+            try { t.position.entryPrice > 0.0 || t.position.costSol > 0.0 } catch (_: Throwable) { false }
+        val candBasis = hasBasis(cand)
+        val priorBasis = hasBasis(prior)
+        if (candBasis != priorBasis) return candBasis
+        val candQty = try { cand.position.qtyToken } catch (_: Throwable) { 0.0 }
+        val priorQty = try { prior.position.qtyToken } catch (_: Throwable) { 0.0 }
+        if (candQty != priorQty) return candQty > priorQty
+        val candTs = try { cand.position.entryTime } catch (_: Throwable) { 0L }
+        val priorTs = try { prior.position.entryTime } catch (_: Throwable) { 0L }
+        return candTs > priorTs
+    }
+
         val merged = state.openPositions
             .filter { it.position.isPaperPosition == isPaperMode }
             .filter { ts ->
@@ -5218,6 +5298,7 @@ for legal compliance.
                 }
                 true
             }
+            .let { rows7213 -> dedupeOpenRowsByMint7213(rows7213) }
             .toMutableList()
         val alreadyRendered = merged.map { it.mint }.toMutableSet()
         var latestBuyByMint: Map<String, com.lifecyclebot.data.Trade>? = null

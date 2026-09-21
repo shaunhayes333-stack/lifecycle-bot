@@ -25771,7 +25771,18 @@ if (hotExitHandledSweep) {
                 // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
                     allow = qualityFdg?.canExecute() ?: true,
-                    reason = (qualityFdg?.blockReason ?: "ok") + " path=QUALITY")
+                    reason = (qualityFdg?.let { v7213 ->
+                        // V5.0.7213 §A_REFUSAL_REASONED_OK_IS_A_REFUSAL_WITH_NO_REASON.
+                        // canExecute() is false whenever shouldTrade is false, even with
+                        // blockReason == null (FinalDecisionGate:61). The old `?: "ok"`
+                        // therefore logged a genuine BLOCK reasoned "ok" — 68 of 72 FDG
+                        // blocks on the operator's 5.0.7212 run, i.e. the overwhelming
+                        // majority of refusals were untraceable. approvalReason is the
+                        // field that explains a shouldTrade=false verdict, and
+                        // FinalDecisionGate:48/:55 ALREADY fall back to it for the reject
+                        // taxonomy. Same fallback here; telemetry only, no verdict changes.
+                        v7213.blockReason ?: v7213.approvalReason.ifBlank { "FDG_NO_REASON_7213" }
+                    } ?: "FDG_VERDICT_ABSENT_7213") + " path=QUALITY")
             } catch (_: Throwable) {}
             ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "QUALITY", qualityFdg?.canExecute() ?: true, qualityFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
             // V5.9.691 — FDG modulates, does not hard-kill, Quality signals
@@ -25979,7 +25990,18 @@ if (hotExitHandledSweep) {
                 // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
                     allow = blueChipFdg?.canExecute() ?: true,
-                    reason = (blueChipFdg?.blockReason ?: "ok") + " path=BLUECHIP")
+                    reason = (blueChipFdg?.let { v7213 ->
+                        // V5.0.7213 §A_REFUSAL_REASONED_OK_IS_A_REFUSAL_WITH_NO_REASON.
+                        // canExecute() is false whenever shouldTrade is false, even with
+                        // blockReason == null (FinalDecisionGate:61). The old `?: "ok"`
+                        // therefore logged a genuine BLOCK reasoned "ok" — 68 of 72 FDG
+                        // blocks on the operator's 5.0.7212 run, i.e. the overwhelming
+                        // majority of refusals were untraceable. approvalReason is the
+                        // field that explains a shouldTrade=false verdict, and
+                        // FinalDecisionGate:48/:55 ALREADY fall back to it for the reject
+                        // taxonomy. Same fallback here; telemetry only, no verdict changes.
+                        v7213.blockReason ?: v7213.approvalReason.ifBlank { "FDG_NO_REASON_7213" }
+                    } ?: "FDG_VERDICT_ABSENT_7213") + " path=BLUECHIP")
             } catch (_: Throwable) {}
             ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "BLUECHIP", blueChipFdg?.canExecute() ?: true, blueChipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
             // V5.9.691 — FDG modulates, does not hard-kill, BlueChip signals
@@ -26914,7 +26936,18 @@ if (hotExitHandledSweep) {
                 // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
                     allow = shitCoinFdg?.canExecute() ?: true,
-                    reason = (shitCoinFdg?.blockReason ?: "ok") + " path=SHITCOIN")
+                    reason = (shitCoinFdg?.let { v7213 ->
+                        // V5.0.7213 §A_REFUSAL_REASONED_OK_IS_A_REFUSAL_WITH_NO_REASON.
+                        // canExecute() is false whenever shouldTrade is false, even with
+                        // blockReason == null (FinalDecisionGate:61). The old `?: "ok"`
+                        // therefore logged a genuine BLOCK reasoned "ok" — 68 of 72 FDG
+                        // blocks on the operator's 5.0.7212 run, i.e. the overwhelming
+                        // majority of refusals were untraceable. approvalReason is the
+                        // field that explains a shouldTrade=false verdict, and
+                        // FinalDecisionGate:48/:55 ALREADY fall back to it for the reject
+                        // taxonomy. Same fallback here; telemetry only, no verdict changes.
+                        v7213.blockReason ?: v7213.approvalReason.ifBlank { "FDG_NO_REASON_7213" }
+                    } ?: "FDG_VERDICT_ABSENT_7213") + " path=SHITCOIN")
             } catch (_: Throwable) {}
             ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "SHITCOIN", shitCoinFdg?.canExecute() ?: true, shitCoinFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
                             // V5.9.1201 — FDG is a HARD VETO for ShitCoin too.
@@ -27254,7 +27287,18 @@ if (hotExitHandledSweep) {
                             // gate reason so onGate still does the per-lane accounting.
                             ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
                                 allow = manipFdg?.canExecute() ?: true,
-                                reason = (manipFdg?.blockReason ?: "ok") + " path=MANIP")
+                                reason = (manipFdg?.let { v7213 ->
+                        // V5.0.7213 §A_REFUSAL_REASONED_OK_IS_A_REFUSAL_WITH_NO_REASON.
+                        // canExecute() is false whenever shouldTrade is false, even with
+                        // blockReason == null (FinalDecisionGate:61). The old `?: "ok"`
+                        // therefore logged a genuine BLOCK reasoned "ok" — 68 of 72 FDG
+                        // blocks on the operator's 5.0.7212 run, i.e. the overwhelming
+                        // majority of refusals were untraceable. approvalReason is the
+                        // field that explains a shouldTrade=false verdict, and
+                        // FinalDecisionGate:48/:55 ALREADY fall back to it for the reject
+                        // taxonomy. Same fallback here; telemetry only, no verdict changes.
+                        v7213.blockReason ?: v7213.approvalReason.ifBlank { "FDG_NO_REASON_7213" }
+                    } ?: "FDG_VERDICT_ABSENT_7213") + " path=MANIP")
                         } catch (_: Throwable) {}
                         ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "MANIPULATED", manipFdg?.canExecute() ?: true, manipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
                         // V5.9.691 — FDG modulates, does not hard-kill, Manip signals
@@ -27533,7 +27577,18 @@ if (hotExitHandledSweep) {
                 // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
                     allow = expressFdg?.canExecute() ?: true,
-                    reason = (expressFdg?.blockReason ?: "ok") + " path=EXPRESS")
+                    reason = (expressFdg?.let { v7213 ->
+                        // V5.0.7213 §A_REFUSAL_REASONED_OK_IS_A_REFUSAL_WITH_NO_REASON.
+                        // canExecute() is false whenever shouldTrade is false, even with
+                        // blockReason == null (FinalDecisionGate:61). The old `?: "ok"`
+                        // therefore logged a genuine BLOCK reasoned "ok" — 68 of 72 FDG
+                        // blocks on the operator's 5.0.7212 run, i.e. the overwhelming
+                        // majority of refusals were untraceable. approvalReason is the
+                        // field that explains a shouldTrade=false verdict, and
+                        // FinalDecisionGate:48/:55 ALREADY fall back to it for the reject
+                        // taxonomy. Same fallback here; telemetry only, no verdict changes.
+                        v7213.blockReason ?: v7213.approvalReason.ifBlank { "FDG_NO_REASON_7213" }
+                    } ?: "FDG_VERDICT_ABSENT_7213") + " path=EXPRESS")
             } catch (_: Throwable) {}
             if (expressFdg != null && !expressFdg.canExecute()) {
                                 ErrorLogger.info("BotService", "🚫 FDG VETO on EXPRESS: ${ts.symbol} | ${expressFdg.blockReason ?: "fdg_block"}")
@@ -28033,7 +28088,18 @@ if (hotExitHandledSweep) {
                 // gate reason so onGate still does the per-lane accounting.
                 ForensicLogger.gate(ForensicLogger.PHASE.FDG, ts.symbol,
                     allow = dipFdg?.canExecute() ?: true,
-                    reason = (dipFdg?.blockReason ?: "ok") + " path=DIPHUNTER")
+                    reason = (dipFdg?.let { v7213 ->
+                        // V5.0.7213 §A_REFUSAL_REASONED_OK_IS_A_REFUSAL_WITH_NO_REASON.
+                        // canExecute() is false whenever shouldTrade is false, even with
+                        // blockReason == null (FinalDecisionGate:61). The old `?: "ok"`
+                        // therefore logged a genuine BLOCK reasoned "ok" — 68 of 72 FDG
+                        // blocks on the operator's 5.0.7212 run, i.e. the overwhelming
+                        // majority of refusals were untraceable. approvalReason is the
+                        // field that explains a shouldTrade=false verdict, and
+                        // FinalDecisionGate:48/:55 ALREADY fall back to it for the reject
+                        // taxonomy. Same fallback here; telemetry only, no verdict changes.
+                        v7213.blockReason ?: v7213.approvalReason.ifBlank { "FDG_NO_REASON_7213" }
+                    } ?: "FDG_VERDICT_ABSENT_7213") + " path=DIPHUNTER")
             } catch (_: Throwable) {}
             ExecutableOpenGate.recordFdg(ts.mint, ts.symbol, "DIP_HUNTER", dipFdg?.canExecute() ?: true, dipFdg?.blockReason, signal = "BUY", rugScore = ts.safety.rugcheckScore, safetyTier = ts.safety.tier.name, liquidityUsd = ts.lastLiquidityUsd, hardNoReasons = ts.safety.hardBlockReasons, entryScore = ts.entryScore.toInt(), tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus, tokenMapHydrationComplete = ts.tokenMap.hydrationComplete, tokenMapExpectedOut = ts.tokenMap.expectedOutAmount, tokenMapProviderAttempts = ts.tokenMap.providerAttempts)
             // V5.9.691 — FDG modulates, does not hard-kill, DipHunter signals
@@ -29121,7 +29187,11 @@ if (hotExitHandledSweep) {
                 ForensicLogger.gate(
                     ForensicLogger.PHASE.FDG, identity.symbol,
                     allow = fdgDecision.canExecute(),
-                    reason = fdgDecision.blockReason ?: "ok"
+                    reason = fdgDecision.blockReason
+                        // V5.0.7213 — see the QUALITY site above: a
+                        // shouldTrade=false verdict carries no blockReason,
+                        // so "ok" was being recorded as a block reason.
+                        ?: fdgDecision.approvalReason.ifBlank { "FDG_NO_REASON_7213" }
                 )
             }
         } catch (_: Throwable) {}

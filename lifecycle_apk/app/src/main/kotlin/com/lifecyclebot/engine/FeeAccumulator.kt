@@ -197,19 +197,44 @@ object FeeAccumulator {
         // scheduled daily flush + accumulation model is REMOVED per
         // operator directive after it drained a large batch in one shot.
         if (totalPending < flushThresholdSol) return 0.0
-        // V5.0.7212 — the total clearing the trigger is not sufficient: no
-        // single transfer is made of the total. If every bucket is under
-        // MIN_SENDABLE_SOL then the loop below can only defer or skip, and a
-        // flush that cannot send is indistinguishable from a fee that was
-        // never charged. Hold instead, and say so, so the accrual keeps
-        // building to a sendable size rather than being re-examined and
-        // re-deferred every cycle. Counted, because "fees are not arriving"
-        // must resolve to a number.
+        // V5.0.7213 §I_BLOCKED_THE_PAYOUT_I_WAS_TRYING_TO_UNBLOCK.
+        //
+        // V5.0.7212 put `if (!anyBucketSendable7212(buckets)) return 0.0`
+        // here, reasoning that a flush which cannot transfer is worthless. The
+        // operator's very next run disproved it, using 7212's own new counters:
+        //
+        //   PAID (on-chain):    sent=0 splitSent=0
+        //   NOT paid, by cause: heldNoBucketSendable=21
+        //   buckets: A8QPQr…=0.00005 | 82CAPB…=0.00005
+        //   ⚠ NOTHING has been paid out this session
+        //
+        // Twenty-one flushes entered and every one returned at my guard. The
+        // 5.0.7210 run had been paying — Fee accrual lastFlushSol=0.00011 — so
+        // I turned a working payout into a permanent hold on real money.
+        //
+        // The error: MIN_SENDABLE_SOL is the SPLIT path's floor, not a network
+        // minimum. The split branch derives `sendable` from a constrained
+        // wallet balance, so a sub-floor value there means "the wallet cannot
+        // cover this right now". The NORMAL branch sends the bucket itself, and
+        // 0.00005 SOL is a perfectly valid Solana transfer — dust relative to
+        // the base fee, which is what the constant's docstring is warning
+        // about, but not unsendable. I read a cost-efficiency floor as a
+        // capability floor and gated the whole function on it.
+        //
+        // Also wrong in 7212's reasoning: with two destinations the total
+        // crossing 0.0001 while each bucket holds 0.00005 is not a defect at
+        // all on the normal path. Each bucket sends independently.
+        //
+        // So: never block. Count the dust condition and PROCEED, so the
+        // operator keeps seeing that payouts are small and frequent while the
+        // money actually moves. The split branch's own MIN_SENDABLE_SOL
+        // deferral is untouched and remains correct — it is a real
+        // "wallet cannot fund this" state, and deferredLowBalance=0 on that
+        // run confirms it was never the cause here.
         if (!anyBucketSendable7212(buckets)) {
             try {
-                PipelineHealthCollector.labelInc("FEE_FLUSH_HELD_NO_BUCKET_SENDABLE_7212")
+                PipelineHealthCollector.labelInc("FEE_BUCKET_DUST_PROCEEDED_7213")
             } catch (_: Throwable) {}
-            return 0.0
         }
 
         for (dest in keys) {
