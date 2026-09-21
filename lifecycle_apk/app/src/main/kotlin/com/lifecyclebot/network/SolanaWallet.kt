@@ -96,13 +96,82 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             } catch (_: Throwable) {}
         }
 
+        /**
+         * V5.0.7210 §ROUND_ROBIN_THREW_AWAY_THE_ONLY_ENDPOINT_THAT_WORKED.
+         *
+         * Operator went live and their wallet showed ten freshly-bought tokens
+         * worth $58.91 while the app listed them as "HELD RECOVERED_… basis
+         * unknown" with "0.000◎ at risk" — live positions with no entry price,
+         * therefore no stop-loss and no take-profit.
+         *
+         * The chain: the durable live basis receipt is written by the
+         * wallet-proof promotion, that promotion needs getTokenAccountsByOwner,
+         * and the 5.0.7206 device logged it "failed on 14 wallet endpoints"
+         * with WALLET_TOKEN_READ_INDETERMINATE=224 and
+         * WALLET_RPC_ENDPOINT_COOLDOWN_4595=3754. No read, no proof, no
+         * receipt — LIVE_BUY_SIDE_EFFECTS_DEFERRED_6637=2 against
+         * COMMITTED=1, FILL_LOT_LEDGER_APPEND_BUY_6344=1 and
+         * CANONICAL_BUY_FILL_RECORDED_6320=1 against EXEC_LIVE_BUY_OK=4.
+         *
+         * In the SAME snapshot: `helius live=true http=200 HELIUS_HEALTHY
+         * getTokenAccountsByOwner o` and helius sr=99% s=389. The one
+         * authenticated provider, explicitly verified for this exact call, was
+         * healthy throughout.
+         *
+         * RuntimeProviderAuthority6685.rpcCandidates builds a deliberate
+         * PREFERENCE LADDER — primary, configured rpcUrl, Helius, then 13
+         * public endpoints — and every other consumer of it walks that order
+         * (WalletManager:333, JupiterApi:712, SolanaWallet:626). This function
+         * was the sole caller that rotated it. With ~15 candidates, Helius was
+         * first on roughly one call in fifteen; the rest of the time the loop
+         * spent its budget on free.rpcpool.com (timeout), solana-mainnet.c
+         * (HTTP401), mainnet.rpcpool (HTTP403) and solana-mainnet.p
+         * (UnknownHostException) before ever asking the provider that answers.
+         *
+         * Round-robin is right for spreading load across INTERCHANGEABLE
+         * endpoints. It is wrong applied to a ladder whose head is
+         * authenticated and whose tail is anonymous best-effort. So: keep the
+         * preferred head in its authored order, and rotate only the public
+         * tail, which is what round-robin was for. Membership is decided by
+         * PUBLIC_SOLANA_RPCS rather than by index, so adding another
+         * authenticated provider automatically joins the head and the two
+         * cannot drift apart.
+         *
+         * The 4595 per-endpoint 30s cooldown filter is retained exactly as it
+         * was, including its fail-safe of returning the full list when every
+         * endpoint is cooling, so the snapshot still never goes dark.
+         */
         internal fun applyRoundRobin(endpoints: List<String>): List<String> {
             if (endpoints.size <= 1) return endpoints
             val now = System.currentTimeMillis()
             val healthy = endpoints.filter { (rpcCooldownUntil[it] ?: 0L) <= now }
             val pool = if (healthy.isNotEmpty()) healthy else endpoints
-            val startIdx = (rpcRoundRobinIndex.getAndIncrement() % pool.size).let { if (it < 0) it + pool.size else it }
-            return pool.drop(startIdx) + pool.take(startIdx)
+            // Both sides go through sanitizeRpc, the same normaliser
+            // rpcCandidates used to build `pool`. Comparing a raw constant
+            // against a sanitised pool entry would silently match nothing,
+            // classify every endpoint as preferred, and turn this whole fix
+            // into a no-op that still logs success — so the normaliser is
+            // asked rather than assumed.
+            val publicSet7210 = try {
+                com.lifecyclebot.engine.RuntimeProviderAuthority6685.PUBLIC_SOLANA_RPCS
+                    .map { com.lifecyclebot.engine.RuntimeProviderAuthority6685.sanitizeRpc(it) }
+                    .filter { it.isNotBlank() }
+                    .toSet()
+            } catch (_: Throwable) { emptySet<String>() }
+            val preferred7210 = pool.filter { it !in publicSet7210 }
+            val rotatable7210 = pool.filter { it in publicSet7210 }
+            if (preferred7210.isEmpty() || rotatable7210.size <= 1) {
+                val startIdx = (rpcRoundRobinIndex.getAndIncrement() % pool.size)
+                    .let { if (it < 0) it + pool.size else it }
+                return pool.drop(startIdx) + pool.take(startIdx)
+            }
+            val startIdx = (rpcRoundRobinIndex.getAndIncrement() % rotatable7210.size)
+                .let { if (it < 0) it + rotatable7210.size else it }
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("WALLET_RPC_PREFERRED_LADDER_PRESERVED_7210")
+            } catch (_: Throwable) {}
+            return preferred7210 + rotatable7210.drop(startIdx) + rotatable7210.take(startIdx)
         }
 
         // V5.9.999b — Dedicated daemon executor for bounded RPC wrappers.
@@ -736,13 +805,55 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             .put("params", params)
         val body = payload.toString()
         val endpoints = walletRpcEndpointsForTokenSnapshot()
+        // V5.0.7210 §THE_FAST_BUDGET_WAS_SHORTER_THAN_THE_PROVIDER_THAT_WORKS.
+        //
+        // Was connect 900 / read 1_400 / call 1_800 ms. Measured on the
+        // operator's own 5.0.7206 run, from the API health block:
+        //
+        //   helius      sr=99%   avg=1071ms   s=389
+        //   helius_rpc  sr=100%  avg=1699ms   s=2
+        //   solana_rpc  sr=95%   avg=1005ms   s=61
+        //
+        // helius_rpc's MEAN is 1699ms against a 1400ms read budget and an
+        // 1800ms call budget. A provider whose average response exceeds the
+        // deadline fails more often than it succeeds by definition, and
+        // getTokenAccountsByOwner is one of the heaviest reads on the wire —
+        // it returns every token account the owner holds. That is precisely
+        // the InterruptedIOException:timeout in the device log.
+        //
+        // So the budget is set from the measurement rather than from a guess:
+        // read 3_500ms is ~2x helius_rpc's mean, with connect and call sized
+        // around it. "Fast" has to mean fast enough to get an answer.
+        //
+        // This does not make the ladder slow. With 7210's preference fix the
+        // authenticated endpoint is asked FIRST, so the common path is one
+        // call at ~1.1-1.7s — quicker end to end than the old budget, which
+        // timed out repeatedly before reaching a provider that would answer.
+        //
+        // A total wall-clock deadline replaces the per-attempt squeeze as the
+        // thing that bounds this function. That is the correct place for it:
+        // bounding the whole ladder protects the caller, while bounding each
+        // attempt so tightly that no healthy provider can reply protects
+        // nothing and blinds the position ledger.
         val fastHttp = http.newBuilder()
-            .connectTimeout(900, TimeUnit.MILLISECONDS)
-            .readTimeout(1_400, TimeUnit.MILLISECONDS)
-            .callTimeout(1_800, TimeUnit.MILLISECONDS)
+            .connectTimeout(1_500, TimeUnit.MILLISECONDS)
+            .readTimeout(3_500, TimeUnit.MILLISECONDS)
+            .callTimeout(4_000, TimeUnit.MILLISECONDS)
             .build()
+        val ladderDeadlineMs7210 = System.currentTimeMillis() + 9_000L
         val failures = mutableListOf<String>()
-        for (endpoint in endpoints) {
+        for ((idx7210, endpoint) in endpoints.withIndex()) {
+            // Never abandon the ladder before the FIRST endpoint has answered:
+            // the preferred head is index 0 and it is the one most likely to
+            // succeed, so the deadline may only cut the anonymous tail.
+            if (idx7210 > 0 && System.currentTimeMillis() > ladderDeadlineMs7210) {
+                failures.add("LADDER_DEADLINE_7210_after_$idx7210")
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector
+                        .labelInc("WALLET_RPC_LADDER_DEADLINE_7210")
+                } catch (_: Throwable) {}
+                break
+            }
             try {
                 // V5.0.7131 — THE FALLBACK CHAIN WAS NEVER CALLED.
                 //
