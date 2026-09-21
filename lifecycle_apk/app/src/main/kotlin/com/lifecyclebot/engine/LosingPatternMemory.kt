@@ -281,8 +281,57 @@ object LosingPatternMemory {
     fun recommendedBandNudge(tradingMode: String, v3Score: Int): Int {
         val s = stats(tradingMode, v3Score)
         val n = s.losses + s.wins
-        if (n < 20) return 0                 // not matured — let it keep recording
         val m = s.meanPnl                    // realised mean PnL % for this bucket
+        // V5.0.7201 §DEFENCE_REACTS_AT_TRADE_4_AND_OFFENCE_WAITS_UNTIL_20.
+        //
+        // This function's own header calls itself "the offensive twin of
+        // recommendedSizeMult" and says the machinery "only ever SHRINKS
+        // proven losers; it never leaned into proven WINNERS". It then gated
+        // itself at n>=20 while the defensive side fires from n=4:
+        //
+        //   isEmergingDanger  sample 4..9   losses>=3, lossRate>=75%, mean<=-3%
+        //   isDangerous       sample >=10   losses>=5, lossRate>=70%
+        //   recommendedBandNudge            n>=20 or nothing
+        //
+        // V5.0.4597 lowered the DEFENSIVE thresholds twice, on the operator's
+        // directive that "lanes failing to produce profits they need to find
+        // how too sooner. there is no excuse", and never touched this one. So
+        // a bucket with 3 losses in 4 trades is shrunk immediately, and a
+        // bucket earning +424% a trade is ignored for another dozen fires.
+        // That is a 5x asymmetry in reaction speed pointing away from money,
+        // and it is the "too much focus on bad behaviour" complaint expressed
+        // as a threshold mismatch.
+        //
+        // Measured on 5.0.7199: EXPRESS n=8, WR 50%, EV +424.24%/trade,
+        // +2.3814 SOL — the single best lane in the book, carrying a book that
+        // is net positive only because of it — received nudge=0.
+        //
+        // THE TEST IS MAGNITUDE, NOT FREQUENCY, and deliberately not a mirror
+        // of isEmergingDanger's win-rate shape. V5.9.1306 already established
+        // the principle two hundred lines up: "a low-WR / huge-avg-win band is
+        // a WINNER, not a bleeder". EXPRESS is 4W/4L — a 75%-win-rate mirror
+        // would reject it, which is exactly the mistake 1306 exists to prevent.
+        // So the emerging tier keys on realised mean PnL alone, at a bar
+        // (+50%) far above the mature ladder's own +50 rung, and pays HALF the
+        // mature nudge because the sample is thin.
+        //
+        // Bounded and conservative: +3 is the smallest step on the existing
+        // ladder, one tier, no new authority, and nothing here can produce a
+        // negative nudge — an emerging LOSER is still the defensive side's
+        // business and is untouched. The n>=20 ladder below is byte-identical.
+        if (n in 4..19) {
+            return if (m >= 50.0) {
+                try {
+                    PipelineHealthCollector.labelInc(
+                        "BAND_NUDGE_EMERGING_WINNER_7201|${tradingMode.uppercase().take(24)}"
+                    )
+                } catch (_: Throwable) {}
+                3
+            } else {
+                0
+            }
+        }
+        if (n < 20) return 0                 // not matured — let it keep recording
         return when {
             m >= 200.0 -> 10                 // moonshot bucket (e.g. SHITCOIN S40-49) — lean in
             m >= 50.0  -> 6
