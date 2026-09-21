@@ -22058,28 +22058,94 @@ if (hotExitHandledSweep) {
             } catch (_: Throwable) { false }
             val refreshNeeded6651 = ts.position.entryPrice <= 0.0 || ts.lastPrice <= 0.0 ||
                 stateMarkStale6651 || !provenanceFresh6651
-            if (refreshNeeded6651) {
-                missingMark++
-                // V5.0.7001 — missingMark is an OR of four very different
-                // faults and the log reported only the sum. "89 of 100" has
-                // been quoted in three consecutive diagnoses, including mine,
-                // without anyone being able to say WHICH of the four it is —
-                // and they need opposite fixes: no entry price is a ledger
-                // problem, no mark is a feed problem, a stale mark is a cadence
-                // problem, and failed provenance is a classifier problem.
-                // Split the counter so the next snapshot names it.
-                try {
-                    when {
-                        ts.position.entryPrice <= 0.0 ->
-                            PipelineHealthCollector.labelInc("MISSING_MARK_CAUSE_7001_NO_ENTRY_PRICE")
-                        ts.lastPrice <= 0.0 ->
-                            PipelineHealthCollector.labelInc("MISSING_MARK_CAUSE_7001_NO_MARK")
-                        stateMarkStale6651 ->
-                            PipelineHealthCollector.labelInc("MISSING_MARK_CAUSE_7001_MARK_STALE")
-                        else ->
-                            PipelineHealthCollector.labelInc("MISSING_MARK_CAUSE_7001_PROVENANCE_REFUSED")
-                    }
-                } catch (_: Throwable) {}
+            // V5.0.7204 §THE_MARK_IS_ONLY_REFETCHED_ONCE_IT_IS_ALREADY_USELESS.
+            //
+            // Operator 5.0.7203: RISK_CLOCK_BLOCKED_7001_MARK_STALE=40,502,
+            // MISSING_MARK_CAUSE_7001_MARK_STALE=18,685, QUOTE_STALE_6452=20,375
+            // against fresh=17,580 — more than half of every freshness read
+            // refused — and stopLatency NORMAL_STOP max=61,013ms.
+            //
+            // 61,013ms is not a coincidence. THREE independent thresholds in
+            // this pipeline are all exactly 60,000ms:
+            //
+            //   BotService:5133   markUsable6882 = th6882.markAgeMs <= 60_000L
+            //                     — the risk clock's USABILITY bar.
+            //   here (6651)       stateMarkStale6651 = markAgeMs6651 > 60_000L
+            //                     — the REFRESH trigger.
+            //   here (6651)       isFresh(cp.mint, 60_000L)
+            //                     — the provenance READ bar.
+            //
+            // The refresh request and the usability verdict therefore flip at
+            // the same instant. A mark is never topped up while it is still
+            // good; it is re-fetched only once it has ALREADY stopped being
+            // admissible. So every position cycles fresh -> usable for 60s ->
+            // unusable and only then eligible, and stays unusable for however
+            // long the TTL gate plus an HTTP round trip takes. During that
+            // window BotService:5140 routes the risk clock into the
+            // heartbeat-only branch with markPx=0.0, where no threshold can
+            // latch — so a position that crosses its stop mid-gap does not
+            // latch the stop until the feed catches up. That gap IS the stop
+            // latency, and its ceiling is the 60s bar. Same shape as 7148 and
+            // 7201: a remedy gated behind a threshold it can only reach after
+            // the harm it exists to prevent has already happened.
+            //
+            // The correct trigger is already written down one screen up.
+            // MarkRefreshDedupTtl6594.TTL_SUCCESS_MS = 30s is 6594's own
+            // statement of how long a successful mark stays authoritative;
+            // refresh when it stops being authoritative, not 30s after. Read
+            // from that constant rather than restating 30_000L, because the
+            // rate limiter and the trigger drifting apart is precisely this
+            // defect — if they share one number they cannot disagree.
+            //
+            // This CANNOT cause a refresh storm, and that is the whole reason
+            // it is safe: the TTL below is the storm guard and it is untouched,
+            // so actual network refreshes stay bounded at <=1 per mint per 30s
+            // exactly as they are today. Only the PHASE moves — the attempt
+            // now lands while the mark has 30s of admissibility left instead
+            // of after it has none. MARK_REFRESH_TTL_SKIPPED_6594 will rise;
+            // that counter measures requests refused by the gate, not traffic.
+            //
+            // No exit threshold, stop, cap or lane behaviour is touched. The
+            // usability bar (5133) and the read bar (isFresh) keep their 60s
+            // deliberately — this build makes the mark arrive in time to meet
+            // them, it does not lower what they demand.
+            val markTopUpDue7204 = markAgeMs6651 > MarkRefreshDedupTtl6594.TTL_SUCCESS_MS
+            if (refreshNeeded6651 || markTopUpDue7204) {
+                // V5.0.7204 — missingMark and the four 7001 cause counters stay
+                // keyed on refreshNeeded6651 ALONE. A pre-expiry top-up is not
+                // a missing mark, and folding it in here would inflate exactly
+                // the diagnostic 7001 built to be trustworthy, then have the
+                // next snapshot read as a feed collapse that this build caused.
+                if (refreshNeeded6651) {
+                    missingMark++
+                    // V5.0.7001 — missingMark is an OR of four very different
+                    // faults and the log reported only the sum. "89 of 100" has
+                    // been quoted in three consecutive diagnoses, including mine,
+                    // without anyone being able to say WHICH of the four it is —
+                    // and they need opposite fixes: no entry price is a ledger
+                    // problem, no mark is a feed problem, a stale mark is a cadence
+                    // problem, and failed provenance is a classifier problem.
+                    // Split the counter so the next snapshot names it.
+                    try {
+                        when {
+                            ts.position.entryPrice <= 0.0 ->
+                                PipelineHealthCollector.labelInc("MISSING_MARK_CAUSE_7001_NO_ENTRY_PRICE")
+                            ts.lastPrice <= 0.0 ->
+                                PipelineHealthCollector.labelInc("MISSING_MARK_CAUSE_7001_NO_MARK")
+                            stateMarkStale6651 ->
+                                PipelineHealthCollector.labelInc("MISSING_MARK_CAUSE_7001_MARK_STALE")
+                            else ->
+                                PipelineHealthCollector.labelInc("MISSING_MARK_CAUSE_7001_PROVENANCE_REFUSED")
+                        }
+                    } catch (_: Throwable) {}
+                } else {
+                    // The mark is still admissible and is being topped up
+                    // BEFORE it expires. This counter rising while
+                    // MISSING_MARK_CAUSE_7001_MARK_STALE and
+                    // RISK_CLOCK_BLOCKED_7001_MARK_STALE fall is the whole
+                    // proof of this build.
+                    try { PipelineHealthCollector.labelInc("MARK_TOPUP_PRE_EXPIRY_7204") } catch (_: Throwable) {}
+                }
                 // V5.0.6594 §MARK_REFRESH_DEDUP_TTL — enforce a per-mint TTL
                 // so the exit-feed 5s cadence cannot re-queue the same
                 // refresh 9× per position per tick as it did on 6591.
