@@ -121,7 +121,37 @@ object AntiRewardHackingGuard6439 {
      * it touches the rolling high. See riskBasisSol7179.
      */
     fun observeWalletBalance(currentCashSol: Double) {
-        if (currentCashSol <= 0.0) return
+        // V5.0.7200 §THE_GUARD_WENT_BLIND_WHEN_IT_MATTERED_MOST.
+        //
+        // This used to read `if (currentCashSol <= 0.0) return` — testing the
+        // RAW input, one line before riskBasisSol7179 converts it into the
+        // real equity basis. 7179 added that conversion precisely because the
+        // raw figure is a wallet mirror and not the bot's risk, and then the
+        // pre-existing guard clause above it made the conversion unreachable
+        // in the one state that matters.
+        //
+        // When the bot is fully deployed, cash IS zero. On the 5.0.7197 run it
+        // sat at 0.0000 SOL with 15.64 SOL of open market value, so every
+        // observation returned here and the rolling high was never written:
+        //
+        //   Anti-reward-hack (§6439): high24hSol=0.00000
+        //                             highAgeMin=29833135  (56 years — never set)
+        //                             vetoes=0 allows=0
+        //
+        // canExpandRisk then reads `if (high <= 0.0 ...) return true` and
+        // allows unconditionally. So the drawdown veto was inert exactly while
+        // the account was 100% deployed — the condition it exists to police.
+        // Both asymmetries built on it were silently unguarded: V5.0.7192's
+        // trait-expansion gate and V5.0.6956's runner compounder.
+        //
+        // Same shape as V5.0.7199: a later authority made unreachable by an
+        // earlier guard clause that predates it.
+        //
+        // Test the RESOLVED basis. riskBasisSol7179 already resolves paper
+        // cash from PaperCapitalAuthority6577 internally and adds open cost
+        // basis, so a fully-deployed account yields a true, non-zero equity
+        // figure. A genuinely empty account still resolves to <= 0 and is
+        // still skipped by the check below, which is retained unchanged.
         val currentSol = riskBasisSol7179(currentCashSol)
         if (currentSol <= 0.0) return
         val now = System.currentTimeMillis()
