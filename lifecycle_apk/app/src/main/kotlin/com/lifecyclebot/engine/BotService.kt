@@ -4233,6 +4233,36 @@ class BotService : Service() {
                 try {
                     val label6497 = if (wasOpenBefore) "TRUE_DUPLICATE_OPEN"
                         else if (isPaper) "ROUTE_FAILED_PAPER" else "ROUTE_FAILED_LIVE"
+                    // V5.0.7196 §IT_SAID_ROUTE_AND_IT_MEANT_MONEY.
+                    //
+                    // ROUTE_FAILED_PAPER is not a route failure. It fires
+                    // whenever doBuy returns without committing an open, for
+                    // ANY reason, and the log line beside it already concedes
+                    // the point: "(see PAPER_BUY_NOT_OPENED_* for explicit
+                    // reason)". That companion counter read 92 against 774.
+                    //
+                    // The 5.0.7193 arithmetic says what the other 682 were:
+                    //   ROUTE_FAILED_PAPER                          774
+                    //   EXEC_OPEN_BLOCKED_SIZE_NOT_EXECUTABLE_6491  373
+                    //   BELOW_MIN_NOTIONAL                          208
+                    //   SIZE_ZERO_UNPRICED_INTAKE                   165   = 746
+                    // against cash of 0.0087 SOL. Nearly every one of them was
+                    // the account being unable to fund the trade, reported as a
+                    // routing fault.
+                    //
+                    // A counter that names the wrong subsystem is worse than no
+                    // counter. It sent me at pump.fun and the endpoint migrator
+                    // this session, and it is the same defect class that cost
+                    // 7152 a whole build. Ask the one authority that knows —
+                    // the resolver that actually refused — instead of guessing
+                    // from the call site.
+                    try {
+                        val cause7196 = if (
+                            com.lifecyclebot.engine.truth.OrderSizeResolver6441.capitalStarvedNow7194()
+                        ) "CAPITAL_NOT_EXECUTABLE" else "NO_OPEN_COMMITTED_NON_CAPITAL"
+                        com.lifecyclebot.engine.PipelineHealthCollector
+                            .labelInc("V3_EXEC_NOT_OPENED_7196|$cause7196")
+                    } catch (_: Throwable) {}
                     com.lifecyclebot.engine.ForensicLogger.lifecycle(
                         label6497,
                         "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=V3 reason=${if (wasOpenBefore) "ALREADY_OPEN" else "NO_OPEN_COMMITTED"} mode=${if (isPaper) "PAPER" else "LIVE"} (see PAPER_BUY_NOT_OPENED_* for explicit reason)"
