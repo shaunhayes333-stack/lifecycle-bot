@@ -211,6 +211,13 @@ object MarketDataProvenance6471 {
         source: String,
         poolAddress: String,
         identity: String = "",
+        /**
+         * V5.0.7199 — true only when the caller holds an OPEN canonical
+         * position on this mint, which proves mint identity independently of
+         * the route key. Defaults to false so every entry-side caller is
+         * unchanged. See the §7199 note at the sentinel-pool check.
+         */
+        isKnownOpenMint6596: Boolean = false,
     ): Provenance {
         classified.incrementAndGet()
         val pool = poolAddress.trim()
@@ -243,8 +250,49 @@ object MarketDataProvenance6471 {
             return Provenance.AUTHORITATIVE
         }
 
-        if (SENTINEL_POOL_PREFIXES.any { pool.startsWith(it, ignoreCase = true) })
-            return recordSentinel(identityKey6615, "pool_prefix($pool)")
+        // V5.0.7199 §6596_TAUGHT_THE_GATE_AND_NOT_THE_CLASSIFIER.
+        //
+        // V5.0.6596 established that for a mint with an OPEN canonical
+        // position the mint identity is already proven, so a "MINT_ROUTE:"
+        // route key is acceptable pool identity. It applied that to
+        // MarkAuthorityIntegrityGate6496.realPoolIdentity and stopped there.
+        // This classifier never learned it, and the gate never passed the flag
+        // down — so every exit-path mark arrived here, matched the sentinel
+        // prefix on the line below, and came back NON-AUTHORITATIVE.
+        //
+        // That silently killed V5.0.7148. 7148 added `provenanceVouched7148`
+        // precisely so an honest new provider name could be admitted on the
+        // strength of its provenance instead of a hard-coded list, and its
+        // worked example was `src=FANOUT_CORROBORATED_7088_x2` — a mark backed
+        // by TWO independent feeds agreeing. But provenanceVouched7148
+        // requires provenance == AUTHORITATIVE, and the exit path always
+        // supplies MINT_ROUTE, so that provenance was never obtainable there.
+        // The escape hatch could not fire on the one path it was written for.
+        //
+        // Measured on 5.0.7197: MARK_QUOTE_7060_UNAVAILABLE_NOT_AUTHORITATIVE_6496
+        // = 99,031, with 41 of 59 open positions unable to price, cash at
+        // 0.0000 SOL and 2,591 entries refused for capital. Those marks had
+        // already been certified usable by CanonicalMarkResolution7059 one line
+        // earlier — two authorities disagreeing about the same number, because
+        // one of them was judging the route key instead of the price.
+        //
+        // NARROW BY CONSTRUCTION. The parameter defaults to false, so every
+        // entry-side caller (V3, FDG, executor route generation) keeps the
+        // strict pre-7199 behaviour byte-for-byte. Only "MINT_ROUTE:" is
+        // forgiven, and only when the caller can prove the mint is open —
+        // UNKNOWN / PLACEHOLDER / SENTINEL pools are still refused here, a
+        // blank pool is still refused above, and SENTINEL_SOURCES below is
+        // untouched, so a price with no honest provenance still cannot pass.
+        val sentinelPool7199 = SENTINEL_POOL_PREFIXES.any { prefix ->
+            if (isKnownOpenMint6596 && prefix.equals("MINT_ROUTE:", ignoreCase = true)) false
+            else pool.startsWith(prefix, ignoreCase = true)
+        }
+        if (sentinelPool7199) return recordSentinel(identityKey6615, "pool_prefix($pool)")
+        if (isKnownOpenMint6596 && pool.startsWith("MINT_ROUTE:", ignoreCase = true)) {
+            try {
+                PipelineHealthCollector.labelInc("MINT_ROUTE_ADMITTED_FOR_KNOWN_OPEN_7199")
+            } catch (_: Throwable) {}
+        }
         val src = source.trim().uppercase()
         if (src.isBlank()) return recordMissing("source_blank")
         if (src in SENTINEL_SOURCES) return recordSentinel(identityKey6615, "source($src)")

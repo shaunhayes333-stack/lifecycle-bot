@@ -127,8 +127,19 @@ object MarkAuthorityIntegrityGate6496 {
             return prior6615.result
         }
         evaluated.incrementAndGet()
-        val provenance = try { MarketDataProvenance6471.classify(priceUsd, mcapUsd, liquidityUsd, source, poolAddress, identity = mint) }
-            catch (_: Throwable) { MarketDataProvenance6471.Provenance.NON_AUTHORITATIVE_MISSING }
+        // V5.0.7199 — forward the known-open proof to the classifier. 6596
+        // taught THIS object that MINT_ROUTE is acceptable pool identity for a
+        // mint we already hold, and then judged the result against a
+        // provenance computed without that knowledge. realPoolIdentity said
+        // yes; provenance said sentinel; provenanceVouched7148 needs
+        // AUTHORITATIVE and so could never fire on the exit path. One fact,
+        // two readers, and only one of them was told.
+        val provenance = try {
+            MarketDataProvenance6471.classify(
+                priceUsd, mcapUsd, liquidityUsd, source, poolAddress,
+                identity = mint, isKnownOpenMint6596 = isKnownOpenMint6596,
+            )
+        } catch (_: Throwable) { MarketDataProvenance6471.Provenance.NON_AUTHORITATIVE_MISSING }
         val sourceUpper = source.trim().uppercase()
         // V5.0.6548 §P0-B — CANONICAL PROVIDER IDENTITY.
         // Operator evidence: `MARK_AUTHORITY_GATE_BLOCKED_6547|SOURCE_NOT_WHITELISTED:DEXSCREENER_WS`
@@ -286,8 +297,15 @@ object MarkAuthorityIntegrityGate6496 {
                 // every MARK_AUTHORITY_GATE_BLOCKED_6547|* key is inside that
                 // truncation. A per-reason tally held here rides out on
                 // statusLine7198 instead, which is pinned.
+                //
+                // V5.0.7199 — KEEP THE SOURCE NAME. 7198 tallied
+                // `substringBefore(':')`, which threw away the ONLY part of
+                // this string that identifies the culprit: SOURCE_NOT_WHITELISTED
+                // is a category, SOURCE_NOT_WHITELISTED:UNKNOWN is the answer.
+                // That is the same defect this whole file keeps being patched
+                // for — a label that is honest until something truncates it.
                 blockReasons7198
-                    .computeIfAbsent(blockReason6547.substringBefore(':')) { AtomicLong(0L) }
+                    .computeIfAbsent(blockReason6547.take(48)) { AtomicLong(0L) }
                     .incrementAndGet()
                 ForensicLogger.lifecycle(
                     "MARK_AUTHORITY_GATE_BLOCKED_6496",
