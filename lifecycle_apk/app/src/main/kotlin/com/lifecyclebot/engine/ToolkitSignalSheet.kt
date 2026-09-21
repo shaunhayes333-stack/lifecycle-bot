@@ -554,7 +554,30 @@ object ToolkitSignalSheet {
             } catch (_: Throwable) {}
             return
         }
-        if (!deskStageOnce6599.add("$l|$st|$eventId")) return
+        // V5.0.7214 §EVERY_DROP_ON_THIS_PATH_NOW_HAS_A_NAME.
+        //
+        // This function is the single funnel entry point, and it has three ways
+        // to discard a stage: a blank causal id (counted, above), this
+        // idempotency dedupe (counted NOWHERE until now), and an unresolvable
+        // record key further down (counted). Two of the three were visible.
+        //
+        // That mattered on the 5.0.7212 snapshot, where markN=0 sizedN=0
+        // ticketN=0 across twelve lanes had at least four candidate
+        // explanations and the report could not separate them. It turned out
+        // the labelled-counter block prints only the top 401 and hid "+820
+        // more", so the counters that DID exist were invisible anyway — which
+        // is why the report now pins this family by prefix rather than hoping
+        // it ranks.
+        //
+        // `offered` is the honest denominator: how many times a producer tried
+        // to stamp this lane and stage. offered > 0 with a zero funnel count
+        // means the stamp was made and dropped; offered == 0 means no producer
+        // ran. Those two need different fixes and were indistinguishable.
+        try { PipelineHealthCollector.labelInc("DESK_STAGE_OFFERED_7214_$st") } catch (_: Throwable) {}
+        if (!deskStageOnce6599.add("$l|$st|$eventId")) {
+            try { PipelineHealthCollector.labelInc("DESK_STAGE_DEDUPED_7214_$st") } catch (_: Throwable) {}
+            return
+        }
         deskStageCounts6599.computeIfAbsent("$l|$st") { java.util.concurrent.atomic.AtomicLong(0L) }.incrementAndGet()
         try { com.lifecyclebot.engine.truth.SpecialistRuntimeRegistry6647.offer(l, st, eventId) } catch (_: Throwable) {}
         // V5.0.6625 — SINGLE SOURCE FAN-OUT into the P2/P3/P4/P5 receivers.
@@ -740,6 +763,19 @@ object ToolkitSignalSheet {
                 com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.stamp6625(key, causalStage, stage)
             } else {
                 try { PipelineHealthCollector.labelInc("SPECIALIST_CAUSAL_UNRESOLVED_ID_REJECTED_6647") } catch (_: Throwable) {}
+                // V5.0.7214 — which half was unresolvable, and on which stage.
+                // "unresolved id" covered two different producer bugs: an
+                // eventId whose mint could not be parsed out of it at all, and
+                // one that parsed but carried no candidate version. The first is
+                // a key-format fault at the call site, the second is a stamp
+                // made before LaneExecutionCoordinator had a version for the
+                // mint. Same counter, opposite fixes.
+                try {
+                    PipelineHealthCollector.labelInc(
+                        if (mint.isBlank()) "DESK_STAGE_DROPPED_NO_MINT_IN_KEY_7214_$stage"
+                        else "DESK_STAGE_DROPPED_NO_CANDIDATE_VERSION_7214_$stage",
+                    )
+                } catch (_: Throwable) {}
             }
         }
     }
@@ -776,6 +812,45 @@ object ToolkitSignalSheet {
             // A bare phantom count has never been enough to fix
             // J_PHANTOM_SIZED_ONLY; the breakdown says which hop dropped its
             // stamp and gives the intentId to grep for.
+            // V5.0.7214 §THE_DISAMBIGUATOR_COULD_NOT_PRINT_IN_THE_CASE_IT_WAS_FOR.
+            //
+            // 7086 added the raw stage tally precisely so "ticket=0" could be
+            // told apart from "ticket was built and the count was suppressed",
+            // and its own comment says so. But it gated the print on
+            // `phantomSizedOnly > 0`, and phantomSizedOnly is only incremented
+            // when `executableSize` is true — i.e. when a SIZE outcome EXISTS
+            // (MemeExecutionFunnelReceivers6625:536,539).
+            //
+            // So when the SIZE stamp is missing ENTIRELY — the 5.0.7212 live
+            // shape, sizedN=0 sizeReject=0 phantomSizedOnly=0 on all twelve
+            // lanes — phantomSizedOnly is 0, the gate is false, and the raw
+            // counts that would have answered the question are computed and
+            // thrown away. A remedy behind a threshold it cannot reach, which
+            // is the same defect class as 7148, 7154 and 7204.
+            //
+            // Print the raw tally whenever a validated stage reads zero while
+            // its raw counterpart does not. That is the only condition under
+            // which the two numbers say different things, so it is the only
+            // condition worth the line — and it no longer depends on a
+            // predecessor stamp being present to report that a predecessor
+            // stamp is absent.
+            val raw7214 = s.rawCounts7086
+            fun rawOf7214(stage: com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage) =
+                raw7214[stage] ?: 0
+            val suppressed7214 = com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.Stage.values()
+                .filter { (s.counts[it] ?: 0) == 0 && rawOf7214(it) > 0 }
+            if (suppressed7214.isNotEmpty()) {
+                appendLine(
+                    "$lane suppressedStages=${suppressed7214.joinToString(",") { "${it.name}:raw=${rawOf7214(it)}" }} " +
+                        "read=these_stages_WERE_reached_and_the_validated_count_dropped_them_for_a_missing_predecessor",
+                )
+                try {
+                    PipelineHealthCollector.labelInc("FUNNEL_STAGE_COUNT_SUPPRESSED_7214")
+                    suppressed7214.forEach {
+                        PipelineHealthCollector.labelInc("FUNNEL_STAGE_COUNT_SUPPRESSED_7214_${it.name}")
+                    }
+                } catch (_: Throwable) {}
+            }
             if (s.phantomSizedOnly > 0) {
                 appendLine("$lane phantomMissing=${s.phantomMissing6883.entries.sortedByDescending { it.value }.joinToString(",") { "${it.key}=${it.value}" }.ifBlank { "NONE" }} phantomSampleIntentId=${s.phantomSampleIntentId6883.ifBlank { "NONE" }}")
                 // V5.0.7086 — the RAW stage tally beside the validated one.
@@ -850,19 +925,82 @@ object ToolkitSignalSheet {
             //   real state) rather than a downstream choke. When
             //   fdgAllow > 0 and the downstream stage still is 0, the
             //   choke label remains correct and actionable.
+            // V5.0.7214 §MARK_CHOKED_WAS_UNREACHABLE_SO_EVERY_LANE_SAID_SIZING.
+            //
+            // Operator 5.0.7212, every live lane:
+            //   QUALITY ... fdgN=2 markN=0 sizedN=0 ticketN=0 execN=0
+            //               status=SIZING_CHOKED
+            // and in the same snapshot, the sizing authority itself:
+            //   Order size resolver (§6441): resolves=63 exec=63 skip=0
+            //
+            // Sixty-three resolutions, sixty-three executable, zero skipped.
+            // The sizer refused nothing. "SIZING_CHOKED" was not a measurement.
+            //
+            // The order of these branches is the defect.
+            // MemeExecutionFunnelReceivers6625:557 validates Stage.SIZE as
+            //   `executableSize && DISCOVER in stages && INTENT in stages && markReady`
+            // so a record with no MARK can NEVER be counted as SIZE. `sized == 0`
+            // is therefore IMPLIED by `mark == 0`, and because it is tested first
+            // the MARK_CHOKED branch below it is unreachable in exactly the case
+            // it was written for. Every missing mark has been reported as a
+            // sizing fault since the branch order was set, which sends whoever
+            // reads it at OrderSizeResolver — the one component the same snapshot
+            // exonerates.
+            //
+            // Mark is now tested before size, and the two mark conditions are
+            // separated, because they are not the same fault:
+            //   MARK_STAGE_UNRECORDED — neither MARK_READY nor MARK_REJECT was
+            //     ever recorded for this lane. No producer ran. This is a
+            //     TELEMETRY hole, and on the live path it is the expected state:
+            //     the only unconditional MARK producer is in paperBuy
+            //     (Executor:14748), so a LIVE run records no mark stage at all
+            //     and four downstream stages validated against it read zero by
+            //     construction.
+            //   MARK_CHOKED — the stage WAS recorded and every outcome was a
+            //     refusal. That is a real feed/mark fault.
+            //
+            // No threshold, lane rule or execution path changes. This only stops
+            // the report naming the wrong subsystem.
+            val markRefusals7214 = o("MARK_REJECT")
+            val markStageRecorded7214 = mark > 0L || markRefusals7214 > 0L
             val status = when {
                 pool == 0L -> "DEAD"
                 qualified == 0L -> "DISCOVERY_ONLY"
                 intent == 0L -> "INTENT_CHOKED"
                 fdgAllow + fdgBlock == 0L -> "FDG_CHOKED"
                 fdgAllow == 0L -> "FDG_BLOCKED_ALL"
-                sized == 0L -> "SIZING_CHOKED"
+                !markStageRecorded7214 -> "MARK_STAGE_UNRECORDED_7214"
                 mark == 0L -> "MARK_CHOKED"
+                sized == 0L -> "SIZING_CHOKED"
                 ticket == 0L -> "TICKET_CHOKED"
                 exec == 0L || opened == 0L -> "EXEC_CHOKED"
                 sellAttempt > 0L && sellConfirmed == 0L -> "EXIT_CHOKED"
                 finalized > 0L && learn == 0L -> "LEARNING_CHOKED"
                 else -> "ACTIVE"
+            }
+            // V5.0.7214 — the contradiction, counted where both numbers are in
+            // hand. A lane reported SIZING_CHOKED while the only authority that
+            // decides what "executable size" means reported no refusals at all.
+            if (status == "SIZING_CHOKED") {
+                try {
+                    val skips7214 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.skippedCount7214()
+                    if (skips7214 <= 0L) {
+                        PipelineHealthCollector.labelInc("FUNNEL_SIZING_CHOKED_CONTRADICTED_BY_RESOLVER_7214")
+                        PipelineHealthCollector.labelInc("FUNNEL_SIZING_CHOKED_CONTRADICTED_BY_RESOLVER_7214_$lane")
+                    }
+                } catch (_: Throwable) {}
+            }
+            if (status == "MARK_STAGE_UNRECORDED_7214") {
+                try { PipelineHealthCollector.labelInc("FUNNEL_MARK_STAGE_HAS_NO_PRODUCER_7214_$lane") } catch (_: Throwable) {}
+            }
+            // V5.0.7214 — operator directive #2's invariant, asserted rather
+            // than left to be eyeballed across two lines of the report:
+            // every FDG allow must reach a mark verdict, pass or fail.
+            if (fdgAllow > 0L && (mark + markRefusals7214) < fdgAllow) {
+                try {
+                    PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_MARK_VERDICT_7214")
+                    PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_MARK_VERDICT_7214_$lane")
+                } catch (_: Throwable) {}
             }
             val executionEligible = ticket > 0L && exec > 0L
             appendLine("$lane runtimeAlive=${runtime.runtimeAlive} trafficSeen=${runtime.trafficSeen} candidateQualified=${qualified > 0L} executionEligible=$executionEligible heartbeatAtMs=${runtime.heartbeatAtMs} queueOwner=${runtime.queueOwner.ifBlank { "NONE" }} queueDepth=${runtime.queueDepth} candidateN=$pool qualifiedN=$qualified ownerSelectedN=$owner buyIntentN=$intent fdgN=$fdgAllow markN=$mark sizedN=$sized ticketN=$ticket execN=$exec positionOpenedN=$opened finalizedN=$finalized learningN=$learn phantomSizedOnly=${causal.phantomSizedOnly} capitalAvailable=SHARED_CANONICAL status=$status")

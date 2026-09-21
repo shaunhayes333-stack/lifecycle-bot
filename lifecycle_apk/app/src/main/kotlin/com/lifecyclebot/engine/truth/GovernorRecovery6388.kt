@@ -233,6 +233,40 @@ object GovernorRecovery6388 {
                 "from=${prior.name} to=${next.name} reason=$reason")
         } catch (_: Throwable) {}
     }
+    /**
+     * V5.0.7214 §THE_AUTHORITY_THAT_GATES_EVERY_LIVE_BUY_WAS_INVISIBLE.
+     *
+     * LaneEntryContract6342:102 consults [entryAuthority] for every single live
+     * entry while the governor is HOLD, and its answer is the difference
+     * between a probation-sized trade and a hard block. The 5.0.7212 snapshot
+     * has LIVE_ENTRY_POLICY_BLOCK_6388=69 against LIVE_BUY_ENTRY=69 — every
+     * live entry refused by this machine — and NOTHING in the report says which
+     * state it was in. The only trace was one LIFECYCLE/GOVERNOR_AUTO_PROMOTED
+     * event count of 1, which does not say to what, and the per-transition
+     * labels were in the "+820 more counters not shown" tail.
+     *
+     * So the machine's whole purpose — "staged, evidence-driven, dynamic
+     * promotion+demotion" — had to be inferred from the shape of what it
+     * blocked. Every diagnosis of a HOLD in this codebase has started by
+     * guessing this value. It is a status line now.
+     */
+    fun statusLine(): String {
+        val s = currentState.get()
+        val auth = entryAuthority()
+        val ageMs = System.currentTimeMillis() - stateEnteredAtMs.get()
+        return "state=${s.name} ageMs=$ageMs allowBuys=${auth.allowBuys} " +
+            "sizing=${
+                when {
+                    auth.fullSized -> "FULL"
+                    auth.softTightSized -> "SOFT_TIGHT"
+                    auth.probationSized -> "PROBATION"
+                    else -> "NONE"
+                }
+            } " +
+            "lastPromotion=${lastPromotionReason.ifBlank { "none" }} " +
+            "lastDemotion=${lastDemotionReason.ifBlank { "none" }}"
+    }
+
     internal fun resetForTest(state: State = State.BLOCKED_INFRASTRUCTURE) {
         currentState.set(state); stateEnteredAtMs.set(System.currentTimeMillis())
         lastPromotionReason = ""; lastDemotionReason = ""

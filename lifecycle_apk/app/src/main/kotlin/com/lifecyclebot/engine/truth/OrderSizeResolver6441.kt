@@ -696,6 +696,19 @@ object OrderSizeResolver6441 {
         return res
     }
 
+    /**
+     * V5.0.7214 — how many resolutions this authority actually refused.
+     *
+     * ToolkitSignalSheet printed status=SIZING_CHOKED for every live lane on the
+     * 5.0.7212 snapshot while this same resolver reported resolves=63 exec=63
+     * skip=0. Two lines of one report, in direct contradiction, and nothing
+     * compared them. The funnel can now ask the only authority that decides
+     * what "executable size" means whether it refused anything, instead of
+     * inferring a sizing fault from a stage count that is validated against a
+     * mark stamp the live path never emits.
+     */
+    fun skippedCount7214(): Long = skippedCount.get()
+
     fun statusLine(): String {
         val n = totalResolves.get()
         val e = executableCount.get()

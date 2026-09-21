@@ -102,7 +102,45 @@ object LaneEntryContract6342 {
             val recovAuth = try {
                 com.lifecyclebot.engine.truth.GovernorRecovery6388.entryAuthority()
             } catch (_: Throwable) { null }
-            if (recovAuth != null && recovAuth.allowBuys && recovAuth.probationSized) {
+            // V5.0.7214 §A_PROMOTION_THAT_REMOVED_PERMISSION.
+            //
+            // This test used to be `allowBuys && probationSized`, which is true
+            // for exactly ONE recovery state: HOLD_PROBATION. GovernorRecovery
+            // 6388:200-207 gives allowBuys=true to four states — HOLD_PROBATION,
+            // SOFT_TIGHT, BASELINE and EXPANSION — but only HOLD_PROBATION has
+            // probationSized=true.
+            //
+            // So while the governor said HOLD, the machine promoting itself out
+            // of probation (which it does only after >=5 clean canonical closes
+            // with >=3 wins, PF >= 1.0 and non-negative expectancy — 6388:137)
+            // made this escape clause FALSE and sent every candidate to the
+            // policy-block return below. Earning the evidence to be promoted
+            // took the lane from "one probation-sized trade allowed" to "nothing
+            // allowed". A strictly monotone authority read non-monotonically.
+            //
+            // Honour allowBuys, which is the machine's actual answer. Permission
+            // is NOT widened: while the governor is HOLD the entry is still
+            // clamped to probation sizing (the size clamp lives in the executor's
+            // `sol` resolution block and reads probationSized) and must still
+            // pass ProbationEntryLimiter6388.canOpen(). The ceiling under HOLD is
+            // therefore exactly what HOLD_PROBATION already permitted — one
+            // strictly-sized, rate-limited, evidence-generating trade — so this
+            // does not force the governor's HOLD open. It only stops a state the
+            // machine reached BY PROVING ITSELF from being treated as worse than
+            // the state it was promoted from.
+            val recoveryAuth7214 = recovAuth?.takeIf { it.allowBuys }
+            if (recoveryAuth7214 != null && !recoveryAuth7214.probationSized) {
+                try {
+                    PipelineHealthCollector.labelInc("LANE_ENTRY_RECOVERY_ABOVE_PROBATION_UNDER_HOLD_7214")
+                    ForensicLogger.lifecycle(
+                        "LANE_ENTRY_RECOVERY_ABOVE_PROBATION_UNDER_HOLD_7214",
+                        "mint=${ts.mint.take(10)} lane=$lane govState=$govState recovery=${recoveryAuth7214.reason} " +
+                            "action=clamp_to_probation_permission_not_block " +
+                            "note=promotion_past_HOLD_PROBATION_used_to_block_every_entry",
+                    )
+                } catch (_: Throwable) {}
+            }
+            if (recoveryAuth7214 != null) {
                 val (canOpen, limitReason) = try {
                     com.lifecyclebot.engine.truth.ProbationEntryLimiter6388.canOpen()
                 } catch (_: Throwable) { true to "OK" }
@@ -111,7 +149,7 @@ object LaneEntryContract6342 {
                         PipelineHealthCollector.labelInc("LANE_ENTRY_CONTRACT_ALLOW_PROBATION_6388")
                         ForensicLogger.lifecycle(
                             "LANE_ENTRY_CONTRACT_ALLOW_PROBATION_6388",
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$lane recoveryState=${recovAuth.reason} action=allow_probation_sized",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$lane recoveryState=${recoveryAuth7214.reason} action=allow_probation_sized",
                         )
                     } catch (_: Throwable) {}
                     reasons += "GOVERNOR_HOLD_PROBATION_6388_ALLOWED"
@@ -123,20 +161,24 @@ object LaneEntryContract6342 {
                 } catch (_: Throwable) { 0L }
                 val shouldEmit = try {
                     com.lifecyclebot.engine.truth.PolicyBlockDedup6388.shouldEmit(
-                        runtimeGen, ts.mint, "lane_entry_${lane}", govState, recovAuth.reason
+                        runtimeGen, ts.mint, "lane_entry_${lane}", govState, recoveryAuth7214.reason
                     )
                 } catch (_: Throwable) { true }
                 if (shouldEmit) {
                     try {
                         com.lifecyclebot.engine.truth.PolicyBlockDedup6388.recordPolicyBlock(
-                            ts.mint, govState, recovAuth.reason, limitReason
+                            ts.mint, govState, recoveryAuth7214.reason, limitReason
                         )
                     } catch (_: Throwable) {}
                     return Assessment(Verdict.GOVERNOR_HOLD_VETO, laneRequested, "SHADOW", reasons + limitReason)
                 }
                 return Assessment(Verdict.POLICY_BLOCK_DEDUPED, laneRequested, "SHADOW", reasons + limitReason)
             }
-            // Recovery state has NOT elevated to probation → emit dedup policy block.
+            // V5.0.7214 — recovery does not permit buys at all (BLOCKED_
+            // INFRASTRUCTURE or EXIT_ONLY) → emit dedup policy block. This is
+            // the only remaining path to a policy block under HOLD, and it now
+            // means what it says rather than also catching every state the
+            // machine had promoted itself into.
             val runtimeGen = try {
                 com.lifecyclebot.engine.BotRuntimeController.currentGeneration()
             } catch (_: Throwable) { 0L }

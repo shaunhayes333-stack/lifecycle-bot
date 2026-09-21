@@ -1966,6 +1966,84 @@ object PipelineHealthCollector {
             sb.append("  §P4 MOONSHOT_EXIT_TX    ${com.lifecyclebot.engine.truth.MoonshotExitTransaction6625.statusLine()}\n")
             sb.append("  §P5 CAUSAL_FUNNEL       ${com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.statusLine()}\n")
             sb.append("  §P6 UI_OFF_MAIN_AUDIT   ${com.lifecyclebot.engine.truth.UiOffMainAudit6625.statusLine()}\n")
+            // ── V5.0.7214 §THE_COUNTERS_THAT_ANSWER_THIS_WERE_IN_THE_HIDDEN_TAIL.
+            //
+            // The labelled-counter block prints the top 401 and ends with
+            // "(+820 more non-pinned counters above 0, not shown)". Every
+            // counter needed to diagnose the 5.0.7212 live funnel —
+            // markN=0 sizedN=0 ticketN=0 on twelve lanes — was in that tail:
+            // SPECIALIST_CAUSAL_UNRESOLVED_ID_REJECTED_6647,
+            // SPECIALIST_STAGE_BLANK_CAUSAL_ID_REJECTED_6647,
+            // ADVISORY_SIZE_STAMP_WITHHELD_6893,
+            // MARK_PROMOTED_BEFORE_CAUSAL_IDENTITY_6883 and the
+            // TRADE_AUTHORIZE_ENTERED_7003 family. I read their ABSENCE from
+            // the printed list as evidence and had to catch myself: absence
+            // from a top-N slice is not a measurement. 7156 built
+            // labelsWithPrefix for exactly this and wrote "a section that knows
+            // which family it needs should be able to print it rather than hope
+            // it ranks." This is that section for the entry funnel.
+            //
+            // Zero is printed explicitly for every pinned key, because "0" and
+            // "not shown" have to stop looking the same.
+            try {
+                sb.append("===== ENTRY FUNNEL STAGE ACCOUNTING (V5.0.7214) =====\n")
+                val pinnedExact7214 = listOf(
+                    "SPECIALIST_STAGE_BLANK_CAUSAL_ID_REJECTED_6647",
+                    "SPECIALIST_CAUSAL_UNRESOLVED_ID_REJECTED_6647",
+                    "ADVISORY_SIZE_STAMP_WITHHELD_6893",
+                    "MARK_PROMOTED_BEFORE_CAUSAL_IDENTITY_6883",
+                    "FDG_ALLOW_WITHOUT_MARK_VERDICT_7214",
+                    "FUNNEL_STAGE_COUNT_SUPPRESSED_7214",
+                    "FUNNEL_SIZING_CHOKED_CONTRADICTED_BY_RESOLVER_7214",
+                    "GATE_BLOCK_REASON_UNEXPLAINED_7213",
+                )
+                pinnedExact7214.forEach { k7214 ->
+                    sb.append("  ").append(k7214.padEnd(52)).append(labelValue7214(k7214)).append("\n")
+                }
+                val pinnedFamilies7214 = listOf(
+                    "DESK_STAGE_OFFERED_7214_",
+                    "DESK_STAGE_DEDUPED_7214_",
+                    "DESK_STAGE_DROPPED_NO_MINT_IN_KEY_7214_",
+                    "DESK_STAGE_DROPPED_NO_CANDIDATE_VERSION_7214_",
+                    "FUNNEL_MARK_STAGE_HAS_NO_PRODUCER_7214_",
+                    "TRADE_AUTHORIZE_ENTERED_7003_",
+                    "LIVE_BUY_ABORTED|",
+                    "LANE_ENTRY_RECOVERY_ABOVE_PROBATION_UNDER_HOLD_7214",
+                )
+                pinnedFamilies7214.forEach { pfx7214 ->
+                    val fam7214 = labelsWithPrefix7156(pfx7214)
+                    if (fam7214.isEmpty()) {
+                        sb.append("  ").append(pfx7214).append("* : none\n")
+                    } else {
+                        sb.append("  ").append(pfx7214).append("*\n")
+                        fam7214.entries.sortedByDescending { it.value }.take(24).forEach { e7214 ->
+                            sb.append("      ").append(e7214.key.removePrefix(pfx7214).ifBlank { "(exact)" }.padEnd(46))
+                                .append(e7214.value).append("\n")
+                        }
+                    }
+                }
+                // §3 — the pre-quote invariant, stated as arithmetic rather than
+                // left to the operator to reconstruct from four sections.
+                // Directive: EXEC_GATE_ALLOW == QUOTE_REQUESTED + EXPLICIT_PREQUOTE_REJECT.
+                // 5.0.7212 read allow=34, quoteReq=0, and one undifferentiated
+                // LIVE_BUY_ABORTED bucket of 69 — so the 34 were unaccounted and
+                // the 69 unexplained. Both sides are now itemised above.
+                val gateAllow7214 = labelValue7214("EXEC_GATE_ALLOW")
+                val abortTotal7214 = labelsWithPrefix7156("LIVE_BUY_ABORTED|").values.sum()
+                sb.append("  PRE-QUOTE INVARIANT: execGateAllow=").append(gateAllow7214)
+                    .append(" abortsWithNamedReason=").append(abortTotal7214)
+                    .append(" abortsTotal=").append(labelValue7214("LIVE_BUY_ABORTED"))
+                    .append("\n")
+                if (labelValue7214("LIVE_BUY_ABORTED") > abortTotal7214) {
+                    labelInc("LIVE_BUY_ABORTED_REASON_UNATTRIBUTED_7214")
+                    sb.append("     ⚠️  ").append(labelValue7214("LIVE_BUY_ABORTED") - abortTotal7214)
+                        .append(" abort(s) carried no reason token — a terminal that cannot say why.\n")
+                }
+                // §3 — the recovery machine that decides whether a live buy may
+                // exist at all, which had no status line anywhere until 7214.
+                sb.append("  Governor recovery (§6388): ")
+                    .append(com.lifecyclebot.engine.truth.GovernorRecovery6388.statusLine()).append("\n")
+            } catch (_: Throwable) {}
             // V5.0.6626 §RUNTIME_LOOP_UNCHOKE — coalescer + adaptive TTL status.
             try {
                 sb.append("===== RUNTIME LOOP UNCHOKE (V5.0.6626) =====\n")
@@ -3536,6 +3614,23 @@ object PipelineHealthCollector {
      * that knows which family it needs should be able to print it rather
      * than hope it ranks.
      */
+    /**
+     * V5.0.7214 — read ONE label by exact key, returning 0 when absent.
+     *
+     * [labelsWithPrefix7156] answers "which keys in this family exist", which
+     * is the wrong question for a pinned counter: a family read returns an
+     * empty map both when the counter is zero and when it was never created,
+     * and the report then prints nothing, which is indistinguishable from the
+     * top-N truncation that hid 820 counters on the 5.0.7212 snapshot. A pinned
+     * line must print a number every time.
+     *
+     * Private: the pinned-counter block in this file is the only consumer, and
+     * `labelsWithPrefix7156` stays the cross-module read so a caller elsewhere
+     * cannot start treating one label as an authority.
+     */
+    private fun labelValue7214(key: String): Long =
+        try { labelCounts[key]?.get() ?: 0L } catch (_: Throwable) { 0L }
+
     fun labelsWithPrefix7156(prefix: String): Map<String, Long> {
         if (prefix.isBlank()) return emptyMap()
         return try {

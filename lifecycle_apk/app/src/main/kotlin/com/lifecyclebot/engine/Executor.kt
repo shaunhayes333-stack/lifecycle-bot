@@ -17874,6 +17874,41 @@ class Executor(
             try {
                 ForensicLogger.lifecycle(stage, "attemptId=${execCtx.attemptId} execMode=${execCtx.execMode} mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$layerTag $detail".trim())
                 PipelineHealthCollector.labelInc(stage)
+                // V5.0.7214 §LIVE_BUY_ABORTED_WAS_ONE_BUCKET_FOR_ELEVEN_CAUSES.
+                //
+                // Operator directive #3: "instrument the exact terminal reason
+                // for every LIVE_BUY_ABORTED; remove LIVE_ENTRY_POLICY_BLOCK as
+                // a generic terminal bucket."
+                //
+                // The 5.0.7212 snapshot reads LIVE_BUY_ENTRY=69,
+                // LIVE_BUY_ABORTED=69, quoteReq=0 — every live entry died before
+                // a quote was ever requested, and the one counter that named the
+                // terminal was a single bucket of 69. Eleven call sites in this
+                // file reach it (LIVE_MODE_DESYNC, PRE_EXEC_POLICY_REDIRECT_6389,
+                // SELL_ONLY_HOLD_6391, LIVE_ENTRY_POLICY_BLOCKED_6388,
+                // MINT_REENTRY_COOLDOWN_6312, PROVIDER_DEGRADED_BUY_BLOCK_6264,
+                // SIZE_BELOW_FEE_ECONOMIC_FLOOR_6247, ADVISOR_BLOCK,
+                // COMMON_SENSE_PREBUY, OBSERVE_ONLY_NOT_LIVE_EXECUTABLE,
+                // DEFERRED_REQUOTE_REQUIRED) and each one already passes its
+                // reason — into the forensic DETAIL STRING, which is not counted
+                // and is rotated out of the snapshot's "last 80 of 150" window.
+                //
+                // Split on the reason token rather than by changing eleven
+                // signatures: the `reason=<X>` convention is uniform across every
+                // existing site, so parsing it here covers all of them and any
+                // added later, and the plain bucket is kept so old snapshots stay
+                // comparable. Telemetry only — nothing about the abort decisions
+                // changes.
+                val reasonTok7214 = detail.substringAfter("reason=", "")
+                    .substringBefore(' ')
+                    .take(64)
+                if (reasonTok7214.isNotBlank()) {
+                    PipelineHealthCollector.labelInc("${stage}|$reasonTok7214")
+                } else if (stage == "LIVE_BUY_ABORTED") {
+                    // An abort with no reason token is the same defect 7213
+                    // fixed at the FDG gates: a terminal that cannot say why.
+                    PipelineHealthCollector.labelInc("LIVE_BUY_ABORTED|REASON_ABSENT_7214")
+                }
             } catch (_: Throwable) {}
         }
         fun liveAbortDesync(reason: String): Boolean {
