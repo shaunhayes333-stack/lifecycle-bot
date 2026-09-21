@@ -298,6 +298,34 @@ data class Position(
         // invisible. It also narrows FORENSIC_POSITION_SET_DIVERGENCE_6912,
         // because CanonicalPositionAuthority6441 already counts these 36 as
         // active — it was only this runtime projection that disagreed.
+        //
+        // V5.0.7197 §I_REASONED_ABOUT_DUST_AND_FORGOT_EMPTY.
+        //
+        // 7195 shipped exactly one line — `if (qtyToken <= 1.0 &&
+        // partialSoldPct > 1.0) return false` — and it took the whole Solana
+        // pipeline down. A default Position() is qtyToken=0.0 with
+        // partialSoldPct=0.0: the first term is true, the SECOND IS FALSE, so
+        // it fell through to `return true`. Every watchlist row that had never
+        // held anything began reporting itself OPEN.
+        //
+        // Every lane gate in BotService reads
+        //     !ts.position.isOpen && shouldRunBuyLaneForCycle(...)
+        // so `!isOpen` was false for every candidate and not one lane ran.
+        // Measured on 5.0.7196: V3=0 (was 14,874), LANE_EVAL=21 all CRYPTO_ALT
+        // (was 10,586), BG_FDG=0 with lastAgeMs=Long.MAX_VALUE meaning FDG
+        // never fired once, and all twelve specialists at ownerSelected=0
+        // buyIntent=0 fdgN=0. RUNTIME_OPEN_REJECTED_INVARIANT_6636 also
+        // flipped from |STRUCTURAL_NOT_OPEN=19,971 to |QUARANTINED=27,116,
+        // because thousands of empty rows were suddenly admitted as open and
+        // then failed the quantity invariant.
+        //
+        // The emptiness test has to come FIRST and independently. No quantity
+        // is not open, whatever else is true — that is what 4155's `<= 1.0`
+        // was silently also doing, and splitting the rule split that away.
+        // hasTokens below already guarded this with `qtyToken > 0.0`; isOpen
+        // did not, and I did not check the empty case because I was reasoning
+        // about the dust case.
+        if (qtyToken <= 0.0) return false
         if (qtyToken <= 1.0 && partialSoldPct > 1.0) return false
         // V5.0.3760 — confirmed live buys must be visible/sell-managed while
         // wallet token indexing catches up. pendingVerify means qty authority is
