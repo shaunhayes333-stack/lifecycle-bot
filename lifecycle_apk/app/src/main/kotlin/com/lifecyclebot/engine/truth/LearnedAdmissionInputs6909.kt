@@ -250,6 +250,19 @@ object LearnedAdmissionInputs6909 {
         } else {
             (fwd?.samples ?: 0L).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
         }
+        // V5.0.7207 — the lane's real terminal count, taken from the SAME
+        // laneSnap already resolved at the top of this function for laneWrPct.
+        // Deliberately not a second laneSnapshots() call: the count and the win
+        // rate reaching 6846 must describe one snapshot, or a gate can refuse
+        // on a WR from one sample and a size from another. It is also the same
+        // authority the oracle blends as its "lane" level
+        // (PredictiveEntryOracle6915:689-693), so the oracle's evidence and the
+        // admission gate's view of that evidence cannot drift apart.
+        //
+        // Absent snapshot -> 0 -> thin -> probe, which is exactly the pre-7207
+        // behaviour, so a failure here can only ever be the permissive
+        // direction and never a new refusal.
+        val laneRawTerminalN7207 = laneSnap?.sample?.coerceAtLeast(0) ?: 0
 
         return LearnedAdmissionAuthority6846.Inputs(
             lane = laneKey,
@@ -274,6 +287,19 @@ object LearnedAdmissionInputs6909 {
             // but it made the two indistinguishable downstream, and the
             // ORACLE refusal in 6846 needs the real count. See that branch.
             oracleRawCohortN7154 = cohortSample,
+            // V5.0.7207 — the LANE's true terminal count, read from the same
+            // LiveProbabilityEngine.laneSnapshots() the oracle itself blends
+            // as its "lane" level (PredictiveEntryOracle6915:689-693). Read
+            // here rather than threaded through Forecast so the oracle's
+            // public shape is untouched and the two cannot drift: both sides
+            // take sn.sample from one call on one authority.
+            //
+            // cohortSample above is the SCORE-BAND CELL count, and on the
+            // 5.0.7206 device it read 0 against a lane that had closed ten
+            // trades. 6846's ORACLE branch treated that 0 as "no evidence"
+            // and converted 4,088 of 4,042 refusals into probes. See that
+            // branch for the full reasoning; this line is the input it needed.
+            oracleRawLaneN7207 = laneRawTerminalN7207,
             laneWrPct = laneWrPct,
             laneLossRatePct = laneLossRatePct,
             // V5.0.6915 — §5 source-family adaptation is no longer inert. The

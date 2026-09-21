@@ -192,6 +192,15 @@ object LearnedAdmissionAuthority6846 {
         // effective weight. See the ORACLE branch in gate() for why the two
         // must not be the same number.
         val oracleRawCohortN7154: Int = 0,
+        /**
+         * V5.0.7207 — the LANE's true terminal count, the coarser sibling of
+         * [oracleRawCohortN7154]. The cell count answers "has this exact
+         * score band closed 8 trades"; this answers "has this lane closed 8
+         * trades". Both are real counts; only the resolution differs. See the
+         * ORACLE branch in gate() for why asking only the first made the
+         * refusal unreachable.
+         */
+        val oracleRawLaneN7207: Int = 0,
         val laneWrPct: Double,          // 0..100
         val laneLossRatePct: Double,    // 0..100
         val sourceFamily: String,       // "PUMP_FUN_NEW" / "BIRDEYE_TRENDING" / …
@@ -367,7 +376,68 @@ object LearnedAdmissionAuthority6846 {
         // Refusing on evidence we do not have is the same defect as every
         // other absence-as-fact in this run; probing on thin evidence is how
         // the bot earns the count that would justify refusing later.
-        val oracleThinEvidence7154 = inputs.oracleRawCohortN7154 < ORACLE_MIN_CONFIDENT_N_6915
+        // V5.0.7207 §THE_EXCEPTION_BECAME_THE_ONLY_PATH.
+        //
+        // Operator 5.0.7206: volume finally arrived — V3 1783->4309, FDG
+        // 112->1129, buys 28->112 — and the book went to -1.1151 SOL, PF 0.56,
+        // WR 13.2%, with a 16-loss streak. The counters name why:
+        //
+        //   PREDICTIVE_ORACLE_REFUSE_6915            4042
+        //   ORACLE_REFUSAL_ON_WEIGHT_NOT_COUNT_7154  4088
+        //
+        // Those two being equal means EVERY oracle refusal became a probe.
+        // 7154 was written as a narrow exception and is in fact the only path
+        // through this branch, which leaves ORACLE_REFUSE_EV_6915 unreachable.
+        // Same defect class as 7148's VETO_BRIER_MAX and 7201's offence n>=20:
+        // a gate parked behind a threshold it cannot reach.
+        //
+        // The arithmetic makes it inevitable. oracleRawCohortN7154 is set from
+        // LearnedAdmissionInputs6909:276, which sources it from the SCORE-BAND
+        // CELL alone (agg6911.samples / fwd.samples). Cells are lane x band —
+        // 9 active lanes x 5 bands = 45 of them — so 69 lifetime closes give a
+        // mean cell count near 1.5 and a fresh band starts at 0. A cell
+        // essentially can never reach 8. Device, verbatim:
+        //
+        //   ENTRY_AUTHORITY_PROBE_6846 cohort=PROJECT_SNIPER|S41|ORACLE
+        //     effN=11 rawN=0 oracleEV=-0.1943 pWin=0.18 budgeted=false
+        //   PREDICTIVE_ORACLE_REFUSED_6915 E=-19.43% conf=0.74
+        //     reason=NEGATIVE_EXPECTANCY_WITH_EVIDENCE_6915
+        //     [cellScoreExp(n=2,E=-4.1) lane(n=10,E=-14.5,WR=20%) global(n=50,E=-2.6)]
+        //
+        // rawN=0 while the oracle says WITH_EVIDENCE at conf=0.74, because the
+        // lane has TEN real terminal closes reading -14.5% EV at 20% WR. That
+        // is not "evidence we do not have". It is evidence at a coarser
+        // resolution — and it is precisely the evidence the oracle blended to
+        // reach -19.43%.
+        //
+        // 7154's principle was right and stays: never refuse on a confidence
+        // WEIGHT that no real count supports. It simply read one level of the
+        // hierarchy and treated the absence of a cell as the absence of
+        // everything. Thin now means thin at BOTH levels.
+        //
+        // No threshold moves — 8 still means 8, ORACLE_REFUSE_EV_6915 is still
+        // -0.08. Nothing is disabled or capped: falling through to the lines
+        // below still yields a METERED PROBE whenever the cohort budget allows,
+        // so a lane that has proven itself negative keeps a trickle to prove it
+        // has healed, exactly as §2b intends. Only once that budget is spent
+        // does it deny.
+        //
+        // Effect on the 7206 book, enumerated over every active lane from its
+        // lane sample count and oracle EV. The branch only fires at EV <= -8%,
+        // so a lane above that never reaches here at all:
+        //   PROJECT_SNIPER n=10 EV=-11.6% WR=20% -> metered, 1 per band per 15m
+        //   QUALITY        n=10 EV=-19.2% WR=0%  -> metered, 1 per band per 15m
+        //   CYCLIC         n=3  EV=-18.2%        -> still thin, still probes
+        //   BLUECHIP  n=7 EV=+4.2%   \
+        //   MOONSHOT  n=9 EV=+30.4%   |  EV above the refuse floor:
+        //   SHITCOIN  n=2 EV=+118%    |  branch never reached, untouched
+        //   CORE n=4 / TREASURY n=1 / EXPRESS n=0  /
+        // Exactly two lanes change behaviour, and they are the two the operator
+        // has been watching bleed. Every immature lane keeps earning its count
+        // and every profitable lane is untouched.
+        val oracleThinEvidence7154 =
+            inputs.oracleRawCohortN7154 < ORACLE_MIN_CONFIDENT_N_6915 &&
+                inputs.oracleRawLaneN7207 < ORACLE_MIN_CONFIDENT_N_6915
         if (!oracleDegenerate7120 &&
             inputs.cohortSample >= ORACLE_MIN_CONFIDENT_N_6915 &&
             inputs.expectedPnl <= ORACLE_REFUSE_EV_6915
@@ -376,8 +446,20 @@ object LearnedAdmissionAuthority6846 {
             val budgeted = cohortProbeBudgetAllows6909(cohortKey6915, provenDead = true)
             val detail = "cohort=$cohortKey6915 effN=${inputs.cohortSample} " +
                 "rawN=${inputs.oracleRawCohortN7154} " +
+                // V5.0.7207 — print the lane count beside the cell count. The
+                // 7206 snapshot showed rawN=0 next to effN=11 and gave the
+                // operator no way to see that ten real lane closes existed.
+                "laneN7207=${inputs.oracleRawLaneN7207} " +
                 "oracleEV=${"%.4f".format(inputs.expectedPnl)} " +
                 "pWin=${"%.2f".format(inputs.livePWin)} budgeted=$budgeted"
+            if (!oracleThinEvidence7154) {
+                try {
+                    PipelineHealthCollector.labelInc("ORACLE_REFUSAL_HONOURED_ON_LANE_EVIDENCE_7207")
+                    PipelineHealthCollector.labelInc(
+                        "ORACLE_REFUSAL_HONOURED_ON_LANE_EVIDENCE_7207|$laneKey".take(60),
+                    )
+                } catch (_: Throwable) {}
+            }
             if (oracleThinEvidence7154) {
                 try {
                     PipelineHealthCollector.labelInc("ORACLE_REFUSAL_ON_WEIGHT_NOT_COUNT_7154")
