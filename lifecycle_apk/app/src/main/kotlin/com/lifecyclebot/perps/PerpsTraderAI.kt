@@ -1581,7 +1581,7 @@ object PerpsTraderAI {
     // V5.7.6b: Simple getBalance for UI (defaults to paper)
     fun getBalance(): Double = if (isPaperMode)
         com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("PERPS", paperMode = true)
-        else com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("PERPS", paperMode = false, liveWalletSol = liveBalanceBps.get() / 10000.0)
+        else com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("PERPS", paperMode = false, liveWalletSol = liveWalletSol7212())
     
     // Shared wallet: sync live SOL balance from WalletManager (called by BotService)
     fun setLiveBalance(sol: Double) {
@@ -1598,7 +1598,7 @@ object PerpsTraderAI {
     //   authority instead of the lane-local paperBalanceBps mirror.
     fun getEffectiveBalance(): Double =
         if (isPaperMode) com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("PERPS", paperMode = true)
-        else com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("PERPS", paperMode = false, liveWalletSol = liveBalanceBps.get() / 10000.0)
+        else com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("PERPS", paperMode = false, liveWalletSol = liveWalletSol7212())
 
     // V5.7.6b: Set balance for paper trading
     fun setBalance(balanceSol: Double) {
@@ -1695,6 +1695,39 @@ object PerpsTraderAI {
     private fun regimeTag6972(): String = try {
         com.lifecyclebot.engine.RegimeDetector.currentRegime().name
     } catch (_: Throwable) { "NEUT" }
+
+
+    /**
+     * V5.0.7212 §THE_DORMANT_LANES_CARRY_THE_SAME_LATCH_CRYPTOALT_HAD.
+     *
+     * `liveWalletBalance` is a cache whose writers all sit INSIDE a trade
+     * attempt, so in live mode a lane that has not traded yet reads 0.0,
+     * sizes to zero, and can never reach the code that would have told it
+     * what the wallet holds. V5.0.7211 proved that on CRYPTO_ALT: ten
+     * dispatches, zero rejections, zero positions.
+     *
+     * This lane was dormant (started=0) when 7211 shipped, so it was
+     * reported rather than edited mid live-money session. The operator has
+     * now asked for the dormant lanes, so it gets the same fix.
+     *
+     * BotService.status.walletSol is the live cash source the lane allocator
+     * uses and names LIVE_WALLET_AUTHORITY_6686, and the identical pattern
+     * already exists in-repo at PerpsTraderAI:1578. A non-positive reading
+     * falls back to the cache, so this can only ever move the lane's view of
+     * its wallet toward the truth, never down to zero. No floor, cap or
+     * threshold changes.
+     */
+    private fun liveWalletSol7212(): Double {
+        val authority = try {
+            com.lifecyclebot.engine.BotService.status.walletSol
+        } catch (_: Throwable) { Double.NaN }
+        if (!authority.isFinite() || authority <= 0.0) return liveBalanceBps.get() / 10000.0
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector
+                .labelInc("LANE_LIVE_BALANCE_FROM_AUTHORITY_7212_PERPS")
+        } catch (_: Throwable) {}
+        return authority
+    }
 
 }
 

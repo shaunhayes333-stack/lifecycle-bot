@@ -1165,7 +1165,7 @@ positionMap[position.id] = position
     }
     fun getBalance(): Double = if (isPaperMode.get())
         com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("METALS", paperMode = true)
-        else com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("METALS", paperMode = false, liveWalletSol = liveWalletBalance)
+        else com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("METALS", paperMode = false, liveWalletSol = liveWalletSol7212())
     fun getTotalTrades(): Int = totalTrades.get()
     fun getTotalPnlSol(): Double = totalPnlSol
     fun getWinningTrades(): Int = winningTrades.get()
@@ -1299,7 +1299,7 @@ positionMap[position.id] = position
     
     fun getEffectiveBalance(): Double = if (isPaperMode.get())
         com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("METALS", paperMode = true)
-        else com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("METALS", paperMode = false, liveWalletSol = liveWalletBalance)
+        else com.lifecyclebot.engine.truth.GlobalCapitalArbitration6617.availableForLane("METALS", paperMode = false, liveWalletSol = liveWalletSol7212())
 
     /**
      * Add SOL to an existing open position (scale-in / pyramid).
@@ -1325,6 +1325,39 @@ positionMap[position.id] = position
 
         ErrorLogger.info(TAG, "addToPosition ${market.symbol} +$additionalSol SOL | blendedEntry=$blendedEntry")
         return true
+    }
+
+
+    /**
+     * V5.0.7212 §THE_DORMANT_LANES_CARRY_THE_SAME_LATCH_CRYPTOALT_HAD.
+     *
+     * `liveWalletBalance` is a cache whose writers all sit INSIDE a trade
+     * attempt, so in live mode a lane that has not traded yet reads 0.0,
+     * sizes to zero, and can never reach the code that would have told it
+     * what the wallet holds. V5.0.7211 proved that on CRYPTO_ALT: ten
+     * dispatches, zero rejections, zero positions.
+     *
+     * This lane was dormant (started=0) when 7211 shipped, so it was
+     * reported rather than edited mid live-money session. The operator has
+     * now asked for the dormant lanes, so it gets the same fix.
+     *
+     * BotService.status.walletSol is the live cash source the lane allocator
+     * uses and names LIVE_WALLET_AUTHORITY_6686, and the identical pattern
+     * already exists in-repo at PerpsTraderAI:1578. A non-positive reading
+     * falls back to the cache, so this can only ever move the lane's view of
+     * its wallet toward the truth, never down to zero. No floor, cap or
+     * threshold changes.
+     */
+    private fun liveWalletSol7212(): Double {
+        val authority = try {
+            com.lifecyclebot.engine.BotService.status.walletSol
+        } catch (_: Throwable) { Double.NaN }
+        if (!authority.isFinite() || authority <= 0.0) return liveWalletBalance
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector
+                .labelInc("LANE_LIVE_BALANCE_FROM_AUTHORITY_7212_METALS")
+        } catch (_: Throwable) {}
+        return authority
     }
 
 }

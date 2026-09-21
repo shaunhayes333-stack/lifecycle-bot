@@ -3130,7 +3130,45 @@ object PipelineHealthCollector {
             sb.append("  accrued (on-device): ${"%.5f".format(accruedSol)} / ${"%.2f".format(threshold)} SOL (${"%.1f".format(pct)}%)\n")
             sb.append("  buckets:             $buckets\n")
             sb.append("  retry queue pending: $retryPending\n")
-            sb.append("  flush status:        ${if (readyToFlush) "🟢 READY — next bot-loop cycle will flush in live mode" else "🟡 accruing — flush when total ≥ ${"%.2f".format(threshold)} SOL"}\n")
+            sb.append("  flush status:        ${if (readyToFlush) "🟢 READY — next bot-loop cycle will flush in live mode" else "🟡 accruing — flush when total ≥ ${"%.5f".format(threshold)} SOL"}\n")
+            // V5.0.7212 §THE_ONLY_PROOF_OF_PAYMENT_COUNTER_WAS_UNREADABLE.
+            //
+            // Operator: "its not sending live trading fees again either. I
+            // already fixed it i thought." That question could not be answered
+            // from this report. FEE_FLUSH_SENT_7124 is the ONLY counter in the
+            // fee path that records money actually leaving the wallet — every
+            // other one records a reason it did not — and it sat in the
+            // "+1225 more non-pinned counters" tail where it is invisible.
+            //
+            // A flush accounting line that omits whether anything was sent is
+            // the same defect class as every other one this run: the verdict
+            // exists and never reaches the reader. All five outcomes are
+            // printed together so "are my fees arriving" is one line, not a
+            // search, and so a zero next to a non-zero accrual is legible as
+            // a fault rather than absence of data.
+            //
+            // The threshold above also now prints at 5dp. At 0.0001 SOL a
+            // 2dp format rendered it "0.00", which is how a real threshold
+            // came to look like no threshold at all.
+            try {
+                val sent7212 = labelCountSnapshot("FEE_FLUSH_SENT_7124")
+                val split7212 = labelCountSnapshot("FEE_SPLIT_FLUSH_6405")
+                val lowBal7212 = labelCountSnapshot("FEE_FLUSH_DEFERRED_LOW_BALANCE_7124")
+                val self7212 = labelCountSnapshot("FEE_BUCKET_STRANDED_SELF_7124")
+                val held7212 = labelCountSnapshot("FEE_FLUSH_HELD_NO_BUCKET_SENDABLE_7212")
+                sb.append("  PAID (on-chain):     sent=$sent7212 splitSent=$split7212\n")
+                sb.append("  NOT paid, by cause:  heldNoBucketSendable=$held7212 ")
+                    .append("deferredLowBalance=$lowBal7212 strandedSelfWallet=$self7212\n")
+                sb.append("  minSendablePerBucket: ${"%.5f".format(0.0002)} SOL")
+                    .append("  (a bucket under this cannot be transferred)\n")
+                if (sent7212 + split7212 == 0L) {
+                    sb.append("  ⚠ NOTHING has been paid out this session — read the cause counts above.\n")
+                }
+                if (self7212 > 0L) {
+                    sb.append("  🔴 strandedSelfWallet>0 — a fee destination equals the trading wallet.\n")
+                    sb.append("     Those fees can never send. Fix the fee wallet config.\n")
+                }
+            } catch (_: Throwable) {}
         } catch (_: Throwable) { /* best-effort telemetry */ }
 
         try {

@@ -55,6 +55,55 @@ object FeeAccumulator {
     /** Smallest transfer we'll attempt (below this it's ~pure network overhead). */
     private const val MIN_SENDABLE_SOL = 0.0002
 
+    /**
+     * V5.0.7212 §THE_FLUSH_FIRES_BELOW_WHAT_THE_SPLIT_PATH_WILL_SEND.
+     *
+     * Operator: "its not sending live trading fees again either. I already
+     * fixed it i thought."
+     *
+     * The 5.0.7210 device shows the fee path WORKING on the normal branch —
+     * Fee accrual (§6439) accrues=10 accruedSol=0.00061 lastFlushSol=0.00011
+     * lastFlushAgeMin=2, buckets empty, retry queue empty. noteFlush() only
+     * fires on totalSolFlushed > 0, so SOL really did leave the wallet.
+     *
+     * But two constants above contradict each other:
+     *
+     *   DEFAULT_FLUSH_THRESHOLD_SOL = 0.0001   <- flush fires here
+     *   MIN_SENDABLE_SOL            = 0.0002   <- split path refuses below here
+     *
+     * The flush trigger is HALF the minimum the split-flush branch will
+     * transfer. That branch is the one that runs when
+     * `balance < accrued + MIN_WALLET_RESERVE_SOL` — i.e. precisely when the
+     * wallet is small, which is the operator's live state as it draws down.
+     * There, `sendable = balance - reserve`, and any sendable under 0.0002
+     * hits `FEE_FLUSH_DEFERRED_LOW_BALANCE_7124` and `continue`s. Every
+     * cycle. Forever. That is V5.0.6405's stranding bug returning through a
+     * different door: 6405 fixed the reserve, nobody reconciled the trigger
+     * with the floor.
+     *
+     * Worse with two destinations, which is the shipped config (the snapshot
+     * showed buckets A8QPQr…=0.00005|82CAPB…=0.00005): the TOTAL crosses
+     * 0.0001 while each BUCKET holds 0.00005 — a quarter of MIN_SENDABLE.
+     *
+     * So the trigger is derived from the floor instead of guessed, and is
+     * per-destination rather than a total that no single transfer has to
+     * satisfy. A flush now only fires when at least one bucket can actually
+     * be sent, which is the only condition under which flushing does
+     * anything at all.
+     *
+     * This does NOT raise the fee, change a destination, or alter any
+     * amount. It stops the flush firing in a state where it is guaranteed to
+     * send nothing, and stops fees stranding below the floor as the wallet
+     * shrinks.
+     */
+    private fun anyBucketSendable7212(buckets: org.json.JSONObject): Boolean {
+        val keys = buckets.keys().asSequence().toList()
+        for (k in keys) {
+            if (buckets.optDouble(k, 0.0) >= MIN_SENDABLE_SOL) return true
+        }
+        return false
+    }
+
     @Volatile private var flushThresholdSol: Double = DEFAULT_FLUSH_THRESHOLD_SOL
     private var prefs: SharedPreferences? = null
 
@@ -148,6 +197,20 @@ object FeeAccumulator {
         // scheduled daily flush + accumulation model is REMOVED per
         // operator directive after it drained a large batch in one shot.
         if (totalPending < flushThresholdSol) return 0.0
+        // V5.0.7212 — the total clearing the trigger is not sufficient: no
+        // single transfer is made of the total. If every bucket is under
+        // MIN_SENDABLE_SOL then the loop below can only defer or skip, and a
+        // flush that cannot send is indistinguishable from a fee that was
+        // never charged. Hold instead, and say so, so the accrual keeps
+        // building to a sendable size rather than being re-examined and
+        // re-deferred every cycle. Counted, because "fees are not arriving"
+        // must resolve to a number.
+        if (!anyBucketSendable7212(buckets)) {
+            try {
+                PipelineHealthCollector.labelInc("FEE_FLUSH_HELD_NO_BUCKET_SENDABLE_7212")
+            } catch (_: Throwable) {}
+            return 0.0
+        }
 
         for (dest in keys) {
             val accrued = buckets.optDouble(dest, 0.0)
