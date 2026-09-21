@@ -240,7 +240,58 @@ object HoldingLogicLayer {
                         (aemDecision.exitReason == AdvancedExitManager.ExitReason.STOP_LOSS ||
                             aemDecision.exitReason == AdvancedExitManager.ExitReason.LIQUIDITY_EXIT ||
                             aemDecision.exitReason == AdvancedExitManager.ExitReason.MOMENTUM_EXIT)
-                    if (aemHardSafety) {
+                    // V5.0.7202 §THE_LANES_COULD_NOT_LET_GO_OF_A_DEAD_POSITION.
+                    //
+                    // Operator: "I don't want them disabled or collapsed I want
+                    // them to trade sucessfully."
+                    //
+                    // They are not picking worse tokens than EXPRESS. They cannot
+                    // RELEASE one. From the 5.0.7199 analytics:
+                    //
+                    //   losers held 107.6min vs winners 0.1min
+                    //   DEAD_TOKEN_NO_PRICE_EXIT: QUALITY=19 PROJECT_SNIPER=10
+                    //                             CORE=6 TREASURY=5 MOONSHOT=3
+                    //                             = 43 of 72 sells
+                    //
+                    // AdvancedExitManager already decides this correctly.
+                    // TimePressure.URGENT_EXIT returns TIME_EXIT at HIGH urgency
+                    // with the message "(Nmin, losing X%)" — it knows the position
+                    // has overstayed its profile's maxHold AND is underwater. The
+                    // allowlist above then drops it, because it demands CRITICAL
+                    // urgency and a reason from a three-item set that excludes
+                    // TIME_EXIT. It could never pass, on either axis. The verdict
+                    // became AEM_HOLDING_ADVISORY_ONLY_4264 and the position rode
+                    // on until the token was dead enough to have no price at all.
+                    //
+                    // 4264's single-sell-authority doctrine is preserved exactly:
+                    // this branch returns a HoldEvaluation to the existing caller,
+                    // the same as the other three hard-safety reasons. It does not
+                    // fire a sell, and Executor.requestSell remains the only seller.
+                    //
+                    // WINNERS ARE UNTOUCHED, deliberately. The other TIME_EXIT
+                    // variant (TimePressure.TAKE_PROFIT, pnl > 0) returns MEDIUM
+                    // urgency and stays advisory, so a position in profit is never
+                    // force-closed on a clock — doctrine is let winners run. The
+                    // pnl < 0 test is belt-and-braces on top of the HIGH/MEDIUM
+                    // split so a later urgency change cannot silently widen this.
+                    val aemPnlPct7202 = if (position.entryPrice > 0.0 && aemCurrentPrice > 0.0) {
+                        ((aemCurrentPrice - position.entryPrice) / position.entryPrice) * 100.0
+                    } else {
+                        0.0
+                    }
+                    val aemTimeExitLoser7202 =
+                        aemDecision.exitReason == AdvancedExitManager.ExitReason.TIME_EXIT &&
+                            aemDecision.urgency == AdvancedExitManager.ExitUrgency.HIGH &&
+                            aemPnlPct7202 < 0.0
+                    if (aemTimeExitLoser7202) {
+                        try {
+                            PipelineHealthCollector.labelInc("AEM_TIME_EXIT_LOSER_HONOURED_7202")
+                            PipelineHealthCollector.labelInc(
+                                "AEM_TIME_EXIT_LOSER_HONOURED_7202|${position.tradingMode.uppercase().take(24)}"
+                            )
+                        } catch (_: Throwable) {}
+                    }
+                    if (aemHardSafety || aemTimeExitLoser7202) {
                         ErrorLogger.info(TAG, "[AEM_HARD] ${ts.symbol} EXIT: ${aemDecision.exitReason} | ${aemDecision.logMessage}")
                         return HoldEvaluation(
                             action     = if (aemDecision.sellPct < 100) HoldAction.SCALE_OUT else HoldAction.EXIT_NOW,
