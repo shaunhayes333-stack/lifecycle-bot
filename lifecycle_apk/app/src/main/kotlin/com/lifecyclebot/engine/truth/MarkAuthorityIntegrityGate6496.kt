@@ -43,6 +43,8 @@ object MarkAuthorityIntegrityGate6496 {
     private val authoritativePasses = AtomicLong(0L)
     private val nonAuthoritativeBlocks = AtomicLong(0L)
     private val markCoalesced6615 = AtomicLong(0L)
+    // V5.0.7198 — per-reason block tally. See the note at the increment site.
+    private val blockReasons7198 = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
     private data class MarkState6615(
         val lastMarkAttemptAt: Long,
         val lastGoodMarkAt: Long,
@@ -275,6 +277,18 @@ object MarkAuthorityIntegrityGate6496 {
                 }
                 PipelineHealthCollector.labelInc("MARK_AUTHORITY_GATE_BLOCKED_6496")
                 PipelineHealthCollector.labelInc("MARK_AUTHORITY_GATE_BLOCKED_6547|$blockReason6547")
+                // V5.0.7198 — tally the reason INSIDE the gate as well.
+                //
+                // 6547 has emitted this breakdown as a labelInc since it was
+                // written, and the operator has never once been able to read
+                // it: the report prints the top counters and ends with
+                // "(+1901 more non-pinned counters above 0, not shown)", and
+                // every MARK_AUTHORITY_GATE_BLOCKED_6547|* key is inside that
+                // truncation. A per-reason tally held here rides out on
+                // statusLine7198 instead, which is pinned.
+                blockReasons7198
+                    .computeIfAbsent(blockReason6547.substringBefore(':')) { AtomicLong(0L) }
+                    .incrementAndGet()
                 ForensicLogger.lifecycle(
                     "MARK_AUTHORITY_GATE_BLOCKED_6496",
                     "mint=${mint.take(10)} provenance=${provenance.name} src=$source canonSrc=$canonicalSource6548 pool=${poolAddress.take(24)} " +
@@ -365,6 +379,52 @@ object MarkAuthorityIntegrityGate6496 {
         return evaluate(mint, priceUsd, mcapUsd, liquidityUsd, source, poolAddress, fresh = true, isKnownOpenMint6596 = isKnownOpenMint6596).priceAuthoritative
     }
 
+    /**
+     * V5.0.7198 §THE_GATE_HOLDING_THE_CAPITAL_HAD_NO_SCOREBOARD.
+     *
+     * This function existed with ZERO callers. Nothing has ever printed it.
+     *
+     * On the 5.0.7197 device run that mattered, because this gate decides
+     * whether an open position can be priced, and therefore whether it can
+     * take a price-based exit and give its capital back:
+     *
+     *   MARK_QUOTE_7060_UNAVAILABLE_NOT_AUTHORITATIVE_6496:  99,031
+     *   MARK_AUTHORITY_GATE_BLOCKED_6496:                    10,199
+     *   staleMarks=41 of 59 open positions
+     *   CASH 0.0000 SOL · capitalRefusals7194=2591
+     *
+     * 41 of 59 positions could not price, so they could not close, so cash
+     * stayed at zero and 2,591 entries were refused for capital. The whole
+     * bot's throughput was downstream of this gate, and the gate reported
+     * nothing.
+     *
+     * Note the two counters disagree by 88,832. The difference is the
+     * markStates6615 coalescer at the top of evaluate(): when every input is
+     * byte-identical it returns the PRIOR verdict without re-evaluating or
+     * re-logging. That is correct memoisation — identical inputs cannot
+     * produce a different answer — but it means a negative verdict on a feed
+     * that has gone flat is replayed for its whole 15s TTL, so 10,199 real
+     * decisions present as 99,031 refusals. coalesced= is printed here so
+     * that ratio is visible instead of being inferred.
+     *
+     * DIAGNOSTIC ONLY. No check is relaxed and no threshold moves. The four
+     * reasons are already classified by 6547; this just carries the tally out
+     * past the report's truncation.
+     */
+    fun statusLine7198(): String {
+        val reasons = try {
+            blockReasons7198.entries
+                .sortedByDescending { it.value.get() }
+                .take(4)
+                .joinToString(",") { "${it.key}=${it.value.get()}" }
+                .ifBlank { "none" }
+        } catch (_: Throwable) { "unavailable" }
+        return "MARK_AUTHORITY(§6496): evaluated=${evaluated.get()} " +
+            "pass=${authoritativePasses.get()} blocked=${nonAuthoritativeBlocks.get()} " +
+            "coalesced=${markCoalesced6615.get()} tracked=${markStates6615.size} " +
+            "why7198=[$reasons]"
+    }
+
     fun statusLine(): String =
         "evaluated=${evaluated.get()} authoritativePasses=${authoritativePasses.get()} " +
             "nonAuthoritativeBlocks=${nonAuthoritativeBlocks.get()} markCoalesced=${markCoalesced6615.get()} " +
@@ -372,6 +432,6 @@ object MarkAuthorityIntegrityGate6496 {
 
     internal fun resetForTest() {
         evaluated.set(0L); authoritativePasses.set(0L); nonAuthoritativeBlocks.set(0L)
-        markCoalesced6615.set(0L); markStates6615.clear()
+        markCoalesced6615.set(0L); markStates6615.clear(); blockReasons7198.clear()
     }
 }

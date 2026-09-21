@@ -556,6 +556,11 @@ object ReportingHub {
         // why. requested=0 dup=N means latched; requested=N completed=0 means
         // refused, and lastRefusal names it. Opposite problems.
         appendLine(safe("partial_recycle_7194") { com.lifecyclebot.engine.truth.CanonicalPaperPartialOperation6510.statusLine7194() })
+        // V5.0.7198 — the gate that decides whether an open position can be
+        // priced, and therefore whether it can exit and return its capital.
+        // On 5.0.7197 it refused 99,031 marks with 41 of 59 positions stale
+        // and cash at zero, and its own scoreboard had never been printed.
+        appendLine(safe("mark_authority_7198") { com.lifecyclebot.engine.truth.MarkAuthorityIntegrityGate6496.statusLine7198() })
         // V5.0.6925 — CAPTURE RATIO. Of the gain each position actually
         // reached, how much did we keep? Broken down by lane and by exit
         // reason, worst first, so the exit path that is clipping runners names
