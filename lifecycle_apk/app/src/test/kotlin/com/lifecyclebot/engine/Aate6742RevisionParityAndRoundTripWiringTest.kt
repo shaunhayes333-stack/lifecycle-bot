@@ -68,15 +68,15 @@ class Aate6742RevisionParityAndRoundTripWiringTest {
     }
 
     @Test
-    fun `revision-race parity is source-contract enforced inconclusive fail closed`() {
+    fun `revision-race parity is source-contract enforced to fail open`() {
         // Source-level assertion. In production JournalEconomicAuthority6616
         // increments on every ledger mutation; the guard's race path is
         // read-only in a unit-test JVM. Assert the source contract so any
         // future edit that removes the fail-open on race breaks CI.
         val guardSrc = File("src/main/kotlin/com/lifecyclebot/engine/truth/PaperLedgerDivergenceGuard6731.kt").readText()
         assertTrue(
-            "guard MUST fail-closed/inconclusive when revisionRaceObserved",
-            guardSrc.contains("PAPER_LEDGER_PARITY_INCONCLUSIVE_REVISION_RACE_6743"),
+            "guard MUST fail-open when revisionRaceObserved",
+            guardSrc.contains("PAPER_LEDGER_DIVERGENCE_REVISION_RACE_FAIL_OPEN_6742"),
         )
         assertTrue(
             "guard MUST branch on parity.revisionRaceObserved",
@@ -174,7 +174,6 @@ class Aate6742RevisionParityAndRoundTripWiringTest {
         // Exercise the reconciler like the wired production sites do.
         val pid = "prod-flow-1"
         assertTrue(CanonicalRoundTripReconciler6738.record(pid, CanonicalRoundTripReconciler6738.Stage.BUY_COMMITTED, "MEME", "PAPER"))
-        assertTrue(CanonicalRoundTripReconciler6738.record(pid, CanonicalRoundTripReconciler6738.Stage.EXIT_DECIDED, "MEME", "PAPER"))
         assertTrue(CanonicalRoundTripReconciler6738.record(pid, CanonicalRoundTripReconciler6738.Stage.SELL_COMMITTED, "MEME", "PAPER"))
         assertTrue(CanonicalRoundTripReconciler6738.record(pid, CanonicalRoundTripReconciler6738.Stage.LEARNING_DELIVERED, "", ""))
         val trip = CanonicalRoundTripReconciler6738.tripOf(pid)

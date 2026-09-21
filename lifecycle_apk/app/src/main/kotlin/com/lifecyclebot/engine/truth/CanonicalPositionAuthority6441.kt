@@ -266,10 +266,14 @@ object CanonicalPositionAuthority6441 {
             //   the three literal seal defects the operator named:
             //   decimals out of [0,18], qty non-positive, or an
             //   entryPriceSource literally stamped INVARIANT_BROKEN.
-            //   entryPriceUsd is not required at commit time. When a
-            //   verified USD/token fill basis is unavailable, the position
-            //   remains funded canonical exposure with entryPriceUsd=0 and
-            //   explicit unresolved-basis provenance. No unit substitution.
+            //   entryPriceUsd is not required at commit time — the
+            //   V5.0.6631c strict filter refuses to RENDER positions
+            //   with entryPriceUsd <= 0, and V5.0.6631d derives it
+            //   from entryCostSol/qty on the carry-replay path, so
+            //   the operator's user-visible invariant ("no INVARIANT_BROKEN
+            //   entry on the Open Positions screen") is enforced
+            //   downstream without requiring every internal opener
+            //   to plumb a fill price.
             val willBeOpen6635 = openedQtyRaw > BigInteger.ZERO
             if (willBeOpen6635) {
                 // V5.0.6514 encoding: -1 is the CANONICAL "known-unknown"
@@ -415,17 +419,34 @@ object CanonicalPositionAuthority6441 {
                 // wrong-unit number: openPositions() already rejects a
                 // zero-basis row, and a row that is visibly missing is far
                 // safer than one that is confidently wrong by 200x.
-                // V5.0.6743 §UNIT_SAFE_ENTRY_BASIS — entryPriceUsd is
-                // USD/token only. entryCostSol / tokenQty is SOL/token and
-                // must never be written into this field. Keep funded exposure
-                // with an explicit unknown-USD-basis provenance instead.
-                entryPriceUsd = entryPriceUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
-                entryPriceSource = when {
-                    entryPriceUsd.isFinite() && entryPriceUsd > 0.0 -> entryPriceSource
-                    entryPriceSource.contains("USD_BASIS_UNKNOWN", ignoreCase = true) -> entryPriceSource
-                    entryPriceSource.isBlank() -> "OPEN_POSITION_USD_BASIS_UNKNOWN_6743"
-                    else -> "$entryPriceSource|OPEN_POSITION_USD_BASIS_UNKNOWN_6743"
+                entryPriceUsd = if (entryPriceUsd > 0.0) entryPriceUsd else run {
+                    val qtyToken6631 = try {
+                        if (quantityScale in 0..18)
+                            openedQtyRaw.toBigDecimal().movePointLeft(quantityScale).toDouble()
+                        else 0.0
+                    } catch (_: Throwable) { 0.0 }
+                    if (entryCostSol <= 0.0 || qtyToken6631 <= 0.0) return@run 0.0
+                    val solUsd7002 = try {
+                        com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf {
+                            it.isFinite() && it > 0.0
+                        } ?: 0.0
+                    } catch (_: Throwable) { 0.0 }
+                    if (solUsd7002 <= 0.0) {
+                        try {
+                            com.lifecyclebot.engine.PipelineHealthCollector
+                                .labelInc("ENTRY_PRICE_DERIVE_NO_SOL_PRICE_7002")
+                        } catch (_: Throwable) {}
+                        return@run 0.0
+                    }
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector
+                            .labelInc("ENTRY_PRICE_DERIVED_SOL_TO_USD_7002")
+                    } catch (_: Throwable) {}
+                    (entryCostSol / qtyToken6631) * solUsd7002
                 },
+                entryPriceSource = if (entryPriceUsd > 0.0) entryPriceSource
+                    else if (entryPriceSource.isBlank()) "OPEN_POSITION_DERIVED_FROM_COST_QTY_6631"
+                    else entryPriceSource,
                 entryPoolAddress = entryPoolAddress,
                 entryDex = entryDex,
                 assetClass = effectiveAssetClass6592,
@@ -987,16 +1008,9 @@ object CanonicalPositionAuthority6441 {
         // valuation code must treat entryPriceUsd=0 as "basis unknown"
         // (§3, still open in a later build) rather than "zero valuation".
         val entry = p.entryPriceUsd
-        // V5.0.6743 §FUNDED_EXPOSURE_NOT_VALUATION — every funded
-        // restore/open source that explicitly declares an unknown USD basis
-        // stays in canonical inventory. Valuation consumers must handle the
-        // unknown basis; inventory/occupancy must not pretend the exposure
-        // disappeared.
-        val unresolvedBasis6743 = p.entryPriceSource.contains("CARRY_USD_BASIS_UNKNOWN_6741") ||
-            p.entryPriceSource.contains("UNRESOLVED_VALUATION_6741") ||
-            p.entryPriceSource.contains("REPLAY_CARRY_NO_USD_BASIS_6541") ||
-            p.entryPriceSource.contains("OPEN_POSITION_USD_BASIS_UNKNOWN_6743")
-        if (!entry.isFinite() || (entry <= 0.0 && !unresolvedBasis6743)) {
+        val unresolvedBasis6741 = p.entryPriceSource.contains("CARRY_USD_BASIS_UNKNOWN_6741") ||
+            p.entryPriceSource.contains("UNRESOLVED_VALUATION_6741")
+        if (!entry.isFinite() || (entry <= 0.0 && !unresolvedBasis6741)) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_OPEN_FILTERED_ZERO_ENTRY_PRICE_6631") } catch (_: Throwable) {}
             return false
         }
