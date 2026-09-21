@@ -257,7 +257,48 @@ data class Position(
         // V5.0.4155 — terminal SPL dust: a literal one-token remnant is not a tradable
         // position. Treat qty<=1 as closed/dust so status/open-slot/exit loops do not
         // keep managing wallet crumbs forever.
-        if (qtyToken <= 1.0) return false
+        //
+        // V5.0.7195 §DUST_IS_WHAT_IS_LEFT_AFTER_SELLING, NOT A SMALL NUMBER.
+        //
+        // 4155's rule is correct for the asset it was written for. A pump.fun
+        // memecoin is held in units of 1e8-1e9, so one token really is a crumb.
+        // It is catastrophic for anything priced per unit, and this app now
+        // trades those: on the 5.0.7193 device run, every CRYPTO_SPOT position
+        // opened through CROSS_ASSET_CANONICAL_OPEN_6659 with
+        //
+        //     lane=CRYPTO_SPOT entry=137.90625 cost=1.1653 qty=1.000
+        //     lane=CRYPTO_SPOT entry=0.43080000 cost=1.3628 qty=1.000
+        //     lane=CYCLIC      entry=1520.5348 cost=0.1108 qty=0.008061
+        //
+        // `qty=1.000` fails `<= 1.0`, so a position holding 1.0-1.4 SOL was
+        // structurally invisible. Note the CRYPTO_SPOT numbers do not reconcile
+        // as quantity x price either — 1.000 x 0.4308 is $0.43 against 1.3628
+        // SOL of cost — because qtyToken there is a SENTINEL, not a token count.
+        // No economic test on it can be trusted, so this does not use one.
+        //
+        // WHAT IT COST: MARK_QUOTE_7060_UNAVAILABLE_POSITION_NOT_OPEN fired
+        // 8,605 times. The mark path asks isOpen, the dust rule says closed, no
+        // mark is produced, and the risk clock then counts a missing mark
+        // (RISK_CLOCK_BLOCKED_7001_MARK_STALE=67,815) and can never latch a
+        // stop. Which is why every CRYPTO_SPOT sell in that run was
+        // ADAPTIVE_HOLD_MAX_6663 — a timeout at pnl=0.00%. Those positions
+        // could not take a price-based exit at all, so their capital never came
+        // back, and cash sat at 0.0087 SOL against 17.66 SOL of open value.
+        //
+        // THE DISCRIMINATOR IS PROVABLE, NOT A THRESHOLD. qtyToken only
+        // decreases when quantity is SOLD — a rug moves price, not quantity, so
+        // a collapsed memecoin still holds its billion tokens. Therefore
+        // `qtyToken <= 1.0` with nothing sold CANNOT be a post-sale remnant. It
+        // is either a per-unit position or a sentinel. Dust is what is left
+        // after selling, so require that something was actually sold.
+        //
+        // Strictly additive: for qtyToken > 1.0 the first term is false and
+        // behaviour is identical, and for qtyToken <= 1.0 this can only return
+        // open where 4155 returned closed. No position that was visible becomes
+        // invisible. It also narrows FORENSIC_POSITION_SET_DIVERGENCE_6912,
+        // because CanonicalPositionAuthority6441 already counts these 36 as
+        // active — it was only this runtime projection that disagreed.
+        if (qtyToken <= 1.0 && partialSoldPct > 1.0) return false
         // V5.0.3760 — confirmed live buys must be visible/sell-managed while
         // wallet token indexing catches up. pendingVerify means qty authority is
         // ESTIMATED_PENDING_WALLET_PROOF, not invisible. Ghost protection now
@@ -267,7 +308,10 @@ data class Position(
     }
     // True when tokens exist on-chain regardless of verify state — used for
     // fee accounting and capital exposure calculations.
-    val hasTokens get() = qtyToken > 1.0
+    // V5.0.7195 — same correction, same reason. A 1.3628 SOL CRYPTO_SPOT
+    // position has tokens and has exposure; reporting otherwise understated
+    // capital at risk on exactly the positions holding the most of it.
+    val hasTokens get() = qtyToken > 1.0 || (qtyToken > 0.0 && partialSoldPct <= 1.0)
     val initialCostSol get() = costSol - topUpCostSol  // original entry size
     val avgEntryCost get() = if (qtyToken > 0) costSol else 0.0
     val isFullyBuilt get() = buildPhase >= 3 || targetBuildSol <= 0 || costSol >= targetBuildSol * 0.95
