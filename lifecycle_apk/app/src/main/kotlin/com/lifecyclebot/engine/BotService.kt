@@ -13271,6 +13271,38 @@ class BotService : Service() {
                 try { PipelineHealthCollector.labelInc("LIVE_FANOUT_PRESSURE_CONTRIBUTOR_ONLY_6599_$l") } catch (_: Throwable) {}
             }
             if (l in fullMemeTraderRing) {
+                // V5.0.7235 §LANE_FANOUT_CAP — operator diagnosis 7227:
+                //   laneEval/intake = 29.51.  Cap distinct lane
+                //   evaluations per (mint, causalRoot) at 2 so the same
+                //   intake candidate cannot fan out through every meme
+                //   trader.  causalRoot uses candidateVersion6533 which
+                //   LaneExecutionCoordinator increments on genuinely
+                //   fresh intakes, so a new opportunity on the same
+                //   mint is unaffected.
+                //
+                //   NOTE: the guard runs BEFORE LaneAutoPauseGuard so a
+                //   paused-lane observation still counts toward the cap
+                //   surface (governor observes intent, not paused-lane
+                //   opportunity cost).  Skipping caller returns early
+                //   without re-entering FDG.
+                val laneFanoutOk7235 = try {
+                    com.lifecyclebot.engine.truth.IntakeFanoutGovernor6835.allowLaneEval(
+                        mint = ts.mint,
+                        causalRoot = candidateVersion6533.toString(),
+                        laneName = l,
+                    )
+                } catch (_: Throwable) { true }
+                if (!laneFanoutOk7235) {
+                    try {
+                        PipelineHealthCollector.labelInc("LANE_EVAL_SUPPRESSED_FANOUT_CAP_7235")
+                        PipelineHealthCollector.labelInc("LANE_EVAL_SUPPRESSED_FANOUT_CAP_7235_$l")
+                        ForensicLogger.lifecycle(
+                            "LANE_EVAL_SUPPRESSED_FANOUT_CAP_7235",
+                            "mint=${ts.mint.take(10)} lane=$l causalRoot=$candidateVersion6533 action=refuse_extra_lane_eval",
+                        )
+                    } catch (_: Throwable) {}
+                    return false
+                }
                 // V5.0.4598 — RESPECT LaneAutoPauseGuard IN OWNER-LANE BYPASS.
                 // Field V5.0.4597 exposed the MANIPULATED bleed source: this
                 // owner-lane / all-lane-contribution path lets any ring lane

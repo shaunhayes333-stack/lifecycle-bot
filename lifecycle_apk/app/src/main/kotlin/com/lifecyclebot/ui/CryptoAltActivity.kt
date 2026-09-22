@@ -592,6 +592,10 @@ class CryptoAltActivity : AppCompatActivity() {
                 safe("ShitCoinTile")      { buildShitCoinTile() }
                 safe("ExpressTile")       { buildExpressTile() }
                 safe("MoonshotTile")      { buildMoonshotTile() }
+                // V5.0.7235 §UI_HEALTH_PANEL — surface the 7229/7230/7231/6835/
+                //   7232 counters as a monospace card so the operator can see
+                //   the recovery without a full pipeline-health log pull.
+                safe("RuntimeHealth7235") { buildRuntimeHealthPanel7235() }
                 safe("OpenPositions")     { buildOpenPositionsPanel() }
                 safe("TabContent")        { buildTabContent() }
             }
@@ -674,6 +678,23 @@ class CryptoAltActivity : AppCompatActivity() {
     // ═══════════════════════════════════════════════════════════════════════════
     // OPEN POSITIONS PANEL  —  inline position cards
     // ═══════════════════════════════════════════════════════════════════════════
+
+    // V5.0.7235 §UI_HEALTH_PANEL — surface the RuntimeHealthPanel7234
+    //   snapshot as a monospace card so operator can see:
+    //     BASIS  sealed refused veto agree
+    //     SELL   unique redispatch alreadyClosing reconciler
+    //     WALLET pnlAllowed pnlSuppressed buckets
+    //     MARK   broken uncorroborated venueMissing suppressed
+    //     FANOUT fdgCapped laneCapped chains
+    private fun buildRuntimeHealthPanel7235() {
+        val tile = buildTile(card2, "Runtime Health", "7229/7230/7231/6835/7232", white)
+        val text = try {
+            com.lifecyclebot.engine.truth.RuntimeHealthPanel7234.render()
+        } catch (e: Throwable) {
+            "RuntimeHealthPanel7234 unavailable: ${e.message?.take(80)}"
+        }
+        tile.addView(tv(text, 9f, amber, mono = true).apply { setPadding(0, 2, 0, 4) })
+    }
 
     private fun buildOpenPositionsPanel() {
         val openPos    = CryptoAltTrader.getAllPositions().filter { it.closeTime == null }
