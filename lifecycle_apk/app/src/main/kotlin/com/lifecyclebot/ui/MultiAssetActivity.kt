@@ -443,8 +443,14 @@ class MultiAssetActivity : AppCompatActivity() {
         }
     }
     
+    // V5.0.7245 — Crypto Universe owns its own CryptoAltActivity.
+    // Keep CRYPTO in the enum for source compatibility, but do not expose a
+    // second position owner inside the Markets dashboard.
+    private val visibleMarketTabs7245: List<AssetTab> =
+        AssetTab.values().filter { it != AssetTab.CRYPTO }
+
     private fun setupTabs() {
-        AssetTab.values().forEach { tab ->
+        visibleMarketTabs7245.forEach { tab ->
             tabLayout.addTab(
                 tabLayout.newTab().setText("${tab.icon} ${tab.shortTitle}")
             )
@@ -452,7 +458,7 @@ class MultiAssetActivity : AppCompatActivity() {
         
         tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
-                currentTab = AssetTab.values()[tab.position]
+                currentTab = visibleMarketTabs7245.getOrElse(tab.position) { AssetTab.STOCKS }
                 updateCategoryHeader()
                 // Kick off background price fetch for this tab's markets so
                 // Top Movers and Available Assets show real data (not stale crypto)
@@ -482,7 +488,8 @@ class MultiAssetActivity : AppCompatActivity() {
         val startTab = if (startTabName != null) {
             AssetTab.values().find { it.name == startTabName } ?: AssetTab.STOCKS
         } else AssetTab.STOCKS
-        tabLayout.getTabAt(startTab.ordinal)?.select()
+        val visibleStart7245 = startTab.takeIf { it in visibleMarketTabs7245 } ?: AssetTab.STOCKS
+        tabLayout.getTabAt(visibleMarketTabs7245.indexOf(visibleStart7245).coerceAtLeast(0))?.select()
     }
     
     private fun setupClickListeners() {

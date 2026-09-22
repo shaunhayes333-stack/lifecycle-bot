@@ -3307,9 +3307,7 @@ object CryptoAltTrader {
                     if (!identityMatches) {
                         try { PipelineHealthCollector.labelInc("CRYPTO_DYN_MARK_IDENTITY_REJECTED_6654") } catch (_: Throwable) {}
                         ErrorLogger.warn(TAG, "🪙 DYN MARK BLOCKED: ${position.marketSymbol} positionKey=${positionKey.take(28)} resolved=${resolved?.canonicalIdentity6544?.take(28)}")
-                        if (position.isPaper && System.currentTimeMillis() - position.openTime >= DYNAMIC_MARK_MAX_AGE_MS_6654) {
-                            settleUntrustedDynamicPaperPosition6663(position, "IDENTITY_UNRESOLVED")
-                        }
+                        holdUntrustedDynamicPosition7245(position, "IDENTITY_UNRESOLVED")
                         continue
                     }
                     val ageMs = (System.currentTimeMillis() - resolved!!.lastUpdatedMs).coerceAtLeast(0L)
@@ -3325,9 +3323,7 @@ object CryptoAltTrader {
                     // had a valid carry price but an old registry timestamp.
                     if (!refreshedPrice.isFinite() || refreshedPrice <= 0.0) {
                         try { PipelineHealthCollector.labelInc("CRYPTO_DYN_MARK_STALE_OR_MISSING_6654") } catch (_: Throwable) {}
-                        if (position.isPaper && System.currentTimeMillis() - position.openTime >= DYNAMIC_MARK_MAX_AGE_MS_6654) {
-                            settleUntrustedDynamicPaperPosition6663(position, "MARK_STALE_OR_MISSING")
-                        }
+                        holdUntrustedDynamicPosition7245(position, "MARK_STALE_OR_MISSING")
                         continue
                     }
                     markPrice = refreshedPrice
@@ -3568,53 +3564,36 @@ object CryptoAltTrader {
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_PARTIAL_APPLIED_6566_CRYPTO") } catch (_: Throwable) {}
     }
 
-    /** A missing DYN mark must not be converted into invented PnL, but it also
-     * must not make a paper position immortal.  After the exact-mark freshness
-     * window expires, return canonical cost basis through the one paper
-     * authority and remove the local execution projection. */
-    private fun settleUntrustedDynamicPaperPosition6663(pos: AltPosition, cause: String): Boolean {
-        if (!pos.isPaper || !pos.isDynamic) return false
-        val receipt = try {
-            com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.refund(
-                positionId = pos.id,
-                mint = pos.canonicalAssetKey,
-                symbol = pos.marketSymbol,
-                reason = "UNTRUSTED_DYNAMIC_MARK_ADMIN_REFUND_6663:$cause",
-            )
-        } catch (_: Throwable) { null }
-        if (receipt?.applied != true) {
-            ErrorLogger.warn(TAG, "🪙 DYN ADMIN REFUND REJECTED: ${pos.marketSymbol} cause=$cause result=${receipt?.reason ?: "NULL"}")
-            return false
-        }
-        positions.remove(pos.id)
-        spotPositions.remove(pos.id)
-        leveragePositions.remove(pos.id)
-        momentumSnapshots.remove(pos.id)
-        partialLadderHit.remove(pos.id)
-        trailPeakPct.remove(pos.id)
-        try { com.lifecyclebot.collective.LocalOrphanStore.clear(pos.id) } catch (_: Throwable) {}
+    /**
+     * V5.0.7245 — ownership outranks mark freshness. Missing/stale pricing
+     * preserves the position and increases refresh pressure; it never refunds,
+     * closes, hides, or trains from an invented terminal result.
+     */
+    private fun holdUntrustedDynamicPosition7245(pos: AltPosition, cause: String) {
+        if (!pos.isDynamic) return
         try {
-            val bucket = com.lifecyclebot.engine.CryptoPositionState.Bucket.PAPER
-            com.lifecyclebot.engine.CryptoPositionState.release(pos.marketSymbol, bucket)
-        } catch (_: Throwable) {}
-        try { com.lifecyclebot.engine.WalletPositionLock.recordClose("CryptoAlt", pos.sizeSol) } catch (_: Throwable) {}
-        persistAltPositions()
-        try {
-            PipelineHealthCollector.labelInc("CRYPTO_DYN_UNTRUSTED_CANONICAL_REFUND_6663")
+            PipelineHealthCollector.labelInc("CRYPTO_HELD_STALE_MARK_REFRESH_ONLY_7245")
             ForensicLogger.lifecycle(
-                "CRYPTO_DYN_UNTRUSTED_CANONICAL_REFUND_6663",
-                "positionId=${pos.id} asset=${pos.canonicalAssetKey.take(32)} symbol=${pos.marketSymbol} cause=$cause action=canonical_basis_refund",
+                "CRYPTO_HELD_STALE_MARK_REFRESH_ONLY_7245",
+                "positionId=${pos.id} asset=${pos.canonicalAssetKey.take(32)} symbol=${pos.marketSymbol} cause=$cause action=preserve_open_refresh_only",
             )
         } catch (_: Throwable) {}
-        return true
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                DynamicAltTokenRegistry.refreshPriceForMintBlocking(
+                    pos.canonicalAssetKey.ifBlank { pos.dynMint ?: "" },
+                    forceRefresh = true,
+                )
+            } catch (_: Throwable) {}
+        }
     }
 
     private fun closePosition(positionId: String, reason: String) {
         val pos = positions[positionId] ?: return
         if (pos.isDynamic && !pos.hasTrustedMark()) {
-            if (pos.isPaper && settleUntrustedDynamicPaperPosition6663(pos, "CLOSE_REQUEST:${reason.take(80)}")) return
+            holdUntrustedDynamicPosition7245(pos, "CLOSE_REQUEST:${reason.take(80)}")
             try { PipelineHealthCollector.labelInc("CRYPTO_DYN_UNTRUSTED_CLOSE_BLOCKED_6654") } catch (_: Throwable) {}
-            ErrorLogger.warn(TAG, "🪙 DYN CLOSE BLOCKED: ${pos.marketSymbol} has no fresh exact-identity mark; reason=$reason")
+            ErrorLogger.warn(TAG, "🪙 DYN CLOSE DEFERRED: ${pos.marketSymbol} has no fresh exact-identity mark; preserving position; reason=$reason")
             return
         }
         val mktSym = pos.marketSymbol

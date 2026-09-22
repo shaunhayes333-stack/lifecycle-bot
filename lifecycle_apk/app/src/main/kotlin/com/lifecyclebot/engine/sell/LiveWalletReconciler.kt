@@ -305,14 +305,10 @@ object LiveWalletReconciler {
         var updated = 0
         for ((mint, pair) in balances) {
             totalChecked.incrementAndGet()
-            // V5.0.6246 — DeadTokenQuarantine: skip permanently quarantined mints
-            // so we stop re-probing PriceResolverFallback for tokens with no
-            // routable market. Prior behaviour spammed the log with
-            // "all price sources failed for X…" every cycle and burned main-
-            // thread time on dead RECOVERED_* rows.
+            // V5.0.7245 — this loop is iterating a positive wallet balance.
+            // Quarantine can suppress learning, never refresh attempts or ownership.
             if (try { com.lifecyclebot.engine.DeadTokenQuarantine.isDead(mint) } catch (_: Throwable) { false }) {
-                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_WALLET_RECONCILER_SKIP_DEAD_TOKEN") } catch (_: Throwable) {}
-                continue
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_WALLET_HELD_QUARANTINE_REFRESH_7245") } catch (_: Throwable) {}
             }
             val uiAmount = pair.uiDoubleForDisplay()
             val decimals = pair.decimals

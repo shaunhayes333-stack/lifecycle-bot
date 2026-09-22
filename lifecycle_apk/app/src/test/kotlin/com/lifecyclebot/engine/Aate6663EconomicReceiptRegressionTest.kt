@@ -94,13 +94,14 @@ class Aate6663EconomicReceiptRegressionTest {
     }
 
     @Test
-    fun `cross asset positions are governed by adaptive hold and stale mark settlement`() {
+    fun `cross asset positions preserve ownership while stale marks refresh`() {
         val crypto = File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
         val stocks = File("src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt").readText()
         assertTrue(crypto.contains("adaptiveMaxHoldSeconds = holdRecommendation6663?.maxSeconds"))
         assertTrue(crypto.contains("ADAPTIVE_HOLD_MAX_6663"))
-        assertTrue(crypto.contains("settleUntrustedDynamicPaperPosition6663"))
-        assertTrue(crypto.contains("UNTRUSTED_DYNAMIC_MARK_ADMIN_REFUND_6663"))
+        assertTrue(crypto.contains("holdUntrustedDynamicPosition7245"))
+        assertTrue(crypto.contains("CRYPTO_HELD_STALE_MARK_REFRESH_ONLY_7245"))
+        assertFalse(crypto.contains("UNTRUSTED_DYNAMIC_MARK_ADMIN_REFUND_6663"))
         assertTrue(stocks.contains("adaptiveMaxHoldSeconds = holdRecommendation6663?.maxSeconds"))
         assertTrue(stocks.contains("ADAPTIVE_HOLD_MAX_6663"))
         assertTrue(stocks.contains("HoldTimeOptimizerAI.recordOutcomeSeconds"))

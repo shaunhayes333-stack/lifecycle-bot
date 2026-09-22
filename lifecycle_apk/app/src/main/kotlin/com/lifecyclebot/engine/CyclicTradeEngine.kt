@@ -307,7 +307,19 @@ object CyclicTradeEngine {
                 ?: return CyclicPriceVerdict(false, reason = "PRICE_UNAVAILABLE")
             return CyclicPriceVerdict(true, price = price, fresh = fresh, reason = "OK")
         }
-        // Held from here down — a mark is produced no matter what.
+        // V5.0.7245 — stale held pricing cannot drive SL/TP/trail/timeout.
+        // Preserve the ring position and wait for a fresh measurement.
+        if (!fresh) {
+            try {
+                PipelineHealthCollector.labelInc("CYCLIC_HELD_STALE_MARK_REFRESH_ONLY_7245")
+                ForensicLogger.lifecycle(
+                    "CYCLIC_HELD_STALE_MARK_REFRESH_ONLY_7245",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} ageMs=${ageMs ?: -1} context=$context action=preserve_ring_position",
+                )
+            } catch (_: Throwable) {}
+            return CyclicPriceVerdict(false, reason = "HELD_MARK_STALE_REFRESH_ONLY_7245 age=${ageMs ?: -1}")
+        }
+        // Held from here down — a fresh observed mark may drive exits.
         val mark7059 = try {
             com.lifecyclebot.engine.truth.CanonicalMarkResolution7059
                 .resolve(ts.position, rawPrice7059, ts.lastMcap)

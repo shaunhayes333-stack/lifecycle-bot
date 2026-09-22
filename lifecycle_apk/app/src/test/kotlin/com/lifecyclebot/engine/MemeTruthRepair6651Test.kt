@@ -64,12 +64,11 @@ class MemeTruthRepair6651Test {
 
     @Test fun staleMarksRefreshBeforeExitAndNeverBecomeStrategyLabels() {
         val bot = File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        val executor = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val stale = File("src/main/kotlin/com/lifecyclebot/engine/truth/StaleMarkRunnerProtection6829.kt").readText()
         val truth = File("src/main/kotlin/com/lifecyclebot/engine/StrategyTruthLedger.kt").readText()
         assertTrue(bot.contains("stateMarkStale6651") && bot.contains("refreshNeeded6651"))
-        assertTrue(executor.contains("STALE_FEED_FAST_EVICT_HELD_FOR_REFRESH_6651"))
-        assertTrue(executor.contains("data_quality_stale_feed_evict"))
-        assertTrue(executor.contains("suppressLearningFanout6490 = reason.contains(\"stale_feed\""))
+        assertTrue(stale.contains("HELD_STALE_MARK_REFRESH_ONLY_7245"))
+        assertFalse(stale.contains("Verdict.SCRATCH_ALLOWED"))
         assertTrue(truth.contains("return \"DATA_QUALITY_EXIT\""))
     }
 

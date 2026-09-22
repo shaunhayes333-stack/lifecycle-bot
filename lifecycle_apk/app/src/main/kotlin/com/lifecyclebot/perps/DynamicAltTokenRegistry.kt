@@ -623,8 +623,25 @@ object DynamicAltTokenRegistry {
         val placeholderStaleTs = now - PLACEHOLDER_STALE_MS
         var evicted = 0
         var freshEvicted6547 = 0
+        // V5.0.7245 — snapshot held crypto identities ONCE. Never perform a
+        // canonical-position scan per registry row; this universe is 4k+ assets.
+        val heldCryptoKeys7245: Set<String> = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                .asSequence()
+                .filter { it.assetClass == com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT }
+                .map { it.mint.trim().lowercase() }
+                .filter { it.isNotBlank() }
+                .toSet()
+        } catch (_: Throwable) { emptySet() }
         registry.entries.removeIf { (_, tok) ->
             if (tok.isStatic) return@removeIf false
+            val held7245 = sequenceOf(tok.canonicalIdentity6544, tok.tokenAddress, tok.mint)
+                .map { it.trim().lowercase() }
+                .any { it.isNotBlank() && it in heldCryptoKeys7245 }
+            if (held7245) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_REGISTRY_HELD_STALE_PRESERVED_7245") } catch (_: Throwable) {}
+                return@removeIf false
+            }
             val placeholder = tok.tokenAddress.startsWith("cg:") || tok.tokenAddress.startsWith("static:")
             val drop = tok.lastUpdatedMs < if (placeholder) placeholderStaleTs else realStaleTs
             if (drop) {
@@ -1075,14 +1092,10 @@ object DynamicAltTokenRegistry {
      * 45s-cached and RateLimiter-gated, so it will silently return null under
      * load rather than hammering the API.
      */
-    // V5.0.6819: carry a last-known-good price when the normal refresh path is unavailable.
-    // Updates lastUpdatedMs in the registry so monitorPositions sees a fresh timestamp and
-    // doesn't incorrectly classify the position as STALE_MARK_OR_MISSING while the feed is
-    // temporarily down.  Returns 0.0 once the price itself is older than MARK_CARRY_TTL_MS.
+    // V5.0.7245: carry is display continuity, not a fresh observation.
+    // Ownership persists separately; never forge freshness by touching lastUpdatedMs.
     private fun carryForwardPrice6819(existing: DynToken, ageMs: Long): Double {
         if (!existing.price.isFinite() || existing.price <= 0.0 || ageMs > MARK_CARRY_TTL_MS) return 0.0
-        val key = existing.canonicalIdentity6544
-        registry[key] = existing.copy(lastUpdatedMs = System.currentTimeMillis())
         return existing.price
     }
 

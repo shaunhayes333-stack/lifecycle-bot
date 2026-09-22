@@ -39,8 +39,7 @@ object StaleMarkRunnerProtection6829 {
         HOLD_MIN_HOLD,      // within 5-min buy protection
         HOLD_WINNER,        // last-known PnL >= 0
         HOLD_REFRESH_BUDGET,// refresh attempts < 6
-        HOLD_DEFER,         // reserved for future
-        SCRATCH_ALLOWED,    // budget exhausted AND loser AND past min-hold
+        HOLD_DEFER,         // stale/missing mark: preserve ownership and refresh
     }
 
     private val refreshAttempts = ConcurrentHashMap<String, Int>()
@@ -103,24 +102,17 @@ object StaleMarkRunnerProtection6829 {
                 } catch (_: Throwable) {}
                 return Verdict.HOLD_REFRESH_BUDGET
             }
-            // All three guards cleared — scratch is permitted, but
-            // stamp non-trainable so the finalized envelope excludes it.
-            scratchAllowed.incrementAndGet()
-            if (positionId.isNotBlank()) {
-                nonTrainableClosures[positionId] = true
-                nonTrainableStamps.incrementAndGet()
-            }
+            // V5.0.7245 — stale/missing price is a measurement failure, not an exit.
+            // Exhausting the refresh budget changes urgency only; ownership persists.
+            holdRefreshBudget.incrementAndGet()
             try {
-                PipelineHealthCollector.labelInc("PAPER_STALE_SCRATCH_ALLOWED_6829")
-                PipelineHealthCollector.labelInc("PAPER_STALE_SCRATCH_NON_TRAINABLE_6829")
+                PipelineHealthCollector.labelInc("HELD_STALE_MARK_REFRESH_ONLY_7245")
                 ForensicLogger.lifecycle(
-                    "PAPER_STALE_SCRATCH_ALLOWED_6829",
-                    "latchKey=${latchKey.take(40)} positionId=${positionId.take(24)} " +
-                        "lastPnlPct=${"%.1f".format(lastKnownPnlPct)} " +
-                        "refreshAttempts=$attempts action=scratch_permitted_non_trainable",
+                    "HELD_STALE_MARK_REFRESH_ONLY_7245",
+                    "latchKey=${latchKey.take(40)} positionId=${positionId.take(24)} lastPnlPct=${"%.1f".format(lastKnownPnlPct)} refreshAttempts=$attempts action=preserve_open_refresh_only",
                 )
             } catch (_: Throwable) {}
-            Verdict.SCRATCH_ALLOWED
+            Verdict.HOLD_DEFER
         } catch (_: Throwable) { Verdict.HOLD_REFRESH_BUDGET }
     }
 
