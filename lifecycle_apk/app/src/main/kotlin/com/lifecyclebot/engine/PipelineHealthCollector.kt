@@ -1985,6 +1985,13 @@ object PipelineHealthCollector {
             //
             // Zero is printed explicitly for every pinned key, because "0" and
             // "not shown" have to stop looking the same.
+            // V5.0.7222 — the live preflight, computed fresh for this report. The
+            // question "would this bot trade live right now, and if not which gate
+            // says no and by how much" is answered here in one page instead of
+            // being reconstructed from a dozen sections after money is at risk.
+            try {
+                sb.append(com.lifecyclebot.engine.truth.LivePreflight7222.run().render())
+            } catch (_: Throwable) {}
             try {
                 sb.append("===== ENTRY FUNNEL STAGE ACCOUNTING (V5.0.7214) =====\n")
                 val pinnedExact7214 = listOf(

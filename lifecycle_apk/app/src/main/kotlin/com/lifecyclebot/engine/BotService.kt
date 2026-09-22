@@ -5260,6 +5260,12 @@ class BotService : Service() {
                 } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {}
+        // V5.0.7222 — one read-only pass over every live-only authority, printed
+        // with the number that decides each, BEFORE the loop takes a trade. The
+        // wallet may not have been read yet at this point; that is itself a line
+        // on the page, and the pipeline report re-runs the same checks fresh on
+        // every generation. Gates nothing, blocks nothing, sleeps for nothing.
+        try { com.lifecyclebot.engine.truth.LivePreflight7222.emitAtStart() } catch (_: Throwable) {}
         // V5.0.3789 — a fresh Start rebuilds canonical state, so release the
         // stop-finalization latch. From here, normal persistence saves resume.
         persistenceFinalizedByStop = false
