@@ -50,6 +50,14 @@ class Aate7246HeldSupervisorTest {
         assertTrue(bot.contains("HELD_STALE_TIMEOUT_REFRESH_ONLY_7246"))
     }
 
+    @Test fun startup_reconciliation_purges_restored_held_from_discovery() {
+        val supervisor = src("engine/HeldPositionSupervisor7246.kt")
+        val bot = src("engine/BotService.kt")
+        assertTrue(supervisor.contains("fun reconcileDiscoveryResidency()"))
+        assertTrue(supervisor.contains("HELD_RECOVERY_DISCOVERY_RELEASE_7246"))
+        assertTrue(bot.contains("HeldPositionSupervisor7246.reconcileDiscoveryResidency()"))
+    }
+
     @Test fun watchlist_ui_exposes_held_as_a_first_class_surface() {
         val ui = src("ui/WatchlistActivity.kt")
         val layout = File("src/main/res/layout/activity_watchlist.xml").readText()
