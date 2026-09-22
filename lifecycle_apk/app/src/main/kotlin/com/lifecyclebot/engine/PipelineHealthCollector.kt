@@ -2024,7 +2024,11 @@ object PipelineHealthCollector {
                     // EXECUTED is the trade the sizer would have refused, still
                     // executing, counted so the operator can decide the gate.
                     "LIVE_LAST_MILE_LIFTED_TO_ROUTABLE_MIN_7226",
-                    "LIVE_LAST_MILE_SUB_ROUTABLE_DUST_EXECUTED_7226",
+                    // V5.0.7227 — "common sense. apply it." The dust branch
+                    // refuses now, with the same minViableWalletSol the sizer
+                    // prints. A non-zero count here with LIFTED at zero means
+                    // the wallet is under the line; fund it and both flip.
+                    "LIVE_LAST_MILE_SUB_ROUTABLE_DUST_REFUSED_7227",
                     "LIVE_SIZING_WALLET_PROXY_WAS_PAPER_CASH_7226",
                     "LIVE_SIZING_WALLET_UNREAD_KEPT_CALLER_VALUE_7226",
                     // V5.0.7219 — the sealing race was 59% of all execution-gate
@@ -2071,7 +2075,7 @@ object PipelineHealthCollector {
                     // routable minimum, which it let through as dust, and which
                     // traders were handing the resolver paper cash on a live resolve.
                     "LIVE_LAST_MILE_LIFTED_TO_ROUTABLE_MIN_7226_",
-                    "LIVE_LAST_MILE_SUB_ROUTABLE_DUST_EXECUTED_7226_",
+                    "LIVE_LAST_MILE_SUB_ROUTABLE_DUST_REFUSED_7227_",
                     "LIVE_SIZING_WALLET_PROXY_WAS_PAPER_CASH_7226_",
                     "TRADE_AUTHORIZE_ENTERED_7003_",
                     "LIVE_BUY_ABORTED|",

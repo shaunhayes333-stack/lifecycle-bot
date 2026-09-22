@@ -19605,12 +19605,14 @@ class Executor(
         //           minimum. Larger, fewer, and bounded by the same guard the
         //           sizer uses. This deliberately outranks the 18% cap, because
         //           on a small wallet that cap is the thing manufacturing dust.
-        //   MEASURE — if the wallet CANNOT carry a routable position, this
-        //           build does NOT block. It names the trade as sub-routable
-        //           dust, with the minimum viable wallet and the shortfall, and
-        //           lets the operator decide whether the next build refuses.
-        //           Measure first, gate second; not both at once.
-        // Nothing here reduces any order. It only lifts or observes.
+        //   REFUSE — if the wallet CANNOT carry a routable position, refuse,
+        //           naming the minimum viable wallet and the shortfall. 7226
+        //           shipped this branch as measure-only; the operator's answer
+        //           was "common sense. apply it" and 7227 made it a refusal —
+        //           the same verdict SmartSizerV3 already gives for the same
+        //           inputs, so both authorities now say one thing.
+        // Nothing here reduces any order. It lifts, or it declines to send
+        // an order that can only lose to fees.
         try {
             val routableReserve7226 = 0.05   // V3Adapter.toWallet default; same figure LivePreflight7222 uses
             val solUsd7226 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
@@ -19639,17 +19641,33 @@ class Executor(
                             "note=fewer_larger_positions_bounded_by_SmartSizerV3_concentration_guard",
                     )
                 } else {
-                    PipelineHealthCollector.labelInc("LIVE_LAST_MILE_SUB_ROUTABLE_DUST_EXECUTED_7226")
-                    PipelineHealthCollector.labelInc("LIVE_LAST_MILE_SUB_ROUTABLE_DUST_EXECUTED_7226_$lane7226")
-                    ForensicLogger.lifecycle(
-                        "LIVE_LAST_MILE_SUB_ROUTABLE_DUST_EXECUTED_7226",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$lane7226 sol=${sol.fmt(4)} solUsd=${(sol * solUsd7226).fmt(2)}USD " +
+                    // V5.0.7227 — operator, on being shown the MEASURE branch:
+                    // "common sense. apply it." A sub-routable order is a
+                    // guaranteed loss to fees; 7225 proved it twice at -28%
+                    // each. The sizer already refuses this exact case and
+                    // names the wallet that would clear it. So does this
+                    // path now, with the same numbers, so the operator sees
+                    // ONE verdict from both authorities instead of a refusal
+                    // upstream and a dust fill downstream. Same terminal
+                    // bucket as the existing thin-size refusals, so no
+                    // lease, counter or journal path is new.
+                    val detail7227 =
+                        "sol=${sol.fmt(4)} solUsd=${(sol * solUsd7226).fmt(2)}USD " +
                             "walletSol=${walletSol.fmt(4)} tradeable=${routable7226.tradeableSol.fmt(4)} routableMin=${routable7226.routableMinSol.fmt(5)} " +
                             "capacity=${routable7226.capacity} shareGuard=${routable7226.shareGuard.fmt(3)} safeShareCap=${routable7226.safeShareCapSol.fmt(5)} " +
                             "wouldRefuse=${routable7226.wouldRefuse} liftCeiling=${liftCeiling7226.fmt(5)} " +
                             "minViableWalletSol=${minViableWallet7226.fmt(4)} shortfallSol=${(minViableWallet7226 - walletSol).coerceAtLeast(0.0).fmt(4)} " +
-                            "note=MEASURE_ONLY_this_build_executes_the_trade_the_sizer_would_have_refused",
+                            "note=fund_wallet_to_minViableWalletSol_to_trade_live"
+                    PipelineHealthCollector.labelInc("LIVE_LAST_MILE_SUB_ROUTABLE_DUST_REFUSED_7227")
+                    PipelineHealthCollector.labelInc("LIVE_LAST_MILE_SUB_ROUTABLE_DUST_REFUSED_7227_$lane7226")
+                    ForensicLogger.lifecycle(
+                        "LIVE_LAST_MILE_SUB_ROUTABLE_DUST_REFUSED_7227",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$lane7226 $detail7227",
                     )
+                    onLog("⚠️ ${ts.symbol}: live buy refused — ${sol.fmt(4)}◎ is below the routable minimum ${routable7226.routableMinSol.fmt(4)}◎ and this wallet cannot carry a routable position (need ${minViableWallet7226.fmt(4)}◎, have ${walletSol.fmt(4)}◎)", ts.mint)
+                    emitLiveBuyFail(ts, sol, "LIVE_ENTRY_REFUSED_SUB_ROUTABLE_DUST_7227", detail7227)
+                    buyTerminalFail("BUY_TERMINAL_MIN_NOTIONAL_AFTER_FEES:SUB_ROUTABLE_DUST_7227")
+                    return false
                 }
             }
         } catch (_: Throwable) {}
