@@ -2890,9 +2890,59 @@ object ExecutableOpenGate {
             // Version identity replaces the timer. Age is kept, as telemetry,
             // because it is the number that would justify a timer if one were
             // ever needed again — and it is now recorded rather than acted on.
-            val sameCandidateState7219 =
-                state != null && state.candidateVersion == candidateVersion && candidateVersion > 0L
-            val deferKey7219 = "${laneKey(mint, lane)}|$candidateVersion"
+            // V5.0.7220 §I_COMPARED_THE_WRONG_PAIR_AND_THE_COUNTER_SAID_SO.
+            //
+            // 7219 replaced 6739's stopwatch with `state.candidateVersion ==
+            // candidateVersion`. The operator's 5.0.7219 snapshot returned the
+            // verdict on that immediately:
+            //
+            //   FDG_ALLOW_SEALING_RACE_DEFERRED_6739        0
+            //   FDG_ALLOW_STATE_VERSION_MISMATCH_7219      34
+            //   FDG_ALLOW_SEAL_NEVER_LANDED_7219            0
+            //   FDG_ALLOW_WITHOUT_ANY_STATE_7219            0
+            //
+            // 34 of 34, and the deferral never once fired. Two things follow.
+            //
+            // First, 6739's diagnosis was wrong: this was never a timing race.
+            // Not one case was a seal arriving late — every single one is a
+            // version disagreement, which no length of stopwatch would have
+            // fixed.
+            //
+            // Second, MY comparison was wrong. At line 2425 `candidateVersion`
+            // is resolved as
+            //   immutableAuthority6513?.candidateVersion
+            //     ?: electedCandidateVersion6494.takeIf { it > 0 }
+            //     ?: state?.candidateVersion
+            // and in THIS branch immutableAuthority6513 is null by the enclosing
+            // condition. So `candidateVersion` here is the LANE ELECTION's
+            // version, and I compared the FDG state against it. Those two are
+            // different authorities; requiring them to agree is not the identity
+            // test the situation calls for, and it is why the deferral is dead
+            // code in the shipped build.
+            //
+            // The question the gate actually needs answered is: does the FDG
+            // allow on `state` describe the candidate that is live RIGHT NOW?
+            // That is state.candidateVersion against
+            // LaneExecutionCoordinator.candidateVersionFor(mint) — resolved as
+            // currentCandidateVersion at line 2646. If they agree, the allow is
+            // current and the missing seal is worth waiting one cycle for. If
+            // they do not, a newer candidate has superseded this one and
+            // blocking is correct, because the right answer is for the new
+            // candidate to be gated on its own FDG verdict rather than for this
+            // stale allow to be honoured.
+            //
+            // All four versions are now logged so the remaining cases name
+            // themselves. The AUTHORITY_INVARIANT_FAILURE alarm below is left
+            // exactly as it is, deliberately: if the 34 become deferrals that
+            // then execute, that counter falls to zero on its own and I will
+            // have learned it without having suppressed anything. Changing the
+            // discriminator and the alarm in one build would make the next
+            // snapshot unreadable.
+            val stateVersion7220 = state?.candidateVersion ?: 0L
+            val stateDescribesCurrent7220 =
+                state != null && stateVersion7220 > 0L && stateVersion7220 == currentCandidateVersion
+            val sameCandidateState7219 = stateDescribesCurrent7220
+            val deferKey7219 = "${laneKey(mint, lane)}|$stateVersion7220"
             val priorDeferrals7219 = sealingRaceDeferrals7219[deferKey7219] ?: 0
             if (paperMode && sameCandidateState7219 &&
                 priorDeferrals7219 < MAX_SEALING_RACE_DEFERRALS_7219
@@ -2907,9 +2957,10 @@ object ExecutableOpenGate {
                     ForensicLogger.lifecycle(
                         "FDG_ALLOW_SEALING_RACE_DEFERRED_6739",
                         "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol lane=$canonicalSelectedLane " +
-                            "stateAgeMs=$stateAgeMs candidateVersion=$candidateVersion stateVersion=${state?.candidateVersion} " +
+                            "stateAgeMs=$stateAgeMs stateVersion=$stateVersion7220 currentVersion=$currentCandidateVersion " +
+                            "gateCandidateVersion=$candidateVersion electedVersion=$electedCandidateVersion6494 " +
                             "deferral=${priorDeferrals7219 + 1}/$MAX_SEALING_RACE_DEFERRALS_7219 cooldownMs=0 " +
-                            "action=defer_and_regate_next_cycle_same_candidate_awaiting_seal paper=true",
+                            "action=defer_and_regate_next_cycle_fdg_allow_is_for_the_current_candidate paper=true",
                     )
                 } catch (_: Throwable) {}
                 return blocked(
@@ -2925,8 +2976,26 @@ object ExecutableOpenGate {
                 when {
                     state == null ->
                         PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_ANY_STATE_7219")
-                    !sameCandidateState7219 ->
+                    !sameCandidateState7219 -> {
+                        // Umbrella kept so the 34 stays diffable against 7219.
                         PipelineHealthCollector.labelInc("FDG_ALLOW_STATE_VERSION_MISMATCH_7219")
+                        // V5.0.7220 — and the split, so "version mismatch" stops
+                        // being one number for three different disagreements.
+                        // A superseded candidate is routine churn; a divergent
+                        // election receipt or a zero version is not.
+                        PipelineHealthCollector.labelInc(
+                            when {
+                                stateVersion7220 <= 0L ->
+                                    "FDG_ALLOW_STATE_VERSION_ZERO_7220"
+                                currentCandidateVersion <= 0L ->
+                                    "FDG_ALLOW_CURRENT_VERSION_ZERO_7220"
+                                stateVersion7220 < currentCandidateVersion ->
+                                    "FDG_ALLOW_STATE_SUPERSEDED_BY_NEWER_CANDIDATE_7220"
+                                else ->
+                                    "FDG_ALLOW_STATE_AHEAD_OF_CURRENT_7220"
+                            },
+                        )
+                    }
                     priorDeferrals7219 >= MAX_SEALING_RACE_DEFERRALS_7219 ->
                         PipelineHealthCollector.labelInc("FDG_ALLOW_SEAL_NEVER_LANDED_7219")
                     else ->

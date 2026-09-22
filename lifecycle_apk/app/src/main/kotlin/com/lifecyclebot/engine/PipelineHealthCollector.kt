@@ -2019,6 +2019,15 @@ object PipelineHealthCollector {
                     "FDG_ALLOW_SEAL_NEVER_LANDED_7219",
                     "FDG_ALLOW_WITHOUT_INTENT_LIVE_MODE_7219",
                     "EXEC_RESTORED_TICKET_VERSION_DRIFT_6692",
+                    // V5.0.7220 — 7219 proved all 34 were a version mismatch and
+                    // not one was a timing race. These four say WHICH
+                    // disagreement, so the umbrella stops being one number for
+                    // three different faults.
+                    "FDG_ALLOW_STATE_SUPERSEDED_BY_NEWER_CANDIDATE_7220",
+                    "FDG_ALLOW_STATE_AHEAD_OF_CURRENT_7220",
+                    "FDG_ALLOW_STATE_VERSION_ZERO_7220",
+                    "FDG_ALLOW_CURRENT_VERSION_ZERO_7220",
+                    "CANDIDATE_VERSION_WALLCLOCK_ELIMINATED_6620",
                 )
                 pinnedExact7214.forEach { k7214 ->
                     sb.append("  ").append(k7214.padEnd(52)).append(labelValue7214(k7214)).append("\n")
