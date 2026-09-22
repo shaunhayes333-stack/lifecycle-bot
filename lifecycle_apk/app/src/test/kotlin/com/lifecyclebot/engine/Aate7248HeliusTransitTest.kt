@@ -26,14 +26,14 @@ class Aate7248HeliusTransitTest {
         assertFalse(safety.contains("val rpcUrl = cfg().rpcUrl"))
     }
 
-    @Test fun compatible_buys_prefer_metis_then_helius_sender_swqos() {
+    @Test fun jupiter_tip_only_envelopes_never_claim_sender_compatibility() {
         val executor = src("engine/Executor.kt")
-        val slippage = src("engine/SlippageGuard.kt")
+        val jupiter = src("network/JupiterApi.kt")
         val sender = src("network/HeliusSender.kt")
 
-        assertTrue(executor.contains("preferSenderTransport = c.jitoEnabled"))
-        assertTrue(slippage.contains("jupiter.getQuoteForSender"))
+        assertFalse(executor.contains("preferSenderTransport"))
+        assertTrue(jupiter.contains("senderCompatible = false"))
+        assertFalse(jupiter.contains("senderCompatible = senderTipLamports >="))
         assertTrue(sender.contains("sender.helius-rpc.com/fast?swqos_only=true"))
-        assertTrue(sender.contains("HELIUS_SENDER_ACCEPT_7248"))
     }
 }

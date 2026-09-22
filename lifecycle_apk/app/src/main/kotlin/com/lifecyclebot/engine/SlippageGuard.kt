@@ -62,12 +62,11 @@ class SlippageGuard(private val jupiter: JupiterApi) {
         slippageBps: Int,
         inputSol: Double,
         buyTaker: String? = null,
-        preferSenderTransport: Boolean = false,
     ): ValidatedQuote {
         ErrorLogger.info("SlippageGuard", "🔍 Validating quote: ${outputMint.take(8)}... amt=${inputSol}SOL")
         
         // First quote - with retry for network errors
-        val q1 = getQuoteWithRetry(inputMint, outputMint, amountLamports, slippageBps, "Quote 1", buyTaker, preferSenderTransport)
+        val q1 = getQuoteWithRetry(inputMint, outputMint, amountLamports, slippageBps, "Quote 1", buyTaker)
             ?: return ValidatedQuote(
                 com.lifecyclebot.network.SwapQuote(raw = org.json.JSONObject(), outAmount = 0L, priceImpactPct = 0.0),
                 false, 0.0, 0.0,
@@ -91,7 +90,7 @@ class SlippageGuard(private val jupiter: JupiterApi) {
         Thread.sleep(QUOTE_DELAY_MS)
 
         // Second quote - with retry for network errors
-        val q2 = getQuoteWithRetry(inputMint, outputMint, amountLamports, slippageBps, "Quote 2", buyTaker, preferSenderTransport)
+        val q2 = getQuoteWithRetry(inputMint, outputMint, amountLamports, slippageBps, "Quote 2", buyTaker)
             ?: return buildResult(q1, q1, inputSol).also {
                 ErrorLogger.warn("SlippageGuard", "⚠️ Quote 2 failed, using Quote 1 only")
             }
@@ -115,7 +114,6 @@ class SlippageGuard(private val jupiter: JupiterApi) {
         slippageBps: Int,
         label: String,
         buyTaker: String? = null,
-        preferSenderTransport: Boolean = false,
     ): SwapQuote? {
         var lastError: Exception? = null
         val maxRetries = 3
@@ -123,9 +121,7 @@ class SlippageGuard(private val jupiter: JupiterApi) {
         
         for (attempt in 1..maxRetries) {
             try {
-                return if (preferSenderTransport) {
-                    jupiter.getQuoteForSender(inputMint, outputMint, amountLamports, slippageBps)
-                } else if (!buyTaker.isNullOrBlank()) {
+                return if (!buyTaker.isNullOrBlank()) {
                     jupiter.getQuoteWithTaker(inputMint, outputMint, amountLamports, slippageBps, buyTaker)
                 } else {
                     jupiter.getQuote(inputMint, outputMint, amountLamports, slippageBps)

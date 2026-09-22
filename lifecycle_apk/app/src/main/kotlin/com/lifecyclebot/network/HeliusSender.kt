@@ -43,12 +43,10 @@ object HeliusSender {
             .build()
     }
 
-    // V5.0.3690 — Sender is enabled again, but only SolanaWallet calls it for
-    // transactions explicitly tagged senderCompatible=true. That tag is only set
-    // when Jupiter built the tx with a real Jito tip transfer instruction using
-    // prioritizationFeeLamports.jitoTipLamports plus computeUnitPriceMicroLamports.
-    // This avoids the old V5.9.1543 503 loop where priority-fee-only txs were sent
-    // to Sender without the mandatory tip transfer.
+    // Only SolanaWallet calls Sender for transactions explicitly tagged
+    // senderCompatible=true. V5.0.7249 deliberately leaves Jupiter /swap
+    // transactions untagged: its public builder has not proved both mandatory
+    // fee instructions. Other builders may opt in only when they prove both.
     @Volatile var senderEnabled: Boolean = true
 
     @Volatile var lastError: String? = null

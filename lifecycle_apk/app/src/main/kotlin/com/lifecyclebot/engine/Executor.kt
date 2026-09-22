@@ -20014,11 +20014,6 @@ class Executor(
                         JupiterApi.SOL_MINT, ts.mint, jupiterBuyPlan.lamports,
                         slip.coerceAtMost(500), jupiterBuyPlan.solAmount,
                         buyTaker = wallet.publicKeyB58,  // V5.0.7241 — bind at quote time
-                        // V5.0.7248 — BUYs prefer Metis v6 so the resulting
-                        // locally signed transaction can use Helius Sender.
-                        // Ultra remains the non-Sender path for callers that
-                        // require an RFQ-bound order (especially exits).
-                        preferSenderTransport = c.jitoEnabled,
                     )
                     if (quote != null) {
                         if (slip != buyBaseSlippage) onLog("BUY: quote OK at ${slip}bps slippage", ts.mint)
@@ -28487,7 +28482,6 @@ class Executor(
         isBuy: Boolean = true,
         sellTaker: String? = null,  // V5.9.468 — pubkey for taker-bound binding sell order
         buyTaker: String? = null,   // V5.0.7241 — pubkey for taker-bound binding BUY order
-        preferSenderTransport: Boolean = false,
     ): com.lifecyclebot.network.SwapQuote {
         if (!isBuy) {
             // V5.9.468 — RCA fix: previously called getQuote() (non-binding /order
@@ -28512,10 +28506,7 @@ class Executor(
         // makes SlippageGuard request the binding order AT QUOTE TIME so
         // an RFQ decline surfaces here as a quote failure (retryable/
         // escalatable) instead of a silent dead end at the builder.
-        val validated = slippageGuard.validateQuote(
-            inMint, outMint, amount, slippageBps, inputSol, buyTaker,
-            preferSenderTransport = preferSenderTransport,
-        )
+        val validated = slippageGuard.validateQuote(inMint, outMint, amount, slippageBps, inputSol, buyTaker)
         if (!validated.isValid) {
             throw Exception(validated.rejectReason)
         }

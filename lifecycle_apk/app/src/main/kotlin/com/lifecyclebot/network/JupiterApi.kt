@@ -203,14 +203,6 @@ class JupiterApi(private val apiKey: String = "") {
         )
     }
 
-    /** V5.0.7248 — Metis quote for a transaction intended for Helius Sender. */
-    fun getQuoteForSender(
-        inputMint: String,
-        outputMint: String,
-        amountRaw: Long,
-        slippageBps: Int,
-    ): SwapQuote = getQuoteV6(inputMint, outputMint, amountRaw, slippageBps)
-
     /**
      * Quote only, no taker. Good for estimation.
      */
@@ -457,7 +449,12 @@ class JupiterApi(private val apiKey: String = "") {
             isRfqRoute = false,
             dynSlipPickedBps = v6.second,
             dynSlipIncurredBps = v6.third,
-            senderCompatible = senderTipLamports >= 200_000L,
+            // V5.0.7249 — Jupiter's public /swap builder accepts a Jito tip OR
+            // a compute-unit priority fee, not a proven combination of both.
+            // Helius Sender requires both. A tip-only envelope must therefore
+            // never be labelled Sender-compatible; it will use Jito plus the
+            // configured Helius RPC broadcast ladder instead.
+            senderCompatible = false,
             senderTipLamports = senderTipLamports,
         )
     }
