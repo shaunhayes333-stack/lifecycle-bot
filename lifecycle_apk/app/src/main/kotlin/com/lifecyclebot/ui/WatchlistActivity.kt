@@ -9,6 +9,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.lifecyclebot.R
+import com.lifecyclebot.engine.HeldPositionSupervisor7246
 import com.lifecyclebot.perps.PerpsMarket
 import com.lifecyclebot.perps.WatchlistEngine
 import com.lifecyclebot.perps.WatchlistEngine.AlertType
@@ -24,10 +25,11 @@ class WatchlistActivity : AppCompatActivity() {
     private lateinit var tvStats: TextView
     private lateinit var progressBar: ProgressBar
     private lateinit var tabWatchlist: TextView
+    private lateinit var tabHeld: TextView
     private lateinit var tabAlerts: TextView
     private lateinit var tabTriggered: TextView
 
-    private var currentTab = 0 // 0=watchlist, 1=alerts, 2=triggered
+    private var currentTab = 0 // 0=watchlist, 1=held, 2=alerts, 3=triggered
 
     private val white   = AateUi.TEXT
     private val muted   = AateUi.TEXT_MUTED
@@ -48,6 +50,7 @@ class WatchlistActivity : AppCompatActivity() {
         tvStats = findViewById(R.id.tvWatchlistStats)
         progressBar = findViewById(R.id.progressWatchlist)
         tabWatchlist = findViewById(R.id.tabWatchlist)
+        tabHeld = findViewById(R.id.tabHeld)
         tabAlerts = findViewById(R.id.tabActiveAlerts)
         tabTriggered = findViewById(R.id.tabTriggered)
 
@@ -58,17 +61,21 @@ class WatchlistActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnRefreshWatchlist).setOnClickListener { scanAll() }
 
         tabWatchlist.setOnClickListener { selectTab(0) }
-        tabAlerts.setOnClickListener { selectTab(1) }
-        tabTriggered.setOnClickListener { selectTab(2) }
+        tabHeld.setOnClickListener { selectTab(1) }
+        tabAlerts.setOnClickListener { selectTab(2) }
+        tabTriggered.setOnClickListener { selectTab(3) }
 
         buildContent()
     }
 
     private fun selectTab(tab: Int) {
         currentTab = tab
-        val tabs = listOf(tabWatchlist, tabAlerts, tabTriggered)
-        val colors = listOf(green, amber, red)
-        val bgs = listOf(0xFF1A2E1A.toInt(), 0xFF2E2A1A.toInt(), 0xFF2E1A1A.toInt())
+        val tabs = listOf(tabWatchlist, tabHeld, tabAlerts, tabTriggered)
+        val colors = listOf(green, purple, amber, red)
+        val bgs = listOf(
+            0xFF1A2E1A.toInt(), 0xFF221A2E.toInt(),
+            0xFF2E2A1A.toInt(), 0xFF2E1A1A.toInt(),
+        )
         tabs.forEachIndexed { i, tv ->
             if (i == tab) { tv.setTextColor(colors[i]); tv.setBackgroundColor(bgs[i]) }
             else { tv.setTextColor(muted); tv.setBackgroundColor(0x00000000) }
@@ -79,12 +86,14 @@ class WatchlistActivity : AppCompatActivity() {
     private fun buildContent() {
         llContent.removeAllViews()
         val stats = WatchlistEngine.getStats()
-        tvStats.text = "${stats["watchlist_size"]} items | ${stats["active_alerts"]} alerts | ${stats["triggered_alerts"]} triggered"
+        val heldCount = try { HeldPositionSupervisor7246.snapshot().size } catch (_: Throwable) { 0 }
+        tvStats.text = "${stats["watchlist_size"]} discovery | $heldCount held | ${stats["active_alerts"]} alerts"
 
         when (currentTab) {
             0 -> buildWatchlistTab()
-            1 -> buildAlertsTab()
-            2 -> buildTriggeredTab()
+            1 -> buildHeldTab()
+            2 -> buildAlertsTab()
+            3 -> buildTriggeredTab()
         }
     }
 
@@ -299,6 +308,134 @@ class WatchlistActivity : AppCompatActivity() {
 
             llContent.addView(card)
             addDivider()
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // HELD TAB — canonical owned inventory, completely separate from discovery
+    // ═══════════════════════════════════════════════════════════════════════
+
+    private fun buildHeldTab() {
+        val rows = HeldPositionSupervisor7246.snapshot()
+        if (rows.isEmpty()) {
+            addEmpty("No held positions\nOwned assets move here immediately after execution")
+            return
+        }
+
+        rows.forEach { row ->
+            val markColor = when (row.markState) {
+                "FRESH" -> green
+                "STALE_REFRESH" -> amber
+                else -> red
+            }
+            val ageText = when {
+                row.markAgeMs == Long.MAX_VALUE -> "no mark"
+                row.markAgeMs < 1_000L -> "<1s"
+                row.markAgeMs < 60_000L -> "${row.markAgeMs / 1_000}s"
+                else -> "${row.markAgeMs / 60_000}m"
+            }
+            val pnlPct = if (row.entryPriceUsd > 0.0 && row.currentPriceUsd > 0.0)
+                ((row.currentPriceUsd / row.entryPriceUsd) - 1.0) * 100.0 else Double.NaN
+            val pnlColor = when {
+                !pnlPct.isFinite() -> muted
+                pnlPct >= 0.0 -> green
+                else -> red
+            }
+
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(11), dp(10), dp(11), dp(10))
+                setBackgroundResource(
+                    if (row.markState == "MISSING") R.drawable.aate_row_card_hot else R.drawable.aate_row_card
+                )
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                ).apply { bottomMargin = dp(7) }
+            }
+
+            val top = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            top.addView(GradientTileView7028(this).apply {
+                cornerDp = 10f
+                labelSizeSp = 11f
+                setTile(
+                    row.symbol.take(2).uppercase(),
+                    if (row.markState == "FRESH") 0xFF34D399.toInt() else 0xFFF59E0B.toInt(),
+                    0xFF18244A.toInt(),
+                    AateUi.TEXT,
+                )
+                layoutParams = LinearLayout.LayoutParams(dp(30), dp(30)).apply { marginEnd = dp(9) }
+            })
+
+            val identity = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            identity.addView(TextView(this).apply {
+                text = row.symbol
+                textSize = 12f
+                setTextColor(white)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            })
+            identity.addView(TextView(this).apply {
+                text = "${row.mode.uppercase()} · ${row.lane} · ${row.assetClass.tag}"
+                textSize = 9f
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            })
+            top.addView(identity)
+
+            val stateCol = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.END
+            }
+            stateCol.addView(TextView(this).apply {
+                text = row.markState
+                textSize = 10f
+                setTextColor(markColor)
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                gravity = Gravity.END
+            })
+            stateCol.addView(TextView(this).apply {
+                text = ageText
+                textSize = 8f
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+                gravity = Gravity.END
+            })
+            top.addView(stateCol)
+            card.addView(top)
+
+            card.addView(TextView(this).apply {
+                text = buildString {
+                    append("entry ")
+                    append(if (row.entryPriceUsd > 0.0) "$" + "%.8g".format(row.entryPriceUsd) else "—")
+                    append("  mark ")
+                    append(if (row.currentPriceUsd > 0.0) "$" + "%.8g".format(row.currentPriceUsd) else "—")
+                    append("  PnL ")
+                    append(if (pnlPct.isFinite()) "${if (pnlPct >= 0) "+" else ""}${"%.1f".format(pnlPct)}%" else "—")
+                }
+                textSize = 10f
+                setTextColor(pnlColor)
+                typeface = android.graphics.Typeface.MONOSPACE
+                setPadding(0, dp(7), 0, 0)
+            })
+            card.addView(TextView(this).apply {
+                text = "qty=${"%.8g".format(row.remainingQty)} · ${row.markSource.ifBlank { "mark pending" }} · ${row.mint.take(18)}…"
+                textSize = 8f
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setPadding(0, dp(3), 0, 0)
+            })
+
+            llContent.addView(card)
         }
     }
 
