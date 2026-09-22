@@ -856,6 +856,63 @@ object FinalDecisionGate {
             if (authoritativePaperMode == configIn.paperMode) configIn
             else configIn.copy(paperMode = authoritativePaperMode)
         val mode = if (config.paperMode) TradeMode.PAPER else TradeMode.LIVE
+
+        // V5.0.7242 §CANONICAL_ENTRY_SELECTIVITY — one quality boundary for PAPER + LIVE.
+        //
+        // Runtime 7240 proved lane-local rescue logic could manufacture executable
+        // trades from candidates whose canonical score was zero/negative or whose
+        // base signal was WAIT. Examples included PROJECT_SNIPER scoreBand=S0-10
+        // being lifted from sizeBefore=0 to a funded probe, while 23 terminal trades
+        // finished 3W/20L. Exploration may still learn in shadow/lab authorities,
+        // but it may not create a canonical economic position below this boundary.
+        //
+        // Rule A: an executable entry needs canonical score >=30. This matches the
+        // existing LIVE floor and removes the paper/live asymmetry.
+        // Rule B: a non-BUY base signal may only be promoted when independent lane
+        // evidence is strong (>=55). Lane membership alone cannot convert WAIT into
+        // a funded trade.
+        val canonicalEntryScore7242 = maxOf(candidate.entryScore, laneScore)
+        val baseEntrySignal7242 = candidate.finalSignal.ifBlank { candidate.signal }.uppercase()
+        val belowCanonicalFloor7242 = canonicalEntryScore7242 < 30.0
+        val weakWaitPromotion7242 =
+            baseEntrySignal7242 !in setOf("BUY", "EXECUTE") && canonicalEntryScore7242 < 55.0
+        if (belowCanonicalFloor7242 || weakWaitPromotion7242) {
+            val reason7242 = if (belowCanonicalFloor7242) {
+                "CANONICAL_ENTRY_SCORE_FLOOR_7242"
+            } else {
+                "CANONICAL_WAIT_PROMOTION_REFUSED_7242"
+            }
+            try {
+                PipelineHealthCollector.labelInc(reason7242)
+                ForensicLogger.lifecycle(
+                    reason7242,
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} mode=${mode.name} " +
+                        "baseSignal=$baseEntrySignal7242 entryScore=${"%.1f".format(candidate.entryScore)} " +
+                        "laneScore=${"%.1f".format(laneScore)} canonicalScore=${"%.1f".format(canonicalEntryScore7242)} " +
+                        "action=shadow_or_reject_no_economic_position",
+                )
+            } catch (_: Throwable) {}
+            return FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.finalQuality,
+                confidence = candidate.aiConfidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = reason7242,
+                blockLevel = BlockLevel.EDGE,
+                sizeSol = 0.0,
+                tags = listOf(reason7242, "base:$baseEntrySignal7242", "score:${canonicalEntryScore7242.toInt()}"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "canonical entry selectivity refused weak/WAIT promotion",
+                gateChecks = listOf(
+                    GateCheck("canonicalEntryScore7242", !belowCanonicalFloor7242, "need>=30"),
+                    GateCheck("waitPromotion7242", !weakWaitPromotion7242, "WAIT needs laneScore>=55"),
+                ),
+            )
+        }
+
         val laneName = tradingModeTag?.name ?: "STANDARD"
         // V5.0.6658 §SPECIALIST_LANE_STAMP_ALIGNMENT — operator dump Feb
         //   2026 (build 5.0.6657, 3140s uptime):
