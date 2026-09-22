@@ -50,7 +50,7 @@ class Aate7228RuntimeMechanicalRepairTest {
 
     @Test fun registry_restore_source_stays_quarantined_without_poisoning_mints() {
         val bot = source("engine/BotService.kt")
-        assertTrue(bot.contains("memeRegistryRestoreSourceQuarantined7228 = true"))
+        assertTrue(bot.contains("MEME_REGISTRY_RESTORE_SOURCE_QUARANTINED_7228") && bot.contains("action=skip_restore_intake_preserve_registry"))
         assertTrue(bot.contains("MEME_REGISTRY_RESTORE_SOURCE_QUARANTINED_7228"))
         assertTrue(bot.contains("skip_restore_intake_preserve_registry"))
     }

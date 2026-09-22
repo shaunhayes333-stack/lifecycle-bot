@@ -6266,7 +6266,6 @@ class BotService : Service() {
         // until the scanner rediscovers everything.
         try {
             val restoredMemeMints = com.lifecyclebot.engine.MemeMintRegistry.getAll()
-            var hydrated = 0
             // V5.9.682 — was: hydrateCap = maxWatchlistSize.coerceAtLeast(500).
             // That forced AT LEAST 500 regardless of config. With 500 historical
             // mints restored, cycle 2 wedged at 33s processing ghost tokens with
@@ -6321,45 +6320,22 @@ class BotService : Service() {
             // the source of lane-fanout explosion. Quarantine the SOURCE, not its
             // mints: persistent memory stays intact and fresh scanner rediscovery
             // remains eligible, but registry replay cannot enter lane arbitration.
-            val memeRegistryRestoreSourceQuarantined7228 = true
-            if (memeRegistryRestoreSourceQuarantined7228 && recent.isNotEmpty()) {
-                try {
-                    PipelineHealthCollector.labelInc("MEME_REGISTRY_RESTORE_SOURCE_QUARANTINED_7228")
-                    ForensicLogger.lifecycle("MEME_REGISTRY_RESTORE_SOURCE_QUARANTINED_7228",
-                        "candidates=${recent.size} action=skip_restore_intake_preserve_registry")
-                } catch (_: Throwable) {}
-            }
-            for (m in if (memeRegistryRestoreSourceQuarantined7228) emptyList() else recent) {
-                if (m.mint.isBlank()) continue
-                val ok = admitProtectedMemeIntake(
-                    mint = m.mint,
-                    symbol = m.symbol.ifBlank { m.mint.take(6) },
-                    name = m.name.ifBlank { m.symbol.ifBlank { m.mint.take(6) } },
-                    source = "MEME_REGISTRY_RESTORE",
-                    // V5.9.1519 — unknown liquidity on a registry restore must be NaN,
-                    // not 0.0. Passing 0.0 (known-zero) tripped RESTORE_ZERO_LIQUIDITY
-                    // every cycle, re-quarantining restored mints and producing the
-                    // "same tokens cycling / nothing trades" symptom. NaN = unknown,
-                    // so the scanner re-hydrates real liquidity organically.
-                    marketCapUsd = Double.NaN,
-                    liquidityUsd = Double.NaN,
-                    volumeH1 = 0.0,
-                    confidence = 50,
-                    allSources = setOf(m.source.ifBlank { "restored" }, "MEME_REGISTRY_RESTORE"),
-                    playSound = false,
-                    operatorLog = false,
-                    expectedRuntimeGeneration = runtimeGeneration,
-                )
-                if (ok || status.tokens.containsKey(m.mint)) hydrated++
-            }
+            // Source quarantine is unconditional until runtime acceptance proves
+            // lane fanout healthy. Do not wrap this in a constant branch: registry
+            // rows stay persisted, while no replay row is admitted to scanner/lane work.
+            try {
+                PipelineHealthCollector.labelInc("MEME_REGISTRY_RESTORE_SOURCE_QUARANTINED_7228")
+                ForensicLogger.lifecycle("MEME_REGISTRY_RESTORE_SOURCE_QUARANTINED_7228",
+                    "candidates=${recent.size} action=skip_restore_intake_preserve_registry")
+            } catch (_: Throwable) {}
             if (restoredMemeMints.isNotEmpty()) {
                 val dropped = restoredMemeMints.size - recent.size
-                addLog("🪙 Meme restore: hydrated $hydrated/${recent.size} recent mints (dropped $dropped stale, cap=$hydrateCap)")
-                ErrorLogger.info("BotService", "🪙 Meme restore hydrated $hydrated/${recent.size} recent / ${restoredMemeMints.size} total (dropped $dropped stale > 60min)")
+                addLog("🪙 Meme restore: source-quarantined ${recent.size} recent mints (dropped $dropped stale, cap=$hydrateCap)")
+                ErrorLogger.info("BotService", "🪙 Meme restore source-quarantined ${recent.size} recent / ${restoredMemeMints.size} total (dropped $dropped stale > 60min)")
                 try {
                     ForensicLogger.lifecycle(
                         "MEME_RESTORE_TRIMMED",
-                        "hydrated=$hydrated recent=${recent.size} stale=$dropped total=${restoredMemeMints.size} cap=$hydrateCap"
+                        "source_quarantined=true recent=${recent.size} stale=$dropped total=${restoredMemeMints.size} cap=$hydrateCap"
                     )
                 } catch (_: Throwable) {}
             }

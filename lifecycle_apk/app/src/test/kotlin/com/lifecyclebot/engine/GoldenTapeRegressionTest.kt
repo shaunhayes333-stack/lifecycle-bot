@@ -9424,7 +9424,7 @@ class GoldenTapeRegressionTest {
         assertTrue(tracker.contains("RPC_CONFIRMED_POSITIVE_DUST_7228") && tracker.contains("CLOSED_BY_EXPLICIT_RAW_ZERO_7228"))
         val pending = cu.substring(cu.indexOf("Confirmed signature awaiting target quantity proof"), cu.indexOf("val filledRaw"))
         assertTrue(cu.contains("CU_VERIFY_PENDING") && !pending.contains("CU_CONFIRM_FAILED"))
-        assertTrue(bot.contains("memeRegistryRestoreSourceQuarantined7228 = true"))
+        assertTrue(bot.contains("MEME_REGISTRY_RESTORE_SOURCE_QUARANTINED_7228") && bot.contains("action=skip_restore_intake_preserve_registry"))
     }
 
 }
