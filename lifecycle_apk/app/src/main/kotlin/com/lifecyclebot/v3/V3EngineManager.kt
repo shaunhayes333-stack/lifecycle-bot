@@ -426,7 +426,12 @@ object V3EngineManager {
 
             val candidate = V3Adapter.toCandidate(ts)
 
-            val reserveSol = config?.reserveSol ?: 0.05
+            val configuredReserveSol = config?.reserveSol ?: 0.05
+            val reserveSol = if (currentContext.mode == V3BotMode.LIVE) {
+                SmartSizerV3.effectiveLiveReserveSol7238(walletSol, configuredReserveSol)
+            } else {
+                configuredReserveSol
+            }
             val wallet = WalletSnapshot(
                 totalSol = walletSol,
                 tradeableSol = (walletSol - reserveSol).coerceAtLeast(0.0)
