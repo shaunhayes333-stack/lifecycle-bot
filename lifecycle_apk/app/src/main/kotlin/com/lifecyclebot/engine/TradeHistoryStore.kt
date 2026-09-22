@@ -609,6 +609,23 @@ object TradeHistoryStore {
         // that never cost that. Cap at 5000 SOL proceeds (orders of magnitude above
         // any real position this bot sizes) — pure fabrication catcher.
         if (kotlin.math.abs(proceeds) > 5_000.0) return false
+        // V5.0.7236 §LIVE_TERMINAL_SEMANTICS — operator 5.0.7234:
+        //   "LIVE_BROADCAST is NOT a realized loss. Only LIVE_FINALIZED /
+        //    wallet-confirmed terminal closes may update WR, PnL,
+        //    expectancy, learner rewards or tax/export summaries."
+        // A live-mode SELL still in LIVE_BROADCAST state has broadcast
+        // intent but no chain proof. Its stored pnlPct is a preview;
+        // treating it as a terminal loss (via naive summaries) mints
+        // synthetic −100% closures that poison every learner. This
+        // authority excludes non-terminal proof states from the
+        // canonical accounting predicate; the row is preserved
+        // forensically but not surfaced in WR/PnL/expectancy until it
+        // reaches a terminal proof state.
+        val liveTerminal7236 = try {
+            com.lifecyclebot.engine.truth.LiveTerminalSemanticsAuthority7236
+                .isTerminalOutcome(t.mode, t.proofState)
+        } catch (_: Throwable) { true }
+        if (!liveTerminal7236) return false
         return true
     }
 

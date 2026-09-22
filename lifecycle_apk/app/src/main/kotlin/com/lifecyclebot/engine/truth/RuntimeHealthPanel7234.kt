@@ -34,6 +34,9 @@ object RuntimeHealthPanel7234 {
         val wi = WalletCanonicalInventoryClassifier7230.summary()
         val mi = MarkIdentityExecutionGate7230.summary()
         val fo = IntakeFanoutGovernor6835.summary()
+        val mr = MarkIdentityRepairAuthority7236.summary()
+        val rg = RoutableMinRiskGuard7236.summary()
+        val lt = LiveTerminalSemanticsAuthority7236.summary()
         val sb = StringBuilder()
         sb.append("┌─ RUNTIME HEALTH ─────────────────────────────────┐\n")
         sb.append("│ BASIS  sealed=${pad(bs.sealsCreated)} refused=${pad(bs.overwriteRefused)} veto=${pad(bs.exitBasisMismatch)}\n")
@@ -44,6 +47,12 @@ object RuntimeHealthPanel7234 {
         sb.append("│        buckets=${wi.bucketCounts.entries.joinToString(",") { "${it.key.name.take(3)}=${it.value}" }}\n")
         sb.append("│ MARK   broken=${pad(mi.identityBroken)} uncorroborated=${pad(mi.uncorroborated)}\n")
         sb.append("│        venueMissing=${pad(mi.venueMissing)} suppressed=${pad(mi.executionSuppressed)}\n")
+        sb.append("│ REPAIR requested=${pad(mr.requested)} ok=${pad(mr.succeeded)} fail=${pad(mr.failed)}\n")
+        sb.append("│        cacheHits=${pad(mr.cacheHits)} stale=${pad(mr.cacheMissesStale)} size=${mr.cacheSize}\n")
+        sb.append("│ LIFT   allowed=${pad(rg.liftAllowed)} refusedWeak=${pad(rg.totalRefused)}\n")
+        sb.append("│        (score=${rg.refusedWeakScore},regime=${rg.refusedWeakRegime},proof=${rg.refusedPendingProof},cmpst=${rg.refusedComposite})\n")
+        sb.append("│ LIVE   terminal=${pad(lt.totalTerminal)} exclBroadcast=${pad(lt.excludedBroadcast)}\n")
+        sb.append("│        exclUnknown=${pad(lt.excludedUnknown)}\n")
         sb.append("│ FANOUT fdgCapped=${pad(fo.fdgCappedEvents)} laneCapped=${pad(fo.laneCappedEvents)}\n")
         sb.append("│        advisoryUngoverned=${pad(fo.advisoryUngoverned)} chains=${fo.activeCausalChains}\n")
         sb.append("└──────────────────────────────────────────────────┘")
@@ -57,10 +66,16 @@ object RuntimeHealthPanel7234 {
         val wi = WalletCanonicalInventoryClassifier7230.summary()
         val mi = MarkIdentityExecutionGate7230.summary()
         val fo = IntakeFanoutGovernor6835.summary()
+        val mr = MarkIdentityRepairAuthority7236.summary()
+        val rg = RoutableMinRiskGuard7236.summary()
+        val lt = LiveTerminalSemanticsAuthority7236.summary()
         return "HEALTH7234 basisVeto=${bs.exitBasisMismatch} " +
             "sellUnique=${sf.uniqueSells}/redispatch=${sf.redispatches} " +
             "walletPnlSup=${wi.pnlSuppressed} " +
             "markSup=${mi.executionSuppressed} " +
+            "repairOk=${mr.succeeded}/${mr.requested} " +
+            "liftRefWeak=${rg.totalRefused} " +
+            "liveExclBroadcast=${lt.excludedBroadcast} " +
             "fanoutFdgCap=${fo.fdgCappedEvents}"
     }
 

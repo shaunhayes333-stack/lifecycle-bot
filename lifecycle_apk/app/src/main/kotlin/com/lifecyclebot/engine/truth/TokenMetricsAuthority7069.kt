@@ -336,6 +336,16 @@ object TokenMetricsAuthority7069 {
                 exitReasonOrContext = "TokenMetricsAuthority7069_identity_broken",
             )
         } catch (_: Throwable) {}
+        // V5.0.7236 §MARK_IDENTITY_REPAIR — request an async cross-source
+        //   repair via PriceResolverFallback so the NEXT exit-evaluation
+        //   tick can see a corroborated price instead of firing (or
+        //   deferring) on the broken value. Fire-and-forget.
+        try {
+            com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.requestRepair(
+                mint = mint,
+                context = "TokenMetricsAuthority7069_identity_broken_src=$source",
+            )
+        } catch (_: Throwable) {}
         return Metrics7069(price, mcap, storedSupply, repaired = false, verifiable = false)
     }
 

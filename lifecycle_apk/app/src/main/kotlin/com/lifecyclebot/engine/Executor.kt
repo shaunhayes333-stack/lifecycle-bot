@@ -19662,7 +19662,39 @@ class Executor(
                 )
                 val minViableWallet7226 = routable7226.minViableTradeableSol + routableReserve7226
                 val lane7226 = layerTag.ifBlank { canonicalRoutedLane }.uppercase().take(20)
-                if (!routable7226.wouldRefuse && routable7226.routableMinSol <= liftCeiling7226) {
+                // V5.0.7236 §ROUTABLE_MIN_RISK_GUARD — do NOT lift a
+                // distrusted candidate back to routableMin. 5.0.7234
+                // evidence: score=6 candidate lifted to 0.04445 SOL then
+                // closed −64.44%; score=6–16 lifts produced most
+                // observed losses. The lift path became the dominant
+                // loss producer because it defeats every upstream
+                // shrink (CHOP regime, pending-proof penalty, low
+                // score). Refusing the lift on weak candidates and
+                // taking the DUST_REFUSED branch fixes the sizing
+                // contradiction at source.
+                val guardDecision7236 = try {
+                    com.lifecyclebot.engine.truth.RoutableMinRiskGuard7236.evaluate(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        lane = lane7226,
+                        score = score,
+                        // livePendingProofPenalty already dampens size by
+                        // 0.65 upstream; represent that as the effective
+                        // regime multiplier we can see at this site.
+                        regimeSizeMult = if (livePendingProofPenalty) 0.65 else 1.0,
+                        livePendingProofPenalty = livePendingProofPenalty,
+                        riskSizedSol = sol,
+                        routableMinSol = routable7226.routableMinSol,
+                    )
+                } catch (_: Throwable) {
+                    com.lifecyclebot.engine.truth.RoutableMinRiskGuard7236.Decision(
+                        com.lifecyclebot.engine.truth.RoutableMinRiskGuard7236.Verdict.ALLOW_LIFT,
+                        "GUARD_ERR_FALLBACK_ALLOW",
+                    )
+                }
+                val guardBlocksLift7236 = guardDecision7236.verdict ==
+                    com.lifecyclebot.engine.truth.RoutableMinRiskGuard7236.Verdict.REFUSE_LIFT_WEAK
+                if (!routable7226.wouldRefuse && routable7226.routableMinSol <= liftCeiling7226 && !guardBlocksLift7236) {
                     val beforeLift7226 = sol
                     sol = routable7226.routableMinSol
                     PipelineHealthCollector.labelInc("LIVE_LAST_MILE_LIFTED_TO_ROUTABLE_MIN_7226")

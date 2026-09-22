@@ -88,12 +88,52 @@ object OpenPnlSanity {
         tokenDecimals: Int = -1,
     ): Verdict {
         if (!entryPrice.isFinite() || entryPrice <= 0.0) return reject("ENTRY_PRICE_INVALID", entryPrice, currentPrice, context, emit, mint)
-        if (!currentPrice.isFinite() || currentPrice <= 0.0) return reject("CURRENT_PRICE_INVALID", entryPrice, currentPrice, context, emit, mint)
-        val ratio = currentPrice / entryPrice
-        if (!ratio.isFinite() || ratio <= 0.0) return reject("PRICE_RATIO_INVALID", entryPrice, currentPrice, context, emit, mint)
+        // V5.0.7236 §MARK_IDENTITY_REPAIR consumer — if currentPrice is
+        // invalid, consult MarkIdentityRepairAuthority7236 for a fresh
+        // cross-source repaired value before rejecting. This is the
+        // operator's directive: "correct the data to require the stop
+        // to fire correctly" rather than silently skip. When a repair
+        // is available the PnL evaluation proceeds against the repaired
+        // value; the raw invalid input is preserved forensically via
+        // the counter below.
+        var currentPriceEffective7236 = currentPrice
+        if (!currentPriceEffective7236.isFinite() || currentPriceEffective7236 <= 0.0) {
+            val repaired7236 = try {
+                if (mint.isNotBlank())
+                    com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getRepairedPriceIfFresh(mint)
+                else null
+            } catch (_: Throwable) { null }
+            if (repaired7236 != null && repaired7236.isFinite() && repaired7236 > 0.0) {
+                currentPriceEffective7236 = repaired7236
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_PNL_CURRENT_PRICE_REPAIRED_7236")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "OPEN_PNL_CURRENT_PRICE_REPAIRED_7236",
+                        "mint=${mint.take(10)} rawCurrent=$currentPrice " +
+                            "repaired=${"%.10g".format(repaired7236)} " +
+                            "src=${com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getRepairedSource(mint)} " +
+                            "context=${context.take(96)} " +
+                            "action=proceed_with_repaired_value",
+                    )
+                } catch (_: Throwable) {}
+            } else {
+                // No repair available — request one for the NEXT tick
+                // and continue with the standard rejection so the
+                // caller does not act on a corrupt basis.
+                try {
+                    if (mint.isNotBlank())
+                        com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.requestRepair(
+                            mint, "OpenPnlSanity_current_price_invalid",
+                        )
+                } catch (_: Throwable) {}
+                return reject("CURRENT_PRICE_INVALID", entryPrice, currentPrice, context, emit, mint)
+            }
+        }
+        val ratio = currentPriceEffective7236 / entryPrice
+        if (!ratio.isFinite() || ratio <= 0.0) return reject("PRICE_RATIO_INVALID", entryPrice, currentPriceEffective7236, context, emit, mint)
         val pnl = (ratio - 1.0) * 100.0
-        if (!pnl.isFinite()) return reject("OPEN_PNL_NOT_FINITE", entryPrice, currentPrice, context, emit, mint)
-        if (pnl < MIN_PNL_PCT) return reject("OPEN_PNL_BELOW_TOTAL_LOSS", entryPrice, currentPrice, context, emit, mint)
+        if (!pnl.isFinite()) return reject("OPEN_PNL_NOT_FINITE", entryPrice, currentPriceEffective7236, context, emit, mint)
+        if (pnl < MIN_PNL_PCT) return reject("OPEN_PNL_BELOW_TOTAL_LOSS", entryPrice, currentPriceEffective7236, context, emit, mint)
 
         // V5.0.6854 §ABSURD_UPSIDE_WAS_NEVER_QUARANTINED — StalePriceExitGuard
         // .isGainTrustworthy() exists to reject a gain multiple above
@@ -106,8 +146,8 @@ object OpenPnlSanity {
         // Same invariant, same gate, and routing it through the guard means the
         // quarantine flag finally gets set by the thing that detects the problem.
         if (!com.lifecyclebot.engine.sell.StalePriceExitGuard
-                .isGainTrustworthy(mint, entryPrice, currentPrice, ratio)) {
-            return reject("OPEN_PNL_ABSURD_GAIN_6854", entryPrice, currentPrice, context, emit, mint)
+                .isGainTrustworthy(mint, entryPrice, currentPriceEffective7236, ratio)) {
+            return reject("OPEN_PNL_ABSURD_GAIN_6854", entryPrice, currentPriceEffective7236, context, emit, mint)
         }
 
         // V5.0.6701 — this must run BEFORE source/pool comparability. The defect
@@ -115,7 +155,7 @@ object OpenPnlSanity {
         // wearing stale same-source/same-pool metadata. Decimal-unit continuity is
         // an independent invariant and cannot be waived by provenance equality.
         if (tokenDecimalScaleDiscontinuity6701(ratio, tokenDecimals, entryPrice)) {
-            return reject("TOKEN_DECIMAL_SCALE_DISCONTINUITY_6701", entryPrice, currentPrice, context, emit, mint)
+            return reject("TOKEN_DECIMAL_SCALE_DISCONTINUITY_6701", entryPrice, currentPriceEffective7236, context, emit, mint)
         }
 
         val eSrc = entrySource.trim().uppercase()
