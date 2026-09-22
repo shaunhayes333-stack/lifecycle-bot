@@ -65,6 +65,51 @@ object TraderSizingBridge6444 {
         invocations.incrementAndGet()
         perLaneInvocations.computeIfAbsent(laneName) { AtomicLong(0L) }.incrementAndGet()
         val laneKey = laneName.uppercase()
+        // V5.0.7226 §A_LIVE_RESOLVE_SIZED_AGAINST_THE_PAPER_BANKROLL.
+        //
+        // Operator 5.0.7225 (LIVE, wallet 0.0973 SOL): the resolver's own trace
+        // read `lastAccount=LIVE lastWalletSol=12.0482 liveResolves=593` — the
+        // paper ledger's cash, to four decimals, on a live resolve. 7217 wrote
+        // that trace precisely so this would be seen. The feeders are five lane
+        // traders (BlueChip 691 invocations, Moonshot, ShitCoin, Quality,
+        // SolanaArb) that each hard-code
+        //   walletSolProxy = PaperCapitalAuthority6577.cashSol()
+        // and pass it here with paperMode = isPaperMode. In paper that is
+        // correct. In live it hands OrderSizeResolver6441 a 12 SOL wallet
+        // (authoritativeCash = walletSol when !paperMode), so the resolve
+        // "approves" 0.47 SOL and the executor's own wallet clamp then has to
+        // walk it down to whatever the real wallet allows — which on this wallet
+        // was 0.007 SOL of dust.
+        //
+        // Fixed HERE, at the one bridge all five traders call, rather than in
+        // five files: a live resolve is bound to the live wallet authority (the
+        // same read FinalDecisionGate's seal uses since 6827). The caller's
+        // value is kept only when the live wallet has not been read yet, and
+        // that case is counted separately so it cannot hide. Paper is untouched.
+        val walletSol7226 = if (paperMode) walletSol else {
+            val cached7226: Double = try { com.lifecyclebot.engine.WalletManager.cachedSolBalance() } catch (_: Throwable) { 0.0 }
+            val status7226: Double = try { com.lifecyclebot.engine.BotService.status.walletSol } catch (_: Throwable) { 0.0 }
+            val live7226: Double = if (cached7226.isFinite() && cached7226 > 0.0) cached7226 else status7226
+            if (live7226.isFinite() && live7226 > 0.0) {
+                if (kotlin.math.abs(live7226 - walletSol) > 0.01 * kotlin.math.max(live7226, 1e-9)) {
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_SIZING_WALLET_PROXY_WAS_PAPER_CASH_7226")
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_SIZING_WALLET_PROXY_WAS_PAPER_CASH_7226_$laneKey")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "LIVE_SIZING_WALLET_PROXY_WAS_PAPER_CASH_7226",
+                            "lane=$laneKey callerWalletSol=${"%.4f".format(walletSol)} liveWalletSol=${"%.4f".format(live7226)} " +
+                                "requestedSol=${"%.4f".format(requestedSol)} action=resolve_against_live_wallet",
+                        )
+                    } catch (_: Throwable) {}
+                }
+                live7226
+            } else {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_SIZING_WALLET_UNREAD_KEPT_CALLER_VALUE_7226")
+                } catch (_: Throwable) {}
+                walletSol
+            }
+        }
         // V5.0.6630 §D SPECIALIST_MISROUTE_DIAGNOSTIC (operator Feb 2026:
         //   "SHITCOIN/MOONSHOT/BLUECHIP and the other specialist lanes must
         //    NOT be routed through TraderSizingBridge6444 as generic traders.
@@ -94,7 +139,7 @@ object TraderSizingBridge6444 {
                     requestedSol = requestedSol,
                     assetClass = classForRoute6633,
                     laneName = laneKey,
-                    walletSol = walletSol,
+                    walletSol = walletSol7226,
                     paperMode = paperMode,
                     laneRiskCapSol = overrideLaneRiskCapSol ?: DEFAULT_PORTFOLIO_CAP_SOL_6552,
                     laneMinExecutableSol = if (paperMode) OrderSizeResolver6441.paperExecutableMinimumSol() else 0.001,
@@ -112,13 +157,13 @@ object TraderSizingBridge6444 {
                 return rerouted6633
             }
         } catch (_: Throwable) {}
-        val dynamicWalletCap = (walletSol.coerceAtLeast(0.0) * walletRiskPct.coerceIn(0.0, 1.0))
+        val dynamicWalletCap = (walletSol7226.coerceAtLeast(0.0) * walletRiskPct.coerceIn(0.0, 1.0))
         val laneCap = overrideLaneRiskCapSol ?: dynamicWalletCap.coerceAtMost(portfolioCapSol)
         return try {
             val r = OrderSizeResolver6441.resolve(
                 requestedSol = requestedSol,
                 laneName = laneKey,
-                walletSol = walletSol,
+                walletSol = walletSol7226,
                 paperMode = paperMode,
                 laneRiskCapSol = laneCap,
                 laneMinExecutableSol = if (paperMode) OrderSizeResolver6441.paperExecutableMinimumSol() else 0.001,

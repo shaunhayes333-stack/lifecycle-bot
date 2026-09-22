@@ -19578,6 +19578,81 @@ class Executor(
                 PipelineHealthCollector.labelInc("LIVE_FINAL_EXECUTABLE_FLOOR_RESTORED_6687")
             } catch (_: Throwable) {}
         }
+        // V5.0.7226 §THE_SIZER_REFUSED_DUST_AND_THE_EXECUTOR_BOUGHT_IT_ANYWAY.
+        //
+        // Operator 5.0.7225, LIVE, wallet 0.0973 SOL. LivePreflight7222 printed
+        // ROUTABLE_CAPACITY REFUSE (tradeable=0.0473 routableMin=0.0428
+        // safeShareCap=0.0118) and SmartSizerV3's live floor never fired once
+        // (LIVE_FLOOR_BLOCK_ROUTABLE_MIN_EXCEEDS_SHARE_7127=0). Yet two live buys
+        // landed at 0.007 SOL — about eighty cents — and both sold at -28%,
+        // which at that notional is fees. They never met the sizer: this chain
+        // is the second live sizing authority, and its floors are
+        //   liveMinExecutableBuySol = 0.005 (allowLiveMicroProbe)
+        //   maxSpendableSol        = min(wallet - rent, 2.0, wallet x 0.18)
+        // On a 0.0973 wallet the 18% cap is 0.0175 SOL and the routable
+        // minimum is 0.0428, so every live order this path can produce is
+        // sub-routable by construction, and the 0.005 floor lets it through.
+        // Two authorities, two answers: the sizer says "fewer, larger, or not
+        // at all" (7218) and this path says "dust". The operator's words were
+        // "fewer larger positions. its meant to have a system that checks and
+        // does this itself". It does — one screen away, and this screen
+        // ignored it.
+        //
+        // Fix, in two halves so they can be judged separately:
+        //   LIFT  — if the order is below the routable minimum and the wallet
+        //           CAN carry it under the sizer's own concentration guard
+        //           (capacity >= 2, share <= 50%), raise it to the routable
+        //           minimum. Larger, fewer, and bounded by the same guard the
+        //           sizer uses. This deliberately outranks the 18% cap, because
+        //           on a small wallet that cap is the thing manufacturing dust.
+        //   MEASURE — if the wallet CANNOT carry a routable position, this
+        //           build does NOT block. It names the trade as sub-routable
+        //           dust, with the minimum viable wallet and the shortfall, and
+        //           lets the operator decide whether the next build refuses.
+        //           Measure first, gate second; not both at once.
+        // Nothing here reduces any order. It only lifts or observes.
+        try {
+            val routableReserve7226 = 0.05   // V3Adapter.toWallet default; same figure LivePreflight7222 uses
+            val solUsd7226 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+            val routable7226 = com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(
+                (walletSol - routableReserve7226).coerceAtLeast(0.0), solUsd7226,
+            )
+            if (sol > 0.0 && sol < routable7226.routableMinSol) {
+                val liftCeiling7226 = minOf(
+                    (walletSol - liveRentReserveSol).coerceAtLeast(0.0),
+                    maxConfigLiveBuySol,
+                    routable7226.safeShareCapSol,
+                )
+                val minViableWallet7226 = routable7226.minViableTradeableSol + routableReserve7226
+                val lane7226 = layerTag.ifBlank { canonicalRoutedLane }.uppercase().take(20)
+                if (!routable7226.wouldRefuse && routable7226.routableMinSol <= liftCeiling7226) {
+                    val beforeLift7226 = sol
+                    sol = routable7226.routableMinSol
+                    PipelineHealthCollector.labelInc("LIVE_LAST_MILE_LIFTED_TO_ROUTABLE_MIN_7226")
+                    PipelineHealthCollector.labelInc("LIVE_LAST_MILE_LIFTED_TO_ROUTABLE_MIN_7226_$lane7226")
+                    ForensicLogger.lifecycle(
+                        "LIVE_LAST_MILE_LIFTED_TO_ROUTABLE_MIN_7226",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$lane7226 from=${beforeLift7226.fmt(4)} to=${sol.fmt(4)} " +
+                            "walletSol=${walletSol.fmt(4)} tradeable=${routable7226.tradeableSol.fmt(4)} routableMin=${routable7226.routableMinSol.fmt(5)} " +
+                            "capacity=${routable7226.capacity} shareGuard=${routable7226.shareGuard.fmt(3)} safeShareCap=${routable7226.safeShareCapSol.fmt(5)} " +
+                            "walletRiskCap18pct=${walletRiskCapSol.fmt(5)} liftCeiling=${liftCeiling7226.fmt(5)} solUsd=${solUsd7226.fmt(2)} " +
+                            "note=fewer_larger_positions_bounded_by_SmartSizerV3_concentration_guard",
+                    )
+                } else {
+                    PipelineHealthCollector.labelInc("LIVE_LAST_MILE_SUB_ROUTABLE_DUST_EXECUTED_7226")
+                    PipelineHealthCollector.labelInc("LIVE_LAST_MILE_SUB_ROUTABLE_DUST_EXECUTED_7226_$lane7226")
+                    ForensicLogger.lifecycle(
+                        "LIVE_LAST_MILE_SUB_ROUTABLE_DUST_EXECUTED_7226",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$lane7226 sol=${sol.fmt(4)} solUsd=${(sol * solUsd7226).fmt(2)}USD " +
+                            "walletSol=${walletSol.fmt(4)} tradeable=${routable7226.tradeableSol.fmt(4)} routableMin=${routable7226.routableMinSol.fmt(5)} " +
+                            "capacity=${routable7226.capacity} shareGuard=${routable7226.shareGuard.fmt(3)} safeShareCap=${routable7226.safeShareCapSol.fmt(5)} " +
+                            "wouldRefuse=${routable7226.wouldRefuse} liftCeiling=${liftCeiling7226.fmt(5)} " +
+                            "minViableWalletSol=${minViableWallet7226.fmt(4)} shortfallSol=${(minViableWallet7226 - walletSol).coerceAtLeast(0.0).fmt(4)} " +
+                            "note=MEASURE_ONLY_this_build_executes_the_trade_the_sizer_would_have_refused",
+                    )
+                }
+            }
+        } catch (_: Throwable) {}
         val assumedSolUsd = 200.0
         // V5.0.4020 — IMPACT CALC LIQUIDITY CASCADE (operator P0: "stabilise
         // our data providers AND fix this issue at the source"). The previous

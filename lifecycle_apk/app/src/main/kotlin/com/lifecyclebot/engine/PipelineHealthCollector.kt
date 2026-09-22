@@ -2017,6 +2017,16 @@ object PipelineHealthCollector {
                     "LIVE_FLOOR_BLOCK_ROUTABLE_MIN_EXCEEDS_SHARE_7127",
                     "SMART_SIZER_V3_DUST_PROMOTED_6271",
                     "COST_EXCEEDS_EDGE_REFUSED_7162",
+                    // V5.0.7226 — the second live sizing authority. On 7225 the
+                    // sizer's floor fired 0 times and two 0.007 SOL live buys
+                    // landed anyway; the resolver had been sizing LIVE against
+                    // the paper bankroll. LIFTED is the remedy working; DUST_
+                    // EXECUTED is the trade the sizer would have refused, still
+                    // executing, counted so the operator can decide the gate.
+                    "LIVE_LAST_MILE_LIFTED_TO_ROUTABLE_MIN_7226",
+                    "LIVE_LAST_MILE_SUB_ROUTABLE_DUST_EXECUTED_7226",
+                    "LIVE_SIZING_WALLET_PROXY_WAS_PAPER_CASH_7226",
+                    "LIVE_SIZING_WALLET_UNREAD_KEPT_CALLER_VALUE_7226",
                     // V5.0.7219 — the sealing race was 59% of all execution-gate
                     // blocks (221 of 374) and its cooldown was 30x the window it
                     // waited for. The split below says which of four faults a
@@ -2057,6 +2067,12 @@ object PipelineHealthCollector {
                     // not an alarm; a cancelled allow is the pipeline working.
                     "FDG_ALLOW_EXPLICIT_CANCEL_7221_",
                     "FUNNEL_MARK_STAGE_HAS_NO_PRODUCER_7214_",
+                    // V5.0.7226 — per lane: which lanes the executor lifted to the
+                    // routable minimum, which it let through as dust, and which
+                    // traders were handing the resolver paper cash on a live resolve.
+                    "LIVE_LAST_MILE_LIFTED_TO_ROUTABLE_MIN_7226_",
+                    "LIVE_LAST_MILE_SUB_ROUTABLE_DUST_EXECUTED_7226_",
+                    "LIVE_SIZING_WALLET_PROXY_WAS_PAPER_CASH_7226_",
                     "TRADE_AUTHORIZE_ENTERED_7003_",
                     "LIVE_BUY_ABORTED|",
                     "LANE_ENTRY_RECOVERY_ABOVE_PROBATION_UNDER_HOLD_7214",
