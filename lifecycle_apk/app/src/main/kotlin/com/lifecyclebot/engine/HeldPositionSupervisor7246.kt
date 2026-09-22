@@ -53,6 +53,29 @@ object HeldPositionSupervisor7246 {
         }
     } catch (_: Throwable) { emptyList() }
 
+    /**
+     * Recovery/startup reconciliation: canonical OPEN ownership wins even when
+     * the position existed before this process and therefore did not execute the
+     * fresh-open handoff hook in this runtime.
+     */
+    fun reconcileDiscoveryResidency(): Int {
+        val open = try { CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }
+        var released = 0
+        for (p in open) {
+            try {
+                if (GlobalTradeRegistry.handoffOpenMintToHeld7246(p.mint, p.symbol)) released++
+            } catch (_: Throwable) {}
+        }
+        if (released > 0) try {
+            PipelineHealthCollector.labelInc("HELD_RECOVERY_DISCOVERY_RELEASE_7246")
+            ForensicLogger.lifecycle(
+                "HELD_RECOVERY_DISCOVERY_RELEASE_7246",
+                "released=$released canonicalOpen=${open.size} action=canonical_ownership_wins_on_restart",
+            )
+        } catch (_: Throwable) {}
+        return released
+    }
+
     fun statusLine(nowMs: Long = System.currentTimeMillis()): String {
         val rows = snapshot(nowMs)
         val fresh = rows.count { it.markState == "FRESH" }
