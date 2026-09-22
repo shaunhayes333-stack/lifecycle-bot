@@ -309,6 +309,37 @@ object SellReconciler {
                 HostWalletTokenTracker.applyWalletSnapshot(tokens)
                 ForensicLogger.lifecycle("SELL_RECONCILER_WALLET_SNAPSHOT_APPLIED_6035", "tick=$totalTicks walletMints=${tokens.size}")
             } catch (_: Throwable) {}
+            // V5.0.7234 §WALLET_CANONICAL_INVENTORY_HOOK_RECONCILER —
+            //   for every wallet-observed mint, classify into the 4
+            //   buckets so downstream PnL consumers can consult
+            //   pnlAllowed(mint) before emitting a number. Bot-owned
+            //   mints with a sealed basis (CanonicalFillBasisSeal7229)
+            //   classify as BOT_CANONICAL_OPEN; wallet-only mints
+            //   classify as EXTERNAL_WALLET_HOLDING; bot-owned without
+            //   seal classify as QUARANTINED_WITH_EXPLICIT_REASON.
+            //   The recovery-time hook at LiveCanonicalRecovery6686
+            //   remains as the first-observation path; this hook keeps
+            //   the classification fresh on every reconciler tick.
+            try {
+                val openMintsForClass7234 = try {
+                    HostWalletTokenTracker.getOpenTrackedPositions().map { it.mint }.toSet()
+                } catch (_: Throwable) { emptySet<String>() }
+                tokens.forEach { (mint, _) ->
+                    val botOwned = mint in openMintsForClass7234
+                    val hasSeal = try {
+                        com.lifecyclebot.engine.truth.CanonicalFillBasisSeal7229
+                            .anySealForMint(mint)
+                    } catch (_: Throwable) { false }
+                    com.lifecyclebot.engine.truth.WalletCanonicalInventoryClassifier7230.classify(
+                        mint = mint,
+                        botCanonicalOwned = botOwned,
+                        sealedBasisPresent = hasSeal,
+                        externalWalletHolding = !botOwned,
+                        unsupportedProof = false,
+                        quarantineReason = "",
+                    )
+                }
+            } catch (_: Throwable) {}
         }
 
         val open = HostWalletTokenTracker.getOpenTrackedPositions()

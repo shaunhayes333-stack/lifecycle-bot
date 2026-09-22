@@ -147,6 +147,17 @@ object CanonicalFillBasisSeal7229 {
      *  wallet-recovered position with unknown basis). */
     fun seal(mint: String, positionId: String): Seal? = seals[keyOf(mint, positionId)]
 
+    /**
+     * V5.0.7234 - true if ANY seal exists for the given mint,
+     * regardless of positionId.  Used by the reconciler classifier
+     * hook when the caller does not yet know the canonical positionId
+     * for a wallet-observed mint.
+     */
+    fun anySealForMint(mint: String): Boolean {
+        val prefix = "${mint.trim().take(32)}::"
+        return seals.keys.any { it.startsWith(prefix) }
+    }
+
     data class Verdict(
         val allow: Boolean,
         val reason7229: String,

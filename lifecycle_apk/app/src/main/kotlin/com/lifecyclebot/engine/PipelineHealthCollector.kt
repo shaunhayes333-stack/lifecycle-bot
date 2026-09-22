@@ -1966,6 +1966,13 @@ object PipelineHealthCollector {
             sb.append("  §P4 MOONSHOT_EXIT_TX    ${com.lifecyclebot.engine.truth.MoonshotExitTransaction6625.statusLine()}\n")
             sb.append("  §P5 CAUSAL_FUNNEL       ${com.lifecyclebot.engine.truth.SpecialistCausalFunnel6625.statusLine()}\n")
             sb.append("  §P6 UI_OFF_MAIN_AUDIT   ${com.lifecyclebot.engine.truth.UiOffMainAudit6625.statusLine()}\n")
+            // V5.0.7234 §RUNTIME_HEALTH_PANEL — one compact multi-line
+            //   snapshot of the 7229/7231/7230/6835 counters so the
+            //   operator recovery is visible in the standard pipeline
+            //   dump without pulling the full labelled-counter tail.
+            sb.append("  §P7 RUNTIME_HEALTH_PANEL\n")
+            sb.append(com.lifecyclebot.engine.truth.RuntimeHealthPanel7234.render())
+            sb.append("\n  §P7 RUNTIME_HEALTH_ONELINE ${com.lifecyclebot.engine.truth.RuntimeHealthPanel7234.renderOneLine()}\n")
             // ── V5.0.7214 §THE_COUNTERS_THAT_ANSWER_THIS_WERE_IN_THE_HIDDEN_TAIL.
             //
             // The labelled-counter block prints the top 401 and ends with
