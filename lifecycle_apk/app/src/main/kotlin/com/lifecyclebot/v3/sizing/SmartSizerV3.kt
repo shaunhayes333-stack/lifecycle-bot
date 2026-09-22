@@ -77,6 +77,57 @@ class SmartSizerV3(
          *  balance. Without it, a small wallet would be forced to concentrate
          *  most of itself into one memecoin just to clear a routing minimum. */
         const val LIVE_FLOOR_MAX_WALLET_SHARE_7127 = 0.25
+
+        /**
+         * V5.0.7218 §THE_GUARD_CHECKED_AND_HAD_NO_REMEDY.
+         *
+         * Operator, after a live session that took four trades in six minutes
+         * and stopped out of every one: "fewer larger positions. its meant to
+         * have a system that check and does this itself."
+         *
+         * It does check. On the 5.0.7216 live wallet the arithmetic is exact:
+         *
+         *   routableMinSol  = $5.00 / $116.71  = 0.04284 SOL
+         *   safeShareCap    = 0.1607 x 0.25    = 0.04018 SOL
+         *   0.04284 > 0.04018                  -> hard refuse
+         *
+         * LIVE_FLOOR_BLOCK_ROUTABLE_MIN_EXCEEDS_SHARE_7127 fired 1050 times
+         * because the wallet was 0.0027 SOL — about thirty cents — under the
+         * line. The guard was right about the economics and had exactly one
+         * response available to it: no. That is a detector with no remedy, the
+         * same shape as every other defect this session, and on a small wallet
+         * it means the bot never trades at all.
+         *
+         * What "fewer larger" actually requires is dividing the wallet by the
+         * number of positions it can ROUTABLY carry, instead of by a fixed
+         * share chosen without reference to the routing floor:
+         *
+         *   capacity   = floor(tradeable / routableMinSol)
+         *   shareGuard = min(0.50, max(0.25, 1 / capacity))
+         *
+         * The 25% floor means nothing changes on any wallet that can carry four
+         * or more routable positions — 1/4 = 0.25, so a funded account sizes
+         * exactly as it does today. Below that the guard widens to exactly the
+         * share the wallet can support, which is the definition of taking fewer
+         * and larger positions rather than refusing.
+         *
+         * This ceiling is what stops it becoming all-in. At 50% the wallet must
+         * be able to carry at least TWO routable positions before one is
+         * allowed, so a single memecoin can never hold more than half the
+         * balance — which is what LIVE_FLOOR_MAX_WALLET_SHARE_7127's own
+         * docstring exists to prevent. A wallet that cannot carry two is still
+         * refused, and now the refusal states the minimum that would work.
+         *
+         *   0.1607 SOL -> capacity 3 -> guard 33.3% -> cap 0.0536 -> TRADES
+         *   0.1000 SOL -> capacity 2 -> guard 50.0% -> cap 0.0500 -> TRADES
+         *   0.0500 SOL -> capacity 1 -> guard 50.0% -> cap 0.0250 -> refused
+         *   1.0000 SOL -> capacity 23 -> guard 25.0% -> unchanged
+         */
+        const val MAX_CONCENTRATION_SHARE_7218 = 0.50
+
+        /** Minimum routable positions a wallet must carry before the share
+         *  guard widens. Two, so concentration can never exceed a half. */
+        const val MIN_ROUTABLE_CAPACITY_7218 = 2
     }
 
     /**
@@ -311,7 +362,28 @@ class SmartSizerV3(
         // of the balance. But if only the percentage arm is too large, the safe
         // answer is the safe share itself — still routable, still concentrated
         // no further than the guard allows, and a trade rather than a silence.
-        val safeShareCap7142 = tradeable * LIVE_FLOOR_MAX_WALLET_SHARE_7127
+        // V5.0.7218 — divide the wallet by what it can ROUTABLY carry, not by a
+        // fixed share chosen without reference to the routing floor. See
+        // MAX_CONCENTRATION_SHARE_7218 for the arithmetic and why 25% still
+        // governs every funded wallet.
+        val routableCapacity7218 = if (routableMinSol7127 > 0.0 && tradeable > 0.0) {
+            kotlin.math.floor(tradeable / routableMinSol7127).toInt()
+        } else 0
+        val shareGuard7218 = if (routableCapacity7218 >= MIN_ROUTABLE_CAPACITY_7218) {
+            kotlin.math.min(
+                MAX_CONCENTRATION_SHARE_7218,
+                kotlin.math.max(LIVE_FLOOR_MAX_WALLET_SHARE_7127, 1.0 / routableCapacity7218),
+            )
+        } else {
+            LIVE_FLOOR_MAX_WALLET_SHARE_7127
+        }
+        val safeShareCap7142 = tradeable * shareGuard7218
+        if (isLive && shareGuard7218 > LIVE_FLOOR_MAX_WALLET_SHARE_7127) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelInc("LIVE_FLOOR_CONCENTRATED_TO_ROUTABLE_CAPACITY_7218")
+            } catch (_: Throwable) {}
+        }
         val effectiveSize = if (isLive && cappedSize > 0.0 && cappedSize < liveNoDustFloor6269) {
             if (routableMinSol7127 > safeShareCap7142) {
                 // The smallest routable trade would be too large a share of this
@@ -321,9 +393,24 @@ class SmartSizerV3(
                 try {
                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SMART_SIZER_V3_DUST_BLOCK_NO_HEADROOM_6271")
                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_FLOOR_BLOCK_ROUTABLE_MIN_EXCEEDS_SHARE_7127")
+                    // V5.0.7218 — state the wallet that WOULD work. The old row
+                    // reported every input and left the operator to do the
+                    // division; on the 7216 run that arithmetic was 0.04284 vs
+                    // 0.04018 and the answer — "you are thirty cents short" —
+                    // was nowhere in the report. A refusal that cannot say what
+                    // would clear it is a dead end, and this one fired 1050
+                    // times.
+                    val minViableWalletSol7218 =
+                        routableMinSol7127 * MIN_ROUTABLE_CAPACITY_7218
+                    com.lifecyclebot.engine.PipelineHealthCollector
+                        .labelInc("LIVE_FLOOR_WALLET_BELOW_ROUTABLE_CAPACITY_7218")
                     com.lifecyclebot.engine.ForensicLogger.lifecycle(
                         "SMART_SIZER_V3_DUST_BLOCK_NO_HEADROOM_6271",
-                        "band=$band conf=$confidence tradeable=${"%.4f".format(tradeable)} floor=${"%.4f".format(liveNoDustFloor6269)} routableMin=${"%.4f".format(routableMinSol7127)} solUsd=${"%.2f".format(solUsd7127)} maxShare=$LIVE_FLOOR_MAX_WALLET_SHARE_7127 note=routable_minimum_exceeds_safe_wallet_share"
+                        "band=$band conf=$confidence tradeable=${"%.4f".format(tradeable)} floor=${"%.4f".format(liveNoDustFloor6269)} routableMin=${"%.4f".format(routableMinSol7127)} solUsd=${"%.2f".format(solUsd7127)} " +
+                            "routableCapacity7218=$routableCapacity7218 shareGuard7218=${"%.3f".format(shareGuard7218)} safeShareCap=${"%.4f".format(safeShareCap7142)} " +
+                            "minViableWalletSol7218=${"%.4f".format(minViableWalletSol7218)} minViableWalletUsd7218=${"%.2f".format(minViableWalletSol7218 * solUsd7127)} " +
+                            "shortfallSol7218=${"%.4f".format((minViableWalletSol7218 - tradeable).coerceAtLeast(0.0))} " +
+                            "note=wallet_cannot_carry_${MIN_ROUTABLE_CAPACITY_7218}_routable_positions_fund_to_minViableWallet_to_trade"
                     )
                 } catch (_: Throwable) {}
                 return SizeResult(sizeSol = 0.0)

@@ -1996,6 +1996,17 @@ object PipelineHealthCollector {
                     "FUNNEL_STAGE_COUNT_SUPPRESSED_7214",
                     "FUNNEL_SIZING_CHOKED_CONTRADICTED_BY_RESOLVER_7214",
                     "GATE_BLOCK_REASON_UNEXPLAINED_7213",
+                    // V5.0.7218 — the concentration remedy and its refusal. On
+                    // the 7216 live run the refusal fired 1050 times for a
+                    // wallet thirty cents under the share guard, and neither
+                    // the count nor the shortfall appeared anywhere the
+                    // operator would look. Pinned, because "why will it not
+                    // trade live" must be answerable from this report.
+                    "LIVE_FLOOR_CONCENTRATED_TO_ROUTABLE_CAPACITY_7218",
+                    "LIVE_FLOOR_WALLET_BELOW_ROUTABLE_CAPACITY_7218",
+                    "LIVE_FLOOR_BLOCK_ROUTABLE_MIN_EXCEEDS_SHARE_7127",
+                    "SMART_SIZER_V3_DUST_PROMOTED_6271",
+                    "COST_EXCEEDS_EDGE_REFUSED_7162",
                 )
                 pinnedExact7214.forEach { k7214 ->
                     sb.append("  ").append(k7214.padEnd(52)).append(labelValue7214(k7214)).append("\n")
