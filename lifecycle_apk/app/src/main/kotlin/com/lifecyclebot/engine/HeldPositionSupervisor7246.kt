@@ -53,6 +53,17 @@ object HeldPositionSupervisor7246 {
         }
     } catch (_: Throwable) { emptyList() }
 
+    fun statusLine(nowMs: Long = System.currentTimeMillis()): String {
+        val rows = snapshot(nowMs)
+        val fresh = rows.count { it.markState == "FRESH" }
+        val stale = rows.count { it.markState == "STALE_REFRESH" }
+        val missing = rows.count { it.markState == "MISSING" }
+        val discoveryLeaks = rows.count { row ->
+            try { GlobalTradeRegistry.getEntry(row.mint) != null } catch (_: Throwable) { false }
+        }
+        return "held=${rows.size} fresh=$fresh staleRefresh=$stale missing=$missing discoveryResident=$discoveryLeaks"
+    }
+
     /** UI/telemetry projection. Cache-only: never blocks on a provider. */
     fun snapshot(nowMs: Long = System.currentTimeMillis()): List<HeldRow> {
         val open = try { CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }
