@@ -14585,13 +14585,13 @@ class Executor(
      * precisely to refuse that ("action=no_entry_no_fake_basis"). Wiring it
      * would have made this function contradict itself.
      *
-     * So only IDENTITY is hydrated: symbol, name, pair address, pair URL, pool
-     * address and dex. Those are immutable-to-slow-moving properties of the
-     * mint, they carry no freshness semantics, and they are exactly what the
-     * report says is missing — a blank pool address is what produces the
-     * MINT_ROUTE placeholder that LaneEntryContract6342's QUALITY check and the
-     * route-proof step both read. No price, no market cap, no liquidity, and no
-     * timestamp is written. A mark still has to be earned live.
+     * So only ROUTE IDENTITY is hydrated: the pool address and the dex label.
+     * Those are slow-moving properties of the mint, they carry no freshness
+     * semantics, and the pool address is exactly what the report says is
+     * missing ("pair addr known: 185/4818"). A blank pool is what leaves the
+     * mark unresolvable and what the route-proof step reads. No price, no
+     * market cap, no liquidity, and no timestamp is written. A mark still has
+     * to be earned live.
      */
     private fun hydrateIdentityFromCache7215(ts: TokenState): Boolean {
         val ctx = try { com.lifecyclebot.AATEApp.appContextOrNull() } catch (_: Throwable) { null } ?: return false
@@ -14600,12 +14600,21 @@ class Executor(
             try { PipelineHealthCollector.labelInc("TOKEN_META_IDENTITY_MISS_7215") } catch (_: Throwable) {}
             return false
         }
+        // V5.0.7216 — TokenState's identity fields are NOT all mutable, and I
+        // asserted otherwise in 7215 on a bad grep: I matched `var symbol` /
+        // `var name` / `var pairAddress` in Models.kt without checking which
+        // class they belonged to. In TokenState (Models.kt:499) `mint`,
+        // `symbol`, `name`, `pairAddress` and `pairUrl` are all `val` — that
+        // immutability is load-bearing identity and is not something a cache
+        // hydrator gets to widen. Only `lastPricePoolAddr`, `lastPriceDex` and
+        // `logoUrl` are var, and the pre-existing dead hydrator above wrote
+        // exactly those price-adjacent fields for the same reason.
+        //
+        // The pool address is the one that matters here regardless: a blank
+        // pool is what leaves the mark unresolvable and what the route-proof
+        // step reads. Symbol and name are display strings; losing them costs
+        // nothing a provider reply will not supply.
         var changed = false
-        if (ts.symbol.isBlank() && cached.symbol.isNotBlank()) { ts.symbol = cached.symbol; changed = true }
-        if (ts.name.isBlank() && cached.name.isNotBlank()) { ts.name = cached.name; changed = true }
-        if (ts.pairAddress.isBlank() && cached.pairAddress.isNotBlank()) { ts.pairAddress = cached.pairAddress; changed = true }
-        // ts.pairUrl is a val (Models.kt:504) — cosmetic only, deliberately
-        // left alone rather than widened to var for a display string.
         if (ts.lastPriceDex.isBlank() && cached.lastPriceDex.isNotBlank()) { ts.lastPriceDex = cached.lastPriceDex; changed = true }
         val cachedPool7215 = cached.lastPricePoolAddr.ifBlank { cached.pairAddress }
         if (ts.lastPricePoolAddr.isBlank() && cachedPool7215.isNotBlank() &&
@@ -14626,7 +14635,7 @@ class Executor(
                     "TOKEN_META_IDENTITY_HYDRATED_7215",
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} pool=${ts.lastPricePoolAddr.take(16)} " +
                         "dex=${ts.lastPriceDex} decimalsArchived=${cached.decimals} " +
-                        "note=identity_only_no_price_no_freshness_stamp",
+                        "note=route_identity_only_no_price_no_freshness_stamp",
                 )
             } else {
                 PipelineHealthCollector.labelInc("TOKEN_META_IDENTITY_HIT_NOTHING_NEW_7215")

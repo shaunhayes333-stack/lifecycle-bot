@@ -5130,66 +5130,13 @@ for legal compliance.
     }
 
     // ── trades ────────────────────────────────────────────────────────
-
-    // V5.9.389 — merge base meme + sub-trader holdings into one TokenState
-    // list so renderOpenPositions can paint every row in the SAME format.
-    // State.openPositions already holds tokens that were evicted AFTER
-    // V5.9.385 properly (those stay). For each sub-trader (ShitCoin /
-    // Quality / BlueChip / Moonshot / Treasury) we inspect its own
-    // paperPositions map and SYNTHESIZE a TokenState for any mint that
-    // isn't already represented — this rescues ghost positions that were
-    // evicted from status.tokens before V5.9.385 shipped but still live in
-    // the sub-trader's own position map. Live P&L populates whenever the
-    // sub-trader tracker has a recent price; otherwise falls back to
-    // entry price (0% line) rather than the misleading "—".
-    private fun buildUnifiedOpenPositions(state: UiState): List<TokenState> {
-        // V5.9.771 — EMERGENT-MEME #3 + #4: live ↔ paper UI contamination.
-        // Operator screenshot 2026-05-15 21:14 showed LIVE mode active
-        // with 40 open positions, the bulk of which were paper.
-        // `state.openPositions` is a UNION across modes; the readiness
-        // tile / risk bar / "X at risk" must reflect the CURRENT mode
-        // only. Filter the source list by `isPaperPosition` against
-        // `config.paperMode` BEFORE anything synthesises further rows.
-        // Paper trades retain a separate panel; this surface is the
-        // live-vs-paper executive view of REAL trading.
-        val isPaperMode = state.config.paperMode
-        fun liveOpenPanelTruth4570(mint: String): Boolean {
-            if (mint.isBlank()) return false
-            val ledgerClosed = try { com.lifecyclebot.engine.PositionCloseLedger.isClosed(mint) } catch (_: Throwable) { false }
-            if (ledgerClosed) return false
-            return try { com.lifecyclebot.engine.HostWalletTokenTracker.isCapCountable(mint) } catch (_: Throwable) { false }
-        }
-        // V5.0.4570 — REAL OPEN-POSITION PANEL TRUTH.
-        // Operator screenshot showed the panel displaying synthetic +3350% live
-        // rows while push/finality said a position sold down and journal truth did
-        // not contain that open row. The Open Positions panel is not allowed to be
-        // an old sub-trader active-map cache. In LIVE mode it must be host-wallet
-        // cap/open truth and not closed by PositionCloseLedger. Paper remains the
-        // simulator view.
-        // V5.0.7132 — canonical proof outranks the tracker's slot arithmetic.
-        //
-        // 4570 added liveOpenPanelTruth4570 as the live gate when the panel's
-        // only other source was a stale sub-trader active-map, and it was right
-        // to. But HostWalletTokenTracker.isCapCountable is a CAP predicate: its
-        // evidence is time-boxed on purpose (5-minute wallet-proof TTL,
-        // 3-minute fresh-buy liability, 45-minute bot-buy liability) because its
-        // job is to FREE A SLOT when it can no longer prove the holding. Saying
-        // "not countable" is how it declines to reserve a slot; it is not a
-        // statement that the position closed.
-        //
-        // Using it as a display veto means a canonically OPEN live position —
-        // one with a locked entry snapshot, a passing quantity invariant, and
-        // tokens actually in the wallet — leaves the panel the moment that
-        // window lapses, and returns on the next successful wallet read. That is
-        // the operator's "it drops them off the display", and the 6070 comment
-        // in HostWalletTokenTracker already names this exact coupling.
-        //
-        // So the order is now: an eligible canonical row is shown on its own
-        // proof. PositionCloseLedger keeps its veto — a close is a terminal,
-        // monotonic fact, not a time-boxed observation. The tracker keeps its
-        // veto over rows with NO canonical proof, which is the phantom case
-        // 4570 was written for and which the synthetic upsert() path below
-        // still runs through both gates.
+    // V5.0.7216 — these two live at CLASS level deliberately. 7213 declared
+    // them INSIDE buildUnifiedOpenPositions, where `private` is illegal on a
+    // local function and a forward reference to the second one cannot resolve.
+    // MainActivity.kt:4689 already carries the same scar from V5.9.225:
+    // "removed 'private' — local functions can't use access modifiers". Kept
+    // out here so the modifier is legal, declaration order does not matter, and
+    // buildUnifiedOpenPositions reads as one function again.
     /**
      * V5.0.7213 §THE_SAME_DEAD_BAG_RENDERED_SIX_TIMES.
      *
@@ -5269,6 +5216,67 @@ for legal compliance.
         val priorTs = try { prior.position.entryTime } catch (_: Throwable) { 0L }
         return candTs > priorTs
     }
+
+
+    // V5.9.389 — merge base meme + sub-trader holdings into one TokenState
+    // list so renderOpenPositions can paint every row in the SAME format.
+    // State.openPositions already holds tokens that were evicted AFTER
+    // V5.9.385 properly (those stay). For each sub-trader (ShitCoin /
+    // Quality / BlueChip / Moonshot / Treasury) we inspect its own
+    // paperPositions map and SYNTHESIZE a TokenState for any mint that
+    // isn't already represented — this rescues ghost positions that were
+    // evicted from status.tokens before V5.9.385 shipped but still live in
+    // the sub-trader's own position map. Live P&L populates whenever the
+    // sub-trader tracker has a recent price; otherwise falls back to
+    // entry price (0% line) rather than the misleading "—".
+    private fun buildUnifiedOpenPositions(state: UiState): List<TokenState> {
+        // V5.9.771 — EMERGENT-MEME #3 + #4: live ↔ paper UI contamination.
+        // Operator screenshot 2026-05-15 21:14 showed LIVE mode active
+        // with 40 open positions, the bulk of which were paper.
+        // `state.openPositions` is a UNION across modes; the readiness
+        // tile / risk bar / "X at risk" must reflect the CURRENT mode
+        // only. Filter the source list by `isPaperPosition` against
+        // `config.paperMode` BEFORE anything synthesises further rows.
+        // Paper trades retain a separate panel; this surface is the
+        // live-vs-paper executive view of REAL trading.
+        val isPaperMode = state.config.paperMode
+        fun liveOpenPanelTruth4570(mint: String): Boolean {
+            if (mint.isBlank()) return false
+            val ledgerClosed = try { com.lifecyclebot.engine.PositionCloseLedger.isClosed(mint) } catch (_: Throwable) { false }
+            if (ledgerClosed) return false
+            return try { com.lifecyclebot.engine.HostWalletTokenTracker.isCapCountable(mint) } catch (_: Throwable) { false }
+        }
+        // V5.0.4570 — REAL OPEN-POSITION PANEL TRUTH.
+        // Operator screenshot showed the panel displaying synthetic +3350% live
+        // rows while push/finality said a position sold down and journal truth did
+        // not contain that open row. The Open Positions panel is not allowed to be
+        // an old sub-trader active-map cache. In LIVE mode it must be host-wallet
+        // cap/open truth and not closed by PositionCloseLedger. Paper remains the
+        // simulator view.
+        // V5.0.7132 — canonical proof outranks the tracker's slot arithmetic.
+        //
+        // 4570 added liveOpenPanelTruth4570 as the live gate when the panel's
+        // only other source was a stale sub-trader active-map, and it was right
+        // to. But HostWalletTokenTracker.isCapCountable is a CAP predicate: its
+        // evidence is time-boxed on purpose (5-minute wallet-proof TTL,
+        // 3-minute fresh-buy liability, 45-minute bot-buy liability) because its
+        // job is to FREE A SLOT when it can no longer prove the holding. Saying
+        // "not countable" is how it declines to reserve a slot; it is not a
+        // statement that the position closed.
+        //
+        // Using it as a display veto means a canonically OPEN live position —
+        // one with a locked entry snapshot, a passing quantity invariant, and
+        // tokens actually in the wallet — leaves the panel the moment that
+        // window lapses, and returns on the next successful wallet read. That is
+        // the operator's "it drops them off the display", and the 6070 comment
+        // in HostWalletTokenTracker already names this exact coupling.
+        //
+        // So the order is now: an eligible canonical row is shown on its own
+        // proof. PositionCloseLedger keeps its veto — a close is a terminal,
+        // monotonic fact, not a time-boxed observation. The tracker keeps its
+        // veto over rows with NO canonical proof, which is the phantom case
+        // 4570 was written for and which the synthetic upsert() path below
+        // still runs through both gates.
 
         val merged = state.openPositions
             .filter { it.position.isPaperPosition == isPaperMode }

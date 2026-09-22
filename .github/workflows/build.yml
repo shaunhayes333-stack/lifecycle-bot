@@ -146,6 +146,19 @@ jobs:
       - name: Lane identity authority guard
         run: python3 ci/lane_identity_authority_scan.py
 
+      # V5.0.7216 — three consecutive red builds (7213, 7214, 7215) died on two
+      # error classes a compiler sees instantly and no source scan was looking
+      # for: a visibility modifier on a function pasted inside another
+      # function's body, and assignment to a val property. The second came from
+      # "verifying" mutability with a grep that matched the right FILE and the
+      # wrong CLASS. Both guards are proven against the exact commits that
+      # failed — they flag the same file:line the Kotlin compiler did.
+      - name: Local-function modifier guard
+        run: python3 ci/kotlin_local_function_modifiers.py
+
+      - name: Val reassignment guard
+        run: python3 ci/kotlin_val_assignment.py
+
       - name: Build Release APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
