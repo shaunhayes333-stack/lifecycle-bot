@@ -20,6 +20,8 @@ class Aate7246HeldSupervisorTest {
         val canonical = src("engine/truth/CanonicalPositionAuthority6441.kt")
         assertTrue(registry.contains("handoffOpenMintToHeld7246"))
         assertTrue(registry.contains("HELD_DISCOVERY_SLOT_RELEASED_7246"))
+        assertTrue(registry.contains("HELD_REGISTRY_READMISSION_BLOCKED_7246"))
+        assertTrue(registry.contains("HELD_POSITION_SUPERVISOR_7246"))
         assertTrue(canonical.contains("handoffOpenMintToHeld7246(position.mint, position.symbol)"))
     }
 
