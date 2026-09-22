@@ -547,8 +547,28 @@ object CyclicTradeEngine {
         if (isInPosition && currentMint.isNotBlank()) {
             val ts = tokens[currentMint]
             if (ts == null) {
-                // Token fell off watchlist — abort cycle
-                abandonCycle(context, "token_lost", solPrice)
+                // V5.0.7246 — scanner/watchlist eviction is NOT an ownership event.
+                // Canonical held inventory remains authoritative; the held-position
+                // refresh path will rehydrate a projection without Cyclic clearing
+                // its local economic state.
+                val stillHeld7246 = try {
+                    com.lifecyclebot.engine.HeldPositionSupervisor7246.isHeld(currentMint)
+                } catch (_: Throwable) { true }
+                if (stillHeld7246) {
+                    statusMessage = "⏸️ Cyclic holding $currentSymbol: projection refresh"
+                    priceState = "HELD_PROJECTION_REFRESH"
+                    try {
+                        PipelineHealthCollector.labelInc("CYCLIC_HELD_WATCHLIST_EVICTION_PRESERVED_7246")
+                        ForensicLogger.lifecycle(
+                            "CYCLIC_HELD_WATCHLIST_EVICTION_PRESERVED_7246",
+                            "mint=${currentMint.take(10)} symbol=$currentSymbol action=preserve_ring_wait_for_held_refresh",
+                        )
+                    } catch (_: Throwable) {}
+                    return
+                }
+                // Only a confirmed absence from canonical held inventory can release
+                // stale local Cyclic state.
+                abandonCycle(context, "canonical_position_closed", solPrice)
                 return
             }
             // V5.9.1359 — STALE-FEED & HARD-FLOOR PROTECTION (root cause of the
