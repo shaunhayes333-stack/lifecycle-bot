@@ -31,9 +31,17 @@ import java.util.concurrent.ConcurrentHashMap
  * target read 5.0 — forty to a hundred times below the stated mandate.
  * Doctrine-as-code that contradicts the doctrine is worse than no file.
  *
- *   Days at 2x daily (100%):  ~14.3  (2^14.3 ≈ 20,000)
- *   Days at 5x daily (400%):  ~6.2   (5^6.2 ≈ 20,000)
+ *   Days at 2x daily (200%):  ~14.3  (2^14.3 ≈ 20,000)
+ *   Days at 5x daily (500%):  ~6.2   (5^6.2 ≈ 20,000)
  *   Days at the OLD 5%:       ~204   (1.05^204 ≈ 20,000)
+ *
+ * V5.0.7223 — CONVENTION, STATED ONCE SO IT IS NEVER MISREAD AGAIN.
+ * Operator: "the growth targets are 2x or 200% - 5x 500% daily!!!"
+ * The *_PCT constants below are the TARGET WALLET MULTIPLE expressed as a
+ * percentage of the day-start wallet: 200% = 2x = wallet doubles, 500% = 5x.
+ * They are NOT "growth over start" (7221 wrongly wrote 100%/400% under that
+ * reading). To turn a constant into a multiple: PCT / 100.0. To turn it into
+ * growth-over-start: PCT / 100.0 - 1.0. Weekly = 2^7 = 128x = 12,800%.
  *
  * The lower bound of the mandate is what is encoded: 2x. It is a LOWER
  * BOUND — any lane strategy that would trade in a way that expects less than
@@ -79,12 +87,19 @@ object CapitalPreservationCreed6439 {
     /** Compounding growth targets (lower bounds — actual EV should exceed).
      *  V5.0.7221 — the operator's mandate is 2x to 5x per day. The lower
      *  bound is encoded. The prior 5.0 / 30.0 are kept as named history so a
-     *  reader of an older snapshot knows what it was measured against. */
-    const val DAILY_COMPOUNDING_TARGET_PCT: Double = 100.0
-    const val DAILY_COMPOUNDING_STRETCH_PCT_7221: Double = 400.0
-    const val WEEKLY_COMPOUNDING_TARGET_PCT: Double = 12_700.0   // 2^7 - 1, the daily floor compounded
+     *  reader of an older snapshot knows what it was measured against.
+     *  V5.0.7223 — unit is TARGET MULTIPLE AS PERCENT OF DAY-START WALLET
+     *  (200% = 2x, 500% = 5x). See the header for the convention. */
+    const val DAILY_COMPOUNDING_TARGET_PCT: Double = 200.0     // 2x
+    const val DAILY_COMPOUNDING_STRETCH_PCT_7221: Double = 500.0   // 5x
+    const val WEEKLY_COMPOUNDING_TARGET_PCT: Double = 12_800.0   // 2^7 = 128x, the daily floor compounded
     const val LEGACY_DAILY_TARGET_PCT_PRE_7221: Double = 5.0
     const val LEGACY_WEEKLY_TARGET_PCT_PRE_7221: Double = 30.0
+
+    /** V5.0.7223 — the same targets as plain multiples, so no consumer ever
+     *  has to remember the percentage convention. 2.0 = wallet doubles. */
+    const val DAILY_TARGET_MULTIPLE_7223: Double = DAILY_COMPOUNDING_TARGET_PCT / 100.0
+    const val DAILY_STRETCH_MULTIPLE_7223: Double = DAILY_COMPOUNDING_STRETCH_PCT_7221 / 100.0
 
     /** Hard drawdown ceilings (percentage of the period-start balance). */
     const val DAILY_MAX_DRAWDOWN_PCT: Double = 8.0
@@ -101,9 +116,12 @@ object CapitalPreservationCreed6439 {
      *  aligned with daily compounding target. Used by the reward shaper so
      *  break-even trades stop counting as "good behaviour". */
     fun isAlignedWithDailyTarget(realizedRoiMultiple: Double): Boolean =
-        realizedRoiMultiple >= 1.0 + (DAILY_COMPOUNDING_TARGET_PCT / 100.0) / 10.0
-    // ↑ divide by 10 because a trade is expected to contribute ~10% of the
-    //   daily target on its own (10 trades/day baseline).
+        realizedRoiMultiple >= 1.0 + (DAILY_TARGET_MULTIPLE_7223 - 1.0) / 10.0
+    // ↑ V5.0.7223 — daily growth-over-start is (multiple - 1), i.e. 2x → +100%;
+    //   divide by 10 because a trade is expected to contribute ~10% of the
+    //   daily target on its own (10 trades/day baseline) → ≥ 1.10 per trade.
+    //   Under the 7221 misencoding this read 1.10 by accident; now it reads
+    //   1.10 by construction. Zero callers — documented, not load-bearing.
 
     /** True if a trade counts as "losing behaviour" per the creed —
      *  i.e., any realized SOL delta ≤ 0. Break-even is NOT positive. */
@@ -111,8 +129,9 @@ object CapitalPreservationCreed6439 {
 
     /** Formats the creed for the pipeline health dump. */
     fun statusLine(): String =
-        "targetDaily=${DAILY_COMPOUNDING_TARGET_PCT}%(2x) stretch=${DAILY_COMPOUNDING_STRETCH_PCT_7221}%(5x) " +
-            "targetWeekly=${WEEKLY_COMPOUNDING_TARGET_PCT}% " +
+        "targetDaily=${DAILY_COMPOUNDING_TARGET_PCT}%(${DAILY_TARGET_MULTIPLE_7223}x) " +
+            "stretch=${DAILY_COMPOUNDING_STRETCH_PCT_7221}%(${DAILY_STRETCH_MULTIPLE_7223}x) " +
+            "targetWeekly=${WEEKLY_COMPOUNDING_TARGET_PCT}%(128x) unit=multipleOfDayStart " +
             "maxDD_D=${DAILY_MAX_DRAWDOWN_PCT}% maxDD_W=${WEEKLY_MAX_DRAWDOWN_PCT}% " +
             "maxLossStreak=$MAX_CONSECUTIVE_LOSSES minEV=${MIN_EV_PER_TRADE_MULTIPLE}x " +
             // V5.0.7221 — the honest part. These constants are read by this line

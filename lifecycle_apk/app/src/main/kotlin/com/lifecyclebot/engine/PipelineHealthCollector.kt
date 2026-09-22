@@ -2252,10 +2252,15 @@ object PipelineHealthCollector {
             // either way. This is the report line that says both facts.
             try {
                 val c7221 = com.lifecyclebot.engine.truth.CapitalPreservationCreed6439
-                sb.append("  Growth mandate (§7221):       ")
-                    .append("dailyFloor=").append("%.0f".format(c7221.DAILY_COMPOUNDING_TARGET_PCT)).append("%(2x)")
-                    .append(" dailyStretch=").append("%.0f".format(c7221.DAILY_COMPOUNDING_STRETCH_PCT_7221)).append("%(5x)")
-                    .append(" weekly=").append("%.0f".format(c7221.WEEKLY_COMPOUNDING_TARGET_PCT)).append("%")
+                // V5.0.7223 — unit is multiple-of-day-start as a percent: 200% = 2x,
+                // 500% = 5x. The "(Nx)" is derived from the constant, not typed.
+                sb.append("  Growth mandate (§7223):       ")
+                    .append("dailyFloor=").append("%.0f".format(c7221.DAILY_COMPOUNDING_TARGET_PCT)).append("%(")
+                    .append("%.0f".format(c7221.DAILY_TARGET_MULTIPLE_7223)).append("x)")
+                    .append(" dailyStretch=").append("%.0f".format(c7221.DAILY_COMPOUNDING_STRETCH_PCT_7221)).append("%(")
+                    .append("%.0f".format(c7221.DAILY_STRETCH_MULTIPLE_7223)).append("x)")
+                    .append(" weekly=").append("%.0f".format(c7221.WEEKLY_COMPOUNDING_TARGET_PCT)).append("%(128x)")
+                    .append(" unit=multipleOfDayStart")
                     .append(" | wasPre7221=").append("%.0f".format(c7221.LEGACY_DAILY_TARGET_PCT_PRE_7221)).append("%/")
                     .append("%.0f".format(c7221.LEGACY_WEEKLY_TARGET_PCT_PRE_7221)).append("%")
                     .append(" | wiredToSizing=false wiredToRewardShaping=false consumers=report_only")
