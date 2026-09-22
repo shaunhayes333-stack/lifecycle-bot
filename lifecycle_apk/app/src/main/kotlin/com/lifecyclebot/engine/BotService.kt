@@ -22203,8 +22203,33 @@ if (hotExitHandledSweep) {
                         try {
                             val refreshed6594 = when (effectiveMarkClass6592) {
                                 com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN -> {
-                                    tryFallbackPriceData(cp.mint, ts)
-                                    ts.lastPrice > 0.0
+                                    // V5.0.7225 — success is "a provider advanced
+                                    // the mark", which is what the function
+                                    // returns. The old `ts.lastPrice > 0.0` called
+                                    // a positive STALE mark a success, stamped
+                                    // lastSuccess, and re-armed the 30s TTL against
+                                    // a refresh that had not happened. See the
+                                    // note above tryFallbackPriceData for the
+                                    // 7219 arithmetic. The secondary-provider
+                                    // gate is the top-up threshold, not 120s, so
+                                    // the 7204 trigger actually reaches a door.
+                                    val advanced7225 = tryFallbackPriceData(
+                                        cp.mint, ts,
+                                        secondaryStaleAfterMs7225 = MarkRefreshDedupTtl6594.TTL_SUCCESS_MS,
+                                    )
+                                    try {
+                                        if (advanced7225) {
+                                            PipelineHealthCollector.labelInc("EXIT_MARK_REFRESH_ADVANCED_7225")
+                                        } else if (ts.lastPrice > 0.0) {
+                                            // Exactly the case the old line
+                                            // miscounted as success. This should
+                                            // fall toward zero as the doors open.
+                                            PipelineHealthCollector.labelInc("EXIT_MARK_REFRESH_FALSE_SUCCESS_AVOIDED_7225")
+                                        } else {
+                                            PipelineHealthCollector.labelInc("EXIT_MARK_REFRESH_NO_PROVIDER_7225")
+                                        }
+                                    } catch (_: Throwable) {}
+                                    advanced7225
                                 }
                                 com.lifecyclebot.engine.truth.AssetClass.UNKNOWN -> {
                                     // V5.0.6592 — refuse to guess a provider for
@@ -31873,7 +31898,41 @@ if (hotExitHandledSweep) {
         )
     }
 
-    private fun tryFallbackPriceData(mint: String, ts: TokenState): Boolean {
+    // V5.0.7225 §THE_TOP_UP_REACHED_A_DEAD_PROVIDER_AND_THREE_LOCKED_DOORS.
+    //
+    // Operator 5.0.7219 (paper): RISK_CLOCK_BLOCKED_7001_MARK_STALE=7135 of
+    // posEvals=10125 — seventy percent of every protective-exit evaluation
+    // fell into the heartbeat-only branch — against MARK_REFRESH_TTL_SKIPPED_6594
+    // =14044. 7204 moved the refresh TRIGGER to 30s and its own comment says
+    // why: "a mark is never topped up while it is still good". It did not
+    // look inside the function the trigger launches.
+    //
+    // Inside, the cascade is: Birdeye overview, then DexScreener token-address,
+    // then BirdeyeOracle, then pump.fun — and the last three are each gated on
+    // `age > 120_000L`. The Birdeye key on this device is 401-dead
+    // (`birdeye sr=0% http=401`, every snapshot since 6947). So a top-up fired
+    // at 30s asked one dead provider and walked past three locked doors,
+    // advanced nothing, and returned false. The exit-feed caller then judged
+    // success by `ts.lastPrice > 0.0` — a positive STALE mark — stamped
+    // exitMarkRefreshLastSuccessMs6594, and re-armed the 30s TTL. Each
+    // position therefore cycles: usable 0-60s, MARK_STALE 60-120s, and only
+    // at 120s does a door open. That is >= 50% stale by construction, and
+    // 70% once TTL phase and round trips are added. 7204 half-fixed it: same
+    // defect shape (a remedy behind a threshold reachable only after the
+    // harm), one screen further down.
+    //
+    // `secondaryStaleAfterMs7225` replaces the three literal 120_000L gates.
+    // It DEFAULTS to 120_000L so requestEntryHydration6647 — the only other
+    // caller — is byte-for-byte unchanged. The exit-feed caller passes
+    // MarkRefreshDedupTtl6594.TTL_SUCCESS_MS, the same 30s the trigger and
+    // the storm guard already share, so the doors open exactly when the
+    // top-up knocks. Traffic stays bounded by that TTL: <=1 refresh attempt
+    // per mint per 30s on success, 5s backoff on failure, as 6594 designed.
+    private fun tryFallbackPriceData(
+        mint: String,
+        ts: TokenState,
+        secondaryStaleAfterMs7225: Long = 120_000L,
+    ): Boolean {
         // Try Birdeye first
         try {
             val cfg2 = ConfigStore.load(applicationContext)
@@ -31907,7 +31966,7 @@ if (hotExitHandledSweep) {
         // different endpoint, different cache). When the pair-based call fails
         // this token-address call often still returns — DexScreener caches
         // token-level and pair-level data independently.
-        if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
+        if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > secondaryStaleAfterMs7225) {
             try {
                 val priceUsd = kotlinx.coroutines.runBlocking {
                     kotlinx.coroutines.withTimeoutOrNull(2000L) {
@@ -31930,7 +31989,7 @@ if (hotExitHandledSweep) {
         // V5.9.423 — BirdeyeOracle token-address API (different from BirdeyeApi
         // used above, which is overview-focused; this one is price-focused and
         // hits a separate rate-limit bucket).
-        if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
+        if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > secondaryStaleAfterMs7225) {
             try {
                 val priceUsd = kotlinx.coroutines.runBlocking {
                     kotlinx.coroutines.withTimeoutOrNull(2000L) {
@@ -31968,7 +32027,7 @@ if (hotExitHandledSweep) {
             try { PipelineHealthCollector.labelInc("PUMPFUN_PRICE_SKIPPED_NOT_PUMPFUN_MINT_7100") } catch (_: Throwable) {}
         }
         if (pumpFunMint7100 &&
-            (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L)) {
+            (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > secondaryStaleAfterMs7225)) {
             try {
                 val client = com.lifecyclebot.network.SharedHttpClient.builder()
                     .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)

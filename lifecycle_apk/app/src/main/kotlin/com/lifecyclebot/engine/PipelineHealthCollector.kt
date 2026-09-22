@@ -2553,6 +2553,38 @@ object PipelineHealthCollector {
                     sb.append("         its starvations, and check admission (§6636 basis invariant).\n")
                 }
             } catch (_: Throwable) {}
+            // V5.0.7225 — the mark-freshness chain on one line, so the next
+            // snapshot can say whether the 30s top-up now reaches a provider.
+            // On 7219: riskClockStale=7135 of posEvals=10125 against
+            // ttlSkipped=14044. Proof of the fix is advanced rising while
+            // falseSuccessAvoided and riskClockStale fall toward zero.
+            try {
+                val stale7225 = labelValue7214("RISK_CLOCK_BLOCKED_7001_MARK_STALE")
+                val noMark7225 = labelValue7214("RISK_CLOCK_BLOCKED_7001_NO_MARK")
+                val advanced7225 = labelValue7214("EXIT_MARK_REFRESH_ADVANCED_7225")
+                val falseOk7225 = labelValue7214("EXIT_MARK_REFRESH_FALSE_SUCCESS_AVOIDED_7225")
+                val noProv7225 = labelValue7214("EXIT_MARK_REFRESH_NO_PROVIDER_7225")
+                val byProvider7225 = labelsWithPrefix7156("EXIT_FALLBACK_MARK_STAMPED_7175_")
+                    .entries.sortedByDescending { it.value }
+                    .joinToString(",") { it.key.removePrefix("EXIT_FALLBACK_MARK_STAMPED_7175_") + "=" + it.value }
+                sb.append("  Mark freshness (§7225):       ")
+                    .append("riskClockStale=").append(stale7225)
+                    .append(" riskClockNoMark=").append(noMark7225)
+                    .append(" topUpPreExpiry=").append(labelValue7214("MARK_TOPUP_PRE_EXPIRY_7204"))
+                    .append(" ttlSkipped=").append(labelValue7214("MARK_REFRESH_TTL_SKIPPED_6594"))
+                    .append(" queued=").append(labelValue7214("CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513"))
+                    .append(" | advanced=").append(advanced7225)
+                    .append(" falseSuccessAvoided=").append(falseOk7225)
+                    .append(" noProvider=").append(noProv7225)
+                    .append(" byProvider=[").append(byProvider7225.ifBlank { "none" }).append("]")
+                    .append("\n")
+                if (falseOk7225 > advanced7225 && falseOk7225 >= 20L) {
+                    labelInc("EXIT_MARK_REFRESH_DOORS_STILL_CLOSED_7225")
+                    sb.append("     ⚠️  most top-ups still advance nothing: every provider in the\n")
+                    sb.append("         fallback cascade is refusing. Read the API health table for\n")
+                    sb.append("         birdeye/dexscreener/pumpfun before reading anything else here.\n")
+                }
+            } catch (_: Throwable) {}
             sb.append("  Post-learn offloader (§6450): ").append(
                 com.lifecyclebot.engine.truth.PostLearningOffloader6450.statusLine()
             ).append("\n")
