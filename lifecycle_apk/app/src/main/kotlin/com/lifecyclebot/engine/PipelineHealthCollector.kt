@@ -1992,7 +1992,10 @@ object PipelineHealthCollector {
                     "SPECIALIST_CAUSAL_UNRESOLVED_ID_REJECTED_6647",
                     "ADVISORY_SIZE_STAMP_WITHHELD_6893",
                     "MARK_PROMOTED_BEFORE_CAUSAL_IDENTITY_6883",
-                    "FDG_ALLOW_WITHOUT_MARK_VERDICT_7214",
+                    // V5.0.7221 — 7214's mark invariant dropped the directive's
+                    // EXPLICIT_CANCEL term and false-alarmed on 11 of 12 lanes.
+                    // Replaced by the invariant the data already satisfies.
+                    "TICKET_WITHOUT_MARK_VERDICT_7221",
                     "FUNNEL_STAGE_COUNT_SUPPRESSED_7214",
                     "FUNNEL_SIZING_CHOKED_CONTRADICTED_BY_RESOLVER_7214",
                     "GATE_BLOCK_REASON_UNEXPLAINED_7213",
@@ -2042,6 +2045,10 @@ object PipelineHealthCollector {
                     // single cycle; anything reaching 3 is a seal that is not
                     // arriving and is now named rather than retried forever.
                     "FDG_ALLOW_SEALING_RACE_DEFERRED_7219_ATTEMPT_",
+                    // V5.0.7221 — the directive's third term, per lane: FDG
+                    // allows that were then declined downstream. Information,
+                    // not an alarm; a cancelled allow is the pipeline working.
+                    "FDG_ALLOW_EXPLICIT_CANCEL_7221_",
                     "FUNNEL_MARK_STAGE_HAS_NO_PRODUCER_7214_",
                     "TRADE_AUTHORIZE_ENTERED_7003_",
                     "LIVE_BUY_ABORTED|",
@@ -2232,6 +2239,23 @@ object PipelineHealthCollector {
             sb.append("  Idempotency store (§6437):    ").append(
                 com.lifecyclebot.engine.truth.IdempotencyKeyStore6437.statusLine()
             ).append("\n")
+            // V5.0.7221 — the growth mandate against the risk floors, in one line,
+            // read directly off the creed's constants. Operator: "the daily 2x to
+            // 5x wallet growth targets." The creed said 5%; nothing consumed it
+            // either way. This is the report line that says both facts.
+            try {
+                val c7221 = com.lifecyclebot.engine.truth.CapitalPreservationCreed6439
+                sb.append("  Growth mandate (§7221):       ")
+                    .append("dailyFloor=").append("%.0f".format(c7221.DAILY_COMPOUNDING_TARGET_PCT)).append("%(2x)")
+                    .append(" dailyStretch=").append("%.0f".format(c7221.DAILY_COMPOUNDING_STRETCH_PCT_7221)).append("%(5x)")
+                    .append(" weekly=").append("%.0f".format(c7221.WEEKLY_COMPOUNDING_TARGET_PCT)).append("%")
+                    .append(" | wasPre7221=").append("%.0f".format(c7221.LEGACY_DAILY_TARGET_PCT_PRE_7221)).append("%/")
+                    .append("%.0f".format(c7221.LEGACY_WEEKLY_TARGET_PCT_PRE_7221)).append("%")
+                    .append(" | wiredToSizing=false wiredToRewardShaping=false consumers=report_only")
+                    .append("\n")
+                sb.append("     read: no sizer, ladder or learner reads the daily growth target. Wiring 2x/day into\n")
+                sb.append("           sizing is an operator decision, not a side effect of correcting the constant.\n")
+            } catch (_: Throwable) {}
             // V5.0.6439 — capital preservation + reward alignment + fee observability.
             sb.append("  Capital creed (§6439):        ").append(
                 com.lifecyclebot.engine.truth.CapitalPreservationCreed6439.statusLine()

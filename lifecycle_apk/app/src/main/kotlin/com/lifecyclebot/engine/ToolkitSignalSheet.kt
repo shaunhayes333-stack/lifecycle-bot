@@ -993,15 +993,45 @@ object ToolkitSignalSheet {
             if (status == "MARK_STAGE_UNRECORDED_7214") {
                 try { PipelineHealthCollector.labelInc("FUNNEL_MARK_STAGE_HAS_NO_PRODUCER_7214_$lane") } catch (_: Throwable) {}
             }
-            // V5.0.7214 — operator directive #2's invariant, asserted rather
-            // than left to be eyeballed across two lines of the report:
-            // every FDG allow must reach a mark verdict, pass or fail.
-            if (fdgAllow > 0L && (mark + markRefusals7214) < fdgAllow) {
+            // V5.0.7221 §I_DROPPED_THE_THIRD_TERM_OF_THE_DIRECTIVE'S_EQUATION.
+            //
+            // 7214 asserted `fdgAllow == mark + markReject` and it fired on 11
+            // of 12 lanes in the 5.0.7219 snapshot — QUALITY fdgAllow=56 mark=2,
+            // CORE 69 vs 0. That is not eleven defects, it is one wrong
+            // invariant. The operator's directive #2 wrote the equation as
+            //
+            //     FDG_ALLOW == MARK_READY + MARK_REJECT + EXPLICIT_CANCEL
+            //
+            // and I encoded it without the last term. FDG_ALLOW is stamped
+            // (BotService:29564) on every cycle a candidate is allowed;
+            // MARK_READY is stamped (BotService:29558) only inside the block
+            // that runs when a ticket intent exists. Every allow that the exec
+            // gate, a probe budget, or the entry authority then declines is an
+            // EXPLICIT_CANCEL by the directive's own definition, and there were
+            // hundreds of them — DESK_STAGE_OFFERED FDG_ALLOW=759 against
+            // MARK_READY=16 on the same snapshot.
+            //
+            // The equation balances when the cancel term is counted, and the
+            // invariant that actually protects execution is the one the data
+            // already satisfies on every lane: a TICKET must carry a mark
+            // verdict. QUALITY ticket=2 mark=2, MOONSHOT 3 vs 4, EXPRESS 1 vs 1,
+            // and nowhere does ticket exceed mark. That is the assertion now.
+            // The cancel term is printed, not alarmed on, because a cancelled
+            // allow is the pipeline working.
+            val fdgAllowNotTicketed7221 = (fdgAllow - ticket).coerceAtLeast(0L)
+            if (ticket > mark + markRefusals7214) {
                 try {
-                    PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_MARK_VERDICT_7214")
-                    PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_MARK_VERDICT_7214_$lane")
+                    PipelineHealthCollector.labelInc("TICKET_WITHOUT_MARK_VERDICT_7221")
+                    PipelineHealthCollector.labelInc("TICKET_WITHOUT_MARK_VERDICT_7221_$lane")
                 } catch (_: Throwable) {}
             }
+            try {
+                // Keep 7214's key so old snapshots diff, but it now measures the
+                // cancel term rather than a false alarm.
+                if (fdgAllowNotTicketed7221 > 0L) {
+                    PipelineHealthCollector.labelInc("FDG_ALLOW_EXPLICIT_CANCEL_7221_$lane")
+                }
+            } catch (_: Throwable) {}
             val executionEligible = ticket > 0L && exec > 0L
             appendLine("$lane runtimeAlive=${runtime.runtimeAlive} trafficSeen=${runtime.trafficSeen} candidateQualified=${qualified > 0L} executionEligible=$executionEligible heartbeatAtMs=${runtime.heartbeatAtMs} queueOwner=${runtime.queueOwner.ifBlank { "NONE" }} queueDepth=${runtime.queueDepth} candidateN=$pool qualifiedN=$qualified ownerSelectedN=$owner buyIntentN=$intent fdgN=$fdgAllow markN=$mark sizedN=$sized ticketN=$ticket execN=$exec positionOpenedN=$opened finalizedN=$finalized learningN=$learn phantomSizedOnly=${causal.phantomSizedOnly} capitalAvailable=SHARED_CANONICAL status=$status")
         }

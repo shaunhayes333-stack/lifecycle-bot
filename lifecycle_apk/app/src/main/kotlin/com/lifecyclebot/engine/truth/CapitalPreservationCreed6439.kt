@@ -21,14 +21,35 @@ import java.util.concurrent.ConcurrentHashMap
  * $50 → $1,000,000 mindset math
  * ──────────────────────────────
  *   Ratio needed:      20,000x
- *   Days at 5% daily:  ~204 (1.05^204 ≈ 20,000)
- *   Days at 10% daily: ~104
- *   Weeks at 30%:      ~38 (1.30^38 ≈ 20,000)
  *
- * So the daily compounding target is set to 5% (aggressive but survivable)
- * and the weekly compounding target to 30%. Both targets are LOWER
- * BOUNDS — any lane strategy that would trade in a way that expects less
- * than these returns per unit-of-risk is misaligned with the mission.
+ * V5.0.7221 — THE TARGET WAS 5% AND THE MANDATE IS 2x TO 5x.
+ *
+ * Operator, 5.0.7220: "remember the $50 to $1,000,000 mentality and the
+ * daily 2x to 5x wallet growth targets." This file declared itself the
+ * "SINGLE SOURCE OF TRUTH for the growth-vs-protection constants that every
+ * trader, learner and meta-cognition module must read", and its daily
+ * target read 5.0 — forty to a hundred times below the stated mandate.
+ * Doctrine-as-code that contradicts the doctrine is worse than no file.
+ *
+ *   Days at 2x daily (100%):  ~14.3  (2^14.3 ≈ 20,000)
+ *   Days at 5x daily (400%):  ~6.2   (5^6.2 ≈ 20,000)
+ *   Days at the OLD 5%:       ~204   (1.05^204 ≈ 20,000)
+ *
+ * The lower bound of the mandate is what is encoded: 2x. It is a LOWER
+ * BOUND — any lane strategy that would trade in a way that expects less than
+ * this per day is misaligned with the mission.
+ *
+ * WHAT THIS CHANGES AT RUNTIME: NOTHING, AND THAT IS ITS OWN FINDING.
+ * Before editing a constant in a live-money bot I grepped every consumer.
+ * DAILY_COMPOUNDING_TARGET_PCT is read by statusLine() and by
+ * isAlignedWithDailyTarget(), and isAlignedWithDailyTarget() has ZERO
+ * CALLERS in the module. No sizer, no compounding ladder, no learner reads
+ * the daily growth target. The "single source of truth" is consumed by a
+ * report line. So correcting it cannot ripple anywhere — and the growth
+ * mandate has never actually been wired into anything that sizes a trade.
+ * That gap is stated on the report now rather than papered over here; wiring
+ * a 2x/day target into sizing is a decision for the operator, not a side
+ * effect of fixing a comment.
  *
  * Capital protection floors
  * ─────────────────────────
@@ -55,9 +76,15 @@ object CapitalPreservationCreed6439 {
 
     fun finalizedVerdict6486(positionId: String): Boolean? = finalizedLosingByPosition6486[positionId]
 
-    /** Compounding growth targets (lower bounds — actual EV should exceed). */
-    const val DAILY_COMPOUNDING_TARGET_PCT: Double = 5.0
-    const val WEEKLY_COMPOUNDING_TARGET_PCT: Double = 30.0
+    /** Compounding growth targets (lower bounds — actual EV should exceed).
+     *  V5.0.7221 — the operator's mandate is 2x to 5x per day. The lower
+     *  bound is encoded. The prior 5.0 / 30.0 are kept as named history so a
+     *  reader of an older snapshot knows what it was measured against. */
+    const val DAILY_COMPOUNDING_TARGET_PCT: Double = 100.0
+    const val DAILY_COMPOUNDING_STRETCH_PCT_7221: Double = 400.0
+    const val WEEKLY_COMPOUNDING_TARGET_PCT: Double = 12_700.0   // 2^7 - 1, the daily floor compounded
+    const val LEGACY_DAILY_TARGET_PCT_PRE_7221: Double = 5.0
+    const val LEGACY_WEEKLY_TARGET_PCT_PRE_7221: Double = 30.0
 
     /** Hard drawdown ceilings (percentage of the period-start balance). */
     const val DAILY_MAX_DRAWDOWN_PCT: Double = 8.0
@@ -84,7 +111,14 @@ object CapitalPreservationCreed6439 {
 
     /** Formats the creed for the pipeline health dump. */
     fun statusLine(): String =
-        "targetDaily=${DAILY_COMPOUNDING_TARGET_PCT}% targetWeekly=${WEEKLY_COMPOUNDING_TARGET_PCT}% " +
+        "targetDaily=${DAILY_COMPOUNDING_TARGET_PCT}%(2x) stretch=${DAILY_COMPOUNDING_STRETCH_PCT_7221}%(5x) " +
+            "targetWeekly=${WEEKLY_COMPOUNDING_TARGET_PCT}% " +
             "maxDD_D=${DAILY_MAX_DRAWDOWN_PCT}% maxDD_W=${WEEKLY_MAX_DRAWDOWN_PCT}% " +
-            "maxLossStreak=$MAX_CONSECUTIVE_LOSSES minEV=${MIN_EV_PER_TRADE_MULTIPLE}x"
+            "maxLossStreak=$MAX_CONSECUTIVE_LOSSES minEV=${MIN_EV_PER_TRADE_MULTIPLE}x " +
+            // V5.0.7221 — the honest part. These constants are read by this line
+            // and by isAlignedWithDailyTarget(), which nothing calls. The growth
+            // target is not wired into any sizer, ladder or learner. Said here
+            // so nobody reads a big number and assumes the bot is chasing it.
+            "| consumers=statusLine_only growthTargetWiredToSizing=false " +
+            "legacyPre7221=${LEGACY_DAILY_TARGET_PCT_PRE_7221}%/${LEGACY_WEEKLY_TARGET_PCT_PRE_7221}%"
 }
