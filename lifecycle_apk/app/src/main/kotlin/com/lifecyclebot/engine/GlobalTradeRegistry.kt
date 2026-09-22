@@ -360,6 +360,16 @@ object GlobalTradeRegistry {
             return AddResult(false, "INVALID_MINT")
         }
 
+        // V5.0.7246 — registry-level ownership barrier. Scanner callbacks normally
+        // pass BotService's held bypass first, but this protects every direct
+        // registry caller too. An already-owned mint belongs to HELD, not discovery.
+        if (try { HeldPositionSupervisor7246.isHeld(mint) } catch (_: Throwable) { false }) {
+            try {
+                PipelineHealthCollector.labelInc("HELD_REGISTRY_READMISSION_BLOCKED_7246")
+            } catch (_: Throwable) {}
+            return AddResult(false, "HELD_POSITION_SUPERVISOR_7246", probation = false)
+        }
+
         val now = System.currentTimeMillis()
 
         if (ScannerHardRejectStore.isRejected(mint)) {
