@@ -74,7 +74,10 @@ object RoutableMinRiskGuard7236 {
      * @param mint                   asset mint (short-hashed for logs)
      * @param symbol                 human-readable symbol for logs
      * @param lane                   canonical routed lane
-     * @param score                  entry score at sizing time
+     * @param score                  entry score at sizing time (Double
+     *                               to accept the sizing path's native
+     *                               score type; compared as a numeric
+     *                               threshold, not indexed)
      * @param regimeSizeMult         regime-derived size multiplier
      *                               (1.0 == neutral; <1.0 == regime-shrink)
      * @param livePendingProofPenalty true when the live oracle penalty
@@ -87,25 +90,25 @@ object RoutableMinRiskGuard7236 {
         mint: String,
         symbol: String,
         lane: String,
-        score: Int,
+        score: Double,
         regimeSizeMult: Double,
         livePendingProofPenalty: Boolean,
         riskSizedSol: Double,
         routableMinSol: Double,
     ): Decision {
-        val weakScore = score < WEAK_SCORE_CEILING
+        val weakScore = score < WEAK_SCORE_CEILING.toDouble()
         val weakRegime = regimeSizeMult.isFinite() && regimeSizeMult > 0.0 && regimeSizeMult < WEAK_REGIME_CEILING
         val pendingProof = livePendingProofPenalty
 
         if (!weakScore && !weakRegime && !pendingProof) {
             allowed.incrementAndGet()
             try { PipelineHealthCollector.labelInc("ROUTABLE_MIN_LIFT_ALLOWED_STRONG_7236") } catch (_: Throwable) {}
-            return Decision(Verdict.ALLOW_LIFT, "STRONG_CANDIDATE score=$score regime=${"%.2f".format(regimeSizeMult)}")
+            return Decision(Verdict.ALLOW_LIFT, "STRONG_CANDIDATE score=${"%.2f".format(score)} regime=${"%.2f".format(regimeSizeMult)}")
         }
 
         // Refuse the lift and let the DUST_REFUSED path emit the terminal.
         val reasons = buildList {
-            if (weakScore) add("SCORE=${score}<${WEAK_SCORE_CEILING}")
+            if (weakScore) add("SCORE=${"%.2f".format(score)}<${WEAK_SCORE_CEILING}")
             if (weakRegime) add("REGIME=${"%.2f".format(regimeSizeMult)}<${"%.2f".format(WEAK_REGIME_CEILING)}")
             if (pendingProof) add("PENDING_PROOF_PENALTY")
         }
@@ -129,7 +132,7 @@ object RoutableMinRiskGuard7236 {
                 ForensicLogger.lifecycle(
                     "ROUTABLE_MIN_LIFT_REFUSED_WEAK_7236",
                     "mint=${mint.take(10)} symbol=$symbol lane=$lane " +
-                        "score=$score regime=${"%.2f".format(regimeSizeMult)} " +
+                        "score=${"%.2f".format(score)} regime=${"%.2f".format(regimeSizeMult)} " +
                         "pendingProof=$pendingProof riskSized=${"%.5f".format(riskSizedSol)} " +
                         "routableMin=${"%.5f".format(routableMinSol)} " +
                         "reasons=${reasons.joinToString(",")} " +
