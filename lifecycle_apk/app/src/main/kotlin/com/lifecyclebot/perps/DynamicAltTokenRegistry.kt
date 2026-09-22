@@ -758,6 +758,11 @@ object DynamicAltTokenRegistry {
      *  established ranking. */
     fun getBlendedOpportunityQueue6544(): List<DynToken> = registry.values.sortedWith(
         compareByDescending<DynToken> { it.isFresh6544 }
+            // V5.0.7244 — preserve fresh-first discovery, but within each
+            // cohort spend scan slots on already-priced/routable evidence first.
+            // Unpriced discovery remains in the queue and is hydrated later.
+            .thenByDescending { it.price.isFinite() && it.price > 0.0 }
+            .thenByDescending { it.liquidityUsd.isFinite() && it.liquidityUsd > 0.0 }
             .thenByDescending { it.opportunityScore6544 }
             .thenByDescending { it.volume24h }
             .thenByDescending { it.lastUpdatedMs }
@@ -767,12 +772,18 @@ object DynamicAltTokenRegistry {
 
     fun markEvaluation6544(tok: DynToken) {
         if (tok.isStatic) staticEvaluated6544.incrementAndGet() else dynamicEvaluated6544.incrementAndGet()
+    }
+
+    /**
+     * V5.0.7244 — truthful CryptoBrain reach. The old markEvaluation6544()
+     * incremented "fresh reaching CryptoBrain" before CryptoBrain had actually
+     * been consulted. Only the dedicated crypto scoring path may call this.
+     */
+    fun markCryptoBrainReach7244(tok: DynToken?) {
+        if (tok == null) return
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_BRAIN_EVAL_7244") } catch (_: Throwable) {}
         if (tok.isFresh6544) {
             freshReachedBrain6544.incrementAndGet()
-            // V5.0.6547 §P1-3 — publish CRYPTO_FRESH_BRAIN as a pipeline
-            // counter so the health dump can trace fresh discovery from
-            // scanner → CryptoBrain without diving into the registry's
-            // internal AtomicLong.
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_FRESH_BRAIN_6547") } catch (_: Throwable) {}
         }
     }

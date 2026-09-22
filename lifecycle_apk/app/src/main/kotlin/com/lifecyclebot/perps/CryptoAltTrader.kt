@@ -798,6 +798,73 @@ object CryptoAltTrader {
     // The sub-AIs record every evaluation for FluidLearningAI cross-layer learning.
     // ═══════════════════════════════════════════════════════════════════════════
 
+    // V5.0.7244 — Dynamic Crypto Universe is owned by the isolated crypto brain.
+    private data class DynamicCryptoDecision7244(
+        val score: Int,
+        val confidence: Int,
+        val tier: String,
+        val actionableLong: Boolean,
+        val shadowOnlyLive: Boolean,
+        val reason: String,
+    )
+
+    private fun dynamicCryptoTier7244(mcapUsd: Double): String = when {
+        mcapUsd >= 5_000_000_000.0 -> "TIER1"
+        mcapUsd >= 100_000_000.0 -> "TIER2"
+        else -> "TIER3"
+    }
+
+    private fun scoreDynamicCrypto7244(
+        tok: DynamicAltTokenRegistry.DynToken,
+        marketCapUsd: Double,
+        liquidityUsd: Double,
+        volume24hUsd: Double,
+        change24hPct: Double,
+        buyPressurePct: Double,
+    ): DynamicCryptoDecision7244 {
+        DynamicAltTokenRegistry.markCryptoBrainReach7244(tok)
+        val tier = dynamicCryptoTier7244(marketCapUsd)
+        val brainScoreAdj = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.scoreAdjustment() } catch (_: Throwable) { 0 }
+        val brainConfAdj = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.confidenceModifier() } catch (_: Throwable) { 0 }
+
+        val momentum = (change24hPct.coerceIn(-20.0, 20.0) * 0.70).toInt()
+        val flow = ((buyPressurePct - 50.0).coerceIn(-25.0, 25.0) * 0.32).toInt()
+        val liquidity = when {
+            liquidityUsd >= 5_000_000.0 -> 10
+            liquidityUsd >= 1_000_000.0 -> 8
+            liquidityUsd >= 250_000.0 -> 6
+            liquidityUsd >= 50_000.0 -> 3
+            liquidityUsd > 0.0 -> 0
+            else -> -8
+        }
+        val activity = when {
+            volume24hUsd >= 10_000_000.0 -> 8
+            volume24hUsd >= 1_000_000.0 -> 6
+            volume24hUsd >= 250_000.0 -> 3
+            volume24hUsd > 0.0 -> 1
+            else -> -5
+        }
+        val discovery = (if (tok.isTrending) 6 else 0) + (if (tok.isBoosted) 3 else 0)
+        val score = (48 + momentum + flow + liquidity + activity + discovery + brainScoreAdj).coerceIn(0, 100)
+        val confidence = (42 +
+            kotlin.math.abs(change24hPct).coerceIn(0.0, 15.0).toInt() +
+            kotlin.math.abs(buyPressurePct - 50.0).coerceIn(0.0, 20.0).toInt() / 2 +
+            (if (liquidityUsd > 0.0) 6 else 0) + brainConfAdj
+        ).coerceIn(0, 100)
+
+        val scoreFloor = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotScoreFloor() } catch (_: Throwable) { 50 }
+        val confFloor = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotConfFloor() } catch (_: Throwable) { 40 }
+        val longEvidence = change24hPct >= 0.50 || buyPressurePct >= 56.0 ||
+            (tok.isTrending && change24hPct > -1.0) || (tok.isBoosted && buyPressurePct >= 52.0)
+        val shadowOnlyLive = try {
+            !isPaperMode.get() && com.lifecyclebot.perps.crypto.brain.CryptoBrain.shouldShadowOnly(tier, score)
+        } catch (_: Throwable) { false }
+        val actionableLong = longEvidence && score >= scoreFloor && confidence >= confFloor && !shadowOnlyLive
+        val reason = "CRYPTO_BRAIN_NATIVE_7244 tier=" + tier + " score=" + score + "/" + confidence +
+            " floor=" + scoreFloor + "/" + confFloor + " chg=" + change24hPct +
+            " bp=" + buyPressurePct + " liq=" + liquidityUsd.toLong() + " vol=" + volume24hUsd.toLong()
+        return DynamicCryptoDecision7244(score, confidence, tier, actionableLong, shadowOnlyLive, reason)
+    }
     private suspend fun runDynamicTokenScan() = withContext(Dispatchers.Default) {
         com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "SCAN_TICK")
         runtimeDisabledReason()?.let { reason ->
@@ -820,7 +887,8 @@ object CryptoAltTrader {
         ErrorLogger.debug(TAG, "🪙⚡ DynScan batch ${batchIdx + 1}/$totalBatches | size=${batch.size} | universe=${allTokens.size}")
 
         var scanned = 0
-        var signals = 0
+        var signals = 0  // legacy meme-specialist signals (diagnostic only)
+        var cryptoBrainSignals7244 = 0
         val dynExecutableSignals = mutableListOf<AltSignal>()
 
         for (tok in batch) {
@@ -830,7 +898,7 @@ object CryptoAltTrader {
                 return@withContext
             }
             try {
-                if (SOL_PERPS_SYMBOLS.contains(tok.symbol)) {
+                if (SOL_PERPS_SYMBOLS.contains(tok.symbol.uppercase())) {
                     if (!DynamicAltTokenRegistry.markEvaluationStarted6567(tok)) continue
                     DynamicAltTokenRegistry.markEvaluationDisposition6567(tok, "OWNED_BY_SOL_PERPS")
                     continue
@@ -894,6 +962,28 @@ object CryptoAltTrader {
                     CrossMarketRegimeAI.updateMarketState(tok.mint, price, change, vol)
                 } catch (_: Exception) {}
 
+                // V5.0.7244 — dedicated CryptoBrain-owned dynamic candidate.
+                val cryptoDecision7244 = scoreDynamicCrypto7244(
+                    tok = refreshed, marketCapUsd = mcap, liquidityUsd = liq,
+                    volume24hUsd = vol, change24hPct = change, buyPressurePct = buyPct,
+                )
+                if (cryptoDecision7244.actionableLong) {
+                    dynExecutableSignals.add(AltSignal(
+                        market = PerpsMarket.DYN, direction = PerpsDirection.LONG,
+                        score = cryptoDecision7244.score, confidence = cryptoDecision7244.confidence,
+                        price = price, priceChange24h = change, reasons = listOf(cryptoDecision7244.reason),
+                        layerVotes = emptyMap(), dynSymbol = refreshed.symbol, dynName = refreshed.name,
+                        dynMint = refreshed.mint, dynChainId = refreshed.chainId,
+                        dynAssetKey = refreshed.canonicalIdentity6544,
+                    ))
+                    cryptoBrainSignals7244++
+                    try { PipelineHealthCollector.labelInc("CRYPTO_BRAIN_NATIVE_ACTIONABLE_7244") } catch (_: Throwable) {}
+                } else {
+                    DynamicAltTokenRegistry.markEvaluationProgress6570(
+                        refreshed,
+                        if (cryptoDecision7244.shadowOnlyLive) "CRYPTO_BRAIN_SHADOW_ONLY_7244" else "CRYPTO_BRAIN_OBSERVE_7244",
+                    )
+                }
                 // ── ShitCoin sub-AI (low-cap / meme tokens) ──────────────────────────
                 if ((mcap > 0.0 && mcap < 50_000_000.0) || isMeme) {
                     if (!ShitCoinTraderAI.hasPosition(tok.mint)) {
@@ -1105,23 +1195,12 @@ object CryptoAltTrader {
                     com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "ACTIONABLE_SIGNAL")
                 }
                 if (dynExecutableSignals.size == executableSignalCountBefore6567) {
-                    // V5.0.6569 — specialist silence is observation context, not a
-                    // terminal rejection. Preserve canonical identity/features and let
-                    // shared Crypto scoring/V3/policy decide. Bounded to top-25 below.
-                    val observeScore6569 = (45.0 + momentum.coerceIn(-20.0, 20.0) * 0.35 +
-                        (buyPct - 50.0).coerceIn(-25.0, 25.0) * 0.20 +
-                        if (refreshed.isTrending) 5.0 else 0.0).toInt().coerceIn(20, 75)
-                    dynExecutableSignals.add(AltSignal(
-                        market = PerpsMarket.DYN,
-                        direction = if (momentum >= 0.0) PerpsDirection.LONG else PerpsDirection.SHORT,
-                        score = observeScore6569, confidence = 40, price = price,
-                        priceChange24h = change,
-                        reasons = listOf("OBSERVE_SPECIALIST_SILENCE_6569 momentum=$momentum buyPct=$buyPct source=${refreshed.source}"),
-                        layerVotes = emptyMap(), dynSymbol = refreshed.symbol, dynName = refreshed.name,
-                        dynMint = refreshed.mint, dynChainId = refreshed.chainId, dynAssetKey = refreshed.canonicalIdentity6544,
-                    ))
-                    DynamicAltTokenRegistry.markEvaluationProgress6570(refreshed, "SPECIALIST_SILENCE_SHARED_EVIDENCE")
-                    try { PipelineHealthCollector.labelInc("CRYPTO_SPECIALIST_SILENCE_TO_SHARED_INTELLIGENCE_6569") } catch (_: Throwable) {}
+                    // V5.0.7244 — CryptoBrain was already consulted above.
+                    // Specialist silence is observation only, never a fabricated executable score.
+                    DynamicAltTokenRegistry.markEvaluationProgress6570(
+                        refreshed, "CRYPTO_BRAIN_NO_ACTIONABLE_SIGNAL_7244",
+                    )
+                    try { PipelineHealthCollector.labelInc("CRYPTO_SPECIALIST_SILENCE_OBSERVATION_ONLY_7244") } catch (_: Throwable) {}
                 }
 
             } catch (e: CancellationException) { throw e }
@@ -1160,8 +1239,18 @@ object CryptoAltTrader {
                 }
                 val sharedTok6569 = sig.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
                     ?: sig.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
-                DynamicAltTokenRegistry.markFdgReach6544(sharedTok6569, liveRoutable = false, paperOnlyNoRoute = isPaperMode.get())
-                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "RAW_SIGNAL")
+                // V5.0.7244 — do not stamp route truth before route resolution.
+                // The resolved candidate below is the only authority for routability.
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(
+                    com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "RAW_SIGNAL"
+                )
+                if (sig.direction == PerpsDirection.SHORT && !LEVERAGE_VENUE_AVAILABLE_7183) {
+                    DynamicAltTokenRegistry.markEvaluationDisposition6567(
+                        sharedTok6569, "SPOT_ONLY_SHORT_OBSERVATION_7244",
+                    )
+                    try { PipelineHealthCollector.labelInc("CRYPTO_SPOT_ONLY_SHORT_OBSERVATION_7244") } catch (_: Throwable) {}
+                    continue
+                }
                 try { ForensicLogger.lifecycle("CRYPTO_SIGNAL_SELECTED_6566", "symbol=${sig.marketSymbol} source=DYNAMIC_ALT score=${sig.score} confidence=${sig.confidence} mode=${if (isPaperMode.get()) "PAPER" else "LIVE"}") } catch (_: Throwable) {}
                 // V5.9.1472 — dedupe by real symbol so DYN coins aren't collapsed.
                 if (hasPositionSymbol(sig.marketSymbol)) {
@@ -1203,9 +1292,9 @@ object CryptoAltTrader {
 
         com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.completeProducerWindow6569(
             com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, isEnabled.get(), isRunning.get(),
-            "batch=${batch.size} scanned=$scanned specialistSignals=$signals sharedCandidates=${dynExecutableSignals.size}"
+            "batch=${batch.size} scanned=$scanned cryptoBrainSignals=$cryptoBrainSignals7244 specialistSignals=$signals sharedCandidates=${dynExecutableSignals.size}"
         )
-        if (signals > 0 || scanned % 200 == 0) {
+        if (signals > 0 || cryptoBrainSignals7244 > 0 || scanned % 200 == 0) {
             ErrorLogger.info(TAG, "🪙⚡ DynScan done: scanned=$scanned execSignals=${dynExecutableSignals.size} (universe=${allTokens.size})")
         }
     }
@@ -2407,6 +2496,20 @@ object CryptoAltTrader {
         }
         sizeSol *= cryptoToxicSizeMult6095
 
+        // V5.0.7244 — consume the isolated CryptoBrain sizing authority.
+        val cryptoTier7244 = if (signal.isDynamic) {
+            dynamicCryptoTier7244(exactAssetMetrics6493(signal).marketCapUsd)
+        } else {
+            cryptoBrainTier6923(mktSym)
+        }
+        val cryptoBrainSize7244 = try {
+            com.lifecyclebot.perps.crypto.brain.CryptoBrain.sizingMultiplier(
+                cryptoTier7244, signal.score,
+            )
+        } catch (_: Throwable) { 1.0 }
+        sizeSol *= cryptoBrainSize7244
+        try { PipelineHealthCollector.labelInc("CRYPTO_BRAIN_SIZE_APPLIED_7244") } catch (_: Throwable) {}
+
         if (sizeSol < 0.01) {
             terminalDisposition6613("PRE_SUBMIT_SIZE_BELOW_FLOOR", "PRE_SUBMIT")
             ErrorLogger.warn(TAG, "Insufficient balance for ${mktSym} (${sizeSol} SOL)")
@@ -2419,11 +2522,17 @@ object CryptoAltTrader {
 
         // V5.9.5: Dynamic exposure cap — never exceed 80% of balance at risk.
         // Naturally allows more concurrent positions as wallet grows.
-        val totalRisk = positions.values.sumOf { it.sizeSol }
-        val maxRisk   = balance * 0.80
+        var totalRisk = positions.values.sumOf { it.sizeSol }
+        val maxRisk = balance * 0.80
+        if (signal.isDynamic && totalRisk + sizeSol > maxRisk) {
+            if (rotateWeakPaperExposure7244(signal.score)) {
+                totalRisk = positions.values.sumOf { it.sizeSol }
+            }
+        }
         if (totalRisk + sizeSol > maxRisk) {
             terminalDisposition6613("PRE_SUBMIT_EXPOSURE_CAP", "PRE_SUBMIT")
-            ErrorLogger.info(TAG, "🛑 Exposure cap: ${"%.2f".format(totalRisk)}◎ at risk / ${"%.2f".format(maxRisk)}◎ max — skipping ${mktSym}")
+            ErrorLogger.info(TAG, "🛑 Exposure cap: " + "%.2f".format(totalRisk) +
+                "◎ at risk / " + "%.2f".format(maxRisk) + "◎ max — skipping " + mktSym)
             return
         }
         // V5.9.9: Cross-trader wallet exposure check
@@ -3138,6 +3247,39 @@ object CryptoAltTrader {
         } else false
     }
 
+    /**
+     * V5.0.7244 — dynamic universe turnover under the existing 80% risk cap.
+     * The old SOFT_CAP replacement never ran because 6% sizing reaches the
+     * portfolio-risk cap around 10–15 positions, long before 80 positions.
+     * Paper can synchronously replace one weak position. Live never assumes
+     * an asynchronous close freed capital.
+     */
+    private fun rotateWeakPaperExposure7244(incomingScore: Int): Boolean {
+        if (!isPaperMode.get()) return false
+        val now = System.currentTimeMillis()
+        val candidate = positions.values.asSequence()
+            .filter { it.isPaper }
+            .filter { now - it.openTime >= 3 * 60 * 1000L }
+            .filter { it.getPnlPct() < 1.0 }
+            .minByOrNull { it.getPnlPct() + (it.aiScore / 10.0) }
+            ?: return false
+        val pnlPct = candidate.getPnlPct()
+        val incomingBeats = incomingScore >= candidate.aiScore + REPLACE_SCORE_MARGIN
+        val losing = pnlPct <= -1.5
+        if (!incomingBeats && !losing) return false
+        closePosition(
+            candidate.id,
+            "CRYPTO_UNIVERSE_EXPOSURE_ROTATION_7244 pnl=" + pnlPct.toInt() +
+                " score=" + candidate.aiScore + " incoming=" + incomingScore,
+        )
+        val released = positions[candidate.id] == null
+        try {
+            PipelineHealthCollector.labelInc(
+                if (released) "CRYPTO_EXPOSURE_ROTATED_7244" else "CRYPTO_EXPOSURE_ROTATION_PENDING_7244"
+            )
+        } catch (_: Throwable) {}
+        return released
+    }
     // ═══════════════════════════════════════════════════════════════════════════
     // POSITION MONITORING
     // ═══════════════════════════════════════════════════════════════════════════
