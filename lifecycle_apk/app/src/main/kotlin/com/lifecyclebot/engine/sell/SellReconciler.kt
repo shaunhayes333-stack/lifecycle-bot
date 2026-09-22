@@ -321,8 +321,15 @@ object SellReconciler {
             //   remains as the first-observation path; this hook keeps
             //   the classification fresh on every reconciler tick.
             try {
+                // V5.0.7238 — tracker OPEN_TRACKING includes wallet-only
+                // recovery rows, so it is not proof of bot ownership. Classify
+                // ownership from the canonical live authority only.
                 val openMintsForClass7234 = try {
-                    HostWalletTokenTracker.getOpenTrackedPositions().map { it.mint }.toSet()
+                    com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+                        .openPositions()
+                        .filter { it.mode.equals("live", true) && it.remainingQtyRaw > java.math.BigInteger.ZERO }
+                        .map { it.mint }
+                        .toSet()
                 } catch (_: Throwable) { emptySet<String>() }
                 tokens.forEach { (mint, _) ->
                     val botOwned = mint in openMintsForClass7234
