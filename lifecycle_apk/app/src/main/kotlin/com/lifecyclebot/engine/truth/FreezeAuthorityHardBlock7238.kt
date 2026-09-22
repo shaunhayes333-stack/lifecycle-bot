@@ -95,6 +95,35 @@ object FreezeAuthorityHardBlock7238 {
                 return Decision(Verdict.BLOCK_FREEZE_ACTIVE, "FREEZE_AUTHORITY_ACTIVE")
             }
             null -> {
+                // V5.0.7248 — UNKNOWN at the cached safety layer is not the final
+                // answer. Re-prove synchronously through the configured Helius-first
+                // RPC ladder before refusing an otherwise executable live buy.
+                val proof = try { OnChainMintAuthorityProof7248.resolve(mint) } catch (_: Throwable) { null }
+                if (proof != null) {
+                    ts.safety = ts.safety.copy(
+                        mintAuthorityDisabled = proof.mintAuthorityDisabled,
+                        freezeAuthorityDisabled = proof.freezeAuthorityDisabled,
+                        checkedAt = System.currentTimeMillis(),
+                    )
+                    if (proof.freezeAuthorityDisabled) {
+                        allowed.incrementAndGet()
+                        try {
+                            PipelineHealthCollector.labelInc("FREEZE_AUTHORITY_REPROVED_7248")
+                            ForensicLogger.lifecycle(
+                                "FREEZE_AUTHORITY_REPROVED_7248",
+                                "mint=${mint.take(10)} symbol=${ts.symbol} provider=${proof.provider} action=allow",
+                            )
+                        } catch (_: Throwable) {}
+                        return Decision(Verdict.ALLOW, "FREEZE_REPROVED_DISABLED")
+                    }
+                    blockedActive.incrementAndGet()
+                    try {
+                        QuarantineStore.quarantine(mint = mint, symbol = ts.symbol, reason = "FREEZE_AUTHORITY_ACTIVE_7248")
+                        TokenBlacklist.block(mint, "FREEZE_AUTHORITY_ACTIVE_7248")
+                        PipelineHealthCollector.labelInc("FREEZE_AUTHORITY_REPROVED_ACTIVE_7248")
+                    } catch (_: Throwable) {}
+                    return Decision(Verdict.BLOCK_FREEZE_ACTIVE, "FREEZE_AUTHORITY_ACTIVE")
+                }
                 blockedUnverified.incrementAndGet()
                 // Unknown freeze — do NOT spend real SOL until an RPC/security
                 // provider affirmatively proves the authority is null. This is

@@ -1072,33 +1072,9 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
     }
 
     private fun checkMintFreezeViaRpc(mint: String): Pair<Boolean?, Boolean?> {
-        val rpcUrl = cfg().rpcUrl
-        val payload = """
-            {"jsonrpc":"2.0","id":1,"method":"getAccountInfo",
-             "params":["$mint",{"encoding":"jsonParsed","commitment":"confirmed"}]}
-        """.trimIndent()
-
-        val body = post(rpcUrl, payload) ?: return Pair(null, null)
-
-        return try {
-            val info = JSONObject(body)
-                .optJSONObject("result")
-                ?.optJSONObject("value")
-                ?.optJSONObject("data")
-                ?.optJSONObject("parsed")
-                ?.optJSONObject("info")
-                ?: return Pair(null, null)
-
-            val mintAuth = info.opt("mintAuthority")
-            val freezeAuth = info.opt("freezeAuthority")
-
-            val mintDisabled = mintAuth == null || mintAuth == JSONObject.NULL
-            val freezeDisabled = freezeAuth == null || freezeAuth == JSONObject.NULL
-
-            Pair(mintDisabled, freezeDisabled)
-        } catch (_: Exception) {
-            Pair(null, null)
-        }
+        val proof = com.lifecyclebot.engine.truth.OnChainMintAuthorityProof7248.resolve(mint)
+            ?: return Pair(null, null)
+        return Pair(proof.mintAuthorityDisabled, proof.freezeAuthorityDisabled)
     }
 
     private fun checkNameDuplicate(symbol: String, name: String, mint: String = ""): String {

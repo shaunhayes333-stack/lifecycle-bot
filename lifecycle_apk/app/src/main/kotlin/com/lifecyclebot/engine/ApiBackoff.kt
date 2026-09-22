@@ -124,12 +124,17 @@ object ApiBackoff {
 
             if (code in REQUEST_LEVEL_CODES_6999) {
                 val rn = s.requestLevelFailures6999.incrementAndGet()
-                if (rn < REQUEST_LEVEL_PROMOTE_AFTER_6999) {
+                // V5.0.7248 — quote 400/404/422 is candidate-scoped forever.
+                // A scanner can legitimately see dozens of unroutable fresh mints
+                // consecutively; promoting that streak globally makes the app's own
+                // candidate mix look like a Jupiter outage and blocks every good mint.
+                val candidateScopedQuoteFailure = key(host) == "jupiter_quote"
+                if (candidateScopedQuoteFailure || rn < REQUEST_LEVEL_PROMOTE_AFTER_6999) {
                     if (rn == 1 || rn % 4 == 0) {
                         try {
                             ForensicLogger.lifecycle(
                                 "API_BACKOFF_REQUEST_LEVEL_IGNORED_6999",
-                                "host=${key(host)} code=$code n=$rn promoteAt=$REQUEST_LEVEL_PROMOTE_AFTER_6999 " +
+                                "host=${key(host)} code=$code n=$rn promoteAt=${if (candidateScopedQuoteFailure) "never" else REQUEST_LEVEL_PROMOTE_AFTER_6999} " +
                                     "reason=answers_about_request_not_host",
                             )
                         } catch (_: Throwable) {}

@@ -203,6 +203,14 @@ class JupiterApi(private val apiKey: String = "") {
         )
     }
 
+    /** V5.0.7248 — Metis quote for a transaction intended for Helius Sender. */
+    fun getQuoteForSender(
+        inputMint: String,
+        outputMint: String,
+        amountRaw: Long,
+        slippageBps: Int,
+    ): SwapQuote = getQuoteV6(inputMint, outputMint, amountRaw, slippageBps)
+
     /**
      * Quote only, no taker. Good for estimation.
      */
