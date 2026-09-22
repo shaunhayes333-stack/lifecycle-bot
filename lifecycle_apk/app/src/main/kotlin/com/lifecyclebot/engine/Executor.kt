@@ -8551,6 +8551,36 @@ class Executor(
                     )
                     return
                 }
+                // V5.0.7229 §CANONICAL_FILL_BASIS_SEAL — refuse a
+                // catastrophic exit when the entry basis the exit
+                // engine is using disagrees materially with the sealed
+                // buy-finality basis.  This is the EYMBTN fix: the
+                // exit engine received a 6.19x-larger entry (0.000894
+                // vs 0.000144) and turned a -1.5% move into -84%.
+                val basisVeto7229 = try {
+                    com.lifecyclebot.engine.truth.CanonicalFillBasisSeal7229.exitBasisAllowed(
+                        mint = ts.mint,
+                        positionId = pos.positionId,
+                        proposedEntryPrice = pos.entryPrice,
+                        exitReason = "CATASTROPHIC_HARD_BACKSTOP_-25",
+                    )
+                } catch (_: Throwable) {
+                    com.lifecyclebot.engine.truth.CanonicalFillBasisSeal7229.Verdict(
+                        true, "VETO_ERR_FALLBACK_ALLOW", 0.0, 0.0, 0.0,
+                    )
+                }
+                if (!basisVeto7229.allow) {
+                    onLog(
+                        "🛡 EXIT_DEFERRED_BASIS_MISMATCH_7229: ${ts.symbol} " +
+                            "worstPnl=${worstPnl.toInt()}% " +
+                            "sealed=${basisVeto7229.sealedEntry} " +
+                            "proposed=${basisVeto7229.proposedEntry} " +
+                            "delta=${"%.2f".format(basisVeto7229.relativeDelta * 100.0)}% " +
+                            "detail=${basisVeto7229.reason7229} — holding for basis repair",
+                        ts.mint,
+                    )
+                    return
+                }
                 // V5.0.6882 §DEFERRAL_IS_NOT_A_DISPOSITION — the veto let this
                 // through only because its deferral bound expired, not because
                 // a fresh mark arrived. Release the capital but brand the

@@ -780,6 +780,27 @@ object HostWalletTokenTracker {
         p.entryPriceUsd = pos.entryPrice.takeIf { it > 0 } ?: p.entryPriceUsd
         p.entrySol = pos.costSol.takeIf { it > 0 } ?: p.entrySol
         positions[ts.mint] = p
+        // V5.0.7229 §CANONICAL_FILL_BASIS_SEAL — at wallet-proof BUY
+        //   finality, seal the immutable cost basis. This is the ONLY
+        //   basis authority downstream exit maths may reference; any
+        //   subsequent write with a different signature is refused.
+        try {
+            val sealSig7229 = sig ?: proof.signature ?: p.buySignature ?: ""
+            if (pos.entryPrice > 0.0 && sealSig7229.isNotBlank() && pos.positionId.isNotBlank()) {
+                com.lifecyclebot.engine.truth.CanonicalFillBasisSeal7229.sealBuyFinality(
+                    mint = ts.mint,
+                    positionId = pos.positionId,
+                    entryPrice = pos.entryPrice,
+                    executedSol = pos.costSol,
+                    feeAdjustedSol = pos.costSol,
+                    rawQuantity = try { java.math.BigDecimal(proof.amountRaw).toDouble() } catch (_: Throwable) { 0.0 },
+                    decimals = proof.decimals,
+                    entryUsd = pos.entryPrice,
+                    entryMarketCap = pos.entryMcap,
+                    buySignature = sealSig7229,
+                )
+            }
+        } catch (_: Throwable) {}
         emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_BUY_CONFIRMED, ts.mint, ts.symbol, sig,
             "Tracker BUY_CONFIRMED_WITH_PROOF ${ts.symbol} source=${proof.source} raw=${proof.amountRaw}")
         emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_OPEN_TRACKING, ts.mint, ts.symbol, sig,

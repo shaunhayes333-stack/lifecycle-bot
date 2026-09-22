@@ -22397,6 +22397,35 @@ if (hotExitHandledSweep) {
                         )
                         return@forEach
                     }
+                    // V5.0.7229 §CANONICAL_FILL_BASIS_SEAL — refuse the
+                    // universal hard-floor / peak-lock terminal when the
+                    // entry basis this sweep is using disagrees materially
+                    // with the sealed buy-finality basis. Complements the
+                    // 6835 mark-freshness veto: 6835 protects against a
+                    // stale numerator, 7229 protects against a corrupted
+                    // denominator (the EYMBTN pattern).
+                    val basisVeto7229 = try {
+                        com.lifecyclebot.engine.truth.CanonicalFillBasisSeal7229.exitBasisAllowed(
+                            mint = ts.mint,
+                            positionId = ts.position.positionId,
+                            proposedEntryPrice = ts.position.entryPrice,
+                            exitReason = reason,
+                        )
+                    } catch (_: Throwable) {
+                        com.lifecyclebot.engine.truth.CanonicalFillBasisSeal7229.Verdict(
+                            true, "VETO_ERR_FALLBACK_ALLOW", 0.0, 0.0, 0.0,
+                        )
+                    }
+                    if (!basisVeto7229.allow) {
+                        addLog(
+                            "🛡 [UNIVERSAL] ${ts.symbol}: EXIT_DEFERRED_BASIS_MISMATCH_7229 " +
+                                "reason=$reason sealed=${basisVeto7229.sealedEntry} " +
+                                "proposed=${basisVeto7229.proposedEntry} " +
+                                "delta=${"%.2f".format(basisVeto7229.relativeDelta * 100.0)}% " +
+                                "detail=${basisVeto7229.reason7229} — holding for basis repair"
+                        )
+                        return@forEach
+                    }
                     // V5.0.6882 §DEFERRAL_IS_NOT_A_DISPOSITION — bound-expired
                     // release. The mark never came back (drained pool, dead
                     // provider), so the position is freed to stop it holding a
