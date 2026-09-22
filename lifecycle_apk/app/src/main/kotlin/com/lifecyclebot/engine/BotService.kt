@@ -9513,30 +9513,19 @@ class BotService : Service() {
                                     // non-trainable so it can never teach the learner a loss that
                                     // only a dead feed produced.
                                     val latchKey6854 = "${ts.mint}:${ts.position.entryTime}"
-                                    val scratch6854 = cfg.paperMode && try {
+                                    if (cfg.paperMode) try {
                                         com.lifecyclebot.engine.truth.StaleMarkRunnerProtection6829.evaluate(
                                             latchKey = latchKey6854,
                                             positionId = ts.position.positionId.ifBlank { latchKey6854 },
                                             heldMsSinceBuy = (System.currentTimeMillis() - ts.position.entryTime).coerceAtLeast(0L),
                                             // No mark exists at all here, so there is no last-known
-                                            // PnL to evaluate — say so rather than pass a fake 0.0
-                                            // that Guard B would read as "breakeven, protect it".
+                                            // PnL to evaluate — say so rather than pass a fake 0.0.
                                             lastKnownPnlPct = 0.0,
                                             lastKnownPnlOk = false,
-                                        ) == com.lifecyclebot.engine.truth.StaleMarkRunnerProtection6829.Verdict.SCRATCH_ALLOWED
-                                    } catch (_: Throwable) { false }
-                                    if (scratch6854 && paperStaleZombieLatch6504.add(latchKey6854)) {
-                                        try {
-                                            ForensicLogger.lifecycle(
-                                                "PAPER_STALE_NO_MARK_SCRATCH_EXIT_6854",
-                                                "symbol=${ts.symbol} ageS=${lastPriceAgeMs / 1000} posAgeS=${posAgeMs / 1000} — no price and no oracle, closing scratch TRAINABLE=FALSE",
-                                            )
-                                            PipelineHealthCollector.labelInc("PAPER_STALE_NO_MARK_SCRATCH_EXIT_6854")
-                                        } catch (_: Throwable) {}
-                                        executor.requestSell(ts = ts, reason = "PAPER_STALE_PRICE_TIMEOUT_SCRATCH",
-                                            wallet = wallet, walletSol = effectiveBalance)
-                                        continue
-                                    }
+                                        )
+                                        PipelineHealthCollector.labelInc("HELD_NO_MARK_REFRESH_ONLY_7246")
+                                    } catch (_: Throwable) {}
+
                                     ErrorLogger.warn("BotService",
                                         "⏸️ STALE_PRICE_HOLD_6854: ${ts.symbol} — no price for ${lastPriceAgeMs/1000}s, oracles dark, but no independent terminal evidence (routeDead=$routeDead6854 balZero=$balanceZero6854 paper=${cfg.paperMode}) — holding, not manufacturing a loss")
                                     addLog("⏸️ STALE PRICE HOLD: ${ts.symbol} | dark ${lastPriceAgeMs/1000}s, no rug proof — position held", ts.mint)
@@ -9726,27 +9715,13 @@ class BotService : Service() {
                                             } catch (_: Throwable) {
                                                 com.lifecyclebot.engine.truth.StaleMarkRunnerProtection6829.Verdict.HOLD_REFRESH_BUDGET
                                             }
-                                            if (runnerVerdict6829 != com.lifecyclebot.engine.truth.StaleMarkRunnerProtection6829.Verdict.SCRATCH_ALLOWED) {
-                                                continue
-                                            }
-                                            if (paperStaleZombieLatch6504.add(zombieLatchKey6504)) {
-                                                try {
-                                                    ForensicLogger.lifecycle(
-                                                        "PAPER_STALE_ZOMBIE_SCRATCH_EXIT",
-                                                        "symbol=${ts.symbol} lastPnlPct=${"%.1f".format(lastKnownPnlPct)} floor=${"%.1f".format(stalePnlFloor)} ageS=${livePriceAgeMs/1000} timeoutS=${paperStaleTimeoutMs/1000} verdict=$runnerVerdict6829 — feed+oracle dark, closing scratch TRAINABLE=FALSE (6829)"
-                                                    )
-                                                    PipelineHealthCollector.labelInc("PAPER_STALE_ZOMBIE_SCRATCH_EXIT_ONESHOT_6504")
-                                                    PipelineHealthCollector.labelInc("PAPER_STALE_SCRATCH_NON_TRAINABLE_6829")
-                                                } catch (_: Throwable) {}
-                                                executor.requestSell(
-                                                    ts = ts,
-                                                    reason = "PAPER_STALE_PRICE_TIMEOUT_SCRATCH",
-                                                    wallet = wallet,
-                                                    walletSol = effectiveBalance,
+                                            try {
+                                                PipelineHealthCollector.labelInc("HELD_STALE_TIMEOUT_REFRESH_ONLY_7246")
+                                                ForensicLogger.lifecycle(
+                                                    "HELD_STALE_TIMEOUT_REFRESH_ONLY_7246",
+                                                    "symbol=${ts.symbol} lastPnlPct=${"%.1f".format(lastKnownPnlPct)} ageS=${livePriceAgeMs/1000} verdict=$runnerVerdict6829 action=preserve_open_refresh_only"
                                                 )
-                                            } else {
-                                                try { PipelineHealthCollector.labelInc("PAPER_STALE_ZOMBIE_SCRATCH_EXIT_SUPPRESSED_6504") } catch (_: Throwable) {}
-                                            }
+                                            } catch (_: Throwable) {}
                                             continue
                                         }
                                         try {
