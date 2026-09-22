@@ -2007,6 +2007,18 @@ object PipelineHealthCollector {
                     "LIVE_FLOOR_BLOCK_ROUTABLE_MIN_EXCEEDS_SHARE_7127",
                     "SMART_SIZER_V3_DUST_PROMOTED_6271",
                     "COST_EXCEEDS_EDGE_REFUSED_7162",
+                    // V5.0.7219 — the sealing race was 59% of all execution-gate
+                    // blocks (221 of 374) and its cooldown was 30x the window it
+                    // waited for. The split below says which of four faults a
+                    // missing execution intent actually was; they had shared one
+                    // counter for six builds.
+                    "FDG_ALLOW_SEALING_RACE_DEFERRED_6739",
+                    "FDG_ALLOW_WITHOUT_EXEC_INTENT",
+                    "FDG_ALLOW_WITHOUT_ANY_STATE_7219",
+                    "FDG_ALLOW_STATE_VERSION_MISMATCH_7219",
+                    "FDG_ALLOW_SEAL_NEVER_LANDED_7219",
+                    "FDG_ALLOW_WITHOUT_INTENT_LIVE_MODE_7219",
+                    "EXEC_RESTORED_TICKET_VERSION_DRIFT_6692",
                 )
                 pinnedExact7214.forEach { k7214 ->
                     sb.append("  ").append(k7214.padEnd(52)).append(labelValue7214(k7214)).append("\n")
@@ -2016,6 +2028,11 @@ object PipelineHealthCollector {
                     "DESK_STAGE_DEDUPED_7214_",
                     "DESK_STAGE_DROPPED_NO_MINT_IN_KEY_7214_",
                     "DESK_STAGE_DROPPED_NO_CANDIDATE_VERSION_7214_",
+                    // V5.0.7219 — how many cycles a deferred allow needed before
+                    // its seal landed. Attempt 1 dominating means the race is a
+                    // single cycle; anything reaching 3 is a seal that is not
+                    // arriving and is now named rather than retried forever.
+                    "FDG_ALLOW_SEALING_RACE_DEFERRED_7219_ATTEMPT_",
                     "FUNNEL_MARK_STAGE_HAS_NO_PRODUCER_7214_",
                     "TRADE_AUTHORIZE_ENTERED_7003_",
                     "LIVE_BUY_ABORTED|",

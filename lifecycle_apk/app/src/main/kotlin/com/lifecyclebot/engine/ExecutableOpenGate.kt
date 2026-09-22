@@ -1233,10 +1233,45 @@ object ExecutableOpenGate {
             r.contains("WAIT") -> 60_000L
             r.contains("INSUFFICIENT") -> 30_000L
             r.contains("LOW_LIQUIDITY") || r.contains("LIQUIDITY_BELOW") -> 60_000L
+            // V5.0.7219 §A_DEFERRAL_WHOSE_COOLDOWN_OUTLIVES_WHAT_IT_WAITS_FOR
+            // IS A BLOCK.
+            //
+            // 6739 deferred an FDG ALLOW whose execution authority had not yet
+            // been sealed, describing it as "soft_defer_await_snapshot_seal"
+            // over a window of 0..500ms. It then fell through this table to
+            // `else -> 15_000L` — no branch above matches, because the reason
+            // carries no WAIT/INSUFFICIENT/LIQUIDITY token and the `log`
+            // contains "SEALING_RACE", not "FDG".
+            //
+            // So a 500ms race installed a FIFTEEN SECOND lockout on
+            // (mint, lane): thirty times the window, and the bot loop runs at
+            // 6640ms, so the seal lands roughly thirteen cycles before the
+            // cooldown lifts. By then the candidate has aged and a new
+            // candidateVersion has been minted, which is why the operator's
+            // 5.0.7217 snapshot shows FDG_ALLOW_SEALING_RACE_DEFERRED_6739=221
+            // — 59% of ALL execution-gate blocks — beside
+            // EXEC_RESTORED_TICKET_VERSION_DRIFT_6692=214. Two hundred and
+            // twenty-one FDG allows destroyed by the cooldown of the thing that
+            // was supposed to let them through.
+            //
+            // A deferral must come back. Zero cooldown means "re-gate on the
+            // next cycle", which at 6640ms is already an order of magnitude
+            // longer than the seal takes, and the deferral is separately
+            // bounded at the call site so it cannot spin.
+            r.contains("SEALING_RACE") -> 0L
             log.contains("FDG") -> 30_000L
             else -> 15_000L
         }
     }
+
+    /**
+     * V5.0.7219 — deferral attempts per (mint, candidateVersion) for the
+     * sealing race, so "wait for the seal" is bounded without being blind.
+     * A candidate that never seals raises the invariant rather than deferring
+     * for the whole of its life.
+     */
+    private val sealingRaceDeferrals7219 = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private const val MAX_SEALING_RACE_DEFERRALS_7219 = 3
 
     fun recentAllowedAttemptId(mint: String, lane: String): String? {
         val now = System.currentTimeMillis()
@@ -2831,12 +2866,50 @@ object ExecutableOpenGate {
             // final_candidate_only_with_safe_liquid_context locks this).
             val paperMode = mode.equals("PAPER", true)
             val stateAgeMs = state?.updatedAtMs?.let { System.currentTimeMillis() - it } ?: Long.MAX_VALUE
-            if (paperMode && stateAgeMs in 0..500L) {
+            // V5.0.7219 §THE_DISCRIMINATOR_WAS_A_STOPWATCH_WHERE_IT_SHOULD_HAVE
+            // BEEN_AN_IDENTITY.
+            //
+            // 6739 decided "is this a benign race or a real integrity breach"
+            // by asking whether the provisional state was stamped in the last
+            // 500ms. 500 was a guess, and it does not describe the danger. The
+            // danger 6739's own comment names is the FDG notify path updating
+            // `state` before ExecutionDecisionSnapshot6510 seals the authority
+            // FOR THE SAME CANDIDATE. What makes waiting safe is therefore not
+            // that the state is fresh — it is that the state is about THIS
+            // candidate. A stale seal belonging to a DIFFERENT candidateVersion
+            // is the thing that must never be waited for, and age cannot tell
+            // those apart: a slow cycle makes a same-version state look guilty,
+            // and a fast one makes a cross-version state look innocent.
+            //
+            // The operator's 5.0.7217 run shows the cost of the stopwatch:
+            // FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519=13 raising
+            // AUTHORITY_INVARIANT_FAILURE for candidates whose seal simply took
+            // longer than 500ms, on a device whose maintenance tasks were
+            // measured at up to 11067ms in the same snapshot.
+            //
+            // Version identity replaces the timer. Age is kept, as telemetry,
+            // because it is the number that would justify a timer if one were
+            // ever needed again — and it is now recorded rather than acted on.
+            val sameCandidateState7219 =
+                state != null && state.candidateVersion == candidateVersion && candidateVersion > 0L
+            val deferKey7219 = "${laneKey(mint, lane)}|$candidateVersion"
+            val priorDeferrals7219 = sealingRaceDeferrals7219[deferKey7219] ?: 0
+            if (paperMode && sameCandidateState7219 &&
+                priorDeferrals7219 < MAX_SEALING_RACE_DEFERRALS_7219
+            ) {
+                sealingRaceDeferrals7219[deferKey7219] = priorDeferrals7219 + 1
+                if (sealingRaceDeferrals7219.size > 4096) {
+                    try { sealingRaceDeferrals7219.clear() } catch (_: Throwable) {}
+                }
                 try {
                     PipelineHealthCollector.labelInc("FDG_ALLOW_SEALING_RACE_DEFERRED_6739")
+                    PipelineHealthCollector.labelInc("FDG_ALLOW_SEALING_RACE_DEFERRED_7219_ATTEMPT_${priorDeferrals7219 + 1}")
                     ForensicLogger.lifecycle(
                         "FDG_ALLOW_SEALING_RACE_DEFERRED_6739",
-                        "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol lane=$canonicalSelectedLane stateAgeMs=$stateAgeMs action=soft_defer_await_snapshot_seal paper=true",
+                        "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol lane=$canonicalSelectedLane " +
+                            "stateAgeMs=$stateAgeMs candidateVersion=$candidateVersion stateVersion=${state?.candidateVersion} " +
+                            "deferral=${priorDeferrals7219 + 1}/$MAX_SEALING_RACE_DEFERRALS_7219 cooldownMs=0 " +
+                            "action=defer_and_regate_next_cycle_same_candidate_awaiting_seal paper=true",
                     )
                 } catch (_: Throwable) {}
                 return blocked(
@@ -2845,6 +2918,21 @@ object ExecutableOpenGate {
                     shadow = true,
                 )
             }
+            // V5.0.7219 — the invariant path merged three different faults into
+            // one counter, so six builds of FDG_ALLOW_WITHOUT_EXECUTION_INTENT
+            // could not say which had occurred. Split before raising it.
+            try {
+                when {
+                    state == null ->
+                        PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_ANY_STATE_7219")
+                    !sameCandidateState7219 ->
+                        PipelineHealthCollector.labelInc("FDG_ALLOW_STATE_VERSION_MISMATCH_7219")
+                    priorDeferrals7219 >= MAX_SEALING_RACE_DEFERRALS_7219 ->
+                        PipelineHealthCollector.labelInc("FDG_ALLOW_SEAL_NEVER_LANDED_7219")
+                    else ->
+                        PipelineHealthCollector.labelInc("FDG_ALLOW_WITHOUT_INTENT_LIVE_MODE_7219")
+                }
+            } catch (_: Throwable) {}
             try {
                 PipelineHealthCollector.labelInc("AUTHORITY_INVARIANT_FAILURE")
                 PipelineHealthCollector.labelInc("EXEC_AUTHORITY_STATE_MISMATCH")
