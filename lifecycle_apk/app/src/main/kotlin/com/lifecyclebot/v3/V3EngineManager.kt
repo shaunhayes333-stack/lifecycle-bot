@@ -144,7 +144,7 @@ object V3EngineManager {
                     fatalRugThreshold = 90,
                     candidateTtlMinutes = 20,
                     shadowTrackNearMissMin = 5,
-                    reserveSol = 0.05,
+                    reserveSol = botCfg.walletReserveSol,
                     maxSmallSizePct = 0.04,
                     maxStandardSizePct = 0.07,
                     maxAggressiveSizePct = if (botCfg.v3ConservativeMode) 0.08 else 0.12,
