@@ -1183,6 +1183,37 @@ object GlobalTradeRegistry {
     }
 
     /**
+     * V5.0.7246 — canonical OPEN handoff from DISCOVERY -> HELD.
+     *
+     * This is intentionally the ONE exception to the historical "never remove
+     * held from watchlist" rule. Held pricing/exit supervision no longer depends
+     * on discovery residency: CanonicalPositionAuthority + HeldPositionSupervisor
+     * + canonical exit/mark workers own the asset after execution.
+     *
+     * No rejection/denylist is written, so after canonical close the mint may be
+     * discovered again normally (subject to ordinary re-entry cooldown).
+     */
+    fun handoffOpenMintToHeld7246(mint: String, symbol: String = ""): Boolean {
+        if (mint.isBlank()) return false
+        val removed = watchlist.remove(mint)
+        probation.remove(mint)
+        recentlyProcessed.remove(mint)
+        if (removed != null) {
+            totalTokensRemoved.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("HELD_DISCOVERY_SLOT_RELEASED_7246")
+                ForensicLogger.lifecycle(
+                    "HELD_DISCOVERY_SLOT_RELEASED_7246",
+                    "mint=${mint.take(10)} symbol=${symbol.ifBlank { removed.symbol }} action=canonical_open_handoff_no_rejection",
+                )
+            } catch (_: Throwable) {}
+            return true
+        }
+        try { PipelineHealthCollector.labelInc("HELD_DISCOVERY_HANDOFF_ALREADY_ABSENT_7246") } catch (_: Throwable) {}
+        return false
+    }
+
+    /**
      * Register that a token was rejected (so it won't be re-added).
      */
     fun registerRejection(mint: String, symbol: String, reason: String, rejectedBy: String) {
