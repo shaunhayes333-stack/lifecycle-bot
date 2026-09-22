@@ -19467,7 +19467,7 @@ class Executor(
                 } catch (_: Throwable) {}
                 liveStage("LIVE_BUY_ABORTED", "reason=MIN_SCORE_FLOOR_7239 detail=${scoreFloor7239.reason7239}")
                 emitLiveBuyFail(ts, sol, "MIN_SCORE_FLOOR_7239", scoreFloor7239.reason7239)
-                return
+                return false
             }
             val preTrade = PreTradeHardGate.requireLiveBuyAllowed(ts, "Executor.liveBuy.main")
             livePendingProofPenalty = preTrade.allowed && preTrade.detail.contains("pending_penalty", ignoreCase = true)
