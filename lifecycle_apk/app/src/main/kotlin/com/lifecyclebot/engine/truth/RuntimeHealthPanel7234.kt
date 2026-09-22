@@ -38,6 +38,7 @@ object RuntimeHealthPanel7234 {
         val rg = RoutableMinRiskGuard7236.summary()
         val lt = LiveTerminalSemanticsAuthority7236.summary()
         val fz = FreezeAuthorityHardBlock7238.summary()
+        val ms = LiveMinimumScoreFloor7239.summary()
         val sb = StringBuilder()
         sb.append("┌─ RUNTIME HEALTH ─────────────────────────────────┐\n")
         sb.append("│ BASIS  sealed=${pad(bs.sealsCreated)} refused=${pad(bs.overwriteRefused)} veto=${pad(bs.exitBasisMismatch)}\n")
@@ -56,6 +57,7 @@ object RuntimeHealthPanel7234 {
         sb.append("│        exclUnknown=${pad(lt.excludedUnknown)}\n")
         sb.append("│ FREEZE allowed=${pad(fz.allowed)} blockActive=${pad(fz.blockedActive)}\n")
         sb.append("│        blockUnverified=${pad(fz.blockedUnverified)}\n")
+        sb.append("│ SCORE floor=${ms.floor.toInt()} allowed=${pad(ms.allowed)} blocked=${pad(ms.blocked)}\n")
         sb.append("│ FANOUT fdgCapped=${pad(fo.fdgCappedEvents)} laneCapped=${pad(fo.laneCappedEvents)}\n")
         sb.append("│        advisoryUngoverned=${pad(fo.advisoryUngoverned)} chains=${fo.activeCausalChains}\n")
         sb.append("└──────────────────────────────────────────────────┘")
@@ -73,6 +75,7 @@ object RuntimeHealthPanel7234 {
         val rg = RoutableMinRiskGuard7236.summary()
         val lt = LiveTerminalSemanticsAuthority7236.summary()
         val fz = FreezeAuthorityHardBlock7238.summary()
+        val ms = LiveMinimumScoreFloor7239.summary()
         return "HEALTH7234 basisVeto=${bs.exitBasisMismatch} " +
             "sellUnique=${sf.uniqueSells}/redispatch=${sf.redispatches} " +
             "walletPnlSup=${wi.pnlSuppressed} " +
@@ -81,6 +84,7 @@ object RuntimeHealthPanel7234 {
             "liftRefWeak=${rg.totalRefused} " +
             "liveExclBroadcast=${lt.excludedBroadcast} " +
             "freezeBlock=${fz.totalBlocked} " +
+            "scoreFloorBlock=${ms.blocked} " +
             "fanoutFdgCap=${fo.fdgCappedEvents}"
     }
 

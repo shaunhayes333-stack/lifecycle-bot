@@ -19440,6 +19440,35 @@ class Executor(
         // mint/freeze authority, exact quarantine, or fatal holder concentration.
         // This gate is immediately before live spend/broadcast and is LIVE-only.
         run {
+            // V5.0.7239 §LIVE_MIN_SCORE_FLOOR — hard block live buys below
+            // the score floor. Operator 5.0.7234 data: every observed live
+            // loss was at score 6-16 (paper wins at 50+). Live had no floor
+            // and was firing on the bottom of the score distribution just
+            // because those candidates had complete safety proofs. Kills
+            // the score-6 −64% catastrophe class outright.
+            val scoreFloor7239 = try {
+                com.lifecyclebot.engine.truth.LiveMinimumScoreFloor7239.evaluate(ts, score)
+            } catch (_: Throwable) {
+                com.lifecyclebot.engine.truth.LiveMinimumScoreFloor7239.Decision(
+                    com.lifecyclebot.engine.truth.LiveMinimumScoreFloor7239.Verdict.ALLOW,
+                    score, 30.0, "GUARD_ERR_FALLBACK_ALLOW",
+                )
+            }
+            if (scoreFloor7239.verdict ==
+                com.lifecyclebot.engine.truth.LiveMinimumScoreFloor7239.Verdict.BLOCK_BELOW_FLOOR) {
+                try {
+                    PipelineHealthCollector.labelInc("LIVE_BUY_BLOCKED_MIN_SCORE_FLOOR_7239")
+                    ForensicLogger.lifecycle(
+                        "LIVE_BUY_BLOCKED_MIN_SCORE_FLOOR_7239",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} " +
+                            "score=${"%.2f".format(score)} floor=${"%.2f".format(scoreFloor7239.floor)} " +
+                            "reason=${scoreFloor7239.reason7239}",
+                    )
+                } catch (_: Throwable) {}
+                liveStage("LIVE_BUY_ABORTED", "reason=MIN_SCORE_FLOOR_7239 detail=${scoreFloor7239.reason7239}")
+                emitLiveBuyFail(ts, sol, "MIN_SCORE_FLOOR_7239", scoreFloor7239.reason7239)
+                return
+            }
             val preTrade = PreTradeHardGate.requireLiveBuyAllowed(ts, "Executor.liveBuy.main")
             livePendingProofPenalty = preTrade.allowed && preTrade.detail.contains("pending_penalty", ignoreCase = true)
             if (livePendingProofPenalty) livePendingProofPenaltyDetail = preTrade.detail.take(180)
