@@ -1589,7 +1589,10 @@ object PipelineHealthCollector {
             sb.append(line("Canonical active mints (all modes):", (canonicalPaper6492.map { it.mint }.toSet() + canonicalLive6492.map { it.mint }.toSet()).size, "diagnostic union only")).append('\n')
             sb.append(line("Host wallet projection:", hostProjection, "LIVE wallet projection only; not paper authority")).append('\n')
             sb.append(line("LAB sandbox projection:", labProjection, "isolated hypotheses; never canonical inventory")).append('\n')
-            sb.append("  Read: canonical active mints are the only slot/capital inventory count; projections are diagnostics only.\n")
+            sb.append("  Held supervisor (§7246):     ")
+                .append(try { com.lifecyclebot.engine.HeldPositionSupervisor7246.statusLine() } catch (_: Throwable) { "unavailable" })
+                .append('\n')
+            sb.append("  Read: canonical active mints are the only slot/capital inventory count; HELD must report discoveryResident=0 after handoff.\n")
             sb.append('\n')
         } catch (_: Throwable) {}
 
