@@ -790,6 +790,44 @@ object FinalDecisionGate {
         // was permanently 0 because no call site emitted the phase
         // beacon. Zero happy-path cost.
         try { PipelineHealthCollector.recordBackgroundProgress6544("FDG") } catch (_: Throwable) {}
+        // V5.0.7232 §FDG_FANOUT_CAP — operator 7227 diagnosis:
+        //   laneEval/intake = 29.51,  FDG/intake = 10.86.
+        //   Authority invariants clean (EXECUTABLE_FANOUT_PER_CANDIDATE
+        //   _GT_2 = 0), so this is pure decision fanout, not economic
+        //   double-execution. Cap at 2 FDG evaluations per (mint,
+        //   causalRoot) so weak/probe candidates cannot survive by
+        //   attrition. IntakeFanoutGovernor6835 uses causalRoot =
+        //   candidateVersion (unique per fresh scan) so genuinely new
+        //   opportunities on the same mint are counted separately.
+        //   Returns short-circuit BLOCK when the cap is exceeded.
+        try {
+            val causalRoot7232 = "${candidate.entryScore.toInt()}:${candidate.phase.take(6)}"
+            val ok = com.lifecyclebot.engine.truth.IntakeFanoutGovernor6835.allowFdgEval(
+                mint = ts.mint,
+                causalRoot = causalRoot7232,
+            )
+            if (!ok) {
+                try {
+                    PipelineHealthCollector.labelInc("FDG_SUPPRESSED_FANOUT_CAP_7232")
+                } catch (_: Throwable) {}
+                return FinalDecision(
+                    shouldTrade = false,
+                    mode = if (authoritativePaperMode) TradeMode.PAPER else TradeMode.LIVE,
+                    approvalClass = ApprovalClass.BLOCKED,
+                    quality = candidate.setupQuality,
+                    confidence = candidate.aiConfidence,
+                    edge = EdgeVerdict.SKIP,
+                    blockReason = "FDG_FANOUT_CAP_7232",
+                    blockLevel = BlockLevel.EDGE,
+                    sizeSol = 0.0,
+                    tags = listOf("FDG_FANOUT_CAP_7232", "mint:${ts.mint.take(8)}"),
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    approvalReason = "cap 2 FDG evals per (mint,causalRoot); this is beyond cap",
+                    gateChecks = emptyList(),
+                )
+            }
+        } catch (_: Throwable) {}
         val checks = mutableListOf<GateCheck>()
         var blockReason: String? = null
         var blockLevel: BlockLevel? = null

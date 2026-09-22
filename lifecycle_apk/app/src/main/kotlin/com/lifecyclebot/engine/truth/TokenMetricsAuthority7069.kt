@@ -317,6 +317,25 @@ object TokenMetricsAuthority7069 {
                 )
             }
         } catch (_: Throwable) {}
+        // V5.0.7232 §MARK_IDENTITY_EXECUTION_GATE — feed the
+        //   identity-broken observation into MarkIdentityExecutionGate7230
+        //   so downstream execution consumers (SL/TP/trailing/normal-
+        //   stop/catastrophic/learning) can consult a single gate to
+        //   decide execution-eligibility. This bridge keeps the existing
+        //   telemetry policy (unverifiable_price_passes_through_untouched)
+        //   for observation while producing an execution-eligibility
+        //   verdict for callers that consult the gate. Venue key here is
+        //   the metrics source (e.g. PUMP_FUN_FRONTEND_API); a mark
+        //   bound only by symbol still fails the gate's blank-venue check.
+        try {
+            com.lifecyclebot.engine.truth.MarkIdentityExecutionGate7230.evaluate(
+                mint = mint,
+                poolOrVenueKey = source,
+                markIdentityBroken = true,
+                corroboratedByIndependentSource = false,
+                exitReasonOrContext = "TokenMetricsAuthority7069_identity_broken",
+            )
+        } catch (_: Throwable) {}
         return Metrics7069(price, mcap, storedSupply, repaired = false, verifiable = false)
     }
 

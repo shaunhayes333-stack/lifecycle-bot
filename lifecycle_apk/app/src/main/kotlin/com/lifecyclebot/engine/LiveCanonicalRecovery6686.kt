@@ -148,6 +148,26 @@ object LiveCanonicalRecovery6686 {
                         "mint=${mint.take(12)} raw=${amount.raw} decimals=${amount.decimals} action=retain_wallet_tracking_no_invented_basis",
                     )
                     PipelineHealthCollector.labelInc("LIVE_WALLET_CANONICAL_RECOVERY_BASIS_MISSING_6686")
+                    // V5.0.7232 §WALLET_CANONICAL_INVENTORY_HOOK — classify
+                    //   the wallet-observed mint. Missing basis = bot never
+                    //   opened it (or opened without sealing) => not
+                    //   BOT_CANONICAL_OPEN; pnlAllowed(mint) will return
+                    //   false at the UI/telemetry layer instead of
+                    //   fabricating a number from an unknown entry.
+                    com.lifecyclebot.engine.truth.WalletCanonicalInventoryClassifier7230.classify(
+                        mint = mint,
+                        botCanonicalOwned = false,
+                        sealedBasisPresent = false,
+                        externalWalletHolding = true,
+                        unsupportedProof = false,
+                        quarantineReason = "",
+                    )
+                    // Immediate consult so the classifier is not
+                    // dead-code: any wallet-observed PnL for a
+                    // basis-missing mint is suppressed here at the
+                    // recovery point. Result is telemetry-only; the UI
+                    // path decides whether to render "basis wait".
+                    com.lifecyclebot.engine.truth.WalletCanonicalInventoryClassifier7230.pnlAllowed(mint)
                 } catch (_: Throwable) {}
                 continue
             }

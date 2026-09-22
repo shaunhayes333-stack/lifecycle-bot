@@ -148,9 +148,30 @@ object CanonicalFinalizedTradeBus6464 {
         if (prev != null) {
             duplicates.incrementAndGet()
             try { PipelineHealthCollector.labelInc("FINALIZED_BUS_DUPLICATE_6464") } catch (_: Throwable) {}
+            // V5.0.7232 §SELL_OK_TRUTH — a duplicate publish is a
+            //   redispatch, not a unique successful sell. Feed the
+            //   observation into SellFinalityUniqueCounter7231 so the
+            //   operator's SELL_FINALITY_UNIQUE_7231 counter separates
+            //   re-entrant traffic from real terminal events (the
+            //   diagnosis was 920 SELL_OK vs 492 canonical closes).
+            try {
+                com.lifecyclebot.engine.truth.SellFinalityUniqueCounter7231.recordFinality(
+                    transactionSignature = env.economicEventId,
+                    canonicalCloseId = env.tradeId,
+                )
+            } catch (_: Throwable) {}
             return false
         }
         try { PipelineHealthCollector.labelInc("FINALIZED_BUS_PUBLISHED_6464") } catch (_: Throwable) {}
+        // V5.0.7232 §SELL_OK_TRUTH — record the unique finality at the
+        //   canonical publish point. Redispatch handled in the prev != null
+        //   branch above.
+        try {
+            com.lifecyclebot.engine.truth.SellFinalityUniqueCounter7231.recordFinality(
+                transactionSignature = env.economicEventId,
+                canonicalCloseId = env.tradeId,
+            )
+        } catch (_: Throwable) {}
         // V5.0.6831 §EXPRESS_EXIT_PRICE_INTEGRITY — if the EXPRESS exit
         //   integrity gate stamped this position non-trainable (bad quote,
         //   epsilon fill, price discontinuity, unresolved decimals, etc.)
