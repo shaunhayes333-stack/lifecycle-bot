@@ -549,7 +549,18 @@ object QualityTraderAI {
         // lane respects the same risk-cap + ladder + cash-cap + min-
         // executable pipeline. Parity-preserving: MIN(bridge, trader).
         val _qualityFinalSol = try {
-            val walletSolProxy = com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol().coerceAtLeast(0.0)
+            // V5.0.7231 §P0_LIVE_SIZING_WALLET_PROXY_AT_SOURCE
+            //   QualityTraderAI's downstream call passes paperMode=true
+            //   unconditionally so this branch always resolves to paper
+            //   cash today; kept the same shape as the other lane
+            //   traders so a future non-paper Quality call is safe.
+            val walletSolProxy = if (isPaperMode) {
+                com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol().coerceAtLeast(0.0)
+            } else {
+                val cached = try { com.lifecyclebot.engine.WalletManager.cachedSolBalance() } catch (_: Throwable) { 0.0 }
+                val status = try { com.lifecyclebot.engine.BotService.status.walletSol } catch (_: Throwable) { 0.0 }
+                (if (cached.isFinite() && cached > 0.0) cached else status).coerceAtLeast(0.0)
+            }
             val bridged = com.lifecyclebot.engine.truth.TraderSizingBridge6444.sizeForLane(
                 laneName = "QUALITY",
                 requestedSol = _qualitySizedSol,

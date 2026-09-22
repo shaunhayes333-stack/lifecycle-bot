@@ -1073,7 +1073,14 @@ object BlueChipTraderAI {
         // V5.0.6445 LANE TRADER WIRE-THROUGH — BlueChip sizing routed
         // through the canonical TraderSizingBridge6444 for lane-cap parity.
         val _blueChipFinalSol = try {
-            val walletSolProxy = com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol().coerceAtLeast(0.0)
+            // V5.0.7231 §P0_LIVE_SIZING_WALLET_PROXY_AT_SOURCE
+            val walletSolProxy = if (isPaperMode) {
+                com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol().coerceAtLeast(0.0)
+            } else {
+                val cached = try { com.lifecyclebot.engine.WalletManager.cachedSolBalance() } catch (_: Throwable) { 0.0 }
+                val status = try { com.lifecyclebot.engine.BotService.status.walletSol } catch (_: Throwable) { 0.0 }
+                (if (cached.isFinite() && cached > 0.0) cached else status).coerceAtLeast(0.0)
+            }
             val bridged = com.lifecyclebot.engine.truth.TraderSizingBridge6444.sizeForLane(
                 laneName = "BLUECHIP",
                 requestedSol = positionSol,

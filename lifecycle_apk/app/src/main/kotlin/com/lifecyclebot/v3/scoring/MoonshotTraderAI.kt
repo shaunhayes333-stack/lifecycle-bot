@@ -837,7 +837,19 @@ object MoonshotTraderAI {
         // the trader's own reductions. Wallet SOL sourced from canonical
         // paper cash (Moonshot's scoreToken has no wallet param).
         val _moonshotFinalSol = try {
-            val walletSolProxy = com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol().coerceAtLeast(0.0)
+            // V5.0.7231 §P0_LIVE_SIZING_WALLET_PROXY_AT_SOURCE — read the
+            //   live wallet directly when we're in live mode.  The
+            //   TraderSizingBridge6444 substitution was a downstream
+            //   safety net; the counter that must go to zero
+            //   (LIVE_SIZING_WALLET_PROXY_WAS_PAPER_CASH_7226) measures
+            //   what CALLERS pass in, so the fix has to land here.
+            val walletSolProxy = if (isPaper) {
+                com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol().coerceAtLeast(0.0)
+            } else {
+                val cached = try { com.lifecyclebot.engine.WalletManager.cachedSolBalance() } catch (_: Throwable) { 0.0 }
+                val status = try { com.lifecyclebot.engine.BotService.status.walletSol } catch (_: Throwable) { 0.0 }
+                (if (cached.isFinite() && cached > 0.0) cached else status).coerceAtLeast(0.0)
+            }
             val bridged = com.lifecyclebot.engine.truth.TraderSizingBridge6444.sizeForLane(
                 laneName = "MOONSHOT",
                 requestedSol = sizeSol,
