@@ -45,6 +45,29 @@ DECL_RE = re.compile(r"^\s*(?:@\w+\s+)*(?:public\s+|internal\s+|abstract\s+|seal
 # written in. Capturing the prefix is what makes the receiver unambiguous.
 CALL_RE = re.compile(r"(?:([a-z][\w.]*)\.)?\b([A-Z][A-Za-z0-9_]*)\.([a-z][A-Za-z0-9_]*)\s*\(")
 
+# V5.0.7217 — an EXTENSION FUNCTION DECLARATION is not a call.
+#
+#     fun FinalDecision.isProbe(): Boolean = approvalClass == ...
+#
+# reads as `Type.member(` to CALL_RE, so this guard reported
+# FinalDecisionGate.kt:100 as a static call on a class. It is a receiver type
+# in a declaration, it has compiled since the day it was written, and 5.0.7216
+# shipped green with it. The line only surfaced because an unrelated edit to
+# the same file put it back in the changed set — so this gate was one commit
+# away from blocking every future change to any file declaring an extension on
+# a class, for a defect that does not exist.
+#
+# A guard that cries wolf on working code gets switched off, which costs more
+# than the class of bug it was catching. Declarations are skipped; genuine
+# calls are untouched.
+EXT_DECL_RE = re.compile(
+    r"^\s*(?:@\w+(?:\([^)]*\))?\s*)*"
+    r"(?:(?:public|private|internal|protected|inline|suspend|operator|infix|tailrec|"
+    r"override|open|final|abstract|external|expect|actual)\s+)*"
+    r"fun\s+(?:<[^>]*>\s*)?([A-Z][A-Za-z0-9_]*)\.([a-z][A-Za-z0-9_]*)\s*\(",
+    re.M,
+)
+
 
 def declarations():
     """name -> list of (kind, path). Built once over the whole source tree."""
@@ -143,7 +166,12 @@ def main():
         this_pkg = (re.search(r"^package\s+([\w.]+)", text, re.M) or [None, ""])[1] \
             if re.search(r"^package\s+([\w.]+)", text, re.M) else ""
         imported_fqns = set(re.findall(r"^import\s+([\w.]+)", text, re.M))
+        # V5.0.7217 — (Type, member) pairs that this file DECLARES as extension
+        # functions. `fun Foo.bar(` is a receiver type, not a call on Foo.
+        ext_decls_7217 = set(EXT_DECL_RE.findall(text))
         for prefix, name, member in set(CALL_RE.findall(body)):
+            if (name, member) in ext_decls_7217:
+                continue
             # An explicit package prefix resolves the receiver by itself; a bare
             # name only resolves via same-package or an import.
             if not prefix and name in local:

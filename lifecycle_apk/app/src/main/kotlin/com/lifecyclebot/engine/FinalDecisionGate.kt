@@ -4556,7 +4556,48 @@ object FinalDecisionGate {
         val liveAdaptiveConf = getAdaptiveConfidence(isPaperMode = false, ts)
 
         val (approvalClass, approvalReason) = when {
-            !shouldTrade -> ApprovalClass.BLOCKED to "blocked: ${blockReason ?: "candidate_shouldTrade_false"}"
+            // V5.0.7217 §THE_CANDIDATE_WAS_CARRYING_ITS_OWN_REASON.
+            //
+            // 7213 stopped the seven gate call sites labelling a reasonless
+            // block "ok". This is the same defect one level up, and it is now
+            // the single largest bucket in the whole report — operator 5.0.7216:
+            //
+            //   FDG: allow=17 block=894
+            //   top block reasons: FDG/blocked:: 874
+            //   GATE_BLOCK/FDG PEPENOM blocked: candidate_shouldTrade_false
+            //
+            // 874 of 894 blocks, 98% of them, reported as
+            // "candidate_shouldTrade_false" — which is not a reason, it is the
+            // verdict restated. It says the candidate declined without saying
+            // why, and REJECT_TAXONOMY_UNKNOWN_REVIEW_4425 then files the whole
+            // lot as unclassifiable.
+            //
+            // `shouldTrade` is false here whenever this gate's OWN blockReason
+            // is null and `candidate.shouldTrade` is false. In that branch the
+            // local blockReason has nothing to say by construction — but
+            // CandidateDecision has carried a `blockReason: String` field
+            // since it was written, documented "Why blocked (empty if not
+            // blocked)" (Models.kt:740), and nothing here ever read it. The
+            // answer has been sitting on the object the whole time.
+            //
+            // The same snapshot shows what is in it: AATE_POLICY action=BLOCK
+            // pWin=0.498 EV=-5.0, and preFdg=NO_BUY on the FDG rows. Those are
+            // real, actionable causes — negative expected value, a pre-FDG
+            // no-buy — and they have been invisible behind a tautology.
+            //
+            // The tautology survives only as the last resort, for a producer
+            // that genuinely left the field blank. No gate decision changes:
+            // this branch already blocked and still blocks.
+            !shouldTrade -> ApprovalClass.BLOCKED to "blocked: ${
+                blockReason
+                    ?: candidate.blockReason.takeIf { it.isNotBlank() }
+                    ?: run {
+                        try {
+                            PipelineHealthCollector.labelInc("FDG_CANDIDATE_BLOCKED_WITHOUT_REASON_7217")
+                        } catch (_: Throwable) {}
+                        "candidate_shouldTrade_false"
+                    }
+            }"
             !config.paperMode -> ApprovalClass.LIVE to "live mode approval (adaptive conf: ${liveAdaptiveConf.toInt()}%)"
             else -> {
                 val wouldPassLiveEdge = edgeVerdict != EdgeVerdict.SKIP

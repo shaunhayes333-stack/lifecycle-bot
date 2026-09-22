@@ -117,7 +117,41 @@ class TokenMetaCache private constructor(ctx: Context) :
                 "last_seen_ms INTEGER NOT NULL DEFAULT 0," +
                 "hit_count INTEGER NOT NULL DEFAULT 0," +
                 "decimals INTEGER NOT NULL DEFAULT -1," +
-                "last_interacted_ms INTEGER NOT NULL DEFAULT 0" +
+                "last_interacted_ms INTEGER NOT NULL DEFAULT 0," +
+                // V5.0.7217 §THE_COLUMNS_EXISTED_IN_THE_MIGRATION_AND_NOWHERE_ELSE.
+                //
+                // V5.0.7069 added supply_tokens / supply_captured_ms to the
+                // ALTER list in onUpgrade, to the flush INSERT and to the
+                // warmStart SELECT — but NOT here, and it did not bump
+                // DB_VERSION. So any device whose database was created fresh
+                // while DB_VERSION was already 3 ran onCreate, got a table
+                // without these two columns, and can never run onUpgrade
+                // (3 -> 3 is not an upgrade). The columns are then permanently
+                // absent and EVERY flush throws.
+                //
+                // That is not hypothetical. The counter 7215 added found it on
+                // the first live run, which is the entire reason that counter
+                // exists:
+                //
+                //   TOKEN_META_FLUSH_FAILED_7215  rows=2507 dirtyAfterRequeue=2507
+                //     err=table token_meta has no column named supply_tokens
+                //         (code 1 SQLITE_ERROR[1]) ... while compiling:
+                //         INSERT OR REPLACE INTO token_meta(...)
+                //
+                // Every consequence in the same snapshot follows from it:
+                // dirty rows 2501 of 2501, total writes 39, decimals known
+                // 5.6%, pair addr known 1.6%, read hits 10 against 183 misses.
+                // The archive has never once survived a restart on this
+                // device, so the app has been re-earning every pool address
+                // and every decimals value from providers, every session,
+                // since 7069 shipped.
+                //
+                // onCreate now declares them, and DB_VERSION goes to 4 so the
+                // databases already stuck at 3 get the ALTERs. Both halves are
+                // needed: the schema for new installs, the version bump for
+                // the broken ones.
+                "supply_tokens REAL NOT NULL DEFAULT 0," +
+                "supply_captured_ms INTEGER NOT NULL DEFAULT 0" +
                 ");"
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_meta_last_seen ON token_meta(last_seen_ms DESC);")
@@ -612,7 +646,14 @@ class TokenMetaCache private constructor(ctx: Context) :
         private const val DB_NAME = "lifecycle_token_meta.db"
         // V5.0.6908 — 1 -> 2 adds decimals + last_interacted_ms. Safe to bump
         // now that onUpgrade migrates additively instead of dropping the table.
-        private const val DB_VERSION = 3
+        // V5.0.7217 — 3 -> 4. NOT a schema change for its own sake: the two
+        // 7069 columns were added to onUpgrade's ALTER list without a version
+        // bump, so onUpgrade never ran and databases created fresh at 3 have
+        // been failing every flush since. The bump is what delivers the ALTERs
+        // to those databases. onUpgrade is additive and idempotent (6908), so
+        // an archive that already has the columns is untouched and nothing is
+        // dropped.
+        private const val DB_VERSION = 4
         private const val MAX_LIVE_ROWS = 50_000
         private const val FLUSH_EVERY_N_HITS = 32L
 

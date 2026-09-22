@@ -658,6 +658,11 @@ object OrderSizeResolver6441 {
             minimumExecutableSol = minExec,
         )
         lastResolution.set(res)
+        // V5.0.7217 — record WHICH account this resolve sized against. See the
+        // note above statusLine: the trace could not distinguish a live resolve
+        // reading the paper bankroll from a LAB paper resolve doing so
+        // correctly, and those need opposite responses.
+        try { noteResolveAccount7217(paperMode, walletSol, laneName) } catch (_: Throwable) {}
         if (actuallyExec) executableCount.incrementAndGet() else skippedCount.incrementAndGet()
         // V5.0.7194 §THE_ONLY_THING_THAT_KNEW_WAS_NOT_ASKED.
         //
@@ -709,11 +714,68 @@ object OrderSizeResolver6441 {
      */
     fun skippedCount7214(): Long = skippedCount.get()
 
+    // V5.0.7217 §ONE_TRACE_LINE_THAT_CANNOT_SAY_WHICH_ACCOUNT_IT_SIZED.
+    //
+    // Operator 5.0.7216, a LIVE session whose wallet holds 0.1607 SOL:
+    //
+    //   Order size resolver (§6441): resolves=520 exec=520 skip=0
+    //     last=[req=0.69492 ... cashCap=11.76000 laneCap=5.00000 final=0.69492]
+    //   Runner compounding (§6440): queries=520 lastWalletSol=11.760
+    //                               recommendedSizeSol=1.000
+    //
+    // 11.76 SOL is the PAPER bankroll. A live resolve reading it would be the
+    // 7211 defect again in a third consumer, and it would explain a ladder
+    // recommending 1.0 SOL against a 0.16 SOL wallet.
+    //
+    // But `authoritativeCash` above is correctly mode-aware, and this same
+    // session runs ~500 LAB paper hypotheses through the resolver
+    // (LAB_SAME_MINT_HYPOTHESIS_COALESCED_6490=500), any of which would
+    // legitimately show the paper bankroll on a `last=` line. The status line
+    // records no mode, so the two readings are indistinguishable and I am not
+    // going to guess between them again — twice this session I have preferred
+    // a plausible chain to a measured one and been wrong.
+    //
+    // So the trace states which account it sized, and the live and paper
+    // resolves are counted apart. The next snapshot settles it: a non-zero
+    // liveResolves with a live wallet figure means the path is sound; a live
+    // resolve carrying the paper cash means the latch is back.
+    @Volatile private var lastPaperMode7217: Boolean? = null
+    @Volatile private var lastWalletSol7217: Double = 0.0
+    @Volatile private var lastLane7217: String = ""
+    private val liveResolves7217 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val paperResolves7217 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val liveMaxWalletSeen7217 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    private fun noteResolveAccount7217(paperMode: Boolean, walletSol: Double, lane: String) {
+        lastPaperMode7217 = paperMode
+        lastWalletSol7217 = walletSol
+        lastLane7217 = lane
+        if (paperMode) {
+            paperResolves7217.incrementAndGet()
+        } else {
+            liveResolves7217.incrementAndGet()
+            // Milli-SOL, so the worst live wallet figure the resolver was ever
+            // handed survives in an integer without a lock.
+            val milli = (walletSol * 1000.0).toLong()
+            var prev = liveMaxWalletSeen7217.get()
+            while (milli > prev && !liveMaxWalletSeen7217.compareAndSet(prev, milli)) {
+                prev = liveMaxWalletSeen7217.get()
+            }
+        }
+    }
+
     fun statusLine(): String {
         val n = totalResolves.get()
         val e = executableCount.get()
         val s = skippedCount.get()
         val last = lastResolution.get()?.trace() ?: "none"
-        return "resolves=$n exec=$e skip=$s last=[$last]"
+        val mode7217 = lastPaperMode7217?.let { if (it) "PAPER" else "LIVE" } ?: "none"
+        val liveMax7217 = liveMaxWalletSeen7217.get() / 1000.0
+        return "resolves=$n exec=$e skip=$s last=[$last] " +
+            "| lastAccount=$mode7217 lastWalletSol=${"%.4f".format(lastWalletSol7217)} " +
+            "lastLane=${lastLane7217.ifBlank { "-" }} " +
+            "liveResolves=${liveResolves7217.get()} paperResolves=${paperResolves7217.get()} " +
+            "liveMaxWalletSol=${"%.4f".format(liveMax7217)} " +
+            "read=a_LIVE_resolve_showing_the_paper_bankroll_is_the_7211_latch_in_a_third_consumer"
     }
 }
