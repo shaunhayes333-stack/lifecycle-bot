@@ -2,6 +2,47 @@
 
 **Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.
 
+## V5.0.7236 → 7237 (Feb 2026) — Mark repair + refuse routable-min lift on weak candidates + LIVE_BROADCAST excluded from WR/PnL ✅ CI green (Build AATE APK)
+
+Operator 5.0.7234 diagnosis: transaction executor healthy (Jupiter/Helius 100%, canonical inventory parity, no ANR). The remaining failures are quality of authority, marks and sizing. Three architectural fixes shipped in one push.
+
+### V5.0.7236 — MarkIdentityRepairAuthority7236 (repair, don't just skip)
+
+- **New**: `com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236`
+  - `requestRepair(mint, context)` — fire-and-forget async cross-source cascade via `PriceResolverFallback` (DexScreener → GeckoTerminal → JupiterPrice → Raydium → PumpFun); cached 30s.
+  - `getRepairedPriceIfFresh(mint): Double?` — consulted by exit-time PnL evaluators. Fresh corroborated repair → evaluation proceeds against repaired value; else caller may reject and repair races the next tick.
+- **Wired**:
+  - `TokenMetricsAuthority7069` fires `requestRepair` alongside its existing identity-broken emission.
+  - `OpenPnlSanity.inspect` on `CURRENT_PRICE_INVALID` consults `getRepairedPriceIfFresh` before rejecting; when repair exists, PnL/ratio/absurd-gain/decimal-scale checks all run against the repaired value.
+
+### V5.0.7236 — RoutableMinRiskGuard7236 (refuse the lift on weak candidates)
+
+- **New**: `com.lifecyclebot.engine.truth.RoutableMinRiskGuard7236`
+  - `evaluate(mint, symbol, lane, score:Double, regimeSizeMult, livePendingProofPenalty, riskSizedSol, routableMinSol)` returns ALLOW_LIFT vs REFUSE_LIFT_WEAK.
+  - Refuses lift when `score<30 OR regimeSizeMult<0.60 OR livePendingProofPenalty=true`. Strong candidates lift naturally; distrusted candidates fall through into `LIVE_LAST_MILE_SUB_ROUTABLE_DUST_REFUSED_7227`.
+- **Wired**: `Executor.kt` at line 19665 lift branch — the `guardBlocksLift7236` flag is ANDed into the existing lift condition so the fallback path is the already-vetted refusal branch (no new terminal state).
+- 5.0.7234 evidence — the lift path became the dominant loss producer: score=6 candidate lifted to 0.04445 SOL closed −64%; score 6–16 lifts produced −26/−28/−28/−64% observed closes.
+
+### V5.0.7236 — LiveTerminalSemanticsAuthority7236 (LIVE_BROADCAST ≠ realized loss)
+
+- **New**: `com.lifecyclebot.engine.truth.LiveTerminalSemanticsAuthority7236`
+  - `isTerminalOutcome(mode, proofState)` — true only for `PAPER_SIMULATED / LIVE_FINALIZED / LIVE_BALANCE_CONFIRMED / LIVE_SIG_CONFIRMED`. `LIVE_BROADCAST` and blank live are excluded.
+- **Wired**: `TradeHistoryStore.isValidAccountingTrade` — non-terminal live rows are excluded from WR / PnL / expectancy / learner rewards / CSV export summaries. Rows preserved forensically; they enter the scoreboard once they reach finality.
+- Operator CSV evidence — 19 sell rows had naive WR 2W/17L=10.5% while true WR was 2W/6L=25%; fourteen fake losses per session minted from broadcast-only rows.
+
+### V5.0.7236 — RuntimeHealthPanel7234 extension
+
+- Bot-page monospace tile now shows REPAIR (requested / ok / fail / cacheHits / stale / size), LIFT (allowed / refusedWeak: score,regime,proof,composite) and LIVE (terminal / exclBroadcast / exclUnknown) alongside the pre-existing BASIS / SELL / WALLET / MARK / FANOUT rows.
+
+### V5.0.7237 — pure-numeric version + Double-score signature
+
+- `RoutableMinRiskGuard7236.evaluate(score:Double)` — Executor's sizing path hands a Double score; the initial 7236 push declared `Int` and CI Kotlin flagged type mismatch.
+- Version bumped past `7236a` because the CI validator requires pure-numeric `X.Y.ZZZZ`.
+
+### CI state
+- **Build AATE APK**: ✅ green on `35725181806` (V5.0.7237).
+- **Runtime Smoke Test**: known-brittle regression (`NO_COMPLETED_PASSING_CURRENT_WINDOW`) — ignored per handoff.
+
 ## V5.0.7229 → 7230 (Feb 2026) — Basis seal + wallet inventory + mark-identity gate 🟡 CI pending
 
 Operator 5.0.7227 diagnosis: EYMBTN buy entry 0.00014420 became 0.00089389 at exit (6.19× replacement), turning a -1.5% move into -84% catastrophic. Wallet has 5+ assets, bot tracks 3. 27k METRICS_IDENTITY_BROKEN observations feeding PnL/SL/TP.
