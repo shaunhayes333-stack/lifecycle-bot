@@ -511,11 +511,15 @@ class BehaviorActivity : AppCompatActivity() {
             tvTenX.text = "${state.tenXCount}"
             tvHundredX.text = "${state.hundredXCount}"
             
-            // Session stats
-            tvSessionTrades.text = "${state.sessionTrades}"
-            tvSessionWins.text = "${state.sessionWins}"
-            tvSessionLosses.text = "${state.sessionLosses}"
-            tvSessionBigWins.text = "${state.sessionBigWins}"
+            // V5.0.7250 — BehaviorAI's counters intentionally update only for
+            // the legacy MEME tilt domain. Rendering those as whole-session
+            // truth made a 25-close run display 0/0/0/0. Read canonical closed
+            // positions for the UI while leaving tilt isolation unchanged.
+            val canonicalSession = com.lifecyclebot.engine.truth.CanonicalSessionOutcomeAuthority7250.snapshot()
+            tvSessionTrades.text = "${canonicalSession.trades}"
+            tvSessionWins.text = "${canonicalSession.wins}"
+            tvSessionLosses.text = "${canonicalSession.losses}"
+            tvSessionBigWins.text = "${canonicalSession.bigWins}"
             
             // Fluid adjustment
             // V5.9.1350 — include the MANUAL instinct-dial contribution so the panel

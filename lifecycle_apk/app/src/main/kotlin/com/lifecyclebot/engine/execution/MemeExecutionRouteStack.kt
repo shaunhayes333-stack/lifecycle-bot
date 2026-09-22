@@ -195,7 +195,7 @@ object MemeExecutionRouteStack {
 
     object HeliusSenderProvider : DeclaredSender("HeliusSender") {
         override fun supports(transaction: ExecutableRouteRequest): Support =
-            Support(transaction.senderCompatible, "requires prebuilt Jito-tip-compatible tx")
+            Support(transaction.senderCompatible, "requires proven CU-price + Helius-tip envelope")
     }
 
     object JitoSenderProvider : DeclaredSender("Jito") {

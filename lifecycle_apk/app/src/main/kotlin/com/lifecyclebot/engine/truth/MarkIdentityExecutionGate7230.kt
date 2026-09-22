@@ -55,6 +55,7 @@ object MarkIdentityExecutionGate7230 {
     private val venueMissing = AtomicLong(0L)
     private val executionSuppressed = AtomicLong(0L)
     private val executionAllowed = AtomicLong(0L)
+    private val repeatedSuppressionCoalesced7250 = AtomicLong(0L)
 
     // V5.0.7243 — suppression is runtime authority, not telemetry only.
     private data class ActiveSuppression7243(
@@ -63,10 +64,33 @@ object MarkIdentityExecutionGate7230 {
         val atMs: Long,
     )
     private val suppressedByMint7243 = ConcurrentHashMap<String, ActiveSuppression7243>()
+    private val lastSuppressionEvent7250 = ConcurrentHashMap<String, ActiveSuppression7243>()
+    private const val REPEAT_EVENT_WINDOW_MS_7250 = 5_000L
 
-    private fun rememberSuppressed7243(mint: String, reason: String, venueKey: String) {
-        if (mint.isBlank()) return
-        suppressedByMint7243[mint] = ActiveSuppression7243(reason, venueKey, System.currentTimeMillis())
+    /** Returns true only when authority changed; repeated polling stays safe
+     * but does not flood the forensic ring with the same transition. */
+    private fun rememberSuppressed7243(mint: String, reason: String, venueKey: String): Boolean {
+        if (mint.isBlank()) return true
+        val now = System.currentTimeMillis()
+        val current = suppressedByMint7243[mint]
+        suppressedByMint7243[mint] = ActiveSuppression7243(reason, venueKey, now)
+        if (current != null && current.reason == reason && current.venueKey == venueKey) {
+            repeatedSuppressionCoalesced7250.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("MARK_IDENTITY_REPEAT_COALESCED_7250") } catch (_: Throwable) {}
+            return false
+        }
+        // A repair consumer may temporarily clear active suppression and the
+        // next raw observation can correctly restore it. That safety-state
+        // oscillation must not emit dozens of identical forensic rows/second.
+        val priorEvent = lastSuppressionEvent7250[mint]
+        if (priorEvent != null && priorEvent.reason == reason && priorEvent.venueKey == venueKey &&
+            now - priorEvent.atMs < REPEAT_EVENT_WINDOW_MS_7250) {
+            repeatedSuppressionCoalesced7250.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("MARK_IDENTITY_REPEAT_COALESCED_7250") } catch (_: Throwable) {}
+            return false
+        }
+        lastSuppressionEvent7250[mint] = ActiveSuppression7243(reason, venueKey, now)
+        return true
     }
 
     fun suppressMint7243(mint: String, reason: String) {
@@ -113,42 +137,40 @@ object MarkIdentityExecutionGate7230 {
         // forbidden.  If the caller can't produce a pool/venue, we
         // suppress the mark for execution.
         if (poolOrVenueKey.isBlank()) {
-            venueMissing.incrementAndGet()
-            executionSuppressed.incrementAndGet()
-            rememberSuppressed7243(mint, "VENUE_MISSING", "")
+            val changed = rememberSuppressed7243(mint, "VENUE_MISSING", "")
+            if (changed) { venueMissing.incrementAndGet(); executionSuppressed.incrementAndGet() }
             try {
-                PipelineHealthCollector.labelInc("MARK_IDENTITY_SUPPRESSED_VENUE_MISSING_7230")
-                ForensicLogger.lifecycle(
-                    "MARK_IDENTITY_SUPPRESSED_VENUE_MISSING_7230",
-                    "mint=${mint.take(10)} context=$exitReasonOrContext " +
-                        "action=refuse_execution_use_advisory_only",
-                )
+                if (changed) {
+                    PipelineHealthCollector.labelInc("MARK_IDENTITY_SUPPRESSED_VENUE_MISSING_7230")
+                    ForensicLogger.lifecycle(
+                        "MARK_IDENTITY_SUPPRESSED_VENUE_MISSING_7230",
+                        "mint=${mint.take(10)} context=$exitReasonOrContext action=refuse_execution_use_advisory_only",
+                    )
+                }
             } catch (_: Throwable) {}
             return MarkDecision(Verdict.SUPPRESSED, "VENUE_MISSING", "")
         }
 
         if (markIdentityBroken) {
-            identityBroken.incrementAndGet()
-            executionSuppressed.incrementAndGet()
-            rememberSuppressed7243(mint, "IDENTITY_BROKEN", poolOrVenueKey)
+            val changed = rememberSuppressed7243(mint, "IDENTITY_BROKEN", poolOrVenueKey)
+            if (changed) { identityBroken.incrementAndGet(); executionSuppressed.incrementAndGet() }
             try {
-                PipelineHealthCollector.labelInc("MARK_IDENTITY_SUPPRESSED_BROKEN_7230")
-                ForensicLogger.lifecycle(
-                    "MARK_IDENTITY_SUPPRESSED_BROKEN_7230",
-                    "mint=${mint.take(10)} venue=$poolOrVenueKey " +
-                        "context=$exitReasonOrContext " +
-                        "action=refuse_execution_wait_for_corroboration",
-                )
+                if (changed) {
+                    PipelineHealthCollector.labelInc("MARK_IDENTITY_SUPPRESSED_BROKEN_7230")
+                    ForensicLogger.lifecycle(
+                        "MARK_IDENTITY_SUPPRESSED_BROKEN_7230",
+                        "mint=${mint.take(10)} venue=$poolOrVenueKey context=$exitReasonOrContext action=refuse_execution_wait_for_corroboration",
+                    )
+                }
             } catch (_: Throwable) {}
             return MarkDecision(Verdict.SUPPRESSED, "IDENTITY_BROKEN", poolOrVenueKey)
         }
 
         if (!corroboratedByIndependentSource) {
-            uncorroborated.incrementAndGet()
-            executionSuppressed.incrementAndGet()
-            rememberSuppressed7243(mint, "UNCORROBORATED", poolOrVenueKey)
+            val changed = rememberSuppressed7243(mint, "UNCORROBORATED", poolOrVenueKey)
+            if (changed) { uncorroborated.incrementAndGet(); executionSuppressed.incrementAndGet() }
             try {
-                PipelineHealthCollector.labelInc("MARK_IDENTITY_SUPPRESSED_UNCORROBORATED_7230")
+                if (changed) PipelineHealthCollector.labelInc("MARK_IDENTITY_SUPPRESSED_UNCORROBORATED_7230")
             } catch (_: Throwable) {}
             return MarkDecision(Verdict.SUPPRESSED, "UNCORROBORATED", poolOrVenueKey)
         }
@@ -185,6 +207,8 @@ object MarkIdentityExecutionGate7230 {
     internal fun clearForTest() {
         identityBroken.set(0L); uncorroborated.set(0L); venueMissing.set(0L)
         executionSuppressed.set(0L); executionAllowed.set(0L)
+        repeatedSuppressionCoalesced7250.set(0L)
         suppressedByMint7243.clear()
+        lastSuppressionEvent7250.clear()
     }
 }

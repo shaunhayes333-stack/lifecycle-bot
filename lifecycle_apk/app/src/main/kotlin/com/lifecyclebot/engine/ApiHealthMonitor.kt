@@ -140,6 +140,23 @@ object ApiHealthMonitor {
     }
 
     /**
+     * Transport availability for endpoints whose 4xx responses are commonly
+     * request-scoped (for example a Jupiter quote with no route). A reachable
+     * endpoint rejecting a candidate is not a provider outage. The ordinary
+     * successRate remains unchanged for route-quality diagnostics.
+     */
+    fun transportSuccessRate(host: String, requestScoped4xx: Boolean = false): Double {
+        val s = hosts[host.lowercase()] ?: return 1.0
+        if (!requestScoped4xx) return s.successRate()
+        val transportTotal = s.successes.get() + s.failures5xx.get() + s.networkErrors.get()
+        return if (transportTotal == 0) {
+            if (s.failures4xx.get() > 0) 1.0 else 1.0
+        } else s.successes.get().toDouble() / transportTotal.toDouble()
+    }
+
+    fun requestAcceptanceRate(host: String): Double = successRate(host)
+
+    /**
      * V5.0.6946 — has this host ever actually been contacted?
      *
      * successRate() deliberately fails OPEN at 1.0 for an unknown host so a

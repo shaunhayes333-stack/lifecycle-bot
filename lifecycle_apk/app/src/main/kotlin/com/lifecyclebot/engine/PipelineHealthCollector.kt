@@ -302,6 +302,9 @@ object PipelineHealthCollector {
     /** Started-at epoch ms (for uptime in dump). */
     private val startedAtMs = AtomicLong(0L)
 
+    /** Read-only current-session boundary for lightweight canonical UI views. */
+    fun sessionStartedAtMs7250(): Long = startedAtMs.get()
+
     // ════════════════════════════════════════════════════════════════
     // Event ring buffer — last N forensic events for clipboard export.
     // ════════════════════════════════════════════════════════════════
@@ -3498,7 +3501,9 @@ object PipelineHealthCollector {
                 for ((host, st) in sorted) {
                     val total = st.successes.get() + st.failures4xx.get() + st.failures5xx.get() + st.networkErrors.get()
                     if (total == 0) continue
-                    val sr = (st.successRate() * 100).toInt()
+                    val rawSr = (st.successRate() * 100).toInt()
+                    val candidateScoped4xx = host.equals("jupiter_quote", true)
+                    val sr = (ApiHealthMonitor.transportSuccessRate(host, candidateScoped4xx) * 100).toInt()
                     val avg = st.avgLatencyMs().toInt()
                     val icon = when {
                         sr >= 90 -> "✅"
@@ -3506,9 +3511,10 @@ object PipelineHealthCollector {
                         else     -> "🔴"
                     }
                     sb.append(String.format(
-                        "  %s %-14s sr=%3d%%  avg=%4dms  s=%-5d  4xx=%-3d  5xx=%-3d  net=%-3d\n",
-                        icon, host, sr, avg,
-                        st.successes.get(), st.failures4xx.get(), st.failures5xx.get(), st.networkErrors.get()
+                        "  %s %-14s %s=%3d%%  avg=%4dms  s=%-5d  4xx=%-3d  5xx=%-3d  net=%-3d%s\n",
+                        icon, host, if (candidateScoped4xx) "transport" else "sr", sr, avg,
+                        st.successes.get(), st.failures4xx.get(), st.failures5xx.get(), st.networkErrors.get(),
+                        if (candidateScoped4xx) " routeAcceptance=${rawSr}%" else ""
                     ))
                     val lastErr = st.lastErrorMessage.get()
                     if (lastErr != null && st.failures4xx.get() + st.failures5xx.get() + st.networkErrors.get() > 0) {
@@ -3521,8 +3527,9 @@ object PipelineHealthCollector {
         try {
             sb.append("\n===== Provider capability (execution truth) =====\n")
             fun lc(k: String): Long = labelCounts[k]?.get() ?: 0L
-            sb.append("  Helius role: HOT_PATH=false critical=false\n")
-            sb.append("  Helius degraded: ${if (!KeyValidator.isLive("helius")) "HELIUS_DEGRADED_NON_CRITICAL" else "ok"}\n")
+            sb.append("  Helius role: HOT_PATH=true(sender_for_proven_envelopes) critical=false(fallback=Jito/RPC)\n")
+            sb.append("  Helius Sender: envelopeProved=${lc("HELIUS_SENDER_ENVELOPE_PROVED_7250")} envelopeRefused=${lc("HELIUS_SENDER_ENVELOPE_REFUSED_7250")} attempts=${lc("HELIUS_SENDER_ATTEMPT_7248")} accepted=${lc("HELIUS_SENDER_ACCEPT_7248")} failed=${lc("HELIUS_SENDER_FAIL_7248")}\n")
+            sb.append("  Helius degraded: ${if (!KeyValidator.isLive("helius")) "HELIUS_DEGRADED_FALLBACK_AVAILABLE" else "ok"}\n")
             sb.append("  Jupiter quote/build/confirm: quoteFail=${lc("JUPITER_QUOTE_FAIL")} buildOk=${lc("JUPITER_SWAP_BUILD_OK")} confirmOk=${lc("JUPITER_CONFIRM_OK")} quoteRejected=${lc("JUPITER_QUOTE_REJECTED")}\n")
             sb.append("  Buy terminal: planOk=${lc("BUY_PLAN_OK")} execSelected=${lc("EXEC_SELECTED")} ticket=${lc("EXEC_TICKET_CREATED")} quoteReq=${lc("QUOTE_REQUESTED")} quoteOk=${lc("QUOTE_OK")} swapBuilt=${lc("SWAP_BUILT")} txSigned=${lc("TX_SIGNED")} txSubmitted=${lc("TX_SUBMITTED")} txConfirmed=${lc("TX_CONFIRMED")} pendingProof=${lc("BUY_PENDING_BALANCE_PROOF")} proofCommitted=${lc("LIVE_BUY_PROOF_SIDE_EFFECTS_COMMITTED_6637")} journaled=${lc("BUY_JOURNALED")} ok=${lc("BUY_TERMINAL_OK")} fail=${lc("BUY_TERMINAL_FAIL")} duplicateSuppressed=${lc("EXEC_DUPLICATE_SUPPRESSED")} backoff=${lc("EXEC_RETRY_BACKOFF_SET")}\n")
             if (lc("LIVE_BUY_PROOF_SIDE_EFFECTS_COMMITTED_6637") > lc("BUY_JOURNALED")) {

@@ -314,13 +314,11 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             return signature
         }
         
-        // V5.9.1524 — HELIUS SENDER FIRST. When useJito=true the router baked a
-        // Jito tip into this tx (PumpPortal priorityFee==tip / Jupiter prio fee),
-        // so it satisfies Sender's mandatory tip requirement. Sender dual-routes
-        // to validators + Jito and lands in ~1 slot — this is the primary cure
-        // for "broadcast times out / sells stick". On ANY Sender miss we fall
-        // straight through to the legacy Jito-bundle → RPC path below.
-        if (useJito && senderCompatible) {
+        // V5.0.7250 — HELIUS SENDER FIRST only after the v0 message has proved
+        // both AATE fee-contract instructions: Jupiter's CU price plus a locally
+        // appended Helius tip transfer. Sender is transport, not a swap builder;
+        // on any miss the same signed transaction falls through to Jito/RPC.
+        if (senderCompatible) {
             val senderSig = try {
                 com.lifecyclebot.network.HeliusSender.send(signedB64)
             } catch (_: Throwable) { null }

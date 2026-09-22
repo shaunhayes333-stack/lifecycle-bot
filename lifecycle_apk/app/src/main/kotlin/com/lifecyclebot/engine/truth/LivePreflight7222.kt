@@ -166,18 +166,24 @@ object LivePreflight7222 {
         }
 
         // 6. Providers the live buy path cannot do without.
-        fun provider(name: String, host: String, floorPct: Double): Check {
+        fun provider(name: String, host: String, floorPct: Double, requestScoped4xx: Boolean = false): Check {
             val has = com.lifecyclebot.engine.ApiHealthMonitor.hasSamples(host)
             if (!has) return Check(name, Verdict.UNKNOWN, "$host: no samples this session")
-            val broken = com.lifecyclebot.engine.ApiHealthMonitor.isCircuitBroken(host)
-            val pct = pctOf(com.lifecyclebot.engine.ApiHealthMonitor.successRate(host))
+            val rawPct = pctOf(com.lifecyclebot.engine.ApiHealthMonitor.requestAcceptanceRate(host))
+            val pct = pctOf(com.lifecyclebot.engine.ApiHealthMonitor.transportSuccessRate(host, requestScoped4xx))
+            // Candidate-scoped Jupiter 4xx means "no route for this request",
+            // not "Jupiter is down". ApiBackoff applies the same distinction.
+            val broken = com.lifecyclebot.engine.ApiHealthMonitor.isCircuitBroken(host) && !requestScoped4xx
+            val detail = if (requestScoped4xx) {
+                "$host: transport=${"%.0f".format(pct)}% routeAcceptance=${"%.0f".format(rawPct)}% (candidate 4xx excluded from outage health)"
+            } else "$host: sr=${"%.0f".format(pct)}%"
             return when {
-                broken -> Check(name, Verdict.REFUSE, "$host: circuit OPEN sr=${"%.0f".format(pct)}%")
-                pct >= floorPct -> Check(name, Verdict.PASS, "$host: sr=${"%.0f".format(pct)}%")
-                else -> Check(name, Verdict.REFUSE, "$host: sr=${"%.0f".format(pct)}% < ${floorPct.toInt()}% — live quotes/sends will fail at this rate")
+                broken -> Check(name, Verdict.REFUSE, "$detail circuit=OPEN")
+                pct >= floorPct -> Check(name, Verdict.PASS, detail)
+                else -> Check(name, Verdict.REFUSE, "$detail < ${floorPct.toInt()}% — provider/network failures will prevent execution")
             }
         }
-        checks += check("JUPITER_QUOTE") { provider("JUPITER_QUOTE", "jupiter_quote", 50.0) }
+        checks += check("JUPITER_QUOTE") { provider("JUPITER_QUOTE", "jupiter_quote", 50.0, requestScoped4xx = true) }
         checks += check("JUPITER_SEND") { provider("JUPITER_SEND", "jupiter_send", 50.0) }
         checks += check("HELIUS") { provider("HELIUS", "helius", 50.0) }
 

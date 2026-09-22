@@ -3,6 +3,14 @@
 
 ---
 
+## V5.0.7250 — Helius Sender contract and runtime truth
+
+- Constructs a Solana v0 Sender envelope with both a Compute Budget unit-price instruction and a transfer to a published Helius tip account before signing.
+- Routes only binary-validated envelopes through Helius Sender; falls back to Jito/RPC on refusal without weakening confirmation or safety checks.
+- Separates Jupiter candidate-route 4xx responses from provider/network health in live preflight and diagnostics.
+- Displays current-session canonical closes in Neural Personality while the bot is running.
+- Coalesces repeated mark-identity suppression events while preserving the active execution block.
+
 # Version 5.2 - "To The Moon" Edition
 **Release Date**: March 2026
 

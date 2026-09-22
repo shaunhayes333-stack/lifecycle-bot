@@ -17,11 +17,12 @@ import java.util.concurrent.TimeUnit
  *     params:[ <base64 signed tx>, { encoding:"base64", skipPreflight:true, maxRetries:0 } ] }
  *
  * Sender is available without API credits, but is not economically free: the
- * transaction still pays its tip and priority fee. HARD REQUIREMENT: the signed
- * tx MUST already carry a Jito tip (≥0.000005 SOL for swqos_only) AND a priority
- * fee, and we MUST pass skipPreflight=true. Our routers (PumpPortal priorityFee
- * == Jito tip; Jupiter prioritizationFeeLamports) bake the tip in at build time,
- * so we never do tx surgery here.
+ * signed tx must carry a Sender tip (≥0.000005 SOL for swqos_only). Helius
+ * recommends a priority fee for landing quality; AATE's stricter internal
+ * contract requires both. Jupiter builds the compute-unit price and
+ * HeliusSenderEnvelope7250 appends a published Helius tip transfer before
+ * wallet signing. This send-only class accepts only transactions whose caller
+ * has received that proven compatibility stamp.
  *
  * This is a SEND-ONLY helper: it returns the signature string on accept. The
  * caller still confirms on-chain via the normal getSignatureStatuses poll —
@@ -44,9 +45,7 @@ object HeliusSender {
     }
 
     // Only SolanaWallet calls Sender for transactions explicitly tagged
-    // senderCompatible=true. V5.0.7249 deliberately leaves Jupiter /swap
-    // transactions untagged: its public builder has not proved both mandatory
-    // fee instructions. Other builders may opt in only when they prove both.
+    // senderCompatible=true after binary envelope validation.
     @Volatile var senderEnabled: Boolean = true
 
     @Volatile var lastError: String? = null
@@ -74,8 +73,8 @@ object HeliusSender {
                 .put(
                     JSONObject()
                         .put("encoding", "base64")
-                        .put("skipPreflight", true)   // mandatory for Sender
-                        .put("maxRetries", 0)         // mandatory for Sender
+                        .put("skipPreflight", true)   // latency policy; local simulation already ran
+                        .put("maxRetries", 0)         // AATE owns fallback/retry routing
                 )
             val payload = JSONObject()
                 .put("jsonrpc", "2.0")

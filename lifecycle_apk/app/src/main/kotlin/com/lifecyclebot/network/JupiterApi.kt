@@ -48,8 +48,8 @@ data class SwapTxResult(
     // Jupiter chose via simulation; incurred = the actual simulated slip.
     val dynSlipPickedBps: Int = -1,
     val dynSlipIncurredBps: Int = -1,
-    // V5.0.3690 — true only when Jupiter built the transaction with a real
-    // Jito tip transfer instruction for Helius Sender compatibility.
+    // True only after the binary v0 transaction proves a CU price and carries
+    // the locally-appended Helius tip transfer required by Sender.
     val senderCompatible: Boolean = false,
     val senderTipLamports: Long = 0L,
 )
@@ -442,20 +442,38 @@ class JupiterApi(private val apiKey: String = "") {
             senderTipLamports = senderTipLamports,
             senderComputeUnitPriceMicroLamports = senderComputeUnitPriceMicroLamports,
         )
+        val senderEnvelope = if (senderTipLamports >= HeliusSenderEnvelope7250.MIN_SWQOS_TIP_LAMPORTS) {
+            try {
+                HeliusSenderEnvelope7250.build(v6.first, userPublicKey, senderTipLamports).also {
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_SENDER_ENVELOPE_PROVED_7250")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "HELIUS_SENDER_ENVELOPE_PROVED_7250",
+                            "tipLamports=${it.tipLamports} tipAccount=${it.tipAccount.take(10)} " +
+                                "cuPrice=${it.hasComputeUnitPrice} wireBytes=${it.wireBytes}",
+                        )
+                    } catch (_: Throwable) {}
+                }
+            } catch (t: Throwable) {
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_SENDER_ENVELOPE_REFUSED_7250")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "HELIUS_SENDER_ENVELOPE_REFUSED_7250",
+                        "reason=${t.message?.replace(' ', '_')?.take(100)} action=normal_jupiter_jito_rpc_fallback",
+                    )
+                } catch (_: Throwable) {}
+                null
+            }
+        } else null
         return SwapTxResult(
-            txBase64 = v6.first,
+            txBase64 = senderEnvelope?.txBase64 ?: v6.first,
             requestId = "",
             router = "metis",
             isRfqRoute = false,
             dynSlipPickedBps = v6.second,
             dynSlipIncurredBps = v6.third,
-            // V5.0.7249 — Jupiter's public /swap builder accepts a Jito tip OR
-            // a compute-unit priority fee, not a proven combination of both.
-            // Helius Sender requires both. A tip-only envelope must therefore
-            // never be labelled Sender-compatible; it will use Jito plus the
-            // configured Helius RPC broadcast ladder instead.
-            senderCompatible = false,
-            senderTipLamports = senderTipLamports,
+            senderCompatible = senderEnvelope?.hasComputeUnitPrice == true,
+            senderTipLamports = senderEnvelope?.tipLamports ?: 0L,
         )
     }
 
@@ -537,16 +555,11 @@ class JupiterApi(private val apiKey: String = "") {
             put("userPublicKey", userPublicKey)
             put("wrapAndUnwrapSol", true)
             put("dynamicComputeUnitLimit", true)
-            if (senderTipLamports >= 200_000L) {
-                // V5.0.3727 — Jupiter /swap fee-param source fix.
-                // Runtime 5.0.3725 produced HTTP 400:
-                // "Compute unit price and prioritization fee are mutually exclusive".
-                // Jupiter treats prioritizationFeeLamports (including jitoTipLamports)
-                // and computeUnitPriceMicroLamports as mutually-exclusive fee modes.
-                // For sender/Jito compatibility we request the Jito tip instruction here
-                // and DO NOT also send computeUnitPriceMicroLamports. Non-Jito builds use
-                // prioritizationFeeLamports="auto" below.
-                put("prioritizationFeeLamports", JSONObject().put("jitoTipLamports", senderTipLamports))
+            if (senderTipLamports >= HeliusSenderEnvelope7250.MIN_SWQOS_TIP_LAMPORTS) {
+                // Sender needs BOTH a CU price and a Helius tip. Jupiter /swap
+                // can encode one prioritization mode, so it builds the CU price;
+                // HeliusSenderEnvelope7250 appends the tip locally before signing.
+                put("computeUnitPriceMicroLamports", senderComputeUnitPriceMicroLamports.coerceAtLeast(1L))
             } else {
                 put("prioritizationFeeLamports", "auto")
             }
