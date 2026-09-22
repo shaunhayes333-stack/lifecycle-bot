@@ -186,10 +186,5 @@ object WalletCanonicalInventoryClassifier7230 {
         pnlSuppressedCount.set(0L); pnlAllowedCount.set(0L)
     }
 
-    private data class Quadruple<A, B, C, D>(val a: A, val b: B, val c: C, val d: D) {
-        operator fun component1(): A = a
-        operator fun component2(): B = b
-        operator fun component3(): C = c
-        operator fun component4(): D = d
-    }
+    private data class Quadruple<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
 }

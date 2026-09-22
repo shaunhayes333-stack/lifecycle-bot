@@ -812,7 +812,11 @@ object FinalDecisionGate {
                 } catch (_: Throwable) {}
                 return FinalDecision(
                     shouldTrade = false,
-                    mode = if (authoritativePaperMode) TradeMode.PAPER else TradeMode.LIVE,
+                    // V5.0.7232 — fanout cap fires before `authoritativePaperMode`
+                    //   is computed lower in the function.  Read the config
+                    //   directly; the mode value on a blocked decision is not
+                    //   used for economic settlement.
+                    mode = if (config.paperMode) TradeMode.PAPER else TradeMode.LIVE,
                     approvalClass = ApprovalClass.BLOCKED,
                     quality = candidate.setupQuality,
                     confidence = candidate.aiConfidence,
