@@ -12457,7 +12457,8 @@ class Executor(
                     traderTag = "MEME",
                 ) ?: return
                 val quote  = getQuoteWithSlippageGuard(JupiterApi.SOL_MINT, ts.mint,
-                                                        jupiterTopUpPlan.lamports, c.slippageBps, jupiterTopUpPlan.solAmount)
+                                                        jupiterTopUpPlan.lamports, c.slippageBps, jupiterTopUpPlan.solAmount,
+                                                        buyTaker = wallet.publicKeyB58)  // V5.0.7241
                 val qGuard = security.validateQuote(quote, isBuy = true, inputSol = jupiterTopUpPlan.solAmount)
                 if (qGuard is GuardResult.Block) {
                     onLog("🚫 Top-up quote rejected: ${qGuard.reason}", ts.mint); return
@@ -20012,6 +20013,7 @@ class Executor(
                     quote = getQuoteWithSlippageGuard(
                         JupiterApi.SOL_MINT, ts.mint, jupiterBuyPlan.lamports,
                         slip.coerceAtMost(500), jupiterBuyPlan.solAmount,
+                        buyTaker = wallet.publicKeyB58,  // V5.0.7241 — bind at quote time
                     )
                     if (quote != null) {
                         if (slip != buyBaseSlippage) onLog("BUY: quote OK at ${slip}bps slippage", ts.mint)
@@ -28479,6 +28481,7 @@ class Executor(
         inputSol: Double = 0.0,
         isBuy: Boolean = true,
         sellTaker: String? = null,  // V5.9.468 — pubkey for taker-bound binding sell order
+        buyTaker: String? = null,   // V5.0.7241 — pubkey for taker-bound binding BUY order
     ): com.lifecyclebot.network.SwapQuote {
         if (!isBuy) {
             // V5.9.468 — RCA fix: previously called getQuote() (non-binding /order
@@ -28495,7 +28498,15 @@ class Executor(
                 jupiter.getQuote(inMint, outMint, amount, slippageBps)
             }
         }
-        val validated = slippageGuard.validateQuote(inMint, outMint, amount, slippageBps, inputSol)
+        // V5.0.7241 — SOURCE FIX for the exact sibling of the V5.9.468 sell
+        // bug on the BUY side. Runtime 7240 showed quoteOk=3/swapBuilt=0:
+        // the non-binding phase-1 Ultra quote always "succeeds", then
+        // buildUltraTx's fresh taker-bound phase-2 /order call gets RFQ-
+        // declined with nothing upstream ever seeing it. Passing buyTaker
+        // makes SlippageGuard request the binding order AT QUOTE TIME so
+        // an RFQ decline surfaces here as a quote failure (retryable/
+        // escalatable) instead of a silent dead end at the builder.
+        val validated = slippageGuard.validateQuote(inMint, outMint, amount, slippageBps, inputSol, buyTaker)
         if (!validated.isValid) {
             throw Exception(validated.rejectReason)
         }

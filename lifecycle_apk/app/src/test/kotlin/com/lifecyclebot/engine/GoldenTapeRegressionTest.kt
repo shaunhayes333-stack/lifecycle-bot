@@ -9427,4 +9427,48 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("MEME_REGISTRY_RESTORE_SOURCE_QUARANTINED_7228") && bot.contains("action=skip_restore_intake_preserve_registry"))
     }
 
+    /**
+     * V5.0.7241 — LIVE BUY quote must be taker-bound, mirroring the V5.9.468
+     * sell-side fix. Runtime 7240 showed quoteOk=3/swapBuilt=0: the BUY path's
+     * quote was a non-binding phase-1 Ultra /order that always "succeeds",
+     * so the RFQ decline only ever surfaced later, inside buildUltraTx's
+     * fresh taker-bound phase-2 call — a silent, unrecoverable dead end at
+     * the builder. Both live BUY call sites (main ladder + top-up) must
+     * pass buyTaker through to SlippageGuard so an RFQ decline is visible
+     * and retryable AT QUOTE TIME, and a successful bind must short-circuit
+     * buildUltraTx via the cached requestId/swapTransaction rather than
+     * re-rolling a second network call the builder cannot see coming.
+     */
+    @Test
+    fun V5_0_7241_live_buy_quote_is_taker_bound_not_phase_one_only() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val slippageGuard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SlippageGuard.kt").readText()
+        val jupiter = java.io.File("src/main/kotlin/com/lifecyclebot/network/JupiterApi.kt").readText()
+
+        // getQuoteWithSlippageGuard's BUY branch must route through buyTaker,
+        // not the bare non-binding jupiter.getQuote() path.
+        val buyBranch = exec.substring(
+            exec.indexOf("private fun getQuoteWithSlippageGuard"),
+            exec.indexOf("return validated.quote") + 40
+        )
+        assertTrue(buyBranch.contains("buyTaker: String? = null"))
+        assertTrue(buyBranch.contains("slippageGuard.validateQuote(inMint, outMint, amount, slippageBps, inputSol, buyTaker)"))
+
+        // Both live BUY call sites must supply the wallet pubkey as buyTaker.
+        assertTrue(exec.contains("buyTaker = wallet.publicKeyB58,  // V5.0.7241"))
+        assertTrue(exec.contains("buyTaker = wallet.publicKeyB58)  // V5.0.7241"))
+
+        // SlippageGuard must request the binding order at quote time when a
+        // buyTaker is supplied, not the plain non-binding getQuote().
+        assertTrue(slippageGuard.contains("fun validateQuote(") && slippageGuard.contains("buyTaker: String? = null"))
+        assertTrue(slippageGuard.contains("jupiter.getQuoteWithTaker(inputMint, outputMint, amountLamports, slippageBps, buyTaker)"))
+
+        // getQuoteWithTaker must still require + surface both requestId and
+        // swapTransaction so buildUltraTx's short-circuit is guaranteed to
+        // fire on a bound quote (no silent blank-order regression).
+        assertTrue(jupiter.contains("fun getQuoteWithTaker("))
+        assertTrue(jupiter.contains("""Jupiter v2 order returned empty requestId"""))
+        assertTrue(jupiter.contains("""Jupiter v2 order returned empty transaction"""))
+    }
+
 }

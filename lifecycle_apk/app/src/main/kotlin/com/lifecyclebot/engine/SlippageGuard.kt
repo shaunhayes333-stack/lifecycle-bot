@@ -41,6 +41,19 @@ class SlippageGuard(private val jupiter: JupiterApi) {
     /**
      * Get two quotes and validate they're within tolerance.
      * Returns a ValidatedQuote — check .isValid before proceeding.
+     *
+     * V5.0.7241 — SOURCE FIX. [buyTaker] must be the buyer's wallet pubkey
+     * for a LIVE BUY. Without it this fell through to [JupiterApi.getQuote],
+     * a non-binding "phase 1" Ultra /order (no taker) that always succeeds
+     * even when the RFQ market maker will refuse the actual trade — the
+     * exact V5.9.468 bug class that was already fixed on the SELL side via
+     * [JupiterApi.getQuoteWithTaker] but never ported to BUY. Runtime 7240
+     * showed the resulting split: quoteOk=3 (phase-1 "always succeeds"
+     * quote) but swapBuilt=0 (buildUltraTx's phase-2 binding /order, made
+     * fresh inside the builder, gets RFQ-declined every time). Requesting
+     * the binding order AT QUOTE TIME surfaces the real accept/reject here,
+     * and — on acceptance — caches requestId+swapTransaction on the quote
+     * so buildUltraTx short-circuits instead of re-rolling the dice.
      */
     fun validateQuote(
         inputMint: String,
@@ -48,11 +61,12 @@ class SlippageGuard(private val jupiter: JupiterApi) {
         amountLamports: Long,
         slippageBps: Int,
         inputSol: Double,
+        buyTaker: String? = null,
     ): ValidatedQuote {
         ErrorLogger.info("SlippageGuard", "🔍 Validating quote: ${outputMint.take(8)}... amt=${inputSol}SOL")
         
         // First quote - with retry for network errors
-        val q1 = getQuoteWithRetry(inputMint, outputMint, amountLamports, slippageBps, "Quote 1")
+        val q1 = getQuoteWithRetry(inputMint, outputMint, amountLamports, slippageBps, "Quote 1", buyTaker)
             ?: return ValidatedQuote(
                 com.lifecyclebot.network.SwapQuote(raw = org.json.JSONObject(), outAmount = 0L, priceImpactPct = 0.0),
                 false, 0.0, 0.0,
@@ -61,11 +75,22 @@ class SlippageGuard(private val jupiter: JupiterApi) {
 
         ErrorLogger.debug("SlippageGuard", "Quote 1 OK: out=${q1.outAmount}")
 
+        // V5.0.7241 — a taker-bound binding quote is already execution-ready
+        // (requestId + swapTransaction cached). Re-quoting 800ms later for
+        // divergence purely adds a second chance for the RFQ maker to
+        // decline, and the cached binding tx would be discarded anyway
+        // (buildResult picks the worse of q1/q2 by outAmount, not by
+        // bindability). Skip the second roundtrip for bound Ultra buys;
+        // sells keep the existing two-quote divergence check unchanged.
+        if (!buyTaker.isNullOrBlank() && q1.requestId.isNotBlank() && q1.swapTransaction.isNotBlank()) {
+            return buildResult(q1, q1, inputSol)
+        }
+
         // Wait — let market settle (reduced from 2s to 1s)
         Thread.sleep(QUOTE_DELAY_MS)
 
         // Second quote - with retry for network errors
-        val q2 = getQuoteWithRetry(inputMint, outputMint, amountLamports, slippageBps, "Quote 2")
+        val q2 = getQuoteWithRetry(inputMint, outputMint, amountLamports, slippageBps, "Quote 2", buyTaker)
             ?: return buildResult(q1, q1, inputSol).also {
                 ErrorLogger.warn("SlippageGuard", "⚠️ Quote 2 failed, using Quote 1 only")
             }
@@ -78,6 +103,9 @@ class SlippageGuard(private val jupiter: JupiterApi) {
     /**
      * Get a quote with retry logic for transient network errors.
      * Retries up to 3 times with exponential backoff.
+     *
+     * V5.0.7241 — [buyTaker] non-blank routes through [JupiterApi.getQuoteWithTaker]
+     * so a LIVE BUY quote is binding at quote time, matching the sell-side fix.
      */
     private fun getQuoteWithRetry(
         inputMint: String,
@@ -85,6 +113,7 @@ class SlippageGuard(private val jupiter: JupiterApi) {
         amountLamports: Long,
         slippageBps: Int,
         label: String,
+        buyTaker: String? = null,
     ): SwapQuote? {
         var lastError: Exception? = null
         val maxRetries = 3
@@ -92,7 +121,11 @@ class SlippageGuard(private val jupiter: JupiterApi) {
         
         for (attempt in 1..maxRetries) {
             try {
-                return jupiter.getQuote(inputMint, outputMint, amountLamports, slippageBps)
+                return if (!buyTaker.isNullOrBlank()) {
+                    jupiter.getQuoteWithTaker(inputMint, outputMint, amountLamports, slippageBps, buyTaker)
+                } else {
+                    jupiter.getQuote(inputMint, outputMint, amountLamports, slippageBps)
+                }
             } catch (e: Exception) {
                 lastError = e
                 val isNetworkError = e.message?.contains("resolve host") == true ||
