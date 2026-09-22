@@ -187,6 +187,31 @@ class SmartSizerV3(
         /** Minimum routable positions a wallet must carry before the share
          *  guard widens. Two, so concentration can never exceed a half. */
         private const val MIN_ROUTABLE_CAPACITY_7218 = 2
+
+        /**
+         * V5.0.7238 — ONE LIVE RESERVE ANSWER.
+         *
+         * The V3 wallet path historically subtracted a fixed 0.05 SOL while
+         * Executor reserved only 0.012 SOL. On a 0.126 SOL wallet that split
+         * produced contradictory answers: V3/preflight saw 0.076 SOL tradeable
+         * and refused every ~0.043 SOL routable ticket, while Executor still had
+         * >0.11 SOL available after its real transaction reserve.
+         *
+         * Preserve the configured reserve on funded wallets, but cap the reserve
+         * to 10% of a small wallet with the executor's 0.012 SOL operational
+         * floor. Every live sizing/preflight consumer must use this helper.
+         */
+        private const val LIVE_OPERATIONAL_RESERVE_MIN_SOL_7238 = 0.012
+
+        fun effectiveLiveReserveSol7238(
+            totalSol: Double,
+            configuredReserveSol: Double = 0.05,
+        ): Double {
+            val wallet = totalSol.takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 0.0
+            val configured = configuredReserveSol.takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 0.05
+            val smallWalletCap = maxOf(LIVE_OPERATIONAL_RESERVE_MIN_SOL_7238, wallet * 0.10)
+            return minOf(configured, smallWalletCap).coerceAtMost(wallet)
+        }
     }
 
     /**

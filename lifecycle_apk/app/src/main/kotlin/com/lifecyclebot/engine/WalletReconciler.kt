@@ -94,7 +94,60 @@ object WalletReconciler {
                 }
                 continue
             }
-            // ts is missing or position.isOpen == false → orphan recovery.
+            // V5.0.7238 — a wallet balance is NOT proof that the bot
+            // opened a trade. The old branch converted every non-zero wallet
+            // token (including RENDER/WBTC/external holdings and spam ATAs) into
+            // a WALLET_RECOVERED Position, so the main Open Positions panel
+            // displayed trades that never happened.
+            //
+            // Only recover into the bot position book when durable bot lineage
+            // exists. External wallet inventory stays visible to the wallet
+            // tracker/classifier, but it is not a bot OPEN position and cannot
+            // manufacture basis/PnL/TP/SL.
+            val canonicalOwn7238 = try {
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+                    .openPositions().any { it.mint == mint && it.mode.equals("live", true) }
+            } catch (_: Throwable) { false }
+            val pendingOwn7238 = try {
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
+                    .pendingEntryPositions6461().any {
+                        it.mint == mint && it.mode.equals("live", true) &&
+                            it.entryCostSol.isFinite() && it.entryCostSol > 0.0 &&
+                            it.entryPriceUsd.isFinite() && it.entryPriceUsd > 0.0
+                    }
+            } catch (_: Throwable) { false }
+            val fillOwn7238 = try {
+                CanonicalBuyFillRegistry.get(mint)?.let {
+                    it.solSpentNet.isFinite() && it.solSpentNet > 0.0
+                } == true
+            } catch (_: Throwable) { false }
+            val persistedOwn7238 = try {
+                PositionPersistence.loadPositions()[mint]?.let {
+                    !it.isPaperPosition && it.costSol.isFinite() && it.costSol > 0.0 &&
+                        it.entryPrice.isFinite() && it.entryPrice > 0.0
+                } == true
+            } catch (_: Throwable) { false }
+
+            if (!(canonicalOwn7238 || pendingOwn7238 || fillOwn7238 || persistedOwn7238)) {
+                try {
+                    com.lifecyclebot.engine.truth.WalletCanonicalInventoryClassifier7230.classify(
+                        mint = mint,
+                        botCanonicalOwned = false,
+                        sealedBasisPresent = false,
+                        externalWalletHolding = true,
+                        unsupportedProof = false,
+                        quarantineReason = "",
+                    )
+                    ForensicLogger.lifecycle(
+                        "EXTERNAL_WALLET_HOLDING_NOT_OPEN_POSITION_7238",
+                        "mint=${mint.take(12)} qty=$uiAmount decimals=$decimals action=wallet_only_no_bot_position",
+                    )
+                    PipelineHealthCollector.labelInc("EXTERNAL_WALLET_HOLDING_NOT_OPEN_POSITION_7238")
+                } catch (_: Throwable) {}
+                continue
+            }
+
+            // Proven bot lineage: rehydrate the execution-owned position.
             recoverOrphanPosition(status, mint, uiAmount, ts)
             changes++
         }

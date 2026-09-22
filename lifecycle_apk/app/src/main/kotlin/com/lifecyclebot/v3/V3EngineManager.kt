@@ -144,7 +144,7 @@ object V3EngineManager {
                     fatalRugThreshold = 90,
                     candidateTtlMinutes = 20,
                     shadowTrackNearMissMin = 5,
-                    reserveSol = 0.05,
+                    reserveSol = botCfg.walletReserveSol,
                     maxSmallSizePct = 0.04,
                     maxStandardSizePct = 0.07,
                     maxAggressiveSizePct = if (botCfg.v3ConservativeMode) 0.08 else 0.12,
@@ -426,7 +426,12 @@ object V3EngineManager {
 
             val candidate = V3Adapter.toCandidate(ts)
 
-            val reserveSol = config?.reserveSol ?: 0.05
+            val configuredReserveSol = config?.reserveSol ?: 0.05
+            val reserveSol = if (currentContext.mode == V3BotMode.LIVE) {
+                SmartSizerV3.effectiveLiveReserveSol7238(walletSol, configuredReserveSol)
+            } else {
+                configuredReserveSol
+            }
             val wallet = WalletSnapshot(
                 totalSol = walletSol,
                 tradeableSol = (walletSol - reserveSol).coerceAtLeast(0.0)

@@ -19649,7 +19649,12 @@ class Executor(
         // Nothing here reduces any order. It lifts, or it declines to send
         // an order that can only lose to fees.
         try {
-            val routableReserve7226 = 0.05   // V3Adapter.toWallet default; same figure LivePreflight7222 uses
+            // V5.0.7238 — use the SAME balance-aware reserve as V3 and
+            // LivePreflight. The former fixed 0.05 SOL reserve contradicted this
+            // function's real 0.012 SOL transaction reserve and made a 0.126 SOL
+            // wallet look unable to carry even one routable ticket.
+            val routableReserve7226 = com.lifecyclebot.v3.sizing.SmartSizerV3
+                .effectiveLiveReserveSol7238(walletSol, liveCfg.walletReserveSol)
             val solUsd7226 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
             val routable7226 = com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(
                 (walletSol - routableReserve7226).coerceAtLeast(0.0), solUsd7226,

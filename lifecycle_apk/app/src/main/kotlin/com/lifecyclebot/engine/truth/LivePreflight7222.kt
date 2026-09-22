@@ -38,12 +38,8 @@ import com.lifecyclebot.engine.PipelineHealthCollector
  * operator to find out why one was not made.
  */
 object LivePreflight7222 {
-    /** V5.0.7224 — the reserve the live sizer actually subtracts. It is the
-     *  default parameter of V3Adapter.toWallet(totalSol, reserveSol = 0.05),
-     *  which is the only wallet constructor on the live sizing path. Kept
-     *  here as a named value so the preflight's arithmetic is auditable
-     *  against that call site; nothing else reads it. */
-    private const val LIVE_SIZER_RESERVE_SOL_7224 = 0.05
+    /** V5.0.7238 — live reserve is computed by SmartSizerV3 so preflight,
+     *  V3 sizing and Executor cannot disagree on a small wallet. */
 
 
     enum class Verdict { PASS, REFUSE, UNKNOWN, INFO }
@@ -112,7 +108,8 @@ object LivePreflight7222 {
             // exist and copied the sizer's private constants, and did not
             // compile. Now the same reserve the sizer uses, and the sizer's own
             // read-only arithmetic instead of a second copy of it.
-            val reserve = LIVE_SIZER_RESERVE_SOL_7224
+            val reserve = com.lifecyclebot.v3.sizing.SmartSizerV3
+                .effectiveLiveReserveSol7238(walletSol)
             val tradeable = (walletSol - reserve).coerceAtLeast(0.0)
             val pf = com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(tradeable, solUsd)
             val minViableWallet = pf.minViableTradeableSol + reserve

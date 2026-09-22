@@ -48,7 +48,11 @@ object RoutableMinRiskGuard7236 {
      *  producing −27%, −26%, −64% closes. A conservative threshold of
      *  30 puts the routable-minimum lift firmly in the "system-trusts-
      *  this-signal" regime. */
-    private const val WEAK_SCORE_CEILING: Int = 30
+    // V5.0.7238 — align with the live entry authority instead of imposing a
+    // second hidden score floor after FDG has already authorized the trade.
+    // Scores below 15 are not valid baseline live entries; 15+ may proceed if
+    // all other safety/route checks pass.
+    private const val WEAK_SCORE_CEILING: Int = 15
 
     /** Below this regime multiplier, the size clamp itself is signalling
      *  environment distrust; lifting past that is a policy contradiction. */
@@ -100,7 +104,12 @@ object RoutableMinRiskGuard7236 {
         val weakRegime = regimeSizeMult.isFinite() && regimeSizeMult > 0.0 && regimeSizeMult < WEAK_REGIME_CEILING
         val pendingProof = livePendingProofPenalty
 
-        if (!weakScore && !weakRegime && !pendingProof) {
+        // V5.0.7238 — pending-proof is already represented upstream by the 0.65
+        // size dampener. Treating the same flag as a second hard veto here made
+        // every small-wallet order sub-routable, then refused the only safe lift
+        // back to an executable ticket. Keep it in telemetry, but do not double-
+        // punish it at the final routing boundary.
+        if (!weakScore && !weakRegime) {
             allowed.incrementAndGet()
             try { PipelineHealthCollector.labelInc("ROUTABLE_MIN_LIFT_ALLOWED_STRONG_7236") } catch (_: Throwable) {}
             return Decision(Verdict.ALLOW_LIFT, "STRONG_CANDIDATE score=${"%.2f".format(score)} regime=${"%.2f".format(regimeSizeMult)}")
@@ -110,7 +119,7 @@ object RoutableMinRiskGuard7236 {
         val reasons = buildList {
             if (weakScore) add("SCORE=${"%.2f".format(score)}<${WEAK_SCORE_CEILING}")
             if (weakRegime) add("REGIME=${"%.2f".format(regimeSizeMult)}<${"%.2f".format(WEAK_REGIME_CEILING)}")
-            if (pendingProof) add("PENDING_PROOF_PENALTY")
+            if (pendingProof) add("PENDING_PROOF_ALREADY_SIZE_DAMPED_ADVISORY")
         }
         val composite = reasons.size >= 2
         when {
