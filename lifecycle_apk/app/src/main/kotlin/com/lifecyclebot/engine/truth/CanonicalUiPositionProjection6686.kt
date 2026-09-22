@@ -41,6 +41,7 @@ object CanonicalUiPositionProjection6686 {
                         tradingMode = p.lane,
                         positionId = p.positionId,
                         pendingVerify = false,
+                        canonicalAssetClassTag = p.assetClass.tag,
                     )
                 } else {
                     Position(
@@ -59,6 +60,7 @@ object CanonicalUiPositionProjection6686 {
                         tradingModeEmoji = "🔗",
                         positionId = p.positionId,
                         pendingVerify = false,
+                        canonicalAssetClassTag = p.assetClass.tag,
                     )
                 }
                 if (existing != null) {

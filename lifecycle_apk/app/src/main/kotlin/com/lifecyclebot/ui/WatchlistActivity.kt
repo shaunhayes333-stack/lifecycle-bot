@@ -326,6 +326,7 @@ class WatchlistActivity : AppCompatActivity() {
             val markColor = when (row.markState) {
                 "FRESH" -> green
                 "STALE_REFRESH" -> amber
+                "SUPPRESSED_REFRESH" -> amber
                 else -> red
             }
             val ageText = when {
@@ -334,7 +335,8 @@ class WatchlistActivity : AppCompatActivity() {
                 row.markAgeMs < 60_000L -> "${row.markAgeMs / 1_000}s"
                 else -> "${row.markAgeMs / 60_000}m"
             }
-            val pnlPct = if (row.entryPriceUsd > 0.0 && row.currentPriceUsd > 0.0)
+            val pnlPct = if (row.markState != "SUPPRESSED_REFRESH" &&
+                row.entryPriceUsd > 0.0 && row.currentPriceUsd > 0.0)
                 ((row.currentPriceUsd / row.entryPriceUsd) - 1.0) * 100.0 else Double.NaN
             val pnlColor = when {
                 !pnlPct.isFinite() -> muted
@@ -346,7 +348,7 @@ class WatchlistActivity : AppCompatActivity() {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(11), dp(10), dp(11), dp(10))
                 setBackgroundResource(
-                    if (row.markState == "MISSING") R.drawable.aate_row_card_hot else R.drawable.aate_row_card
+                    if (row.markState == "MISSING" || row.markState == "SUPPRESSED_REFRESH") R.drawable.aate_row_card_hot else R.drawable.aate_row_card
                 )
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,

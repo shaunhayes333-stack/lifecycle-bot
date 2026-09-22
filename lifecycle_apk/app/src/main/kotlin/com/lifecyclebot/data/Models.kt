@@ -243,6 +243,10 @@ data class Position(
     // CopyTradeEngine.recordResult(wallet, pnlSol). Blank for non-copy
     // trades. Not persisted (in-memory only, like other transient flags).
     val copyWallet: String = "",
+    // V5.0.7247 — display ownership stamped by the canonical UI projection.
+    // Blank means a legacy/native MemeTrader row. Cross-asset rows carry their
+    // explicit canonical class so the Solana dashboard cannot render them.
+    val canonicalAssetClassTag: String = "",
 ) {
     // V5.9.290: isOpen — tokens exist AND not in the short verify window.
     // V5.9.315: REMOVED 120s auto-promote. Previously, if pendingVerify stayed

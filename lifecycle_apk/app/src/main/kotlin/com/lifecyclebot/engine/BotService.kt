@@ -6255,6 +6255,9 @@ class BotService : Service() {
         // ═══════════════════════════════════════════════════════════════════
         val preScanCfg = ConfigStore.load(applicationContext)
         GlobalTradeRegistry.init(preScanCfg.watchlist, "CONFIG_PRESCAN")
+        // V5.0.7247 — canonical restore precedes ConfigStore discovery init.
+        // Reconcile at the actual scanner boundary to close concurrent races.
+        try { HeldPositionSupervisor7246.reconcileDiscoveryResidency() } catch (_: Throwable) {}
         // V5.2: Set paper mode flags for more aggressive learning
         GlobalTradeRegistry.isPaperMode = preScanCfg.paperMode
         UnifiedModeOrchestrator.isPaperMode = preScanCfg.paperMode

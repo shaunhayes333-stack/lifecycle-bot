@@ -4,6 +4,7 @@ import com.lifecyclebot.engine.truth.AssetClass
 import com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570
 import com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
 import com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522
+import com.lifecyclebot.engine.truth.MarkIdentityExecutionGate7230
 import com.lifecyclebot.perps.DynamicAltTokenRegistry
 
 /**
@@ -81,10 +82,11 @@ object HeldPositionSupervisor7246 {
         val fresh = rows.count { it.markState == "FRESH" }
         val stale = rows.count { it.markState == "STALE_REFRESH" }
         val missing = rows.count { it.markState == "MISSING" }
+        val suppressed = rows.count { it.markState == "SUPPRESSED_REFRESH" }
         val discoveryLeaks = rows.count { row ->
             try { GlobalTradeRegistry.getEntry(row.mint) != null } catch (_: Throwable) { false }
         }
-        return "held=${rows.size} fresh=$fresh staleRefresh=$stale missing=$missing discoveryResident=$discoveryLeaks"
+        return "held=${rows.size} fresh=$fresh staleRefresh=$stale missing=$missing suppressedRefresh=$suppressed discoveryResident=$discoveryLeaks"
     }
 
     /** UI/telemetry projection. Cache-only: never blocks on a provider. */
@@ -95,32 +97,62 @@ object HeldPositionSupervisor7246 {
             var ts = 0L
             var source = ""
 
+            fun consider(candidatePx: Double, candidateTs: Long, candidateSource: String) {
+                if (candidatePx.isFinite() && candidatePx > 0.0 && candidateTs >= ts) {
+                    px = candidatePx
+                    ts = candidateTs
+                    source = candidateSource
+                }
+            }
+
             if (p.assetClass == AssetClass.CRYPTO_ALT) {
                 val dyn = try {
                     DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(p.mint)
                         ?: DynamicAltTokenRegistry.getTokenByMint(p.mint)
                 } catch (_: Throwable) { null }
                 if (dyn != null && dyn.price.isFinite() && dyn.price > 0.0) {
-                    px = dyn.price
-                    ts = dyn.lastUpdatedMs
-                    source = dyn.source.ifBlank { "CRYPTO_REGISTRY" }
+                    consider(dyn.price, dyn.lastUpdatedMs, dyn.source.ifBlank { "CRYPTO_REGISTRY" })
                 }
             }
 
-            if (px <= 0.0) {
-                val mark = try {
-                    CanonicalPriceMarkRegistry6522.get(p.mint, CanonicalMarkPurpose6570.EXIT_ECONOMIC)
-                        ?: CanonicalPriceMarkRegistry6522.get(p.mint)
-                } catch (_: Throwable) { null }
-                if (mark != null) {
-                    px = try { mark.priceUsd.value.toDouble() } catch (_: Throwable) { 0.0 }
-                    ts = mark.timestampMs
-                    source = mark.source
+            val mark = try {
+                CanonicalPriceMarkRegistry6522.get(p.mint, CanonicalMarkPurpose6570.EXIT_ECONOMIC)
+                    ?: CanonicalPriceMarkRegistry6522.get(p.mint)
+            } catch (_: Throwable) { null }
+            if (mark != null) {
+                consider(
+                    try { mark.priceUsd.value.toDouble() } catch (_: Throwable) { 0.0 },
+                    mark.timestampMs,
+                    mark.source,
+                )
+            }
+
+            // V5.0.7247 — the canonical exit worker projects fresh executable
+            // marks into BotService.status.tokens. 7246 ignored that surface and
+            // reported 12 MISSING while the same report's exit feed had only 3.
+            // Read it cache-only; do not create a second provider/refresh loop.
+            val runtimeToken = try {
+                synchronized(BotService.status.tokens) {
+                    BotService.status.tokens[p.mint]
+                        ?: BotService.status.tokens.values.firstOrNull {
+                            it.mint.equals(p.mint, ignoreCase = true)
+                        }
                 }
+            } catch (_: Throwable) { null }
+            if (runtimeToken != null) {
+                consider(
+                    runtimeToken.lastPrice,
+                    runtimeToken.lastPriceUpdate,
+                    runtimeToken.lastPriceSource.ifBlank { runtimeToken.source.ifBlank { "EXIT_TOKEN_STATE" } },
+                )
             }
 
             val age = if (ts > 0L) (nowMs - ts).coerceAtLeast(0L) else Long.MAX_VALUE
+            val executionSuppressed = try {
+                MarkIdentityExecutionGate7230.isExecutionSuppressed7243(p.mint)
+            } catch (_: Throwable) { false }
             val state = when {
+                executionSuppressed -> "SUPPRESSED_REFRESH"
                 px <= 0.0 -> "MISSING"
                 age <= FRESH_MS -> "FRESH"
                 else -> "STALE_REFRESH"
@@ -147,6 +179,7 @@ object HeldPositionSupervisor7246 {
         }.sortedWith(
             compareBy<HeldRow> {
                 when (it.markState) {
+                    "SUPPRESSED_REFRESH" -> 0
                     "MISSING" -> 0
                     "STALE_REFRESH" -> 1
                     else -> 2

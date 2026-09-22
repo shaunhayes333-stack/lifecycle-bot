@@ -320,6 +320,13 @@ object GlobalTradeRegistry {
 
         for (mint in initialWatchlist) {
             if (mint.isNotBlank() && mint.length > 30) {
+                // V5.0.7247 — startup ordering used to restore canonical OPEN
+                // positions, reconcile them out of discovery, and then reinsert
+                // them here from ConfigStore. Enforce ownership at initialization.
+                if (try { HeldPositionSupervisor7246.isHeld(mint) } catch (_: Throwable) { false }) {
+                    try { PipelineHealthCollector.labelInc("HELD_CONFIG_RESTORE_BLOCKED_7247") } catch (_: Throwable) {}
+                    continue
+                }
                 watchlist[mint] = WatchlistEntry(
                     mint = mint,
                     symbol = mint.take(8),  // Will be updated when token data is fetched
@@ -602,6 +609,14 @@ object GlobalTradeRegistry {
         if (mint.isBlank() || mint.length < 30) {
             PipelineTracer.registryRejected(symbol, mint, "INVALID_MINT")
             return AddResult(false, "INVALID_MINT")
+        }
+
+        // V5.0.7247 — addWithProbation checked duplicate state before it
+        // reached addToWatchlist's held barrier, preserving restored leaks.
+        if (try { HeldPositionSupervisor7246.isHeld(mint) } catch (_: Throwable) { false }) {
+            handoffOpenMintToHeld7246(mint, symbol)
+            try { PipelineHealthCollector.labelInc("HELD_PROBATION_READMISSION_BLOCKED_7247") } catch (_: Throwable) {}
+            return AddResult(false, "HELD_POSITION_SUPERVISOR_7247", probation = false)
         }
 
         val now = System.currentTimeMillis()
