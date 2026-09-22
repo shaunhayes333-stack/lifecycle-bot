@@ -16,6 +16,11 @@ class Aate7246HeldSupervisorTest {
         assertTrue(supervisor.contains("fun isHeld("))
         assertTrue(bot.contains("HELD_DISCOVERY_BYPASS_7246"))
         assertTrue(bot.contains("HeldPositionSupervisor7246.solanaHeldPositions()"))
+        val registry = src("engine/GlobalTradeRegistry.kt")
+        val canonical = src("engine/truth/CanonicalPositionAuthority6441.kt")
+        assertTrue(registry.contains("handoffOpenMintToHeld7246"))
+        assertTrue(registry.contains("HELD_DISCOVERY_SLOT_RELEASED_7246"))
+        assertTrue(canonical.contains("handoffOpenMintToHeld7246(position.mint, position.symbol)"))
     }
 
     @Test fun crypto_universe_does_not_spend_discovery_batch_on_owned_assets() {
