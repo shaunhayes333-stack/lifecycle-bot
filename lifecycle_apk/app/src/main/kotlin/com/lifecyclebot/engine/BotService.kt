@@ -13794,6 +13794,20 @@ class BotService : Service() {
             return false
         }
 
+        // V5.0.7246 — held assets are no longer discovery candidates.
+        // Canonical ownership moves them to HeldPositionSupervisor7246 until
+        // economic close, so they consume no watchlist/safety/V3/lane/FDG work.
+        if (HeldPositionSupervisor7246.isHeld(mint)) {
+            try {
+                PipelineHealthCollector.labelInc("HELD_DISCOVERY_BYPASS_7246")
+                ForensicLogger.lifecycle(
+                    "HELD_DISCOVERY_BYPASS_7246",
+                    "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source action=held_supervisor_not_discovery",
+                )
+            } catch (_: Throwable) {}
+            return false
+        }
+
         if (ScannerHardRejectStore.isRejected(mint)) {
             val hardReason = ScannerHardRejectStore.reason(mint)
             try {
@@ -20439,7 +20453,7 @@ if (hotExitHandledSweep) {
                             // published). Clamp the refresh to genuine
                             // Solana base58 mints.
                             val base58Solana6724 = Regex("^[1-9A-HJ-NP-Za-km-z]{32,44}$")
-                            val allOpens6902 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                            val allOpens6902 = HeldPositionSupervisor7246.solanaHeldPositions()
                                 .filter { base58Solana6724.matches(it.mint) }
                             // Bounded rotating slice — the same device the exit
                             // sweeps already use (rotatingExitSlice6663) so one
