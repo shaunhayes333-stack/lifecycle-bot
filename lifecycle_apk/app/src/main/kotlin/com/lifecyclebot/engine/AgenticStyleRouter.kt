@@ -100,7 +100,21 @@ object AgenticStyleRouter {
             (out + base + style.lanes).map { LiveGrowthDoctrine.canonicalLane(it) }.none { it == growthFallbackLane4557 }
         if (forceContributionFallback4557) growthFallbackLane4557?.let { out += it }
         else if (alternates.isNotEmpty()) out += alternates[stablePick(mint, alternates.size)]
-        return out
+        val causalRoot7243 = try {
+            LaneExecutionCoordinator.candidateVersionFor(mint).toString()
+        } catch (_: Throwable) {
+            "score_" + score.coerceIn(-100, 150)
+        }
+        val governed7243 = linkedSetOf<String>()
+        for (lane7243 in out) {
+            val allow7243 = try {
+                com.lifecyclebot.engine.truth.IntakeFanoutGovernor6835.allowLaneEval(
+                    mint, causalRoot7243, lane7243,
+                )
+            } catch (_: Throwable) { true }
+            if (allow7243) governed7243 += lane7243
+        }
+        return governed7243
     }
 
     private fun rapidToxicRegimePivot(style: Style, score: Int): List<String> {

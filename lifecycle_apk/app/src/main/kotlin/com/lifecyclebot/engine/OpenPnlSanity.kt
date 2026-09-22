@@ -97,6 +97,29 @@ object OpenPnlSanity {
         // value; the raw invalid input is preserved forensically via
         // the counter below.
         var currentPriceEffective7236 = currentPrice
+        val markSuppressed7243 = try {
+            mint.isNotBlank() &&
+                com.lifecyclebot.engine.truth.MarkIdentityExecutionGate7230.isExecutionSuppressed7243(mint)
+        } catch (_: Throwable) { false }
+        if (markSuppressed7243) {
+            val repaired7243 = try {
+                com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getRepairedPriceIfFresh(mint)
+            } catch (_: Throwable) { null }
+            if (repaired7243 != null && repaired7243.isFinite() && repaired7243 > 0.0) {
+                currentPriceEffective7236 = repaired7243
+                try {
+                    com.lifecyclebot.engine.truth.MarkIdentityExecutionGate7230.markRepairedUsable7243(mint)
+                    PipelineHealthCollector.labelInc("OPEN_PNL_SUPPRESSED_MARK_REPAIRED_7243")
+                } catch (_: Throwable) {}
+            } else {
+                try {
+                    com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.requestRepair(
+                        mint, "OpenPnlSanity_mark_suppressed_7243",
+                    )
+                } catch (_: Throwable) {}
+                return reject("MARK_IDENTITY_SUPPRESSED_7243", entryPrice, currentPrice, context, emit, mint)
+            }
+        }
         if (!currentPriceEffective7236.isFinite() || currentPriceEffective7236 <= 0.0) {
             val repaired7236 = try {
                 if (mint.isNotBlank())
@@ -443,6 +466,10 @@ object OpenPnlSanity {
         // quarantining it would bias the learned set towards survivors.
         if (mint.isNotBlank() && reason in LEARNING_POISON_REASONS_7083) {
             try {
+                com.lifecyclebot.engine.truth.MarkIdentityExecutionGate7230
+                    .suppressMint7243(mint, "OPEN_PNL_" + reason)
+                com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236
+                    .requestRepair(mint, "OpenPnlSanity_rejected_basis")
                 com.lifecyclebot.engine.truth.LearningQuarantineGate6470
                     .quarantineMint(mint, "PRICE_BASIS_IMPOSSIBLE_$reason")
                 PipelineHealthCollector.labelInc("LEARNING_QUARANTINED_IMPOSSIBLE_BASIS_7083")

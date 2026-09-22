@@ -154,6 +154,18 @@ object CanonicalPaperPartialOperation6510 {
             ?: return empty(positionId, "", 0L, "UNKNOWN_POSITION")
         if (pre.mode != "paper" || fraction <= 0.0 || fraction > 1.0 || pre.remainingQtyRaw <= BigInteger.ZERO)
             return empty(positionId, "", 0L, "INVALID_PARTIAL")
+        if (try { MarkIdentityExecutionGate7230.isExecutionSuppressed7243(mint) } catch (_: Throwable) { false }) {
+            try {
+                val markReason7243 = MarkIdentityExecutionGate7230.suppressionReason7243(mint)
+                MarkIdentityRepairAuthority7236.requestRepair(mint, "CanonicalPaperPartialOperation6510")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_PARTIAL_BLOCKED_UNTRUSTED_MARK_7243")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "PAPER_PARTIAL_BLOCKED_UNTRUSTED_MARK_7243",
+                    "mint=" + mint.take(10) + " symbol=" + symbol.take(16) + " reason=" + markReason7243,
+                )
+            } catch (_: Throwable) {}
+            return empty(positionId, "", 0L, "UNTRUSTED_MARK_7243")
+        }
         // V5.0.6613 — canonical entitlement is position + original lot qty +
         // normalized tier. Changing peak text cannot manufacture a new partial;
         // a real top-up changes originalQtyRaw and explicitly rearms a new lot epoch.

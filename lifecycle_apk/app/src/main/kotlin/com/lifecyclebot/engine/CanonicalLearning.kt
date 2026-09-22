@@ -660,6 +660,13 @@ object CanonicalOutcomeBus {
             try { PipelineHealthCollector.labelInc("CANONICAL_OUTCOME_QUARANTINED_6485") } catch (_: Throwable) {}
             return
         }
+        if (try {
+                com.lifecyclebot.engine.truth.MarkIdentityExecutionGate7230.isExecutionSuppressed7243(normalized.mint)
+            } catch (_: Throwable) { false }
+        ) {
+            try { PipelineHealthCollector.labelInc("CANONICAL_OUTCOME_MARK_SUPPRESSED_7243") } catch (_: Throwable) {}
+            return
+        }
         // V5.9.791 — operator audit Item 1 + 2: PositionExitArbiter enforces
         // ONE terminal SELL per (canonicalMint, entryTimeMs). Duplicate
         // exit cascades (CASHGEN_STOP_LOSS + STRICT_SL + RAPID_CATASTROPHE_STOP
@@ -727,6 +734,13 @@ object CanonicalOutcomeBus {
         val normalized = CanonicalOutcomeNormalizer.normalizeOutcomeBeforeLearning(raw) ?: return
         if (com.lifecyclebot.engine.truth.LearningQuarantineGate6470.shouldDropForLearning(normalized.tradeId, normalized.mint)) {
             try { PipelineHealthCollector.labelInc("CANONICAL_OUTCOME_QUARANTINED_6485") } catch (_: Throwable) {}
+            return
+        }
+        if (try {
+                com.lifecyclebot.engine.truth.MarkIdentityExecutionGate7230.isExecutionSuppressed7243(normalized.mint)
+            } catch (_: Throwable) { false }
+        ) {
+            try { PipelineHealthCollector.labelInc("CANONICAL_OUTCOME_MARK_SUPPRESSED_7243") } catch (_: Throwable) {}
             return
         }
         bumpCounters(normalized)

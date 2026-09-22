@@ -868,27 +868,29 @@ object FinalDecisionGate {
         //
         // Rule A: an executable entry needs canonical score >=30. This matches the
         // existing LIVE floor and removes the paper/live asymmetry.
-        // Rule B: a non-BUY base signal may only be promoted when independent lane
-        // evidence is strong (>=55). Lane membership alone cannot convert WAIT into
-        // a funded trade.
-        val canonicalEntryScore7242 = maxOf(candidate.entryScore, laneScore)
-        val baseEntrySignal7242 = candidate.finalSignal.ifBlank { candidate.signal }.uppercase()
-        val belowCanonicalFloor7242 = canonicalEntryScore7242 < 30.0
-        val weakWaitPromotion7242 =
-            baseEntrySignal7242 !in setOf("BUY", "EXECUTE") && canonicalEntryScore7242 < 55.0
-        if (belowCanonicalFloor7242 || weakWaitPromotion7242) {
-            val reason7242 = if (belowCanonicalFloor7242) {
-                "CANONICAL_ENTRY_SCORE_FLOOR_7242"
+        // Rule B: a non-BUY base signal may only be promoted when canonical V3
+        // conviction is strong (>=55). Lane membership/evidence may shape an already
+        // eligible trade but cannot convert WAIT into a funded trade by itself.
+        val canonicalV3Score7243 =
+            (ts.lastV3Score?.toDouble() ?: candidate.entryScore).coerceIn(-100.0, 150.0)
+        val laneEvidenceScore7243 = laneScore.coerceIn(-100.0, 150.0)
+        val baseEntrySignal7243 = candidate.finalSignal.ifBlank { candidate.signal }.uppercase()
+        val belowCanonicalFloor7243 = canonicalV3Score7243 < 30.0
+        val weakWaitPromotion7243 =
+            baseEntrySignal7243 !in setOf("BUY", "EXECUTE") && canonicalV3Score7243 < 55.0
+        if (belowCanonicalFloor7243 || weakWaitPromotion7243) {
+            val reason7243 = if (belowCanonicalFloor7243) {
+                "CANONICAL_V3_SCORE_FLOOR_7243"
             } else {
-                "CANONICAL_WAIT_PROMOTION_REFUSED_7242"
+                "CANONICAL_WAIT_PROMOTION_REFUSED_7243"
             }
             try {
-                PipelineHealthCollector.labelInc(reason7242)
+                PipelineHealthCollector.labelInc(reason7243)
                 ForensicLogger.lifecycle(
-                    reason7242,
+                    reason7243,
                     "mint=${ts.mint.take(10)} sym=${ts.symbol} mode=${mode.name} " +
-                        "baseSignal=$baseEntrySignal7242 entryScore=${"%.1f".format(candidate.entryScore)} " +
-                        "laneScore=${"%.1f".format(laneScore)} canonicalScore=${"%.1f".format(canonicalEntryScore7242)} " +
+                        "baseSignal=$baseEntrySignal7243 entryScore=${"%.1f".format(candidate.entryScore)} " +
+                        "laneScore=${"%.1f".format(laneScore)} canonicalScore=${"%.1f".format(canonicalV3Score7243)} " +
                         "action=shadow_or_reject_no_economic_position",
                 )
             } catch (_: Throwable) {}
@@ -899,16 +901,16 @@ object FinalDecisionGate {
                 quality = candidate.finalQuality,
                 confidence = candidate.aiConfidence,
                 edge = EdgeVerdict.SKIP,
-                blockReason = reason7242,
+                blockReason = reason7243,
                 blockLevel = BlockLevel.EDGE,
                 sizeSol = 0.0,
-                tags = listOf(reason7242, "base:$baseEntrySignal7242", "score:${canonicalEntryScore7242.toInt()}"),
+                tags = listOf(reason7243, "base:$baseEntrySignal7243", "score:${canonicalV3Score7243.toInt()}"),
                 mint = ts.mint,
                 symbol = ts.symbol,
                 approvalReason = "canonical entry selectivity refused weak/WAIT promotion",
                 gateChecks = listOf(
-                    GateCheck("canonicalEntryScore7242", !belowCanonicalFloor7242, "need>=30"),
-                    GateCheck("waitPromotion7242", !weakWaitPromotion7242, "WAIT needs laneScore>=55"),
+                    GateCheck("canonicalV3Score7243", !belowCanonicalFloor7243, "need>=30"),
+                    GateCheck("waitPromotion7243", !weakWaitPromotion7243, "WAIT needs canonical V3>=55"),
                 ),
             )
         }

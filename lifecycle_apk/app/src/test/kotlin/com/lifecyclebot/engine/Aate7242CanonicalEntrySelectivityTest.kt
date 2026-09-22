@@ -18,11 +18,12 @@ class Aate7242CanonicalEntrySelectivityTest {
             "src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt"
         ).readText()
 
-        assertTrue(src.contains("CANONICAL_ENTRY_SCORE_FLOOR_7242"))
-        assertTrue(src.contains("CANONICAL_WAIT_PROMOTION_REFUSED_7242"))
-        assertTrue(src.contains("canonicalEntryScore7242 < 30.0"))
-        assertTrue(src.contains("canonicalEntryScore7242 < 55.0"))
-        assertTrue(src.contains("baseEntrySignal7242 !in setOf(\"BUY\", \"EXECUTE\")"))
+        assertTrue(src.contains("CANONICAL_V3_SCORE_FLOOR_7243"))
+        assertTrue(src.contains("CANONICAL_WAIT_PROMOTION_REFUSED_7243"))
+        assertTrue(src.contains("canonicalV3Score7243 < 30.0"))
+        assertTrue(src.contains("canonicalV3Score7243 < 55.0"))
+        assertTrue(src.contains("baseEntrySignal7243 !in setOf(\"BUY\", \"EXECUTE\")"))
+        assertTrue(src.contains("ts.lastV3Score?.toDouble() ?: candidate.entryScore"))
 
         val modeIdx = src.indexOf("val mode = if (config.paperMode)")
         val selectivityIdx = src.indexOf("§CANONICAL_ENTRY_SELECTIVITY")

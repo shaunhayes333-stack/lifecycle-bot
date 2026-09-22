@@ -89,6 +89,7 @@ object MarkIdentityRepairAuthority7236 {
                     // returned value already carries at least one live
                     // corroboration.
                     cache[mint] = Repaired(resolved.priceUsd, resolved.source.name, System.currentTimeMillis())
+                    try { MarkIdentityExecutionGate7230.markRepairedUsable7243(mint) } catch (_: Throwable) {}
                     repairSucceeded.incrementAndGet()
                     try {
                         PipelineHealthCollector.labelInc("MARK_REPAIR_SUCCEEDED_7236")
