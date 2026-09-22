@@ -6903,25 +6903,11 @@ class Executor(
             )
             // V5.9.468 — pass wallet pubkey as taker so the quote is a binding
             // Ultra-v2 order. RFQ rejections surface here, not silently in build.
-            var jupiterPlan = recalcSellPlanForProcessor(
-                ts = ts,
-                wallet = wallet,
-                processor = "JUPITER_ULTRA_METIS",
-                requestedUiQty = sellQty,
-                exitReason = reason,
-                sellTradeKey = sellTradeKey,
-                traderTag = "MEME",
-            ) ?: return
-            var quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT, jupiterPlan.rawAmount,
-                                                   sellSlippage, isBuy = false,
-                                                   sellTaker = wallet.publicKeyB58)
-            LiveTradeLogStore.log(
-                sellTradeKey, ts.mint, ts.symbol, "SELL",
-                LiveTradeLogStore.Phase.SELL_QUOTE_OK,
-                "Quote OK | out=${quote.outAmount} | impact=${"%.2f".format(quote.priceImpactPct)}% | router=${quote.router}${if (quote.isRfqRoute) " (RFQ)" else ""}${if (quote.ultraRejectedReason.isNotBlank()) " ⚠ Ultra REJECTED → Metis fallback (${quote.ultraRejectedReason.take(60)})" else ""}",
-                slippageBps = sellSlippage,
-                traderTag = "MEME",
-            )
+            // V5.0.7228 — acquire Jupiter lazily only after the independent
+            // PumpPortal route fails. Previously HTTP 599 here aborted before
+            // the code reached its own PUMP-FIRST branch.
+            var jupiterPlan: ProcessorAmountPlanner.SellPlan? = null
+            var quote: com.lifecyclebot.network.SwapQuote? = null
 
             // V5.9.479 — IN-LINE broadcast escalation loop (matches V5.9.478 in liveSell)
             var sig: String? = null
@@ -6988,7 +6974,7 @@ class Executor(
             for (currentSlip in if (sig != null) emptyList() else broadcastSlipLadder) {
                 broadcastAttempts++
                 try {
-                    if (broadcastAttempts > 1) {
+                    if (broadcastAttempts > 1 || quote == null) {
                         LiveTradeLogStore.log(
                             sellTradeKey, ts.mint, ts.symbol, "SELL",
                             LiveTradeLogStore.Phase.SELL_QUOTE_TRY,
@@ -7008,6 +6994,7 @@ class Executor(
                             quote = getQuoteWithSlippageGuard(
                                 ts.mint, JupiterApi.SOL_MINT, jupiterPlan.rawAmount, currentSlip,
                                 isBuy = false, sellTaker = wallet.publicKeyB58)
+                            try { com.lifecyclebot.engine.sell.ExitProviderHealth.recordJupiterSellOk() } catch (_: Throwable) {}
                             // V5.9.495u — operator triage 06 May 2026: "are
                             // we using ultra the way its meant to be?". We
                             // ARE — getQuoteWithTaker double-taps Ultra
@@ -7032,12 +7019,19 @@ class Executor(
                                 "Re-quote ${currentSlip}bps FAILED: ${qex.message?.take(80) ?: "?"}",
                                 slippageBps = currentSlip, traderTag = "MEME",
                             )
+                            if (com.lifecyclebot.engine.sell.ExitProviderHealth.isProviderClassFailure(qex.message)) {
+                                try { com.lifecyclebot.engine.sell.ExitProviderHealth.recordJupiterProviderFailure(qex.message ?: "provider_failure") } catch (_: Throwable) {}
+                                try { ForensicLogger.lifecycle("SELL_PROVIDER_ROTATE_IMMEDIATE_7228",
+                                    "provider=JUPITER mint=${ts.mint.take(10)} path=profit_lock_quote reason=${qex.message?.take(100)} action=break_ladder_rotate") } catch (_: Throwable) {}
+                                break
+                            }
                             continue
                         }
                     }
+                    val activeQuote7228 = quote ?: continue
                     val dynSlipCap = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason).coerceAtLeast(currentSlip)
                     val txResult = buildTxWithRetry(
-                        quote, wallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap,
+                        activeQuote7228, wallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap,
                         senderTipLamports = effectiveJitoTipLamports(c, urgent = isDrainExit),
                     )
                     LiveTradeLogStore.log(
@@ -7048,17 +7042,17 @@ class Executor(
                     )
                     security.enforceSignDelay()
 
-                    val useJito = c.jitoEnabled && !quote.isUltra
+                    val useJito = c.jitoEnabled && !activeQuote7228.isUltra
                     // V5.9.483 — dynamic Jito tip from bundles.jito.wtf 75th percentile.
                     // Static c.jitoTipLamports (10_000) was too low during congestion;
                     // drain-exit doubles the tip so we don't lose the position to a slow land.
                     val jitoTip = effectiveJitoTipLamports(c, urgent = isDrainExit)
-                    val ultraReqId = if (quote.isUltra) txResult.requestId else null
+                    val ultraReqId = if (activeQuote7228.isUltra) txResult.requestId else null
 
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
                         LiveTradeLogStore.Phase.SELL_BROADCAST,
-                        "Broadcasting @ ${currentSlip}bps | route=${if (quote.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"} (attempt $broadcastAttempts)",
+                        "Broadcasting @ ${currentSlip}bps | route=${if (activeQuote7228.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"} (attempt $broadcastAttempts)",
                         traderTag = "MEME",
                     )
                     sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute, txResult.senderCompatible)
@@ -7077,6 +7071,12 @@ class Executor(
                                      safe.contains("TooLittleSolReceived", ignoreCase = true) ||
                                      safe.contains("Slippage", ignoreCase = true) ||
                                      safe.contains("SlippageToleranceExceeded", ignoreCase = true)
+                    if (!isSlippage && com.lifecyclebot.engine.sell.ExitProviderHealth.isProviderClassFailure(broadcastEx.message)) {
+                        try { com.lifecyclebot.engine.sell.ExitProviderHealth.recordJupiterProviderFailure(broadcastEx.message ?: "provider_failure") } catch (_: Throwable) {}
+                        try { ForensicLogger.lifecycle("SELL_PROVIDER_ROTATE_IMMEDIATE_7228",
+                            "provider=JUPITER mint=${ts.mint.take(10)} path=profit_lock_build reason=${safe.take(100)} action=break_ladder_rotate") } catch (_: Throwable) {}
+                        break
+                    }
                     if (!isSlippage) throw broadcastEx
                     val brc = zeroBalanceRetries.merge(ts.mint + "_broadcast", 1) { old, _ -> old + 1 } ?: 1
                     LiveTradeLogStore.log(
@@ -7461,7 +7461,12 @@ class Executor(
             val solBack: Double = when {
                 sig.startsWith("PHANTOM_") -> 0.0
                 verifiedSolReceived > 0L -> verifiedSolReceived / 1_000_000_000.0
-                else -> quote.outAmount / 1_000_000_000.0  // legacy fallback (rare; verifier should always populate)
+                else -> {
+                    try { ForensicLogger.lifecycle("SELL_ACCOUNTING_DEFERRED_NO_CHAIN_CASHFLOW_7228",
+                        "mint=${ts.mint.take(10)} sig=${sig.take(16)} route=${if (quote == null) "PUMP_DIRECT" else "JUPITER"} action=preserve_position_no_quote_pnl") } catch (_: Throwable) {}
+                    try { TradeVerifier.endSell(ts.mint) } catch (_: Throwable) {}
+                    return
+                }
             }
 
             val profitLockAcct = liveSellAccountingAuthority(ts, pos.costSol * sellFraction, solBack, reason, "profitLock")
@@ -25884,7 +25889,8 @@ class Executor(
                 } catch (_: Throwable) {}
             }
 
-            for (slipLevel in if (jupiterCircuitOpen) emptyList() else slippageLevels) {
+            var jupiterProviderClassFailure7228 = false
+            jupiterLadder7228@ for (slipLevel in if (jupiterCircuitOpen) emptyList() else slippageLevels) {
                 for (attempt in 1..2) {
                     try {
                         onLog("SELL: Quote attempt slippage=${slipLevel}bps try=$attempt...", tradeId.mint)
@@ -25934,16 +25940,18 @@ class Executor(
                         // global circuit breaker. recordJupiterSell503 only
                         // opens the breaker after 2x in 30s.
                         try {
-                            val em = (e.message ?: "").lowercase()
-                            if (em.contains("503") || em.contains("unavailable") ||
-                                em.contains("temporarily") || em.contains("bad gateway") ||
-                                em.contains("502") || em.contains("504") || em.contains("gateway timeout")) {
-                                com.lifecyclebot.engine.sell.ExitProviderHealth.recordJupiterSell503()
+                            if (com.lifecyclebot.engine.sell.ExitProviderHealth.isProviderClassFailure(e.message)) {
+                                jupiterProviderClassFailure7228 = true
+                                com.lifecyclebot.engine.sell.ExitProviderHealth.recordJupiterProviderFailure(e.message ?: "provider_failure")
+                                ForensicLogger.lifecycle("SELL_PROVIDER_ROTATE_IMMEDIATE_7228",
+                                    "provider=JUPITER mint=${ts.mint.take(10)} reason=${e.message?.take(100)} action=break_ladder_rotate")
                             }
                         } catch (_: Throwable) {}
+                        if (jupiterProviderClassFailure7228) break
                         if (attempt < 2) Thread.sleep(300)
                     }
                 }
+                if (jupiterProviderClassFailure7228) break@jupiterLadder7228
                 if (quote != null) {
                     // V5.0.4102 — successful Jupiter sell quote clears the breaker.
                     try { com.lifecyclebot.engine.sell.ExitProviderHealth.recordJupiterSellOk() }
@@ -29043,6 +29051,9 @@ class Executor(
             sig
         } catch (badReq: com.lifecyclebot.network.PumpSellBadRequest) {
             val safe = security.sanitiseForLog(badReq.message ?: "bad_request")
+            if (badReq.httpCode >= 500 || badReq.httpCode == 599) {
+                try { com.lifecyclebot.engine.sell.ExitProviderHealth.recordPumpProviderFailure("HTTP_${badReq.httpCode}:$safe") } catch (_: Throwable) {}
+            }
             com.lifecyclebot.engine.sell.SellForensics.inc(
                 com.lifecyclebot.engine.sell.SellForensics.SELL_ROUTE_REBUILT_AFTER_400,
                 "mint=${ts.mint.take(10)} http=${badReq.httpCode} label=$labelTag → Jupiter failover")
@@ -29072,6 +29083,9 @@ class Executor(
             null
         } catch (pumpEx: Exception) {
             val safe = security.sanitiseForLog(pumpEx.message ?: "unknown")
+            if (com.lifecyclebot.engine.sell.ExitProviderHealth.isProviderClassFailure(pumpEx.message)) {
+                try { com.lifecyclebot.engine.sell.ExitProviderHealth.recordPumpProviderFailure(safe) } catch (_: Throwable) {}
+            }
             onLog("⚠️ PUMP-FIRST [$labelTag] failed (${safe.take(180)}) — falling through to Jupiter Ultra", ts.mint)
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",

@@ -38,6 +38,12 @@ object CryptoUniverseExecutor {
             val decimals: Int,
             val proofState: String,
         ) : Outcome()
+        data class VerifyPending(
+            val txSig: String,
+            val mint: String,
+            val resolution: CryptoUniverseRouteResolver.Resolution,
+            val proofState: String,
+        ) : Outcome()
         data class RouteDeferred(val resolution: CryptoUniverseRouteResolver.Resolution) : Outcome()
         data class ExecFailed(
             val resolution: CryptoUniverseRouteResolver.Resolution,
@@ -259,11 +265,11 @@ object CryptoUniverseExecutor {
 
         if (bridge.targetAmountRaw <= 0L || bridge.targetDecimals <= 0 ||
             !bridge.proofState.contains("CONFIRMED", ignoreCase = true)) {
-            val reason = "Bridge returned signature without verified target quantity/proof: raw=${bridge.targetAmountRaw} decimals=${bridge.targetDecimals} proof=${bridge.proofState}"
-            CryptoExecFailureTracker.recordFailure(symbol)
-            CryptoUniverseForensics.logPhase("CU_CONFIRM_FAILED", symbol, mint, mint, bridge.sourceMint, bridge.targetMint,
+            val reason = "Confirmed signature awaiting target quantity proof: raw=${bridge.targetAmountRaw} decimals=${bridge.targetDecimals} proof=${bridge.proofState}"
+            CryptoUniverseForensics.logPhase("CU_VERIFY_PENDING", symbol, mint, mint, bridge.sourceMint, bridge.targetMint,
                 resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, sig, job.id, reason)
-            return@runAwaited Outcome.ExecFailed(resolution, reason)
+            try { com.lifecyclebot.engine.execution.ExecutionStatusRegistry.stamp(mint, com.lifecyclebot.engine.execution.ExecutionStatus.CONFIRMED) } catch (_: Throwable) {}
+            return@runAwaited Outcome.VerifyPending(sig, mint, resolution, bridge.proofState)
         }
         val filledRaw = java.math.BigInteger.valueOf(bridge.targetAmountRaw)
         // V5.0.7132 — a Crypto Universe open must name its own asset class and

@@ -187,21 +187,13 @@ object LiveWalletReconciler {
             return 0
         }
         if (balances.isEmpty()) {
-            // Operator spec: empty map ≠ wallet empty for a SINGLE read. But a
-            // PERSISTENTLY empty wallet (N consecutive empty reads) means the
-            // wallet is genuinely drained — reap aged zombie live positions so a
-            // dead mint can't hold SellOnlySafeMode active forever (MARS regression).
+            // V5.0.7228 — an empty owner-token map is inconclusive forever.
+            // It can be RPC lag, a partial response, timeout masking, or provider
+            // truncation; repetition does not turn absence into explicit raw zero.
             val empties = consecutiveEmptyMaps.incrementAndGet()
-            ErrorLogger.warn(TAG, "🟡 reconcile($reason): RPC returned empty map (consecutive=$empties) — no per-token update.")
-            if (empties >= EMPTY_MAP_REAP_THRESHOLD) {
-                val reaped = reapZombieLivePositions(reason = "PERSISTENT_EMPTY_WALLET x$empties")
-                if (reaped > 0) {
-                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                        "ZOMBIE_REAP_EMPTY_WALLET",
-                        "reaped=$reaped consecutiveEmpty=$empties reason=$reason") } catch (_: Throwable) {}
-                }
-                return reaped
-            }
+            ErrorLogger.warn(TAG, "🟡 reconcile($reason): RPC returned empty map (consecutive=$empties) — BALANCE_UNKNOWN; no close/reap authority.")
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_SNAPSHOT_INCONCLUSIVE_7228",
+                "generation=${totalRuns.get()} empty=true consecutive=$empties reason=$reason action=preserve_open") } catch (_: Throwable) {}
             return 0
         }
         // Non-empty read → wallet RPC is healthy again; reset the empty streak.
@@ -247,9 +239,9 @@ object LiveWalletReconciler {
             val tracked = try { com.lifecyclebot.engine.HostWalletTokenTracker.snapshot() } catch (_: Throwable) { emptyList() }
             for (p in tracked) {
                 if (p.status != com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.OPEN_TRACKING) continue
-                val pair = balances[p.mint]
-                val walletRawExact = pair?.raw ?: java.math.BigInteger.ZERO
-                if (walletRawExact > java.math.BigInteger.valueOf(DUST_RAW_REAP)) continue   // genuinely held; leave it
+                val pair = balances[p.mint] ?: continue  // missing mint = UNKNOWN, never ZERO
+                val walletRawExact = pair.raw
+                if (walletRawExact.signum() > 0) continue // positive dust is still wallet-held   // genuinely held; leave it
                 val ageMs = now - (p.buyTimeMs ?: p.firstSeenWalletMs)
                 if (ageMs < ZOMBIE_AGE_MS) continue              // too fresh; not-yet-visible buy
                 val closed = try {
@@ -291,9 +283,8 @@ object LiveWalletReconciler {
                     .filter { !it.position.isPaperPosition && it.position.qtyToken > 0.0 }
                     .map { it.mint }
                     .filter { m ->
-                        val pair = balances[m]
-                        val walletRaw = if (pair != null) (pair.first * Math.pow(10.0, pair.second.toDouble())).toLong() else 0L
-                        walletRaw <= DUST_RAW_REAP
+                        val pair = balances[m] ?: return@filter false
+                        pair.raw.signum() == 0
                     }
                     .toList()
             } catch (_: Throwable) { emptyList() }
@@ -304,10 +295,10 @@ object LiveWalletReconciler {
                     (now - anchor) < ZOMBIE_AGE_MS
                 } ?: false } catch (_: Throwable) { false }
                 if (fresh) continue
-                try { com.lifecyclebot.engine.HostWalletTokenTracker.confirmZeroBalanceClose(m, hasConfirmedSellSig = false, reason = "GHOST_TOKENSTATE_NO_WALLET") } catch (_: Throwable) {}
-                try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.finalizeClosed(m, m.take(6), null, "GHOST_TOKENSTATE_NO_WALLET", source = "live_wallet_reconciler_ghost") } catch (_: Throwable) {}
-                try { com.lifecyclebot.engine.sell.CloseLease.release(m, terminal = "GHOST_TOKENSTATE_NO_WALLET") } catch (_: Throwable) {}
-                try { com.lifecyclebot.engine.BotService.purgeGhostLivePosition(m, "GHOST_TOKENSTATE_NO_WALLET") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.HostWalletTokenTracker.confirmZeroBalanceClose(m, hasConfirmedSellSig = false, reason = "GHOST_TOKENSTATE_EXPLICIT_RAW_ZERO") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.finalizeClosed(m, m.take(6), null, "GHOST_TOKENSTATE_EXPLICIT_RAW_ZERO", source = "live_wallet_reconciler_ghost") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.sell.CloseLease.release(m, terminal = "GHOST_TOKENSTATE_EXPLICIT_RAW_ZERO") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.BotService.purgeGhostLivePosition(m, "GHOST_TOKENSTATE_EXPLICIT_RAW_ZERO") } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.ForensicLogger.lifecycle("GHOST_TOKENSTATE_REAPED", "mint=${m.take(10)} reason=$reason") } catch (_: Throwable) {}
             }
         }

@@ -51,6 +51,29 @@ object ExitProviderHealth {
     @Volatile private var jupiterExitDisabledUntilMs: Long = 0L
     @Volatile private var jupiterProbeArmedAtMs: Long = 0L
 
+    fun isProviderClassFailure(message: String?): Boolean {
+        val m = message.orEmpty().lowercase()
+        return listOf("http 599", "http_599", "599", "http 503", "http_503", "503",
+            "quote unavailable", "service unavailable", "temporarily unavailable",
+            "bad gateway", "gateway timeout", "http 502", "http 504", "timed out", "timeout")
+            .any { m.contains(it) }
+    }
+
+    /** Provider-class failure is not route/slippage information. Rotate now and
+     * cool the dead provider after the first occurrence instead of replaying the
+     * full 200/350/500 ladder against the same outage. */
+    fun recordJupiterProviderFailure(reason: String) {
+        val now = System.currentTimeMillis()
+        jupiterSell503History.add(now)
+        jupiterExitDisabledUntilMs = maxOf(jupiterExitDisabledUntilMs, now + JUP_COOLDOWN_MS)
+        jupiterProbeArmedAtMs = jupiterExitDisabledUntilMs
+        try {
+            ForensicLogger.lifecycle("JUPITER_EXIT_PROVIDER_COOLDOWN_7228",
+                "reason=${reason.take(120)} cooldownMs=$JUP_COOLDOWN_MS action=rotate_immediately")
+            PipelineHealthCollector.labelInc("JUPITER_EXIT_PROVIDER_COOLDOWN_7228")
+        } catch (_: Throwable) {}
+    }
+
     fun recordJupiterSell503() {
         val now = System.currentTimeMillis()
         jupiterSell503History.add(now)
@@ -119,6 +142,21 @@ object ExitProviderHealth {
         @Volatile var suppressedUntilMs: Long = 0L,
     )
 
+    @Volatile private var pumpProviderDisabledUntilMs: Long = 0L
+
+    fun recordPumpProviderFailure(reason: String) {
+        val now = System.currentTimeMillis()
+        pumpProviderDisabledUntilMs = maxOf(pumpProviderDisabledUntilMs, now + PUMP_SUPPRESSION_MS)
+        try {
+            ForensicLogger.lifecycle("PUMP_EXIT_PROVIDER_COOLDOWN_7228",
+                "reason=${reason.take(120)} cooldownMs=$PUMP_SUPPRESSION_MS action=continue_independent_rotation")
+            PipelineHealthCollector.labelInc("PUMP_EXIT_PROVIDER_COOLDOWN_7228")
+        } catch (_: Throwable) {}
+    }
+
+    fun pumpProviderCooldownRemainingMs(): Long =
+        (pumpProviderDisabledUntilMs - System.currentTimeMillis()).coerceAtLeast(0L)
+
     private val pump1788ByMint = ConcurrentHashMap<String, PumpStrike>()
     private val routeInvalidatedAt = ConcurrentHashMap<String, AtomicLong>()
 
@@ -155,8 +193,10 @@ object ExitProviderHealth {
 
     /** True if Pump direct should be skipped for this mint right now. */
     fun isPumpDirectSuppressed(mint: String): Boolean {
+        val now = System.currentTimeMillis()
+        if (now < pumpProviderDisabledUntilMs) return true
         val s = pump1788ByMint[mint] ?: return false
-        return System.currentTimeMillis() < s.suppressedUntilMs
+        return now < s.suppressedUntilMs
     }
 
     /** True if this mint's Pump route cache was recently invalidated and the
@@ -189,6 +229,8 @@ object ExitProviderHealth {
             if (jupRem > 0) "🧯 JUP_503_OPEN remainMs=$jupRem  "
             else            "✅ JUP_OK  "
         )
+        val pumpProviderRem = pumpProviderCooldownRemainingMs()
+        sb.append(if (pumpProviderRem > 0) "🧯 PUMP_5XX_OPEN remainMs=$pumpProviderRem  " else "✅ PUMP_OK  ")
         sb.append("pumpSuppressedMints=$pumpSuppressed  ")
         sb.append("trackedMints=${pump1788ByMint.size}")
         return sb.toString()

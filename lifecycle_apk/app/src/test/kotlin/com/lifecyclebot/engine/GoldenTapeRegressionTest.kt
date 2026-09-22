@@ -9410,4 +9410,21 @@ class GoldenTapeRegressionTest {
         )
     }
 
+    @Test
+    fun V5_0_7228_runtime_exit_wallet_and_confirmation_authorities_are_mechanical() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val provider = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/ExitProviderHealth.kt").readText()
+        val wallet = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/LiveWalletReconciler.kt").readText()
+        val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        val cu = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoUniverseExecutor.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(provider.contains("recordJupiterProviderFailure") && provider.contains("recordPumpProviderFailure"))
+        assertTrue(exec.contains("SELL_PROVIDER_ROTATE_IMMEDIATE_7228") && exec.contains("jupiterProviderClassFailure7228"))
+        assertTrue(wallet.contains("missing mint = UNKNOWN, never ZERO") && wallet.contains("WALLET_SNAPSHOT_INCONCLUSIVE_7228"))
+        assertTrue(tracker.contains("RPC_CONFIRMED_POSITIVE_DUST_7228") && tracker.contains("CLOSED_BY_EXPLICIT_RAW_ZERO_7228"))
+        val pending = cu.substring(cu.indexOf("Confirmed signature awaiting target quantity proof"), cu.indexOf("val filledRaw"))
+        assertTrue(cu.contains("CU_VERIFY_PENDING") && !pending.contains("CU_CONFIRM_FAILED"))
+        assertTrue(bot.contains("memeRegistryRestoreSourceQuarantined7228 = true"))
+    }
+
 }

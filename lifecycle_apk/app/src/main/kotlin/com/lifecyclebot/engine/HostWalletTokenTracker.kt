@@ -989,21 +989,22 @@ object HostWalletTokenTracker {
                 existing.rawAmount = rawExact.toString()
                 existing.lastSeenWalletMs = now
                 existing.lastWalletReconcileMs = now
+                if (rawExact.signum() == 0) {
+                    // Explicit authoritative account lookup returned raw zero.
+                    walletAuthority[mint] = WalletAuthoritySnapshot.NO_CURRENT_HELD_PROOF(mint, "EXPLICIT_RPC_RAW_ZERO_7228", now)
+                    existing.notes.add("explicit wallet raw zero observed; close authority must confirm sell finality/zero policy")
+                    continue
+                }
                 if (!walletHasTradableUi) {
-                    walletAuthority[mint] = WalletAuthoritySnapshot.NO_CURRENT_HELD_PROOF(mint, "TERMINAL_TOKEN_DUST_WALLET_SNAPSHOT", now)
-                    if (existing.status in OPEN_STATUSES && !hasFreshBuyLiability(existing, now)) {
-                        existing.status = PositionStatus.CLOSED_DUST_UNROUTABLE
-                        existing.activeSellAttemptId = null
-                        existing.sellAttemptStartedMs = 0L
-                        existing.zeroBalanceConfirmedByTwoProviders = true
-                        existing.notes.add("wallet snapshot terminal dust ignored qty=$uiAmount raw=$rawExact")
-                        try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(mint, "CLOSED_BY_TERMINAL_TOKEN_DUST", 0) } catch (_: Throwable) {}
-                        try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(mint) } catch (_: Throwable) {}
-                        try { com.lifecyclebot.engine.sell.CloseLease.release(mint, "CLOSED_BY_TERMINAL_TOKEN_DUST") } catch (_: Throwable) {}
-                        try { com.lifecyclebot.engine.BotService.purgeGhostLivePosition(mint, "CLOSED_BY_TERMINAL_TOKEN_DUST") } catch (_: Throwable) {}
-                        emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, mint, existing.symbol, null,
-                            "WALLET_TERMINAL_DUST_IGNORED ${existing.symbol ?: mint.take(6)} qty=$uiAmount raw=$rawExact")
-                    }
+                    // Positive raw dust remains wallet-held. It may be classified as
+                    // non-managed dust, but it cannot close and later reopen the mint.
+                    walletAuthority[mint] = WalletAuthoritySnapshot.HELD(
+                        mint = mint, raw = rawExact, uiAmount = uiAmount, decimals = decimals,
+                        source = "RPC_CONFIRMED_POSITIVE_DUST_7228", observedAtMs = now,
+                    )
+                    existing.balanceAuthoritySource = "RPC_CONFIRMED_POSITIVE_DUST_7228"
+                    existing.balanceAuthorityObservedAtMs = now
+                    existing.notes.add("positive wallet dust retained as held qty=$uiAmount raw=$rawExact")
                     continue
                 }
                 if (walletHasTradableRaw) {
@@ -1644,28 +1645,33 @@ object HostWalletTokenTracker {
         var reaped = 0
         for (p in positions.values.toList()) {
             if (p.status !in OPEN_STATUSES) continue
-            if (isTerminalDust(p) && !hasFreshBuyLiability(p, now)) {
+            // V5.0.7228 — positive raw dust is still wallet-held property.
+            // Dust classification may suppress management/UI noise, but closure
+            // requires explicit raw zero (or the confirmed full-sell path elsewhere).
+            val explicitRawZero7228 = rawAmountBig(p) == BigInteger.ZERO &&
+                p.balanceAuthoritySource?.startsWith("RPC_CONFIRMED_RAW_ZERO") == true
+            if (explicitRawZero7228 && !hasFreshBuyLiability(p, now)) {
                 p.status = PositionStatus.CLOSED
                 p.uiAmount = 0.0
                 p.rawAmount = "0"
                 p.activeSellAttemptId = null
                 p.sellAttemptStartedMs = 0L
-                p.notes.add("terminal dust close: ui<=1 token or raw<=1 atom")
-                try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(p.mint, "CLOSED_BY_TERMINAL_TOKEN_DUST", 0) } catch (_: Throwable) {}
+                p.notes.add("explicit raw-zero close: authoritative wallet lookup")
+                try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(p.mint, "CLOSED_BY_EXPLICIT_RAW_ZERO_7228", 0) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(p.mint) } catch (_: Throwable) {}
-                try { com.lifecyclebot.engine.sell.CloseLease.release(p.mint, "CLOSED_BY_TERMINAL_TOKEN_DUST") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.sell.CloseLease.release(p.mint, "CLOSED_BY_EXPLICIT_RAW_ZERO_7228") } catch (_: Throwable) {}
                 try {
                     val fam = (p.symbol ?: "").uppercase().trim().filter { it.isLetterOrDigit() }.take(8)
-                    com.lifecyclebot.engine.ReEntryLockout.onClose(p.mint, fam, "TERMINAL_TOKEN_DUST", 0.0)
+                    com.lifecyclebot.engine.ReEntryLockout.onClose(p.mint, fam, "EXPLICIT_RAW_ZERO_7228", 0.0)
                 } catch (_: Throwable) {}
                 try {
                     for (ln in listOf("SHITCOIN","MOONSHOT","QUALITY","EXPRESS","CYCLIC","BLUE_CHIP","MANIPULATED","CORE","V3","DIP_HUNTER","PROJECT_SNIPER")) {
-                        com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(p.mint, ln, "TERMINAL_TOKEN_DUST_FREE_SLOT")
+                        com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(p.mint, ln, "EXPLICIT_RAW_ZERO_FREE_SLOT_7228")
                     }
                 } catch (_: Throwable) {}
-                try { com.lifecyclebot.engine.BotService.purgeGhostLivePosition(p.mint, "CLOSED_BY_TERMINAL_TOKEN_DUST") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.BotService.purgeGhostLivePosition(p.mint, "CLOSED_BY_EXPLICIT_RAW_ZERO_7228") } catch (_: Throwable) {}
                 emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, null,
-                    "REAP_CLOSED_TERMINAL_TOKEN_DUST ${p.symbol ?: p.mint.take(6)} ui<=1")
+                    "REAP_CLOSED_EXPLICIT_RAW_ZERO_7228 ${p.symbol ?: p.mint.take(6)}")
                 reaped++
                 continue
             }

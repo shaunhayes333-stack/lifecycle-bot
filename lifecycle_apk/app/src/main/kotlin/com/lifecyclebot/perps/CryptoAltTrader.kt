@@ -2986,6 +2986,14 @@ object CryptoAltTrader {
                     try { updateLiveBalance(wallet.getSolBalance()) } catch (_: Exception) {}
                     true
                 }
+                is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.VerifyPending -> {
+                    // Signature is chain-confirmed; TX_PARSE_META / owner delta owns
+                    // promotion to FINAL_TOKEN_VERIFIED. Treat as accepted pending work,
+                    // not a failure and not eligible for duplicate resubmission.
+                    ErrorLogger.info(TAG,
+                        "🪙 VERIFY PENDING: ${signal.marketSymbol} tx=${outcome.txSig.take(16)} proof=${outcome.proofState}")
+                    true
+                }
                 is com.lifecyclebot.perps.crypto.CryptoUniverseExecutor.Outcome.RouteDeferred -> {
                     LiveAttemptStats.record("CryptoAlt", LiveAttemptStats.Outcome.ROUTE_DEFERRED)
                     ErrorLogger.info(TAG,

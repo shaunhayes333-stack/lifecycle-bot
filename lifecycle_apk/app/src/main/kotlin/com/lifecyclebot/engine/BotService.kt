@@ -6317,7 +6317,19 @@ class BotService : Service() {
                 }
                 offset++
             }
-            for (m in recent) {
+            // V5.0.7228 — runtime doctor classified MEME_REGISTRY_RESTORE as
+            // the source of lane-fanout explosion. Quarantine the SOURCE, not its
+            // mints: persistent memory stays intact and fresh scanner rediscovery
+            // remains eligible, but registry replay cannot enter lane arbitration.
+            val memeRegistryRestoreSourceQuarantined7228 = true
+            if (memeRegistryRestoreSourceQuarantined7228 && recent.isNotEmpty()) {
+                try {
+                    PipelineHealthCollector.labelInc("MEME_REGISTRY_RESTORE_SOURCE_QUARANTINED_7228")
+                    ForensicLogger.lifecycle("MEME_REGISTRY_RESTORE_SOURCE_QUARANTINED_7228",
+                        "candidates=${recent.size} action=skip_restore_intake_preserve_registry")
+                } catch (_: Throwable) {}
+            }
+            for (m in if (memeRegistryRestoreSourceQuarantined7228) emptyList() else recent) {
                 if (m.mint.isBlank()) continue
                 val ok = admitProtectedMemeIntake(
                     mint = m.mint,

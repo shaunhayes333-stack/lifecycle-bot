@@ -64,7 +64,8 @@ object ExecutionHealthGuard {
         "RUG", "HONEYPOT", "EMERGENCY", "SHUTDOWN", "PHANTOM",
         "STALE", "MAX_HOLD", "MUST_SELL", "CATASTROPHIC",
         "STEALTH_MINT", "DRAIN", "PANIC", "REFLEX", "LIQUIDITY_COLLAPSE",
-        "LIQUIDITY_DRAIN", "NO_LIQUIDITY_EXIT"
+        "LIQUIDITY_DRAIN", "NO_LIQUIDITY_EXIT", "STOP", "STRICT_SL",
+        "HARD_FLOOR", "PROTECTIVE", "FORCED_LIQUIDATION"
     )
 
     /** True iff the reason should always broadcast, never defer. */
