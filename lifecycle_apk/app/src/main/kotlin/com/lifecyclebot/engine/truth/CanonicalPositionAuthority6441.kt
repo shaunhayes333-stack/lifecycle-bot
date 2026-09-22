@@ -181,6 +181,13 @@ object CanonicalPositionAuthority6441 {
                 position.positionId, position.mode, position.mint, position.lane,
             )
         } catch (_: Throwable) {}
+        // V5.0.7246 — ownership handoff. Once canonical OPEN exists, the
+        // mint must stop consuming discovery/watchlist capacity. Held pricing
+        // and exits are now supervised outside discovery.
+        try {
+            com.lifecyclebot.engine.GlobalTradeRegistry
+                .handoffOpenMintToHeld7246(position.mint, position.symbol)
+        } catch (_: Throwable) {}
         val qtyTokens = try {
             if (position.quantityScale in 0..18)
                 position.originalQtyRaw.toBigDecimal().movePointLeft(position.quantityScale).toDouble()
