@@ -134,10 +134,30 @@ object PreTradeHardGate {
             null -> pendingProofs.add("MINT_AUTHORITY_UNKNOWN")
             true -> Unit
         }
-        when (safety.freezeAuthorityDisabled) {
-            false -> return block(ts, "FREEZE_AUTHORITY_ACTIVE", "freeze authority still active")
-            null -> pendingProofs.add("FREEZE_AUTHORITY_UNKNOWN")
-            true -> Unit
+        // V5.0.7238 §FREEZE_AUTHORITY_HARD_BLOCK — operator screenshot
+        // showed 3 frozen tokens were bought live (PUMPAPI.IO DECODE,
+        // SWITCH TO PUMPAPI, SWITCH TO PUMPDEV) because the V5.0.4019
+        // patch downgraded UNKNOWN freeze from hard-block to
+        // pending-proof-penalty. Freeze status is not risk-weighted:
+        // a frozen SPL token is an unsellable dead position by design.
+        // FreezeAuthorityHardBlock7238 hard-blocks LIVE buys when the
+        // authority is FALSE (proven set) OR NULL (unverified). Paper
+        // sampling is unaffected (this gate is LIVE-only).
+        run {
+            val fdec7238 = com.lifecyclebot.engine.truth
+                .FreezeAuthorityHardBlock7238.evaluateLive(ts)
+            when (fdec7238.verdict) {
+                com.lifecyclebot.engine.truth
+                    .FreezeAuthorityHardBlock7238.Verdict.BLOCK_FREEZE_ACTIVE ->
+                    return block(ts, "FREEZE_AUTHORITY_ACTIVE_7238",
+                        "freeze authority proven active — quarantined")
+                com.lifecyclebot.engine.truth
+                    .FreezeAuthorityHardBlock7238.Verdict.BLOCK_FREEZE_UNVERIFIED ->
+                    return block(ts, "FREEZE_AUTHORITY_UNVERIFIED_7238",
+                        "freeze status unverified — refuse to spend live SOL until RPC proof")
+                com.lifecyclebot.engine.truth
+                    .FreezeAuthorityHardBlock7238.Verdict.ALLOW -> Unit
+            }
         }
 
         val tokenMapLiquidity = TokenMapAuthority.liquidityVerdict(ts)

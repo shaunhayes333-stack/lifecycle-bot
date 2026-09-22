@@ -37,6 +37,7 @@ object RuntimeHealthPanel7234 {
         val mr = MarkIdentityRepairAuthority7236.summary()
         val rg = RoutableMinRiskGuard7236.summary()
         val lt = LiveTerminalSemanticsAuthority7236.summary()
+        val fz = FreezeAuthorityHardBlock7238.summary()
         val sb = StringBuilder()
         sb.append("┌─ RUNTIME HEALTH ─────────────────────────────────┐\n")
         sb.append("│ BASIS  sealed=${pad(bs.sealsCreated)} refused=${pad(bs.overwriteRefused)} veto=${pad(bs.exitBasisMismatch)}\n")
@@ -53,6 +54,8 @@ object RuntimeHealthPanel7234 {
         sb.append("│        (score=${rg.refusedWeakScore},regime=${rg.refusedWeakRegime},proof=${rg.refusedPendingProof},cmpst=${rg.refusedComposite})\n")
         sb.append("│ LIVE   terminal=${pad(lt.totalTerminal)} exclBroadcast=${pad(lt.excludedBroadcast)}\n")
         sb.append("│        exclUnknown=${pad(lt.excludedUnknown)}\n")
+        sb.append("│ FREEZE allowed=${pad(fz.allowed)} blockActive=${pad(fz.blockedActive)}\n")
+        sb.append("│        blockUnverified=${pad(fz.blockedUnverified)}\n")
         sb.append("│ FANOUT fdgCapped=${pad(fo.fdgCappedEvents)} laneCapped=${pad(fo.laneCappedEvents)}\n")
         sb.append("│        advisoryUngoverned=${pad(fo.advisoryUngoverned)} chains=${fo.activeCausalChains}\n")
         sb.append("└──────────────────────────────────────────────────┘")
@@ -69,6 +72,7 @@ object RuntimeHealthPanel7234 {
         val mr = MarkIdentityRepairAuthority7236.summary()
         val rg = RoutableMinRiskGuard7236.summary()
         val lt = LiveTerminalSemanticsAuthority7236.summary()
+        val fz = FreezeAuthorityHardBlock7238.summary()
         return "HEALTH7234 basisVeto=${bs.exitBasisMismatch} " +
             "sellUnique=${sf.uniqueSells}/redispatch=${sf.redispatches} " +
             "walletPnlSup=${wi.pnlSuppressed} " +
@@ -76,6 +80,7 @@ object RuntimeHealthPanel7234 {
             "repairOk=${mr.succeeded}/${mr.requested} " +
             "liftRefWeak=${rg.totalRefused} " +
             "liveExclBroadcast=${lt.excludedBroadcast} " +
+            "freezeBlock=${fz.totalBlocked} " +
             "fanoutFdgCap=${fo.fdgCappedEvents}"
     }
 
