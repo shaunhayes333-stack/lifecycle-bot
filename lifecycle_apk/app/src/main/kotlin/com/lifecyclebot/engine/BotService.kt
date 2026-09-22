@@ -1752,6 +1752,11 @@ class BotService : Service() {
                     try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol(), "startup_paper_ledger_authority_6487") } catch (_: Throwable) {}
                     val inventoryRepair6490 = com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.refundDuplicateActiveMintLots6490()
                     val repairedPaperPositions6490 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().filter { it.mode == "paper" }
+                    // V5.0.7246 — restart/recovery positions are already canonical
+                    // OPEN before any fresh-open hook can fire. Reconcile them out
+                    // of discovery now so a restart cannot repopulate held mints
+                    // into the watchlist or consume scanner/FDG capacity.
+                    try { HeldPositionSupervisor7246.reconcileDiscoveryResidency() } catch (_: Throwable) {}
                     com.lifecyclebot.engine.EmergentGuardrails.rebuildFromCanonical6475(repairedPaperPositions6490)
                     com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(repairedPaperPositions6490)
                     try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.setPaperCash(com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol(), "startup_duplicate_inventory_repair_6490") } catch (_: Throwable) {}
