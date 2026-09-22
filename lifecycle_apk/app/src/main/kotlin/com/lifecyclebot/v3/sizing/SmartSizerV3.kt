@@ -39,7 +39,7 @@ data class SizeResult(
 class SmartSizerV3(
     private val config: TradingConfigV3
 ) {
-    private companion object {
+    companion object {
         /**
          * V5.0.7127 — the live floor band. See the derivation at the use site.
          *
@@ -47,36 +47,95 @@ class SmartSizerV3(
          * balance and SOL price, not a number other files should copy; a second
          * reader holding its own idea of "the minimum live trade" is exactly the
          * drift this session has spent a dozen builds removing.
+         *
+         * V5.0.7224 — the companion itself is no longer private, because 7222's
+         * live preflight tried to read these from outside and did not compile
+         * (three red builds: 7222, 7223). The constants stay private; what is
+         * exposed is ONE read-only function, routableCapacityPreflight7224(),
+         * that runs the sizer's own arithmetic on the sizer's own numbers. A
+         * reader gets the answer, never the inputs to copy.
          */
 
         /** Smallest fill a DEX will actually route, expressed in dollars. From
          *  V5.0.6269's own finding: "pump.fun tokens simply have no executable
          *  route below ~$5". Converted at the live SOL price each call, so the
          *  floor tracks the market instead of freezing at one exchange rate. */
-        const val LIVE_ROUTABLE_MIN_USD_7127 = 5.0
+        private const val LIVE_ROUTABLE_MIN_USD_7127 = 5.0
 
         /** Hard lower bound on the converted routable minimum. Guards against a
          *  bad or spiking SOL price producing a floor small enough to reinstate
          *  the ROUTE_FAILED dust that V5.0.6269 was built to stop. */
-        const val LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127 = 0.010
+        private const val LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127 = 0.010
 
         /** The historical fixed floor, retained as the band's CEILING so a
          *  funded wallet sizes exactly as it did before this change. */
-        const val LIVE_FLOOR_CEILING_SOL_7127 = 0.05
+        private const val LIVE_FLOOR_CEILING_SOL_7127 = 0.05
 
         /** Used only when the SOL price is unknown. Falls back to the old
          *  constant rather than guessing a cheaper floor we cannot justify. */
-        const val LIVE_FLOOR_FALLBACK_SOL_7127 = 0.05
+        private const val LIVE_FLOOR_FALLBACK_SOL_7127 = 0.05
 
         /** The floor tracks this share of tradeable balance between the routable
          *  minimum and the ceiling. 10% keeps a floor-promoted trade in the same
          *  proportion the lane allocations already target. */
-        const val LIVE_FLOOR_WALLET_PCT_7127 = 0.10
+        private const val LIVE_FLOOR_WALLET_PCT_7127 = 0.10
 
         /** A single floor-promoted trade may never exceed this share of tradeable
          *  balance. Without it, a small wallet would be forced to concentrate
          *  most of itself into one memecoin just to clear a routing minimum. */
-        const val LIVE_FLOOR_MAX_WALLET_SHARE_7127 = 0.25
+        private const val LIVE_FLOOR_MAX_WALLET_SHARE_7127 = 0.25
+
+        /** V5.0.7224 — the routable-capacity verdict as a value, for the live
+         *  preflight. Pure; reads nothing but its arguments and the private
+         *  constants above. */
+        data class RoutablePreflight7224(
+            val tradeableSol: Double,
+            val routableMinSol: Double,
+            val capacity: Int,
+            val shareGuard: Double,
+            val safeShareCapSol: Double,
+            val minViableTradeableSol: Double,
+            val wouldRefuse: Boolean,
+        )
+
+        /**
+         * V5.0.7224 — READ-ONLY. Reproduces, line for line, the refusal test in
+         * compute() at the "routableMinSol7127 > safeShareCap7142" branch so the
+         * preflight can state BEFORE the first candidate whether this wallet can
+         * take a single routable live position. It mutates nothing, emits no
+         * counters, and is not on any sizing path; compute() does not call it.
+         * If the arithmetic in compute() changes, change it here in the same
+         * commit — that is the whole point of keeping both in one file.
+         */
+        fun routableCapacityPreflight7224(tradeableSol: Double, solUsd: Double): RoutablePreflight7224 {
+            val tradeable = if (tradeableSol.isFinite()) tradeableSol.coerceAtLeast(0.0) else 0.0
+            val rawSol = try {
+                com.lifecyclebot.engine.truth.EconomicUnitInvariant7061
+                    .usdToSol(LIVE_ROUTABLE_MIN_USD_7127, solUsd)
+            } catch (_: Throwable) { Double.NaN }
+            val routableMin = if (rawSol.isFinite() && rawSol > 0.0) {
+                rawSol.coerceIn(LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127, LIVE_FLOOR_CEILING_SOL_7127)
+            } else LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127
+            val capacity = if (routableMin > 0.0 && tradeable > 0.0) {
+                kotlin.math.floor(tradeable / routableMin).toInt()
+            } else 0
+            val shareGuard = if (capacity >= MIN_ROUTABLE_CAPACITY_7218) {
+                kotlin.math.min(
+                    MAX_CONCENTRATION_SHARE_7218,
+                    kotlin.math.max(LIVE_FLOOR_MAX_WALLET_SHARE_7127, 1.0 / capacity),
+                )
+            } else LIVE_FLOOR_MAX_WALLET_SHARE_7127
+            val safeShareCap = tradeable * shareGuard
+            return RoutablePreflight7224(
+                tradeableSol = tradeable,
+                routableMinSol = routableMin,
+                capacity = capacity,
+                shareGuard = shareGuard,
+                safeShareCapSol = safeShareCap,
+                minViableTradeableSol = routableMin * MIN_ROUTABLE_CAPACITY_7218,
+                wouldRefuse = routableMin > safeShareCap,
+            )
+        }
 
         /**
          * V5.0.7218 §THE_GUARD_CHECKED_AND_HAD_NO_REMEDY.
@@ -123,11 +182,11 @@ class SmartSizerV3(
          *   0.0500 SOL -> capacity 1 -> guard 50.0% -> cap 0.0250 -> refused
          *   1.0000 SOL -> capacity 23 -> guard 25.0% -> unchanged
          */
-        const val MAX_CONCENTRATION_SHARE_7218 = 0.50
+        private const val MAX_CONCENTRATION_SHARE_7218 = 0.50
 
         /** Minimum routable positions a wallet must carry before the share
          *  guard widens. Two, so concentration can never exceed a half. */
-        const val MIN_ROUTABLE_CAPACITY_7218 = 2
+        private const val MIN_ROUTABLE_CAPACITY_7218 = 2
     }
 
     /**

@@ -38,6 +38,13 @@ import com.lifecyclebot.engine.PipelineHealthCollector
  * operator to find out why one was not made.
  */
 object LivePreflight7222 {
+    /** V5.0.7224 — the reserve the live sizer actually subtracts. It is the
+     *  default parameter of V3Adapter.toWallet(totalSol, reserveSol = 0.05),
+     *  which is the only wallet constructor on the live sizing path. Kept
+     *  here as a named value so the preflight's arithmetic is auditable
+     *  against that call site; nothing else reads it. */
+    private const val LIVE_SIZER_RESERVE_SOL_7224 = 0.05
+
 
     enum class Verdict { PASS, REFUSE, UNKNOWN, INFO }
 
@@ -99,32 +106,22 @@ object LivePreflight7222 {
 
         // 3. Routable capacity — the exact arithmetic that refused 1050 times on 7216.
         checks += check("ROUTABLE_CAPACITY") {
-            val reserve = try { ctx?.let { com.lifecyclebot.data.ConfigStore.load(it).reserveSol } ?: 0.05 } catch (_: Throwable) { 0.05 }
+            // V5.0.7224 — the live sizer builds its wallet through
+            // V3Adapter.toWallet(walletSol) with the DEFAULT reserve of 0.05;
+            // no config field feeds it. 7222 read a config field that does not
+            // exist and copied the sizer's private constants, and did not
+            // compile. Now the same reserve the sizer uses, and the sizer's own
+            // read-only arithmetic instead of a second copy of it.
+            val reserve = LIVE_SIZER_RESERVE_SOL_7224
             val tradeable = (walletSol - reserve).coerceAtLeast(0.0)
-            val rawSol = try {
-                EconomicUnitInvariant7061.usdToSol(
-                    com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_ROUTABLE_MIN_USD_7127, solUsd,
-                )
-            } catch (_: Throwable) { Double.NaN }
-            val routableMin = if (rawSol.isFinite() && rawSol > 0.0) {
-                rawSol.coerceIn(
-                    com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127,
-                    com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_FLOOR_CEILING_SOL_7127,
-                )
-            } else com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_FLOOR_ABSOLUTE_MIN_SOL_7127
-            val capacity = if (routableMin > 0.0 && tradeable > 0.0) kotlin.math.floor(tradeable / routableMin).toInt() else 0
-            val minCap = com.lifecyclebot.v3.sizing.SmartSizerV3.MIN_ROUTABLE_CAPACITY_7218
-            val baseShare = com.lifecyclebot.v3.sizing.SmartSizerV3.LIVE_FLOOR_MAX_WALLET_SHARE_7127
-            val maxConc = com.lifecyclebot.v3.sizing.SmartSizerV3.MAX_CONCENTRATION_SHARE_7218
-            val shareGuard = if (capacity >= minCap) kotlin.math.min(maxConc, kotlin.math.max(baseShare, 1.0 / capacity)) else baseShare
-            val safeShareCap = tradeable * shareGuard
-            val minViableWallet = routableMin * minCap + reserve
-            val ok = walletSol > 0.0 && routableMin <= safeShareCap
-            val detail = "tradeable=${"%.4f".format(tradeable)} routableMin=${"%.5f".format(routableMin)} " +
-                "capacity=$capacity shareGuard=${"%.3f".format(shareGuard)} safeShareCap=${"%.5f".format(safeShareCap)} " +
+            val pf = com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(tradeable, solUsd)
+            val minViableWallet = pf.minViableTradeableSol + reserve
+            val ok = walletSol > 0.0 && !pf.wouldRefuse
+            val detail = "tradeable=${"%.4f".format(pf.tradeableSol)} routableMin=${"%.5f".format(pf.routableMinSol)} " +
+                "capacity=${pf.capacity} shareGuard=${"%.3f".format(pf.shareGuard)} safeShareCap=${"%.5f".format(pf.safeShareCapSol)} " +
                 "minViableWalletSol=${"%.4f".format(minViableWallet)} " +
                 (if (!ok && walletSol > 0.0) "shortfallSol=${"%.4f".format((minViableWallet - walletSol).coerceAtLeast(0.0))} " else "") +
-                "(§7218)"
+                "(§7218 via SmartSizerV3.routableCapacityPreflight7224)"
             when {
                 walletSol <= 0.0 -> Check("ROUTABLE_CAPACITY", Verdict.UNKNOWN, "wallet not read; $detail")
                 ok -> Check("ROUTABLE_CAPACITY", Verdict.PASS, detail)
