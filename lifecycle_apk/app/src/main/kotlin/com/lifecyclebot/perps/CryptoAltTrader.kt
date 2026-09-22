@@ -898,6 +898,14 @@ object CryptoAltTrader {
                 return@withContext
             }
             try {
+                // V5.0.7246 — once this asset is canonically held it leaves the
+                // 4k+ Crypto Universe discovery rotation. monitorPositions() owns
+                // held pricing/exits; DynScan must spend its batch on NEW assets.
+                if (com.lifecyclebot.engine.HeldPositionSupervisor7246.isHeld(tok.canonicalIdentity6544) ||
+                    com.lifecyclebot.engine.HeldPositionSupervisor7246.isHeld(tok.mint)) {
+                    try { PipelineHealthCollector.labelInc("CRYPTO_HELD_DISCOVERY_BYPASS_7246") } catch (_: Throwable) {}
+                    continue
+                }
                 if (SOL_PERPS_SYMBOLS.contains(tok.symbol.uppercase())) {
                     if (!DynamicAltTokenRegistry.markEvaluationStarted6567(tok)) continue
                     DynamicAltTokenRegistry.markEvaluationDisposition6567(tok, "OWNED_BY_SOL_PERPS")
