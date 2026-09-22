@@ -2,6 +2,40 @@
 
 **Status:** PAPER TRADING ONLY. NO LOCAL COMPILER — every change ships via `git push` → GitHub Actions CI.
 
+## V5.0.7229 → 7230 (Feb 2026) — Basis seal + wallet inventory + mark-identity gate 🟡 CI pending
+
+Operator 5.0.7227 diagnosis: EYMBTN buy entry 0.00014420 became 0.00089389 at exit (6.19× replacement), turning a -1.5% move into -84% catastrophic. Wallet has 5+ assets, bot tracks 3. 27k METRICS_IDENTITY_BROKEN observations feeding PnL/SL/TP.
+
+### V5.0.7229 — Canonical Fill Basis Seal
+
+- **New**: `com.lifecyclebot.engine.truth.CanonicalFillBasisSeal7229`
+  - `sealBuyFinality(mint, positionId, entryPrice, executedSol, feeAdjustedSol, rawQty, decimals, entryUsd, entryMcap, buySignature)` — single immutable cost-basis writer. Idempotent on same signature; different-signature overwrite refused + `CANONICAL_FILL_BASIS_OVERWRITE_REFUSED_7229`.
+  - `exitBasisAllowed(mint, positionId, proposedEntryPrice, exitReason)` — Verdict. >5% relative delta between sealed and proposed entry → veto + `CANONICAL_FILL_BASIS_EXIT_VETO_7229`. Unsealed positions (paper, wallet-recovered basis-unknown) pass through — this authority never manufactures PnL from unknown basis.
+- **Wired**:
+  - `HostWalletTokenTracker.recordBuyConfirmedWithProof` — seal at wallet-proven BUY finality (strongest live-truth surface)
+  - `Executor.doHardStops` CATASTROPHIC_HARD_BACKSTOP_-25 — veto complements 6835 mark-freshness veto
+  - `BotService.universalExitSweep` UNIVERSAL_HARD_FLOOR_* / UNIVERSAL_PEAK_LOCK_* — same pairing
+- Non-catastrophic exits (NORMAL_STOP, TARGET_HIT, TRAIL_LOCK, THIN_LIQ, LIQ_DRAIN, RUG_*) unaffected — those read live-price or non-price liquidity surfaces.
+
+### V5.0.7230 — Wallet inventory classifier + mark-identity execution gate
+
+- **New**: `WalletCanonicalInventoryClassifier7230` (P0 #6-9)
+  - Buckets every non-zero wallet mint into `BOT_CANONICAL_OPEN` / `EXTERNAL_WALLET_HOLDING` / `QUARANTINED_WITH_EXPLICIT_REASON` / `UNSUPPORTED_TOKEN`
+  - `pnlAllowed(mint)` returns false for anything not BOT_CANONICAL_OPEN with a sealed basis. Consumers of PnL must consult before emitting a number.
+- **New**: `MarkIdentityExecutionGate7230` (P0 #10-13)
+  - Refuses to let a mark drive PnL/SL/TP/trailing/catastrophe/learning when identity is broken, uncorroborated, or bound only by symbol (§13 forbidden)
+  - Existing `unverifiable_price_passes_through_untouched` policy stays for telemetry; this gate is what stops the value becoming executable.
+
+### Callable helpers awaiting wiring (V5.0.7231)
+
+- Wire `WalletCanonicalInventoryClassifier7230.classify()` at the reconciler wallet-scan; wire `pnlAllowed()` at every wallet-observed PnL emission site (UI panel, RECOVERED_TNSRxc, telemetry)
+- Wire `MarkIdentityExecutionGate7230.evaluate()` at every SL/TP/trailing/normal-stop reader that today accepts a METRICS_IDENTITY_BROKEN price
+- P0 #14-18: fix the 5 lane traders (BlueChip/Moonshot/ShitCoin/Quality/SolanaArb) hard-coding `walletSolProxy = PaperCapitalAuthority6577.cashSol()` at source so `LIVE_SIZING_WALLET_PROXY_WAS_PAPER_CASH_7226` truly reaches 0
+- P1 #19-23 active-fanout reduction (laneEval/intake=29.5); P1 #24-26 SELL_OK telemetry re-entrancy; P1 #33-36 hard-stop latency 54.6s → target <5s
+
+§8 preservations remain intact: no changes to canonical accounting, mark sanity, same-mint dedup, inventory caps, reconciler, FDG sealing, terminal idempotency, capital conservation, stale-ticket protection.
+
+
 ## V5.0.6833 → 6834 (Feb 2026) — Runtime tune: EXPRESS bleed + edge redistribution + inventory staircase ✅ CI GREEN (6833)
 
 Operator directive AATE 5.0.6832 RUNTIME TUNE — 8-section runtime plan enforced atop 6832. All rules additive/multiplicative; no global caps, CASH_STARVED, or bot-loop cadence changes.
