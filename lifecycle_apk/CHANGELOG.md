@@ -4,6 +4,14 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.7263] - 2026-09-23 — THE ORACLE IS ADVISORY UNTIL IT PROVES ITS EDGE
+
+- Operator: "the oracle is way way too strict to allow any trading in paper or live… it also has to allow trading. not probing" / "until the Oracle can prove its edge yes."
+- New `OracleEdgeProof7263`: stamps every oracle forecast per mint, grades it on `CanonicalTradeFinalizedBus6450` closes, and reads `PROVEN` only when the ADMIT pile settles better than the PROBE/REFUSE pile (≥20 / ≥10 closes, ADMIT mean return > 0 and ≥ non-ADMIT + 2pp, ADMIT win rate ≥ non-ADMIT, ADMIT Brier ≤ 0.25). Recomputed on every close; demotes itself when the edge stops holding.
+- ADVISORY (default, both modes): the oracle's verdict word gates nothing. Its pWin/EV still feed the evidence-based branches (§2 DUMP deny, §2b dead-cohort meter, §5 source family), which remain the only things that shrink or refuse an entry. A learned-authority PROBE_ONLY (evidence-based) executes at probe size in both modes; authority/brain exceptions fail open; Brain Consensus SOFT_BLOCK is a size damp in both modes; cross-asset non-REFUSE proceeds.
+- PROVEN: LIVE is ADMIT or nothing (7259 semantics, consensus hard block included); PAPER meters a PROBE and denies a REFUSE.
+- The 7262 paper/live split is withdrawn in favour of this tiering. 7262's Groq catalogue, Groq auth-only probe and Gemini blank-key message stay.
+
 ## [5.0.7262] - 2026-09-23 — PAPER LEARNS, LIVE REQUIRES CONVICTION
 
 - 7259–7261 applied "an oracle PROBE is non-executable" to PAPER as well as LIVE. On a clean book the oracle has no terminal evidence, so every candidate is a PROBE, so nothing executes, so no terminal evidence is ever written: `admit=0 probe=2069 denies=2011 EXEC=0 lifetime trades=0`. 7261's cold-start admit (`score>=60 && confidence>=0.40`) never fired against a cold V3 scorer producing 9–32 / 8–16% (`coldAdmit7261=0`).

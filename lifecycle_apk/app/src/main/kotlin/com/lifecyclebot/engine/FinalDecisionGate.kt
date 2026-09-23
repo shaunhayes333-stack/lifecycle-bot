@@ -4774,7 +4774,21 @@ object FinalDecisionGate {
                         // the closes that would give those members evidence.
                         // Paper keeps the V5.9.1136 damp below: smaller, not
                         // never. Live keeps 7259.
-                        if (!com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+                        //
+                        // V5.0.7263 — operator: "it also has to allow trading."
+                        // The 7259 hard block applies only once the oracle has
+                        // PROVEN its edge (OracleEdgeProof7263): that is the
+                        // point at which the learned stack has shown, on closes,
+                        // that its objections are worth a veto. Until then a
+                        // soft objection does what it did from V5.9.1136 to
+                        // 7258 in both modes — shrinks the size. The 88% soft-
+                        // block rate on the 7261 cold book came from members
+                        // with zero closes behind them.
+                        val oracleProven7263 = try {
+                            com.lifecyclebot.engine.truth.OracleEdgeProof7263.tier() ==
+                                com.lifecyclebot.engine.truth.OracleEdgeProof7263.Tier.PROVEN
+                        } catch (_: Throwable) { false }
+                        if (oracleProven7263 && !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
                             shouldTradeFinal = false
                             blockReasonFinal = "BRAIN_CONSENSUS_NOT_UNANIMOUS_7259:${report.objections.joinToString("+").take(120)}"
                             blockLevelFinal = BlockLevel.HARD
@@ -4783,9 +4797,9 @@ object FinalDecisionGate {
                                 PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_SOFT_BLOCK_NON_EXECUTABLE_7259")
                             } catch (_: Throwable) {}
                         } else {
-                            tags.add("bcg_soft_block_paper_damped_7262")
+                            tags.add("bcg_soft_block_damped_7263")
                             try {
-                                PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_SOFT_BLOCK_PAPER_DAMPED_7262")
+                                PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_SOFT_BLOCK_DAMPED_7263")
                             } catch (_: Throwable) {}
                         }
                         // V5.9.1136 — no longer pure telemetry. Soft objections now
@@ -5075,15 +5089,22 @@ object FinalDecisionGate {
             // V5.0.7260 — unanimous-positive entry cannot treat a missing
             // consensus result as consent. Keep the runtime alive but fail
             // this candidate closed; later candidates may evaluate normally.
-            // V5.0.7262 — LIVE only; a brain-layer exception in PAPER must
-            // not stop the learning that would repair the brain layer.
-            if (!com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+            // V5.0.7263 — a brain-layer exception is a fault in the brain
+            // layer, not evidence about the candidate. Fail open in both modes
+            // (the pre-7260 contract) and count it; the 7260 block applies
+            // only once the oracle is PROVEN, when the stack has earned the
+            // right to have its silence treated as a no.
+            val oracleProvenExc7263 = try {
+                com.lifecyclebot.engine.truth.OracleEdgeProof7263.tier() ==
+                    com.lifecyclebot.engine.truth.OracleEdgeProof7263.Tier.PROVEN
+            } catch (_: Throwable) { false }
+            if (oracleProvenExc7263 && !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
                 shouldTradeFinal = false
                 blockReasonFinal = "BRAIN_CONSENSUS_UNAVAILABLE_7260"
                 blockLevelFinal = BlockLevel.HARD
                 try { PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_UNAVAILABLE_BLOCK_7260") } catch (_: Throwable) {}
             } else {
-                try { PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_UNAVAILABLE_PAPER_FAIL_OPEN_7262") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_UNAVAILABLE_FAIL_OPEN_7263") } catch (_: Throwable) {}
             }
         }
 

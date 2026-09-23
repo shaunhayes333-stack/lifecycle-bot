@@ -305,24 +305,19 @@ object ExecutableEntryAuthority6450 {
         //           did before 7260. Paper learns.
         //   LIVE  — unchanged from 7259/7260: PROBE_ONLY and exceptions are
         //           shadow-only. Real money follows ADMIT only.
-        val paperRuntime7262 = try {
-            com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
-        } catch (_: Throwable) { false }
+        // V5.0.7263 — operator: "the oracle is way way too strict to allow
+        // any trading in paper or live... it also has to allow trading. not
+        // probing." The 7262 paper/live split is withdrawn: in BOTH modes a
+        // learned-authority exception falls open to the historical streak
+        // gate (the pre-7260 contract — "never fail-closed here because it
+        // would open a global choke"), and PROBE_ONLY executes at probe size.
+        // PROBE_ONLY now only arises from EVIDENCE of a negative cohort
+        // (LearnedAdmissionAuthority6846 §2/§2b/§4/§5); the oracle's own
+        // verdict no longer produces it.
         val learned = try {
             LearnedAdmissionAuthority6846.evaluate(inputs)
         } catch (_: Throwable) {
-            if (!paperRuntime7262) {
-                // V5.0.7260 — a missing learned verdict cannot satisfy the
-                // positive-prediction contract. Fail this candidate closed while
-                // leaving subsequent candidates and the runtime untouched.
-                try { PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_ORACLE_ERROR_BLOCK_7260") } catch (_: Throwable) {}
-                return Decision(
-                    Verdict.DENY_LEARNED_NEGATIVE_6846,
-                    0.0,
-                    "learned6846:ORACLE_EVALUATION_UNAVAILABLE_7260",
-                )
-            }
-            try { PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_ORACLE_ERROR_PAPER_FAIL_OPEN_7262") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_ORACLE_ERROR_FAIL_OPEN_7263") } catch (_: Throwable) {}
             null
         }
         return when (learned?.verdict) {
@@ -339,30 +334,20 @@ object ExecutableEntryAuthority6450 {
                 )
             }
             LearnedAdmissionAuthority6846.Verdict.PROBE_ONLY -> {
+                // V5.0.7263 — executable in both modes at the authority's
+                // probe size (7139 quarter). This verdict is now reserved
+                // for cohorts with EVIDENCE of negative expectancy.
                 gates.incrementAndGet()
-                if (paperRuntime7262) {
-                    // V5.0.7262 — paper probe is executable at probe size.
-                    probes.incrementAndGet()
-                    try {
-                        PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_PROBE_LEARNED_6846")
-                        PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_PROBE_PAPER_EXECUTABLE_7262")
-                    } catch (_: Throwable) {}
-                    Decision(
-                        Verdict.ALLOW_PROBE,
-                        learned.recommendedSizeSol,
-                        "learned6846_probe:${learned.denyCategory}",
-                    )
-                } else {
-                    denies.incrementAndGet()
-                    try {
-                        PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_PROBE_NON_EXECUTABLE_7260")
-                    } catch (_: Throwable) {}
-                    Decision(
-                        Verdict.DENY_LEARNED_NEGATIVE_6846,
-                        0.0,
-                        "learned6846_probe_shadow_only_7260:${learned.denyCategory}",
-                    )
-                }
+                probes.incrementAndGet()
+                try {
+                    PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_PROBE_LEARNED_6846")
+                    PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_PROBE_EXECUTABLE_7263")
+                } catch (_: Throwable) {}
+                Decision(
+                    Verdict.ALLOW_PROBE,
+                    learned.recommendedSizeSol,
+                    "learned6846_probe:${learned.denyCategory}",
+                )
             }
             else -> {
                 // Explicit learned ALLOW falls through to the independent

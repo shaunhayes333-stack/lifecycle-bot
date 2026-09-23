@@ -9519,26 +9519,29 @@ class GoldenTapeRegressionTest {
         ).readText()
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
 
+        // V5.0.7263 — the 7259 gates survive verbatim but are reachable only
+        // once OracleEdgeProof7263 reads PROVEN.
         assertTrue(learned.contains("ORACLE_PROBE_NON_EXECUTABLE_7259"))
         assertTrue(learned.contains("ORACLE_UNAVAILABLE_7259"))
         assertTrue(inputs.contains("oracleVerdict6915 = oracle6915?.verdict"))
         assertTrue(crossAsset.contains("ORACLE_ADMIT_REQUIRED_7259"))
-        // V5.0.7262 — the ADMIT test is now a named value shared by the live
-        // block and the paper-exploration branch; the live block still refuses
-        // on it.
         assertTrue(crossAsset.contains("oracle7259.verdict == PredictiveEntryOracle6915.Verdict.ADMIT"))
-        assertTrue(crossAsset.contains("if (!oracleAdmitted7262 && !paperExploration7262)"))
         assertTrue(crossAsset.contains("probe = paperExploration7262"))
         assertTrue(fdg.contains("BRAIN_CONSENSUS_NOT_UNANIMOUS_7259"))
     }
 
-    /** V5.0.7262 — paper learns, live requires conviction. 7259-7261 applied
-     * "PROBE is non-executable" to PAPER too and produced a clean-book deadlock
-     * (admit=0 probe=2069 denies=2011 EXEC=0). Every 7259/7260 live gate must
-     * survive unchanged, and every PAPER path must route a non-ADMIT to a
-     * metered probe rather than a denial. */
+    /** V5.0.7263 — the oracle is ADVISORY until it proves its edge on real
+     * closes, then it may gate. Operator: "the oracle is way way too strict to
+     * allow any trading in paper or live... it also has to allow trading. not
+     * probing" / "until the Oracle can prove its edge yes." */
     @Test
-    fun V5_0_7262_paper_learns_through_metered_probes_live_requires_admit() {
+    fun V5_0_7263_oracle_is_advisory_until_edge_is_proven_on_closes() {
+        val proof = java.io.File(
+            "src/main/kotlin/com/lifecyclebot/engine/truth/OracleEdgeProof7263.kt",
+        ).readText()
+        val oracle = java.io.File(
+            "src/main/kotlin/com/lifecyclebot/engine/truth/PredictiveEntryOracle6915.kt",
+        ).readText()
         val learned = java.io.File(
             "src/main/kotlin/com/lifecyclebot/engine/truth/LearnedAdmissionAuthority6846.kt",
         ).readText()
@@ -9550,24 +9553,30 @@ class GoldenTapeRegressionTest {
         ).readText()
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
 
-        // Live gates intact.
-        assertTrue(learned.contains("if (!paperRuntime7262) return deny(\"ORACLE_PROBE_NON_EXECUTABLE_7259\""))
-        assertTrue(learned.contains("if (!paperRuntime7262) return deny(\"ORACLE_UNAVAILABLE_7259\""))
-        assertTrue(learned.contains("return deny(\"ORACLE_REFUSE_7259\""))
-        assertTrue(authority.contains("EXECUTABLE_ENTRY_PROBE_NON_EXECUTABLE_7260"))
-        assertTrue(fdg.contains("if (!com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {\n                            shouldTradeFinal = false\n                            blockReasonFinal = \"BRAIN_CONSENSUS_NOT_UNANIMOUS_7259"))
+        // The proof is measured on the finalized-trade bus, per forecast.
+        assertTrue(proof.contains("CanonicalTradeFinalizedBus6450.subscribe"))
+        assertTrue(proof.contains("MIN_ADMIT_CLOSES_7263: Int = 20"))
+        assertTrue(proof.contains("MIN_NON_ADMIT_CLOSES_7263: Int = 10"))
+        assertTrue(proof.contains("admitRet>=nonAdmitRet+"))
+        assertTrue(proof.contains("ORACLE_EDGE_DEMOTED_7263"))
+        assertTrue(oracle.contains("OracleEdgeProof7263.stamp(mint, f)"))
+        assertTrue(oracle.contains("OracleEdgeProof7263.stamp(mint, cold7263)"))
 
-        // Paper exploration is metered and probe-sized, not a bypass.
-        assertTrue(learned.contains("PAPER_EXPLORE"))
-        assertTrue(learned.contains("cohortProbeBudgetAllows6909(cohortKey7262, provenDead = false)"))
-        assertTrue(learned.contains("PAPER_ORACLE_EXPLORATION_ADMITTED_7262"))
-        assertTrue(learned.contains("PAPER_EXPLORATION_BUDGET_7262"))
-        assertTrue(authority.contains("EXECUTABLE_ENTRY_PROBE_PAPER_EXECUTABLE_7262"))
-        assertTrue(authority.contains("Verdict.ALLOW_PROBE,\n                        learned.recommendedSizeSol"))
-        assertTrue(crossAsset.contains("CROSS_ASSET_ORACLE_PAPER_EXPLORATION_7262"))
-        assertTrue(crossAsset.contains("oracle7259?.verdict != PredictiveEntryOracle6915.Verdict.REFUSE"))
-        assertTrue(fdg.contains("BRAIN_CONSENSUS_SOFT_BLOCK_PAPER_DAMPED_7262"))
-        assertTrue(fdg.contains("BRAIN_CONSENSUS_UNAVAILABLE_PAPER_FAIL_OPEN_7262"))
+        // ADVISORY: the verdict word gates nothing, in either mode.
+        assertTrue(learned.contains("if (oracleTier7263 == OracleEdgeProof7263.Tier.PROVEN) {"))
+        assertFalse(learned.contains("PAPER_EXPLORE\""))
+        assertTrue(learned.contains("return allow(inputs, \"clear\")"))
+        assertTrue(authority.contains("EXECUTABLE_ENTRY_PROBE_EXECUTABLE_7263"))
+        assertTrue(authority.contains("EXECUTABLE_ENTRY_ORACLE_ERROR_FAIL_OPEN_7263"))
+        assertFalse(authority.contains("EXECUTABLE_ENTRY_PROBE_NON_EXECUTABLE_7260"))
+        assertTrue(crossAsset.contains("CROSS_ASSET_ORACLE_ADVISORY_PASS_7263"))
+        assertTrue(fdg.contains("BRAIN_CONSENSUS_SOFT_BLOCK_DAMPED_7263"))
+        assertTrue(fdg.contains("BRAIN_CONSENSUS_UNAVAILABLE_FAIL_OPEN_7263"))
+
+        // PROVEN: live is ADMIT or nothing; paper meters a PROBE.
+        assertTrue(learned.contains("if (!paperRuntime7263) return deny(\"ORACLE_PROBE_NON_EXECUTABLE_7259\""))
+        assertTrue(learned.contains("PROVEN_ORACLE_PROBE_PAPER_7263"))
+        assertTrue(fdg.contains("if (oracleProven7263 && !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {"))
     }
 
     /** V5.0.7260 — the oracle must judge the current candidate, not repeat a
@@ -9600,8 +9609,9 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("qualityHint = ts.meta.setupQuality"))
         assertTrue(exec.contains("qualityHint = oracleToken7260?.meta?.setupQuality.orEmpty()"))
 
-        assertTrue(authority.contains("EXECUTABLE_ENTRY_PROBE_NON_EXECUTABLE_7260"))
-        assertTrue(authority.contains("ORACLE_EVALUATION_UNAVAILABLE_7260"))
+        // V5.0.7263 — the 7260 fail-closed authority branches were withdrawn
+        // in favour of OracleEdgeProof7263 (advisory until proven); the FDG
+        // consensus block survives behind the PROVEN tier.
         assertTrue(fdg.contains("BRAIN_CONSENSUS_UNAVAILABLE_7260"))
     }
 
@@ -9630,7 +9640,10 @@ class GoldenTapeRegressionTest {
         // The deadlock was the old early neutral return, before policy/brain
         // reads. It must never reappear, and PROBE must remain non-economic.
         assertFalse(oracle.contains("Verdict.PROBE, 0.0, 0.5, 0.0,\n                contributions + \"noEvidenceAnywhere\""))
+        // V5.0.7263 — the non-economic PROBE rule is now conditional on
+        // OracleEdgeProof7263 reading PROVEN.
         assertTrue(learned.contains("ORACLE_PROBE_NON_EXECUTABLE_7259"))
+        assertTrue(learned.contains("OracleEdgeProof7263.Tier.PROVEN"))
     }
 
 }

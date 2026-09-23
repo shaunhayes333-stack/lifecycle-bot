@@ -260,20 +260,55 @@ object LearnedAdmissionAuthority6846 {
         // five minutes (the existing negative-cohort window), so paper learns
         // at a bounded rate rather than firehosing. REFUSE denies in both
         // modes. LIVE is byte-for-byte 7259.
-        val paperRuntime7262 = try {
-            com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
-        } catch (_: Throwable) { false }
-        var paperExploration7262: String? = null
-        when (inputs.oracleVerdict6915) {
-            PredictiveEntryOracle6915.Verdict.ADMIT -> Unit
-            PredictiveEntryOracle6915.Verdict.PROBE ->
-                if (!paperRuntime7262) return deny("ORACLE_PROBE_NON_EXECUTABLE_7259", inputs, "oracle=PROBE")
-                else paperExploration7262 = "ORACLE_PROBE"
-            PredictiveEntryOracle6915.Verdict.REFUSE ->
-                return deny("ORACLE_REFUSE_7259", inputs, "oracle=REFUSE")
-            null ->
-                if (!paperRuntime7262) return deny("ORACLE_UNAVAILABLE_7259", inputs, "oracle=missing")
-                else paperExploration7262 = "ORACLE_UNAVAILABLE"
+        // V5.0.7263 §THE_ORACLE_ADVISES;_IT_DOES_NOT_GATE.
+        //
+        // Operator, on 7262: "the oracle is way way too strict to allow any
+        // trading in paper or live. I get its purpose but it also has to allow
+        // trading. not probing."
+        //
+        // So the categorical verdict is telemetry, in both modes. The oracle's
+        // NUMBERS still reach every branch below through inputs.livePWin,
+        // inputs.expectedPnl and inputs.cohortSample — that is how it was
+        // wired from 6915 until 7259 — and those branches already refuse or
+        // meter an entry when there is EVIDENCE of negative expectancy (§2
+        // DUMP-regime deny, §2b proven-dead cohort budget, §5 source family).
+        // What is gone is the rule that "no evidence yet" is itself a refusal.
+        // A cold book trades at the size the rest of the stack chooses, the
+        // closes it produces are the evidence, and the evidence-based branches
+        // take over as soon as a cohort matures. Nothing here is probe-sized
+        // for want of history; only a cohort that has PROVEN itself negative
+        // is metered, exactly as §2b has said since 6909.
+        //
+        // "until the Oracle can prove its edge yes." OracleEdgeProof7263 grades
+        // every forecast against the close that follows it. While it reads
+        // ADVISORY the verdict word is telemetry; once it reads PROVEN — the
+        // ADMIT pile demonstrably settling better than the PROBE/REFUSE pile
+        // on >=20/>=10 closes — the verdict is allowed to gate: LIVE is ADMIT
+        // or nothing (7259), PAPER meters a PROBE and denies a REFUSE. If the
+        // edge stops holding it demotes itself and this becomes advisory again.
+        val oracleTier7263 = try { OracleEdgeProof7263.tier() } catch (_: Throwable) { OracleEdgeProof7263.Tier.ADVISORY }
+        try {
+            PipelineHealthCollector.labelInc(
+                "ORACLE_VERDICT_${oracleTier7263.name}_7263_${inputs.oracleVerdict6915?.name ?: "MISSING"}",
+            )
+        } catch (_: Throwable) {}
+        if (oracleTier7263 == OracleEdgeProof7263.Tier.PROVEN) {
+            val paperRuntime7263 = try {
+                com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+            } catch (_: Throwable) { false }
+            when (inputs.oracleVerdict6915) {
+                PredictiveEntryOracle6915.Verdict.ADMIT -> Unit
+                PredictiveEntryOracle6915.Verdict.REFUSE ->
+                    return deny("ORACLE_REFUSE_7259", inputs, "oracle=REFUSE tier=PROVEN")
+                PredictiveEntryOracle6915.Verdict.PROBE -> {
+                    if (!paperRuntime7263) return deny("ORACLE_PROBE_NON_EXECUTABLE_7259", inputs, "oracle=PROBE tier=PROVEN")
+                    val cohortKey7263 = "$laneKey|S${inputs.scoreBand}|PROVEN_ORACLE_PROBE"
+                    val budgeted7263 = cohortProbeBudgetAllows6909(cohortKey7263, provenDead = false)
+                    return if (budgeted7263) probe("PROVEN_ORACLE_PROBE_PAPER_7263", inputs, "cohort=$cohortKey7263 oracle=PROBE tier=PROVEN")
+                    else deny("PROVEN_ORACLE_PROBE_BUDGET_7263", inputs, "cohort=$cohortKey7263 oracle=PROBE tier=PROVEN")
+                }
+                null -> if (!paperRuntime7263) return deny("ORACLE_UNAVAILABLE_7259", inputs, "oracle=missing tier=PROVEN")
+            }
         }
 
         // §1 — UnifiedPolicyHead HARD_BLOCK is absolute (per directive).
@@ -650,24 +685,8 @@ object LearnedAdmissionAuthority6846 {
             }
         }
 
-        // V5.0.7262 — the paper-exploration terminal. Everything above had its
-        // say; a candidate that reached here without an oracle ADMIT in PAPER
-        // is admitted as a metered probe, not a conviction entry.
-        if (paperExploration7262 != null) {
-            val cohortKey7262 = "$laneKey|S${inputs.scoreBand}|PAPER_EXPLORE"
-            val budgeted7262 = cohortProbeBudgetAllows6909(cohortKey7262, provenDead = false)
-            val detail7262 = "cohort=$cohortKey7262 oracle=${inputs.oracleVerdict6915?.name ?: "missing"} " +
-                "effN=${inputs.cohortSample} rawN=${inputs.oracleRawCohortN7154} " +
-                "pWin=${"%.2f".format(inputs.livePWin)} EV=${"%.4f".format(inputs.expectedPnl)} budgeted=$budgeted7262"
-            try {
-                PipelineHealthCollector.labelInc(
-                    if (budgeted7262) "PAPER_ORACLE_EXPLORATION_ADMITTED_7262" else "PAPER_ORACLE_EXPLORATION_BUDGET_REFUSED_7262",
-                )
-                PipelineHealthCollector.labelInc("PAPER_ORACLE_EXPLORATION_7262_$laneKey".take(60))
-            } catch (_: Throwable) {}
-            return if (budgeted7262) probe("PAPER_EXPLORATION_${paperExploration7262}_7262", inputs, detail7262)
-            else deny("PAPER_EXPLORATION_BUDGET_7262", inputs, detail7262)
-        }
+        // V5.0.7263 — a candidate that survived every evidence-based branch is
+        // admitted at full requested size, with or without oracle history.
         return allow(inputs, "clear")
     }
 

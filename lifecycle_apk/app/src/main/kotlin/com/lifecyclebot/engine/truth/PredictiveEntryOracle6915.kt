@@ -755,7 +755,7 @@ object PredictiveEntryOracle6915 {
                     Verdict.REFUSE, -100.0, 0.0, 1.0,
                     contributions + hardRefusal7261,
                     hardRefusal7261,
-                )
+                ).also { OracleEdgeProof7263.stamp(mint, it) }
             }
 
             val qualityKey7261 = quality.trim().uppercase()
@@ -839,7 +839,7 @@ object PredictiveEntryOracle6915 {
                 "policy(${policyTier7261.name},p=${"%.2f".format(policyPWin7261)})",
                 "brain(${"%+.1f".format(brainDelta7261)})",
             )
-            return if (candidateAdmit7261) {
+            val cold7263 = if (candidateAdmit7261) {
                 admits.incrementAndGet()
                 coldCandidateAdmits7261.incrementAndGet()
                 Forecast(
@@ -858,6 +858,9 @@ object PredictiveEntryOracle6915 {
                     "COLD_START_CURRENT_CANDIDATE_NOT_UNANIMOUS_7261",
                 )
             }
+            // V5.0.7263 — every forecast is stamped so a later close can grade it.
+            OracleEdgeProof7263.stamp(mint, cold7263)
+            return cold7263
         }
         val wSum = levels.sumOf { it.weight }
         val blendedE = levels.sumOf { it.mean * it.weight } / wSum
@@ -991,6 +994,7 @@ object PredictiveEntryOracle6915 {
                         "note=recorded_fact_bypasses_confidence_gate",
                 )
             } catch (_: Throwable) {}
+            OracleEdgeProof7263.stamp(mint, f)
             return f
         }
 
@@ -1165,6 +1169,9 @@ object PredictiveEntryOracle6915 {
                 "lane=$laneKey score=$s src=${sourceFamily.take(24)} ${f.line()}",
             )
         } catch (_: Throwable) {}
+        // V5.0.7263 — stamped so the finalized-trade bus can grade this
+        // forecast; OracleEdgeProof7263 decides whether the verdict may gate.
+        OracleEdgeProof7263.stamp(mint, f)
         return f
     }
 
@@ -1280,6 +1287,7 @@ object PredictiveEntryOracle6915 {
             "exactFwd7260=${exactForecastHits7260.get()} policyReads7260=${unifiedPolicyReads7260.get()} " +
             "policyVeto7260=${unifiedPolicyBindingVetoes7260.get()} " +
             "coldAdmit7261=${coldCandidateAdmits7261.get()} coldProbe7261=${coldCandidateProbes7261.get()} " +
+            "authority7263=${OracleEdgeProof7263.tier().name} " +
             "shrinkK=$SHRINK_K refuseAt=${REFUSE_EXPECTANCY_PCT}% minConf=$MIN_CONFIDENCE_TO_REFUSE"
 
     internal fun resetForTest() {
