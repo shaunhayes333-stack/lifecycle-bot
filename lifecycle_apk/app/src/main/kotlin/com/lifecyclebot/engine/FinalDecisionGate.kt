@@ -5056,7 +5056,13 @@ object FinalDecisionGate {
                 }
             }
         } catch (_: Throwable) {
-            // Brain layer failure must never break the entry pipeline.
+            // V5.0.7260 — unanimous-positive entry cannot treat a missing
+            // consensus result as consent. Keep the runtime alive but fail
+            // this candidate closed; later candidates may evaluate normally.
+            shouldTradeFinal = false
+            blockReasonFinal = "BRAIN_CONSENSUS_UNAVAILABLE_7260"
+            blockLevelFinal = BlockLevel.HARD
+            try { PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_UNAVAILABLE_BLOCK_7260") } catch (_: Throwable) {}
         }
 
         // V5.9.1330 — LANE-POLICY EXECUTION WEIGHT (the dead-wiring bug, backtest-proven).

@@ -132,6 +132,11 @@ object CanonicalEntryAuthority6551 {
         // the same evidence-backed positive forecast before sizing or intent
         // sealing. Missing/degenerate/thin evidence stays available to shadow
         // learners but cannot spend canonical capital.
+        val candidateConfidence7260 = try {
+            val raw = candidate.evidence["upstreamConfidence"]?.toDoubleOrNull()
+                ?: candidate.confidence
+            (if (raw > 1.0) raw / 100.0 else raw).coerceIn(0.0, 1.0)
+        } catch (_: Throwable) { 0.50 }
         val oracle7259 = try {
             PredictiveEntryOracle6915.evaluate(
                 lane = candidate.specialist.ifBlank { candidate.assetClass.tag },
@@ -142,6 +147,9 @@ object CanonicalEntryAuthority6551 {
                 mint = candidate.assetId,
                 symbol = candidate.symbol,
                 liquidityUsd = candidate.liquidityUsd,
+                quality = candidate.evidence["setupQuality"].orEmpty(),
+                edgePhase = candidate.evidence["edgePhase"].orEmpty(),
+                candidateConfidence = candidateConfidence7260,
             )
         } catch (_: Throwable) { null }
         if (oracle7259 == null ||

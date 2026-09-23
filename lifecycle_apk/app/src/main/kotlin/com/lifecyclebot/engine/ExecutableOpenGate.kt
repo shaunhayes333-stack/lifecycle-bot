@@ -3193,6 +3193,7 @@ object ExecutableOpenGate {
         val effectiveEntryDecision6487 = if (!mustReevaluate6909) {
             cachedEntryDecision6909!!
         } else try {
+            val oracleToken7260 = try { BotService.status.tokens[mint] } catch (_: Throwable) { null }
             com.lifecyclebot.engine.truth.LearnedAdmissionInputs6909.gate(
                 lane = lane,
                 mint = mint,
@@ -3207,6 +3208,10 @@ object ExecutableOpenGate {
                 // V5.0.6915 — discovery source reaches the oracle so realised
                 // per-source expectancy counts toward the entry decision.
                 sourceFamilyHint = source,
+                qualityHint = oracleToken7260?.meta?.setupQuality.orEmpty(),
+                edgePhaseHint = oracleToken7260?.phase.orEmpty(),
+                candidateConfidenceHint =
+                    ((oracleToken7260?.lastV3Confidence ?: 50).coerceIn(0, 100) / 100.0),
             ).also {
                 entryAuthority6487[authorityKey6487(mint, candidateVersion)] = it
             }

@@ -24334,6 +24334,13 @@ if (hotExitHandledSweep) {
                 probeSizeSol = 1.0,
                 // V5.0.6915 — see ExecutableOpenGate's matching call.
                 sourceFamilyHint = ts.source,
+                // V5.0.7260 — do not collapse the five-dimensional forward
+                // model into lane+score by throwing away fields already known
+                // on this candidate.
+                qualityHint = ts.meta.setupQuality,
+                edgePhaseHint = ts.phase,
+                candidateConfidenceHint =
+                    ((ts.lastV3Confidence ?: 50).coerceIn(0, 100) / 100.0),
             )
         } catch (_: Throwable) {
             com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.Decision(

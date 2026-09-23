@@ -176,6 +176,10 @@ object PredictiveEntryOracle6915 {
     private val globalOnly = AtomicLong(0L)
     /** V5.0.6917 — how many previously-unread brain outputs actually spoke. */
     private val brainReads6917 = AtomicLong(0L)
+    /** V5.0.7260 — proof the exact five-dimensional forecast and policy head spoke. */
+    private val exactForecastHits7260 = AtomicLong(0L)
+    private val unifiedPolicyReads7260 = AtomicLong(0L)
+    private val unifiedPolicyBindingVetoes7260 = AtomicLong(0L)
 
     private data class Level(val name: String, val mean: Double, val pWin: Double, val n: Double) {
         val weight: Double get() = if (n <= 0.0) 0.0 else n / (n + SHRINK_K)
@@ -639,10 +643,18 @@ object PredictiveEntryOracle6915 {
         symbol: String = "",
         liquidityUsd: Double = 0.0,
         creator: String = "",
+        // V5.0.7260 — the exact candidate signature. Earlier callers passed
+        // blanks, forcing ForwardOutcomeModel.forecast() to bootstrap even
+        // when a matching quality/phase cell existed.
+        quality: String = "",
+        edgePhase: String = "",
+        candidateConfidence: Double = 0.50,
     ): Forecast {
         evaluations.incrementAndGet()
         val laneKey = lane.trim().uppercase().ifBlank { "UNKNOWN" }
         val s = score.coerceIn(0, 100)
+        val candidateConfidenceSafe7260 = candidateConfidence
+            .takeIf { it.isFinite() }?.coerceIn(0.0, 1.0) ?: 0.50
         val contributions = mutableListOf<String>()
 
         // ── LEVEL: CELL (lane x score bucket) ────────────────────────────────
@@ -660,21 +672,30 @@ object PredictiveEntryOracle6915 {
             }
         } catch (_: Throwable) {}
         try {
-            // V5.0.7103 — pass the regime. This oracle has always RECEIVED a
-            // regime and spent it only on AutonomousMetaPolicy.conviction, while
-            // the cohort it actually judges on averaged every regime together. A
-            // lane that is +40% in one regime and -40% in another reported ~0
-            // and was called neutral in both. ForwardOutcomeModel keys on regime
-            // already; the evidence existed and was being discarded on the way
-            // in. Falls back to the pooled cohort when the conditioned one is
-            // thin, so this can only ever sharpen the estimate, never starve it.
-            val agg = com.lifecyclebot.engine.ForwardOutcomeModel
-                .cohortEvidence6911(laneKey, s, regime)
-            if (agg.samples > 0L) {
-                val n = agg.samples.toDouble()
-                cellMean += agg.expectedPnlPct * n; cellN += n
-                cellPWin = agg.pWin
-                contributions += "cellFwd(${agg.level},n=${agg.samples},E=${"%+.1f".format(agg.expectedPnlPct)},pW=${"%.2f".format(agg.pWin)})"
+            // V5.0.7260 — prefer the exact candidate signature. The admission
+            // assembler previously asked with quality="" and edgePhase="",
+            // producing bootstrap on every read (forecastResolved=0). Only when
+            // the exact signature is genuinely thin do we fall back to the
+            // coarser lane/score/regime evidence.
+            val exact = com.lifecyclebot.engine.ForwardOutcomeModel.forecast(
+                laneKey, s, quality.ifBlank { "U" }.take(3),
+                regime.ifBlank { "NORMAL" }, edgePhase.ifBlank { "UNKNOWN" },
+            )
+            if (exact.source != "bootstrap" && exact.samples > 0L) {
+                exactForecastHits7260.incrementAndGet()
+                val n = exact.samples.toDouble()
+                cellMean += exact.expectedPnl * n; cellN += n
+                cellPWin = exact.pWin
+                contributions += "exactFwd(${exact.source},n=${exact.samples},E=${"%+.1f".format(exact.expectedPnl)},pW=${"%.2f".format(exact.pWin)})"
+            } else {
+                val agg = com.lifecyclebot.engine.ForwardOutcomeModel
+                    .cohortEvidence6911(laneKey, s, regime)
+                if (agg.samples > 0L) {
+                    val n = agg.samples.toDouble()
+                    cellMean += agg.expectedPnlPct * n; cellN += n
+                    cellPWin = agg.pWin
+                    contributions += "cellFwd(${agg.level},n=${agg.samples},E=${"%+.1f".format(agg.expectedPnlPct)},pW=${"%.2f".format(agg.pWin)})"
+                }
             }
         } catch (_: Throwable) {}
         val cell = if (cellN > 0.0) {
@@ -738,6 +759,40 @@ object PredictiveEntryOracle6915 {
                 adjust += d
                 if (kotlin.math.abs(d) >= 0.5) contributions += "meta(${"%+.1f".format(d)})"
             }
+        } catch (_: Throwable) {}
+        // V5.0.7260 — the class documentation has always listed
+        // UnifiedPolicyHead as an oracle input, but evaluate() never called it.
+        // Read the learned head with this candidate's real confidence and the
+        // forward hierarchy above. It is a bounded vote; it cannot manufacture
+        // an admit against negative measured expectancy by itself.
+        var unifiedPolicyPWin7260 = 0.50
+        var unifiedPolicyTier7260 = com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.BOOTSTRAP
+        var unifiedPolicyReadOk7260 = false
+        try {
+            val meta = com.lifecyclebot.engine.AutonomousMetaPolicy
+                .conviction(laneKey, s, regime).coerceIn(0.0, 2.0) / 2.0
+            unifiedPolicyPWin7260 = com.lifecyclebot.engine.UnifiedPolicyHead.predictWinProb(
+                laneKey,
+                com.lifecyclebot.engine.UnifiedPolicyHead.Signals(
+                    mlEntryConf = candidateConfidenceSafe7260,
+                    symGreenLight = blendedPWin.coerceIn(0.0, 1.0),
+                    evRatio = ((blendedE + 25.0) / 50.0).coerceIn(0.0, 1.0),
+                    metaConviction = meta,
+                    fwdPWin = blendedPWin.coerceIn(0.0, 1.0),
+                    candConf = candidateConfidenceSafe7260,
+                ),
+            ).coerceIn(0.0, 1.0)
+            val rawTier7260 = com.lifecyclebot.engine.UnifiedPolicyHead
+                .laneOwnHeadAuthority6605(laneKey)
+            val calibratedTier7260 = com.lifecyclebot.engine.UnifiedPolicyHead
+                .currentAuthority(laneKey)
+            unifiedPolicyTier7260 = if (rawTier7260.ordinal <= calibratedTier7260.ordinal)
+                rawTier7260 else calibratedTier7260
+            unifiedPolicyReadOk7260 = unifiedPolicyPWin7260.isFinite()
+            unifiedPolicyReads7260.incrementAndGet()
+            val d = ((unifiedPolicyPWin7260 - 0.50) * 20.0).coerceIn(-10.0, 10.0)
+            adjust += d
+            contributions += "unifiedPolicy(${unifiedPolicyTier7260.name},p=${"%.2f".format(unifiedPolicyPWin7260)},${"%+.1f".format(d)})"
         } catch (_: Throwable) {}
         try {
             val bias = com.lifecyclebot.engine.SemanticPatternGraph.entryBias("lane:$laneKey", laneKey)
@@ -882,9 +937,39 @@ object PredictiveEntryOracle6915 {
         }
 
         // ── VERDICT ─────────────────────────────────────────────────────────
+        // The realised lane/book rate is a PRIOR, not the current candidate.
+        // Treating it as the candidate probability created a closed loop: an
+        // early losing batch forced pWin below 0.5, no future candidate could
+        // be admitted, and therefore the learner could never observe a win.
+        // Blend it with the current candidate confidence and the learned
+        // policy prediction. Historical evidence still affects both this
+        // probability and finalE, but it cannot impersonate the candidate.
+        val candidatePWin7260 = candidateConfidenceSafe7260
+        val predictivePWin7260 = (
+            blendedPWin * 0.20 + candidatePWin7260 * 0.40 + unifiedPolicyPWin7260 * 0.40
+        ).coerceIn(0.0, 1.0)
+        val policyIsBinding7260 = unifiedPolicyTier7260 in setOf(
+            com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.LEARNED,
+            com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE,
+        )
+        val policySupportsProfit7260 = unifiedPolicyReadOk7260 &&
+            (!policyIsBinding7260 || unifiedPolicyPWin7260 > 0.50)
+        if (policyIsBinding7260 && !policySupportsProfit7260) {
+            unifiedPolicyBindingVetoes7260.incrementAndGet()
+        }
+        contributions += "candidatePWin(p=${"%.2f".format(candidatePWin7260)},blend=${"%.2f".format(predictivePWin7260)})"
+
         val verdict = when {
             finalE <= REFUSE_EXPECTANCY_PCT && refuseConfidence7174 >= MIN_CONFIDENCE_TO_REFUSE -> Verdict.REFUSE
-            finalE > ADMIT_EXPECTANCY_PCT && confidence >= MIN_CONFIDENCE_TO_REFUSE -> Verdict.ADMIT
+            // V5.0.7260 — ADMIT means the measured expectancy, empirical win
+            // prior, current-candidate confidence and every MATURE learned
+            // policy all point to profit. Bootstrap/advisory heads contribute
+            // to the blend but cannot deadlock the learner before earning
+            // binding authority.
+            finalE > ADMIT_EXPECTANCY_PCT &&
+                predictivePWin7260 > 0.50 && candidatePWin7260 > 0.50 &&
+                policySupportsProfit7260 &&
+                confidence >= MIN_CONFIDENCE_TO_REFUSE -> Verdict.ADMIT
             else -> Verdict.PROBE
         }
         val reason = when (verdict) {
@@ -920,7 +1005,9 @@ object PredictiveEntryOracle6915 {
         // candles=0, GeckoTerminal at 23% with 779 rate limits. The oracle has
         // no usable candle history and is still returning REFUSE at 1.00
         // consistency. A verdict with no variance carries no information, so
-        // acting on it is acting on noise with a confident face.
+        // acting on it is acting on noise with a confident face. The oracle
+        // therefore demotes to neutral PROBE; since 7259/7260, neutral remains
+        // observable in shadow but is not canonical economic permission.
         //
         // NOTE THE ORDER: observe7102 above receives the RAW verdict, always.
         // If the demoted verdict were fed back to the watch, the tally would
@@ -935,19 +1022,19 @@ object PredictiveEntryOracle6915 {
         val effectiveVerdict7120 = if (degenerate7120 && verdict != Verdict.PROBE) {
             degenerateDemotions7120.incrementAndGet()
             try {
-                PipelineHealthCollector.labelInc("ORACLE_DEGENERATE_FAILED_OPEN_7120")
-                PipelineHealthCollector.labelInc("ORACLE_DEGENERATE_FAILED_OPEN_7120_${verdict.name}")
+                PipelineHealthCollector.labelInc("ORACLE_DEGENERATE_DEMOTED_NEUTRAL_7260")
+                PipelineHealthCollector.labelInc("ORACLE_DEGENERATE_DEMOTED_NEUTRAL_7260_${verdict.name}")
             } catch (_: Throwable) {}
             Verdict.PROBE
         } else {
             verdict
         }
         val effectiveReason7120 =
-            if (effectiveVerdict7120 != verdict) "DEGENERATE_LEARNER_FAILED_OPEN_NEUTRAL_7120"
+            if (effectiveVerdict7120 != verdict) "DEGENERATE_LEARNER_NEUTRAL_NON_EXECUTABLE_7260"
             else reason
 
         val f = Forecast(
-            effectiveVerdict7120, finalE, blendedPWin, confidence, contributions, effectiveReason7120,
+            effectiveVerdict7120, finalE, predictivePWin7260, confidence, contributions, effectiveReason7120,
         )
         if (effectiveVerdict7120 != Verdict.ADMIT) try {
             PipelineHealthCollector.labelInc("PREDICTIVE_ORACLE_${effectiveVerdict7120.name}_6915")
@@ -1069,10 +1156,14 @@ object PredictiveEntryOracle6915 {
         "evals=${evaluations.get()} admit=${admits.get()} probe=${probes.get()} refuse=${refuses.get()} " +
             "cellEvidence=${cellHits.get()} laneEvidence=${laneHits.get()} noEvidence=${globalOnly.get()} " +
             "brainReads6917=${brainReads6917.get()} brainCap=${BRAIN_NETWORK_CAP_PCT_6917}% " +
+            "exactFwd7260=${exactForecastHits7260.get()} policyReads7260=${unifiedPolicyReads7260.get()} " +
+            "policyVeto7260=${unifiedPolicyBindingVetoes7260.get()} " +
             "shrinkK=$SHRINK_K refuseAt=${REFUSE_EXPECTANCY_PCT}% minConf=$MIN_CONFIDENCE_TO_REFUSE"
 
     internal fun resetForTest() {
         evaluations.set(0L); admits.set(0L); probes.set(0L); refuses.set(0L)
         cellHits.set(0L); laneHits.set(0L); globalOnly.set(0L); brainReads6917.set(0L)
+        exactForecastHits7260.set(0L); unifiedPolicyReads7260.set(0L)
+        unifiedPolicyBindingVetoes7260.set(0L)
     }
 }

@@ -9528,4 +9528,39 @@ class GoldenTapeRegressionTest {
         assertTrue(fdg.contains("BRAIN_CONSENSUS_NOT_UNANIMOUS_7259"))
     }
 
+    /** V5.0.7260 — the oracle must judge the current candidate, not repeat a
+     * blank-signature bootstrap forecast or the historical book average. */
+    @Test
+    fun V5_0_7260_oracle_reads_exact_candidate_and_cannot_fail_open() {
+        val oracle = java.io.File(
+            "src/main/kotlin/com/lifecyclebot/engine/truth/PredictiveEntryOracle6915.kt",
+        ).readText()
+        val inputs = java.io.File(
+            "src/main/kotlin/com/lifecyclebot/engine/truth/LearnedAdmissionInputs6909.kt",
+        ).readText()
+        val authority = java.io.File(
+            "src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt",
+        ).readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+
+        assertTrue(oracle.contains("quality: String = \"\""))
+        assertTrue(oracle.contains("edgePhase: String = \"\""))
+        assertTrue(oracle.contains("UnifiedPolicyHead.predictWinProb("))
+        assertTrue(oracle.contains("predictivePWin7260 > 0.50"))
+        assertTrue(oracle.contains("exactFwd7260="))
+        assertTrue(oracle.contains("policyReads7260="))
+
+        assertTrue(inputs.contains("qualityHint: String = \"\""))
+        assertTrue(inputs.contains("candidateConfidence = candidateConfidenceHint"))
+        assertTrue(inputs.contains("ORACLE_ASSEMBLY_UNAVAILABLE_7260"))
+        assertTrue(bot.contains("qualityHint = ts.meta.setupQuality"))
+        assertTrue(exec.contains("qualityHint = oracleToken7260?.meta?.setupQuality.orEmpty()"))
+
+        assertTrue(authority.contains("EXECUTABLE_ENTRY_PROBE_NON_EXECUTABLE_7260"))
+        assertTrue(authority.contains("ORACLE_EVALUATION_UNAVAILABLE_7260"))
+        assertTrue(fdg.contains("BRAIN_CONSENSUS_UNAVAILABLE_7260"))
+    }
+
 }

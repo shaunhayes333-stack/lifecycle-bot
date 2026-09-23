@@ -262,8 +262,9 @@ object ExecutableEntryAuthority6450 {
      *
      * Contract:
      *   * ALLOW      -> returns the streak-shaped size (existing behaviour).
-     *   * PROBE_ONLY -> returns Verdict.ALLOW_PROBE with the
-     *                   LearnedAdmissionAuthority-recommended probe size.
+     *   * PROBE_ONLY -> returns DENY_LEARNED_NEGATIVE_6846. The observation
+     *                   remains available to shadow/replay learning, but no
+     *                   canonical PAPER/LIVE capital is spent.
      *   * DENY       -> returns Verdict.DENY_LEARNED_NEGATIVE_6846 with
      *                   size 0.0.  Callers MUST NOT fall back to a
      *                   duplicate ALLOW path elsewhere (operator §8: "no
@@ -276,11 +277,15 @@ object ExecutableEntryAuthority6450 {
         val learned = try {
             LearnedAdmissionAuthority6846.evaluate(inputs)
         } catch (_: Throwable) {
-            // Fail-open on learned-authority error — the historical
-            // streak damping still runs below.  Never fail-closed here
-            // because it would open a global choke, which the operator
-            // §8 explicitly forbids.
-            null
+            // V5.0.7260 — a missing learned verdict cannot satisfy the
+            // positive-prediction contract. Fail this candidate closed while
+            // leaving subsequent candidates and the runtime untouched.
+            try { PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_ORACLE_ERROR_BLOCK_7260") } catch (_: Throwable) {}
+            return Decision(
+                Verdict.DENY_LEARNED_NEGATIVE_6846,
+                0.0,
+                "learned6846:ORACLE_EVALUATION_UNAVAILABLE_7260",
+            )
         }
         return when (learned?.verdict) {
             LearnedAdmissionAuthority6846.Verdict.DENY -> {
@@ -297,19 +302,19 @@ object ExecutableEntryAuthority6450 {
             }
             LearnedAdmissionAuthority6846.Verdict.PROBE_ONLY -> {
                 gates.incrementAndGet()
-                probes.incrementAndGet()
+                denies.incrementAndGet()
                 try {
-                    PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_PROBE_LEARNED_6846")
+                    PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_PROBE_NON_EXECUTABLE_7260")
                 } catch (_: Throwable) {}
                 Decision(
-                    Verdict.ALLOW_PROBE,
-                    learned.recommendedSizeSol,
-                    "learned6846_probe:${learned.denyCategory}",
+                    Verdict.DENY_LEARNED_NEGATIVE_6846,
+                    0.0,
+                    "learned6846_probe_shadow_only_7260:${learned.denyCategory}",
                 )
             }
             else -> {
-                // ALLOW (or learned-authority errored): fall through to
-                // historical cohort-streak shaping.
+                // Explicit learned ALLOW falls through to the independent
+                // historical cohort-streak authority.
                 gate(inputs.lane, inputs.mint, inputs.requestedSizeSol)
             }
         }

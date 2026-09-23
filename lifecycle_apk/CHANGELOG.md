@@ -4,6 +4,14 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.7260] - 2026-09-23 — CANDIDATE-SPECIFIC ORACLE RECOVERY
+
+- Threaded setup quality, edge phase, and the actual candidate confidence into both meme admission boundaries and the cross-asset entry contract, ending the blank-signature forecast path that reported `forecastResolved=0`.
+- Connected `UnifiedPolicyHead` to `PredictiveEntryOracle6915` as documented, with authority-aware veto semantics: mature learned heads may veto, while bootstrap/advisory heads contribute without deadlocking recovery.
+- Replaced the historical-book win rate masquerading as candidate probability with a bounded candidate-specific blend of empirical prior, current confidence, and learned-policy probability.
+- Kept canonical exploration fail-closed: oracle/consensus exceptions, missing verdicts, degenerate neutral output, and every downstream `PROBE_ONLY` result are shadow-only and cannot open PAPER or LIVE positions.
+- Added health counters for exact forward-cell hits, policy reads, and mature policy vetoes so another disconnected or collapsed oracle is visible directly in the pipeline report.
+
 ## [5.0.7259] - 2026-09-23 — ORACLE-ADMITTED ENTRIES ONLY
 
 - Made an explicit positive `PredictiveEntryOracle6915.ADMIT` mandatory before either the meme or cross-asset spine may size, seal, or open a canonical PAPER/LIVE position.

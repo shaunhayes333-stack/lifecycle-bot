@@ -67,9 +67,9 @@ object LearnedAdmissionInputs6909 {
 
     /**
      * Assemble admission inputs for (lane, mint) from the live learned
-     * signals. Never throws; on any signal failure the corresponding field
-     * falls back to a neutral value so 6846 fails OPEN, per its §8 directive
-     * that no global choke may be introduced here.
+     * signals. Never throws; optional contributors fall back to neutral, while
+     * a missing oracle verdict is explicitly non-executable. This blocks only
+     * the affected candidate and cannot stop the scanner/runtime.
      */
     fun build(
         lane: String,
@@ -82,6 +82,12 @@ object LearnedAdmissionInputs6909 {
         // scorecard's realised expectancy. Blank is tolerated and simply
         // drops that one input.
         sourceFamilyHint: String = "",
+        // V5.0.7260 — candidate-specific ForwardOutcomeModel key and
+        // confidence. Blank quality/phase made every exact forecast read the
+        // bootstrap cell, even when FDG had already produced these fields.
+        qualityHint: String = "",
+        edgePhaseHint: String = "",
+        candidateConfidenceHint: Double = 0.50,
     ): LearnedAdmissionAuthority6846.Inputs {
         assembled.incrementAndGet()
         val laneKey = lane.trim().uppercase().ifBlank { "UNKNOWN" }
@@ -89,14 +95,16 @@ object LearnedAdmissionInputs6909 {
             com.lifecyclebot.engine.RegimeDetector.currentRegime().name
         } catch (_: Throwable) { "UNKNOWN" }
 
-        // Forward outcome model: the cohort discriminator. quality/edgePhase
-        // are not known at the admission boundary, so the fine key misses and
-        // the model falls back to its coarse key — lane x scoreBand x regime —
-        // which is exactly the granularity §2b needs and the granularity that
-        // keeps PROJECT_SNIPER|S20 separate from PROJECT_SNIPER|S10.
+        // Forward outcome model: ask the exact candidate cell first. Both real
+        // admission callers now carry the quality and phase already resident
+        // on TokenState; the model itself retains its coarse fallback.
         val fwd = try {
             com.lifecyclebot.engine.ForwardOutcomeModel.forecast(
-                laneKey, entryScore.coerceAtLeast(0), "", regime, "",
+                laneKey,
+                entryScore.coerceAtLeast(0),
+                qualityHint.ifBlank { "U" },
+                regime,
+                edgePhaseHint.ifBlank { "UNKNOWN" },
             )
         } catch (_: Throwable) { null }
         if (fwd == null || fwd.source == "bootstrap") forecastMissing.incrementAndGet()
@@ -229,6 +237,9 @@ object LearnedAdmissionInputs6909 {
                 symbol = symbolHint6917,
                 liquidityUsd = liquidityUsdHint6917,
                 creator = creatorHint6917,
+                quality = qualityHint,
+                edgePhase = edgePhaseHint,
+                candidateConfidence = candidateConfidenceHint,
             )
         } catch (_: Throwable) { null }
         if (oracle6915 != null) {
@@ -324,7 +335,7 @@ object LearnedAdmissionInputs6909 {
     /**
      * Convenience for the admission call sites: build the inputs and put them
      * through the learned overload of the entry authority. A signal failure
-     * degrades to the historical 3-arg gate rather than blocking.
+     * is non-executable: missing prediction is not positive prediction.
      */
     fun gate(
         lane: String,
@@ -335,11 +346,14 @@ object LearnedAdmissionInputs6909 {
         probeSizeSol: Double,
         // V5.0.6915 — forwarded to the oracle for the source-expectancy read.
         sourceFamilyHint: String = "",
+        qualityHint: String = "",
+        edgePhaseHint: String = "",
+        candidateConfidenceHint: Double = 0.50,
     ): ExecutableEntryAuthority6450.Decision {
         return try {
             val inputs = build(
                 lane, mint, requestedSizeSol, entryScore, minExecutableSol, probeSizeSol,
-                sourceFamilyHint,
+                sourceFamilyHint, qualityHint, edgePhaseHint, candidateConfidenceHint,
             )
             val decision = ExecutableEntryAuthority6450.gate(inputs)
             if (decision.verdict != ExecutableEntryAuthority6450.Verdict.ALLOW) {
@@ -356,7 +370,11 @@ object LearnedAdmissionInputs6909 {
             decision
         } catch (_: Throwable) {
             try { PipelineHealthCollector.labelInc("LEARNED_ADMISSION_ASSEMBLY_FAILED_6909") } catch (_: Throwable) {}
-            ExecutableEntryAuthority6450.gate(lane, mint, requestedSizeSol)
+            ExecutableEntryAuthority6450.Decision(
+                ExecutableEntryAuthority6450.Verdict.DENY_LEARNED_NEGATIVE_6846,
+                0.0,
+                "ORACLE_ASSEMBLY_UNAVAILABLE_7260",
+            )
         }
     }
 
