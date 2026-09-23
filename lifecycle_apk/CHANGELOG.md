@@ -4,6 +4,13 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.7268] - 2026-09-23 — A CAP NOBODY REFRESHED IS STALE, NOT EVIDENCE AGAINST THE PRICE
+
+- 7267 paper run, every cap source down (dexscreener sr=0%, birdeye 0%, pumpfun 13%): `TICK_PROFIT_LOCK_EXEC_PRICE_REBASE` JEANDICK raw=+147% exec=0.0, PEPENOM +70%→0.0, OTC +43%→0.0 (`FANOUT_CORROBORATED_x2`), MONEY +31%→0.0; `METRICS_IDENTITY_BROKEN_7069=9174`, `MARK_IDENTITY_SUPPRESSED_BROKEN_7230=1297`, `MARK_MCAP_DIVERGENCE_CORRECTED_7059=918`. `ts.lastMcap` is written only by DexScreener/Birdeye/pump.fun payloads while `ts.lastPrice` moves every tick on the keyless chain, so on the exit path the 7069 identity compares a live price against a cap frozen at intake: every mover "breaks" identity, 7059 overwrites the live quote with `entryPrice × flatCap/entryCap = entryPrice`, and 7230 suppresses the mark. Four runners read 0% to the exit engine.
+- `TokenMetricsAuthority7069` now records when each side last changed. A broken identity whose cap has been constant ≥20s while the price moved afterwards is `CAP_STALE`; a price whose source carries `FANOUT_CORROBORATED` is corroborated. Both classify as unverifiable, pass the price through untouched, and tell `MarkIdentityExecutionGate7230` USABLE so a prior suppression clears (`TOKEN_METRICS_UNVERIFIABLE_CAP_STALE_7268`, `TOKEN_METRICS_PRICE_CORROBORATED_CAP_DISAGREES_7268`, `MARK_IDENTITY_CLEARED_CAP_STALE_7268`). The genuinely-broken path (fresh cap, uncorroborated price) is unchanged: no substitution, gate told broken.
+- `Executor.getActualPrice` no longer asks the 7059 same-source reconciler while the cap is stale (`MARK_MCAP_RECONCILE_SKIPPED_CAP_STALE_7268`); the raw tick is served. `METRICS_IDENTITY_BROKEN_7069`, `MARK_MCAP_DIVERGENCE_CORRECTED_7059` and `TICK_PROFIT_LOCK_EXEC_PRICE_REBASE` pinned beside the new counters.
+- 7267 also confirmed: exit sweeps 17/17 with zero stale resets and 0–2 ms per sweep (the 7263 stall did not reproduce); fan-out cap blocks 1143 → 2; cost gate 1971 refusals → 4; per-lane canonical floors 15–19 in play; regime ×1.00 with the market RISK_ON.
+
 ## [5.0.7267] - 2026-09-23 — THE REST IS FLUID: GIVE-BACK BAND, MOONSHOT MINIMUM, DRAWDOWN BAND
 
 - Operator: "make the rest fluid too."

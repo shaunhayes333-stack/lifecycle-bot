@@ -2061,6 +2061,19 @@ object PipelineHealthCollector {
                     "MOONSHOT_MIN_SCORE_LEARNED_7267",
                     "ANTI_REWARD_HACK_TOLERANCE_FLUID_7267",
                     "ANTI_REWARD_HACK_LANE_EARNED_ALLOW_7267",
+                    // V5.0.7268 — stale-cap classification: how often a "broken"
+                    // identity was really a cap nobody had refreshed (or a price two
+                    // feeds agreed on), how many suppressions that cleared, and how
+                    // often the 7059 reconciler was kept from overwriting a live
+                    // quote with the entry price. Read beside
+                    // METRICS_IDENTITY_BROKEN_7069 and MARK_MCAP_DIVERGENCE_CORRECTED_7059.
+                    "TOKEN_METRICS_UNVERIFIABLE_CAP_STALE_7268",
+                    "TOKEN_METRICS_PRICE_CORROBORATED_CAP_DISAGREES_7268",
+                    "MARK_IDENTITY_CLEARED_CAP_STALE_7268",
+                    "MARK_MCAP_RECONCILE_SKIPPED_CAP_STALE_7268",
+                    "METRICS_IDENTITY_BROKEN_7069",
+                    "MARK_MCAP_DIVERGENCE_CORRECTED_7059",
+                    "TICK_PROFIT_LOCK_EXEC_PRICE_REBASE",
                     // V5.0.7226 — the second live sizing authority. On 7225 the
                     // sizer's floor fired 0 times and two 0.007 SOL live buys
                     // landed anyway; the resolver had been sizing LIVE against

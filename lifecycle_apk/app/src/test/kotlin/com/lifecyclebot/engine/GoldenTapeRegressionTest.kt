@@ -9769,6 +9769,42 @@ class GoldenTapeRegressionTest {
         assertTrue(com.lifecyclebot.engine.truth.AntiRewardHackingGuard6439.fluidTolerance7267() == 0.98)
     }
 
+    /** V5.0.7268 — a market cap nobody has refreshed since the price moved is
+     * stale, not evidence against the price; a price two feeds agree on is not
+     * a broken identity. Neither may suppress the mark or be overwritten with
+     * the entry price. */
+    @Test
+    fun V5_0_7268_stale_cap_does_not_break_identity_or_overwrite_a_live_quote() {
+        val tma = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/TokenMetricsAuthority7069.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        assertTrue(tma.contains("private const val CAP_STALE_MS_7268 = 20_000L"))
+        assertTrue(tma.contains("fun capStale7268(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean"))
+        assertTrue(tma.contains("nowMs - cap.changedAtMs >= CAP_STALE_MS_7268 && px.changedAtMs > cap.changedAtMs"))
+        assertTrue(tma.contains("source.contains(\"FANOUT_CORROBORATED\", ignoreCase = true)"))
+        // The stale/corroborated branch runs before the broken counter and tells the gate USABLE.
+        val staleIdx = tma.indexOf("if (capStale7268 || corroborated7268) {")
+        val brokenIdx = tma.indexOf("identityBroken.incrementAndGet()\n        noteWorst(ratio)")
+        assertTrue(staleIdx > 0 && brokenIdx > staleIdx)
+        assertTrue(tma.contains("markIdentityBroken = false,\n                    corroboratedByIndependentSource = true,"))
+        assertTrue(tma.contains("TOKEN_METRICS_UNVERIFIABLE_CAP_STALE_7268"))
+        assertTrue(tma.contains("MARK_IDENTITY_CLEARED_CAP_STALE_7268"))
+        // The genuinely-broken path is unchanged: still no substitution, still fed to the gate as broken.
+        assertTrue(tma.contains("METRICS_IDENTITY_BROKEN_NO_SUBSTITUTION_7087"))
+        assertTrue(tma.contains("markIdentityBroken = true,\n                corroboratedByIndependentSource = false,"))
+
+        // The 7059 same-source reconciler is not asked while the cap is stale.
+        assertTrue(exec.contains("val mark7059 = if (capStale7268) null else try {"))
+        assertTrue(exec.contains("MARK_MCAP_RECONCILE_SKIPPED_CAP_STALE_7268"))
+
+        // Behavioural: with no observation on file the cap is not stale.
+        assertTrue(!com.lifecyclebot.engine.truth.TokenMetricsAuthority7069.capStale7268("no-such-mint-7268"))
+
+        assertTrue(phc.contains("\"TOKEN_METRICS_UNVERIFIABLE_CAP_STALE_7268\","))
+        assertTrue(phc.contains("\"MARK_MCAP_RECONCILE_SKIPPED_CAP_STALE_7268\","))
+    }
+
     /** V5.0.7260 — the oracle must judge the current candidate, not repeat a
      * blank-signature bootstrap forecast or the historical book average. */
     @Test

@@ -1238,7 +1238,19 @@ class Executor(
                 // check can only bite once the relationship between the two
                 // reported numbers has actually broken.
                 val curMcap7059 = ts.lastMcap
-                val mark7059 = try {
+                // V5.0.7268 — a cap that has not been written since the price
+                // moved cannot disprove the price. On 7267, with every cap
+                // source down, this arm replaced live +31..+147% quotes with
+                // entryPrice x (flatCap / entryCap) = entryPrice, 918 times,
+                // and the exit engine read 0% on four runners. When the cap is
+                // stale the raw tick is served and the reconciler is not asked.
+                val capStale7268 = try {
+                    com.lifecyclebot.engine.truth.TokenMetricsAuthority7069.capStale7268(ts.mint)
+                } catch (_: Throwable) { false }
+                if (capStale7268) {
+                    try { PipelineHealthCollector.labelInc("MARK_MCAP_RECONCILE_SKIPPED_CAP_STALE_7268") } catch (_: Throwable) {}
+                }
+                val mark7059 = if (capStale7268) null else try {
                     com.lifecyclebot.engine.truth.CanonicalMarkResolution7059
                         .resolve(pos, livePrice, curMcap7059)
                 } catch (_: Throwable) { null }

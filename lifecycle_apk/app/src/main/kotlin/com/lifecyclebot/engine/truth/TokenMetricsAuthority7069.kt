@@ -169,6 +169,76 @@ object TokenMetricsAuthority7069 {
     // on that evidence. Shipping the accessor unwired would just be another
     // NO_CALLERS authority, which is the defect this session keeps finding.
 
+    /**
+     * V5.0.7268 §A_CAP_NOBODY_REFRESHED_IS_STALE,_NOT_EVIDENCE.
+     *
+     * The header above assumes "price, cap and supply come from one payload
+     * describing one instant". On the exit path they do not. Executor
+     * .getActualPrice hands this function `ts.lastPrice` and `ts.lastMcap`,
+     * and those two fields are written by different feeds at different
+     * times: the price by every tick of the keyless chain (Jupiter, Raydium,
+     * DefiLlama), the cap only by DexScreener, Birdeye or pump.fun payloads.
+     * Operator 5.0.7267, all three cap sources down (dexscreener sr=0%,
+     * birdeye 0%, pumpfun 13%):
+     *
+     *   TICK_PROFIT_LOCK_EXEC_PRICE_REBASE  JEANDICK raw=147.2 exec=0.0
+     *                                       PEPENOM  raw=69.9  exec=0.0
+     *                                       OTC      raw=43.2  exec=0.0  (FANOUT_CORROBORATED_x2)
+     *                                       MONEY    raw=30.6  exec=0.0
+     *   METRICS_IDENTITY_BROKEN_7069 9174   MARK_IDENTITY_SUPPRESSED_BROKEN_7230 1297
+     *   MARK_MCAP_DIVERGENCE_CORRECTED_7059 918   TS_LAST_PRICE_REPAIRED_7059 918
+     *
+     * Four positions up 31–147% on a live, in two cases doubly corroborated,
+     * quote — and every one read 0% to the exit engine, because the cap on
+     * file had not changed since intake, so the identity "broke", 7059
+     * substituted entryPrice × (flatCap / entryCap) = entryPrice, and 7230
+     * suppressed the mark. That is the CARDSc symptom in reverse: there the
+     * price moved against a genuinely flat cap; here the cap is flat because
+     * nothing has written it for minutes. The arithmetic cannot tell the two
+     * apart. Time can.
+     *
+     * So this authority now remembers, per mint, when the cap last CHANGED and
+     * when the price last changed. A broken identity in which the cap has been
+     * constant for CAP_STALE_MS while the price moved afterwards is classified
+     * CAP_STALE: unverifiable, price passes through untouched, the execution
+     * gate is told USABLE so a prior suppression clears, and no substitution
+     * happens. A price whose source carries FANOUT_CORROBORATED (two or more
+     * independent live quotes agreeing) is treated the same way regardless of
+     * cap age, because 7230's own contract says a corroborated mark is usable
+     * and this bridge had been hard-coding corroborated=false. Nothing here
+     * invents a number; it declines to overrule a measured one with a stale
+     * one.
+     */
+    private const val CAP_STALE_MS_7268 = 20_000L
+    private data class Seen7268(val value: Double, val changedAtMs: Long)
+    private val lastCapSeen7268 = ConcurrentHashMap<String, Seen7268>()
+    private val lastPriceSeen7268 = ConcurrentHashMap<String, Seen7268>()
+    private val capStaleClassified7268 = AtomicLong(0L)
+    private val corroboratedDisagree7268 = AtomicLong(0L)
+
+    private fun noteSeen7268(map: ConcurrentHashMap<String, Seen7268>, mint: String, value: Double, nowMs: Long) {
+        if (!value.isFinite() || value <= 0.0) return
+        val prev = map[mint]
+        if (prev == null) { map[mint] = Seen7268(value, nowMs); return }
+        val moved = prev.value <= 0.0 || kotlin.math.abs(value / prev.value - 1.0) > IDENTITY_EPSILON
+        if (moved) map[mint] = Seen7268(value, nowMs)
+    }
+
+    /**
+     * True when the cap on file for [mint] has not changed for CAP_STALE_MS
+     * and the price has moved since the cap last changed. Read by the 7059
+     * reconciler so it does not replace a live quote with a stale-cap-implied
+     * entry price.
+     */
+    fun capStale7268(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val cap = lastCapSeen7268[mint] ?: return false
+        val px = lastPriceSeen7268[mint] ?: return false
+        return nowMs - cap.changedAtMs >= CAP_STALE_MS_7268 && px.changedAtMs > cap.changedAtMs
+    }
+
+    private fun sourceCorroborated7268(source: String): Boolean =
+        source.contains("FANOUT_CORROBORATED", ignoreCase = true)
+
     private val observed = AtomicLong(0L)
     private val supplyCaptured = AtomicLong(0L)
     private val identityHeld = AtomicLong(0L)
@@ -204,6 +274,10 @@ object TokenMetricsAuthority7069 {
         observed.incrementAndGet()
         val price = if (rawPriceUsd.isFinite() && rawPriceUsd > 0.0) rawPriceUsd else 0.0
         val mcap = if (rawMcapUsd.isFinite() && rawMcapUsd > 0.0) rawMcapUsd else 0.0
+        // V5.0.7268 — remember when each side last moved, before any verdict.
+        val now7268 = System.currentTimeMillis()
+        noteSeen7268(lastCapSeen7268, mint, mcap, now7268)
+        noteSeen7268(lastPriceSeen7268, mint, price, now7268)
 
         val storedSupply = storedSupplyOf(mint)
 
@@ -301,6 +375,46 @@ object TokenMetricsAuthority7069 {
         // state. DataLegitimacyAuthority7077 already refuses to qualify a mint
         // whose identity does not hold, which is the correct response to "one of
         // these two numbers is wrong": do not trade it, rather than guess which.
+        // V5.0.7268 — a stale cap, or a corroborated price, is not a broken
+        // identity. Classify, clear any prior suppression, pass the price
+        // through, and do not feed the execution gate a "broken" verdict.
+        val capStale7268 = capStale7268(mint, now7268)
+        val corroborated7268 = sourceCorroborated7268(source)
+        if (capStale7268 || corroborated7268) {
+            unverifiable.incrementAndGet()
+            if (capStale7268) capStaleClassified7268.incrementAndGet() else corroboratedDisagree7268.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc(
+                    if (capStale7268) "TOKEN_METRICS_UNVERIFIABLE_CAP_STALE_7268"
+                    else "TOKEN_METRICS_PRICE_CORROBORATED_CAP_DISAGREES_7268",
+                )
+                if ((capStaleClassified7268.get() + corroboratedDisagree7268.get()) % 20L == 1L) {
+                    ForensicLogger.lifecycle(
+                        "TOKEN_METRICS_CAP_STALE_7268",
+                        "mint=${mint.take(10)} sym=$symbol src=$source reportedPrice=$price " +
+                            "impliedPrice=$impliedPrice ratio=${"%.6g".format(ratio)} " +
+                            "capStale=$capStale7268 corroborated=$corroborated7268 " +
+                            "capAgeMs=${lastCapSeen7268[mint]?.let { now7268 - it.changedAtMs } ?: -1} " +
+                            "action=price_passes_through_no_substitution_no_suppression",
+                    )
+                }
+            } catch (_: Throwable) {}
+            try {
+                if (MarkIdentityExecutionGate7230.isExecutionSuppressed7243(mint)) {
+                    PipelineHealthCollector.labelInc("MARK_IDENTITY_CLEARED_CAP_STALE_7268")
+                }
+                MarkIdentityExecutionGate7230.evaluate(
+                    mint = mint,
+                    poolOrVenueKey = source,
+                    markIdentityBroken = false,
+                    corroboratedByIndependentSource = true,
+                    exitReasonOrContext = if (capStale7268) "TokenMetricsAuthority7069_cap_stale_7268"
+                        else "TokenMetricsAuthority7069_price_corroborated_7268",
+                )
+            } catch (_: Throwable) {}
+            return Metrics7069(price, mcap, storedSupply, repaired = false, verifiable = false)
+        }
+
         identityBroken.incrementAndGet()
         noteWorst(ratio)
         try {
