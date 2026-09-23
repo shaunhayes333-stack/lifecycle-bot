@@ -5237,14 +5237,12 @@ for legal compliance.
         // V5.0.7247 — this is the MemeTrader/Solana dashboard. The cached
         // canonical projection is portfolio-wide, so explicitly classified
         // cross-asset positions belong on Crypto Universe, not this card.
-        // Blank is retained for native/legacy Solana TokenState rows.
+        // Blank legacy rows are resolved against canonical identity (and the
+        // isolated crypto lane witness) before admission.
         val merged = state.openPositions
             .filter {
-                it.position.canonicalAssetClassTag.isBlank() ||
-                    it.position.canonicalAssetClassTag.equals(
-                        com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN.tag,
-                        ignoreCase = true,
-                    )
+                com.lifecyclebot.engine.truth.CanonicalUiPositionProjection6686
+                    .isMemeDashboardOwned7252(it)
             }
             .filter { it.position.isPaperPosition == isPaperMode }
             .filter { ts ->

@@ -4,6 +4,15 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.7252] - 2026-09-23 — CRYPTO/MEME DISPLAY AND QUANTITY BOUNDARY
+
+- Closed the resume-time projection hole that let raw `CRYPTO_ALT` / `CRYPTO_SPOT` rows appear in the MemeTrader Open Positions card.
+- Centralized meme-dashboard ownership on explicit asset class, canonical position identity, and defensive crypto-lane evidence.
+- Replaced the cross-asset paper `1.00 token` sentinel with quantity derived from sealed SOL notional × trusted SOL/USD ÷ USD/token entry price.
+- Crypto paper opens now refuse before cash debit when the quantity conversion witness is unavailable.
+- Pump.fun identities are filtered out of BLUECHIP during canonical owner election, before FDG intent/ticket creation, while the executor contract remains the final safety authority.
+- Added `Aate7252CryptoMemeBoundaryTest` for immediate refresh, surface ownership, economic paper quantity, and pre-ticket lane compatibility.
+
 ## [5.0.7251] - 2026-09-23 — AUTHORITY CONVERGENCE AND HELD-MARK SAFETY
 
 - Dynamic Crypto Universe positions now distinguish a provider observation from a carried display price. Only an exact-identity, source-timestamped fresh mark can arm PnL or exits.

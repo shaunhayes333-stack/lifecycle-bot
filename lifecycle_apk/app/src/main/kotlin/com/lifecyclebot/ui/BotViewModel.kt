@@ -313,7 +313,12 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
         // completes.
         try {
             val status = BotService.status
-            val openSnap = try { status.openPositions.toList() } catch (_: Throwable) { emptyList() }
+            // V5.0.7252 — immediate resume must publish the same canonical,
+            // asset-class-stamped rows as the normal polling path. Raw status
+            // rows allowed crypto holdings to flash/persist on the meme card.
+            val openSnap = try {
+                com.lifecyclebot.engine.truth.CanonicalUiPositionProjection6686.project(status)
+            } catch (_: Throwable) { emptyList() }
             val tokenSnap: Map<String, TokenState> = try {
                 status.tokens.entries.associate { it.key to it.value }
             } catch (_: Throwable) { emptyMap() }

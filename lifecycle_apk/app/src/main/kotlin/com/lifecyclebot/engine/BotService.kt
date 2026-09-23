@@ -12739,14 +12739,33 @@ class BotService : Service() {
             val forced = RuntimeConfigOverlay.forcedPrimaryLane()?.takeIf { it.isNotBlank() }
             val deskSheet6599 = ToolkitSignalSheet.snapshot(ts, classification)
             val styleLanes = AgenticStyleRouter.lanesFor(ts, classification, laneAffinityForTradeType(classification.tradeType)).toList()
+            // V5.0.7252 — lane identity is an election constraint, not an
+            // executor surprise. 5.0.7250 elected a Pump.fun mint as BLUECHIP,
+            // sealed the intent and ticket, then predictably hit
+            // BLUECHIP_REJECTS_PUMPFUN_MINT_6342 before the first Jupiter quote.
+            // Exclude identities the existing execution contract can never
+            // authorize while preserving an explicit operator override (which
+            // the executor will still refuse rather than silently rewrite).
+            val eligibleStyleLanes7252 = styleLanes.filter {
+                LaneEntryContract6342.isLaneIdentityEligible7252(ts, it)
+            }
             // V5.0.6600 — restore the pre-6599 authority: source/character/style routing
             // owns execution selection. Desk hypotheses contribute evidence but map
             // insertion/tie order must never rewrite the owner to PROJECT_SNIPER.
-            val stylePrimary = RuntimeConfigOverlay.normalizeLane(forced ?: styleLanes.firstOrNull() ?: ts.laneAffinity.firstOrNull() ?: "SHITCOIN")
+            val eligibleAffinity7252 = ts.laneAffinity.firstOrNull {
+                LaneEntryContract6342.isLaneIdentityEligible7252(ts, it)
+            }
+            val stylePrimary = RuntimeConfigOverlay.normalizeLane(
+                forced ?: eligibleStyleLanes7252.firstOrNull() ?: eligibleAffinity7252 ?: "SHITCOIN"
+            )
             val metricProposal6599 = TokenMetricStageRouter.preferredPrimaryLane(ts, stylePrimary)
-            val metricPrimary = if (forced != null || deskSheet6599.deskHypotheses.isEmpty() || deskSheet6599.deskHypotheses.containsKey(metricProposal6599.uppercase())) metricProposal6599 else stylePrimary
+            val eligibleMetricProposal7252 = if (
+                forced != null || LaneEntryContract6342.isLaneIdentityEligible7252(ts, metricProposal6599)
+            ) metricProposal6599 else stylePrimary
+            val metricPrimary = if (forced != null || deskSheet6599.deskHypotheses.isEmpty() || deskSheet6599.deskHypotheses.containsKey(eligibleMetricProposal7252.uppercase())) eligibleMetricProposal7252 else stylePrimary
             val roleHypotheses6614 = deskSheet6599.deskHypotheses.values
                 .filter { it.lane.uppercase() in setOf("CORE", "EXPRESS", "MANIPULATED", "DIP_HUNTER", "TREASURY", "CASHGEN", "QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "MOONSHOT", "PROJECT_SNIPER") }
+                .filter { LaneEntryContract6342.isLaneIdentityEligible7252(ts, it.lane) }
                 .filter { it.lane.uppercase() != "PROJECT_SNIPER" || it.setup in setOf(ToolkitSignalSheet.Setup.DEGEN_MICRO_SNIPE, ToolkitSignalSheet.Setup.PUMP_GRADUATION_SNIPE) }
             val rankedRoleHypotheses6614 = roleHypotheses6614
                 .filter { it.lane.uppercase() != "CORE" }
@@ -12793,12 +12812,28 @@ class BotService : Service() {
             // MOONSHOT's own scoring, FDG, sizing and rug guards all still run.
             val moonshotAdmitted7044 = com.lifecyclebot.engine.truth.MoonshotFreshLaunchAdmission7044
                 .electPrimary(ts, classification, pivotedPrimary4524, forced)
+            val identityEligiblePrimary7252 = if (
+                forced.isNullOrBlank() && !LaneEntryContract6342.isLaneIdentityEligible7252(ts, moonshotAdmitted7044)
+            ) {
+                val fallback7252 = rankedRoleHypotheses6614.firstOrNull()?.lane
+                    ?: eligibleStyleLanes7252.firstOrNull()
+                    ?: eligibleAffinity7252
+                    ?: "SHITCOIN"
+                try {
+                    PipelineHealthCollector.labelInc("LANE_ELECTION_INELIGIBLE_FILTERED_7252")
+                    ForensicLogger.lifecycle(
+                        "LANE_ELECTION_INELIGIBLE_FILTERED_7252",
+                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} rejected=$moonshotAdmitted7044 fallback=$fallback7252 action=elect_before_ticket",
+                    )
+                } catch (_: Throwable) {}
+                RuntimeConfigOverlay.normalizeLane(fallback7252)
+            } else moonshotAdmitted7044
             try {
                 val snap = TokenMetricStageRouter.snapshot(ts)
-                ForensicLogger.lifecycle("TOKEN_METRIC_STAGE_PRIMARY", "symbol=${ts.symbol} mint=${ts.mint.take(10)} stylePrimary=$stylePrimary metricPrimary=$metricPrimary finalPrimary=$moonshotAdmitted7044 ${snap.compact}")
+                ForensicLogger.lifecycle("TOKEN_METRIC_STAGE_PRIMARY", "symbol=${ts.symbol} mint=${ts.mint.take(10)} stylePrimary=$stylePrimary metricPrimary=$metricPrimary finalPrimary=$identityEligiblePrimary7252 ${snap.compact}")
                 PipelineHealthCollector.labelInc("TOKEN_METRIC_STAGE_${snap.stage.name}")
             } catch (_: Throwable) {}
-            moonshotAdmitted7044
+            identityEligiblePrimary7252
         } catch (_: Throwable) { "SHITCOIN" }
     }
 

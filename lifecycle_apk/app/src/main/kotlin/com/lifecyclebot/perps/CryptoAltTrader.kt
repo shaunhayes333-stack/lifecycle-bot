@@ -2892,12 +2892,48 @@ object CryptoAltTrader {
             //
             // The stage means "handed to an executor", not "spent money". The
             // paper executor is an executor.
+            // V5.0.7252 — CanonicalPaperTransaction6486's generic default is
+            // exactly 1e9 raw @ scale 9 (1.00 token). That is a sentinel, not
+            // the funded crypto quantity. Derive the simulated fill from the
+            // sealed SOL notional, SOL/USD witness and USD/token entry price.
+            // Without those witnesses, refuse before cash is debited.
+            val paperQuantityScale7252 = 9
+            val paperSolUsd7252 = try {
+                com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+            } catch (_: Throwable) { 0.0 }
+            val paperQtyRaw7252 = if (
+                paperSolUsd7252.isFinite() && paperSolUsd7252 in 50.0..5_000.0 &&
+                signal.price.isFinite() && signal.price > 0.0
+            ) try {
+                com.lifecyclebot.engine.truth.CanonicalRawQuantityAuthority6520.paperRawFromEconomics(
+                    canonicalFinalSize6570.toString(), paperSolUsd7252.toString(),
+                    signal.price.toString(), paperQuantityScale7252,
+                )
+            } catch (_: Throwable) { java.math.BigInteger.ZERO }
+            else java.math.BigInteger.ZERO
+            if (paperQtyRaw7252 <= java.math.BigInteger.ZERO) {
+                com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markFailed(
+                    canonicalCryptoIntent6565, "CRYPTO_PAPER_QUANTITY_WITNESS_MISSING_7252",
+                )
+                terminalDisposition6613("CRYPTO_PAPER_QUANTITY_WITNESS_MISSING_7252", "AUTHORITY")
+                try {
+                    PipelineHealthCollector.labelInc("CRYPTO_PAPER_QUANTITY_WITNESS_MISSING_7252")
+                    ForensicLogger.lifecycle(
+                        "CRYPTO_PAPER_QUANTITY_WITNESS_MISSING_7252",
+                        "symbol=$mktSym sizeSol=$canonicalFinalSize6570 solUsd=$paperSolUsd7252 tokenUsd=${signal.price} action=refuse_before_debit",
+                    )
+                } catch (_: Throwable) {}
+                return
+            }
             com.lifecyclebot.engine.truth.CanonicalEntryAuthority6551.markDispatch(canonicalCryptoIntent6565)
             val canonicalOpen6486 = try {
                 com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(
                     positionId = position.id, mint = position.canonicalAssetKey, symbol = mktSym,
                     lane = canonicalCryptoLane7251(signal.isDynamic, isSpot), source = "CryptoAltTrader",
                     costSol = canonicalFinalSize6570, entryScore = signal.score, tactic = if (isSpot) "SPOT" else "LEVERAGE",
+                    qtyRaw = paperQtyRaw7252,
+                    decimals = paperQuantityScale7252,
+                    quantityScale = paperQuantityScale7252,
                     // V5.0.6525 §ASSET_CLASS + §ENTRY_PRICE.
                     assetClass = com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT,
                     entryPriceUsd = signal.price,

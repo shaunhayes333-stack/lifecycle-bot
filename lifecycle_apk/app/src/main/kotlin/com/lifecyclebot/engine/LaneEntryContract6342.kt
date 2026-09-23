@@ -69,6 +69,19 @@ object LaneEntryContract6342 {
     private fun isPumpFunMint(mint: String): Boolean =
         mint.isNotBlank() && mint.endsWith("pump", ignoreCase = true)
 
+    /**
+     * V5.0.7252 — pure lane-identity predicate for the owner-election boundary.
+     *
+     * The executor remains the final authority, but election must not knowingly
+     * mint a ticket for an identity the executor is guaranteed to reject. Keep
+     * this predicate side-effect free so candidate ranking can call it without
+     * incrementing rejection counters or consulting mutable governor state.
+     */
+    fun isLaneIdentityEligible7252(ts: TokenState, laneRequested: String): Boolean {
+        val lane = laneRequested.uppercase()
+        return !((lane == "BLUECHIP" || lane == "BLUE_CHIP") && isPumpFunMint(ts.mint))
+    }
+
     /** MINT_ROUTE placeholder means no real pool address is known yet. */
     private fun isMintRoutePlaceholder(pool: String?): Boolean {
         val p = pool ?: return true
@@ -209,7 +222,7 @@ object LaneEntryContract6342 {
         // 2. BLUECHIP identity contract — no Pump.fun mints allowed.
         //    BLUECHIP must represent established, liquid assets.
         if (lane == "BLUECHIP" || lane == "BLUE_CHIP") {
-            if (isPumpFunMint(ts.mint)) {
+            if (!isLaneIdentityEligible7252(ts, lane)) {
                 reasons += "BLUECHIP_REJECTS_PUMPFUN_MINT_6342"
                 try {
                     PipelineHealthCollector.labelInc("LANE_ENTRY_BLUECHIP_PUMPFUN_REJECTED_6342")

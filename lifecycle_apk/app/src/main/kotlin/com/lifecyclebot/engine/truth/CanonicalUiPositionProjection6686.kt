@@ -85,4 +85,26 @@ object CanonicalUiPositionProjection6686 {
             }
         }
     }
+
+    /** V5.0.7252 — authoritative ownership check for the MemeTrader dashboard. */
+    fun isMemeDashboardOwned7252(row: TokenState): Boolean {
+        val explicitTag = row.position.canonicalAssetClassTag.trim()
+        if (explicitTag.isNotEmpty()) return explicitTag.equals(AssetClass.SOLANA_TOKEN.tag, true)
+
+        // Raw resume snapshots and restored legacy rows may predate the class
+        // stamp. Their isolated canonical lane is still explicit evidence that
+        // they belong on Crypto Universe rather than the meme surface.
+        val lane = row.position.tradingMode.trim().uppercase()
+        if (lane == "CRYPTO_ALT" || lane == "CRYPTO_SPOT" || lane == "CRYPTO_LEV") return false
+
+        val canonical = try {
+            row.position.positionId.trim().takeIf { it.isNotEmpty() }
+                ?.let { CanonicalPositionAuthority6441.getPosition(it) }
+                ?: CanonicalPositionAuthority6441.openPositions().singleOrNull {
+                    it.mint == row.mint &&
+                        it.mode.equals(if (row.position.isPaperPosition) "paper" else "live", true)
+                }
+        } catch (_: Throwable) { null }
+        return canonical?.assetClass?.let { it == AssetClass.SOLANA_TOKEN } ?: true
+    }
 }

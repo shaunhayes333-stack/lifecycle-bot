@@ -20,8 +20,8 @@ class Aate7247MemeHeldBoundaryTest {
 
         assertTrue(models.contains("val canonicalAssetClassTag: String = \"\""))
         assertTrue(projection.contains("canonicalAssetClassTag = p.assetClass.tag"))
-        assertTrue(builder.contains("AssetClass.SOLANA_TOKEN.tag"))
-        assertTrue(builder.contains("canonicalAssetClassTag.isBlank()"))
+        assertTrue(projection.contains("isMemeDashboardOwned7252"))
+        assertTrue(builder.contains("isMemeDashboardOwned7252(it)"))
         assertTrue(header.contains("openModel6078.totalExposureSol.fastFixed(3)"))
         assertFalse(header.contains("acct7047.openMarketSol.fastFixed(3)"))
     }
