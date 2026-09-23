@@ -1542,6 +1542,13 @@ class BotService : Service() {
                             openTokens, maxItems = 24, cursor = hotExitCoverageCursor6663,
                         )
                         managedThisTick6663.forEach { ts ->
+                            // V5.0.7251 — this timestamp is a progress heartbeat,
+                            // not merely a sweep-start timestamp. A 24-position
+                            // walk can legitimately exceed the 10s watchdog even
+                            // while every position is advancing. Refresh around
+                            // each unit so only a genuinely stuck unit can earn a
+                            // stale reset.
+                            lastTickExitSweepMs = System.currentTimeMillis()
                             try {
                                 executor.runManageOnly(ts, curWallet, curSol)
                             } catch (e: Exception) {
@@ -1549,6 +1556,8 @@ class BotService : Service() {
                                     "BotService",
                                     "hotExit(${ts.symbol}): ${e.message}",
                                 )
+                            } finally {
+                                lastTickExitSweepMs = System.currentTimeMillis()
                             }
                         }
 

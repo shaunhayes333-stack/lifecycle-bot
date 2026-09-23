@@ -250,6 +250,33 @@ object CryptoAltTrader {
     private var dynScanJob   : Job? = null
     private var dynBatchIdx  = 0       // rotating batch cursor for dynamic token scan
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private const val HELD_MARK_REFRESH_COOLDOWN_MS_7251 = 15_000L
+    private val heldMarkRefreshAt7251 = ConcurrentHashMap<String, Long>()
+    private val heldMarkRefreshInFlight7251 = ConcurrentHashMap.newKeySet<String>()
+    private val heldMarkLogAt7251 = ConcurrentHashMap<String, Long>()
+
+    internal fun canonicalCryptoLane7251(isDynamic: Boolean, isSpot: Boolean): String = when {
+        !isSpot -> "CRYPTO_LEV"
+        isDynamic -> "CRYPTO_ALT"
+        else -> "CRYPTO_SPOT"
+    }
+
+    private fun refreshDynamicMark7251(identity: String): DynamicAltTokenRegistry.HeldMarkRefresh7251 {
+        val clean = identity.trim()
+        if (clean.isBlank()) return DynamicAltTokenRegistry.HeldMarkRefresh7251(0.0, "", 0L, false)
+        val now = System.currentTimeMillis()
+        val last = heldMarkRefreshAt7251[clean] ?: 0L
+        if (now - last < HELD_MARK_REFRESH_COOLDOWN_MS_7251 || !heldMarkRefreshInFlight7251.add(clean)) {
+            try { PipelineHealthCollector.labelInc("CRYPTO_HELD_MARK_REFRESH_COALESCED_7251") } catch (_: Throwable) {}
+            return DynamicAltTokenRegistry.heldMarkSnapshot7251(clean)
+        }
+        heldMarkRefreshAt7251[clean] = now
+        return try {
+            DynamicAltTokenRegistry.refreshHeldMark7251(clean)
+        } finally {
+            heldMarkRefreshInFlight7251.remove(clean)
+        }
+    }
 
     // Persistent SharedPreferences — fast, always-available learning fallback
     private var ctx: Context? = null
@@ -272,7 +299,7 @@ object CryptoAltTrader {
     // collecting honest data. Meme/Perps/RunTracker30D untouched.
     private const val KEY_WR_CONTRACT_MIGRATED_358 = "wr_contract_v358_migrated"
     private const val KEY_LIVE    = "is_live_mode"
-    private const val DYNAMIC_MARK_MAX_AGE_MS_6654 = 10L * 60L * 1000L
+    private const val DYNAMIC_MARK_MAX_AGE_MS_6654 = 60_000L
 
     // ─── Position model ───────────────────────────────────────────────────────
     data class AltPosition(
@@ -2268,7 +2295,7 @@ object CryptoAltTrader {
             assetType = assetType,
             direction = signal.direction,
             marketCapLane = lane,
-            selectedLane = "CRYPTO",
+            selectedLane = canonicalCryptoLane7251(signal.isDynamic, effectiveIsSpot6536),
             selectedSpecialist = cryptoSignalStyle(signal),
             preFdgVerdict = pre,
             score = signal.score,
@@ -2303,10 +2330,7 @@ object CryptoAltTrader {
             // the per-lane WR windows in CryptoLivePauseButton/LaneTimeoutGate
             // partitioned by leverage class so one mode can timeout without
             // locking the other.
-            val lane4151 = when (candidate.assetType) {
-                CryptoFinalBuyCandidate.AssetType.PERP -> "CRYPTO_LEV"
-                else                                    -> "CRYPTO_SPOT"
-            }
+            val lane4151 = candidate.selectedLane
             val srcTag4151 = candidate.universe.ifBlank { "CRYPTO" }.uppercase()
             // (a) Rug-blacklist — non-negotiable, immune to all bypasses.
             if (com.lifecyclebot.perps.crypto.brain.CryptoRugMintBlacklist.isBlacklisted(assetKey4151)) {
@@ -2459,7 +2483,7 @@ object CryptoAltTrader {
         // these calls only read/write crypto-lane closes.
         run cryptoParitySizing@{
             try {
-                val cryptoLane = if (isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV"
+                val cryptoLane = canonicalCryptoLane7251(signal.isDynamic, isSpot)
                 val cryptoTuneMult = try {
                     com.lifecyclebot.engine.LiveStrategyTuner.sizeMultiplier(cryptoLane)
                 } catch (_: Throwable) { 1.0 }
@@ -2491,7 +2515,7 @@ object CryptoAltTrader {
         var cryptoToxicSizeMult6095 = 1.0
         run cryptoParityToxicGate@{
             try {
-                val cryptoLane = if (isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV"
+                val cryptoLane = canonicalCryptoLane7251(signal.isDynamic, isSpot)
                 val toxic = com.lifecyclebot.engine.LosingPatternMemory.stats(cryptoLane, signal.score.toInt())
                 if (toxic.sample >= 30 && toxic.lossRatePct >= 90.0 && toxic.meanPnl <= -8.0) {
                     val bucketId = try { com.lifecyclebot.engine.LosingPatternMemory.bucketKey(cryptoLane, signal.score.toInt()) } catch (_: Throwable) { "$cryptoLane|?" }
@@ -2651,7 +2675,7 @@ object CryptoAltTrader {
         val altSizingRes = com.lifecyclebot.engine.truth.CanonicalSizingBridge6532.resolve(
             requestedSol = requestedFinalSize,
             assetClass = com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT,
-            laneName = if (isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV",
+            laneName = canonicalCryptoLane7251(signal.isDynamic, isSpot),
             walletSol = balance,
             paperMode = isPaperMode.get(),
             canonicalAssetId = signal.dynMint?.ifBlank { signal.market.symbol } ?: signal.market.symbol, symbol = mktSym, price = signal.price, source = "CryptoAltTrader",
@@ -2872,7 +2896,7 @@ object CryptoAltTrader {
             val canonicalOpen6486 = try {
                 com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.open(
                     positionId = position.id, mint = position.canonicalAssetKey, symbol = mktSym,
-                    lane = if (isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV", source = "CryptoAltTrader",
+                    lane = canonicalCryptoLane7251(signal.isDynamic, isSpot), source = "CryptoAltTrader",
                     costSol = canonicalFinalSize6570, entryScore = signal.score, tactic = if (isSpot) "SPOT" else "LEVERAGE",
                     // V5.0.6525 §ASSET_CLASS + §ENTRY_PRICE.
                     assetClass = com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT,
@@ -3319,17 +3343,15 @@ object CryptoAltTrader {
                         continue
                     }
                     val ageMs = (System.currentTimeMillis() - resolved!!.lastUpdatedMs).coerceAtLeast(0L)
-                    val refreshedPrice = if (ageMs > 60_000L) {
-                        DynamicAltTokenRegistry.refreshPriceForMintBlocking(resolved.canonicalIdentity6544, forceRefresh = true)
-                    } else resolved.price
-                    val refreshed = DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(resolved.canonicalIdentity6544) ?: resolved
-                    val refreshedAgeMs = (System.currentTimeMillis() - refreshed.lastUpdatedMs).coerceAtLeast(0L)
-                    // V5.0.6819: decouple price check from registry-age check.
-                    // refreshPriceForMintBlocking now touches lastUpdatedMs on carry-forward, so
-                    // refreshedAgeMs will be near-zero even for transient DEX failures.  Only block
-                    // when we genuinely have no price — the combined OR was killing positions that
-                    // had a valid carry price but an old registry timestamp.
-                    if (!refreshedPrice.isFinite() || refreshedPrice <= 0.0) {
+                    val heldMark7251 = if (ageMs > 60_000L) {
+                        refreshDynamicMark7251(resolved.canonicalIdentity6544)
+                    } else {
+                        DynamicAltTokenRegistry.heldMarkSnapshot7251(resolved.canonicalIdentity6544)
+                    }
+                    val refreshedPrice = heldMark7251.price
+                    val exactIdentity7251 = heldMark7251.canonicalIdentity.equals(positionKey, true)
+                    if (!heldMark7251.freshObservation || !exactIdentity7251 ||
+                        !refreshedPrice.isFinite() || refreshedPrice <= 0.0) {
                         try { PipelineHealthCollector.labelInc("CRYPTO_DYN_MARK_STALE_OR_MISSING_6654") } catch (_: Throwable) {}
                         holdUntrustedDynamicPosition7245(position, "MARK_STALE_OR_MISSING")
                         continue
@@ -3354,7 +3376,9 @@ object CryptoAltTrader {
                 val updated = position.copy(
                     currentPrice = markPrice,
                     markAssetKey = validatedMarkKey,
-                    markUpdatedAtMs = System.currentTimeMillis(),
+                    markUpdatedAtMs = if (position.isDynamic) {
+                        DynamicAltTokenRegistry.heldMarkSnapshot7251(validatedMarkKey).observedAtMs
+                    } else System.currentTimeMillis(),
                 )
                 // V5.0.6832 — advisory mark-freshness observation. Value-diff
                 // vs previous tick tells us whether this mark is genuinely
@@ -3579,20 +3603,23 @@ object CryptoAltTrader {
      */
     private fun holdUntrustedDynamicPosition7245(pos: AltPosition, cause: String) {
         if (!pos.isDynamic) return
-        try {
-            PipelineHealthCollector.labelInc("CRYPTO_HELD_STALE_MARK_REFRESH_ONLY_7245")
-            ForensicLogger.lifecycle(
-                "CRYPTO_HELD_STALE_MARK_REFRESH_ONLY_7245",
-                "positionId=${pos.id} asset=${pos.canonicalAssetKey.take(32)} symbol=${pos.marketSymbol} cause=$cause action=preserve_open_refresh_only",
-            )
-        } catch (_: Throwable) {}
-        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        val identity7251 = pos.canonicalAssetKey.ifBlank { pos.dynMint ?: "" }
+        val now7251 = System.currentTimeMillis()
+        val lastLog7251 = heldMarkLogAt7251[pos.id] ?: 0L
+        if (now7251 - lastLog7251 >= HELD_MARK_REFRESH_COOLDOWN_MS_7251) {
+            heldMarkLogAt7251[pos.id] = now7251
             try {
-                DynamicAltTokenRegistry.refreshPriceForMintBlocking(
-                    pos.canonicalAssetKey.ifBlank { pos.dynMint ?: "" },
-                    forceRefresh = true,
+                PipelineHealthCollector.labelInc("CRYPTO_HELD_STALE_MARK_REFRESH_ONLY_7245")
+                ForensicLogger.lifecycle(
+                    "CRYPTO_HELD_STALE_MARK_REFRESH_ONLY_7245",
+                    "positionId=${pos.id} asset=${pos.canonicalAssetKey.take(32)} symbol=${pos.marketSymbol} cause=$cause action=preserve_open_refresh_only",
                 )
             } catch (_: Throwable) {}
+        }
+        val refreshDue7251 = now7251 - (heldMarkRefreshAt7251[identity7251] ?: 0L) >=
+            HELD_MARK_REFRESH_COOLDOWN_MS_7251 && identity7251 !in heldMarkRefreshInFlight7251
+        if (refreshDue7251) scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try { refreshDynamicMark7251(identity7251) } catch (_: Throwable) {}
         }
     }
 
@@ -3826,7 +3853,7 @@ object CryptoAltTrader {
         if (!pos.isPaper) {
             try {
                 val assetKey4151 = pos.dynMint ?: pos.canonicalAssetKey
-                val lane4151 = if (pos.isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV"
+                val lane4151 = canonicalCryptoLane7251(pos.isDynamic, pos.isSpot)
                 val src4151 = "CRYPTO"
                 val holdMs4151 = (System.currentTimeMillis() - pos.openTime).coerceAtLeast(0L)
                 com.lifecyclebot.perps.crypto.brain.CryptoRugMintBlacklist.recordClose(assetKey4151, pnlPctForWin, holdMs4151)

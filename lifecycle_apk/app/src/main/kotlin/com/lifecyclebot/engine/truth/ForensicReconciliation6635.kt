@@ -163,13 +163,12 @@ object ForensicReconciliation6635 {
         // Same seventeen. Seventeen ALT rows that canonical knows about, has
         // quarantined on purpose, and this reconciler was calling missing.
         //
-        // Split them out and name them for what they are. This does NOT net
-        // the money away: a quarantined position's basis really does sit in the
-        // journal and not in the ledger, so the cash/realized/openCost deltas
-        // above stay exactly as they were and the operator still sees them.
-        // What changes is that the position-set alarm stops crying "split
-        // write" about rows that were quarantined by design, so a genuine
-        // split write is visible again instead of buried in seventeen.
+        // Split them out and name them for what they are. V5.0.7251 also makes
+        // JournalEconomicReplay use this same quarantine scope, so quarantined
+        // history no longer creates active cash/basis/quantity deltas merely
+        // because the two sides selected different populations. The rows stay
+        // durable and visible through quarantine telemetry; only the active
+        // account comparison excludes them.
         val quarantined7018 = try {
             CanonicalPositionAuthority6441.quarantinedPositionIds6635("paper")
         } catch (_: Throwable) { emptySet() }

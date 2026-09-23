@@ -4,6 +4,16 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.7251] - 2026-09-23 — AUTHORITY CONVERGENCE AND HELD-MARK SAFETY
+
+- Dynamic Crypto Universe positions now distinguish a provider observation from a carried display price. Only an exact-identity, source-timestamped fresh mark can arm PnL or exits.
+- Held-position refreshes and forensic logs are single-flight/cooldown coalesced, removing the one-second retry storm without hiding owned inventory.
+- Hot-exit progress now heartbeats around every managed position, so a healthy multi-position sweep is not reset merely because the full batch exceeds the watchdog window.
+- Dynamic spot entries are canonically attributed to `CRYPTO_ALT`; static spot and leveraged crypto retain their isolated `CRYPTO_SPOT` and `CRYPTO_LEV` cohorts.
+- A recent sealed executable decision pins its candidate generation through the bounded execution window, eliminating wall-clock FDG/intent version drift while preserving runtime, mode, and TTL boundaries.
+- Journal and typed-event paper replays now use the same canonical quarantine scope as the active ledger. Corrupt history remains retained and named, but can no longer create permanent cash/basis/quantity acceptance failures in the active account.
+- Added `Aate7251AuthorityConvergenceTest` to lock mark provenance, refresh coalescing, lane ownership, sealed-version stability, and quarantine-scoped replay.
+
 ## [5.0.6386] - 2026-02 — LIVE ACCOUNTING TRUTH REPAIR (Bundle 2/2 — SECTIONS 2/4/5/6/7/8/9/10/12/13)
 
 Ships the remaining 10 sections of the LIVE EXECUTION TRUTH AND COMPOUNDING FOUNDATION directive in one commit. Combined with Bundle 6385 (Sections 1, 3, 11) this completes the full 13-section repair spec.

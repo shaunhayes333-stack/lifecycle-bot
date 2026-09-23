@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -154,8 +155,11 @@ object LaneExecutionCoordinator {
     }
 
     fun candidateVersionFor(mint: String): Long {
-        val bucket = System.currentTimeMillis() / TTL_MS
-        return bucket
+        val mode = if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE"
+        val sealed = try {
+            ExecutionDecisionSnapshot6510.latestExecutableForMint7251(mint, mode, TTL_MS)
+        } catch (_: Throwable) { null }
+        return sealed?.candidateVersion ?: (System.currentTimeMillis() / TTL_MS)
     }
 
     fun elect(

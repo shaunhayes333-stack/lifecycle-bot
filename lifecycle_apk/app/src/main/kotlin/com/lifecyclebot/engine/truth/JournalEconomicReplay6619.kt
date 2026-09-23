@@ -104,6 +104,7 @@ object JournalEconomicReplay6619 {
     // rows must not be. Key by immutable replay identity so one old row cannot
     // create a new counter/log event every 5 seconds forever.
     private val reportedReplaySupersessions6699 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val quarantineScopeSignature7251 = AtomicReference("")
 
     fun replay(): ReplayResult {
         replays.incrementAndGet()
@@ -168,9 +169,29 @@ object JournalEconomicReplay6619 {
         val skippedRealizedByReason7078 = mutableMapOf<String, Double>()
         val skippedCountByReason7078 = mutableMapOf<String, Int>()
 
-        val rows = try {
+        val quarantinedPositionIds7251 = try {
+            CanonicalPositionAuthority6441.quarantinedPositionIds6635("paper")
+        } catch (_: Throwable) { emptySet() }
+        val allRows7251 = try {
             TradeHistoryStore.getAllValidTradesSnapshot(limit = 20_000)
-        } catch (_: Throwable) { emptyList() }.sortedBy { it.ts }
+        } catch (_: Throwable) { emptyList() }
+        val excludedQuarantineRows7251 = allRows7251.count {
+            it.mode.equals("paper", true) && it.positionId.isNotBlank() && it.positionId in quarantinedPositionIds7251
+        }
+        val rows = allRows7251.asSequence()
+            .filterNot { it.mode.equals("paper", true) && it.positionId.isNotBlank() && it.positionId in quarantinedPositionIds7251 }
+            .sortedBy { it.ts }
+            .toList()
+        if (excludedQuarantineRows7251 > 0) {
+            val signature7251 = "${quarantinedPositionIds7251.size}:$excludedQuarantineRows7251:${quarantinedPositionIds7251.sorted().hashCode()}"
+            if (quarantineScopeSignature7251.getAndSet(signature7251) != signature7251) try {
+                PipelineHealthCollector.labelInc("JOURNAL_QUARANTINED_ROWS_EXCLUDED_ACTIVE_ACCOUNT_7251")
+                ForensicLogger.lifecycle(
+                    "JOURNAL_QUARANTINED_ROWS_EXCLUDED_ACTIVE_ACCOUNT_7251",
+                    "positions=${quarantinedPositionIds7251.size} rows=$excludedQuarantineRows7251 action=retained_history_excluded_from_active_account",
+                )
+            } catch (_: Throwable) {}
+        }
 
         // V5.0.6697 — a historical 6659 repair projection is superseded when
         // the same position already has its native durable BUY.
@@ -792,5 +813,6 @@ object JournalEconomicReplay6619 {
         reportedInvariantFailures6653.clear()
         reportedEmbeddedEntryRecoveries6664.clear()
         reportedReplaySupersessions6699.clear()
+        quarantineScopeSignature7251.set("")
     }
 }

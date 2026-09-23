@@ -84,6 +84,7 @@ object CanonicalPaperReplay6464 {
     // already re-converged. Stamp the last-computed-at timestamp so the
     // guard can fail-open on stale reads.
     private val lastParityAtMs = AtomicLong(0L)
+    private val quarantineScopeSignature7251 = AtomicReference("")
 
     fun replay(startingCashSol: Double): Snapshot {
         replays.incrementAndGet()
@@ -105,10 +106,25 @@ object CanonicalPaperReplay6464 {
         val positionQty6734 = HashMap<String, BigInteger>()
         val positionMint6734 = HashMap<String, String>()
         val trackedMintQty6734 = HashMap<String, BigInteger>()
+        val quarantinedPositionIds7251 = try {
+            CanonicalPositionAuthority6441.quarantinedPositionIds6635("paper")
+        } catch (_: Throwable) { emptySet() }
+        val quarantineSignature7251 = if (quarantinedPositionIds7251.isEmpty()) "" else
+            "${quarantinedPositionIds7251.size}:${quarantinedPositionIds7251.sorted().hashCode()}"
 
         // Oldest-first — events deque adds to head, so reverse.
         for (e in events.asReversed()) {
             if (e.mode != "paper") continue
+            if (e.positionId.isNotBlank() && e.positionId in quarantinedPositionIds7251) {
+                if (quarantineScopeSignature7251.getAndSet(quarantineSignature7251) != quarantineSignature7251) try {
+                    PipelineHealthCollector.labelInc("PAPER_REPLAY_EXCLUDED_CANONICAL_QUARANTINE_7251")
+                    ForensicLogger.lifecycle(
+                        "PAPER_REPLAY_EXCLUDED_CANONICAL_QUARANTINE_7251",
+                        "positions=${quarantinedPositionIds7251.size} action=retained_history_excluded_from_active_parity",
+                    )
+                } catch (_: Throwable) {}
+                continue
+            }
             // V5.0.6737 §RECONCILER_EXCLUDES_QUARANTINE — Pillar 3.
             // If the provenance authority has tagged this event as
             // REPLAY_SHADOW or QUARANTINE_AMBIGUOUS, exclude it from
@@ -452,5 +468,6 @@ object CanonicalPaperReplay6464 {
 
     internal fun resetForTest() {
         replays.set(0L); lastSnapshot.set(null); lastParity.set(null); lastParityAtMs.set(0L)
+        quarantineScopeSignature7251.set("")
     }
 }

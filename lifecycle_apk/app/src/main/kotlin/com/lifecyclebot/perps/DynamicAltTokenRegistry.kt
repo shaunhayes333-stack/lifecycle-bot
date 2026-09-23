@@ -153,6 +153,18 @@ object DynamicAltTokenRegistry {
         }
     }
 
+    /**
+     * V5.0.7251 — a price value and a fresh observation are different facts.
+     * A carried value is useful for display continuity, but it must never arm
+     * an exit or be stamped as a new market tick.
+     */
+    data class HeldMarkRefresh7251(
+        val price: Double,
+        val canonicalIdentity: String,
+        val observedAtMs: Long,
+        val freshObservation: Boolean,
+    )
+
     enum class SortMode { QUALITY, TRENDING, VOLUME, MCAP, CHANGE, NEW, BOOSTED }
 
     /** V5.0.6544 canonical dynamic identity. Symbol is never identity. */
@@ -1347,8 +1359,8 @@ object DynamicAltTokenRegistry {
             return existing.price.takeIf { it.isFinite() && it > 0.0 && ageMs <= MARK_CARRY_TTL_MS } ?: 0.0
         }
         val chain = existing.chainId.trim().lowercase()
-        // V5.0.6819: blank/unknown/established chain has no DEX route — carry last-known price and
-        // touch lastUpdatedMs so monitorPositions does not see a stale registry age.
+        // Blank/unknown/established chain has no DEX route. Carry the value for
+        // display continuity without touching the observation timestamp.
         if (chain.isBlank() || chain == "unknown" || chain == "established") {
             return carryForwardPrice6819(existing, ageMs)
         }
@@ -1379,6 +1391,26 @@ object DynamicAltTokenRegistry {
             lastUpdatedMs = System.currentTimeMillis(),
         )
         return price
+    }
+
+    fun heldMarkSnapshot7251(identityOrAddress: String): HeldMarkRefresh7251 {
+        val refreshed = registry[identityOrAddress] ?: getTokenByMint(identityOrAddress)
+        val now = System.currentTimeMillis()
+        val observedAt = refreshed?.lastUpdatedMs ?: 0L
+        val price = refreshed?.price?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+        val fresh = price > 0.0 && observedAt > 0L &&
+            (now - observedAt).coerceAtLeast(0L) <= PRICE_TTL_MS
+        return HeldMarkRefresh7251(
+            price = price,
+            canonicalIdentity = refreshed?.canonicalIdentity6544.orEmpty(),
+            observedAtMs = observedAt,
+            freshObservation = fresh,
+        )
+    }
+
+    fun refreshHeldMark7251(identityOrAddress: String): HeldMarkRefresh7251 {
+        refreshPriceForMintBlocking(identityOrAddress, forceRefresh = true)
+        return heldMarkSnapshot7251(identityOrAddress)
     }
 
     // ─── Discovery implementations ───────────────────────────────────────────

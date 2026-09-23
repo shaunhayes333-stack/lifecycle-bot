@@ -38,6 +38,21 @@ object ExecutionDecisionSnapshot6510 {
             .maxByOrNull { it.authorityVersion }
     }
 
+    /** Keep a sealed executable generation stable across a wall-clock bucket boundary. */
+    fun latestExecutableForMint7251(
+        mint: String,
+        mode: String,
+        maxAgeMs: Long,
+        nowMs: Long = System.currentTimeMillis(),
+    ): ExecutionDecisionSnapshot? {
+        val generation = BotRuntimeController.currentGeneration()
+        return byAuthorityKey.values.asSequence()
+            .filter { it.runtimeGeneration == generation && it.mode.equals(mode, true) && it.mint == mint }
+            .filter { it.verdict in setOf("BUY", "PROBE_ONLY") && it.authoritativeSignal == "BUY" }
+            .filter { it.generatedAtMs > 0L && nowMs - it.generatedAtMs in 0L..maxAgeMs }
+            .maxWithOrNull(compareBy<ExecutionDecisionSnapshot> { it.generatedAtMs }.thenBy { it.authorityVersion })
+    }
+
     fun get(mint: String, candidateVersion: Long, executionLane: String): ExecutionDecisionSnapshot? =
         byAuthorityKey[key(mint, candidateVersion, executionLane, BotRuntimeController.currentGeneration(), if (RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE")]
 
