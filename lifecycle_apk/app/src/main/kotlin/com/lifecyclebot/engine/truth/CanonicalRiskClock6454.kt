@@ -2,6 +2,7 @@ package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
+import com.lifecyclebot.engine.RuntimeModeAuthority
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -103,7 +104,16 @@ object CanonicalRiskClock6454 {
                     // "the book is flat", because flat suppresses the exit
                     // engine's entire alarm surface.
                     val open7213 = try {
+                        // V5.0.7254 — the independent clock must protect the
+                        // active account only.  The canonical store contains
+                        // both PAPER and LIVE history; walking its unscoped
+                        // open set while LIVE made a stale PAPER CRYPTO_ALT
+                        // row fire paper partial requests every 2s and appear
+                        // in live exit coverage.  Switching mode must pause the
+                        // other account, not reinterpret its positions.
+                        val activeMode7254 = if (RuntimeModeAuthority.isPaper()) "paper" else "live"
                         CanonicalPositionAuthority6441.openPositions()
+                            .filter { it.mode.equals(activeMode7254, ignoreCase = true) }
                     } catch (_: Throwable) {
                         openReadFailures.incrementAndGet()
                         try { PipelineHealthCollector.labelInc("RISK_CLOCK_OPEN_READ_FAILED_7213") } catch (_: Throwable) {}

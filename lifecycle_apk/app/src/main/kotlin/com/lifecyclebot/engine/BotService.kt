@@ -22073,7 +22073,16 @@ if (hotExitHandledSweep) {
      * when a token projection exists; a missing mark remains visible but non-triggering.
      */
     private fun canonicalExitTokenSnapshot6512(): List<com.lifecyclebot.data.TokenState> {
-        val canonical = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }
+        // V5.0.7254 — exit management is account scoped.  The canonical store
+        // deliberately retains both PAPER and LIVE positions, but feeding the
+        // union into the current runtime made LIVE manage a stale PAPER CAT
+        // position (partial-close spam, false exitScope=1 and cross-asset mark
+        // repair) while canonical LIVE inventory was actually empty.
+        val activeExitMode7254 = if (RuntimeModeAuthority.isPaper()) "paper" else "live"
+        val canonical = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                .filter { it.mode.equals(activeExitMode7254, ignoreCase = true) }
+        } catch (_: Throwable) { emptyList() }
         if (canonical.isEmpty()) return emptyList()
         val tokenByMint = try { synchronized(status.tokens) { status.tokens.values.associateBy { it.mint } } } catch (_: Throwable) { emptyMap() }
         val latestBuyByMint6513 = try { TradeHistoryStore.getLatestBuyByMintSnapshot() } catch (_: Throwable) { emptyMap() }

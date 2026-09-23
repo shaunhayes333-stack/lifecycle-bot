@@ -4,6 +4,12 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.7254] - 2026-09-23 — MODE-SCOPED EXITS AND HONEST FANOUT HEALTH
+
+- Scope the independent risk clock and canonical exit feed to the active PAPER/LIVE account. A retained PAPER position can no longer generate partial-close/mark-repair traffic or inflate exit coverage while the runtime is LIVE.
+- Treat `FDG_FANOUT_CAP_7232` blocks as suppressed work in the invariant doctor instead of counting the fanout remedy itself as fresh FDG fanout.
+- Preserve the live anti-dust/routability guard: the 5.0.7252 trace reached quote acceptance but correctly named the remaining 0.0170 SOL capacity shortfall rather than broadcasting an uneconomic order.
+
 ## [5.0.7253] - 2026-09-23 — WALLET IDENTITY AND REAL LLM ROUTING
 
 - Open Positions now fails closed to canonical bot-owned inventory; host-wallet balances can no longer become duplicated `HELD RECOVERED_*` trading rows.
