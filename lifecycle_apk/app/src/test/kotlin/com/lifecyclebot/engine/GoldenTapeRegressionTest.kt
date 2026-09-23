@@ -9967,4 +9967,66 @@ class GoldenTapeRegressionTest {
         assertTrue(learned.contains("OracleEdgeProof7263.Tier.PROVEN"))
     }
 
+    /** V5.0.7271 — a synthesized pair keeps its seed's label and date instead
+     * of being published as a DexScreener quote; an uncorroborated paper fill
+     * above the +1000% clamp is refused at the door; CORE declines pegs; the
+     * universal-SL sweep dispatches instead of holding the bot loop. */
+    @Test
+    fun V5_0_7271_synth_pair_provenance_absurd_fill_door_and_dispatched_sweep() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        // Poll site: synth detection, label and date preserved on both registry
+        // calls and on ts.lastPriceSource; the literal live label survives only
+        // as the non-synth branch.
+        assertTrue(bot.contains("val synthPair7271 = pair.pairAddress.isBlank() && pair.dexId.isBlank()"))
+        assertTrue(bot.contains("val markSource7271 = if (synthPair7271) ts.lastPriceSource.ifBlank { \"SYNTHETIC\" } else \"DEXSCREENER_PAIR_POLL\""))
+        assertTrue(bot.contains("val evidenceAt7271 = if (synthPair7271) ts.lastPriceUpdate else nowMs6575"))
+        assertTrue(bot.contains("ts.lastPriceSource  = markSource7271"))
+        assertFalse(bot.contains("ts.lastPriceSource  = \"DEXSCREENER_PAIR_POLL\"  // V5.9.744"))
+        assertEquals(2, Regex("source = markSource7271,").findAll(bot).count())
+        assertEquals(2, Regex("evidenceTimestampMs = evidenceAt7271,").findAll(bot).count())
+        assertTrue(bot.contains("SYNTH_PAIR_EVIDENCE_UNDATED_7271"))
+
+        // Paper sell door: gain above the shared clamp, uncorroborated → refused
+        // before the close-idempotency stamp and the CAS door; corroborated → booked.
+        assertTrue(exec.contains("private const val PAPER_GAIN_CLAMP_PCT_7271: Double = 1000.0"))
+        assertTrue(exec.contains("val priceDerivedPnlPct = pct(pos.entryPrice, effectivePrice).coerceIn(-100.0, PAPER_GAIN_CLAMP_PCT_7271)"))
+        assertTrue(exec.contains("if (gainPct7271 > PAPER_GAIN_CLAMP_PCT_7271) {"))
+        assertTrue(exec.contains("val corroborated7271 = ts.lastPriceSource.contains(\"FANOUT_CORROBORATED\", ignoreCase = true)"))
+        assertTrue(exec.contains("PAPER_SELL_ABSURD_GAIN_UNCORROBORATED_7271:\$reason"))
+        val doorIdx = exec.indexOf("PAPER_SELL_REFUSED_ABSURD_GAIN_UNCORROBORATED_7271")
+        val stampIdx = exec.indexOf("stampUnifiedExitForClose6920(ts, reason)")
+        val casIdx = exec.indexOf("val requestedPidForSell6635 = ts.position.positionId.trim()")
+        assertTrue(doorIdx > 0 && stampIdx > doorIdx && casIdx > stampIdx)
+        assertTrue(exec.contains("PAPER_SELL_ABSURD_GAIN_CORROBORATED_BOOKED_7271"))
+
+        // The untrusted mark is a learning exclusion, not an accounting change,
+        // and a corroborated fill clears it.
+        com.lifecyclebot.engine.truth.EconomicPurityGate6504.clearForTest()
+        com.lifecyclebot.engine.truth.EconomicPurityGate6504.markUntrusted("MINT7271", "ABSURD_GAIN_UNCORROBORATED_7271")
+        assertTrue(com.lifecyclebot.engine.truth.EconomicPurityGate6504.shouldExcludeFromAnalytics("MINT7271"))
+        com.lifecyclebot.engine.truth.EconomicPurityGate6504.clearUntrusted("MINT7271")
+        assertFalse(com.lifecyclebot.engine.truth.EconomicPurityGate6504.shouldExcludeFromAnalytics("MINT7271"))
+        com.lifecyclebot.engine.truth.EconomicPurityGate6504.clearForTest()
+
+        // CORE declines pegs before the executor sees the order.
+        assertTrue(bot.contains("val peggedCore7271 = try {"))
+        assertTrue(bot.contains("ExecutableOpenGate.terminalizeAttempt6514(v3AttemptId, ts.mint, cyclePrimaryLane)"))
+        assertTrue(bot.contains("TradeAuthorizer.releasePosition(ts.mint, \"PEGGED_ASSET_7271\", TradeAuthorizer.ExecutionBook.CORE)"))
+
+        // Sweep: dispatched per mint with an in-flight guard, never inline.
+        assertTrue(bot.contains("private val universalSlInFlight7271: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()"))
+        assertTrue(bot.contains("if (!universalSlInFlight7271.add(mintKey7271)) {"))
+        assertTrue(bot.contains("UNIVERSAL_SL_EVAL_SKIPPED_INFLIGHT_7271"))
+        val sweepIdx = bot.indexOf("private fun runUniversalSlSafetyNetSweep(")
+        val sweepBody = bot.substring(sweepIdx, bot.indexOf("private fun runFallbackSafetyExit(", sweepIdx))
+        assertTrue(sweepBody.contains("scope.launch(Dispatchers.IO) {"))
+        assertTrue(sweepBody.contains("universalSlInFlight7271.remove(mintKey7271)"))
+
+        assertTrue(phc.contains("\"SYNTH_PAIR_SOURCE_PRESERVED_7271\","))
+        assertTrue(phc.contains("\"PAPER_SELL_REFUSED_ABSURD_GAIN_UNCORROBORATED_7271\","))
+    }
+
 }

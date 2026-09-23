@@ -99,6 +99,12 @@ private const val ROUTE_LOCK_MAX_STALENESS_MS: Long = 60_000L
 // only a basis switch produces. Anything inside the band still flows through
 // untouched, so a cross-source move that is merely large stays tradeable.
 private const val CROSS_BASIS_MAX_RATIO_6895: Double = 10.0
+/**
+ * V5.0.7271 — the paper fill's price-derived PnL clamp (+1000%), and the gain
+ * above which an uncorroborated single-feed mark is refused as a paper fill.
+ * One value for both so the clamp can never book what the door would refuse.
+ */
+private const val PAPER_GAIN_CLAMP_PCT_7271: Double = 1000.0
 
 // V5.0.6904 — evidence thresholds for the catastrophic backstop.
 //
@@ -23731,6 +23737,59 @@ class Executor(
             PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_NO_PRICE:$reason")
             return SellResult.FAILED_RETRYABLE
         }
+        // V5.0.7271 §TWO_TRADES_BOOKED_THE_SAME_10.51x_IN_FIVE_SECONDS.
+        //
+        // 5.0.7270: HTmQz7 bought 03:15:46 at $0.00070 (cap $692,705), sold
+        // 03:15:51 QUICK_RUNNER_10X_FULL_EXIT for +1.215 SOL; 4sWNB8 bought
+        // 03:15:56 at $0.0042 (cap $690,000), sold 03:16:37 for +1.215 SOL.
+        // Identical proceeds on two unrelated $690k tokens is not a market
+        // result. The fill below clamps price-derived PnL at +1000%
+        // (`coerceIn(-100.0, 1000.0)`), so both marks were more than 11x
+        // their entry within a minute of the open and the sim booked the
+        // clamp. A single feed reading eleven-plus times the basis that
+        // fast is a decimal shift, a laundered entry (see the 7271 poll-site
+        // change) or a wrong pair — not a runner — and paying it out is the
+        // "imagined gain" the operator has ruled out. It also taught the
+        // QUALITY lane +309% expectancy from two closes.
+        //
+        // A real 11x does exist and the operator wants it; it shows up on
+        // more than one feed. The fill therefore proceeds above the clamp
+        // only when the mark is corroborated (FANOUT_CORROBORATED, at least
+        // two independent feeds agreeing). An uncorroborated one is refused
+        // at the door — no proceeds, no journal row, no learning — the mint
+        // is marked untrusted for analytics, a mark repair is requested, and
+        // the next tick retries. Real corroborated fills clear the mark.
+        run {
+            val entry7271 = pos.entryPrice
+            if (pos.isPaperPosition && entry7271.isFinite() && entry7271 > 0.0) {
+                val gainPct7271 = (price - entry7271) / entry7271 * 100.0
+                if (gainPct7271 > PAPER_GAIN_CLAMP_PCT_7271) {
+                    val corroborated7271 = ts.lastPriceSource.contains("FANOUT_CORROBORATED", ignoreCase = true)
+                    if (!corroborated7271) {
+                        try {
+                            PipelineHealthCollector.labelInc("PAPER_SELL_REFUSED_ABSURD_GAIN_UNCORROBORATED_7271")
+                            com.lifecyclebot.engine.truth.EconomicPurityGate6504.markUntrusted(ts.mint, "ABSURD_GAIN_UNCORROBORATED_7271")
+                            com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.requestRepair(ts.mint, "paperSell_absurd_gain_7271")
+                            if (ForensicEmitRateLimiter6356.shouldEmit("PAPER_SELL_REFUSED_ABSURD_GAIN_UNCORROBORATED_7271", ts.mint.take(10))) {
+                                ForensicLogger.lifecycle(
+                                    "PAPER_SELL_REFUSED_ABSURD_GAIN_UNCORROBORATED_7271",
+                                    "mint=${ts.mint.take(10)} sym=${ts.symbol} entry=$entry7271 mark=$price " +
+                                        "gainPct=${"%.0f".format(gainPct7271)} src=${ts.lastPriceSource} " +
+                                        "entrySrc=${pos.entryPriceSource} reason=$reason " +
+                                        "action=refuse_fill_until_two_feeds_agree_no_proceeds_no_learning",
+                                )
+                            }
+                        } catch (_: Throwable) {}
+                        PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_ABSURD_GAIN_UNCORROBORATED_7271:$reason")
+                        return SellResult.FAILED_RETRYABLE
+                    }
+                    try {
+                        PipelineHealthCollector.labelInc("PAPER_SELL_ABSURD_GAIN_CORROBORATED_BOOKED_7271")
+                        com.lifecyclebot.engine.truth.EconomicPurityGate6504.clearUntrusted(ts.mint)
+                    } catch (_: Throwable) {}
+                }
+            }
+        }
         // V5.0.6920 — the exit brain's only stamp site was unreachable for
         // paper positions, so recordOutcome had nothing pending to train on
         // and every lane exit head stayed at trained=0 forever. Stamp here,
@@ -23979,7 +24038,7 @@ class Executor(
         } catch (_: Throwable) { 0.0 }
         val simulatedFeePct = (1.6 + expectedRouteSlipPct.coerceIn(0.0, 8.0)).coerceIn(1.6, 9.6)
 
-        val priceDerivedPnlPct = pct(pos.entryPrice, effectivePrice).coerceIn(-100.0, 1000.0)
+        val priceDerivedPnlPct = pct(pos.entryPrice, effectivePrice).coerceIn(-100.0, PAPER_GAIN_CLAMP_PCT_7271)
         val rawValue = terminalRemainingCost6492 * (1.0 + priceDerivedPnlPct / 100.0) * (1.0 - simulatedFeePct / 100.0)
         // (3) Cost-basis paper proceeds — paper has no real token balance. Do
         // NOT book proceeds from qtyToken * price; a stale qty or source-basis

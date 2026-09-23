@@ -2090,6 +2090,15 @@ object PipelineHealthCollector {
                     "INTAKE_PRICE_NOT_SEEDED_GLOBAL_CAP_7270",
                     "OPEN_POS_TICK_GAP_SLOW_7270",
                     "PEGGED_ASSET_LANE_SKIPPED_7270",
+                    // V5.0.7271 — a synthesized pair keeps its seed's label and
+                    // date; an uncorroborated >+1000% paper fill is refused; the
+                    // universal-SL sweep dispatches instead of blocking the loop.
+                    "SYNTH_PAIR_SOURCE_PRESERVED_7271",
+                    "SYNTH_PAIR_EVIDENCE_UNDATED_7271",
+                    "PAPER_SELL_REFUSED_ABSURD_GAIN_UNCORROBORATED_7271",
+                    "PAPER_SELL_ABSURD_GAIN_CORROBORATED_BOOKED_7271",
+                    "UNIVERSAL_SL_EVAL_SKIPPED_INFLIGHT_7271",
+                    "CANONICAL_MARK_REJECTED_CYCLE_CONTINUED_7043",
                     // V5.0.7226 — the second live sizing authority. On 7225 the
                     // sizer's floor fired 0 times and two 0.007 SOL live buys
                     // landed anyway; the resolver had been sizing LIVE against

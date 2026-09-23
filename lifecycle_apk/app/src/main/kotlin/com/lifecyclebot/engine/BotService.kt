@@ -23317,6 +23317,45 @@ if (hotExitHandledSweep) {
             //     EXECUTION_WITH_PROVISIONAL_MARK counter.
             val validatedPrice = incomingPrice
             val nowMs6575 = System.currentTimeMillis()
+            // V5.0.7271 §A_SYNTHESIZED_PAIR_IS_NOT_A_DEXSCREENER_QUOTE.
+            //
+            // When getBestPair() returns null — rate limiter closed, provider
+            // down, or genuinely no pair — the cycle continues on
+            // synthesizeFallbackPair(ts), a PairInfo built from whatever
+            // ts.lastPrice holds: an intake seed, a TokenMetaCache archive row
+            // from a previous session, a hive-shared price, a hot-conviction
+            // warm-up. Down here that pair was published to the mark registry
+            // as source="DEXSCREENER_PAIR_POLL" with evidence time = now, and
+            // ts.lastPriceSource was overwritten with the same label. 6908 had
+            // already made the archive row carry TOKEN_META_ARCHIVE_6908 with
+            // lastPriceUpdate=0 so provenance would refuse it; this site
+            // re-laundered it into a live provider quote one cycle later.
+            //
+            // Operator 5.0.7270, 03:16:01: CORE bought USDG at $5.18, WLFI at
+            // $2.26, AvZZF1 at $1.19 and 72puLt at $1.00 — all journaled
+            // src=DEXSCREENER_PAIR_POLL, all sold two seconds later at
+            // TICK_CATASTROPHIC_CONFIRMED −80/−96/−99% against the first real
+            // mark. Every one was a cap-over-bridged-supply price fabricated in
+            // an earlier session, archived, restored, and passed off as
+            // DexScreener here. 7270's intake fix could not reach them because
+            // the row already had a price.
+            //
+            // A synthesized pair keeps the label and the timestamp of the price
+            // it was synthesized from. The registry then judges that evidence on
+            // its own age (an undated archive row is SOURCE_EVIDENCE_STALE and is
+            // not promoted; a pump.fun seed stamped seconds ago still is), and
+            // MarketDataProvenance6471 sees the real source. Pump.fun bonding
+            // curve mints are unaffected: their seed is PUMP_FUN_BC_SYNTHETIC,
+            // dated at intake, and that label is authoritative for a pump mint.
+            val synthPair7271 = pair.pairAddress.isBlank() && pair.dexId.isBlank()
+            val markSource7271 = if (synthPair7271) ts.lastPriceSource.ifBlank { "SYNTHETIC" } else "DEXSCREENER_PAIR_POLL"
+            val evidenceAt7271 = if (synthPair7271) ts.lastPriceUpdate else nowMs6575
+            if (synthPair7271) {
+                try {
+                    PipelineHealthCollector.labelInc("SYNTH_PAIR_SOURCE_PRESERVED_7271")
+                    if (evidenceAt7271 <= 0L) PipelineHealthCollector.labelInc("SYNTH_PAIR_EVIDENCE_UNDATED_7271")
+                } catch (_: Throwable) {}
+            }
             val priceUsd6575 = com.lifecyclebot.engine.truth.PriceUsd(java.math.BigDecimal.valueOf(validatedPrice))
             val liquidityUsd6575 = pair.liquidity.takeIf { it.isFinite() && it > 0.0 }?.let { java.math.BigDecimal.valueOf(it) }
             val promotion6616 = try {
@@ -23325,10 +23364,10 @@ if (hotExitHandledSweep) {
                     observedBaseMint = pair.baseTokenAddress,
                     pairOrPool = pair.pairAddress,
                     quoteMint = pair.quoteTokenAddress,
-                    source = "DEXSCREENER_PAIR_POLL",
+                    source = markSource7271,
                     priceUsd = validatedPrice,
                     liquidityUsd = pair.liquidity,
-                    evidenceTimestampMs = nowMs6575,
+                    evidenceTimestampMs = evidenceAt7271,
                     nowMs = nowMs6575,
                 )
             } catch (_: Throwable) {
@@ -23353,9 +23392,9 @@ if (hotExitHandledSweep) {
                             observedBaseMint = pair.baseTokenAddress,
                             pairOrPool = pair.pairAddress,
                             quoteMint = pair.quoteTokenAddress,
-                            source = "DEXSCREENER_PAIR_POLL",
+                            source = markSource7271,
                             priceUsd = validatedPrice,
-                            evidenceTimestampMs = nowMs6575,
+                            evidenceTimestampMs = evidenceAt7271,
                             nowMs = nowMs6575,
                         )
                     if (obs6628.promoted) {
@@ -23407,7 +23446,7 @@ if (hotExitHandledSweep) {
             // rule via EXECUTION_WITH_PROVISIONAL_MARK.
             
             ts.lastPrice        = validatedPrice
-            ts.lastPriceSource  = "DEXSCREENER_PAIR_POLL"  // V5.9.744
+            ts.lastPriceSource  = markSource7271  // V5.9.744; V5.0.7271 a synth pair keeps its seed's label
             ts.lastPricePoolAddr = pair.pairAddress
             ts.lastPriceDex     = when {  // V5.9.744 — derive DEX from pair URL (PairInfo has no dexId field)
                 pair.url.contains("raydium", ignoreCase = true) -> "RAYDIUM"
@@ -28800,6 +28839,22 @@ if (hotExitHandledSweep) {
                             }
                             if (v3Fdg6533.sizeSol > 0.0) proposedSize = v3Fdg6533.sizeSol
                             val v3AttemptId = v3Intent6533.attemptId
+                            // V5.0.7271 — CORE is the V3 trunk lane, and 7270 taught only
+                            // QUALITY and BLUECHIP to decline a peg. 5.0.7270 shows CORE
+                            // buying USDG. Same structural fact, same guard, before the
+                            // executor sees the order; the intent is terminalized so the
+                            // funnel does not report an allow with no execution.
+                            val peggedCore7271 = try {
+                                com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged(ts.symbol, ts.lastPrice, ts.lastMcap)
+                            } catch (_: Throwable) { false }
+                            if (peggedCore7271) {
+                                com.lifecyclebot.engine.truth.PeggedAssetGuard7270.noteSkipped(cyclePrimaryLane.ifBlank { "CORE" }, ts.symbol)
+                                try { ExecutableOpenGate.terminalizeAttempt6514(v3AttemptId, ts.mint, cyclePrimaryLane) } catch (_: Throwable) {}
+                                try { TradeAuthorizer.releasePosition(ts.mint, "PEGGED_ASSET_7271", TradeAuthorizer.ExecutionBook.CORE) } catch (_: Throwable) {}
+                                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, cyclePrimaryLane, "PEGGED_ASSET_7271") } catch (_: Throwable) {}
+                                ErrorLogger.debug("BotService", "[V3|PEGGED] ${identity.symbol} | declined | PEGGED_ASSET_7271")
+                                return
+                            }
                             ErrorLogger.info("BotService", "[EXECUTION] ${identity.symbol} | ${if (cfg.paperMode) "PAPER" else "LIVE"}_BUY | ${proposedSize.fmt(4)} SOL")
                             
                             // Record proposal for dedupe
@@ -31850,6 +31905,9 @@ if (hotExitHandledSweep) {
      * remainder and continue on the next cycle. No position ever
      * suspends the bot loop past the deadline.
      */
+    /** V5.0.7271 — mints whose universal-SL evaluation is dispatched and not yet returned. */
+    private val universalSlInFlight7271: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
     private fun runUniversalSlSafetyNetSweep(cfg: BotConfig, wallet: SolanaWallet?) {
         if (!status.running) return
         val HARD_DEADLINE_MS = 5_000L
@@ -31884,26 +31942,53 @@ if (hotExitHandledSweep) {
                     break
                 }
                 val posStart = System.currentTimeMillis()
-                try {
-                    runFallbackSafetyExit(ts, cfg, wallet)
-                } catch (e: Throwable) {
-                    ErrorLogger.debug(
-                        "BotService",
-                        "universal SL sweep err ${ts.symbol}: ${e.message}"
-                    )
+                // V5.0.7271 §THE_SWEEP_HELD_THE_LOOP_FOR_328_SECONDS.
+                //
+                // 5.0.7270: exit sweeps 9 started / 8 done, one still running at
+                // lastEndedAgoMs=328665, six EXIT_COORDINATOR_STALE_RESET, 21
+                // relaunch backoffs — while the hot tick's own gap gauge (7270)
+                // read maxGap 5.7 s and fan-out max 3.0 s. The stall was not the
+                // pricing; it was this loop calling runFallbackSafetyExit inline,
+                // which calls executor.requestSell inline, on the bot loop
+                // thread. The 6402 deadline is checked BETWEEN positions, so one
+                // sell that waits on a lock or a provider holds every position
+                // behind it and the loop that owns the heartbeat.
+                //
+                // Each evaluation is dispatched to the elastic IO pool with a
+                // per-mint in-flight guard, so a slow sell delays only its own
+                // mint and never the sweep, the heartbeat, or the next sweep.
+                // The per-position timing is measured inside the dispatched
+                // work so UNIVERSAL_SL_POSITION_SLOW_6402 still names the slow
+                // mint. paperSell's own CAS door remains the duplicate guard.
+                val mintKey7271 = ts.mint
+                if (!universalSlInFlight7271.add(mintKey7271)) {
+                    try { PipelineHealthCollector.labelInc("UNIVERSAL_SL_EVAL_SKIPPED_INFLIGHT_7271") } catch (_: Throwable) {}
+                } else {
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            runFallbackSafetyExit(ts, cfg, wallet)
+                        } catch (e: Throwable) {
+                            ErrorLogger.debug(
+                                "BotService",
+                                "universal SL sweep err ${ts.symbol}: ${e.message}"
+                            )
+                        } finally {
+                            universalSlInFlight7271.remove(mintKey7271)
+                            val posElapsed = System.currentTimeMillis() - posStart
+                            if (posElapsed >= PER_POSITION_ELAPSED_WARN_MS) {
+                                try {
+                                    com.lifecyclebot.engine.truth.ExitSweepTiming7264.onSlowPosition(posElapsed)
+                                    PipelineHealthCollector.labelInc("UNIVERSAL_SL_POSITION_SLOW_6402")
+                                    ForensicLogger.lifecycle(
+                                        "UNIVERSAL_SL_POSITION_SLOW_6402",
+                                        "mint=${ts.mint.take(10)} sym=${ts.symbol} posElapsedMs=$posElapsed dispatched=true",
+                                    )
+                                } catch (_: Throwable) {}
+                            }
+                        }
+                    }
                 }
                 positionsEvaluated++
-                val posElapsed = System.currentTimeMillis() - posStart
-                if (posElapsed >= PER_POSITION_ELAPSED_WARN_MS) {
-                    try {
-                        com.lifecyclebot.engine.truth.ExitSweepTiming7264.onSlowPosition(posElapsed)
-                        PipelineHealthCollector.labelInc("UNIVERSAL_SL_POSITION_SLOW_6402")
-                        ForensicLogger.lifecycle(
-                            "UNIVERSAL_SL_POSITION_SLOW_6402",
-                            "mint=${ts.mint.take(10)} sym=${ts.symbol} posElapsedMs=$posElapsed sweepElapsedMs=$elapsed",
-                        )
-                    } catch (_: Throwable) {}
-                }
                 // Soft deadline advisory — sweep is still running but is
                 // now over budget. Continue but log so the operator sees
                 // the boundary event.
