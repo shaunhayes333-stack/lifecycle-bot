@@ -42,11 +42,28 @@ object PeakDrawdownLock {
      * @return true when the position has given back ≥30% of its peak
      *         pnl and the peak was ≥ +20%.
      */
-    fun shouldLock(peakPnlPct: Double, currentPnlPct: Double): Boolean {
+    fun shouldLock(peakPnlPct: Double, currentPnlPct: Double, lane: String = ""): Boolean {
         if (peakPnlPct < ARM_THRESHOLD_PCT) return false
         if (currentPnlPct >= peakPnlPct) return false  // currently at/above peak
         val drawdownFrac = (peakPnlPct - currentPnlPct) / peakPnlPct
-        return drawdownFrac >= triggerFracForPeak(peakPnlPct)
+        return drawdownFrac >= triggerFracForPeak(peakPnlPct, lane)
+    }
+
+    /**
+     * V5.0.7267 — the give-back fraction, scaled by the lane's learned exit
+     * band (LaneExitTuner tpMult via FluidLearningAI.exitBandMultiplier7267)
+     * and capped so the lock always keeps at least a quarter of the peak. A
+     * blank lane, or a lane with no evidence, reads the base curve.
+     */
+    const val TRIGGER_FRAC_CAP_7267 = 0.75
+
+    fun triggerFracForPeak(peakPnlPct: Double, lane: String): Double {
+        val base = triggerFracForPeak(peakPnlPct)
+        if (lane.isBlank()) return base
+        val m = try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.exitBandMultiplier7267(lane)
+        } catch (_: Throwable) { 1.0 }
+        return (base * m).coerceIn(0.0, TRIGGER_FRAC_CAP_7267)
     }
 
     /**

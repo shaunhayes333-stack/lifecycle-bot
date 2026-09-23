@@ -1516,7 +1516,42 @@ object FluidLearningAI {
      * can use it for its own checkExit floor-lock without duplicating the
      * formula.
      */
-    fun fluidProfitFloor(peakPnlPct: Double, volatility: Double = 50.0, holdSeconds: Double = 0.0): Double {
+    /**
+     * V5.0.7267 §THE_GIVE-BACK_BAND_IS_A_NUMBER_THE_LANE_LEARNS.
+     *
+     * Operator: "make the rest fluid too" — the exit curves' shape was
+     * hand-set. LaneExitTuner already learns, per lane and closed-loop from
+     * realised closes, whether that lane should let winners run further
+     * (tpMult > 1: peaks are fat and realised is thin) or bank sooner
+     * (tpMult < 1: peaks are tiny and the lane bleeds). It was applied to
+     * lane take-profit ladders and never to the three give-back locks that
+     * actually close most winners. Now every give-back allowance — the
+     * points gap below +100%, the scaled fraction above it, the tick lock's
+     * gap and the drawdown stop's trigger fraction — is multiplied by the
+     * lane's learned tpMult (0.60..1.40). A lane whose closes show it is
+     * clipping runners widens its own band; a lane whose closes show it is
+     * giving back small pops tightens. No lane, or a lane with no evidence,
+     * reads 1.0 and the curve is exactly what it was.
+     *
+     * The fraction is capped so the band never keeps less than a quarter of
+     * the peak, and every breakeven / 70%-of-peak safety net below stays.
+     */
+    private const val EXIT_BAND_FRAC_CAP_7267 = 0.75
+
+    fun exitBandMultiplier7267(lane: String?): Double {
+        if (lane.isNullOrBlank()) return 1.0
+        return try {
+            val m = com.lifecyclebot.engine.learning.LaneExitTuner.getTpMult(lane)
+            val bounded = if (m.isFinite()) m.coerceIn(0.60, 1.40) else 1.0
+            if (kotlin.math.abs(bounded - 1.0) > 1e-9) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_BAND_LANE_TUNED_7267") } catch (_: Throwable) {}
+            }
+            bounded
+        } catch (_: Throwable) { 1.0 }
+    }
+
+    fun fluidProfitFloor(peakPnlPct: Double, volatility: Double = 50.0, holdSeconds: Double = 0.0, lane: String = ""): Double {
+        val bandMult7267 = exitBandMultiplier7267(lane)
         // V5.9.190: TIGHTER profit floor — give back POINTS not PERCENTAGE.
         // Old formula: floor = peak * 0.50 → at peak=38%, lock=19%, give_back=19pts. TOO LOOSE.
         // New formula: floor = peak - allowance, where allowance is a small log-scaled number of POINTS.
@@ -1573,12 +1608,15 @@ object FluidLearningAI {
         //   peak  +38% -> unchanged points behaviour (floor +30.6)
         //   peak +900% -> allowance 572 -> floor +328, matching the give-back stop's +327
         // Below +100% nothing changes, preserving V5.9.190's intent.
+        // V5.0.7267 — the lane's learned band multiplier scales both arms.
         val allowance = if (peakPnlPct >= 100.0) {
+            val frac7267 = (com.lifecyclebot.engine.PeakDrawdownLock.triggerFracForPeak(peakPnlPct) * bandMult7267)
+                .coerceIn(0.0, EXIT_BAND_FRAC_CAP_7267)
             kotlin.math.max(
-                pointsAllowance,
-                peakPnlPct * com.lifecyclebot.engine.PeakDrawdownLock.triggerFracForPeak(peakPnlPct)
+                pointsAllowance * bandMult7267,
+                peakPnlPct * frac7267
             )
-        } else pointsAllowance
+        } else pointsAllowance * bandMult7267
         val floor = peakPnlPct - allowance
         // Safety net: never below 70% of peak (protects against very small peaks).
         // Only meaningful below the proportional band — above it, it would undo the
@@ -1625,7 +1663,9 @@ object FluidLearningAI {
         currentPnlPct: Double,
         peakPnlPct: Double,
         holdTimeSeconds: Double,
-        volatility: Double = 50.0
+        volatility: Double = 50.0,
+        // V5.0.7267 — the lane whose learned give-back band shapes this lock.
+        lane: String = "",
     ): Double {
         val progress = getLearningProgress()
         
@@ -1766,7 +1806,8 @@ object FluidLearningAI {
                 volatility < 30 -> -1.0
                 else            ->  0.0
             }
-            val effectiveGap = (peakGap + volBump).coerceAtLeast(1.5)
+            // V5.0.7267 — the gap is scaled by the lane's learned band multiplier.
+            val effectiveGap = ((peakGap + volBump) * exitBandMultiplier7267(lane)).coerceAtLeast(1.5)
             val peakAnchoredLock = peakClamped - effectiveGap
 
             // Catastrophe floor — keepRatio curve from V5.9.169 (peak * ratio).
@@ -1805,7 +1846,7 @@ object FluidLearningAI {
             // peak-anchored gap the operator asked for in V5.9.918.
             if (peakClamped >= 100.0) {
                 val scaledBand7265 = try {
-                    fluidProfitFloor(peakClamped, volatility, holdTimeSeconds)
+                    fluidProfitFloor(peakClamped, volatility, holdTimeSeconds, lane)
                 } catch (_: Throwable) { peakClamped - 12.0 }
                 try {
                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RUNNER_LOCK_SCALED_BAND_7265")

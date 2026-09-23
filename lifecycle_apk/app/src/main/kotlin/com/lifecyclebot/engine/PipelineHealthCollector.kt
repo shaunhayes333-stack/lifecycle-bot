@@ -2053,6 +2053,14 @@ object PipelineHealthCollector {
                     "CANONICAL_FLOOR_FLUID_ABOVE_MATURE_7266",
                     "REGIME_OWN_TIGHTEN_FLUID_7266",
                     "MOONSHOT_RUNNER_SHAPED_FLOOR_ADMIT_7266",
+                    // V5.0.7267 — the give-back band read a lane's learned multiplier,
+                    // the moonshot minimum came from a learned bucket, and the
+                    // drawdown guard's band widened with the book's own range or
+                    // allowed a lane-earned expansion.
+                    "EXIT_BAND_LANE_TUNED_7267",
+                    "MOONSHOT_MIN_SCORE_LEARNED_7267",
+                    "ANTI_REWARD_HACK_TOLERANCE_FLUID_7267",
+                    "ANTI_REWARD_HACK_LANE_EARNED_ALLOW_7267",
                     // V5.0.7226 — the second live sizing authority. On 7225 the
                     // sizer's floor fired 0 times and two 0.007 SOL live buys
                     // landed anyway; the resolver had been sizing LIVE against
@@ -2155,6 +2163,8 @@ object PipelineHealthCollector {
                     "COST_EDGE_ZERO_IMMATURE_EVIDENCE_PROCEEDS_7265_",
                     // V5.0.7265 — which lane the (now per-lane) fan-out cap still hits.
                     "FDG_SUPPRESSED_FANOUT_CAP_7232_",
+                    // V5.0.7267 — which lanes earned an expansion through a drawdown.
+                    "ANTI_REWARD_HACK_LANE_EARNED_ALLOW_7267_",
                     "TRADE_AUTHORIZE_ENTERED_7003_",
                     "LIVE_BUY_ABORTED|",
                     "LANE_ENTRY_RECOVERY_ABOVE_PROBATION_UNDER_HOLD_7214",

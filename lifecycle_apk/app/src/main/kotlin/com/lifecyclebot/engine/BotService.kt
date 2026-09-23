@@ -10361,7 +10361,10 @@ class BotService : Service() {
                         // agree instead of 12 points under a +900% high.
                         val explicitPeakLockFloor4301 = when {
                             peakPnlPct >= 20.0 -> try {
-                                com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(peakPnlPct, volatility, holdTimeSecs)
+                                // V5.0.7267 — the lane's learned give-back band shapes this lock.
+                                com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(
+                                    peakPnlPct, volatility, holdTimeSecs, lane = ts.position.tradingMode,
+                                )
                             } catch (_: Throwable) { peakPnlPct - 8.0 }
                             else -> Double.NEGATIVE_INFINITY
                         }
@@ -11627,6 +11630,7 @@ class BotService : Service() {
                                             peakPnlPct = peakPct,
                                             holdTimeSeconds = ((System.currentTimeMillis() - pos.entryTime) / 1000.0).coerceAtLeast(0.0),
                                             volatility = ts.volatility ?: 50.0,
+                                            lane = ts.position.tradingMode,  // V5.0.7267 — learned give-back band
                                         )
                                     } catch (_: Throwable) { Double.NaN }
                                     if (!lockedFloor.isNaN() && lockedFloor > 0.0) {
@@ -16980,7 +16984,8 @@ class BotService : Service() {
         //   peak +900% -> max(25, 572) = 572 pts (fires at +327, not +875)
         val requiredGiveBackPts6836 = maxOf(
             25.0,
-            peakGainPct * PeakDrawdownLock.triggerFracForPeak(peakGainPct)
+            // V5.0.7267 — the lane's learned give-back band shapes this stop too.
+            peakGainPct * PeakDrawdownLock.triggerFracForPeak(peakGainPct, ts.position.tradingMode)
         )
         val giveBackTrigger = peakGainPct >= 20.0 && drawdownFromPeak >= requiredGiveBackPts6836
 

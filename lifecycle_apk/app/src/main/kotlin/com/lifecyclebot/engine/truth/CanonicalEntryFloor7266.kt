@@ -103,6 +103,16 @@ object CanonicalEntryFloor7266 {
         found
     } catch (_: Throwable) { null }
 
+    /**
+     * V5.0.7267 — the learned floor alone, for lane scorers whose own minimum
+     * score should follow the same evidence (MoonshotTraderAI). Null when the
+     * lane has no 10-point bucket with enough profitable closes yet.
+     */
+    fun learnedLaneFloor(rawLane: String?): Double? {
+        val lane = rawLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: return null
+        return learnedFloor(lane)
+    }
+
     fun resolve(rawLane: String?): Resolution {
         val lane = rawLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: "STANDARD"
         val bootstrap = try {

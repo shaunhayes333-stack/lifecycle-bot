@@ -3378,7 +3378,9 @@ class Executor(
         // operator directive for bankrolls under 0.2 SOL, where the 24h high is
         // noise, and it is already bounded by liquidity and spendable.
         val canExpandRisk6950 = try {
-            com.lifecyclebot.engine.truth.AntiRewardHackingGuard6439.canExpandRisk(walletSol)
+            // V5.0.7267 — the lane is passed so an expansion it has earned with
+            // its own same-mode closes is not vetoed by another lane's drawdown.
+            com.lifecyclebot.engine.truth.AntiRewardHackingGuard6439.canExpandRisk(walletSol, laneKey)
         } catch (_: Throwable) { true }
         val totalBoost6416 = if (!canExpandRisk6950) {
             val wanted6950 = effectiveBoost6415 * growthLift6416

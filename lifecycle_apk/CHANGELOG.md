@@ -4,6 +4,13 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.7267] - 2026-09-23 — THE REST IS FLUID: GIVE-BACK BAND, MOONSHOT MINIMUM, DRAWDOWN BAND
+
+- Operator: "make the rest fluid too."
+- **Give-back band learns per lane.** `LaneExitTuner` already learns, closed-loop from realised closes, whether a lane should let winners run (tpMult > 1 when peaks are fat and realised is thin) or bank sooner (< 1). It shaped lane TP ladders and never the three locks that close most winners. New `FluidLearningAI.exitBandMultiplier7267(lane)` (tpMult, 0.60..1.40) now scales the points gap below +100%, the scaled fraction above it (capped so the lock keeps ≥ 25% of peak), the tick lock's gap, and the drawdown stop's trigger fraction; `fluidProfitFloor`, `getDynamicFluidStop`, `PeakDrawdownLock.shouldLock/triggerFracForPeak` take an optional lane and the three BotService lock sites pass `ts.position.tradingMode`. Blank lane or no evidence reads the base curve; breakeven and 70%-of-peak nets unchanged. `EXIT_BAND_LANE_TUNED_7267`.
+- **Moonshot minimum follows the learned bucket.** The 20/28/38/52 progress table is now the default; once MOONSHOT has a 10-point score bucket with ≥15 profitable closes, that bucket's floor is the minimum, below or above the table (`CanonicalEntryFloor7266.learnedLaneFloor`; `MOONSHOT_MIN_SCORE_LEARNED_7267`). Gate relaxer and the bias stack apply on top as before.
+- **Drawdown guard's band is the book's own range.** `AntiRewardHackingGuard6439` samples the equity basis it already observes and sets tolerance = 1 − 1.5 × relative std over the rolling window, floored at the old 2% and capped at 25% (fixed 2% under 12 samples). A lane that is net positive over ≥ 8 same-mode closes with `LaneExpectancyDamper` above neutral may expand through a portfolio drawdown caused by other lanes (`canExpandRisk(wallet, lane)`; Executor passes the lane). `ANTI_REWARD_HACK_TOLERANCE_FLUID_7267`, `ANTI_REWARD_HACK_LANE_EARNED_ALLOW_7267(_lane)`; status line shows the live tolerance.
+
 ## [5.0.7266] - 2026-09-23 — FLUID, NOT FIXED: THE CANONICAL FLOOR, THE OWN-PERFORMANCE HAIRCUT AND THE MOONSHOT FLOOR
 
 - Operator: "everything is meant to be fluid. score thresholds, hold times, scoring, exits, entries — everything is meant to move up and down until the stack finds the best ways to trade in each trader, specialist, lane, strategy."

@@ -672,7 +672,21 @@ object MoonshotTraderAI {
         // paper mode (early-out when !isLiveMode). Under Train-First doctrine
         // paper must learn as fast as possible, so apply the same advertised
         // multiplier in paper. 45 × 0.85 = 38 → score=44 now passes.
-        val minScore = (minScoreRaw * com.lifecyclebot.engine.LiveLayerGateRelaxer.floorMultiplier("MOONSHOT")).toInt()
+        // V5.0.7267 — the table above is the default; once this lane has a
+        // 10-point score bucket with >= 15 profitable closes, the lowest such
+        // bucket IS the minimum, whether that is below the table (a proven
+        // low band) or above it (only high bands pay). Same evidence source
+        // and bar as CanonicalEntryFloor7266, so the lane's own gate and the
+        // canonical gate move together instead of one hand-set number
+        // overruling a learned one.
+        val learnedFloor7267 = try {
+            com.lifecyclebot.engine.truth.CanonicalEntryFloor7266.learnedLaneFloor("MOONSHOT")
+        } catch (_: Throwable) { null }
+        val minScoreFluid7267 = learnedFloor7267?.toInt() ?: minScoreRaw
+        if (learnedFloor7267 != null && minScoreFluid7267 != minScoreRaw) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MOONSHOT_MIN_SCORE_LEARNED_7267") } catch (_: Throwable) {}
+        }
+        val minScore = (minScoreFluid7267 * com.lifecyclebot.engine.LiveLayerGateRelaxer.floorMultiplier("MOONSHOT")).toInt()
         
         // V5.9.801 — operator audit Fix A+B: hoist WR Recovery Quality Floor
         // into the Moonshot entry path. Same rationale as ShitCoin: avoid

@@ -9718,6 +9718,57 @@ class GoldenTapeRegressionTest {
         assertTrue(phc.contains("\"REGIME_OWN_TIGHTEN_FLUID_7266\","))
     }
 
+    /** V5.0.7267 — the rest is fluid: the give-back band reads the lane's
+     * learned exit multiplier, the moonshot minimum follows the learned score
+     * bucket, and the drawdown guard's band is the book's own range with a
+     * lane-earned exception. */
+    @Test
+    fun V5_0_7267_exit_band_moonshot_minimum_and_drawdown_band_are_fluid() {
+        val fluid = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/FluidLearningAI.kt").readText()
+        val lock = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PeakDrawdownLock.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val moon = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
+        val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/AntiRewardHackingGuard6439.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val floor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEntryFloor7266.kt").readText()
+
+        // Give-back band: one multiplier, from LaneExitTuner, applied to every arm and every caller.
+        assertTrue(fluid.contains("fun exitBandMultiplier7267(lane: String?): Double"))
+        assertTrue(fluid.contains("com.lifecyclebot.engine.learning.LaneExitTuner.getTpMult(lane)"))
+        assertTrue(fluid.contains("m.coerceIn(0.60, 1.40)"))
+        assertTrue(fluid.contains("} else pointsAllowance * bandMult7267"))
+        assertTrue(fluid.contains(".coerceIn(0.0, EXIT_BAND_FRAC_CAP_7267)"))
+        assertTrue(fluid.contains("((peakGap + volBump) * exitBandMultiplier7267(lane)).coerceAtLeast(1.5)"))
+        assertTrue(fluid.contains("fluidProfitFloor(peakClamped, volatility, holdTimeSeconds, lane)"))
+        assertTrue(lock.contains("fun triggerFracForPeak(peakPnlPct: Double, lane: String): Double"))
+        assertTrue(lock.contains("const val TRIGGER_FRAC_CAP_7267 = 0.75"))
+        assertTrue(lock.contains("fun shouldLock(peakPnlPct: Double, currentPnlPct: Double, lane: String = \"\"): Boolean"))
+        assertTrue(bot.contains("peakPnlPct, volatility, holdTimeSecs, lane = ts.position.tradingMode,"))
+        assertTrue(bot.contains("lane = ts.position.tradingMode,  // V5.0.7267"))
+        assertTrue(bot.contains("PeakDrawdownLock.triggerFracForPeak(peakGainPct, ts.position.tradingMode)"))
+        // A blank lane keeps the base curve; the safety nets are untouched.
+        assertTrue(PeakDrawdownLock.triggerFracForPeak(150.0, "") == PeakDrawdownLock.triggerFracForPeak(150.0))
+        assertTrue(fluid.contains("return if (peakPnlPct >= 100.0) floor else kotlin.math.max(floor, peakPnlPct * 0.70)"))
+        assertTrue(fluid.contains("val breakEvenFloor = if (peakClamped >= 8.0) 1.0 else Double.NEGATIVE_INFINITY"))
+
+        // Moonshot minimum: learned bucket floor overrides the table both ways.
+        assertTrue(floor.contains("fun learnedLaneFloor(rawLane: String?): Double?"))
+        assertTrue(moon.contains("CanonicalEntryFloor7266.learnedLaneFloor(\"MOONSHOT\")"))
+        assertTrue(moon.contains("val minScoreFluid7267 = learnedFloor7267?.toInt() ?: minScoreRaw"))
+        assertTrue(moon.contains("val minScore = (minScoreFluid7267 * com.lifecyclebot.engine.LiveLayerGateRelaxer.floorMultiplier(\"MOONSHOT\")).toInt()"))
+
+        // Drawdown guard: tolerance from observed range, floored at the old 2% / capped at 25%; lane-earned allow.
+        assertTrue(guard.contains("fun fluidTolerance7267(): Double"))
+        assertTrue(guard.contains("private const val TOLERANCE_MIN_7267 = 0.75"))
+        assertTrue(guard.contains("private const val MIN_SAMPLES_FOR_FLUID_7267 = 12"))
+        assertTrue(guard.contains("fun canExpandRisk(currentCashSol: Double, lane: String? = null): Boolean"))
+        assertTrue(guard.contains("if (!allow && laneEarnedExpansion7267(lane)) {"))
+        assertTrue(guard.contains("closes >= com.lifecyclebot.engine.LaneExpectancyDamper.MATURE_EVIDENCE_CLOSES_7265"))
+        assertTrue(exec.contains("AntiRewardHackingGuard6439.canExpandRisk(walletSol, laneKey)"))
+        // With no samples the tolerance is the fixed 0.98.
+        assertTrue(com.lifecyclebot.engine.truth.AntiRewardHackingGuard6439.fluidTolerance7267() == 0.98)
+    }
+
     /** V5.0.7260 — the oracle must judge the current candidate, not repeat a
      * blank-signature bootstrap forecast or the historical book average. */
     @Test
