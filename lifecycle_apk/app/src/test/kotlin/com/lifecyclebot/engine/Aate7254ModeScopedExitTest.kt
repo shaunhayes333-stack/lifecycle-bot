@@ -1,8 +1,8 @@
 package com.lifecyclebot.engine
 
 import java.io.File
-import kotlin.test.Test
-import kotlin.test.assertTrue
+import org.junit.Assert.assertTrue
+import org.junit.Test
 
 class Aate7254ModeScopedExitTest {
     private fun source(path: String): String = File(path).readText()
