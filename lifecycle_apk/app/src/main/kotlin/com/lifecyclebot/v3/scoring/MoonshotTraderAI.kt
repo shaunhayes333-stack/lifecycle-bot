@@ -431,24 +431,40 @@ object MoonshotTraderAI {
         v3Confidence: Double,
         phase: String,
         isPaper: Boolean,
+        // V5.0.7266 — true when MoonshotFreshLaunchAdmission7044 judged this a
+        // runner-shaped fresh launch (mcap >= $500, liq >= $800, real pool ratio,
+        // demand signal, <= 15 min old). The lane's static $10k / $2k floors then
+        // yield to the admission window so an admitted launch is scored rather
+        // than refused as "mcap_too_low" (289 admissions -> 3 executions on 7263).
+        runnerShaped7266: Boolean = false,
     ): MoonshotScore {
-        
+
         if (!isEnabled.get()) {
             return MoonshotScore(false, 0, 0.0, "moonshot_disabled")
         }
-        
+
         // 1. Market cap filter - Moonshot zone
-        if (marketCapUsd < MIN_MARKET_CAP_USD) {
+        val minMcap7266 = if (runnerShaped7266) {
+            com.lifecyclebot.engine.truth.MoonshotFreshLaunchAdmission7044.MCAP_FLOOR_USD
+        } else MIN_MARKET_CAP_USD
+        if (marketCapUsd < minMcap7266) {
             return MoonshotScore(false, 0, 0.0, "mcap_too_low_${(marketCapUsd/1000).toInt()}K_min_100K")
         }
         if (marketCapUsd > MAX_MARKET_CAP_USD) {
             return MoonshotScore(false, 0, 0.0, "mcap_too_high_${(marketCapUsd/1_000_000).toInt()}M")
         }
-        
+
         // 2. Liquidity filter
-        val minLiq = if (learningProgress < 0.5) MIN_LIQUIDITY_USD_BOOTSTRAP else MIN_LIQUIDITY_USD_MATURE
+        val minLiqStatic = if (learningProgress < 0.5) MIN_LIQUIDITY_USD_BOOTSTRAP else MIN_LIQUIDITY_USD_MATURE
+        val minLiq = if (runnerShaped7266) {
+            kotlin.math.min(minLiqStatic, com.lifecyclebot.engine.truth.MoonshotFreshLaunchAdmission7044.LIQ_FLOOR_USD)
+        } else minLiqStatic
         if (liquidityUsd < minLiq) {
             return MoonshotScore(false, 0, 0.0, "liq_too_low_${(liquidityUsd/1000).toInt()}K")
+        }
+        if (runnerShaped7266 && (marketCapUsd < MIN_MARKET_CAP_USD || liquidityUsd < minLiqStatic)) {
+            // The admission window admitted what the static floor would have refused.
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MOONSHOT_RUNNER_SHAPED_FLOOR_ADMIT_7266") } catch (_: Throwable) {}
         }
         
         // 3. Position limit

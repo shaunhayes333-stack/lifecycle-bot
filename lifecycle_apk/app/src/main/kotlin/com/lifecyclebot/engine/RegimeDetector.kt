@@ -33,6 +33,8 @@ object RegimeDetector {
         val v3Median: Int,
         val sampleSize: Int,
         val computedAtMs: Long,
+        /** V5.0.7266 — true when own performance, not the market, produced this regime. */
+        val ownTightened7266: Boolean = false,
     )
 
     private val cached = AtomicReference<RegimeSnapshot?>(null)
@@ -219,7 +221,46 @@ object RegimeDetector {
             } catch (_: Throwable) {}
         }
 
-        return RegimeSnapshot(resolved7173, wr, meanPnl, v3Median, recentSells.size, now)
+        return RegimeSnapshot(
+            resolved7173, wr, meanPnl, v3Median, recentSells.size, now,
+            ownTightened7266 = ownWantsTighter7173 && resolved7173 != marketBase7173,
+        )
+    }
+
+    /**
+     * V5.0.7266 §A_HAIRCUT_FROM_OWN_CLOSES_MUST_SCALE_WITH_THE_CLOSES.
+     *
+     * Operator: "everything is meant to be fluid … move up and down until the
+     * stack finds the best ways to trade."
+     *
+     * 7173 let own performance tighten the market regime by one step, and one
+     * step carried the full table value: on 5.0.7263 the market read RISK_ON,
+     * thirteen own closes at 16.7% WR produced CHOP, and every entry in every
+     * lane was sized ×0.35 — the same haircut a market-wide RISK_OFF dump
+     * earns — and landed on the 0.05 SOL floor. Thirteen closes is a weak
+     * reading; the table treated it as a certain one.
+     *
+     * When the regime came from own closes, the table value is now blended
+     * toward neutral by how much evidence there is and how bad it is:
+     *
+     *   evidence = n / (n + 10)          (13 closes → 0.57, 100 closes → 0.91)
+     *   deficit  = ½·(25 − wr)/25 + ½·(−meanPnl/10)   each clamped to 0..1
+     *   severity = evidence × deficit
+     *   value    = neutral − (neutral − table) × severity
+     *
+     * 5.0.7263 (n=13, wr=16.7, mean −5.0): severity 0.19, size ×0.88, floor +1.
+     * A hundred closes at 5% WR and −15% mean: severity 0.86, size ×0.44,
+     * floor +4. It tightens as the evidence hardens and releases as the closes
+     * improve. A market-sourced CHOP or DUMP is external evidence and keeps
+     * the table value unchanged.
+     */
+    fun ownSeverity7266(s: RegimeSnapshot): Double {
+        if (!s.ownTightened7266) return 0.0
+        val n = s.sampleSize.coerceAtLeast(0).toDouble()
+        val evidence = n / (n + 10.0)
+        val wrDeficit = ((25.0 - s.recentWrPct) / 25.0).coerceIn(0.0, 1.0)
+        val pnlDeficit = (-s.recentMeanPnlPct / 10.0).coerceIn(0.0, 1.0)
+        return (evidence * (0.5 * wrDeficit + 0.5 * pnlDeficit)).coerceIn(0.0, 1.0)
     }
 
     fun scoreFloorDelta(): Int {
@@ -238,7 +279,10 @@ object RegimeDetector {
             Regime.DEAD         ->   0
             Regime.BOOTSTRAP    ->   0
         }
-        return regimeDelta
+        // V5.0.7266 — an own-performance tightening scales with its evidence.
+        val snap7266 = current()
+        if (regimeDelta <= 0 || !snap7266.ownTightened7266) return regimeDelta
+        return Math.round(regimeDelta * ownSeverity7266(snap7266)).toInt().coerceIn(0, regimeDelta)
     }
 
     fun sizeMultiplier(): Double {
@@ -250,7 +294,14 @@ object RegimeDetector {
             Regime.DEAD         -> 0.50
             Regime.BOOTSTRAP    -> 1.0
         }
-        return regimeMult
+        // V5.0.7266 — an own-performance tightening scales with its evidence;
+        // a market-sourced regime keeps the table value.
+        val snap7266 = current()
+        if (regimeMult >= 1.0 || !snap7266.ownTightened7266) return regimeMult
+        val severity7266 = ownSeverity7266(snap7266)
+        val fluid7266 = (1.0 - (1.0 - regimeMult) * severity7266).coerceIn(regimeMult, 1.0)
+        try { PipelineHealthCollector.labelInc("REGIME_OWN_TIGHTEN_FLUID_7266") } catch (_: Throwable) {}
+        return fluid7266
     }
 
     /**
@@ -294,6 +345,7 @@ object RegimeDetector {
                // this line the operator cannot tell a real RISK_OFF from the
                // bot talking to itself, which is the whole bug 7173 fixes.
                marketSourceLine7173() +
-               "  → scoreFloorDelta=${scoreFloorDelta()}  sizeMult=${"%.2f".format(sizeMultiplier())}\n"
+               "  → scoreFloorDelta=${scoreFloorDelta()}  sizeMult=${"%.2f".format(sizeMultiplier())}" +
+               "  ownTightened7266=${s.ownTightened7266} severity=${"%.2f".format(ownSeverity7266(s))}\n"
     }
 }

@@ -9654,6 +9654,70 @@ class GoldenTapeRegressionTest {
         assertTrue(phc.contains("\"FDG_SUPPRESSED_FANOUT_CAP_7232_\","))
     }
 
+    /** V5.0.7266 — fluid, not fixed: the canonical entry floor is resolved per
+     * lane from governor minimum, learned score buckets and close maturity; an
+     * own-performance regime haircut scales with its evidence; the moonshot
+     * lane scores a runner-shaped fresh launch the admission window admitted. */
+    @Test
+    fun V5_0_7266_canonical_floor_regime_haircut_and_moonshot_floor_are_fluid() {
+        val floor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEntryFloor7266.kt").readText()
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        val regime = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RegimeDetector.kt").readText()
+        val moon = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
+        val admission = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MoonshotFreshLaunchAdmission7044.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        // Canonical floor: FDG blocks on the resolved floor; 7243's 30/55 remain the mature reference.
+        assertTrue(floor.contains("const val MATURE_DEFAULT_FLOOR_7243 = 30.0"))
+        assertTrue(floor.contains("const val WAIT_PROMOTION_MARGIN_7243 = 25.0"))
+        assertTrue(floor.contains("LiveEntrySafetyHold.minLiveCandidateScore"))
+        assertTrue(floor.contains("ScoreExpectancyTracker.bucketSamples(lane, score)"))
+        assertTrue(floor.contains("LaneExpectancyDamper.sameModeCloses7265(lane)"))
+        assertTrue(floor.contains("RegimeDetector.scoreFloorDelta()"))
+        assertTrue(floor.contains("LaneExpectancyDamper.admissionScoreFloorDelta(lane)"))
+        assertTrue(fdg.contains("CanonicalEntryFloor7266.resolve(floorLane7266)"))
+        assertTrue(fdg.contains("val belowCanonicalFloor7243 = canonicalV3Score7243 < canonicalFloor7266"))
+        assertTrue(fdg.contains("canonicalV3Score7243 < waitFloor7266"))
+        assertTrue(fdg.contains("val matureBelow7243 = canonicalV3Score7243 < 30.0"))
+
+        // Arithmetic: a cold lane starts at the governor minimum and converges to the target.
+        val boot = 15.0; val target = 30.0
+        val cold = boot + (target - boot) * (0.0 / (0.0 + 8.0))
+        val n20 = boot + (target - boot) * (20.0 / (20.0 + 8.0))
+        assertTrue(cold == 15.0)
+        assertTrue(n20 > 25.0 && n20 < 26.0)
+
+        // Regime: own-tightened haircut scales with evidence; market-sourced keeps the table.
+        assertTrue(regime.contains("val ownTightened7266: Boolean = false"))
+        assertTrue(regime.contains("ownTightened7266 = ownWantsTighter7173 && resolved7173 != marketBase7173"))
+        assertTrue(regime.contains("fun ownSeverity7266(s: RegimeSnapshot): Double"))
+        assertTrue(regime.contains("if (regimeMult >= 1.0 || !snap7266.ownTightened7266) return regimeMult"))
+        assertTrue(regime.contains("Regime.CHOP         -> 0.35"))
+        val snap = RegimeDetector.RegimeSnapshot(
+            RegimeDetector.Regime.CHOP, 16.7, -5.01, -1, 13, 0L, ownTightened7266 = true,
+        )
+        val sev = RegimeDetector.ownSeverity7266(snap)
+        assertTrue(sev > 0.15 && sev < 0.25)
+        val fluidMult = 1.0 - (1.0 - 0.35) * sev
+        assertTrue(fluidMult > 0.84 && fluidMult < 0.91)
+        val marketSnap = snap.copy(ownTightened7266 = false)
+        assertTrue(RegimeDetector.ownSeverity7266(marketSnap) == 0.0)
+
+        // Moonshot: the admission window is the floor for a runner-shaped launch.
+        assertTrue(admission.contains("const val MCAP_FLOOR_USD = 500.0"))
+        assertTrue(admission.contains("const val LIQ_FLOOR_USD = 800.0"))
+        assertTrue(moon.contains("runnerShaped7266: Boolean = false"))
+        assertTrue(moon.contains("MoonshotFreshLaunchAdmission7044.MCAP_FLOOR_USD"))
+        assertTrue(moon.contains("MOONSHOT_RUNNER_SHAPED_FLOOR_ADMIT_7266"))
+        assertTrue(bot.contains(".isRunnerShaped(ts, modeClassification.tradeType)"))
+        assertTrue(bot.contains("if (mcapInZone || mcapUnknownButLiq || runnerShaped7266) {"))
+        assertTrue(bot.contains("runnerShaped7266 = runnerShaped7266,"))
+
+        assertTrue(phc.contains("Canonical entry floor (§7266)"))
+        assertTrue(phc.contains("\"REGIME_OWN_TIGHTEN_FLUID_7266\","))
+    }
+
     /** V5.0.7260 — the oracle must judge the current candidate, not repeat a
      * blank-signature bootstrap forecast or the historical book average. */
     @Test

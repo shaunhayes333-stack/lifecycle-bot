@@ -4,6 +4,13 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.7266] - 2026-09-23 — FLUID, NOT FIXED: THE CANONICAL FLOOR, THE OWN-PERFORMANCE HAIRCUT AND THE MOONSHOT FLOOR
+
+- Operator: "everything is meant to be fluid. score thresholds, hold times, scoring, exits, entries — everything is meant to move up and down until the stack finds the best ways to trade in each trader, specialist, lane, strategy."
+- **Canonical entry floor is per lane and learned.** New `CanonicalEntryFloor7266`: floor = governor minimum (`LiveEntrySafetyHold.minLiveCandidateScore`) converging, by the lane's same-mode close maturity `n/(n+8)`, to the lane's learned floor — the lowest 10-point score bucket with ≥15 closes and a positive mean in `ScoreExpectancyTracker` — or to 7243's 30 when nothing is proven yet; plus the regime and lane-damper deltas that already exist. WAIT promotion is floor+25, so it moves too. A cold lane trades from the governor minimum and earns its boundary; a proven low band lowers it; a bleeder raises it. `FinalDecisionGate` blocks on the resolved floor; the fixed 30/55 remain as the printed mature reference (`CANONICAL_FLOOR_FLUID_BELOW/ABOVE_MATURE_7266`; report line `Canonical entry floor (§7266)`).
+- **Own-performance regime haircut scales with its evidence.** 7173 let own closes tighten the market regime one step, and one step carried the full 0.35: on 7263 the market read RISK_ON and 13 closes at 16.7% WR sized every lane ×0.35 to the floor. `RegimeDetector` now marks a snapshot `ownTightened7266` and blends the table value toward neutral by `evidence n/(n+10) × deficit(WR, mean P&L)`: 7263's reading gives ×0.88 and floor +1; a hundred closes at 5% WR gives ×0.44 and +4. A market-sourced CHOP/DUMP keeps the table value. `REGIME_OWN_TIGHTEN_FLUID_7266`.
+- **Moonshot lane scores what the admission window admitted.** `MoonshotFreshLaunchAdmission7044`'s $500 / $800 floors are now the lane's floors for a runner-shaped fresh launch (zone check in `BotService`, `MoonshotTraderAI.scoreToken(runnerShaped7266)`), replacing the static $10k / $2k that refused 289 admissions down to 3 executions. `MOONSHOT_RUNNER_SHAPED_FLOOR_ADMIT_7266`.
+
 ## [5.0.7265] - 2026-09-23 — VOLUME AND RUNNER CAPTURE: FOUR GATES THAT WERE CLOSING BY CONSTRUCTION
 
 - Operator on 7263: "volumes isnt great and the wins are now tiny. it was finding 1000% runs + easily before" / "it should never trail to a loss it has dynamic stop loss and fluid profit locks."

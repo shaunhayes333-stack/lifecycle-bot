@@ -2045,6 +2045,14 @@ object PipelineHealthCollector {
                     "RUNNER_LOCK_SCALED_BAND_7265",
                     "MOONSHOT_ZONE_DROPPED_AFTER_ADMISSION_7265",
                     "FDG_SUPPRESSED_FANOUT_CAP_7232",
+                    // V5.0.7266 — fluid boundaries: where the per-lane canonical floor
+                    // sits against 7243's fixed 30, how often an own-performance regime
+                    // haircut was scaled by its evidence, and how many runner-shaped
+                    // launches the moonshot lane scored that its static floor refused.
+                    "CANONICAL_FLOOR_FLUID_BELOW_MATURE_7266",
+                    "CANONICAL_FLOOR_FLUID_ABOVE_MATURE_7266",
+                    "REGIME_OWN_TIGHTEN_FLUID_7266",
+                    "MOONSHOT_RUNNER_SHAPED_FLOOR_ADMIT_7266",
                     // V5.0.7226 — the second live sizing authority. On 7225 the
                     // sizer's floor fired 0 times and two 0.007 SOL live buys
                     // landed anyway; the resolver had been sizing LIVE against
@@ -2437,6 +2445,10 @@ object PipelineHealthCollector {
             // V5.0.7263 — does the oracle's yes-pile beat its no-pile on real
             // closes? Until this reads tier=PROVEN the verdict word gates
             // nothing; the operator can watch the bar being earned here.
+            // V5.0.7266 — the per-lane fluid entry floor against 7243's fixed 30/55.
+            sb.append("  Canonical entry floor (§7266):").append(
+                try { com.lifecyclebot.engine.truth.CanonicalEntryFloor7266.statusLine() } catch (_: Throwable) { "unavailable" }
+            ).append("\n")
             sb.append("  Oracle edge proof (§7263):    ").append(
                 try { com.lifecyclebot.engine.truth.OracleEdgeProof7263.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")

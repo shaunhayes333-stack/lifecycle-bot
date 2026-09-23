@@ -888,9 +888,23 @@ object FinalDecisionGate {
             (ts.lastV3Score?.toDouble() ?: candidate.entryScore).coerceIn(-100.0, 150.0)
         val laneEvidenceScore7243 = laneScore.coerceIn(-100.0, 150.0)
         val baseEntrySignal7243 = candidate.finalSignal.ifBlank { candidate.signal }.uppercase()
-        val belowCanonicalFloor7243 = canonicalV3Score7243 < 30.0
+        // V5.0.7266 — the boundary is resolved per lane by CanonicalEntryFloor7266
+        // (governor minimum → learned score-bucket floor, by same-mode close
+        // maturity, plus regime and damper deltas) instead of being the fixed
+        // 30/55 of 7243. The 7243 comparisons are kept as the mature reference
+        // the forensic line prints, so fluid-vs-fixed disagreement is visible.
+        val matureBelow7243 = canonicalV3Score7243 < 30.0
+        val matureWaitBelow7243 = canonicalV3Score7243 < 55.0
+        val floorLane7266 = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+            ?: tradingModeTag?.name ?: "STANDARD"
+        val floor7266 = try {
+            com.lifecyclebot.engine.truth.CanonicalEntryFloor7266.resolve(floorLane7266)
+        } catch (_: Throwable) { null }
+        val canonicalFloor7266 = floor7266?.floor ?: 30.0
+        val waitFloor7266 = floor7266?.waitFloor ?: 55.0
+        val belowCanonicalFloor7243 = canonicalV3Score7243 < canonicalFloor7266
         val weakWaitPromotion7243 =
-            baseEntrySignal7243 !in setOf("BUY", "EXECUTE") && canonicalV3Score7243 < 55.0
+            baseEntrySignal7243 !in setOf("BUY", "EXECUTE") && canonicalV3Score7243 < waitFloor7266
         if (belowCanonicalFloor7243 || weakWaitPromotion7243) {
             val reason7243 = if (belowCanonicalFloor7243) {
                 "CANONICAL_V3_SCORE_FLOOR_7243"
@@ -904,6 +918,9 @@ object FinalDecisionGate {
                     "mint=${ts.mint.take(10)} sym=${ts.symbol} mode=${mode.name} " +
                         "baseSignal=$baseEntrySignal7243 entryScore=${"%.1f".format(candidate.entryScore)} " +
                         "laneScore=${"%.1f".format(laneScore)} canonicalScore=${"%.1f".format(canonicalV3Score7243)} " +
+                        "fluidFloor7266=${"%.1f".format(canonicalFloor7266)} fluidWait7266=${"%.1f".format(waitFloor7266)} " +
+                        "matureBelow30=$matureBelow7243 matureWaitBelow55=$matureWaitBelow7243 " +
+                        "resolution=${floor7266?.compact ?: "unavailable"} " +
                         "action=shadow_or_reject_no_economic_position",
                 )
             } catch (_: Throwable) {}
@@ -922,8 +939,8 @@ object FinalDecisionGate {
                 symbol = ts.symbol,
                 approvalReason = "canonical entry selectivity refused weak/WAIT promotion",
                 gateChecks = listOf(
-                    GateCheck("canonicalV3Score7243", !belowCanonicalFloor7243, "need>=30"),
-                    GateCheck("waitPromotion7243", !weakWaitPromotion7243, "WAIT needs canonical V3>=55"),
+                    GateCheck("canonicalV3Score7243", !belowCanonicalFloor7243, "need>=${"%.0f".format(canonicalFloor7266)} (fluid; mature 30)"),
+                    GateCheck("waitPromotion7243", !weakWaitPromotion7243, "WAIT needs canonical V3>=${"%.0f".format(waitFloor7266)} (fluid; mature 55)"),
                 ),
             )
         }

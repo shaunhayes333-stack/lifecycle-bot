@@ -26314,12 +26314,19 @@ if (hotExitHandledSweep) {
                     // Fall back to a liquidity proxy (>= $3K) when mcap is unknown.
                     val mcapInZone = ts.lastMcap in 10_000.0..100_000_000.0
                     val mcapUnknownButLiq = ts.lastMcap <= 0.0 && ts.lastLiquidityUsd >= 3_000.0
+                    // V5.0.7266 — the admission authority that elected MOONSHOT as
+                    // owner is also the zone for a runner-shaped fresh launch, so
+                    // the lane cannot refuse what the election admitted.
+                    val runnerShaped7266 = try {
+                        com.lifecyclebot.engine.truth.MoonshotFreshLaunchAdmission7044
+                            .isRunnerShaped(ts, modeClassification.tradeType)
+                    } catch (_: Throwable) { false }
                     // V5.0.7265 — MoonshotFreshLaunchAdmission7044 elects MOONSHOT
                     // as owner from mcap $500 / liq $800; this zone starts at
                     // $10k / $3k and the miss had no else branch, so 289
                     // admissions became 3 executions with nothing named in
-                    // between. Measured here first; the zone itself is unchanged.
-                    if (!(mcapInZone || mcapUnknownButLiq)) {
+                    // between. Still counted for launches outside both windows.
+                    if (!(mcapInZone || mcapUnknownButLiq || runnerShaped7266)) {
                         try {
                             PipelineHealthCollector.labelInc("MOONSHOT_ZONE_DROPPED_AFTER_ADMISSION_7265")
                             ForensicLogger.lifecycle(
@@ -26330,7 +26337,7 @@ if (hotExitHandledSweep) {
                             )
                         } catch (_: Throwable) {}
                     }
-                    if (mcapInZone || mcapUnknownButLiq) {
+                    if (mcapInZone || mcapUnknownButLiq || runnerShaped7266) {
                         
                         // V5.2: Check execution permit for MOONSHOT book
                         val moonshotPermit = FinalExecutionPermit.canExecute(
@@ -26372,6 +26379,7 @@ if (hotExitHandledSweep) {
                                 v3Confidence = (ts.lastV3Confidence ?: 50).toDouble(),
                                 phase = ts.phase,
                                 isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
+                                runnerShaped7266 = runnerShaped7266,
                             )
 
                             // V5.9.618 — BRIDGE ADVISORY BOOST for Moonshot (additive).

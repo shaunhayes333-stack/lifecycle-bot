@@ -87,10 +87,13 @@ object MoonshotFreshLaunchAdmission7044 {
      * from the first block rather than a price anyone traded at, and the
      * multiple computed off it is fiction.
      */
-    private const val MCAP_FLOOR_USD = 500.0
+    // V5.0.7266 — public: MoonshotTraderAI reads these for a runner-shaped
+    // fresh launch so the admission window and the lane's own floor are the
+    // same authority instead of two numbers that disagree ($500 vs $10k).
+    const val MCAP_FLOOR_USD = 500.0
 
     /** Enough of a pool that an exit is a real transaction and not a wish. */
-    private const val LIQ_FLOOR_USD = 800.0
+    const val LIQ_FLOOR_USD = 800.0
 
     /**
      * Liquidity as a fraction of market cap. A shell with $30k "mcap" and $200
