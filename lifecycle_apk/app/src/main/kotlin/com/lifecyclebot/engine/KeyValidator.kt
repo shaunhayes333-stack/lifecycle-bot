@@ -78,7 +78,14 @@ object KeyValidator {
         walletAddress: String? = null,
         jupiterKey: String? = null,
     ) {
-        if (geminiKey != null && geminiKey in knownDeadDefaults) {
+        if (geminiKey != null && geminiKey.isBlank()) {
+            // V5.0.7262 — say what is true. Operator 5.0.7261 had just
+            // entered a new Gemini key and read "default placeholder key";
+            // the saved config's Gemini field was EMPTY, which is a
+            // different problem (the key did not persist, or was entered
+            // in another field) and needs a different action.
+            markDead("gemini", 0, "GEMINI_KEY_BLANK_IN_SAVED_CONFIG — Settings > Gemini/AI key field is empty; re-enter and Apply", "GEMINI_KEY_MISSING")
+        } else if (geminiKey != null && geminiKey in knownDeadDefaults) {
             markDead("gemini", 401, "default placeholder key")
         }
         if (heliusKey != null && heliusKey in knownDeadDefaults) {
@@ -201,16 +208,25 @@ object KeyValidator {
 
     private fun probeGroqConfiguredModel(apiKey: String) {
         val service = "groq"
-        val model = GroqRouteConfig6498.PRIMARY_MODEL
+        // V5.0.7262 — probe the KEY, not a generation.
+        //
+        // The old probe asked PRIMARY_MODEL for one token of "ping". On the
+        // operator's 5.0.7261 device Groq answered http=400 "Failed to
+        // generate JSON. Please adjust your prompt", and this marked the key
+        // GROQ_UNHEALTHY — after which NarrativeDetector and every other
+        // KeyValidator.isLive("groq") reader stopped using a key that was
+        // authenticating perfectly well. A 400 from chat/completions is a
+        // verdict on the prompt or the model; 401/403 are the verdicts on the
+        // key. GET /openai/v1/models exercises exactly the thing this probe
+        // is for — does this key authenticate — with no model, no prompt and
+        // no daily-budget bucket in the way. KeylessLlmClient reads the same
+        // endpoint for its model ladder (§7262).
         val client = SharedHttpClient.builder().connectTimeout(4, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).callTimeout(10, TimeUnit.SECONDS).build()
-        val payload = JSONObject()
-            .put("model", model)
-            .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", "ping")))
-            .put("max_tokens", 1)
         val req = Request.Builder()
-            .url("https://api.groq.com/openai/v1/chat/completions")
+            .url("https://api.groq.com/openai/v1/models")
             .addHeader("Authorization", "Bearer $apiKey")
-            .post(payload.toString().toRequestBody(jsonMedia))
+            .addHeader("Accept", "application/json")
+            .get()
             .build()
         try {
             client.newCall(req).execute().use { resp ->
@@ -219,7 +235,13 @@ object KeyValidator {
                     verdicts[service] = Verdict(false, System.currentTimeMillis(), 429, body.take(160), "GROQ_RATE_LIMIT_429_NARRATIVE_DEGRADED")
                     return
                 }
-                recordResult(service, resp.isSuccessful, resp.code, body.take(160))
+                val models7262 = try {
+                    JSONObject(body).optJSONArray("data")?.length() ?: 0
+                } catch (_: Throwable) { 0 }
+                recordResult(
+                    service, resp.isSuccessful, resp.code,
+                    if (resp.isSuccessful) "models=$models7262 (auth-only probe, §7262)" else body.take(160),
+                )
             }
         } catch (t: Throwable) {
             recordResult(service, false, 0, t.message)

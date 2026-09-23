@@ -152,10 +152,32 @@ object CanonicalEntryAuthority6551 {
                 candidateConfidence = candidateConfidence7260,
             )
         } catch (_: Throwable) { null }
-        if (oracle7259 == null ||
-            oracle7259.verdict != PredictiveEntryOracle6915.Verdict.ADMIT ||
-            !oracle7259.expectancyPct.isFinite() || oracle7259.expectancyPct <= 0.0
-        ) {
+        val oracleAdmitted7262 = oracle7259 != null &&
+            oracle7259.verdict == PredictiveEntryOracle6915.Verdict.ADMIT &&
+            oracle7259.expectancyPct.isFinite() && oracle7259.expectancyPct > 0.0
+        // V5.0.7262 — PAPER learns. A PROBE (thin/neutral/cold evidence) or a
+        // missing oracle on a PAPER candidate opens a probe-sized paper
+        // position so the cross-asset book can create the terminal evidence
+        // 7259 demands; REFUSE stays blocked in both modes, and LIVE keeps
+        // 7259 exactly (ADMIT with positive expectancy or nothing). See
+        // ExecutableEntryAuthority6450.gate for the deadlock this ends.
+        val paperExploration7262 = candidate.mode.equals("PAPER", true) &&
+            !oracleAdmitted7262 &&
+            oracle7259?.verdict != PredictiveEntryOracle6915.Verdict.REFUSE
+        if (paperExploration7262) {
+            val verdict7262 = oracle7259?.verdict?.name ?: "UNAVAILABLE"
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_ORACLE_PAPER_EXPLORATION_7262")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_ORACLE_PAPER_EXPLORATION_7262_$verdict7262")
+                ForensicLogger.lifecycle(
+                    "CROSS_ASSET_ORACLE_PAPER_EXPLORATION_7262",
+                    "asset=${candidate.assetId.take(32)} class=${candidate.assetClass.tag} " +
+                        "symbol=${candidate.symbol} verdict=$verdict7262 " +
+                        "expectancyPct=${oracle7259?.expectancyPct} action=paper_probe_sized_open",
+                )
+            } catch (_: Throwable) {}
+        }
+        if (!oracleAdmitted7262 && !paperExploration7262) {
             val verdict7259 = oracle7259?.verdict?.name ?: "UNAVAILABLE"
             val reason7259 = "ORACLE_ADMIT_REQUIRED_7259:$verdict7259"
             try {
@@ -176,7 +198,8 @@ object CanonicalEntryAuthority6551 {
             sizeMultiplier = if (candidate.confidence.isFinite()) candidate.confidence.coerceIn(0.35, 1.0) else 0.35,
             // An admitted trade may still be sized conservatively, but it is
             // never relabelled PROBE_ONLY: probe is not executable authority.
-            probe = false,
+            // V5.0.7262 — except a PAPER exploration open, which IS a probe.
+            probe = paperExploration7262,
             reasons = candidate.evidence.entries.take(4).map { "${it.key}=${it.value}" },
         )
         val shapedSize = candidate.requestedSizeSol * shaping.sizeMultiplier

@@ -239,15 +239,41 @@ object LearnedAdmissionAuthority6846 {
         // V5.0.7259 §PREDICTION_IS_PERMISSION,_NOT_A_SIZE_HINT.
         // Canonical capital may only follow an explicit positive oracle
         // verdict. PROBE remains useful for shadow/replay/lab learning, but it
-        // is not permission to open a paper or live economic position.
+        // is not permission to open a live economic position.
+        //
+        // V5.0.7262 §PAPER_LEARNS,_LIVE_REQUIRES_CONVICTION.
+        //
+        // 7259 applied the rule above to PAPER as well, and on the operator's
+        // 5.0.7261 clean book that produced admit=0 probe=2069 -> denies=2011
+        // -> EXEC=0 -> lifetime trades=0. The oracle judges from terminal
+        // evidence; terminal evidence comes from closed trades; 7259 made
+        // trades require the evidence first. 7261's cold-start admit did not
+        // reach it either (score>=60 against a scorer producing 9-32). §2b of
+        // this very file says why that is wrong: "a small position is how the
+        // brain learns a bucket... NOTHING IS DISABLED."
+        //
+        // So in PAPER a non-ADMIT verdict is not a denial; it is the reason
+        // paper exists. The candidate still walks every branch below (policy
+        // hard block, DUMP-regime deny, dead-cohort budget, capital target,
+        // size floor) and, if it survives, leaves as a metered PROBE_ONLY at
+        // the 7139 quarter size instead of an ALLOW. One per lane x band per
+        // five minutes (the existing negative-cohort window), so paper learns
+        // at a bounded rate rather than firehosing. REFUSE denies in both
+        // modes. LIVE is byte-for-byte 7259.
+        val paperRuntime7262 = try {
+            com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+        } catch (_: Throwable) { false }
+        var paperExploration7262: String? = null
         when (inputs.oracleVerdict6915) {
             PredictiveEntryOracle6915.Verdict.ADMIT -> Unit
             PredictiveEntryOracle6915.Verdict.PROBE ->
-                return deny("ORACLE_PROBE_NON_EXECUTABLE_7259", inputs, "oracle=PROBE")
+                if (!paperRuntime7262) return deny("ORACLE_PROBE_NON_EXECUTABLE_7259", inputs, "oracle=PROBE")
+                else paperExploration7262 = "ORACLE_PROBE"
             PredictiveEntryOracle6915.Verdict.REFUSE ->
                 return deny("ORACLE_REFUSE_7259", inputs, "oracle=REFUSE")
             null ->
-                return deny("ORACLE_UNAVAILABLE_7259", inputs, "oracle=missing")
+                if (!paperRuntime7262) return deny("ORACLE_UNAVAILABLE_7259", inputs, "oracle=missing")
+                else paperExploration7262 = "ORACLE_UNAVAILABLE"
         }
 
         // §1 — UnifiedPolicyHead HARD_BLOCK is absolute (per directive).
@@ -624,6 +650,24 @@ object LearnedAdmissionAuthority6846 {
             }
         }
 
+        // V5.0.7262 — the paper-exploration terminal. Everything above had its
+        // say; a candidate that reached here without an oracle ADMIT in PAPER
+        // is admitted as a metered probe, not a conviction entry.
+        if (paperExploration7262 != null) {
+            val cohortKey7262 = "$laneKey|S${inputs.scoreBand}|PAPER_EXPLORE"
+            val budgeted7262 = cohortProbeBudgetAllows6909(cohortKey7262, provenDead = false)
+            val detail7262 = "cohort=$cohortKey7262 oracle=${inputs.oracleVerdict6915?.name ?: "missing"} " +
+                "effN=${inputs.cohortSample} rawN=${inputs.oracleRawCohortN7154} " +
+                "pWin=${"%.2f".format(inputs.livePWin)} EV=${"%.4f".format(inputs.expectedPnl)} budgeted=$budgeted7262"
+            try {
+                PipelineHealthCollector.labelInc(
+                    if (budgeted7262) "PAPER_ORACLE_EXPLORATION_ADMITTED_7262" else "PAPER_ORACLE_EXPLORATION_BUDGET_REFUSED_7262",
+                )
+                PipelineHealthCollector.labelInc("PAPER_ORACLE_EXPLORATION_7262_$laneKey".take(60))
+            } catch (_: Throwable) {}
+            return if (budgeted7262) probe("PAPER_EXPLORATION_${paperExploration7262}_7262", inputs, detail7262)
+            else deny("PAPER_EXPLORATION_BUDGET_7262", inputs, detail7262)
+        }
         return allow(inputs, "clear")
     }
 

@@ -2042,6 +2042,21 @@ object PipelineHealthCollector {
                     // prints. A non-zero count here with LIFTED at zero means
                     // the wallet is under the line; fund it and both flip.
                     "LIVE_LAST_MILE_SUB_ROUTABLE_DUST_REFUSED_7227",
+                    // V5.0.7262 — paper learns, live requires conviction. On
+                    // the 7261 clean book the oracle gates denied 2011 of 2011
+                    // and EXEC read 0. These say whether paper is now buying
+                    // evidence at a bounded rate, and whether the LLM council
+                    // has a Groq model list it can actually call.
+                    "PAPER_ORACLE_EXPLORATION_ADMITTED_7262",
+                    "PAPER_ORACLE_EXPLORATION_BUDGET_REFUSED_7262",
+                    "EXECUTABLE_ENTRY_PROBE_PAPER_EXECUTABLE_7262",
+                    "BRAIN_CONSENSUS_SOFT_BLOCK_PAPER_DAMPED_7262",
+                    "BRAIN_CONSENSUS_UNAVAILABLE_PAPER_FAIL_OPEN_7262",
+                    "CROSS_ASSET_ORACLE_PAPER_EXPLORATION_7262",
+                    "EXECUTABLE_ENTRY_ORACLE_ERROR_PAPER_FAIL_OPEN_7262",
+                    "LLM_GROQ_CATALOGUE_7262",
+                    "LLM_GROQ_CATALOGUE_UNREAD_7262",
+                    "LLM_GROQ_MODEL_RETIRED_7262",
                     "LIVE_SIZING_WALLET_PROXY_WAS_PAPER_CASH_7226",
                     "LIVE_SIZING_WALLET_UNREAD_KEPT_CALLER_VALUE_7226",
                     // V5.0.7219 — the sealing race was 59% of all execution-gate

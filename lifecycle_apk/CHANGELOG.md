@@ -4,6 +4,15 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.7262] - 2026-09-23 — PAPER LEARNS, LIVE REQUIRES CONVICTION
+
+- 7259–7261 applied "an oracle PROBE is non-executable" to PAPER as well as LIVE. On a clean book the oracle has no terminal evidence, so every candidate is a PROBE, so nothing executes, so no terminal evidence is ever written: `admit=0 probe=2069 denies=2011 EXEC=0 lifetime trades=0`. 7261's cold-start admit (`score>=60 && confidence>=0.40`) never fired against a cold V3 scorer producing 9–32 / 8–16% (`coldAdmit7261=0`).
+- PAPER: a non-ADMIT oracle verdict now walks every remaining admission branch and, if it survives, leaves as a metered `PROBE_ONLY` (one per lane×band per five minutes, 7139 quarter size) instead of a denial; `ExecutableEntryAuthority6450` executes that probe; Brain Consensus `SOFT_BLOCK` returns to the V5.9.1136 size damp; brain/oracle exceptions fail open to the historical streak gate; cross-asset PROBE/UNAVAILABLE opens a probe-sized paper position. REFUSE still denies in both modes.
+- LIVE: byte-for-byte 7259/7260 — ADMIT with positive expectancy or nothing; PROBE, missing verdicts and consensus objections remain shadow-only.
+- Groq: live model catalogue from `GET /openai/v1/models` (six-hour cache, static ladder as fallback, 404 retires the rung) after two ladder ids were decommissioned and the head was RPD-exhausted; KeyValidator probes the key with the same auth-only endpoint instead of a one-token generation that a JSON-mode quirk had marked GROQ_UNHEALTHY.
+- Gemini: a blank saved key now reports `GEMINI_KEY_BLANK_IN_SAVED_CONFIG` instead of "default placeholder key".
+- Regression coverage updated: 7259 assertions track the shared ADMIT value; new 7262 test pins every live gate and every paper exploration path.
+
 ## [5.0.7261] - 2026-09-23 — COLD-START ORACLE DEADLOCK REPAIR
 
 - Removed the Oracle's pre-intelligence `noEvidenceAnywhere` return that made every candidate a non-executable probe on a clean book and permanently prevented the terminal evidence needed to leave bootstrap.

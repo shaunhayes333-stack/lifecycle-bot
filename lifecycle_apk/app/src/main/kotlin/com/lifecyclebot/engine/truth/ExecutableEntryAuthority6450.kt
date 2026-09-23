@@ -274,18 +274,56 @@ object ExecutableEntryAuthority6450 {
      * overload is opt-in; the existing test surface is unaffected.
      */
     fun gate(inputs: LearnedAdmissionAuthority6846.Inputs): Decision {
+        // V5.0.7262 §PAPER_LEARNS,_LIVE_REQUIRES_CONVICTION.
+        //
+        // Operator 5.0.7261, paper mode, fresh book: "its not buying at
+        // alllllll. zero nothing." The snapshot:
+        //
+        //   Predictive oracle: evals=2069 admit=0 probe=2069 noEvidence=2069
+        //                      coldAdmit7261=0 coldProbe7261=2069
+        //   Entry authority:   gates=2471 allows=460 probes=0 denies=2011
+        //   ENTRY_AUTHORITY_DENY_REASON_ORACLE_PROBE_NON_EXECUTABLE_7259=2011
+        //   EXEC=0  TRADEJRNL_REC=0  lifetime completed trades=0
+        //
+        // 7259 made an oracle PROBE non-executable in BOTH modes and 7260
+        // made this authority fail closed on a PROBE_ONLY verdict. On a clean
+        // book the oracle has no terminal evidence, so every candidate is a
+        // PROBE, so nothing executes, so no terminal evidence is ever written,
+        // so every candidate stays a PROBE. 7261's cold-start admit needs
+        // score>=60 and confidence>=0.40; a cold V3 scorer on this device
+        // produces 9-32 and 8-16%. The deadlock survived its own repair.
+        //
+        // This file's own doctrine (LearnedAdmissionAuthority6846 §2b):
+        // "a small position is how the brain learns a bucket... NOTHING IS
+        // DISABLED." And the standing operator rule: no global choke. PAPER
+        // exists precisely so evidence can be bought without money. So:
+        //
+        //   PAPER — a learned PROBE_ONLY executes at probe size (the 7139
+        //           fraction), metered by the existing cohort probe budget
+        //           inside LearnedAdmissionAuthority6846. A learned-authority
+        //           exception falls open to the historical streak gate, as it
+        //           did before 7260. Paper learns.
+        //   LIVE  — unchanged from 7259/7260: PROBE_ONLY and exceptions are
+        //           shadow-only. Real money follows ADMIT only.
+        val paperRuntime7262 = try {
+            com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+        } catch (_: Throwable) { false }
         val learned = try {
             LearnedAdmissionAuthority6846.evaluate(inputs)
         } catch (_: Throwable) {
-            // V5.0.7260 — a missing learned verdict cannot satisfy the
-            // positive-prediction contract. Fail this candidate closed while
-            // leaving subsequent candidates and the runtime untouched.
-            try { PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_ORACLE_ERROR_BLOCK_7260") } catch (_: Throwable) {}
-            return Decision(
-                Verdict.DENY_LEARNED_NEGATIVE_6846,
-                0.0,
-                "learned6846:ORACLE_EVALUATION_UNAVAILABLE_7260",
-            )
+            if (!paperRuntime7262) {
+                // V5.0.7260 — a missing learned verdict cannot satisfy the
+                // positive-prediction contract. Fail this candidate closed while
+                // leaving subsequent candidates and the runtime untouched.
+                try { PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_ORACLE_ERROR_BLOCK_7260") } catch (_: Throwable) {}
+                return Decision(
+                    Verdict.DENY_LEARNED_NEGATIVE_6846,
+                    0.0,
+                    "learned6846:ORACLE_EVALUATION_UNAVAILABLE_7260",
+                )
+            }
+            try { PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_ORACLE_ERROR_PAPER_FAIL_OPEN_7262") } catch (_: Throwable) {}
+            null
         }
         return when (learned?.verdict) {
             LearnedAdmissionAuthority6846.Verdict.DENY -> {
@@ -302,15 +340,29 @@ object ExecutableEntryAuthority6450 {
             }
             LearnedAdmissionAuthority6846.Verdict.PROBE_ONLY -> {
                 gates.incrementAndGet()
-                denies.incrementAndGet()
-                try {
-                    PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_PROBE_NON_EXECUTABLE_7260")
-                } catch (_: Throwable) {}
-                Decision(
-                    Verdict.DENY_LEARNED_NEGATIVE_6846,
-                    0.0,
-                    "learned6846_probe_shadow_only_7260:${learned.denyCategory}",
-                )
+                if (paperRuntime7262) {
+                    // V5.0.7262 — paper probe is executable at probe size.
+                    probes.incrementAndGet()
+                    try {
+                        PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_PROBE_LEARNED_6846")
+                        PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_PROBE_PAPER_EXECUTABLE_7262")
+                    } catch (_: Throwable) {}
+                    Decision(
+                        Verdict.ALLOW_PROBE,
+                        learned.recommendedSizeSol,
+                        "learned6846_probe:${learned.denyCategory}",
+                    )
+                } else {
+                    denies.incrementAndGet()
+                    try {
+                        PipelineHealthCollector.labelInc("EXECUTABLE_ENTRY_PROBE_NON_EXECUTABLE_7260")
+                    } catch (_: Throwable) {}
+                    Decision(
+                        Verdict.DENY_LEARNED_NEGATIVE_6846,
+                        0.0,
+                        "learned6846_probe_shadow_only_7260:${learned.denyCategory}",
+                    )
+                }
             }
             else -> {
                 // Explicit learned ALLOW falls through to the independent

@@ -4764,14 +4764,30 @@ object FinalDecisionGate {
                         // positive support before entry. A SOFT_BLOCK is an
                         // explicit objection, not permission to buy smaller.
                         // Exploration belongs in shadow/replay/lab; canonical
-                        // paper and live positions fail closed here.
-                        shouldTradeFinal = false
-                        blockReasonFinal = "BRAIN_CONSENSUS_NOT_UNANIMOUS_7259:${report.objections.joinToString("+").take(120)}"
-                        blockLevelFinal = BlockLevel.HARD
-                        tags.add("bcg_soft_block_non_executable_7259")
-                        try {
-                            PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_SOFT_BLOCK_NON_EXECUTABLE_7259")
-                        } catch (_: Throwable) {}
+                        // live positions fail closed here.
+                        //
+                        // V5.0.7262 — LIVE only. On the 7261 paper book the
+                        // consensus soft-blocked 88% of a cold pipeline whose
+                        // members (LosingPatternMemory, ForwardOutcomeModel,
+                        // policy heads) had zero closes behind them; treating a
+                        // bootstrap objection as a veto in PAPER is what stops
+                        // the closes that would give those members evidence.
+                        // Paper keeps the V5.9.1136 damp below: smaller, not
+                        // never. Live keeps 7259.
+                        if (!com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+                            shouldTradeFinal = false
+                            blockReasonFinal = "BRAIN_CONSENSUS_NOT_UNANIMOUS_7259:${report.objections.joinToString("+").take(120)}"
+                            blockLevelFinal = BlockLevel.HARD
+                            tags.add("bcg_soft_block_non_executable_7259")
+                            try {
+                                PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_SOFT_BLOCK_NON_EXECUTABLE_7259")
+                            } catch (_: Throwable) {}
+                        } else {
+                            tags.add("bcg_soft_block_paper_damped_7262")
+                            try {
+                                PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_SOFT_BLOCK_PAPER_DAMPED_7262")
+                            } catch (_: Throwable) {}
+                        }
                         // V5.9.1136 — no longer pure telemetry. Soft objections now
                         // reduce size during WR deficit so learning changes behaviour
                         // without disabling the lane. Only a danger-bucket objection in
@@ -5059,10 +5075,16 @@ object FinalDecisionGate {
             // V5.0.7260 — unanimous-positive entry cannot treat a missing
             // consensus result as consent. Keep the runtime alive but fail
             // this candidate closed; later candidates may evaluate normally.
-            shouldTradeFinal = false
-            blockReasonFinal = "BRAIN_CONSENSUS_UNAVAILABLE_7260"
-            blockLevelFinal = BlockLevel.HARD
-            try { PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_UNAVAILABLE_BLOCK_7260") } catch (_: Throwable) {}
+            // V5.0.7262 — LIVE only; a brain-layer exception in PAPER must
+            // not stop the learning that would repair the brain layer.
+            if (!com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+                shouldTradeFinal = false
+                blockReasonFinal = "BRAIN_CONSENSUS_UNAVAILABLE_7260"
+                blockLevelFinal = BlockLevel.HARD
+                try { PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_UNAVAILABLE_BLOCK_7260") } catch (_: Throwable) {}
+            } else {
+                try { PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_UNAVAILABLE_PAPER_FAIL_OPEN_7262") } catch (_: Throwable) {}
+            }
         }
 
         // V5.9.1330 — LANE-POLICY EXECUTION WEIGHT (the dead-wiring bug, backtest-proven).

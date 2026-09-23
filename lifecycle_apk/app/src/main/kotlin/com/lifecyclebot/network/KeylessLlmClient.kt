@@ -1142,9 +1142,92 @@ object KeylessLlmClient {
     )
     @Volatile private var groqModelIdx7164: Int = 0
 
+    /**
+     * V5.0.7262 — ask Groq what it serves, the way 7167 asks OpenRouter.
+     *
+     * Operator's 5.0.7261 device, Groq's own words, on a key that KeyValidator
+     * had probed alive:
+     *
+     *   http=404 "The model `llama-3.3-70b-versatile` does not exist or you
+     *             do not have access to it."
+     *   http=404 "The model `llama-3.1-8b-instant` does not exist ..."
+     *   http=429 "Rate limit reached for model `openai/gpt-oss-20b` ...
+     *             requests per day (RPD): Limit 1000"
+     *
+     * Two of the five rungs are decommissioned and the head is out of its
+     * daily budget, so the 7164 ladder rotated through corpses and the
+     * council read llm_groq sr=3%. 7167 wrote the lesson for OpenRouter: a
+     * hardcoded list is a bet that a third party keeps specific ids alive.
+     * /openai/v1/models is authenticated and lists every model this key can
+     * use. Take the chat-capable ones, keep the static ladder's order for the
+     * ids it still contains, append the rest, cache six hours, and fall back
+     * to the static ladder only when the catalogue cannot be read. A 404 on a
+     * rung also drops it from the cached catalogue so it is not asked again.
+     */
+    private const val GROQ_CATALOGUE_TTL_MS_7262 = 6L * 60 * 60 * 1000
+    @Volatile private var groqCatalogue7262: List<String> = emptyList()
+    @Volatile private var groqCatalogueAtMs7262: Long = 0L
+    private val GROQ_NON_CHAT_MARKERS_7262 = listOf(
+        "whisper", "tts", "guard", "playai", "orpheus", "embed", "compound", "safeguard", "moderation",
+    )
+
+    private fun groqModels7262(): List<String> {
+        val now = System.currentTimeMillis()
+        val cached = groqCatalogue7262
+        if (cached.isNotEmpty() && now - groqCatalogueAtMs7262 < GROQ_CATALOGUE_TTL_MS_7262) return cached
+        if (now - groqCatalogueAtMs7262 < 60_000L) return cached.ifEmpty { GROQ_MODEL_LADDER_7164 }
+        groqCatalogueAtMs7262 = now
+        val key7262 = operatorGroqKey
+        if (key7262.isBlank()) return cached.ifEmpty { GROQ_MODEL_LADDER_7164 }
+        val fetched = try {
+            val req = Request.Builder()
+                .url("https://api.groq.com/openai/v1/models")
+                .header("Authorization", "Bearer $key7262")
+                .header("Accept", "application/json")
+                .build()
+            exec(req, "groq_models_7262").use { resp ->
+                if (!resp.isSuccessful) null else {
+                    val arr = JSONObject(resp.body?.string() ?: "{}").optJSONArray("data")
+                    val ids = LinkedHashSet<String>()
+                    for (i in 0 until (arr?.length() ?: 0)) {
+                        val m = arr?.optJSONObject(i) ?: continue
+                        val id = m.optString("id", "")
+                        if (id.isBlank()) continue
+                        if (m.has("active") && !m.optBoolean("active", true)) continue
+                        val lower = id.lowercase()
+                        if (GROQ_NON_CHAT_MARKERS_7262.any { lower.contains(it) }) continue
+                        ids.add(id)
+                    }
+                    if (ids.isEmpty()) null else {
+                        val ordered = ArrayList<String>(ids.size)
+                        GROQ_MODEL_LADDER_7164.forEach { if (it in ids) ordered.add(it) }
+                        ids.forEach { if (it !in ordered) ordered.add(it) }
+                        ordered
+                    }
+                }
+            }
+        } catch (_: Throwable) { null }
+        return if (fetched != null) {
+            groqCatalogue7262 = fetched
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_GROQ_CATALOGUE_7262")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "LLM_GROQ_CATALOGUE_7262",
+                    "chatModels=${fetched.size} head=${fetched.take(4).joinToString(",")} " +
+                        "staticRungsAlive=${GROQ_MODEL_LADDER_7164.count { it in fetched }}/${GROQ_MODEL_LADDER_7164.size}",
+                )
+            } catch (_: Throwable) {}
+            fetched
+        } else {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_GROQ_CATALOGUE_UNREAD_7262") } catch (_: Throwable) {}
+            cached.ifEmpty { GROQ_MODEL_LADDER_7164 }
+        }
+    }
+
     private fun callGroq(system: String, user: String, maxTokens: Int): String? {
-        val idx7164 = groqModelIdx7164.coerceIn(0, GROQ_MODEL_LADDER_7164.size - 1)
-        val model7164 = GROQ_MODEL_LADDER_7164[idx7164]
+        val ladder7262 = groqModels7262()
+        val idx7164 = groqModelIdx7164.coerceIn(0, ladder7262.size - 1)
+        val model7164 = ladder7262[idx7164]
         val payload = JSONObject().apply {
             // V5.0.6691 — one model authority. A stale hard-coded Groq model
             // here could fail independently of the canonical route used by
@@ -1171,12 +1254,20 @@ object KeylessLlmClient {
                 // ladder advances. 401/403 are account-level and are left to
                 // classifyAndPenalise7150 — no model would help.
                 if (resp.code == 429 || resp.code == 404 || resp.code == 400) {
-                    groqModelIdx7164 = (idx7164 + 1) % GROQ_MODEL_LADDER_7164.size
+                    // V5.0.7262 — a 404 is Groq saying this id no longer
+                    // exists for this key; drop it from the cached catalogue
+                    // so the ladder is not walked back onto it.
+                    if (resp.code == 404 && ladder7262.size > 1) {
+                        groqCatalogue7262 = ladder7262.filterNot { it == model7164 }
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_GROQ_MODEL_RETIRED_7262") } catch (_: Throwable) {}
+                    }
+                    val next7262 = groqModels7262()
+                    groqModelIdx7164 = if (next7262.isEmpty()) 0 else (idx7164 + 1) % next7262.size
                     try {
                         com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_GROQ_MODEL_ROTATED_7164")
                         com.lifecyclebot.engine.ForensicLogger.lifecycle(
                             "LLM_GROQ_MODEL_ROTATED_7164",
-                            "from=$model7164 to=${GROQ_MODEL_LADDER_7164[groqModelIdx7164]} http=${resp.code}",
+                            "from=$model7164 to=${next7262.getOrNull(groqModelIdx7164) ?: "none"} http=${resp.code} ladder=${next7262.size}",
                         )
                     } catch (_: Throwable) {}
                 }
