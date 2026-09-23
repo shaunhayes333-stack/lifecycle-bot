@@ -2074,6 +2074,15 @@ object PipelineHealthCollector {
                     "METRICS_IDENTITY_BROKEN_7069",
                     "MARK_MCAP_DIVERGENCE_CORRECTED_7059",
                     "TICK_PROFIT_LOCK_EXEC_PRICE_REBASE",
+                    // V5.0.7269 — the stack as a multi-source: executable Jupiter
+                    // quotes and the pump.fun curve read from chain now vote in the
+                    // fan-out, and the cap is rebuilt from price × on-chain supply.
+                    "KEYLESS_MARK_JUPITER_QUOTE_7269",
+                    "KEYLESS_MARK_PUMP_CURVE_RPC_7269",
+                    "PUMP_CURVE_RPC_COMPLETE_SKIPPED_7269",
+                    "PUMP_CURVE_KEY_REMEMBERED_7269",
+                    "MCAP_REFRESHED_FROM_STACK_7269",
+                    "MCAP_REFRESH_AWAITING_SUPPLY_7269",
                     // V5.0.7226 — the second live sizing authority. On 7225 the
                     // sizer's floor fired 0 times and two 0.007 SOL live buys
                     // landed anyway; the resolver had been sizing LIVE against

@@ -95,6 +95,13 @@ object PumpFunWS {
                         val name = j.optString("name", "?")
                         val marketCapSol = j.optDouble("marketCapSol", 0.0)
                         if (mint.isBlank()) return
+                        // V5.0.7269 — the curve address rides in this payload; keep
+                        // it so the mark fan-out can read the curve from chain state
+                        // when no aggregator lists the mint. Recorded before the
+                        // throttle so a held mint is never left without its key.
+                        try {
+                            PumpCurveKeys7269.remember(mint, j.optString("bondingCurveKey", ""))
+                        } catch (_: Throwable) {}
                         // V5.0.4168 — PumpPortal WS adaptive throttle. Drops
                         // dust-mcap creates BEFORE they trigger the cascade
                         // (provider proofs, rugcheck, Birdeye/DexScreener

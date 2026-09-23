@@ -11411,6 +11411,37 @@ class BotService : Service() {
                         ts.lastPrice = priceUsd
                         ts.lastPriceUpdate = now
                         ts.lastPriceSource = resolvedSource6999  // V5.0.6999 (was always "DEXSCREENER_WS")
+                        // V5.0.7269 §THE_CAP_COMES_FROM_THE_STACK_TOO.
+                        //
+                        // ts.lastMcap was written only by DexScreener, Birdeye and
+                        // pump.fun payloads. With all three down on 7267 it froze at
+                        // intake while this line kept the price live, and the 7069
+                        // identity read every mover as broken (7268 stopped that
+                        // from suppressing the mark; this stops the cap going stale
+                        // in the first place). Market cap is price × supply, and
+                        // supply is an on-chain fact (OnChainSupplyAuthority7075).
+                        // So when the price is corroborated by two or more feeds,
+                        // or the cap on file is stale, the cap is recomputed from
+                        // the measured price and the chain supply. A mint whose
+                        // supply is not yet known asks for it, so the next pass can.
+                        try {
+                            val supply7269 = com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.supplyOf7075(mint)
+                            if (supply7269 > 0.0) {
+                                val capStale7269 = com.lifecyclebot.engine.truth.TokenMetricsAuthority7069.capStale7268(mint, now)
+                                val fromStack7269 = resolvedSource6999.contains("JUPITER_QUOTE") ||
+                                    resolvedSource6999.contains("PUMP_CURVE_RPC")
+                                if (agreeing7188 >= 2 || capStale7269 || fromStack7269 || ts.lastMcap <= 0.0) {
+                                    val cap7269 = priceUsd * supply7269
+                                    if (cap7269.isFinite() && cap7269 > 0.0) {
+                                        ts.lastMcap = cap7269
+                                        PipelineHealthCollector.labelInc("MCAP_REFRESHED_FROM_STACK_7269")
+                                    }
+                                }
+                            } else {
+                                com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.requestAsync7075(mint)
+                                PipelineHealthCollector.labelInc("MCAP_REFRESH_AWAITING_SUPPLY_7269")
+                            }
+                        } catch (_: Throwable) {}
                         // Append a tick candle so trailing-stop + pattern AIs see motion.
                         // Keep history bounded — same 300-candle cap used elsewhere.
                         val candle = com.lifecyclebot.data.Candle(

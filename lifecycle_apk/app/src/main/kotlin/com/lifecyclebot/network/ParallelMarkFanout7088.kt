@@ -182,6 +182,12 @@ object ParallelMarkFanout7088 {
             "RAYDIUM" to { safe { raydiumBatch7088(wanted) } },
             "HELIUS_DAS" to { safe { heliusAssetBatch7088(wanted) } },
             "PUMPFUN" to { safe { pumpFunFanout7088(wanted) } },
+            // V5.0.7269 — two more independent derivations, both aimed at the
+            // bonding-curve mints the aggregators do not list: an executable
+            // Jupiter quote (what a sell would actually receive) and the curve
+            // account itself, read from chain state through Helius RPC.
+            "JUPITER_QUOTE" to { safe { jupiterQuoteFanout7269(wanted) } },
+            "PUMP_CURVE_RPC" to { safe { pumpCurveRpcFanout7269(wanted) } },
         )
 
         val latch = CountDownLatch(tasks.size)
@@ -464,6 +470,151 @@ object ParallelMarkFanout7088 {
         return out.toMap()
     }
 
+    /**
+     * V5.0.7269 §USE_THE_STACK_AS_A_MULTI_PRICE_SOURCE.
+     *
+     * Operator 5.0.7267: dexscreener sr=0%, birdeye 0%, pumpfun 13%, and
+     * `MARK_PARALLEL_FANOUT_7088 requested=17 priced=5 stillMissing=12` — the
+     * twelve being bonding-curve pump.fun mints (mcap ~$3.5k) that Jupiter's
+     * price surface, Raydium and DefiLlama do not carry. Meanwhile
+     * jupiter_quote read transport=100% and helius sr=100%. Two feeds that were
+     * up were not being asked.
+     *
+     * JUPITER_QUOTE asks for an executable quote of QUOTE_LAMPORTS of SOL into
+     * the mint and derives price from what the route would actually deliver.
+     * That is the most honest mark there is for a sell — it is the number the
+     * bot would receive — and Jupiter routes pump.fun bonding curves directly.
+     * Only pump.fun mints are quoted here, because those are the coverage hole
+     * and their decimals are a protocol constant (6), so no cache lookup can
+     * be wrong. Bounded per pass and through HealthAwareHttp so a bad day on
+     * this host backs off like every other feed.
+     */
+    private const val QUOTE_LAMPORTS_7269 = 10_000_000L      // 0.01 SOL
+    private const val QUOTE_MAX_MINTS_7269 = 12
+    private const val PUMP_TOKEN_DECIMALS_7269 = 6
+    private const val CURVE_MAX_MINTS_7269 = 16
+
+    private val jupiterQuoteApi7269 by lazy { JupiterApi("") }
+
+    private fun solUsd7269(): Double = try {
+        com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+    } catch (_: Throwable) { 0.0 }
+
+    private fun jupiterQuoteFanout7269(mints: List<String>): Map<String, Double> {
+        val solUsd = solUsd7269()
+        if (solUsd <= 0.0) return emptyMap()
+        val targets = mints.filter { PumpFunDirectApi.isPumpFunMint(it) }.take(QUOTE_MAX_MINTS_7269)
+        if (targets.isEmpty()) return emptyMap()
+        val out = ConcurrentHashMap<String, Double>()
+        val latch = CountDownLatch(targets.size)
+        for (mint in targets) {
+            try {
+                pool.execute {
+                    try {
+                        val q = jupiterQuoteApi7269.getQuote(
+                            inputMint = JupiterApi.SOL_MINT,
+                            outputMint = mint,
+                            amountRaw = QUOTE_LAMPORTS_7269,
+                            slippageBps = 300,
+                        )
+                        val tokens = q.outAmount.toDouble() / Math.pow(10.0, PUMP_TOKEN_DECIMALS_7269.toDouble())
+                        if (tokens > 0.0 && tokens.isFinite()) {
+                            val usdIn = QUOTE_LAMPORTS_7269.toDouble() / 1e9 * solUsd
+                            val px = usdIn / tokens
+                            if (px.isFinite() && px > 0.0) out[mint] = px
+                        }
+                    } catch (_: Throwable) {
+                    } finally {
+                        latch.countDown()
+                    }
+                }
+            } catch (_: Throwable) { latch.countDown() }
+        }
+        try { latch.await(3_500L, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+        if (out.isNotEmpty()) {
+            try { PipelineHealthCollector.labelInc("KEYLESS_MARK_JUPITER_QUOTE_7269") } catch (_: Throwable) {}
+        }
+        return out.toMap()
+    }
+
+    /**
+     * V5.0.7269 — the bonding curve, read from chain state.
+     *
+     * pump.fun's BondingCurve account is: 8-byte discriminator, then five
+     * little-endian u64s — virtual_token_reserves, virtual_sol_reserves,
+     * real_token_reserves, real_sol_reserves, token_total_supply — then a
+     * `complete` byte. The curve's spot price in SOL per token is
+     * virtual_sol / virtual_token with the two decimal scales (9 and 6)
+     * applied. This is the same arithmetic pump.fun's own frontend performs
+     * and PumpPortal's `marketCapSol` is computed from; the difference is
+     * that RPC answers when the frontend does not. The account address is
+     * whatever PumpPortal announced at creation (PumpCurveKeys7269); a mint
+     * without one is not read here. A completed curve has migrated and is
+     * priced by the AMM feeds, so it is skipped rather than reported from a
+     * frozen curve.
+     */
+    private fun readU64Le7269(b: ByteArray, off: Int): Double {
+        var v = 0.0
+        var mult = 1.0
+        for (i in 0 until 8) {
+            v += (b[off + i].toInt() and 0xFF) * mult
+            mult *= 256.0
+        }
+        return v
+    }
+
+    private fun pumpCurveRpcFanout7269(mints: List<String>): Map<String, Double> {
+        val url = rpcUrl
+        if (url.isBlank()) return emptyMap()
+        val solUsd = solUsd7269()
+        if (solUsd <= 0.0) return emptyMap()
+        val targets = mints.mapNotNull { m ->
+            if (!PumpFunDirectApi.isPumpFunMint(m)) null
+            else PumpCurveKeys7269.keyFor(m)?.let { m to it }
+        }.take(CURVE_MAX_MINTS_7269)
+        if (targets.isEmpty()) return emptyMap()
+        val out = HashMap<String, Double>()
+        var skippedComplete = 0
+        for ((mint, curve) in targets) {
+            try {
+                val payload =
+                    """{"jsonrpc":"2.0","id":"7269","method":"getAccountInfo",""" +
+                        """"params":["$curve",{"encoding":"base64","commitment":"processed"}]}"""
+                val req = Request.Builder()
+                    .url(url)
+                    .post(payload.toRequestBody("application/json".toMediaType()))
+                    .build()
+                com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "helius").use { resp ->
+                    if (!resp.isSuccessful) return@use
+                    val body = resp.body?.string() ?: return@use
+                    val value = JSONObject(body).optJSONObject("result")?.optJSONObject("value") ?: return@use
+                    val dataArr = value.optJSONArray("data") ?: return@use
+                    val b64 = dataArr.optString(0, "")
+                    if (b64.isBlank()) return@use
+                    val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+                    if (bytes.size < 49) return@use
+                    val vTok = readU64Le7269(bytes, 8)
+                    val vSol = readU64Le7269(bytes, 16)
+                    val complete = (bytes[48].toInt() and 0xFF) != 0
+                    if (complete) { skippedComplete++; return@use }
+                    if (vTok <= 0.0 || vSol <= 0.0) return@use
+                    val priceSol = (vSol / 1e9) / (vTok / Math.pow(10.0, PUMP_TOKEN_DECIMALS_7269.toDouble()))
+                    val px = priceSol * solUsd
+                    if (px.isFinite() && px > 0.0) out[mint] = px
+                }
+            } catch (_: Throwable) {}
+        }
+        if (out.isNotEmpty()) {
+            try { PipelineHealthCollector.labelInc("KEYLESS_MARK_PUMP_CURVE_RPC_7269") } catch (_: Throwable) {}
+        }
+        if (skippedComplete > 0) {
+            try { PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_COMPLETE_SKIPPED_7269") } catch (_: Throwable) {}
+        }
+        return out
+    }
+
     /** Diagnostic line for the pipeline report. */
     fun status(): String {
         val wins = sourceWins.entries
@@ -472,6 +623,7 @@ object ParallelMarkFanout7088 {
             .ifBlank { "none" }
         return "passes=${passes.get()} corroborated=${corroborated.get()} " +
             "singleSource=${single.get()} contested=${contested.get()} " +
-            "rpc=${if (rpcUrl.isBlank()) "unset" else "set"} quotesBySource=[$wins]"
+            "rpc=${if (rpcUrl.isBlank()) "unset" else "set"} curveKeys7269=${PumpCurveKeys7269.size()} " +
+            "quotesBySource=[$wins]"
     }
 }

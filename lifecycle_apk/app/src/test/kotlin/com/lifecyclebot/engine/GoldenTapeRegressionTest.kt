@@ -9805,6 +9805,49 @@ class GoldenTapeRegressionTest {
         assertTrue(phc.contains("\"MARK_MCAP_RECONCILE_SKIPPED_CAP_STALE_7268\","))
     }
 
+    /** V5.0.7269 — the stack is a multi-source: Jupiter executable quotes and
+     * the pump.fun curve read from chain vote in the parallel fan-out, the
+     * curve key is kept from the PumpPortal payload, and the market cap is
+     * rebuilt from price × on-chain supply instead of freezing at intake. */
+    @Test
+    fun V5_0_7269_stack_is_a_multi_price_source_and_cap_follows_it() {
+        val fan = java.io.File("src/main/kotlin/com/lifecyclebot/network/ParallelMarkFanout7088.kt").readText()
+        val keys = java.io.File("src/main/kotlin/com/lifecyclebot/network/PumpCurveKeys7269.kt").readText()
+        val ws = java.io.File("src/main/kotlin/com/lifecyclebot/network/PumpFunWS.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        // Two new feeds run inside the same latch as the original six.
+        assertTrue(fan.contains("\"JUPITER_QUOTE\" to { safe { jupiterQuoteFanout7269(wanted) } },"))
+        assertTrue(fan.contains("\"PUMP_CURVE_RPC\" to { safe { pumpCurveRpcFanout7269(wanted) } },"))
+        assertTrue(fan.contains("private const val QUOTE_LAMPORTS_7269 = 10_000_000L"))
+        assertTrue(fan.contains("private const val PUMP_TOKEN_DECIMALS_7269 = 6"))
+        assertTrue(fan.contains("inputMint = JupiterApi.SOL_MINT,"))
+        assertTrue(fan.contains("\"method\":\"getAccountInfo\","))
+        assertTrue(fan.contains("val vTok = readU64Le7269(bytes, 8)"))
+        assertTrue(fan.contains("val vSol = readU64Le7269(bytes, 16)"))
+        assertTrue(fan.contains("if (complete) { skippedComplete++; return@use }"))
+        // Both go through HealthAwareHttp / the health-aware Jupiter client, never a raw call.
+        assertTrue(fan.contains("HealthAwareHttp.execute(http, req, host = \"helius\")"))
+
+        // Curve key remembered at creation, before the throttle.
+        assertTrue(keys.contains("fun remember(mint: String, bondingCurveKey: String)"))
+        assertTrue(ws.contains("PumpCurveKeys7269.remember(mint, j.optString(\"bondingCurveKey\", \"\"))"))
+        val rememberIdx = ws.indexOf("PumpCurveKeys7269.remember(")
+        val throttleIdx = ws.indexOf("PumpPortalThrottle.allowCreate(marketCapSol)", rememberIdx)
+        assertTrue(rememberIdx > 0 && throttleIdx > rememberIdx)
+
+        // Cap follows the stack: price × on-chain supply when corroborated, stale, or stack-sourced.
+        assertTrue(bot.contains("val supply7269 = com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.supplyOf7075(mint)"))
+        assertTrue(bot.contains("if (agreeing7188 >= 2 || capStale7269 || fromStack7269 || ts.lastMcap <= 0.0) {"))
+        assertTrue(bot.contains("ts.lastMcap = cap7269"))
+        assertTrue(bot.contains("MCAP_REFRESHED_FROM_STACK_7269"))
+        assertTrue(bot.contains("OnChainSupplyAuthority7075.requestAsync7075(mint)"))
+
+        assertTrue(phc.contains("\"KEYLESS_MARK_PUMP_CURVE_RPC_7269\","))
+        assertTrue(phc.contains("\"MCAP_REFRESHED_FROM_STACK_7269\","))
+    }
+
     /** V5.0.7260 — the oracle must judge the current candidate, not repeat a
      * blank-signature bootstrap forecast or the historical book average. */
     @Test

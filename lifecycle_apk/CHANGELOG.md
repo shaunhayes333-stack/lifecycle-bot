@@ -4,6 +4,13 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.7269] - 2026-09-23 — THE STACK IS A MULTI-PRICE SOURCE: TWO MORE FEEDS, AND THE CAP FOLLOWS THEM
+
+- Operator: "use other sources for price for fucks sake. use the stack as a multi price source."
+- 7267: `MARK_PARALLEL_FANOUT_7088 requested=17 priced=5 stillMissing=12` with dexscreener 0%, birdeye 0%, pumpfun 13% — while jupiter_quote read transport=100% and helius sr=100%. The twelve unpriced were bonding-curve pump.fun mints no aggregator lists.
+- **Two new feeds in the parallel fan-out**, same latch, same agreement merge: `JUPITER_QUOTE` (an executable 0.01 SOL quote into the mint, price from what the route would deliver; pump.fun mints only, decimals a protocol constant) and `PUMP_CURVE_RPC` (the bonding-curve account read from chain via Helius `getAccountInfo`: virtual SOL / virtual token reserves, migrated curves skipped). New `PumpCurveKeys7269` keeps the curve address PumpPortal's `create` payload has always carried in `bondingCurveKey`; the WS parser now records it. `KEYLESS_MARK_JUPITER_QUOTE_7269`, `KEYLESS_MARK_PUMP_CURVE_RPC_7269`, `PUMP_CURVE_KEY_REMEMBERED_7269`.
+- **Market cap follows the stack.** At the mark apply site, when the price is corroborated (≥2 feeds), the cap on file is stale (7268), the mark came from a stack feed, or no cap exists, `ts.lastMcap = price × on-chain supply` (`OnChainSupplyAuthority7075`); a mint without supply on file requests it. `MCAP_REFRESHED_FROM_STACK_7269`, `MCAP_REFRESH_AWAITING_SUPPLY_7269`. This is what keeps the 7069 identity true when the cap providers are down: the cap is derived from a measured price and a chain fact, never from a guess.
+
 ## [5.0.7268] - 2026-09-23 — A CAP NOBODY REFRESHED IS STALE, NOT EVIDENCE AGAINST THE PRICE
 
 - 7267 paper run, every cap source down (dexscreener sr=0%, birdeye 0%, pumpfun 13%): `TICK_PROFIT_LOCK_EXEC_PRICE_REBASE` JEANDICK raw=+147% exec=0.0, PEPENOM +70%→0.0, OTC +43%→0.0 (`FANOUT_CORROBORATED_x2`), MONEY +31%→0.0; `METRICS_IDENTITY_BROKEN_7069=9174`, `MARK_IDENTITY_SUPPRESSED_BROKEN_7230=1297`, `MARK_MCAP_DIVERGENCE_CORRECTED_7059=918`. `ts.lastMcap` is written only by DexScreener/Birdeye/pump.fun payloads while `ts.lastPrice` moves every tick on the keyless chain, so on the exit path the 7069 identity compares a live price against a cap frozen at intake: every mover "breaks" identity, 7059 overwrites the live quote with `entryPrice × flatCap/entryCap = entryPrice`, and 7230 suppresses the mark. Four runners read 0% to the exit engine.
