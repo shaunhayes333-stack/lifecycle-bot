@@ -4,6 +4,13 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.7261] - 2026-09-23 — COLD-START ORACLE DEADLOCK REPAIR
+
+- Removed the Oracle's pre-intelligence `noEvidenceAnywhere` return that made every candidate a non-executable probe on a clean book and permanently prevented the terminal evidence needed to leave bootstrap.
+- Added a cold-book candidate verdict that requires positive agreement across score, candidate confidence, setup quality/phase, `UnifiedPolicyHead`, the bounded brain network, and recorded safety facts before returning `ADMIT`.
+- Kept neutral Oracle `PROBE` strictly shadow-only; missing, weak, WAIT/REJECT, low-quality, policy-vetoed, brain-negative, and recorded-unsafe candidates still cannot spend canonical capital.
+- Added `coldAdmit7261` / `coldProbe7261` telemetry so the next clean run proves whether the Oracle is discriminating rather than collapsing to one verdict.
+
 ## [5.0.7260] - 2026-09-23 — CANDIDATE-SPECIFIC ORACLE RECOVERY
 
 - Threaded setup quality, edge phase, and the actual candidate confidence into both meme admission boundaries and the cross-asset entry contract, ending the blank-signature forecast path that reported `forecastResolved=0`.

@@ -9563,4 +9563,32 @@ class GoldenTapeRegressionTest {
         assertTrue(fdg.contains("BRAIN_CONSENSUS_UNAVAILABLE_7260"))
     }
 
+    /** V5.0.7261 — requiring an explicit Oracle ADMIT must not make the first
+     * canonical close a logical impossibility. A cold book has no terminal
+     * cohort yet, so the Oracle must run the current-candidate intelligence
+     * stack before returning ADMIT or non-economic PROBE. */
+    @Test
+    fun V5_0_7261_cold_start_oracle_uses_candidate_consensus_without_executable_probe() {
+        val oracle = java.io.File(
+            "src/main/kotlin/com/lifecyclebot/engine/truth/PredictiveEntryOracle6915.kt",
+        ).readText()
+        val learned = java.io.File(
+            "src/main/kotlin/com/lifecyclebot/engine/truth/LearnedAdmissionAuthority6846.kt",
+        ).readText()
+
+        assertTrue(oracle.contains("COLD_START_CURRENT_CANDIDATE_UNANIMOUS_ADMIT_7261"))
+        assertTrue(oracle.contains("COLD_START_CURRENT_CANDIDATE_NOT_UNANIMOUS_7261"))
+        assertTrue(oracle.contains("s >= 60"))
+        assertTrue(oracle.contains("candidateConfidenceSafe7260 >= 0.40"))
+        assertTrue(oracle.contains("policyAgrees7261"))
+        assertTrue(oracle.contains("brainDelta7261 >= -5.0"))
+        assertTrue(oracle.contains("hardSafetyRefusal6927(creator)"))
+        assertTrue(oracle.contains("coldAdmit7261=") && oracle.contains("coldProbe7261="))
+
+        // The deadlock was the old early neutral return, before policy/brain
+        // reads. It must never reappear, and PROBE must remain non-economic.
+        assertFalse(oracle.contains("Verdict.PROBE, 0.0, 0.5, 0.0,\n                contributions + \"noEvidenceAnywhere\""))
+        assertTrue(learned.contains("ORACLE_PROBE_NON_EXECUTABLE_7259"))
+    }
+
 }

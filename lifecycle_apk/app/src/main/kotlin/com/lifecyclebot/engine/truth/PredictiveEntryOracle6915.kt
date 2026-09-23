@@ -180,6 +180,9 @@ object PredictiveEntryOracle6915 {
     private val exactForecastHits7260 = AtomicLong(0L)
     private val unifiedPolicyReads7260 = AtomicLong(0L)
     private val unifiedPolicyBindingVetoes7260 = AtomicLong(0L)
+    /** V5.0.7261 — cold books must still judge the current candidate. */
+    private val coldCandidateAdmits7261 = AtomicLong(0L)
+    private val coldCandidateProbes7261 = AtomicLong(0L)
 
     private data class Level(val name: String, val mean: Double, val pWin: Double, val n: Double) {
         val weight: Double get() = if (n <= 0.0) 0.0 else n / (n + SHRINK_K)
@@ -730,13 +733,131 @@ object PredictiveEntryOracle6915 {
         val levels = listOfNotNull(cell, lane1, globalLevel).filter { it.weight > 0.0 }
         if (levels.isEmpty()) {
             globalOnly.incrementAndGet()
-            probes.incrementAndGet()
-            val f = Forecast(
-                Verdict.PROBE, 0.0, 0.5, 0.0,
-                contributions + "noEvidenceAnywhere",
-                "COLD_START_NO_TERMINAL_EVIDENCE_6915",
+            // V5.0.7261 — 7260 returned here before any current-candidate
+            // intelligence ran. On a clean book that made policyReads=0,
+            // brainReads=0 and PROBE=100%, and 7259 correctly made all of
+            // those probes non-economic. The result was a permanent zero-buy
+            // bootstrap: no terminal evidence could ever be created because
+            // terminal evidence was mandatory before the first entry.
+            //
+            // A cold book has no historical evidence, but it still has the
+            // candidate in front of it. Require agreement across the current
+            // score, model confidence, setup quality/phase, UnifiedPolicyHead
+            // and bounded brain network. Missing optional quality/phase is
+            // neutral, never positive; explicit WAIT/REJECT or C/D/F quality
+            // prevents admission. Recorded creator/token safety remains an
+            // absolute refusal. PROBE itself remains shadow-only.
+            val hardRefusal7261 = hardSafetyRefusal6927(creator)
+                ?: tierBRefusal6942(mint, symbol)
+            if (hardRefusal7261 != null) {
+                refuses.incrementAndGet()
+                return Forecast(
+                    Verdict.REFUSE, -100.0, 0.0, 1.0,
+                    contributions + hardRefusal7261,
+                    hardRefusal7261,
+                )
+            }
+
+            val qualityKey7261 = quality.trim().uppercase()
+            val qualityP7261 = when (qualityKey7261) {
+                "A+" -> 0.90
+                "A" -> 0.82
+                "B+" -> 0.74
+                "B" -> 0.66
+                "C" -> 0.42
+                "D", "F" -> 0.20
+                else -> 0.50
+            }
+            val explicitWeakQuality7261 = qualityKey7261 in setOf("C", "D", "F")
+            val phaseKey7261 = edgePhase.trim().uppercase()
+            val explicitNonEntryPhase7261 = listOf("WAIT", "REJECT", "NO_BUY", "BLOCK")
+                .any { phaseKey7261.contains(it) }
+            val scoreP7261 = s / 100.0
+
+            var policyPWin7261 = 0.50
+            var policyTier7261 = com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.BOOTSTRAP
+            var policyRead7261 = false
+            try {
+                val meta = com.lifecyclebot.engine.AutonomousMetaPolicy
+                    .conviction(laneKey, s, regime).coerceIn(0.0, 2.0) / 2.0
+                policyPWin7261 = com.lifecyclebot.engine.UnifiedPolicyHead.predictWinProb(
+                    laneKey,
+                    com.lifecyclebot.engine.UnifiedPolicyHead.Signals(
+                        mlEntryConf = candidateConfidenceSafe7260,
+                        symGreenLight = scoreP7261,
+                        evRatio = scoreP7261,
+                        metaConviction = meta,
+                        fwdPWin = scoreP7261,
+                        candConf = candidateConfidenceSafe7260,
+                    ),
+                ).coerceIn(0.0, 1.0)
+                val rawTier = com.lifecyclebot.engine.UnifiedPolicyHead.laneOwnHeadAuthority6605(laneKey)
+                val calibratedTier = com.lifecyclebot.engine.UnifiedPolicyHead.currentAuthority(laneKey)
+                policyTier7261 = if (rawTier.ordinal <= calibratedTier.ordinal) rawTier else calibratedTier
+                policyRead7261 = true
+                unifiedPolicyReads7260.incrementAndGet()
+            } catch (_: Throwable) {}
+
+            var brainDelta7261 = 0.0
+            try {
+                val reads = brainNetwork6917(laneKey, s, mint, symbol, sourceFamily, liquidityUsd, creator)
+                brainDelta7261 = reads.sumOf { it.deltaPct }
+                    .coerceIn(-BRAIN_NETWORK_CAP_PCT_6917, BRAIN_NETWORK_CAP_PCT_6917)
+                if (reads.isNotEmpty()) {
+                    brainReads6917.addAndGet(reads.size.toLong())
+                    contributions += reads.map { "${it.label}=${"%+.1f".format(it.deltaPct)}" }
+                }
+            } catch (_: Throwable) {}
+
+            val currentCandidatePWin7261 = (
+                scoreP7261 * 0.45 +
+                    candidateConfidenceSafe7260 * 0.30 +
+                    qualityP7261 * 0.15 +
+                    policyPWin7261 * 0.10 +
+                    brainDelta7261 / 100.0
+                ).coerceIn(0.0, 1.0)
+            val policyBinding7261 = policyTier7261 in setOf(
+                com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.LEARNED,
+                com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE,
             )
-            return f
+            val policyAgrees7261 = policyRead7261 &&
+                (!policyBinding7261 || policyPWin7261 > 0.50)
+            val candidateAdmit7261 =
+                s >= 60 &&
+                    candidateConfidenceSafe7260 >= 0.40 &&
+                    currentCandidatePWin7261 > 0.56 &&
+                    !explicitWeakQuality7261 &&
+                    !explicitNonEntryPhase7261 &&
+                    policyAgrees7261 &&
+                    brainDelta7261 >= -5.0
+            val coldExpectancy7261 = ((currentCandidatePWin7261 * 2.0) - 1.0) * 100.0
+            contributions += listOf(
+                "coldCandidate(score=$s,p=${"%.2f".format(scoreP7261)})",
+                "candidateConf(p=${"%.2f".format(candidateConfidenceSafe7260)})",
+                "quality(${qualityKey7261.ifBlank { "UNKNOWN" }},p=${"%.2f".format(qualityP7261)})",
+                "phase(${phaseKey7261.ifBlank { "UNKNOWN" }})",
+                "policy(${policyTier7261.name},p=${"%.2f".format(policyPWin7261)})",
+                "brain(${"%+.1f".format(brainDelta7261)})",
+            )
+            return if (candidateAdmit7261) {
+                admits.incrementAndGet()
+                coldCandidateAdmits7261.incrementAndGet()
+                Forecast(
+                    Verdict.ADMIT, coldExpectancy7261, currentCandidatePWin7261,
+                    currentCandidatePWin7261.coerceAtLeast(MIN_CONFIDENCE_TO_REFUSE),
+                    contributions,
+                    "COLD_START_CURRENT_CANDIDATE_UNANIMOUS_ADMIT_7261",
+                )
+            } else {
+                probes.incrementAndGet()
+                coldCandidateProbes7261.incrementAndGet()
+                Forecast(
+                    Verdict.PROBE, coldExpectancy7261, currentCandidatePWin7261,
+                    currentCandidatePWin7261.coerceIn(0.0, MIN_CONFIDENCE_TO_REFUSE),
+                    contributions + "noHistoricalEvidence",
+                    "COLD_START_CURRENT_CANDIDATE_NOT_UNANIMOUS_7261",
+                )
+            }
         }
         val wSum = levels.sumOf { it.weight }
         val blendedE = levels.sumOf { it.mean * it.weight } / wSum
@@ -1158,6 +1279,7 @@ object PredictiveEntryOracle6915 {
             "brainReads6917=${brainReads6917.get()} brainCap=${BRAIN_NETWORK_CAP_PCT_6917}% " +
             "exactFwd7260=${exactForecastHits7260.get()} policyReads7260=${unifiedPolicyReads7260.get()} " +
             "policyVeto7260=${unifiedPolicyBindingVetoes7260.get()} " +
+            "coldAdmit7261=${coldCandidateAdmits7261.get()} coldProbe7261=${coldCandidateProbes7261.get()} " +
             "shrinkK=$SHRINK_K refuseAt=${REFUSE_EXPECTANCY_PCT}% minConf=$MIN_CONFIDENCE_TO_REFUSE"
 
     internal fun resetForTest() {
@@ -1165,5 +1287,6 @@ object PredictiveEntryOracle6915 {
         cellHits.set(0L); laneHits.set(0L); globalOnly.set(0L); brainReads6917.set(0L)
         exactForecastHits7260.set(0L); unifiedPolicyReads7260.set(0L)
         unifiedPolicyBindingVetoes7260.set(0L)
+        coldCandidateAdmits7261.set(0L); coldCandidateProbes7261.set(0L)
     }
 }
