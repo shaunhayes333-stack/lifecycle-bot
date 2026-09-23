@@ -11045,6 +11045,26 @@ class BotService : Service() {
                             var corroborated7088 = 0
                             for ((m, mk) in fanout7088) {
                                 if (!mk.priceUsd.isFinite() || mk.priceUsd <= 0.0) continue
+                                // V5.0.7273 §A_MEDIAN_OF_FEEDS_THAT_DISAGREE_IS_NOT_A_MARK.
+                                //
+                                // merge7088 returns the median when every feed answered
+                                // and none agree, and says so in its own comment: "7077
+                                // will decline to qualify the mint". This loop never
+                                // asked. It wrote that median to ts.lastPrice, where the
+                                // rapid stop monitor reads it raw; with two feeds, one of
+                                // them wrong, the median is half the truth, which is a
+                                // -50% "catastrophe" on a position that did not move.
+                                // 5.0.7272: USDS, WLFI and 72QvBV bought at real prices and
+                                // sold six seconds later for 0.000 SOL. A contested pass
+                                // leaves the previous mark in place and asks for a repair;
+                                // the next pass, or a single unambiguous feed, moves it.
+                                if (mk.sourceCount >= 2 && !mk.corroborated) {
+                                    try {
+                                        PipelineHealthCollector.labelInc("MARK_CONTESTED_NOT_APPLIED_7273")
+                                        com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.requestRepair(m, "hot_loop_contested_7273")
+                                    } catch (_: Throwable) {}
+                                    continue
+                                }
                                 priceMap[m] = mk.priceUsd
                                 // The source label carries the corroboration
                                 // state so every downstream reader — and the
@@ -11468,7 +11488,32 @@ class BotService : Service() {
                                 // a chain-derived feed, or no cap at all does.
                                 if (agreeing7188 >= 2 || fromStack7269 || ts.lastMcap <= 0.0) {
                                     val cap7269 = priceUsd * supply7269
-                                    if (cap7269.isFinite() && cap7269 > 0.0) {
+                                    // V5.0.7273 §THE_REBUILT_CAP_WAS_ON_A_DIFFERENT_SUPPLY.
+                                    //
+                                    // price × on-chain supply is the SOLANA cap. The entry
+                                    // cap on a held major came from DexScreener's global
+                                    // figure (WLFI $8.49B, USDS $9.6B). MarkBasisReconciler
+                                    // 7017 prices a refused tick as entry × curCap/entryCap,
+                                    // so a rebuilt cap 100–1000x below the entry cap turns
+                                    // any out-of-band tick into a -99.9% fill. 5.0.7272:
+                                    // three such fills in one minute. A rebuild that would
+                                    // move the cap ratio away from the price ratio by more
+                                    // than 2x is a supply-basis switch, not a market move,
+                                    // and is not written; the cap on file stands.
+                                    val entryCap7273 = ts.position.entryMcap
+                                    val entryPx7273 = ts.position.entryPrice
+                                    val basisMismatch7273 = ts.position.isOpen &&
+                                        entryCap7273.isFinite() && entryCap7273 > 0.0 &&
+                                        entryPx7273.isFinite() && entryPx7273 > 0.0 &&
+                                        run {
+                                            val capRatio = cap7269 / entryCap7273
+                                            val pxRatio = priceUsd / entryPx7273
+                                            val rel = if (pxRatio > 0.0) capRatio / pxRatio else 0.0
+                                            !rel.isFinite() || rel < 0.5 || rel > 2.0
+                                        }
+                                    if (basisMismatch7273) {
+                                        PipelineHealthCollector.labelInc("MCAP_STACK_REBUILD_BASIS_MISMATCH_7273")
+                                    } else if (cap7269.isFinite() && cap7269 > 0.0) {
                                         ts.lastMcap = cap7269
                                         PipelineHealthCollector.labelInc("MCAP_REFRESHED_FROM_STACK_7269")
                                     }
@@ -22213,7 +22258,21 @@ if (hotExitHandledSweep) {
                 ?: journalBuy6513?.price?.takeIf { it > 0.0 }
                 ?: 0.0
             val cached = try { TokenMapAuthority.cachedForExit6513(cp.mint) } catch (_: Throwable) { null }
-            if ((ts.lastPrice <= 0.0 || System.currentTimeMillis() - ts.lastPriceUpdate > 90_000L) && cached != null) {
+            // V5.0.7273 — a route-derived cache price is a fallback for a mark that
+            // is missing or old; it is not allowed to place a position more than
+            // 100x from its own entry in one write, which the WS tick filter and the
+            // pair poll both already refuse. The previous mark stands and the hot
+            // loop's fan-out decides.
+            val cacheJumpRejected7273 = cached != null && canonicalEntryPrice6513 > 0.0 && run {
+                val cpx = cached.priceUsd ?: 0.0
+                if (cpx <= 0.0) return@run true
+                val r = cpx / canonicalEntryPrice6513
+                !r.isFinite() || r > 100.0 || r < 0.01
+            }
+            if (cacheJumpRejected7273) {
+                try { PipelineHealthCollector.labelInc("EXIT_CACHE_HYDRATE_JUMP_REJECTED_7273") } catch (_: Throwable) {}
+            }
+            if ((ts.lastPrice <= 0.0 || System.currentTimeMillis() - ts.lastPriceUpdate > 90_000L) && cached != null && !cacheJumpRejected7273) {
                 ts.lastPrice = cached.priceUsd ?: 0.0
                 ts.lastPriceUpdate = cached.updatedAtMs
                 ts.lastPriceSource = cached.sourceScanner.ifBlank { "TOKEN_MAP_CACHE_6513" }
@@ -25954,7 +26013,7 @@ if (hotExitHandledSweep) {
             // V5.0.7270 — a dollar-pegged instrument has no move to capture; the
             // lane budget it would spend goes to something that can move.
             val peggedQuality7270 = try {
-                com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged(ts.symbol, ts.lastPrice, ts.lastMcap)
+                com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged(ts.symbol, ts.lastPrice, ts.lastMcap, ts.mint)
             } catch (_: Throwable) { false }
             if (peggedQuality7270 && !ts.position.isOpen) {
                 com.lifecyclebot.engine.truth.PeggedAssetGuard7270.noteSkipped("QUALITY", ts.symbol)
@@ -26229,7 +26288,7 @@ if (hotExitHandledSweep) {
                     // lane re-evaluating stablecoins. A peg is a structural no-move;
                     // decline before the permit spends anything.
                     val peggedBlue7270 = try {
-                        com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged(ts.symbol, ts.lastPrice, ts.lastMcap)
+                        com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged(ts.symbol, ts.lastPrice, ts.lastMcap, ts.mint)
                     } catch (_: Throwable) { false }
                     if (peggedBlue7270 && !ts.position.isOpen) {
                         com.lifecyclebot.engine.truth.PeggedAssetGuard7270.noteSkipped("BLUECHIP", ts.symbol)
@@ -28873,7 +28932,7 @@ if (hotExitHandledSweep) {
                             // executor sees the order; the intent is terminalized so the
                             // funnel does not report an allow with no execution.
                             val peggedCore7271 = try {
-                                com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged(ts.symbol, ts.lastPrice, ts.lastMcap)
+                                com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged(ts.symbol, ts.lastPrice, ts.lastMcap, ts.mint)
                             } catch (_: Throwable) { false }
                             if (peggedCore7271) {
                                 com.lifecyclebot.engine.truth.PeggedAssetGuard7270.noteSkipped(cyclePrimaryLane.ifBlank { "CORE" }, ts.symbol)
@@ -32451,10 +32510,57 @@ if (hotExitHandledSweep) {
     }
 
     private val entryHydrationPending6647 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    /** V5.0.7273 — last fan-out hydration per mint; one eight-feed pass per 30 s is plenty. */
+    private val entryHydrationFanoutLastMs7273 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     private fun requestEntryHydration6647(mint: String, ts: TokenState) {
         if (!entryHydrationPending6647.add(mint)) return
         scope.launch(supervisorDispatcher6647 + CoroutineName("entry-hydration-${mint.take(8)}")) {
             try {
+                // V5.0.7273 §CANDIDATES_NEVER_REACHED_THE_FAN_OUT.
+                //
+                // The eight-feed fan-out priced held positions only. A candidate
+                // whose DexScreener poll was rate-limited (5.0.7272: 3,312 cycles
+                // on a synthesized pair) or that 7270 deliberately left unpriced
+                // ("leave to fan-out", 18 majors this session) had only this
+                // serial cascade — Birdeye 401-dead, DexScreener behind the same
+                // limiter, pump.fun at 26% — and so BLUECHIP raised 101 intents
+                // with 0 marks, CORE 260 with 0. Ask the stack first, once per
+                // 30 s per mint; a single unambiguous feed or an agreeing set is
+                // written as a dated live price under its real label, a
+                // contested pass is not written (see the hot loop), and the
+                // cascade still runs for liquidity and pool metadata.
+                val nowFan7273 = System.currentTimeMillis()
+                val lastFan7273 = entryHydrationFanoutLastMs7273[mint] ?: 0L
+                if (nowFan7273 - lastFan7273 >= 30_000L) {
+                    entryHydrationFanoutLastMs7273[mint] = nowFan7273
+                    val fan7273 = try {
+                        com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(listOf(mint))[mint]
+                    } catch (_: Throwable) { null }
+                    val usable7273 = fan7273 != null && fan7273.priceUsd.isFinite() && fan7273.priceUsd > 0.0 &&
+                        !(fan7273.sourceCount >= 2 && !fan7273.corroborated)
+                    if (usable7273 && fan7273 != null) {
+                        val label7273 = if (fan7273.corroborated) "FANOUT_CORROBORATED_7088_x${fan7273.agreeingCount}" else "FANOUT_UNCORROBORATED_7088"
+                        synchronized(ts) {
+                            ts.lastPrice = fan7273.priceUsd
+                            ts.lastPriceUpdate = System.currentTimeMillis()
+                            ts.lastPriceSource = label7273
+                        }
+                        try {
+                            com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.note(
+                                mint = mint, priceUsd = fan7273.priceUsd,
+                                source = com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.Provenance.REST_LIVE,
+                                sourceCount7188 = fan7273.sourceCount, agreeingCount7188 = fan7273.agreeingCount,
+                            )
+                            PipelineHealthCollector.labelInc("ENTRY_HYDRATION_FANOUT_PRICED_7273")
+                            if (fan7273.corroborated) PipelineHealthCollector.labelInc("ENTRY_HYDRATION_FANOUT_CORROBORATED_7273")
+                        } catch (_: Throwable) {}
+                    } else if (fan7273 != null) {
+                        try { PipelineHealthCollector.labelInc("ENTRY_HYDRATION_FANOUT_CONTESTED_7273") } catch (_: Throwable) {}
+                    } else {
+                        try { PipelineHealthCollector.labelInc("ENTRY_HYDRATION_FANOUT_EMPTY_7273") } catch (_: Throwable) {}
+                    }
+                }
                 tryFallbackPriceData(mint, ts)
             } catch (ce: CancellationException) {
                 throw ce

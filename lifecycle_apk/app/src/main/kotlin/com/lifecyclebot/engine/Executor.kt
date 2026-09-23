@@ -23774,6 +23774,42 @@ class Executor(
         return false
     }
 
+    /**
+     * V5.0.7273 — the loss-side twin of corroborateMarkOnDemand7272. Returns
+     * true only when the stack, asked now, reads at least 3x ABOVE [mark]: the
+     * repair cache first, then one fan-out pass. A chain-derived source is
+     * never contradicted (it is the truth being asked about), and silence is
+     * not contradiction — a dead token answers nobody and must still close.
+     */
+    private fun markContradictedOnDemand7273(ts: TokenState, mark: Double): Boolean {
+        if (!mark.isFinite() || mark <= 0.0) return false
+        val src = ts.lastPriceSource.uppercase()
+        if (src.contains("PUMP_CURVE_RPC") || src.contains("JUPITER_QUOTE")) return false
+        fun contradicts(other: Double?): Boolean =
+            other != null && other.isFinite() && other > 0.0 && other / mark >= 3.0
+        val repaired = try {
+            com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getRepairedPriceIfFresh(ts.mint)
+        } catch (_: Throwable) { null }
+        val fanout = try {
+            com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(listOf(ts.mint))[ts.mint]
+        } catch (_: Throwable) { null }
+        val fanoutPx = fanout?.takeIf { !(it.sourceCount >= 2 && !it.corroborated) }?.priceUsd
+        val contradicted = contradicts(repaired) || contradicts(fanoutPx)
+        if (contradicted) {
+            try {
+                if (ForensicEmitRateLimiter6356.shouldEmit("PAPER_SELL_REFUSED_ABSURD_LOSS_CONTRADICTED_7273", ts.mint.take(10))) {
+                    ForensicLogger.lifecycle(
+                        "PAPER_SELL_REFUSED_ABSURD_LOSS_CONTRADICTED_7273",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} mark=$mark src=${ts.lastPriceSource} " +
+                            "repaired=${repaired ?: "none"} fanout=${fanoutPx ?: "none"} " +
+                            "fanoutSources=${fanout?.sources ?: "none"} action=refuse_fill_stack_reads_3x_above_mark",
+                    )
+                }
+            } catch (_: Throwable) {}
+        }
+        return contradicted
+    }
+
     fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null): SellResult {
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         fun reconcileCanonicalClosed6509(): Boolean {
@@ -23859,6 +23895,36 @@ class Executor(
                         PipelineHealthCollector.labelInc("PAPER_SELL_ABSURD_GAIN_CORROBORATED_BOOKED_7271")
                         com.lifecyclebot.engine.truth.EconomicPurityGate6504.clearUntrusted(ts.mint)
                     } catch (_: Throwable) {}
+                }
+            }
+        }
+        // V5.0.7273 §THE_DOOR_IS_SYMMETRIC.
+        //
+        // 5.0.7272 at 04:45:49: WLFI, USDS and 72QvBV, bought six seconds
+        // earlier at real prices, each sold for 0.000 SOL. The mark that did it
+        // was a contested fan-out median re-priced through a cap on the wrong
+        // supply basis (both fixed at their sites in this build). An imagined
+        // -100% teaches the learner exactly as much nonsense as an imagined
+        // +1000%, so the loss side gets the same door with a narrower key: a
+        // paper position under ten minutes old, marked more than 80% below
+        // entry by an uncorroborated source, is refused ONLY when the stack,
+        // asked now, actively contradicts the mark by 3x or more. A real rug
+        // is confirmed by the stack, or answered by nobody, and books as it
+        // always did; the retry is one tick away either way.
+        run {
+            val entry7273 = pos.entryPrice
+            val ageMs7273 = System.currentTimeMillis() - pos.entryTime
+            if (pos.isPaperPosition && entry7273.isFinite() && entry7273 > 0.0 &&
+                price / entry7273 < 0.20 && ageMs7273 in 0L..600_000L &&
+                !ts.lastPriceSource.contains("FANOUT_CORROBORATED", ignoreCase = true)
+            ) {
+                if (markContradictedOnDemand7273(ts, price)) {
+                    try {
+                        PipelineHealthCollector.labelInc("PAPER_SELL_REFUSED_ABSURD_LOSS_CONTRADICTED_7273")
+                        com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.requestRepair(ts.mint, "paperSell_absurd_loss_7273")
+                    } catch (_: Throwable) {}
+                    PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_ABSURD_LOSS_CONTRADICTED_7273:$reason")
+                    return SellResult.FAILED_RETRYABLE
                 }
             }
         }

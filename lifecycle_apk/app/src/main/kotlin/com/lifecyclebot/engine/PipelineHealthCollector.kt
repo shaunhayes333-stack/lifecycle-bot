@@ -2105,6 +2105,17 @@ object PipelineHealthCollector {
                     "PAPER_SELL_GAIN_CORROBORATED_ON_DEMAND_7272_REPAIR",
                     "PAPER_SELL_GAIN_CORROBORATED_ON_DEMAND_7272_FANOUT",
                     "PAPER_SELL_GAIN_ON_DEMAND_DISAGREED_7272",
+                    // V5.0.7273 — contested medians are not marks; the stack cap
+                    // rebuild is basis-checked; the loss door; candidate fan-out.
+                    "MARK_CONTESTED_NOT_APPLIED_7273",
+                    "MCAP_STACK_REBUILD_BASIS_MISMATCH_7273",
+                    "EXIT_CACHE_HYDRATE_JUMP_REJECTED_7273",
+                    "PAPER_SELL_REFUSED_ABSURD_LOSS_CONTRADICTED_7273",
+                    "ENTRY_HYDRATION_FANOUT_PRICED_7273",
+                    "ENTRY_HYDRATION_FANOUT_CORROBORATED_7273",
+                    "ENTRY_HYDRATION_FANOUT_CONTESTED_7273",
+                    "ENTRY_HYDRATION_FANOUT_EMPTY_7273",
+                    "EXECUTION_BLOCKED_NO_CANONICAL_MARK_6613",
                     "OPEN_POS_LOOP_TICK_6983",
                     "MARK_BATCH_EMPTY_6970",
                     "EXIT_MARK_REFRESH_ADVANCED_7225",

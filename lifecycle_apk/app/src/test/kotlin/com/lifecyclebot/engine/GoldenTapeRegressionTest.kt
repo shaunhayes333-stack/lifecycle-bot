@@ -10067,4 +10067,66 @@ class GoldenTapeRegressionTest {
         assertTrue(phc.contains("\"OPEN_POS_LOOP_TICK_6983\","))
     }
 
+    /** V5.0.7273 — a contested fan-out median is never written as a mark; the
+     * 7269 cap rebuild is checked against the entry basis; the paper sell door
+     * refuses an uncorroborated −80% fill only when the stack contradicts it;
+     * candidates are priced through the fan-out; the peg guard knows the mint;
+     * the exit snapshot's cache hydrate cannot jump 100x. */
+    @Test
+    fun V5_0_7273_contested_median_cap_basis_loss_door_candidate_fanout_and_mint_pegs() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        // Hot loop: contested → not applied, repair requested, previous mark stands.
+        assertTrue(bot.contains("if (mk.sourceCount >= 2 && !mk.corroborated) {"))
+        assertTrue(bot.contains("MARK_CONTESTED_NOT_APPLIED_7273"))
+        val contestedIdx = bot.indexOf("MARK_CONTESTED_NOT_APPLIED_7273")
+        val applyIdx = bot.indexOf("priceMap[m] = mk.priceUsd")
+        assertTrue(contestedIdx > 0 && applyIdx > contestedIdx)
+
+        // Cap rebuild: basis mismatch keeps the cap on file.
+        assertTrue(bot.contains("val entryCap7273 = ts.position.entryMcap"))
+        assertTrue(bot.contains("!rel.isFinite() || rel < 0.5 || rel > 2.0"))
+        assertTrue(bot.contains("MCAP_STACK_REBUILD_BASIS_MISMATCH_7273"))
+        assertTrue(bot.contains("} else if (cap7269.isFinite() && cap7269 > 0.0) {"))
+
+        // Exit snapshot cache hydrate: zero or >100x from canonical entry is refused.
+        assertTrue(bot.contains("EXIT_CACHE_HYDRATE_JUMP_REJECTED_7273"))
+        assertTrue(bot.contains("&& cached != null && !cacheJumpRejected7273) {"))
+
+        // Candidate hydration: fan-out first, once per 30 s, contested not written, cascade still runs.
+        assertTrue(bot.contains("private val entryHydrationFanoutLastMs7273"))
+        assertTrue(bot.contains("com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(listOf(mint))[mint]"))
+        assertTrue(bot.contains("!(fan7273.sourceCount >= 2 && !fan7273.corroborated)"))
+        assertTrue(bot.contains("ENTRY_HYDRATION_FANOUT_PRICED_7273"))
+        val hydIdx = bot.indexOf("private fun requestEntryHydration6647(")
+        val hydBody = bot.substring(hydIdx, bot.indexOf("// SHITCOIN LAYER HELPERS", hydIdx))
+        assertTrue(hydBody.indexOf("resolve7088(listOf(mint))") < hydBody.indexOf("tryFallbackPriceData(mint, ts)"))
+
+        // Loss door: narrow key, contradiction only, chain sources exempt, silence books.
+        assertTrue(exec.contains("private fun markContradictedOnDemand7273(ts: TokenState, mark: Double): Boolean {"))
+        assertTrue(exec.contains("price / entry7273 < 0.20 && ageMs7273 in 0L..600_000L &&"))
+        assertTrue(exec.contains("other != null && other.isFinite() && other > 0.0 && other / mark >= 3.0"))
+        assertTrue(exec.contains("if (src.contains(\"PUMP_CURVE_RPC\") || src.contains(\"JUPITER_QUOTE\")) return false"))
+        assertTrue(exec.contains("PAPER_SELL_ABSURD_LOSS_CONTRADICTED_7273:\$reason"))
+        val lossDoorIdx = exec.indexOf("PAPER_SELL_REFUSED_ABSURD_LOSS_CONTRADICTED_7273\")")
+        val stampIdx = exec.indexOf("stampUnifiedExitForClose6920(ts, reason)")
+        assertTrue(lossDoorIdx > 0 && stampIdx > lossDoorIdx)
+
+        // Peg guard: mint-aware, blank symbol handled, symbol path unchanged.
+        assertTrue(com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged("?", 1.0049, 9.6e9, "USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA"))
+        assertTrue(com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged("", 1.0049, 2.8e9, "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo"))
+        assertTrue(com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged("?", 0.999, 6.0e7, "USDxxxxVanity111111111111111111111111111111"))
+        assertTrue(com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged("?", 1.001, 2.0e9, "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr"))
+        assertFalse(com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged("?", 1.001, 3.0e8, "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr"))
+        assertFalse(com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged("?", 84799.0, 1.0e10, "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh"))
+        assertTrue(com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged("USD1", 1.0, 1.0e9))
+        assertFalse(com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged("WIF", 1.01, 1.0e9))
+        assertEquals(3, Regex(Regex.escape("PeggedAssetGuard7270.isPegged(ts.symbol, ts.lastPrice, ts.lastMcap, ts.mint)")).findAll(bot).count())
+
+        assertTrue(phc.contains("\"MARK_CONTESTED_NOT_APPLIED_7273\","))
+        assertTrue(phc.contains("\"ENTRY_HYDRATION_FANOUT_PRICED_7273\","))
+    }
+
 }
