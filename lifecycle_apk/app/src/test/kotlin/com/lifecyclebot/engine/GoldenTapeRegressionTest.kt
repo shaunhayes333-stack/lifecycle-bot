@@ -10029,4 +10029,42 @@ class GoldenTapeRegressionTest {
         assertTrue(phc.contains("\"PAPER_SELL_REFUSED_ABSURD_GAIN_UNCORROBORATED_7271\","))
     }
 
+    /** V5.0.7272 — the runner door corroborates for itself (chain source,
+     * repair cache, one fan-out pass) instead of waiting for a label the
+     * starved hot loop could not write; the 1 Hz mark loop, the rapid stop
+     * monitor and the per-position refresh cascades leave the three-thread
+     * exit-policy pool. */
+    @Test
+    fun V5_0_7272_door_asks_the_stack_and_mark_loop_leaves_the_exit_policy_pool() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        // Door: the on-demand path is consulted only after the label test fails,
+        // and it tries chain source, repair cache, then a single-mint fan-out.
+        assertTrue(exec.contains("private fun corroborateMarkOnDemand7272(ts: TokenState, mark: Double): Boolean {"))
+        assertTrue(exec.contains("corroborateMarkOnDemand7272(ts, price)"))
+        assertTrue(exec.contains("return ratio in 0.60..1.67"))
+        assertTrue(exec.contains("if (src.contains(\"PUMP_CURVE_RPC\") || src.contains(\"JUPITER_QUOTE\")) {"))
+        assertTrue(exec.contains("com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getRepairedPriceIfFresh(ts.mint)"))
+        assertTrue(exec.contains("com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(listOf(ts.mint))[ts.mint]"))
+        assertTrue(exec.contains("PAPER_SELL_GAIN_ON_DEMAND_DISAGREED_7272"))
+        val chainIdx = exec.indexOf("PAPER_SELL_GAIN_CORROBORATED_ON_DEMAND_7272_CHAIN")
+        val repairIdx = exec.indexOf("PAPER_SELL_GAIN_CORROBORATED_ON_DEMAND_7272_REPAIR")
+        val fanoutIdx = exec.indexOf("PAPER_SELL_GAIN_CORROBORATED_ON_DEMAND_7272_FANOUT")
+        assertTrue(chainIdx > 0 && repairIdx > chainIdx && fanoutIdx > repairIdx)
+
+        // Loops: both singleton monitors and the exit-feed refresh jobs are on IO.
+        assertTrue(bot.contains("rapidStopLossMonitorJob = scope.launch(Dispatchers.IO + CoroutineName(\"rapid-stop-6647\")) { rapidStopLossMonitor() }"))
+        assertTrue(bot.contains("openPositionTickJob = scope.launch(Dispatchers.IO + CoroutineName(\"open-mark-6647\")) { openPositionTickLoop() }"))
+        assertTrue(bot.contains("scope.launch(Dispatchers.IO + CoroutineName(\"exit-mark-refresh-7272\")) {"))
+        assertFalse(bot.contains("exitWorkerScope6647.launch(CoroutineName(\"open-mark-6647\"))"))
+        assertFalse(bot.contains("exitWorkerScope6647.launch(CoroutineName(\"rapid-stop-6647\"))"))
+        // The specialist workers stay where they were.
+        assertTrue(bot.contains("val worker = exitWorkerScope6647.launch(CoroutineName(\"specialist-\${lane.lowercase()}-6647\")) {"))
+
+        assertTrue(phc.contains("\"PAPER_SELL_GAIN_CORROBORATED_ON_DEMAND_7272_FANOUT\","))
+        assertTrue(phc.contains("\"OPEN_POS_LOOP_TICK_6983\","))
+    }
+
 }

@@ -23707,6 +23707,73 @@ class Executor(
     }
 
 
+    /**
+     * V5.0.7272 §THE_DOOR_MUST_ASK_THE_STACK_NOT_WAIT_FOR_A_LABEL.
+     *
+     * 5.0.7271 at 6 min: GEM (PROJECT_SNIPER, bought 04:02:00 at $0.000048,
+     * cap $47k) read +1254.5% on every tick from 04:06:44 — livePnl and
+     * cachedPnl agreed, the runner logic fired QUICK_RUNNER_10X_FULL_EXIT 74
+     * times — and the 7271 door refused every fill because ts.lastPriceSource
+     * was not FANOUT_CORROBORATED. The label is written only by the hot
+     * loop's fan-out, and that loop had ticked 48 times in 352 s (it shares
+     * a three-thread pool with the mark-refresh cascades; see BotService
+     * 7272). So the one path that could have corroborated the mark was the
+     * one that was starved, and 4.9 SOL of the book sat unbanked behind a
+     * guard whose whole purpose was to stop imagined gains.
+     *
+     * The door now corroborates for itself, cheapest evidence first:
+     *   1. a chain-derived or executable-quote source (PUMP_CURVE_RPC reads
+     *      the curve account; JUPITER_QUOTE is what a sell would receive) is
+     *      its own corroboration;
+     *   2. the 7236 repair cache, which the first refusal already requested;
+     *   3. one bounded fan-out pass for this mint (eight feeds, 4 s deadline).
+     * Agreement is the magnitude test the door exists for: a decimal shift
+     * or a laundered basis is 10x–1000x off, a lagging feed on a runner is
+     * tens of percent off. ±40% therefore confirms; a stack that disagrees
+     * by more than that is evidence the mark is wrong and the refusal
+     * stands. The fill still books at the mark, as any corroborated fill
+     * does; only the evidence path changed.
+     */
+    private fun corroborateMarkOnDemand7272(ts: TokenState, mark: Double): Boolean {
+        if (!mark.isFinite() || mark <= 0.0) return false
+        fun agrees(other: Double?): Boolean {
+            if (other == null || !other.isFinite() || other <= 0.0) return false
+            val ratio = other / mark
+            return ratio in 0.60..1.67
+        }
+        val src = ts.lastPriceSource.uppercase()
+        if (src.contains("PUMP_CURVE_RPC") || src.contains("JUPITER_QUOTE")) {
+            try { PipelineHealthCollector.labelInc("PAPER_SELL_GAIN_CORROBORATED_ON_DEMAND_7272_CHAIN") } catch (_: Throwable) {}
+            return true
+        }
+        val repaired = try {
+            com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getRepairedPriceIfFresh(ts.mint)
+        } catch (_: Throwable) { null }
+        if (agrees(repaired)) {
+            try { PipelineHealthCollector.labelInc("PAPER_SELL_GAIN_CORROBORATED_ON_DEMAND_7272_REPAIR") } catch (_: Throwable) {}
+            return true
+        }
+        val fanout = try {
+            com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(listOf(ts.mint))[ts.mint]
+        } catch (_: Throwable) { null }
+        if (fanout != null && agrees(fanout.priceUsd)) {
+            try { PipelineHealthCollector.labelInc("PAPER_SELL_GAIN_CORROBORATED_ON_DEMAND_7272_FANOUT") } catch (_: Throwable) {}
+            return true
+        }
+        try {
+            PipelineHealthCollector.labelInc("PAPER_SELL_GAIN_ON_DEMAND_DISAGREED_7272")
+            if (ForensicEmitRateLimiter6356.shouldEmit("PAPER_SELL_GAIN_ON_DEMAND_DISAGREED_7272", ts.mint.take(10))) {
+                ForensicLogger.lifecycle(
+                    "PAPER_SELL_GAIN_ON_DEMAND_DISAGREED_7272",
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} mark=$mark src=${ts.lastPriceSource} " +
+                        "repaired=${repaired ?: "none"} fanout=${fanout?.priceUsd ?: "none"} " +
+                        "fanoutSources=${fanout?.sources ?: "none"} action=refusal_stands_mark_not_confirmed_by_any_feed",
+                )
+            }
+        } catch (_: Throwable) {}
+        return false
+    }
+
     fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null): SellResult {
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         fun reconcileCanonicalClosed6509(): Boolean {
@@ -23764,7 +23831,12 @@ class Executor(
             if (pos.isPaperPosition && entry7271.isFinite() && entry7271 > 0.0) {
                 val gainPct7271 = (price - entry7271) / entry7271 * 100.0
                 if (gainPct7271 > PAPER_GAIN_CLAMP_PCT_7271) {
-                    val corroborated7271 = ts.lastPriceSource.contains("FANOUT_CORROBORATED", ignoreCase = true)
+                    // V5.0.7272 — 7271 read corroboration off the label alone and
+                    // held GEM at +1254% for 74 ticks (about 4.9 SOL) because the
+                    // mark had one feed. A door that can only wait is a stall on
+                    // the one trade the operator wants most; it now asks the stack.
+                    val corroborated7271 = ts.lastPriceSource.contains("FANOUT_CORROBORATED", ignoreCase = true) ||
+                        corroborateMarkOnDemand7272(ts, price)
                     if (!corroborated7271) {
                         try {
                             PipelineHealthCollector.labelInc("PAPER_SELL_REFUSED_ABSURD_GAIN_UNCORROBORATED_7271")

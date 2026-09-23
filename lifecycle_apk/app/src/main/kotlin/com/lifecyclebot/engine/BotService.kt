@@ -738,14 +738,39 @@ class BotService : Service() {
     // CoroutineTransformer StackOverflowError in release CI.
     private fun startSingletonRuntimeMonitors() {
         ensureSpecialistWorkers6647()
+        // V5.0.7272 §THE_1HZ_LOOP_SHARED_THREE_THREADS_WITH_815_BLOCKING_CASCADES.
+        //
+        // 5.0.7271 at 352 s: hotTicks7270=48, OPEN_POS_TICK=44, ten of
+        // twenty-one positions with no mark for 285 s, RISK_CLOCK_BLOCKED
+        // MARK_STALE=6421, and a +1254% runner unbanked because the fan-out
+        // that would have corroborated it runs inside this loop. Both loops
+        // below were launched on exitWorkerScope6647, a fixed pool of THREE
+        // threads that also carries the twelve specialist workers and, at the
+        // canonical exit feed, one mark-refresh coroutine per stale position
+        // (CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513=815). Each of those runs the
+        // serial Birdeye → DexScreener → BirdeyeOracle → pump.fun cascade with
+        // network timeouts, blocking. 815 × ~3 s on 3 threads over 352 s is
+        // the pool at more than twice capacity, and the coroutine that prices
+        // held positions once a second got a thread for the last minute.
+        //
+        // 7271 made this visible rather than causing it: before, the pair
+        // poll re-dated every stale seed as a fresh DexScreener quote, so
+        // nothing was ever "stale", nothing was queued, and the loop was fed
+        // a lie at 1 Hz. Honest staleness produced the refresh storm, and
+        // the storm starved the loop that ends staleness.
+        //
+        // The two latency-critical loops move to the elastic IO dispatcher
+        // (same service job, so stop still cancels them); the refresh jobs
+        // move there too (see the exit feed). The exit-policy pool keeps the
+        // specialist workers, which is what it was sized for.
         try {
             if (rapidStopLossMonitorJob?.isActive != true) {
-                rapidStopLossMonitorJob = exitWorkerScope6647.launch(CoroutineName("rapid-stop-6647")) { rapidStopLossMonitor() }
+                rapidStopLossMonitorJob = scope.launch(Dispatchers.IO + CoroutineName("rapid-stop-6647")) { rapidStopLossMonitor() }
             }
         } catch (_: Throwable) {}
         try {
             if (openPositionTickJob?.isActive != true) {
-                openPositionTickJob = exitWorkerScope6647.launch(CoroutineName("open-mark-6647")) { openPositionTickLoop() }
+                openPositionTickJob = scope.launch(Dispatchers.IO + CoroutineName("open-mark-6647")) { openPositionTickLoop() }
             }
         } catch (_: Throwable) {}
     }
@@ -22356,7 +22381,10 @@ if (hotExitHandledSweep) {
                         PipelineHealthCollector.labelInc("CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513")
                         ForensicLogger.lifecycle("CANONICAL_EXIT_MARK_REFRESH_QUEUED_6513", "positionId=${cp.positionId} mint=${cp.mint.take(10)} assetClass=${effectiveMarkClass6592.tag} entryPrice=${ts.position.entryPrice} mark=${ts.lastPrice} markAgeMs=$markAgeMs6651 provenanceFresh=$provenanceFresh6651 action=async_refresh_no_silent_eval")
                     } catch (_: Throwable) {}
-                    exitWorkerScope6647.launch {
+                    // V5.0.7272 — a blocking provider cascade per stale position
+                    // does not belong on the three-thread exit-policy pool; it
+                    // starved the 1 Hz mark loop (see startSingletonRuntimeMonitors).
+                    scope.launch(Dispatchers.IO + CoroutineName("exit-mark-refresh-7272")) {
                         // V5.0.6530 §CROSS_ASSET_MARK_ROUTING — route non-Solana
                         // canonical marks through PerpsMarketDataFetcher (Pyth →
                         // PriceAggregator → Yahoo fallback). SOLANA_TOKEN stays

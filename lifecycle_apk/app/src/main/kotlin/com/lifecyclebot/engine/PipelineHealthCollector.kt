@@ -2099,6 +2099,16 @@ object PipelineHealthCollector {
                     "PAPER_SELL_ABSURD_GAIN_CORROBORATED_BOOKED_7271",
                     "UNIVERSAL_SL_EVAL_SKIPPED_INFLIGHT_7271",
                     "CANONICAL_MARK_REJECTED_CYCLE_CONTINUED_7043",
+                    // V5.0.7272 — the runner door corroborates for itself; the
+                    // 1 Hz mark loop is off the three-thread pool.
+                    "PAPER_SELL_GAIN_CORROBORATED_ON_DEMAND_7272_CHAIN",
+                    "PAPER_SELL_GAIN_CORROBORATED_ON_DEMAND_7272_REPAIR",
+                    "PAPER_SELL_GAIN_CORROBORATED_ON_DEMAND_7272_FANOUT",
+                    "PAPER_SELL_GAIN_ON_DEMAND_DISAGREED_7272",
+                    "OPEN_POS_LOOP_TICK_6983",
+                    "MARK_BATCH_EMPTY_6970",
+                    "EXIT_MARK_REFRESH_ADVANCED_7225",
+                    "QUICK_RUNNER_EMERGENCY_FULL_EXIT",
                     // V5.0.7226 — the second live sizing authority. On 7225 the
                     // sizer's floor fired 0 times and two 0.007 SOL live buys
                     // landed anyway; the resolver had been sizing LIVE against
