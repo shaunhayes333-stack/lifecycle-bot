@@ -238,6 +238,7 @@ object CanonicalEntryAuthority6551 {
             mint = candidate.assetId, mode = candidate.mode.uppercase(), canonicalLane = candidate.specialist.ifBlank { candidate.assetClass.tag },
             fdgVerdict = verdict, fdgAllowed = true, authorityVersion = sealedDecision6613.authorityVersion,
             resolvedSize = sizing.finalSizeSol, createdAt = System.currentTimeMillis(), symbol = candidate.symbol,
+            effectiveEntryScore7256 = candidate.score.toInt(),
             authoritativeSignal = "BUY", safetyVerdict = "CLEAR", fdgReason = "CANONICAL_FDG_6551",
             diagnosticSignal = candidate.diagnosticSignal, safetyTier = "CLEAR", liquidityUsd = candidate.liquidityUsd,
             hardNoReasons = emptyList(), requiresSolanaTokenMap = candidate.assetClass == AssetClass.SOLANA_TOKEN,

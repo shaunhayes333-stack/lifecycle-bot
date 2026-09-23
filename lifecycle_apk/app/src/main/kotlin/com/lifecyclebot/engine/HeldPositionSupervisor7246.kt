@@ -20,6 +20,15 @@ import com.lifecyclebot.perps.DynamicAltTokenRegistry
  */
 object HeldPositionSupervisor7246 {
 
+    private fun currentMode(): String = try {
+        if (RuntimeModeAuthority.isPaper()) "paper" else "live"
+    } catch (_: Throwable) { "live" }
+
+    private fun currentModeOpenPositions(): List<CanonicalPositionAuthority6441.Position> = try {
+        val mode = currentMode()
+        CanonicalPositionAuthority6441.openPositions().filter { it.mode.equals(mode, true) }
+    } catch (_: Throwable) { emptyList() }
+
     data class HeldRow(
         val positionId: String,
         val mint: String,
@@ -41,7 +50,7 @@ object HeldPositionSupervisor7246 {
     fun isHeld(mintOrAssetKey: String): Boolean {
         if (mintOrAssetKey.isBlank()) return false
         return try {
-            CanonicalPositionAuthority6441.openPositions().any {
+            currentModeOpenPositions().any {
                 it.mint.equals(mintOrAssetKey, ignoreCase = true)
             }
         } catch (_: Throwable) { false }
@@ -49,7 +58,7 @@ object HeldPositionSupervisor7246 {
 
     /** Held-only roster for the existing Solana mark-refresh worker. */
     fun solanaHeldPositions(): List<CanonicalPositionAuthority6441.Position> = try {
-        CanonicalPositionAuthority6441.openPositions().filter {
+        currentModeOpenPositions().filter {
             it.assetClass == AssetClass.SOLANA_TOKEN
         }
     } catch (_: Throwable) { emptyList() }
@@ -60,7 +69,7 @@ object HeldPositionSupervisor7246 {
      * fresh-open handoff hook in this runtime.
      */
     fun reconcileDiscoveryResidency(): Int {
-        val open = try { CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }
+        val open = currentModeOpenPositions()
         var released = 0
         for (p in open) {
             try {
@@ -91,7 +100,7 @@ object HeldPositionSupervisor7246 {
 
     /** UI/telemetry projection. Cache-only: never blocks on a provider. */
     fun snapshot(nowMs: Long = System.currentTimeMillis()): List<HeldRow> {
-        val open = try { CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }
+        val open = currentModeOpenPositions()
         return open.map { p ->
             var px = 0.0
             var ts = 0L

@@ -531,17 +531,21 @@ object CryptoAltTrader {
      */
     @Synchronized
     private fun syncCanonicalCryptoPositions7255(): Int {
+        val activePaperMode = isPaperMode.get()
         val canonical = try {
             com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
-                .filter { it.assetClass == com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT }
+                .filter {
+                    it.assetClass == com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT &&
+                        it.mode.equals(if (activePaperMode) "paper" else "live", true)
+                }
         } catch (_: Throwable) { return 0 }
         var added = 0
         for (cp in canonical) {
             if (!cp.entryPriceUsd.isFinite() || cp.entryPriceUsd <= 0.0 ||
                 !cp.entryCostSol.isFinite() || cp.entryCostSol <= 0.0
             ) continue
-            if (positions.containsKey(cp.positionId) ||
-                positions.values.any { it.canonicalAssetKey == cp.mint }
+            if (positions[cp.positionId]?.isPaper == activePaperMode ||
+                positions.values.any { it.isPaper == activePaperMode && it.canonicalAssetKey == cp.mint }
             ) continue
 
             val market = PerpsMarket.values().firstOrNull {
@@ -1337,7 +1341,7 @@ object CryptoAltTrader {
                 DynamicAltTokenRegistry.markEvaluationProgress6570(observedTok6569, "SHARED_INTELLIGENCE_BACKLOG_COALESCED")
             }
             for ((signalIndex6567, sig) in topDyn.withIndex()) {
-                if (positions.size >= MAX_POSITIONS) {
+                if (activeModePositions7256(positions.values).size >= MAX_POSITIONS) {
                     topDyn.drop(signalIndex6567).forEach { capped ->
                         val cappedTok6567 = capped.dynAssetKey?.let { DynamicAltTokenRegistry.getTokenByCanonicalIdentity6544(it) }
                             ?: capped.dynMint?.let { DynamicAltTokenRegistry.getTokenByMint(it) }
@@ -1436,13 +1440,13 @@ object CryptoAltTrader {
                 com.lifecyclebot.engine.CryptoPositionState.Bucket.PAPER
             else
                 com.lifecyclebot.engine.CryptoPositionState.Bucket.LIVE
-            val openSymbols = positions.values.map { it.market.symbol }
+            val openSymbols = activeModePositions7256(positions.values).map { it.market.symbol }
             com.lifecyclebot.engine.CryptoPositionState.replaceBucket(bucket, openSymbols)
         } catch (_: Throwable) { /* best-effort */ }
         val cpsLine = try {
             com.lifecyclebot.engine.CryptoPositionState.summaryLine()
         } catch (_: Throwable) { "n/a" }
-        ErrorLogger.info(TAG, "🪙 positions=${positions.size} ($cpsLine) | balance=${"%.2f".format(getBalance())} SOL")
+        ErrorLogger.info(TAG, "🪙 positions=${activeModePositions7256(positions.values).size} ($cpsLine) | balance=${"%.2f".format(getBalance())} SOL")
         ErrorLogger.info(TAG, "🪙 ═══════════════════════════════════════════════════")
 
         // V5.9.1452 — UNMISSABLE diagnostic line emitted EVERY scan cycle.
@@ -1668,13 +1672,13 @@ object CryptoAltTrader {
         ErrorLogger.info(TAG, "🪙 TOP ${v3Filtered.size} V3-filtered signals: ${v3Filtered.map { "${it.first.market.symbol}(${it.first.score}/${it.first.confidence})" }}")
 
         for ((signal, verdict) in v3Filtered) {
-            if (positions.size >= MAX_POSITIONS) {
+            if (activeModePositions7256(positions.values).size >= MAX_POSITIONS) {
                 ErrorLogger.debug(TAG, "Max positions reached (hard cap)")
                 break
             }
             // V5.9.221: At soft cap, try to evict a weak/losing position to make room.
             // If nothing can be evicted (all winners), skip this signal.
-            if (positions.size >= SOFT_CAP_POSITIONS) {
+            if (activeModePositions7256(positions.values).size >= SOFT_CAP_POSITIONS) {
                 val freed = evictWeakestForReplacement(signal.score)
                 if (!freed) {
                     ErrorLogger.debug(TAG, "🪙 Soft cap: no weak slot to replace for ${signal.market.symbol} (score=${signal.score}) — all winners, skipping")
@@ -2627,11 +2631,11 @@ object CryptoAltTrader {
 
         // V5.9.5: Dynamic exposure cap — never exceed 80% of balance at risk.
         // Naturally allows more concurrent positions as wallet grows.
-        var totalRisk = positions.values.sumOf { it.sizeSol }
+        var totalRisk = activeModePositions7256(positions.values).sumOf { it.sizeSol }
         val maxRisk = balance * 0.80
         if (signal.isDynamic && totalRisk + sizeSol > maxRisk) {
             if (rotateWeakPaperExposure7244(signal.score)) {
-                totalRisk = positions.values.sumOf { it.sizeSol }
+                totalRisk = activeModePositions7256(positions.values).sumOf { it.sizeSol }
             }
         }
         if (totalRisk + sizeSol > maxRisk) {
@@ -3287,6 +3291,7 @@ object CryptoAltTrader {
     private fun evictStagnantAndLosers() {
         val now = System.currentTimeMillis()
         for ((id, pos) in positions.toMap()) {
+            if (pos.isPaper != isPaperMode.get()) continue
             // A stale/mismatched DYN mark is a HOLD, never a zero-PnL exit.
             if (pos.isDynamic && !pos.hasTrustedMark(now)) continue
             val holdMs = now - pos.openTime
@@ -3364,10 +3369,10 @@ object CryptoAltTrader {
      * signal significantly outscores it.
      */
     private fun evictWeakestForReplacement(incomingScore: Int): Boolean {
-        if (positions.size < SOFT_CAP_POSITIONS) return true
+        if (activeModePositions7256(positions.values).size < SOFT_CAP_POSITIONS) return true
 
         val now = System.currentTimeMillis()
-        val candidate = positions.values
+        val candidate = activeModePositions7256(positions.values)
             .filter { (now - it.openTime) >= 3 * 60 * 1000L }  // held at least 3 min
             .minByOrNull { it.getPnlPct() + (it.aiScore / 10.0) }
 
@@ -3398,7 +3403,7 @@ object CryptoAltTrader {
     private fun rotateWeakPaperExposure7244(incomingScore: Int): Boolean {
         if (!isPaperMode.get()) return false
         val now = System.currentTimeMillis()
-        val candidate = positions.values.asSequence()
+        val candidate = activeModePositions7256(positions.values).asSequence()
             .filter { it.isPaper }
             .filter { now - it.openTime >= 3 * 60 * 1000L }
             .filter { it.getPnlPct() < 1.0 }
@@ -4553,11 +4558,15 @@ object CryptoAltTrader {
      * Returns ALL positions (open + closed) so the Positions tab can show win rate, avg hold,
      * and closed trade history. Open positions have closeTime == null; closed have closeTime set.
      */
-    fun getAllPositions()      : List<AltPosition> { syncCanonicalCryptoPositions7255(); return positions.values.toList() + closedPositions.toList() }
-    fun getOpenPositions()     : List<AltPosition> { syncCanonicalCryptoPositions7255(); return positions.values.toList() }
+    private fun activeModePositions7256(values: Collection<AltPosition>): List<AltPosition> {
+        val paper = isPaperMode.get()
+        return values.filter { it.isPaper == paper }
+    }
+    fun getAllPositions()      : List<AltPosition> { syncCanonicalCryptoPositions7255(); return activeModePositions7256(positions.values) + closedPositions.toList() }
+    fun getOpenPositions()     : List<AltPosition> { syncCanonicalCryptoPositions7255(); return activeModePositions7256(positions.values) }
     fun getClosedPositions()   : List<AltPosition> = closedPositions.toList()
-    fun getSpotPositions()    : List<AltPosition> { syncCanonicalCryptoPositions7255(); return spotPositions.values.toList() }
-    fun getLeveragePositions(): List<AltPosition> = leveragePositions.values.toList()
+    fun getSpotPositions()    : List<AltPosition> { syncCanonicalCryptoPositions7255(); return activeModePositions7256(spotPositions.values) }
+    fun getLeveragePositions(): List<AltPosition> = activeModePositions7256(leveragePositions.values)
 
     // ═══════════════════════════════════════════════════════════════════════════
     // V5.9.135 — LLM PAPER-TRADE HOOKS
@@ -4700,7 +4709,7 @@ object CryptoAltTrader {
         }
 
         // ── 2. Fall back to CryptoAlt perps desk ──────────────────────────────
-        val match = positions.values
+        val match = activeModePositions7256(positions.values)
             .filter { it.market.symbol.equals(ticker, ignoreCase = true) && it.closeTime == null }
             .maxByOrNull { it.openTime }
             ?: return LlmTradeResult.Rejected("no open $ticker position found (checked meme + perps desks)")
@@ -4709,21 +4718,20 @@ object CryptoAltTrader {
         ErrorLogger.info(TAG, "💬 LLM PERPS SELL: ${ticker} pnl=${pnlPct.fmt(1)}% | $reason")
         return LlmTradeResult.Success("📄 perps sell queued: $ticker @ ${pnlPct.fmt(1)}%")
     }
-    fun hasPosition(market: PerpsMarket): Boolean = positions.values.any { it.market == market }
+    fun hasPosition(market: PerpsMarket): Boolean = activeModePositions7256(positions.values).any { it.market == market }
     // V5.9.1472 — DYNAMIC CRYPTO: dedupe by REAL coin symbol, not the shared DYN
     // sentinel (otherwise only one DYN coin could ever be open at a time).
     fun hasPositionSymbol(symbol: String): Boolean =
-        positions.values.any { it.marketSymbol.equals(symbol, ignoreCase = true) }
+        activeModePositions7256(positions.values).any { it.marketSymbol.equals(symbol, ignoreCase = true) }
 
     /** V5.9.85: Manual close for Markets UI. */
     fun closePositionManual(positionId: String, reason: String = "USER"): Boolean {
         if (positionId.isBlank()) return false
-        if (positions[positionId] == null &&
-            spotPositions[positionId] == null &&
-            leveragePositions[positionId] == null
-        ) {
-            return false
-        }
+        val position7256 = positions[positionId]
+            ?: spotPositions[positionId]
+            ?: leveragePositions[positionId]
+            ?: return false
+        if (position7256.isPaper != isPaperMode.get()) return false
         closePosition(positionId, reason)
         return true
     }
@@ -4745,7 +4753,7 @@ object CryptoAltTrader {
     fun getTotalPnlSol(): Double = totalPnlSol
     fun getInitialBalance(): Double = if (initialBalance > 0.0) initialBalance else paperBalance
 
-    fun getUnrealizedPnlSol(): Double = positions.values.sumOf { it.getPnlSol() }
+    fun getUnrealizedPnlSol(): Double = activeModePositions7256(positions.values).sumOf { it.getPnlSol() }
     fun getUnrealizedPnlPct(): Double {
         val bal = getEffectiveBalance()
         return if (bal > 0) getUnrealizedPnlSol() / bal * 100 else 0.0
@@ -4780,7 +4788,7 @@ object CryptoAltTrader {
             "scratchTrades"  to scratch,   // V5.9.419 — expose for UI W/L/S parity
             "winRate"        to wr,
             "totalPnlSol"    to totalPnlSol,
-            "openPositions"  to positions.size,
+            "openPositions"  to activeModePositions7256(positions.values).size,
             "paperBalance"   to paperBalance,
             "isLiveMode"     to !isPaperMode.get(),
             "learningPhase"  to getPhaseLabel(),

@@ -17563,6 +17563,70 @@ class Executor(
         // locally with the normalized value.
         @Suppress("NAME_SHADOWING")
         val layerTag: String = LaneAlias.normalize(layerTag).ifBlank { layerTag }
+        // V5.0.7256 — bind the executor to the score sealed by the exact FDG
+        // candidate. 7255 allowed a lane-local/recomputed score to replace the
+        // approved score after EXEC_GATE_ALLOW, then acquired a lease and died
+        // at MIN_SCORE_FLOOR. One immutable score now owns every downstream
+        // reader. Unknown legacy tickets fall back to the caller/TokenState;
+        // an existing sealed score is never replaced by either.
+        val execCtx = executionContext ?: ExecutionContext(
+            execMode = ExecMode.LIVE,
+            attemptId = attemptId.ifBlank { "live_${ts.mint.take(8)}_${System.currentTimeMillis()}" },
+            source = "Executor.liveBuy.default",
+        )
+        val scoreAttempt7256 = attemptId.takeIf { it.isNotBlank() }
+            ?: executionContext?.attemptId?.takeIf { it.isNotBlank() }
+            ?: try { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint) } catch (_: Throwable) { null }
+            ?: execCtx.attemptId
+        val sealedTicket7256 = scoreAttempt7256?.let {
+            try { ExecutableOpenGate.ticketForAttempt(it) } catch (_: Throwable) { null }
+        }
+        val sealedSnapshot7256 = try {
+            val v = sealedTicket7256?.candidateVersion
+                ?: LaneExecutionCoordinator.candidateVersionFor(ts.mint)
+            com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(ts.mint, v, "LIVE")
+        } catch (_: Throwable) { null }
+        val rawLiveScore4578 = when {
+            (sealedTicket7256?.effectiveEntryScore7256 ?: -1) >= 0 ->
+                sealedTicket7256!!.effectiveEntryScore7256.toDouble()
+            sealedSnapshot7256?.score?.isFinite() == true && sealedSnapshot7256.score >= 0.0 ->
+                sealedSnapshot7256.score
+            score.isFinite() && score >= 0.0 -> score
+            ts.lastV3Score?.toDouble()?.isFinite() == true -> ts.lastV3Score!!.toDouble()
+            ts.entryScore.isFinite() && ts.entryScore > 0.0 -> ts.entryScore
+            else -> 50.0
+        }
+        @Suppress("NAME_SHADOWING")
+        val score = rawLiveScore4578.coerceIn(0.0, 100.0)
+        try {
+            ForensicLogger.lifecycle(
+                "LIVE_EFFECTIVE_SCORE_SEALED_7256",
+                "attemptId=${scoreAttempt7256 ?: "none"} mint=${ts.mint.take(10)} symbol=${ts.symbol} " +
+                    "score=${"%.2f".format(score)} source=${when {
+                        (sealedTicket7256?.effectiveEntryScore7256 ?: -1) >= 0 -> "FDG_TICKET"
+                        sealedSnapshot7256 != null -> "DECISION_SNAPSHOT"
+                        else -> "LEGACY_FALLBACK"
+                    }} snapshot=${sealedSnapshot7256?.score ?: -1.0}",
+            )
+            PipelineHealthCollector.labelInc("LIVE_EFFECTIVE_SCORE_SEALED_7256")
+        } catch (_: Throwable) {}
+        val scoreFloor7256 = try {
+            com.lifecyclebot.engine.truth.LiveMinimumScoreFloor7239.evaluate(ts, score)
+        } catch (_: Throwable) { null }
+        if (scoreFloor7256?.verdict == com.lifecyclebot.engine.truth.LiveMinimumScoreFloor7239.Verdict.BLOCK_BELOW_FLOOR) {
+            if (!scoreAttempt7256.isNullOrBlank()) try {
+                ExecutableOpenGate.terminalizeAttempt6514(scoreAttempt7256, ts.mint, layerTag)
+            } catch (_: Throwable) {}
+            try {
+                PipelineHealthCollector.labelInc("LIVE_BUY_REFUSED_PRELEASE_SCORE_7256")
+                ForensicLogger.lifecycle(
+                    "LIVE_BUY_REFUSED_PRELEASE_SCORE_7256",
+                    "attemptId=${scoreAttempt7256 ?: "none"} mint=${ts.mint.take(10)} symbol=${ts.symbol} " +
+                        "score=${scoreFloor7256.score} floor=${scoreFloor7256.floor} action=no_lease_no_ticket_residue_no_quote",
+                )
+            } catch (_: Throwable) {}
+            return false
+        }
         // V5.0.6451 §ENTRY_GATE — one authority for live BUYs too.
         val gateLaneLive6451 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "LIVE_STANDARD" }
         val gateVerdictLive6451 = try {
@@ -17875,25 +17939,6 @@ class Executor(
         // scores. Do not hard-fail a route-approved candidate for a missing
         // caller score; normalize to TokenState.entryScore or neutral bootstrap
         // and let safety/route/cost/strategy gates decide.
-        val rawLiveScore4578 = score
-        val score = when {
-            rawLiveScore4578.isFinite() && rawLiveScore4578 >= 0.0 -> rawLiveScore4578.coerceIn(0.0, 100.0)
-            ts.entryScore.isFinite() && ts.entryScore > 0.0 -> ts.entryScore.coerceIn(0.0, 100.0)
-            else -> 50.0
-        }
-        if (score != rawLiveScore4578) {
-            try {
-                ForensicLogger.lifecycle("LIVE_BUY_SCORE_NORMALIZED_AT_CHOKE_4578", "mint=${ts.mint.take(10)} symbol=${ts.symbol} normalized=$score entryScore=${ts.entryScore} action=continue_no_invalid_score_veto")
-                PipelineHealthCollector.labelInc("LIVE_BUY_SCORE_NORMALIZED_AT_CHOKE_4578")
-            } catch (_: Throwable) {}
-        }
-
-        val execCtx = executionContext ?: ExecutionContext(
-            execMode = ExecMode.LIVE,
-            attemptId = attemptId.ifBlank { "live_${ts.mint.take(8)}_${System.currentTimeMillis()}" },
-            source = "Executor.liveBuy.default",
-        )
-
         // V5.0.4151 — BUY DECISION LEASE FRESHNESS.
         // V5.0.4165 — WINDOW BUMPED 5s → 15s.
         // Operator dump on V5.0.4165 (preceding build) showed avg cycle=5827ms
@@ -19039,9 +19084,9 @@ class Executor(
                 commonSenseSizeMultiplier4573 = commonSense.sizeMultiplier.coerceIn(0.35, 1.0)
             }
         }
-        try { ForensicLogger.lifecycle("QUOTE_OK", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} stage=preplan_route_quote route=${ts.tokenMap.routeStatus} executableQuote=true") } catch (_: Throwable) {}
-        try { PipelineHealthCollector.labelInc("QUOTE_OK") } catch (_: Throwable) {}
-        try { ForensicLogger.lifecycle("BUY_PLAN_OK", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=$sol processor=$buyLeaseProcessor tokenMapOk=true quoteOk=true") } catch (_: Throwable) {}
+        try { ForensicLogger.lifecycle("ROUTE_PLAN_OK_7256", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} stage=preplan_route route=${ts.tokenMap.routeStatus}") } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("ROUTE_PLAN_OK_7256") } catch (_: Throwable) {}
+        try { ForensicLogger.lifecycle("BUY_PLAN_OK", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=$sol processor=$buyLeaseProcessor tokenMapOk=true quoteRequested=false") } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("BUY_PLAN_OK") } catch (_: Throwable) {}
         try {
             ForensicLogger.lifecycle("LIVE_ENTRY_APPROVED", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} requestedSol=${sol.fmt(4)} lane=$canonicalRoutedLane style=$routedStyleTag")
@@ -19453,35 +19498,6 @@ class Executor(
         // mint/freeze authority, exact quarantine, or fatal holder concentration.
         // This gate is immediately before live spend/broadcast and is LIVE-only.
         run {
-            // V5.0.7239 §LIVE_MIN_SCORE_FLOOR — hard block live buys below
-            // the score floor. Operator 5.0.7234 data: every observed live
-            // loss was at score 6-16 (paper wins at 50+). Live had no floor
-            // and was firing on the bottom of the score distribution just
-            // because those candidates had complete safety proofs. Kills
-            // the score-6 −64% catastrophe class outright.
-            val scoreFloor7239 = try {
-                com.lifecyclebot.engine.truth.LiveMinimumScoreFloor7239.evaluate(ts, score)
-            } catch (_: Throwable) {
-                com.lifecyclebot.engine.truth.LiveMinimumScoreFloor7239.Decision(
-                    com.lifecyclebot.engine.truth.LiveMinimumScoreFloor7239.Verdict.ALLOW,
-                    score, 30.0, "GUARD_ERR_FALLBACK_ALLOW",
-                )
-            }
-            if (scoreFloor7239.verdict ==
-                com.lifecyclebot.engine.truth.LiveMinimumScoreFloor7239.Verdict.BLOCK_BELOW_FLOOR) {
-                try {
-                    PipelineHealthCollector.labelInc("LIVE_BUY_BLOCKED_MIN_SCORE_FLOOR_7239")
-                    ForensicLogger.lifecycle(
-                        "LIVE_BUY_BLOCKED_MIN_SCORE_FLOOR_7239",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} " +
-                            "score=${"%.2f".format(score)} floor=${"%.2f".format(scoreFloor7239.floor)} " +
-                            "reason=${scoreFloor7239.reason7239}",
-                    )
-                } catch (_: Throwable) {}
-                liveStage("LIVE_BUY_ABORTED", "reason=MIN_SCORE_FLOOR_7239 detail=${scoreFloor7239.reason7239}")
-                emitLiveBuyFail(ts, sol, "MIN_SCORE_FLOOR_7239", scoreFloor7239.reason7239)
-                return false
-            }
             val preTrade = PreTradeHardGate.requireLiveBuyAllowed(ts, "Executor.liveBuy.main")
             livePendingProofPenalty = preTrade.allowed && preTrade.detail.contains("pending_penalty", ignoreCase = true)
             if (livePendingProofPenalty) livePendingProofPenaltyDetail = preTrade.detail.take(180)

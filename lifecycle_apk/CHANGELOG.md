@@ -4,6 +4,13 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.7256] - 2026-09-23 — IMMUTABLE LIVE ENTRY AND MODE-SCOPED HELD AUTHORITY
+
+- Sealed the canonical FDG score into each immutable execution intent and made the live executor consume that exact score instead of a later lane-local reinterpretation.
+- Moved the live score-floor refusal ahead of pending-position mirroring, lease acquisition, route planning and provider work; rejected attempts are terminalized without stale ticket/lease residue.
+- Removed the synthetic pre-plan `QUOTE_OK`: quote success is now counted only after a real Jupiter response, while route-plan readiness has its own counter.
+- Scoped the held-position supervisor and Crypto Universe presentation projection to the active PAPER/LIVE account so retained paper rows cannot occupy live discovery, exit, UI or capital authority.
+
 ## [5.0.7255] - 2026-09-23 — LIVE ENTRY AND HELD CRYPTO CONVERGENCE
 
 - Unified V3, preflight and executor on the executor's 0.012 SOL live reserve; removed the duplicate 0.05 SOL deduction that falsely made a 0.0873 SOL wallet unroutable.

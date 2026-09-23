@@ -98,6 +98,8 @@ object ExecutableOpenGate {
         val resolvedSize: Double,
         val createdAt: Long,
         val symbol: String,
+        /** Canonical FDG/V3 score sealed with this exact candidate generation. */
+        val effectiveEntryScore7256: Int = -1,
         val primaryLane: String = canonicalLane,
         val authoritativeSignal: String = "BUY",
         val safetyVerdict: String = "UNKNOWN",
@@ -1396,6 +1398,7 @@ object ExecutableOpenGate {
                     mint = mint, mode = mode, canonicalLane = canonicalLane(lane),
                     fdgVerdict = verdict, fdgAllowed = true, authorityVersion = 0L,
                     resolvedSize = resolvedSizeSol6558, createdAt = System.currentTimeMillis(), symbol = symbol,
+                    effectiveEntryScore7256 = entryScore,
                     authoritativeSignal = "BUY", safetyVerdict = safetyTier,
                     fdgReason = reason, diagnosticSignal = signal, safetyTier = safetyTier,
                     liquidityUsd = liquidityUsd, rugScore = rugScore, hardNoReasons = emptyList(),
@@ -1800,6 +1803,7 @@ object ExecutableOpenGate {
                             fdgVerdict = winner.preFdgVerdict,
                             fdgAllowed = true, authorityVersion = immutableAuthority6519?.authorityVersion ?: 0L,
                             resolvedSize = resolvedSize6519, createdAt = System.currentTimeMillis(), symbol = winner.symbol,
+                            effectiveEntryScore7256 = winner.entryScore,
                             authoritativeSignal = "BUY", safetyVerdict = winner.safetyTier,
                             authorityVersion6494 = immutableAuthority6519?.authorityVersion ?: 0L,
                             fdgReason = winner.fdgReason, diagnosticSignal = winner.signal,
@@ -3431,6 +3435,10 @@ object ExecutableOpenGate {
                 resolvedSize = synthSize6673,
                 createdAt = System.currentTimeMillis(),
                 symbol = symbol,
+                effectiveEntryScore7256 = state?.entryScore
+                    ?: immutableAuthority6513?.score?.toInt()
+                    ?: ticketAuthority6564?.effectiveEntryScore7256
+                    ?: -1,
                 primaryLane = synthLane6673,
                 authoritativeSignal = "BUY",
                 safetyVerdict = safetyTier,
