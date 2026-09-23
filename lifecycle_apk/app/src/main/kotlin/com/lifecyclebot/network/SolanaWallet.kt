@@ -1022,6 +1022,8 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         val TOKEN_PROGRAM    = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         val TOKEN_2022_PROG  = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         val out = mutableMapOf<String, CanonicalTokenAmount>()
+        val parsedMints7253 = mutableSetOf<String>()
+        val frozenMints7253 = mutableSetOf<String>()
         val failures = mutableListOf<String>()
         var splProgramOk = false
         var token2022Ok = false
@@ -1036,11 +1038,25 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                     ?.optJSONObject("account")?.optJSONObject("data")
                     ?.optJSONObject("parsed")?.optJSONObject("info") ?: continue
                 val mint = info.optString("mint", "")
+                if (mint.isNotBlank()) {
+                    parsedMints7253 += mint
+                    val frozen = info.optString("state", "").equals("frozen", ignoreCase = true)
+                    if (com.lifecyclebot.engine.truth.WalletAssetClassifier6387.classifyFrozen(frozen) != null) {
+                        frozenMints7253 += mint
+                        try {
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("WALLET_FROZEN_TOKEN_IGNORED_7253")
+                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                "WALLET_FROZEN_TOKEN_IGNORED_7253",
+                                "mint=${mint.take(12)} program=${programId.take(12)} action=exclude_from_wallet_inventory",
+                            )
+                        } catch (_: Throwable) {}
+                    }
+                }
                 val tokenAmount = info.optJSONObject("tokenAmount")
                 val rawAmount = tokenAmount?.optString("amount", "") ?: ""
                 val decimals = tokenAmount?.optInt("decimals", -1) ?: -1
                 val amount = try { CanonicalTokenAmount.fromRpcAmount(rawAmount, decimals) } catch (_: Throwable) { null }
-                if (mint.isNotBlank() && amount != null && amount.raw.signum() > 0) out[mint] = amount
+                if (mint.isNotBlank() && mint !in frozenMints7253 && amount != null && amount.raw.signum() > 0) out[mint] = amount
             }
         }
 
@@ -1075,6 +1091,14 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         if (!token2022Ok) {
             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKEN_2022_OPTIONAL_FAILED", "action=continue_with_spl successPrograms=1/2 failures=${failures.joinToString(";").take(180)}") } catch (_: Throwable) {}
         }
+        // Remove a mint even if another account/program supplied a positive
+        // amount. Operator policy is mint-conservative: any observed frozen
+        // account makes that mint non-executable for this wallet snapshot.
+        frozenMints7253.forEach(out::remove)
+        com.lifecyclebot.engine.truth.WalletTokenAccountStateAuthority7253
+            .applyParsedSnapshot(parsedMints7253, frozenMints7253)
+        com.lifecyclebot.engine.truth.WalletTokenAccountStateAuthority7253
+            .snapshot().forEach(out::remove)
         // V5.0.7140 — the snapshot now carries whether it is whole.
         //
         // Continuing on a Token-2022 failure is correct; calling the result

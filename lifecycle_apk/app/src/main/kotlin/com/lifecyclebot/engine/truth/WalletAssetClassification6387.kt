@@ -1,5 +1,7 @@
 package com.lifecyclebot.engine.truth
 
+import java.util.concurrent.ConcurrentHashMap
+
 /**
  * V5.0.6387 — WALLET ASSET CLASSIFICATION (Directive A, P0).
  * A non-zero wallet balance does NOT automatically mean "open bot position."
@@ -93,4 +95,26 @@ object WalletAssetClassifier6387 {
     ): WalletAssetClass6387? = if (rpcParsedAccountFrozen) {
         WalletAssetClass6387.NON_TRADABLE_FROZEN_ACCOUNT
     } else null
+}
+
+/**
+ * V5.0.7253 — authoritative RPC-observed token-account state.
+ *
+ * A frozen SPL account is wallet inventory, but it is not executable bot
+ * inventory: it cannot be sold, must not reserve a trading slot, and must not
+ * be adopted or rendered as a recovered position.  Only the parsed on-chain
+ * `state=frozen` field can add a mint here; quote failures never can.
+ */
+object WalletTokenAccountStateAuthority7253 {
+    private val frozenMints = ConcurrentHashMap.newKeySet<String>()
+
+    fun applyParsedSnapshot(observedMints: Set<String>, observedFrozenMints: Set<String>) {
+        if (observedMints.isEmpty()) return
+        frozenMints.removeAll(observedMints - observedFrozenMints)
+        frozenMints.addAll(observedFrozenMints)
+    }
+
+    fun isFrozen(mint: String): Boolean = mint.isNotBlank() && frozenMints.contains(mint)
+
+    fun snapshot(): Set<String> = frozenMints.toSet()
 }

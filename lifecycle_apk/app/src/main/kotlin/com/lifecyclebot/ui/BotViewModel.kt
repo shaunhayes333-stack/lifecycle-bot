@@ -368,12 +368,33 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                     cfg.heliusApiKey.trim() != currentCfg.heliusApiKey.trim() ||
                     cfg.birdeyeApiKey.trim() != currentCfg.birdeyeApiKey.trim() ||
                     cfg.groqApiKey.trim() != currentCfg.groqApiKey.trim() ||
+                    cfg.openRouterApiKey.trim() != currentCfg.openRouterApiKey.trim() ||
+                    cfg.cerebrasApiKey.trim() != currentCfg.cerebrasApiKey.trim() ||
+                    cfg.mistralApiKey.trim() != currentCfg.mistralApiKey.trim() ||
                     // V5.9.77: Gemini key change restarts so GeminiCopilot.init() picks it up.
                     cfg.geminiApiKey.trim() != currentCfg.geminiApiKey.trim()
                     // NOTE: Telegram settings and sound do NOT require a restart.
 
                 // Always save the config on IO thread (no longer blocks main thread).
                 ConfigStore.save(ctx, cfg)
+
+                // Apply saved keys immediately. A provider-key edit must not
+                // wait for (or depend on) a bot restart before Sentient Mind
+                // can use it.
+                com.lifecyclebot.engine.GeminiCopilot.init(cfg.geminiApiKey)
+                com.lifecyclebot.engine.GeminiCopilot.configureFallbackApis(
+                    openRouterApiKey = cfg.openRouterApiKey,
+                    groqApiKey = cfg.groqApiKey,
+                    cerebrasApiKey = cfg.cerebrasApiKey,
+                    mistralApiKey = cfg.mistralApiKey,
+                )
+                val savedGemini7253 = cfg.geminiApiKey.trim()
+                com.lifecyclebot.network.KeylessLlmClient.setOperatorKeys(
+                    groq = cfg.groqApiKey.trim(),
+                    openRouter = cfg.openRouterApiKey.trim(),
+                    anthropic = if (savedGemini7253.startsWith("sk-ant-")) savedGemini7253 else "",
+                    gemini = if (savedGemini7253.startsWith("sk-ant-")) "" else savedGemini7253,
+                )
 
                 // Only restart if this is an explicit settings apply. Lifecycle autosaves
                 // (MainActivity.onPause/onStop) pass allowRestart=false so navigating

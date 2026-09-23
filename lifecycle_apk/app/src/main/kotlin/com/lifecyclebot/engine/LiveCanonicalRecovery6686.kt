@@ -137,7 +137,8 @@ object LiveCanonicalRecovery6686 {
                     // 6504 is left in the chain. It costs one lookup, it is the
                     // correct source if a live writer is ever added to it, and
                     // removing a source is not what this build is for.
-                    fromFill7126 ?: ledgerBasis6344_7133(mint) ?: ledgerBasis7126(mint, amount)
+                    fromFill7126 ?: ledgerBasis6344_7133(mint) ?:
+                        ledgerBasis7126(mint, amount) ?: journalBasis7253(mint, amount)
                 }
             }
 
@@ -312,6 +313,60 @@ object LiveCanonicalRecovery6686 {
             }
         }
         return repaired
+    }
+
+    /**
+     * V5.0.7253 — last durable recovery source: a finalized LIVE BUY journal
+     * receipt. Some historical verified buys reached TradeHistoryStore but
+     * missed both fill registries during the finality/canonical race. Wallet
+     * presence alone is never enough; this path requires LIVE_FINALIZED proof,
+     * a transaction signature, positive recorded cost/price/quantity, and no
+     * later full terminal sell for the same mint.
+     */
+    private fun journalBasis7253(mint: String, amount: CanonicalTokenAmount): Basis? {
+        val rows = try { TradeHistoryStore.getRecentValidTrades(5_000) } catch (_: Throwable) { return null }
+        val sameMint = rows.filter { it.mint == mint && it.mode.equals("live", true) }
+        val buy = sameMint.firstOrNull {
+            it.side.equals("BUY", true) &&
+                it.proofState.equals("LIVE_FINALIZED", true) &&
+                it.sig.isNotBlank() &&
+                it.entryCostSol.isFinite() && it.entryCostSol > 0.0 &&
+                it.entryPriceSnapshot.isFinite() && it.entryPriceSnapshot > 0.0 &&
+                it.entryQtyToken.isFinite() && it.entryQtyToken > 0.0
+        } ?: return null
+        val laterTerminalSell = sameMint.firstOrNull {
+            it.ts > buy.ts &&
+                (it.side.equals("SELL", true) || it.side.equals("PARTIAL_SELL", true)) &&
+                (it.proofState.equals("LIVE_FINALIZED", true) ||
+                    it.proofState.equals("LIVE_BALANCE_CONFIRMED", true) ||
+                    it.proofState.equals("LIVE_SIG_CONFIRMED", true))
+        }
+        if (laterTerminalSell != null &&
+            laterTerminalSell.remainingRawQty.signum() <= 0 &&
+            laterTerminalSell.remainingQtyToken <= 0.0
+        ) return null
+
+        val heldQty = amount.uiDoubleForDisplay()
+        if (!heldQty.isFinite() || heldQty <= 0.0) return null
+        val cost = buy.entryCostSol * (heldQty / buy.entryQtyToken).coerceIn(0.0, 1.0)
+        if (!cost.isFinite() || cost <= 0.0) return null
+        try {
+            PipelineHealthCollector.labelInc("LIVE_BASIS_REBUILT_FROM_FINALIZED_JOURNAL_7253")
+            ForensicLogger.lifecycle(
+                "LIVE_BASIS_REBUILT_FROM_FINALIZED_JOURNAL_7253",
+                "mint=${mint.take(12)} sig=${buy.sig.take(14)} heldQty=$heldQty entryQty=${buy.entryQtyToken} lane=${buy.tradingMode}",
+            )
+        } catch (_: Throwable) {}
+        return Basis(
+            entryCostSol = cost,
+            entryPriceUsd = buy.entryPriceSnapshot,
+            lane = buy.tradingMode.ifBlank { "STANDARD" },
+            openedAtMs = buy.entryTsMs.takeIf { it > 0L } ?: buy.ts,
+            source = "LIVE_FINALIZED_JOURNAL_BASIS_7253",
+            pool = buy.entryPoolAddress,
+            dex = "",
+            identity = buy.sig,
+        )
     }
 
     /**

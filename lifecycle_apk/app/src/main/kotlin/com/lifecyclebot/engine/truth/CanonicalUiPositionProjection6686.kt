@@ -17,7 +17,10 @@ object CanonicalUiPositionProjection6686 {
             try { status.tokens.values.toList().associateBy { it.mint } } catch (_: Throwable) { emptyMap() }
         }
 
-        return canonical.mapNotNull { p ->
+        return canonical.asSequence()
+            .filterNot { WalletTokenAccountStateAuthority7253.isFrozen(it.mint) }
+            .distinctBy { "${it.mode.lowercase()}:${it.mint}" }
+            .mapNotNull { p ->
             try {
                 val qty = if (p.quantityScale in 0..18)
                     p.remainingQtyRaw.toBigDecimal().movePointLeft(p.quantityScale).toDouble()
@@ -83,7 +86,7 @@ object CanonicalUiPositionProjection6686 {
                 } catch (_: Throwable) {}
                 null
             }
-        }
+            }.toList()
     }
 
     /** V5.0.7252 — authoritative ownership check for the MemeTrader dashboard. */
@@ -105,6 +108,9 @@ object CanonicalUiPositionProjection6686 {
                         it.mode.equals(if (row.position.isPaperPosition) "paper" else "live", true)
                 }
         } catch (_: Throwable) { null }
-        return canonical?.assetClass?.let { it == AssetClass.SOLANA_TOKEN } ?: true
+        // Unknown/raw wallet rows are not bot positions. They belong on a
+        // separate wallet-inventory surface and may never fail open into the
+        // MemeTrader Open Positions card.
+        return canonical?.assetClass?.let { it == AssetClass.SOLANA_TOKEN } ?: false
     }
 }

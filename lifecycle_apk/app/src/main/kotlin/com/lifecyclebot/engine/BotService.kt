@@ -2077,10 +2077,13 @@ class BotService : Service() {
             }
         }
         
-        // Initialize GeminiCopilot with API key from config
+        // V5.0.7253 — configure the provider chain independently of Gemini.
+        // Previously every saved Groq/OpenRouter/Cerebras/Mistral key was
+        // ignored whenever the Gemini field was blank because this entire
+        // block was nested under `geminiApiKey.isNotBlank()`.
+        GeminiCopilot.init(cfg.geminiApiKey)
         if (cfg.geminiApiKey.isNotBlank()) {
-            GeminiCopilot.init(cfg.geminiApiKey)
-            ErrorLogger.info("BotService", "GeminiCopilot initialized with API key")
+            ErrorLogger.info("BotService", "GeminiCopilot initialized with saved Gemini key")
             // V5.9.361 — mirror the universal LLM key into VoiceManager's TTS
             // slot so the existing per-persona OpenAI voices (Cleetus → onyx
             // + Florida-redneck instructions etc.) actually take effect.
@@ -2088,7 +2091,8 @@ class BotService : Service() {
             // Android TTS (one default female voice for everyone).
             try { VoiceManager.ensureRemoteKeyMirroredFromGemini(applicationContext, cfg.geminiApiKey) } catch (_: Exception) {}
 
-            // V5.9.915 — wire LLM fallback chain (groq → openrouter → cerebras).
+        }
+        // V5.9.915 — wire LLM fallback chain (groq → openrouter → cerebras).
             // Previously GeminiCopilot's openRouterApiKey / cerebrasApiKey
             // slots were ALWAYS blank because nothing called
             // configureFallbackApis() at boot. The fallback chain in
@@ -2097,7 +2101,7 @@ class BotService : Service() {
             // backoff cascades whenever the Emergent proxy throttled.
             // With hardcoded keys in BotConfig we now have all four
             // providers live by default.
-            try {
+        try {
                 GeminiCopilot.configureFallbackApis(
                     openRouterApiKey = cfg.openRouterApiKey,
                     groqApiKey       = cfg.groqApiKey,
@@ -2110,9 +2114,8 @@ class BotService : Service() {
                     "openrouter=${cfg.openRouterApiKey.isNotBlank()} " +
                     "cerebras=${cfg.cerebrasApiKey.isNotBlank()}"
                 )
-            } catch (e: Exception) {
-                ErrorLogger.warn("BotService", "configureFallbackApis failed: ${e.message}")
-            }
+        } catch (e: Exception) {
+            ErrorLogger.warn("BotService", "configureFallbackApis failed: ${e.message}")
         }
 
         // V5.9.129: Start the Sentience loop — LLM ↔ Personality ↔ Symbolic feedback.

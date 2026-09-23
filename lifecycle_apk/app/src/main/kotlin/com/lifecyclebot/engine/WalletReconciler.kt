@@ -56,6 +56,23 @@ object WalletReconciler {
             ErrorLogger.debug(TAG, "wallet read failed: ${t.message?.take(80)}")
             return 0
         }
+        // V5.0.7253 — parsed RPC `state=frozen` is an explicit non-tradable
+        // classification. Remove legacy recovered tracker rows and quarantine
+        // any old canonical row so exits/slots/UI cannot operate on it.
+        val frozen7253 = com.lifecyclebot.engine.truth.WalletTokenAccountStateAuthority7253.snapshot()
+        if (frozen7253.isNotEmpty()) {
+            try { HostWalletTokenTracker.ignoreFrozenMints7253(frozen7253) } catch (_: Throwable) {}
+            try {
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                    .filter { it.mint in frozen7253 }
+                    .forEach {
+                        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.quarantine(
+                            it.positionId,
+                            "FROZEN_TOKEN_ACCOUNT_7253",
+                        )
+                    }
+            } catch (_: Throwable) {}
+        }
         // V5.9.495t empty-map defence — never wipe positions on RPC failure.
         if (walletMints.isEmpty()) {
             ErrorLogger.debug(TAG, "wallet returned empty map (likely RPC lag) — skipping reconcile pass")

@@ -193,6 +193,27 @@ object HostWalletTokenTracker {
     private val walletAuthority = ConcurrentHashMap<String, WalletAuthoritySnapshot>()
     @Volatile private var loaded = false
 
+    /** V5.0.7253 — frozen SPL accounts are not executable inventory. */
+    fun ignoreFrozenMints7253(mints: Set<String>): Int {
+        if (mints.isEmpty()) return 0
+        var removed = 0
+        for (mint in mints) {
+            if (positions.remove(mint) != null) removed++
+            walletAuthority.remove(mint)
+        }
+        if (removed > 0) {
+            save()
+            try {
+                repeat(removed) { PipelineHealthCollector.labelInc("HOST_TRACKER_FROZEN_ROWS_REMOVED_7253") }
+                ForensicLogger.lifecycle(
+                    "HOST_TRACKER_FROZEN_ROWS_REMOVED_7253",
+                    "removed=$removed observedFrozen=${mints.size} action=ignore_not_open_not_sellable",
+                )
+            } catch (_: Throwable) {}
+        }
+        return removed
+    }
+
     private fun rawAmountBig(p: TrackedTokenPosition): BigInteger =
         runCatching { BigInteger(p.rawAmount.trim().ifBlank { "0" }) }.getOrDefault(BigInteger.ZERO)
 

@@ -4,6 +4,14 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.7253] - 2026-09-23 — WALLET IDENTITY AND REAL LLM ROUTING
+
+- Open Positions now fails closed to canonical bot-owned inventory; host-wallet balances can no longer become duplicated `HELD RECOVERED_*` trading rows.
+- Parsed SPL/Token-2022 `state=frozen` accounts are excluded at the wallet boundary, removed from the host tracker, and any legacy canonical row is quarantined.
+- Bot-owned wallet positions missing canonical state can rebuild from a durable `LIVE_FINALIZED` BUY journal receipt when the fill registries missed the proof handoff.
+- Saved Groq/OpenRouter/Cerebras/Mistral keys are configured even when Gemini is blank, and all saved provider keys hot-apply immediately from Settings.
+- Removed canned conversational fallback text. When no provider answers, Sentient Mind now reports that no model response or instruction was applied instead of impersonating a personality response.
+
 ## [5.0.7252] - 2026-09-23 — CRYPTO/MEME DISPLAY AND QUANTITY BOUNDARY
 
 - Closed the resume-time projection hole that let raw `CRYPTO_ALT` / `CRYPTO_SPOT` rows appear in the MemeTrader Open Positions card.

@@ -796,8 +796,7 @@ object SentientPersonality {
                         null
                     }
 
-                    val suffix = if (!reason.isNullOrBlank()) " [llm: $reason]" else ""
-                    fallbackReply(clean) + suffix
+                    unavailableReply7253(reason)
                 }
 
                 val replyMood = inferReplyMood(finalText)
@@ -809,10 +808,10 @@ object SentientPersonality {
                     }
                 } catch (_: Throwable) {
                 }
-            } catch (_: Throwable) {
+            } catch (t: Throwable) {
                 addThought(
                     Mood.ANALYTICAL,
-                    fallbackReply(clean),
+                    unavailableReply7253(t.message),
                     Category.SELF_REFLECTION,
                     0.2
                 )
@@ -1211,21 +1210,11 @@ object SentientPersonality {
         return sb.toString().trim()
     }
 
-    private fun fallbackReply(userMessage: String): String {
-        val lower = userMessage.toLowerCase(Locale.US)
-        return when {
-            lower.contains("how") && (lower.contains("feel") || lower.contains("doing")) ->
-                "Mood is ${lastMood.name.toLowerCase(Locale.US).replace('_', ' ')}. Market's doing what it does."
-            lower.startsWith("why") ->
-                "Honestly? The data said so. The LLM side blipped — try again in a sec and I'll elaborate."
-            lower.contains("stop") || lower.contains("pause") ->
-                "Can do. Waiting for your green light."
-            lower.contains("trade") || lower.contains("buy") || lower.contains("sell") ->
-                "Queueing your thought into the decision context. The gate will factor it."
-            lower.endsWith("?") ->
-                "LLM connection blipped — back in a moment. I'm still listening."
-            else ->
-                "Heard. Carrying that into the next scan."
+    private fun unavailableReply7253(reason: String?): String {
+        val detail = reason?.trim()?.take(180)?.takeIf { it.isNotBlank() }
+        return buildString {
+            append("No language model answered this turn, so no model-authored reply or instruction was applied.")
+            if (detail != null) append(" Provider status: ").append(detail)
         }
     }
 }
