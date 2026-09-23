@@ -9471,4 +9471,36 @@ class GoldenTapeRegressionTest {
         assertTrue(jupiter.contains("""Jupiter v2 order returned empty transaction"""))
     }
 
+    /** V5.0.7258 — a cross-asset paper allocation is a fractional economic
+     * position, not one whole share/unit. The hero must also repair already
+     * durable legacy rows without rewriting their immutable history. */
+    @Test
+    fun V5_0_7258_cross_asset_paper_quantity_and_hero_are_dimensionally_bound() {
+        val tx = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()
+        val positions = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPositionAuthority6441.kt").readText()
+        val capital = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalCapitalAuthority6450.kt").readText()
+        val events = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/EconomicEventSchema6464.kt").readText()
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+
+        assertTrue(tx.contains("CROSS_ASSET_QUANTITY_WITNESS_MISSING_7258"))
+        assertTrue(tx.contains("CanonicalRawQuantityAuthority6520.paperRawFromEconomics("))
+        assertTrue(tx.contains("openedQtyRaw = effectiveQtyRaw7258"))
+        assertTrue(tx.contains("CROSS_ASSET_QUANTITY_DERIVED_FROM_NOTIONAL_7258"))
+
+        assertTrue(positions.contains("val assetClass: AssetClass = AssetClass.UNKNOWN"))
+        assertTrue(positions.contains("val costBasisPerEntryUsd: Double = 0.0"))
+        assertTrue(positions.contains("remainingCost / p.entryPriceUsd"))
+
+        assertTrue(capital.contains("aggregate.costBasisPerEntryUsd * currentPriceUsd7258"))
+        assertTrue(capital.contains("aggregate.assetClass == AssetClass.PERPS"))
+        assertFalse(capital.contains("quote7060.solPerToken * qtyTokens7060\n                if"))
+        assertTrue(events.contains("val assetClassTag: String = \"\""))
+        assertTrue(events.contains("put(\"assetClassTag\", e.assetClassTag)"))
+        assertTrue(positions.contains("fun replayAssetClass7258"))
+        assertTrue(positions.contains("assetClass = replayAssetClass7258(e)"))
+        assertTrue(main.contains("if (accountRenderable7045) account7045!!.cashSol else 0.0"))
+        assertTrue(main.contains("WALLET_CASH_SURFACE_RENDERED_7258"))
+        assertFalse(main.contains("WALLET_EQUITY_SURFACE_RENDERED_6451"))
+    }
+
 }

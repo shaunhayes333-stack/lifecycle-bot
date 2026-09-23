@@ -3338,19 +3338,22 @@ for legal compliance.
         //   The forensic banner still fires; the ledger balance is
         //   still visible.  A FAILED reconcile is now a "reconciling"
         //   annotation, not a wealth-hiding gate.
-        // V5.0.7045 §3 — the headline is TOTAL EQUITY, per operator directive.
-        // Cash remains explicit in the subtitle (§4). Both come from the same
-        // immutable snapshot, so the big number and the line under it can never
-        // be drawn from different refreshes.
+        // V5.0.7258 — BALANCE means spendable CASH on every paper hero.
+        // Markets and Crypto already bind their large balance figure to cash;
+        // Main alone switched to totalEquitySol in 7045. With a legacy
+        // cross-asset qty=1.000 row, that painted $9,757 while the other two
+        // screens correctly painted ~$132 from the same account revision.
+        // Equity remains available in the accessibility/account breakdown,
+        // but it is not relabelled as spendable balance.
         val balSol = if (config.paperMode) {
-            if (accountRenderable7045) account7045!!.totalEquitySol else 0.0
+            if (accountRenderable7045) account7045!!.cashSol else 0.0
         } else {
             ws.solBalance
         }
 
         // V5.0.3871 — paper CASH vs EQUITY clarity.
-        // V5.0.6489 — headline is canonical TOTAL EQUITY; deployable CASH
-        // remains separately visible in the subtitle. The old subtitle simply said "PAPER MODE ◎ X",
+        // V5.0.7258 — headline and subtitle both identify canonical CASH;
+        // total equity remains in the detailed account description. The old subtitle simply said "PAPER MODE ◎ X",
         // while the green PnL line below is lifetime journal PnL. That mixed current
         // cash with lifetime realized PnL and made profitable runs look contradictory.
         // V5.0.6451 §WALLET_UI_SPLIT — pull the 5 canonical wallet
@@ -3392,10 +3395,10 @@ for legal compliance.
                     "SOL_USD ${"%.2f".format(account7045.solUsd)} · " +
                     "POSITIONS ${account7045.openPositions}"
             } else if (config.paperMode) {
-                "Paper total equity ${"%.4f".format(balSol)} SOL. Cash unavailable until ledger hydration."
+                "Paper cash ${"%.4f".format(balSol)} SOL. Account unavailable until ledger hydration."
             } else "Live wallet ${"%.4f".format(balSol)} SOL."
             if (config.paperMode) {
-                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("WALLET_EQUITY_SURFACE_RENDERED_6451") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("WALLET_CASH_SURFACE_RENDERED_7258") } catch (_: Throwable) {}
             }
         } else if (!config.paperMode && ws.isConnected && ws.solBalance > 0) {
             // V5.0.6256 — MODE MIXING FIX AT SOURCE. Prior fallback used

@@ -84,6 +84,10 @@ object EconomicEventSchema6464 {
          * the moment the in-memory ledger is correct.
          */
         val lane: String = "",
+        // V5.0.7258 — durable class identity is required to rebuild the same
+        // valuation semantics after process restart. Blank is retained for
+        // historical rows and repaired from positionId/lane on replay.
+        val assetClassTag: String = "",
     ) : Event()
 
     data class Sell(
@@ -197,6 +201,7 @@ object EconomicEventSchema6464 {
         fillPrice: Double, entryFeesSol: Double = 0.0,
         tokenDecimals: Int = 9, quantityScale: Int = tokenDecimals,
         lane: String = "",
+        assetClassTag: String = "",
     ) {
         // V5.0.6879 — stamp the originating lane onto the durable event. Callers may
         // pass it explicitly; when they do not, resolve it from
@@ -217,6 +222,7 @@ object EconomicEventSchema6464 {
             filledQty = filledQty, fillPrice = if (fillPrice.isFinite()) fillPrice else 0.0,
             tokenDecimals = tokenDecimals, quantityScale = quantityScale,
             lane = resolvedLane6879,
+            assetClassTag = assetClassTag,
         )
         if (!appendBounded(e)) return
         recordedBuys.incrementAndGet()
@@ -313,6 +319,7 @@ object EconomicEventSchema6464 {
                 put("tokenDecimals", e.tokenDecimals); put("quantityScale", e.quantityScale)
                 // V5.0.6879 — the lane must survive the process, not just the session.
                 put("lane", e.lane)
+                put("assetClassTag", e.assetClassTag)
             }
             is Sell -> {
                 put("partial", e.partial); put("soldQty", e.soldQty.toString())
@@ -337,6 +344,7 @@ object EconomicEventSchema6464 {
             // V5.0.6879 — absent on rows written before this version; blank then
             // falls back to the ledger exactly as before, so old events still load.
             j.optString("lane", ""),
+            j.optString("assetClassTag", ""),
         ) else Sell(
             baseAt, mode, pid, mint, symbol, key, j.getBoolean("partial"),
             java.math.BigInteger(j.getString("soldQty")), j.getDouble("allocatedCostBasisSol"),

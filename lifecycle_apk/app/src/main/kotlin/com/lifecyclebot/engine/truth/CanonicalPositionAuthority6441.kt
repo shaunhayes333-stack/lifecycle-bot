@@ -1155,6 +1155,14 @@ object CanonicalPositionAuthority6441 {
                 if (cost <= 0.0001) return false
                 return price < 1e-11
             }
+            fun replayAssetClass7258(e: EconomicEventSchema6464.Buy): AssetClass {
+                val durable = try { AssetClass.valueOf(e.assetClassTag.trim().uppercase()) }
+                    catch (_: Throwable) { AssetClass.UNKNOWN }
+                if (durable != AssetClass.UNKNOWN) return durable
+                val fromId = AssetClass.fromPositionIdPrefix(e.positionId)
+                if (fromId != AssetClass.UNKNOWN) return fromId
+                return AssetClass.fromLane(e.lane)
+            }
             for (e in paperEvents) {
                 when (e) {
                     is EconomicEventSchema6464.Buy -> {
@@ -1180,6 +1188,7 @@ object CanonicalPositionAuthority6441 {
                                 lifecycle = Lifecycle.QUARANTINED, lastMutationMs = e.atMs,
                                 quarantineReason = "QUARANTINE_POSITION_BAD_ENTRY_6519",
                                 entryPriceUsd = 0.0, entryPriceSource = "UNRECOVERABLE_DURABLE_BUY_EVENT",
+                                assetClass = replayAssetClass7258(e),
                             )
                             try {
                                 PipelineHealthCollector.labelInc("QUARANTINE_POSITION_BAD_ENTRY_6519")
@@ -1242,6 +1251,7 @@ object CanonicalPositionAuthority6441 {
                                     lifecycle = Lifecycle.QUARANTINED, lastMutationMs = e.atMs,
                                     quarantineReason = "LEGACY_SOL_PER_TOKEN_QUARANTINED_6630",
                                     entryPriceUsd = 0.0, entryPriceSource = "LEGACY_REPLAY_QUARANTINED_6630",
+                                    assetClass = replayAssetClass7258(e),
                                 )
                                 try {
                                     com.lifecyclebot.engine.truth.LegacyReplayIsolation6630
@@ -1280,6 +1290,7 @@ object CanonicalPositionAuthority6441 {
                                 lifecycle = Lifecycle.OPEN, lastMutationMs = e.atMs,
                                 quarantineReason = "",
                                 entryPriceUsd = 0.0, entryPriceSource = "REPLAY_UNIT_LEGACY_SOL_PER_TOKEN_6589",
+                                assetClass = replayAssetClass7258(e),
                             )
                             try {
                                 com.lifecyclebot.engine.truth.LegacyReplayIsolation6630
@@ -1302,6 +1313,7 @@ object CanonicalPositionAuthority6441 {
                                 quantityScale = e.quantityScale, lifecycle = Lifecycle.OPEN,
                                 lastMutationMs = e.atMs, quarantineReason = "",
                                 entryPriceUsd = repairedPrice6519.let { trustedPrice6541.coerceAtLeast(0.0) }, entryPriceSource = entrySource6541,
+                                assetClass = replayAssetClass7258(e),
                             )
                         } else cur.copy(
                             entryCostSol = cur.entryCostSol + e.executedCostSol,
@@ -1453,6 +1465,11 @@ object CanonicalPositionAuthority6441 {
         // the mixed-source defect directive §8 forbids. Carry the scale with
         // the quantity so the pair can never be split again.
         val quantityScale: Int = 0,
+        // V5.0.7258 — cross-asset valuation must be derived from cost-basis
+        // exposure and the entry/current USD price ratio. It must never trust
+        // a legacy synthetic `qty=1.000` as one whole stock/FX/metal unit.
+        val assetClass: AssetClass = AssetClass.UNKNOWN,
+        val costBasisPerEntryUsd: Double = 0.0,
     )
 
     fun activeMintProjections6489(): List<ActiveMintProjection6489> = activeMintProjections6490()
@@ -1476,6 +1493,13 @@ object CanonicalPositionAuthority6441 {
                 // V5.0.7060 — lots of one mint share a decimals scale by
                 // definition; the representative's is the mint's.
                 quantityScale = representative.quantityScale.coerceIn(0, 18),
+                assetClass = representative.assetClass,
+                costBasisPerEntryUsd = lots.sumOf { p ->
+                    val remainingCost = (p.entryCostSol - p.soldCostBasisSol).coerceAtLeast(0.0)
+                    if (p.entryPriceUsd.isFinite() && p.entryPriceUsd > 0.0)
+                        remainingCost / p.entryPriceUsd
+                    else 0.0
+                },
             )
         }
 

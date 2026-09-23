@@ -33,10 +33,10 @@ enum class AssetClass {
 
     companion object {
         fun fromLane(lane: String?): AssetClass = when (lane?.uppercase()?.trim()) {
-            "STOCK", "STOCKS", "MARKETS_STOCKS" -> STOCK
+            "STOCK", "STOCKS", "STOCK_SPOT", "STOCK_LEV", "MARKETS_STOCKS" -> STOCK
             "FOREX", "FX" -> FOREX
-            "COMMODITY", "COMMODITIES" -> COMMODITY
-            "METAL", "METALS" -> METAL
+            "COMMODITY", "COMMODITIES", "MARKETS_COMMODITIES" -> COMMODITY
+            "METAL", "METALS", "MARKETS_METALS" -> METAL
             "CRYPTO", "CRYPTO_ALT", "CRYPTOALT", "ALTCRYPTO", "CRYPTO_SPOT", "CRYPTO_LEV",
             // V5.0.6632b §P0-D — CRYPTO_ALT_ALIAS_NORMALIZATION (operator
             //   Feb 2026: "Crypto Alt / non-Solana feeds are being

@@ -155,15 +155,47 @@ object CanonicalCapitalAuthority6450 {
             val quote7060 = try { markQuoteProviderRef.get()?.invoke(aggregate.mint) } catch (_: Throwable) { null }
             val corroborated7060 = quote7060?.corroborated == true
             val fresh = if (quote7060 != null && quote7060.solPerToken.isFinite() && quote7060.solPerToken > 0.0) {
-                val qtyTokens7060 = try {
-                    java.math.BigDecimal(aggregate.remainingQtyRaw)
-                        .movePointLeft(aggregate.quantityScale.coerceIn(0, 18))
-                        .toDouble()
-                } catch (_: Throwable) { 0.0 }
-                val v7060 = quote7060.solPerToken * qtyTokens7060
+                // V5.0.7258 — old cross-asset rows were opened with the
+                // synthetic quantity 1.000. Multiplying that by a stock's
+                // current unit price turned a ~$1 allocation into a full
+                // $300-$1,700 share and inflated the hero to ~$9.7k. For
+                // non-Solana spot assets, quantity is not needed to value the
+                // exposure: remainingCost * currentUsd / entryUsd is exact and
+                // also repairs those already-durable legacy rows immediately.
+                val v7060 = if (aggregate.assetClass in setOf(
+                        AssetClass.STOCK, AssetClass.FOREX, AssetClass.COMMODITY,
+                        AssetClass.METAL, AssetClass.CRYPTO_ALT,
+                    ) && aggregate.costBasisPerEntryUsd > 0.0
+                ) {
+                    val solUsd7258 = try {
+                        com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf {
+                            it.isFinite() && it in 20.0..5_000.0
+                        } ?: 0.0
+                    } catch (_: Throwable) { 0.0 }
+                    val currentPriceUsd7258 = quote7060.solPerToken * solUsd7258
+                    aggregate.costBasisPerEntryUsd * currentPriceUsd7258
+                } else if (aggregate.assetClass == AssetClass.PERPS) {
+                    // Leveraged PnL needs its typed sandbox receipt; unit-price
+                    // multiplication is not a valid substitute. Hold at basis.
+                    aggregate.remainingCostBasisSol
+                } else {
+                    val qtyTokens7060 = try {
+                        java.math.BigDecimal(aggregate.remainingQtyRaw)
+                            .movePointLeft(aggregate.quantityScale.coerceIn(0, 18))
+                            .toDouble()
+                    } catch (_: Throwable) { 0.0 }
+                    quote7060.solPerToken * qtyTokens7060
+                }
                 if (v7060.isFinite() && v7060 > 0.0) v7060 else 0.0
             } else {
-                try { markProvider(aggregate.mint) } catch (_: Throwable) { 0.0 }
+                // The legacy whole-mint provider owns its own quantity. That
+                // quantity is exactly the contaminated `1.000` cross-asset
+                // sentinel fixed by 7258, so it cannot safely value an old
+                // stock/FX/metal/alt row. Until a per-unit quote arrives,
+                // leave it unpriced and let the cost-basis fallback below
+                // preserve capital without manufacturing profit.
+                if (aggregate.assetClass != AssetClass.SOLANA_TOKEN) 0.0
+                else try { markProvider(aggregate.mint) } catch (_: Throwable) { 0.0 }
             }
             // V5.0.6604 §PER_POSITION_MARK_QUARANTINE (operator P1 fix).
             //   The 6602 aggregate clamp masked the inflation but never

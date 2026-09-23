@@ -422,6 +422,44 @@ object CanonicalPaperTransaction6486 {
         if (positionId.isBlank() || mint.isBlank() || !costSol.isFinite() || costSol <= 0.0 ||
             !feeSol.isFinite() || feeSol < 0.0 || qtyRaw <= BigInteger.ZERO)
             return@withLock Result(false, positionId, "INVALID_OPEN")
+        // V5.0.7258 — non-Solana assets are priced in USD per unit. The old
+        // default (1e9 raw @ scale 9) meant "one whole unit" regardless of
+        // notional: spending ~$1 on a $900 stock was recorded as owning one
+        // $900 share, which inflated canonical openMV and the Main hero by
+        // hundreds of times. Derive the fractional quantity from the actual
+        // economic identity before any cash or position mutation:
+        //
+        //   qty = costSol * SOL/USD / assetPriceUsd
+        //
+        // Explicit quantities (CryptoAlt and typed tests) remain authoritative.
+        val usesLegacySyntheticQty7258 = assetClass != AssetClass.SOLANA_TOKEN &&
+            qtyRaw == syntheticUnit && decimals == 9 && quantityScale == 9
+        val effectiveQtyRaw7258 = if (usesLegacySyntheticQty7258) {
+            val solUsd7258 = try {
+                com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf {
+                    it.isFinite() && it in 20.0..5_000.0
+                } ?: 0.0
+            } catch (_: Throwable) { 0.0 }
+            if (!entryPriceUsd.isFinite() || entryPriceUsd <= 0.0 || solUsd7258 <= 0.0) {
+                try {
+                    PipelineHealthCollector.labelInc("CROSS_ASSET_QUANTITY_WITNESS_MISSING_7258")
+                    ForensicLogger.lifecycle(
+                        "CROSS_ASSET_QUANTITY_WITNESS_MISSING_7258",
+                        "assetClass=${assetClass.tag} symbol=$symbol costSol=$costSol " +
+                            "entryPriceUsd=$entryPriceUsd solUsd=$solUsd7258 action=refuse_before_debit",
+                    )
+                } catch (_: Throwable) {}
+                return@withLock Result(false, positionId, "CROSS_ASSET_QUANTITY_WITNESS_MISSING_7258")
+            }
+            try {
+                CanonicalRawQuantityAuthority6520.paperRawFromEconomics(
+                    costSol.toString(), solUsd7258.toString(), entryPriceUsd.toString(), quantityScale,
+                )
+            } catch (_: Throwable) { BigInteger.ZERO }
+        } else qtyRaw
+        if (effectiveQtyRaw7258 <= BigInteger.ZERO) {
+            return@withLock Result(false, positionId, "CROSS_ASSET_QUANTITY_INVALID_7258")
+        }
         if (CanonicalPositionAuthority6441.getPosition(positionId) != null)
             return@withLock Result(false, positionId, "POSITION_EXISTS")
         val incomingMode6605 = "paper"
@@ -447,7 +485,7 @@ object CanonicalPaperTransaction6486 {
         val opened = CanonicalPositionAuthority6441.openPosition(
             idempotencyKey = idem, positionId = positionId, mint = mint, symbol = symbol,
             lane = lane, runId = positionId.substringAfterLast(':', positionId),
-            entryCostSol = costSol, openedQtyRaw = qtyRaw, tokenDecimals = decimals,
+            entryCostSol = costSol, openedQtyRaw = effectiveQtyRaw7258, tokenDecimals = decimals,
             feesSol = feeSol, paperMode = false, modeOverride = "paper", quantityScale = quantityScale,
             entryPriceUsd = entryPriceUsd, entryPriceSource = entryPriceSource,
             entryPoolAddress = entryPoolAddress, entryDex = entryDex,
@@ -456,9 +494,9 @@ object CanonicalPaperTransaction6486 {
             PaperAccountLedger6430.rollbackBuy(costSol, feeSol, "PAPER6486_OPEN_$opened")
             return@withLock Result(false, positionId, "POSITION_$opened")
         }
-        CanonicalLotQuantity6464.onBuyFilled(positionId, mint, qtyRaw)
+        CanonicalLotQuantity6464.onBuyFilled(positionId, mint, effectiveQtyRaw7258)
         PositionStateLedger6454.onEntry(positionId)
-        SellQtyBoundaryClamp6427.syncAuthoritativeRaw(positionId, qtyRaw, qtyRaw)
+        SellQtyBoundaryClamp6427.syncAuthoritativeRaw(positionId, effectiveQtyRaw7258, effectiveQtyRaw7258)
         // V5.0.6850 §OPEN_WROTE_SOL_PER_RAW_UNIT_INTO_A_USD_PRICE_FIELD — recordBuy's
         // fillPrice argument is a USD-per-token price, and add() below already resolves
         // it correctly (`if (addedEntryPriceUsd > 0.0 && isFinite) addedEntryPriceUsd else
@@ -480,9 +518,10 @@ object CanonicalPaperTransaction6486 {
         // audit (LegacyReplayIsolation6630.setMigrationAuthorized6630 is closed by explicit
         // directive) and is deliberately not automated here.
         val fillPriceUsd6850 = if (entryPriceUsd > 0.0 && entryPriceUsd.isFinite())
-            entryPriceUsd else costSol / qtyRaw.toDouble()
+            entryPriceUsd else costSol / effectiveQtyRaw7258.toDouble()
         EconomicEventSchema6464.recordBuy("paper", positionId, mint, symbol, idem, costSol,
-            qtyRaw, fillPriceUsd6850, feeSol, decimals, quantityScale)
+            effectiveQtyRaw7258, fillPriceUsd6850, feeSol, decimals, quantityScale,
+            lane = lane, assetClassTag = assetClass.tag)
         EntryStrategySnapshot6450.setEntry(EntryStrategySnapshot6450.Snapshot(
             positionId, mint, lane, "", tactic, "", "", source, entryScore, 0.0, 0.0,
             System.currentTimeMillis(), "",
@@ -495,6 +534,9 @@ object CanonicalPaperTransaction6486 {
             executionIntent?.let { CanonicalEntryAuthority6551.markConfirmed(it, positionId) }
         }
         try {
+            if (usesLegacySyntheticQty7258) {
+                PipelineHealthCollector.labelInc("CROSS_ASSET_QUANTITY_DERIVED_FROM_NOTIONAL_7258")
+            }
             PipelineHealthCollector.labelInc("CANONICAL_BUY_JOURNAL_PROJECTED_6543")
             ForensicLogger.lifecycle(
                 "CANONICAL_BUY_JOURNAL_PROJECTED_6543",
