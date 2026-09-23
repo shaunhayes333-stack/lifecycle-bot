@@ -15,11 +15,16 @@ class Aate7256ImmutableLiveEntryTest {
         val executor = src("engine/Executor.kt")
 
         assertTrue(gate.contains("effectiveEntryScore7256"))
+        assertTrue(executor.contains("private fun resolveLiveEntryScorePreLease7257"))
+        assertTrue(
+            executor.indexOf("private fun resolveLiveEntryScorePreLease7257") <
+                executor.indexOf("private fun liveBuy(ts:"),
+        )
         assertTrue(executor.contains("LIVE_EFFECTIVE_SCORE_SEALED_7256"))
         assertTrue(executor.contains("LIVE_BUY_REFUSED_PRELEASE_SCORE_7256"))
         assertTrue(
             executor.indexOf("LIVE_BUY_REFUSED_PRELEASE_SCORE_7256") <
-                executor.indexOf("val buyLease = ExecutionAttemptLease.acquire", startIndex = executor.indexOf("private fun liveBuy")),
+                executor.indexOf("val buyLease = ExecutionAttemptLease.acquire", startIndex = executor.indexOf("private fun liveBuy(ts:")),
         )
         assertTrue(executor.contains("ROUTE_PLAN_OK_7256"))
         assertFalse(executor.contains("stage=preplan_route_quote"))

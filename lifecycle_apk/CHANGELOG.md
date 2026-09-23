@@ -4,6 +4,12 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.7257] - 2026-09-23 — ANDROID VERIFIER-SAFE LIVE ENTRY
+
+- Extracted immutable live-score resolution and pre-lease refusal from the oversized `Executor.liveBuy` method after ART rejected the 5.0.7256 class bytecode at startup.
+- Preserved the 5.0.7256 execution contract: the exact sealed FDG score remains authoritative and below-floor attempts still terminate before pending rows, leases, quotes or provider work.
+- Restored the execution-context allocation to its prior narrow location so it is not live across the whole executor method.
+
 ## [5.0.7256] - 2026-09-23 — IMMUTABLE LIVE ENTRY AND MODE-SCOPED HELD AUTHORITY
 
 - Sealed the canonical FDG score into each immutable execution intent and made the live executor consume that exact score instead of a later lane-local reinterpretation.

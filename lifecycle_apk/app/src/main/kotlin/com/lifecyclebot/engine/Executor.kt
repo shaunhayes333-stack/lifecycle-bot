@@ -17252,6 +17252,86 @@ class Executor(
         } catch (_: Throwable) { rawThreshold }
     }
 
+    /**
+     * V5.0.7257 — keep immutable score resolution outside liveBuy().
+     *
+     * Executor.liveBuy is a legacy hot-path method large enough to sit close to
+     * Android Runtime verifier limits. 7256 inlined this authority walk (with
+     * several nullable locals and protected regions) into that method. The APK
+     * compiled, but ART rejected Executor at class verification on launch.
+     * Keeping the whole walk here preserves the 7256 authority ordering while
+     * leaving liveBuy with one nullable call result before its existing body.
+     */
+    private fun resolveLiveEntryScorePreLease7257(
+        ts: TokenState,
+        callerScore: Double,
+        explicitAttemptId: String,
+        contextAttemptId: String?,
+        canonicalLane: String,
+    ): Double? {
+        val scoreAttempt = explicitAttemptId.takeIf { it.isNotBlank() }
+            ?: contextAttemptId?.takeIf { it.isNotBlank() }
+            ?: try { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint) } catch (_: Throwable) { null }
+        val sealedTicket = scoreAttempt?.let {
+            try { ExecutableOpenGate.ticketForAttempt(it) } catch (_: Throwable) { null }
+        }
+        val sealedSnapshot = try {
+            val candidateVersion = sealedTicket?.candidateVersion
+                ?: LaneExecutionCoordinator.candidateVersionFor(ts.mint)
+            com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(
+                ts.mint,
+                candidateVersion,
+                "LIVE",
+            )
+        } catch (_: Throwable) { null }
+        val ticketScore = sealedTicket?.effectiveEntryScore7256 ?: -1
+        val snapshotScore = sealedSnapshot?.score ?: Double.NaN
+        val rawScore = when {
+            ticketScore >= 0 -> ticketScore.toDouble()
+            snapshotScore.isFinite() && snapshotScore >= 0.0 -> snapshotScore
+            callerScore.isFinite() && callerScore >= 0.0 -> callerScore
+            ts.lastV3Score?.toDouble()?.isFinite() == true -> ts.lastV3Score!!.toDouble()
+            ts.entryScore.isFinite() && ts.entryScore > 0.0 -> ts.entryScore
+            else -> 50.0
+        }
+        val effectiveScore = rawScore.coerceIn(0.0, 100.0)
+        val authoritySource = when {
+            ticketScore >= 0 -> "FDG_TICKET"
+            snapshotScore.isFinite() && snapshotScore >= 0.0 -> "DECISION_SNAPSHOT"
+            else -> "LEGACY_FALLBACK"
+        }
+        try {
+            ForensicLogger.lifecycle(
+                "LIVE_EFFECTIVE_SCORE_SEALED_7256",
+                "attemptId=${scoreAttempt ?: "none"} mint=${ts.mint.take(10)} symbol=${ts.symbol} " +
+                    "score=${"%.2f".format(effectiveScore)} source=$authoritySource " +
+                    "snapshot=${if (snapshotScore.isFinite()) snapshotScore else -1.0}",
+            )
+            PipelineHealthCollector.labelInc("LIVE_EFFECTIVE_SCORE_SEALED_7256")
+        } catch (_: Throwable) {}
+
+        val floorDecision = try {
+            com.lifecyclebot.engine.truth.LiveMinimumScoreFloor7239.evaluate(ts, effectiveScore)
+        } catch (_: Throwable) { null }
+        if (floorDecision?.verdict ==
+            com.lifecyclebot.engine.truth.LiveMinimumScoreFloor7239.Verdict.BLOCK_BELOW_FLOOR) {
+            if (!scoreAttempt.isNullOrBlank()) try {
+                ExecutableOpenGate.terminalizeAttempt6514(scoreAttempt, ts.mint, canonicalLane)
+            } catch (_: Throwable) {}
+            try {
+                PipelineHealthCollector.labelInc("LIVE_BUY_REFUSED_PRELEASE_SCORE_7256")
+                ForensicLogger.lifecycle(
+                    "LIVE_BUY_REFUSED_PRELEASE_SCORE_7256",
+                    "attemptId=${scoreAttempt ?: "none"} mint=${ts.mint.take(10)} symbol=${ts.symbol} " +
+                        "score=${floorDecision.score} floor=${floorDecision.floor} " +
+                        "action=no_lease_no_ticket_residue_no_quote",
+                )
+            } catch (_: Throwable) {}
+            return null
+        }
+        return effectiveScore
+    }
+
     private fun consultEntryAdvisors(ts: TokenState, score: Double, layerTag: String, isPaperMode: Boolean = false): Pair<Boolean, String> {
         // ═══════════════════════════════════════════════════════════════════════
         // V5.0.6044 — PRE-FDG THROUGHPUT DOCTRINE (operator mandate 2026-07-03):
@@ -17563,70 +17643,17 @@ class Executor(
         // locally with the normalized value.
         @Suppress("NAME_SHADOWING")
         val layerTag: String = LaneAlias.normalize(layerTag).ifBlank { layerTag }
-        // V5.0.7256 — bind the executor to the score sealed by the exact FDG
-        // candidate. 7255 allowed a lane-local/recomputed score to replace the
-        // approved score after EXEC_GATE_ALLOW, then acquired a lease and died
-        // at MIN_SCORE_FLOOR. One immutable score now owns every downstream
-        // reader. Unknown legacy tickets fall back to the caller/TokenState;
-        // an existing sealed score is never replaced by either.
-        val execCtx = executionContext ?: ExecutionContext(
-            execMode = ExecMode.LIVE,
-            attemptId = attemptId.ifBlank { "live_${ts.mint.take(8)}_${System.currentTimeMillis()}" },
-            source = "Executor.liveBuy.default",
-        )
-        val scoreAttempt7256 = attemptId.takeIf { it.isNotBlank() }
-            ?: executionContext?.attemptId?.takeIf { it.isNotBlank() }
-            ?: try { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint) } catch (_: Throwable) { null }
-            ?: execCtx.attemptId
-        val sealedTicket7256 = scoreAttempt7256?.let {
-            try { ExecutableOpenGate.ticketForAttempt(it) } catch (_: Throwable) { null }
-        }
-        val sealedSnapshot7256 = try {
-            val v = sealedTicket7256?.candidateVersion
-                ?: LaneExecutionCoordinator.candidateVersionFor(ts.mint)
-            com.lifecyclebot.engine.truth.ExecutionDecisionSnapshot6510.currentForMint(ts.mint, v, "LIVE")
-        } catch (_: Throwable) { null }
-        val rawLiveScore4578 = when {
-            (sealedTicket7256?.effectiveEntryScore7256 ?: -1) >= 0 ->
-                sealedTicket7256!!.effectiveEntryScore7256.toDouble()
-            sealedSnapshot7256?.score?.isFinite() == true && sealedSnapshot7256.score >= 0.0 ->
-                sealedSnapshot7256.score
-            score.isFinite() && score >= 0.0 -> score
-            ts.lastV3Score?.toDouble()?.isFinite() == true -> ts.lastV3Score!!.toDouble()
-            ts.entryScore.isFinite() && ts.entryScore > 0.0 -> ts.entryScore
-            else -> 50.0
-        }
+        // V5.0.7257 — the authority walk lives in its own verifier-safe method.
+        // This call remains before every pending-row, lease, quote and provider
+        // side effect, preserving the 7256 pre-lease rejection contract.
         @Suppress("NAME_SHADOWING")
-        val score = rawLiveScore4578.coerceIn(0.0, 100.0)
-        try {
-            ForensicLogger.lifecycle(
-                "LIVE_EFFECTIVE_SCORE_SEALED_7256",
-                "attemptId=${scoreAttempt7256 ?: "none"} mint=${ts.mint.take(10)} symbol=${ts.symbol} " +
-                    "score=${"%.2f".format(score)} source=${when {
-                        (sealedTicket7256?.effectiveEntryScore7256 ?: -1) >= 0 -> "FDG_TICKET"
-                        sealedSnapshot7256 != null -> "DECISION_SNAPSHOT"
-                        else -> "LEGACY_FALLBACK"
-                    }} snapshot=${sealedSnapshot7256?.score ?: -1.0}",
-            )
-            PipelineHealthCollector.labelInc("LIVE_EFFECTIVE_SCORE_SEALED_7256")
-        } catch (_: Throwable) {}
-        val scoreFloor7256 = try {
-            com.lifecyclebot.engine.truth.LiveMinimumScoreFloor7239.evaluate(ts, score)
-        } catch (_: Throwable) { null }
-        if (scoreFloor7256?.verdict == com.lifecyclebot.engine.truth.LiveMinimumScoreFloor7239.Verdict.BLOCK_BELOW_FLOOR) {
-            if (!scoreAttempt7256.isNullOrBlank()) try {
-                ExecutableOpenGate.terminalizeAttempt6514(scoreAttempt7256, ts.mint, layerTag)
-            } catch (_: Throwable) {}
-            try {
-                PipelineHealthCollector.labelInc("LIVE_BUY_REFUSED_PRELEASE_SCORE_7256")
-                ForensicLogger.lifecycle(
-                    "LIVE_BUY_REFUSED_PRELEASE_SCORE_7256",
-                    "attemptId=${scoreAttempt7256 ?: "none"} mint=${ts.mint.take(10)} symbol=${ts.symbol} " +
-                        "score=${scoreFloor7256.score} floor=${scoreFloor7256.floor} action=no_lease_no_ticket_residue_no_quote",
-                )
-            } catch (_: Throwable) {}
-            return false
-        }
+        val score = resolveLiveEntryScorePreLease7257(
+            ts = ts,
+            callerScore = score,
+            explicitAttemptId = attemptId,
+            contextAttemptId = executionContext?.attemptId,
+            canonicalLane = layerTag,
+        ) ?: return false
         // V5.0.6451 §ENTRY_GATE — one authority for live BUYs too.
         val gateLaneLive6451 = layerTag.ifBlank { ts.source }.uppercase().take(24).ifBlank { "LIVE_STANDARD" }
         val gateVerdictLive6451 = try {
@@ -17939,6 +17966,12 @@ class Executor(
         // scores. Do not hard-fail a route-approved candidate for a missing
         // caller score; normalize to TokenState.entryScore or neutral bootstrap
         // and let safety/route/cost/strategy gates decide.
+        val execCtx = executionContext ?: ExecutionContext(
+            execMode = ExecMode.LIVE,
+            attemptId = attemptId.ifBlank { "live_${ts.mint.take(8)}_${System.currentTimeMillis()}" },
+            source = "Executor.liveBuy.default",
+        )
+
         // V5.0.4151 — BUY DECISION LEASE FRESHNESS.
         // V5.0.4165 — WINDOW BUMPED 5s → 15s.
         // Operator dump on V5.0.4165 (preceding build) showed avg cycle=5827ms
