@@ -300,6 +300,7 @@ object LearnedAdmissionInputs6909 {
             // and converted 4,088 of 4,042 refusals into probes. See that
             // branch for the full reasoning; this line is the input it needed.
             oracleRawLaneN7207 = laneRawTerminalN7207,
+            oracleVerdict6915 = oracle6915?.verdict,
             laneWrPct = laneWrPct,
             laneLossRatePct = laneLossRatePct,
             // V5.0.6915 — §5 source-family adaptation is no longer inert. The

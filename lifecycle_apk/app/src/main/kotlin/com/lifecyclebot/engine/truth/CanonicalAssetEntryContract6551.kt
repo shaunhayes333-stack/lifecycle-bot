@@ -125,10 +125,50 @@ object CanonicalEntryAuthority6551 {
         if (pending.keys.any { it.startsWith("${candidate.mode.uppercase()}:${candidate.assetId}:") })
             return blocked(candidate, venue, "DUPLICATE_CANONICAL_POSITION")
 
+        // V5.0.7259 — cross-asset candidates used to manufacture BUY or
+        // PROBE_ONLY locally from score/confidence and never consulted the
+        // predictive oracle. That was a complete authority bypass (visible as
+        // CRYPTO_ALT opens while oracle admit=0). Every asset class now needs
+        // the same evidence-backed positive forecast before sizing or intent
+        // sealing. Missing/degenerate/thin evidence stays available to shadow
+        // learners but cannot spend canonical capital.
+        val oracle7259 = try {
+            PredictiveEntryOracle6915.evaluate(
+                lane = candidate.specialist.ifBlank { candidate.assetClass.tag },
+                score = candidate.score.toInt().coerceIn(0, 100),
+                sourceFamily = candidate.source,
+                regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name }
+                    catch (_: Throwable) { "UNKNOWN" },
+                mint = candidate.assetId,
+                symbol = candidate.symbol,
+                liquidityUsd = candidate.liquidityUsd,
+            )
+        } catch (_: Throwable) { null }
+        if (oracle7259 == null ||
+            oracle7259.verdict != PredictiveEntryOracle6915.Verdict.ADMIT ||
+            !oracle7259.expectancyPct.isFinite() || oracle7259.expectancyPct <= 0.0
+        ) {
+            val verdict7259 = oracle7259?.verdict?.name ?: "UNAVAILABLE"
+            val reason7259 = "ORACLE_ADMIT_REQUIRED_7259:$verdict7259"
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_ORACLE_BLOCK_7259")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_ORACLE_BLOCK_7259_$verdict7259")
+                ForensicLogger.lifecycle(
+                    "CROSS_ASSET_ORACLE_BLOCK_7259",
+                    "asset=${candidate.assetId.take(32)} class=${candidate.assetClass.tag} " +
+                        "symbol=${candidate.symbol} verdict=$verdict7259 " +
+                        "expectancyPct=${oracle7259?.expectancyPct} confidence=${oracle7259?.confidence} action=shadow_only",
+                )
+            } catch (_: Throwable) {}
+            return blocked(candidate, venue, reason7259)
+        }
+
         val shaping = CanonicalAssetEntryShaping6551(
             scorePenalty = if (candidate.score < 0.0) 1 else 0,
             sizeMultiplier = if (candidate.confidence.isFinite()) candidate.confidence.coerceIn(0.35, 1.0) else 0.35,
-            probe = candidate.score < 50.0 || candidate.confidence < 0.55,
+            // An admitted trade may still be sized conservatively, but it is
+            // never relabelled PROBE_ONLY: probe is not executable authority.
+            probe = false,
             reasons = candidate.evidence.entries.take(4).map { "${it.key}=${it.value}" },
         )
         val shapedSize = candidate.requestedSizeSol * shaping.sizeMultiplier

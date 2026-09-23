@@ -4,6 +4,19 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.7259] - 2026-09-23 — ORACLE-ADMITTED ENTRIES ONLY
+
+- Made an explicit positive `PredictiveEntryOracle6915.ADMIT` mandatory before either the meme or cross-asset spine may size, seal, or open a canonical PAPER/LIVE position.
+- Retired executable `PROBE_ONLY` at both producer boundaries. Thin, missing, refused, or degenerate oracle evidence remains available to shadow/replay/lab learning but cannot spend canonical capital.
+- Closed the independent CryptoAlt/cross-asset bypass that manufactured `BUY`/`PROBE_ONLY` from local score and confidence without consulting the trade oracle.
+- Made Brain Consensus objections binding: `SOFT_BLOCK` now means the required unanimous positive entry consensus was not reached.
+- Added regression coverage for oracle-verdict propagation, both canonical entry spines, non-executable probes, and unanimous consensus.
+
+## [5.0.7258] - 2026-09-23 — PAPER CASH HERO AND CROSS-ASSET UNITS
+
+- Rendered the paper Main hero from spendable canonical cash instead of total equity.
+- Derived cross-asset paper quantity from sealed notional and entry price, persisted asset-class identity, and repaired legacy valuation from cost basis and current price.
+
 ## [5.0.7257] - 2026-09-23 — ANDROID VERIFIER-SAFE LIVE ENTRY
 
 - Extracted immutable live-score resolution and pre-lease refusal from the oversized `Executor.liveBuy` method after ART rejected the 5.0.7256 class bytecode at startup.

@@ -9503,4 +9503,29 @@ class GoldenTapeRegressionTest {
         assertFalse(main.contains("WALLET_EQUITY_SURFACE_RENDERED_6451"))
     }
 
+    /** V5.0.7259 — PROBE is an observation verdict, never economic authority.
+     * Both the meme admission spine and the independent cross-asset spine must
+     * require the oracle to positively admit the candidate. */
+    @Test
+    fun V5_0_7259_oracle_admit_is_required_for_every_canonical_entry() {
+        val learned = java.io.File(
+            "src/main/kotlin/com/lifecyclebot/engine/truth/LearnedAdmissionAuthority6846.kt",
+        ).readText()
+        val inputs = java.io.File(
+            "src/main/kotlin/com/lifecyclebot/engine/truth/LearnedAdmissionInputs6909.kt",
+        ).readText()
+        val crossAsset = java.io.File(
+            "src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt",
+        ).readText()
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+
+        assertTrue(learned.contains("ORACLE_PROBE_NON_EXECUTABLE_7259"))
+        assertTrue(learned.contains("ORACLE_UNAVAILABLE_7259"))
+        assertTrue(inputs.contains("oracleVerdict6915 = oracle6915?.verdict"))
+        assertTrue(crossAsset.contains("ORACLE_ADMIT_REQUIRED_7259"))
+        assertTrue(crossAsset.contains("oracle7259.verdict != PredictiveEntryOracle6915.Verdict.ADMIT"))
+        assertTrue(crossAsset.contains("probe = false"))
+        assertTrue(fdg.contains("BRAIN_CONSENSUS_NOT_UNANIMOUS_7259"))
+    }
+
 }

@@ -201,6 +201,10 @@ object LearnedAdmissionAuthority6846 {
          * refusal unreachable.
          */
         val oracleRawLaneN7207: Int = 0,
+        // V5.0.7259 — carry the oracle's actual categorical verdict.  Passing
+        // only pWin/EV/confidence let PROBE be reconstructed as executable
+        // exploration downstream, even when the oracle had admitted nothing.
+        val oracleVerdict6915: PredictiveEntryOracle6915.Verdict? = null,
         val laneWrPct: Double,          // 0..100
         val laneLossRatePct: Double,    // 0..100
         val sourceFamily: String,       // "PUMP_FUN_NEW" / "BIRDEYE_TRENDING" / …
@@ -231,6 +235,20 @@ object LearnedAdmissionAuthority6846 {
         val laneKey = inputs.lane.trim().uppercase().ifBlank { "UNKNOWN" }
         val regimeKey = inputs.regime.trim().uppercase().ifBlank { "UNKNOWN" }
         val srcKey = inputs.sourceFamily.trim().uppercase().ifBlank { "UNKNOWN" }
+
+        // V5.0.7259 §PREDICTION_IS_PERMISSION,_NOT_A_SIZE_HINT.
+        // Canonical capital may only follow an explicit positive oracle
+        // verdict. PROBE remains useful for shadow/replay/lab learning, but it
+        // is not permission to open a paper or live economic position.
+        when (inputs.oracleVerdict6915) {
+            PredictiveEntryOracle6915.Verdict.ADMIT -> Unit
+            PredictiveEntryOracle6915.Verdict.PROBE ->
+                return deny("ORACLE_PROBE_NON_EXECUTABLE_7259", inputs, "oracle=PROBE")
+            PredictiveEntryOracle6915.Verdict.REFUSE ->
+                return deny("ORACLE_REFUSE_7259", inputs, "oracle=REFUSE")
+            null ->
+                return deny("ORACLE_UNAVAILABLE_7259", inputs, "oracle=missing")
+        }
 
         // §1 — UnifiedPolicyHead HARD_BLOCK is absolute (per directive).
         if (inputs.policyHardBlock) return deny("POLICY_HARD_BLOCK", inputs, "policyHead=HARD_BLOCK")

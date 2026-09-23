@@ -4760,6 +4760,18 @@ object FinalDecisionGate {
                         blockLevelFinal = BlockLevel.HARD
                     }
                     BrainConsensusGate.Verdict.SOFT_BLOCK -> {
+                        // V5.0.7259 — the operator contract is unanimous
+                        // positive support before entry. A SOFT_BLOCK is an
+                        // explicit objection, not permission to buy smaller.
+                        // Exploration belongs in shadow/replay/lab; canonical
+                        // paper and live positions fail closed here.
+                        shouldTradeFinal = false
+                        blockReasonFinal = "BRAIN_CONSENSUS_NOT_UNANIMOUS_7259:${report.objections.joinToString("+").take(120)}"
+                        blockLevelFinal = BlockLevel.HARD
+                        tags.add("bcg_soft_block_non_executable_7259")
+                        try {
+                            PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_SOFT_BLOCK_NON_EXECUTABLE_7259")
+                        } catch (_: Throwable) {}
                         // V5.9.1136 — no longer pure telemetry. Soft objections now
                         // reduce size during WR deficit so learning changes behaviour
                         // without disabling the lane. Only a danger-bucket objection in
