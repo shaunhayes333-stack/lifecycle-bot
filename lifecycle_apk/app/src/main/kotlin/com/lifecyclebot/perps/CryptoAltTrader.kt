@@ -519,6 +519,79 @@ object CryptoAltTrader {
         }
     }
 
+    /**
+     * V5.0.7255 — canonical Crypto inventory must not disappear merely because
+     * the optional CryptoAlt presentation JSON missed a write. Wallet recovery
+     * can restore a canonical LIVE position after this trader's startup pass;
+     * previously the Positions screen continued to read only [positions] and
+     * therefore showed WBTC while other held/bot-bought crypto stayed invisible.
+     *
+     * Rebuild only from a funded canonical CRYPTO_ALT row with a real entry
+     * basis. This is a projection of existing authority, never a new trade.
+     */
+    @Synchronized
+    private fun syncCanonicalCryptoPositions7255(): Int {
+        val canonical = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                .filter { it.assetClass == com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT }
+        } catch (_: Throwable) { return 0 }
+        var added = 0
+        for (cp in canonical) {
+            if (!cp.entryPriceUsd.isFinite() || cp.entryPriceUsd <= 0.0 ||
+                !cp.entryCostSol.isFinite() || cp.entryCostSol <= 0.0
+            ) continue
+            if (positions.containsKey(cp.positionId) ||
+                positions.values.any { it.canonicalAssetKey == cp.mint }
+            ) continue
+
+            val market = PerpsMarket.values().firstOrNull {
+                it.isCrypto && it.symbol.equals(cp.symbol, ignoreCase = true)
+            } ?: PerpsMarket.DYN
+            val dynamic = market == PerpsMarket.DYN
+            val cached = if (!dynamic) try {
+                PerpsMarketDataFetcher.getCachedPrice(market)?.price ?: 0.0
+            } catch (_: Throwable) { 0.0 } else try {
+                DynamicAltTokenRegistry.heldMarkSnapshot7251(cp.mint).price
+            } catch (_: Throwable) { 0.0 }
+            val current = cached.takeIf { it.isFinite() && it > 0.0 } ?: cp.entryPriceUsd
+            val projected = AltPosition(
+                id = cp.positionId,
+                market = market,
+                dynSymbol = if (dynamic) cp.symbol else null,
+                dynName = if (dynamic) cp.symbol else null,
+                dynMint = if (dynamic) cp.mint else null,
+                direction = PerpsDirection.LONG,
+                isSpot = true,
+                isPaper = cp.mode.equals("paper", true),
+                canonicalAssetKey = cp.mint,
+                markAssetKey = if (dynamic && cached > 0.0) cp.mint else "",
+                markUpdatedAtMs = if (dynamic && cached > 0.0) System.currentTimeMillis() else 0L,
+                entryPrice = cp.entryPriceUsd,
+                currentPrice = current,
+                sizeSol = cp.entryCostSol,
+                leverage = 1.0,
+                takeProfitPrice = cp.entryPriceUsd * 1.06,
+                stopLossPrice = cp.entryPriceUsd * 0.96,
+                aiScore = 50,
+                aiConfidence = 50,
+                reasons = listOf("CANONICAL_CRYPTO_RECOVERY_7255", cp.entryPriceSource),
+                openTime = cp.openedAtMs,
+            )
+            positions[projected.id] = projected
+            spotPositions[projected.id] = projected
+            added++
+            try {
+                PipelineHealthCollector.labelInc("CRYPTO_CANONICAL_POSITION_PROJECTED_7255")
+                ForensicLogger.lifecycle(
+                    "CRYPTO_CANONICAL_POSITION_PROJECTED_7255",
+                    "positionId=${cp.positionId.take(28)} asset=${cp.mint.take(24)} symbol=${cp.symbol} mode=${cp.mode} source=${cp.entryPriceSource}",
+                )
+            } catch (_: Throwable) {}
+        }
+        if (added > 0) persistAltPositions()
+        return added
+    }
+
     // ─── Alt signal model ─────────────────────────────────────────────────────
     data class AltSignal(
         val market      : PerpsMarket,
@@ -4480,10 +4553,10 @@ object CryptoAltTrader {
      * Returns ALL positions (open + closed) so the Positions tab can show win rate, avg hold,
      * and closed trade history. Open positions have closeTime == null; closed have closeTime set.
      */
-    fun getAllPositions()      : List<AltPosition> = positions.values.toList() + closedPositions.toList()
-    fun getOpenPositions()     : List<AltPosition> = positions.values.toList()
+    fun getAllPositions()      : List<AltPosition> { syncCanonicalCryptoPositions7255(); return positions.values.toList() + closedPositions.toList() }
+    fun getOpenPositions()     : List<AltPosition> { syncCanonicalCryptoPositions7255(); return positions.values.toList() }
     fun getClosedPositions()   : List<AltPosition> = closedPositions.toList()
-    fun getSpotPositions()    : List<AltPosition> = spotPositions.values.toList()
+    fun getSpotPositions()    : List<AltPosition> { syncCanonicalCryptoPositions7255(); return spotPositions.values.toList() }
     fun getLeveragePositions(): List<AltPosition> = leveragePositions.values.toList()
 
     // ═══════════════════════════════════════════════════════════════════════════

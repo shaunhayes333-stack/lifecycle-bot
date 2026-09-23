@@ -37,7 +37,7 @@ enum class AssetClass {
             "FOREX", "FX" -> FOREX
             "COMMODITY", "COMMODITIES" -> COMMODITY
             "METAL", "METALS" -> METAL
-            "CRYPTO_ALT", "CRYPTOALT", "ALTCRYPTO",
+            "CRYPTO", "CRYPTO_ALT", "CRYPTOALT", "ALTCRYPTO", "CRYPTO_SPOT", "CRYPTO_LEV",
             // V5.0.6632b §P0-D — CRYPTO_ALT_ALIAS_NORMALIZATION (operator
             //   Feb 2026: "Crypto Alt / non-Solana feeds are being
             //   silently coerced to UNKNOWN when the source lane is

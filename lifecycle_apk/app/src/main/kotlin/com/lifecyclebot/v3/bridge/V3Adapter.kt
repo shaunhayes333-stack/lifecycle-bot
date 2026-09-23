@@ -163,7 +163,7 @@ object V3Adapter {
      */
     fun toWallet(
         totalSol: Double,
-        reserveSol: Double = 0.05,
+        reserveSol: Double = com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL,
     ): WalletSnapshot {
         val safeTotal = totalSol.coerceAtLeast(0.0)
         val safeReserve = reserveSol.coerceAtLeast(0.0)

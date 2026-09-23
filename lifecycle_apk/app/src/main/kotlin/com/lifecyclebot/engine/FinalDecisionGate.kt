@@ -801,7 +801,11 @@ object FinalDecisionGate {
         //   opportunities on the same mint are counted separately.
         //   Returns short-circuit BLOCK when the cap is exceeded.
         try {
-            val causalRoot7232 = "${candidate.entryScore.toInt()}:${candidate.phase.take(6)}"
+            // V5.0.7255 — score+phase collapsed unrelated generations into
+            // roots such as `0:blocke`; after two evaluations that mint was
+            // suppressed for the governor TTL even when a fresh candidate was
+            // elected. Bind fanout to the same candidate version execution uses.
+            val causalRoot7232 = LaneExecutionCoordinator.candidateVersionFor(ts.mint).toString()
             val ok = com.lifecyclebot.engine.truth.IntakeFanoutGovernor6835.allowFdgEval(
                 mint = ts.mint,
                 causalRoot = causalRoot7232,

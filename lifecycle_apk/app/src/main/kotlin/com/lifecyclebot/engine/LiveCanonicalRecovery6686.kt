@@ -283,6 +283,9 @@ object LiveCanonicalRecovery6686 {
                     entryPoolAddress = basis.pool,
                     entryDex = basis.dex,
                     quantityScale = amount.decimals,
+                    assetClass = com.lifecyclebot.engine.truth.AssetClass.fromLane(basis.lane)
+                        .takeUnless { it == com.lifecyclebot.engine.truth.AssetClass.UNKNOWN }
+                        ?: com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN,
                 )
             } catch (_: Throwable) { CanonicalPositionAuthority6441.MutateResult.INVARIANT_VIOLATION }
 
@@ -319,16 +322,21 @@ object LiveCanonicalRecovery6686 {
      * V5.0.7253 — last durable recovery source: a finalized LIVE BUY journal
      * receipt. Some historical verified buys reached TradeHistoryStore but
      * missed both fill registries during the finality/canonical race. Wallet
-     * presence alone is never enough; this path requires LIVE_FINALIZED proof,
-     * a transaction signature, positive recorded cost/price/quantity, and no
-     * later full terminal sell for the same mint.
+     * presence alone is never enough; this path requires an on-chain-confirmed
+     * LIVE proof, a transaction signature, positive recorded cost/price/quantity,
+     * the token to be held in the current wallet snapshot, and no later full
+     * terminal sell for the same mint. BUY journal rows are normally stamped
+     * LIVE_SIG_CONFIRMED (LIVE_FINALIZED is primarily a SELL state), so requiring
+     * only LIVE_FINALIZED made this recovery source structurally miss real buys.
      */
     private fun journalBasis7253(mint: String, amount: CanonicalTokenAmount): Basis? {
         val rows = try { TradeHistoryStore.getRecentValidTrades(5_000) } catch (_: Throwable) { return null }
         val sameMint = rows.filter { it.mint == mint && it.mode.equals("live", true) }
         val buy = sameMint.firstOrNull {
             it.side.equals("BUY", true) &&
-                it.proofState.equals("LIVE_FINALIZED", true) &&
+                it.proofState.uppercase() in setOf(
+                    "LIVE_FINALIZED", "LIVE_BALANCE_CONFIRMED", "LIVE_SIG_CONFIRMED",
+                ) &&
                 it.sig.isNotBlank() &&
                 it.entryCostSol.isFinite() && it.entryCostSol > 0.0 &&
                 it.entryPriceSnapshot.isFinite() && it.entryPriceSnapshot > 0.0 &&

@@ -1259,6 +1259,11 @@ object ExecutableOpenGate {
             // longer than the seal takes, and the deferral is separately
             // bounded at the call site so it cannot spin.
             r.contains("SEALING_RACE") -> 0L
+            // V5.0.7255 — an expired immutable ticket is terminal for that
+            // attempt, not a reason to lock the mint/lane against the fresh
+            // candidate that follows it. The ticket is revoked at the call
+            // site; re-gate immediately on the next loop.
+            log.contains("STALE_TICKET") || r.contains("EXPIRED_TICKET") -> 0L
             log.contains("FDG") -> 30_000L
             else -> 15_000L
         }
@@ -2646,8 +2651,22 @@ object ExecutableOpenGate {
         val currentCandidateVersion = LaneExecutionCoordinator.candidateVersionFor(mint)
         var immutableTicket = ticketAuthority6564
         if (immutableTicket != null && !ticketLive(immutableTicket)) {
+            val expiredTicket7255 = immutableTicket
             immutableTicket = revalidateAndResealExpired6613(immutableTicket)
-            if (immutableTicket == null) return blocked("EXEC_OPEN_BLOCKED_STALE_TICKET", "EXPIRED_TICKET_ECONOMIC_REJECT_6614")
+            if (immutableTicket == null) {
+                // Do not retain an unrecoverable ticket as the newest authority:
+                // every later scan would rediscover the same dead attempt and
+                // never allow a newly versioned intent to become authoritative.
+                revokeAttempt6514(expiredTicket7255.attemptId, expiredTicket7255.mint, expiredTicket7255.canonicalLane)
+                try {
+                    PipelineHealthCollector.labelInc("EXPIRED_TICKET_REVOKED_FOR_FRESH_CANDIDATE_7255")
+                    ForensicLogger.lifecycle(
+                        "EXPIRED_TICKET_REVOKED_FOR_FRESH_CANDIDATE_7255",
+                        "attemptId=${expiredTicket7255.attemptId.take(28)} mint=${expiredTicket7255.mint.take(10)} lane=${expiredTicket7255.canonicalLane} action=no_cooldown_fresh_candidate_may_reenter",
+                    )
+                } catch (_: Throwable) {}
+                return blocked("EXEC_OPEN_BLOCKED_STALE_TICKET", "EXPIRED_TICKET_ECONOMIC_REJECT_6614")
+            }
         }
         val immutableFdgBuy6519 = immutableTicket?.fdgAllowed == true && immutableTicket.fdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY")
         val stateRequiresSolanaTokenMap6533 = immutableTicket?.requiresSolanaTokenMap ?: state?.requiresSolanaTokenMap ?: true

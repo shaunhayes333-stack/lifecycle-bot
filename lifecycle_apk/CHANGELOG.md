@@ -4,6 +4,15 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.7255] - 2026-09-23 — LIVE ENTRY AND HELD CRYPTO CONVERGENCE
+
+- Unified V3, preflight and executor on the executor's 0.012 SOL live reserve; removed the duplicate 0.05 SOL deduction that falsely made a 0.0873 SOL wallet unroutable.
+- Added a bounded one-routable-position policy (maximum 60% of spendable SOL, with the reserve still untouchable) so small live wallets are not permanently forced into zero trades.
+- Keyed the FDG fanout cap by the real candidate version instead of the colliding `score:phase` surrogate (`0:blocke`).
+- Revoked economically expired tickets without installing a mint/lane cooldown, allowing a fresh candidate to re-enter on the next cycle.
+- Accepted the actual confirmed BUY proof states (`LIVE_SIG_CONFIRMED` / `LIVE_BALANCE_CONFIRMED`) during wallet-plus-journal recovery, classified historical `CRYPTO`, `CRYPTO_SPOT` and `CRYPTO_LEV` lanes as `CRYPTO_ALT`, and projected canonical held crypto back into `CryptoAltTrader` when its optional local presentation row is missing.
+- Frozen token accounts remain excluded at the RPC, tracker, canonical and UI boundaries.
+
 ## [5.0.7254] - 2026-09-23 — MODE-SCOPED EXITS AND HONEST FANOUT HEALTH
 
 - Scope the independent risk clock and canonical exit feed to the active PAPER/LIVE account. A retained PAPER position can no longer generate partial-close/mark-repair traffic or inflate exit coverage while the runtime is LIVE.
