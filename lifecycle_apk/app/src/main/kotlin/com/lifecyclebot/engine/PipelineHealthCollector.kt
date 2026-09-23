@@ -2062,6 +2062,15 @@ object PipelineHealthCollector {
                     "BRAIN_CONSENSUS_UNAVAILABLE_FAIL_OPEN_7263",
                     "CROSS_ASSET_ORACLE_ADVISORY_PASS_7263",
                     "CROSS_ASSET_ORACLE_PAPER_EXPLORATION_7262",
+                    // V5.0.7264 — the exit-sweep stall, itemised. These existed
+                    // and were unpinned, so 7263's "5 sweeps / 5 resets" could
+                    // not say whether the body hung, ran slow, or never started.
+                    "EXIT_SWEEP_ITERATION_OVERRUN_7121",
+                    "UNIVERSAL_SL_POSITION_SLOW_6402",
+                    "UNIVERSAL_SL_SWEEP_SOFT_DEADLINE_6402",
+                    "EXIT_COORDINATOR_RELAUNCH_BACKOFF_7067",
+                    "EXIT_UNIVERSAL_SWEEP_ERROR_7121",
+                    "CRYPTO_ALT_TICK_FLOOR_PHANTOM_DEFERRED_7264",
                     "LLM_GROQ_CATALOGUE_7262",
                     "LLM_GROQ_CATALOGUE_UNREAD_7262",
                     "LLM_GROQ_MODEL_RETIRED_7262",
@@ -2113,6 +2122,9 @@ object PipelineHealthCollector {
                     "LIVE_LAST_MILE_LIFTED_TO_ROUTABLE_MIN_7226_",
                     "LIVE_LAST_MILE_SUB_ROUTABLE_DUST_REFUSED_7227_",
                     "LIVE_SIZING_WALLET_PROXY_WAS_PAPER_CASH_7226_",
+                    // V5.0.7264 — which stale-reset reason and at what open count.
+                    "EXIT_COORDINATOR_STALE_RESET_REASON_",
+                    "EXIT_COORDINATOR_OPEN_POSITIONS_AT_STALE_",
                     "TRADE_AUTHORIZE_ENTERED_7003_",
                     "LIVE_BUY_ABORTED|",
                     "LANE_ENTRY_RECOVERY_ABOVE_PROBATION_UNDER_HOLD_7214",
@@ -2617,6 +2629,12 @@ object PipelineHealthCollector {
                     sb.append("         its starvations, and check admission (§6636 basis invariant).\n")
                 }
             } catch (_: Throwable) {}
+            // V5.0.7264 — how long the full exit sweep actually takes. Five
+            // sweeps in seventeen minutes on 7263; eight prior repairs argued
+            // about liveness without this number.
+            sb.append("  Exit sweep timing (§7264):    ").append(
+                try { com.lifecyclebot.engine.truth.ExitSweepTiming7264.statusLine() } catch (_: Throwable) { "unavailable" }
+            ).append("\n")
             // V5.0.7225 — the mark-freshness chain on one line, so the next
             // snapshot can say whether the 30s top-up now reaches a provider.
             // On 7219: riskClockStale=7135 of posEvals=10125 against

@@ -219,6 +219,8 @@ object CryptoAltTrader {
     private val positions        = ConcurrentHashMap<String, AltPosition>()
     private val spotPositions    = ConcurrentHashMap<String, AltPosition>()
     private val leveragePositions= ConcurrentHashMap<String, AltPosition>()
+    /** V5.0.7264 — per-position two-strike flag for the tick hard floor (see the guard at the tick site). */
+    private val tickFloorStrike7264 = ConcurrentHashMap<String, Boolean>()
     // V5.9.424 — MICROWIN_LOCK momentum snapshot (id -> ts ms, pnlPct).
     // Used to detect "no movement in last 2min" before booking a small win.
     private val momentumSnapshots = ConcurrentHashMap<String, Pair<Long, Double>>()
@@ -3520,12 +3522,45 @@ object CryptoAltTrader {
                 // ═══════════════════════════════════════════════════════════════
                 val tickPnl = updated.getPnlPct()
                 if (tickPnl <= -10.0) {
+                    // V5.0.7264 §THE_MEME_FLOOR_HAD_A_PHANTOM_GUARD;_THIS_ONE_DID_NOT.
+                    //
+                    // Operator 5.0.7263, paper: CRYPTO_ALT "solana" closed
+                    // TICK_HARD_FLOOR_-98PCT — entry 0.000398, sold for 0.007 SOL
+                    // on a 0.49 SOL position. That single row was 75% of the
+                    // session's realised loss, beside STALE_PRICE_QUARANTINED
+                    // gainMultiple=2419 and METRICS_IDENTITY_BROKEN=81k on the
+                    // same book. BotService's meme tick floor has carried the
+                    // V5.9.1564 guard since 5.0.3671 for exactly this: a single
+                    // tick can read a stale or cross-identity mark and report
+                    // -96% on a token that is fine, so anything below -50% needs
+                    // a second consecutive sub-floor read before it may fire.
+                    // The -10% kill-switch itself is unchanged: a read between
+                    // -10% and -50% still closes on the first tick. Only the
+                    // phantom range waits one tick.
+                    val phantomRange7264 = tickPnl < -50.0
+                    val priorStrike7264 = tickFloorStrike7264[id] == true
+                    tickFloorStrike7264[id] = true
+                    if (phantomRange7264 && !priorStrike7264) {
+                        try {
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_ALT_TICK_FLOOR_PHANTOM_DEFERRED_7264")
+                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                "CRYPTO_ALT_TICK_FLOOR_PHANTOM_DEFERRED_7264",
+                                "id=$id symbol=${updated.marketSymbol} entry=${position.entryPrice} mark=$markPrice " +
+                                    "pnl=${"%.1f".format(tickPnl)}% dynamic=${position.isDynamic} markKey=$validatedMarkKey " +
+                                    "action=second_consecutive_sub_floor_read_required",
+                            )
+                        } catch (_: Throwable) {}
+                        continue
+                    }
                     ErrorLogger.warn(TAG,
                         "🛑 TICK_HARD_FLOOR ${updated.marketSymbol} " +
                         "${"%.1f".format(tickPnl)}% ≤ -10.0% — immediate exit " +
-                        "(peak=${"%.1f".format(updated.highestPnlPct)}%)")
+                        "(peak=${"%.1f".format(updated.highestPnlPct)}% twoStrike=$priorStrike7264)")
+                    tickFloorStrike7264.remove(id)
                     closePosition(id, "TICK_HARD_FLOOR_${tickPnl.toInt()}PCT")
                     continue
+                } else {
+                    tickFloorStrike7264.remove(id)
                 }
                 // ─── Peak give-back trailing (lock big runners) ───
                 val tickPeak = if (updated.highestPnlPct > tickPnl) updated.highestPnlPct else tickPnl

@@ -9579,6 +9579,29 @@ class GoldenTapeRegressionTest {
         assertTrue(fdg.contains("if (oracleProven7263 && !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {"))
     }
 
+    /** V5.0.7264 — the cross-asset tick floor carries the same phantom-read
+     * guard as the meme tick floor (V5.9.1564), and the exit sweep's duration
+     * reaches the report. */
+    @Test
+    fun V5_0_7264_crypto_alt_tick_floor_has_phantom_guard_and_sweep_timing_is_reported() {
+        val alt = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val timing = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExitSweepTiming7264.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        assertTrue(alt.contains("val phantomRange7264 = tickPnl < -50.0"))
+        assertTrue(alt.contains("if (phantomRange7264 && !priorStrike7264) {"))
+        assertTrue(alt.contains("CRYPTO_ALT_TICK_FLOOR_PHANTOM_DEFERRED_7264"))
+        // The -10% kill-switch itself still fires on the first read.
+        assertTrue(alt.contains("closePosition(id, \"TICK_HARD_FLOOR_\${tickPnl.toInt()}PCT\")"))
+
+        assertTrue(bot.contains("ExitSweepTiming7264.onSweep(total, positionsSeen, positionsEvaluated, positionsDeferred)"))
+        assertTrue(bot.contains("ExitSweepTiming7264.onSlowPosition(posElapsed)"))
+        assertTrue(timing.contains("fun statusLine(): String"))
+        assertTrue(phc.contains("Exit sweep timing (§7264)"))
+        assertTrue(phc.contains("\"EXIT_COORDINATOR_STALE_RESET_REASON_\","))
+    }
+
     /** V5.0.7260 — the oracle must judge the current candidate, not repeat a
      * blank-signature bootstrap forecast or the historical book average. */
     @Test

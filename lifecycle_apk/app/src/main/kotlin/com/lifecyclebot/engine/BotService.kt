@@ -31767,6 +31767,7 @@ if (hotExitHandledSweep) {
                 val posElapsed = System.currentTimeMillis() - posStart
                 if (posElapsed >= PER_POSITION_ELAPSED_WARN_MS) {
                     try {
+                        com.lifecyclebot.engine.truth.ExitSweepTiming7264.onSlowPosition(posElapsed)
                         PipelineHealthCollector.labelInc("UNIVERSAL_SL_POSITION_SLOW_6402")
                         ForensicLogger.lifecycle(
                             "UNIVERSAL_SL_POSITION_SLOW_6402",
@@ -31786,6 +31787,8 @@ if (hotExitHandledSweep) {
             ErrorLogger.warn("BotService", "universal SL sweep top-level: ${e.message}")
         } finally {
             val total = System.currentTimeMillis() - sweepStartedAt
+            // V5.0.7264 — the duration reaches the report, not only the forensic log.
+            try { com.lifecyclebot.engine.truth.ExitSweepTiming7264.onSweep(total, positionsSeen, positionsEvaluated, positionsDeferred) } catch (_: Throwable) {}
             try {
                 ForensicLogger.lifecycle(
                     "UNIVERSAL_SL_SWEEP_SUMMARY_6402",

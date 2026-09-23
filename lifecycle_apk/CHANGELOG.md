@@ -4,6 +4,12 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.7264] - 2026-09-23 — CROSS-ASSET PHANTOM-FLOOR GUARD; EXIT-SWEEP TIMING ON THE REPORT
+
+- 7263 paper run: `CRYPTO_ALT "solana"` closed `TICK_HARD_FLOOR_-98PCT` on a single tick (0.49 SOL position, 75% of the session's realised loss) beside `STALE_PRICE_QUARANTINED gainMultiple=2419`. `CryptoAltTrader`'s tick floor now carries the meme floor's V5.9.1564 guard: a read below −50% needs a second consecutive sub-floor tick before it may fire (`CRYPTO_ALT_TICK_FLOOR_PHANTOM_DEFERRED_7264`); the −10% kill-switch is unchanged for reads between −10% and −50%.
+- New `ExitSweepTiming7264`: last / mean / max sweep duration, positions seen/evaluated/deferred, per-position ms and slow-position count, on the report as `Exit sweep timing (§7264)`. 7263 showed 5 full sweeps in 17 minutes with 5 stale resets; eight prior coordinator repairs never had this number.
+- Pinned the previously-unpinned sweep diagnostics: `EXIT_SWEEP_ITERATION_OVERRUN_7121`, `UNIVERSAL_SL_POSITION_SLOW_6402`, `UNIVERSAL_SL_SWEEP_SOFT_DEADLINE_6402`, `EXIT_COORDINATOR_RELAUNCH_BACKOFF_7067`, `EXIT_UNIVERSAL_SWEEP_ERROR_7121`, and the `EXIT_COORDINATOR_STALE_RESET_REASON_*` / `EXIT_COORDINATOR_OPEN_POSITIONS_AT_STALE_*` families.
+
 ## [5.0.7263] - 2026-09-23 — THE ORACLE IS ADVISORY UNTIL IT PROVES ITS EDGE
 
 - Operator: "the oracle is way way too strict to allow any trading in paper or live… it also has to allow trading. not probing" / "until the Oracle can prove its edge yes."
