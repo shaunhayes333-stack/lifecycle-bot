@@ -2030,6 +2030,21 @@ object PipelineHealthCollector {
                     "LIVE_FLOOR_BLOCK_ROUTABLE_MIN_EXCEEDS_SHARE_7127",
                     "SMART_SIZER_V3_DUST_PROMOTED_6271",
                     "COST_EXCEEDS_EDGE_REFUSED_7162",
+                    // V5.0.7265 — the three outcomes of the cost-vs-edge gate side
+                    // by side. 7263 showed 1971 refusals against 57 executions with
+                    // every lane "evidenced" by one or two closes; the operator
+                    // must be able to see refusals fall as immature-evidence
+                    // candidates proceed, and which lanes still refuse at maturity.
+                    "COST_EDGE_CLEARED_7162",
+                    "COST_EDGE_ZERO_WITH_LANE_EVIDENCE_7162",
+                    "COST_EDGE_ZERO_IMMATURE_EVIDENCE_PROCEEDS_7265",
+                    // V5.0.7265 — runner capture and the moonshot funnel: how often
+                    // the tick lock read the scaled band above +100%, and how many
+                    // admitted fresh launches the moonshot lane's own mcap zone
+                    // then dropped without a word.
+                    "RUNNER_LOCK_SCALED_BAND_7265",
+                    "MOONSHOT_ZONE_DROPPED_AFTER_ADMISSION_7265",
+                    "FDG_SUPPRESSED_FANOUT_CAP_7232",
                     // V5.0.7226 — the second live sizing authority. On 7225 the
                     // sizer's floor fired 0 times and two 0.007 SOL live buys
                     // landed anyway; the resolver had been sizing LIVE against
@@ -2125,6 +2140,13 @@ object PipelineHealthCollector {
                     // V5.0.7264 — which stale-reset reason and at what open count.
                     "EXIT_COORDINATOR_STALE_RESET_REASON_",
                     "EXIT_COORDINATOR_OPEN_POSITIONS_AT_STALE_",
+                    // V5.0.7265 — per lane: cost-vs-edge refusals at maturity and
+                    // immature-evidence proceeds, so a lane still refused after
+                    // eight closes is named rather than folded into one total.
+                    "COST_EXCEEDS_EDGE_REFUSED_7162_",
+                    "COST_EDGE_ZERO_IMMATURE_EVIDENCE_PROCEEDS_7265_",
+                    // V5.0.7265 — which lane the (now per-lane) fan-out cap still hits.
+                    "FDG_SUPPRESSED_FANOUT_CAP_7232_",
                     "TRADE_AUTHORIZE_ENTERED_7003_",
                     "LIVE_BUY_ABORTED|",
                     "LANE_ENTRY_RECOVERY_ABOVE_PROBATION_UNDER_HOLD_7214",

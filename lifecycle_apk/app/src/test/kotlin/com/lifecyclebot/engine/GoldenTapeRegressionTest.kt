@@ -9602,6 +9602,58 @@ class GoldenTapeRegressionTest {
         assertTrue(phc.contains("\"EXIT_COORDINATOR_STALE_RESET_REASON_\","))
     }
 
+    /** V5.0.7265 — volume and runner capture. The cost-vs-edge gate needs a
+     * mature same-mode close count before a zero forecast is a refusal; the
+     * FDG fan-out budget is per lane; above +100% the tick lock and the
+     * peak-lock read the 6845 scaled band (never below breakeven); the
+     * moonshot admission-to-zone drop is counted. */
+    @Test
+    fun V5_0_7265_cost_gate_needs_mature_evidence_fanout_is_per_lane_and_runner_locks_share_the_scaled_band() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val damper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt").readText()
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        val gov = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/IntakeFanoutGovernor6835.kt").readText()
+        val fluid = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/FluidLearningAI.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        // Cost gate: zero forecast + immature lane evidence proceeds.
+        assertTrue(damper.contains("const val MATURE_EVIDENCE_CLOSES_7265 = MIN_TRADES"))
+        assertTrue(damper.contains("fun sameModeCloses7265(lane: String?): Int"))
+        assertTrue(exec.contains("if (closes7265 < com.lifecyclebot.engine.LaneExpectancyDamper.MATURE_EVIDENCE_CLOSES_7265) {"))
+        assertTrue(exec.contains("COST_EDGE_ZERO_IMMATURE_EVIDENCE_PROCEEDS_7265"))
+        // The mature-lane refusal and the margin are untouched.
+        assertTrue(exec.contains("val blocked = expected < required * COST_EDGE_MARGIN_7162"))
+        assertTrue(exec.contains("COST_EDGE_ZERO_WITH_LANE_EVIDENCE_7162"))
+
+        // Fan-out cap: per (mint, causalRoot, lane); no-lane callers keep the shared key.
+        assertTrue(gov.contains("fun allowFdgEval(mint: String, causalRoot: String, laneName: String = \"\"): Boolean"))
+        assertTrue(gov.contains("else keyFor(mint, causalRoot) + \"::\" + lane7265.take(20)"))
+        assertTrue(fdg.contains("laneName = fanoutLane7265,"))
+        assertTrue(fdg.contains("FDG_SUPPRESSED_FANOUT_CAP_7232_\$fanoutLane7265"))
+        assertTrue(fdg.contains("blockReason = \"FDG_FANOUT_CAP_7232\""))
+
+        // Runner locks: above +100% both read fluidProfitFloor's scaled band and
+        // never drop below the breakeven floor; below +100% the tight gap stays.
+        assertTrue(fluid.contains("if (peakClamped >= 100.0) {"))
+        assertTrue(fluid.contains("fluidProfitFloor(peakClamped, volatility, holdTimeSeconds)"))
+        assertTrue(fluid.contains("return maxOf(scaledBand7265, breakEvenFloor)"))
+        assertTrue(fluid.contains("return maxOf(continuousLock, breakEvenFloor)"))
+        assertFalse(fluid.contains("val peakDrawdownFloor = if (peakClamped >= 100.0) peakClamped - 12.0"))
+        assertFalse(bot.contains("peakPnlPct >= 100.0 -> peakPnlPct - 12.0"))
+        assertTrue(bot.contains("RAPID_PEAK_LOCK_BREACH_4301"))
+        // Scaled band arithmetic: +150% peak locks at +83.5%, +900% at +328%; never a loss.
+        val frac150 = com.lifecyclebot.engine.PeakDrawdownLock.triggerFracForPeak(150.0)
+        val frac900 = com.lifecyclebot.engine.PeakDrawdownLock.triggerFracForPeak(900.0)
+        assertTrue(150.0 - 150.0 * frac150 > 80.0 && 150.0 - 150.0 * frac150 < 90.0)
+        assertTrue(900.0 - 900.0 * frac900 > 320.0 && 900.0 - 900.0 * frac900 < 340.0)
+
+        // Moonshot admission-to-zone drop is named.
+        assertTrue(bot.contains("MOONSHOT_ZONE_DROPPED_AFTER_ADMISSION_7265"))
+        assertTrue(phc.contains("\"RUNNER_LOCK_SCALED_BAND_7265\","))
+        assertTrue(phc.contains("\"FDG_SUPPRESSED_FANOUT_CAP_7232_\","))
+    }
+
     /** V5.0.7260 — the oracle must judge the current candidate, not repeat a
      * blank-signature bootstrap forecast or the historical book average. */
     @Test

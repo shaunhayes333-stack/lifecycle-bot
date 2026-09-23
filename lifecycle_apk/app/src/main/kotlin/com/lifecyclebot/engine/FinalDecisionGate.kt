@@ -806,13 +806,22 @@ object FinalDecisionGate {
             // suppressed for the governor TTL even when a fresh candidate was
             // elected. Bind fanout to the same candidate version execution uses.
             val causalRoot7232 = LaneExecutionCoordinator.candidateVersionFor(ts.mint).toString()
+            // V5.0.7265 — the budget is per lane. Ten lanes call this gate in
+            // a fixed order per cycle; a shared two-eval budget meant the
+            // third lane onward never got a verdict on any mint the first
+            // two had looked at (1143 of 1377 FDG blocks on 5.0.7263, and
+            // SHITCOIN/EXPRESS at zero intents). Trunk/main callers that
+            // pass no specialist lane share the "TRUNK" bucket.
+            val fanoutLane7265 = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: "TRUNK"
             val ok = com.lifecyclebot.engine.truth.IntakeFanoutGovernor6835.allowFdgEval(
                 mint = ts.mint,
                 causalRoot = causalRoot7232,
+                laneName = fanoutLane7265,
             )
             if (!ok) {
                 try {
                     PipelineHealthCollector.labelInc("FDG_SUPPRESSED_FANOUT_CAP_7232")
+                    PipelineHealthCollector.labelInc("FDG_SUPPRESSED_FANOUT_CAP_7232_$fanoutLane7265")
                 } catch (_: Throwable) {}
                 return FinalDecision(
                     shouldTrade = false,

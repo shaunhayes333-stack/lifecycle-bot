@@ -3584,6 +3584,38 @@ class Executor(
                 val laneHasEvidence7162 =
                     damperOpinion7162.isFinite() && kotlin.math.abs(damperOpinion7162 - 1.0) > 1e-9
                 if (!laneHasEvidence7162) return false
+                // V5.0.7265 §ONE_CLOSE_IS_NOT_A_MEASUREMENT.
+                //
+                // The test above assumed "non-neutral multiplier" meant "enough
+                // closes to hold an opinion" (the comment says so: "it has
+                // enough closes"). V5.0.6715 made the damper non-neutral from
+                // trade ONE. Operator 5.0.7263: CYCLIC×0.87 on n=1,
+                // PROJECT_SNIPER×0.98 on n=1, CORE×0.67 on n=2 — and
+                // COST_EXCEEDS_EDGE_REFUSED_7162 = 1971 against EXEC = 57.
+                // Every lane was "evidenced" by its first loss; a cold scorer
+                // (9–32) gives a zero score prior; so zero-edge-plus-evidence
+                // refused nearly everything for the rest of the session, and a
+                // lane that cannot enter cannot earn the closes that lift its
+                // multiplier. Same cold-start deadlock as 7259/7262.
+                //
+                // Apply the bar this branch always claimed: the lane's same-mode
+                // clean close count must reach the damper's own MIN_TRADES
+                // before a zero forecast is read as "evidence says no edge".
+                // Under that count the forecast is absent, not negative, and
+                // absence proceeds — the rule three lines up. Nothing about
+                // the cost model, the margin or the mature-lane refusal moves.
+                val closes7265 = try {
+                    com.lifecyclebot.engine.LaneExpectancyDamper.sameModeCloses7265(laneKey)
+                } catch (_: Throwable) { 0 }
+                if (closes7265 < com.lifecyclebot.engine.LaneExpectancyDamper.MATURE_EVIDENCE_CLOSES_7265) {
+                    try {
+                        PipelineHealthCollector.labelInc("COST_EDGE_ZERO_IMMATURE_EVIDENCE_PROCEEDS_7265")
+                        PipelineHealthCollector.labelInc(
+                            "COST_EDGE_ZERO_IMMATURE_EVIDENCE_PROCEEDS_7265_${laneKey.uppercase().take(20)}",
+                        )
+                    } catch (_: Throwable) {}
+                    return false
+                }
                 try {
                     PipelineHealthCollector.labelInc("COST_EDGE_ZERO_WITH_LANE_EVIDENCE_7162")
                 } catch (_: Throwable) {}

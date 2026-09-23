@@ -88,6 +88,41 @@ object LaneExpectancyDamper {
     @Volatile private var cached: Map<String, Double> = emptyMap()
     @Volatile private var cachedMode6679: String = ""
 
+    /**
+     * V5.0.7265 — the same-mode clean close count behind each multiplier,
+     * captured from the same leaderboard read that produced it.
+     *
+     * V5.0.6715 made the multiplier non-neutral from trade ONE ("evidence is
+     * continuous from trade one"), which is right for a size nudge. But
+     * Executor.costExceedsEdge7162 reads "multiplier != 1.0" as "this lane has
+     * enough closes to hold an opinion" and then treats a zero forecast edge
+     * as a measurement — a refusal. Operator 5.0.7263, 27 minutes, 17 closes:
+     *
+     *   LaneExpectancyDamper[PAPER]: CRYPTO_ALT×0.57 · CORE×0.67 · QUALITY×0.70
+     *                                · CYCLIC×0.87 · MOONSHOT×0.97 · PROJECT_SNIPER×0.98
+     *   Tactic Switcher: CYCLIC n=1, MOONSHOT n=1..2, CORE n=2, PROJECT_SNIPER n=1
+     *   COST_EXCEEDS_EDGE_REFUSED_7162 = 1971      EXEC = 57
+     *
+     * One close made every lane "evidenced", and a cold scorer (9–32) gives a
+     * zero score prior, so 7162 refused nearly every non-dust entry in the
+     * session. A lane that cannot enter cannot produce the closes that would
+     * lift its own multiplier: the same cold-start deadlock as 7259/7262, one
+     * gate further down. This exposes the count so 7162 can apply the bar its
+     * own comment states — MIN_TRADES closes — instead of inferring it from a
+     * multiplier that no longer implies it.
+     */
+    const val MATURE_EVIDENCE_CLOSES_7265 = MIN_TRADES
+    @Volatile private var cachedCloses7265: Map<String, Int> = emptyMap()
+
+    /** Same-mode clean terminal closes for [lane]; 0 when unknown. */
+    fun sameModeCloses7265(lane: String?): Int {
+        if (lane.isNullOrBlank()) return 0
+        return try {
+            snapshot()
+            cachedCloses7265[lane.trim().uppercase()] ?: 0
+        } catch (_: Throwable) { 0 }
+    }
+
     fun sizeMultiplier(lane: String?): Double {
         if (lane.isNullOrBlank()) return 1.0
         return try {
@@ -188,8 +223,15 @@ object LaneExpectancyDamper {
             if (paperRuntime6679) StrategyTelemetry.computeCleanPaperTerminalLeaderboard()
             else StrategyTelemetry.computeCleanLiveTerminalLeaderboard()
         } catch (_: Throwable) {
+            cachedCloses7265 = emptyMap()
             return emptyMap()
         }
+        // V5.0.7265 — captured from the same read as the multipliers below, so a
+        // consumer comparing the two can never see a count from one board and a
+        // multiplier from another.
+        cachedCloses7265 = try {
+            board.associate { it.strategy.trim().uppercase() to it.trades }
+        } catch (_: Throwable) { emptyMap() }
         val out = HashMap<String, Double>()
         for (m in board) {
             if (m.trades < 1) continue

@@ -10350,8 +10350,16 @@ class BotService : Service() {
                         // below that lock. This guard is independent of generic
                         // dynamic-stop semantics and fires even if current PnL
                         // already gapped below zero between 500ms ticks.
+                        // V5.0.7265 — the `>= 100 -> peak - 12` arm that used to sit
+                        // above this one bypassed V5.0.6845's scaled band inside
+                        // fluidProfitFloor for exactly the peaks that band exists
+                        // for. fluidProfitFloor already handles >= 100 (peak minus
+                        // max(points, peak * triggerFracForPeak), never below
+                        // +30% of peak), so every peak >= 20 now reads the same
+                        // floor the tick lock and the give-back stop read. The
+                        // lock still fires; it fires where the three mechanisms
+                        // agree instead of 12 points under a +900% high.
                         val explicitPeakLockFloor4301 = when {
-                            peakPnlPct >= 100.0 -> peakPnlPct - 12.0
                             peakPnlPct >= 20.0 -> try {
                                 com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(peakPnlPct, volatility, holdTimeSecs)
                             } catch (_: Throwable) { peakPnlPct - 8.0 }
@@ -26306,6 +26314,22 @@ if (hotExitHandledSweep) {
                     // Fall back to a liquidity proxy (>= $3K) when mcap is unknown.
                     val mcapInZone = ts.lastMcap in 10_000.0..100_000_000.0
                     val mcapUnknownButLiq = ts.lastMcap <= 0.0 && ts.lastLiquidityUsd >= 3_000.0
+                    // V5.0.7265 — MoonshotFreshLaunchAdmission7044 elects MOONSHOT
+                    // as owner from mcap $500 / liq $800; this zone starts at
+                    // $10k / $3k and the miss had no else branch, so 289
+                    // admissions became 3 executions with nothing named in
+                    // between. Measured here first; the zone itself is unchanged.
+                    if (!(mcapInZone || mcapUnknownButLiq)) {
+                        try {
+                            PipelineHealthCollector.labelInc("MOONSHOT_ZONE_DROPPED_AFTER_ADMISSION_7265")
+                            ForensicLogger.lifecycle(
+                                "MOONSHOT_ZONE_DROPPED_AFTER_ADMISSION_7265",
+                                "mint=${ts.mint.take(10)} sym=${ts.symbol} mcap=${ts.lastMcap.toInt()} " +
+                                    "liq=${ts.lastLiquidityUsd.toInt()} zone=10k..100M_or_unknownMcapLiq>=3k " +
+                                    "admissionWindow=mcap>=500_liq>=800 action=lane_skipped_silently_before_7265",
+                            )
+                        } catch (_: Throwable) {}
+                    }
                     if (mcapInZone || mcapUnknownButLiq) {
                         
                         // V5.2: Check execution permit for MOONSHOT book

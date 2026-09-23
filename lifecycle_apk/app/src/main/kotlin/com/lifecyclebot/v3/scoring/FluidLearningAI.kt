@@ -1780,12 +1780,41 @@ object FluidLearningAI {
             // Absolute safety floor: once peak >= +8%, never go back to entry
             val breakEvenFloor = if (peakClamped >= 8.0) 1.0 else Double.NEGATIVE_INFINITY
 
-            // Big-runner hard give-back: once peak >= 100%, max 12pts giveaway
-            // (tighter than old 35pts — matches the new allowance formula)
-            val peakDrawdownFloor = if (peakClamped >= 100.0) peakClamped - 12.0 else Double.NEGATIVE_INFINITY
+            // V5.0.7265 §THE_TICK_LOCK_NEVER_GOT_THE_6845_BAND.
+            //
+            // V5.0.6845 taught fluidProfitFloor to scale its give-back with
+            // peak size above +100% (PeakDrawdownLock.triggerFracForPeak: a
+            // +150% peak may breathe to +83%, a +900% peak to +328%), and its
+            // comment says the point is that "the two mechanisms agree
+            // instead of one pre-empting the other". This function is the
+            // third mechanism, and it kept V5.9.918's `peak - 12` hard band
+            // plus a 7-11 point peakGap above +100%. It is read by the 1Hz
+            // TICK_PROFIT_LOCK, which evaluates before the 500ms peak-lock
+            // and long before any lane exit — so above +100% every runner
+            // was still sold on a 7-12 point retrace (a 4.8% price dip at
+            // +150%), and the 6845 band was unreachable. Operator 5.0.7263:
+            // "it was finding 1000% runs + easily before … the wins are now
+            // tiny."
+            //
+            // Above +100% the lock is now the same scaled band the peak-lock
+            // and the give-back stop use, so all three agree. It is still a
+            // profit lock: peak × (1 − frac) is never below +30% of peak and
+            // the breakeven floor still applies, so a runner can never trail
+            // back through entry ("it should never trail to a loss"). Below
+            // +100% nothing here changes — base hits keep the tight
+            // peak-anchored gap the operator asked for in V5.9.918.
+            if (peakClamped >= 100.0) {
+                val scaledBand7265 = try {
+                    fluidProfitFloor(peakClamped, volatility, holdTimeSeconds)
+                } catch (_: Throwable) { peakClamped - 12.0 }
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RUNNER_LOCK_SCALED_BAND_7265")
+                } catch (_: Throwable) {}
+                return maxOf(scaledBand7265, breakEvenFloor)
+            }
 
             // Return POSITIVE trailing stop level.
-            return maxOf(continuousLock, breakEvenFloor, peakDrawdownFloor)
+            return maxOf(continuousLock, breakEvenFloor)
         }
         
         // ═══════════════════════════════════════════════════════════════

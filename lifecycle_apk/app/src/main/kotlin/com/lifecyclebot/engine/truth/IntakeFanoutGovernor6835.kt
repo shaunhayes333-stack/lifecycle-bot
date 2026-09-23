@@ -111,14 +111,40 @@ object IntakeFanoutGovernor6835 {
         return true
     }
 
-    fun allowFdgEval(mint: String, causalRoot: String): Boolean {
+    /**
+     * V5.0.7265 §ONE_BUDGET_FOR_TEN_LANES_IS_A_LANE_DISABLE.
+     *
+     * The FDG cap was keyed by (mint, causalRoot) only. processTokenCycle
+     * calls FDG once per lane in a fixed order — TREASURY, QUALITY,
+     * BLUECHIP, MOONSHOT, SHITCOIN, MANIPULATED, EXPRESS, DIP_HUNTER, trunk,
+     * main — so on any mint the first two lanes to ask spent the whole
+     * budget and every later lane was blocked before its verdict cache was
+     * even consulted. Operator 5.0.7263, PAPER, 27 min:
+     *
+     *   FDG/FDG_FANOUT_CAP_7232 = 1143 of 1377 FDG blocks
+     *   SHITCOIN  qualified=264 buyIntent=0   (cap is a hard veto there)
+     *   EXPRESS   qualified=249 buyIntent=0
+     *   MOONSHOT  qualified=398 fdgAllow=5 exec=3
+     *
+     * A cap that is always consumed by whoever is earlier in the call order
+     * is not a fan-out limit on the later lanes; it is a disable of them.
+     * The doctrine forbids that. The budget is therefore per (mint,
+     * causalRoot, lane): each lane may still evaluate a mint at most
+     * FDG_EVAL_CAP times per causal chain — the attrition 7232 exists to
+     * stop is still stopped, lane by lane — but no lane can spend another
+     * lane's allowance. Callers that pass no lane keep the shared key, so
+     * nothing here loosens for them.
+     */
+    fun allowFdgEval(mint: String, causalRoot: String, laneName: String = ""): Boolean {
         if (mint.isBlank() || causalRoot.isBlank()) {
             advisoryUngovernedTotal.incrementAndGet()
             try { PipelineHealthCollector.labelInc("FANOUT_ADVISORY_UNGOVERNED_6835") } catch (_: Throwable) {}
             return true
         }
         cleanupIfStale()
-        val key = keyFor(mint, causalRoot)
+        val lane7265 = laneName.trim().uppercase()
+        val key = if (lane7265.isBlank()) keyFor(mint, causalRoot)
+            else keyFor(mint, causalRoot) + "::" + lane7265.take(20)
         val c = chains.computeIfAbsent(key) { LaneCounters() }
         val current = c.fdgSeen.get()
         if (current >= FDG_EVAL_CAP) {
