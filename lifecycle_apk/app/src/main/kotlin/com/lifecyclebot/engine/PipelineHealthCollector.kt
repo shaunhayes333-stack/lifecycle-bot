@@ -2083,6 +2083,13 @@ object PipelineHealthCollector {
                     "PUMP_CURVE_KEY_REMEMBERED_7269",
                     "MCAP_REFRESHED_FROM_STACK_7269",
                     "MCAP_REFRESH_AWAITING_SUPPLY_7269",
+                    // V5.0.7270 — a fabricated entry held at 0% instead of stopped;
+                    // a global-cap intake left unpriced for the fan-out; the hot-exit
+                    // tick starving its own heartbeat; pegged instruments declined.
+                    "ENTRY_BASIS_SEED_INVALID_7270",
+                    "INTAKE_PRICE_NOT_SEEDED_GLOBAL_CAP_7270",
+                    "OPEN_POS_TICK_GAP_SLOW_7270",
+                    "PEGGED_ASSET_LANE_SKIPPED_7270",
                     // V5.0.7226 — the second live sizing authority. On 7225 the
                     // sizer's floor fired 0 times and two 0.007 SOL live buys
                     // landed anyway; the resolver had been sizing LIVE against
@@ -2187,6 +2194,11 @@ object PipelineHealthCollector {
                     "FDG_SUPPRESSED_FANOUT_CAP_7232_",
                     // V5.0.7267 — which lanes earned an expansion through a drawdown.
                     "ANTI_REWARD_HACK_LANE_EARNED_ALLOW_7267_",
+                    // V5.0.7270 — why moonshot admission declined a fresh launch, what it
+                    // admitted from, and which lanes declined a pegged instrument.
+                    "MOONSHOT_FRESH_DECLINED_7044_",
+                    "MOONSHOT_FRESH_ADMIT_7044_",
+                    "PEGGED_ASSET_LANE_SKIPPED_7270_",
                     "TRADE_AUTHORIZE_ENTERED_7003_",
                     "LIVE_BUY_ABORTED|",
                     "LANE_ENTRY_RECOVERY_ABOVE_PROBATION_UNDER_HOLD_7214",
@@ -2477,6 +2489,10 @@ object PipelineHealthCollector {
             // V5.0.7263 — does the oracle's yes-pile beat its no-pile on real
             // closes? Until this reads tier=PROVEN the verdict word gates
             // nothing; the operator can watch the bar being earned here.
+            // V5.0.7270 — pegged instruments the lanes declined this session.
+            sb.append("  Pegged assets declined (§7270):").append(
+                try { com.lifecyclebot.engine.truth.PeggedAssetGuard7270.skippedCount().toString() } catch (_: Throwable) { "unavailable" }
+            ).append("\n")
             // V5.0.7266 — the per-lane fluid entry floor against 7243's fixed 30/55.
             sb.append("  Canonical entry floor (§7266):").append(
                 try { com.lifecyclebot.engine.truth.CanonicalEntryFloor7266.statusLine() } catch (_: Throwable) { "unavailable" }

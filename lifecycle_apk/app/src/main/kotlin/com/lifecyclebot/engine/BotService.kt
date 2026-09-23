@@ -10715,6 +10715,12 @@ class BotService : Service() {
         var consecutiveEmpty = 0
 
         while (status.running) {
+            // V5.0.7270 — the hot-exit heartbeat is fed from this loop. 7267 read
+            // five EXIT_COORDINATOR_STALE_RESET (LOCK_AGE_>=10s) while the sweep
+            // itself took 3–22 ms, so the stall is here, not in the sweep. Gap
+            // between iteration starts and the fan-out's own duration are gauged
+            // on the report (Exit sweep timing §7264).
+            try { com.lifecyclebot.engine.truth.ExitSweepTiming7264.onHotTickStart(System.currentTimeMillis()) } catch (_: Throwable) {}
             // V5.0.6983 §THE_LIVENESS_COUNTER_THAT_ONLY_COUNTED_SUCCESS.
             //
             // OPEN_POS_TICK is emitted near the END of the body, after the
@@ -11006,8 +11012,10 @@ class BotService : Service() {
                 // outlier shows up in the spread instead of in the book.
                 if (missingBeforeKeyless6946Raw.isNotEmpty()) {
                     try {
+                        val fanoutStart7270 = System.currentTimeMillis()
                         val fanout7088 = com.lifecyclebot.network.ParallelMarkFanout7088
                             .resolve7088(missingBeforeKeyless6946Raw)
+                        try { com.lifecyclebot.engine.truth.ExitSweepTiming7264.onFanout(System.currentTimeMillis() - fanoutStart7270) } catch (_: Throwable) {}
                         if (fanout7088.isNotEmpty()) {
                             var corroborated7088 = 0
                             for ((m, mk) in fanout7088) {
@@ -11427,10 +11435,13 @@ class BotService : Service() {
                         try {
                             val supply7269 = com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.supplyOf7075(mint)
                             if (supply7269 > 0.0) {
-                                val capStale7269 = com.lifecyclebot.engine.truth.TokenMetricsAuthority7069.capStale7268(mint, now)
                                 val fromStack7269 = resolvedSource6999.contains("JUPITER_QUOTE") ||
                                     resolvedSource6999.contains("PUMP_CURVE_RPC")
-                                if (agreeing7188 >= 2 || capStale7269 || fromStack7269 || ts.lastMcap <= 0.0) {
+                                // V5.0.7270 — a stale cap alone does not license a
+                                // rebuild from a single uncorroborated quote (7267
+                                // carried a 73,496x one-source quote); corroboration,
+                                // a chain-derived feed, or no cap at all does.
+                                if (agreeing7188 >= 2 || fromStack7269 || ts.lastMcap <= 0.0) {
                                     val cap7269 = priceUsd * supply7269
                                     if (cap7269.isFinite() && cap7269 > 0.0) {
                                         ts.lastMcap = cap7269
@@ -14867,9 +14878,42 @@ class BotService : Service() {
                 val chainSupply7089 = try {
                     com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.supplyOf7075(mint)
                 } catch (_: Throwable) { 0.0 }
+                // V5.0.7270 §A_GLOBAL_CAP_OVER_A_BRIDGED_SUPPLY_IS_NOT_A_PRICE.
+                //
+                // Operator 5.0.7267: INJ opened at $8,520.15 (mcap $762,619,984,
+                // Solana supply 89,507) and WLFI at $2.26. Both were case 2 below:
+                // a CoinGecko market cap — the asset's GLOBAL cap across every
+                // chain — divided by the token's SPL supply on Solana, which for
+                // a bridged or wrapped asset is a sliver of the real one. The
+                // quotient is 10x–1000x too high, the position reads −97% the
+                // moment a live quote arrives, and every stop in the book fires
+                // on a number nobody ever traded at. A cap from a global
+                // aggregator and a supply from one chain describe different
+                // things; dividing one by the other is the inference this block
+                // already refuses in case 3. So an established / CoinGecko /
+                // watchlist-sourced mint is left unpriced here and priced by the
+                // fan-out (Jupiter, Raydium, DefiLlama all carry INJ and WLFI).
+                val globalCapSource7270 = try {
+                    val tags7270 = (allSources + source).joinToString("|").uppercase()
+                    tags7270.contains("COINGECKO") || tags7270.contains("ESTABLISHED") ||
+                        tags7270.contains("BLUECHIP_WATCHLIST")
+                } catch (_: Throwable) { false }
+                if (!isPumpMint7089 && chainSupply7089 >= 1.0 && globalCapSource7270 &&
+                    trustedMarketCapUsd6492 > 0.0 && ts.lastPrice <= 0.0
+                ) {
+                    try {
+                        PipelineHealthCollector.labelInc("INTAKE_PRICE_NOT_SEEDED_GLOBAL_CAP_7270")
+                        ForensicLogger.lifecycle(
+                            "INTAKE_PRICE_NOT_SEEDED_GLOBAL_CAP_7270",
+                            "mint=${mint.take(10)} sym=$symbol src=$source mcap=${trustedMarketCapUsd6492.toLong()} " +
+                                "onChainSupply=${chainSupply7089.toLong()} wouldHaveSeeded=${trustedMarketCapUsd6492 / chainSupply7089} " +
+                                "action=global_cap_over_chain_supply_is_not_a_price_leave_to_fanout",
+                        )
+                    } catch (_: Throwable) {}
+                }
                 val seedPrice7089: Double = when {
                     isPumpMint7089 -> trustedMarketCapUsd6492 / 1_000_000_000.0
-                    chainSupply7089 >= 1.0 -> trustedMarketCapUsd6492 / chainSupply7089
+                    chainSupply7089 >= 1.0 && !globalCapSource7270 -> trustedMarketCapUsd6492 / chainSupply7089
                     else -> 0.0
                 }
                 if (trustedMarketCapUsd6492 > 0.0 && ts.lastPrice <= 0.0 && seedPrice7089 <= 0.0) {
@@ -25840,7 +25884,15 @@ if (hotExitHandledSweep) {
             // was not Quality-eligible".
             // V5.9.921 — QualityTraderAI is always-on (no isEnabled toggle); only
             // gated by mcap downstream. Drop the isEnabled call (it does not exist).
-            val qualityLaneAllowedThisCycle = !ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "QUALITY", cyclePrimaryLane)
+            // V5.0.7270 — a dollar-pegged instrument has no move to capture; the
+            // lane budget it would spend goes to something that can move.
+            val peggedQuality7270 = try {
+                com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged(ts.symbol, ts.lastPrice, ts.lastMcap)
+            } catch (_: Throwable) { false }
+            if (peggedQuality7270 && !ts.position.isOpen) {
+                com.lifecyclebot.engine.truth.PeggedAssetGuard7270.noteSkipped("QUALITY", ts.symbol)
+            }
+            val qualityLaneAllowedThisCycle = !ts.position.isOpen && !peggedQuality7270 && shouldRunBuyLaneForCycle(ts, "QUALITY", cyclePrimaryLane)
             if (qualityLaneAllowedThisCycle) {
                 try {
                     ForensicLogger.phase(
@@ -26106,9 +26158,18 @@ if (hotExitHandledSweep) {
                         requestingLayer = "BLUE_CHIP",
                         hasOpenPosition = ts.position.isOpen
                     )
-                    
-                    if (!permitResult.allowed) {
-                        ErrorLogger.debug("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | BLOCKED | ${permitResult.reason}")
+                    // V5.0.7270 — 682 of 689 fan-out-cap blocks on 7267 were this
+                    // lane re-evaluating stablecoins. A peg is a structural no-move;
+                    // decline before the permit spends anything.
+                    val peggedBlue7270 = try {
+                        com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged(ts.symbol, ts.lastPrice, ts.lastMcap)
+                    } catch (_: Throwable) { false }
+                    if (peggedBlue7270 && !ts.position.isOpen) {
+                        com.lifecyclebot.engine.truth.PeggedAssetGuard7270.noteSkipped("BLUECHIP", ts.symbol)
+                    }
+
+                    if (!permitResult.allowed || peggedBlue7270) {
+                        ErrorLogger.debug("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | BLOCKED | ${if (peggedBlue7270) "PEGGED_ASSET_7270" else permitResult.reason}")
                     } else {
                         val (v3Score, v3Confidence) = when (val result = v3Decision) {
                             is com.lifecyclebot.v3.V3Decision.Execute -> result.score to result.confidence.toInt()

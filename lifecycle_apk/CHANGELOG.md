@@ -4,6 +4,16 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.7270] - 2026-09-23 — A GLOBAL CAP OVER A BRIDGED SUPPLY IS NOT A PRICE; THE HOT-EXIT TICK IS GAUGED; PEGS ARE DECLINED
+
+- 7267 at 25 min: INJ opened at $8,520.15 (mcap $762.6M / Solana supply 89,507) and WLFI at $2.26 — the 7089 chain-supply seed applied to a CoinGecko global market cap. The first corroborated live quote read −97.5%; 6895 hid it as `exec=0.0`, and 7268 would now let it through to a catastrophic stop on a loss nobody took.
+- **Seed:** a CoinGecko / established / watchlist-sourced mint is no longer priced as global cap ÷ SPL supply; it is left unpriced for the fan-out, which carries these assets (`INTAKE_PRICE_NOT_SEEDED_GLOBAL_CAP_7270`). The pump.fun 1e9 constant and the Solana-native case are unchanged.
+- **Basis guard (positions opened before this build):** `Executor.getActualPrice` returns the entry price (0%) for a paper position whose entry source is the synthetic seed on a non-pump mint when a corroborated live mark sits more than 5x away in either direction, counted as `ENTRY_BASIS_SEED_INVALID_7270`. Closing or rebasing such a position is an accounting decision left to the operator.
+- **7269 cap rebuild tightened:** a stale cap alone no longer licenses a rebuild from one uncorroborated quote (7267 carried a 73,496x single-source quote); corroboration, a chain-derived feed, or no cap at all does.
+- **Hot-exit tick gauged:** five `EXIT_COORDINATOR_STALE_RESET` at `LOCK_AGE_>=10s` while sweeps took 3–22 ms means the heartbeat starved in `openPositionTickLoop`. `ExitSweepTiming7264` now reports iteration gap (last/max/slow) and fan-out duration (last/mean/max); `OPEN_POS_TICK_GAP_SLOW_7270` fires past 5 s.
+- **Pegged instruments declined by QUALITY and BLUECHIP:** 682 of 689 fan-out-cap blocks were BLUECHIP re-evaluating USD1/USDG/PYUSD/SUSDE/USYC/USDE/BUIDL. New `PeggedAssetGuard7270` (symbol family, or a dollar price at a ≥$50M cap with a USD/EUR symbol) declines before the permit; `PEGGED_ASSET_LANE_SKIPPED_7270(_lane)`.
+- Pinned `MOONSHOT_FRESH_DECLINED_7044_*` / `MOONSHOT_FRESH_ADMIT_7044_*` so the 49 post-admission zone drops with `MOONSHOT_RUNNER_SHAPED_FLOOR_ADMIT_7266=0` can be attributed.
+
 ## [5.0.7269] - 2026-09-23 — THE STACK IS A MULTI-PRICE SOURCE: TWO MORE FEEDS, AND THE CAP FOLLOWS THEM
 
 - Operator: "use other sources for price for fucks sake. use the stack as a multi price source."

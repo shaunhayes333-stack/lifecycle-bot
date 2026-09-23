@@ -52,13 +52,63 @@ object ExitSweepTiming7264 {
         maxPositionMs.accumulateAndGet(elapsedMs) { a, b -> maxOf(a, b) }
     }
 
+    /**
+     * V5.0.7270 — the hot-exit tick (openPositionTickLoop) feeds the heartbeat
+     * that maybeHealHotExit reads. 7267: five stale resets at LOCK_AGE_>=10s
+     * while the universal sweep took 3–22 ms — so the 10 s went missing in
+     * this loop, whose fan-out blocks for up to 4 s and whose serial chains
+     * run after it. Gap between iteration starts, and the fan-out's own
+     * duration, are the two numbers that settle where.
+     */
+    private const val HOT_TICK_SLOW_MS_7270 = 5_000L
+    private val hotTicks = AtomicLong(0L)
+    private val lastHotTickStartMs = AtomicLong(0L)
+    private val lastHotTickGapMs = AtomicLong(0L)
+    private val maxHotTickGapMs = AtomicLong(0L)
+    private val slowHotTicks = AtomicLong(0L)
+    private val fanouts = AtomicLong(0L)
+    private val lastFanoutMs = AtomicLong(0L)
+    private val maxFanoutMs = AtomicLong(0L)
+    private val totalFanoutMs = AtomicLong(0L)
+
+    fun onHotTickStart(nowMs: Long) {
+        hotTicks.incrementAndGet()
+        val prev = lastHotTickStartMs.getAndSet(nowMs)
+        if (prev <= 0L) return
+        val gap = (nowMs - prev).coerceAtLeast(0L)
+        lastHotTickGapMs.set(gap)
+        maxHotTickGapMs.accumulateAndGet(gap) { a, b -> maxOf(a, b) }
+        if (gap >= HOT_TICK_SLOW_MS_7270) {
+            slowHotTicks.incrementAndGet()
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_POS_TICK_GAP_SLOW_7270")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "OPEN_POS_TICK_GAP_SLOW_7270",
+                    "gapMs=$gap thresholdMs=$HOT_TICK_SLOW_MS_7270 lastFanoutMs=${lastFanoutMs.get()} " +
+                        "action=hot_exit_heartbeat_starved_by_this_iteration",
+                )
+            } catch (_: Throwable) {}
+        }
+    }
+
+    fun onFanout(elapsedMs: Long) {
+        fanouts.incrementAndGet()
+        lastFanoutMs.set(elapsedMs)
+        totalFanoutMs.addAndGet(elapsedMs.coerceAtLeast(0L))
+        maxFanoutMs.accumulateAndGet(elapsedMs) { a, b -> maxOf(a, b) }
+    }
+
     fun statusLine(): String {
         val n = sweeps.get()
         val mean = if (n == 0L) 0L else totalElapsedMs.get() / n
         val ago = if (lastEndedAtMs.get() == 0L) -1L else System.currentTimeMillis() - lastEndedAtMs.get()
         val perPos = if (lastEvaluated.get() == 0L) 0L else lastElapsedMs.get() / lastEvaluated.get()
+        val f = fanouts.get()
+        val fanMean = if (f == 0L) 0L else totalFanoutMs.get() / f
         return "sweeps=$n lastMs=${lastElapsedMs.get()} meanMs=$mean maxMs=${maxElapsedMs.get()} " +
             "lastSeen=${lastSeen.get()} lastEvaluated=${lastEvaluated.get()} lastDeferred=${lastDeferred.get()} " +
-            "perPositionMs=$perPos slowPositions=${slowPositions.get()} worstPositionMs=${maxPositionMs.get()} lastEndedAgoMs=$ago"
+            "perPositionMs=$perPos slowPositions=${slowPositions.get()} worstPositionMs=${maxPositionMs.get()} lastEndedAgoMs=$ago " +
+            "| hotTicks7270=${hotTicks.get()} lastGapMs=${lastHotTickGapMs.get()} maxGapMs=${maxHotTickGapMs.get()} slowTicks=${slowHotTicks.get()} " +
+            "fanouts=$f fanLastMs=${lastFanoutMs.get()} fanMeanMs=$fanMean fanMaxMs=${maxFanoutMs.get()}"
     }
 }

@@ -1008,6 +1008,46 @@ class Executor(
         val livePrice = ts.lastPrice.takeIf { it > 0 && it.isFinite() }
         val pos = ts.position
 
+        // V5.0.7270 §A_FABRICATED_ENTRY_CANNOT_BOOK_A_LOSS_OR_A_GAIN.
+        //
+        // Operator 5.0.7267: INJ entered at $8,520.15 and WLFI at $2.26 — the
+        // 7089 chain-supply seed applied to a global market cap (see the
+        // §7270 note at the seed). The first corroborated live quote then reads
+        // −97.5% against that entry ("WLFI raw=-97.5 exec=0.0
+        // src=FANOUT_CORROBORATED_7088_x2"). Until 7268 the 6895 cross-basis
+        // refusal held such positions at 0%; 7268 lets a corroborated quote
+        // through, which is right for a real mark and wrong for a fabricated
+        // entry — it would fire a catastrophic stop on a loss nobody took.
+        //
+        // A seeded, non-pump-mint entry whose corroborated live mark sits more
+        // than 5x away in either direction has an invalid basis, not a move.
+        // Neutral 0% is returned (6895's own doctrine) and the position is
+        // counted so it can be closed or rebased by an authority that owns
+        // accounting, which this function does not. The seed itself is fixed
+        // at intake in the same build, so this guard covers positions opened
+        // before it.
+        if (livePrice != null && pos.isOpen && pos.isPaperPosition && pos.entryPrice > 0.0 &&
+            pos.entryPriceSource == "PUMP_FUN_BC_SYNTHETIC" &&
+            !com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint) &&
+            ts.lastPriceSource.contains("FANOUT_CORROBORATED", ignoreCase = true)
+        ) {
+            val ratio7270 = livePrice / pos.entryPrice
+            if (!ratio7270.isFinite() || ratio7270 > 5.0 || ratio7270 < 0.2) {
+                try {
+                    PipelineHealthCollector.labelInc("ENTRY_BASIS_SEED_INVALID_7270")
+                    if (ForensicEmitRateLimiter6356.shouldEmit("ENTRY_BASIS_SEED_INVALID_7270", ts.mint.take(10))) {
+                        ForensicLogger.lifecycle(
+                            "ENTRY_BASIS_SEED_INVALID_7270",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} entry=${pos.entryPrice} live=$livePrice " +
+                                "ratio=${"%.4g".format(ratio7270)} src=${ts.lastPriceSource} " +
+                                "action=hold_at_entry_basis_seeded_from_global_cap_over_chain_supply",
+                        )
+                    }
+                } catch (_: Throwable) {}
+                return pos.entryPrice
+            }
+        }
+
         // ═══════════════════════════════════════════════════════════════
         // V5.0.6052 — ROUTE-LOCK DOCTRINE (operator mandate)
         // V5.0.6054 — SYNTHETIC-SOURCE BYPASS + SELF-HEAL

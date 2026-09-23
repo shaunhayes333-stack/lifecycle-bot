@@ -9848,6 +9848,58 @@ class GoldenTapeRegressionTest {
         assertTrue(phc.contains("\"MCAP_REFRESHED_FROM_STACK_7269\","))
     }
 
+    /** V5.0.7270 — a global cap over a bridged supply is not a price; a
+     * fabricated entry is held at 0% rather than stopped; the cap rebuild needs
+     * corroboration; the hot-exit tick is gauged; pegged instruments are
+     * declined by the lanes that were burning budget on them. */
+    @Test
+    fun V5_0_7270_seed_basis_guard_tick_gauge_and_pegged_skip() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val timing = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExitSweepTiming7264.kt").readText()
+        val pegged = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PeggedAssetGuard7270.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        // Seed: case 2 is refused for global-cap sources; pump constant unchanged.
+        assertTrue(bot.contains("chainSupply7089 >= 1.0 && !globalCapSource7270 -> trustedMarketCapUsd6492 / chainSupply7089"))
+        assertTrue(bot.contains("isPumpMint7089 -> trustedMarketCapUsd6492 / 1_000_000_000.0"))
+        assertTrue(bot.contains("INTAKE_PRICE_NOT_SEEDED_GLOBAL_CAP_7270"))
+
+        // Basis guard: seeded non-pump entry vs corroborated mark >5x either way → entry price (0%).
+        assertTrue(exec.contains("pos.entryPriceSource == \"PUMP_FUN_BC_SYNTHETIC\" &&"))
+        assertTrue(exec.contains("!com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint) &&"))
+        assertTrue(exec.contains("if (!ratio7270.isFinite() || ratio7270 > 5.0 || ratio7270 < 0.2) {"))
+        assertTrue(exec.contains("ENTRY_BASIS_SEED_INVALID_7270"))
+        val guardIdx = exec.indexOf("ENTRY_BASIS_SEED_INVALID_7270")
+        val routeLockIdx = exec.indexOf("V5.0.6052 — ROUTE-LOCK DOCTRINE (operator mandate)")
+        assertTrue(guardIdx > 0 && routeLockIdx > guardIdx)
+
+        // Cap rebuild no longer fires on a stale cap alone.
+        assertTrue(bot.contains("if (agreeing7188 >= 2 || fromStack7269 || ts.lastMcap <= 0.0) {"))
+        assertFalse(bot.contains("if (agreeing7188 >= 2 || capStale7269 || fromStack7269 || ts.lastMcap <= 0.0) {"))
+
+        // Hot-exit tick gauge and fan-out duration reach the report line.
+        assertTrue(bot.contains("ExitSweepTiming7264.onHotTickStart(System.currentTimeMillis())"))
+        assertTrue(bot.contains("ExitSweepTiming7264.onFanout(System.currentTimeMillis() - fanoutStart7270)"))
+        assertTrue(timing.contains("fun onHotTickStart(nowMs: Long)"))
+        assertTrue(timing.contains("OPEN_POS_TICK_GAP_SLOW_7270"))
+        assertTrue(timing.contains("hotTicks7270="))
+
+        // Pegged instruments: symbol list or dollar price at stable-sized cap, both lanes decline.
+        assertTrue(com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged("USD1", 1.0, 1.0e9))
+        assertTrue(com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged("\$PYUSD", 0.999, 5.0e8))
+        assertTrue(com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged("XUSD", 1.001, 2.0e8))
+        assertFalse(com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged("PIGUSD", 1.001, 3.0e4))
+        assertFalse(com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged("INJ", 8.5, 7.6e8))
+        assertFalse(com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged("WIF", 1.01, 1.0e9))
+        assertTrue(bot.contains("val qualityLaneAllowedThisCycle = !ts.position.isOpen && !peggedQuality7270 && shouldRunBuyLaneForCycle(ts, \"QUALITY\", cyclePrimaryLane)"))
+        assertTrue(bot.contains("if (!permitResult.allowed || peggedBlue7270) {"))
+        assertTrue(pegged.contains("PEGGED_ASSET_LANE_SKIPPED_7270"))
+
+        assertTrue(phc.contains("\"ENTRY_BASIS_SEED_INVALID_7270\","))
+        assertTrue(phc.contains("\"MOONSHOT_FRESH_DECLINED_7044_\","))
+    }
+
     /** V5.0.7260 — the oracle must judge the current candidate, not repeat a
      * blank-signature bootstrap forecast or the historical book average. */
     @Test
