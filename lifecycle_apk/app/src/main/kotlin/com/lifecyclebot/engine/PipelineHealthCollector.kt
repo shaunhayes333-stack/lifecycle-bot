@@ -2224,6 +2224,9 @@ object PipelineHealthCollector {
                     "OPEN_POS_TICK_SUPERSEDED_MARKS_DROPPED_7283",
                     "MARK_KEYLESS_CHAIN_BUDGET_DEFERRED_7283",
                     "OPEN_POS_TICK_SKIPPED_6983_THREW_ERROR",
+                    // V5.0.7284 — held curves that would have been streamed had a
+                    // PumpPortal data key been present.
+                    "PUMP_TRADE_SUBSCRIBE_SKIPPED_NO_KEY_7284",
                     "CRYPTO_DYN_MARK_STALE_OR_MISSING_6654",
                     "CRYPTO_HELD_MARK_REFRESH_COALESCED_7251",
                     "SOL_MARK_RESCUE_7167",
@@ -2316,6 +2319,10 @@ object PipelineHealthCollector {
                     // any encoding the rung declared other than base64.
                     "PUMP_CURVE_RPC_NO_DATA_SHAPE_7283_",
                     "PUMP_CURVE_RPC_DATA_ENCODING_7283_",
+                    // V5.0.7284 — the shape of an HTTP-200 inference that produced no
+                    // text, and the exception class behind a transport/parse failure.
+                    "LLM_EMPTY_CONTENT_SHAPE_7284_",
+                    "LLM_TRANSPORT_OR_PARSE_7284_",
                     // V5.0.7280 — every curve buy's multiple over its launch price.
                     "LAUNCH_ENTRY_MULTIPLE_OF_CREATE_7280_",
                     // V5.0.7221 — the directive's third term, per lane: FDG

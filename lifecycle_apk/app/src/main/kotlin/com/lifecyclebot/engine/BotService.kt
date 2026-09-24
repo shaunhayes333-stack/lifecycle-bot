@@ -9302,6 +9302,8 @@ class BotService : Service() {
                 try { applyPumpTradeMark7278(mint, priceSol, mcapSol) } catch (_: Throwable) {}
             }
             com.lifecyclebot.network.PumpFunWS.start(
+                // V5.0.7284 — the trade stream is keyed; blank means launches only.
+                apiKey7284 = cfg.pumpPortalApiKey,
                 onNewToken = onNewToken@{ mint, symbol, name, mcapSol ->
                     try {
                         // V5.0.3684 — generation + state guard at the source.

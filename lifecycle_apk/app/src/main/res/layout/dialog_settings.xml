@@ -869,6 +869,30 @@
                 android:paddingStart="12dp"
                 android:layout_marginBottom="10dp"/>
 
+            <!-- PumpPortal (V5.0.7284) — the per-trade curve stream needs a funded data key -->
+            <TextView
+                android:id="@+id/tvPumpPortalHelp"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="PUMPPORTAL DATA KEY - pumpportal.fun (fund 0.02 SOL for trade stream)"
+                android:textColor="@color/aate_green"
+                android:textSize="10sp"
+                android:fontFamily="monospace"
+                android:layout_marginBottom="4dp"/>
+            <EditText
+                android:id="@+id/etPumpPortalKey"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:background="@drawable/input_bg"
+                android:textColor="@color/aate_text"
+                android:textColorHint="@color/aate_text_muted"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:hint="paste pumpportal api key (blank = launches only)..."
+                android:inputType="textPassword"
+                android:paddingStart="12dp"
+                android:layout_marginBottom="10dp"/>
+
             <!-- Birdeye -->
             <TextView
                 android:id="@+id/tvBirdeyeHelp"

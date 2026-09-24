@@ -60,6 +60,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
     private lateinit var etRpc: EditText
     private lateinit var etTreasuryWalletAddress: EditText
     private lateinit var etHeliusKey: EditText
+    private lateinit var etPumpPortalKey: EditText  // V5.0.7284
     private lateinit var etBirdeyeKey: EditText
     private lateinit var etGroqKey: EditText
     private lateinit var etGeminiKey: EditText
@@ -140,6 +141,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         etRpc = view.findViewById(R.id.etRpc)
         etTreasuryWalletAddress = view.findViewById(R.id.etTreasuryWalletAddress)
         etHeliusKey = view.findViewById(R.id.etHeliusKey)
+        etPumpPortalKey = view.findViewById(R.id.etPumpPortalKey)
         etBirdeyeKey = view.findViewById(R.id.etBirdeyeKey)
         etGroqKey = view.findViewById(R.id.etGroqKey)
         etGeminiKey = view.findViewById(R.id.etGeminiKey)
@@ -381,6 +383,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         etRpc.setText(cfg.rpcUrl)
         etTreasuryWalletAddress.setText(cfg.treasuryWalletAddress)
         etHeliusKey.setText(cfg.heliusApiKey)
+        etPumpPortalKey.setText(cfg.pumpPortalApiKey)
         etBirdeyeKey.setText(cfg.birdeyeApiKey)
         etGroqKey.setText(cfg.groqApiKey)
         etGeminiKey.setText(cfg.geminiApiKey)
@@ -445,6 +448,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
             rpcUrl = etRpc.text.toString().trim().ifBlank { "https://api.mainnet-beta.solana.com" },
             treasuryWalletAddress = etTreasuryWalletAddress.text.toString().trim(),
             heliusApiKey = etHeliusKey.text.toString().trim(),
+            pumpPortalApiKey = etPumpPortalKey.text.toString().trim(),
             birdeyeApiKey = etBirdeyeKey.text.toString().trim(),
             groqApiKey = etGroqKey.text.toString().trim(),
             geminiApiKey = etGeminiKey.text.toString().trim(),

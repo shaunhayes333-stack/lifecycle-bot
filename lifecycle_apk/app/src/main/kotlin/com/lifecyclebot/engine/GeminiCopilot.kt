@@ -1220,6 +1220,24 @@ Not one sentence unless the moment truly calls for it.
                             if (extractedText.isNullOrBlank()) {
                                 lastTransient = provider.name + ":content_null"
                                 com.lifecyclebot.engine.truth.ProviderInferenceHealth6727.recordFailure(validatorService(provider), "EMPTY_CONTENT")
+                                // V5.0.7284 — 5.0.7281: groq answered HTTP 200 seventy times
+                                // and one inference parsed. An empty content field has a
+                                // shape — the finish reason, whether the model spent its
+                                // budget in a reasoning field, and which model did it —
+                                // and the row said none of it. Named, so the next snapshot
+                                // says which instead of a failure count beside a 100% row.
+                                try {
+                                    val first7284 = json.optJSONArray("choices")?.optJSONObject(0)
+                                    val finish7284 = first7284?.optString("finish_reason", "")?.ifBlank { "none" } ?: "no_choice"
+                                    val msg7284 = first7284?.optJSONObject("message")
+                                    val reasoning7284 = msg7284 != null &&
+                                        (msg7284.optString("reasoning", "").isNotBlank() || msg7284.optString("reasoning_content", "").isNotBlank())
+                                    val model7284 = provider.model.filter { it.isLetterOrDigit() || it == '-' || it == '.' }.take(28)
+                                    PipelineHealthCollector.labelInc(
+                                        "LLM_EMPTY_CONTENT_SHAPE_7284_${validatorService(provider)}_${finish7284}_" +
+                                            "${if (reasoning7284) "reasoning_present" else "no_reasoning"}_$model7284",
+                                    )
+                                } catch (_: Throwable) {}
                                 shouldRetry = true
                             }
                         }
@@ -1228,6 +1246,10 @@ Not one sentence unless the moment truly calls for it.
             } catch (e: Exception) {
                 lastTransient = provider.name + ":" + (e.message ?: e.javaClass.simpleName)
                 com.lifecyclebot.engine.truth.ProviderInferenceHealth6727.recordFailure(validatorService(provider), "TRANSPORT_OR_PARSE")
+                // V5.0.7284 — a parse failure and a socket timeout were one bucket.
+                try {
+                    PipelineHealthCollector.labelInc("LLM_TRANSPORT_OR_PARSE_7284_${validatorService(provider)}_${e.javaClass.simpleName.take(24)}")
+                } catch (_: Throwable) {}
                 shouldRetry = true
             }
 

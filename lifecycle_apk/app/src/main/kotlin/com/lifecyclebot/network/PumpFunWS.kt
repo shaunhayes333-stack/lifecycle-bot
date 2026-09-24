@@ -20,7 +20,12 @@ import java.util.concurrent.atomic.AtomicLong
  *
  * Endpoint: wss://pumpportal.fun/api/data
  * Free subscriptions: subscribeNewToken + subscribeMigration
- * Paid subscriptions (skipped): subscribeTokenTrade, subscribeAccountTrade
+ * Keyed subscriptions: subscribeTokenTrade, subscribeAccountTrade — the
+ * socket said so on 5.0.7281: "only available when connecting with an API
+ * key funded with at least 0.02 SOL." (V5.0.7278 read them as free; that
+ * was wrong, and it cost three builds of zero trade frames.) With a key in
+ * BotConfig.pumpPortalApiKey the socket connects as ?api-key= and the held
+ * curves are marked on every trade; without one, launches only.
  *
  * Usage:
  *   PumpFunWS.start(
@@ -52,19 +57,26 @@ object PumpFunWS {
     // 9% of calls, and the curve read from chain produced nothing. Yet the
     // same socket that announced each launch streams every buy and sell on
     // it, with the curve's virtual reserves in the payload — the spot price,
-    // for free, sub-second. `subscribeTokenTrade` is a free data
-    // subscription on this endpoint (the paid tier is the trading API, not
-    // the stream); the header above was wrong about that.
+    // sub-second. V5.0.7284: 7278 called `subscribeTokenTrade` a free
+    // subscription; the server's own reply on 5.0.7281 says it needs an API
+    // key funded with 0.02 SOL. The header above is right now; 7278 was not.
     @Volatile private var onTradeCb: ((mint: String, priceSolPerToken: Double, marketCapSol: Double, isBuy: Boolean) -> Unit)? = null
     private val tradeSubscriptions7278 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val firstUntypedLogged7279 = AtomicBoolean(false)
     @Volatile private var lastUntypedFrame7280: String = ""
     private val untypedFrames7280 = AtomicLong(0L)
+    // V5.0.7284 — the data key the socket connected with; blank = no trade stream.
+    @Volatile private var apiKey7284: String = ""
+    private val tradeSubscribeSkippedNoKey7284 = AtomicLong(0L)
+
+    private fun tradeStreamKeyed7284(): Boolean = apiKey7284.isNotBlank()
 
     /** V5.0.7280 — one line for the pipeline report: what the socket is doing. */
     fun status7280(): String =
         "running=${running.get()} socket=${if (ws != null) "open" else "none"} reconnects=${reconnectAttempt.get()} " +
-            "tradeSubscribedMints=${tradeSubscriptions7278.size} untypedFrames=${untypedFrames7280.get()} " +
+            "tradeStream=${if (tradeStreamKeyed7284()) "KEYED" else "NO_KEY_LAUNCHES_ONLY"} " +
+            "tradeSubscribedMints=${tradeSubscriptions7278.size} subscribeSkippedNoKey=${tradeSubscribeSkippedNoKey7284.get()} " +
+            "untypedFrames=${untypedFrames7280.get()} " +
             "lastUntyped=${lastUntypedFrame7280.ifBlank { "-" }}"
 
     fun setOnTrade7278(cb: (mint: String, priceSolPerToken: Double, marketCapSol: Double, isBuy: Boolean) -> Unit) {
@@ -80,6 +92,18 @@ object PumpFunWS {
         val add = wanted - tradeSubscriptions7278
         val drop = tradeSubscriptions7278 - wanted
         if (add.isEmpty() && drop.isEmpty()) return
+        // V5.0.7284 — without a key the server refuses the method; the frame
+        // is not sent, the refusal is not collected, and the count says how
+        // many held curves would have been streamed had a key been present.
+        if (!tradeStreamKeyed7284()) {
+            if (add.isNotEmpty()) {
+                tradeSubscribeSkippedNoKey7284.addAndGet(add.size.toLong())
+                try {
+                    repeat(add.size) { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_SUBSCRIBE_SKIPPED_NO_KEY_7284") }
+                } catch (_: Throwable) {}
+            }
+            return
+        }
         val sock = ws
         if (add.isNotEmpty()) {
             tradeSubscriptions7278.addAll(add)
@@ -104,6 +128,7 @@ object PumpFunWS {
     fun start(
         onNewToken: (mint: String, symbol: String, name: String, marketCapSol: Double) -> Unit,
         onMigration: (mint: String) -> Unit,
+        apiKey7284: String = "",
     ) {
         if (!running.compareAndSet(false, true)) {
             ErrorLogger.warn(TAG, "already running — start() ignored")
@@ -111,6 +136,8 @@ object PumpFunWS {
         }
         onNewTokenCb = onNewToken
         onMigrationCb = onMigration
+        this.apiKey7284 = apiKey7284.trim()
+        ErrorLogger.info(TAG, "trade stream ${if (tradeStreamKeyed7284()) "KEYED" else "NO_KEY — launches only (Settings > PumpPortal data key)"}")
         client = OkHttpClient.Builder()
             .pingInterval(20, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
@@ -129,8 +156,10 @@ object PumpFunWS {
 
     private fun connect() {
         if (!running.get()) return
-        val req = Request.Builder().url(URL).build()
-        ErrorLogger.info(TAG, "🔌 connecting to $URL (attempt ${reconnectAttempt.get() + 1})")
+        // V5.0.7284 — the key rides the connection URL, never a log line.
+        val url7284 = if (tradeStreamKeyed7284()) "$URL?api-key=${java.net.URLEncoder.encode(apiKey7284, "UTF-8")}" else URL
+        val req = Request.Builder().url(url7284).build()
+        ErrorLogger.info(TAG, "🔌 connecting to $URL${if (tradeStreamKeyed7284()) " (keyed)" else ""} (attempt ${reconnectAttempt.get() + 1})")
         ws = client?.newWebSocket(req, listener)
     }
 
@@ -142,7 +171,7 @@ object PumpFunWS {
             webSocket.send(JSONObject().put("method", "subscribeMigration").toString())
             // V5.0.7278 — re-arm the held-mint trade stream after a reconnect.
             val held7278 = tradeSubscriptions7278.toList()
-            if (held7278.isNotEmpty()) {
+            if (held7278.isNotEmpty() && tradeStreamKeyed7284()) {
                 webSocket.send(JSONObject().put("method", "subscribeTokenTrade").put("keys", JSONArray(held7278)).toString())
             }
         }

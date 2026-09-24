@@ -10641,4 +10641,35 @@ class GoldenTapeRegressionTest {
         assertTrue(phc.contains("\"PUMP_CURVE_RPC_NO_DATA_SHAPE_7283_\","))
     }
 
+    /** V5.0.7284 — the PumpPortal trade stream is keyed: the key lives in
+     * BotConfig, is entered in Settings, rides the socket URL, and without it
+     * no subscribeTokenTrade frame is sent (the server refuses the method). */
+    @Test
+    fun V5_0_7284_pumpportal_trade_stream_is_keyed_and_unkeyed_subscriptions_are_not_sent() {
+        val cfg = java.io.File("src/main/kotlin/com/lifecyclebot/data/BotConfig.kt").readText()
+        val sheet = java.io.File("src/main/kotlin/com/lifecyclebot/ui/SettingsBottomSheet.kt").readText()
+        val layout = java.io.File("src/main/res/layout/dialog_settings.xml").readText()
+        val ws = java.io.File("src/main/kotlin/com/lifecyclebot/network/PumpFunWS.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        // Config: declared, persisted, loaded; blank by default.
+        assertTrue(cfg.contains("val pumpPortalApiKey: String = \"\","))
+        assertTrue(cfg.contains("putString(\"pump_portal_api_key\", cfg.pumpPortalApiKey)"))
+        assertTrue(cfg.contains("pumpPortalApiKey            = s.getString(\"pump_portal_api_key\", \"\").orEmpty().trim(),"))
+        // Settings: a field the operator can type into, read back and saved.
+        assertTrue(layout.contains("android:id=\"@+id/etPumpPortalKey\""))
+        assertTrue(sheet.contains("etPumpPortalKey = view.findViewById(R.id.etPumpPortalKey)"))
+        assertTrue(sheet.contains("etPumpPortalKey.setText(cfg.pumpPortalApiKey)"))
+        assertTrue(sheet.contains("pumpPortalApiKey = etPumpPortalKey.text.toString().trim(),"))
+        // Socket: the key rides the URL; without it the trade method is not sent.
+        assertTrue(ws.contains("\"\$URL?api-key=\${java.net.URLEncoder.encode(apiKey7284, \"UTF-8\")}\""))
+        assertTrue(ws.contains("if (!tradeStreamKeyed7284()) {"))
+        assertTrue(ws.contains("PUMP_TRADE_SUBSCRIBE_SKIPPED_NO_KEY_7284"))
+        assertTrue(ws.contains("if (held7278.isNotEmpty() && tradeStreamKeyed7284()) {"))
+        assertFalse(ws.contains("subscribeTokenTrade is a free data\n"))
+        assertTrue(bot.contains("apiKey7284 = cfg.pumpPortalApiKey,"))
+        assertTrue(phc.contains("\"PUMP_TRADE_SUBSCRIBE_SKIPPED_NO_KEY_7284\","))
+    }
+
 }

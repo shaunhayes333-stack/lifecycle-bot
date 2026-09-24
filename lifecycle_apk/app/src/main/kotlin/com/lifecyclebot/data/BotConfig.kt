@@ -146,6 +146,12 @@ data class BotConfig(
     val birdeyeApiKey: String = DefaultKeys.BIRDEYE,
     val groqApiKey: String    = DefaultKeys.GROQ,
     val geminiApiKey: String  = "",
+    // V5.0.7284 — PumpPortal data API key. The socket answered on 5.0.7281:
+    // "'subscribeTokenTrade' and 'subscribeAccountTrade' methods are only
+    // available when connecting with an API key funded with at least 0.02
+    // SOL." Create and migration frames are free; the per-trade stream that
+    // marks a held curve every second is not. Blank means no trade stream.
+    val pumpPortalApiKey: String = "",
     val jupiterApiKey: String = DefaultKeys.JUPITER,
     val openRouterApiKey: String = DefaultKeys.OPENROUTER,
     val cerebrasApiKey: String   = DefaultKeys.CEREBRAS,
@@ -405,6 +411,7 @@ object ConfigStore {
             putString("birdeye_api_key",     cfg.birdeyeApiKey)
             putString("groq_api_key",        cfg.groqApiKey)
             putString("gemini_api_key",      cfg.geminiApiKey)
+            putString("pump_portal_api_key", cfg.pumpPortalApiKey)
             putString("jupiter_api_key",     cfg.jupiterApiKey)
             // V5.9.915 — operator-hardcoded fallback LLM keys
             putString("openrouter_api_key",  cfg.openRouterApiKey)
@@ -634,6 +641,7 @@ object ConfigStore {
             heliusApiKey                = s.getString("helius_api_key", "").let {
                 if (it.isNullOrBlank()) DefaultKeys.HELIUS else it
             },
+            pumpPortalApiKey            = s.getString("pump_portal_api_key", "").orEmpty().trim(),
             birdeyeApiKey               = s.getString("birdeye_api_key", "").let {
                 if (it.isNullOrBlank()) DefaultKeys.BIRDEYE else it
             },
