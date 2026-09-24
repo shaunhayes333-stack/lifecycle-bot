@@ -142,6 +142,11 @@ object MarketSweep7297 {
             "RAYDIUM_VOLUME" to { raydiumPools() },
         )
         if (runHelius) tasks += "HELIUS_SWAPS" to { heliusSwaps(heliusKey) }
+        // V5.0.7300 — the external hive: GMGN smart-money rows kept by
+        // ExternalAlphaFeeds' own 90 s poll (no request made here).
+        tasks += "GMGN_SMART_MONEY" to {
+            try { com.lifecyclebot.v4.meta.ExternalAlphaFeeds.smartMoneyRows7300() } catch (_: Throwable) { emptyList() }
+        }
 
         val results = coroutineScope {
             tasks.map { (name, fn) ->

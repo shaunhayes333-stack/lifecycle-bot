@@ -73,6 +73,24 @@ object ExternalAlphaFeeds {
 
     fun stop() { enabled = false }
 
+    /**
+     * V5.0.7300 §THE_EXTERNAL_HIVE_KEPT_THE_SYMBOL_AND_DROPPED_THE_MINT.
+     *
+     * GMGN's smart-money rank is polled every 90 s and published into fusion
+     * by SYMBOL only, so it could shape the score of a token something else
+     * had already discovered — but a token smart money was piling into never
+     * reached discovery at all: the row's address was read past and discarded.
+     * The same poll now also keeps each row with its mint and GMGN's own
+     * figures, and MarketSweep7297 folds them in as a provider
+     * (GMGN_SMART_MONEY), so the lane hunters can pick them. No extra request.
+     */
+    @Volatile private var smartMoneyRows7300: List<com.lifecyclebot.engine.market.MarketSweep7297.Row> = emptyList()
+    @Volatile private var smartMoneyRowsAtMs7300 = 0L
+    private const val SMART_ROWS_FRESH_MS_7300 = 5L * 60 * 1000
+
+    fun smartMoneyRows7300(): List<com.lifecyclebot.engine.market.MarketSweep7297.Row> =
+        if (System.currentTimeMillis() - smartMoneyRowsAtMs7300 <= SMART_ROWS_FRESH_MS_7300) smartMoneyRows7300 else emptyList()
+
     // ── GMGN smart-money rank (on-device, Cloudflare-fronted) ───────────────
 
     private fun pollSmartMoney() {
@@ -83,6 +101,40 @@ object ExternalAlphaFeeds {
         if (root.optInt("code", -1) != 0) return
         val rank = root.optJSONObject("data")?.optJSONArray("rank") ?: return
         val now = System.currentTimeMillis() / 1000L
+        try {
+            val rows = ArrayList<com.lifecyclebot.engine.market.MarketSweep7297.Row>(rank.length())
+            for (i in 0 until rank.length()) {
+                val t = rank.optJSONObject(i) ?: continue
+                val mint = t.optString("address", "").trim()
+                if (mint.length < 32 || mint.startsWith("0x")) continue
+                fun d(k: String) = t.optDouble(k, 0.0).let { if (it.isFinite() && it > 0.0) it else 0.0 }
+                val opened = t.optLong("open_timestamp", 0L).takeIf { it > 0L } ?: t.optLong("pool_creation_timestamp", 0L)
+                rows += com.lifecyclebot.engine.market.MarketSweep7297.Row(
+                    mint = mint,
+                    symbol = t.optString("symbol", ""),
+                    name = t.optString("name", ""),
+                    priceUsd = d("price"),
+                    mcapUsd = d("market_cap"),
+                    liquidityUsd = d("liquidity"),
+                    volumeH1Usd = 0.0,
+                    volumeH24Usd = 0.0,
+                    priceChangeH1Pct = t.optDouble("price_change_percent1h", 0.0).let { if (it.isFinite()) it else 0.0 },
+                    txCountH1 = 0,
+                    holders = t.optInt("holder_count", 0),
+                    organicScore = 0.0,
+                    verified = false,
+                    ageHours = if (opened > 0L && opened <= now) (now - opened) / 3600.0 else 0.0,
+                    providers = setOf("GMGN_SMART_MONEY"),
+                )
+            }
+            if (rows.isNotEmpty()) {
+                smartMoneyRows7300 = rows
+                smartMoneyRowsAtMs7300 = System.currentTimeMillis()
+            }
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                if (rows.isNotEmpty()) "GMGN_SMART_MONEY_ROWS_SERVED_7300" else "GMGN_SMART_MONEY_ROWS_EMPTY_7300"
+            )
+        } catch (_: Throwable) {}
         val n = minOf(rank.length(), 20)
         for (i in 0 until n) {
             val t = rank.optJSONObject(i) ?: continue

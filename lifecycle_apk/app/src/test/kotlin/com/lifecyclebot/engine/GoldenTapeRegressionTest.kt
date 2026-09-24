@@ -10984,4 +10984,15 @@ class GoldenTapeRegressionTest {
         assertTrue(feed.contains("laneAffinity = setOf(\"TREASURY\", \"CASHGEN\")"))
     }
 
+    @Test
+    fun V5_0_7300_hive_whales_and_gmgn_smart_money_are_read() {
+        val wt = java.io.File("src/main/kotlin/com/lifecyclebot/engine/WhaleWalletTracker.kt").readText()
+        assertTrue(wt.contains("CollectiveLearning.getWhaleEffectiveness(walletAddress)?.takeIf { it.isReliable }"))
+        assertTrue(wt.contains("if (local?.isReliable == true) return local.score"))
+        val ext = java.io.File("src/main/kotlin/com/lifecyclebot/v4/meta/ExternalAlphaFeeds.kt").readText()
+        assertTrue(ext.contains("val mint = t.optString(\"address\", \"\").trim()"))
+        val sweep = java.io.File("src/main/kotlin/com/lifecyclebot/engine/market/MarketSweep7297.kt").readText()
+        assertTrue(sweep.contains("ExternalAlphaFeeds.smartMoneyRows7300()"))
+    }
+
 }

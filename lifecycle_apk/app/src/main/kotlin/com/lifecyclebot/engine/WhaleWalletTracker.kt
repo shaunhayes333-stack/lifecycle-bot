@@ -395,12 +395,40 @@ object WhaleWalletTracker {
         return trackedWhales[walletAddress]
     }
 
+    /**
+     * V5.0.7300 §THE_HIVE_KNEW_THIS_WHALE.
+     *
+     * Every instance uploads its follow outcomes per whale
+     * (uploadWhaleToCollective) and CollectiveLearning downloads the whole
+     * network's table into its cache — and getWhaleEffectiveness, the only
+     * reader, had no caller. A whale other bots had followed dozens of times
+     * therefore scored 0 here until this device built its own five-trade
+     * sample. When the local profile is not yet reliable, the network's
+     * reliable record (≥5 follows) now answers on the same score ladder.
+     * A reliable local profile always wins; nothing is blended or invented.
+     */
+    private fun hiveWhale7300(walletAddress: String): com.lifecyclebot.collective.WhaleEffectiveness? = try {
+        com.lifecyclebot.collective.CollectiveLearning.getWhaleEffectiveness(walletAddress)?.takeIf { it.isReliable }
+    } catch (_: Throwable) { null }
+
+    private fun ladderScore7300(winRate: Double): Int = when {
+        winRate >= 70.0 -> 90
+        winRate >= 60.0 -> 70
+        winRate >= 50.0 -> 50
+        winRate >= 40.0 -> 30
+        else -> 10
+    }
+
     fun getWhaleScore(walletAddress: String): Int {
-        return trackedWhales[walletAddress]?.score ?: 0
+        val local = trackedWhales[walletAddress]
+        if (local?.isReliable == true) return local.score
+        val hive = hiveWhale7300(walletAddress) ?: return local?.score ?: 0
+        try { PipelineHealthCollector.labelInc("WHALE_SCORE_FROM_HIVE_7300") } catch (_: Throwable) {}
+        return ladderScore7300(hive.successRate)
     }
 
     fun isWhaleReliable(walletAddress: String): Boolean {
-        return trackedWhales[walletAddress]?.isReliable == true
+        return trackedWhales[walletAddress]?.isReliable == true || hiveWhale7300(walletAddress) != null
     }
 
     fun getTopWhales(limit: Int = 10): List<WhaleProfile> {

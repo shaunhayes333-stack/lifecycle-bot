@@ -4,6 +4,14 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7300] - 2026-09-24 — THE HIVES, READ: NETWORK WHALES AND GMGN SMART MONEY
+
+- Operator: "3. and what ever else we use the internal and external hives for". Every hive read path was traced end to end.
+- **Already live (no change):** the internal hive's scoring path — `CollectiveIntelligenceAI.score`, called from `UnifiedScorer` — already folds in network MEGA_WINNER / HOT_TOKEN / AVOID signals (this is the network boost; `CollectiveLearning.getNetworkBoostForMint` is the same lookup as one uncached Turso query per mint and stays unused), the network's per-mint history, rug clusters, liquidity-drain signatures, creator reputation, source reliability and pattern quality. The network auto-buyer reads the network signals; FDG reads the pattern score adjustment.
+- **Wired — the network's whale table.** Every instance uploads its follow outcomes per whale and every instance downloads the whole table, but `getWhaleEffectiveness`, its only reader, had no caller; a whale the network had followed dozens of times scored 0 here until this device built its own five-trade sample. When the local profile is not yet reliable, `WhaleWalletTracker.getWhaleScore` / `isWhaleReliable` now answer from the network's reliable record (≥5 follows) on the same score ladder. A reliable local profile always wins (`WHALE_SCORE_FROM_HIVE_7300`).
+- **Wired — the external hive reaches discovery.** GMGN's smart-money rank was polled every 90 s and published into fusion by symbol only; each row's mint address was read past and dropped, so a token smart money was piling into could shape a score but never be discovered. The same poll now keeps each row with its mint and GMGN's own cap, liquidity, 1h move, holders and age, and the market sweep folds them in as the `GMGN_SMART_MONEY` provider for the lane hunters. No extra request is made (`GMGN_SMART_MONEY_ROWS_SERVED_7300` / `_EMPTY_7300`).
+- Not wired: `ExternalAlphaFeeds.enrichSafety` (a DexScreener call per mint, on the host already rate-limiting), and the perps heatmap (leverage cannot execute).
+
 ## [5.0.7299] - 2026-09-24 — UNWIRED LEDGER SWEEP: THE MARKETS WIN CAP, THE TREASURY WATCHLIST
 
 - Operator: "keep going on the list … knock out a few bundles in batches. ensure they are wired thru correctly regression free". Every A/B/C ledger entry was re-counted against the source; 107 still have no caller. Each was read and triaged — wired when it adds edge, left with the reason when it is covered or would add a choke.
