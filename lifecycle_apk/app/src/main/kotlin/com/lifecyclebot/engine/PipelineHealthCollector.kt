@@ -2208,6 +2208,13 @@ object PipelineHealthCollector {
                     "PAPER_ENTRY_BASIS_CAP_DERIVED_UNOBSERVED_7280",
                     "PAPER_ENTRY_BASIS_CAP_DERIVED_CONTESTED_7280",
                     "PAPER_ENTRY_BASIS_CAP_DERIVED_CONTRADICTED_7280",
+                    // V5.0.7281 — the atomic commit's two refusals named; a recent
+                    // registry observation accepted as a crypto basis; ladder rungs
+                    // in backoff passed over.
+                    "PAPER_ATOMIC_REFUSED_SIZE_BELOW_MIN_7281",
+                    "PAPER_ATOMIC_REFUSED_QTY_ZERO_7281",
+                    "CRYPTO_PAPER_ENTRY_BASIS_RECENT_7281",
+                    "PUMP_CURVE_RPC_RUNG_SKIPPED_LOCKED_7281",
                     "CRYPTO_DYN_MARK_STALE_OR_MISSING_6654",
                     "CRYPTO_HELD_MARK_REFRESH_COALESCED_7251",
                     "SOL_MARK_RESCUE_7167",

@@ -2512,8 +2512,36 @@ object CryptoAltTrader {
         if (snap != null && snap.freshObservation && snap.price.isFinite() && snap.price > 0.0) {
             return snap.price to "ALT_REGISTRY_FRESH_7251"
         }
+        // V5.0.7281 §THE SCAN WAS AN OBSERVATION TOO.
+        //
+        // 7275 refused a paper entry with no observation younger than 60 s.
+        // On 5.0.7280: 130 refused, 49 observed — the lane that ran at 62%
+        // was being told to sit out because DexScreener's limiter or
+        // CoinGecko happened to be closed at the instant of the fill, while
+        // the registry held a price the scanner had observed one or two
+        // minutes earlier. 7275's target was a basis minutes stale that
+        // produced ±85% closes within a second; a price observed inside the
+        // last three minutes is not that. Age is recorded on the row so the
+        // learner can see how old the bases that lost were.
+        if (snap != null && snap.price.isFinite() && snap.price > 0.0 && snap.observedAtMs > 0L) {
+            val ageMs7281 = (System.currentTimeMillis() - snap.observedAtMs).coerceAtLeast(0L)
+            if (ageMs7281 <= RECENT_BASIS_MS_7281) {
+                try {
+                    PipelineHealthCollector.labelInc("CRYPTO_PAPER_ENTRY_BASIS_RECENT_7281")
+                    ForensicLogger.lifecycle(
+                        "CRYPTO_PAPER_ENTRY_BASIS_RECENT_7281",
+                        "symbol=${signal.marketSymbol} asset=${identity.take(32)} price=${snap.price} ageMs=$ageMs7281 " +
+                            "action=recent_registry_observation_is_the_basis",
+                    )
+                } catch (_: Throwable) {}
+                return snap.price to "ALT_REGISTRY_RECENT_7281_${ageMs7281 / 1000}s"
+            }
+        }
         return null
     }
+
+    /** V5.0.7281 — a registry observation this young is an entry basis. */
+    private val RECENT_BASIS_MS_7281 = 180_000L
 
     private suspend fun executeSignal(signal: AltSignal, isSpot: Boolean) {
         /**

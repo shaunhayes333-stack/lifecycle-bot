@@ -16266,7 +16266,23 @@ class Executor(
         }
         try { com.lifecyclebot.engine.truth.PaperEntryFinalityAuthority6497.beginAttempt(entryFinalityId6497, ts.mint, ts.symbol, layerTag.ifBlank { ts.source }.ifBlank { "STANDARD" }) } catch (_: Throwable) {}
         try {
-            if (actualSol < minConfiguredPaperTradeSol() || buyQtyRaw6485 <= java.math.BigInteger.ZERO) {
+            // V5.0.7281 — compared in lamports, the unit the resolver sized in.
+            // The raw-double `<` here refused 416 of 430 tickets on 5.0.7280 by
+            // 3e-12 SOL; see FeeAwareSizeFloor7277.minimumSol.
+            val sizeMeetsMinimum7281 = try {
+                com.lifecyclebot.engine.truth.OrderSizeResolver6441.meetsMinimum6491(actualSol, minConfiguredPaperTradeSol())
+            } catch (_: Throwable) { actualSol >= minConfiguredPaperTradeSol() }
+            if (!sizeMeetsMinimum7281 || buyQtyRaw6485 <= java.math.BigInteger.ZERO) {
+                try {
+                    PipelineHealthCollector.labelInc(
+                        if (!sizeMeetsMinimum7281) "PAPER_ATOMIC_REFUSED_SIZE_BELOW_MIN_7281" else "PAPER_ATOMIC_REFUSED_QTY_ZERO_7281",
+                    )
+                    ForensicLogger.lifecycle(
+                        "PAPER_ATOMIC_REFUSED_7281",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} actualSol=$actualSol minSol=${minConfiguredPaperTradeSol()} " +
+                            "qtyRaw=$buyQtyRaw6485 sizeOk=$sizeMeetsMinimum7281",
+                    )
+                } catch (_: Throwable) {}
                 rollbackPaperEntry6485("NON_EXECUTABLE_SIZE_OR_QTY")
                 return
             }

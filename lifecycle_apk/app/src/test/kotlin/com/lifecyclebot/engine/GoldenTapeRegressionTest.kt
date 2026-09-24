@@ -10522,4 +10522,43 @@ class GoldenTapeRegressionTest {
         assertTrue(phc.contains("\"LAUNCH_ENTRY_MULTIPLE_OF_CREATE_7280_\","))
     }
 
+    /** V5.0.7281 — the fee-aware floor is lamport-exact and the atomic commit
+     * compares in lamports (416 of 430 tickets on 5.0.7280 were refused by
+     * 3e-12 SOL); a registry observation under three minutes old is a crypto
+     * entry basis; curve-read rungs in backoff are skipped and each public
+     * host backs off on its own label. */
+    @Test
+    fun V5_0_7281_floor_is_lamport_exact_recent_basis_accepted_and_ladder_skips_locked_rungs() {
+        val floor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FeeAwareSizeFloor7277.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val alt = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val fan = java.io.File("src/main/kotlin/com/lifecyclebot/network/ParallelMarkFanout7088.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        // The floor round-trips through lamports unchanged.
+        assertTrue(floor.contains("kotlin.math.ceil(FIXED_ROUND_TRIP_SOL / MAX_FIXED_COST_FRACTION * LAMPORTS_PER_SOL) / LAMPORTS_PER_SOL"))
+        val floorSol = kotlin.math.ceil(0.00161 / 0.015 * 1_000_000_000.0) / 1_000_000_000.0
+        val lamports = kotlin.math.round(floorSol * 1_000_000_000.0).toLong()
+        assertTrue(lamports.toDouble() / 1_000_000_000.0 == floorSol)
+        assertTrue(floorSol >= 0.00161 / 0.015)
+
+        // The atomic commit compares in lamports and names its refusal.
+        assertTrue(exec.contains("OrderSizeResolver6441.meetsMinimum6491(actualSol, minConfiguredPaperTradeSol())"))
+        assertFalse(exec.contains("if (actualSol < minConfiguredPaperTradeSol() || buyQtyRaw6485 <= java.math.BigInteger.ZERO) {"))
+        assertTrue(exec.contains("PAPER_ATOMIC_REFUSED_SIZE_BELOW_MIN_7281"))
+
+        // Crypto: a recent registry observation is a basis; refusal only past three minutes.
+        assertTrue(alt.contains("private val RECENT_BASIS_MS_7281 = 180_000L"))
+        assertTrue(alt.contains("return snap.price to \"ALT_REGISTRY_RECENT_7281_\${ageMs7281 / 1000}s\""))
+        assertTrue(alt.contains("CRYPTO_PAPER_ENTRY_BASIS_RECENT_7281"))
+
+        // Ladder: per-host labels, locked rungs skipped, six rungs.
+        assertTrue(fan.contains("return if (host.isBlank()) \"solana_rpc\" else \"rpc_\$host\""))
+        assertTrue(fan.contains("PUMP_CURVE_RPC_RUNG_SKIPPED_LOCKED_7281"))
+        assertTrue(fan.contains("private const val CURVE_LADDER_RUNGS_7279 = 6"))
+
+        assertTrue(phc.contains("\"PAPER_ATOMIC_REFUSED_SIZE_BELOW_MIN_7281\","))
+        assertTrue(phc.contains("\"CRYPTO_PAPER_ENTRY_BASIS_RECENT_7281\","))
+    }
+
 }

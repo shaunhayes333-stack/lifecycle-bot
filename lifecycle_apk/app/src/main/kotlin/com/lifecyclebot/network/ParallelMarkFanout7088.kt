@@ -496,7 +496,8 @@ object ParallelMarkFanout7088 {
     // V5.0.7279 — one getMultipleAccounts call carries up to 100 keys, so the
     // cap covers every held curve instead of the first sixteen.
     private const val CURVE_MAX_MINTS_7269 = 80
-    private const val CURVE_LADDER_RUNGS_7279 = 3
+    // V5.0.7281 — six rungs; locked rungs are skipped without a request.
+    private const val CURVE_LADDER_RUNGS_7279 = 6
 
     private val jupiterQuoteApi7269 by lazy { JupiterApi("") }
 
@@ -569,9 +570,19 @@ object ParallelMarkFanout7088 {
         return v
     }
 
-    /** V5.0.7279 — the health label an RPC rung reports under. */
-    private fun rpcHostLabel7279(url: String): String =
-        if (url.contains("helius", ignoreCase = true)) "helius" else "solana_rpc"
+    /**
+     * V5.0.7279 — the health label an RPC rung reports under.
+     *
+     * V5.0.7281 — one label per public host. Every public rung shared
+     * "solana_rpc", so one node's 429 locked the whole ladder below Helius
+     * (5.0.7280: helius 403, solana_rpc circuit-blocked 465, no rung answered
+     * 233 times). Each host now backs off on its own record.
+     */
+    private fun rpcHostLabel7279(url: String): String {
+        if (url.contains("helius", ignoreCase = true)) return "helius"
+        val host = try { java.net.URI(url).host?.lowercase().orEmpty() } catch (_: Throwable) { "" }
+        return if (host.isBlank()) "solana_rpc" else "rpc_$host"
+    }
 
     private fun pumpCurveRpcFanout7269(mints: List<String>): Map<String, Double> {
         val url = rpcUrl
@@ -616,6 +627,13 @@ object ParallelMarkFanout7088 {
         for ((rungIdx, rung) in rungs7279.withIndex()) {
             if (answered7279) break
             val hostLabel = rpcHostLabel7279(rung)
+            // V5.0.7281 — a rung already in backoff is passed over without a
+            // request, so the walk reaches a rung that can answer.
+            val locked7281 = try { com.lifecyclebot.engine.ApiBackoff.isLockedOut(hostLabel) } catch (_: Throwable) { false }
+            if (locked7281) {
+                try { PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_RUNG_SKIPPED_LOCKED_7281") } catch (_: Throwable) {}
+                continue
+            }
             try {
                 PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_ATTEMPT_7278")
                 val req = Request.Builder()
