@@ -49,6 +49,7 @@ Paper fills pay real venue costs: pump.fun curve 1.25% per side, PumpSwap plus c
 *This is one short paper session and a small sample. Paper is not live.*
 
 ### Engineering
+- Built solo in six months, from a phone. No development team, no million-dollar budget.
 - ~457K lines of production Kotlin across 1,200 files.
 - 2,699 `@Test` cases.
 - 16 custom CI validators.

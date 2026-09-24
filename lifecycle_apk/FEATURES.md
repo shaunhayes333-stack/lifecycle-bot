@@ -137,7 +137,7 @@ There are 22 screens (Activities) plus the settings bottom sheet:
 - 1,200 Kotlin source files, about 457,000 lines of production Kotlin.
 - 339 test files, about 47,000 test lines, 2,699 `@Test` cases.
 - 16 custom static-analysis CI validators gate every build. GitHub Actions builds the APK, and an emulator runtime smoke test runs in a separate workflow.
-- Built by one developer, from a phone, compiled by GitHub Actions.
+- Built by one developer in six months, from a phone, with no team and no million-dollar budget; compiled by GitHub Actions.
 
 ---
 

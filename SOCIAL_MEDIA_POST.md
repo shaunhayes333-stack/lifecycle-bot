@@ -13,7 +13,7 @@ Rules for whoever posts these:
 
 ### 1/10
 ```
-I built an autonomous Solana trading engine on a phone.
+Solo. Six months. On a phone. No team, no million-dollar budget.
 
 AATE — Autonomous Algorithmic Trading Engine. ~457,000 lines of Kotlin. The whole engine runs on-device: it finds, sizes, exits and learns by itself.
 
@@ -80,7 +80,7 @@ Small sample. Paper ≠ live. Not a promise of anything.
 
 ### 9/10
 ```
-Built by one dev, from a phone, compiled by GitHub Actions.
+Built by one dev in 6 months, from a phone. No team, no million-dollar budget.
 1,200 Kotlin files, 2,699 tests, 16 custom static-analysis validators gating every build, plus an emulator smoke test.
 
 Keys stay on the device: AES-256 encrypted storage + biometric lock.

@@ -112,6 +112,7 @@ Everything that happens is counted. `ForensicLogger` writes structured logs for 
 
 ## Scale (measured from the 5.0.7288 source)
 
+- Built by one developer in six months, from a phone, with no team and no million-dollar budget
 - 1,200 Kotlin source files, about 457,000 lines of production Kotlin
 - 339 test files, about 47,000 test lines, 2,699 `@Test` cases
 - 22 screens (Activities) plus the settings sheet

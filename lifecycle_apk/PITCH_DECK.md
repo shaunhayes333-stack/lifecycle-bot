@@ -14,7 +14,7 @@ An autonomous, Solana-first trading engine that runs entirely on an Android phon
 
 - Version 5.0.7288 (September 2026)
 - Native Android (Kotlin), with the whole engine on-device
-- Built by one developer, on a phone
+- Built by one developer in six months, on a phone, with no team and no million-dollar budget
 - Raising a **$500K seed**
 
 **Speaker notes:** Open with the phone in hand. "This is the whole engine. The scanners, the risk gates, the ledger and the learning loop all run on this device, and the keys never leave it." The goal we state is $50 → $1,000,000. It is a goal, not a result.
@@ -198,7 +198,7 @@ Intended use (founder's plan):
 **Solo founder. Built on a phone.**
 
 - One developer designed, wrote and shipped the whole engine: ~457K lines of Kotlin, 2,699 tests and 16 custom CI validators.
-- Development ran from a phone, with builds compiled by GitHub Actions.
+- Six months of development from a phone, with builds compiled by GitHub Actions. No development team, no million-dollar budget.
 - The operating doctrine is "Real data and forensic accounting. No imagined gains. No inferred values."
 
 **Speaker notes:** The constraint is the story. If this much discipline came out of one person and one phone, imagine it with a small team.

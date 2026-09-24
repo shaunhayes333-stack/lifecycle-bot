@@ -34,7 +34,7 @@ Brand cues: dark navy terminal (#04060D), lit hairline strokes (#4E7CB8), cyan/p
 
 **Option C**
 - Headline: **457,000 lines of Kotlin. One phone. Zero imagined gains.**
-- Subhead: A full algorithmic trading stack (16 traders, 40+ data sources, forensic accounting) built by one developer, from a phone.
+- Subhead: A full algorithmic trading stack (16 traders, 40+ data sources, forensic accounting) built by one developer in six months, from a phone.
 
 ---
 
@@ -102,7 +102,7 @@ A round trip costs about **5–6% on the curve** and **2–3% on graduated pools
 
 ### Built on a phone
 
-~457,000 lines of production Kotlin across 1,200 source files. 22 screens. One developer, working from a phone, with builds compiled by GitHub Actions.
+~457,000 lines of production Kotlin across 1,200 source files. 22 screens. One developer, six months, working from a phone, with builds compiled by GitHub Actions. No team, no million-dollar budget.
 
 ### Roadmap
 

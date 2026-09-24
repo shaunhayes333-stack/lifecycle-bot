@@ -4,7 +4,7 @@
 
 ---
 
-One developer. One phone. GitHub Actions doing the compiling. And a stubborn idea: a trading engine shouldn't need you to tap a button every time it trades.
+One developer. One phone. Six months. No team, no million-dollar budget. GitHub Actions doing the compiling. And a stubborn idea: a trading engine shouldn't need you to tap a button every time it trades.
 
 Today AATE is ~457,000 lines of production Kotlin across 1,200 source files. It has 339 test files with 2,699 test cases, 22 screens, and 16 custom static-analysis validators that have to pass before any build ships. I wrote all of it on a phone, and GitHub Actions compiles it. The finished app runs on a phone too, and the whole engine lives on the device.
 

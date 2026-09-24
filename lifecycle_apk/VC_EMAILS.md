@@ -8,11 +8,11 @@ Keep these short. Only use numbers from the fact sheet. Label paper as paper, ev
 
 ## 1. Cold outreach (short)
 
-**Subject:** Autonomous Solana trading engine, built solo on a phone. Raising $500K seed
+**Subject:** Autonomous Solana trading engine, built solo on a phone in 6 months. Raising $500K seed
 
 Hi [Name],
 
-I'm [Founder Name]. I built AATE (Autonomous Algorithmic Trading Engine), a native Android app that runs a full autonomous trading engine on the phone. It finds candidates, vets them for rugs, sizes positions, exits and learns. No clicks are needed, and keys never leave the device.
+I'm [Founder Name]. Over six months, on my own and with no team or big budget, I built AATE (Autonomous Algorithmic Trading Engine), a native Android app that runs a full autonomous trading engine on the phone. It finds candidates, vets them for rugs, sizes positions, exits and learns. No clicks are needed, and keys never leave the device.
 
 A few facts:
 - 16 traders in one engine: Solana meme lanes, crypto alts, tokenized markets, and perps in paper.
@@ -38,7 +38,7 @@ Would you be comfortable introducing me to [Investor Name] at [Fund]? I'm raisin
 
 Here's a forwardable blurb:
 
-> [Founder Name] built AATE (Autonomous Algorithmic Trading Engine) solo, from a phone. It's an on-device engine that decides, sizes, exits and learns, with forensic accounting of every trade and refusal. Paper fills are charged real venue costs, and its entry oracle has to prove an edge on real closes before it gets authority. Raising a $500K seed.
+> [Founder Name] built AATE (Autonomous Algorithmic Trading Engine) solo in six months, from a phone, with no team and no big budget. It's an on-device engine that decides, sizes, exits and learns, with forensic accounting of every trade and refusal. Paper fills are charged real venue costs, and its entry oracle has to prove an edge on real closes before it gets authority. Raising a $500K seed.
 
 Thanks either way,
 [Founder Name]
