@@ -4,6 +4,12 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.7285] - 2026-09-24 — THE DECISION LOG ONLY SPOKE WHEN THE BOT WAS OFF
+
+- Operator, screenshot of the Decision Log filling with `SENTIMENT BLOCK`, narrative and `Historical scan complete` lines the second the bot stopped: "this only works when the bot is off. its meant to be all the time!" Correct, and it was three gates in `MainActivity`'s render path, not the engine — `BotService.log` writes the narrative into `status.logs` continuously either way.
+- **The three gates.** With the runtime active the panel repainted at most every 30 s (5 s when stopped). With no token selected, `updateGlobalDecisionLog` showed an eight-row score table whenever any token was priced and only fell back to the narrative when the table was empty — which, while running, it never is. With a token selected, `updateDecisionLog` showed that token's score lines only and returned before painting whenever the token's hash stood still. Stopped, the table empties, the hash stops mattering and the narrative appears; running, it never did.
+- **Now.** The panel paints every 2 s in both states; `setDecisionLogTextBounded4280`'s text-hash guard, not the cadence, is what prevents a redundant relayout. The body is the engine's narrative, newest first (thirty lines, char cap 1200 → 3200 so they fit), with the score table cut to a four-row preface and the selected token's latest score lines kept above the narrative. Both hashes carry the newest narrative line, so a new decision repaints while the scores stand still. The score card, the per-token line and Clear are unchanged.
+
 ## [5.0.7284] - 2026-09-24 — THE SOCKET SAID WHY
 
 - Operator, fresh 5.0.7281 run at 27 s with a new Helius key: "how about now?" Helius `sr=100% s=174`, KeyValidator `HELIUS_HEALTHY`, `pump_curve_rpc sr=100%`, `PUMP_CURVE_RPC_NO_DATA_7278=0` (108 on the public rung last run; with Helius leading the ladder the curve account reads whole), `HELIUS_DAS=126` quotes in the fan-out, `held=30 fresh=22 staleRefresh=0`, hot loop 20 ticks in 27 s, buys 7/0, four CRYPTO_ALT opens, `PUMP_TRADE_MARK_APPLIED_7278=5` from create frames. The chain 7279–7283 was built for is standing.

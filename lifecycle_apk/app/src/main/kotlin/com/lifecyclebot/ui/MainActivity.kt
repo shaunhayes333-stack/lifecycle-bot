@@ -425,7 +425,9 @@ class MainActivity : AppCompatActivity() {
     private val logLines = ArrayDeque<String>(48)
     private var lastDecisionLogTextHash: Int = 0  // V5.9.1497 — skip no-op StaticLayout relayouts
     private val decisionLogTimeSdf4280 = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
-    private val DECISION_LOG_MAX_CHARS_4280 = 1200
+    // V5.0.7285 — was 1200: thirty narrative lines did not fit; the relayout
+    // cost the cap guarded is now avoided by the text-hash dedupe instead.
+    private val DECISION_LOG_MAX_CHARS_4280 = 3200
 
     // top-up settings
     private lateinit var switchTopUp: android.widget.Switch
@@ -5004,10 +5006,24 @@ for legal compliance.
 
         // ── decision log ──────────────────────────────────────────────
         val nowDecision = System.currentTimeMillis()
-        val minDecisionMs = if (runtimeActiveForUi) 30_000L else 5_000L
+        // V5.0.7285 §THE DECISION LOG ONLY SPOKE WHEN THE BOT WAS OFF.
+        //
+        // Operator, screenshot of the log filling the moment the bot stopped:
+        // "this only works when the bot is off. its meant to be all the time!"
+        // Three gates did that, all here in the render path: with the runtime
+        // active this panel repainted at most every 30 s; with no token
+        // selected it showed a score table instead of the engine's narrative
+        // whenever any token was priced (the narrative was the fallback for an
+        // empty table); with a token selected it showed that token's score
+        // lines only, and skipped the paint entirely while the token's hash
+        // stood still. Stopped, none of the three applied, so the narrative
+        // appeared. The panel now paints the engine's decision narrative at
+        // the same 2 s cadence in both states; the text-hash guard in
+        // setDecisionLogTextBounded4280 already stops a redundant relayout.
+        val minDecisionMs = 2_000L
         if (nowDecision - lastDecisionLogRenderMs >= minDecisionMs || lastDecisionLogRenderMs <= 0L) {
             lastDecisionLogRenderMs = nowDecision
-            if (ts != null) updateDecisionLog(ts) else updateGlobalDecisionLog(state)
+            if (ts != null) updateDecisionLog(ts, state) else updateGlobalDecisionLog(state)
         }
 
         // ── top-up status in bot status text ─────────────────────────
@@ -9629,7 +9645,14 @@ This cannot be undone!
         } catch (_: Throwable) { emptyList() }
         val runtimeActiveForLog = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
         val tokenCountForLog = if (runtimeActiveForLog || state.running) maxOf(state.tokens.size, liveRuntimeTokenCountForUi()) else state.tokens.size
-        val hash = ((state.running || runtimeActiveForLog).toString() + tokenCountForLog + latest.joinToString { it.mint + it.signal + it.entryScore.toInt() }).hashCode()
+        // V5.0.7285 — the narrative is the body in both states; the score table
+        // is a four-row preface, not a replacement. The hash carries the newest
+        // narrative line so a new decision repaints while the table stands still.
+        val narrative7285 = decisionNarrative7285(state, DECISION_NARRATIVE_LINES_7285)
+        val tableRows7285 = latest.take(4)
+        val hash = ((state.running || runtimeActiveForLog).toString() + tokenCountForLog +
+            tableRows7285.joinToString { it.mint + it.signal + it.entryScore.toInt() } +
+            narrative7285.size + narrative7285.firstOrNull().orEmpty()).hashCode()
         if (hash == lastDecisionLogHash) return
         lastDecisionLogHash = hash
         cardLogScores.visibility = android.view.View.GONE
@@ -9638,22 +9661,35 @@ This cannot be undone!
         } else {
             "Bot stopped — no selected token"
         }
-        val body = if (latest.isNotEmpty()) {
-            latest.map { t ->
-                val src = t.source.ifBlank { t.lastPriceSource.ifBlank { "watchlist" } }
-                val label = if (t.symbol.isBlank()) t.mint.take(6) else t.symbol
-                "${label.padEnd(10)} ${t.signal.padEnd(8)} E:${t.entryScore.toInt().toString().padStart(3)} X:${t.exitScore.toInt().toString().padStart(3)} ${src.take(18)}"
-            }.joinToString("\n")
-        } else {
-            state.logs.takeLast(8).asReversed().joinToString("\n").ifBlank { "Waiting for first priced evaluation…" }
+        val table7285 = tableRows7285.map { t ->
+            val src = t.source.ifBlank { t.lastPriceSource.ifBlank { "watchlist" } }
+            val label = if (t.symbol.isBlank()) t.mint.take(6) else t.symbol
+            "${label.padEnd(10)} ${t.signal.padEnd(8)} E:${t.entryScore.toInt().toString().padStart(3)} X:${t.exitScore.toInt().toString().padStart(3)} ${src.take(18)}"
         }
+        val body = buildList {
+            addAll(table7285)
+            if (table7285.isNotEmpty() && narrative7285.isNotEmpty()) add(DECISION_NARRATIVE_RULE_7285)
+            addAll(narrative7285)
+            if (isEmpty()) add("Waiting for first priced evaluation…")
+        }.joinToString("\n")
         setDecisionLogTextBounded4280("$header\n$body")
     }
 
-    private fun updateDecisionLog(ts: TokenState) {
-        // V5.9.709 — skip if decision log content unchanged
+    // V5.0.7285 — the engine's own decision lines (BotService.log → status.logs),
+    // newest first. This is what the operator calls the decision log.
+    private val DECISION_NARRATIVE_LINES_7285 = 30
+    private val DECISION_NARRATIVE_RULE_7285 = "── decisions ──"
+
+    private fun decisionNarrative7285(state: UiState, maxLines: Int): List<String> =
+        try { state.logs.takeLast(maxLines).asReversed() } catch (_: Throwable) { emptyList() }
+
+    private fun updateDecisionLog(ts: TokenState, state: UiState) {
+        // V5.9.709 — skip the score card if the token's decision content is
+        // unchanged. V5.0.7285 — the skip covers the card and the token's score
+        // line only; the narrative below is painted regardless.
         val dlHash = (ts.mint + ts.lastV3Score + ts.trades.size + ts.position.isOpen.hashCode()).hashCode()
-        if (dlHash == lastDecisionLogHash) return
+        val tokenChanged7285 = dlHash != lastDecisionLogHash
+        if (tokenChanged7285) {
         lastDecisionLogHash = dlHash
         val meta   = ts.meta
         val signal = ts.signal
@@ -9748,13 +9784,20 @@ This cannot be undone!
         // ANR blocking site (35s frame gaps). 40 lines is well inside the 30-50
         // spec band and keeps the text-layout cost trivial.
         while (logLines.size > 40) logLines.removeLast()
+        }
 
-        // Only touch the TextView (which triggers a full StaticLayout relayout)
-        // when the rendered text actually changed.
-        val joined = logLines.joinToString("\n")
+        // V5.0.7285 — the scrolling log is the engine's narrative with the
+        // selected token's latest score lines above it, painted every pass;
+        // setDecisionLogTextBounded4280 declines an unchanged text.
+        val narrative7285 = decisionNarrative7285(state, DECISION_NARRATIVE_LINES_7285)
+        val joined = buildList {
+            addAll(logLines.take(8))
+            if (isNotEmpty() && narrative7285.isNotEmpty()) add(DECISION_NARRATIVE_RULE_7285)
+            addAll(narrative7285)
+        }.joinToString("\n")
         setDecisionLogTextBounded4280(joined)
-        // Auto-scroll to top (newest entry)
-        if (::scrollLog.isInitialized) {
+        // Auto-scroll to top (newest entry) when the token's own line changed.
+        if (tokenChanged7285 && ::scrollLog.isInitialized) {
             scrollLog.post { scrollLog.smoothScrollTo(0, 0) }
         }
     }

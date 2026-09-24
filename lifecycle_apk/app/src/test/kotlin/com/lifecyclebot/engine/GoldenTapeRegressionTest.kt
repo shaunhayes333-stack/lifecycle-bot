@@ -10672,4 +10672,23 @@ class GoldenTapeRegressionTest {
         assertTrue(phc.contains("\"PUMP_TRADE_SUBSCRIBE_SKIPPED_NO_KEY_7284\","))
     }
 
+    /** V5.0.7285 — the Decision Log paints the engine's narrative while the
+     * bot runs: same cadence in both states, narrative as the body, the token
+     * score line and table as a preface, no early return that skips the paint. */
+    @Test
+    fun V5_0_7285_decision_log_speaks_while_the_bot_runs() {
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue(main.contains("val minDecisionMs = 2_000L"))
+        assertFalse(main.contains("val minDecisionMs = if (runtimeActiveForUi) 30_000L else 5_000L"))
+        assertTrue(main.contains("private fun updateDecisionLog(ts: TokenState, state: UiState)"))
+        assertTrue(main.contains("if (ts != null) updateDecisionLog(ts, state) else updateGlobalDecisionLog(state)"))
+        assertTrue(main.contains("val tokenChanged7285 = dlHash != lastDecisionLogHash"))
+        assertFalse(main.contains("if (dlHash == lastDecisionLogHash) return"))
+        assertTrue(main.contains("try { state.logs.takeLast(maxLines).asReversed() } catch (_: Throwable) { emptyList() }"))
+        assertTrue(main.contains("private val DECISION_LOG_MAX_CHARS_4280 = 3200"))
+        // The narrative is the body in the no-token state, not the fallback for an empty table.
+        assertTrue(main.contains("val tableRows7285 = latest.take(4)"))
+        assertFalse(main.contains("state.logs.takeLast(8).asReversed().joinToString(\"\\n\").ifBlank"))
+    }
+
 }
