@@ -2233,6 +2233,10 @@ object PipelineHealthCollector {
                     // V5.0.7287 — the oracle read the journal; its proof was restored.
                     "ORACLE_HISTORY_REFRESHED_7287",
                     "ORACLE_EDGE_PROOF_RESTORED_7287",
+                    // V5.0.7288 — tick-loop sells dispatched off the loop, and
+                    // repeats coalesced while one is in flight.
+                    "TICK_SELL_DISPATCHED_OFF_LOOP_7288",
+                    "TICK_SELL_OFF_LOOP_COALESCED_7288",
                     "CRYPTO_DYN_MARK_STALE_OR_MISSING_6654",
                     "CRYPTO_HELD_MARK_REFRESH_COALESCED_7251",
                     "SOL_MARK_RESCUE_7167",

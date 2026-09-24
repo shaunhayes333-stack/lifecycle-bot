@@ -2761,7 +2761,13 @@ object CryptoAltTrader {
         // V5.9.5: Dynamic exposure cap — never exceed 80% of balance at risk.
         // Naturally allows more concurrent positions as wallet grows.
         var totalRisk = activeModePositions7256(positions.values).sumOf { it.sizeSol }
-        val maxRisk = balance * 0.80
+        // V5.0.7288 — `balance` is FREE cash, and the SOL already in these
+        // positions has left it, so `balance * 0.80` counted crypto's own
+        // holdings twice and the ceiling fell as the rest of the book filled.
+        // On 5.0.7287 cash was 1.06 SOL with 1.35 SOL in crypto: ceiling 0.85,
+        // 48 entries refused. The cap is 80% of what crypto can reach: its
+        // own committed SOL plus the free cash.
+        val maxRisk = (balance + totalRisk) * 0.80
         if (signal.isDynamic && totalRisk + sizeSol > maxRisk) {
             if (rotateWeakPaperExposure7244(signal.score)) {
                 totalRisk = activeModePositions7256(positions.values).sumOf { it.sizeSol }

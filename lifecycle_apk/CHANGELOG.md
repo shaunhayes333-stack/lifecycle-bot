@@ -4,6 +4,14 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.7288] - 2026-09-24 — A SELL MAY NOT HOLD THE MARK LOOP
+
+- Operator on 5.0.7287 at 1677 s: "its choked the crypto trader out. it was killing it at 65%." The chain, read end to end: the 1 Hz mark loop ran **five** iterations all session (`OPEN_POS_LOOP_TICK_6983=5`, `hotTicks7270=5`). The fifth entered the tick-lock for one mint (`phase=tick_lock:chudAJvq`), called `executor.requestSell` synchronously and never returned. 57 of 61 held positions went stale (`HELD_STALE_TIMEOUT_REFRESH_ONLY_7246=91,466`, `RISK_CLOCK_BLOCKED_7001_MARK_STALE=138,864`); no exit can fire on a stale mark, so nothing closed; cash fell to 1.06 SOL of an 11.7 SOL book; and the crypto trader's exposure cap refused 48 entries (`PRE_SUBMIT_EXPOSURE_CAP`). The oracle was not the choke (one cross-asset block all session).
+- **The stall was invisible.** 7283's in-flight gauge compared end time ≥ start time; the delay sits inside the iteration, so the next iteration starts in the same millisecond the last one ended and a hung iteration read `inFlightMs7283=0`. The supervisor never fired. Iterations are now matched by sequence number (`ExitSweepTiming7264`), so a hang past 30 s is named and relaunched.
+- **A sell may not hold the mark loop.** The three sells the loop issues (crash-proof route, tick hard floor, tick profit lock) are dispatched on the IO pool; one in flight per mint, re-requestable after 60 s so a hung sell cannot pin its mint. `TICK_SELL_DISPATCHED_OFF_LOOP_7288`, `TICK_SELL_OFF_LOOP_COALESCED_7288`.
+- **Crypto's cap counted its own SOL twice.** `maxRisk = balance * 0.80` used FREE cash, which the SOL already in crypto positions has left, so the ceiling shrank as the rest of the book filled (1.06 cash + 1.35 in crypto → ceiling 0.85). Now 80% of crypto's committed SOL plus free cash.
+- Named: lifetime trades read 20 on this device (233 before), so the journal was reset; the oracle's history is 15 closes and its proof starts over from there. The PumpPortal key is not set on this install (`tradeStream=NO_KEY_LAUNCHES_ONLY`).
+
 ## [5.0.7287] - 2026-09-24 — TRADE OR DON'T; THE ORACLE READS THE WHOLE BOOK; PAPER PAYS WHAT THE VENUE CHARGES
 
 - Operator: "fix what youve suggested to do now. the oracle is meant to effect trading and ingest all trade history as well. it shouldn't be blind and once it proves itself absolutely should be guiding the trading not just advising. I hate this whole probe bullshit. its paper. just trade or dont trade." This build carries the operator's explicit authorisation to change paper buy/sell fee accounting (HERO list) and admission behaviour.

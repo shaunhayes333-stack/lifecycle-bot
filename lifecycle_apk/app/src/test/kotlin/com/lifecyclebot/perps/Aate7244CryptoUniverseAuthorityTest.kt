@@ -43,7 +43,9 @@ class Aate7244CryptoUniverseAuthorityTest {
 
         assertTrue(trader.contains("rotateWeakPaperExposure7244"))
         assertTrue(trader.contains("CRYPTO_EXPOSURE_ROTATED_7244"))
-        assertTrue(trader.contains("val maxRisk = balance * 0.80"))
+        // V5.0.7288 — still 80%, measured against what crypto can reach (its own
+        // committed SOL plus free cash) instead of free cash alone.
+        assertTrue(trader.contains("val maxRisk = (balance + totalRisk) * 0.80"))
         assertTrue(trader.contains("totalRisk + sizeSol > maxRisk"))
     }
 

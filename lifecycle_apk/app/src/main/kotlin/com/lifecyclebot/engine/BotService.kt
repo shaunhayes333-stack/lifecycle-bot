@@ -825,6 +825,50 @@ class BotService : Service() {
         } catch (_: Throwable) {}
     }
 
+    // V5.0.7288 §A SELL MAY NOT HOLD THE MARK LOOP.
+    //
+    // 5.0.7287 at 1677 s: the 1 Hz mark loop ran five iterations. The fifth
+    // entered the tick-lock for one mint (phase=tick_lock:chudAJvq), called
+    // executor.requestSell synchronously, and never came back; 57 of 61 held
+    // positions went stale, no exit could fire on a stale mark, cash stayed
+    // locked in them, and the crypto trader starved behind its exposure cap.
+    // The three sells this loop issues (crash-proof route, tick hard floor,
+    // tick profit lock) are now dispatched on the IO pool. One in flight per
+    // mint; a sell still in flight after 60 s may be re-requested, so a hung
+    // sell cannot pin its mint forever. The loop goes on pricing the book.
+    private val offLoopSellsInFlight7288 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val OFF_LOOP_SELL_RETRY_MS_7288 = 60_000L
+
+    private fun requestSellOffLoop7288(
+        ts: com.lifecyclebot.data.TokenState,
+        reason: String,
+        wallet: com.lifecyclebot.network.SolanaWallet?,
+        walletSol: Double,
+    ) {
+        val now = System.currentTimeMillis()
+        val prior = offLoopSellsInFlight7288[ts.mint]
+        if (prior != null && now - prior < OFF_LOOP_SELL_RETRY_MS_7288) {
+            try { PipelineHealthCollector.labelInc("TICK_SELL_OFF_LOOP_COALESCED_7288") } catch (_: Throwable) {}
+            return
+        }
+        offLoopSellsInFlight7288[ts.mint] = now
+        try {
+            scope.launch(Dispatchers.IO + CoroutineName("tick-sell-7288")) {
+                try {
+                    executor.requestSell(ts, reason, wallet, walletSol)
+                } catch (e: Throwable) {
+                    try { com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "TICK_SELL_OFF_LOOP_FAILED_7288") } catch (_: Throwable) {}
+                    ErrorLogger.warn("BotService", "tick sell off-loop failed ${ts.symbol}: ${e.message}")
+                } finally {
+                    offLoopSellsInFlight7288.remove(ts.mint, now)
+                }
+            }
+            try { PipelineHealthCollector.labelInc("TICK_SELL_DISPATCHED_OFF_LOOP_7288") } catch (_: Throwable) {}
+        } catch (_: Throwable) {
+            offLoopSellsInFlight7288.remove(ts.mint, now)
+        }
+    }
+
     private fun openPosPhase7283(phase: String) {
         try { com.lifecyclebot.engine.truth.ExitSweepTiming7264.onHotTickPhase7283(phase) } catch (_: Throwable) {}
     }
@@ -11580,7 +11624,7 @@ class BotService : Service() {
                                         val cfgTick = ConfigStore.load(applicationContext)
                                         val walletTick = walletManager.getWallet()
                                         val balTick = status.getEffectiveBalance(cfgTick.paperMode)
-                                        executor.requestSell(
+                                        requestSellOffLoop7288(
                                             ts,
                                             "WS_TICK_FILTER_CRASH_PROOF_${(jumpMult * 10000.0).toInt()}BPS",
                                             walletTick,
@@ -11939,7 +11983,7 @@ class BotService : Service() {
                                         val cfgTick = ConfigStore.load(applicationContext)
                                         val walletTick = walletManager.getWallet()
                                         val balTick = status.getEffectiveBalance(cfgTick.paperMode)
-                                        executor.requestSell(ts,
+                                        requestSellOffLoop7288(ts,
                                             if (catastrophicConfirmed4485) "TICK_CATASTROPHIC_CONFIRMED_${pnlPctNow.toInt()}PCT"
                                             else if (oneStrikeCatastrophic4588) "TICK_HARD_FLOOR_CATASTROPHIC_LANE_${laneName4588}_${pnlPctNow.toInt()}PCT_4588"
                                             else if (runnerEarlyCut7277) "RUNNER_EARLY_CUT_${laneName4588}_${pnlPctNow.toInt()}PCT_7277"
@@ -12070,7 +12114,7 @@ class BotService : Service() {
                                                 val cfgTick = ConfigStore.load(applicationContext)
                                                 val walletTick = walletManager.getWallet()
                                                 val balTick = status.getEffectiveBalance(cfgTick.paperMode)
-                                                executor.requestSell(ts,
+                                                requestSellOffLoop7288(ts,
                                                     "TICK_PROFIT_LOCK_peak${peakPct.toInt()}_now${pnlPctNow.toInt()}",
                                                     walletTick, balTick)
                                             } catch (_: Throwable) {}

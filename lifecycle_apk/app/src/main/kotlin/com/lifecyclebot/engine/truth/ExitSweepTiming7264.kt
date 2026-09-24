@@ -89,6 +89,13 @@ object ExitSweepTiming7264 {
     @Volatile private var hotTickPhase7283: String = "-"
     @Volatile private var hotTickThread7283: Thread? = null
     private val hotTickEndedAtMs7283 = AtomicLong(0L)
+    // V5.0.7288 — iterations are matched by sequence number, not by clock.
+    // 7283 compared end time >= start time, and an iteration that starts in
+    // the same millisecond the previous one ended reads as already ended: on
+    // 5.0.7287 the fifth iteration hung for 27 minutes with inFlightMs=0 and
+    // the supervisor never saw it.
+    private val hotTickStartSeq7288 = AtomicLong(0L)
+    private val hotTickEndSeq7288 = AtomicLong(0L)
     private val hotTickStalls7283 = AtomicLong(0L)
     @Volatile private var lastStall7283: String = "-"
 
@@ -96,6 +103,7 @@ object ExitSweepTiming7264 {
 
     fun onHotTickEnd7283(nowMs: Long) {
         hotTickEndedAtMs7283.set(nowMs)
+        hotTickEndSeq7288.set(hotTickStartSeq7288.get())
         hotTickPhase7283 = "idle"
     }
 
@@ -103,7 +111,7 @@ object ExitSweepTiming7264 {
     fun hotTickInFlightMs7283(nowMs: Long): Long {
         val start = lastHotTickStartMs.get()
         if (start <= 0L) return 0L
-        if (hotTickEndedAtMs7283.get() >= start) return 0L
+        if (hotTickEndSeq7288.get() >= hotTickStartSeq7288.get()) return 0L
         return (nowMs - start).coerceAtLeast(0L)
     }
 
@@ -131,7 +139,7 @@ object ExitSweepTiming7264 {
     }
 
     fun onHotTickStart(nowMs: Long) {
-        hotTicks.incrementAndGet()
+        hotTickStartSeq7288.set(hotTicks.incrementAndGet())
         hotTickThread7283 = Thread.currentThread()
         hotTickPhase7283 = "start"
         val prev = lastHotTickStartMs.getAndSet(nowMs)

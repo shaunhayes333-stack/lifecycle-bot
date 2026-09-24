@@ -10770,4 +10770,30 @@ class GoldenTapeRegressionTest {
         assertTrue(crossAsset.contains("val provenAdmit7287 = oracleProven7263 && oracleAdmitted7262 && !oracleHardSafety7287"))
     }
 
+    /** V5.0.7288 — an iteration that starts in the same millisecond the last
+     * one ended still reads as in flight; the mark loop's sells run off the
+     * loop; the crypto exposure cap counts crypto's own SOL once. */
+    @Test
+    fun V5_0_7288_same_millisecond_iteration_is_in_flight_and_sells_leave_the_loop() {
+        val t = com.lifecyclebot.engine.truth.ExitSweepTiming7264
+        t.onHotTickStart(5_000L)
+        t.onHotTickEnd7283(6_000L)
+        // Next iteration starts in the very millisecond the last one ended.
+        t.onHotTickStart(6_000L)
+        assertEquals(30_000L, t.hotTickInFlightMs7283(36_000L))
+        t.onHotTickEnd7283(36_500L)
+        assertEquals(0L, t.hotTickInFlightMs7283(40_000L))
+
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val a = bot.indexOf("private suspend fun openPositionTickLoop(gen7283: Long)")
+        val b = bot.indexOf("V5.9.495z54c — extracted from botLoop()", a)
+        val loop = bot.substring(a, b)
+        assertFalse(loop.contains("executor.requestSell("))
+        assertEquals(3, Regex("requestSellOffLoop7288\\(").findAll(loop).count())
+        assertTrue(bot.contains("TICK_SELL_DISPATCHED_OFF_LOOP_7288"))
+
+        val alt = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue(alt.contains("val maxRisk = (balance + totalRisk) * 0.80"))
+    }
+
 }
