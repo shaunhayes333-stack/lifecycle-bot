@@ -76,6 +76,45 @@ object TreasuryScannerFeed {
 
     fun watchlistSnapshot(): List<TreasuryCandidate> = watchlist.values.toList()
 
+    private val recirculatedAt7299 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private const val RECIRCULATE_EVERY_MS_7299 = 10L * 60 * 1000
+
+    /**
+     * V5.0.7299 §THE_WATCHLIST_CASHGEN_WAS_MEANT_TO_POLL.
+     *
+     * This feed was built as "a dedicated Treasury watchlist that CashGen
+     * polls", and nothing ever read it — candidates were published and then
+     * aged out. Each market sweep now re-offers every candidate that is no
+     * longer on the live watchlist to intake (at most once per 10 minutes per
+     * mint), seeded for TREASURY and CASHGEN. Intake, the lane election and
+     * every gate downstream are unchanged; this only stops established,
+     * liquid candidates from being dropped once they leave the watchlist.
+     */
+    fun recirculate7299(): Int {
+        val now = System.currentTimeMillis()
+        recirculatedAt7299.entries.removeIf { now - it.value > 6 * RECIRCULATE_EVERY_MS_7299 }
+        var n = 0
+        for (c in watchlist.values) {
+            if (now - (recirculatedAt7299[c.mint] ?: 0L) < RECIRCULATE_EVERY_MS_7299) continue
+            val watching = try { GlobalTradeRegistry.isWatching(c.mint) } catch (_: Throwable) { true }
+            if (watching) continue
+            recirculatedAt7299[c.mint] = now
+            try {
+                TokenMergeQueue.enqueue(
+                    mint = c.mint,
+                    symbol = c.symbol,
+                    scanner = "TREASURY_FEED_7299",
+                    marketCapUsd = c.mcap,
+                    liquidityUsd = c.liquidityUsd,
+                    laneAffinity = setOf("TREASURY", "CASHGEN"),
+                )
+                n++
+            } catch (_: Throwable) {}
+        }
+        if (n > 0) try { PipelineHealthCollector.labelInc("TREASURY_FEED_RECIRCULATED_7299") } catch (_: Throwable) {}
+        return n
+    }
+
     fun size(): Int = watchlist.size
 
     fun statusLine(): String = "$VERSION size=${watchlist.size}/$MAX_WATCHLIST minMcap=${MIN_TREASURY_MCAP.toInt()} minLiq=${MIN_TREASURY_LIQUIDITY.toInt()} minVol=${MIN_TREASURY_24H_VOL.toInt()}"

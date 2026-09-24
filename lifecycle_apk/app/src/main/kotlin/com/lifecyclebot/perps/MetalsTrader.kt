@@ -103,7 +103,11 @@ object MetalsTrader {
         
         fun getPnlSol(): Double = size * (getPnlPercent() / 100.0)
         
-        fun shouldTakeProfit(): Boolean = getPnlPercent() >= com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
+        // V5.0.7299 — "never cap TP": the position carries its own strategy
+        // target (takeProfit); the safety TP honours whichever is higher, via
+        // FluidLearningAI.getMarketsUncappedTpPct (built for this, never called).
+        fun shouldTakeProfit(): Boolean = getPnlPercent() >=
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsUncappedTpPct((if (entryPrice > 0.0 && takeProfit > 0.0) kotlin.math.abs(takeProfit - entryPrice) / entryPrice * 100.0 * leverage else 0.0))
         fun shouldStopLoss(): Boolean {
             val pnl = getPnlPercent()
             val floor = try {

@@ -10970,4 +10970,18 @@ class GoldenTapeRegressionTest {
         assertTrue(hunter.contains("MomentumPredictorAI.getStrongMomentumTokens()"))
     }
 
+    @Test
+    fun V5_0_7299_markets_safety_tp_honours_the_position_target_and_treasury_feed_is_read() {
+        for (f in listOf("ForexTrader", "MetalsTrader", "CommoditiesTrader")) {
+            val src = java.io.File("src/main/kotlin/com/lifecyclebot/perps/$f.kt").readText()
+            assertTrue("$f safety TP must honour the position target", src.contains("FluidLearningAI.getMarketsUncappedTpPct("))
+        }
+        val forex = java.io.File("src/main/kotlin/com/lifecyclebot/perps/ForexTrader.kt").readText()
+        assertFalse(forex.contains("fun shouldTakeProfit(): Boolean = getPnlPercent() >= com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()"))
+        val sc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SolanaMarketScanner.kt").readText()
+        assertTrue(sc.contains("TreasuryScannerFeed.recirculate7299()"))
+        val feed = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TreasuryScannerFeed.kt").readText()
+        assertTrue(feed.contains("laneAffinity = setOf(\"TREASURY\", \"CASHGEN\")"))
+    }
+
 }

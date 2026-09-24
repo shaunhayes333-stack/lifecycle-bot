@@ -119,7 +119,11 @@ object CommoditiesTrader {
             val tp = if (isSpot)
                 com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
             else com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsLevTpPct()
-            return getPnlPercent() >= tp
+            // V5.0.7299 — "never cap TP": the position carries its own strategy
+            // target (takeProfit); the safety TP honours whichever is higher, via
+            // FluidLearningAI.getMarketsUncappedTpPct (built for this, never called).
+            val target7299 = (if (entryPrice > 0.0 && takeProfit > 0.0) kotlin.math.abs(takeProfit - entryPrice) / entryPrice * 100.0 * leverage else 0.0)
+            return getPnlPercent() >= maxOf(tp, com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsUncappedTpPct(target7299))
         }
         
         fun shouldStopLoss(): Boolean {

@@ -4,6 +4,13 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7299] - 2026-09-24 — UNWIRED LEDGER SWEEP: THE MARKETS WIN CAP, THE TREASURY WATCHLIST
+
+- Operator: "keep going on the list … knock out a few bundles in batches. ensure they are wired thru correctly regression free". Every A/B/C ledger entry was re-counted against the source; 107 still have no caller. Each was read and triaged — wired when it adds edge, left with the reason when it is covered or would add a choke.
+- **Wired — `FluidLearningAI.getMarketsUncappedTpPct` ("Never cap TP — if a signal has a higher target, honour it").** Forex, Metals and Commodities fell back to `TP_SAFETY` at the flat fluid TP whenever the symbolic exit reasoner said HOLD, even when the position's own strategy target (`takeProfit`) was higher, closing winners early. The safety TP now honours whichever is higher: the fluid TP or the position's own target.
+- **Wired — `TreasuryScannerFeed` has its reader.** Built as "a dedicated Treasury watchlist that CashGen polls" and never read. Each market sweep now re-offers every candidate no longer on the live watchlist to intake (at most once per 10 min per mint), seeded for TREASURY and CASHGEN (`TREASURY_FEED_RECIRCULATED_7299`).
+- **Triaged, left unwired (reason):** `SourceTimingRegistry.isLateSignal` — the same penalty is already applied through `getSourceTimingPenalty` in ScoreCard. `FluidLearning.getExitTagWinRate` — deliberately read-only until its regime buckets hold samples (6972). `SmartExitOptimizer.getExitPressure` — the markets traders already call `SymbolicExitReasoner.assess` directly. `SmartExitOptimizer.getMinConfidenceAdvisory`, `PatternBacktester.getConfidenceAdjustments` (DISABLE → ×0.3), `ScoreDistributionHistogram6396.recommendAdaptiveBaseline` — each can only raise a floor or throttle: a new choke. `PerpsTrailingStop.updatePrice/isStopHit` — superseded by the fluid stop and fluid trail in `PerpsTraderAI.checkExit` (V5.9.1224). `CrossAssetLeadLagAI.getRotationProbability`, `InsiderTrackerAI.getSignalsByWallet`, `HoldingLogicLayer.getHoldParams` — thin accessors whose siblings are already wired. `TreasuryOpportunityEngine.getPendingOpportunities` — its queue is CashGen's own assessment; claiming it for TREASURY would take tokens from CashGen.
+
 ## [5.0.7298] - 2026-09-24 — SHUTDOWN CLOSES AT REAL PRICES; QUARANTINED MARKS GET RE-PINGED; TWO BUILT BRAINS WIRED
 
 - Operator: "keep shut down closes but close at real prices" … the basis-wait tokens "should of never been bought … or it needs to be aware and reping the price to correct".
