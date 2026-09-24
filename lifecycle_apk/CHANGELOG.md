@@ -4,6 +4,11 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7290] - 2026-09-24 — A TICK CATASTROPHE ASKS THE MARKET TOO
+
+- Operator 5.0.7289 at 1566 s: equity now reads honestly — cash 19.98 + open value 20.74 = **40.72 SOL**, unrealized −0.02 (was a phantom +243). `MARK_QUOTE_7289_CAP_DERIVED_FROM_PRICE_NOT_CORROBORATED=7,538`. Loop healthy: max cycle 11.8 s, no wedge sampled, 1 stale reset.
+- **The same fake-loss shape on a second path.** `BUY PAPER rndriz (RENDER) entry=1.865 cost=0.747` → three seconds later `SELL sol=0.007 pnl=−0.740 reason=TICK_CATASTROPHIC_CONFIRMED_-98PCT`; `EkDGB5 cost=1.000 → sol=0.056 reason=TICK_CATASTROPHIC_CONFIRMED_-94PCT`. 1.69 SOL of losses booked on reads the market did not make. The tick loop calls a catastrophe "confirmed" when the executable price agrees with the raw tick within 20 pp — one wrong identity feeds both. The off-loop sell dispatcher (7288) now asks 7289's question first for any `TICK_CATASTROPHIC_CONFIRMED` reason: an independent price ≥2x above the mark refuses the sell and holds the mint's slot for the 60 s retry window, so the loop does not re-query every second. Silence still lets a dead token close; hard floors, stop-losses and profit locks are untouched.
+
 ## [5.0.7289] - 2026-09-24 — EQUITY MAY NOT COUNT WHAT THE EXITS REFUSE
 
 - Operator 5.0.7288 at 3535 s: TOTAL EQUITY **287.09 SOL** on cash 27.30 + open cost 16.31 — `OPEN MARKET VALUE 259.79`, `UNREALIZED +243.63`. Realized was +33.92. The same report quarantined the marks behind it: `STALE_PRICE_QUARANTINED gainMultiple=2689x / 4720x / 4898x / 28051x`, `MARK_BASIS_RECONCILED_7017 WOTF entryMcap=48,126 curMcap=125,528,525 move=+260,730%`. The exits would not trade on those prices; equity counted them in full. About 243 SOL of the headline was not money.

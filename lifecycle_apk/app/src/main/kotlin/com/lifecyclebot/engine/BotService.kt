@@ -854,13 +854,28 @@ class BotService : Service() {
         offLoopSellsInFlight7288[ts.mint] = now
         try {
             scope.launch(Dispatchers.IO + CoroutineName("tick-sell-7288")) {
+                // V5.0.7290 — the tick loop's "confirmed" catastrophe only checks
+                // that the executable price agrees with the raw tick; one wrong
+                // identity feeds both. 5.0.7289: RENDER bought at $1.865 and sold
+                // three seconds later on TICK_CATASTROPHIC_CONFIRMED_-98PCT for
+                // -0.74 SOL, EkDGB5 on -94% for -0.95 SOL. The same question
+                // 7289 asks before a risk-clock catastrophe is asked here; a
+                // contradicted read holds this mint's slot for the retry window,
+                // so the tick loop does not re-ask the stack every second.
+                var contradicted7290 = false
                 try {
-                    executor.requestSell(ts, reason, wallet, walletSol)
+                    if (reason.startsWith("TICK_CATASTROPHIC_CONFIRMED") &&
+                        catastropheContradicted7289(ts, ts.lastPrice)
+                    ) {
+                        contradicted7290 = true
+                    } else {
+                        executor.requestSell(ts, reason, wallet, walletSol)
+                    }
                 } catch (e: Throwable) {
                     try { com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "TICK_SELL_OFF_LOOP_FAILED_7288") } catch (_: Throwable) {}
                     ErrorLogger.warn("BotService", "tick sell off-loop failed ${ts.symbol}: ${e.message}")
                 } finally {
-                    offLoopSellsInFlight7288.remove(ts.mint, now)
+                    if (!contradicted7290) offLoopSellsInFlight7288.remove(ts.mint, now)
                 }
             }
             try { PipelineHealthCollector.labelInc("TICK_SELL_DISPATCHED_OFF_LOOP_7288") } catch (_: Throwable) {}

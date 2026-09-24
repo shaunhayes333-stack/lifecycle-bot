@@ -10814,4 +10814,14 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("other / markPx >= 2.0"))
     }
 
+    @Test
+    fun V5_0_7290_tick_catastrophe_asks_the_stack_before_selling() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val a = bot.indexOf("private fun requestSellOffLoop7288(")
+        val body = bot.substring(a, bot.indexOf("private fun openPosPhase7283", a))
+        assertTrue(body.contains("reason.startsWith(\"TICK_CATASTROPHIC_CONFIRMED\")"))
+        assertTrue(body.contains("catastropheContradicted7289(ts, ts.lastPrice)"))
+        assertTrue(body.contains("if (!contradicted7290) offLoopSellsInFlight7288.remove(ts.mint, now)"))
+    }
+
 }
