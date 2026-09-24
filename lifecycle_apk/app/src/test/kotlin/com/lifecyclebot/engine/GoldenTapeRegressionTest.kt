@@ -9684,7 +9684,7 @@ class GoldenTapeRegressionTest {
         assertTrue(floor.contains("RegimeDetector.scoreFloorDelta()"))
         assertTrue(floor.contains("LaneExpectancyDamper.admissionScoreFloorDelta(lane)"))
         assertTrue(fdg.contains("CanonicalEntryFloor7266.resolve(floorLane7266)"))
-        assertTrue(fdg.contains("val belowCanonicalFloor7243 = canonicalV3Score7243 < canonicalFloor7266"))
+        assertTrue(fdg.contains("val belowCanonicalFloor7243 = effectiveEntryScore7292 < canonicalFloor7266"))
         assertTrue(fdg.contains("canonicalV3Score7243 < waitFloor7266"))
         assertTrue(fdg.contains("val matureBelow7243 = canonicalV3Score7243 < 30.0"))
 
@@ -10834,6 +10834,18 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("if (cfg.autoTradeNetworkSignals || cfg.paperMode || networkProven7291)"))
         val nb = java.io.File("src/main/kotlin/com/lifecyclebot/perps/NetworkSignalAutoBuyer.kt").readText()
         assertTrue(nb.contains("SignalSourceProof7291.Source.NETWORK, signal.mint"))
+    }
+
+    @Test
+    fun V5_0_7292_specialists_judged_on_own_score_and_treasury_tile_never_shows_sub_account() {
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("val effectiveEntryScore7292 = if (laneOwnScoreAdmitted7292) laneEvidenceScore7243 else canonicalV3Score7243"))
+        assertTrue(fdg.contains("st != null && st.n >= 20 && st.meanNetPct > 0.0"))
+        val ui = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        val a = ui.indexOf("V5.0.7292 — operator: \"one moment")
+        val block = ui.substring(a, ui.indexOf("} else {", a))
+        assertFalse(block.contains("TreasuryManager.treasurySol"))
+        assertTrue(block.contains("lastReconciledTreasuryEquitySol7292"))
     }
 
 }

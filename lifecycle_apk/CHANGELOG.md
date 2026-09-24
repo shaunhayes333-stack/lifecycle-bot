@@ -4,6 +4,13 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7292] - 2026-09-24 — A SPECIALIST IS JUDGED ON ITS OWN SCORE; THE TREASURY TILE HOLDS STILL
+
+- Operator: "there's lanes and traders, specialist traders that have never traded". 5.0.7289 funnel: BLUECHIP ownerSelected=173 fdg=0, QUALITY 78/0, MOONSHOT 88/0, TREASURY 22/0; SHITCOIN reached FDG 147 times and was hard-vetoed every time. `CANONICAL_V3_SCORE_FLOOR_7243=626` on lines like `sym=JAAA lane=BLUECHIP baseSignal=WAIT entryScore=0.0 laneScore=80.0 canonicalScore=-16.0`. The floor reads the generic V3 meme scorer, which scores established tokens −16..−22 on liquidity-exit and time terms — a specialist built to trade exactly those tokens could never clear it, so it never produced a close to learn from.
+- **A specialist lane's own score now stands in for V3** when it clears the lane's own fluid floor: always in PAPER, and in LIVE once that lane's journal (`OracleTradeHistory7287`, paper + live closes) shows ≥20 closes with positive mean net return. Floors, hard safety and every later gate are unchanged; trunk callers are unchanged. `FDG_SPECIALIST_OWN_SCORE_ADMITTED_7292_<LANE>`.
+- Still one position per mint by design: when PROJECT_SNIPER already holds a fresh launch, SHITCOIN is superseded on that mint and trades the ones sniper does not take.
+- **Treasury tile.** Operator: "one moment it's 5k the next it's $30". In paper the tile shows canonical equity (~40 SOL ≈ $4.8k), but whenever the unified snapshot was momentarily not RECONCILED it fell back to the legacy `TreasuryManager.treasurySol` sub-account (~0.25 SOL ≈ $30). Paper now holds the last reconciled equity until the next reconciled read, with the capital authority's equity before the first; the sub-account is never shown.
+
 ## [5.0.7291] - 2026-09-24 — COPY AND NETWORK SIGNALS TRADE IN PAPER AND EARN LIVE
 
 - Operator: "copy trading can just be live in paper and enabled live if its proven. same as the network auto buyer in paper." On 5.0.7289 `SMART_MONEY_COPY_SIGNAL_DISABLED_IN_SETTINGS_7277=33`: every smart-money copy signal was dropped behind a toggle that defaults off, and the hive NetworkSignalAutoBuyer only started when its own toggle was set — so paper, whose job is to learn everything, never produced the evidence that would justify either one live.

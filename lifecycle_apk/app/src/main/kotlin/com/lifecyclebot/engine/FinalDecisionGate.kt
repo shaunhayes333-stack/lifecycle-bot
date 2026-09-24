@@ -902,9 +902,41 @@ object FinalDecisionGate {
         } catch (_: Throwable) { null }
         val canonicalFloor7266 = floor7266?.floor ?: 30.0
         val waitFloor7266 = floor7266?.waitFloor ?: 55.0
-        val belowCanonicalFloor7243 = canonicalV3Score7243 < canonicalFloor7266
+        // V5.0.7292 §A SPECIALIST IS JUDGED ON ITS OWN SCORE.
+        //
+        // Operator: "there's lanes and traders, specialist traders that have
+        // never traded". 5.0.7289: BLUECHIP ownerSelected=173 fdg=0, QUALITY 78/0,
+        // MOONSHOT 88/0; CANONICAL_V3_SCORE_FLOOR_7243=626 on lines like
+        // "sym=JAAA lane=BLUECHIP baseSignal=WAIT entryScore=0.0 laneScore=80.0
+        // canonicalScore=-16.0". The floor reads the generic V3 meme scorer,
+        // which scores an established token -16..-22 on liquidity-exit and time
+        // terms, so a specialist built to trade exactly those tokens can never
+        // clear it and never produces a close to learn from.
+        //
+        // A specialist lane's own score now stands in for V3 when it clears the
+        // lane's own fluid floor — always in PAPER (paper learns everything),
+        // and in LIVE only once that lane's journal (OracleTradeHistory7287,
+        // paper + live closes) shows ≥20 closes with positive mean net return.
+        // The floors themselves, hard safety and every later gate are unchanged;
+        // trunk callers with no specialist lane are unchanged.
+        val laneOwnScoreAdmitted7292 = specialistLane != null &&
+            laneEvidenceScore7243 >= canonicalFloor7266 &&
+            laneEvidenceScore7243 > canonicalV3Score7243 &&
+            (config.paperMode || try {
+                val st = com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane(floorLane7266)
+                    ?: com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane(floorLane7266.replace("_", ""))
+                st != null && st.n >= 20 && st.meanNetPct > 0.0
+            } catch (_: Throwable) { false })
+        val effectiveEntryScore7292 = if (laneOwnScoreAdmitted7292) laneEvidenceScore7243 else canonicalV3Score7243
+        if (laneOwnScoreAdmitted7292 && canonicalV3Score7243 < canonicalFloor7266) {
+            try {
+                PipelineHealthCollector.labelInc("FDG_SPECIALIST_OWN_SCORE_ADMITTED_7292")
+                PipelineHealthCollector.labelInc("FDG_SPECIALIST_OWN_SCORE_ADMITTED_7292_$floorLane7266")
+            } catch (_: Throwable) {}
+        }
+        val belowCanonicalFloor7243 = effectiveEntryScore7292 < canonicalFloor7266
         val weakWaitPromotion7243 =
-            baseEntrySignal7243 !in setOf("BUY", "EXECUTE") && canonicalV3Score7243 < waitFloor7266
+            baseEntrySignal7243 !in setOf("BUY", "EXECUTE") && effectiveEntryScore7292 < waitFloor7266
         if (belowCanonicalFloor7243 || weakWaitPromotion7243) {
             val reason7243 = if (belowCanonicalFloor7243) {
                 "CANONICAL_V3_SCORE_FLOOR_7243"

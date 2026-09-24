@@ -3839,14 +3839,28 @@ for legal compliance.
                 // growth, so it must be measured against canonical total
                 // equity, not the treasury sub-account. If canonical is
                 // unavailable, fall back to the legacy counter.
+                //
+                // V5.0.7292 — operator: "one moment it's 5k the next it's $30".
+                // Whenever the unified snapshot was momentarily not RECONCILED
+                // (mid-reconcile, every few seconds) this fell back to the legacy
+                // TreasuryManager.treasurySol sub-account (~0.25 SOL), then back
+                // to equity (~40 SOL) on the next repaint. Paper never shows the
+                // sub-account now: the last reconciled equity holds until the
+                // next reconciled read, and before the first one the capital
+                // authority's own equity is used.
                 val canonicalPaperEquitySol6596 = try {
                     val snap = com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.read("TREASURY_TIER")
                     if (snap.status == com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED) snap.equitySol else 0.0
                 } catch (_: Throwable) { 0.0 }
-                trs = if (canonicalPaperEquitySol6596 > 0.0) canonicalPaperEquitySol6596
-                      else com.lifecyclebot.engine.TreasuryManager.treasurySol
-                trsUsd = if (canonicalPaperEquitySol6596 > 0.0) trs * solPrice
-                         else if (ws.treasuryUsd > 0) ws.treasuryUsd else trs * solPrice
+                if (canonicalPaperEquitySol6596 > 0.0) lastReconciledTreasuryEquitySol7292 = canonicalPaperEquitySol6596
+                trs = when {
+                    canonicalPaperEquitySol6596 > 0.0 -> canonicalPaperEquitySol6596
+                    lastReconciledTreasuryEquitySol7292 > 0.0 -> lastReconciledTreasuryEquitySol7292
+                    else -> try {
+                        com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.snapshot().totalEquitySol.coerceAtLeast(0.0)
+                    } catch (_: Throwable) { 0.0 }
+                }
+                trsUsd = trs * solPrice
             } else {
                 // V5.0.6687 — live Treasury tile must use the same capped on-chain
                 // authority as sizing/WalletActivity, never the persisted raw ledger.
@@ -13445,6 +13459,8 @@ ${if (insightsText.isNotEmpty()) insightsText else "No insights yet. Keep tradin
     /**
      * V5.7.3: Show Network Signal Auto-Buyer dialog
      */
+    @Volatile private var lastReconciledTreasuryEquitySol7292 = 0.0
+
     private fun showNetworkSignalAutoBuyerDialog() {
         val autoBuyer = com.lifecyclebot.perps.NetworkSignalAutoBuyer
         val stats = autoBuyer.getStats()
