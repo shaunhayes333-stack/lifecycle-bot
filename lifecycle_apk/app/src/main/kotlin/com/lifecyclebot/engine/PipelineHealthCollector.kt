@@ -2140,6 +2140,18 @@ object PipelineHealthCollector {
                     "CRYPTO_PAPER_ENTRY_BASIS_MOVED_FROM_SCAN_7275",
                     "CRYPTO_PAPER_ENTRY_BASIS_UNOBSERVED_7275",
                     "CRYPTO_PAPER_ENTRY_BASIS_CONTESTED_7275",
+                    // V5.0.7276 — the allow latch, the loss-band cap on floor
+                    // raises, asymmetric-lane edge reads, and the council's
+                    // new members and per-model rotation.
+                    "CANDIDATE_VERSION_LATCHED_TO_FDG_ALLOW_7276",
+                    "CANONICAL_FLOOR_RAISE_CAPPED_AT_LOSS_BAND_7276",
+                    "EXPECTED_EDGE_ASYMMETRIC_LANE_READ_7276",
+                    "LLM_RATE_LIMIT_ROTATED_NOT_BENCHED_7276",
+                    "LLM_GENERIC_CATALOGUE_7276",
+                    "LLM_GENERIC_CATALOGUE_UNREAD_7276",
+                    "LLM_GENERIC_MODEL_ROTATED_7276",
+                    "LLM_EXTRA_ENDPOINTS_CONFIGURED_7276",
+                    "LLM_GEMINI_MODEL_ROTATED_7276",
                     "CRYPTO_DYN_MARK_STALE_OR_MISSING_6654",
                     "CRYPTO_HELD_MARK_REFRESH_COALESCED_7251",
                     "SOL_MARK_RESCUE_7167",

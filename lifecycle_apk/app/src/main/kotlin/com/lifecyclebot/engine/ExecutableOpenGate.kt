@@ -82,7 +82,22 @@ object ExecutableOpenGate {
         val entryScore: Int = -1,  // V5.9.1373 — for SHADOW_TRAIN_ONLY bucket lookup
         val candidateVersion: Long = 0L,
         val updatedAtMs: Long = System.currentTimeMillis(),
+        // V5.0.7276 — when this candidate version was first FDG-allowed; 0 when
+        // it is not allowed. Read by LaneExecutionCoordinator.candidateVersionFor
+        // so the wall-clock bucket cannot supersede an allow nobody re-evaluated.
+        val fdgAllowedAtMs7276: Long = 0L,
     )
+
+    /**
+     * V5.0.7276 — the candidate version of this mint's FDG-allowed provisional
+     * state, when that allow is younger than [maxAgeMs]. Null otherwise.
+     */
+    fun allowedCandidateVersionWithin7276(mint: String, maxAgeMs: Long, nowMs: Long = System.currentTimeMillis()): Long? {
+        val s = states[mint] ?: return null
+        if (s.fdgCan != true || s.candidateVersion <= 0L || s.fdgAllowedAtMs7276 <= 0L) return null
+        val age = nowMs - s.fdgAllowedAtMs7276
+        return if (age in 0L..maxAgeMs) s.candidateVersion else null
+    }
 
     /** V5.0.6519 — immutable execution authority created at FDG allow. */
     data class ExecutionIntent(
@@ -1704,6 +1719,14 @@ object ExecutableOpenGate {
                 preFdgVerdict = effectiveVerdict,
                 hardNoReasons = if (keepOld) (old?.hardNoReasons ?: finalHardNo) else finalHardNo,
                 candidateVersion = if (keepOld) old?.candidateVersion ?: candidateVersion else candidateVersion,
+                // V5.0.7276 — first allow time for this version; kept across
+                // same-version re-records, reset when the version changes or the
+                // verdict stops being an allow.
+                fdgAllowedAtMs7276 = when {
+                    effectiveCan != true -> 0L
+                    sameVersion && old?.fdgCan == true && (old.fdgAllowedAtMs7276) > 0L -> old.fdgAllowedAtMs7276
+                    else -> System.currentTimeMillis()
+                },
                 entryScore = if (entryScore >= 0) entryScore else old?.entryScore ?: -1,
                 liquidityUsd = if (liquidityUsd > 0.0) liquidityUsd else old?.liquidityUsd ?: 0.0,
                 tokenMapRouteStatus = tokenMapRouteStatus.ifBlank { old?.tokenMapRouteStatus ?: "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP" },

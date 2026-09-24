@@ -33,7 +33,14 @@ object LiveBreakEvenGuard {
             val m = StrategyTelemetry.computeLiveTerminalLeaderboard().firstOrNull { it.strategy.equals(canon, true) }
             // StrategyTelemetry is useful context but may include partial/paper-heavy
             // rows. Cap its authority so it cannot override live terminal bleed.
-            if (m != null && m.trades >= 8 && m.totalSolPnl > 0.0 && m.winRatePct >= 45.0)
+            // V5.0.7276 — a lane that is net positive in SOL with a positive mean
+            // has edge whether or not it wins 45% of the time; the asymmetric
+            // runner lanes this stack exists for win 25–35% and pay for it with
+            // +60% average winners. The 45% bar stays as the high-confidence
+            // branch; a low-WR lane that is net positive by both measures is
+            // read at its mean instead of at zero.
+            if (m != null && m.trades >= 8 && m.totalSolPnl > 0.0 &&
+                (m.winRatePct >= 45.0 || m.meanPnlPct > 0.0))
                 maxOf(m.pfExpectancyPp, m.meanPnlPct, m.avgWinPct * (m.winRatePct / 100.0)).coerceAtMost(60.0)
             else 0.0
         } catch (_: Throwable) { 0.0 }
@@ -84,7 +91,18 @@ object LiveBreakEvenGuard {
         val wr = wins * 100.0 / rows.size
         val mean = rows.map { it.pnlPct }.average().takeIf { it.isFinite() } ?: 0.0
         val net = rows.sumOf { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }
-        return if (wr >= minWr && net > minNetSol) maxOf(mean, wr * 0.8).coerceIn(0.0, cap) else 0.0
+        return when {
+            wr >= minWr && net > minNetSol -> maxOf(mean, wr * 0.8).coerceIn(0.0, cap)
+            // V5.0.7276 — asymmetric edge: net positive in SOL and positive mean
+            // at a win rate under the bar is still realised edge. Read at the
+            // mean only (no WR-derived uplift), so a low-WR lane earns exactly
+            // what its closes measured and nothing more.
+            net > minNetSol && mean > 0.0 -> {
+                try { PipelineHealthCollector.labelInc("EXPECTED_EDGE_ASYMMETRIC_LANE_READ_7276") } catch (_: Throwable) {}
+                mean.coerceIn(0.0, cap)
+            }
+            else -> 0.0
+        }
     }
 
     fun requiredEdgePct(ts: TokenState, lane: String, style: String, buySlippageBps: Int, sizeSol: Double, score: Double): Double {

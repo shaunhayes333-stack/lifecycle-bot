@@ -104,6 +104,26 @@ object CanonicalEntryFloor7266 {
     } catch (_: Throwable) { null }
 
     /**
+     * V5.0.7276 — the top of the highest 10-point bucket this lane has proven
+     * it loses in: LEARNED_MIN_SAMPLES closes and a non-positive mean. Null
+     * when no bucket has that much losing evidence.
+     */
+    private fun lossBandCeiling(lane: String): Double? = try {
+        var ceiling: Double? = null
+        var bucket = 0
+        while (bucket <= 9) {
+            val score = bucket * 10
+            val n = ScoreExpectancyTracker.bucketSamples(lane, score)
+            if (n >= LEARNED_MIN_SAMPLES) {
+                val mean = ScoreExpectancyTracker.bucketMean(lane, score)
+                if (mean != null && mean.isFinite() && mean <= 0.0) ceiling = (score + 10).toDouble()
+            }
+            bucket++
+        }
+        ceiling
+    } catch (_: Throwable) { null }
+
+    /**
      * V5.0.7267 — the learned floor alone, for lane scorers whose own minimum
      * score should follow the same evidence (MoonshotTraderAI). Null when the
      * lane has no 10-point bucket with enough profitable closes yet.
@@ -125,7 +145,31 @@ object CanonicalEntryFloor7266 {
             (closes.toDouble() + LaneExpectancyDamper.MATURE_EVIDENCE_CLOSES_7265.toDouble())).coerceIn(0.0, 1.0)
         val regimeDelta = try { RegimeDetector.scoreFloorDelta().toDouble() } catch (_: Throwable) { 0.0 }
         val damperDelta = try { LaneExpectancyDamper.admissionScoreFloorDelta(lane) } catch (_: Throwable) { 0.0 }
-        val floor = (bootstrap + (target - bootstrap) * maturity + regimeDelta + damperDelta)
+        val base7276 = bootstrap + (target - bootstrap) * maturity
+        val raise7276 = (regimeDelta + damperDelta).coerceAtLeast(0.0)
+        // V5.0.7276 §A FLOOR IS RAISED TO THE BAND THAT LOST, NOT PAST IT.
+        //
+        // 5.0.7273: QUALITY read 37 — base 26, own-tightened regime +3, damper
+        // +8 — and blocked 1,572 candidates. The losses that earned those
+        // deltas sat at S0-10 (PROJECT_SNIPER 27L/3W, QUALITY 12L/4W, MOONSHOT
+        // 9L/1W), which is already under the governor's own minimum; the only
+        // positive band QUALITY had (S11-25, μ +23.6%) was the one the raise
+        // removed. A deficit earned at a score band is evidence about that
+        // band. The regime and damper raises are therefore capped at the top
+        // of the highest 10-point bucket the lane has actually lost in
+        // (LEARNED_MIN_SAMPLES closes, non-positive mean — the same tracker and
+        // the same sample bar that lowers the target). A lane with no proven
+        // losing bucket is raised exactly as before; a lane that has lost at
+        // 30–39 is still raised to 40. Lowering is untouched.
+        val lossBandCeiling7276 = lossBandCeiling(lane)
+        val cappedRaise7276 = if (lossBandCeiling7276 != null && base7276 + raise7276 > maxOf(base7276, lossBandCeiling7276)) {
+            (maxOf(base7276, lossBandCeiling7276) - base7276).coerceAtLeast(0.0)
+        } else raise7276
+        if (cappedRaise7276 < raise7276) {
+            try { PipelineHealthCollector.labelInc("CANONICAL_FLOOR_RAISE_CAPPED_AT_LOSS_BAND_7276") } catch (_: Throwable) {}
+        }
+        val negativeDelta7276 = (regimeDelta + damperDelta).coerceAtMost(0.0)
+        val floor = (base7276 + cappedRaise7276 + negativeDelta7276)
             .coerceIn(FLOOR_MIN, FLOOR_MAX)
         val r = Resolution(
             lane = lane, floor = floor, waitFloor = floor + WAIT_PROMOTION_MARGIN_7243,

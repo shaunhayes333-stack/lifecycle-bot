@@ -159,7 +159,31 @@ object LaneExecutionCoordinator {
         val sealed = try {
             ExecutionDecisionSnapshot6510.latestExecutableForMint7251(mint, mode, TTL_MS)
         } catch (_: Throwable) { null }
-        return sealed?.candidateVersion ?: (System.currentTimeMillis() / TTL_MS)
+        if (sealed != null) return sealed.candidateVersion
+        // V5.0.7276 §THE CLOCK IS NOT A NEWER CANDIDATE.
+        //
+        // 7251 keeps a SEALED executable generation stable across a wall-clock
+        // bucket boundary. An FDG allow that had not yet been sealed had no
+        // such protection: the allow was recorded under bucket N, the bucket
+        // rolled to N+1 before the gate ran, `currentCandidateVersion` read
+        // N+1, and the gate — correctly, by 7220's rule — refused to honour
+        // an allow for "a superseded candidate". Nobody had superseded it. On
+        // 5.0.7274: FDG_ALLOW_STATE_SUPERSEDED_BY_NEWER_CANDIDATE_7220=114
+        // against EXEC_GATE allow=57, the largest post-FDG loss in the run.
+        //
+        // An allowed provisional state younger than the same TTL keeps its
+        // version, so the seal that follows lands under the version the gate
+        // will ask for. After TTL_MS the bucket advances as before and the
+        // next evaluation is fresh; a verdict that stops being an allow drops
+        // the latch at once (fdgAllowedAtMs7276 resets to 0).
+        val allowed7276 = try {
+            ExecutableOpenGate.allowedCandidateVersionWithin7276(mint, TTL_MS)
+        } catch (_: Throwable) { null }
+        if (allowed7276 != null) {
+            try { PipelineHealthCollector.labelInc("CANDIDATE_VERSION_LATCHED_TO_FDG_ALLOW_7276") } catch (_: Throwable) {}
+            return allowed7276
+        }
+        return System.currentTimeMillis() / TTL_MS
     }
 
     fun elect(

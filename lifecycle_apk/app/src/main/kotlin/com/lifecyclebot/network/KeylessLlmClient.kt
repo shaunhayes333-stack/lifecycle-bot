@@ -410,6 +410,12 @@ object KeylessLlmClient {
         val (ms, why) = when {
             terminal -> PENALTY_TERMINAL_MS_7150 to "TERMINAL"
             quota -> PENALTY_QUOTA_MS_7150 to "QUOTA"
+            // V5.0.7276 — a per-model rate limit on a laddered provider is
+            // answered by the caller's model rotation; the host stays eligible.
+            code == 429 && host in LADDERED_HOSTS_7276 -> {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_RATE_LIMIT_ROTATED_NOT_BENCHED_7276") } catch (_: Throwable) {}
+                return
+            }
             code == 429 -> PENALTY_RATE_MS_7150 to "RATE"
             else -> return
         }
@@ -448,6 +454,22 @@ object KeylessLlmClient {
     @Volatile private var operatorOpenRouterKey: String = ""
     @Volatile private var operatorAnthropicKey: String = ""
     @Volatile private var operatorGeminiKey: String = ""
+    // V5.0.7276 — two keys the app has shipped since 6073 and never handed to
+    // this council, plus the operator's own OpenAI-compatible endpoints.
+    @Volatile private var operatorCerebrasKey: String = ""
+    @Volatile private var operatorMistralKey: String = ""
+    @Volatile private var operatorExtraEndpoints7276: String = ""
+
+    /**
+     * V5.0.7276 — providers whose rate limits are per MODEL and who carry a
+     * model ladder. A 429 from one of them is answered by rotating the ladder,
+     * not by benching the whole provider for a minute: on Groq's paid tier
+     * every model has its own budget, and benching the host on one model's
+     * limit threw away the budgets of all the others.
+     */
+    private val LADDERED_HOSTS_7276 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>().apply {
+        add("llm_groq"); add("llm_openrouter"); add("llm_gemini_7136"); add("llm_cerebras"); add("llm_mistral")
+    }
 
     fun setOperatorKeys(
         groq: String = "",
@@ -466,11 +488,18 @@ object KeylessLlmClient {
         // test had passed. A key the operator entered, saved, and could see in
         // Settings was therefore guaranteed never to be used by this class.
         gemini: String = "",
+        // V5.0.7276 — see the field block above.
+        cerebras: String = "",
+        mistral: String = "",
+        extraEndpoints: String = "",
     ) {
         operatorGroqKey = groq.trim()
         operatorOpenRouterKey = openRouter.trim()
         operatorAnthropicKey = anthropic.trim()
         operatorGeminiKey = gemini.trim()
+        operatorCerebrasKey = cerebras.trim()
+        operatorMistralKey = mistral.trim()
+        operatorExtraEndpoints7276 = extraEndpoints.trim()
     }
 
     /**
@@ -591,7 +620,10 @@ object KeylessLlmClient {
             // A provider serving a classified penalty (spent budget, retired
             // model, rejected key, exhausted daily quota) is not asked. It
             // answered already, in words, and that will not change this minute.
-            if (penalised7150(p.name, now)) { cooling++; continue }
+            // V5.0.7276 — penalties are recorded under the HEALTH HOST (what
+            // okOrThrow sees); the ring was checking the member NAME, so a
+            // classified TERMINAL/QUOTA bench never actually benched anyone.
+            if (penalised7150(p.name, now) || penalised7150(p.healthHost, now)) { cooling++; continue }
             if ((cooldownUntil[p.name] ?: 0L) > now) { cooling++; continue }
             eligible7151.add(p)
         }
@@ -774,7 +806,10 @@ object KeylessLlmClient {
             // exec(), so each racer sets it on its OWN thread and clears it in
             // a finally — the waiver travels with the request, not with the
             // caller.
-            val sweep7151 = ordered7145.filter { !penalised7150(it.name, System.currentTimeMillis()) }
+            val sweep7151 = ordered7145.filter {
+                val t7276 = System.currentTimeMillis()
+                !penalised7150(it.name, t7276) && !penalised7150(it.healthHost, t7276)
+            }
             if (sweep7151.isNotEmpty()) {
                 val ecs2 = java.util.concurrent.ExecutorCompletionService<Pair<String, Any?>>(councilPool7151)
                 val futures2 = ArrayList<java.util.concurrent.Future<Pair<String, Any?>>>(sweep7151.size)
@@ -905,6 +940,27 @@ object KeylessLlmClient {
         if (operatorGeminiKey.isNotBlank()) {
             list.add(Provider("gemini", "llm_gemini_7136") { s, u, m -> callGemini7136(s, u, m) })
         }
+        // V5.0.7276 — Cerebras (free tier: ~1M tokens/day, 30 RPM) and Mistral
+        // (free experiment tier: ~1B tokens/month) have shipped keys in
+        // DefaultKeys since 6073 and were only ever called by GeminiCopilot's
+        // own council, where their failures were counted and never explained.
+        // Here they get catalogue discovery, model rotation, a health row each
+        // and the same penalty discipline as every other member.
+        if (operatorCerebrasKey.isNotBlank()) {
+            list.add(Provider("cerebras", "llm_cerebras") { s, u, m -> cerebrasMember7276.call(s, u, m) })
+        }
+        if (operatorMistralKey.isNotBlank()) {
+            list.add(Provider("mistral", "llm_mistral") { s, u, m -> mistralMember7276.call(s, u, m) })
+        }
+        // V5.0.7276 — operator-added OpenAI-compatible endpoints. One line each:
+        //   name|https://host/v1|apiKey      (key blank = keyless surface)
+        // SambaNova, NVIDIA NIM, Together, Hugging Face router, GitHub Models,
+        // Cloudflare Workers AI, DeepInfra, Fireworks, Scaleway and any
+        // self-hosted vLLM/Ollama gateway all speak this surface. Each gets its
+        // own health row (llm_x_<name>), its own catalogue and its own ladder.
+        for (member in extraMembers7276()) {
+            list.add(Provider(member.name, member.healthHost) { s, u, m -> member.call(s, u, m) })
+        }
         // Emergent last-priority but ALWAYS present so we never return null
         // purely because no operator key was set.
         if (emergentKey.isNotBlank()) {
@@ -993,6 +1049,169 @@ object KeylessLlmClient {
         return line
     }
 
+    // ── V5.0.7276 — generic OpenAI-compatible council member ───────────────
+    //
+    // Every provider the operator is likely to add (and the two shipped keys
+    // that were never wired here) speaks the same surface: POST
+    // /chat/completions, GET /models. One member class, parameterised by base
+    // URL and key, with the discipline the Groq and OpenRouter members earned
+    // the hard way: ask the catalogue instead of pinning a model id, rotate
+    // the ladder on a model-level refusal (429/404/400), stay on the model
+    // that answered, and report under a health host of its own so the next
+    // snapshot can say whether it ran.
+    private class OpenAiCompatMember7276(
+        val name: String,
+        val healthHost: String,
+        baseUrl: String,
+        private val keyProvider: () -> String,
+        private val seedModels: List<String>,
+    ) {
+        private val base = baseUrl.trimEnd('/')
+        private val chatUrl = "$base/chat/completions"
+        private val modelsUrl = "$base/models"
+        @Volatile private var catalogue: List<String> = emptyList()
+        @Volatile private var catalogueAtMs: Long = 0L
+        @Volatile private var modelIdx: Int = 0
+        private val nonChatMarkers = listOf(
+            "whisper", "tts", "embed", "moderation", "guard", "rerank", "ocr", "vision-only", "audio", "transcri",
+        )
+
+        private fun models(): List<String> {
+            val now = System.currentTimeMillis()
+            val cached = catalogue
+            if (cached.isNotEmpty() && now - catalogueAtMs < GENERIC_CATALOGUE_TTL_MS_7276) return cached
+            if (now - catalogueAtMs < 60_000L) return cached.ifEmpty { seedModels }
+            catalogueAtMs = now
+            val fetched = try {
+                val b = Request.Builder().url(modelsUrl).header("Accept", "application/json")
+                val k = keyProvider()
+                if (k.isNotBlank()) b.header("Authorization", "Bearer $k")
+                exec(b.get().build(), "${healthHost}_models").use { resp ->
+                    if (!resp.isSuccessful) null else {
+                        val arr = JSONObject(resp.body?.string() ?: "{}").optJSONArray("data")
+                        val ids = LinkedHashSet<String>()
+                        for (i in 0 until (arr?.length() ?: 0)) {
+                            val id = arr?.optJSONObject(i)?.optString("id", "")?.trim().orEmpty()
+                            if (id.isBlank()) continue
+                            val lower = id.lowercase()
+                            if (nonChatMarkers.any { lower.contains(it) }) continue
+                            ids.add(id)
+                        }
+                        if (ids.isEmpty()) null else {
+                            val ordered = ArrayList<String>(ids.size)
+                            seedModels.forEach { if (it in ids) ordered.add(it) }
+                            ids.forEach { if (it !in ordered) ordered.add(it) }
+                            ordered
+                        }
+                    }
+                }
+            } catch (_: Throwable) { null }
+            return if (fetched != null) {
+                catalogue = fetched
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_GENERIC_CATALOGUE_7276")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "LLM_GENERIC_CATALOGUE_7276",
+                        "member=$name chatModels=${fetched.size} head=${fetched.take(4).joinToString(",")}",
+                    )
+                } catch (_: Throwable) {}
+                fetched
+            } else {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_GENERIC_CATALOGUE_UNREAD_7276") } catch (_: Throwable) {}
+                cached.ifEmpty { seedModels }
+            }
+        }
+
+        fun call(system: String, user: String, maxTokens: Int): String? {
+            val ladder = models()
+            if (ladder.isEmpty()) return null
+            val idx = modelIdx.coerceIn(0, ladder.size - 1)
+            val model = ladder[idx]
+            val payload = JSONObject().apply {
+                put("model", model)
+                put("max_tokens", maxTokens)
+                put("temperature", 0.2)
+                put("messages", JSONArray()
+                    .put(JSONObject().put("role", "system").put("content", system))
+                    .put(JSONObject().put("role", "user").put("content", user)))
+            }
+            val b = Request.Builder().url(chatUrl)
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .post(payload.toString().toRequestBody("application/json".toMediaType()))
+            val k = keyProvider()
+            if (k.isNotBlank()) b.header("Authorization", "Bearer $k")
+            exec(b.build(), healthHost).use { resp ->
+                if (!okOrThrow(resp, healthHost)) {
+                    if (resp.code == 429 || resp.code == 404 || resp.code == 400) {
+                        if (resp.code == 404 && ladder.size > 1) catalogue = ladder.filterNot { it == model }
+                        val next = models()
+                        modelIdx = if (next.isEmpty()) 0 else (idx + 1) % next.size
+                        try {
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_GENERIC_MODEL_ROTATED_7276")
+                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                "LLM_GENERIC_MODEL_ROTATED_7276",
+                                "member=$name from=$model to=${next.getOrNull(modelIdx) ?: "none"} http=${resp.code} ladder=${next.size}",
+                            )
+                        } catch (_: Throwable) {}
+                    }
+                    return null
+                }
+                val body = resp.body?.string()?.trim()?.ifBlank { null } ?: return null
+                if (!body.startsWith("{")) return asCompletionOrNull7136(body, name)
+                val out = JSONObject(body).optJSONArray("choices")?.optJSONObject(0)
+                    ?.optJSONObject("message")?.optString("content", "")?.trim()?.ifBlank { null }
+                if (out != null && modelIdx != idx) modelIdx = idx
+                return asCompletionOrNull7136(out, name)
+            }
+        }
+    }
+
+    private const val GENERIC_CATALOGUE_TTL_MS_7276 = 6L * 60 * 60 * 1000
+
+    private val cerebrasMember7276 by lazy {
+        OpenAiCompatMember7276(
+            name = "cerebras", healthHost = "llm_cerebras", baseUrl = "https://api.cerebras.ai/v1",
+            keyProvider = { operatorCerebrasKey },
+            seedModels = listOf("llama-3.3-70b", "gpt-oss-120b", "qwen-3-32b", "llama3.1-8b"),
+        )
+    }
+    private val mistralMember7276 by lazy {
+        OpenAiCompatMember7276(
+            name = "mistral", healthHost = "llm_mistral", baseUrl = "https://api.mistral.ai/v1",
+            keyProvider = { operatorMistralKey },
+            seedModels = listOf("mistral-small-latest", "open-mistral-nemo", "mistral-medium-latest", "ministral-8b-latest"),
+        )
+    }
+
+    /** V5.0.7276 — parsed once per distinct settings string; members keep their ladders across calls. */
+    @Volatile private var extraMembersSource7276: String = "\u0000"
+    @Volatile private var extraMembersCache7276: List<OpenAiCompatMember7276> = emptyList()
+    private fun extraMembers7276(): List<OpenAiCompatMember7276> {
+        val src = operatorExtraEndpoints7276
+        if (src == extraMembersSource7276) return extraMembersCache7276
+        val out = ArrayList<OpenAiCompatMember7276>()
+        for (raw in src.split('\n', ';')) {
+            val parts = raw.trim().split('|').map { it.trim() }
+            if (parts.size < 2) continue
+            val name = parts[0].lowercase().replace(Regex("[^a-z0-9_]+"), "_").trim('_').take(24)
+            val url = parts[1]
+            if (name.isBlank() || !url.startsWith("https://")) continue
+            val key = parts.getOrNull(2).orEmpty()
+            out.add(OpenAiCompatMember7276(
+                name = "x_$name", healthHost = "llm_x_$name", baseUrl = url,
+                keyProvider = { key }, seedModels = emptyList(),
+            ))
+            LADDERED_HOSTS_7276.add("llm_x_$name")
+        }
+        extraMembersCache7276 = out
+        extraMembersSource7276 = src
+        if (out.isNotEmpty()) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_EXTRA_ENDPOINTS_CONFIGURED_7276") } catch (_: Throwable) {}
+        }
+        return out
+    }
+
     // ── Pollinations (GENUINELY keyless — no account, no signup) ───────────
     //
     // OpenAI-compatible POST surface. Free and unauthenticated by design.
@@ -1056,9 +1275,20 @@ object KeylessLlmClient {
      * works on every v1beta model, and a council member that fails on an
      * envelope detail is worth less than one that answers.
      */
+    // V5.0.7276 — Google's free tier meters requests per day PER MODEL. One
+    // pinned id (gemini-2.5-flash) meant one daily budget; the operator's key
+    // sat on QUOTA for the whole 7274 run. The ladder rotates on 429/404 the
+    // way the Groq member does, so four models are four budgets.
+    private val GEMINI_MODEL_LADDER_7276 = listOf(
+        "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-2.0-flash-lite",
+    )
+    @Volatile private var geminiModelIdx7276: Int = 0
+
     private fun callGemini7136(system: String, user: String, maxTokens: Int): String? {
         val key = operatorGeminiKey
         if (key.isBlank()) return null
+        val geminiIdx7276 = geminiModelIdx7276.coerceIn(0, GEMINI_MODEL_LADDER_7276.size - 1)
+        val geminiModel7276 = GEMINI_MODEL_LADDER_7276[geminiIdx7276]
         val prompt = if (system.isBlank()) user else "$system\n\n$user"
         val payload = JSONObject().apply {
             put("contents", JSONArray().put(
@@ -1071,12 +1301,25 @@ object KeylessLlmClient {
                 .put("temperature", 0.2))
         }
         val req = Request.Builder()
-            .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$key")
+            .url("https://generativelanguage.googleapis.com/v1beta/models/$geminiModel7276:generateContent?key=$key")
             .header("Content-Type", "application/json")
             .post(payload.toString().toRequestBody("application/json".toMediaType()))
             .build()
         exec(req, "llm_gemini_7136").use { resp ->
-            if (!okOrThrow(resp, "llm_gemini_7136")) return null
+            if (!okOrThrow(resp, "llm_gemini_7136")) {
+                if (resp.code == 429 || resp.code == 404) {
+                    geminiModelIdx7276 = (geminiIdx7276 + 1) % GEMINI_MODEL_LADDER_7276.size
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_GEMINI_MODEL_ROTATED_7276")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "LLM_GEMINI_MODEL_ROTATED_7276",
+                            "from=$geminiModel7276 to=${GEMINI_MODEL_LADDER_7276[geminiModelIdx7276]} http=${resp.code}",
+                        )
+                    } catch (_: Throwable) {}
+                }
+                return null
+            }
+            if (geminiModelIdx7276 != geminiIdx7276) geminiModelIdx7276 = geminiIdx7276
             val body = resp.body?.string()?.trim()?.ifBlank { null } ?: return null
             if (!body.startsWith("{")) return asCompletionOrNull7136(body, "gemini")
             val text = JSONObject(body)

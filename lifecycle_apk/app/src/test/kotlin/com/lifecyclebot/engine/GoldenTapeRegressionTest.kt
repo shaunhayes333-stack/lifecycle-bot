@@ -10215,4 +10215,63 @@ class GoldenTapeRegressionTest {
         assertTrue(phc.contains("\"CRYPTO_PAPER_ENTRY_BASIS_UNOBSERVED_7275\","))
     }
 
+    /** V5.0.7276 — an FDG allow keeps its candidate version for the sealing TTL
+     * (the clock is not a newer candidate); regime/damper raises on the canonical
+     * floor are capped at the top of the highest proven-losing score band; a
+     * net-positive low-WR lane reads its mean as edge instead of zero; the
+     * council gains Cerebras, Mistral, operator endpoints, a Gemini ladder and
+     * stops benching a laddered provider for one model's 429. */
+    @Test
+    fun V5_0_7276_allow_latch_loss_band_cap_asymmetric_edge_and_council_members() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val coord = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneExecutionCoordinator.kt").readText()
+        val floor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEntryFloor7266.kt").readText()
+        val edge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveBreakEvenGuard.kt").readText()
+        val llm = java.io.File("src/main/kotlin/com/lifecyclebot/network/KeylessLlmClient.kt").readText()
+        val cfg = java.io.File("src/main/kotlin/com/lifecyclebot/data/BotConfig.kt").readText()
+        val svc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val vm = java.io.File("src/main/kotlin/com/lifecyclebot/ui/BotViewModel.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        // Allow latch: field, first-allow stamping, accessor, coordinator order sealed → allowed → wall clock.
+        assertTrue(gate.contains("val fdgAllowedAtMs7276: Long = 0L,"))
+        assertTrue(gate.contains("fun allowedCandidateVersionWithin7276(mint: String, maxAgeMs: Long, nowMs: Long = System.currentTimeMillis()): Long? {"))
+        assertTrue(gate.contains("effectiveCan != true -> 0L"))
+        assertTrue(coord.contains("if (sealed != null) return sealed.candidateVersion"))
+        assertTrue(coord.contains("ExecutableOpenGate.allowedCandidateVersionWithin7276(mint, TTL_MS)"))
+        val sealedIdx = coord.indexOf("if (sealed != null) return sealed.candidateVersion")
+        val latchIdx = coord.indexOf("allowedCandidateVersionWithin7276(mint, TTL_MS)")
+        val clockIdx = coord.indexOf("return System.currentTimeMillis() / TTL_MS")
+        assertTrue(sealedIdx > 0 && latchIdx > sealedIdx && clockIdx > latchIdx)
+
+        // Floor: raise capped at the loss band, lowering untouched, same sample bar as the learned floor.
+        assertTrue(floor.contains("private fun lossBandCeiling(lane: String): Double? = try {"))
+        assertTrue(floor.contains("if (mean != null && mean.isFinite() && mean <= 0.0) ceiling = (score + 10).toDouble()"))
+        assertTrue(floor.contains("val raise7276 = (regimeDelta + damperDelta).coerceAtLeast(0.0)"))
+        assertTrue(floor.contains("val negativeDelta7276 = (regimeDelta + damperDelta).coerceAtMost(0.0)"))
+        assertTrue(floor.contains("CANONICAL_FLOOR_RAISE_CAPPED_AT_LOSS_BAND_7276"))
+
+        // Edge forecast: asymmetric lanes read at the mean; the 45% branch is unchanged.
+        assertTrue(edge.contains("wr >= minWr && net > minNetSol -> maxOf(mean, wr * 0.8).coerceIn(0.0, cap)"))
+        assertTrue(edge.contains("net > minNetSol && mean > 0.0 -> {"))
+        assertTrue(edge.contains("(m.winRatePct >= 45.0 || m.meanPnlPct > 0.0))"))
+
+        // Council: new members, generic member, penalties keyed by health host, laddered 429 not benched, Gemini ladder.
+        assertTrue(llm.contains("private class OpenAiCompatMember7276("))
+        assertTrue(llm.contains("Provider(\"cerebras\", \"llm_cerebras\")"))
+        assertTrue(llm.contains("Provider(\"mistral\", \"llm_mistral\")"))
+        assertTrue(llm.contains("for (member in extraMembers7276()) {"))
+        assertTrue(llm.contains("if (penalised7150(p.name, now) || penalised7150(p.healthHost, now)) { cooling++; continue }"))
+        assertTrue(llm.contains("code == 429 && host in LADDERED_HOSTS_7276 -> {"))
+        assertTrue(llm.contains("private val GEMINI_MODEL_LADDER_7276 = listOf("))
+        assertTrue(llm.contains("models/\$geminiModel7276:generateContent?key=\$key"))
+        assertTrue(cfg.contains("val llmExtraEndpoints: String = \"\","))
+        assertTrue(cfg.contains("putString(\"llm_extra_endpoints\", cfg.llmExtraEndpoints)"))
+        assertTrue(svc.contains("cerebras   = cfg.cerebrasApiKey.trim(),"))
+        assertTrue(vm.contains("extraEndpoints = cfg.llmExtraEndpoints,"))
+
+        assertTrue(phc.contains("\"CANDIDATE_VERSION_LATCHED_TO_FDG_ALLOW_7276\","))
+        assertTrue(phc.contains("\"LLM_RATE_LIMIT_ROTATED_NOT_BENCHED_7276\","))
+    }
+
 }

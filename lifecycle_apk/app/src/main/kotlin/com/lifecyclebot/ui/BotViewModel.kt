@@ -394,6 +394,9 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                     openRouter = cfg.openRouterApiKey.trim(),
                     anthropic = if (savedGemini7253.startsWith("sk-ant-")) savedGemini7253 else "",
                     gemini = if (savedGemini7253.startsWith("sk-ant-")) "" else savedGemini7253,
+                    cerebras = cfg.cerebrasApiKey.trim(),
+                    mistral = cfg.mistralApiKey.trim(),
+                    extraEndpoints = cfg.llmExtraEndpoints,
                 )
 
                 // Only restart if this is an explicit settings apply. Lifecycle autosaves

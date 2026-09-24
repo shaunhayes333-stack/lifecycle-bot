@@ -9380,6 +9380,11 @@ class BotService : Service() {
                 openRouter = cfg.openRouterApiKey.trim(),
                 anthropic  = if (antKey.startsWith("sk-ant-")) antKey else "",
                 gemini     = if (antKey.startsWith("sk-ant-")) "" else antKey,
+                // V5.0.7276 — the shipped Cerebras and Mistral keys and any
+                // operator-added OpenAI-compatible endpoints join the council.
+                cerebras   = cfg.cerebrasApiKey.trim(),
+                mistral    = cfg.mistralApiKey.trim(),
+                extraEndpoints = cfg.llmExtraEndpoints,
             )
             com.lifecyclebot.network.EmergentLlmClient.configure(
                 apiKey = if (antKey.startsWith("sk-ant-")) antKey else ""

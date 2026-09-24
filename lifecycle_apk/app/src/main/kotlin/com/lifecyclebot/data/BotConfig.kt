@@ -150,6 +150,11 @@ data class BotConfig(
     val openRouterApiKey: String = DefaultKeys.OPENROUTER,
     val cerebrasApiKey: String   = DefaultKeys.CEREBRAS,
     val mistralApiKey: String    = DefaultKeys.MISTRAL,   // V5.0.6073 — Mistral council key (operator-hardcoded default)
+    // V5.0.7276 — extra OpenAI-compatible LLM endpoints for the council, one per
+    // line or semicolon: `name|https://host/v1|apiKey` (key may be blank for a
+    // keyless surface). SambaNova, NVIDIA NIM, Together, Hugging Face router,
+    // GitHub Models, Cloudflare, DeepInfra, Fireworks, Scaleway all fit.
+    val llmExtraEndpoints: String = "",
     val geminiEnabled: Boolean = true,     // Enable Gemini AI Co-pilot (narrative analysis, exit advice, trade reasoning)
     val autoAddNewTokens: Boolean = true, // ENABLED - auto-add new Pump.fun launches to watchlist
     // multi-position trading
@@ -405,6 +410,7 @@ object ConfigStore {
             putString("openrouter_api_key",  cfg.openRouterApiKey)
             putString("cerebras_api_key",    cfg.cerebrasApiKey)
             putString("mistral_api_key",     cfg.mistralApiKey)
+            putString("llm_extra_endpoints", cfg.llmExtraEndpoints)
             putString("turso_db_url",        TursoDefaults.validOrDefaultUrl(cfg.tursoDbUrl))
             putString("turso_auth_token",    TursoDefaults.validOrDefaultToken(cfg.tursoAuthToken))
             apply()
@@ -647,6 +653,7 @@ object ConfigStore {
             mistralApiKey               = s.getString("mistral_api_key", "").let {
                 if (it.isNullOrBlank()) DefaultKeys.MISTRAL else it
             },
+            llmExtraEndpoints           = s.getString("llm_extra_endpoints", "").orEmpty(),
             tursoDbUrl                  = TursoDefaults.validOrDefaultUrl(s.getString("turso_db_url", "")),
             tursoAuthToken              = TursoDefaults.validOrDefaultToken(s.getString("turso_auth_token", "")),
             autoAddNewTokens            = p.getBoolean("auto_add_new_tokens", true),
