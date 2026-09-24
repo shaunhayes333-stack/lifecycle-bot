@@ -57,7 +57,10 @@ object PeakDrawdownLock {
      * and capped so the lock always keeps at least a quarter of the peak. A
      * blank lane, or a lane with no evidence, reads the base curve.
      */
-    const val TRIGGER_FRAC_CAP_7267 = 0.75
+    // V5.0.7282 — was 0.75: a lane multiplier could reopen the band to
+    // three quarters of the peak. The lock ratchets now; no learned band may
+    // hand back more than 40% of a peak.
+    const val TRIGGER_FRAC_CAP_7267 = 0.40
 
     fun triggerFracForPeak(peakPnlPct: Double, lane: String): Double {
         val base = triggerFracForPeak(peakPnlPct)
@@ -82,12 +85,34 @@ object PeakDrawdownLock {
      *   peak ~ +1000%  → 0.65
      *   peak >= +3000% → 0.70 cap
      */
+    // V5.0.7282 §THE LOCK SLIDES UP WITH THE PEAK.
+    //
+    // Operator, on a runner reading Peak +1408% · lock +478%: "the profit
+    // lock should slide up to close to peak! giving back 800% is retarded."
+    // The V5.9.1326 curve above did the opposite of a ratchet: the give-back
+    // fraction GREW with the peak (0.40 → 0.70), so the more a position made,
+    // the larger the share of it the lock was willing to return — 66% of a
+    // +1408% peak. Every mechanism that reads this curve (this lock, the 1 Hz
+    // tick lock through fluidProfitFloor, the give-back stop) inherited it.
+    //
+    // The fraction now SHRINKS as the peak grows. Small peaks keep the 40%
+    // breathing room V5.9.441 gave base hits; past +100% the lock closes in,
+    // and past +1000% it holds within ~10% of the peak:
+    //   peak <  +50%   → 0.40  (unchanged: a +40% pop may breathe to +24%)
+    //   peak  +100%    → 0.30  (lock +70%)
+    //   peak  +300%    → 0.18  (lock +246%)
+    //   peak +1000%    → 0.12  (lock +880%)
+    //   peak +1408%    → 0.11  (lock +1251%, was +478%)
+    //   peak >= +3000% → 0.08 floor
+    // 1326's fear was a single wick shaking a 10x out; the operator has
+    // decided which failure is cheaper, and a 10% wick off a 15x is a smaller
+    // loss than an 800-point give-back.
     fun triggerFracForPeak(peakPnlPct: Double): Double = when {
         peakPnlPct < 50.0    -> 0.40
-        peakPnlPct < 100.0   -> 0.40 + (peakPnlPct - 50.0) / 50.0 * 0.05
-        peakPnlPct < 300.0   -> 0.45 + (peakPnlPct - 100.0) / 200.0 * 0.10
-        peakPnlPct < 1000.0  -> 0.55 + (peakPnlPct - 300.0) / 700.0 * 0.10
-        else                 -> (0.65 + (peakPnlPct - 1000.0) / 2000.0 * 0.05).coerceAtMost(0.70)
+        peakPnlPct < 100.0   -> 0.40 - (peakPnlPct - 50.0) / 50.0 * 0.10
+        peakPnlPct < 300.0   -> 0.30 - (peakPnlPct - 100.0) / 200.0 * 0.12
+        peakPnlPct < 1000.0  -> 0.18 - (peakPnlPct - 300.0) / 700.0 * 0.06
+        else                 -> (0.12 - (peakPnlPct - 1000.0) / 2000.0 * 0.04).coerceAtLeast(0.08)
     }
 
     /** Exact pnl% at which shouldLock() would fire for a given peak. */

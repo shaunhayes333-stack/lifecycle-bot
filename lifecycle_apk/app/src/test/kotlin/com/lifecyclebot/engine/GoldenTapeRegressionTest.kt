@@ -9642,11 +9642,13 @@ class GoldenTapeRegressionTest {
         assertFalse(fluid.contains("val peakDrawdownFloor = if (peakClamped >= 100.0) peakClamped - 12.0"))
         assertFalse(bot.contains("peakPnlPct >= 100.0 -> peakPnlPct - 12.0"))
         assertTrue(bot.contains("RAPID_PEAK_LOCK_BREACH_4301"))
-        // Scaled band arithmetic: +150% peak locks at +83.5%, +900% at +328%; never a loss.
+        // Scaled band arithmetic. V5.0.7282 re-shaped the curve: the lock now
+        // ratchets toward the peak (a +150% peak locks above +100%, a +900%
+        // peak above +770%) instead of returning up to 70% of it; never a loss.
         val frac150 = com.lifecyclebot.engine.PeakDrawdownLock.triggerFracForPeak(150.0)
         val frac900 = com.lifecyclebot.engine.PeakDrawdownLock.triggerFracForPeak(900.0)
-        assertTrue(150.0 - 150.0 * frac150 > 80.0 && 150.0 - 150.0 * frac150 < 90.0)
-        assertTrue(900.0 - 900.0 * frac900 > 320.0 && 900.0 - 900.0 * frac900 < 340.0)
+        assertTrue(150.0 - 150.0 * frac150 > 100.0 && 150.0 - 150.0 * frac150 < 150.0)
+        assertTrue(900.0 - 900.0 * frac900 > 770.0 && 900.0 - 900.0 * frac900 < 900.0)
 
         // Moonshot admission-to-zone drop is named.
         assertTrue(bot.contains("MOONSHOT_ZONE_DROPPED_AFTER_ADMISSION_7265"))
@@ -9741,7 +9743,8 @@ class GoldenTapeRegressionTest {
         assertTrue(fluid.contains("((peakGap + volBump) * exitBandMultiplier7267(lane)).coerceAtLeast(1.5)"))
         assertTrue(fluid.contains("fluidProfitFloor(peakClamped, volatility, holdTimeSeconds, lane)"))
         assertTrue(lock.contains("fun triggerFracForPeak(peakPnlPct: Double, lane: String): Double"))
-        assertTrue(lock.contains("const val TRIGGER_FRAC_CAP_7267 = 0.75"))
+        // V5.0.7282 — the cap fell from 0.75 to 0.40 when the lock became a ratchet.
+        assertTrue(lock.contains("const val TRIGGER_FRAC_CAP_7267 = 0.40"))
         assertTrue(lock.contains("fun shouldLock(peakPnlPct: Double, currentPnlPct: Double, lane: String = \"\"): Boolean"))
         assertTrue(bot.contains("peakPnlPct, volatility, holdTimeSecs, lane = ts.position.tradingMode,"))
         assertTrue(bot.contains("lane = ts.position.tradingMode,  // V5.0.7267"))
@@ -10559,6 +10562,34 @@ class GoldenTapeRegressionTest {
 
         assertTrue(phc.contains("\"PAPER_ATOMIC_REFUSED_SIZE_BELOW_MIN_7281\","))
         assertTrue(phc.contains("\"CRYPTO_PAPER_ENTRY_BASIS_RECENT_7281\","))
+    }
+
+    /** V5.0.7282 — the give-back lock ratchets toward the peak instead of
+     * widening with it: a +1408% peak locks above +1200% (was +478%), base
+     * hits under +50% keep their 40% breathing room, and neither the lane
+     * band nor the trail may reopen the gap. */
+    @Test
+    fun V5_0_7282_profit_lock_slides_up_with_the_peak() {
+        // Pure function: evaluated directly.
+        assertTrue(PeakDrawdownLock.triggerFracForPeak(40.0) == 0.40)
+        assertTrue(PeakDrawdownLock.triggerFracForPeak(100.0) <= 0.30 + 1e-9)
+        assertTrue(PeakDrawdownLock.triggerFracForPeak(300.0) <= 0.18 + 1e-9)
+        assertTrue(PeakDrawdownLock.triggerFracForPeak(1408.0) < 0.12)
+        assertTrue(PeakDrawdownLock.lockPrice(1408.0) > 1200.0)
+        assertTrue(PeakDrawdownLock.triggerFracForPeak(5000.0) >= 0.08)
+        // Monotone: a larger peak never gives back a larger share.
+        var prev = 1.0
+        for (p in listOf(10.0, 49.0, 50.0, 75.0, 100.0, 200.0, 300.0, 600.0, 1000.0, 1408.0, 3000.0, 9000.0)) {
+            val f = PeakDrawdownLock.triggerFracForPeak(p)
+            assertTrue(f <= prev + 1e-9)
+            prev = f
+        }
+        assertTrue(PeakDrawdownLock.TRIGGER_FRAC_CAP_7267 <= 0.40)
+
+        val fluid = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/FluidLearningAI.kt").readText()
+        assertTrue(fluid.contains("private const val EXIT_BAND_FRAC_CAP_7267 = 0.40"))
+        assertTrue(fluid.contains("return trail.coerceIn(6.0, 15.0)"))
+        assertFalse(fluid.contains("return trail.coerceIn(8.0, 32.0)"))
     }
 
 }

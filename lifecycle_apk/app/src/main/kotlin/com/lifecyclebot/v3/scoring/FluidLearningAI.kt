@@ -1536,7 +1536,9 @@ object FluidLearningAI {
      * The fraction is capped so the band never keeps less than a quarter of
      * the peak, and every breakeven / 70%-of-peak safety net below stays.
      */
-    private const val EXIT_BAND_FRAC_CAP_7267 = 0.75
+    // V5.0.7282 — 0.75 let a lane multiplier reopen the band to three
+    // quarters of the peak; the lock ratchets now (PeakDrawdownLock 7282).
+    private const val EXIT_BAND_FRAC_CAP_7267 = 0.40
 
     fun exitBandMultiplier7267(lane: String?): Double {
         if (lane.isNullOrBlank()) return 1.0
@@ -1647,15 +1649,25 @@ object FluidLearningAI {
         //   ~+300%        → ~20%
         //   ~+1000%       → ~28%
         //   >=+3000%      → 32% cap (mega-runner: huge room, hard floor + peak-lock still cap risk)
+        // V5.0.7282 — the trail widens to +100% and then TIGHTENS, so it
+        // agrees with the ratcheting give-back lock (PeakDrawdownLock 7282)
+        // instead of trailing 28% of price under a 15x. Operator: "the profit
+        // lock should slide up to close to peak."
+        //   pnl <= 0      → 15% (entry breathing)
+        //   ~+20%         → ~8%
+        //   ~+100%        → ~12% (let it work through the first double)
+        //   ~+300%        → ~10%
+        //   ~+1000%       → ~8%
+        //   >=+3000%      → 6% floor
         if (pnlPct <= 0.0) return 15.0
         val trail = when {
-            pnlPct < 20.0   -> 8.0 + (20.0 - pnlPct) / 20.0 * 4.0   // +0%→12%, +20%→8%
-            pnlPct < 100.0  -> 8.0 + (pnlPct - 20.0) / 80.0 * 6.0   // +20%→8%, +100%→14%
-            pnlPct < 300.0  -> 14.0 + (pnlPct - 100.0) / 200.0 * 6.0 // +100%→14%, +300%→20%
-            pnlPct < 1000.0 -> 20.0 + (pnlPct - 300.0) / 700.0 * 8.0 // +300%→20%, +1000%→28%
-            else            -> (28.0 + (pnlPct - 1000.0) / 2000.0 * 4.0).coerceAtMost(32.0)
+            pnlPct < 20.0   -> 8.0 + (20.0 - pnlPct) / 20.0 * 4.0    // +0%→12%, +20%→8%
+            pnlPct < 100.0  -> 8.0 + (pnlPct - 20.0) / 80.0 * 4.0    // +20%→8%, +100%→12%
+            pnlPct < 300.0  -> 12.0 - (pnlPct - 100.0) / 200.0 * 2.0 // +100%→12%, +300%→10%
+            pnlPct < 1000.0 -> 10.0 - (pnlPct - 300.0) / 700.0 * 2.0 // +300%→10%, +1000%→8%
+            else            -> (8.0 - (pnlPct - 1000.0) / 2000.0 * 2.0).coerceAtLeast(6.0)
         }
-        return trail.coerceIn(8.0, 32.0)
+        return trail.coerceIn(6.0, 15.0)
     }
 
     fun getDynamicFluidStop(

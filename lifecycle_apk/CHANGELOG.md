@@ -4,6 +4,13 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.7282] - 2026-09-24 — THE LOCK SLIDES UP WITH THE PEAK
+
+- Operator, on a runner reading `Peak +1408% · lock +478%`: "the profit lock should slide up to close to peak! giving back 800% is retarded." The V5.9.1326 give-back curve in `PeakDrawdownLock.triggerFracForPeak` grew the returnable share with the peak (0.40 at +50% to 0.70 at +3000%), so the more a position made, the larger the fraction the lock would hand back — 66% of a +1408% peak. The 1 Hz tick lock (`fluidProfitFloor`, 7265), the give-back stop and the UI's lock line all read that curve.
+- **The fraction now shrinks as the peak grows.** Under +50% nothing changes (a +40% pop may still breathe to +24%). +100% locks +70%, +300% locks +246%, +1000% locks +880%, +1408% locks +1251%, and above +3000% the lock holds within 8% of the peak. `TRIGGER_FRAC_CAP_7267` and `EXIT_BAND_FRAC_CAP_7267` fall from 0.75 to 0.40 so a lane's learned band cannot reopen the gap.
+- **The trail agrees.** `fluidTrailPct` widened to 28–32% of price above +1000%; it now widens to 12% at +100% and tightens to 8% at +1000% and 6% above +3000%, so the trail and the lock sit within a few points of each other on a runner.
+- Named, not changed: the position in the screenshot was refused by the 7271 door twenty times because the on-demand fan-out disagreed with its mark (`PAPER_SELL_GAIN_ON_DEMAND_DISAGREED_7272=20`); a lock at +1251% banks nothing until a second feed agrees the price is real.
+
 ## [5.0.7281] - 2026-09-24 — THREE TRILLIONTHS OF A SOL CLOSED THE DOOR; THE SCAN WAS AN OBSERVATION TOO
 
 - Operator on 5.0.7280: "youve choked the fuck out of the crypto trader which was running at 62% winrate previously. moonshots aren't being found on either meme or crypto any more." Correct on both counts, and both were mine.
