@@ -71,13 +71,37 @@ object PumpFunWS {
 
     private fun tradeStreamKeyed7284(): Boolean = apiKey7284.isNotBlank()
 
+    // V5.0.7286 — 5.0.7284: keyed, 30 subscribe frames sent, 53 message
+    // frames, one error frame, zero trade frames, and the only text kept was
+    // the newest ("Unsubscribed."). The server's answer to the subscribe — the
+    // acknowledgement or the refusal — had scrolled off. The last error frame
+    // is kept on its own, and the last four DISTINCT untyped texts are kept,
+    // so the report shows what the socket said to the subscription.
+    @Volatile private var lastErrorFrame7286: String = ""
+    private val recentUntyped7286 = java.util.ArrayDeque<String>()
+    private const val RECENT_UNTYPED_KEEP_7286 = 4
+
+    private fun rememberUntyped7286(text: String, isError: Boolean) {
+        val t = text.take(160).replace('\n', ' ')
+        if (isError) lastErrorFrame7286 = t
+        synchronized(recentUntyped7286) {
+            if (recentUntyped7286.contains(t)) return
+            recentUntyped7286.addLast(t)
+            while (recentUntyped7286.size > RECENT_UNTYPED_KEEP_7286) recentUntyped7286.removeFirst()
+        }
+    }
+
     /** V5.0.7280 — one line for the pipeline report: what the socket is doing. */
-    fun status7280(): String =
-        "running=${running.get()} socket=${if (ws != null) "open" else "none"} reconnects=${reconnectAttempt.get()} " +
+    fun status7280(): String {
+        val recent = synchronized(recentUntyped7286) { recentUntyped7286.toList() }
+        return "running=${running.get()} socket=${if (ws != null) "open" else "none"} reconnects=${reconnectAttempt.get()} " +
             "tradeStream=${if (tradeStreamKeyed7284()) "KEYED" else "NO_KEY_LAUNCHES_ONLY"} " +
             "tradeSubscribedMints=${tradeSubscriptions7278.size} subscribeSkippedNoKey=${tradeSubscribeSkippedNoKey7284.get()} " +
             "untypedFrames=${untypedFrames7280.get()} " +
-            "lastUntyped=${lastUntypedFrame7280.ifBlank { "-" }}"
+            "lastUntyped=${lastUntypedFrame7280.ifBlank { "-" }} " +
+            "lastError7286=${lastErrorFrame7286.ifBlank { "-" }} " +
+            "recentDistinct7286=${recent.joinToString(" | ").ifBlank { "-" }}"
+    }
 
     fun setOnTrade7278(cb: (mint: String, priceSolPerToken: Double, marketCapSol: Double, isBuy: Boolean) -> Unit) {
         onTradeCb = cb
@@ -199,6 +223,7 @@ object PumpFunWS {
                     if (txType.isBlank()) {
                         lastUntypedFrame7280 = text.take(200).replace('\n', ' ')
                         untypedFrames7280.incrementAndGet()
+                        rememberUntyped7286(text, isError = j.has("errors") || j.has("error"))
                     }
                 } catch (_: Throwable) {}
                 when {

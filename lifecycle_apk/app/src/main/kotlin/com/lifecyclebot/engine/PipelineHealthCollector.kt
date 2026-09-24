@@ -2227,6 +2227,9 @@ object PipelineHealthCollector {
                     // V5.0.7284 — held curves that would have been streamed had a
                     // PumpPortal data key been present.
                     "PUMP_TRADE_SUBSCRIBE_SKIPPED_NO_KEY_7284",
+                    // V5.0.7286 — reasoning models asked for a short thought so the
+                    // answer fits the budget.
+                    "LLM_REASONING_EFFORT_LOW_APPLIED_7286",
                     "CRYPTO_DYN_MARK_STALE_OR_MISSING_6654",
                     "CRYPTO_HELD_MARK_REFRESH_COALESCED_7251",
                     "SOL_MARK_RESCUE_7167",

@@ -10691,4 +10691,25 @@ class GoldenTapeRegressionTest {
         assertFalse(main.contains("state.logs.takeLast(8).asReversed().joinToString(\"\\n\").ifBlank"))
     }
 
+    /** V5.0.7286 — a reasoning model is asked for a short thought and given
+     * room for the answer; the PumpPortal socket keeps its last error and its
+     * last distinct messages so the subscribe acknowledgement is on the report. */
+    @Test
+    fun V5_0_7286_reasoning_models_get_low_effort_and_the_socket_keeps_its_answers() {
+        val gc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/GeminiCopilot.kt").readText()
+        val ws = java.io.File("src/main/kotlin/com/lifecyclebot/network/PumpFunWS.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        assertTrue(gc.contains("val reasoningFamily7286 = provider.model.contains(\"gpt-oss\", ignoreCase = true)"))
+        assertTrue(gc.contains("val effectiveMaxTokens7286 = if (reasoningCapable7286) maxOf(maxTokens, 2048) else maxTokens"))
+        assertTrue(gc.contains("payload.put(\"reasoning_effort\", \"low\")"))
+        assertTrue(gc.contains("payload.put(\"max_completion_tokens\", effectiveMaxTokens7286)"))
+        assertFalse(gc.contains("payload.put(\"max_completion_tokens\", maxTokens)"))
+
+        assertTrue(ws.contains("private const val RECENT_UNTYPED_KEEP_7286 = 4"))
+        assertTrue(ws.contains("rememberUntyped7286(text, isError = j.has(\"errors\") || j.has(\"error\"))"))
+        assertTrue(ws.contains("\"lastError7286=\${lastErrorFrame7286.ifBlank { \"-\" }} \""))
+        assertTrue(phc.contains("\"LLM_REASONING_EFFORT_LOW_APPLIED_7286\","))
+    }
+
 }

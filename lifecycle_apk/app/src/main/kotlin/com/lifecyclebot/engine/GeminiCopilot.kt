@@ -1078,10 +1078,34 @@ Not one sentence unless the moment truly calls for it.
         payload.put("model", provider.model)
         payload.put("temperature", temperature)
 
+        // V5.0.7286 §THE MODEL SPENT ITS BUDGET THINKING AND SAID NOTHING.
+        //
+        // 5.0.7284 at 816 s: LLM_EMPTY_CONTENT_SHAPE_7284_groq_length_
+        // reasoning_present_openaigpt-oss-20b = 2548, against one parsed
+        // inference. gpt-oss is a reasoning model: at its default effort it
+        // writes its chain of thought into a `reasoning` field first, and with
+        // a 1024–1200 token completion budget it reached `finish_reason=length`
+        // before a single content token — every advisor, council and narrative
+        // call answered HTTP 200 and returned nothing. Reasoning effort is set
+        // low for the gpt-oss family (Groq and Cerebras both take the field),
+        // and a reasoning-capable model's completion budget is floored at 2048
+        // so the answer has room after the thought. Non-reasoning models are
+        // untouched.
+        val reasoningFamily7286 = provider.model.contains("gpt-oss", ignoreCase = true)
+        val reasoningCapable7286 = reasoningFamily7286 ||
+            provider.model.contains("qwen3", ignoreCase = true) ||
+            provider.model.contains("deepseek-r1", ignoreCase = true) ||
+            provider.model.contains("qwq", ignoreCase = true)
+        val effectiveMaxTokens7286 = if (reasoningCapable7286) maxOf(maxTokens, 2048) else maxTokens
+        if (reasoningFamily7286) {
+            payload.put("reasoning_effort", "low")
+            try { PipelineHealthCollector.labelInc("LLM_REASONING_EFFORT_LOW_APPLIED_7286") } catch (_: Throwable) {}
+        }
+
         if (provider.name == "groq") {
-            payload.put("max_completion_tokens", maxTokens)
+            payload.put("max_completion_tokens", effectiveMaxTokens7286)
         } else {
-            payload.put("max_tokens", maxTokens)
+            payload.put("max_tokens", effectiveMaxTokens7286)
         }
 
         val messages = JSONArray()
