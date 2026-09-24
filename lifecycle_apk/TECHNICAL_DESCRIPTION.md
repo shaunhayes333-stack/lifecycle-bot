@@ -1,757 +1,246 @@
-# AATE V3.2 - Technical Architecture Document
+# AATE Technical Description
 
-```
-     █████╗  █████╗ ████████╗███████╗    ██╗   ██╗██████╗    ██████╗ 
-    ██╔══██╗██╔══██╗╚══██╔══╝██╔════╝    ██║   ██║╚════██╗   ╚════██╗
-    ███████║███████║   ██║   █████╗      ██║   ██║ █████╔╝    █████╔╝
-    ██╔══██║██╔══██║   ██║   ██╔══╝      ╚██╗ ██╔╝ ╚═══██╗   ██╔═══╝ 
-    ██║  ██║██║  ██║   ██║   ███████╗     ╚████╔╝ ██████╔╝   ███████╗
-    ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝      ╚═══╝  ╚═════╝    ╚══════╝
-    
-    TECHNICAL ARCHITECTURE DOCUMENT
-```
+**AATE — Autonomous Algorithmic Trading Engine** · 5.0.7288 · for technical due diligence
+
+AATE is an autonomous trading engine that runs entirely inside a native Android app. It decides, sizes, executes, exits and learns on the device. It was built by one developer in six months, from a phone, with no team and no big budget. GitHub Actions compiles and gates every build.
+
+This document states what the code does and what enforces it. Where a number is measured it says so. Where a result comes from paper trading it is labelled **PAPER**. Source paths are relative to `app/src/main/kotlin/com/lifecyclebot/` unless stated otherwise. `ARCHITECTURE.md` has the system diagrams.
+
+> Trading crypto is high risk. Paper results are not live results. Nothing here is financial advice, and no return is promised.
 
 ---
 
-## TABLE OF CONTENTS
+## 1. Design doctrine
 
-1. [System Overview](#system-overview)
-2. [Core Architecture](#core-architecture)
-3. [21 AI Layer Deep Dive](#21-ai-layer-deep-dive)
-4. [Multi-Regime Trading System](#multi-regime-trading-system)
-5. [Decision Pipeline](#decision-pipeline)
-6. [Safety Systems](#safety-systems)
-7. [Data Persistence](#data-persistence)
-8. [External Integrations](#external-integrations)
-9. [Performance Characteristics](#performance-characteristics)
+Three rules explain most of the code:
 
----
+1. **Real data and forensic accounting. No imagined gains. No inferred values.** A missing mark is held at cost basis and labelled stale; it is never extrapolated. Paper fills are charged venue costs (§5). Learners train on authoritative marks only (`CanonicalCapitalAuthority6450.Snapshot.authoritativeOpenMarketValueSol`).
+2. **One authority per fact.** Every economic quantity has exactly one writer. Other stores are read-only mirrors. CI scans enforce this (§9).
+3. **Everything is counted.** Every refusal, fallback, relaunch and stale mark increments a labelled counter in `engine/PipelineHealthCollector.kt`, and the Pipeline Health screen shows it. Diagnoses are made from counters, not from inference.
 
-## SYSTEM OVERVIEW
+Each fix in the code carries a header that quotes the device snapshot that motivated it. The source doubles as an engineering log.
 
-### Technology Stack
+## 2. Authorities and their invariants
 
-| Component | Technology |
-|-----------|------------|
-| **Platform** | Native Android (Kotlin) |
-| **Min SDK** | Android 8.0 (API 26) |
-| **Architecture** | MVVM + Coroutines |
-| **Networking** | OkHttp + Retrofit |
-| **Blockchain** | Solana (via Jupiter V2) |
-| **Wallet** | Solana-Android SDK |
-| **Persistence** | SharedPreferences + SQLite |
-| **Cloud** | Turso (LibSQL) for collective |
+| Authority | File | Invariant it holds |
+|---|---|---|
+| Position authority | `engine/truth/CanonicalPositionAuthority6441.kt` | One position store for paper and live, executor, exits, journal, learner, reconciler and UI. Every mutation (buy, partial sell, full sell, quarantine) runs under one `ReentrantLock` and needs an idempotency key, so a replayed callback cannot mutate twice. Paper cash can never go negative. Quantities are raw `BigInteger` with explicit decimals. |
+| Capital authority | `engine/truth/CanonicalCapitalAuthority6450.kt` | The only read view of capital. It computes cash, reserved, open cost basis, open market value, unrealized, realized, fees and total equity, and checks conservation on every audit tick: `startingCapital + realized − fees ≈ cash + reserved + openCostBasis`. Stale or fallback marks are counted separately, and an "authoritative equity" excludes them. The UI must not show cash as equity. |
+| Finalized-trade bus | `engine/truth/CanonicalTradeFinalizedBus6450.kt` | Exactly one close event per position (WIN, LOSS or BREAKEVEN, with return fraction). Streak counters, learners and the oracle grader all subscribe to it. Closes that settled while the app was down are replayed at startup (`engine/truth/CanonicalFinalityPersistence6486.kt`). |
+| Executable entry authority | `engine/truth/ExecutableEntryAuthority6450.kt` | The single gate immediately before capital reservation, for every executable route. No pid, source or lane alias bypasses it; attempts are counted by `recordBypass`. |
+| Learned admission | `engine/truth/LearnedAdmissionAuthority6846.kt` | A pure function of its `Inputs`, which `engine/truth/LearnedAdmissionInputs6909.kt` assembles. A DENY must not fall back to a duplicate ALLOW path. |
+| Lane identity | `engine/truth/CanonicalLaneIdentity6506.kt` | One alias table, applied on every read and write. Lane strings are compared for equality to decide who owns sealed authority, so two normalisers that disagree would void it. `ci/lane_identity_authority_scan.py` fails the build if a copy appears. |
+| Enabled traders | `engine/EnabledTraderAuthority.kt` | The atomic set of enabled traders among 16 (`MEME, SHITCOIN, MOONSHOT, EXPRESS, QUALITY, TREASURY, CASHGEN, BLUECHIP, MANIPULATED, DIP_HUNTER, PROJECT_SNIPER, CYCLIC, CRYPTO_ALT, MARKETS_STOCKS, PERPS, SHADOW_PAPER`). Every scanner, engine and journal writer checks it on each tick. |
 
-### High-Level Architecture
+### 2.1 ExecutableEntryAuthority in detail
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         ANDROID APPLICATION                          │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  ┌──────────────────────────────────────────────────────────────┐  │
-│  │                     UI LAYER (Activities)                      │  │
-│  │  MainActivity | JournalActivity | CollectiveBrainActivity     │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-│                              │                                      │
-│                              ▼                                      │
-│  ┌──────────────────────────────────────────────────────────────┐  │
-│  │                    SERVICE LAYER                               │  │
-│  │                    BotService (Foreground)                     │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-│                              │                                      │
-│         ┌────────────────────┼────────────────────┐                │
-│         ▼                    ▼                    ▼                │
-│  ┌─────────────┐     ┌─────────────┐     ┌─────────────┐          │
-│  │   SCANNER   │     │   V3 ENGINE │     │  EXECUTOR   │          │
-│  │  (Market    │     │  (21 AI     │     │  (Trade     │          │
-│  │   Data)     │     │   Layers)   │     │   Execution)│          │
-│  └─────────────┘     └─────────────┘     └─────────────┘          │
-│                              │                                      │
-│                              ▼                                      │
-│  ┌──────────────────────────────────────────────────────────────┐  │
-│  │                    SAFETY LAYER                                │  │
-│  │  FDG | TokenBlacklist | ToxicModeCircuitBreaker | SecurityGuard│  │
-│  └──────────────────────────────────────────────────────────────┘  │
-│                              │                                      │
-│                              ▼                                      │
-│  ┌──────────────────────────────────────────────────────────────┐  │
-│  │                  PERSISTENCE LAYER                             │  │
-│  │  TradeHistoryStore | WalletState | CollectiveLearning         │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
+It has two entry points:
 
----
+- `gate(inputs)` evaluates `LearnedAdmissionAuthority6846`. DENY returns `DENY_LEARNED_NEGATIVE_6846` with size 0. Otherwise it falls through to the streak gate below. If the learned authority throws, the gate fails open and counts `EXECUTABLE_ENTRY_ORACLE_ERROR_FAIL_OPEN_7263`.
+- `gate(lane, mint, size)` applies **size shaping, not refusal**. Streaks are keyed per `mode|lane` (a paper SHITCOIN loss never suppresses a live BLUECHIP entry). When live has less history, it inherits the paper streak. One loss gives ×0.65 and two or more give ×0.35. A 60 s cooldown after a loss also gives ×0.35. Where the learned `LaneExpectancyDamper` has an opinion, it replaces the raw streak prior. The enum still declares `DENY_LOSING_STREAK`, `DENY_COOLDOWN` and `DENY_DAILY_LOSS_CAP`, but no code path returns them in 5.0.7288. Hard halts live in `engine/LiveSafetyCircuitBreaker.kt`: refuse live trading below 0.10 SOL, and halt on a 10% session drawdown.
 
-## CORE ARCHITECTURE
+## 3. The Predictive Entry Oracle
 
-### BotService (Foreground Service)
+File: `engine/truth/PredictiveEntryOracle6915.kt`. It answers one question per candidate: **is expected value, net of cost, positive?** Since 5.0.7287 the verdict is binary, `ADMIT` or `REFUSE`. The old quarter-size "probe" was removed because at the fee floor the fixed network cost alone is about 1.5% of a ticket, so a quarter-size probe pays roughly four times the cost share for the same information.
 
-The BotService runs as an Android Foreground Service, ensuring continuous operation even when the app is backgrounded.
+### 3.1 Hierarchical shrinkage
 
-```kotlin
-class BotService : Service() {
-    companion object {
-        val status = BotStatus()           // Shared state
-        var instance: BotService? = null   // Singleton access
-    }
-    
-    // Core components initialized on startup
-    private lateinit var executor: Executor
-    private lateinit var scanner: SolanaMarketScanner
-    private lateinit var v3Engine: V3EngineManager
-}
-```
+Evidence is sparse per cell (lane × score band × regime is hundreds of cells) and dense at the lane and book level. So the oracle uses empirical-Bayes shrinkage over three levels:
 
-**Key Responsibilities:**
-- Market scanning loop (5-second intervals)
-- Token state management
-- Trade execution coordination
-- Position monitoring
-- Safety system enforcement
-
-### V3 Engine Manager
-
-The V3 Engine coordinates all 21 AI layers through the `BotOrchestrator`.
-
-```kotlin
-object V3EngineManager {
-    private var orchestrator: BotOrchestrator? = null
-    
-    fun initialize(scope: CoroutineScope) {
-        orchestrator = BotOrchestrator(
-            scorer = UnifiedScorer(),
-            confidenceEngine = ConfidenceEngine(),
-            decisionMatrix = DecisionMatrix(),
-            lifecycle = TradeLifecycle,
-            shadowTracker = ShadowTracker,
-            logger = StageLogger
-        )
-    }
-    
-    suspend fun evaluate(candidate: CandidateSnapshot): ProcessResult {
-        return orchestrator?.processCandidate(candidate) 
-            ?: ProcessResult.Skip("V3 not initialized")
-    }
-}
-```
-
----
-
-## 21 AI LAYER DEEP DIVE
-
-### Layer Architecture
-
-Each AI layer implements a common interface:
-
-```kotlin
-interface AILayer {
-    val name: String
-    val weight: Double  // Base weight (adjusted by MetaCognition)
-    
-    suspend fun score(context: ScoringContext): LayerScore
-    
-    data class LayerScore(
-        val value: Double,        // -10 to +10
-        val confidence: Double,   // 0.0 to 1.0
-        val signals: List<String>
-    )
-}
-```
-
-### Layer Categories
-
-#### Scoring Layers (1-15)
-
-| Layer | Class | Key Metrics |
-|-------|-------|-------------|
-| 1 | VolatilityRegimeAI | ATR, Squeeze signals, Vol regime |
-| 2 | OrderFlowImbalanceAI | Buy/sell pressure, Volume delta |
-| 3 | SmartMoneyDivergenceAI | Whale trades vs price action |
-| 4 | HoldTimeOptimizerAI | Optimal hold duration prediction |
-| 5 | LiquidityCycleAI | Global liquidity state |
-| 6 | MarketRegimeAI | Bull/Bear/Sideways detection |
-| 7 | WhaleTrackerAI | Large wallet movements |
-| 8 | MomentumPredictorAI | Momentum strength/exhaustion |
-| 9 | NarrativeDetectorAI | Social trends, meme momentum |
-| 10 | TimeOptimizationAI | Time-of-day patterns |
-| 11 | LiquidityDepthAI | Pool depth analysis |
-| 12 | EntryIntelligence | Entry signal patterns |
-| 13 | ExitIntelligence | Exit timing patterns |
-| 14 | FearGreedAI | Market sentiment score |
-| 15 | SocialVelocityAI | Social momentum velocity |
-
-#### Meta & Coordination Layers (16-19)
-
-| Layer | Class | Function |
-|-------|-------|----------|
-| 16 | MetaCognitionAI | Self-aware executive control |
-| 17 | AICrossTalk | Inter-layer coordination |
-| 18 | OrthogonalSignals | Independent validation |
-| 19 | RegimeTransitionAI | Cross-regime detection |
-
-#### Learning Layers (20-21)
-
-| Layer | Class | Function |
-|-------|-------|----------|
-| 20 | EdgeLearning | Edge discovery/validation |
-| 21 | TokenWinMemory | Token-specific patterns |
-
-### MetaCognitionAI Deep Dive
-
-```kotlin
-object MetaCognitionAI {
-    // Track accuracy per layer
-    private val layerAccuracy = ConcurrentHashMap<String, AccuracyTracker>()
-    
-    // Trust multipliers (0.7x to 1.3x)
-    private val trustMultipliers = ConcurrentHashMap<String, Double>()
-    
-    data class AccuracyTracker(
-        var totalPredictions: Int = 0,
-        var correctPredictions: Int = 0,
-        var lastUpdated: Long = 0
-    ) {
-        val accuracy: Double get() = 
-            if (totalPredictions > 0) correctPredictions.toDouble() / totalPredictions 
-            else 0.5
-    }
-    
-    fun adjustLayerWeight(layer: String, baseWeight: Double): Double {
-        val multiplier = trustMultipliers[layer] ?: 1.0
-        return baseWeight * multiplier
-    }
-    
-    fun recordTradeOutcome(signals: Map<String, Boolean>, tradeWon: Boolean) {
-        signals.forEach { (layer, predicted) ->
-            val tracker = layerAccuracy.getOrPut(layer) { AccuracyTracker() }
-            tracker.totalPredictions++
-            if (predicted == tradeWon) tracker.correctPredictions++
-            
-            // Adjust trust based on rolling accuracy
-            val newMultiplier = 0.7 + (tracker.accuracy * 0.6)  // 0.7 to 1.3
-            trustMultipliers[layer] = newMultiplier
-        }
-    }
-    
-    fun shouldVeto(scores: Map<String, LayerScore>): Boolean {
-        // Veto if high-trust layers disagree
-        val reliableLayers = trustMultipliers.filter { it.value > 1.1 }.keys
-        val reliableScores = scores.filter { it.key in reliableLayers }
-        
-        if (reliableScores.size < 2) return false
-        
-        val bullish = reliableScores.values.count { it.value > 3 }
-        val bearish = reliableScores.values.count { it.value < -3 }
-        
-        // Strong disagreement among reliable layers = veto
-        return bullish > 0 && bearish > 0 && 
-               (bullish.toDouble() / reliableScores.size) in 0.3..0.7
-    }
-}
-```
-
----
-
-## MULTI-REGIME TRADING SYSTEM
-
-### MarketStructureRouter
-
-```kotlin
-object MarketStructureRouter {
-    
-    enum class MarketRegime(val emoji: String, val label: String) {
-        MEME_MICRO("🎰", "Meme Micro"),
-        MEME_MOMENTUM("🚀", "Meme Momentum"),
-        MAJOR_TREND("📈", "Major Trend"),
-        MID_CAP_VALUE("💎", "Mid-Cap Value"),
-        PERP_FUNDING("📊", "Perp Funding"),
-        CEX_ARBITRAGE("🔄", "CEX Arb"),
-        VOLATILITY_HARVEST("🌊", "Vol Harvest"),
-        DEFENSIVE("🛡️", "Defensive")
-    }
-    
-    enum class StructureMode(
-        val regime: MarketRegime,
-        val emoji: String,
-        val label: String
-    ) {
-        // 26 trading modes across 8 regimes
-        FRESH_LAUNCH(MEME_MICRO, "🆕", "Fresh Launch"),
-        NARRATIVE_BURST(MEME_MICRO, "📰", "Narrative Burst"),
-        MOMENTUM_CONTINUATION(MEME_MOMENTUM, "🚀", "Momentum"),
-        BREAKOUT_PLAY(MEME_MOMENTUM, "📈", "Breakout"),
-        TREND_FOLLOW(MAJOR_TREND, "📊", "Trend Follow"),
-        DIP_BUY(MAJOR_TREND, "🎯", "Dip Buy"),
-        VALUE_ACCUMULATION(MID_CAP_VALUE, "💎", "Value Accum"),
-        TECHNICAL_SETUP(MID_CAP_VALUE, "📐", "Technical"),
-        FUNDING_ARB(PERP_FUNDING, "💰", "Funding Arb"),
-        SQUEEZE_HUNTER(PERP_FUNDING, "🔥", "Squeeze"),
-        SUPPORT_SNIPE(CEX_ARBITRAGE, "🎯", "Support Snipe"),
-        WALL_FADE(CEX_ARBITRAGE, "🧱", "Wall Fade"),
-        STRANGLE(VOLATILITY_HARVEST, "🦋", "Strangle"),
-        STRADDLE(VOLATILITY_HARVEST, "⚖️", "Straddle"),
-        GAMMA_SCALP(VOLATILITY_HARVEST, "⚡", "Gamma Scalp"),
-        // ... and more
-    }
-    
-    fun classifyToken(snapshot: CandidateSnapshot): StructureMode {
-        // Classification logic based on:
-        // - Market cap
-        // - Liquidity depth
-        // - Volume profile
-        // - Social signals
-        // - Price action patterns
-    }
-}
-```
-
-### Regime-Specific AI Weights
-
-Each trading mode has custom AI layer weights:
-
-```kotlin
-data class ModeConfig(
-    val mode: StructureMode,
-    val layerWeights: Map<String, Double>,  // AI layer weight overrides
-    val positionParams: PositionParams,     // Position sizing
-    val exitRules: ExitRules                // Exit conditions
-)
-
-// Example: FRESH_LAUNCH mode emphasizes speed and narrative
-val FRESH_LAUNCH_CONFIG = ModeConfig(
-    mode = StructureMode.FRESH_LAUNCH,
-    layerWeights = mapOf(
-        "NarrativeDetectorAI" to 1.5,
-        "SocialVelocityAI" to 1.4,
-        "MomentumPredictorAI" to 1.3,
-        "LiquidityDepthAI" to 0.8,     // Less important for fresh launches
-        "TimeOptimizationAI" to 0.7
-    ),
-    positionParams = PositionParams(
-        maxSize = 0.05,  // 5% max
-        scaleFactor = 0.8
-    ),
-    exitRules = ExitRules(
-        takeProfit = 0.30,   // 30% TP
-        stopLoss = -0.15,    // 15% SL
-        trailingStop = true
-    )
-)
-```
-
----
-
-## DECISION PIPELINE
-
-### Stage Flow
+| Level | Key | Source |
+|---|---|---|
+| CELL | lane × score bucket | `ScoreExpectancyTracker` raw bucket mean |
+| LANE | lane | `LiveProbabilityEngine` lane snapshot, **or** the full journal when it holds more closes (`OracleTradeHistory7287`) |
+| GLOBAL | whole book | the same, at book level |
 
 ```
-CANDIDATE → SCORING → CONFIDENCE → PRE-PROPOSAL KILL → FINAL DECISION → EXECUTION
-     │          │           │              │                  │              │
-     ▼          ▼           ▼              ▼                  ▼              ▼
-  Token    21 AI     Statistical    C-grade +         Band +        Jupiter
-  Snapshot Layers    + Structural   conf < 35%?       Quality       V2 API
-                     + Operational   → SHADOW         Assessment
-                     Confidence      TRACK
+wᵢ = nᵢ / (nᵢ + K),  K = 6
+E_blend    = Σ wᵢ·μᵢ / Σ wᵢ                      (expectancy, % per trade)
+pWin_blend = Σ wᵢ·pᵢ / Σ wᵢ                      (levels with a win rate)
+confidence = 0.5·max(wᵢ) + 0.5·mean(wᵢ)          (clamped 0..1)
 ```
 
-### BotOrchestrator.processCandidate()
+`engine/truth/OracleTradeHistory7287.kt` reduces the terminal journal to per-lane and whole-book statistics: expectancy net of fees per position (`netPnlSol / entryCostSol`), and win rate. It reads at most 5,000 clean terminal SELL rows from `TradeHistoryStore` (paper and live) and recomputes at most once a minute. Rows booked before 7287 carry the older, harsher paper fee model, so early history reads pessimistic.
 
-```kotlin
-suspend fun processCandidate(candidate: CandidateSnapshot): ProcessResult {
-    
-    // ─── SCORING ───
-    val scoreCard = scorer.score(candidate)
-    logger.stage("SCORING", candidate.symbol, "OK", 
-        "total=${scoreCard.total} components=${scoreCard.components.size}")
-    
-    // ─── CONFIDENCE ───
-    val confidence = confidenceEngine.compute(scoreCard, learningMetrics, opsMetrics)
-    logger.stage("CONFIDENCE", candidate.symbol, "OK",
-        "stat=${confidence.statistical} struct=${confidence.structural} " +
-        "ops=${confidence.operational} eff=${confidence.effective}")
-    
-    // ─── PRE-PROPOSAL KILL (V3.2) ───
-    val earlyQuality = when {
-        scoreCard.total >= 55 -> "B"
-        scoreCard.total >= 45 -> "B"
-        else -> "C"
-    }
-    val memoryScore = scoreCard.byName("memory")?.value ?: 0
-    
-    if (earlyQuality == "C") {
-        val effConf = confidence.effective
-        val shouldKillEarly = (effConf < 35) || (memoryScore <= -8)
-        
-        if (shouldKillEarly) {
-            logger.stage("PRE_PROPOSAL_KILL", candidate.symbol, "BLOCKED",
-                "quality=$earlyQuality conf=${effConf}% memory=$memoryScore → SHADOW_TRACK")
-            shadowTracker.track(candidate, scoreCard, effConf, "C_GRADE_EARLY_KILL")
-            return ProcessResult.Watch(scoreCard.total, effConf)
-        }
-    }
-    
-    // ─── FINAL DECISION ───
-    val decision = decisionMatrix.decide(scoreCard, confidence)
-    
-    // ─── LIQUIDITY GATE ───
-    val setupQuality = decision.setupQuality
-    val liquidityFloor = when (setupQuality) {
-        "A" -> 5_000.0
-        "B" -> 7_500.0
-        else -> 10_000.0  // C-grade needs $10K+ liquidity
-    }
-    
-    if (decision.band.isExecute && candidate.liquidityUsd < liquidityFloor) {
-        logger.stage("LIQUIDITY_CHECK", candidate.symbol, "BLOCKED",
-            "liq=$${candidate.liquidityUsd} < floor=$${liquidityFloor}")
-        return ProcessResult.Watch(decision.finalScore, confidence.effective)
-    }
-    
-    // ─── RETURN RESULT ───
-    return when (decision.band) {
-        DecisionBand.EXECUTE_AGGRESSIVE -> ProcessResult.Execute(...)
-        DecisionBand.EXECUTE_STANDARD -> ProcessResult.Execute(...)
-        DecisionBand.EXECUTE_SMALL -> ProcessResult.Execute(...)
-        DecisionBand.WATCH -> ProcessResult.Watch(...)
-        DecisionBand.SKIP -> ProcessResult.Skip(...)
-    }
-}
-```
+### 3.2 Bounded stack adjustments
 
----
+The oracle does not add a new model. It reads existing learners, and each contributes a bounded adjustment in percentage points:
 
-## SAFETY SYSTEMS
+| Contributor | Adjustment |
+|---|---|
+| `AutonomousMetaPolicy.conviction` | `(conv − 1) × 12` |
+| `UnifiedPolicyHead.predictWinProb` | `(p − 0.5) × 20`, clamped ±10 |
+| `SemanticPatternGraph.entryBias` | `(sizeMult − 1) × 10` |
+| `SsiPilotCouncil.sizeMultiplierForLane` | `(m − 1) × 10` |
+| `SourceFamilyOpportunityScorecard` (n ≥ 3) | `meanPnl% / 100 × 8`, clamped ±10 |
 
-### Defense Layers
+The sum is clamped to ±25 pp. A separate "brain network" tier of previously unread modules is clamped to ±18 pp. `E_final = E_blend + adj + brain`. Every contribution is listed in the verdict line for the operator.
+
+### 3.3 Verdict
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                      SAFETY ARCHITECTURE                         │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  Layer 1: TokenBlacklist                                        │
-│  ├── Permanent mint-level bans                                  │
-│  ├── Rug pattern detection                                      │
-│  └── Historical loss tracking                                   │
-│                                                                 │
-│  Layer 2: ToxicModeCircuitBreaker                               │
-│  ├── Mode-level freeze after 3 losses                          │
-│  ├── Auto-unfreeze after 24h cooldown                          │
-│  └── Catastrophic loss triggers                                 │
-│                                                                 │
-│  Layer 3: Pre-Proposal Kill (V3.2)                              │
-│  ├── C-grade + conf < 35% → immediate SHADOW_TRACK             │
-│  ├── C-grade + memory ≤ -8 → immediate SHADOW_TRACK            │
-│  └── Preserves learning without wasting compute                 │
-│                                                                 │
-│  Layer 4: FinalDecisionGate                                     │
-│  ├── Hard confidence floors (30% min)                          │
-│  ├── C-grade looper prevention                                  │
-│  ├── COPY_TRADE mode completely disabled                       │
-│  └── AI degradation checks                                      │
-│                                                                 │
-│  Layer 5: SecurityGuard                                         │
-│  ├── Daily loss limits                                          │
-│  ├── Maximum open positions                                     │
-│  ├── Trade rate limiting                                        │
-│  └── Emergency halt conditions                                  │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+predictive pWin = 0.20·pWin_blend + 0.40·candidateConfidence + 0.40·policyHead_p
+refuseConfidence = confidence computed over CELL and LANE only (GLOBAL excluded)
+evidencedNegative = E_final ≤ −8%  AND  refuseConfidence ≥ 0.45
+policySupports    = policy head not binding  OR  policyHead_p > 0.5
+ADMIT  ⇔  ¬evidencedNegative  AND  E_final > 0  AND  policySupports
+REFUSE otherwise
 ```
 
-### FinalDecisionGate Hard Kills
+- The book-wide average can move the estimate, but it **cannot by itself authorise a refusal** (7174). Otherwise one bad run would refuse every future candidate in every lane.
+- **Recorded-fact safety refusal.** A serial-rugger creator (a recorded count in the rug ledger) or a tier-B risk read gives `REFUSE` with `hardSafety7287 = true`. This bypasses the confidence gate and is honoured in every tier.
+- **Cold start.** When no level has evidence, the current candidate is judged on its own. It is admitted only if its probability is above 0.5, quality and phase are not weak, the policy head agrees, and the brain delta is at least −5.
+- **Degeneracy.** `LearnedPolicyDegeneracyWatch7102` watches the raw verdict stream. An estimator whose output has collapsed to one answer is flagged non-binding until the raw stream discriminates again.
+- **Runner-friendly by construction.** Expectancy is mean PnL, so a fat-tailed lane with a low win rate and a positive mean scores *higher*.
 
-```kotlin
-object FinalDecisionGate {
-    
-    fun evaluate(decision: PreliminaryDecision): FDGDecision {
-        
-        // 1. COPY_TRADE - completely banned
-        if (decision.entryMode == "COPY_TRADE") {
-            return FDGDecision.HARD_KILL("COPY_TRADE_BANNED")
-        }
-        
-        // 2. Confidence floor - garbage
-        if (decision.confidence < 30) {
-            return FDGDecision.HARD_KILL("CONFIDENCE_FLOOR_30%")
-        }
-        
-        // 3. C-grade + low confidence
-        if (decision.quality == "C" && decision.confidence < 35) {
-            return FDGDecision.HARD_KILL("C_GRADE_CONFIDENCE_FLOOR_35%")
-        }
-        
-        // 4. AI degraded + low confidence
-        if (decision.aiDegraded && decision.confidence < 40) {
-            return FDGDecision.HARD_KILL("AI_DEGRADED_CONFIDENCE_FLOOR_40%")
-        }
-        
-        // 5. Toxic flag accumulation (Kris Rule)
-        if (decision.toxicFlags >= 3) {
-            return FDGDecision.HARD_KILL("TOXIC_FLAG_THRESHOLD_3+")
-        }
-        
-        return FDGDecision.APPROVE(decision)
-    }
-}
+### 3.4 Edge proof: the oracle earns its authority
+
+File: `engine/truth/OracleEdgeProof7263.kt`. Every forecast is stamped per mint with its verdict, pWin and time. When the finalized bus publishes a close for that mint within 6 h of the stamp, the forecast is scored into the ADMIT or REFUSE pile (count, wins, sum of returns, sum of squared errors). While ADVISORY, REFUSEs still trade; that is how the REFUSE pile fills with real outcomes.
+
+**PROVEN** requires all of the following at once:
+
+| Condition | Threshold |
+|---|---|
+| ADMIT closes | ≥ 20 |
+| REFUSE closes | ≥ 10 |
+| ADMIT mean return | > 0 (net of cost) |
+| ADMIT mean − REFUSE mean | ≥ 2 percentage points |
+| ADMIT win rate | ≥ REFUSE win rate |
+| ADMIT Brier score, `mean((pWin − 1{win})²)` | ≤ 0.25 |
+
+When the tier is PROVEN and the estimator is not degenerate, `LearnedAdmissionAuthority6846` makes the oracle's verdict the admission decision in paper and live alike: ADMIT trades at the requested size (`ORACLE_PROVEN_ADMIT_7287`) and REFUSE does not trade (`ORACLE_PROVEN_REFUSE_7287`). The tier is recomputed on every scored close and demotes itself as soon as any condition fails. Tallies and live stamps persist in SharedPreferences (`aate_oracle_edge_proof_7287`), so the proof accumulates across restarts (7287).
+
+### 3.5 Learned admission while ADVISORY
+
+Order inside `LearnedAdmissionAuthority6846.evaluate`:
+
+1. oracle hard-safety REFUSE → DENY;
+2. policy head HARD_BLOCK → DENY;
+3. proven, non-degenerate oracle → its verdict;
+4. otherwise the evidence rules. Cohorts need at least 8 terminal closes before they can deny (`MATURITY_MIN_N = 8`). A DUMP regime with a mature negative cohort is denied. Proven-dead cohorts, source-family suspicion and capital-target overshoot come after that.
+
+"No evidence yet" is never a refusal.
+
+## 4. Sizing
+
+1. `engine/SmartSizer.kt` produces the base size. Lane, learner and streak multipliers shape it.
+2. `Executor.realisticEntrySize6867` applies the same policy in both modes: wallet-percent floor and cap, liquidity-impact cap, spendable and reserve limits. Since 7280 the binding per-mint cap is stamped and also bounds the paper ticket.
+3. `engine/truth/FeeAwareSizeFloor7277.kt`: `floor = ceil_lamports(0.00161 SOL / 0.015)` ≈ **0.107 SOL**. Rounding up to a whole lamport (7281) fixed a 3×10⁻¹² comparison that had been rolling back every ticket promoted to the floor.
+4. `engine/truth/LaunchChase7280.kt`: `entryMultiple ≥ 3.0` over the create price within 180 s of the create sets the size to the floor.
+5. Cost-edge gate: forecast edge must exceed modeled cost × 1.15 (`COST_EDGE_MARGIN_7162`).
+
+## 5. Paper fee model (`engine/truth/PaperVenueCost7287.kt`)
+
+The venue is classified per mint. A pump mint with reported liquidity under $15k is `BONDING_CURVE`; a graduated pump mint is `PUMPSWAP`; anything else is `AMM`.
+
+| Venue | Venue fee per side |
+|---|---|
+| pump.fun bonding curve | 1.25% |
+| PumpSwap | 0.25% + creator fee by market cap: 0.95% (< $300k), 0.50% (< $1M), 0.20% (< $20M), 0.05% (≥ $20M) |
+| AMM (Raydium / Meteora etc.) | 0.25% |
+
+```
+fixed per side   = 0.000805 SOL                         (priority + tip + base)
+depthSol         = (liquidityUsd / 2) / solUsd           (SOL side of the pool)
+depthSol(curve)  = max(depthSol, 30 virtual SOL)
+impact%          = clip / (depthSol + clip) × 100,  capped at 15%   (2% if depth unknown)
+app fee          = 0.5% per side (Executor.MEME_TRADING_FEE_PERCENT; 1% for leverage)
 ```
 
----
+A curve round trip costs about 5–6% and a graduated pool 2–3%. The fixed leg matches `FeeAwareSizeFloor7277`, so the sizer and the ledger agree. The model before 7287 double-charged fee and slippage (about 12–20% per round trip), so paper results from earlier builds are not comparable.
 
-## DATA PERSISTENCE
+## 6. Exit mechanics
 
-### TradeHistoryStore
+- **Sliding profit lock** (`engine/PeakDrawdownLock.kt`, 7282). Allowed give-back as a fraction of the peak gain, interpolated linearly:
 
-```kotlin
-object TradeHistoryStore {
-    private const val PREFS_NAME = "trade_history_store"
-    private const val KEY_TRADES = "trades_json"
-    private const val MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000L  // 7 days
-    
-    private var prefs: SharedPreferences? = null
-    private val trades = mutableListOf<Trade>()
-    
-    fun init(ctx: Context) {
-        prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        loadTrades()
-        cleanupOldTrades()
-    }
-    
-    fun recordTrade(trade: Trade) {
-        trades.add(trade)
-        saveTrades()  // Immediate commit() for persistence
-    }
-    
-    private fun saveTrades() {
-        val arr = JSONArray()
-        trades.forEach { t ->
-            arr.put(JSONObject().apply {
-                put("ts", t.ts)
-                put("side", t.side)
-                put("sol", t.sol)
-                put("price", t.price)
-                put("pnlSol", t.pnlSol)
-                put("pnlPct", t.pnlPct)
-                put("mint", t.mint)
-                // ... more fields
-            })
-        }
-        prefs?.edit()?.putString(KEY_TRADES, arr.toString())?.commit()
-    }
-}
+  | Peak | < +50% | +100% | +300% | +1,000% | ≥ +3,000% |
+  |---|---|---|---|---|---|
+  | give-back | 0.40 | 0.30 | 0.18 | 0.12 | 0.08 (floor) |
+
+  Example: a +1,408% peak now locks at about +1,251% instead of +478%. A lane-learned multiplier (`FluidLearningAI.exitBandMultiplier7267`) may narrow the band but never above 0.40. The same curve drives the 1 Hz tick lock and the give-back stop.
+- **Runner profiles** (`engine/RunnerExitProfile7277.kt`). On runner lanes, give-back locks arm only after a +50% peak. Take-profit is never tuned below neutral (`TP_MULT_FLOOR = 1.0`). A position at −20% within 120 s is cut on the first strike.
+- **Trailing stops** (`engine/TrailingStopManager.kt`) widen with profit and volatility and tighten with age.
+- **Learned exits.** `engine/UnifiedExitPolicyHead.kt` is a per-lane exit-now-or-hold head over six features (pnl, peak pnl, normalised age, momentum, liquidity erosion and others), with Brier-calibrated authority tiers. `engine/learning/LaneExitTuner.kt` tunes each lane's take-profit and stop-loss ladder from realised outcomes.
+- **Floors.** The tick hard floor is −10% (`BotService.TICK_HARD_FLOOR_PCT`). The lane hard floor is −15% (−9% for fresh memes) in `engine/Executor.kt`. The universal SL sweep is a backstop across all lanes.
+- **LLM exit advice** (live only, gain ≥ 15%). An `IMMEDIATE` verdict at confidence ≥ 70 exits. `SOON` at confidence ≥ 80 with gain ≥ 30% exits. Symbolic-patience logic can veto either.
+
+## 7. Execution path
+
+```
+Executor ── Jupiter quote/swap (network/JupiterApi.kt)
+        └─ sign on device (ed25519, network/SolanaWallet.kt)
+           ├─ 1. Helius Sender  (network/HeliusSender.kt; tip transfer added by HeliusSenderEnvelope7250)
+           ├─ 2. Jito bundle    (JitoMEVProtection, tip from network/JitoTipFetcher.kt) — if enabled
+           └─ 3. RPC ladder     (Helius first, then public RPCs; RuntimeProviderAuthority6685)
+pump.fun sell fallback ── PumpPortal trade-local (network/PumpFunDirectApi.kt), after Jupiter escalation fails
 ```
 
-### Shadow Learning Engine
+After a live sell, the balance-proof path confirms the result from the wallet before finality (`engine/sell/BalanceProof.kt`, `engine/sell/TxMetaSellFinalizer.kt`). A signed transaction that Helius Sender misses rotates to Jito or RPC, never back to a fresh Jupiter build.
 
-```kotlin
-object ShadowLearningEngine {
-    private val shadowTrades = ConcurrentHashMap<String, ShadowTrade>()
-    
-    data class ShadowTrade(
-        val mint: String,
-        val entryPrice: Double,
-        val entryTime: Long,
-        val scoreCard: ScoreCard,
-        val confidence: Double,
-        val blockReason: String
-    )
-    
-    fun onFdgBlockedTrade(
-        candidate: CandidateSnapshot,
-        scoreCard: ScoreCard,
-        confidence: Double,
-        reason: String
-    ) {
-        // Shadow-track the blocked trade
-        shadowTrades[candidate.mint] = ShadowTrade(
-            mint = candidate.mint,
-            entryPrice = candidate.price,
-            entryTime = System.currentTimeMillis(),
-            scoreCard = scoreCard,
-            confidence = confidence,
-            blockReason = reason
-        )
-    }
-    
-    fun evaluateShadowOutcome(mint: String, currentPrice: Double) {
-        val shadow = shadowTrades[mint] ?: return
-        val pnlPct = ((currentPrice - shadow.entryPrice) / shadow.entryPrice) * 100
-        
-        // Would this blocked trade have won?
-        val wouldHaveWon = pnlPct > 10  // 10% threshold for "win"
-        
-        // Feed back to AI calibration
-        MetaCognitionAI.recordShadowOutcome(
-            scoreCard = shadow.scoreCard,
-            wouldHaveWon = wouldHaveWon,
-            actualPnlPct = pnlPct
-        )
-    }
-}
-```
+## 8. Resilience
 
----
+| Mechanism | Where | Behaviour |
+|---|---|---|
+| RPC ladder | `engine/RuntimeProviderAuthority6685.kt` | Authenticated Helius first, then the saved RPC and public RPCs, de-duplicated |
+| Per-rung backoff | `network/ParallelMarkFanout7088.kt` | Six-rung curve-read ladder; a rung in backoff is skipped without a request (7281) |
+| Parallel marks | `network/ParallelMarkFanout7088.kt` | All feeds queried at once; agreement wins |
+| Host circuits | `network/HostCircuitInterceptor.kt` | Provider-wide circuit and quota hard-stop on the shared HTTP client |
+| Supervised mark loop | `BotService.superviseOpenPositionTickLoop7283` | Stall (≥ 30 s in flight, matched by sequence since 7288) or dead job: record phase and frames, cancel, relaunch as a new generation (at most once per 60 s) |
+| Off-loop sells | `BotService.requestSellOffLoop7288` | Tick sells run on the IO pool, one per mint, retryable after 60 s |
+| Single-flight sweeps | exit coordinator | Pending flags coalesce requests; durations are measured in `ExitSweepTiming7264` |
+| ANR watchdog | `engine/PipelineHealthCollector.kt` | Pings the main thread every 250 ms and samples its stack while it is still blocked |
+| LLM isolation | `AsyncGeminiNarrativeCache6478`, `AsyncGeminiExitAdviceCache6479` | Background fetch with a cache; the hot path never waits on a provider |
 
-## EXTERNAL INTEGRATIONS
+## 9. CI validator suite
 
-### Jupiter V2 (Swap Execution)
+`.github/workflows/build.yml` runs 16 Python validators from `ci/` before Gradle. Each one is a hard failure.
 
-```kotlin
-object JupiterClient {
-    private const val BASE_URL = "https://quote-api.jup.ag/v6"
-    
-    suspend fun getQuote(
-        inputMint: String,
-        outputMint: String,
-        amount: Long,
-        slippageBps: Int = 100
-    ): QuoteResponse {
-        return api.getQuote(
-            inputMint = inputMint,
-            outputMint = outputMint,
-            amount = amount,
-            slippageBps = slippageBps,
-            onlyDirectRoutes = false,
-            asLegacyTransaction = false
-        )
-    }
-    
-    suspend fun executeSwap(
-        quote: QuoteResponse,
-        userPublicKey: String
-    ): SwapResult {
-        val swapRequest = SwapRequest(
-            quoteResponse = quote,
-            userPublicKey = userPublicKey,
-            wrapAndUnwrapSol = true,
-            computeUnitPriceMicroLamports = "auto"
-        )
-        return api.swap(swapRequest)
-    }
-}
-```
+| # | Validator | Enforces |
+|---|---|---|
+| 1 | `ci/comment_balance.py` | Nested Kotlin block comments are balanced (a `/*` inside KDoc opens a new level) |
+| 2 | `ci/golden_tape_literal_scan.py` | Assertions in the golden-tape test use literals that compile and search the intended string |
+| 3 | `ci/authority_contradiction_scan.py` | An entry lane keeps one identity from creation → FDG → authorizer → executor → position/journal, including failure paths |
+| 4 | `ci/patch_rot_scan.py` | One canonical writer per economic mutation domain; retired patches stay at zero references |
+| 5 | `ci/economic_units_scan.py` | Unit discipline (for example no USD divided by SOL, no omitted divisors in proceeds) |
+| 6 | `ci/res_validate.py` | Android resources: well-formed XML, no duplicate names, valid gradients (fails in seconds rather than after a 14-minute Gradle run) |
+| 7 | `ci/layout_contract.py` | Every `R.id` a Kotlin screen binds exists in its inflated layout |
+| 8 | `ci/palette_drift.py` | One palette: code constants may not drift from `app/src/main/res/values/colors.xml` |
+| 9 | `ci/static_call_check.py` | `Name.method()` only where `Name` is an `object`, not a `class` (diff-scoped) |
+| 10 | `ci/return_telemetry_check.py` | A "this returned or refused" counter is emitted only on a path that actually returns (diff-scoped) |
+| 11 | `ci/new_dead_code.py` | New declarations must have a caller (diff-scoped) |
+| 12 | `ci/qualified_reference_check.py` | Every fully-qualified `com.lifecyclebot.*` reference resolves |
+| 13 | `ci/kotlin_expression_body_return.py` | No `return` inside an expression-body function |
+| 14 | `ci/lane_identity_authority_scan.py` | No second copy of the lane alias table |
+| 15 | `ci/kotlin_local_function_modifiers.py` | No visibility modifiers on local functions |
+| 16 | `ci/kotlin_val_assignment.py` | No reassignment of `val` properties |
 
-### DexScreener (Market Data)
+After the gates come `./gradlew assembleRelease` (R8 minification on) and the unit suite. `.github/workflows/runtime-test.yml` boots an emulator and runs `ci/runtime-test.sh` from the repository root as a runtime smoke test.
 
-```kotlin
-object DexScreenerClient {
-    suspend fun getTokenProfile(mint: String): TokenProfile? {
-        return api.getTokenProfile(mint)
-    }
-    
-    suspend fun searchTokens(query: String): List<TokenSearchResult> {
-        return api.searchTokens(query)
-    }
-}
-```
+## 10. Testing
 
-### Birdeye (Enhanced Analytics)
+- **2,699 `@Test` cases** in 339 files under `app/src/test/` (≈47,000 lines), all pure JVM.
+- **Golden-tape regression tests.** `app/src/test/kotlin/com/lifecyclebot/engine/GoldenTapeRegressionTest.kt` holds 649 tests that pin behavioural contracts. Examples: an unknown or pending safety state reduces size but never blacklists; a live buy waits for authoritative balance proof; `V5_0_7259_oracle_admit_is_required_for_every_canonical_entry`; `V5_0_7263_oracle_is_advisory_until_edge_is_proven_on_closes`. `app/src/test/kotlin/com/lifecyclebot/engine/Directive6344Through6348GoldenTapeTest.kt` sits beside it.
+- **Honest caveat.** In CI the unit suite runs with `continue-on-error: true`. Some legacy source-layout tests still assert pre-refactor file placement, so test results are uploaded and reviewed but do not block the APK. The 16 static validators are the hard gates.
 
-```kotlin
-object BirdeyeClient {
-    suspend fun getTokenOverview(mint: String): TokenOverview? {
-        return api.getTokenOverview(mint, apiKey)
-    }
-    
-    suspend fun getOHLCV(mint: String, interval: String): List<Candle> {
-        return api.getOHLCV(mint, interval, apiKey)
-    }
-}
-```
+## 11. Security
 
----
+- **Keys** are stored in `EncryptedSharedPreferences` (AES-256-GCM values, AES-256-SIV keys, `MasterKey` in the Android Keystore): `data/BotConfig.kt`, `engine/TreasuryManager.kt`, `engine/MultiChainWalletVault6546.kt` (ETH, BSC and BTC recovery vault). Transactions are signed on the device (`network/SolanaWallet.kt`). The collective database schema (`collective/CollectiveSchema.kt`) has no key-material tables.
+- **Biometric lock**: `ui/SecurityActivity.kt` (BIOMETRIC_STRONG).
+- **App hardening**: `android:allowBackup="false"`, a network security config, and R8 minification with ProGuard rules on release.
+- **Live guards**: `LiveSafetyCircuitBreaker` (0.10 SOL minimum, 10% session drawdown halt), live preflight (`engine/truth/LivePreflight7222.kt`), freeze-authority hard block, and stocks and forex quarantined in live.
 
-## PERFORMANCE CHARACTERISTICS
+## 12. Measured evidence (PAPER)
 
-### Resource Usage
+**PAPER run, 5.0.7288, 24 Sep 2026, about 11.5 minutes, 79 closed trades.** Equity went from about 10 to 31.34 SOL. Realized PnL was +20.52 SOL after 0.89 SOL of fees. Profit factor 7.59; per-position win rate 52.6%. The crypto spot lane made +7.85 SOL and the Project Sniper lane +4.86 SOL. The mark loop ran 469 ticks in 687 s, with 29 of 30 positions fresh and 0 stale resets. Groq LLM calls succeeded 100 of 100 times.
 
-| Metric | Target | Measured |
-|--------|--------|----------|
-| Memory | < 256MB | ~180MB |
-| CPU (idle) | < 5% | ~3% |
-| CPU (scanning) | < 20% | ~15% |
-| Battery | < 10%/hr | ~8%/hr |
-| Network | < 1MB/min | ~500KB/min |
+This is one short paper session with a small sample. Paper is not live, and it is not evidence of live returns.
 
-### Latency
+## 13. Honest roadmap
 
-| Operation | Target | P50 | P99 |
-|-----------|--------|-----|-----|
-| Market scan | < 5s | 2.1s | 4.8s |
-| AI scoring | < 500ms | 180ms | 420ms |
-| Trade execution | < 3s | 1.2s | 2.8s |
+1. Sustained paper profitability.
+2. A small live calibration run to verify real fills and fees against paper.
+3. Expand live lanes one at a time.
+4. Oracle reaches PROVEN and guides admission.
+5. iOS and web monitoring later.
 
-### Throughput
-
-- Token evaluations: ~200/minute
-- Trades executed: Up to 50/hour (rate limited)
-- Shadow trades tracked: Unlimited
-
----
-
-## BUILD & DEPLOYMENT
-
-### Build System
-
-```groovy
-// build.gradle.kts
-android {
-    namespace = "com.lifecyclebot"
-    compileSdk = 34
-    
-    defaultConfig {
-        applicationId = "com.lifecyclebot"
-        minSdk = 26
-        targetSdk = 34
-        versionCode = 320
-        versionName = "3.2.0"
-    }
-}
-```
-
-### GitHub Actions CI
-
-```yaml
-name: Build APK
-on: [push, pull_request]
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-      - name: Build APK
-        run: ./gradlew assembleRelease
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: AATE_v3.2.0.apk
-          path: app/build/outputs/apk/release/*.apk
-```
-
----
-
-## APPENDIX: CODE STATISTICS
-
-| Category | Files | Lines |
-|----------|-------|-------|
-| **Engine** | 45 | 38,000 |
-| **AI Layers** | 21 | 15,000 |
-| **UI** | 18 | 12,000 |
-| **Data** | 12 | 8,000 |
-| **Utils** | 25 | 10,000 |
-| **V3 Core** | 15 | 12,000 |
-| **Tests** | 8 | 3,000 |
-| **Total** | 144 | **98,000+** |
-
----
-
-*Document version: 3.2.0 | Last updated: December 2025*
+The stated goal is $50 → $1,000,000. That is a goal, not a result.

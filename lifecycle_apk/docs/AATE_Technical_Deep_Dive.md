@@ -1,261 +1,173 @@
-# AATE — Technical Deep Dive
+# AATE: A Trading Engine That Has to Prove Itself
 
-## Executive Summary
+**AATE — Autonomous Algorithmic Trading Engine** · 5.0.7288 · September 2026
 
-AATE (Autonomous Algorithmic Trading Engine) represents a breakthrough in algorithmic trading architecture. Built as a native Android application in Kotlin, it features a 12-layer AI consensus mechanism that processes market data through multiple specialized neural-inspired subsystems before making any trading decision.
+AATE is a native Android app that runs a complete autonomous trading engine on the phone. Scanning, safety checks, scoring, admission, sizing, execution, exits and learning all happen on the device. It trades Solana first. One developer built it in six months, from a phone, with no team and no big budget, and GitHub Actions compiles it.
+
+The Telegram and web bots in this space (Photon, BullX, Trojan, GMGN, Banana Gun, BonkBot) execute the user's clicks. AATE makes its own decisions, which puts a higher bar on it: it has to show its decisions are better than chance before it is allowed to act on them. This piece explains how.
+
+> Trading crypto is high risk. Paper results are not live results. Nothing here is financial advice.
 
 ---
 
-## Architecture Overview
+## 1. The numbers
 
-### The 12-Layer AI Consensus System
+| | |
+|---|---|
+| Production Kotlin | 1,200 files, ≈457,000 lines |
+| Tests | 2,699 `@Test` cases in 339 files |
+| CI static validators | 16, all hard gates before Gradle |
+| Traders in one engine | 16 (meme lanes, crypto alts, tokenized stocks, commodities, metals, forex, perps, shadow paper) |
+| Screens | 22 Activities |
 
-Unlike traditional single-indicator trading bots, AATE implements a **consensus-based decision framework** where all 12 AI layers must agree before any trade executes.
+## 2. One service, many supervised loops
+
+Everything runs inside one foreground service, `BotService`. Its work is split across coroutines on separate dispatchers:
+
+- the **bot loop** (scan → score → gate → buy) on its own single-thread dispatcher;
+- a **1 Hz mark loop** that prices every open position and runs the fast exits;
+- a **supervisor** that relaunches the mark loop when an iteration has been in flight for 30 s or more. Since 5.0.7288 a stall is detected by matching start and end sequence numbers rather than by clock gaps;
+- an **exit coordinator** running full exit sweeps plus a universal stop-loss sweep across every lane;
+- **off-loop sells**: since 5.0.7288, sells triggered by the mark loop run on the IO pool, one per mint. A hung sell can no longer freeze pricing for the rest of the book.
+
+That last change came from a device log. On 5.0.7287 the mark loop called a sell synchronously, the sell never returned, 57 of 61 positions went stale, and no exit could fire on a stale mark. The fix was to take the sell off the loop.
+
+## 3. The decision pipeline
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                     FINAL DECISION GATE (Layer 12)                      │
-│              Unanimous consensus required for execution                  │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐   │
-│  │ AICrossTalk │  │ LiquidityAI │  │ TimeOptAI   │  │ NarrativeAI │   │
-│  │   Layer 11  │  │   Layer 10  │  │   Layer 9   │  │   Layer 8   │   │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘   │
-│                                                                         │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐   │
-│  │ MomentumAI  │  │ RegimeAI    │  │ WhaleAI     │  │ ExitAI      │   │
-│  │   Layer 7   │  │   Layer 6   │  │   Layer 5   │  │   Layer 4   │   │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘   │
-│                                                                         │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐   │
-│  │ EntryAI     │  │ BehaviorAI  │  │ EdgeAI      │  │ Foundation  │   │
-│  │   Layer 3   │  │   Layer 2   │  │   Layer 1   │  │   Layer 0   │   │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘   │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
+candidate → HardRugPreFilter → TokenSafetyChecker (SAFE/CAUTION/HARD_BLOCK)
+          → lane scoring AI → FinalDecisionGate
+          → PredictiveEntryOracle6915 (ADMIT / REFUSE)
+          → LearnedAdmissionAuthority6846 → ExecutableEntryAuthority6450
+          → sizing (realistic cap, fee-aware floor, launch-chase cap)
+          → Executor → CanonicalPositionAuthority6441
 ```
 
-### Layer Descriptions
+Every stage can refuse, and every refusal is counted by reason on the in-app Pipeline Health screen.
 
-#### Foundation Layer (Layer 0)
-- EMA Fan Analysis (5, 10, 21, 50, 100, 200)
-- Volume Profile Detection
-- Buy/Sell Pressure Calculation
-- RSI, MACD, Bollinger Bands
-- ATR-based Volatility
+## 4. The oracle
 
-#### Layer 1: EdgeLearning
-Dynamic threshold optimization based on recent performance. Tightens thresholds during losing streaks, loosens during winning streaks.
+The core question is simple: **is the expected value of this trade, net of cost, positive?**
 
-#### Layer 2: BehaviorLearning
-Pattern memory system. Records every market pattern and its outcome. Builds statistical edge over thousands of observations.
-
-#### Layer 3: EntryIntelligence
-Neural-inspired entry scoring. Weights multiple indicators based on learned effectiveness. Continuously adjusts weights.
-
-#### Layer 4: ExitIntelligence
-Optimal exit timing engine. Learns best exit triggers (trailing stops, time exits, profit targets) from historical outcomes.
-
-#### Layer 5: WhaleTrackerAI
-Smart money detection. Tracks large wallet movements and correlates with price action.
-
-#### Layer 6: MarketRegimeAI
-Market condition classifier. Detects Bull, Bear, or Crab (sideways) conditions. Adjusts all other layers accordingly.
-
-#### Layer 7: MomentumPredictorAI
-Pump probability scoring. Uses volume surge detection and price acceleration patterns.
-
-#### Layer 8: NarrativeDetectorAI
-Trend theme detection. Identifies trending narratives (AI, DeSci, GameFi) and boosts matching tokens.
-
-#### Layer 9: TimeOptimizationAI
-Optimal trading hour analysis. Learns which times produce best outcomes for each token type.
-
-#### Layer 10: LiquidityDepthAI
-Real-time liquidity monitoring. Detects LP changes, whale accumulation/distribution.
-
-#### Layer 11: AICrossTalk
-Inter-layer arbitration. Resolves conflicts between layers and produces final confidence score.
-
-#### Layer 12: FinalDecisionGate
-The gatekeeper. Requires all 11 layers to pass their thresholds before allowing execution.
-
----
-
-## 18 Trading Modes
-
-| Mode | Strategy | Optimal Condition |
-|------|----------|-------------------|
-| PUMP_SNIPER | Ultra-fast entry on new launches | Fresh pump.fun tokens |
-| MOMENTUM_RIDE | Trend following with trailing stops | Confirmed pumps |
-| WHALE_FOLLOW | Copy smart money movements | Whale-detected tokens |
-| SCALP_QUICK | Fast in-out on micro-moves | High volatility |
-| RANGE_BOUND | Buy support, sell resistance | Consolidation |
-| RECOVERY_MODE | Average down on quality dips | Oversold conditions |
-| COPY_TRADE | Mirror tracked wallets | Alpha wallet activity |
-| DIAMOND_HANDS | Extended holds on conviction | High-belief tokens |
-| SNIPE_GRADUATE | Catch pump→Raydium migrations | Bonding curve graduates |
-| NARRATIVE_PLAY | Theme-based entries | Trending narratives |
-| BLUE_CHIP | Conservative, larger caps | Lower-risk preference |
-| SCALP_MICRO | Tiny position rapid trades | Learning phase |
-| DIP_HUNTER | Catch oversold bounces | Panic sell events |
-| BREAKOUT | Entry on range breaks | Technical setups |
-| MEAN_REVERT | Fade extreme moves | Overextended tokens |
-| NEWS_TRADE | React to sentiment spikes | Social catalysts |
-| GRID_TRADE | Automated grid orders | Ranging markets |
-| DEFENSIVE | Capital preservation | Losing streaks |
-
----
-
-## Self-Learning Systems
-
-### 1. EdgeLearning
-```kotlin
-// Simplified logic
-if (recentWinRate > 0.65) {
-    looseThresholds()  // Take more trades
-} else if (recentWinRate < 0.40) {
-    tightenThresholds()  // Be more selective
-}
-```
-
-### 2. BehaviorLearning
-Stores pattern fingerprints with outcomes:
-- EMA alignment state
-- Volume profile classification
-- Liquidity depth category
-- Time of day bucket
-- Result: WIN / LOSS / BREAKEVEN
-
-### 3. EntryIntelligence
-Weighted scoring with learned weights:
-```
-Score = Σ(indicator_i × weight_i) / Σ(weight_i)
-```
-Weights adjust based on indicator predictive accuracy.
-
-### 4. ExitIntelligence
-Tracks profitability by exit type:
-- Trailing stop hit
-- Take profit target
-- Time-based exit
-- Stop loss hit
-- Manual exit
-
-Learns optimal parameters for each.
-
-### 5. ModeLearning
-Performance tracking by mode and market condition:
-```
-PUMP_SNIPER + BULL_MARKET = 72% win rate
-PUMP_SNIPER + BEAR_MARKET = 31% win rate
-→ Auto-suggest: Use DEFENSIVE in bear markets
-```
-
-### 6. CollectiveLearning (Turso)
-Privacy-preserving shared intelligence:
-- Anonymous pattern outcomes
-- Crowdsourced rug/honeypot blacklist
-- Mode effectiveness by market condition
-- Whale wallet quality ratings
-
----
-
-## Security Architecture
-
-### Encryption Layers
-1. **Wallet Keys**: AES-256 via EncryptedSharedPreferences
-2. **API Keys**: Android Hardware Keystore
-3. **Network**: DNS-over-HTTPS for sensitive endpoints
-4. **Transactions**: Jito MEV bundle protection
-
-### Anti-Rug Protection
-- RugCheck.xyz integration
-- Dev wallet monitoring (auto-exit on dev dumps)
-- Liquidity depth alerts
-- Top holder concentration analysis
-- Freeze authority detection
-
-### Risk Controls
-- Circuit breaker (pause after N losses)
-- Kill switch (emergency halt)
-- Wallet reserve (never trade below minimum)
-- Position limits (max % exposure)
-- Daily loss cap
-
----
-
-## Performance Characteristics
-
-| Metric | Value |
-|--------|-------|
-| Decision Loop Latency | < 100ms |
-| Memory Usage | ~80MB typical |
-| Battery Impact | Optimized (partial wake locks) |
-| Network Calls/Minute | 10-30 (rate limited) |
-
----
-
-## Technology Stack
-
-- **Language**: Kotlin 1.9+
-- **Platform**: Android SDK 26+ (Android 8.0+)
-- **Networking**: OkHttp, Ktor Client
-- **Serialization**: Kotlinx.serialization
-- **Concurrency**: Coroutines, Flow
-- **Storage**: SharedPreferences, Room (planned)
-- **Remote DB**: Turso (LibSQL)
-- **CI/CD**: GitHub Actions
-
----
-
-## File Structure
+The difficulty is that evidence is thin where it matters. A lane × score band × regime grid has hundreds of cells and a young journal has a few hundred closes. Lowering thresholds would only make the bot confident on n = 1. The oracle uses empirical-Bayes shrinkage instead:
 
 ```
-app/src/main/kotlin/com/lifecyclebot/
-├── AATEApp.kt                 # Application entry
-├── collective/                # Turso sync
-│   ├── CollectiveLearning.kt
-│   ├── CollectiveSchema.kt
-│   └── TursoClient.kt
-├── data/                      # Models & config
-│   ├── BotConfig.kt
-│   ├── Models.kt
-│   └── BotStatus.kt
-├── engine/                    # Core trading
-│   ├── BotService.kt          # Main service
-│   ├── Executor.kt            # Trade execution
-│   ├── FinalDecisionGate.kt   # Consensus gate
-│   ├── ModeRouter.kt          # Mode selection
-│   ├── EntryIntelligence.kt   # Entry AI
-│   ├── ExitIntelligence.kt    # Exit AI
-│   ├── EdgeLearning.kt        # Threshold AI
-│   ├── BehaviorLearning.kt    # Pattern memory
-│   └── [50+ more files]
-├── network/                   # API clients
-│   ├── JupiterApi.kt
-│   ├── SolanaWallet.kt
-│   └── DexscreenerApi.kt
-└── ui/                        # Android UI
-    ├── MainActivity.kt
-    └── [10 activities]
+w = n / (n + 6)
+E = Σ w·μ / Σ w      over { cell (lane × score bucket), lane, whole book }
 ```
 
+An empty cell falls back to its lane, and an empty lane falls back to the book. Lane and book statistics come from the **full trade journal**, up to 5,000 terminal closes, whenever it holds more evidence than the session learner. A restart therefore does not wipe what the oracle knows.
+
+Bounded votes from the learned stack are then added: the per-lane policy head, meta-policy conviction, the pattern graph, source-family expectancy and the SSI council. The total is capped at ±25 percentage points, with a further ±18 for a "brain network" tier.
+
+The verdict is binary:
+
+- **ADMIT** if expectancy is positive, is not strongly negative with candidate-specific evidence, and a calibrated policy head does not predict a loss;
+- **REFUSE** otherwise.
+
+There are no "probe" trades. At the fee floor the fixed network cost alone is about 1.5% of a ticket, so a quarter-size probe pays roughly four times the cost share for the same information.
+
+Two further rules:
+
+- The book-wide average cannot authorise a refusal on its own. Otherwise one bad run would refuse every future candidate and prevent the trades that could change the average.
+- Recorded facts, such as a creator wallet with repeated rugs, refuse regardless of confidence. A fact does not become truer with a bigger sample.
+
+## 5. The oracle has to earn its authority
+
+A forecaster whose yes-pile and no-pile settle the same has no edge, however confident its numbers look. So the oracle starts **ADVISORY**. While it is advisory, its REFUSEs still trade. That is deliberate: it is the only way to learn what a refusal would have settled at.
+
+Every forecast is stamped and later graded against its close. It becomes **PROVEN** only when all of these hold:
+
+| Condition | Bar |
+|---|---|
+| ADMIT closes | ≥ 20 |
+| REFUSE closes | ≥ 10 |
+| ADMIT mean return | > 0 |
+| ADMIT mean − REFUSE mean | ≥ 2 pp |
+| ADMIT win rate | ≥ REFUSE win rate |
+| ADMIT Brier score | ≤ 0.25 |
+
+Once PROVEN, its verdict *is* the admission decision in paper and live: ADMIT trades and REFUSE does not. The tier is recomputed on every graded close and demotes itself when the edge fades. Since 5.0.7287 the proof persists across restarts.
+
+## 6. Paper that pays real costs
+
+Paper trading is only useful if it costs what live costs. Since 5.0.7287 every paper fill is charged by venue:
+
+| Venue | Fee per side |
+|---|---|
+| pump.fun bonding curve | 1.25% |
+| PumpSwap | 0.25% + creator fee tier (0.95% under $300k market cap, down to 0.05% above $20M) |
+| AMM pools | 0.25% |
+| Network (priority + tip + base) | 0.000805 SOL fixed |
+| AATE app fee | 0.5% |
+
+Price impact is modelled as `clip / (depth + clip)`, with a floor of 30 virtual SOL of depth on a bonding curve and a 15% cap. A curve round trip costs about 5–6% and a graduated pool 2–3%. The sizer uses the same fixed-cost number, so its minimum order (≈0.107 SOL, the size at which the fixed round trip is 1.5% of the ticket) matches what the ledger charges.
+
+## 7. Exits: we don't cap wins
+
+The profit lock **slides up with the peak**. The share of the peak gain it may give back shrinks as the peak grows:
+
+| Peak | < +50% | +100% | +300% | +1,000% | ≥ +3,000% |
+|---|---|---|---|---|---|
+| Max give-back | 40% | 30% | 18% | 12% | 8% |
+
+On a +1,408% runner, the lock now sits near +1,251%. Under the previous curve it was +478%.
+
+Tail-hunting lanes (moonshot, sniper, express and similar) use a runner profile. Locks do not arm until a +50% peak. Take-profit is never tuned below neutral. A launch that is −20% inside two minutes is cut on the first strike, because it did not launch.
+
+Protective exits: a −10% hard floor checked every second, a lane hard floor of −15% in the sweep path, adaptive trailing stops, a learned per-lane exit head, and a universal stop-loss sweep.
+
+## 8. Execution
+
+Swaps are built with Jupiter and signed on the device. Submission order:
+
+1. Helius Sender (SWQOS), with a tip transfer added to the message;
+2. Jito bundle for MEV protection, with a dynamic tip;
+3. the RPC ladder, with the authenticated Helius endpoint ahead of public nodes.
+
+For pump.fun sells that Jupiter cannot route, PumpPortal's `trade-local` builds the transaction. Bonding-curve prices are read directly from curve accounts in batched calls over a six-rung RPC ladder, and a rung in backoff is skipped without a request.
+
+## 9. One authority per fact
+
+Most bugs in a trading engine are accounting bugs: two stores disagree about how much cash exists. AATE's rule is one writer per economic fact.
+
+- The **position authority** is the only position store. Every mutation runs under one lock with an idempotency key.
+- The **capital authority** is the only capital view. It checks a conservation invariant on every audit tick: `start + realized − fees ≈ cash + reserved + open cost`.
+- The **finalized-trade bus** publishes exactly one close per position. Every learner and grader listens to it.
+- The **lane identity authority** holds the only alias table, and CI fails the build if a copy appears.
+
+## 10. CI that catches the mistakes the team keeps making
+
+All 16 validators are Python scans written after a real red build or a real defect. Each one names the incident in its docstring:
+
+- unbalanced nested comments;
+- unresolved fully-qualified references;
+- `return` inside expression-body functions;
+- `val` reassignment and illegal local-function modifiers;
+- counters that report refusals on paths that do not refuse;
+- newly added code that nothing calls;
+- USD-over-SOL unit errors;
+- layout-id contract breaks and palette drift;
+- lane identity drift between authority layers;
+- more than one writer per economic domain.
+
+They run in seconds, before a 14-minute Gradle build.
+
+## 11. Measured, labelled PAPER
+
+**PAPER session, 5.0.7288, 24 Sep 2026, about 11.5 minutes, 79 closed trades.** Equity went from about 10 to 31.34 SOL. Realized PnL was +20.52 SOL after 0.89 SOL of fees. Profit factor 7.59; per-position win rate 52.6%. The mark loop ran 469 ticks in 687 s with 0 stale resets.
+
+This is one short paper session with a small sample. It is not a live result, and it is not a forecast.
+
+## 12. What's next
+
+1. Sustained paper profitability.
+2. A small live calibration run to compare real fills and fees with paper.
+3. Live lanes enabled one at a time.
+4. The oracle reaching PROVEN.
+
+The stated goal is $50 → $1,000,000. It is a goal, not a result.
+
 ---
 
-## Conclusion
-
-AATE represents a new paradigm in algorithmic trading: transparent, self-improving, and community-powered. The 12-layer consensus architecture ensures robust decision-making while the continuous learning systems adapt to changing market conditions.
-
-The fact that this was built by a single developer in under one week demonstrates both the power of modern development tools and the focused execution capability that institutional investors seek.
-
----
-
-*For technical questions or integration inquiries, please open a GitHub issue.*
-
----
-
-© 2025 AATE Project. AATE™ is a trademark. All rights reserved. This document is confidential.
-
-⚠️ **RISK WARNING:** Cryptocurrency trading involves substantial risk of loss. This is NOT financial advice. Trade at your own risk.
+*Trading crypto is high risk. Paper results are not live results. Not financial advice.*
