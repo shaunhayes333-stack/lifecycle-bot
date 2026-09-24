@@ -1,378 +1,199 @@
-# 🚀 AATE v2.0 - The Self-Evolving Solana Trading Brain 🧠
+# AATE 5.0.7288 — Ready-to-Paste Social Posts
 
-## Copy-Paste Ready Social Posts:
+Product name (use exactly): **AATE — Autonomous Algorithmic Trading Engine**
 
----
-
-### 🐦 TWITTER/X THREAD:
-
-**Tweet 1:**
-🚀 Just dropped the most advanced Solana trading bot update yet.
-
-AATE v2.0 now has:
-• DUAL-LAYER BEHAVIOR LEARNING
-• 18 INDEPENDENT MODE LEARNING INSTANCES
-• SELF-HEALING AI THAT FIXES ITSELF
-
-The bot doesn't just trade. It evolves. 🧬
-
-Thread 🧵👇
+Rules for whoever posts these:
+- Every number below comes from the 5.0.7288 fact sheet. Do not add, round up, or "improve" any of them.
+- The 7288 results are **PAPER**: one ~11.5 min session, 79 closed trades. Always say so. Never call them live returns.
+- Keep the risk line on every post. Hashtags sparingly.
 
 ---
 
-**Tweet 2:**
-🧠 **12-LAYER AI CONSENSUS ENGINE**
+## X / Twitter thread (10 tweets)
 
-Not 1. Not 3. TWELVE AI modules working together:
-
-• WhaleTrackerAI 🐋
-• MomentumPredictorAI 📈
-• LiquidityDepthAI 💧
-• MarketRegimeAI 🌍
-• NarrativeDetectorAI 📰
-• TimeOptimizationAI ⏰
-• BehaviorLearning 🎯
-• ModeLearning (NEW) 📊
-
-All cross-talking in real-time.
-
----
-
-**Tweet 3:**
-🎯 **DUAL-LAYER BEHAVIOR LEARNING**
-
-Two separate neural layers:
-✅ **GOOD BEHAVIOR** - Patterns from winners
-❌ **BAD BEHAVIOR** - Patterns from losers
-
-The bot literally learns "don't do that again" and "do more of this."
-
-Self-healing clears poisoned data automatically.
-
----
-
-**Tweet 4:**
-📊 **18 INDEPENDENT LEARNING INSTANCES**
-
-Each trading mode is its OWN AI brain:
-
-🌙 MOONSHOT learns what works for moonshots
-🎰 PUMP_SNIPER learns viral detection patterns
-💎 LONG_HOLD learns diamond hand setups
-🐋 WHALE_FOLLOW learns smart money signals
-
-If one mode fails? Only THAT mode resets. Others keep learning.
-
----
-
-**Tweet 5:**
-🔬 **MODE-SPECIFIC SCANNER FILTERS**
-
-Each mode learns its optimal conditions:
-• Best liquidity ranges
-• Best discovery sources
-• Best entry phases
-• Best hours of day
-
-MOONSHOT prefers fresh tokens.
-WHALE_FOLLOW prefers high liquidity.
-The bot tailors EVERYTHING per mode.
-
----
-
-**Tweet 6:**
-🛡️ **SELF-HEALING DIAGNOSTICS**
-
-The bot monitors its own health every 30 minutes.
-
-Per-MODE self-healing:
-• 70%+ loss rate in PUMP_SNIPER? Reset PUMP_SNIPER only.
-• 5 consecutive losses? Decay weights 50%.
-
-Your bot heals itself while you sleep. 🌙
-
----
-
-**Tweet 7:**
-⚡ **18 TRADING MODES**
-
-🌙 MOONSHOT - Early high-potential
-🎰 PUMP_SNIPER - Viral detection
-💎 LONG_HOLD - Diamond hands
-🔬 MICRO_CAP - Ultra-small plays
-🐋 WHALE_FOLLOW - Smart money
-🔥 REVIVAL - Crashed recovery
-📈 MOMENTUM - Trend riding
-🎪 NARRATIVE - Hot themes
-
-Each with its own learning instance + emoji tracking.
-
----
-
-**Tweet 8:**
-🔒 **FINAL DECISION GATE (FDG)**
-
-Every single trade passes through 15+ safety gates:
-
-• Rugcheck verification
-• Whale concentration limits
-• Liquidity collapse detection
-• Distribution pattern blocking
-• Behavior learning veto
-• Mode-specific score adjustments
-
-Live mode is STRICT. Paper mode learns.
-
----
-
-**Tweet 9:**
-📊 **CROSS-TALK AI PATTERNS**
-
-When multiple AIs agree, signals AMPLIFY:
-
-🐋 Whale buying + 📈 Momentum + 💧 Liquidity = **SMART MONEY PUMP**
-🎯 Good behavior pattern = **BEHAVIOR BOOST** (+30 pts)
-❌ Bad behavior pattern = **BEHAVIOR BLOCK** (-50 pts)
-
-AI consensus. Not single indicator.
-
----
-
-**Tweet 10:**
-🔥 **JUPITER ULTRA + MEV PROTECTION**
-
-MEV-protected swaps via Jupiter's best-in-class routing.
-
-• Slippage optimization
-• Priority fee management
-• Transaction validation
-• Auto-retry on failures
-
-Your sells actually hit the blockchain. Verified. ✅
-
----
-
-**Tweet 11:**
-💰 **TREASURY PROTECTION**
-
-At 2x: Recover initial capital ✅
-At 5x: Lock 50% profits ✅
-Remainder: House money mode 🎰
-
-You literally can't lose your original investment after 2x.
-
-The rest rides for free.
-
----
-
-**Tweet 12:**
-🏗️ **NATIVE KOTLIN ANDROID**
-
-• No web servers
-• No monthly fees
-• Runs on your phone 24/7
-• Background service with keep-alive
-• Full offline capability
-
-Your trading brain in your pocket.
-
-Open source. Self-hosted. You own it.
-
-8 commits. All passing. Production ready. 🚀
-
----
-
-### 📸 INSTAGRAM/THREADS:
-
+### 1/10
 ```
-🚀 AATE v2.0 - SELF-EVOLVING SOLANA BOT
+I built an autonomous Solana trading engine on a phone.
 
-The trading bot with 18 INDEPENDENT AI BRAINS.
+AATE — Autonomous Algorithmic Trading Engine. ~457,000 lines of Kotlin. The whole engine runs on-device: it finds, sizes, exits and learns by itself.
 
-NEW: Per-Mode Learning System
-Each of 18 trading modes learns INDEPENDENTLY:
-🌙 MOONSHOT learns moonshot patterns
-🎰 PUMP_SNIPER learns viral signals
-💎 LONG_HOLD learns diamond hand setups
-🐋 WHALE_FOLLOW learns smart money
+What's in 5.0.7288, with honest numbers 🧵
+```
 
-NEW: Dual-Layer Behavior Learning
-✅ Good Behavior Brain - Winners
-❌ Bad Behavior Brain - Losers
+### 2/10
+```
+Most Solana bots (Photon, BullX, Trojan, BonkBot…) are fast buttons. You click, they fire.
 
-NEW: Mode-Specific Scanner Filters
-• Each mode learns its optimal liquidity range
-• Each mode learns its best discovery sources
-• Each mode learns its best entry phases
-• Each mode learns its best hours
+AATE is different: it decides. Scanners → safety filters → per-lane scoring → one entry gate → sizing → exits → learning. No click required.
+```
 
-12 AI modules cross-talking in real-time
-18 trading modes with independent learning
-15+ safety gates per trade
-Self-healing per mode (not global wipe)
-Jupiter Ultra MEV protection
+### 3/10
+```
+16 traders in one engine: meme lanes (Quality, BlueChip, ShitCoin, Moonshot, Project Sniper, Dip Hunter…), crypto alts via Jupiter/Raydium/Meteora, tokenized stocks & forex, perps, and a shadow-paper lane.
 
-Native Android. No servers. No fees.
-Your brains. Your rules. Your profits.
+Paper mode runs them all. Live is paper-first.
+```
 
-#Solana #TradingBot #AI #DeFi #Crypto #Web3
+### 4/10
+```
+New in 7287: the Predictive Entry Oracle.
+
+It reads the trade journal (up to 5,000 closes) and gives a binary verdict: ADMIT or REFUSE. No "probe" trades. Trade or don't.
+```
+
+### 5/10
+```
+The oracle doesn't get to decide until it proves itself on real closes:
+≥20 ADMIT & ≥10 REFUSE closes
+ADMIT mean beats REFUSE by ≥2pp
+ADMIT win rate ≥ REFUSE
+Brier ≤ 0.25
+
+Proven → it binds. Edge fades → it demotes itself. Proof persists across restarts.
+```
+
+### 6/10
+```
+Exits got the most work:
+• 1 Hz mark loop, supervised & self-healing
+• profit lock that slides up toward the peak (we don't cap wins)
+• trailing stops + runner profiles for moonshots
+• sells now dispatched off the mark loop (7288)
+```
+
+### 7/10
+```
+Paper now pays real venue costs: pump.fun curve 1.25%/side, PumpSwap 0.25% + creator fee tier, AMM 0.25%, network fee, price impact, plus the 0.5% app fee.
+
+Round trip ≈5–6% on the curve, 2–3% on graduated pools. No free paper fills.
+```
+
+### 8/10
+```
+Latest PAPER run on 7288 (one session, ~11.5 min, 79 closed trades):
+Equity ≈10 → 31.34 SOL
+Realized +20.52 SOL after 0.89 SOL fees
+Profit factor 7.59, win rate 52.6%
+
+Small sample. Paper ≠ live. Not a promise of anything.
+```
+
+### 9/10
+```
+Built by one dev, from a phone, compiled by GitHub Actions.
+1,200 Kotlin files, 2,699 tests, 16 custom static-analysis validators gating every build, plus an emulator smoke test.
+
+Keys stay on the device: AES-256 encrypted storage + biometric lock.
+```
+
+### 10/10
+```
+Next: sustained paper profitability → a small live calibration run to check real fills vs paper → live lanes opened one at a time.
+
+Goal: $50 → $1,000,000. A goal, not a result.
+
+Crypto trading is high risk. Not financial advice.
 ```
 
 ---
 
-### 💬 DISCORD/TELEGRAM ANNOUNCEMENT:
-
+## Single X post
 ```
-🚀 **AATE v2.0 RELEASE - 18 INDEPENDENT AI BRAINS**
+AATE 5.0.7288 is out. Autonomous Solana trading engine, ~457k lines of Kotlin, running entirely on an Android phone.
 
-Major upgrade just deployed! Here's what's new:
+New: binary entry oracle that must prove its edge before it decides, and paper fills priced at real venue costs.
 
-**🎯 PER-MODE LEARNING SYSTEM (ModeLearning)**
-Each of 18 trading modes now has its OWN learning instance:
-- MOONSHOT learns what works for early moonshots
-- PUMP_SNIPER learns viral detection patterns
-- WHALE_FOLLOW learns smart money signals
-- LONG_HOLD learns diamond hand setups
-
-Each mode tracks:
-• Wins/losses per entry phase
-• Wins/losses per liquidity bucket
-• Wins/losses per discovery source
-• Wins/losses per hour of day
-
-**🔬 MODE-SPECIFIC SCANNER FILTERS**
-Each mode generates its own scanner preferences:
-- Preferred liquidity ranges (learned)
-- Preferred/avoided sources
-- Preferred/avoided phases
-- Preferred/avoided hours
-- Confidence scales with trade count
-
-**🧠 DUAL-LAYER BEHAVIOR LEARNING**
-Two separate learning systems:
-- Good Behavior Layer → Patterns from winning trades
-- Bad Behavior Layer → Patterns from losing trades
-
-**🔄 PER-MODE SELF-HEALING**
-- Mode has 70%+ loss rate? ONLY that mode resets
-- Mode has 5 consecutive losses? Decay weights 50%
-- Other modes keep learning undisturbed
-- No more global memory wipes needed
-
-**🔗 FULL AI CROSS-TALK INTEGRATION**
-All learning systems now contribute to 12-layer AI consensus:
-- WhaleTrackerAI
-- MomentumPredictorAI
-- LiquidityDepthAI
-- MarketRegimeAI
-- NarrativeDetectorAI
-- TimeOptimizationAI
-- EntryIntelligence
-- ExitIntelligence
-- EdgeLearning
-- BehaviorLearning
-- ModeLearning (NEW)
-- AdaptiveLearningEngine
-
-**📊 INTEGRATION POINTS**
-- LifecycleStrategy.kt → Mode-specific score adjustments
-- Executor.kt → Records trades to both BehaviorLearning and ModeLearning
-- FinalDecisionGate.kt → Behavior veto + mode learning influence
-- BotService.kt → Initializes all learning systems, logs best/worst modes
-- SelfHealingDiagnostics.kt → Per-mode health monitoring
-
-**⚡ 8 COMMITS, ALL PASSING CI**
-Fully tested. Production ready.
-
-Download latest APK and let each mode evolve! 🧬
+PAPER results only. High risk. NFA.
 ```
 
 ---
 
-### 🎬 YOUTUBE/TIKTOK SCRIPT:
+## LinkedIn post
 
-```
-[HOOK - 0:00-0:03]
-"This trading bot has 18 separate AI brains that each learn independently."
+I've spent the past stretch building something unusual: a full algorithmic trading engine that runs entirely on an Android phone, written from a phone, compiled by GitHub Actions.
 
-[INTRO - 0:03-0:15]
-"AATE version 2 just dropped with the most advanced learning system I've ever built.
-Each trading mode is its OWN AI that learns what works specifically for that strategy."
+It's called **AATE — Autonomous Algorithmic Trading Engine**. Version 5.0.7288 shipped this week.
 
-[DEMO - 0:15-1:00]
-"Let me show you what I mean.
-MOONSHOT mode learns what works for early moonshots.
-WHALE_FOLLOW mode learns what works for following smart money.
-They're completely independent brains.
+**What it is**
+- ~457,000 lines of production Kotlin across 1,200 source files, with 339 test files and 2,699 test cases.
+- 16 custom static-analysis validators gate every build (economic units, lane identity authority, palette drift, dead code and more), plus an APK build and an emulator runtime smoke test.
+- 16 traders in one engine: Solana meme lanes, crypto alts via Jupiter/Raydium/Meteora, tokenized stocks and forex, and perps. Every trader runs in paper mode. Live execution is paper-first and turned on one lane at a time.
 
-If PUMP_SNIPER has a bad streak and hits 70% loss rate?
-Only PUMP_SNIPER resets. The other 17 modes keep all their learning.
+**What changed in this release series**
+- A Predictive Entry Oracle that reads up to 5,000 closed trades and returns ADMIT or REFUSE. It stays advisory until it proves an edge on real closes (sample thresholds, a ≥2pp expectancy gap, and a Brier score ≤ 0.25). If the edge fades, it demotes itself.
+- Paper trading now pays realistic venue costs: curve fees, pool fees, creator fee tiers, network fees and modelled price impact. A round trip costs about 5–6% on the pump.fun curve and 2–3% on graduated pools.
+- A supervised, self-healing 1 Hz mark loop, with a profit lock that follows price up toward the peak.
 
-And here's the crazy part - each mode learns its own optimal conditions:
-- Best liquidity ranges
-- Best discovery sources
-- Best entry phases
-- Best hours of day
+**The honest numbers**
+The latest paper session on 5.0.7288 (~11.5 minutes, 79 closed trades) went from about 10 to 31.34 SOL equity, with +20.52 SOL realized after 0.89 SOL in fees and a profit factor of 7.59. That is one short **paper** session and a small sample. It is not live performance and it doesn't predict anything. The next step is a small live calibration run to compare real fills and fees against paper.
 
-The scanner literally tailors its filters for each mode automatically."
+The engineering principle behind all of it: real data and forensic accounting. No imagined gains. Every refusal, fill and fee is counted.
 
-[FEATURES - 1:00-1:30]
-"12 AI modules cross-talking.
-18 independent learning brains.
-15 safety gates.
-Per-mode self-healing.
-Jupiter Ultra MEV protection."
+Trading crypto is high risk. Paper results are not live results. This is not financial advice.
 
-[CTA - 1:30-1:45]
-"Link in bio. Open source. Self-hosted. 18 brains, your rules."
-```
+#Kotlin #Android #Solana
 
 ---
 
-## 📝 TECHNICAL SPEC SUMMARY (for dev audiences):
+## Facebook post
 
-```
-AATE v2.0 - Technical Overview
+Big update on the project I've been building from my phone 📱
 
-Architecture: Native Kotlin Android
-Trading: Jupiter Ultra API (MEV-protected)
-Data: DexScreener, Rugcheck, CoinGecko
-AI Modules: 12 cross-talking layers
-Trading Modes: 18 with independent learning
-Safety Gates: 15+ in FinalDecisionGate
+**AATE — Autonomous Algorithmic Trading Engine** is now on version 5.0.7288. It's an Android app that runs a whole trading engine on the phone. It scans Solana markets, filters out rugs, decides whether to enter, sizes the trade, manages the exit and learns from every close. You don't have to click anything.
 
-NEW IN v2.0:
+What's new:
+✅ An "entry oracle" that answers ADMIT or REFUSE, and only gets real authority after it proves itself on actual closed trades
+✅ Paper trading now charges realistic fees and slippage, so practice results aren't flattering
+✅ Smarter exits: the profit lock moves up with the price instead of capping wins
 
-1. BehaviorLearning.kt (~800 lines)
-   - Good/Bad pattern separation
-   - Self-healing (auto-clear poisoned data)
-   - Pattern pruning (24h stale removal)
-   - Weight decay (5%/hour)
-   - FDG integration (Gate 1g.5)
-   - AICrossTalk integration
-   - Health monitoring (5 statuses)
+In my latest **paper** (simulated) session, about 11.5 minutes and 79 closed trades, the paper balance went from about 10 SOL to 31.34 SOL after fees. That's one short practice session, not real money and not a promise. Real-money testing comes next, carefully and in small steps.
 
-2. ModeLearning (~500 lines in SolanaMarketScanner.kt)
-   - Per-mode learning instances (18 separate brains)
-   - Tracks wins/losses by: phase, liquidity, source, hour
-   - Mode-specific scanner preferences
-   - Per-mode self-healing (70%+ loss = mode reset only)
-   - Score bonus/penalty per mode (-20 to +20)
-   - Confidence scales with trade count
+My goal is $50 → $1,000,000. That's a goal, not a result 😄
 
-Integration Points:
-- LifecycleStrategy.kt → Entry evaluation (BehaviorLearning + ModeLearning)
-- Executor.kt → Trade recording (both learning systems)
-- FinalDecisionGate.kt → Hard veto (BehaviorLearning)
-- BotService.kt → Initialization, periodic maintenance
-- AICrossTalk.kt → AI consensus (BehaviorLearning patterns)
-- SelfHealingDiagnostics.kt → Health monitoring, memory clearing
-
-Commits: 8 (all passing CI)
-LOC Added: ~2,500+
-Test Status: GitHub Actions CI verified
-```
+⚠️ Crypto trading is high risk. Paper results are not live results. Not financial advice.
 
 ---
 
-**Feel free to mix and match these for your socials!** 🎯
+## Reddit post (r/solana)
+
+**Title:** Built an on-device autonomous trading engine for Solana on Android. Sharing the architecture and a (paper) result, feedback welcome
+
+Hey all, solo dev here. I've been building **AATE — Autonomous Algorithmic Trading Engine**, a native Android app (Kotlin, minSdk 26) that runs the full decision loop on the phone. I wrote it from a phone and build it with GitHub Actions. I'm posting it for technical feedback, not to shill anything.
+
+**Pipeline**
+1. Candidates come from scanners plus a WebSocket fast lane (Helius enhanced WS, PumpPortal launches/migrations/trade stream).
+2. Safety: hard rug pre-filter, token safety tiers (SAFE/CAUTION/HARD_BLOCK), RugCheck policy, mint blacklist, serial-rugger creator refusal.
+3. Per-lane scoring, then a final decision gate.
+4. Predictive Entry Oracle: ADMIT/REFUSE from the trade journal (up to 5,000 closes). It's advisory until it passes an edge proof on real closes (≥20 ADMIT / ≥10 REFUSE, ADMIT mean ≥2pp better, ADMIT WR ≥ REFUSE, Brier ≤ 0.25).
+5. One executable entry authority before capital (loss-streak limit, cooldowns, daily loss cap). The sizer sizes to what can actually be exited.
+6. Exits: 1 Hz mark loop, a profit lock that slides toward the peak, trailing stops, runner profiles, and a universal stop-loss sweep.
+
+**Execution:** Jupiter swap API, PumpPortal trade-local fallback for pump.fun sells, direct bonding-curve reads over an RPC ladder, Helius Sender with a tip envelope, Jito bundles for MEV protection. Keys are held in AES-256 EncryptedSharedPreferences behind a biometric lock and never leave the device.
+
+**Paper realism:** Paper fills are charged pump.fun curve 1.25%/side, PumpSwap 0.25% + creator fee tier (0.95%→0.05% by mcap), AMM 0.25%, 0.000805 SOL/side network, and price impact = clip/(depth+clip) (curve ≥30 virtual SOL depth, capped at 15%), plus a 0.5% app fee. That comes to roughly 5–6% round trip on the curve and 2–3% on graduated pools.
+
+**Result, with caveats:** One PAPER session on 5.0.7288, ~11.5 min, 79 closed trades. Equity went from ≈10 to 31.34 SOL, +20.52 SOL realized after 0.89 SOL fees, PF 7.59, 52.6% per-position win rate. That's a small sample from one short session. Paper isn't live, and I haven't verified it against real fills yet. A small live calibration run is next.
+
+Things I'd love feedback on: better ways to model curve price impact, and whether a Brier ≤ 0.25 threshold is too loose for binding an admission model.
+
+*High risk, not financial advice.*
+
+---
+
+## Telegram announcement
+
+🟢 **AATE 5.0.7288 is live**
+*AATE — Autonomous Algorithmic Trading Engine*
+
+**What's new in 7274–7288**
+• **Entry Oracle:** binary ADMIT / REFUSE from the full trade journal. It must prove its edge on real closes before it decides, and the proof survives restarts.
+• **Exits:** self-healing 1 Hz mark loop, a profit lock that slides to the peak, and sells dispatched off the mark loop.
+• **Paper realism:** real venue fees plus price impact on every paper fill.
+• **Execution:** paid Helius first, per-rung RPC backoff, pump.fun create-event mint proof.
+• **LLM council:** Cerebras and Mistral added; reasoning-model token fix.
+• **UI:** live decision log, PumpPortal key setting.
+
+📊 **Latest PAPER session** (~11.5 min, 79 closed trades): equity ≈10 → 31.34 SOL, +20.52 SOL realized after 0.89 SOL fees, PF 7.59.
+One short paper session. Small sample. Paper ≠ live.
+
+⚠️ Crypto trading is high risk. Not financial advice.

@@ -1,247 +1,92 @@
-# LIFECYCLE BOT V5.2
-## Quick Start Guide
+# AATE Quickstart
+
+This guide covers **AATE — Autonomous Algorithmic Trading Engine**, version **5.0.7288**, on Android 8.0 or later (minSdk 26).
+
+It takes you through installing the app, setting it up, running it in PAPER, reading Pipeline Health, and going live carefully.
 
 ---
 
-# Welcome!
+## 1. Install the APK
 
-You're about to set up the most advanced AI-powered Solana trading bot available on mobile. This guide will get you trading (on paper first!) in under 10 minutes.
+1. Open the [Build AATE APK workflow](https://github.com/shaunhayes333-stack/lifecycle-bot/actions/workflows/build.yml) on GitHub Actions, pick the latest green run on `main`, and download the `AATE_v5.0.7288…` artifact.
+   You can also build it yourself: `cd lifecycle_apk && ./gradlew assembleDebug` (JDK 17 + Android SDK). The APK lands in `app/build/outputs/apk/debug/`.
+2. Copy the APK to your phone and open it. Allow "install unknown apps" for your file manager or browser when Android asks.
+3. Launch **AATE**. On first launch the Security screen asks you to set a 4–6 digit PIN. After that you can unlock with the PIN or with biometrics.
 
----
+## 2. First run
 
-# Step 1: Install the App
+- The **Main** screen is the dashboard. It shows bot status, open positions and the start/stop control.
+- Open **Settings** (the bottom sheet from the Main screen). All the configuration below lives there, except the wallet.
+- The **Wallet** screen is where you connect a wallet. Only do that once you are ready for live trading (step 6).
 
-## Download
-1. Go to the Releases page
-2. Download `lifecycle-bot-v5.2-release.apk`
-3. Transfer to your Android device (or download directly)
+## 3. Settings to fill in
 
-## Install
-1. Open the APK file
-2. If prompted, enable "Install from Unknown Sources"
-3. Complete installation
-4. Launch the app
+Open Settings › **API KEYS**. The labels below are exactly what you will see.
 
----
+| Setting | Where to get it | Why it matters |
+|---|---|---|
+| **HELIUS KEY** | helius.dev | RPC, enhanced WebSocket, DAS and the Helius Sender fast path. Strongly recommended. |
+| **PUMPPORTAL DATA KEY** | pumpportal.fun | Unlocks the keyed PumpPortal **trade stream**. The key must be **funded (about 0.02 SOL)**. If you leave it blank you only get launch events. |
+| **BIRDEYE KEY** | birdeye.so | Extra price and market data. |
+| **GROQ KEY** | console.groq.com | LLM council (gpt-oss): narrative/scam checks, exit advice, sentiment. |
+| **GEMINI KEY** | aistudio.google.com | A second LLM council provider. |
+| **ELEVENLABS KEY** | elevenlabs.io | Optional voice for personas. |
+| **JUPITER KEY** | portal.jup.ag | Jupiter swap and price API. |
 
-# Step 2: Initial Setup
+Also in Settings:
 
-## Wallet Configuration
+- **RPC URL**: leave the default or paste your own Solana RPC endpoint.
+- **TREASURY WALLET ADDRESS**: optional. This is a public SOL address for treasury splits.
+- **TELEGRAM ALERTS** › **BOT TOKEN** / **CHAT ID**: optional trade alerts sent to Telegram.
+- **TRADING MODE** and the trader toggles (Meme Trader, Markets Trader with its sub-traders, Crypto Alts Trader) choose which traders run.
+- **AI SCORING MODE**: keep **CLASSIC** (the production default).
 
-You'll need a Solana wallet private key. **Use a dedicated trading wallet, not your main wallet!**
+Tap **Save Settings**.
 
-### Creating a New Wallet (Recommended)
-1. Use Phantom or Solflare to create a new wallet
-2. Export the private key (Base58 format)
-3. Fund with SOL for trading
+## 4. Start in PAPER
 
-### Entering Your Key
-1. Open Lifecycle Bot
-2. Go to Settings > Wallet
-3. Paste your private key
-4. The key is encrypted and stored locally
+1. In Settings › **TRADING**, set **MODE** to **PAPER** and turn on **AUTO TRADE**.
+2. Save, then start the bot from the Main screen.
 
-**SECURITY NOTE**: Your private key never leaves your device. No cloud servers are involved.
+In PAPER every trader runs and learns. Paper fills pay realistic venue costs: pump.fun curve 1.25% per side, PumpSwap 0.25% plus the creator-fee tier, AMM pools 0.25%, a 0.000805 SOL network fee per side, modelled price impact, and the 0.5% app fee. A round trip costs about 5–6% on the curve and 2–3% on graduated pools, so paper P&L is not free money on paper.
 
----
+Let it run. The **Predictive Entry Oracle** stays advisory until it has proved an edge on real closes (at least 20 ADMIT and 10 REFUSE closes with a measurable gap). It only decides admission after that.
 
-# Step 3: API Keys
+## 5. Read Pipeline Health
 
-## Required APIs (Free Tiers Available)
+Open **Pipeline Health** (intake · decision · execution):
 
-### Helius (Required)
-1. Go to [helius.dev](https://helius.dev)
-2. Create free account
-3. Copy your API key
-4. Paste in Settings > API Keys > Helius
+- **LOOP / EXEC / JRNL** show bot-loop ticks, executions and journal records. All three should keep climbing while the bot runs.
+- **MAX FRAME / ANR** shows UI responsiveness. ANR should stay at 0.
+- **PIPELINE FUNNEL** shows how many candidates entered, passed safety, were evaluated by a lane, were admitted and were executed. Every refusal reason is counted, so you can see exactly why trades did not happen.
+- Use ◀ / ▶ to page through sections. **Copy to Clipboard** exports the full dump, and **Ask Self-Healing Advisor** asks the LLM to diagnose it.
 
-### Birdeye (Required)
-1. Go to [birdeye.so](https://birdeye.so)
-2. Create free account
-3. Copy your API key
-4. Paste in Settings > API Keys > Birdeye
+Also useful: **Journal** (closed trades), **Live Trade Log**, **Error Log**, **Universe Health** and **Learning Counter**.
 
-### Optional APIs
-- **Groq**: For AI chat features
-- **Gemini**: For advanced analysis
+If the funnel stays empty, check the Helius key, the PumpPortal data key (it must be funded for the trade stream) and your network connection.
 
----
+## 6. Going live: checklist
 
-# Step 4: Paper Trading Mode
+Only go live once you understand what the bot does in paper. Paper results are not live results.
 
-**IMPORTANT**: Always start with paper trading!
+- [ ] You have run in PAPER long enough to see closes across several lanes, and Pipeline Health looks healthy.
+- [ ] You use a **dedicated burner wallet**, never your main wallet. Connect it in **Wallet** › **PRIVATE KEY (base58)** › **CONNECT WALLET**.
+- [ ] The wallet holds **at least 0.1 SOL**. The live safety circuit breaker will not trade below that, and it halts on session drawdown.
+- [ ] You start with a **small calibration run**, an amount you can lose completely. The goal is to check that real fills and fees match paper.
+- [ ] Sizing (**SMALL BUY / LARGE BUY (SOL)**, **SLIPPAGE BPS**, **MAX SOL**) is set conservatively.
+- [ ] Only the traders you want live are enabled. Stocks and forex are quarantined in live, live perps are not executing yet, and non-meme live execution is being rolled out in stages.
+- [ ] You know the Executable Entry Authority limits: loss-streak limit, cooldowns and daily loss cap.
 
-## Why Paper Trade?
-- Zero risk while learning
-- Bot calibrates to market conditions
-- You learn the bot's behavior
-- Build confidence before real money
+Then set Settings › TRADING › **MODE** to **LIVE**, save and start. Watch the first trades in the **Live Trade Log** and **Pipeline Health**.
 
-## Enable Paper Mode
-1. Go to Settings
-2. Toggle "Paper Mode" ON (should be default)
-3. Paper balance starts at 5 SOL
+## 7. Security notes
 
-## Recommended Paper Trades
-- Minimum: 50 trades
-- Recommended: 100+ trades
-- Watch learning progress reach 20%+
+- **Never share your keys.** Don't screenshot or paste private keys or API keys anywhere, and never send them to anyone, including people claiming to be support.
+- Keys **stay encrypted on the device** (EncryptedSharedPreferences, AES-256) behind a PIN / biometric lock. They are never uploaded.
+- Use a burner wallet with only what you are prepared to lose.
+- **Clear All API Keys** in Settings wipes the stored API keys.
+- Keep your phone's screen lock on and your security patches up to date.
 
 ---
 
-# Step 5: Start the Bot
-
-## Launch Trading
-1. Return to main dashboard
-2. Tap the START button
-3. Bot begins scanning and trading
-
-## What You'll See
-- Scanner activity in logs
-- Token discoveries
-- Trade executions (paper)
-- P&L updates
-
-## Dashboard Tiles
-- **🎯 V3 Core**: Main quality trades
-- **💰 Treasury**: Scalping mode
-- **🔵 BlueChip**: Large cap trades
-- **💩 ShitCoin**: Degen plays
-- **🚀 Moonshot**: 10x-1000x hunting
-
-Tap any tile for detailed stats!
-
----
-
-# Step 6: Monitor & Learn
-
-## Key Metrics to Watch
-
-### Win Rate
-- Paper mode: Expect 40-60%
-- Varies by layer and market conditions
-
-### Learning Progress
-- Shows as percentage
-- Higher = more calibrated
-- Affects confidence thresholds
-
-### Layer Performance
-- Each layer has its own stats
-- Some layers suit different markets
-
-## Log Analysis
-
-Watch the log feed for:
-- `ENTRY`: Trade opened
-- `EXIT`: Trade closed
-- `SHADOW`: Trade tracked but not executed
-- `REJECT`: Trade filtered out
-
----
-
-# Step 7: Going Live
-
-## Pre-Live Checklist
-
-- [ ] 100+ paper trades completed
-- [ ] Learning progress > 20%
-- [ ] Win rate acceptable (40%+)
-- [ ] Understand each layer's behavior
-- [ ] Funded wallet ready
-- [ ] Risk parameters reviewed
-
-## Switch to Live
-
-1. Go to Settings
-2. Toggle "Paper Mode" OFF
-3. Confirm the warning
-4. Bot now trades with real SOL
-
-## Live Trading Tips
-
-- Start with small positions
-- Monitor first few live trades closely
-- Keep daily loss limits enabled
-- Don't override the bot's decisions
-
----
-
-# Quick Reference
-
-## Layer Summary
-
-| Layer | Risk | Target | Best For |
-|-------|------|--------|----------|
-| V3 Core | Medium | 15-35% | Balanced trading |
-| Treasury | Low | 4-15% | Consistent gains |
-| BlueChip | Low | 10-40% | Established tokens |
-| ShitCoin | High | 25-100% | Degen plays |
-| Moonshot | High | 100-1000% | Big wins |
-
-## Common Settings
-
-| Setting | Conservative | Balanced | Aggressive |
-|---------|-------------|----------|------------|
-| Position Size | 50% | 100% | 150% |
-| Take Profit | Default | Default | +20% |
-| Stop Loss | Tighter | Default | Wider |
-| Max Concurrent | Lower | Default | Higher |
-
----
-
-# Troubleshooting
-
-## Bot Not Starting
-- Check API keys are valid
-- Ensure wallet has SOL
-- Check internet connection
-
-## No Trades Happening
-- Market may be quiet
-- Confidence thresholds may need calibrating
-- Check layer enables in settings
-
-## High Loss Rate
-- Reduce position sizes
-- Enable more conservative layers only
-- Check market regime (bear market?)
-
-## App Crashing
-- Clear app cache
-- Reinstall latest version
-- Export backup first!
-
----
-
-# Getting Help
-
-## Resources
-- **Docs**: Full documentation in /docs folder
-- **Telegram**: Community chat
-- **Twitter**: @LifecycleBot
-- **GitHub**: Issues and discussions
-
-## Exporting Logs
-
-If reporting issues:
-1. Go to Settings > Export
-2. Export error logs
-3. Include in bug report
-
----
-
-# Safety Reminders
-
-1. **Only trade what you can afford to lose**
-2. **Use a dedicated trading wallet**
-3. **Start with paper trading**
-4. **Keep position sizes small initially**
-5. **Enable daily loss limits**
-6. **Monitor the bot regularly**
-
----
-
-*Happy Trading!*
-
-*Remember: Trade smarter, not harder.*
+Trading crypto is high risk. You can lose some or all of your capital. Paper results are not live results. This is not financial advice. See [LEGAL.md](../LEGAL.md) and [SECURITY.md](../SECURITY.md).

@@ -1,315 +1,108 @@
-# AATE V3.2 - VC Outreach & Investor Emails
+AATE — Autonomous Algorithmic Trading Engine · v5.0.7288
 
-```
-     █████╗  █████╗ ████████╗███████╗
-    ██╔══██╗██╔══██╗╚══██╔══╝██╔════╝
-    ███████║███████║   ██║   █████╗  
-    ██╔══██║██╔══██║   ██║   ██╔══╝  
-    ██║  ██║██║  ██║   ██║   ███████╗
-    ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝
-```
+# Investor Email Templates
+
+Keep these short. Only use numbers from the fact sheet. Label paper as paper, every time, and keep the disclaimer line in the email.
 
 ---
 
-## EMAIL TEMPLATE 1: COLD OUTREACH (SHORT)
+## 1. Cold outreach (short)
 
-**Subject:** 21 AI layers, 7 days, 1 developer - Solana trading bot
-
----
+**Subject:** Autonomous Solana trading engine, built solo on a phone. Raising $500K seed
 
 Hi [Name],
 
-I built something unusual: a Solana trading bot with 21 parallel AI layers that question each other's judgment before executing trades.
+I'm [Founder Name]. I built AATE (Autonomous Algorithmic Trading Engine), a native Android app that runs a full autonomous trading engine on the phone. It finds candidates, vets them for rugs, sizes positions, exits and learns. No clicks are needed, and keys never leave the device.
 
-**The key innovation:** MetaCognitionAI - a layer that watches all other AI layers, tracks their accuracy, and dynamically adjusts trust. It's the first trading bot with self-doubt as a feature.
+A few facts:
+- 16 traders in one engine: Solana meme lanes, crypto alts, tokenized markets, and perps in paper.
+- ~457K lines of Kotlin, 2,699 tests, and 16 custom CI validators gating every build.
+- The latest **PAPER** run (one ~11.5 min session, 79 closed trades) grew equity from ≈10 to 31.34 SOL after venue-priced fees. It's a small sample, and paper is not live.
 
-**The timeline:** 7 days of intense development. 98,000+ lines of Kotlin. Native Android.
+I'm raising a $500K seed to move from paper edge to verified live behaviour. Would you have 20 minutes for a demo in the next couple of weeks?
 
-I'm raising a $500K seed round to scale this to iOS, web monitoring, and managed fund launch.
+[Founder Name]
+[Link to deck] · [Contact]
 
-Would you have 20 minutes this week for a demo?
-
-Best,
-Shaun Hayes
-
-GitHub: github.com/shaunhayes333-stack/lifecycle-bot
-
----
-
-## EMAIL TEMPLATE 2: WARM INTRO REQUEST
-
-**Subject:** Intro request: AI trading startup (21 layers, built in 7 days)
+*Trading crypto is high risk. Paper results are not live results. Not financial advice.*
 
 ---
 
-Hi [Mutual Connection],
+## 2. Warm intro request (to a mutual contact)
 
-Hope you're well! I'm reaching out because I just shipped something I'm genuinely proud of and I think [VC Name] at [Fund] would find it interesting.
+**Subject:** Intro to [Investor Name] at [Fund]?
 
-**What I built:** AATE V3.2 - a Solana trading bot with 21 parallel AI layers. The unique part is the "MetaCognitionAI" layer that monitors all other AIs and adjusts their trust based on real performance. It's essentially a trading bot that questions its own judgment.
+Hi [Mutual Contact],
 
-**Why it matters:** Most trading bots follow static rules. AATE continuously learns which of its 21 "brains" are most accurate and weights their votes accordingly. Plus it runs a "shadow learning" engine that paper-trades every blocked opportunity to validate decisions.
+Would you be comfortable introducing me to [Investor Name] at [Fund]? I'm raising a $500K seed for AATE, an autonomous Solana-first trading engine that runs entirely on Android.
 
-**The crazy part:** I built this in 7 days. Solo. 98,000+ lines of native Kotlin.
+Here's a forwardable blurb:
 
-Would you be open to making an intro to [VC Name]? I'm raising a $500K seed and think [Fund]'s focus on [relevant thesis] makes them a great fit.
+> [Founder Name] built AATE (Autonomous Algorithmic Trading Engine) solo, from a phone. It's an on-device engine that decides, sizes, exits and learns, with forensic accounting of every trade and refusal. Paper fills are charged real venue costs, and its entry oracle has to prove an edge on real closes before it gets authority. Raising a $500K seed.
 
-Happy to send the pitch deck or GitHub repo first if helpful.
-
-Thanks,
-Shaun
+Thanks either way,
+[Founder Name]
 
 ---
 
-## EMAIL TEMPLATE 3: FOLLOW-UP AFTER MEETING
+## 3. Follow-up after demo
 
-**Subject:** AATE follow-up + technical deep dive
-
----
+**Subject:** AATE follow-up: what you saw, and the caveats
 
 Hi [Name],
 
-Great speaking with you yesterday. As promised, here's the additional info:
+Thanks for the time on [Date]. To recap what we covered:
 
-**GitHub Repository:**
-github.com/shaunhayes333-stack/lifecycle-bot
+- **The pipeline:** safety filters, per-lane scoring, the Predictive Entry Oracle (a binary ADMIT / REFUSE verdict) and a single Executable Entry Authority before capital.
+- **Oracle Edge Proof:** the oracle stays advisory until it has ≥20 ADMIT and ≥10 REFUSE closes, an ADMIT mean at least 2pp better, and a Brier score ≤ 0.25. It demotes itself if the edge fades.
+- **Paper realism:** a round trip costs about 5–6% on the pump.fun curve and 2–3% on graduated pools, charged to paper fills.
+- **The PAPER run from 5.0.7288:** 79 closes in ~11.5 min, realized +20.52 SOL after 0.89 SOL of fees, profit factor 7.59, win rate 52.6%. That's one short session and a small sample, and it isn't live.
 
-**Technical Highlights:**
-- 21 AI layers running in parallel (see `/app/src/main/kotlin/com/lifecyclebot/v3/scoring/`)
-- MetaCognitionAI implementation (`MetaCognitionAI.kt`)
-- Shadow Learning Engine (`ShadowLearningEngine.kt`)
-- Multi-regime trading with 8 regimes, 26 modes (`MarketStructureRouter.kt`)
+What the $500K seed funds next: sustained paper profitability, then a small live calibration run to check real fills and fees against paper, then live lanes one at a time.
 
-**Key Differentiators:**
-1. **Self-aware trading** - MetaCognitionAI tracks layer accuracy and adjusts trust
-2. **Shadow learning** - Every blocked trade is paper-traded for validation
-3. **Pre-proposal kill** - Garbage rejected before reaching sizing (V3.2)
-4. **Native mobile** - Android first, not web wrapper
+Happy to share [deck / repo walkthrough / Pipeline Health screenshots]. Any questions for me?
 
-**Next Steps:**
-- Happy to do a live demo with the app running
-- Can provide access to closed beta when ready
-- Available for technical deep-dive with your team
+[Founder Name]
 
-Looking forward to continuing the conversation.
-
-Best,
-Shaun
+*Trading crypto is high risk. Paper results are not live results. Not financial advice.*
 
 ---
 
-## EMAIL TEMPLATE 4: CRYPTO-NATIVE VC
+## 4. Technical investor / angel (engineering-led)
 
-**Subject:** Solana trading bot with 21 AI layers (built in 7 days)
-
----
-
-Hey [Name],
-
-Quick note on something I shipped this week that I think aligns with [Fund]'s thesis on AI + crypto infrastructure.
-
-**AATE V3.2** - Autonomous Adaptive Trading Engine for Solana:
-- 21 parallel AI layers (momentum, whale tracking, liquidity cycles, etc.)
-- MetaCognitionAI that monitors other AIs and adjusts trust dynamically
-- 8 market regimes (meme micro, majors, mid-caps, perps-style, volatility)
-- Shadow Learning Engine that paper-trades blocked opportunities
-
-**Why now:**
-- Solana DEX volume hitting ATHs
-- Retail traders need institutional-grade tools
-- AI trading is dominated by quant funds - this democratizes it
-
-**The build:**
-- 7 days development time
-- 98,000+ lines of native Kotlin
-- Solo founder (me)
-
-Raising $500K seed. Would love to chat if this is in your wheelhouse.
-
-- Shaun
-
-P.S. Full repo is public: github.com/shaunhayes333-stack/lifecycle-bot
-
----
-
-## EMAIL TEMPLATE 5: ANGEL INVESTOR (PERSONAL)
-
-**Subject:** Building a "thinking" trading bot - would love your input
-
----
+**Subject:** 457K lines of Kotlin, 16 custom CI validators, one developer on a phone
 
 Hi [Name],
 
-I've been following your work in [relevant area] and wanted to share something I built that might interest you.
+Given your background in [area], you might like the engineering behind AATE, an autonomous trading engine that runs entirely on Android:
 
-**The problem:** Trading bots are dumb. They follow rules without learning, without doubt, without self-awareness.
+- **Single sources of truth:** a Canonical Position Authority (idempotent ledger) and a Canonical Capital Authority (cash, reserved, open cost, unrealized, realized, fees).
+- **Execution:** Jupiter, a PumpPortal fallback, and direct pump.fun curve reads over an RPC ladder. Orders go through Helius Sender with a tip envelope, use Jito bundles for MEV protection, and fall back to a public RPC ladder.
+- **Reliability:** a supervised, self-healing 1 Hz mark loop. The last paper session ran 469 ticks in 687 s with 0 stale resets.
+- **CI:** 16 custom static-analysis validators, including golden tape, economic units, authority contradiction and lane identity, plus an emulator runtime smoke test.
 
-**My solution:** AATE V3.2 - a Solana trading bot with 21 parallel AI layers that vote on every trade. The twist: one of those layers (MetaCognitionAI) watches all the others and adjusts their influence based on how accurate they've been.
+I'm raising a $500K seed. Could I walk you through the code for 30 minutes?
 
-Think of it as a trading bot with a prefrontal cortex.
+[Founder Name]
 
-**Some numbers:**
-- 21 AI layers in parallel
-- 8 market regimes, 26 trading modes
-- 98,000+ lines of Kotlin
-- Built in 7 days (solo)
-
-I'm raising a small seed round ($500K) and would value your perspective - both as a potential investor and as someone who understands [relevant expertise].
-
-Would you have 20 minutes for a call this week?
-
-Best,
-Shaun
+*Paper figures are paper only. Trading crypto is high risk. Not financial advice.*
 
 ---
 
-## LINKEDIN MESSAGE TEMPLATE
+## 5. Short nudge (no reply after ~1 week)
 
-**Connection Request:**
-```
-Hi [Name] - I built a Solana trading bot with 21 AI layers that question each other's judgment. Built it in 7 days. Would love to connect and share more.
-```
-
-**Follow-up Message:**
-```
-Thanks for connecting! Quick context: I just shipped AATE V3.2 - an autonomous trading engine with a "MetaCognitionAI" layer that monitors all other AI layers and adjusts trust based on real performance. 
-
-It's essentially a trading bot with self-doubt as a feature.
-
-Would love to chat if you're investing in AI + crypto infrastructure. Happy to share the repo (it's public) or jump on a quick call.
-```
-
----
-
-## INVESTOR UPDATE TEMPLATE
-
-**Subject:** AATE Monthly Update - [Month Year]
-
----
-
-Hi Investors,
-
-Quick update on AATE progress this month.
-
-**🚀 Highlights:**
-- [Major milestone 1]
-- [Major milestone 2]
-- [Major milestone 3]
-
-**📊 Metrics:**
-- Total trades: [X]
-- Win rate: [X]%
-- Shadow learning validations: [X]
-- New patterns learned: [X]
-
-**🛠️ Technical Progress:**
-- [Feature shipped 1]
-- [Feature shipped 2]
-- [Bug fixed / improvement]
-
-**💰 Financials:**
-- Runway: [X] months
-- Burn rate: $[X]/month
-- Revenue: $[X] (if applicable)
-
-**🎯 Next Month Focus:**
-- [Priority 1]
-- [Priority 2]
-- [Priority 3]
-
-**❓ Ask:**
-- [Specific help needed]
-
-Thanks for your continued support.
-
-— Shaun
-
----
-
-## DECK SEND EMAIL
-
-**Subject:** AATE V3.2 Pitch Deck - 21 AI Layer Trading Bot
-
----
+**Subject:** Re: AATE, autonomous Solana trading engine
 
 Hi [Name],
 
-As discussed, attached is the AATE V3.2 pitch deck.
+Just a quick bump on this. Since I last wrote, AATE has shipped [latest build / change, e.g. "venue-priced paper fees and a persistent oracle edge proof"]. I'm still raising a $500K seed, and I'm happy to send a 5-minute screen recording if that's easier than a call.
 
-**Quick summary:**
-- Solana trading bot with 21 parallel AI layers
-- MetaCognitionAI layer that provides self-awareness
-- Shadow Learning Engine for continuous calibration
-- Built in 7 days by a solo founder
-- Raising $500K seed
-
-**Key slides to focus on:**
-- Slide 3: The 21 AI layers architecture
-- Slide 5: Shadow Learning Engine
-- Slide 6: Pre-Proposal Kill system (V3.2 addition)
-- Slide 9: Competitive comparison
-
-Happy to walk through any part in more detail.
-
-Best,
-Shaun
-
-[Attachment: AATE_V3.2_Pitch_Deck.pdf]
+[Founder Name]
 
 ---
 
-## INVESTOR Q&A PREP
-
-### Q: Why Solana?
-```
-Solana has the transaction speed and cost structure needed for active trading.
-Ethereum L1 gas fees make frequent trading uneconomical.
-Solana DEX volume is hitting all-time highs.
-The meme coin meta requires millisecond execution.
-```
-
-### Q: Why native mobile instead of web?
-```
-Trading happens in real-time. Mobile push notifications beat browser tabs.
-Native Kotlin gives us direct hardware access for wallet security.
-The target user (active trader) has their phone, not their laptop.
-Web version is on the roadmap for monitoring, not execution.
-```
-
-### Q: How do 21 AI layers not conflict?
-```
-That's exactly what MetaCognitionAI solves.
-It tracks which layers have been accurate and weights their votes.
-When reliable layers disagree, it can veto the trade entirely.
-Conflict is a feature - it prevents overconfident execution.
-```
-
-### Q: What's the moat?
-```
-1. Architecture complexity - 21 coordinated AI layers is hard to replicate
-2. Learning data - Every trade improves the system
-3. Shadow Learning - Blocked trades provide unique training signal
-4. Speed to market - Already functional, competitors starting from zero
-```
-
-### Q: Why can one person build this?
-```
-Deep domain expertise in both AI/ML and Solana trading.
-Leveraged existing libraries (Jupiter, Kotlin coroutines).
-Focused scope - trading only, not a full DEX.
-Intense sprint - 7 days of very focused development.
-```
-
-### Q: What are the risks?
-```
-1. Regulatory uncertainty around automated trading
-2. Smart contract risk in token interactions
-3. Black swan market events
-4. Solana network instability
-
-Mitigations: Multiple safety layers, daily loss limits, mode-level circuit breakers.
-```
-
----
-
-*All emails emphasize: 21 AI layers, MetaCognition, 7-day build, solo founder credibility*
+### Rules for editing these templates
+- Never add valuations, projections, user counts or AUM.
+- Always mark paper numbers as **PAPER**, with the sample size (79 closes) and the duration (~11.5 min).
+- "$50 → $1,000,000" may appear only as the stated goal, never as a result.
+- Use the exact product name: **AATE — Autonomous Algorithmic Trading Engine**.

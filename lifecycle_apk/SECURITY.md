@@ -1,67 +1,70 @@
 # Security Policy
 
+Covers **AATE — Autonomous Algorithmic Trading Engine**.
+
 ## Supported Versions
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 1.2.x   | :white_check_mark: |
-| 1.1.x   | :white_check_mark: |
-| 1.0.x   | :x:                |
+| 5.0.7288 (current) | :white_check_mark: |
+| Earlier builds     | :x: (update to the current build) |
 
 ## Security Features
 
-### Encryption
-- **Wallet Keys**: AES-256 via Android EncryptedSharedPreferences
-- **API Keys**: Hardware-backed Keystore where available
-- **At Rest**: All sensitive data encrypted on device
+### Encryption and Access
+- **Wallet keys**: AES-256 through Android EncryptedSharedPreferences. They never leave the device.
+- **API keys**: the same encrypted storage, with the hardware-backed Keystore where available.
+- **At rest**: all sensitive data is encrypted on the device.
+- **App lock**: a PIN / biometric unlock is required on entry.
+- **Recovery vault**: a multi-chain recovery vault (ETH / BSC / BTC).
 
 ### Network Security
-- DNS-over-HTTPS for Jupiter API calls
-- Certificate pinning (configurable)
 - No plaintext transmission of sensitive data
+- Keys are never sent to any server. Collective Learning shares only anonymized patterns with the operator's Turso instance.
 
 ### Transaction Security
-- Jito MEV bundle protection
+- Jito bundle MEV protection
+- Helius Sender fast submission with a public RPC ladder fallback
 - Fresh blockhash before signing
-- Transaction simulation before execution
 - Slippage protection
 
 ### Runtime Protection
-- Circuit breakers for loss limits
-- Kill switch for emergency stops
-- Rate limiting on API calls
+- Live safety circuit breaker: minimum wallet of 0.1 SOL, and a halt on session drawdown
+- Executable Entry Authority: loss-streak limit, cooldowns and a daily loss cap
+- Rate limiting and backoff on API and RPC calls
 - Wallet reserve protection
 
 ## Known Security Considerations
 
 ### User Responsibilities
-1. **Secure your device**: The app is only as secure as your Android device
-2. **Protect your keys**: Never share screenshots with keys visible
-3. **Use paper mode first**: Test thoroughly before live trading
-4. **Monitor regularly**: Check positions and logs frequently
+1. **Secure your device**: the app is only as secure as your Android device.
+2. **Protect your keys**: never share keys, and never share screenshots with keys visible.
+3. **Use a burner wallet**: never your main wallet.
+4. **Use paper mode first**: test thoroughly before live trading.
+5. **Monitor regularly**: check positions, Pipeline Health and logs often.
 
 ### Accepted Risks
-- **Smart contract risk**: Interacting with DEXs carries inherent risk
-- **Network risk**: Solana network congestion can affect trades
-- **Market risk**: Cryptocurrency is volatile
+- **Smart contract risk**: interacting with DEXs carries inherent risk.
+- **Network risk**: Solana congestion can affect trades.
+- **Market risk**: cryptocurrency is volatile.
 
 ## Reporting a Vulnerability
 
-We take security seriously. If you discover a security vulnerability in AATE, please report it responsibly.
+We take security seriously. If you find a security vulnerability in AATE, please report it responsibly.
 
 ### How to Report
-1. **DO NOT** create a public GitHub issue
-2. Email details to the maintainer (via GitHub profile)
+1. **DO NOT** open a public GitHub issue.
+2. Send the details to the maintainer (contact via their GitHub profile).
 3. Include:
-   - Description of the vulnerability
-   - Steps to reproduce
-   - Potential impact
-   - Suggested fix (if any)
+   - A description of the vulnerability
+   - Steps to reproduce it
+   - Its potential impact
+   - A suggested fix, if you have one
 
 ### What to Expect
 - Acknowledgment within 48 hours
-- Status update within 7 days
-- Credit in release notes (if desired)
+- A status update within 7 days
+- Credit in the release notes, if you want it
 
 ### Scope
 In scope:
@@ -79,13 +82,18 @@ Out of scope:
 ## Security Checklist for Users
 
 Before using AATE:
-- [ ] Device has screen lock enabled
+- [ ] Device screen lock is on
 - [ ] Device is not rooted (unless you understand the risks)
-- [ ] Latest Android security patches installed
-- [ ] App downloaded from official source
-- [ ] Paper mode tested extensively
-- [ ] Small amounts only initially
+- [ ] Latest Android security patches are installed
+- [ ] APK came from the official GitHub Actions build
+- [ ] AATE PIN is set
+- [ ] Paper mode has been tested extensively
+- [ ] Dedicated burner wallet, small amounts only at first
 
 ## Acknowledgments
 
-Thank you for helping keep AATE secure! 🛡️
+Thank you for helping keep AATE secure.
+
+---
+
+© 2025–2026 AATE Project.

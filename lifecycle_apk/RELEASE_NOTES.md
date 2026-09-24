@@ -1,329 +1,82 @@
 # AATE Release Notes
 
-## Version 5.0.6495 — February 2026 — PAPER MODE
+**AATE — Autonomous Algorithmic Trading Engine**
 
-### Overview
+## Version 5.0.7288 (24 Sep 2026)
 
-Twenty-second beat of the V5.7 Correctness Mandate (Source-Level
-Authority Convergence). CI green (Build AATE APK + Runtime Smoke
-Test) on commit `abe50b9d5`. **PAPER MODE ONLY** — live execution
-remains disabled until every correctness surface stays green across
-consecutive operator dumps.
+This release rolls up builds 7274 through 7288, all shipped on 24 Sep 2026. The main themes are more reliable exits, an entry oracle that has to earn its authority, and paper trading that charges real venue costs.
 
-### Highlights
-
-1. **Paper → LIVE mistag killed at source**
-   `ExecutorCanonicalMirror6442.mirrorBuyAttempt` /
-   `mirrorBuyFill` no longer hard-code `paperMode=false`. Paper-mode
-   projections (`activeMintProjections6490('paper')`) route
-   correctly and no longer show `0 paper mints / N LIVE mints`
-   during a paper session.
-
-2. **Root-cause classifier gains display precedence**
-   `PipelineHealthCollector` now consults
-   `RootCauseClassifier6471.classify()`. Only `ECONOMIC_INTEGRITY`
-   / `EXECUTION_FINALITY` tier verdicts prepend to the display, so
-   provider-degradation labels can never again mask a capital
-   breach.
-
-3. **laneCap sentinel replaced**
-   `OrderSizeResolver6441` default lane risk cap dropped from
-   `Double.MAX_VALUE` (1.79e+308) to a named constant
-   `DEFAULT_LANE_RISK_CAP_SOL = 5.0`. Diagnostic lines stop
-   rendering catastrophic figures.
-
-4. **USD / SOL mark scaling fix**
-   `BotService` mark-provider callback divides USD by `solPrice`
-   before publishing to `CanonicalCapitalAuthority6450`. Equity
-   snapshots stay SOL-denominated — the `$926M` phantom equity
-   that appeared on a $50 wallet is structurally impossible now.
-
-5. **Impossible-outcome quarantine + provider circuits**
-   Companion commit `919fb489a` shipped an impossible-outcome
-   quarantine on canonical event ingress and enforced provider
-   circuit breakers at every read site.
-
-### What's still deferred
-
-- MOONSHOT exit-quality tuning — gated on ≥20 fresh clean closes.
-- Full BotService routing through `BackgroundTradingAuthority6469`.
-- `rem` non-linear partial-sell audit (likely resolved by 6495 USD
-  scaling; awaiting operator dump confirmation).
+Live execution is still **paper-first**. Every trader runs in paper mode. Live mode covers only the lanes you enable, with stocks and forex quarantined, and non-meme live execution is staged.
 
 ---
 
-## Previous version history
+### Execution & exits
 
-See [/app/memory/CHANGELOG.md](../memory/CHANGELOG.md) for the full
-V5.0.6440 → V5.0.6495 shipping stack.
+- **Sells no longer block pricing (7288).** Sells are now dispatched off the 1 Hz mark loop, so a slow sell can't delay price updates for your other open positions.
+- **Stall detection by sequence (7288).** The mark loop now detects a stall by tick sequence number, which is more reliable than the previous timing check.
+- **Self-healing mark loop (7283).** The open-position mark loop is supervised. If it stops, it restarts itself.
+- **Profit lock follows the peak (7282).** The profit lock now slides up toward each position's peak instead of staying at a fixed level. Winners get room to run, with gains protected along the way.
+- **Sizing fixes (7281).** A lamport-precision sizing fix, plus per-rung backoff on the RPC ladder so a single slow endpoint doesn't hold up submission.
+- **Realistic sizer cap (7280).** Positions are capped to what the market can realistically absorb on exit. A launch-chase floor stops the engine from chasing new launches with dust-sized entries.
+- **Exit-sized entries (7278).** Entries are sized to what can actually be exited, and pricing can now come from the live trade stream.
+- **Paid Helius first, fee-aware floor (7277).** Your paid Helius endpoint is tried before public fallbacks. The minimum position size now accounts for fees, so tiny trades that can't beat their own costs are skipped.
+- **Fill-time basis for alts (7275).** Crypto alt positions now record their cost basis at actual fill time, which makes P&L on those lanes more accurate.
+- **Dead-token exits (7274).** When the engine checks whether a token is dead before exiting, it now consults the live feeds first.
+- **Crypto exposure cap fix (7288).** The crypto lane exposure cap is now enforced correctly.
 
----
+### Oracle & learning
 
-## Legacy V4.1 notes
+- **Binary Predictive Entry Oracle (7287).** For every candidate, the oracle returns **ADMIT** or **REFUSE**. It forecasts expectancy and win probability from the full trade journal, reading up to 5,000 closes both per lane and across the whole book.
+- **Probe trades removed (7287).** The engine no longer opens small "probe" positions to test an idea. It either takes the trade or it doesn't.
+- **The proven oracle binds (7287).** Once the oracle passes its Edge Proof on real closes (≥20 ADMIT and ≥10 REFUSE closes, ADMIT mean ahead by ≥2pp, ADMIT win rate ≥ REFUSE, Brier ≤ 0.25), it decides admission. Until then it's advisory only, and it demotes itself if the edge fades.
+- **Persistent proof (7287).** Edge Proof progress now survives app restarts.
+- **Smart-money copy-trading (7277).** You can copy trades from mined smart-money wallets.
 
-## Version 4.1.2 - December 2025
+### Paper realism
 
-### Overview
+- **Venue-priced paper fees (7287).** Paper fills now pay real venue costs:
+  - pump.fun bonding curve: 1.25% per side
+  - PumpSwap: 0.25% plus the creator fee tier (0.95% → 0.05% by market cap)
+  - AMM pools: 0.25%
+  - network: 0.000805 SOL per side
+  - price impact: clip / (depth + clip), with curve depth ≥ 30 virtual SOL, capped at 15%
+  - app fee: 0.5%
+- A round trip now costs about **5–6% on the curve** and **2–3% on graduated pools**. Paper results made before 7287 aren't directly comparable with results from this release.
 
-V4.1.2 fixes critical state management bugs and adds coordination between multiple scanners and AI layers.
+### Data
 
----
+- **pump.fun create-event mint proof (7279).** New pump.fun mints are confirmed against the on-chain create event before they're treated as real launches.
+- **Batched curve reads (7279).** Bonding-curve account reads are batched, so each refresh makes fewer RPC calls.
+- **Trade-stream pricing (7278).** Prices can come directly from the PumpPortal keyed trade stream, which is faster than polling.
 
-## What's New (V4.1.2)
+### LLM
 
-### GlobalTradeRegistry - Thread-Safe Watchlist (Critical Fix)
+- **Cerebras and Mistral join the council (7276).** Two more providers are available to the LLM council alongside Groq, Gemini, OpenRouter, OpenAI-compatible and keyless providers.
+- **Reasoning-model token fix (7286).** Reasoning models no longer run out of output tokens before they return an answer.
 
-**Problem:** Watchlist randomly resetting from 31 tokens to 1 due to:
-- Multiple threads reading/writing cfg.watchlist
-- ConfigStore.save() called with stale data
-- No synchronization between scanners and AI layers
+### UI
 
-**Solution:** New `GlobalTradeRegistry.kt` singleton:
-- ConcurrentHashMap for thread-safe watchlist storage
-- Single source of truth for all token tracking
-- Duplicate suppression with 5-minute cooldown
-- Position tracking across ALL layers (V3, Treasury, BlueChip, ShitCoin)
-- Automatic pruning when full (100 token limit)
-- Periodic sync to ConfigStore every 50 seconds
-
----
-
-### Module Initialization Timing (P1 Fix)
-
-**Problem:** Trading started BEFORE all AI layers were initialized, causing undefined behavior.
-
-**Solution:**
-- Added `allTradingLayersReady` flag
-- Trading blocked until ALL layers successfully init
-- Error logging for failed layer initializations
-- Clear status messages during startup
-
----
-
-### TokenMergeQueue - Scanner Coordination (P2 Fix)
-
-**Problem:** Multiple scanners (DEX_BOOSTED, PUMP_FUN, V3_SCANNER) finding same token simultaneously caused duplicates.
-
-**Solution:** New `TokenMergeQueue.kt`:
-- Batches discoveries within 5-second window
-- Merges same token found by multiple scanners
-- Multi-scanner detection = confidence boost
-- Scanner rankings: DEX_BOOSTED (90), V3_PREMIUM (85), PUMP_FUN (80), etc.
-- Emits single merged token per batch
+- **Live decision log (7285).** A new live view shows what the engine is deciding and why as it happens.
+- **PumpPortal key setting (7284).** You can enter your PumpPortal API key in Settings to enable the keyed trade stream.
 
 ---
 
-## Version 4.1.1 - December 2025
+### Measured on this build (PAPER)
 
-### Overview
+This is one PAPER session on 5.0.7288, run on 24 Sep 2026: about 11.5 minutes, with 79 closed trades.
 
-V4.1.1 fixes critical orchestration bugs where multiple AI subsystems (Treasury, V3, BlueChip, ShitCoin) were executing trades independently without coordination.
+- Equity ≈10 → 31.34 SOL. Realized +20.52 SOL after 0.89 SOL in fees.
+- Profit factor 7.59. Per-position win rate 52.6%.
+- Crypto spot lane +7.85 SOL (avg +252% per trade). Project Sniper lane +4.86 SOL.
+- Mark loop: 469 ticks in 687 s, 29 of 30 positions fresh, 0 stale resets.
+- LLM (Groq): 100 of 100 calls successful.
 
----
+This is one short paper session with a small sample. Paper is not live, so treat these numbers as a health check on the engine, not as a performance claim.
 
-## What's New (V4.1.1)
+### What's next
 
-### FinalExecutionPermit - Unified Execution Authority (Critical Fix)
-
-**Problem:** Multiple AI "brains" were trading the same token simultaneously:
-- Treasury buying while V3 rejects
-- BlueChip and ShitCoin layers executing duplicates
-- No coordination between subsystems
-
-**Solution:** New `FinalExecutionPermit.kt` singleton acts as a gate:
-1. V3 decisions register as APPROVAL or REJECTION
-2. Treasury/BlueChip/ShitCoin must check permit before executing
-3. First-come-first-served prevents duplicate executions
-4. 60-second cooldown on V3 rejections
-
-**Result:** Treasury cannot buy tokens that V3 rejected. All layers coordinate.
+Sustained paper profitability → a small live calibration run to compare real fills and fees with paper → live lanes expanded one at a time → the Oracle reaching PROVEN and guiding admission.
 
 ---
 
-### Treasury Take Profit Adjusted (User Request)
-
-| Setting | Old | New |
-|---------|-----|-----|
-| Take Profit Target | 4% | 3.5% |
-| Min Profit | 3.5% | 3% |
-| Max Profit | 8% | 7% |
-
-**Why:** User requested tighter scalps at 3.5%, max 7%.
-
----
-
-### Stop Bot Button - Full Position Closing (Bug Fix)
-
-**Problem:** Stop button only closed `status.tokens` positions. Treasury, BlueChip, and ShitCoin positions remained open.
-
-**Solution:** `stopBot()` now closes ALL position types:
-- Main positions (status.tokens)
-- Treasury positions (CashGenerationAI.activePositions)
-- BlueChip positions (BlueChipTraderAI)
-- ShitCoin positions (ShitCoinTraderAI)
-
----
-
-## Technical Changes (V4.1.1)
-
-### Files Modified
-- `BotService.kt` - FinalExecutionPermit integration, stopBot fix
-- `CashGenerationAI.kt` - Take profit 3.5-7%
-
-### New Files
-- `FinalExecutionPermit.kt` - Unified execution authority singleton
-
-### Functions Added
-- `FinalExecutionPermit.registerRejection()` - V3 blocks a token
-- `FinalExecutionPermit.registerApproval()` - V3 approves a token
-- `FinalExecutionPermit.canExecute()` - Check if layer can trade
-- `FinalExecutionPermit.tryAcquireExecution()` - Reserve execution slot
-- `FinalExecutionPermit.releaseExecution()` - Release after trade
-- `FinalExecutionPermit.clearCycleState()` - Clean up at loop start
-
----
-
-## Version 4.1.0 - December 2025
-
-### Overview
-
-AATE V4.1 is a major stability and performance release that fixes critical compiler issues and introduces smarter trading logic. This version successfully builds on GitHub Actions CI after resolving a persistent Kotlin compiler StackOverflow issue.
-
----
-
-## What's New
-
-### Build Stability (Critical Fix)
-
-**Problem:** The Kotlin compiler was crashing with StackOverflowError during coroutine transformation because `botLoop()` was 2600+ lines with a massive inline lambda.
-
-**Solution:**
-- Extracted `processTokenCycle()` as a separate non-suspend function
-- `botLoop()` reduced from 2600 to 825 lines
-- `processTokenCycle()` is 1960 lines but doesn't go through coroutine transformation
-- Added `initTradingModes()` and `tryFallbackPriceData()` helpers
-
-**Result:** CI builds successfully and reliably.
-
----
-
-### Trading Layer Adjustments
-
-**ShitCoin Layer Range Fix:**
-- OLD: $0 - $500K (way too wide!)
-- NEW: $0 - $30K (true micro-caps only)
-
-**Layer Boundaries:**
-| Layer | Market Cap Range |
-|-------|------------------|
-| ShitCoin | $0 - $30K |
-| ShitCoin Express | $0 - $30K |
-| V3 Quality | $30K - $1M |
-| Blue Chip | $1M+ |
-
----
-
-### Treasury Mode Optimization
-
-**Profit Targets Lowered:**
-| Setting | Old | New |
-|---------|-----|-----|
-| Take Profit | 7% | 4% |
-| Min Profit | 5% | 3.5% |
-| Max Profit | 10% | 8% |
-
-**Why:** Catching more quick trades instead of waiting for bigger moves that might reverse.
-
----
-
-### Loss Prevention (New)
-
-**Velocity Detection:**
-- Exit if price dropping >10% in 3 candles
-- Exit if at -10% loss AND still accelerating
-- Block entry during rapid dumps (>5% drop in 3 candles)
-
-**Trailing Stops Improved:**
-| Peak Profit | Minimum Locked |
-|-------------|----------------|
-| 8%+ | 2% guaranteed |
-| 15%+ | 5% guaranteed |
-| 25%+ | 10% guaranteed |
-
----
-
-### Re-entry System (Balanced)
-
-Previous version was too strict (10min cooldown). Now balanced:
-
-| Setting | Value |
-|---------|-------|
-| Cooldown | 2 minutes |
-| Score threshold | 65% |
-| Max attempts | 2 |
-| Penalty per attempt | -5 score |
-| 1st attempt size | 50% |
-| 2nd attempt size | 30% |
-| Block if collapsed | >25% since failure |
-
----
-
-### DipHunter Safety
-
-**New Limits Added:**
-| Setting | Value |
-|---------|-------|
-| Daily Max Loss | 0.2 SOL |
-| Daily Max Hunts | 15 |
-| Base Position | 0.05 SOL |
-| Max Position | 0.15 SOL |
-| Max Concurrent | 3 dips |
-
----
-
-## Technical Changes
-
-### Files Modified
-- `BotService.kt` - Major refactor (extracted functions)
-- `ReentryRecoveryMode.kt` - Balanced re-entry logic
-- `FluidLearningAI.kt` - Improved trailing stops
-- `Executor.kt` - Velocity detection
-- `CashGenerationAI.kt` - Lower profit targets
-- `ShitCoinTraderAI.kt` - $30K max mcap
-- `ShitCoinExpress.kt` - $30K max mcap
-- `DipHunterAI.kt` - Safety limits
-- `LayerTransitionManager.kt` - Updated layer boundaries
-
-### New Functions
-- `processTokenCycle(mint, cfg, wallet, lastSuccessfulPollMs)` - Main token processing
-- `initTradingModes(cfg)` - Layer initialization
-- `tryFallbackPriceData(mint, ts)` - Birdeye/pump.fun fallback
-
----
-
-## Upgrade Notes
-
-1. **Clean Install Recommended** - Due to major structural changes
-2. **Paper Mode First** - Test the new logic before going live
-3. **Watch Bootstrap** - New instances start with tight limits
-
----
-
-## Known Limitations
-
-- No local compiler - must use GitHub Actions CI
-- Collective Learning requires Turso database setup
-- Telegram notifications require bot token
-
----
-
-## What's Next (Roadmap)
-
-- [ ] LayerTransitionManager live testing
-- [ ] BehaviorUI visualization screen
-- [ ] Web-based monitoring portal
-- [ ] Play Store beta release
-
----
-
-*AATE V4.1.0 - Stable Build Release*
+*Trading crypto is high risk. Paper results are not live results. AATE is software and does not provide financial advice.*

@@ -1,351 +1,193 @@
-# AATE - Autonomous AI Trading Engine
+# AATE — Autonomous Algorithmic Trading Engine
 
-<div align="center">
+[![Build AATE APK](https://github.com/shaunhayes333-stack/lifecycle-bot/actions/workflows/build.yml/badge.svg)](https://github.com/shaunhayes333-stack/lifecycle-bot/actions/workflows/build.yml)
+![Version](https://img.shields.io/badge/version-5.0.7288-8B5CF6)
+![Platform](https://img.shields.io/badge/platform-Android-34D399)
+![Kotlin](https://img.shields.io/badge/language-Kotlin-4C8DFF)
+
+AATE is a native Android app that runs a complete autonomous trading engine on the phone. It finds candidates, runs safety checks, scores them, decides, sizes, executes, exits, and learns from the result without anyone tapping a button. It is Solana-first. Sixteen traders share one engine, one position ledger and one capital view. It was built by one developer, on a phone, and GitHub Actions compiles it. The house rule is *real data and forensic accounting: no imagined gains, no inferred values.* The stated goal is **$50 → $1,000,000**. That is a goal, not a result.
+
+> Current version: **5.0.7288** (September 2026). Repo and package name: `lifecycle-bot` / `com.lifecyclebot.aate`. The product name is AATE.
+
+---
+
+## What it trades
+
+One registry holds 16 traders: `MEME`, `SHITCOIN`, `MOONSHOT`, `EXPRESS`, `QUALITY`, `TREASURY`, `CASHGEN`, `BLUECHIP`, `MANIPULATED`, `DIP_HUNTER`, `PROJECT_SNIPER`, `CYCLIC`, `CRYPTO_ALT`, `MARKETS_STOCKS`, `PERPS`, `SHADOW_PAPER`.
+
+- **Solana meme lanes:** Quality, BlueChip, ShitCoin, ShitCoin Express, Moonshot, Project Sniper, Dip Hunter, Manipulated, Cyclic, Treasury/CashGen. One canonical lane-identity authority decides which lane owns a position.
+- **Crypto alts:** CryptoAltTrader covers the wider crypto universe through Jupiter/SPL, Raydium, Meteora and bridged/wrapped routes.
+- **Markets:** tokenized stocks (xStocks / Backed Finance), commodities, metals and forex.
+- **Perps:** SOL perps learn in paper. Live perps do not execute yet.
+- **Copy-trading** from mined smart-money wallets.
+- **LLM Lab:** an LLM invents strategies and paper-trades them on a 100 SOL synthetic bankroll. An approval queue sits between the Lab and real money.
+
+**Paper first.** In PAPER mode every trader runs ("paper = learn everything"). In LIVE mode only the traders the operator enables can run. Stocks and forex are quarantined in live, and live execution for non-meme lanes is being rolled out in stages.
+
+## How it decides
 
 ```
-    ╔═══════════════════════════════════════════════════════════════════╗
-    ║                                                                   ║
-    ║     █████╗  █████╗ ████████╗███████╗    ██╗   ██╗███████╗        ║
-    ║    ██╔══██╗██╔══██╗╚══██╔══╝██╔════╝    ██║   ██║██╔════╝        ║
-    ║    ███████║███████║   ██║   █████╗      ██║   ██║███████╗        ║
-    ║    ██╔══██║██╔══██║   ██║   ██╔══╝      ╚██╗ ██╔╝╚════██║        ║
-    ║    ██║  ██║██║  ██║   ██║   ███████╗     ╚████╔╝ ███████║        ║
-    ║    ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝      ╚═══╝  ╚══════╝        ║
-    ║                                                                   ║
-    ║          AUTONOMOUS AI TRADING ENGINE FOR SOLANA                  ║
-    ║                                                                   ║
-    ╚═══════════════════════════════════════════════════════════════════╝
+ Scanners + PumpPortal / Helius WebSocket fast lane
+                    |
+                    v
+ Safety: HardRugPreFilter, TokenSafetyChecker (SAFE / CAUTION / HARD_BLOCK),
+         RugCheck policy, mint blacklist, serial-rugger creator refusal
+                    |
+                    v
+ Per-lane scoring AIs  ->  FinalDecisionGate
+                    |
+                    v
+ Predictive Entry Oracle: ADMIT / REFUSE   (reads up to 5,000 journal closes)
+   advisory until Oracle Edge Proof = PROVEN, then it decides admission
+                    |
+                    v
+ Learned Admission Authority -> Executable Entry Authority (single gate before capital)
+                    |
+                    v
+ Realistic sizer (sized to what can be exited, fee-aware floor)
+                    |
+                    v
+ Execution: Jupiter / PumpPortal / pump.fun curve reads, Helius Sender, Jito bundles
+                    |
+                    v
+ Canonical Position Authority + Canonical Capital Authority (one ledger, one capital view)
+                    |
+                    v
+ Exits: 1 Hz mark loop, sliding profit lock, trailing stops, runner profiles,
+        learned exit policy, universal stop-loss sweep
+                    |
+                    v
+ Journal -> learning, on-device TFLite model, collective hive mind, Oracle proof
 ```
 
-### **110,000+ Lines of Kotlin. 914+ Commits. 28 AI Layers. 1 Guy. 10 Days. 1 Phone.**
+- **The oracle gives a binary verdict.** It either ADMITs or REFUSEs. There are no "probe" trades.
+- **The oracle has to earn authority.** It stays advisory until real closes show an edge: at least 20 ADMIT and 10 REFUSE closes, an ADMIT mean at least 2 percentage points above the REFUSE mean, an ADMIT win rate at or above the REFUSE win rate, and a Brier score of 0.25 or lower. Once PROVEN, it decides admission. If the edge fades, it demotes itself. The proof persists across restarts.
+- **The LLM council** can use Groq (gpt-oss), Gemini, Cerebras, Mistral, OpenRouter, any OpenAI-compatible endpoint, and keyless providers. Its narrative/scam analysis can block live entries and its exit advice can trigger exits. It runs asynchronously and cached, off the hot path.
+- **Wins are not capped.** The profit lock slides up toward the peak instead of taking a fixed target.
 
-[![Build Status](https://github.com/shaunhayes333-stack/lifecycle-bot/actions/workflows/build.yml/badge.svg)](https://github.com/shaunhayes333-stack/lifecycle-bot/actions)
-[![Version](https://img.shields.io/badge/version-5.0.6495-blue.svg)]()
-[![Platform](https://img.shields.io/badge/platform-Android-green.svg)]()
-[![Kotlin](https://img.shields.io/badge/kotlin-1.9.0-purple.svg)]()
+## Execution and safety
 
-</div>
+- Swaps go through the Jupiter swap API. PumpPortal trade-local is the fallback for pump.fun sells, and pump.fun bonding-curve accounts are read directly over an RPC ladder.
+- Transactions are submitted fast through Helius Sender with a tip envelope, protected from MEV by Jito bundles, and fall back to a public RPC ladder.
+- Modes are **PAPER**, **LIVE** and **SHADOW**. The live safety circuit breaker needs a minimum wallet of 0.1 SOL and halts on session drawdown. The Executable Entry Authority enforces a loss-streak limit, cooldowns and a daily loss cap.
+- Keys are stored in EncryptedSharedPreferences (AES-256) behind a PIN / biometric lock and never leave the device. A multi-chain recovery vault covers ETH, BSC and BTC.
+- The app fee is 0.5% per spot side (1% on leverage).
+- There are 40+ data sources, including Helius (RPC, enhanced WebSocket, DAS, Sender), PumpPortal, DexScreener, Birdeye, GeckoTerminal, CoinGecko, Jupiter Price, Pyth Hermes, Switchboard, DefiLlama, Binance/Kraken/Coinbase, RugCheck, Solscan, GMGN, market-data feeds (Yahoo, Stooq, Finnhub, Polygon), Fear & Greed, and social feeds.
 
----
+## Paper realism
 
-## The Story
+Paper fills pay real venue costs (`PaperVenueCost`, since 5.0.7287):
 
-**Built entirely on a mobile phone.** No laptop. No desktop. No IDE. Just a phone, GitHub Actions for compilation, and an unholy amount of caffeine.
+| Cost | Charged in paper |
+|---|---|
+| pump.fun bonding curve | 1.25% per side |
+| PumpSwap | 0.25% + creator-fee tier (0.95% → 0.05% by market cap) |
+| AMM pools | 0.25% |
+| Network | 0.000805 SOL per side |
+| Price impact | clip / (depth + clip); curve depth ≥ 30 virtual SOL; capped at 15% |
+| App fee | 0.5% |
 
-What started as a simple trading bot evolved into a **self-learning, multi-layered AI trading system** that watches, learns, and executes trades on the Solana blockchain with institutional-grade precision.
+A round trip costs about 5–6% on the curve and 2–3% on graduated pools.
 
----
+## Forensics
 
-## What Is AATE?
+Everything that happens is counted. `ForensicLogger` writes structured logs for each phase. The **Pipeline Health** screen shows the intake → decision → execution funnel, loop, execution and journal counters, an ANR watchdog, and a count for every refusal reason. The full dump can be copied for offline analysis.
 
-AATE is a **native Android application** that runs a sophisticated autonomous trading engine directly on your phone. It's not a toy. It's not a prototype. It's a production-grade trading system with:
+## Latest measured run (PAPER)
 
-- **28 Specialized AI Layers** working in concert
-- **4-Tier Trading Architecture** (Treasury → ShitCoin → Quality → BlueChip/Moonshot)
-- **Fluid Learning System** that adapts in real-time
-- **Paper Mode** for risk-free strategy development
-- **Collective Intelligence** sync across devices
-- **SAFE MODE** for capital protection
+**PAPER mode, build 5.0.7288, 24 Sep 2026: one session of about 11.5 minutes with 79 closed trades.**
 
----
+| Metric | Value |
+|---|---|
+| Equity | ≈10 → 31.34 SOL |
+| Realized P&L | +20.52 SOL, after 0.89 SOL in fees |
+| Profit factor | 7.59 |
+| Per-position win rate | 52.6% |
+| Crypto spot lane | +7.85 SOL (avg +252% per trade) |
+| Project Sniper lane | +4.86 SOL |
+| Mark loop | 469 ticks in 687 s, 29/30 positions fresh, 0 stale resets |
+| LLM (Groq) | 100/100 calls successful |
 
-## Architecture Overview
+**Caveats:** this is one short paper session with a small sample. Paper is not live. These are not live returns, and they do not predict future results.
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         AATE V5.2 ARCHITECTURE                          │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                     MARKET SCANNERS                              │   │
-│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐           │   │
-│  │  │ PumpFun  │ │ Raydium  │ │DexScreener│ │ Birdeye  │           │   │
-│  │  │ Scanner  │ │ Scanner  │ │  Scanner  │ │  Charts  │           │   │
-│  │  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘           │   │
-│  └───────┼────────────┼────────────┼────────────┼──────────────────┘   │
-│          └────────────┴─────┬──────┴────────────┘                      │
-│                             ▼                                          │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                   V3 DECISION ENGINE                             │   │
-│  │  ┌────────────────────────────────────────────────────────────┐ │   │
-│  │  │              28 AI SCORING LAYERS                          │ │   │
-│  │  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐          │ │   │
-│  │  │  │ FluidLearn  │ │ BehaviorAI  │ │ MetaCognit  │          │ │   │
-│  │  │  │ 1,224 lines │ │  864 lines  │ │  739 lines  │          │ │   │
-│  │  │  └─────────────┘ └─────────────┘ └─────────────┘          │ │   │
-│  │  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐          │ │   │
-│  │  │  │ CashGenAI   │ │ ShitCoinAI  │ │ QualityAI   │          │ │   │
-│  │  │  │ 1,067 lines │ │ 1,058 lines │ │  417 lines  │ [NEW]    │ │   │
-│  │  │  └─────────────┘ └─────────────┘ └─────────────┘          │ │   │
-│  │  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐          │ │   │
-│  │  │  │ BlueChipAI  │ │ MoonshotAI  │ │ RugDetector │          │ │   │
-│  │  │  │  674 lines  │ │  829 lines  │ │  614 lines  │          │ │   │
-│  │  │  └─────────────┘ └─────────────┘ └─────────────┘          │ │   │
-│  │  │  + 19 more specialized AI layers...                        │ │   │
-│  │  └────────────────────────────────────────────────────────────┘ │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-│                             │                                          │
-│                             ▼                                          │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                 4-TIER TRADING LAYERS                            │   │
-│  │                                                                  │   │
-│  │  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐  │   │
-│  │  │ TREASURY │───▶│ SHITCOIN │───▶│ QUALITY  │───▶│BLUECHIP/ │  │   │
-│  │  │  Layer   │    │  Layer   │    │  Layer   │    │ MOONSHOT │  │   │
-│  │  │ Scalping │    │  Degen   │    │   Pro    │    │  Layer   │  │   │
-│  │  │ 0.01 SOL │    │ 0.05 SOL │    │ 0.08 SOL │    │ 0.15 SOL │  │   │
-│  │  │ TP: 3-8% │    │TP: 8-25% │    │TP: 15-50%│    │TP: 25%+  │  │   │
-│  │  └──────────┘    └──────────┘    └──────────┘    └──────────┘  │   │
-│  │       │               │               │               │         │   │
-│  │       └───────────────┴───────────────┴───────────────┘         │   │
-│  │                       PROMOTION SYSTEM                           │   │
-│  │              (Tokens graduate up as they prove themselves)       │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-│                             │                                          │
-│                             ▼                                          │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                    EXECUTION LAYER                               │   │
-│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐           │   │
-│  │  │ Position │ │ Exit     │ │ Risk     │ │ Trailing │           │   │
-│  │  │  Sizing  │ │ Manager  │ │ Guards   │ │  Stops   │           │   │
-│  │  └──────────┘ └──────────┘ └──────────┘ └──────────┘           │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-│                             │                                          │
-│                             ▼                                          │
-│  ┌─────────────────────────────────────────────────────────────────┐   │
-│  │                    SOLANA BLOCKCHAIN                             │   │
-│  │              Jupiter Aggregator / Direct Swaps                   │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+## Scale (measured from the 5.0.7288 source)
 
----
+- 1,200 Kotlin source files, about 457,000 lines of production Kotlin
+- 339 test files, about 47,000 test lines, 2,699 `@Test` cases
+- 22 screens (Activities) plus the settings sheet
+- 16 custom static-analysis CI validators, plus an APK build and an emulator runtime smoke test
 
-## The 28 AI Layers
+## Build
 
-AATE doesn't use one AI model. It orchestrates **28 specialized AI layers**, each with a specific responsibility:
+GitHub Actions builds the APK on every push and pull request to `main`/`master` ([build.yml](https://github.com/shaunhayes333-stack/lifecycle-bot/actions/workflows/build.yml)). The APK is uploaded as a workflow artifact.
 
-### Scoring & Analysis
-| Layer | Lines | Purpose |
-|-------|-------|---------|
-| `FluidLearningAI` | 1,224 | Adaptive thresholds that evolve with experience |
-| `CashGenerationAI` | 1,067 | Treasury scalping for self-funding operations |
-| `ShitCoinTraderAI` | 1,058 | Meme/degen token specialist |
-| `CollectiveIntelligenceAI` | 914 | Cross-device learning sync |
-| `EducationSubLayerAI` | 885 | Feeds trade outcomes to Harvard Brain |
-| `BehaviorAI` | 864 | Tracks and corrects "bad behavior" patterns |
-| `MoonshotTraderAI` | 829 | 100%+ gain hunter |
-| `MetaCognitionAI` | 739 | AI that watches the other AIs |
-| `RegimeTransitionAI` | 686 | Market regime detection |
-| `BlueChipTraderAI` | 674 | $1M+ mcap professional trading |
-| `DipHunterAI` | 673 | Oversold bounce detector |
-| `ShitCoinExpress` | 627 | Fast-track meme entries |
-| `UltraFastRugDetectorAI` | 614 | Sub-second rug pull detection |
-| `HoldTimeOptimizerAI` | 582 | Dynamic hold duration |
-| `SellOptimizationAI` | 540 | Exit timing optimization |
-| `SolanaArbAI` | 533 | Cross-venue arbitrage |
-| `LiquidityCycleAI` | 485 | Liquidity pattern recognition |
-| `AdvancedExitManager` | 478 | Multi-factor exit decisions |
-| `OrderFlowImbalanceAI` | 472 | Buy/sell pressure analysis |
-| `QualityTraderAI` | 417 | Professional mid-cap trading |
-| `SmartMoneyDivergenceAI` | - | Whale movement tracking |
-| `FearGreedAI` | - | Market sentiment gauge |
-| `SocialVelocityAI` | - | Social momentum detection |
-| `LayerTransitionManager` | - | Token promotion/demotion |
-| `CrossTalkAI` | 924 | Inter-layer communication |
-| `UnifiedScorer` | - | Final score aggregation |
-| `ScoreCard` | - | Trade grading system |
-| `NarrativeDetectorAI` | - | Trending narrative identification |
+To build locally (JDK 17 and the Android SDK):
 
-### Total AI Scoring Code: **16,766 lines** (just the scoring layers!)
-
----
-
-## The 4-Tier Trading System
-
-AATE doesn't treat all tokens the same. It operates a sophisticated **promotion/demotion system**:
-
-### Tier 1: Treasury (CashGenerationAI)
-- **Purpose**: Self-funding scalping machine
-- **Position Size**: 0.01 SOL
-- **Targets**: 3-8% quick profits
-- **Hold Time**: 1-15 minutes
-- **Philosophy**: "Pay for the bot's operations"
-
-### Tier 2: ShitCoin (ShitCoinTraderAI)
-- **Purpose**: Degen meme coin plays
-- **Position Size**: 0.05 SOL
-- **Targets**: 8-25% gains
-- **Hold Time**: 5-30 minutes
-- **Philosophy**: "High risk, high reward memes"
-
-### Tier 3: Quality (QualityTraderAI) [NEW in V5.2]
-- **Purpose**: Professional Solana trading
-- **Position Size**: 0.08 SOL
-- **Targets**: 15-50% gains
-- **Hold Time**: 15-60 minutes
-- **Philosophy**: "Not memes - real projects"
-- **Market Cap**: $100K - $1M
-
-### Tier 4: BlueChip / Moonshot
-- **Purpose**: Large cap / moon shot plays
-- **Position Size**: 0.15 SOL
-- **Targets**: 25-200%+ gains
-- **Hold Time**: Hours to days
-- **Philosophy**: "Let winners run"
-
-**Tokens promote upward** as they prove themselves. A ShitCoin that hits $1M mcap becomes a BlueChip. A Quality trade that gains 100%+ becomes a Moonshot.
-
----
-
-## Key Features
-
-### Fluid Learning System
-The bot doesn't use fixed thresholds. **Everything adapts:**
-- Take profit targets start conservative, expand with experience
-- Stop losses start tight, loosen as the bot learns what works
-- Position sizes scale with confidence
-- The bot literally gets better every day
-
-### Paper Mode
-**Risk-free learning** with a virtual wallet:
-- Same market data, same AI decisions
-- Perfect for testing strategies
-- Tracks virtual P&L accurately
-- All learning transfers to live mode
-
-### SAFE MODE
-When things go wrong:
-- Automatic position reduction
-- Tighter risk controls
-- Reduced position sizing
-- "Live to trade another day"
-
-### Collective Intelligence
-Multiple AATE instances **share learning**:
-- Trade outcomes sync to cloud
-- Bad patterns identified across fleet
-- Good setups propagate automatically
-- Distributed intelligence network
-
-### Harvard Brain Education
-Every trade teaches:
-- Win patterns get reinforced
-- Loss patterns get flagged
-- The system builds a "trading memory"
-- Bad behaviors get tracked and corrected
-
----
-
-## Technical Stats
-
-```
-┌────────────────────────────────────────┐
-│          AATE BY THE NUMBERS           │
-├────────────────────────────────────────┤
-│  Total Kotlin Files:       209         │
-│  Total Lines of Code:      110,444     │
-│  Git Commits:              914+        │
-│  AI Scoring Layers:        28          │
-│  Engine Files:             50+         │
-│  V3 Module Files:          40+         │
-│  Development Time:         ~10 days    │
-│  Development Device:       1 Phone     │
-│  Developers:               1           │
-├────────────────────────────────────────┤
-│  Largest Files:                        │
-│  ├─ Executor.kt            6,197 lines │
-│  ├─ BotService.kt          6,089 lines │
-│  ├─ LifecycleStrategy.kt   3,601 lines │
-│  ├─ FinalDecisionGate.kt   3,377 lines │
-│  └─ SolanaMarketScanner.kt 2,860 lines │
-└────────────────────────────────────────┘
-```
-
----
-
-## Installation
-
-### From GitHub Releases
-1. Download the latest APK from [Releases](https://github.com/shaunhayes333-stack/lifecycle-bot/releases)
-2. Enable "Install from Unknown Sources" on your Android device
-3. Install the APK
-4. Configure your wallet and start trading
-
-### Build from Source
 ```bash
-# Clone the repository
-git clone https://github.com/shaunhayes333-stack/lifecycle-bot.git
-cd lifecycle-bot/lifecycle_apk
-
-# Build with Gradle
-./gradlew assembleRelease
-
-# APK will be in app/build/outputs/apk/release/
+cd lifecycle_apk
+./gradlew assembleDebug
+# APK: app/build/outputs/apk/debug/
 ```
 
----
+### CI validators
 
-## Configuration
+Every build has to pass these gates (scripts in `ci/`):
 
-AATE is designed to work out of the box, but power users can configure:
+1. Kotlin block-comment balance: `comment_balance.py`
+2. Golden-tape literal scan: `golden_tape_literal_scan.py`
+3. Authority contradiction scan: `authority_contradiction_scan.py`
+4. Patch-rot scan: `patch_rot_scan.py`
+5. Economic units / cash authority: `economic_units_scan.py`
+6. Android resource pre-flight: `res_validate.py`
+7. Layout id contract: `layout_contract.py`
+8. Palette drift guard: `palette_drift.py`
+9. Static-call receiver guard: `static_call_check.py`
+10. Return-telemetry honesty guard: `return_telemetry_check.py`
+11. New dead-code guard: `new_dead_code.py`
+12. Qualified-reference package guard: `qualified_reference_check.py`
+13. Kotlin expression-body return guard: `kotlin_expression_body_return.py`
+14. Lane identity authority guard: `lane_identity_authority_scan.py`
+15. Local-function modifier guard: `kotlin_local_function_modifiers.py`
+16. Val reassignment guard: `kotlin_val_assignment.py`
 
-- **Mode Selection**: Paper / Live / SAFE MODE
-- **Position Sizes**: Per-layer customization
-- **Risk Limits**: Max exposure, max positions
-- **Layer Enables**: Turn individual AI layers on/off
-- **Notification Settings**: Telegram alerts, sounds
-- **Scanner Filters**: Market cap, liquidity, age
+After the gates, CI builds the APK and runs the unit regression suite. A separate workflow (`runtime-test.yml`) runs the emulator smoke test.
 
----
+## Repository layout
 
-## Safety Features
+```
+lifecycle_apk/
+  app/src/main/kotlin/com/lifecyclebot/
+    backtest/     backtesting harness
+    collective/   collective learning (Turso / libSQL hive mind)
+    data/         config, data sources, persistence
+    engine/       bot service, scanners, authorities, execution, exits
+    learning/     journal-driven learning
+    ml/           on-device TensorFlow Lite model
+    network/      HTTP / RPC / WebSocket clients
+    perps/        perpetuals trading
+    ui/           the 22 screens and settings sheet
+    util/         shared utilities
+    v3/           V3 scoring and decision layers
+    v4/           V4 meta / cross-asset intelligence
+  app/src/main/res/  layouts, colors, fonts, drawables
+  ci/                static-analysis validators
+  docs/              documentation (docs/archive = superseded material)
+```
 
-- **Rug Detection**: Sub-second rug pull identification
-- **Liquidity Checks**: Won't enter illiquid tokens
-- **Position Limits**: Hard caps on exposure
-- **Stop Losses**: Adaptive protective stops
-- **Rate Limiting**: API protection
-- **Error Recovery**: Automatic restart on failures
+## Documentation
 
----
-
-## Roadmap
-
-- [x] V5.7 Correctness Mandate — 26-point convergence (see [docs/V5.7_CORRECTNESS_MANDATE.md](docs/V5.7_CORRECTNESS_MANDATE.md))
-- [x] Source-Level Authority Convergence — canonical authorities at every side-effect door
-- [x] Canonical terminal pipeline for paper + live (V5.0.6469 → V5.0.6474 → V5.0.6485)
-- [x] Growth-Centric Runner Compounding (`RunnerCompoundingLadder6440`, $50 → $1M mindset)
-- [ ] MOONSHOT exit-quality tuning (gated on ≥20 fresh clean closes)
-- [ ] SOL Perps/Leverage full enablement (paper-only sandbox already live via `PerpsSandbox6463`)
-- [ ] Neural bridge — AI cross-learning perps ↔ stocks
-- [ ] LLM Lab sandbox
-- [ ] GitHub Releases automation for APK distribution
-- [ ] Web dashboard for monitoring
-
----
+- [docs/README.md](docs/README.md): index of all docs
+- [docs/QUICKSTART.md](docs/QUICKSTART.md): install, configure, paper, going live
+- [FEATURES.md](FEATURES.md): the full feature list
+- [ARCHITECTURE.md](ARCHITECTURE.md): system architecture
+- [TECHNICAL_DESCRIPTION.md](TECHNICAL_DESCRIPTION.md): technical description
+- [PITCH_DECK.md](PITCH_DECK.md): the pitch
+- [CHANGELOG.md](CHANGELOG.md): build history
 
 ## Disclaimer
 
-**AATE is experimental software for educational purposes.**
-
-Trading cryptocurrencies involves significant risk. You can lose all your money. Past performance does not guarantee future results. Only trade with funds you can afford to lose.
-
-The developers are not responsible for any financial losses incurred while using this software.
-
----
+Trading crypto is high risk. You can lose some or all of your capital. AATE does not guarantee profits. Paper results are not live results. Nothing in this repository is financial advice. Start in PAPER, then go live with small amounts you can afford to lose. See [LEGAL.md](LEGAL.md).
 
 ## License
 
-Proprietary. All rights reserved.
-
----
-
-<div align="center">
-
-### Built with obsession by one developer, one phone, ten days of madness.
-
-**AATE V5.0.6495** | February 2026
-
-</div>
+See [LICENSE](LICENSE). The LICENSE file in this repo is a proprietary, all-rights-reserved license. AATE™ is a trademark.

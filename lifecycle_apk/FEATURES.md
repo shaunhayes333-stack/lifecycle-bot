@@ -1,300 +1,144 @@
-# AATE V4.1 - Autonomous AI Trading Engine
+# AATE Features
 
-## What is AATE?
+This is the feature list for **AATE — Autonomous Algorithmic Trading Engine**, version **5.0.7288** (September 2026). AATE is a native Android app (Kotlin, minSdk 26, targetSdk 34) that runs the whole engine on the phone. It is Solana-first.
 
-AATE is a **Native Android trading bot** for Solana that uses **25 parallel AI scoring layers** to make autonomous trading decisions. It's designed to trade memecoins, micro-caps, and established tokens 24/7 without human intervention.
-
----
-
-# TRADING LAYERS
-
-## Layer Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    MARKET CAP ZONES                         │
-├─────────────────────────────────────────────────────────────┤
-│  $0 ──────── $30K ──────── $1M ──────── $10M+ ────────→    │
-│     │                │              │                       │
-│     ▼                ▼              ▼                       │
-│  ┌──────┐      ┌──────────┐    ┌──────────┐                │
-│  │SHIT  │  →   │V3 QUALITY│ →  │BLUE CHIP │                │
-│  │COIN  │      │  LAYER   │    │  LAYER   │                │
-│  └──────┘      └──────────┘    └──────────┘                │
-│     │                                                       │
-│     ▼                                                       │
-│  ┌──────────┐                                              │
-│  │SHITCOIN  │  (Momentum plays on micro-caps)              │
-│  │EXPRESS   │                                              │
-│  └──────────┘                                              │
-│                                                             │
-│  ┌──────────┐  (Cross-layer: buys quality dips)            │
-│  │DIP HUNTER│                                              │
-│  └──────────┘                                              │
-│                                                             │
-│  ┌──────────┐  (Quick 4% scalps for consistent profit)     │
-│  │TREASURY  │                                              │
-│  └──────────┘                                              │
-└─────────────────────────────────────────────────────────────┘
-```
+Everything below exists in the current code. Where a capability is paper-only or staged for live, it says so.
 
 ---
 
-## 1. ShitCoin Layer
-**Target:** Ultra micro-caps < $30K market cap
+## Traders and lanes
 
-| Setting | Value |
-|---------|-------|
-| Max Market Cap | $30,000 |
-| Token Age | < 6 hours |
-| Take Profit | 25-100% |
-| Stop Loss | -10% |
-| Max Hold | 15 minutes |
-| Daily Loss Limit | 0.5 SOL |
+One engine runs 16 registered traders: `MEME`, `SHITCOIN`, `MOONSHOT`, `EXPRESS`, `QUALITY`, `TREASURY`, `CASHGEN`, `BLUECHIP`, `MANIPULATED`, `DIP_HUNTER`, `PROJECT_SNIPER`, `CYCLIC`, `CRYPTO_ALT`, `MARKETS_STOCKS`, `PERPS`, `SHADOW_PAPER`.
 
-**What it trades:** Brand new pump.fun launches, fresh Raydium pairs, early memecoins
+- **Solana meme lanes.** Quality, BlueChip, ShitCoin, ShitCoin Express, Moonshot, Project Sniper, Dip Hunter, Manipulated, Cyclic and Treasury/CashGen. Each lane has its own scoring AI and exit profile.
+- **Lane identity authority.** One canonical authority decides which lane owns each position, and a CI guard enforces it.
+- **Crypto alts (CryptoAltTrader).** The wider crypto universe, reached through Jupiter/SPL, Raydium, Meteora and bridged/wrapped routes.
+- **Markets.** Tokenized stocks (xStocks / Backed Finance), commodities, metals and forex, each with its own toggle in Settings › MARKETS SUB-TRADERS.
+- **Perps.** SOL perps learn in paper. Live perps do not execute yet.
+- **Copy-trading.** Follows smart-money wallets mined from on-chain activity.
+- **LLM Lab.** An LLM invents strategies and paper-trades them on a 100 SOL synthetic bankroll. Nothing reaches real money until it passes an approval queue.
+- **Paper and live scope.** In PAPER every trader runs ("paper = learn everything"). In LIVE only the traders the operator enables can run. Stocks and forex are quarantined in live, and live execution for non-meme lanes is being rolled out in stages.
 
----
+## Execution (Solana)
 
-## 2. ShitCoin Express
-**Target:** Momentum plays on micro-caps already pumping
+- Swaps go through the Jupiter swap API.
+- PumpPortal trade-local is the fallback for pump.fun sells.
+- pump.fun bonding-curve accounts are read directly over an RPC ladder, with batched curve reads and create-event mint proof.
+- Transactions are submitted fast through Helius Sender with a tip envelope.
+- Jito bundles provide MEV protection.
+- A public RPC ladder is the fallback, with per-rung backoff.
+- Modes are **PAPER**, **LIVE** and **SHADOW**.
+- A realistic sizer sizes each position to what can actually be exited and applies a fee-aware floor.
+- The app fee is 0.5% per spot side (1% on leverage).
 
-| Setting | Value |
-|---------|-------|
-| Max Market Cap | $30,000 |
-| Entry Requirement | Already +5% and climbing |
-| Buy Pressure | Must be ≥60% |
-| Take Profit | 30-100% |
-| Stop Loss | -8% |
-| Max Hold | 10 minutes |
+## Safety
 
-**Strategy:** Jump on rockets already in motion, ride for quick 30%+ gains
+- **HardRugPreFilter** removes obvious rugs before any scoring.
+- **TokenSafetyChecker** returns a SAFE / CAUTION / HARD_BLOCK verdict.
+- **RugCheck policy**, a **mint blacklist** (shared through the collective), and **serial-rugger creator refusal**.
+- **Live safety circuit breaker:** a minimum wallet of 0.1 SOL and a halt on session drawdown.
+- **Executable Entry Authority** is the single gate before capital. It enforces a loss-streak limit, cooldowns and a daily loss cap.
+- **Canonical Position Authority** is one idempotent ledger of positions and cash.
+- **Canonical Capital Authority** is one view of cash, reserved, open cost, unrealized, realized and fees.
 
----
+## Intelligence and the oracle
 
-## 3. V3 Quality Layer
-**Target:** Established low-caps $30K - $1M
+- **Scanners and a WebSocket fast lane** (PumpPortal launches and migrations, the keyed PumpPortal trade stream, Helius enhanced WebSocket) produce candidates.
+- **Per-lane scoring AIs** (ShitCoinTraderAI, MoonshotTraderAI, BlueChipTraderAI, QualityTraderAI, ProjectSniperAI, CashGenerationAI and others) feed a **FinalDecisionGate**.
+- **Predictive Entry Oracle.** It forecasts expectancy and win probability for each candidate from the full trade journal: up to 5,000 closes, per lane and across the whole book. The verdict is binary, ADMIT or REFUSE, with no probe trades.
+- **Oracle Edge Proof.** The oracle stays advisory until real closes prove it: at least 20 ADMIT and 10 REFUSE closes, an ADMIT mean at least 2 percentage points above the REFUSE mean, an ADMIT win rate at or above the REFUSE win rate, and a Brier score of 0.25 or lower. Once PROVEN it decides admission. It demotes itself if the edge fades. The proof persists across restarts.
+- **Learned Admission Authority** sits between scoring and the Executable Entry Authority.
+- **40+ data sources**, including Helius (RPC, enhanced WebSocket, DAS, Sender), PumpPortal, DexScreener, Birdeye, GeckoTerminal, CoinGecko, Jupiter Price, Pyth Hermes, Switchboard, DefiLlama, Binance/Kraken/Coinbase, RugCheck, Solscan, GMGN, Yahoo/Stooq/Finnhub/Polygon for markets, Fear & Greed, and social feeds (Telegram, X).
 
-| Setting | Value |
-|---------|-------|
-| Min Market Cap | $30,000 |
-| Max Market Cap | $1,000,000 |
-| Take Profit | 35% |
-| Stop Loss | -12% |
-| Max Hold | 60 minutes |
+## Exits
 
-**What it trades:** Tokens that survived initial volatility, have real liquidity, showing quality setups
+- **1 Hz open-position mark loop.** It is supervised and self-healing, and it detects stalls by sequence number.
+- **Sells are dispatched off the mark loop,** so a slow sell never stalls marking.
+- **Profit lock** slides up toward the peak. Wins are not capped.
+- **Trailing stops.**
+- **Runner exit profiles** for moonshots.
+- **A learned exit policy for each lane.**
+- **A universal stop-loss sweep.**
+- **Dead-token exit checks** consult the price feeds first.
 
----
+## LLM council
 
-## 4. Blue Chip Layer
-**Target:** Established tokens > $1M market cap
+- **Providers:** Groq (gpt-oss), Gemini, Cerebras, Mistral, OpenRouter, any OpenAI-compatible endpoint, and keyless providers.
+- **Narrative and scam analysis** can block live entries.
+- **Exit advice** can trigger exits.
+- **Runs asynchronously and cached,** off the hot path, so the engine never waits on an LLM.
+- **Also:** sentiment, parameter tuning, chat personas (Persona Studio) and voice (ElevenLabs).
 
-| Setting | Value |
-|---------|-------|
-| Min Market Cap | $1,000,000 |
-| Min Liquidity | $50,000+ |
-| Take Profit | 10-25% |
-| Stop Loss | -5% |
-| Max Hold | 30 minutes |
+## Learning and collective
 
-**What it trades:** Proven tokens with deep liquidity, lower risk setups
+- **Journal-driven learning.** Every close feeds lane scoring, the exit policy and the oracle.
+- **On-device TensorFlow Lite model.**
+- **Collective learning (hive mind).** Anonymized patterns and a shared blacklist sync through a Turso/libSQL database run by the operator.
+- **Backtesting** on historical data.
+- **Tuning screen:** per-lane expectancy and decision-quality signals.
 
----
+## Forensics and pipeline health
 
-## 5. DipHunter AI
-**Target:** Quality dips on established tokens
+- **ForensicLogger** writes structured logs for each phase.
+- **Pipeline Health screen:** the intake → decision → execution funnel, loop, execution and journal counters, max frame time, an ANR watchdog, every refusal reason counted, a sectioned full report with copy-to-clipboard export, and a self-healing advisor.
+- **Live decision log** and **live trade log.**
+- **Error log screen.**
+- **Universe Health screen:** one-glance ground truth covering runtime, scoring, learning and more.
+- **Learning Counter screen:** canonical learning counters.
+- The rule is that everything that happens is counted.
 
-| Setting | Value |
-|---------|-------|
-| Dip Range | 15-55% from high |
-| Ideal Dip | 25-40% |
-| Danger Zone | >60% (rejected) |
-| Target Recovery | +20% |
-| Stop Loss | -15% |
-| Daily Loss Limit | 0.2 SOL |
+## UI screens
 
-**Strategy:** Buy the dip on quality tokens, avoid falling knives
+There are 22 screens (Activities) plus the settings bottom sheet:
 
----
+1. **Splash:** launch
+2. **Security:** PIN / biometric unlock
+3. **Main:** dashboard, bot control, open positions
+4. **Wallet:** connect wallet, balance, performance, treasury withdraw
+5. **Journal:** trade journal
+6. **Live Trade Log:** live execution log
+7. **Alerts:** alert history and triage
+8. **Error Log:** captured errors
+9. **Pipeline Health:** funnel, counters, ANR watchdog
+10. **Universe Health:** one-glance ground truth (runtime, scoring, learning and more)
+11. **Learning Counter:** canonical learning counters and wallet-truth digest
+12. **Behavior:** neural personality (instinct, plasticity, layer health)
+13. **Tuning:** per-lane expectancy and decision-quality levers
+14. **Collective Brain:** hive-mind status
+15. **Multi-Asset:** markets (stocks, commodities, metals, forex, perps)
+16. **Crypto Alt:** the crypto alts trader
+17. **Insider Wallets:** smart money to follow or fade
+18. **Watchlist:** watched mints
+19. **Currency:** display currency
+20. **Backtest:** backtesting
+21. **Lab:** LLM Lab strategies and approval queue
+22. **Persona Studio:** LLM chat personas and voice
 
-## 6. Treasury Mode
-**Target:** Quick scalps for consistent daily profit
+**Settings sheet:** trading mode and trader toggles, PAPER/LIVE mode, auto trade, sizing and slippage, top-up strategy, API keys (Helius, PumpPortal data key, Birdeye, Groq, Gemini, ElevenLabs, Jupiter), RPC URL, treasury wallet, Telegram alerts, AI scoring mode, watchlist, export/import, and clear all API keys.
 
-| Setting | Value |
-|---------|-------|
-| Take Profit | 4% |
-| Min Profit | 3.5% |
-| Max Profit | 8% |
-| Stop Loss | -2% |
-| Max Hold | 8 minutes |
+## Design system
 
-**Strategy:** High-frequency small wins that compound into treasury growth
+- **Look:** a dark navy terminal with lit hairline strokes, raised blue surfaces and mono telemetry. Green means profit and red means loss.
+- **Colors:** bg `#04060D`, surface `#121C3A`, stroke `#4E7CB8`, text `#E8EEFB`, purple `#8B5CF6`, blue `#4C8DFF`, cyan `#22D3EE`, green `#34D399`, amber `#FBBF24`, red `#FB5E6D`, pink `#F0409C`.
+- **Fonts:** Space Grotesk for headings, IBM Plex Sans for body text, JetBrains Mono for numbers, labels and telemetry.
+- **Logo:** a neural "bow-tie" of cyan filaments with the AATE wordmark.
+- **Enforcement:** a CI palette-drift guard and a layout-id contract check.
 
----
+## Security
 
-# LAYER TRANSITION SYSTEM
+- **Key storage.** Private and API keys are stored in EncryptedSharedPreferences (AES-256) and never leave the device.
+- **PIN / biometric lock** on app entry.
+- **Multi-chain recovery vault** (ETH / BSC / BTC).
+- **Burner-wallet guidance** in the Wallet screen.
+- **Clear All API Keys** in Settings.
 
-Tokens automatically graduate between layers as they grow:
+## Engineering
 
-```
-Token launches at $5K
-        │
-        ▼
-┌───────────────┐
-│  SHITCOIN     │  Trades it with 25-100% targets
-│  LAYER        │  
-└───────┬───────┘
-        │ Pumps to $35K
-        ▼
-┌───────────────┐
-│  V3 QUALITY   │  Position handed off (not closed!)
-│  LAYER        │  Now trades with 35% targets
-└───────┬───────┘
-        │ Pumps to $1.2M
-        ▼
-┌───────────────┐
-│  BLUE CHIP    │  Position handed off again
-│  LAYER        │  Now trades with tighter 10-25% targets
-└───────────────┘
-```
-
-**Key Feature:** Positions transfer between layers WITHOUT closing, maintaining continuous P&L tracking.
-
----
-
-# 25 AI SCORING LAYERS
-
-Every trade decision passes through 25 independent AI modules:
-
-| # | AI Layer | What It Does |
-|---|----------|--------------|
-| 1 | V3 Engine Manager | Central orchestration |
-| 2 | Fluid Learning AI | Adaptive thresholds from history |
-| 3 | Treasury Mode | Quick scalp detection |
-| 4 | Blue Chip Trader | Quality large-cap analysis |
-| 5 | ShitCoin Trader | Micro-cap degen plays |
-| 6 | ShitCoin Express | Momentum detection |
-| 7 | DipHunter AI | Dip quality analysis |
-| 8 | Solana Arb AI | Cross-exchange arbitrage |
-| 9 | Exit Intelligence | Optimal exit timing |
-| 10 | Advanced Exit Manager | Multi-signal exits |
-| 11 | Final Decision Gate | Last-chance quality veto |
-| 12 | Distribution Fade Avoider | Whale/dev sell detection |
-| 13 | Behavior Learning | Tilt & discipline tracking |
-| 14 | Re-entry Recovery | Smart second-chance entries |
-| 15 | Holding Logic | Position management |
-| 16 | Layer Transition Manager | Token graduation |
-| 17 | Sentiment Engine | Market mood |
-| 18 | Safety Checker | Rug/scam detection |
-| 19 | EMA Fan Analyzer | Trend strength |
-| 20 | Volume Profile | Volume-price analysis |
-| 21 | Pressure Score | Buy vs sell pressure |
-| 22 | Exhaustion Detector | Overbought/oversold |
-| 23 | Market Regime | Bull/bear/range detection |
-| 24 | Collective Learning | Hive mind intelligence |
-| 25 | Shadow Paper Trading | Background learning |
+- 1,200 Kotlin source files, about 457,000 lines of production Kotlin.
+- 339 test files, about 47,000 test lines, 2,699 `@Test` cases.
+- 16 custom static-analysis CI validators gate every build. GitHub Actions builds the APK, and an emulator runtime smoke test runs in a separate workflow.
+- Built by one developer, from a phone, compiled by GitHub Actions.
 
 ---
 
-# RISK MANAGEMENT
-
-## Hard Limits (Cannot Be Bypassed)
-
-| Protection | Value |
-|------------|-------|
-| Hard Floor Stop | -15% absolute max loss |
-| Velocity Exit | Exit if dropping >10% in 3 candles |
-| Entry Block | Won't enter during rapid dumps |
-
-## Trailing Stops (Lock In Profits)
-
-| Peak Profit Seen | Minimum Locked In |
-|------------------|-------------------|
-| 8%+ | 2% profit guaranteed |
-| 15%+ | 5% profit guaranteed |
-| 25%+ | 10% profit guaranteed |
-
-## Re-entry Protection
-
-| Setting | Value |
-|---------|-------|
-| Cooldown after failure | 2 minutes |
-| Score threshold | 65% |
-| Max attempts | 2 |
-| Penalty per attempt | -5 score |
-| Position size | 1st: 50%, 2nd: 30% |
-
----
-
-# FLUID LEARNING AI
-
-The bot starts strict and loosens as it learns:
-
-| Phase | Trades | Behavior |
-|-------|--------|----------|
-| Bootstrap | 0-100 | Ultra-tight limits, tiny positions |
-| Learning | 100-500 | Gradually loosening |
-| Mature | 500-1000 | Optimized from history |
-| Expert | 1000+ | Full autonomy |
-
-Each layer learns independently based on its own win rates and performance.
-
----
-
-# COLLECTIVE HIVE MIND
-
-All AATE instances share intelligence:
-
-- Trades uploaded to shared database
-- Rug pull warnings shared instantly
-- Network-wide pattern detection
-- Learn from others' successes and failures
-
----
-
-# SECURITY
-
-- Biometric/PIN authentication required
-- 3 failed attempts = app closes
-- PIN hashed with SHA-256
-- No bypass possible
-
----
-
-# TECHNICAL SPECS
-
-| Spec | Value |
-|------|-------|
-| Platform | Native Android (Kotlin) |
-| Min Android | 8.0 (SDK 26) |
-| Target Android | 14 (SDK 34) |
-| Build System | GitHub Actions CI |
-| Local DB | SharedPreferences |
-| Remote DB | Turso LibSQL |
-| Price APIs | DexScreener, Birdeye, Pump.fun |
-
----
-
-# V4.1 CHANGELOG
-
-## Build Stability
-- Extracted `processTokenCycle()` to fix compiler StackOverflow
-- botLoop reduced from 2600 to 825 lines
-- CI now builds reliably
-
-## Trading Improvements
-- Layer ranges adjusted: ShitCoin <$30K, V3 $30K-$1M
-- Treasury target lowered to 4% (catch more quick trades)
-- Velocity detection prevents 30%+ losses
-- Smarter trailing stops lock in profits
-
-## Re-entry System
-- 2 minute cooldown (balanced, not too strict)
-- 65% score threshold
-- -5 penalty per previous attempt
-- Max 2 attempts allowed
-
----
-
-*AATE V4.1 - Built for Solana Traders*
+Trading crypto is high risk. Paper results are not live results. This is not financial advice.

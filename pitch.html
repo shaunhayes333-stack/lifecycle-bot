@@ -1,1609 +1,375 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LifecycleBot - Investor Pitch Deck</title>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
-        
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: #0a0a0f;
-            color: #ffffff;
-            line-height: 1.6;
-        }
-        
-        .slide {
-            min-height: 100vh;
-            padding: 60px 80px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            page-break-after: always;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .slide::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: radial-gradient(ellipse at top right, rgba(153, 69, 255, 0.1) 0%, transparent 50%),
-                        radial-gradient(ellipse at bottom left, rgba(20, 241, 149, 0.05) 0%, transparent 50%);
-            pointer-events: none;
-        }
-        
-        .slide-content {
-            position: relative;
-            z-index: 1;
-        }
-        
-        /* Cover Slide */
-        .cover {
-            text-align: center;
-            background: linear-gradient(135deg, #0a0a0f 0%, #1a1a2e 100%);
-        }
-        
-        .logo-large {
-            font-size: 120px;
-            margin-bottom: 20px;
-        }
-        
-        .title {
-            font-size: 72px;
-            font-weight: 900;
-            background: linear-gradient(135deg, #9945FF 0%, #14F195 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            margin-bottom: 20px;
-        }
-        
-        .tagline {
-            font-size: 28px;
-            color: #9CA3AF;
-            font-weight: 300;
-            margin-bottom: 60px;
-        }
-        
-        .cover-stats {
-            display: flex;
-            justify-content: center;
-            gap: 60px;
-            margin-top: 40px;
-        }
-        
-        .cover-stat {
-            text-align: center;
-        }
-        
-        .cover-stat-value {
-            font-size: 48px;
-            font-weight: 800;
-            color: #14F195;
-        }
-        
-        .cover-stat-label {
-            font-size: 14px;
-            color: #6B7280;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-        }
-        
-        /* Section Headers */
-        h1 {
-            font-size: 56px;
-            font-weight: 800;
-            margin-bottom: 40px;
-            background: linear-gradient(135deg, #ffffff 0%, #9CA3AF 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        
-        h2 {
-            font-size: 36px;
-            font-weight: 700;
-            color: #9945FF;
-            margin-bottom: 30px;
-        }
-        
-        h3 {
-            font-size: 24px;
-            font-weight: 600;
-            color: #14F195;
-            margin-bottom: 20px;
-        }
-        
-        p {
-            font-size: 20px;
-            color: #D1D5DB;
-            margin-bottom: 20px;
-        }
-        
-        .highlight {
-            color: #14F195;
-            font-weight: 600;
-        }
-        
-        .purple {
-            color: #9945FF;
-        }
-        
-        /* Grid Layouts */
-        .grid-2 {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 60px;
-            margin-top: 40px;
-        }
-        
-        .grid-3 {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
-            gap: 40px;
-            margin-top: 40px;
-        }
-        
-        .grid-4 {
-            display: grid;
-            grid-template-columns: 1fr 1fr 1fr 1fr;
-            gap: 30px;
-            margin-top: 40px;
-        }
-        
-        /* Cards */
-        .card {
-            background: rgba(26, 26, 46, 0.8);
-            border: 1px solid rgba(153, 69, 255, 0.2);
-            border-radius: 16px;
-            padding: 30px;
-        }
-        
-        .card-icon {
-            font-size: 48px;
-            margin-bottom: 20px;
-        }
-        
-        .card h3 {
-            margin-bottom: 15px;
-        }
-        
-        .card p {
-            font-size: 16px;
-            color: #9CA3AF;
-        }
-        
-        /* Stats */
-        .stat-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 20px 0;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-        }
-        
-        .stat-label {
-            font-size: 18px;
-            color: #9CA3AF;
-        }
-        
-        .stat-value {
-            font-size: 28px;
-            font-weight: 700;
-            color: #14F195;
-        }
-        
-        /* Charts */
-        .chart-container {
-            background: rgba(26, 26, 46, 0.6);
-            border-radius: 16px;
-            padding: 40px;
-            margin-top: 30px;
-        }
-        
-        .chart-bars {
-            display: flex;
-            align-items: flex-end;
-            justify-content: space-around;
-            height: 300px;
-            padding: 20px 0;
-        }
-        
-        .chart-bar {
-            width: 60px;
-            background: linear-gradient(180deg, #9945FF 0%, #14F195 100%);
-            border-radius: 8px 8px 0 0;
-            position: relative;
-            transition: all 0.3s ease;
-        }
-        
-        .chart-bar-label {
-            position: absolute;
-            bottom: -30px;
-            left: 50%;
-            transform: translateX(-50%);
-            font-size: 14px;
-            color: #9CA3AF;
-        }
-        
-        .chart-bar-value {
-            position: absolute;
-            top: -30px;
-            left: 50%;
-            transform: translateX(-50%);
-            font-size: 14px;
-            font-weight: 600;
-            color: #14F195;
-        }
-        
-        /* AI Layers */
-        .ai-layer {
-            display: flex;
-            align-items: center;
-            padding: 15px 20px;
-            background: rgba(26, 26, 46, 0.6);
-            border-left: 4px solid #9945FF;
-            margin-bottom: 10px;
-            border-radius: 0 8px 8px 0;
-        }
-        
-        .ai-layer-num {
-            width: 40px;
-            height: 40px;
-            background: linear-gradient(135deg, #9945FF, #14F195);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 700;
-            margin-right: 20px;
-        }
-        
-        .ai-layer-name {
-            font-weight: 600;
-            color: #fff;
-            flex: 1;
-        }
-        
-        .ai-layer-desc {
-            color: #9CA3AF;
-            font-size: 14px;
-        }
-        
-        /* Phone Mockup */
-        .phone-mockup {
-            width: 280px;
-            height: 580px;
-            background: #1a1a2e;
-            border-radius: 40px;
-            border: 4px solid #2a2a4e;
-            padding: 20px;
-            position: relative;
-            box-shadow: 0 25px 50px rgba(0,0,0,0.5);
-        }
-        
-        .phone-notch {
-            width: 120px;
-            height: 25px;
-            background: #0a0a0f;
-            border-radius: 0 0 15px 15px;
-            position: absolute;
-            top: 0;
-            left: 50%;
-            transform: translateX(-50%);
-        }
-        
-        .phone-screen {
-            width: 100%;
-            height: 100%;
-            background: #0a0a0f;
-            border-radius: 25px;
-            padding: 40px 15px 15px;
-            overflow: hidden;
-        }
-        
-        .ui-element {
-            background: rgba(153, 69, 255, 0.2);
-            border-radius: 8px;
-            padding: 10px;
-            margin-bottom: 10px;
-        }
-        
-        .ui-bar {
-            height: 8px;
-            background: linear-gradient(90deg, #9945FF, #14F195);
-            border-radius: 4px;
-            margin: 5px 0;
-        }
-        
-        /* Timeline */
-        .timeline {
-            position: relative;
-            padding-left: 40px;
-        }
-        
-        .timeline::before {
-            content: '';
-            position: absolute;
-            left: 15px;
-            top: 0;
-            bottom: 0;
-            width: 2px;
-            background: linear-gradient(180deg, #9945FF, #14F195);
-        }
-        
-        .timeline-item {
-            position: relative;
-            padding-bottom: 40px;
-        }
-        
-        .timeline-dot {
-            width: 30px;
-            height: 30px;
-            background: #9945FF;
-            border-radius: 50%;
-            position: absolute;
-            left: -40px;
-            top: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 14px;
-        }
-        
-        /* Tables */
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 30px;
-        }
-        
-        th {
-            text-align: left;
-            padding: 15px;
-            background: rgba(153, 69, 255, 0.2);
-            color: #9945FF;
-            font-weight: 600;
-        }
-        
-        td {
-            padding: 15px;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-        }
-        
-        /* Footer */
-        .slide-footer {
-            position: absolute;
-            bottom: 30px;
-            left: 80px;
-            right: 80px;
-            display: flex;
-            justify-content: space-between;
-            color: #4B5563;
-            font-size: 14px;
-        }
-        
-        /* Competitive Matrix */
-        .matrix-row {
-            display: flex;
-            align-items: center;
-            padding: 15px 0;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-        }
-        
-        .matrix-feature {
-            flex: 2;
-            font-weight: 500;
-        }
-        
-        .matrix-cell {
-            flex: 1;
-            text-align: center;
-        }
-        
-        .check {
-            color: #14F195;
-            font-size: 24px;
-        }
-        
-        .cross {
-            color: #EF4444;
-            font-size: 24px;
-        }
-        
-        /* Investment Ask */
-        .ask-box {
-            background: linear-gradient(135deg, rgba(153, 69, 255, 0.2), rgba(20, 241, 149, 0.1));
-            border: 2px solid #9945FF;
-            border-radius: 20px;
-            padding: 50px;
-            text-align: center;
-            margin-top: 40px;
-        }
-        
-        .ask-amount {
-            font-size: 72px;
-            font-weight: 900;
-            background: linear-gradient(135deg, #9945FF, #14F195);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        
-        .use-of-funds {
-            display: flex;
-            justify-content: center;
-            gap: 40px;
-            margin-top: 40px;
-        }
-        
-        .fund-item {
-            text-align: center;
-        }
-        
-        .fund-pct {
-            font-size: 36px;
-            font-weight: 700;
-            color: #14F195;
-        }
-        
-        .fund-label {
-            color: #9CA3AF;
-            font-size: 14px;
-        }
-        
-        /* Print Styles */
-        @media print {
-            .slide {
-                page-break-after: always;
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
-            }
-        }
-        
-        /* ═══════════════════════════════════════════════════════════
-           MOBILE RESPONSIVE STYLES
-           ═══════════════════════════════════════════════════════════ */
-        
-        @media (max-width: 1024px) {
-            .slide {
-                padding: 40px 40px;
-            }
-            
-            .grid-2 {
-                grid-template-columns: 1fr;
-                gap: 30px;
-            }
-            
-            .grid-3 {
-                grid-template-columns: 1fr;
-                gap: 20px;
-            }
-            
-            .grid-4 {
-                grid-template-columns: 1fr 1fr;
-                gap: 15px;
-            }
-            
-            h1 {
-                font-size: 36px;
-            }
-            
-            h2 {
-                font-size: 28px;
-            }
-            
-            .title {
-                font-size: 48px;
-            }
-            
-            .tagline {
-                font-size: 18px;
-            }
-            
-            .phone-mockup {
-                display: none;
-            }
-            
-            .cover-stats {
-                flex-direction: column;
-                gap: 20px;
-            }
-            
-            .cover-stat-value {
-                font-size: 36px;
-            }
-            
-            .use-of-funds {
-                flex-wrap: wrap;
-                gap: 20px;
-            }
-            
-            .fund-item {
-                width: 45%;
-            }
-            
-            .ask-amount {
-                font-size: 48px;
-            }
-            
-            .chart-bars {
-                height: 200px;
-            }
-            
-            .chart-bar {
-                width: 40px;
-            }
-        }
-        
-        @media (max-width: 768px) {
-            .slide {
-                padding: 30px 20px;
-                min-height: auto;
-                padding-bottom: 60px;
-            }
-            
-            .logo-large {
-                font-size: 80px;
-            }
-            
-            .title {
-                font-size: 36px;
-            }
-            
-            .tagline {
-                font-size: 16px;
-                margin-bottom: 30px;
-            }
-            
-            h1 {
-                font-size: 28px;
-                margin-bottom: 20px;
-            }
-            
-            h2 {
-                font-size: 22px;
-            }
-            
-            h3 {
-                font-size: 18px;
-            }
-            
-            p {
-                font-size: 16px;
-            }
-            
-            .card {
-                padding: 20px;
-            }
-            
-            .card-icon {
-                font-size: 36px;
-            }
-            
-            .ai-layer {
-                flex-direction: column;
-                align-items: flex-start;
-                padding: 12px;
-            }
-            
-            .ai-layer-num {
-                width: 30px;
-                height: 30px;
-                font-size: 12px;
-                margin-bottom: 8px;
-                margin-right: 0;
-            }
-            
-            .ai-layer-desc {
-                font-size: 12px;
-            }
-            
-            .stat-row {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 5px;
-            }
-            
-            .stat-value {
-                font-size: 22px;
-            }
-            
-            .chart-container {
-                padding: 20px;
-            }
-            
-            .chart-bars {
-                height: 150px;
-                flex-wrap: wrap;
-                justify-content: center;
-                gap: 10px;
-            }
-            
-            .chart-bar {
-                width: 35px;
-            }
-            
-            .chart-bar-label {
-                font-size: 10px;
-                bottom: -25px;
-            }
-            
-            .chart-bar-value {
-                font-size: 10px;
-                top: -20px;
-            }
-            
-            /* Matrix responsive */
-            .matrix-row {
-                flex-direction: column;
-                padding: 15px 0;
-            }
-            
-            .matrix-feature {
-                margin-bottom: 10px;
-                font-weight: 600;
-            }
-            
-            .matrix-cell {
-                display: inline-block;
-                width: auto;
-                margin-right: 15px;
-            }
-            
-            /* Table responsive */
-            table {
-                font-size: 12px;
-            }
-            
-            th, td {
-                padding: 8px 5px;
-            }
-            
-            /* Ask box responsive */
-            .ask-box {
-                padding: 30px 20px;
-            }
-            
-            .ask-amount {
-                font-size: 36px;
-            }
-            
-            .use-of-funds {
-                flex-direction: column;
-                align-items: center;
-            }
-            
-            .fund-item {
-                width: 100%;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 10px 0;
-                border-bottom: 1px solid rgba(255,255,255,0.1);
-            }
-            
-            .fund-pct {
-                font-size: 24px;
-            }
-            
-            .fund-label {
-                text-align: right;
-            }
-            
-            /* Timeline responsive */
-            .timeline {
-                padding-left: 30px;
-            }
-            
-            .timeline::before {
-                left: 10px;
-            }
-            
-            .timeline-dot {
-                width: 24px;
-                height: 24px;
-                left: -30px;
-                font-size: 12px;
-            }
-            
-            .timeline-item p {
-                font-size: 14px;
-            }
-            
-            /* Footer */
-            .slide-footer {
-                position: relative;
-                margin-top: 30px;
-                left: 0;
-                right: 0;
-                flex-direction: column;
-                gap: 5px;
-                text-align: center;
-            }
-            
-            /* Hide phone mockups on mobile - show simplified cards instead */
-            .phone-mockups-container {
-                display: none;
-            }
-            
-            .mobile-ui-showcase {
-                display: block;
-            }
-        }
-        
-        @media (max-width: 480px) {
-            .slide {
-                padding: 20px 15px;
-            }
-            
-            .title {
-                font-size: 28px;
-            }
-            
-            h1 {
-                font-size: 24px;
-            }
-            
-            .cover-stat-value {
-                font-size: 28px;
-            }
-            
-            .cover-stat-label {
-                font-size: 11px;
-            }
-            
-            .grid-4 {
-                grid-template-columns: 1fr;
-            }
-            
-            .ask-amount {
-                font-size: 28px;
-            }
-            
-            .chart-bars {
-                height: 120px;
-            }
-            
-            .chart-bar {
-                width: 25px;
-            }
-        }
-        
-        /* Mobile UI showcase replacement for phone mockups */
-        .mobile-ui-showcase {
-            display: none;
-        }
-        
-        @media (max-width: 768px) {
-            .mobile-ui-showcase {
-                display: block;
-            }
-            
-            .ui-feature-card {
-                background: rgba(26, 26, 46, 0.8);
-                border: 1px solid rgba(153, 69, 255, 0.3);
-                border-radius: 12px;
-                padding: 20px;
-                margin-bottom: 15px;
-            }
-            
-            .ui-feature-card h4 {
-                color: #14F195;
-                font-size: 16px;
-                margin-bottom: 10px;
-            }
-            
-            .ui-feature-card p {
-                color: #9CA3AF;
-                font-size: 14px;
-                margin: 0;
-            }
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AATE — Autonomous Algorithmic Trading Engine</title>
+<meta name="description" content="AATE is a native Android trading engine that finds, sizes, exits and learns from Solana trades on its own — and keeps a forensic record of every decision.">
+<link rel="icon" href="assets/aate_logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#04060D;--bg-deep:#02040A;
+  --surface:#121C3A;--surface-2:#18244A;--surface-3:#222E5C;
+  --stroke:#4E7CB8;--stroke-soft:#2B4570;
+  --text:#E8EEFB;--text-2:#8FA3C8;--muted:#5D6E91;
+  --purple:#8B5CF6;--purple-b:#C4B5FD;--blue:#4C8DFF;--cyan:#22D3EE;
+  --green:#34D399;--amber:#FBBF24;--red:#FB5E6D;--pink:#F0409C;
+  --head:'Space Grotesk',system-ui,sans-serif;
+  --body:'IBM Plex Sans',system-ui,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+  --max:1120px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--body);line-height:1.6;font-size:16px;overflow-x:hidden}
+a{color:var(--cyan);text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:var(--max);margin:0 auto;padding:0 24px}
+h1,h2,h3{font-family:var(--head);font-weight:700;line-height:1.1;letter-spacing:-.01em}
+h2{font-size:clamp(28px,4vw,40px);margin-bottom:12px}
+h3{font-size:19px;margin-bottom:6px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan);margin-bottom:14px;display:block}
+.lede{color:var(--text-2);font-size:18px;max-width:720px}
+section{padding:96px 0;border-top:1px solid rgba(78,124,184,.15)}
+.mono{font-family:var(--mono)}
+.pos{color:var(--green)}.neg{color:var(--red)}
+
+/* nav */
+nav{position:sticky;top:0;z-index:10;background:rgba(4,6,13,.82);backdrop-filter:blur(10px);border-bottom:1px solid rgba(78,124,184,.18)}
+nav .wrap{display:flex;align-items:center;justify-content:space-between;height:60px}
+.brand{display:flex;align-items:center;gap:10px;font-family:var(--head);font-weight:700;font-size:18px;color:var(--text)}
+.brand img{width:34px;height:34px}
+.navlinks{display:flex;gap:24px;font-size:14px}
+.navlinks a{color:var(--text-2)}
+.navlinks a:hover{color:var(--text);text-decoration:none}
+
+/* hero */
+.hero{padding:88px 0 72px;position:relative;border-top:0}
+.hero::before{content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(600px 360px at 78% 30%,rgba(34,211,238,.14),transparent 70%),
+             radial-gradient(520px 380px at 12% 80%,rgba(139,92,246,.16),transparent 70%)}
+.hero .wrap.row{display:block}
+.hero .wrap:not(.row){display:grid;grid-template-columns:1.25fr .9fr;gap:48px;align-items:center;position:relative}
+.hero h1{font-size:clamp(38px,6vw,64px);margin-bottom:20px}
+.hero h1 .grad{background:linear-gradient(90deg,var(--cyan),var(--purple-b));-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero .lede{margin-bottom:28px}
+.cta{display:flex;gap:12px;flex-wrap:wrap}
+.btn{display:inline-block;padding:12px 20px;border-radius:10px;font-weight:600;font-size:15px;border:1px solid var(--stroke);color:var(--text)}
+.btn.primary{background:linear-gradient(135deg,var(--purple),var(--blue));border-color:transparent}
+.btn:hover{text-decoration:none;filter:brightness(1.12)}
+.hero-logo{width:100%;max-width:400px;justify-self:center;filter:drop-shadow(0 0 40px rgba(34,211,238,.25))}
+
+/* telemetry strip */
+.ticker{margin-top:56px;background:var(--bg-deep);border:1px solid var(--stroke-soft);border-radius:14px;padding:16px 20px;display:grid;grid-template-columns:repeat(6,1fr);gap:16px;position:relative}
+.ticker .k{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.ticker .v{font-family:var(--mono);font-size:22px;font-weight:700;white-space:nowrap}
+.ticker>div:first-of-type{grid-column:span 2}
+.ticker .tag{position:absolute;top:-10px;left:18px;background:var(--amber);color:#1a1300;font-family:var(--mono);font-size:10px;font-weight:700;padding:2px 8px;border-radius:5px;letter-spacing:.08em}
+
+/* cards */
+.grid{display:grid;gap:16px}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g4{grid-template-columns:repeat(4,1fr)}
+.g2{grid-template-columns:repeat(2,1fr)}
+.card{background:var(--surface);border:1px solid var(--stroke-soft);border-radius:14px;padding:22px;position:relative}
+.card p{color:var(--text-2);font-size:15px}
+.card .icon{font-family:var(--mono);font-size:12px;color:var(--cyan);margin-bottom:10px;display:block}
+.head{margin-bottom:40px}
+
+/* traders */
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.chip{font-family:var(--mono);font-size:12px;padding:5px 10px;border-radius:999px;background:var(--surface-2);border:1px solid var(--stroke-soft);color:var(--text)}
+.chip.c{border-color:rgba(34,211,238,.5)}.chip.p{border-color:rgba(139,92,246,.6)}.chip.g{border-color:rgba(52,211,153,.5)}.chip.a{border-color:rgba(251,191,36,.5)}
+
+/* pipeline */
+.pipe{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;counter-reset:step}
+.step{background:var(--surface);border:1px solid var(--stroke-soft);border-radius:12px;padding:18px;position:relative}
+.step::before{counter-increment:step;content:counter(step,decimal-leading-zero);font-family:var(--mono);font-size:12px;color:var(--purple-b);display:block;margin-bottom:6px}
+.step h3{font-size:16px}
+.step p{color:var(--text-2);font-size:14px}
+.step.key{border-color:var(--cyan);box-shadow:0 0 0 1px rgba(34,211,238,.25),0 0 30px rgba(34,211,238,.08)}
+
+/* oracle */
+.split{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:start}
+.checks{list-style:none;display:grid;gap:10px}
+.checks li{background:var(--surface);border:1px solid var(--stroke-soft);border-radius:10px;padding:12px 14px;font-size:15px;display:flex;gap:12px;align-items:baseline}
+.checks li b{font-family:var(--mono);color:var(--cyan);font-weight:700;min-width:84px;display:inline-block}
+.states{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
+.state{font-family:var(--mono);font-size:12px;padding:8px 12px;border-radius:8px;border:1px solid}
+.state.adv{border-color:var(--amber);color:var(--amber)}
+.state.pro{border-color:var(--green);color:var(--green)}
+.state.dem{border-color:var(--red);color:var(--red)}
+
+/* table */
+table{width:100%;border-collapse:collapse;font-size:15px}
+th,td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--stroke-soft)}
+th{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:400}
+td.n{font-family:var(--mono);text-align:right;white-space:nowrap}
+th.n{text-align:right}
+.tablebox{background:var(--surface);border:1px solid var(--stroke-soft);border-radius:14px;overflow:hidden}
+.tablebox table tr:last-child td{border-bottom:0}
+
+/* results */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.stat{background:var(--surface);border:1px solid var(--stroke-soft);border-radius:14px;padding:22px}
+.stat .v{font-family:var(--mono);font-size:32px;font-weight:700;line-height:1.1}
+.stat .k{color:var(--text-2);font-size:14px;margin-top:6px}
+.caveat{margin-top:20px;border-left:3px solid var(--amber);padding:12px 16px;background:rgba(251,191,36,.06);color:var(--text-2);font-size:14px;border-radius:0 8px 8px 0}
+
+/* validators */
+.vals{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:20px}
+.val{font-family:var(--mono);font-size:12px;padding:8px 10px;border-radius:8px;background:var(--bg-deep);border:1px solid var(--stroke-soft);color:var(--text-2)}
+.val::before{content:"✓ ";color:var(--green)}
+
+/* roadmap */
+.road{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.road .card{padding:18px}
+.road .when{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase}
+.now .when{color:var(--green)}.next .when{color:var(--cyan)}.later .when{color:var(--muted)}
+.now{border-color:var(--green)}
+
+footer{padding:48px 0 64px;border-top:1px solid rgba(78,124,184,.15);color:var(--muted);font-size:13px}
+footer .wrap{display:grid;gap:14px}
+footer .brand{font-size:15px}
+
+@media (max-width:960px){
+  .hero .wrap,.split{grid-template-columns:1fr}
+  .hero-logo{max-width:260px;order:-1}
+  .g4,.pipe,.stats,.vals{grid-template-columns:repeat(2,1fr)}
+  .g3{grid-template-columns:1fr 1fr}
+  .road{grid-template-columns:1fr 1fr}
+  .ticker{grid-template-columns:repeat(3,1fr)}
+  .navlinks{display:none}
+}
+@media (max-width:600px){
+  .wrap{padding:0 16px}
+  section{padding:64px 0}
+  .g3,.g2,.g4,.pipe,.road{grid-template-columns:1fr}
+  .stats,.vals{grid-template-columns:1fr 1fr}
+  .ticker{grid-template-columns:1fr 1fr}
+  .stat .v{font-size:26px}
+  th,td{padding:10px 8px;font-size:13px}
+}
+</style>
 </head>
 <body>
 
-<!-- SLIDE 1: Cover -->
-<div class="slide cover">
-    <div class="slide-content">
-        <div class="logo-large">🧠</div>
-        <h1 class="title">LifecycleBot</h1>
-        <p class="tagline">The World's First Self-Evolving AI Trading Engine for Solana</p>
-        
-        <div class="cover-stats">
-            <div class="cover-stat">
-                <div class="cover-stat-value">10</div>
-                <div class="cover-stat-label">AI Layers</div>
-            </div>
-            <div class="cover-stat">
-                <div class="cover-stat-value">∞</div>
-                <div class="cover-stat-label">Self-Learning</div>
-            </div>
-            <div class="cover-stat">
-                <div class="cover-stat-value">24/7</div>
-                <div class="cover-stat-label">Autonomous</div>
-            </div>
-        </div>
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#top"><img src="assets/aate_logo.png" alt="">AATE</a>
+    <div class="navlinks">
+      <a href="#trades">What it trades</a>
+      <a href="#decides">How it decides</a>
+      <a href="#oracle">Oracle</a>
+      <a href="#paper">Paper realism</a>
+      <a href="#results">Results</a>
+      <a href="#built">Engineering</a>
     </div>
-    <div class="slide-footer">
-        <span>CONFIDENTIAL</span>
-        <span>Q1 2025 Investor Deck</span>
-    </div>
-</div>
+  </div>
+</nav>
 
-<!-- SLIDE 2: The Problem -->
-<div class="slide">
-    <div class="slide-content">
-        <h1>The Problem</h1>
-        <p style="font-size: 28px; color: #fff; margin-bottom: 40px;">
-            Crypto trading bots are <span class="highlight">static</span>, <span class="highlight">dumb</span>, and <span class="highlight">easily exploited</span>.
-        </p>
-        
-        <div class="grid-3">
-            <div class="card">
-                <div class="card-icon">📉</div>
-                <h3>Static Strategies</h3>
-                <p>Traditional bots use fixed rules that become obsolete as markets evolve. No adaptation = guaranteed losses over time.</p>
-            </div>
-            <div class="card">
-                <div class="card-icon">🤖</div>
-                <h3>Single-Signal Reliance</h3>
-                <p>Most bots rely on one indicator (RSI, MACD). When that signal fails, the entire system fails.</p>
-            </div>
-            <div class="card">
-                <div class="card-icon">💀</div>
-                <h3>Rug & Scam Vulnerable</h3>
-                <p>Meme coin bots have no scam detection. They blindly buy into rugs, honeypots, and exit scams.</p>
-            </div>
-        </div>
-        
-        <div class="chart-container" style="margin-top: 50px;">
-            <h3 style="text-align: center;">Failure Rate of Traditional Bots Over Time</h3>
-            <div class="chart-bars">
-                <div class="chart-bar" style="height: 20%;">
-                    <span class="chart-bar-label">Month 1</span>
-                    <span class="chart-bar-value">20%</span>
-                </div>
-                <div class="chart-bar" style="height: 45%;">
-                    <span class="chart-bar-label">Month 3</span>
-                    <span class="chart-bar-value">45%</span>
-                </div>
-                <div class="chart-bar" style="height: 68%;">
-                    <span class="chart-bar-label">Month 6</span>
-                    <span class="chart-bar-value">68%</span>
-                </div>
-                <div class="chart-bar" style="height: 85%;">
-                    <span class="chart-bar-label">Month 12</span>
-                    <span class="chart-bar-value">85%</span>
-                </div>
-                <div class="chart-bar" style="height: 95%; background: linear-gradient(180deg, #EF4444, #991B1B);">
-                    <span class="chart-bar-label">Month 24</span>
-                    <span class="chart-bar-value">95%</span>
-                </div>
-            </div>
-            <p style="text-align: center; margin-top: 40px; color: #EF4444;">
-                95% of trading bots fail within 2 years due to lack of adaptation
-            </p>
-        </div>
+<header class="hero" id="top">
+  <div class="wrap">
+    <div>
+      <span class="eyebrow">Autonomous Algorithmic Trading Engine · v5.0.7288</span>
+      <h1>A trading desk that runs <span class="grad">in your pocket</span>, decides on its own, and shows its working.</h1>
+      <p class="lede">AATE is a native Android engine that scans Solana and other markets, sizes and exits its own positions, and learns from every closed trade. Every decision is counted in a forensic record, so nothing it reports is guessed.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/shaunhayes333-stack/lifecycle-bot">View on GitHub</a>
+        <a class="btn" href="lifecycle_apk/docs/AATE_Pitch_Deck.html">Read the deck</a>
+      </div>
     </div>
-</div>
+    <img class="hero-logo" src="assets/aate_logo.png" alt="AATE logo: a bow-tie of cyan neural filaments">
+  </div>
+  <div class="wrap row">
+    <div class="ticker" aria-label="Latest paper session">
+      <span class="tag">PAPER · 24 SEP 2026 · 79 CLOSES</span>
+      <div><div class="k">Equity</div><div class="v">10 → 31.34<span style="font-size:13px;color:var(--text-2)"> SOL</span></div></div>
+      <div><div class="k">Realized</div><div class="v pos">+20.52</div></div>
+      <div><div class="k">Profit factor</div><div class="v">7.59</div></div>
+      <div><div class="k">Win rate</div><div class="v">52.6%</div></div>
+      <div><div class="k">Fees paid</div><div class="v neg">0.89</div></div>
+    </div>
+  </div>
+</header>
 
-<!-- SLIDE 3: The Solution -->
-<div class="slide">
-    <div class="slide-content">
-        <h1>The Solution</h1>
-        <p style="font-size: 28px; color: #fff; margin-bottom: 20px;">
-            A <span class="highlight">10-Layer AI Engine</span> that <span class="purple">learns</span>, <span class="purple">adapts</span>, and <span class="purple">evolves</span> with every trade.
-        </p>
-        
-        <div class="grid-2">
-            <div>
-                <div class="ai-layer">
-                    <div class="ai-layer-num">1</div>
-                    <div>
-                        <div class="ai-layer-name">Momentum Predictor AI</div>
-                        <div class="ai-layer-desc">Detects pump formations before they happen</div>
-                    </div>
-                </div>
-                <div class="ai-layer">
-                    <div class="ai-layer-num">2</div>
-                    <div>
-                        <div class="ai-layer-name">Whale Tracker AI</div>
-                        <div class="ai-layer-desc">Follows smart money accumulation</div>
-                    </div>
-                </div>
-                <div class="ai-layer">
-                    <div class="ai-layer-num">3</div>
-                    <div>
-                        <div class="ai-layer-name">Market Regime AI</div>
-                        <div class="ai-layer-desc">Bull/bear/chop detection & adaptation</div>
-                    </div>
-                </div>
-                <div class="ai-layer">
-                    <div class="ai-layer-num">4</div>
-                    <div>
-                        <div class="ai-layer-name">Narrative Detector AI</div>
-                        <div class="ai-layer-desc">Identifies hot trends in real-time</div>
-                    </div>
-                </div>
-                <div class="ai-layer">
-                    <div class="ai-layer-num">5</div>
-                    <div>
-                        <div class="ai-layer-name">Time Optimization AI</div>
-                        <div class="ai-layer-desc">Learns optimal trading hours</div>
-                    </div>
-                </div>
-            </div>
-            <div>
-                <div class="ai-layer">
-                    <div class="ai-layer-num">6</div>
-                    <div>
-                        <div class="ai-layer-name">Liquidity Depth AI</div>
-                        <div class="ai-layer-desc">Real-time LP collapse detection</div>
-                    </div>
-                </div>
-                <div class="ai-layer">
-                    <div class="ai-layer-num">7</div>
-                    <div>
-                        <div class="ai-layer-name">Volume Profile Analyzer</div>
-                        <div class="ai-layer-desc">Institutional-grade price levels</div>
-                    </div>
-                </div>
-                <div class="ai-layer">
-                    <div class="ai-layer-num">8</div>
-                    <div>
-                        <div class="ai-layer-name">Gemini Copilot</div>
-                        <div class="ai-layer-desc">LLM-powered scam detection</div>
-                    </div>
-                </div>
-                <div class="ai-layer">
-                    <div class="ai-layer-num">9</div>
-                    <div>
-                        <div class="ai-layer-name">Unified Narrative AI</div>
-                        <div class="ai-layer-desc">Multi-LLM consensus synthesis</div>
-                    </div>
-                </div>
-                <div class="ai-layer">
-                    <div class="ai-layer-num">10</div>
-                    <div>
-                        <div class="ai-layer-name">Orthogonal Signal Merger</div>
-                        <div class="ai-layer-desc">Prevents bias, enforces diversity</div>
-                    </div>
-                </div>
-            </div>
-        </div>
+<section id="trades">
+  <div class="wrap">
+    <div class="head">
+      <span class="eyebrow">What it trades</span>
+      <h2>Sixteen traders. One engine. One ledger.</h2>
+      <p class="lede">Each trader has its own entry logic, sizing and exits. They all share one position ledger and one capital view, so they can't double-spend and the books always reconcile.</p>
     </div>
-</div>
+    <div class="grid g3">
+      <div class="card">
+        <span class="icon">SOLANA · MEME LANES</span>
+        <h3>From launch to blue chip</h3>
+        <p>Separate lanes for every stage of a token's life, from pump.fun bonding-curve launches to graduated pools and established names.</p>
+        <div class="chips">
+          <span class="chip c">Project Sniper</span><span class="chip c">Moonshot</span><span class="chip c">ShitCoin</span><span class="chip c">Express</span><span class="chip c">Quality</span><span class="chip c">BlueChip</span><span class="chip c">Dip Hunter</span><span class="chip c">Cyclic</span><span class="chip c">Manipulated</span><span class="chip c">Treasury</span>
+        </div>
+      </div>
+      <div class="card">
+        <span class="icon">CRYPTO UNIVERSE</span>
+        <h3>Alts across every route</h3>
+        <p>Spot alts routed through Jupiter, Raydium, Meteora and bridged-wrapped mints, plus copy trades taken from smart-money wallets that AATE finds itself.</p>
+        <div class="chips">
+          <span class="chip p">Crypto Alts</span><span class="chip p">Smart-money copy</span><span class="chip p">Perps · paper</span>
+        </div>
+      </div>
+      <div class="card">
+        <span class="icon">MARKETS</span>
+        <h3>Beyond crypto</h3>
+        <p>Tokenized stocks (xStocks), commodities, metals and forex. In paper mode every desk runs and learns. Live mode runs only the lanes you enable.</p>
+        <div class="chips">
+          <span class="chip g">Tokenized stocks</span><span class="chip g">Commodities</span><span class="chip g">Metals</span><span class="chip g">Forex</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
 
-<!-- SLIDE 4: Self-Scaling Architecture -->
-<div class="slide">
-    <div class="slide-content">
-        <h1>Self-Scaling Architecture</h1>
-        <p style="font-size: 24px; color: #fff; margin-bottom: 40px;">
-            The more it trades, the <span class="highlight">smarter</span> it gets. The smarter it gets, the <span class="highlight">more it earns</span>.
-        </p>
-        
-        <div class="grid-2">
-            <div class="card" style="padding: 40px;">
-                <h3>🧠 Learning Phases</h3>
-                <div class="stat-row">
-                    <span class="stat-label">Bootstrap (0-50 trades)</span>
-                    <span class="stat-value">Loose</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Learning (51-500 trades)</span>
-                    <span class="stat-value">Adapting</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Mature (500+ trades)</span>
-                    <span class="stat-value">Optimized</span>
-                </div>
-                <p style="margin-top: 20px; font-size: 14px;">
-                    Thresholds auto-adjust based on accumulated knowledge. Pattern memory with decay ensures recent data is weighted more heavily.
-                </p>
-            </div>
-            
-            <div class="card" style="padding: 40px;">
-                <h3>📈 Projected Win Rate by Phase</h3>
-                <div class="chart-bars" style="height: 200px;">
-                    <div class="chart-bar" style="height: 45%; width: 50px;">
-                        <span class="chart-bar-label">Bootstrap</span>
-                        <span class="chart-bar-value">45%</span>
-                    </div>
-                    <div class="chart-bar" style="height: 62%; width: 50px;">
-                        <span class="chart-bar-label">Learning</span>
-                        <span class="chart-bar-value">62%</span>
-                    </div>
-                    <div class="chart-bar" style="height: 78%; width: 50px;">
-                        <span class="chart-bar-label">Mature</span>
-                        <span class="chart-bar-value">78%</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="chart-container">
-            <h3 style="text-align: center; margin-bottom: 30px;">Simulated Performance Over 24 Months</h3>
-            <div style="display: flex; justify-content: space-around; text-align: center;">
-                <div>
-                    <div style="font-size: 48px; font-weight: 800; color: #9945FF;">$10K</div>
-                    <div style="color: #9CA3AF;">Starting Capital</div>
-                </div>
-                <div style="font-size: 48px; color: #4B5563;">→</div>
-                <div>
-                    <div style="font-size: 48px; font-weight: 800; color: #14F195;">$847K</div>
-                    <div style="color: #9CA3AF;">Month 12</div>
-                </div>
-                <div style="font-size: 48px; color: #4B5563;">→</div>
-                <div>
-                    <div style="font-size: 48px; font-weight: 800; color: #14F195;">$4.2M</div>
-                    <div style="color: #9CA3AF;">Month 24</div>
-                </div>
-            </div>
-            <p style="text-align: center; margin-top: 30px; font-size: 14px; color: #6B7280;">
-                *Simulated based on 65% win rate, 2.3x avg winner, 0.4x avg loser, 15 trades/day, compounding enabled
-            </p>
-        </div>
+<section id="decides">
+  <div class="wrap">
+    <div class="head">
+      <span class="eyebrow">How it decides</span>
+      <h2>Every trade passes the same chain of checks.</h2>
+      <p class="lede">A candidate reaches your capital only after it has passed safety checks, lane scoring, the oracle and one final entry gate. Each refusal is recorded with its reason.</p>
     </div>
-</div>
+    <div class="pipe">
+      <div class="step"><h3>Discover</h3><p>Helius and PumpPortal WebSocket feeds, DexScreener, Birdeye, Jupiter and 40+ other sources.</p></div>
+      <div class="step"><h3>Screen</h3><p>Rug pre-filter, token safety verdict, RugCheck, mint blacklist and serial-rugger creator refusal.</p></div>
+      <div class="step"><h3>Score</h3><p>Each lane's scoring AI and the Final Decision Gate. The LLM council's scam and narrative read can veto live entries.</p></div>
+      <div class="step key"><h3>Oracle</h3><p>Forecasts expectancy and win probability from the full trade journal. Verdict: ADMIT or REFUSE.</p></div>
+      <div class="step"><h3>Admit</h3><p>Learned admission, then a single executable-entry gate with loss-streak limits, cooldowns and a daily loss cap.</p></div>
+      <div class="step"><h3>Size</h3><p>Sized to what can actually be exited, with a fee-aware minimum so no trade is too small to cover its costs.</p></div>
+      <div class="step"><h3>Execute</h3><p>Jupiter routing, Helius Sender, Jito bundles, and PumpPortal as the fallback for pump.fun sells.</p></div>
+      <div class="step"><h3>Exit &amp; learn</h3><p>Marks every open position once a second. The profit lock slides up to the peak, and every close feeds the learners.</p></div>
+    </div>
+  </div>
+</section>
 
-<!-- SLIDE 5: UI Showcase -->
-<div class="slide">
-    <div class="slide-content">
-        <h1>Mobile-First Design</h1>
-        <p>Native Android app with real-time monitoring and full control</p>
-        
-        <div style="display: flex; justify-content: center; gap: 40px; margin-top: 40px;">
-            <!-- Phone 1: Dashboard -->
-            <div class="phone-mockup">
-                <div class="phone-notch"></div>
-                <div class="phone-screen">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                        <span style="color: #9CA3AF; font-size: 12px;">MAINNET</span>
-                        <div style="display: flex; align-items: center; gap: 5px;">
-                            <span style="font-size: 16px;">🧠</span>
-                            <span style="color: #14F195; font-size: 12px;">78%</span>
-                        </div>
-                        <span style="color: #9945FF; font-size: 12px;">3.42 SOL</span>
-                    </div>
-                    
-                    <div style="display: flex; gap: 8px; margin-bottom: 15px;">
-                        <div style="flex: 1; background: #1a1a2e; border-radius: 6px; padding: 8px; text-align: center;">
-                            <div style="color: #14F195; font-weight: 700;">24</div>
-                            <div style="color: #6B7280; font-size: 8px;">24h Trades</div>
-                        </div>
-                        <div style="flex: 1; background: #1a1a2e; border-radius: 6px; padding: 8px; text-align: center;">
-                            <div style="color: #14F195; font-weight: 700;">67%</div>
-                            <div style="color: #6B7280; font-size: 8px;">Win Rate</div>
-                        </div>
-                        <div style="flex: 1; background: #1a1a2e; border-radius: 6px; padding: 8px; text-align: center;">
-                            <div style="color: #9945FF; font-weight: 700;">3</div>
-                            <div style="color: #6B7280; font-size: 8px;">Open</div>
-                        </div>
-                    </div>
-                    
-                    <div style="background: #1a1a2e; border-radius: 10px; padding: 12px; margin-bottom: 10px;">
-                        <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #fff; font-weight: 600;">🔥 PEPE</span>
-                            <span style="color: #14F195; font-size: 12px;">BUY</span>
-                        </div>
-                        <div style="color: #6B7280; font-size: 10px; margin: 5px 0;">Bonding • 847 holders</div>
-                        <div style="display: flex; gap: 10px; margin-top: 8px;">
-                            <div style="flex: 1;">
-                                <div style="color: #6B7280; font-size: 8px;">Entry</div>
-                                <div class="ui-bar" style="width: 82%;"></div>
-                            </div>
-                            <div style="flex: 1;">
-                                <div style="color: #6B7280; font-size: 8px;">Exit</div>
-                                <div class="ui-bar" style="width: 23%; background: #EF4444;"></div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div style="background: linear-gradient(135deg, rgba(20, 241, 149, 0.2), rgba(20, 241, 149, 0.05)); border: 1px solid #14F195; border-radius: 10px; padding: 12px;">
-                        <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #fff; font-weight: 600;">$BONK</span>
-                            <span style="color: #14F195; font-size: 18px; font-weight: 700;">+127%</span>
-                        </div>
-                        <div style="color: #9CA3AF; font-size: 10px;">Entry: $0.00000012</div>
-                    </div>
-                    
-                    <div style="position: absolute; bottom: 20px; left: 15px; right: 15px;">
-                        <div style="background: #9945FF; border-radius: 10px; padding: 12px; text-align: center; font-weight: 600;">
-                            BOT RUNNING
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Phone 2: Learning -->
-            <div class="phone-mockup">
-                <div class="phone-notch"></div>
-                <div class="phone-screen">
-                    <div style="text-align: center; padding-top: 40px;">
-                        <div style="font-size: 64px; margin-bottom: 10px;">🧠</div>
-                        <div style="font-size: 24px; font-weight: 700; color: #fff;">AI Learning Status</div>
-                        <div style="color: #14F195; margin-top: 20px;">
-                            <span style="font-size: 48px; font-weight: 800;">78%</span>
-                        </div>
-                        <div style="color: #9CA3AF; font-size: 14px;">Progress to Mature Phase</div>
-                        
-                        <div style="margin-top: 30px; text-align: left; padding: 0 20px;">
-                            <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #2a2a4e;">
-                                <span style="color: #9CA3AF;">Phase</span>
-                                <span style="color: #14F195;">🌗 Learning</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #2a2a4e;">
-                                <span style="color: #9CA3AF;">Total Trades</span>
-                                <span style="color: #fff;">389</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #2a2a4e;">
-                                <span style="color: #9CA3AF;">Win Rate</span>
-                                <span style="color: #14F195;">67%</span>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; padding: 10px 0;">
-                                <span style="color: #9CA3AF;">To Next Phase</span>
-                                <span style="color: #9945FF;">111 trades</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Phone 3: Journal -->
-            <div class="phone-mockup">
-                <div class="phone-notch"></div>
-                <div class="phone-screen">
-                    <div style="color: #fff; font-weight: 600; margin-bottom: 15px;">📊 Trade Journal</div>
-                    
-                    <div style="background: #1a1a2e; border-radius: 8px; padding: 10px; margin-bottom: 8px; border-left: 3px solid #14F195;">
-                        <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #fff; font-size: 12px;">$WIF</span>
-                            <span style="color: #14F195; font-size: 12px;">+89%</span>
-                        </div>
-                        <div style="color: #6B7280; font-size: 9px;">2 min ago • AI Score: 94</div>
-                    </div>
-                    
-                    <div style="background: #1a1a2e; border-radius: 8px; padding: 10px; margin-bottom: 8px; border-left: 3px solid #14F195;">
-                        <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #fff; font-size: 12px;">$BONK</span>
-                            <span style="color: #14F195; font-size: 12px;">+127%</span>
-                        </div>
-                        <div style="color: #6B7280; font-size: 9px;">15 min ago • AI Score: 88</div>
-                    </div>
-                    
-                    <div style="background: #1a1a2e; border-radius: 8px; padding: 10px; margin-bottom: 8px; border-left: 3px solid #EF4444;">
-                        <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #fff; font-size: 12px;">$SAMO</span>
-                            <span style="color: #EF4444; font-size: 12px;">-23%</span>
-                        </div>
-                        <div style="color: #6B7280; font-size: 9px;">1 hr ago • AI Score: 71</div>
-                    </div>
-                    
-                    <div style="background: #1a1a2e; border-radius: 8px; padding: 10px; margin-bottom: 8px; border-left: 3px solid #14F195;">
-                        <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #fff; font-size: 12px;">$POPCAT</span>
-                            <span style="color: #14F195; font-size: 12px;">+234%</span>
-                        </div>
-                        <div style="color: #6B7280; font-size: 9px;">3 hr ago • AI Score: 91</div>
-                    </div>
-                    
-                    <div style="background: #1a1a2e; border-radius: 8px; padding: 10px; margin-bottom: 8px; border-left: 3px solid #14F195;">
-                        <div style="display: flex; justify-content: space-between;">
-                            <span style="color: #fff; font-size: 12px;">$MYRO</span>
-                            <span style="color: #14F195; font-size: 12px;">+45%</span>
-                        </div>
-                        <div style="color: #6B7280; font-size: 9px;">5 hr ago • AI Score: 82</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Mobile fallback for phone mockups -->
-        <div class="mobile-ui-showcase">
-            <div class="ui-feature-card">
-                <h4>📊 Real-Time Dashboard</h4>
-                <p>Live stats: 24h trades, win rate, open positions, AI confidence. Token analysis with Entry/Exit scores and buy pressure indicators.</p>
-            </div>
-            <div class="ui-feature-card">
-                <h4>🧠 AI Learning Status</h4>
-                <p>Visual brain progress indicator showing learning phase (Bootstrap → Learning → Mature), trade count, and win rate evolution.</p>
-            </div>
-            <div class="ui-feature-card">
-                <h4>📈 Trade Journal</h4>
-                <p>Complete trade history with P&L, AI scores, and timestamps. Color-coded wins (green) and losses (red) for instant performance review.</p>
-            </div>
-        </div>
+<section id="oracle">
+  <div class="wrap split">
+    <div>
+      <span class="eyebrow">The oracle has to earn control</span>
+      <h2>No probe trades. It admits or refuses.</h2>
+      <p class="lede" style="margin-bottom:18px">The Predictive Entry Oracle reads up to 5,000 closed trades, per lane and across the whole book, and forecasts each candidate. It only takes control of admission once real results show that its calls beat the alternative. If its edge fades, it hands control back.</p>
+      <div class="states">
+        <span class="state adv">ADVISORY · learning</span>
+        <span class="state pro">PROVEN · decides admission</span>
+        <span class="state dem">DEMOTED · edge faded</span>
+      </div>
     </div>
-</div>
+    <ul class="checks">
+      <li><b>≥ 20 / 10</b>At least 20 ADMIT closes and 10 REFUSE closes graded</li>
+      <li><b>+2 pp</b>Trades it admits must beat trades it refuses by at least 2 points of mean return</li>
+      <li><b>WR ≥</b>Win rate on admitted trades must be at least the win rate on refused trades</li>
+      <li><b>Brier ≤ .25</b>Its win-probability forecasts must be calibrated, not just confident</li>
+      <li><b>Persisted</b>The proof survives restarts, and a close is only graded against a forecast made before it</li>
+    </ul>
+  </div>
+</section>
 
-<!-- SLIDE 6: Market Opportunity -->
-<div class="slide">
-    <div class="slide-content">
-        <h1>Market Opportunity</h1>
-        
-        <div class="grid-2">
-            <div>
-                <div class="card" style="margin-bottom: 30px;">
-                    <h3>🌍 Total Addressable Market</h3>
-                    <div style="font-size: 56px; font-weight: 800; color: #9945FF;">$2.8B</div>
-                    <p>Crypto trading bot market by 2027 (CAGR 24%)</p>
-                </div>
-                <div class="card">
-                    <h3>🎯 Serviceable Market</h3>
-                    <div style="font-size: 56px; font-weight: 800; color: #14F195;">$420M</div>
-                    <p>Solana meme coin traders & DeFi users</p>
-                </div>
-            </div>
-            <div>
-                <h3>Why Solana?</h3>
-                <div class="stat-row">
-                    <span class="stat-label">Transaction Speed</span>
-                    <span class="stat-value">400ms</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Transaction Cost</span>
-                    <span class="stat-value">$0.00025</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Daily Active Wallets</span>
-                    <span class="stat-value">2.1M</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">Meme Coin Market Cap</span>
-                    <span class="stat-value">$8.4B</span>
-                </div>
-                <div class="stat-row">
-                    <span class="stat-label">New Tokens/Day</span>
-                    <span class="stat-value">15,000+</span>
-                </div>
-                
-                <p style="margin-top: 30px; color: #9CA3AF;">
-                    Solana's speed and low fees make it the <span style="color: #14F195;">perfect environment</span> for high-frequency AI trading.
-                </p>
-            </div>
-        </div>
+<section id="paper">
+  <div class="wrap">
+    <div class="head">
+      <span class="eyebrow">Paper realism</span>
+      <h2>Paper trades pay real venue costs.</h2>
+      <p class="lede">A paper win only counts if it would have survived real costs. Each paper fill pays the fee of the venue it would actually trade on, plus network cost and price impact based on the pool's depth.</p>
     </div>
-</div>
+    <div class="tablebox">
+      <table>
+        <thead><tr><th>Venue</th><th class="n">Fee / side</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>pump.fun bonding curve</td><td class="n">1.25%</td><td>Depth floored at 30 virtual SOL</td></tr>
+          <tr><td>PumpSwap</td><td class="n">0.25% + creator</td><td>Creator fee by market cap: 0.95% · 0.50% · 0.20% · 0.05%</td></tr>
+          <tr><td>Raydium / Meteora AMM</td><td class="n">0.25%</td><td>Graduated pools</td></tr>
+          <tr><td>Network</td><td class="n">0.000805 SOL</td><td>Fixed per side</td></tr>
+          <tr><td>Price impact</td><td class="n">clip ÷ (depth + clip)</td><td>Capped at 15%; 2% when depth is unknown</td></tr>
+          <tr><td>AATE app fee</td><td class="n">0.5%</td><td>Per spot side</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="caveat">A full round trip costs about 5–6% on a bonding curve and 2–3% on a graduated pool.</p>
+  </div>
+</section>
 
-<!-- SLIDE 7: Competitive Advantage -->
-<div class="slide">
-    <div class="slide-content">
-        <h1>Competitive Advantage</h1>
-        <p>No other bot combines all of these capabilities</p>
-        
-        <div style="margin-top: 40px;">
-            <div class="matrix-row" style="background: rgba(153, 69, 255, 0.1); font-weight: 600;">
-                <div class="matrix-feature">Feature</div>
-                <div class="matrix-cell">LifecycleBot</div>
-                <div class="matrix-cell">BonkBot</div>
-                <div class="matrix-cell">Trojan</div>
-                <div class="matrix-cell">Maestro</div>
-            </div>
-            <div class="matrix-row">
-                <div class="matrix-feature">Self-Learning AI</div>
-                <div class="matrix-cell"><span class="check">✓</span></div>
-                <div class="matrix-cell"><span class="cross">✗</span></div>
-                <div class="matrix-cell"><span class="cross">✗</span></div>
-                <div class="matrix-cell"><span class="cross">✗</span></div>
-            </div>
-            <div class="matrix-row">
-                <div class="matrix-feature">10-Layer Decision Engine</div>
-                <div class="matrix-cell"><span class="check">✓</span></div>
-                <div class="matrix-cell"><span class="cross">✗</span></div>
-                <div class="matrix-cell"><span class="cross">✗</span></div>
-                <div class="matrix-cell"><span class="cross">✗</span></div>
-            </div>
-            <div class="matrix-row">
-                <div class="matrix-feature">LLM Scam Detection</div>
-                <div class="matrix-cell"><span class="check">✓</span></div>
-                <div class="matrix-cell"><span class="cross">✗</span></div>
-                <div class="matrix-cell"><span class="cross">✗</span></div>
-                <div class="matrix-cell"><span class="cross">✗</span></div>
-            </div>
-            <div class="matrix-row">
-                <div class="matrix-feature">Whale Tracking</div>
-                <div class="matrix-cell"><span class="check">✓</span></div>
-                <div class="matrix-cell"><span class="cross">✗</span></div>
-                <div class="matrix-cell"><span class="check">✓</span></div>
-                <div class="matrix-cell"><span class="cross">✗</span></div>
-            </div>
-            <div class="matrix-row">
-                <div class="matrix-feature">Volume Profile Analysis</div>
-                <div class="matrix-cell"><span class="check">✓</span></div>
-                <div class="matrix-cell"><span class="cross">✗</span></div>
-                <div class="matrix-cell"><span class="cross">✗</span></div>
-                <div class="matrix-cell"><span class="cross">✗</span></div>
-            </div>
-            <div class="matrix-row">
-                <div class="matrix-feature">MEV Protection</div>
-                <div class="matrix-cell"><span class="check">✓</span></div>
-                <div class="matrix-cell"><span class="check">✓</span></div>
-                <div class="matrix-cell"><span class="check">✓</span></div>
-                <div class="matrix-cell"><span class="check">✓</span></div>
-            </div>
-            <div class="matrix-row">
-                <div class="matrix-feature">Moonshot Override</div>
-                <div class="matrix-cell"><span class="check">✓</span></div>
-                <div class="matrix-cell"><span class="cross">✗</span></div>
-                <div class="matrix-cell"><span class="cross">✗</span></div>
-                <div class="matrix-cell"><span class="cross">✗</span></div>
-            </div>
-            <div class="matrix-row">
-                <div class="matrix-feature">Native Mobile App</div>
-                <div class="matrix-cell"><span class="check">✓</span></div>
-                <div class="matrix-cell"><span class="cross">✗</span></div>
-                <div class="matrix-cell"><span class="cross">✗</span></div>
-                <div class="matrix-cell"><span class="cross">✗</span></div>
-            </div>
-        </div>
-        
-        <p style="text-align: center; margin-top: 40px; font-size: 24px;">
-            We're not competing with other bots. We're <span class="highlight">replacing</span> them.
-        </p>
+<section id="results">
+  <div class="wrap">
+    <div class="head">
+      <span class="eyebrow">Latest measured session · PAPER</span>
+      <h2>v5.0.7288, 24 Sep 2026</h2>
+      <p class="lede">These numbers are copied straight from the app's Pipeline Health report. Fees are included and nothing is estimated.</p>
     </div>
-</div>
+    <div class="stats">
+      <div class="stat"><div class="v pos">+20.52</div><div class="k">SOL realized, after fees</div></div>
+      <div class="stat"><div class="v">7.59</div><div class="k">Profit factor</div></div>
+      <div class="stat"><div class="v">52.6%</div><div class="k">Win rate per position</div></div>
+      <div class="stat"><div class="v">79</div><div class="k">Closed trades</div></div>
+      <div class="stat"><div class="v pos">+7.85</div><div class="k">SOL from the Crypto Spot lane (+252% avg)</div></div>
+      <div class="stat"><div class="v pos">+4.86</div><div class="k">SOL from the Project Sniper lane</div></div>
+      <div class="stat"><div class="v">29/30</div><div class="k">Positions with a fresh price mark</div></div>
+      <div class="stat"><div class="v">100/100</div><div class="k">LLM council calls answered</div></div>
+    </div>
+    <p class="caveat"><b>Read this honestly:</b> this was one short paper session (about 11 minutes, 79 closes). Paper results are not live results, and past results say nothing certain about future ones. The next milestone is a small live calibration run to check real fills and fees against these paper numbers.</p>
+  </div>
+</section>
 
-<!-- SLIDE 8: Long-Term Projections -->
-<div class="slide">
-    <div class="slide-content">
-        <h1>Long-Term Projections</h1>
-        <p>Simulated portfolio growth with self-scaling AI</p>
-        
-        <table>
-            <tr>
-                <th>Metric</th>
-                <th>Month 1</th>
-                <th>Month 6</th>
-                <th>Month 12</th>
-                <th>Month 24</th>
-            </tr>
-            <tr>
-                <td>Learning Phase</td>
-                <td>Bootstrap</td>
-                <td>Learning</td>
-                <td>Mature</td>
-                <td>Mature+</td>
-            </tr>
-            <tr>
-                <td>Win Rate</td>
-                <td>48%</td>
-                <td>61%</td>
-                <td>72%</td>
-                <td>78%</td>
-            </tr>
-            <tr>
-                <td>Avg Daily Trades</td>
-                <td>8</td>
-                <td>12</td>
-                <td>18</td>
-                <td>25</td>
-            </tr>
-            <tr>
-                <td>Avg Winner</td>
-                <td>1.8x</td>
-                <td>2.1x</td>
-                <td>2.5x</td>
-                <td>2.8x</td>
-            </tr>
-            <tr>
-                <td>Scams Avoided</td>
-                <td>12</td>
-                <td>89</td>
-                <td>234</td>
-                <td>512</td>
-            </tr>
-            <tr>
-                <td style="font-weight: 600;">Portfolio ($10K start)</td>
-                <td style="color: #14F195;">$14K</td>
-                <td style="color: #14F195;">$127K</td>
-                <td style="color: #14F195;">$847K</td>
-                <td style="color: #14F195; font-weight: 700; font-size: 20px;">$4.2M</td>
-            </tr>
-        </table>
-        
-        <div class="grid-3" style="margin-top: 50px;">
-            <div class="card" style="text-align: center;">
-                <div style="font-size: 48px; font-weight: 800; color: #9945FF;">420x</div>
-                <p>Potential 24-month return</p>
-            </div>
-            <div class="card" style="text-align: center;">
-                <div style="font-size: 48px; font-weight: 800; color: #14F195;">512</div>
-                <p>Rugs avoided by AI</p>
-            </div>
-            <div class="card" style="text-align: center;">
-                <div style="font-size: 48px; font-weight: 800; color: #F59E0B;">$0</div>
-                <p>Lost to scams</p>
-            </div>
-        </div>
-        
-        <p style="text-align: center; margin-top: 30px; color: #6B7280; font-size: 14px;">
-            *Projections based on backtested simulations. Past performance does not guarantee future results. Crypto trading involves substantial risk.
-        </p>
+<section id="built">
+  <div class="wrap">
+    <div class="head">
+      <span class="eyebrow">Engineering</span>
+      <h2>Built on a phone, then audited like a ledger.</h2>
+      <p class="lede">One developer built AATE from a phone, with GitHub Actions compiling every build. Custom static checks guard the accounting invariants on each build, so the engine can't quietly drift out of balance.</p>
     </div>
-</div>
+    <div class="grid g4">
+      <div class="card"><div class="stat" style="padding:0;border:0;background:none"><div class="v">457k</div><div class="k">lines of production Kotlin</div></div></div>
+      <div class="card"><div class="stat" style="padding:0;border:0;background:none"><div class="v">1,200</div><div class="k">source files</div></div></div>
+      <div class="card"><div class="stat" style="padding:0;border:0;background:none"><div class="v">2,699</div><div class="k">unit and golden-tape tests</div></div></div>
+      <div class="card"><div class="stat" style="padding:0;border:0;background:none"><div class="v">22</div><div class="k">in-app screens</div></div></div>
+    </div>
+    <div class="vals" aria-label="CI validators">
+      <span class="val">comment balance</span><span class="val">golden tape</span><span class="val">authority contradiction</span><span class="val">patch rot</span>
+      <span class="val">economic units</span><span class="val">resource validate</span><span class="val">layout contract</span><span class="val">palette drift</span>
+      <span class="val">static call</span><span class="val">return telemetry</span><span class="val">new dead code</span><span class="val">qualified reference</span>
+      <span class="val">expression-body return</span><span class="val">lane identity</span><span class="val">local fn modifiers</span><span class="val">val assignment</span>
+    </div>
+    <div class="grid g3" style="margin-top:32px">
+      <div class="card"><span class="icon">SECURITY</span><h3>Keys never leave the phone</h3><p>Wallet keys are encrypted with AES-256 in Android's encrypted storage and locked behind biometrics. A live safety circuit breaker refuses to trade underfunded wallets and halts on session drawdown.</p></div>
+      <div class="card"><span class="icon">FORENSICS</span><h3>Every refusal is counted</h3><p>Structured phase logs and the Pipeline Health screen record each funnel step, gate verdict, stall and fee, so any number the app shows can be traced back.</p></div>
+      <div class="card"><span class="icon">LLM COUNCIL</span><h3>Many models, off the hot path</h3><p>Groq, Gemini, Cerebras, Mistral, OpenRouter and keyless providers read narrative, spot scams and advise on exits. Their answers are cached and fetched asynchronously, so trading never waits on them.</p></div>
+    </div>
+  </div>
+</section>
 
-<!-- SLIDE 9: Revenue Model -->
-<div class="slide">
-    <div class="slide-content">
-        <h1>Revenue Model</h1>
-        
-        <div class="grid-3">
-            <div class="card" style="border-color: #9945FF; text-align: center;">
-                <h3>🆓 Free Tier</h3>
-                <div style="font-size: 36px; font-weight: 700; margin: 20px 0;">$0</div>
-                <ul style="text-align: left; color: #9CA3AF; font-size: 14px; list-style: none;">
-                    <li style="padding: 8px 0;">✓ Paper trading only</li>
-                    <li style="padding: 8px 0;">✓ 5 AI layers</li>
-                    <li style="padding: 8px 0;">✓ Basic scam detection</li>
-                    <li style="padding: 8px 0; color: #6B7280;">✗ No live trading</li>
-                </ul>
-            </div>
-            
-            <div class="card" style="border-color: #14F195; text-align: center; transform: scale(1.05);">
-                <h3>⚡ Pro Tier</h3>
-                <div style="font-size: 36px; font-weight: 700; margin: 20px 0;">$99<span style="font-size: 16px;">/mo</span></div>
-                <ul style="text-align: left; color: #9CA3AF; font-size: 14px; list-style: none;">
-                    <li style="padding: 8px 0;">✓ Live trading</li>
-                    <li style="padding: 8px 0;">✓ All 10 AI layers</li>
-                    <li style="padding: 8px 0;">✓ LLM scam detection</li>
-                    <li style="padding: 8px 0;">✓ Priority support</li>
-                </ul>
-            </div>
-            
-            <div class="card" style="border-color: #F59E0B; text-align: center;">
-                <h3>🏆 Elite Tier</h3>
-                <div style="font-size: 36px; font-weight: 700; margin: 20px 0;">$499<span style="font-size: 16px;">/mo</span></div>
-                <ul style="text-align: left; color: #9CA3AF; font-size: 14px; list-style: none;">
-                    <li style="padding: 8px 0;">✓ Everything in Pro</li>
-                    <li style="padding: 8px 0;">✓ Collective learning access</li>
-                    <li style="padding: 8px 0;">✓ Custom AI training</li>
-                    <li style="padding: 8px 0;">✓ 1-on-1 onboarding</li>
-                </ul>
-            </div>
-        </div>
-        
-        <div class="chart-container" style="margin-top: 50px;">
-            <h3 style="text-align: center;">Projected MRR Growth</h3>
-            <div class="chart-bars">
-                <div class="chart-bar" style="height: 10%;">
-                    <span class="chart-bar-label">Q2 '25</span>
-                    <span class="chart-bar-value">$25K</span>
-                </div>
-                <div class="chart-bar" style="height: 25%;">
-                    <span class="chart-bar-label">Q3 '25</span>
-                    <span class="chart-bar-value">$75K</span>
-                </div>
-                <div class="chart-bar" style="height: 45%;">
-                    <span class="chart-bar-label">Q4 '25</span>
-                    <span class="chart-bar-value">$180K</span>
-                </div>
-                <div class="chart-bar" style="height: 70%;">
-                    <span class="chart-bar-label">Q1 '26</span>
-                    <span class="chart-bar-value">$420K</span>
-                </div>
-                <div class="chart-bar" style="height: 100%;">
-                    <span class="chart-bar-label">Q2 '26</span>
-                    <span class="chart-bar-value">$1M</span>
-                </div>
-            </div>
-        </div>
+<section id="road">
+  <div class="wrap">
+    <div class="head">
+      <span class="eyebrow">Roadmap</span>
+      <h2>Prove it in paper, then go live one lane at a time.</h2>
+      <p class="lede">The goal is to turn $50 into $1,000,000. That's a target, not a result, and each step has to be earned with real data.</p>
     </div>
-</div>
+    <div class="road">
+      <div class="card now"><div class="when">Now</div><h3>Sustained paper edge</h3><p>Long paper sessions with venue-priced fees and a supervised mark loop.</p></div>
+      <div class="card next"><div class="when">Next</div><h3>Live calibration</h3><p>A small live run to check real fills and fees against paper.</p></div>
+      <div class="card next"><div class="when">Next</div><h3>Oracle PROVEN</h3><p>The oracle earns control of admission from graded closes.</p></div>
+      <div class="card later"><div class="when">Later</div><h3>Lanes go live</h3><p>Live lanes enabled one at a time as each proves itself.</p></div>
+      <div class="card later"><div class="when">Later</div><h3>Beyond Android</h3><p>Web and iOS monitoring.</p></div>
+    </div>
+  </div>
+</section>
 
-<!-- SLIDE 10: The Ask -->
-<div class="slide">
-    <div class="slide-content">
-        <h1>The Ask</h1>
-        
-        <div class="ask-box">
-            <p style="color: #9CA3AF; margin-bottom: 10px;">We are raising</p>
-            <div class="ask-amount">$1,000,000</div>
-            <p style="color: #9CA3AF; margin-top: 10px;">Seed Round</p>
-        </div>
-        
-        <div class="use-of-funds">
-            <div class="fund-item">
-                <div class="fund-pct">40%</div>
-                <div class="fund-label">Engineering<br>& AI R&D</div>
-            </div>
-            <div class="fund-item">
-                <div class="fund-pct">25%</div>
-                <div class="fund-label">Marketing<br>& Growth</div>
-            </div>
-            <div class="fund-item">
-                <div class="fund-pct">20%</div>
-                <div class="fund-label">Infrastructure<br>& Security</div>
-            </div>
-            <div class="fund-item">
-                <div class="fund-pct">15%</div>
-                <div class="fund-label">Operations<br>& Legal</div>
-            </div>
-        </div>
-        
-        <div class="grid-2" style="margin-top: 60px;">
-            <div>
-                <h3>What We'll Deliver</h3>
-                <div class="timeline">
-                    <div class="timeline-item">
-                        <div class="timeline-dot">1</div>
-                        <strong style="color: #fff;">Q2 2025</strong>
-                        <p style="font-size: 16px;">Public beta launch, 1,000 users</p>
-                    </div>
-                    <div class="timeline-item">
-                        <div class="timeline-dot">2</div>
-                        <strong style="color: #fff;">Q3 2025</strong>
-                        <p style="font-size: 16px;">iOS app, collective learning, 5K users</p>
-                    </div>
-                    <div class="timeline-item">
-                        <div class="timeline-dot">3</div>
-                        <strong style="color: #fff;">Q4 2025</strong>
-                        <p style="font-size: 16px;">Multi-chain support, 15K users</p>
-                    </div>
-                    <div class="timeline-item">
-                        <div class="timeline-dot">4</div>
-                        <strong style="color: #fff;">Q1 2026</strong>
-                        <p style="font-size: 16px;">$1M MRR, Series A ready</p>
-                    </div>
-                </div>
-            </div>
-            <div>
-                <h3>Why Now?</h3>
-                <div class="card">
-                    <p style="font-size: 18px; color: #fff; margin-bottom: 15px;">
-                        🚀 <strong>Solana is exploding</strong> — 15,000+ new tokens daily
-                    </p>
-                    <p style="font-size: 18px; color: #fff; margin-bottom: 15px;">
-                        🧠 <strong>AI is ready</strong> — LLMs can now detect scams in real-time
-                    </p>
-                    <p style="font-size: 18px; color: #fff; margin-bottom: 15px;">
-                        💀 <strong>Competition is weak</strong> — No one has self-learning AI
-                    </p>
-                    <p style="font-size: 18px; color: #fff;">
-                        ⏰ <strong>First mover advantage</strong> — Winner takes all market
-                    </p>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- SLIDE 11: Contact -->
-<div class="slide cover">
-    <div class="slide-content">
-        <div class="logo-large">🧠</div>
-        <h1 class="title">LifecycleBot</h1>
-        <p class="tagline">The Future of Autonomous Trading</p>
-        
-        <div style="margin-top: 60px;">
-            <p style="font-size: 24px; color: #fff;">Let's build the future together.</p>
-            <div style="margin-top: 40px; display: flex; justify-content: center; gap: 40px;">
-                <div style="text-align: center;">
-                    <div style="color: #9945FF; font-size: 14px; text-transform: uppercase; letter-spacing: 2px;">GitHub</div>
-                    <div style="color: #fff; font-size: 18px; margin-top: 5px;">github.com/lifecyclebot</div>
-                </div>
-                <div style="text-align: center;">
-                    <div style="color: #9945FF; font-size: 14px; text-transform: uppercase; letter-spacing: 2px;">Twitter</div>
-                    <div style="color: #fff; font-size: 18px; margin-top: 5px;">@LifecycleBot</div>
-                </div>
-            </div>
-        </div>
-        
-        <p style="position: absolute; bottom: 40px; left: 0; right: 0; text-align: center; color: #4B5563; font-size: 14px;">
-            CONFIDENTIAL — For Qualified Investors Only
-        </p>
-    </div>
-</div>
+<footer>
+  <div class="wrap">
+    <span class="brand"><img src="assets/aate_logo.png" alt="" style="width:26px;height:26px">AATE — Autonomous Algorithmic Trading Engine</span>
+    <p>Trading crypto and other assets is high risk and you can lose all of your capital. The results above are from paper trading, which simulates fills and does not guarantee live performance. Nothing here is financial advice.</p>
+    <p>© 2025–2026 AATE. <a href="lifecycle_apk/LEGAL.md">Legal</a> · <a href="lifecycle_apk/PRIVACY_POLICY.md">Privacy</a> · <a href="lifecycle_apk/SECURITY.md">Security</a> · <a href="lifecycle_apk/README.md">Docs</a></p>
+  </div>
+</footer>
 
 </body>
 </html>

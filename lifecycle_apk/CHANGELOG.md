@@ -1,6 +1,6 @@
 # AATE Changelog
 
-All notable changes to the Autonomous AI Trading Engine.
+All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 

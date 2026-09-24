@@ -1,5 +1,6 @@
-# LIFECYCLE BOT V5.2
-## Changelog & Release Notes
+# AATE — Changelog & Release Notes (older series)
+
+The current changelog is [../CHANGELOG.md](../CHANGELOG.md).
 
 ---
 

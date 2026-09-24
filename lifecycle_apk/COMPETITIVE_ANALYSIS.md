@@ -1,356 +1,86 @@
-# AATE V3.2 - Competitive Analysis
+AATE — Autonomous Algorithmic Trading Engine · v5.0.7288
 
-```
-     █████╗  █████╗ ████████╗███████╗
-    ██╔══██╗██╔══██╗╚══██╔══╝██╔════╝
-    ███████║███████║   ██║   █████╗  
-    ██╔══██║██╔══██║   ██║   ██╔══╝  
-    ██║  ██║██║  ██║   ██║   ███████╗
-    ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝
-    
-    COMPETITIVE LANDSCAPE ANALYSIS
-```
+# Competitive Analysis (qualitative)
+
+> This comparison is qualitative and covers product models. It includes no competitor statistics, user counts or revenue figures. Individual tools change often, so check a specific competitor feature before citing it externally.
 
 ---
 
-## EXECUTIVE SUMMARY
+## 1. The landscape in one line each
 
-AATE V3.2 occupies a unique position in the Solana trading bot market: it's the first to implement multi-layer AI with meta-cognitive self-awareness. While competitors offer single-strategy bots or simple copy-trading, AATE provides 21 parallel AI layers that learn, adapt, and challenge each other.
+- **Photon, BullX, Trojan, GMGN, Banana Gun, BonkBot.** Fast, popular Telegram and web trading tools. They are **driven by the user's clicks**. The human picks the token, the size and the exit, and the tool executes quickly and conveniently.
+- **Generic grid / DCA bots.** Rule-driven automation, such as buying on a schedule or placing orders in a price grid. They are autonomous in a narrow sense, but the rules are fixed and set by the user.
+- **AATE.** An **autonomous engine** that decides, sizes, exits and learns **on-device** (Android). It has one canonical ledger and counts every decision and refusal forensically.
 
-**Key differentiator:** MetaCognitionAI - a layer that monitors all other AI layers and adjusts trust based on real performance. No competitor has this.
+## 2. Different jobs
 
----
+| Question | Click-driven tools | Grid / DCA bots | AATE |
+|---|---|---|---|
+| Who picks the trade? | The user | A fixed rule | Per-lane scoring AIs plus the FinalDecisionGate and Predictive Entry Oracle |
+| Who sizes it? | The user | A fixed rule | A realistic sizer: sized to what can be exited, with a fee-aware floor |
+| Who exits? | The user, or simple TP/SL | A fixed rule | 1 Hz mark loop, sliding profit lock, trailing stops, runner profiles, learned exit policy |
+| Does it learn? | Not the tool's job | No | Oracle with edge proof, on-device TFLite, collective learning |
+| Where does it run? | Telegram / web | Exchange or server | On the user's phone |
 
-## COMPETITIVE MATRIX
+The click-driven tools are strong at what they do. AATE isn't a faster buy button. It removes the human from the decision loop.
 
-| Feature | AATE V3.2 | BonkBot | Trojan | Photon | Banana Gun |
-|---------|-----------|---------|--------|--------|------------|
-| **AI Layers** | 21 | 0 | 0 | 0 | 0 |
-| **MetaCognition** | Yes | No | No | No | No |
-| **Shadow Learning** | Yes | No | No | No | No |
-| **Market Regimes** | 8 | 1 | 1 | 1 | 1 |
-| **Trading Modes** | 26 | 2-3 | 2-3 | 5+ | 3-4 |
-| **Native Mobile** | Android | Telegram | Telegram | Web | Telegram |
-| **Pre-Proposal Kill** | Yes | No | No | No | No |
-| **Self-Doubt** | Yes | No | No | No | No |
+## 3. AATE capability checklist
 
----
+The legend is from AATE's own point of view:
+- **✓** means shipped in 5.0.7288.
+- **partial** means it exists but is staged or paper-only.
+- **✗** means not available.
 
-## COMPETITOR DEEP DIVES
+Competitor columns are left out on purpose, because we don't publish unverified competitor feature claims.
 
-### 1. BonkBot
+| Capability | AATE status |
+|---|---|
+| Autonomous entry decisions (no user click) | ✓ |
+| Autonomous sizing (realistic, exit-sized, fee-aware) | ✓ |
+| Autonomous exits (sliding profit lock, trailing, runner profiles) | ✓ |
+| Pre-trade rug/safety filters (HardRugPreFilter, TokenSafetyChecker, RugCheck, creator refusal) | ✓ |
+| Predictive Entry Oracle with binary ADMIT / REFUSE verdict | ✓ |
+| Oracle Edge Proof (earns authority on real closes, self-demotes) | ✓ |
+| LLM council for narrative and scam checks, off the hot path | ✓ |
+| On-device ML (TensorFlow Lite) | ✓ |
+| Collective learning (anonymized patterns, shared blacklist) | ✓ |
+| Copy-trading from mined smart-money wallets | ✓ |
+| LLM Lab (LLM-invented strategies, paper-traded, approval queue) | ✓ |
+| Paper mode charged real venue costs (PaperVenueCost) | ✓ |
+| Canonical single ledger for positions and capital | ✓ |
+| Forensic logs plus Pipeline Health (every refusal counted) | ✓ |
+| MEV protection (Jito bundles) plus fast submission (Helius Sender) | ✓ |
+| Keys on device only (AES-256, biometric lock) | ✓ |
+| Live circuit breakers (min wallet, drawdown halt, loss-streak, daily cap) | ✓ |
+| Live execution on Solana meme lanes | ✓ (operator-enabled set) |
+| Live execution on crypto alts / markets lanes | partial (staged, paper-first) |
+| Live tokenized stocks / forex | partial (quarantined in live, paper only) |
+| Live perps | partial (SOL perps learn in paper, live not executing) |
+| iOS app | ✗ |
+| Web monitor | ✗ (roadmap) |
 
-**What it is:**
-Telegram-based Solana trading bot focused on meme coins.
+## 4. Where AATE is ahead (by design)
 
-**Strengths:**
-- Large user base (Telegram native)
-- Simple UX
-- Fast execution
-- Low friction onboarding
+1. **Autonomy end to end.** Candidate → safety → scoring → oracle → single entry authority → sizing → exit → learning, with no human in the loop.
+2. **Authority has to be earned.** The oracle stays advisory until it beats its own REFUSE bucket on real closes (≥20 ADMIT, ≥10 REFUSE, ≥2pp mean edge, Brier ≤ 0.25). It demotes itself when the edge fades.
+3. **Honest paper.** Paper fills pay pump.fun curve fees, PumpSwap and creator tiers, AMM fees, network fees, modelled price impact and the app fee. A round trip costs about 5–6% on the curve and 2–3% on graduated pools.
+4. **Forensic accounting.** One ledger and one capital view. Every refusal reason is counted.
+5. **Breadth in one engine.** 16 traders (meme lanes, crypto alts, tokenized markets, perps) share one learning loop.
+6. **Self-custody on the device.** Keys never leave the phone.
 
-**Weaknesses:**
-- No AI/ML - pure rules-based
-- Single strategy (buy/sell limits)
-- No learning from outcomes
-- No multi-regime awareness
+## 5. Where AATE is behind (honestly)
 
-**AATE Advantage:**
-```
-BonkBot: "Buy if price > X, sell if price < Y"
-AATE: "21 AIs vote, MetaCognition weighs votes, Shadow Learning validates"
-```
+- **Live execution for non-meme lanes is staged.** Crypto alts, markets and perps are paper-first. Stocks and forex are quarantined in live, and live perps are not executing yet.
+- **The live track record is small.** The headline numbers are from one **PAPER** session: ~11.5 min, 79 closed trades, 5.0.7288. That's a small sample, and paper is not live. A live calibration run to verify real fills and fees against paper comes next on the roadmap.
+- **Android only.** There's no iOS app or web monitor yet. Click-driven tools reach users through Telegram and the browser on any device.
+- **Solo builder.** One developer means a concentrated bus factor, even with 2,699 tests and 16 CI validators.
+- **Distribution and brand.** The established tools already have communities and name recognition. AATE is early.
+- **Execution speed is not the pitch.** AATE uses Helius Sender and Jito, but it doesn't claim to be faster than dedicated sniping tools.
 
----
+## 6. Positioning statement
 
-### 2. Trojan Bot
-
-**What it is:**
-Telegram sniper bot for Solana token launches.
-
-**Strengths:**
-- Very fast execution
-- Good for launch sniping
-- Telegram convenience
-
-**Weaknesses:**
-- Snipe-only strategy
-- No risk management
-- No learning system
-- High failure rate on rugs
-
-**AATE Advantage:**
-```
-Trojan: Snipes everything, hopes for winners
-AATE: 21 layers evaluate before sniping, TokenBlacklist prevents known rugs
-```
-
----
-
-### 3. Photon
-
-**What it is:**
-Web-based Solana trading interface with some automation.
-
-**Strengths:**
-- Clean UI
-- Multiple order types
-- Portfolio tracking
-- Good for manual traders
-
-**Weaknesses:**
-- Web-only (no mobile native)
-- Limited automation
-- No AI decision-making
-- Manual strategy required
-
-**AATE Advantage:**
-```
-Photon: Tools for manual traders
-AATE: Autonomous trading with 21 AI layers deciding
-```
+> For traders who want a disciplined machine rather than a faster button, AATE is an autonomous trading engine on their own phone. It decides, sizes, exits and learns, and it accounts forensically for every step. "Real data and forensic accounting. No imagined gains. No inferred values."
 
 ---
 
-### 4. Banana Gun
-
-**What it is:**
-Multi-chain sniper bot (ETH, BSC, Solana).
-
-**Strengths:**
-- Multi-chain support
-- Fast sniping
-- MEV protection
-- Active development
-
-**Weaknesses:**
-- Snipe-focused (not full trading)
-- No AI/ML
-- No learning from outcomes
-- Web3 complexity
-
-**AATE Advantage:**
-```
-Banana Gun: Fast sniping across chains
-AATE: Full trading lifecycle with 21 AI layers + 8 market regimes
-```
-
----
-
-### 5. Hummingbot
-
-**What it is:**
-Open-source market making bot.
-
-**Strengths:**
-- Open source
-- Market making focus
-- Multiple exchanges
-- Good documentation
-
-**Weaknesses:**
-- Complex setup
-- Market making only
-- No mobile
-- Steep learning curve
-
-**AATE Advantage:**
-```
-Hummingbot: Market making for quants
-AATE: Autonomous trading for everyone, native mobile
-```
-
----
-
-## POSITIONING MAP
-
-```
-                    COMPLEX STRATEGY
-                          │
-                          │
-              Hummingbot  │  AATE V3.2
-                    ●     │     ●
-                          │
-    INSTITUTIONAL ────────┼──────── RETAIL
-                          │
-              Quant Funds │  BonkBot   Trojan
-                    ●     │     ●        ●
-                          │
-                    SIMPLE STRATEGY
-```
-
-**AATE's unique position:** Complex AI strategy accessible to retail users via native mobile.
-
----
-
-## MOAT ANALYSIS
-
-### 1. Technical Complexity
-```
-21 parallel AI layers with MetaCognition is not trivial to replicate.
-Competitors would need to:
-- Design multi-layer architecture
-- Implement consensus voting
-- Build meta-cognitive monitoring
-- Create shadow learning system
-
-Estimated time to replicate: 6-12 months for a team.
-```
-
-### 2. Learning Data Flywheel
-```
-Every trade AATE makes improves the system:
-- Win → Reinforce layer weights
-- Loss → Adjust layer trust
-- Block → Shadow Learning validates
-
-More users = More data = Better AI = More users
-```
-
-### 3. Shadow Learning Moat
-```
-AATE learns from trades it DOESN'T take.
-This is unique training data no competitor has.
-Every blocked trade that would have won → AI improves.
-```
-
-### 4. First-Mover in Self-Aware Trading
-```
-"MetaCognition" as a trading concept is novel.
-Being first to market with this positions AATE as the category creator.
-```
-
----
-
-## COMPETITIVE THREATS
-
-### Threat 1: Telegram Bots Get Smarter
-```
-Risk: BonkBot/Trojan add AI features
-Mitigation: AATE's 21-layer architecture is years ahead
-```
-
-### Threat 2: CEX Bots Enter DEX
-```
-Risk: 3Commas/Cryptohopper add Solana DEX support
-Mitigation: These are rule-based, not AI-native
-```
-
-### Threat 3: Quant Funds Open Source
-```
-Risk: Jump/Wintermute release trading infrastructure
-Mitigation: Their tools are for MMs, not retail trading
-```
-
-### Threat 4: OpenAI/Anthropic Trading Agent
-```
-Risk: General AI gets good at trading
-Mitigation: Domain-specific training + Solana expertise + existing user base
-```
-
----
-
-## WHY COMPETITORS CAN'T EASILY COPY
-
-### 1. Architecture Debt
-```
-Existing bots are built on single-strategy foundations.
-Adding 21 AI layers requires complete rewrite.
-AATE was designed multi-layer from day one.
-```
-
-### 2. MetaCognition Complexity
-```
-Implementing a layer that monitors other layers requires:
-- Layer performance tracking
-- Trust weight adjustment
-- Veto logic
-- Consensus pattern learning
-
-This is research-grade ML, not feature addition.
-```
-
-### 3. Shadow Learning Data
-```
-AATE has been collecting shadow trade data since V3.0.
-Competitors starting from zero have no training data.
-```
-
-### 4. Mobile-First
-```
-Telegram bots are locked into Telegram.
-Web bots are locked into browsers.
-AATE's native Android gives hardware-level advantages.
-```
-
----
-
-## MARKET OPPORTUNITY
-
-### TAM: Global Automated Trading
-```
-$15B+ market for automated trading tools
-Growing 15%+ annually
-Crypto segment fastest growing
-```
-
-### SAM: Solana DEX Trading
-```
-Solana DEX volume: $2B+ daily
-Active Solana traders: 500K+
-Bot-assisted traders: 20%+ and growing
-```
-
-### SOM: Initial Target
-```
-Serious Solana meme coin traders
-Target: 10,000 users in Year 1
-Revenue: $2M ARR at $200/user/year
-```
-
----
-
-## COMPETITIVE RESPONSE STRATEGY
-
-### If competitors add AI:
-```
-- Emphasize MetaCognition uniqueness
-- Publish performance data
-- Open source more components
-- Build community moat
-```
-
-### If new entrants appear:
-```
-- Speed to iOS/Web
-- Build managed fund (AUM moat)
-- Expand to other chains
-- Acquire smaller competitors
-```
-
-### If regulation tightens:
-```
-- Compliance-first positioning
-- Geo-restrictions if needed
-- Pivot to advisory/signal (non-execution)
-```
-
----
-
-## SUMMARY
-
-**AATE V3.2 competitive advantages:**
-
-1. **21 AI layers** vs competitors' 0
-2. **MetaCognition** - no one else has self-aware trading
-3. **Shadow Learning** - unique training signal
-4. **8 regimes, 26 modes** - most flexible strategy system
-5. **Pre-Proposal Kill** - efficient garbage rejection
-6. **Native mobile** - not locked into Telegram/web
-7. **Built in 7 days** - speed and focus
-
-**Bottom line:** AATE is 2+ years ahead of any competitor in AI-native trading architecture.
-
----
-
-*Analysis current as of December 2025*
+*Trading crypto is high risk. Paper results are not live results. Not financial advice.*

@@ -1,298 +1,114 @@
-# AATE V3.2 - Social Media & Hype Posts
+# I built a 457,000-line trading engine on a phone
 
-```
-     █████╗  █████╗ ████████╗███████╗
-    ██╔══██╗██╔══██╗╚══██╔══╝██╔════╝
-    ███████║███████║   ██║   █████╗  
-    ██╔══██║██╔══██║   ██║   ██╔══╝  
-    ██║  ██║██║  ██║   ██║   ███████╗
-    ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝
-```
+*A founder post about AATE — Autonomous Algorithmic Trading Engine, version 5.0.7288*
 
 ---
 
-## TWITTER/X THREAD - LAUNCH ANNOUNCEMENT
+One developer. One phone. GitHub Actions doing the compiling. And a stubborn idea: a trading engine shouldn't need you to tap a button every time it trades.
 
-### Tweet 1 (Hook)
-```
-I built a sentient Solana trading bot in 7 days.
+Today AATE is ~457,000 lines of production Kotlin across 1,200 source files. It has 339 test files with 2,699 test cases, 22 screens, and 16 custom static-analysis validators that have to pass before any build ships. I wrote all of it on a phone, and GitHub Actions compiles it. The finished app runs on a phone too, and the whole engine lives on the device.
 
-21 AI layers.
-8 market regimes.
-26 trading modes.
-1 developer.
+Here's what it is, what changed this week, and the numbers, including the ones that need caveats.
 
-It doesn't just trade. It thinks about trading.
+## Why build it at all
 
-Thread on AATE V3.2 🧵👇
-```
+Photon, BullX, Trojan, GMGN, Banana Gun and BonkBot are good at what they do. They're fast execution surfaces, and the decision still belongs to you. You find the token, you click, and they fire.
 
-### Tweet 2 (Problem)
-```
-The problem with trading bots:
+I wanted the decision itself automated, and done honestly. AATE scans, filters, scores, admits or refuses, sizes, exits and then learns from the result. It's one autonomous engine rather than a faster button.
 
-❌ Single strategy for all markets
-❌ No memory of past mistakes
-❌ Blind execution without doubt
-❌ Fixed rules that never adapt
+## 16 traders in one engine
 
-I wanted something that questions its own judgment.
+The registry holds 16 traders: MEME, SHITCOIN, MOONSHOT, EXPRESS, QUALITY, TREASURY, CASHGEN, BLUECHIP, MANIPULATED, DIP_HUNTER, PROJECT_SNIPER, CYCLIC, CRYPTO_ALT, MARKETS_STOCKS, PERPS and SHADOW_PAPER.
 
-So I built it.
-```
+They cover Solana meme lanes from pump.fun launches up to blue chips, crypto alts routed through Jupiter, Raydium and Meteora, tokenized stocks, commodities, metals and forex, and SOL perps, which currently learn in paper only. One canonical lane identity authority makes sure a trade can't wander into the wrong lane's books.
 
-### Tweet 3 (Solution)
-```
-AATE V3.2 has 21 parallel AI layers:
+In paper mode, every trader runs, on the principle that paper should learn everything. Live mode is paper-first. It covers only the lanes the operator enables, keeps stocks and forex quarantined, and stages non-meme live execution.
 
-🧠 MetaCognitionAI - watches other AIs and adjusts trust
-🐋 WhaleTrackerAI - follows smart money
-📊 LiquidityCycleAI - tracks market-wide flows
-🔥 NarrativeDetectorAI - catches social momentum
+## It had to earn the right to say yes
 
-They talk to each other. They vote. They disagree.
-```
+The biggest change in this release series is the **Predictive Entry Oracle**.
 
-### Tweet 4 (Multi-Regime)
-```
-One bot. Eight market regimes:
+For every candidate, it reads the trade journal (up to 5,000 closes, per lane and across the whole book) and forecasts expectancy and win probability. Then it returns one of two verdicts: **ADMIT** or **REFUSE**.
 
-🎰 MEME_MICRO - Fresh launches, narrative bursts
-🏛️ MAJORS - SOL/ETH/BTC trend following
-📈 PERPS_STYLE - Funding arb, squeeze hunting
-🎯 VOLATILITY - Strangles, straddles, gamma scalps
+I removed probe trades in 7287. The engine no longer opens a small position "just to see". It either takes the trade or it doesn't.
 
-Each regime has custom AI weights. The bot adapts.
-```
+The part I'm proudest of is that the oracle doesn't start with any authority. It stays advisory until it passes an **Edge Proof** on real closes:
 
-### Tweet 5 (Shadow Learning)
-```
-The secret sauce: Shadow Learning Engine
+- at least 20 ADMIT closes and 10 REFUSE closes
+- the ADMIT mean beats the REFUSE mean by at least 2 percentage points
+- the ADMIT win rate is at or above the REFUSE win rate
+- a Brier score of 0.25 or better
 
-Every trade FDG blocks gets paper-traded anyway.
+Once it passes, it becomes PROVEN and binds admission. If the edge fades, it demotes itself. The proof persists across app restarts, so it doesn't have to start over every time the phone kills the process.
 
-If the blocked trade would have won → AI learns
-If it would have lost → AI confirmed
+## Exits: we don't cap wins
 
-Continuous calibration. Zero additional risk.
-```
+Entries get the attention, but exits decide the P&L, so a lot of this series went into exits:
 
-### Tweet 6 (Pre-Proposal Kill)
-```
-V3.2 upgrade: Pre-Proposal Kill
+- A **1 Hz open-position mark loop** that is supervised and self-heals (7283).
+- A **profit lock that slides up toward the peak** rather than sitting at a fixed take-profit (7282).
+- Trailing stops, runner exit profiles for moonshots, a learned exit policy for each lane and a universal stop-loss sweep.
+- In 7288, **sells are dispatched off the mark loop** so a slow sell can't stall pricing, and stalls are detected by sequence number.
 
-Old flow: Garbage → CANDIDATE → PROPOSED → SIZING → FDG KILL
-(Wasted compute)
+## Paper that doesn't lie to you
 
-New flow: Garbage → PRE-PROPOSAL KILL → SHADOW-TRACK
-(Instant rejection, learning preserved)
+Paper results are usually the most flattering fiction in trading because the fills are free. In 7287 I made AATE's paper trading pay real venue costs:
 
-C-grade + conf < 35%? Dead on arrival.
-```
+- pump.fun bonding curve: 1.25% per side
+- PumpSwap: 0.25% plus the creator fee tier (0.95% down to 0.05% depending on market cap)
+- AMM pools: 0.25%
+- network: 0.000805 SOL per side
+- price impact: clip / (depth + clip), with curve depth of at least 30 virtual SOL, capped at 15%
+- the 0.5% app fee
 
-### Tweet 7 (Safety)
-```
-Defense in depth:
+That comes to about **5–6% per round trip on the curve** and **2–3% on graduated pools**. Every paper trade has to clear that.
 
-🛡️ TokenBlacklist - permanent bans
-🚨 ToxicModeCircuitBreaker - mode-level bans
-🚫 FinalDecisionGate - confidence floors
-⚡ Pre-Proposal Kill - early garbage rejection
-🔒 SecurityGuard - daily loss limits
+## The run
 
-COPY_TRADE mode? Completely disabled after one catastrophic loss.
-```
+The latest measured session on 5.0.7288, on 24 Sep 2026:
 
-### Tweet 8 (Tech Flex)
-```
-The stats:
+> **PAPER. One session, ~11.5 minutes, 79 closed trades.**
+> - Equity: ≈10 → **31.34 SOL**
+> - Realized: **+20.52 SOL**, after **0.89 SOL** in fees
+> - Profit factor: **7.59**
+> - Per-position win rate: **52.6%**
+> - Crypto spot lane: **+7.85 SOL** (avg +252% per trade)
+> - Project Sniper lane: **+4.86 SOL**
+> - Mark loop: 469 ticks in 687 s, 29 of 30 positions fresh, 0 stale resets
+> - LLM (Groq): 100 of 100 calls successful
 
-📱 Native Kotlin Android
-🧠 21 AI layers running in parallel
-🌐 8 market regimes
-🎯 26 trading modes
-📊 98,000+ lines of code
-⏱️ Built in 7 days
-👤 1 developer
+I'm excited about that run, and I also want to be straight about what it is. **It's one short paper session with a small sample. Paper is not live.** Real fills, real slippage and real latency will be different. It proves the machinery works end to end under realistic fee modelling. It doesn't prove the engine makes money, and it predicts nothing.
 
-GitHub CI builds every commit. No local compiler.
-```
+## Everything is counted
 
-### Tweet 9 (Philosophy)
-```
-The philosophy:
+The rule I built the project around: **real data and forensic accounting. No imagined gains. No inferred values.**
 
-Most bots ask: "Should I buy?"
+That's why there's a single Canonical Position Authority (one idempotent ledger of positions and cash) and a single Canonical Capital Authority (cash, reserved, open cost, unrealized, realized and fees, all in one view). ForensicLogger writes structured phase logs. The Pipeline Health screen counts every stage of the funnel and every refusal reason, and runs an ANR watchdog. When the engine says no, it records the reason.
 
-AATE asks:
-- "Do my AIs agree?"
-- "Which ones have been accurate lately?"
-- "Have I seen this pattern before?"
-- "What would happen if I'm wrong?"
+## The rest of the machine
 
-Self-doubt is a feature, not a bug.
-```
+- **Execution:** Jupiter swap API, a PumpPortal trade-local fallback for pump.fun sells, direct bonding-curve reads over an RPC ladder, Helius Sender with a tip envelope, Jito bundle MEV protection and a public RPC fallback.
+- **Data:** 40+ sources, including Helius, PumpPortal, DexScreener, Birdeye, GeckoTerminal, CoinGecko, Jupiter Price, Pyth, Switchboard, DefiLlama, the major CEXs, RugCheck, Solscan, GMGN, market data providers, Fear & Greed and social feeds.
+- **Safety:** a hard rug pre-filter, token safety tiers, RugCheck policy, a mint blacklist, serial-rugger creator refusal, a live circuit breaker, loss-streak limits, cooldowns and a daily loss cap.
+- **LLM council:** Groq, Gemini, Cerebras, Mistral, OpenRouter, OpenAI-compatible and keyless providers. It runs scam and narrative checks that can block live entries, gives exit advice, and handles sentiment and parameter tuning. It's async and cached, off the hot path.
+- **LLM Lab:** the model invents strategies and paper-trades them on a 100 SOL synthetic bankroll, and an approval queue sits between them and real money.
+- **Learning:** an on-device TensorFlow Lite model plus an anonymized collective hive mind with a shared blacklist.
+- **Keys:** AES-256 encrypted storage and a biometric lock. They never leave the device.
 
-### Tweet 10 (CTA)
-```
-What's next:
+## What's next
 
-📲 Play Store beta coming soon
-🌐 Web monitoring portal
-📱 iOS port in Q2
+Here's the roadmap without the hype:
 
-Want early access? Drop a 🧠 below.
+1. Sustained paper profitability, meaning many sessions and not just one good one.
+2. A small live calibration run to check real fills and fees against paper.
+3. Live lanes opened one at a time.
+4. The Oracle reaching PROVEN on real closes and guiding admission.
+5. An iOS/web monitor later on.
 
-Built with passion. Trades with intelligence. Learns from everything.
+The north star is **$50 → $1,000,000**. That's a goal I'm building toward, not a result I'm claiming.
 
-github.com/shaunhayes333-stack/lifecycle-bot
-```
+I'm raising a **$500K seed** to take this from one developer on a phone to a proper team. If you want to see the forensics, I'm happy to walk anyone through them.
 
 ---
 
-## LINKEDIN POST - TECHNICAL DEEP DIVE
-
-```
-🚀 Just shipped AATE V3.2 - The First Sentient Solana Trading Bot
-
-After 7 days of intensive development, I'm proud to announce the most advanced autonomous trading system I've ever built.
-
-𝗧𝗵𝗲 𝗖𝗵𝗮𝗹𝗹𝗲𝗻𝗴𝗲:
-Traditional trading bots follow simple rules. They don't learn, don't adapt, and don't question their decisions.
-
-𝗧𝗵𝗲 𝗦𝗼𝗹𝘂𝘁𝗶𝗼𝗻:
-AATE V3.2 uses 21 parallel AI layers that continuously learn from every trade - executed or blocked. The MetaCognitionAI layer (what I call "the prefrontal cortex") monitors all other AI systems and dynamically adjusts trust levels based on real performance.
-
-𝗞𝗲𝘆 𝗜𝗻𝗻𝗼𝘃𝗮𝘁𝗶𝗼𝗻𝘀:
-
-🧠 𝗠𝗲𝘁𝗮𝗖𝗼𝗴𝗻𝗶𝘁𝗶𝗼𝗻𝗔𝗜 - Self-aware executive function that tracks which AI layers have been most accurate and adjusts their influence accordingly.
-
-👁️ 𝗦𝗵𝗮𝗱𝗼𝘄 𝗟𝗲𝗮𝗿𝗻𝗶𝗻𝗴 𝗘𝗻𝗴𝗶𝗻𝗲 - Every blocked trade is paper-traded to validate the decision. Continuous calibration without additional risk.
-
-⚡ 𝗣𝗿𝗲-𝗣𝗿𝗼𝗽𝗼𝘀𝗮𝗹 𝗞𝗶𝗹𝗹 - C-grade setups with low confidence are rejected before reaching the sizing stage, reducing compute waste while preserving learning.
-
-📊 𝟴 𝗠𝗮𝗿𝗸𝗲𝘁 𝗥𝗲𝗴𝗶𝗺𝗲𝘀, 𝟮𝟲 𝗧𝗿𝗮𝗱𝗶𝗻𝗴 𝗠𝗼𝗱𝗲𝘀 - From meme micro-caps to major trend following to volatility strategies, each with custom AI layer weights.
-
-𝗧𝗵𝗲 𝗡𝘂𝗺𝗯𝗲𝗿𝘀:
-• 98,000+ lines of native Kotlin
-• 21 AI layers running in parallel
-• 1 developer, 7 days
-• GitHub Actions CI on every commit
-
-The bot doesn't just trade - it questions its own judgment. That's the difference.
-
-Interested in the technical architecture? Happy to discuss in the comments.
-
-#AI #Trading #Solana #Blockchain #FinTech #MachineLearning #Kotlin #Android
-```
-
----
-
-## REDDIT POST - r/solana, r/algotrading
-
-### Title
-```
-I built a 21-layer AI trading bot for Solana in 7 days. Here's what I learned.
-```
-
-### Body
-```
-Hey everyone,
-
-I just finished AATE V3.2 (Autonomous Adaptive Trading Engine) - a native Android trading bot with 21 parallel AI layers that trade Solana tokens.
-
-**What makes it different:**
-
-1. **MetaCognitionAI** - The bot has a "prefrontal cortex" that monitors all other AI layers and adjusts their trust based on actual performance. If the MomentumPredictorAI has been wrong lately, its votes count less.
-
-2. **Shadow Learning Engine** - Every trade the Final Decision Gate blocks is still paper-traded. If the blocked trade would have won, the AI learns. Continuous calibration without risking capital.
-
-3. **Multi-Regime Trading** - Instead of one strategy for all tokens, AATE classifies markets into 8 regimes (meme micro, majors, mid-caps, perps-style, etc.) with 26 different trading modes. Each mode has custom AI layer weights.
-
-4. **Pre-Proposal Kill** - V3.2 adds early garbage detection. C-grade setups with < 35% confidence don't even reach the sizing stage. They go straight to shadow-track.
-
-**The technical stack:**
-- Native Kotlin Android
-- Jupiter V2 for swaps
-- DexScreener + Birdeye for data
-- GitHub Actions CI (no local compiler - every commit triggers a build)
-
-**What I learned:**
-- Building 21 AI layers that talk to each other is harder than building 21 independent ones
-- The meta-cognitive layer was the biggest unlock - letting the bot doubt itself
-- Shadow learning revealed how many good trades I was blocking
-- Most trading bots fail because they can't admit they're wrong
-
-The full repo is public: github.com/shaunhayes333-stack/lifecycle-bot
-
-Happy to answer questions about the architecture or specific AI layers.
-
-Built in 7 days. 98,000+ lines of Kotlin. One very tired developer.
-```
-
----
-
-## DISCORD ANNOUNCEMENT
-
-```
-🚀 **AATE V3.2 RELEASED** 🚀
-
-The first sentient Solana trading bot is here.
-
-**What's new in V3.2:**
-
-🧠 **21 AI Layers** - Including MetaCognitionAI that watches other AIs
-👁️ **Shadow Learning** - Every blocked trade is paper-traded for learning
-⚡ **Pre-Proposal Kill** - C-grade garbage rejected before sizing
-📊 **8 Regimes, 26 Modes** - Multi-regime trading with custom weights
-🛡️ **Defense in Depth** - Multiple safety layers with hard kills
-
-**The crazy part:**
-Built by 1 developer in 7 days. 98,000+ lines of Kotlin.
-
-**Coming soon:**
-- Play Store beta
-- Web monitoring portal  
-- Telegram alerts
-
-Drop a 🧠 if you want early access!
-
-GitHub: github.com/shaunhayes333-stack/lifecycle-bot
-```
-
----
-
-## PRODUCT HUNT TAGLINE OPTIONS
-
-```
-Option 1:
-"AATE - The trading bot that questions its own judgment"
-
-Option 2:
-"21 AI layers. 8 market regimes. 1 sentient trading bot."
-
-Option 3:
-"What if your trading bot could doubt itself?"
-
-Option 4:
-"AATE V3.2 - Built in 7 days. Thinks before it trades."
-```
-
----
-
-## HACKER NEWS TITLE OPTIONS
-
-```
-Option 1:
-Show HN: I built a 21-layer AI trading bot with meta-cognition in 7 days
-
-Option 2:
-AATE V3.2 – A self-aware Solana trading bot (98K lines of Kotlin)
-
-Option 3:
-The first trading bot with a "prefrontal cortex" – why AI should doubt itself
-```
-
----
-
-*All posts emphasize: ONE developer, ONE week, 21 AI layers, self-aware trading.*
+*Trading crypto is high risk, and you can lose everything you put in. The results above are PAPER results from one ~11.5 minute session with 79 closed trades. They are not live results and don't indicate future performance. This is not financial advice.*

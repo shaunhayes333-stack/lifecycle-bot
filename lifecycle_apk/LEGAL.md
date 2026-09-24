@@ -1,15 +1,17 @@
 # AATE™ — Legal Notices
 
+Applies to **AATE — Autonomous Algorithmic Trading Engine**, version 5.0.7288.
+
 ## Trademark Notice
 
 **AATE™** (Autonomous Algorithmic Trading Engine) is a trademark. All rights reserved.
 
-The AATE name, logo (neural infinity design), and associated branding are proprietary marks. Unauthorized use of these marks in connection with any product or service that is likely to cause confusion is prohibited.
+The AATE name, logo (neural "bow-tie" filament design with the AATE wordmark) and associated branding are proprietary marks. You may not use these marks for any product or service in a way likely to cause confusion.
 
 ## Copyright Notice
 
 ```
-Copyright © 2025 AATE Project. All Rights Reserved.
+Copyright © 2025–2026 AATE Project. All Rights Reserved.
 
 The AATE software, including but not limited to:
 - Source code
@@ -44,13 +46,13 @@ The AATE source code is released under the **MIT License** (see LICENSE file). T
 ## Trademark Usage Guidelines
 
 ### Permitted Uses
-- Referring to AATE in articles, reviews, or educational content
-- Indicating compatibility with AATE
-- Truthful statements about the software
+- Referring to AATE in articles, reviews or educational content
+- Stating that something is compatible with AATE
+- Making truthful statements about the software
 
 ### Prohibited Uses
 - Using "AATE" as part of your product name
-- Creating logos that imitate the AATE neural infinity design
+- Creating logos that imitate the AATE logo design
 - Implying endorsement or affiliation without permission
 - Using AATE marks in domain names for competing products
 
@@ -79,27 +81,28 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ## Trading Risk Disclaimer
 
 ```
-⚠️ HIGH RISK WARNING ⚠️
+HIGH RISK WARNING
 
 CRYPTOCURRENCY TRADING INVOLVES SUBSTANTIAL RISK OF LOSS AND IS 
 NOT SUITABLE FOR ALL INVESTORS.
 
 - Past performance is NOT indicative of future results
+- Paper-mode results are NOT live results
 - You may lose some or ALL of your invested capital
 - Never trade with money you cannot afford to lose
 - This software does NOT guarantee profits
 - The developers are NOT responsible for any financial losses
 - This is NOT financial advice
 
-ALWAYS USE PAPER/DEMO MODE FIRST. TRADE AT YOUR OWN RISK.
+ALWAYS USE PAPER MODE FIRST. TRADE AT YOUR OWN RISK.
 ```
 
 ## Contact
 
-For trademark licensing, legal inquiries, or permissions:
+For trademark licensing, legal inquiries or permissions:
 - Open a GitHub Issue marked [LEGAL]
-- Or contact via the project maintainer's profile
+- Or contact the project maintainer through their profile
 
 ---
 
-© 2025 AATE Project. AATE™ is a trademark. All rights reserved.
+© 2025–2026 AATE Project. AATE™ is a trademark. All rights reserved.
