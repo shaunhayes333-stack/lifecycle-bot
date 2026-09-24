@@ -5462,7 +5462,14 @@ object FinalDecisionGate {
                     brain = "PolicySynthesizerInput", role = "INPUT", weight = 1.0,
                     effect = if (shouldTradeFinal) 0.25 else -0.25,
                     pWin = (adjustedConfidence / 100.0).coerceIn(0.0, 1.0),
-                    expectedPnlPct = when (edgeVerdict) { EdgeVerdict.STRONG -> 15.0; EdgeVerdict.WEAK -> 2.0; EdgeVerdict.SKIP -> -5.0 },
+                    // V5.0.7296 — this was `STRONG -> 15.0; WEAK -> 2.0; SKIP -> -5.0`:
+                    // an expected PnL invented from a three-way label. Every SKIP
+                    // candidate therefore carried "EV=-5.0" into AATE_POLICY, which
+                    // raises UNIFIED_POLICY_BIAS_NEGATIVE into the 6728 consensus —
+                    // one of the three votes behind EXEC_OPEN_BLOCKED_ADAPTIVE_CONSENSUS
+                    // on SHITCOIN/BLUECHIP. No measured expectancy is in hand here, so
+                    // none is reported; the policy family votes only on real evidence.
+                    expectedPnlPct = null,
                     moonshotP = if (laneName == "MOONSHOT") (adjustedConfidence / 100.0).coerceIn(0.0, 1.0) else 0.0,
                     rugP = if (trueHard6512.any { it.contains("RUG") }) 1.0 else 0.0,
                     sizeMultiplier = if (proposedSizeSol > 0.0) (finalSize / proposedSizeSol).coerceIn(0.05, 3.0) else 1.0,

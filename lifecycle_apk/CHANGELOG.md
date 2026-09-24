@@ -4,6 +4,13 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7296] - 2026-09-24 — NO INVENTED POLICY EV; THE RESCUE SLOT ROTATES
+
+- Operator: "the specialist traders across meme trader and the crypto universe are pretty much dead". 5.0.7293 funnel: SHITCOIN ownerSelected=17 sized=15 ticket=0, BLUECHIP authorize=148 ticket=0; the largest open-stage block was `EXEC_OPEN_BLOCKED_ADAPTIVE_CONSENSUS_6728` (quorum=3).
+- **An invented expected PnL was one of the three votes.** FinalDecisionGate's `PolicySynthesizerInput` contribution reported `expectedPnlPct = STRONG→15, WEAK→2, SKIP→−5` — a number made up from a three-way label. Every SKIP-edge candidate therefore logged `AATE_POLICY … EV=-5.0` and raised `UNIFIED_POLICY_BIAS_NEGATIVE` into the 6728 consensus, supplying the POLICY family's vote on no evidence at all. No measured expectancy exists at that point, so none is reported (`null`); the policy family now votes only when a real forecast is present.
+- **The rescue slot starved the lanes it was meant to feed.** 7293 gave the single rescue slot to the least-sampled lane; SHITCOIN (n=1) won it on every candidate — 883 of 1,444 lane evaluations (61%) — and EXPRESS, CYCLIC, TREASURY and CASHGEN fell to zero evaluations (EXPRESS had 1,673 on 7289). The slot now rotates by stable hash across every eligible lane still under 20 closes; only when none is under the bar does the plain hash over the pool apply. Still one slot, no extra fanout; live unchanged.
+- Markets/Perps did not start on 7289+: `isMarketsLaneEnabled` honours the operator's Markets master toggle in paper too (6618 directive). Not changed.
+
 ## [5.0.7295] - 2026-09-24 — DEXPAPRIKA: NAME THE FAILURE, FALL BACK FROM UNINDEXED POOLS
 
 - 5.0.7293 at 309 s: `dexpaprika sr=0% 4xx=18 5xx=4`, `dexpaprika7293 served=0 empty=0 pools=0` — every OHLCV call failed at HTTP level, and the report could not say whether it was a wrong parameter (400), an unindexed pool (404) or a rate limit (429). Every non-2xx is now counted by code (`DEXPAPRIKA_HTTP_<code>_7295`).

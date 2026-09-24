@@ -5,6 +5,8 @@ object ExecutionAuthorityPolicy6533 {
     private val trunk = setOf("STANDARD", "CORE", "V3", "V3_CORE")
     fun isTrunkLane(lane: String): Boolean = lane.trim().uppercase().replace('-', '_') in trunk
 
+    private const val UNDERSAMPLED_CLOSES_7296 = 20
+
     fun selectOneRescue(
         mint: String,
         candidateVersion: Long,
@@ -28,10 +30,17 @@ object ExecutionAuthorityPolicy6533 {
             val byN = pool.map { lane ->
                 lane to (try { com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane(lane)?.n } catch (_: Throwable) { null } ?: 0)
             }
-            val minN = byN.minOf { it.second }
-            val starved = byN.filter { it.second == minN }.map { it.first }
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RESCUE_SLOT_TO_UNDERSAMPLED_LANE_7293") } catch (_: Throwable) {}
-            return starved[(stable % starved.size).toInt()]
+            // V5.0.7296 — 7293 gave the slot to the single least-sampled lane,
+            // so one lane (SHITCOIN, n=1) took it on every candidate: 61% of all
+            // lane evaluations, while EXPRESS/CYCLIC/TREASURY/CASHGEN dropped to
+            // zero evaluations. The slot now rotates by the stable hash across
+            // EVERY eligible lane still under the sample bar; only when none is
+            // under it does the plain hash over the whole pool apply.
+            val starved = byN.filter { it.second < UNDERSAMPLED_CLOSES_7296 }.map { it.first }
+            if (starved.isNotEmpty()) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RESCUE_SLOT_TO_UNDERSAMPLED_LANE_7293") } catch (_: Throwable) {}
+                return starved[(stable % starved.size).toInt()]
+            }
         }
         return pool[(stable % pool.size).toInt()]
     }

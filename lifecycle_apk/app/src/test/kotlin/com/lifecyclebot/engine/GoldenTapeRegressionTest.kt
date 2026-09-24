@@ -10898,4 +10898,13 @@ class GoldenTapeRegressionTest {
         assertTrue(feed.contains("java.time.Instant.ofEpochSecond(startSec).toString()"))
     }
 
+    @Test
+    fun V5_0_7296_no_invented_policy_ev_and_rescue_slot_rotates_across_undersampled_lanes() {
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertFalse(fdg.contains("EdgeVerdict.SKIP -> -5.0"))
+        val pol = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionAuthorityPolicy6533.kt").readText()
+        assertTrue(pol.contains("byN.filter { it.second < UNDERSAMPLED_CLOSES_7296 }"))
+        assertFalse(pol.contains("byN.minOf { it.second }"))
+    }
+
 }
