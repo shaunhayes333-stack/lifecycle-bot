@@ -4,6 +4,12 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7295] - 2026-09-24 — DEXPAPRIKA: NAME THE FAILURE, FALL BACK FROM UNINDEXED POOLS
+
+- 5.0.7293 at 309 s: `dexpaprika sr=0% 4xx=18 5xx=4`, `dexpaprika7293 served=0 empty=0 pools=0` — every OHLCV call failed at HTTP level, and the report could not say whether it was a wrong parameter (400), an unindexed pool (404) or a rate limit (429). Every non-2xx is now counted by code (`DEXPAPRIKA_HTTP_<code>_7295`).
+- The pool passed in is usually a DexScreener pair or a pump.fun curve, which DexPaprika may not index. A 404/400 on a hinted pool marks that hint rejected for the pool-cache TTL, and the next pass resolves DexPaprika's own deepest pool for the token via `/networks/solana/tokens/{mint}/pools` (`DEXPAPRIKA_HINT_POOL_UNINDEXED_7295`).
+- `start` is sent as RFC3339 (documented alongside unix seconds and yyyy-mm-dd).
+
 ## [5.0.7294] - 2026-09-24 — THE PAPER TREASURY IS MONEY; CASHGEN CAN ACTUALLY REFILL THE WALLET
 
 - Operator: "cashgen and treasury are meant to work together. cash gen as a general overview to ensure its generating its own cash … it should never run out of money ever. treasury lane is purely to help build the treasury balance." And: "if you see accounting defects you fix them properly!"

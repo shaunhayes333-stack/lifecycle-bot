@@ -10890,4 +10890,12 @@ class GoldenTapeRegressionTest {
         assertTrue(tm.contains("paperDeposit7294(contribWanted7294, \"MEME_SELL_SPLIT\")"))
     }
 
+    @Test
+    fun V5_0_7295_dexpaprika_failures_are_named_and_unindexed_hint_pools_fall_back() {
+        val feed = java.io.File("src/main/kotlin/com/lifecyclebot/network/SolanaOhlcvFeed6916.kt").readText()
+        assertTrue(feed.contains("DEXPAPRIKA_HTTP_\${resp.code}_7295"))
+        assertTrue(feed.contains("paprikaHintRejected7295[mint] = System.currentTimeMillis()"))
+        assertTrue(feed.contains("java.time.Instant.ofEpochSecond(startSec).toString()"))
+    }
+
 }

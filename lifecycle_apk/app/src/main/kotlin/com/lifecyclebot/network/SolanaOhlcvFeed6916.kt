@@ -467,7 +467,11 @@ object SolanaOhlcvFeed6916 {
     private val paprikaEmpty7293 = AtomicLong(0L)
     private val paprikaPools7293 = ConcurrentHashMap<String, PoolRef>()
 
+    /** V5.0.7295 — last HTTP status from DexPaprika (0 = none / gated). */
+    @Volatile private var paprikaLastCode7295 = 0
+
     private fun paprikaGet7293(url: String): String? {
+        paprikaLastCode7295 = 0
         val now = System.currentTimeMillis()
         if (now < paprikaCooldownUntilMs7293.get()) return null
         val prev = paprikaLastCallMs7293.get()
@@ -476,6 +480,11 @@ object SolanaOhlcvFeed6916 {
         return try {
             http.newCall(req).execute().use { resp ->
                 try { ApiHealthMonitor.record(PAPRIKA_HOST_7293, resp.code, System.currentTimeMillis() - now) } catch (_: Throwable) {}
+                paprikaLastCode7295 = resp.code
+                // V5.0.7295 — 5.0.7293 showed dexpaprika 4xx=18 5xx=4 served=0 and
+                // no way to tell a wrong path (400) from an unindexed pool (404)
+                // from a rate limit (429). Every non-2xx is named by code.
+                if (!resp.isSuccessful) try { PipelineHealthCollector.labelInc("DEXPAPRIKA_HTTP_${resp.code}_7295") } catch (_: Throwable) {}
                 if (resp.code == 429 || resp.code >= 500) paprikaCooldownUntilMs7293.set(System.currentTimeMillis() + COOLDOWN_MS)
                 if (!resp.isSuccessful) null else resp.body?.string()
             }
@@ -485,13 +494,16 @@ object SolanaOhlcvFeed6916 {
         }
     }
 
+    private val paprikaHintRejected7295 = ConcurrentHashMap<String, Long>()
+
     private fun paprikaPool7293(mint: String, poolHint: String): String? {
         val hint = poolHint.trim()
-        if (hint.length in 32..64 && !hint.contains(':') && !hint.equals("UNKNOWN", true)) return hint
+        val hintRejected7295 = paprikaHintRejected7295[mint]?.let { System.currentTimeMillis() - it < POOL_CACHE_TTL_MS } == true
+        if (!hintRejected7295 && hint.length in 32..64 && !hint.contains(':') && !hint.equals("UNKNOWN", true)) return hint
         paprikaPools7293[mint]?.let {
             if (System.currentTimeMillis() - it.atMs <= POOL_CACHE_TTL_MS) return it.pool
         }
-        poolCache[mint]?.let { return it.pool }
+        if (!hintRejected7295) poolCache[mint]?.let { return it.pool }
         val body = paprikaGet7293("$PAPRIKA_BASE_7293/tokens/$mint/pools?limit=5&order_by=volume_usd&sort=desc") ?: return null
         return try {
             val trimmed = body.trim()
@@ -523,8 +535,17 @@ object SolanaOhlcvFeed6916 {
         val pool = paprikaPool7293(mint, poolHint) ?: return emptyList()
         val limit = n.coerceIn(2, 366)
         val startSec = System.currentTimeMillis() / 1000L - stepSec * limit
-        val body = paprikaGet7293("$PAPRIKA_BASE_7293/pools/$pool/ohlcv?start=$startSec&limit=$limit&interval=$interval")
-            ?: return emptyList()
+        // V5.0.7295 — RFC3339 start (documented alongside unix seconds).
+        val startIso = java.time.Instant.ofEpochSecond(startSec).toString()
+        var body = paprikaGet7293("$PAPRIKA_BASE_7293/pools/$pool/ohlcv?start=$startIso&limit=$limit&interval=$interval")
+        // V5.0.7295 — the caller's pool hint is often a DexScreener pair or a
+        // pump.fun curve that DexPaprika does not index (404). Ask DexPaprika
+        // for its own deepest pool for the token once and retry on the next pass.
+        if (body == null && (paprikaLastCode7295 == 404 || paprikaLastCode7295 == 400) && pool == poolHint.trim()) {
+            paprikaHintRejected7295[mint] = System.currentTimeMillis()
+            try { PipelineHealthCollector.labelInc("DEXPAPRIKA_HINT_POOL_UNINDEXED_7295") } catch (_: Throwable) {}
+        }
+        if (body == null) return emptyList()
         val arr = try {
             val t = body.trim()
             if (t.startsWith("[")) org.json.JSONArray(t) else JSONObject(t).optJSONArray("data")
