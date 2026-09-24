@@ -10,10 +10,17 @@ internal object PaperPreTicketSizeFloor6511 {
     private const val ABSOLUTE_EXECUTABLE_FLOOR_SOL = 0.05
     private const val MAX_BOUNDED_RUNTIME_MINIMUM_SOL = 0.15
 
+    // V5.0.7277 — the absolute floor is the larger of the historical 0.05 and
+    // the fee-aware minimum (fixed round-trip cost within 1.5% of notional).
+    private fun absoluteFloor7277(): Double = maxOf(
+        ABSOLUTE_EXECUTABLE_FLOOR_SOL,
+        try { com.lifecyclebot.engine.truth.FeeAwareSizeFloor7277.minimumSol() } catch (_: Throwable) { ABSOLUTE_EXECUTABLE_FLOOR_SOL },
+    ).coerceAtMost(MAX_BOUNDED_RUNTIME_MINIMUM_SOL)
+
     fun boundedMinimum(runtimeMinimumSol: Double): Double =
         runtimeMinimumSol.takeIf { it.isFinite() && it > 0.0 }
-            ?.coerceIn(ABSOLUTE_EXECUTABLE_FLOOR_SOL, MAX_BOUNDED_RUNTIME_MINIMUM_SOL)
-            ?: ABSOLUTE_EXECUTABLE_FLOOR_SOL
+            ?.coerceIn(absoluteFloor7277(), MAX_BOUNDED_RUNTIME_MINIMUM_SOL)
+            ?: absoluteFloor7277()
 
     fun effectiveRequested(requestedSol: Double, minimumSol: Double, availableCashSol: Double): Double =
         if (requestedSol.isFinite() && requestedSol > 0.0 && requestedSol < minimumSol && availableCashSol >= minimumSol) minimumSol

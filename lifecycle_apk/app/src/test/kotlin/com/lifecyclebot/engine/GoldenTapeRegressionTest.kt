@@ -10274,4 +10274,93 @@ class GoldenTapeRegressionTest {
         assertTrue(phc.contains("\"LLM_RATE_LIMIT_ROTATED_NOT_BENCHED_7276\","))
     }
 
+    /** V5.0.7277 — the paid Helius endpoint leads a public saved RPC; one
+     * evidence bar for every size-moving learner; a fee-aware size floor; runner
+     * exits inverted at their three authorities; the fast lane runs the full
+     * cycle on the websocket event; smart-money discovery mines the bot's own
+     * runners and push buys become copy signals through the gated route. */
+    @Test
+    fun V5_0_7277_helius_leads_evidence_bar_fee_floor_runner_exits_fast_lane_and_smart_money() {
+        val rpc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeProviderAuthority6685.kt").readText()
+        val ev = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/EvidenceMaturity7277.kt").readText()
+        val damper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt").readText()
+        val regime = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RegimeDetector.kt").readText()
+        val head = java.io.File("src/main/kotlin/com/lifecyclebot/engine/UnifiedPolicyHead.kt").readText()
+        val meta = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AutonomousMetaPolicy.kt").readText()
+        val fee = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FeeAwareSizeFloor7277.kt").readText()
+        val paperUtils = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutorPaperUtils.kt").readText()
+        val resolver = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OrderSizeResolver6441.kt").readText()
+        val runner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RunnerExitProfile7277.kt").readText()
+        val peak = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PeakDrawdownLock.kt").readText()
+        val tuner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/LaneExitTuner.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val ws = java.io.File("src/main/kotlin/com/lifecyclebot/network/HeliusEnhancedWS.kt").readText()
+        val insider = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InsiderCopyEngine.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        // RPC ladder: a public saved RPC follows Helius.
+        assertTrue(rpc.contains("val savedIsPublic7277 = savedRpc7277.isNotBlank() &&"))
+        val heliusIdx = rpc.indexOf("add(configuredHeliusRpc(explicit))\n            add(savedRpc7277)")
+        assertTrue(heliusIdx > 0)
+
+        // Evidence bar: one object, four consumers.
+        assertTrue(ev.contains("const val LANE_OPINION_CLOSES = 30"))
+        assertTrue(ev.contains("const val AUTHORITATIVE_CLOSES = 100L"))
+        assertTrue(damper.contains("private const val MIN_TRADES = com.lifecyclebot.engine.truth.EvidenceMaturity7277.LANE_OPINION_CLOSES"))
+        assertTrue(damper.contains("val evidence6715 = com.lifecyclebot.engine.truth.EvidenceMaturity7277.weight(m.trades)"))
+        assertTrue(damper.contains("const val MATURE_EVIDENCE_CLOSES_7265 = MIN_TRADES"))
+        assertTrue(regime.contains("val evidence = com.lifecyclebot.engine.truth.EvidenceMaturity7277.weight(n)"))
+        assertTrue(head.contains("private const val AUTHORITY_AUTHORITATIVE = com.lifecyclebot.engine.truth.EvidenceMaturity7277.AUTHORITATIVE_CLOSES"))
+        assertTrue(meta.contains("private const val MIN_SAMPLES        = com.lifecyclebot.engine.truth.EvidenceMaturity7277.LANE_OPINION_CLOSES"))
+        assertEquals(0.5, com.lifecyclebot.engine.truth.EvidenceMaturity7277.weight(30), 1e-9)
+        assertTrue(com.lifecyclebot.engine.truth.EvidenceMaturity7277.weight(3) < 0.1)
+
+        // Fee-aware floor: ~0.107 SOL, wired into both paper minimums; the 0.05 literal stays for older pins.
+        assertTrue(com.lifecyclebot.engine.truth.FeeAwareSizeFloor7277.minimumSol() in 0.10..0.11)
+        assertTrue(fee.contains("const val MAX_FIXED_COST_FRACTION = 0.015"))
+        assertTrue(paperUtils.contains("private fun absoluteFloor7277(): Double = maxOf("))
+        assertTrue(paperUtils.contains("ABSOLUTE_EXECUTABLE_FLOOR_SOL = 0.05"))
+        assertTrue(resolver.contains("paperMode && applyPaperMemeMinimum -> maxOf(laneMinExecutableSol, paperFloor7277())"))
+        assertTrue(resolver.contains("fun paperExecutableMinimumSol(): Double = paperFloor7277()"))
+
+        // Runner exits: three authorities consult the profile; protective stops untouched.
+        assertTrue(com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane("MOONSHOT"))
+        assertTrue(com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane("PROJECT_SNIPER"))
+        assertFalse(com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane("BLUECHIP"))
+        assertFalse(com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane("CRYPTO_SPOT"))
+        assertTrue(com.lifecyclebot.engine.RunnerExitProfile7277.deferGiveBackLock("MOONSHOT", 14.0))
+        assertFalse(com.lifecyclebot.engine.RunnerExitProfile7277.deferGiveBackLock("MOONSHOT", 55.0))
+        assertFalse(com.lifecyclebot.engine.RunnerExitProfile7277.deferGiveBackLock("BLUECHIP", 14.0))
+        assertTrue(com.lifecyclebot.engine.RunnerExitProfile7277.earlyCut("SHITCOIN", -21.0, 60_000L))
+        assertFalse(com.lifecyclebot.engine.RunnerExitProfile7277.earlyCut("SHITCOIN", -21.0, 180_000L))
+        assertFalse(com.lifecyclebot.engine.RunnerExitProfile7277.earlyCut("QUALITY", -21.0, 60_000L))
+        assertFalse(com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(30.0, 5.0, "MOONSHOT"))
+        assertTrue(com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(30.0, 5.0, "BLUECHIP"))
+        assertTrue(peak.contains("if (peakPnlPct < RunnerExitProfile7277.armThresholdPct(lane, ARM_THRESHOLD_PCT)) return false"))
+        assertTrue(tuner.contains("st.tpMult = shrunkTp7186.coerceIn(tpFloor7277, TP_MAX)"))
+        assertTrue(bot.contains("if (!lockedFloor.isNaN() && lockedFloor > 0.0 && !runnerLockDeferred7277) {"))
+        assertTrue(bot.contains("oneStrikeCatastrophic4588 || runnerEarlyCut7277 || (!phantomRead && twoStrike)"))
+        assertTrue(bot.contains("else if (runnerEarlyCut7277) \"RUNNER_EARLY_CUT_\${laneName4588}_\${pnlPctNow.toInt()}PCT_7277\""))
+        assertTrue(runner.contains("const val MIN_PEAK_FOR_GIVEBACK_LOCK_PCT = 50.0"))
+
+        // Fast lane: same cycle, on the event, bounded.
+        assertTrue(bot.contains("private fun fastLaneEvaluate7277(mint: String, cfg: BotConfig, origin: String) {"))
+        assertTrue(bot.contains("processTokenCycle(mint, cfg, wallet, t0)"))
+        assertTrue(bot.contains("private val fastLaneSemaphore7277 = java.util.concurrent.Semaphore(2)"))
+        assertTrue(bot.contains("fastLaneEvaluate7277(mint, liveCfg, \"PUMP_PORTAL_WS\")"))
+        assertTrue(bot.contains("fastLaneEvaluate7277(mint, c, \"COPY_SIGNAL\")"))
+
+        // Smart money: discovery started, push buys parsed into copy signals, signals enter the gated route.
+        assertTrue(bot.contains("com.lifecyclebot.engine.SmartMoneyDiscovery7277.start("))
+        assertTrue(bot.contains("HeliusPushSwapParser7277.detectBuys(raw7277, watched7277)"))
+        assertTrue(bot.contains("copyTradeEngine.onSwapDetected(b.mint, b.wallet, b.solSpent, true)"))
+        assertTrue(bot.contains("InsiderCopyEngine.copyBuyFromSmartMoney7277("))
+        assertFalse(bot.contains("HeliusEnhancedWS skipped — no tracked whale wallets to subscribe to"))
+        assertTrue(ws.contains("fun isRunning(): Boolean = running.get()"))
+        assertTrue(insider.contains("fun copyBuyFromSmartMoney7277(mint: String, symbol: String, walletLabel: String, confidence: Int) {"))
+
+        assertTrue(phc.contains("\"SMART_MONEY_WALLET_PROMOTED_7277\","))
+        assertTrue(phc.contains("\"FAST_LANE_EVALUATED_7277\","))
+    }
+
 }

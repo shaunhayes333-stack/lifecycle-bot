@@ -257,7 +257,8 @@ object RegimeDetector {
     fun ownSeverity7266(s: RegimeSnapshot): Double {
         if (!s.ownTightened7266) return 0.0
         val n = s.sampleSize.coerceAtLeast(0).toDouble()
-        val evidence = n / (n + 10.0)
+        // V5.0.7277 — shared evidence bar (was n / (n + 10)).
+        val evidence = com.lifecyclebot.engine.truth.EvidenceMaturity7277.weight(n)
         val wrDeficit = ((25.0 - s.recentWrPct) / 25.0).coerceIn(0.0, 1.0)
         val pnlDeficit = (-s.recentMeanPnlPct / 10.0).coerceIn(0.0, 1.0)
         return (evidence * (0.5 * wrDeficit + 0.5 * pnlDeficit)).coerceIn(0.0, 1.0)

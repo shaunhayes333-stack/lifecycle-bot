@@ -117,6 +117,9 @@ object LaneExitTuner {
         val window = ArrayDeque<Outcome>()
         var sinceRecalc = 0
         var lifetimeCloses = 0L
+        // V5.0.7277 — the lane this state belongs to, so recompute can ask
+        // RunnerExitProfile7277 for the lane's take-profit floor.
+        @Volatile var lane: String = ""
         @Volatile var tpMult = 1.0
         @Volatile var slMult = 1.0
     }
@@ -335,6 +338,7 @@ object LaneExitTuner {
             }
             val key = canon(lane)
             val st = lanes.getOrPut(key) { LaneState() }
+            if (st.lane.isBlank()) st.lane = key
             val stopHit = STOP_REASONS.any { exitReason.uppercase().contains(it) }
             val peakSane = when {
                 peakPct.isNaN() || peakPct.isInfinite() -> 0.0
@@ -462,7 +466,13 @@ object LaneExitTuner {
         // branch that fired and its threshold are unchanged; only how far the
         // lane travels on this recalc is scaled by how much it actually knows.
         val shrunkTp7186 = priorTp7186 + (tp - priorTp7186) * evidence7186
-        st.tpMult = shrunkTp7186.coerceIn(TP_MIN, TP_MAX)
+        // V5.0.7277 — a runner lane's take-profit may not be pulled below
+        // neutral by its win rate; see RunnerExitProfile7277.
+        val tpFloor7277 = com.lifecyclebot.engine.RunnerExitProfile7277.tpMultFloor(st.lane, TP_MIN)
+        if (tpFloor7277 > TP_MIN && shrunkTp7186 < tpFloor7277) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RUNNER_TP_MULT_HELD_AT_NEUTRAL_7277") } catch (_: Throwable) {}
+        }
+        st.tpMult = shrunkTp7186.coerceIn(tpFloor7277, TP_MAX)
         // V5.0.7158 — say what this recompute saw and what it did. Four lanes
         // arrived at both floors with no record of how, because nothing here
         // has ever logged its inputs. A closed loop that cannot be audited is

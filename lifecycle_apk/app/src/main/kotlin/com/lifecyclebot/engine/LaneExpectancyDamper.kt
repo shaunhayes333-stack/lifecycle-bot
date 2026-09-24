@@ -40,7 +40,9 @@ package com.lifecyclebot.engine
  */
 object LaneExpectancyDamper {
 
-    private const val MIN_TRADES = 8
+    // V5.0.7277 — one evidence bar for every size-moving learner; see
+    // EvidenceMaturity7277. Was 8.
+    private const val MIN_TRADES = com.lifecyclebot.engine.truth.EvidenceMaturity7277.LANE_OPINION_CLOSES
     private const val WINNER_MIN_TRADES = 8
     private const val EARLY_WINNER_MIN_TRADES = 2
     private const val EARLY_WINNER_MIN_WR_PCT = 30.0
@@ -238,7 +240,9 @@ object LaneExpectancyDamper {
             // V5.0.6715 — evidence is continuous from trade one. One outcome may
             // nudge size, never dominate it; confidence grows smoothly instead of
             // being exactly zero until the old n=8 cliff.
-            val evidence6715 = (m.trades.toDouble() / (m.trades.toDouble() + 3.0)).coerceIn(0.0, 1.0)
+            // V5.0.7277 — the curve is 6715's; k moves from 3 to the shared
+            // LANE_OPINION_CLOSES so one close nudges, thirty closes opine.
+            val evidence6715 = com.lifecyclebot.engine.truth.EvidenceMaturity7277.weight(m.trades)
             fun blend6715(raw: Double): Double = (1.0 + (raw - 1.0) * evidence6715).coerceIn(0.05, 1.60)
 
             // Proven profitable asymmetric runners may be pressed, but only when

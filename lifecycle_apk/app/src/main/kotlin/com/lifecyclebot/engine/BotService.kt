@@ -1001,6 +1001,18 @@ class BotService : Service() {
     lateinit var tradeJournal: TradeJournal
     lateinit var autoMode: AutoModeEngine
     lateinit var copyTradeEngine: CopyTradeEngine
+
+    // V5.0.7277 §FIVE SECONDS IS NOT SNIPING.
+    //
+    // PumpPortal delivered 585 launches per half hour on 5.0.7274; each one
+    // waited for the next bot-loop cycle (5–9 s, 68 s worst) before V3, FDG,
+    // lane election and ticketing ran, by which time a $3k-cap launch had
+    // moved 3x or died. The fast lane runs the SAME per-token cycle — every
+    // gate, every authority — immediately on the websocket event, on IO,
+    // bounded to two in flight and once per mint per minute. Nothing is
+    // bypassed; the wait is removed.
+    private val fastLaneOnce7277: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    private val fastLaneSemaphore7277 = java.util.concurrent.Semaphore(2)
     @Volatile private var loopJob: Job? = null
     @Volatile private var rapidStopLossMonitorJob: Job? = null
     @Volatile private var openPositionTickJob: Job? = null
@@ -1989,6 +2001,21 @@ class BotService : Service() {
             onCopySignal = { mint, wallet, sol ->
                 val c = ConfigStore.load(applicationContext)
                 val ts = status.tokens[mint]
+                // V5.0.7277 — a copy signal for a mint the watchlist has never
+                // seen used to be dropped here (ts == null). It now enters the
+                // INSIDER_SHARK route (V3 + FDG + sizing) and the fast lane.
+                if (c.copyTradingEnabled) {
+                    try {
+                        val label7277 = try { copyTradeEngine.getWallets().firstOrNull { it.address == wallet }?.label } catch (_: Throwable) { null } ?: wallet.take(8)
+                        com.lifecyclebot.engine.InsiderCopyEngine.copyBuyFromSmartMoney7277(
+                            mint = mint, symbol = ts?.symbol?.ifBlank { null } ?: mint.take(6),
+                            walletLabel = label7277, confidence = 80,
+                        )
+                        fastLaneEvaluate7277(mint, c, "COPY_SIGNAL")
+                    } catch (_: Throwable) {}
+                } else {
+                    try { PipelineHealthCollector.labelInc("SMART_MONEY_COPY_SIGNAL_DISABLED_IN_SETTINGS_7277") } catch (_: Throwable) {}
+                }
                 if (ts != null && c.copyTradingEnabled) {
                     autoMode.triggerCopy(mint, wallet)
                     addLog("📋 COPY BUY triggered: ${mint.take(8)}… from ${wallet.take(8)}…", mint)
@@ -9282,6 +9309,11 @@ class BotService : Service() {
                                 "BotService",
                                 "🆕 PumpPortal protected intake: $symbol ($name) mcap=${mcapSol.toInt()}SOL liqEst=\$${estLiq.toInt()}"
                             )
+                            // V5.0.7277 — evaluate on the event, not on the next tick.
+                            // Sub-$2k pools stay on the ordinary loop (discovery probes).
+                            if (estLiq >= 2_000.0) {
+                                try { fastLaneEvaluate7277(mint, liveCfg, "PUMP_PORTAL_WS") } catch (_: Throwable) {}
+                            }
                         }
                     } catch (e: Exception) {
                         ErrorLogger.debug("BotService", "PumpPortal protected intake error: ${e.message}")
@@ -9299,15 +9331,31 @@ class BotService : Service() {
         try {
             if (cfg.heliusApiKey.isNotBlank()) {
                 val whaleAddrs = try {
-                    com.lifecyclebot.perps.InsiderWalletTracker.getTrackedWallets()
-                        .map { it.address }
+                    (com.lifecyclebot.perps.InsiderWalletTracker.getTrackedWallets()
+                        .map { it.address } +
+                        // V5.0.7277 — the copy list rides the same subscription.
+                        try { copyTradeEngine.getWallets().filter { it.isActive && !it.isPaused }.map { it.address } } catch (_: Throwable) { emptyList() })
                         .filter { it.isNotBlank() }
+                        .distinct()
                 } catch (_: Exception) { emptyList() }
-                if (whaleAddrs.isNotEmpty()) {
+                // V5.0.7277 — start even with an empty list: SmartMoneyDiscovery7277
+                // fills the subscription as it promotes wallets (updateWatchlist
+                // re-subscribes on the open socket).
+                run {
                     com.lifecyclebot.network.HeliusEnhancedWS.start(
                         heliusApiKey = cfg.heliusApiKey,
                         watchAccounts = whaleAddrs,
-                    ) { sig, accounts, _ ->
+                    ) { sig, accounts, raw7277 ->
+                        // V5.0.7277 — a tracked wallet's BUY becomes a copy signal
+                        // straight from the push payload, without a polling scan.
+                        try {
+                            val watched7277 = com.lifecyclebot.network.HeliusEnhancedWS.watchedAccounts7277()
+                            val buys7277 = com.lifecyclebot.network.HeliusPushSwapParser7277.detectBuys(raw7277, watched7277)
+                            for (b in buys7277) {
+                                PipelineHealthCollector.labelInc("SMART_MONEY_PUSH_BUY_DETECTED_7277")
+                                copyTradeEngine.onSwapDetected(b.mint, b.wallet, b.solSpent, true)
+                            }
+                        } catch (_: Throwable) {}
                         // V5.9.1022 — CRITICAL COST FIX.
                         // Operator V5.9.1021 snapshot showed 200+ "🐳 PUSH: whale tx X… (0 accounts)"
                         // events in 4 seconds. Every event was logged AND triggered a
@@ -9331,9 +9379,25 @@ class BotService : Service() {
                             }
                         } catch (_: Exception) {}
                     }
-                } else {
-                    ErrorLogger.info("BotService",
-                        "HeliusEnhancedWS skipped — no tracked whale wallets to subscribe to")
+                }
+                // V5.0.7277 — grow the copy list from the runners this bot has
+                // watched: earliest buyers across >= 2 independent runners are
+                // promoted into the copy list and the push subscription.
+                try {
+                    com.lifecyclebot.engine.SmartMoneyDiscovery7277.start(
+                        ctx = applicationContext,
+                        scope = scope,
+                        heliusKey = { try { ConfigStore.load(applicationContext).heliusApiKey.trim() } catch (_: Throwable) { "" } },
+                        copyEngine = { try { copyTradeEngine } catch (_: Throwable) { null } },
+                        onWatchlistChanged = { copyWallets7277 ->
+                            val insider7277 = try {
+                                com.lifecyclebot.perps.InsiderWalletTracker.getTrackedWallets().map { it.address }
+                            } catch (_: Throwable) { emptyList() }
+                            com.lifecyclebot.network.HeliusEnhancedWS.updateWatchlist((insider7277 + copyWallets7277).filter { it.isNotBlank() }.distinct())
+                        },
+                    )
+                } catch (t: Throwable) {
+                    ErrorLogger.warn("BotService", "SmartMoneyDiscovery7277 start failed: ${t.message}")
                 }
             }
         } catch (e: Exception) {
@@ -11711,10 +11775,15 @@ class BotService : Service() {
                                     laneName4588 == "SHITCOIN" ||
                                     laneName4588 == "EXPRESS"
                                 val oneStrikeCatastrophic4588 = catastrophicLane4588 && !phantomRead && pnlPctNow <= TICK_HARD_FLOOR_PCT
+                                // V5.0.7277 — a runner-lane launch that is -20% inside its
+                                // first two minutes did not launch; first strike, no grace.
+                                val runnerEarlyCut7277 = !phantomRead && try {
+                                    RunnerExitProfile7277.earlyCut(laneName4588, pnlPctNow, System.currentTimeMillis() - pos.entryTime)
+                                } catch (_: Throwable) { false }
                                 // Update the strike flag for the next tick. Confirmed catastrophic
                                 // executable-price reads bypass the old phantom dead-zone immediately.
                                 pos.lastTickFloorBreach = (pnlPctNow <= TICK_HARD_FLOOR_PCT && !phantomRead)
-                                if (pnlPctNow <= TICK_HARD_FLOOR_PCT && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || (!phantomRead && twoStrike))) {
+                                if (pnlPctNow <= TICK_HARD_FLOOR_PCT && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || runnerEarlyCut7277 || (!phantomRead && twoStrike))) {
                                     ErrorLogger.warn("BotService",
                                         "🛑 TICK_HARD_FLOOR ${ts.symbol} ${"%.1f".format(pnlPctNow)}% " +
                                         "≤ ${TICK_HARD_FLOOR_PCT.toInt()}% — immediate exit (peak=${"%.1f".format(peakPct)}% catastrophic=$catastrophicConfirmed4485 oneStrikeLane=$oneStrikeCatastrophic4588)")
@@ -11733,6 +11802,7 @@ class BotService : Service() {
                                         executor.requestSell(ts,
                                             if (catastrophicConfirmed4485) "TICK_CATASTROPHIC_CONFIRMED_${pnlPctNow.toInt()}PCT"
                                             else if (oneStrikeCatastrophic4588) "TICK_HARD_FLOOR_CATASTROPHIC_LANE_${laneName4588}_${pnlPctNow.toInt()}PCT_4588"
+                                            else if (runnerEarlyCut7277) "RUNNER_EARLY_CUT_${laneName4588}_${pnlPctNow.toInt()}PCT_7277"
                                             else "TICK_HARD_FLOOR_${pnlPctNow.toInt()}PCT",
                                             walletTick, balTick)
                                     } catch (_: Throwable) {}
@@ -11750,7 +11820,12 @@ class BotService : Service() {
                                             lane = ts.position.tradingMode,  // V5.0.7267 — learned give-back band
                                         )
                                     } catch (_: Throwable) { Double.NaN }
-                                    if (!lockedFloor.isNaN() && lockedFloor > 0.0) {
+                                    // V5.0.7277 — a runner lane's give-back lock waits for a
+                                    // +50% peak; "peak14 now11" is not a runner outcome.
+                                    val runnerLockDeferred7277 = try {
+                                        RunnerExitProfile7277.deferGiveBackLock(ts.position.tradingMode, peakPct)
+                                    } catch (_: Throwable) { false }
+                                    if (!lockedFloor.isNaN() && lockedFloor > 0.0 && !runnerLockDeferred7277) {
                                         // V5.0.7182 §THE_GUILLOTINE_AT_200_PERCENT.
                                         //
                                         // Was:
@@ -23004,6 +23079,44 @@ if (hotExitHandledSweep) {
      * Process a single token's full cycle - price fetch, evaluation, trading decisions.
      * V4.1: Extracted from botLoop to reduce compiler complexity (was causing StackOverflow).
      */
+    /**
+     * V5.0.7277 — run the full per-token cycle for [mint] now instead of on the
+     * next loop tick. Two passes: the first hydrates (fan-out, pair, safety),
+     * the second, 1.5 s later, evaluates on the hydrated state. Bounded by
+     * fastLaneSemaphore7277; a saturated fast lane simply leaves the token to
+     * the ordinary loop, which still sees it.
+     */
+    private fun fastLaneEvaluate7277(mint: String, cfg: BotConfig, origin: String) {
+        if (mint.isBlank() || !status.running) return
+        if (!fastLaneOnce7277.add(mint)) return
+        scope.launch(Dispatchers.IO + CoroutineName("fast-lane-7277")) {
+            if (!fastLaneSemaphore7277.tryAcquire()) {
+                try { PipelineHealthCollector.labelInc("FAST_LANE_SATURATED_7277") } catch (_: Throwable) {}
+                fastLaneOnce7277.remove(mint)
+                return@launch
+            }
+            val t0 = System.currentTimeMillis()
+            try {
+                PipelineHealthCollector.labelInc("FAST_LANE_EVALUATED_7277")
+                PipelineHealthCollector.labelInc("FAST_LANE_EVALUATED_7277_$origin")
+                processTokenCycle(mint, cfg, wallet, t0)
+                delay(1_500L)
+                if (status.running) processTokenCycle(mint, cfg, wallet, System.currentTimeMillis())
+                val ms = System.currentTimeMillis() - t0
+                ForensicLogger.lifecycle(
+                    "FAST_LANE_EVALUATED_7277",
+                    "mint=${mint.take(10)} origin=$origin totalMs=$ms action=full_cycle_on_event_no_gate_bypassed",
+                )
+            } catch (t: Throwable) {
+                if (t is kotlinx.coroutines.CancellationException) throw t
+                ErrorLogger.debug("BotService", "fast lane ${mint.take(8)}: ${t.message?.take(100)}")
+            } finally {
+                fastLaneSemaphore7277.release()
+                scope.launch(Dispatchers.IO) { delay(60_000L); fastLaneOnce7277.remove(mint) }
+            }
+        }
+    }
+
     private fun processTokenCycle(mint: String, cfg: BotConfig, wallet: SolanaWallet?, lastSuccessfulPollMs: Long) {
         // V5.0.6647 — canonical position authority is resolved before any
         // entry hydration, safety, V3, or provider work.  OPEN and

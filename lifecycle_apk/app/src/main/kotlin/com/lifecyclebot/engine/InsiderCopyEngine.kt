@@ -150,6 +150,17 @@ object InsiderCopyEngine {
         }
     }
 
+    /**
+     * V5.0.7277 — a push-detected buy by a proven smart-money wallet enters the
+     * same INSIDER_SHARK route the polled signals use, so it is gated by V3,
+     * FDG and sizing like everything else and sized by the same stack.
+     */
+    fun copyBuyFromSmartMoney7277(mint: String, symbol: String, walletLabel: String, confidence: Int) {
+        lastSignalAtMs.set(System.currentTimeMillis())
+        try { PipelineHealthCollector.labelInc("SMART_MONEY_COPY_BUY_ENQUEUED_7277") } catch (_: Throwable) {}
+        copyBuyMemeMint(mint = mint, symbol = symbol, confidence = confidence.coerceIn(0, 100), walletLabel = walletLabel)
+    }
+
     private fun copyBuyCryptoAlt6096(symbol: String, confidence: Int, walletLabel: String) {
         try {
             val opened = com.lifecyclebot.perps.CryptoAltTrader.copyBuyFromInsiderSignal(symbol, confidence, walletLabel)

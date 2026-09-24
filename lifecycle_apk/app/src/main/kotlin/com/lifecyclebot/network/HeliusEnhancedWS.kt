@@ -68,6 +68,10 @@ object HeliusEnhancedWS {
         connect()
     }
 
+    /** V5.0.7277 — so a later discovery can tell whether to start or to update. */
+    fun isRunning(): Boolean = running.get()
+    fun watchedAccounts7277(): List<String> = watchedAccounts
+
     fun updateWatchlist(newAccounts: List<String>) {
         watchedAccounts = newAccounts.distinct()
         // Re-subscribe with new filter (Helius doesn't support live filter mutation

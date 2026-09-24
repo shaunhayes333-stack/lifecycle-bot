@@ -68,8 +68,29 @@ object RuntimeProviderAuthority6685 {
             if (clean.isNotBlank()) ordered.add(clean)
         }
         add(primary)
-        add(cfg?.rpcUrl)
-        add(configuredHeliusRpc(explicit))
+        // V5.0.7277 §THE PAID KEY WAS SECOND IN LINE BEHIND THE FREE ENDPOINT.
+        //
+        // SettingsBottomSheet saves a blank RPC field as the public
+        // api.mainnet-beta.solana.com, and this ladder put cfg.rpcUrl ahead of
+        // the configured Helius endpoint. Every consumer that walks the ladder
+        // in order (JupiterApi, WalletManager, SolanaWallet, the pump-curve
+        // reader, the supply reader) therefore asked the anonymous public node
+        // first and the operator's paid Helius key second — which is what
+        // LivePreflight has been printing as RPC_LADDER_HEAD REFUSE for a
+        // dozen builds while the same snapshot showed Helius at 99%. A saved
+        // RPC that is one of the keyless public endpoints is a fallback, not a
+        // preference: the authenticated endpoint leads it.
+        val savedRpc7277 = sanitizeRpc(cfg?.rpcUrl)
+        val savedIsPublic7277 = savedRpc7277.isNotBlank() &&
+            PUBLIC_SOLANA_RPCS.any { sanitizeRpc(it).equals(savedRpc7277, ignoreCase = true) }
+        if (savedIsPublic7277) {
+            add(configuredHeliusRpc(explicit))
+            add(savedRpc7277)
+            try { PipelineHealthCollector.labelInc("RPC_LADDER_HELIUS_LEADS_PUBLIC_SAVED_RPC_7277") } catch (_: Throwable) {}
+        } else {
+            add(cfg?.rpcUrl)
+            add(configuredHeliusRpc(explicit))
+        }
         PUBLIC_SOLANA_RPCS.forEach(::add)
         return ordered.toList()
     }

@@ -49,9 +49,12 @@ object UnifiedPolicyHead {
     private const val MULT_FLOOR_AUTH = 0.30
     private const val MULT_CAP_AUTH   = 1.80
     // V5.0.4179 / V5.0.6005 — aggressive online authority thresholds.
-    private const val AUTHORITY_ADVISORY      = 3L
-    private const val AUTHORITY_LEARNED       = 10L
-    private const val AUTHORITY_AUTHORITATIVE = 25L
+    // V5.0.7277 — tiers read the shared evidence bar (were 3 / 10 / 25). A
+    // per-lane head reached AUTHORITATIVE at 26 closes and was overriding the
+    // stack on that; it now needs a hundred.
+    private const val AUTHORITY_ADVISORY      = com.lifecyclebot.engine.truth.EvidenceMaturity7277.ADVISORY_CLOSES
+    private const val AUTHORITY_LEARNED       = com.lifecyclebot.engine.truth.EvidenceMaturity7277.LEARNED_CLOSES
+    private const val AUTHORITY_AUTHORITATIVE = com.lifecyclebot.engine.truth.EvidenceMaturity7277.AUTHORITATIVE_CLOSES
     private const val BRIER_HEALTHY_MAX = 0.22
     private const val BRIER_DRIFTING_MAX = 0.27
 

@@ -55,7 +55,9 @@ object AutonomousMetaPolicy {
     // instead of returning pure 1.0 until five closes. This preserves soft-shape
     // safety while making SSI/AGI tune from the first settled trade in both
     // paper and live.
-    private const val MIN_SAMPLES        = 5       // ramp target, not activation cliff
+    // V5.0.7277 — ramp target reads the shared evidence bar (was 5; a context
+    // printed conv≈0.82 on n=3).
+    private const val MIN_SAMPLES        = com.lifecyclebot.engine.truth.EvidenceMaturity7277.LANE_OPINION_CLOSES
     private const val TRADE1_RAMP_FLOOR  = 0.25    // one sample gets 25% authority, then ramps to 100%
     private const val CONVICTION_FLOOR   = 0.55    // worst damp — never starve volume
     private const val CONVICTION_CAP     = 1.45    // best lean-in

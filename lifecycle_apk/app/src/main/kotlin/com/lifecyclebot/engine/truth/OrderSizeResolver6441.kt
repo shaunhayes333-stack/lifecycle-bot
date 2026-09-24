@@ -91,7 +91,14 @@ object OrderSizeResolver6441 {
     // dynamic; this value is only the configured paper ticket floor.
     private const val PAPER_EXECUTABLE_MINIMUM_SOL = 0.05
 
-    fun paperExecutableMinimumSol(): Double = PAPER_EXECUTABLE_MINIMUM_SOL
+    // V5.0.7277 — the configured paper floor is the larger of the historical
+    // 0.05 and the fee-aware minimum; see FeeAwareSizeFloor7277.
+    private fun paperFloor7277(): Double = maxOf(
+        PAPER_EXECUTABLE_MINIMUM_SOL,
+        try { FeeAwareSizeFloor7277.minimumSol() } catch (_: Throwable) { PAPER_EXECUTABLE_MINIMUM_SOL },
+    )
+
+    fun paperExecutableMinimumSol(): Double = paperFloor7277()
 
     @Deprecated("V5.0.6653: executable minimum is immutable; pass laneMinExecutableSol per resolution")
     @Suppress("UNUSED_PARAMETER")
@@ -232,7 +239,7 @@ object OrderSizeResolver6441 {
         } catch (_: Throwable) { null }
         if (throughput6758 != null && !throughput6758.allow) {
             val minExec6758 = when {
-                paperMode && applyPaperMemeMinimum -> maxOf(laneMinExecutableSol, PAPER_EXECUTABLE_MINIMUM_SOL)
+                paperMode && applyPaperMemeMinimum -> maxOf(laneMinExecutableSol, paperFloor7277())
                 else -> laneMinExecutableSol.coerceAtLeast(ABS_MIN_EXECUTABLE_SOL)
             }
             val blocked6758 = Resolution(
@@ -358,7 +365,7 @@ object OrderSizeResolver6441 {
         // account and lane can genuinely fund the minimum, preserve that floor;
         // otherwise resolve non-executable BEFORE an execution ticket exists.
         val minExecRaw6491 = when {
-            paperMode && applyPaperMemeMinimum -> maxOf(laneMinExecutableSol, PAPER_EXECUTABLE_MINIMUM_SOL)
+            paperMode && applyPaperMemeMinimum -> maxOf(laneMinExecutableSol, paperFloor7277())
             else -> laneMinExecutableSol.coerceAtLeast(ABS_MIN_EXECUTABLE_SOL)
         }
         val minExecLamports6491 = toLamports6491(minExecRaw6491)

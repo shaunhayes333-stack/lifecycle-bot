@@ -43,7 +43,9 @@ object PeakDrawdownLock {
      *         pnl and the peak was ≥ +20%.
      */
     fun shouldLock(peakPnlPct: Double, currentPnlPct: Double, lane: String = ""): Boolean {
-        if (peakPnlPct < ARM_THRESHOLD_PCT) return false
+        // V5.0.7277 — a runner lane's give-back lock arms at the runner bar
+        // (+50%), not at the general +20%; see RunnerExitProfile7277.
+        if (peakPnlPct < RunnerExitProfile7277.armThresholdPct(lane, ARM_THRESHOLD_PCT)) return false
         if (currentPnlPct >= peakPnlPct) return false  // currently at/above peak
         val drawdownFrac = (peakPnlPct - currentPnlPct) / peakPnlPct
         return drawdownFrac >= triggerFracForPeak(peakPnlPct, lane)
