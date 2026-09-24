@@ -37,6 +37,7 @@ The part I'm proudest of is that the oracle doesn't start with any authority. It
 - at least 20 ADMIT closes and 10 REFUSE closes
 - the ADMIT mean beats the REFUSE mean by at least 2 percentage points
 - the ADMIT win rate is at or above the REFUSE win rate
+- ADMIT closes average a positive return
 - a Brier score of 0.25 or better
 
 Once it passes, it becomes PROVEN and binds admission. If the edge fades, it demotes itself. The proof persists across app restarts, so it doesn't have to start over every time the phone kills the process.
@@ -89,10 +90,10 @@ That's why there's a single Canonical Position Authority (one idempotent ledger 
 
 - **Execution:** Jupiter swap API, a PumpPortal trade-local fallback for pump.fun sells, direct bonding-curve reads over an RPC ladder, Helius Sender with a tip envelope, Jito bundle MEV protection and a public RPC fallback.
 - **Data:** 40+ sources, including Helius, PumpPortal, DexScreener, Birdeye, GeckoTerminal, CoinGecko, Jupiter Price, Pyth, Switchboard, DefiLlama, the major CEXs, RugCheck, Solscan, GMGN, market data providers, Fear & Greed and social feeds.
-- **Safety:** a hard rug pre-filter, token safety tiers, RugCheck policy, a mint blacklist, serial-rugger creator refusal, a live circuit breaker, loss-streak limits, cooldowns and a daily loss cap.
-- **LLM council:** Groq, Gemini, Cerebras, Mistral, OpenRouter, OpenAI-compatible and keyless providers. It runs scam and narrative checks that can block live entries, gives exit advice, and handles sentiment and parameter tuning. It's async and cached, off the hot path.
+- **Safety:** a hard rug pre-filter, token safety tiers, RugCheck policy, a mint blacklist, serial-rugger creator refusal, a live circuit breaker (0.1 SOL minimum wallet, 10% session drawdown halt) and an entry gate that shrinks size after losses.
+- **LLM council:** Groq, Gemini, Cerebras, Mistral, OpenRouter, OpenAI-compatible and keyless providers. It runs scam and narrative checks that can block live entries, gives live exit advice, and handles sentiment and parameter tuning. It's async and cached, off the hot path.
 - **LLM Lab:** the model invents strategies and paper-trades them on a 100 SOL synthetic bankroll, and an approval queue sits between them and real money.
-- **Learning:** an on-device TensorFlow Lite model plus an anonymized collective hive mind with a shared blacklist.
+- **Learning:** an on-device learning model plus a collective hive mind (hashed pattern records synced to the operator's own Turso database) with a shared blacklist.
 - **Keys:** AES-256 encrypted storage and a biometric lock. They never leave the device.
 
 ## What's next

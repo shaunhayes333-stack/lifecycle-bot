@@ -37,7 +37,7 @@ One engine runs 16 registered traders: `MEME`, `SHITCOIN`, `MOONSHOT`, `EXPRESS`
 - **TokenSafetyChecker** returns a SAFE / CAUTION / HARD_BLOCK verdict.
 - **RugCheck policy**, a **mint blacklist** (shared through the collective), and **serial-rugger creator refusal**.
 - **Live safety circuit breaker:** a minimum wallet of 0.1 SOL and a halt on session drawdown.
-- **Executable Entry Authority** is the single gate before capital. It enforces a loss-streak limit, cooldowns and a daily loss cap.
+- **Executable Entry Authority** is the single gate before capital. It shrinks size after losses (×0.65 after one, ×0.35 after two or during a 60 s cooldown). The hard halts are the live circuit breaker: 0.1 SOL minimum wallet and a 10% session drawdown halt.
 - **Canonical Position Authority** is one idempotent ledger of positions and cash.
 - **Canonical Capital Authority** is one view of cash, reserved, open cost, unrealized, realized and fees.
 
@@ -46,7 +46,7 @@ One engine runs 16 registered traders: `MEME`, `SHITCOIN`, `MOONSHOT`, `EXPRESS`
 - **Scanners and a WebSocket fast lane** (PumpPortal launches and migrations, the keyed PumpPortal trade stream, Helius enhanced WebSocket) produce candidates.
 - **Per-lane scoring AIs** (ShitCoinTraderAI, MoonshotTraderAI, BlueChipTraderAI, QualityTraderAI, ProjectSniperAI, CashGenerationAI and others) feed a **FinalDecisionGate**.
 - **Predictive Entry Oracle.** It forecasts expectancy and win probability for each candidate from the full trade journal: up to 5,000 closes, per lane and across the whole book. The verdict is binary, ADMIT or REFUSE, with no probe trades.
-- **Oracle Edge Proof.** The oracle stays advisory until real closes prove it: at least 20 ADMIT and 10 REFUSE closes, an ADMIT mean at least 2 percentage points above the REFUSE mean, an ADMIT win rate at or above the REFUSE win rate, and a Brier score of 0.25 or lower. Once PROVEN it decides admission. It demotes itself if the edge fades. The proof persists across restarts.
+- **Oracle Edge Proof.** The oracle stays advisory until real closes prove it: at least 20 ADMIT and 10 REFUSE closes, an ADMIT mean at least 2 percentage points above the REFUSE mean, an ADMIT win rate at or above the REFUSE win rate, a positive ADMIT mean, and a Brier score of 0.25 or lower. Once PROVEN it decides admission. It demotes itself if the edge fades. The proof persists across restarts.
 - **Learned Admission Authority** sits between scoring and the Executable Entry Authority.
 - **40+ data sources**, including Helius (RPC, enhanced WebSocket, DAS, Sender), PumpPortal, DexScreener, Birdeye, GeckoTerminal, CoinGecko, Jupiter Price, Pyth Hermes, Switchboard, DefiLlama, Binance/Kraken/Coinbase, RugCheck, Solscan, GMGN, Yahoo/Stooq/Finnhub/Polygon for markets, Fear & Greed, and social feeds (Telegram, X).
 
@@ -64,7 +64,7 @@ One engine runs 16 registered traders: `MEME`, `SHITCOIN`, `MOONSHOT`, `EXPRESS`
 ## LLM council
 
 - **Providers:** Groq (gpt-oss), Gemini, Cerebras, Mistral, OpenRouter, any OpenAI-compatible endpoint, and keyless providers.
-- **Narrative and scam analysis** can block live entries.
+- **Narrative and scam analysis** can block live entries (it is skipped in paper).
 - **Exit advice** can trigger exits.
 - **Runs asynchronously and cached,** off the hot path, so the engine never waits on an LLM.
 - **Also:** sentiment, parameter tuning, chat personas (Persona Studio) and voice (ElevenLabs).
@@ -72,8 +72,8 @@ One engine runs 16 registered traders: `MEME`, `SHITCOIN`, `MOONSHOT`, `EXPRESS`
 ## Learning and collective
 
 - **Journal-driven learning.** Every close feeds lane scoring, the exit policy and the oracle.
-- **On-device TensorFlow Lite model.**
-- **Collective learning (hive mind).** Anonymized patterns and a shared blacklist sync through a Turso/libSQL database run by the operator.
+- **On-device online-learning model.** Pure Kotlin, learns as it trades.
+- **Collective learning (hive mind).** Hashed pattern records and a shared blacklist sync to a Turso/libSQL database run by the operator.
 - **Backtesting** on historical data.
 - **Tuning screen:** per-lane expectancy and decision-quality signals.
 

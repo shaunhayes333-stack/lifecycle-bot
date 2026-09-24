@@ -47,6 +47,7 @@ The oracle doesn't get to decide until it proves itself on real closes:
 ≥20 ADMIT & ≥10 REFUSE closes
 ADMIT mean beats REFUSE by ≥2pp
 ADMIT win rate ≥ REFUSE
+ADMIT mean > 0
 Brier ≤ 0.25
 
 Proven → it binds. Edge fades → it demotes itself. Proof persists across restarts.
@@ -120,7 +121,7 @@ It's called **AATE — Autonomous Algorithmic Trading Engine**. Version 5.0.7288
 - 16 traders in one engine: Solana meme lanes, crypto alts via Jupiter/Raydium/Meteora, tokenized stocks and forex, and perps. Every trader runs in paper mode. Live execution is paper-first and turned on one lane at a time.
 
 **What changed in this release series**
-- A Predictive Entry Oracle that reads up to 5,000 closed trades and returns ADMIT or REFUSE. It stays advisory until it proves an edge on real closes (sample thresholds, a ≥2pp expectancy gap, and a Brier score ≤ 0.25). If the edge fades, it demotes itself.
+- A Predictive Entry Oracle that reads up to 5,000 closed trades and returns ADMIT or REFUSE. It stays advisory until it proves an edge on real closes (sample thresholds, a ≥2pp expectancy gap, a positive ADMIT mean, and a Brier score ≤ 0.25). If the edge fades, it demotes itself.
 - Paper trading now pays realistic venue costs: curve fees, pool fees, creator fee tiers, network fees and modelled price impact. A round trip costs about 5–6% on the pump.fun curve and 2–3% on graduated pools.
 - A supervised, self-healing 1 Hz mark loop, with a profit lock that follows price up toward the peak.
 
@@ -164,8 +165,8 @@ Hey all, solo dev here. I've been building **AATE — Autonomous Algorithmic Tra
 1. Candidates come from scanners plus a WebSocket fast lane (Helius enhanced WS, PumpPortal launches/migrations/trade stream).
 2. Safety: hard rug pre-filter, token safety tiers (SAFE/CAUTION/HARD_BLOCK), RugCheck policy, mint blacklist, serial-rugger creator refusal.
 3. Per-lane scoring, then a final decision gate.
-4. Predictive Entry Oracle: ADMIT/REFUSE from the trade journal (up to 5,000 closes). It's advisory until it passes an edge proof on real closes (≥20 ADMIT / ≥10 REFUSE, ADMIT mean ≥2pp better, ADMIT WR ≥ REFUSE, Brier ≤ 0.25).
-5. One executable entry authority before capital (loss-streak limit, cooldowns, daily loss cap). The sizer sizes to what can actually be exited.
+4. Predictive Entry Oracle: ADMIT/REFUSE from the trade journal (up to 5,000 closes). It's advisory until it passes an edge proof on real closes (≥20 ADMIT / ≥10 REFUSE, ADMIT mean ≥2pp better, ADMIT WR ≥ REFUSE, ADMIT mean > 0, Brier ≤ 0.25).
+5. One executable entry authority before capital that shrinks size after losses; live circuit breaker (0.1 SOL minimum wallet, 10% session drawdown halt). The sizer sizes to what can actually be exited.
 6. Exits: 1 Hz mark loop, a profit lock that slides toward the peak, trailing stops, runner profiles, and a universal stop-loss sweep.
 
 **Execution:** Jupiter swap API, PumpPortal trade-local fallback for pump.fun sells, direct bonding-curve reads over an RPC ladder, Helius Sender with a tip envelope, Jito bundles for MEV protection. Keys are held in AES-256 EncryptedSharedPreferences behind a biometric lock and never leave the device.

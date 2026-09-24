@@ -28,7 +28,7 @@ Open Settings › **API KEYS**. The labels below are exactly what you will see.
 | **HELIUS KEY** | helius.dev | RPC, enhanced WebSocket, DAS and the Helius Sender fast path. Strongly recommended. |
 | **PUMPPORTAL DATA KEY** | pumpportal.fun | Unlocks the keyed PumpPortal **trade stream**. The key must be **funded (about 0.02 SOL)**. If you leave it blank you only get launch events. |
 | **BIRDEYE KEY** | birdeye.so | Extra price and market data. |
-| **GROQ KEY** | console.groq.com | LLM council (gpt-oss): narrative/scam checks, exit advice, sentiment. |
+| **GROQ KEY** | console.groq.com | LLM council (gpt-oss): narrative/scam checks and exit advice (live mode only), sentiment. |
 | **GEMINI KEY** | aistudio.google.com | A second LLM council provider. |
 | **ELEVENLABS KEY** | elevenlabs.io | Optional voice for personas. |
 | **JUPITER KEY** | portal.jup.ag | Jupiter swap and price API. |
@@ -50,7 +50,7 @@ Tap **Save Settings**.
 
 In PAPER every trader runs and learns. Paper fills pay realistic venue costs: pump.fun curve 1.25% per side, PumpSwap 0.25% plus the creator-fee tier, AMM pools 0.25%, a 0.000805 SOL network fee per side, modelled price impact, and the 0.5% app fee. A round trip costs about 5–6% on the curve and 2–3% on graduated pools, so paper P&L is not free money on paper.
 
-Let it run. The **Predictive Entry Oracle** stays advisory until it has proved an edge on real closes (at least 20 ADMIT and 10 REFUSE closes with a measurable gap). It only decides admission after that.
+Let it run. The **Predictive Entry Oracle** stays advisory until it has proved an edge on real closes (at least 20 ADMIT and 10 REFUSE closes with a measurable gap and a positive ADMIT average). It only decides admission after that.
 
 ## 5. Read Pipeline Health
 
@@ -75,7 +75,7 @@ Only go live once you understand what the bot does in paper. Paper results are n
 - [ ] You start with a **small calibration run**, an amount you can lose completely. The goal is to check that real fills and fees match paper.
 - [ ] Sizing (**SMALL BUY / LARGE BUY (SOL)**, **SLIPPAGE BPS**, **MAX SOL**) is set conservatively.
 - [ ] Only the traders you want live are enabled. Stocks and forex are quarantined in live, live perps are not executing yet, and non-meme live execution is being rolled out in stages.
-- [ ] You know the Executable Entry Authority limits: loss-streak limit, cooldowns and daily loss cap.
+- [ ] You know the live circuit breaker: live trading is refused below 0.1 SOL and halts at a 10% session drawdown. After losses, the Executable Entry Authority shrinks size rather than stopping.
 
 Then set Settings › TRADING › **MODE** to **LIVE**, save and start. Watch the first trades in the **Live Trade Log** and **Pipeline Health**.
 

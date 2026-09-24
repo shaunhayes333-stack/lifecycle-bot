@@ -55,7 +55,7 @@ A supervised, self-healing 1 Hz mark loop. The profit lock slides up toward the 
 Jupiter swap API, PumpPortal fallback for pump.fun sells, direct bonding-curve reads, Helius Sender fast submission, Jito bundle MEV protection and a public RPC ladder fallback.
 
 **An LLM council**
-Groq, Gemini, Cerebras, Mistral, OpenRouter, OpenAI-compatible and keyless providers. They run narrative and scam analysis that can block live entries, give exit advice, and handle sentiment, parameter tuning and chat. Calls are async and cached, off the hot path.
+Groq, Gemini, Cerebras, Mistral, OpenRouter, OpenAI-compatible and keyless providers. They run narrative and scam analysis that can block live entries, give live exit advice, and handle sentiment, parameter tuning and chat. Calls are async and cached, off the hot path.
 
 **LLM Lab and copy-trading**
 The LLM invents strategies and paper-trades them on a 100 SOL synthetic bankroll. An approval queue sits between them and real money. Copy-trading follows mined smart-money wallets.
@@ -68,10 +68,10 @@ AES-256 EncryptedSharedPreferences, a biometric lock and a multi-chain recovery 
 1. **Find.** Scanners and a WebSocket fast lane (Helius, PumpPortal) surface candidates from 40+ data sources.
 2. **Filter.** Hard rug pre-filter, token safety tiers (SAFE / CAUTION / HARD_BLOCK), RugCheck policy, mint blacklist and serial-rugger creator refusal.
 3. **Score.** Scoring AIs for each lane feed a final decision gate.
-4. **Admit.** The Predictive Entry Oracle says ADMIT or REFUSE. A single Executable Entry Authority checks loss streaks, cooldowns and the daily loss cap before any capital moves.
+4. **Admit.** The Predictive Entry Oracle says ADMIT or REFUSE. A single Executable Entry Authority shrinks size after losses before any capital moves.
 5. **Size.** The realistic sizer sizes each trade to what can actually be exited, with a fee-aware floor.
 6. **Manage.** The 1 Hz mark loop, sliding profit lock, trailing stops and runner profiles take it from there.
-7. **Learn.** Every close feeds the journal, the per-lane exit policy, the on-device TensorFlow Lite model and the anonymized collective hive mind.
+7. **Learn.** Every close feeds the journal, the per-lane exit policy, the on-device learning model and the collective hive mind (hashed pattern records synced to the operator's own Turso database).
 
 ### Trust and forensics
 
@@ -79,9 +79,9 @@ AES-256 EncryptedSharedPreferences, a biometric lock and a multi-chain recovery 
 
 - **One ledger.** The Canonical Position Authority is a single idempotent ledger of positions and cash. The Canonical Capital Authority gives one view of cash, reserved, open cost, unrealized, realized and fees.
 - **Everything counted.** ForensicLogger writes structured phase logs. The Pipeline Health screen shows funnel counters, an ANR watchdog and a count of every refusal reason.
-- **An oracle that earns authority.** It stays advisory until it proves an edge on real closes: at least 20 ADMIT and 10 REFUSE closes, ADMIT mean ahead of REFUSE by at least 2pp, ADMIT win rate at or above REFUSE, and a Brier score of 0.25 or better. It demotes itself if the edge fades. The proof persists across restarts.
+- **An oracle that earns authority.** It stays advisory until it proves an edge on real closes: at least 20 ADMIT and 10 REFUSE closes, ADMIT mean ahead of REFUSE by at least 2pp, ADMIT win rate at or above REFUSE, a positive ADMIT mean, and a Brier score of 0.25 or better. It demotes itself if the edge fades. The proof persists across restarts.
 - **Engineering discipline.** 2,699 test cases, 16 custom static-analysis validators on every build, and an emulator runtime smoke test in CI.
-- **Safety rails.** A live circuit breaker (0.1 SOL minimum wallet, session drawdown halt), a loss-streak limit, cooldowns and a daily loss cap.
+- **Safety rails.** A live circuit breaker (0.1 SOL minimum wallet, 10% session drawdown halt), and an entry gate that shrinks size after losses.
 
 ### Paper realism
 

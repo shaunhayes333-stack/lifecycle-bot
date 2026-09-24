@@ -125,7 +125,7 @@ td.n{font-family:var(--mono);text-align:right}
     <div class="card"><span class="n">02</span><h3>Screen</h3><p>Rug filter, safety verdict, RugCheck, creator history</p></div>
     <div class="card"><span class="n">03</span><h3>Score</h3><p>Each lane's scoring AI, the Final Decision Gate and the LLM council</p></div>
     <div class="card key"><span class="n">04</span><h3>Oracle</h3><p>Forecasts the trade from the full journal and returns ADMIT or REFUSE</p></div>
-    <div class="card"><span class="n">05</span><h3>Admit</h3><p>Learned admission, then one executable-entry gate</p></div>
+    <div class="card"><span class="n">05</span><h3>Admit</h3><p>Learned admission, then one executable-entry gate that shrinks size after losses</p></div>
     <div class="card"><span class="n">06</span><h3>Size</h3><p>Sized to what can be exited, with a fee-aware minimum</p></div>
     <div class="card"><span class="n">07</span><h3>Execute</h3><p>Jupiter, Helius Sender, Jito, PumpPortal fallback</p></div>
     <div class="card"><span class="n">08</span><h3>Exit &amp; learn</h3><p>Marked once a second; the profit lock slides up to the peak</p></div>
@@ -147,6 +147,7 @@ td.n{font-family:var(--mono);text-align:right}
       <tr><td>Graded closes</td><td class="n">≥ 20 ADMIT · ≥ 10 REFUSE</td></tr>
       <tr><td>Mean return: admitted vs refused</td><td class="n">≥ +2 pp</td></tr>
       <tr><td>Win rate: admitted vs refused</td><td class="n">≥</td></tr>
+      <tr><td>Mean return of admitted trades</td><td class="n">&gt; 0</td></tr>
       <tr><td>Calibration (Brier score)</td><td class="n">≤ 0.25</td></tr>
       <tr><td>Proof survives restarts</td><td class="n">yes</td></tr>
     </table></div>
@@ -215,7 +216,7 @@ td.n{font-family:var(--mono);text-align:right}
     <div class="card"><div class="big">6 mo</div><div class="k">one developer, no team, no big budget</div></div>
   </div>
   <div class="cols c3" style="margin-top:1.6cqw">
-    <div class="card"><span class="tag">SECURITY</span><p>Keys are AES-256 encrypted on the device behind a biometric lock. A circuit breaker halts live trading on drawdown.</p></div>
+    <div class="card"><span class="tag">SECURITY</span><p>Keys are AES-256 encrypted on the device behind a biometric lock. A circuit breaker refuses live trading below 0.1 SOL and halts it at a 10% session drawdown.</p></div>
     <div class="card"><span class="tag">RESILIENCE</span><p>The mark loop is supervised and self-healing, sells run off that loop, and RPC calls back off per provider.</p></div>
     <div class="card"><span class="tag">FORENSICS</span><p>Structured phase logs, and a Pipeline Health screen that counts every refusal.</p></div>
   </div></div>

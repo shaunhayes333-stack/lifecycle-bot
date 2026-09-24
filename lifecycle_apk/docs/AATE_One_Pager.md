@@ -31,7 +31,7 @@ Every trader runs in **paper**. **Live** runs only an operator-enabled set, and 
 ### Trust
 - Keys are AES-256 encrypted and biometric-locked, and never leave the device.
 - Orders go through Helius Sender and Jito bundle MEV protection.
-- Circuit breakers: a 0.1 SOL minimum wallet, a drawdown halt, a daily loss cap and loss-streak cooldowns.
+- Live circuit breaker: a 0.1 SOL minimum wallet and a 10% session drawdown halt. The entry gate shrinks size after losses.
 - The app fee is 0.5% per spot side (1% leverage).
 
 ### Paper realism

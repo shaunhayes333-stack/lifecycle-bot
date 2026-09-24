@@ -41,7 +41,7 @@ Crypto trading on Solana moves faster than a person can click.
 - **Decides.** Scanners and a WebSocket fast lane feed per-lane scoring AIs and a single final gate.
 - **Sizes.** A realistic sizer only buys what it can exit, with a fee-aware floor.
 - **Exits.** A 1 Hz supervised mark loop runs a profit lock that slides toward the peak, trailing stops and runner profiles.
-- **Learns.** A per-lane learned exit policy, a Predictive Entry Oracle, an on-device TensorFlow Lite model and collective learning.
+- **Learns.** A per-lane learned exit policy, a Predictive Entry Oracle, an on-device learning model and collective learning.
 - **Accounts.** One canonical ledger for positions and capital. Every refusal reason is counted.
 
 **Speaker notes:** Photon, BullX, Trojan and the rest are good tools for humans who click. AATE removes the click.
@@ -56,8 +56,8 @@ The pipeline from candidate to capital:
 2. **Safety.** HardRugPreFilter, TokenSafetyChecker (SAFE / CAUTION / HARD_BLOCK), RugCheck policy, a mint blacklist and refusal of serial-rugger creators.
 3. **Scoring.** Per-lane AIs (ShitCoin, Moonshot, BlueChip, Quality, ProjectSniper, CashGeneration and others), then the FinalDecisionGate.
 4. **Predictive Entry Oracle.** Forecasts expectancy and win probability from up to 5,000 journal closes. Its verdict is binary, **ADMIT / REFUSE**, with no probe trades.
-5. **Oracle Edge Proof.** The oracle stays advisory until it proves itself on real closes: at least 20 ADMIT and 10 REFUSE closes, ADMIT mean at least 2pp better, ADMIT win rate at least equal, Brier ≤ 0.25. After that it decides admission, and it demotes itself if the edge fades.
-6. **Executable Entry Authority.** The single gate before capital, with a loss-streak limit, cooldowns and a daily loss cap.
+5. **Oracle Edge Proof.** The oracle stays advisory until it proves itself on real closes: at least 20 ADMIT and 10 REFUSE closes, ADMIT mean at least 2pp better, ADMIT win rate at least equal, ADMIT mean positive, Brier ≤ 0.25. After that it decides admission, and it demotes itself if the edge fades.
+6. **Executable Entry Authority.** The single gate before capital. It shrinks size after losses.
 7. **LLM council** (Groq, Gemini, Cerebras, Mistral, OpenRouter and others). It runs async and cached, off the hot path. Its narrative and scam analysis can block live entries.
 
 **Speaker notes:** The key idea is that the oracle has to earn authority. It can't just claim it. That proof state persists across restarts.
@@ -86,7 +86,7 @@ The pipeline from candidate to capital:
 
 - **Keys:** EncryptedSharedPreferences (AES-256) and a biometric lock. Keys never leave the device. A multi-chain recovery vault covers ETH, BSC and BTC.
 - **Execution:** Jupiter swap API, a PumpPortal fallback for pump.fun sells, and direct bonding-curve reads over an RPC ladder. Orders go out through Helius Sender with a tip envelope, use Jito bundles for MEV protection, and fall back to a public RPC ladder.
-- **Circuit breakers:** a 0.1 SOL minimum wallet, a session drawdown halt, loss-streak limits and a daily loss cap.
+- **Circuit breakers:** a 0.1 SOL minimum wallet, and a 10% session drawdown halt.
 - **Single sources of truth:** the Canonical Position Authority and Canonical Capital Authority (cash, reserved, open cost, unrealized, realized, fees).
 - **Forensics:** ForensicLogger structured phase logs, plus a Pipeline Health screen with funnel counters, an ANR watchdog and a count for every refusal reason.
 
@@ -158,7 +158,7 @@ Measured from the code at 5.0.7288:
 |---|---|---|---|
 | Who decides | The user | Fixed rules | The engine, per lane |
 | Exits | User or simple TP/SL | Rule-based | Sliding profit lock, trailing, runner profiles, learned policy |
-| Learning | — | — | Oracle with edge proof, TFLite, collective learning |
+| Learning | — | — | Oracle with edge proof, on-device learning model, collective learning |
 | Where it runs | Telegram / web | Exchange / server | On the phone |
 
 We don't publish competitor numbers. This is a comparison of product models, not a scorecard.

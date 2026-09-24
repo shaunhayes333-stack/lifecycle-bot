@@ -244,7 +244,7 @@ footer .brand{font-size:15px}
       <div class="step"><h3>Screen</h3><p>Rug pre-filter, token safety verdict, RugCheck, mint blacklist and serial-rugger creator refusal.</p></div>
       <div class="step"><h3>Score</h3><p>Each lane's scoring AI and the Final Decision Gate. The LLM council's scam and narrative read can veto live entries.</p></div>
       <div class="step key"><h3>Oracle</h3><p>Forecasts expectancy and win probability from the full trade journal. Verdict: ADMIT or REFUSE.</p></div>
-      <div class="step"><h3>Admit</h3><p>Learned admission, then a single executable-entry gate with loss-streak limits, cooldowns and a daily loss cap.</p></div>
+      <div class="step"><h3>Admit</h3><p>Learned admission, then a single executable-entry gate that shrinks size after losses. In live, a circuit breaker (0.1 SOL minimum wallet, 10% session drawdown halt) is the hard stop.</p></div>
       <div class="step"><h3>Size</h3><p>Sized to what can actually be exited, with a fee-aware minimum so no trade is too small to cover its costs.</p></div>
       <div class="step"><h3>Execute</h3><p>Jupiter routing, Helius Sender, Jito bundles, and PumpPortal as the fallback for pump.fun sells.</p></div>
       <div class="step"><h3>Exit &amp; learn</h3><p>Marks every open position once a second. The profit lock slides up to the peak, and every close feeds the learners.</p></div>
@@ -268,8 +268,9 @@ footer .brand{font-size:15px}
       <li><b>≥ 20 / 10</b>At least 20 ADMIT closes and 10 REFUSE closes graded</li>
       <li><b>+2 pp</b>Trades it admits must beat trades it refuses by at least 2 points of mean return</li>
       <li><b>WR ≥</b>Win rate on admitted trades must be at least the win rate on refused trades</li>
+      <li><b>Mean &gt; 0</b>ADMIT closes must also average a positive return</li>
       <li><b>Brier ≤ .25</b>Its win-probability forecasts must be calibrated, not just confident</li>
-      <li><b>Persisted</b>The proof survives restarts, and a close is only graded against a forecast made before it</li>
+      <li><b>Persisted</b>The proof survives restarts, and a close is only graded against a forecast made before it, within the previous 6 hours</li>
     </ul>
   </div>
 </section>
@@ -339,9 +340,9 @@ footer .brand{font-size:15px}
       <span class="val">expression-body return</span><span class="val">lane identity</span><span class="val">local fn modifiers</span><span class="val">val assignment</span>
     </div>
     <div class="grid g3" style="margin-top:32px">
-      <div class="card"><span class="icon">SECURITY</span><h3>Keys never leave the phone</h3><p>Wallet keys are encrypted with AES-256 in Android's encrypted storage and locked behind biometrics. A live safety circuit breaker refuses to trade underfunded wallets and halts on session drawdown.</p></div>
+      <div class="card"><span class="icon">SECURITY</span><h3>Keys never leave the phone</h3><p>Wallet keys are encrypted with AES-256 in Android's encrypted storage and locked behind biometrics. A live safety circuit breaker refuses to trade underfunded wallets and halts at a 10% session drawdown.</p></div>
       <div class="card"><span class="icon">FORENSICS</span><h3>Every refusal is counted</h3><p>Structured phase logs and the Pipeline Health screen record each funnel step, gate verdict, stall and fee, so any number the app shows can be traced back.</p></div>
-      <div class="card"><span class="icon">LLM COUNCIL</span><h3>Many models, off the hot path</h3><p>Groq, Gemini, Cerebras, Mistral, OpenRouter and keyless providers read narrative, spot scams and advise on exits. Their answers are cached and fetched asynchronously, so trading never waits on them.</p></div>
+      <div class="card"><span class="icon">LLM COUNCIL</span><h3>Many models, off the hot path</h3><p>Groq, Gemini, Cerebras, Mistral, OpenRouter and keyless providers read narrative, spot scams and advise on exits in live mode. Their answers are cached and fetched asynchronously, so trading never waits on them.</p></div>
     </div>
   </div>
 </section>

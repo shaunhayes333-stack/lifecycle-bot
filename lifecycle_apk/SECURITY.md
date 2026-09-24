@@ -20,7 +20,7 @@ Covers **AATE — Autonomous Algorithmic Trading Engine**.
 
 ### Network Security
 - No plaintext transmission of sensitive data
-- Keys are never sent to any server. Collective Learning shares only anonymized patterns with the operator's Turso instance.
+- Keys are never sent to any server. Collective Learning syncs only pattern records (hashed) and a shared blacklist to the operator's Turso database.
 
 ### Transaction Security
 - Jito bundle MEV protection
@@ -29,8 +29,8 @@ Covers **AATE — Autonomous Algorithmic Trading Engine**.
 - Slippage protection
 
 ### Runtime Protection
-- Live safety circuit breaker: minimum wallet of 0.1 SOL, and a halt on session drawdown
-- Executable Entry Authority: loss-streak limit, cooldowns and a daily loss cap
+- Live safety circuit breaker: minimum wallet of 0.1 SOL, and a halt at a 10% session drawdown
+- Executable Entry Authority: shrinks size after losses (×0.65 after one, ×0.35 after two or during a 60 s cooldown)
 - Rate limiting and backoff on API and RPC calls
 - Wallet reserve protection
 

@@ -14,7 +14,7 @@ AATE, the Autonomous Algorithmic Trading Engine ("the App"), is a cryptocurrency
 - **Trading Configuration**: your preferences, risk settings and trading parameters.
 
 ### Collective Learning Data
-Collective Learning (the "hive mind") syncs **anonymized** data to a Turso/libSQL database run by the App's operator. It is enabled by default in the current version. The data is:
+Collective Learning (the "hive mind") syncs pattern records (hashed) and a shared blacklist to a Turso/libSQL database run by the App's operator. It is enabled by default in the current version. The data is:
 - Pattern outcomes (aggregated win/loss statistics, no individual trades)
 - Token blacklist contributions (rug/honeypot reports)
 - Mode performance by market condition
@@ -37,7 +37,7 @@ Collective Learning (the "hive mind") syncs **anonymized** data to a Turso/libSQ
 
 - **Primary**: on your device, in Android EncryptedSharedPreferences (AES-256)
 - **Backup**: optional external storage at `/sdcard/AATE/`, under your control
-- **Remote**: the operator's Turso database, for anonymized Collective Learning data only
+- **Remote**: the operator's Turso database, for Collective Learning data (hashed pattern records and a shared blacklist) only
 
 ## Data Security
 

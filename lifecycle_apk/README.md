@@ -57,19 +57,19 @@ One registry holds 16 traders: `MEME`, `SHITCOIN`, `MOONSHOT`, `EXPRESS`, `QUALI
         learned exit policy, universal stop-loss sweep
                     |
                     v
- Journal -> learning, on-device TFLite model, collective hive mind, Oracle proof
+ Journal -> learning, on-device learning model, collective hive mind, Oracle proof
 ```
 
 - **The oracle gives a binary verdict.** It either ADMITs or REFUSEs. There are no "probe" trades.
-- **The oracle has to earn authority.** It stays advisory until real closes show an edge: at least 20 ADMIT and 10 REFUSE closes, an ADMIT mean at least 2 percentage points above the REFUSE mean, an ADMIT win rate at or above the REFUSE win rate, and a Brier score of 0.25 or lower. Once PROVEN, it decides admission. If the edge fades, it demotes itself. The proof persists across restarts.
-- **The LLM council** can use Groq (gpt-oss), Gemini, Cerebras, Mistral, OpenRouter, any OpenAI-compatible endpoint, and keyless providers. Its narrative/scam analysis can block live entries and its exit advice can trigger exits. It runs asynchronously and cached, off the hot path.
+- **The oracle has to earn authority.** It stays advisory until real closes show an edge: at least 20 ADMIT and 10 REFUSE closes, an ADMIT mean at least 2 percentage points above the REFUSE mean, an ADMIT win rate at or above the REFUSE win rate, a positive ADMIT mean, and a Brier score of 0.25 or lower. Once PROVEN, it decides admission. If the edge fades, it demotes itself. The proof persists across restarts.
+- **The LLM council** can use Groq (gpt-oss), Gemini, Cerebras, Mistral, OpenRouter, any OpenAI-compatible endpoint, and keyless providers. In live mode only, its narrative/scam analysis can block entries and its exit advice can trigger exits on winning positions. It runs asynchronously and cached, off the hot path.
 - **Wins are not capped.** The profit lock slides up toward the peak instead of taking a fixed target.
 
 ## Execution and safety
 
 - Swaps go through the Jupiter swap API. PumpPortal trade-local is the fallback for pump.fun sells, and pump.fun bonding-curve accounts are read directly over an RPC ladder.
 - Transactions are submitted fast through Helius Sender with a tip envelope, protected from MEV by Jito bundles, and fall back to a public RPC ladder.
-- Modes are **PAPER**, **LIVE** and **SHADOW**. The live safety circuit breaker needs a minimum wallet of 0.1 SOL and halts on session drawdown. The Executable Entry Authority enforces a loss-streak limit, cooldowns and a daily loss cap.
+- Modes are **PAPER**, **LIVE** and **SHADOW**. The live safety circuit breaker needs a minimum wallet of 0.1 SOL and halts at a 10% session drawdown. The Executable Entry Authority shrinks size after losses (×0.65 after one, ×0.35 after two or during a 60 s cooldown).
 - Keys are stored in EncryptedSharedPreferences (AES-256) behind a PIN / biometric lock and never leave the device. A multi-chain recovery vault covers ETH, BSC and BTC.
 - The app fee is 0.5% per spot side (1% on leverage).
 - There are 40+ data sources, including Helius (RPC, enhanced WebSocket, DAS, Sender), PumpPortal, DexScreener, Birdeye, GeckoTerminal, CoinGecko, Jupiter Price, Pyth Hermes, Switchboard, DefiLlama, Binance/Kraken/Coinbase, RugCheck, Solscan, GMGN, market-data feeds (Yahoo, Stooq, Finnhub, Polygon), Fear & Greed, and social feeds.
@@ -163,7 +163,7 @@ lifecycle_apk/
     data/         config, data sources, persistence
     engine/       bot service, scanners, authorities, execution, exits
     learning/     journal-driven learning
-    ml/           on-device TensorFlow Lite model
+    ml/           on-device online-learning model
     network/      HTTP / RPC / WebSocket clients
     perps/        perpetuals trading
     ui/           the 22 screens and settings sheet
