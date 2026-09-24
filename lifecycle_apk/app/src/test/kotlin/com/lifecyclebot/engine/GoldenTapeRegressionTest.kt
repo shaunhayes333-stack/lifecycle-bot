@@ -10796,4 +10796,22 @@ class GoldenTapeRegressionTest {
         assertTrue(alt.contains("val maxRisk = (balance + totalRisk) * 0.80"))
     }
 
+    @Test
+    fun V5_0_7289_a_cap_rebuilt_from_the_price_does_not_corroborate_that_price() {
+        val d = com.lifecyclebot.engine.truth.DerivedMarketCap7289
+        d.onRebuiltFromPrice("MINT7289", 125_528_525.0)
+        assertTrue(d.isDerived("MINT7289", 125_528_525.0))
+        // An independent payload rewrites the cap: it is evidence again.
+        assertFalse(d.isDerived("MINT7289", 48_126.0))
+        assertFalse(d.isDerived("MINT7289", 125_528_525.0))
+        assertFalse(d.isDerived("NEVER_REBUILT", 1_000.0))
+
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("val corroborated7060 = capAgrees7060 && !capDerived7289 && !absurd7289"))
+        assertTrue(bot.contains("DerivedMarketCap7289.onRebuiltFromPrice(mint, cap7269)"))
+        assertTrue(bot.contains("SlowCycleDiagnostic6437.sampleIfWedged7289(now)"))
+        assertTrue(bot.contains("catastropheContradicted7289(ts, markPx)"))
+        assertTrue(bot.contains("other / markPx >= 2.0"))
+    }
+
 }

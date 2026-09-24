@@ -44,8 +44,43 @@ object SlowCycleDiagnostic6437 {
     private val worstCycleMs = AtomicLong(0L)
     private val worstCyclePhase = AtomicReference<String>("")
 
+    // V5.0.7289 §NAME THE FRAME A TEN-MINUTE CYCLE STOPPED IN.
+    //
+    // 5.0.7288: one cycle took 623,954 ms with worstPhase=INTAKE, and the
+    // exit coordinator's heartbeat went 710 s stale over the same window.
+    // Phase spend says WHICH phase and nothing about WHERE inside it. The
+    // heartbeat alarm runs about once a minute while the cycle is wedged, so
+    // it samples the cycle thread's stack; the next snapshot names the call.
+    @Volatile private var cycleThread7289: Thread? = null
+    @Volatile private var cycleOpen7289 = false
+    private val stallSamples7289 = AtomicLong(0L)
+    private val lastStall7289 = AtomicReference<String>("-")
+    private const val STALL_SAMPLE_MS_7289 = 60_000L
+
+    fun sampleIfWedged7289(nowMs: Long) {
+        if (!cycleOpen7289) return
+        val start = cycleStartMs.get()
+        val inCycleMs = nowMs - start
+        if (start <= 0L || inCycleMs < STALL_SAMPLE_MS_7289) return
+        val t = cycleThread7289 ?: return
+        val top = try {
+            t.stackTrace.take(8).joinToString(" < ") {
+                "${it.className.substringAfterLast('.')}.${it.methodName}:${it.lineNumber}"
+            }
+        } catch (_: Throwable) { "trace=unavailable" }
+        val line = "inCycleMs=$inCycleMs phase=${lastPhaseName.get()} thread=${t.name} state=${t.state} top=[$top]"
+        stallSamples7289.incrementAndGet()
+        lastStall7289.set(line)
+        try {
+            PipelineHealthCollector.labelInc("BOT_LOOP_WEDGED_SAMPLED_7289")
+            ForensicLogger.lifecycle("BOT_LOOP_WEDGED_SAMPLED_7289", line)
+        } catch (_: Throwable) {}
+    }
+
     fun beginCycle(loopCount: Int) {
         val now = System.currentTimeMillis()
+        cycleThread7289 = Thread.currentThread()
+        cycleOpen7289 = true
         cycleStartMs.set(now)
         lastPhaseMs.set(now)
         lastPhaseName.set("ENTER")
@@ -75,6 +110,7 @@ object SlowCycleDiagnostic6437 {
     fun noteCycleEnd(loopCount: Int, cycleMs: Long): Map<String, Long> {
         // Flush the current (last) phase.
         notePhase("CYCLE_EXIT")
+        cycleOpen7289 = false
         val snapshot: Map<String, Long> = HashMap(phaseSpendMs)
         if (cycleMs >= SLOW_CYCLE_THRESHOLD_MS) {
             slowCycleCount.incrementAndGet()
@@ -102,7 +138,8 @@ object SlowCycleDiagnostic6437 {
         val count = slowCycleCount.get()
         val worst = worstCycleMs.get()
         val phase = worstCyclePhase.get()
-        return "slowCycles=$count worstMs=$worst worstPhase=$phase"
+        return "slowCycles=$count worstMs=$worst worstPhase=$phase " +
+            "wedgedSamples7289=${stallSamples7289.get()} lastWedge7289=${lastStall7289.get()}"
     }
 
     /** For tests only. */

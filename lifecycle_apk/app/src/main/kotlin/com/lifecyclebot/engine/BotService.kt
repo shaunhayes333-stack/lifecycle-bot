@@ -3443,6 +3443,7 @@ class BotService : Service() {
                     val phase = currentPhase
                     val phaseIsActive = phase in activePhaseSet
 
+                    try { com.lifecyclebot.engine.truth.SlowCycleDiagnostic6437.sampleIfWedged7289(now) } catch (_: Throwable) {}
                     ForensicLogger.lifecycle(
                         "LOOP_HEARTBEAT_ALARM",
                         "sinceLastTickSec=${sinceLastTickMs / 1000} progressGapSec=${progressGapMs / 1000} running=$running loopActive=$active phase=$phase"
@@ -5076,11 +5077,32 @@ class BotService : Service() {
                     // lift the 6604 clamp. TICK_ONLY and the carried/flat rungs
                     // are usable marks but they are not evidence of a runner,
                     // so they stay clampable.
-                    val corroborated7060 =
+                    val capAgrees7060 =
                         mark7060.provenance == com.lifecyclebot.engine.truth
                             .CanonicalMarkResolution7059.Provenance.TICK_MCAP_AGREED ||
                         mark7060.provenance == com.lifecyclebot.engine.truth
                             .CanonicalMarkResolution7059.Provenance.MCAP_RECONCILED
+                    // V5.0.7289 — a cap 7269 rebuilt from this price agrees with
+                    // it by construction and is not a second witness; and a mark
+                    // StalePriceExitGuard refuses to trade on as absurd may not
+                    // be counted in equity either. Both leave the mark usable and
+                    // simply uncorroborated, so the 6604 clamp decides as it did
+                    // before 7060 gave it a verdict it never had.
+                    val capDerived7289 = capAgrees7060 &&
+                        com.lifecyclebot.engine.truth.DerivedMarketCap7289.isDerived(mint, ts.lastMcap)
+                    val gainMultiple7289 = if (pos.entryPrice.isFinite() && pos.entryPrice > 0.0)
+                        mark7060.price / pos.entryPrice else 0.0
+                    val absurd7289 = capAgrees7060 && (!gainMultiple7289.isFinite() ||
+                        gainMultiple7289 > com.lifecyclebot.engine.sell.StalePriceExitGuard.ABSURD_GAIN_MULTIPLE)
+                    if (capDerived7289 || absurd7289) {
+                        try {
+                            PipelineHealthCollector.labelInc(
+                                if (absurd7289) "MARK_QUOTE_7289_ABSURD_NOT_CORROBORATED"
+                                else "MARK_QUOTE_7289_CAP_DERIVED_FROM_PRICE_NOT_CORROBORATED"
+                            )
+                        } catch (_: Throwable) {}
+                    }
+                    val corroborated7060 = capAgrees7060 && !capDerived7289 && !absurd7289
                     try {
                         PipelineHealthCollector.labelInc(
                             if (corroborated7060) "MARK_QUOTE_7060_CORROBORATED"
@@ -11767,6 +11789,7 @@ class BotService : Service() {
                                         PipelineHealthCollector.labelInc("MCAP_STACK_REBUILD_BASIS_MISMATCH_7273")
                                     } else if (cap7269.isFinite() && cap7269 > 0.0) {
                                         ts.lastMcap = cap7269
+                                        com.lifecyclebot.engine.truth.DerivedMarketCap7289.onRebuiltFromPrice(mint, cap7269)
                                         PipelineHealthCollector.labelInc("MCAP_REFRESHED_FROM_STACK_7269")
                                     }
                                 }
@@ -32235,6 +32258,35 @@ if (hotExitHandledSweep) {
      *
      * The caller owns the decision. This only executes it.
      */
+    private fun catastropheContradicted7289(ts: com.lifecyclebot.data.TokenState, markPx: Double): Boolean {
+        if (!markPx.isFinite() || markPx <= 0.0) return false
+        val src = ts.lastPriceSource.uppercase()
+        if (src.contains("PUMP_CURVE_RPC") || src.contains("JUPITER_QUOTE")) return false
+        val repaired = try {
+            com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getRepairedPriceIfFresh(ts.mint)
+        } catch (_: Throwable) { null }
+        val fanout = try {
+            com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(listOf(ts.mint))[ts.mint]
+        } catch (_: Throwable) { null }
+        val fanoutPx = fanout?.takeIf { !(it.sourceCount >= 2 && !it.corroborated) }?.priceUsd
+        fun above(other: Double?): Boolean =
+            other != null && other.isFinite() && other > 0.0 && other / markPx >= 2.0
+        val contradicted = above(repaired) || above(fanoutPx)
+        try {
+            PipelineHealthCollector.labelInc(
+                if (contradicted) "PROTECTIVE_CATASTROPHE_REFUSED_CONTRADICTED_7289"
+                else "PROTECTIVE_CATASTROPHE_UNCONTRADICTED_7289"
+            )
+            if (contradicted) ForensicLogger.lifecycle(
+                "PROTECTIVE_CATASTROPHE_REFUSED_CONTRADICTED_7289",
+                "mint=${ts.mint.take(10)} sym=${ts.symbol} mark=$markPx entry=${ts.position.entryPrice} " +
+                    "src=${ts.lastPriceSource} repaired=${repaired ?: "none"} fanout=${fanoutPx ?: "none"} " +
+                    "action=hold_latch_retry_on_redispatch",
+            )
+        } catch (_: Throwable) {}
+        return contradicted
+    }
+
     private fun dispatchProtectiveExit7176(
         ts: com.lifecyclebot.data.TokenState,
         positionId: String,
@@ -32268,6 +32320,27 @@ if (hotExitHandledSweep) {
         // being abandoned for the life of the process.
         val sellReason6882 = "PROTECTIVE_EXIT_${kind}_6450_RISKCLOCK"
         scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            // V5.0.7289 §A CATASTROPHE THE MARKET CONTRADICTS IS NOT ONE.
+            //
+            // 5.0.7288: LinkhB (wrapped Chainlink, mcap $9.6B) closed from the
+            // QUALITY lane at sol=0.000 pnl=-100% on this reason. The risk clock
+            // checks a mark's age and nothing else, and TokenMetricsAuthority7069
+            // counted 6,658 identity breaks in the same run (worst 17,967,607x):
+            // a fresh wrong-pair price crossed entry*0.75, latched CATASTROPHE,
+            // and the fill booked a total loss on a blue chip. The scan-path
+            // catastrophe asks for evidence (6904) and the paper fill's own
+            // contradiction check (7273) only covers the first ten minutes of a
+            // hold, so a held position had neither.
+            //
+            // Before a CATASTROPHE sell leaves, the stack is asked once. Only an
+            // independent price reading at least 2x ABOVE the triggering mark
+            // refuses it; silence is not contradiction, so a token that really
+            // died still closes. The latch is untouched and the 30 s redispatch
+            // asks again, so a genuine collapse is delayed by one question, not
+            // held. Stop-loss and every other kind pass through unchanged.
+            if (kind == com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.TriggerKind.CATASTROPHE &&
+                catastropheContradicted7289(ts, markPx)
+            ) return@launch
             try {
                 executor.requestSell(
                     ts = ts,
