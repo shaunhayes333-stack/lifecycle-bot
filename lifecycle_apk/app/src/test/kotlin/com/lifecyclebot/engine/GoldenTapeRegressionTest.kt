@@ -9306,9 +9306,12 @@ class GoldenTapeRegressionTest {
             "V5.0.6821: 429 must map to rateLimitSchedule (not soft 2s schedule)",
             src.contains("429 -> rateLimitSchedule"),
         )
+        // V5.0.7297 — the first 429 rests 30 s, not 2 min (one 429 silenced every
+        // DexScreener caller); the ladder still climbs past the 2 s transient
+        // schedule to 10 min on a provider that keeps refusing.
         org.junit.Assert.assertTrue(
-            "V5.0.6821: first 429 backoff must be at least 2 minutes",
-            src.contains("120_000L"),
+            "V5.0.7297: 429 ladder is 30 s, 1, 2, 5, 10 min",
+            src.contains("30_000L,     // 1st 429") && src.contains("600_000L,    // 5th+"),
         )
     }
 
@@ -10905,6 +10908,49 @@ class GoldenTapeRegressionTest {
         val pol = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionAuthorityPolicy6533.kt").readText()
         assertTrue(pol.contains("byN.filter { it.second < UNDERSAMPLED_CLOSES_7296 }"))
         assertFalse(pol.contains("byN.minOf { it.second }"))
+    }
+
+    @Test
+    fun V5_0_7297_market_sweep_feeds_lane_hunters_that_own_their_bands() {
+        val H = com.lifecyclebot.engine.market.LaneHunter7297
+        // Half-decade buckets.
+        assertEquals(8, H.bucketOf(10_000.0))
+        assertEquals(9, H.bucketOf(75_000.0))
+        assertTrue(H.bucketOf(0.0) == Int.MIN_VALUE)
+        // No evidence: the trader's own band, unchanged.
+        assertEquals(75_000.0 to 1_000_000.0, H.fluidBand(75_000.0, 1_000_000.0, emptyMap()))
+        // A profitable edge bucket widens outward; a losing or thin one does not.
+        val widened = H.fluidBand(75_000.0, 1_000_000.0, mapOf(9 to (8 to 0.05)))
+        assertTrue(widened.first < 75_000.0 && widened.second == 1_000_000.0)
+        assertEquals(75_000.0 to 1_000_000.0, H.fluidBand(75_000.0, 1_000_000.0, mapOf(9 to (8 to -0.05))))
+        assertEquals(75_000.0 to 1_000_000.0, H.fluidBand(75_000.0, 1_000_000.0, mapOf(9 to (7 to 0.5))))
+        val up = H.fluidBand(75_000.0, 1_000_000.0, mapOf(11 to (10 to 0.02)))
+        assertTrue(up.second > 1_000_000.0 && up.first == 75_000.0)
+        // Never narrower than the base, and an unbounded ceiling stays unbounded.
+        assertEquals(Double.MAX_VALUE, H.fluidBand(1_000_000.0, Double.MAX_VALUE, emptyMap()).second, 0.0)
+        // Round-robin: every lane gets rows, and a mint goes to one lane only.
+        val dealt = H.dealRoundRobin(mapOf("QUALITY" to listOf("a", "b", "c"), "SHITCOIN" to listOf("a", "d")), 2)
+        assertEquals(listOf("a", "b"), dealt["QUALITY"])
+        assertEquals(listOf("d"), dealt["SHITCOIN"])
+        // Source names carry the hunting lane.
+        assertEquals("QUALITY", H.laneFromSource("MARKET_HUNT_QUALITY"))
+        assertTrue(H.laneFromSource("DEX_TRENDING") == null)
+        assertTrue(H.laneFromSource("MARKET_HUNT_NOT_A_LANE") == null)
+
+        // One 429 no longer silences a provider for five minutes.
+        val hc = com.lifecyclebot.network.HostCircuitInterceptor
+        assertEquals(30_000L, hc.rateLimitCooldownMs7297(1, null))
+        assertEquals(300_000L, hc.rateLimitCooldownMs7297(9, null))
+        assertEquals(12_000L, hc.rateLimitCooldownMs7297(1, 12L))
+        assertEquals(300_000L, hc.rateLimitCooldownMs7297(1, 3_600L))
+
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("huntClaim7297 != null -> huntClaim7297"))
+        assertTrue(bs.contains("designatedDeskHypothesis6599 != null || huntedByLane7297"))
+        val sc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SolanaMarketScanner.kt").readText()
+        assertTrue(sc.contains("\"scanMarketSweep7297\" to { scanMarketSweep7297() }"))
+        val q = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/QualityTraderAI.kt").readText()
+        assertTrue(q.contains("LaneHunter7297.floorFor(\"QUALITY\", MIN_MARKET_CAP_USD)"))
     }
 
 }

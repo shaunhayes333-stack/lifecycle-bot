@@ -28,6 +28,29 @@ object HostCircuitInterceptor : Interceptor {
     private const val NXDOMAIN_COOLDOWN_MS = 5 * 60_000L
     private const val SERVER_FAIL_COOLDOWN_MS = 90_000L
     private const val RATE_LIMIT_COOLDOWN_MS = 5 * 60_000L
+
+    /**
+     * V5.0.7297 §ONE_429_SILENCED_A_PROVIDER_FOR_FIVE_MINUTES.
+     *
+     * Every 429 set a flat [RATE_LIMIT_COOLDOWN_MS] on the host. DexScreener
+     * serves every DexScreener scanner, the pair lookups and the price path
+     * from one host, so a single 429 from any caller returned a synthetic 599
+     * to all of them for five minutes and the deep scan read raw=0 in 0 ms.
+     * The rest window now honours the provider's Retry-After and otherwise
+     * climbs with consecutive 429s (30 s, 60 s, 2 min, then 5 min); a success
+     * resets the climb. A provider that keeps refusing still reaches the full
+     * five minutes, so parallel callers still cannot storm it.
+     */
+    private val RATE_LIMIT_LADDER_MS_7297 = longArrayOf(30_000L, 60_000L, 120_000L, RATE_LIMIT_COOLDOWN_MS)
+
+    /** Pure: cooldown for the [streak]th consecutive 429 (1-based), or Retry-After when given. */
+    fun rateLimitCooldownMs7297(streak: Int, retryAfterSec: Long?): Long {
+        if (retryAfterSec != null && retryAfterSec > 0L) {
+            return (retryAfterSec * 1000L).coerceIn(5_000L, RATE_LIMIT_COOLDOWN_MS)
+        }
+        val i = (streak - 1).coerceIn(0, RATE_LIMIT_LADDER_MS_7297.lastIndex)
+        return RATE_LIMIT_LADDER_MS_7297[i]
+    }
     private const val SERVER_FAIL_TRIP_COUNT = 3
     private const val SERVER_FAIL_TRIP_WINDOW_MS = 60_000L
 
@@ -36,11 +59,22 @@ object HostCircuitInterceptor : Interceptor {
         val recentServerFailCount: AtomicInteger = AtomicInteger(0),
         val firstServerFailAtMs: AtomicLong = AtomicLong(0L),
         val totalBypassed: AtomicLong = AtomicLong(0L),
+        val rateLimitStreak7297: AtomicInteger = AtomicInteger(0),
     )
 
     private val states = ConcurrentHashMap<String, HostState>()
     private val totalNxBypass = AtomicLong(0L)
     private val totalServerBypass = AtomicLong(0L)
+
+    /**
+     * V5.0.7297 — Jupiter's token lists (lite-api.jup.ag/tokens/...) feed
+     * market discovery; its quote and swap paths feed execution. They share a
+     * host, so a discovery 429 used to lock quotes out and the reverse. The
+     * token lists answer to their own label now.
+     */
+    private fun providerLabelFor(host: String, path: String): String =
+        if (host.endsWith("jup.ag", ignoreCase = true) && path.startsWith("/tokens/")) "jupiter_tokens"
+        else providerLabel(host)
 
     private fun providerLabel(host: String): String = when {
         host.contains("dexscreener", ignoreCase = true) -> "dexscreener"
@@ -103,7 +137,7 @@ object HostCircuitInterceptor : Interceptor {
         val host = req.url.host
         val now = System.currentTimeMillis()
         val state = states.getOrPut(host) { HostState() }
-        val provider = providerLabel(host)
+        val provider = providerLabelFor(host, req.url.encodedPath)
         // V5.0.6976 — probes bypass the circuit (never the Birdeye budget).
         val isProbe = req.header(PROBE_HEADER_6976) != null && provider != "birdeye"
 
@@ -175,7 +209,9 @@ object HostCircuitInterceptor : Interceptor {
         // connection-level rest window so dozens of parallel callers do not all
         // wake up after 90 seconds and recreate the same storm.
         if (response.code == 429) {
-            state.cooldownUntilMs.set(now + RATE_LIMIT_COOLDOWN_MS)
+            val streak7297 = state.rateLimitStreak7297.incrementAndGet()
+            val retryAfter7297 = response.header("Retry-After")?.trim()?.toLongOrNull()
+            state.cooldownUntilMs.set(now + rateLimitCooldownMs7297(streak7297, retryAfter7297))
             state.recentServerFailCount.set(0)
             state.firstServerFailAtMs.set(0L)
         } else if (response.code in 500..599 || response.code == 403) {
@@ -192,6 +228,7 @@ object HostCircuitInterceptor : Interceptor {
                 }
             }
         } else if (response.isSuccessful) {
+            state.rateLimitStreak7297.set(0)
             state.recentServerFailCount.set(0)
             state.firstServerFailAtMs.set(0L)
             state.cooldownUntilMs.set(0L)

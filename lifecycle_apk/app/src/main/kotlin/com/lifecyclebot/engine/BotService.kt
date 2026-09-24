@@ -2230,6 +2230,7 @@ class BotService : Service() {
         // subscribe before the durable finality replay below publishes.
         try { com.lifecyclebot.engine.truth.OracleEdgeProof7263.attach7287(applicationContext) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.truth.SignalSourceProof7291.attach(applicationContext) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.market.LaneHunter7297.attach(applicationContext) } catch (_: Throwable) {}
         try {
             val replayedFinality6486 = com.lifecyclebot.engine.truth.CanonicalFinalityPersistence6486.initAndReplay(applicationContext)
             if (replayedFinality6486 > 0) PipelineHealthCollector.labelInc("DURABLE_FINALITY_REPLAYED_6486")
@@ -13239,8 +13240,20 @@ class BotService : Service() {
             val ensembleCoreFit6614 = strongestRole6614 != null && secondRole6614 != null &&
                 kotlin.math.abs(strongestRole6614.conviction - secondRole6614.conviction) <= 3.0 &&
                 strongestRole6614.conviction < 65.0 && deskSheet6599.deskHypotheses.containsKey("CORE")
+            // V5.0.7297 — a specialist that hunted this token from the market
+            // view owns it while the token is still inside that lane's band.
+            val huntClaim7297: String? = if (forced != null) null else {
+                try {
+                    com.lifecyclebot.engine.market.LaneHunter7297.claimFor(ts.mint, ts.lastMcap)
+                        ?.takeIf { LaneEntryContract6342.isLaneIdentityEligible7252(ts, it) }
+                } catch (_: Throwable) { null }
+            }
+            if (huntClaim7297 != null) {
+                try { PipelineHealthCollector.labelInc("LANE_HUNT_7297_OWNER_$huntClaim7297") } catch (_: Throwable) {}
+            }
             val roleFitPrimary6614 = when {
                 forced != null -> forced
+                huntClaim7297 != null -> huntClaim7297
                 ensembleCoreFit6614 -> "CORE"
                 strongestRole6614 != null -> strongestRole6614.lane
                 else -> metricPrimary
@@ -13455,7 +13468,11 @@ class BotService : Service() {
         if (ExecutionAuthorityPolicy6533.isTrunkLane(l)) return true
         val designatedDeskSheet6599 = try { ToolkitSignalSheet.snapshot(ts) } catch (_: Throwable) { null }
         val designatedDeskHypothesis6599 = designatedDeskSheet6599?.deskHypotheses?.get(l)
-        val designatedDeskQualified6599 = designatedDeskSheet6599 == null || designatedDeskSheet6599.deskHypotheses.isEmpty() || designatedDeskHypothesis6599 != null
+        // V5.0.7297 — the lane's own hunt is its desk hypothesis for this token.
+        val huntedByLane7297 = try {
+            com.lifecyclebot.engine.market.LaneHunter7297.claimFor(ts.mint, ts.lastMcap).equals(l, ignoreCase = true)
+        } catch (_: Throwable) { false }
+        val designatedDeskQualified6599 = designatedDeskSheet6599 == null || designatedDeskSheet6599.deskHypotheses.isEmpty() || designatedDeskHypothesis6599 != null || huntedByLane7297
         val candidateVersion6600 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
         val qualifiedDeskLanes6600 = designatedDeskSheet6599?.deskHypotheses?.keys.orEmpty().filter { !ExecutionAuthorityPolicy6533.isTrunkLane(it) }
         val boundedRescue6600 = ExecutionAuthorityPolicy6533.selectOneRescue(
@@ -13964,6 +13981,8 @@ class BotService : Service() {
     private fun inferIntakeLaneAffinity(source: String, allSources: Set<String>, marketCapUsd: Double, liquidityUsd: Double): Set<String> {
         val tags = (allSources + source).joinToString("|").uppercase()
         val out = linkedSetOf<String>()
+        // V5.0.7297 — a lane-hunted row seeds its hunting lane first.
+        (allSources + source).firstNotNullOfOrNull { com.lifecyclebot.engine.market.LaneHunter7297.laneFromSource(it) }?.let { out += it }
         // V5.9.1576 — source-only birth affinity must be a seed, not a full
         // strategy fanout. 1575's AgenticStyleRouter now expands/ranks lanes
         // once character is known. If raw source already adds 3-4 lanes here,

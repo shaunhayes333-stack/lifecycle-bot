@@ -62,8 +62,8 @@ object ShitCoinTraderAI {
     // Market cap filter - V5.2.12: Extended to $100K to flow into Quality layer
     // ShitCoin: $500 - $500K (pre-graduation memes and early plays — the lane is *designed* for the firehose)
     // Quality picks up above this band
-    private const val MAX_MARKET_CAP_USD = 500_000.0   // V5.9.343: walk-back to V5.9.325
-    private const val MIN_MARKET_CAP_USD = 500.0     // V5.9.615: $500 floor — pre-graduation pump.fun tokens are the ShitCoin lane's designed prey
+    const val MAX_MARKET_CAP_USD = 500_000.0   // V5.9.343: walk-back to V5.9.325
+    const val MIN_MARKET_CAP_USD = 500.0     // V5.9.615: $500 floor — pre-graduation pump.fun tokens are the ShitCoin lane's designed prey
     
     // Liquidity requirements — V5.5: Hard $5K minimum across all phases
     private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 300.0     // V5.9.615: pump.fun bonding curves at $500 mcap have ~$425 estimated liq; this lets fresh memes through
@@ -874,12 +874,16 @@ object ShitCoinTraderAI {
         // Fresh pump.fun / DexScreener trending entries often arrive without
         // a populated mcap number and the MCAP_TOO_LOW reject was silently
         // eating the entire ShitCoin signal for the fresh-meme flow.
-        if (marketCapUsd > MAX_MARKET_CAP_USD) {
-            return rejectSignal("MCAP_TOO_HIGH: \$${(marketCapUsd/1000).toInt()}K > \$${(MAX_MARKET_CAP_USD/1000).toInt()}K", mode, launchPlatform)
+        // V5.0.7297 — fluid band: widened only where the lane's graded closes
+        // at that edge are profitable; never narrower than the constants.
+        val maxMcap7297 = com.lifecyclebot.engine.market.LaneHunter7297.ceilingFor("SHITCOIN", MAX_MARKET_CAP_USD)
+        val minMcap7297 = com.lifecyclebot.engine.market.LaneHunter7297.floorFor("SHITCOIN", MIN_MARKET_CAP_USD)
+        if (marketCapUsd > maxMcap7297) {
+            return rejectSignal("MCAP_TOO_HIGH: \$${(marketCapUsd/1000).toInt()}K > \$${(maxMcap7297/1000).toInt()}K", mode, launchPlatform)
         }
 
-        if (marketCapUsd > 0.0 && marketCapUsd < MIN_MARKET_CAP_USD) {
-            return rejectSignal("MCAP_TOO_LOW: \$${marketCapUsd.toInt()} < \$${MIN_MARKET_CAP_USD.toInt()}", mode, launchPlatform)
+        if (marketCapUsd > 0.0 && marketCapUsd < minMcap7297) {
+            return rejectSignal("MCAP_TOO_LOW: \$${marketCapUsd.toInt()} < \$${minMcap7297.toInt()}", mode, launchPlatform)
         }
         
         // 2. LIQUIDITY FILTER - Must have minimum liquidity

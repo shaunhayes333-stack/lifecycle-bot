@@ -2673,6 +2673,12 @@ object PipelineHealthCollector {
             sb.append("  Signal source proof (§7291):  ").append(
                 try { com.lifecyclebot.engine.truth.SignalSourceProof7291.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")
+            sb.append("  Market sweep (§7297):         ").append(
+                try { com.lifecyclebot.engine.market.MarketSweep7297.statusLine() } catch (_: Throwable) { "unavailable" }
+            ).append("\n")
+            sb.append("  Lane hunters (§7297):         ").append(
+                try { com.lifecyclebot.engine.market.LaneHunter7297.statusLine() } catch (_: Throwable) { "unavailable" }
+            ).append("\n")
             sb.append("  Learner degeneracy (§7102):   ").append(
                 com.lifecyclebot.engine.truth.LearnedPolicyDegeneracyWatch7102.statusLine7102()
             ).append("\n")

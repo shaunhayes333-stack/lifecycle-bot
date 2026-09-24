@@ -55,12 +55,12 @@ object DipHunterAI {
     private const val DANGER_DIP_PCT = 60.0    // >60% = falling knife territory
     
     // Market cap requirements
-    private const val MIN_MCAP_USD = 50_000.0     // At least $50K mcap
-    private const val MAX_MCAP_USD = 5_000_000.0  // Max $5M mcap
+    const val MIN_MCAP_USD = 50_000.0     // At least $50K mcap
+    const val MAX_MCAP_USD = 5_000_000.0  // Max $5M mcap
     
     // Liquidity requirements
     private const val MIN_LIQUIDITY_USD = 10_000.0  // Strong liquidity required
-    private const val MIN_LIQUIDITY_RATIO = 0.10    // Liq must be >10% of mcap
+    const val MIN_LIQUIDITY_RATIO = 0.10    // Liq must be >10% of mcap
     
     // Age requirements
     private const val MIN_TOKEN_AGE_HOURS = 2.0     // At least 2 hours old
@@ -290,10 +290,11 @@ object DipHunterAI {
         }
         
         // Market cap range
-        if (marketCapUsd < MIN_MCAP_USD) {
+        // V5.0.7297 — fluid band from the lane's own graded closes.
+        if (marketCapUsd < com.lifecyclebot.engine.market.LaneHunter7297.floorFor("DIP_HUNTER", MIN_MCAP_USD)) {
             return noDip("MCAP_TOO_LOW: \$${(marketCapUsd/1000).toInt()}K")
         }
-        if (marketCapUsd > MAX_MCAP_USD) {
+        if (marketCapUsd > com.lifecyclebot.engine.market.LaneHunter7297.ceilingFor("DIP_HUNTER", MAX_MCAP_USD)) {
             return noDip("MCAP_TOO_HIGH: \$${(marketCapUsd/1_000_000).fmt(1)}M")
         }
         

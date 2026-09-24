@@ -66,14 +66,14 @@ object MoonshotTraderAI {
     // V5.2.12: Moonshot is a CROSS-LAYER promotion for massive gains
     // Any token from any layer can promote to Moonshot when gains hit threshold
     // Market cap boundaries are wide to accept promotions from all layers
-    private const val MIN_MARKET_CAP_USD = 10_000.0      // $10K minimum (can come from ShitCoin)
+    const val MIN_MARKET_CAP_USD = 10_000.0      // $10K minimum (can come from ShitCoin)
     // V5.9.1307 — was $100M ("allow Jupiter plays"). But a $50M token cannot 10x-1000x;
     // letting MOONSHOT bid mature caps diluted its edge into a generalist and contributed
     // to its -0.41 SOL / 8.5% WR bleed. A real moonshot hunts $5K-$5M gems BEFORE liftoff.
     // Pull the ceiling back to $5M so the lane targets the asymmetric-upside zone it was
     // built for. COLLECTIVE winners (proven 10x network plays) keep a higher implicit
     // ceiling via the JUPITER mode bonus path; this only stops cold bids on mature caps.
-    private const val MAX_MARKET_CAP_USD = 5_000_000.0   // $5M — moonshot upside zone
+    const val MAX_MARKET_CAP_USD = 5_000_000.0   // $5M — moonshot upside zone
     
     // Liquidity requirements - flexible since these are promoted positions
     // V5.9.159 — bootstrap liquidity floor lowered. At 1% learning a $5K floor
@@ -446,11 +446,12 @@ object MoonshotTraderAI {
         // 1. Market cap filter - Moonshot zone
         val minMcap7266 = if (runnerShaped7266) {
             com.lifecyclebot.engine.truth.MoonshotFreshLaunchAdmission7044.MCAP_FLOOR_USD
-        } else MIN_MARKET_CAP_USD
+        } else com.lifecyclebot.engine.market.LaneHunter7297.floorFor("MOONSHOT", MIN_MARKET_CAP_USD)
         if (marketCapUsd < minMcap7266) {
             return MoonshotScore(false, 0, 0.0, "mcap_too_low_${(marketCapUsd/1000).toInt()}K_min_100K")
         }
-        if (marketCapUsd > MAX_MARKET_CAP_USD) {
+        // V5.0.7297 — fluid ceiling from the lane's own graded closes.
+        if (marketCapUsd > com.lifecyclebot.engine.market.LaneHunter7297.ceilingFor("MOONSHOT", MAX_MARKET_CAP_USD)) {
             return MoonshotScore(false, 0, 0.0, "mcap_too_high_${(marketCapUsd/1_000_000).toInt()}M")
         }
 

@@ -693,6 +693,15 @@ class SolanaMarketScanner(
         RAYDIUM_NEW_POOL,
         NARRATIVE_SCAN,
         MANUAL,
+        // V5.0.7297 — lane-hunted rows from the MarketSweep7297 market view.
+        // The name carries the hunting lane (LaneHunter7297.laneFromSource).
+        MARKET_HUNT_SHITCOIN,
+        MARKET_HUNT_QUALITY,
+        MARKET_HUNT_BLUECHIP,
+        MARKET_HUNT_DIP_HUNTER,
+        MARKET_HUNT_MOONSHOT,
+        MARKET_HUNT_TREASURY,
+        MARKET_HUNT_CASHGEN,
     }
 
     data class ScannedToken(
@@ -1548,6 +1557,10 @@ class SolanaMarketScanner(
                         // starving because the CoinGecko-established feed is
                         // rate-limited and only ran every 4th cycle.
                         "scanSolanaBlueChipWatchlist" to { scanSolanaBlueChipWatchlist() },
+                        // V5.0.7297 — the market scanner: a parallel sweep of every
+                        // free provider (Jupiter, Raydium, Helius), then each
+                        // specialist lane hunts its own band from that view.
+                        "scanMarketSweep7297" to { scanMarketSweep7297() },
                     )
                     // GeckoTerminal / CoinGecko full-network feeders are re-enabled but
                     // staggered through the existing Gecko budget so they cannot wedge the
@@ -2079,6 +2092,40 @@ class SolanaMarketScanner(
         } catch (e: Exception) {
             ErrorLogger.error("Scanner", "scanFreshLaunches error: ${e.message}")
         }
+    }
+
+    private suspend fun scanMarketSweep7297() {
+        val heliusKey = try { cfg().heliusApiKey } catch (_: Throwable) { "" }
+        val snap = com.lifecyclebot.engine.market.MarketSweep7297.sweep(heliusKey) ?: return
+        val picks = com.lifecyclebot.engine.market.LaneHunter7297.hunt(snap)
+        var emitted = 0
+        for ((lane, rows) in picks) {
+            val source = try {
+                TokenSource.valueOf(com.lifecyclebot.engine.market.LaneHunter7297.SOURCE_PREFIX + lane)
+            } catch (_: Throwable) { continue }
+            for (r in rows) {
+                // Claimed either way: a mint another source already surfaced
+                // still belongs to this lane while it stays in band.
+                if (isSeen(r.mint)) continue
+                val token = ScannedToken(
+                    mint = r.mint,
+                    symbol = r.symbol.ifBlank { r.mint.take(6) },
+                    name = r.name.ifBlank { r.symbol },
+                    source = source,
+                    liquidityUsd = r.liquidityUsd,
+                    volumeH1 = r.volumeH1Usd,
+                    mcapUsd = r.mcapUsd,
+                    pairCreatedHoursAgo = r.ageHours,
+                    dexId = "solana",
+                    priceChangeH1 = r.priceChangeH1Pct,
+                    txCountH1 = r.txCountH1,
+                    score = scoreToken(r.liquidityUsd, r.volumeH1Usd, r.txCountH1, r.mcapUsd, r.priceChangeH1Pct, r.ageHours),
+                    priceUsd = r.priceUsd,
+                )
+                if (passesFilter(token)) { emitWithRugcheck(token); emitted++ }
+            }
+        }
+        ErrorLogger.info("Scanner", "scanMarketSweep7297: rows=${snap.rows.size} picks=${picks.values.sumOf { it.size }} emitted=$emitted")
     }
 
     private suspend fun scanDexTrending() {
@@ -3712,6 +3759,9 @@ class SolanaMarketScanner(
         val liqQuality = when (token.source) {
             TokenSource.RAYDIUM_NEW_POOL -> EfficiencyLayer.LiqSourceQuality.DIRECT_POOL
             TokenSource.DEX_BOOSTED, TokenSource.DEX_TRENDING -> EfficiencyLayer.LiqSourceQuality.DEX_AGGREGATOR
+            TokenSource.MARKET_HUNT_SHITCOIN, TokenSource.MARKET_HUNT_QUALITY, TokenSource.MARKET_HUNT_BLUECHIP,
+            TokenSource.MARKET_HUNT_DIP_HUNTER, TokenSource.MARKET_HUNT_MOONSHOT, TokenSource.MARKET_HUNT_TREASURY,
+            TokenSource.MARKET_HUNT_CASHGEN -> EfficiencyLayer.LiqSourceQuality.DEX_AGGREGATOR
             TokenSource.PUMP_FUN_NEW, TokenSource.PUMP_FUN_GRADUATE -> EfficiencyLayer.LiqSourceQuality.VERIFIED_PAIR
             else -> EfficiencyLayer.LiqSourceQuality.ESTIMATED_MCAP
         }

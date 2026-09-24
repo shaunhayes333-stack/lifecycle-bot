@@ -46,12 +46,19 @@ object ApiBackoff {
 
     // V5.0.6758 — dedicated quota/rate schedule. A provider that explicitly
     // answers 429 must be given time for its minute/token window to recover.
+    //
+    // V5.0.7297 — a free provider's rate window is a minute, not half an hour.
+    // The old ladder (2/5/10/15/30 min) locked a whole provider — every
+    // DexScreener scanner, pair lookup and price read — for two minutes on a
+    // single 429 and for thirty after five. It now matches the host circuit
+    // (HostCircuitInterceptor.rateLimitCooldownMs7297): 30 s, 1, 2, 5, 10 min.
+    // A success still resets it.
     private val rateLimitSchedule = longArrayOf(
-        120_000L,    // 1st 429 -> 2 min
-        300_000L,    // 2nd -> 5 min
-        600_000L,    // 3rd -> 10 min
-        900_000L,    // 4th -> 15 min
-        1_800_000L,  // 5th+ -> 30 min
+        30_000L,     // 1st 429 -> 30 s
+        60_000L,     // 2nd -> 1 min
+        120_000L,    // 3rd -> 2 min
+        300_000L,    // 4th -> 5 min
+        600_000L,    // 5th+ -> 10 min
     )
 
     // Auth/forbidden failures are generally configuration/quota state, not

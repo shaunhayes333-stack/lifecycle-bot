@@ -277,6 +277,8 @@ object ScannerSourceBrain {
         val ln = lane.uppercase()
         // Strong affinity — the source ships this lane's natural token
         val strongMatch = when {
+            // V5.0.7297 — a lane-hunted row is that lane's natural token by construction.
+            com.lifecyclebot.engine.market.LaneHunter7297.laneFromSource(src) == ln -> true
             (src.contains("PUMP_FUN") || src.contains("PUMP_PORTAL")) && ln == "MOONSHOT" -> true
             (src.contains("PUMP_FUN") || src.contains("PUMP_PORTAL")) && ln == "SHITCOIN" -> true
             src.contains("RAYDIUM_NEW_POOL") && ln == "STANDARD" -> true
@@ -426,5 +428,11 @@ object ScannerSourceBrain {
         "BIRDEYE_MARKETS",
         "DEX_GAINERS",
         "GECKO_TOP_VOLUME",
+        // V5.0.7297 — lane hunts for established-band lanes.
+        "MARKET_HUNT_QUALITY",
+        "MARKET_HUNT_BLUECHIP",
+        "MARKET_HUNT_DIP_HUNTER",
+        "MARKET_HUNT_TREASURY",
+        "MARKET_HUNT_CASHGEN",
     )
 }

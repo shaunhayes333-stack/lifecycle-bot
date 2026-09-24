@@ -55,8 +55,8 @@ object QualityTraderAI {
     // V5.2.12: Quality layer handles professional mid-cap trading
     // Market cap: $100K - $1M (flows from ShitCoin at $100K, promotes to BlueChip at $1M)
     // V5.9.189: Lowered to $75K — $100K was too restrictive on Solana, many quality tokens sit 75-100K
-    private const val MIN_MARKET_CAP_USD = 75_000.0    // V5.9.343: walk-back to pre-V5.9.341
-    private const val MAX_MARKET_CAP_USD = 1_000_000.0 // $1M max (above this = BlueChip)
+    const val MIN_MARKET_CAP_USD = 75_000.0    // V5.9.343: walk-back to pre-V5.9.341
+    const val MAX_MARKET_CAP_USD = 1_000_000.0 // $1M max (above this = BlueChip)
     
     // Liquidity requirements - higher standard than ShitCoin
     private const val MIN_LIQUIDITY_USD = 3_000.0      // V5.9.343: walk-back to V5.9.335
@@ -254,11 +254,14 @@ object QualityTraderAI {
         // QUALITY FILTERS - This is NOT a meme coin layer
         // ═══════════════════════════════════════════════════════════════════
         
-        // Market cap filter - Quality range
-        if (marketCapUsd < MIN_MARKET_CAP_USD) {
-            return QualitySignal(false, reason = "MCAP too low: $${marketCapUsd.toInt()} < $${MIN_MARKET_CAP_USD.toInt()}")
+        // Market cap filter - Quality range. V5.0.7297 — fluid: the lane's own
+        // band, widened only where its graded closes at that edge are profitable.
+        val minMcap7297 = com.lifecyclebot.engine.market.LaneHunter7297.floorFor("QUALITY", MIN_MARKET_CAP_USD)
+        val maxMcap7297 = com.lifecyclebot.engine.market.LaneHunter7297.ceilingFor("QUALITY", MAX_MARKET_CAP_USD)
+        if (marketCapUsd < minMcap7297) {
+            return QualitySignal(false, reason = "MCAP too low: $${marketCapUsd.toInt()} < $${minMcap7297.toInt()}")
         }
-        if (marketCapUsd > MAX_MARKET_CAP_USD) {
+        if (marketCapUsd > maxMcap7297) {
             return QualitySignal(false, reason = "MCAP too high for Quality (use BlueChip): $${marketCapUsd.toInt()}")
         }
         

@@ -48,7 +48,7 @@ object BlueChipTraderAI {
     
     // V5.2.12: BlueChip handles large-cap professional trading
     // Market cap: $1M+ (flows from Quality at $1M)
-    private const val MIN_MARKET_CAP_USD = 1_000_000.0  // $1M minimum (flows from Quality max)
+    const val MIN_MARKET_CAP_USD = 1_000_000.0  // $1M minimum (flows from Quality max)
     
     // Liquidity requirements - institutional standards
     private const val MIN_LIQUIDITY_USD = 50_000.0      // V5.2.12: $50K minimum for large caps
@@ -643,8 +643,9 @@ object BlueChipTraderAI {
         // BLUE CHIP FILTERS - Quality gates
         // ═══════════════════════════════════════════════════════════════════
         
-        // 1. MARKET CAP FILTER - Must be >$1M
-        if (marketCapUsd < MIN_MARKET_CAP_USD) {
+        // 1. MARKET CAP FILTER - Must be >$1M. V5.0.7297 — fluid floor, lowered
+        // only where the lane's graded closes at that edge are profitable.
+        if (marketCapUsd < com.lifecyclebot.engine.market.LaneHunter7297.floorFor("BLUECHIP", MIN_MARKET_CAP_USD)) {
             return BlueChipSignal(
                 shouldEnter = false,
                 positionSizeSol = 0.0,
