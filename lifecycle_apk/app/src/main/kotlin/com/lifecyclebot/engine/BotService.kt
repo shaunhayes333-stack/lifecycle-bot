@@ -1012,7 +1012,9 @@ class BotService : Service() {
     // bounded to two in flight and once per mint per minute. Nothing is
     // bypassed; the wait is removed.
     private val fastLaneOnce7277: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
-    private val fastLaneSemaphore7277 = java.util.concurrent.Semaphore(2)
+    // V5.0.7279 — two in flight left 229 of 734 event evaluations to the loop
+    // (FAST_LANE_SATURATED_7277=229 on 5.0.7278); each pass is network-bound.
+    private val fastLaneSemaphore7277 = java.util.concurrent.Semaphore(6)
     @Volatile private var loopJob: Job? = null
     @Volatile private var rapidStopLossMonitorJob: Job? = null
     @Volatile private var openPositionTickJob: Job? = null
@@ -15037,9 +15039,24 @@ class BotService : Service() {
                 //                                    price it with corroboration;
                 //                                    an invented price is worse
                 //                                    than no price.
-                val isPumpMint7089 = try {
-                    com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint)
+                // V5.0.7279 §THE CREATE EVENT IS THE PROOF, NOT THE SUFFIX.
+                //
+                // 5.0.7278: EXECUTION_BLOCKED_NO_CANONICAL_MARK_6613=484,
+                // EXPIRED_TICKET_ECONOMIC_REJECT_6614=398, FDG_ALLOW_WITHOUT_
+                // EXEC_INTENT=232 — one chain. The suffix test below decided
+                // "genuine pump.fun mint", and the suffix is optional since 2025,
+                // so most launches PumpPortal announced were left unpriced here
+                // (case 3), reached the executor with no mark, sat on a ticket
+                // for 180 s, and came back as a superseded allow. The websocket
+                // create event carries the bonding-curve address; a mint with a
+                // remembered curve key is a pump.fun launch by protocol, and its
+                // supply is the same 1e9 constant.
+                val curveKnown7279 = try {
+                    com.lifecyclebot.network.PumpCurveKeys7269.keyFor(mint) != null
                 } catch (_: Throwable) { false }
+                val isPumpMint7089 = try {
+                    com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint) || curveKnown7279
+                } catch (_: Throwable) { curveKnown7279 }
                 val chainSupply7089 = try {
                     com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.supplyOf7075(mint)
                 } catch (_: Throwable) { 0.0 }
@@ -15099,6 +15116,13 @@ class BotService : Service() {
                             )
                         } catch (_: Throwable) {}
                     }
+                    if (isPumpMint7089 && curveKnown7279) {
+                        try {
+                            if (!com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint)) {
+                                PipelineHealthCollector.labelInc("INTAKE_PRICE_SEEDED_FROM_CURVE_KEY_7279")
+                            }
+                        } catch (_: Throwable) {}
+                    }
                     ts.lastPrice = seedPrice7089
                     ts.lastPriceUpdate = System.currentTimeMillis()
                     // V5.9.744 — tag synthetic source. Pump.Fun protocol guarantees
@@ -15130,8 +15154,10 @@ class BotService : Service() {
                     // corrected by a real feed. Gated on the mint suffix for the
                     // reasons in the §7089 block above, then on chain supply, then
                     // it declines to write anything.
+                    // V5.0.7279 — same evidence as the seed: a remembered curve key.
                     val isPumpMintWs7089 = try {
-                        com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint)
+                        com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint) ||
+                            com.lifecyclebot.network.PumpCurveKeys7269.keyFor(mint) != null
                     } catch (_: Throwable) { false }
                     val chainSupplyWs7089 = try {
                         com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.supplyOf7075(mint)
@@ -23127,6 +23153,31 @@ if (hotExitHandledSweep) {
                 source = com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.Provenance.WS_LIVE,
             )
             PipelineHealthCollector.labelInc("PUMP_TRADE_MARK_APPLIED_7278")
+        } catch (_: Throwable) {}
+        // V5.0.7279 — the executor reads the canonical mark registry, not
+        // ts.lastPrice. 7278 wrote the trade mark to the token row only, so a
+        // curve mint could be freshly marked and still be refused at the door
+        // (EXECUTION_BLOCKED_NO_CANONICAL_MARK_6613=484). The curve's depth is
+        // not in the frame as a dollar figure, so this publishes with liquidity
+        // unknown: the registry routes that to the observation slot, which is
+        // the slot paper execution reads; live keeps its strict slot.
+        try {
+            val curve7279 = com.lifecyclebot.network.PumpCurveKeys7269.keyFor(mint).orEmpty()
+            val promotion7279 = com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.resolveExecutableFromSourceEvidence6616(
+                mint = mint,
+                observedBaseMint = mint,
+                pairOrPool = curve7279,
+                quoteMint = "So11111111111111111111111111111111111111112",
+                source = "PUMP_PORTAL_TRADE_WS_7278",
+                priceUsd = px,
+                liquidityUsd = 0.0,
+                evidenceTimestampMs = now,
+                nowMs = now,
+            )
+            PipelineHealthCollector.labelInc(
+                if (promotion7279.promoted) "PUMP_TRADE_MARK_REGISTRY_PUBLISHED_7279"
+                else "PUMP_TRADE_MARK_REGISTRY_REFUSED_7279",
+            )
         } catch (_: Throwable) {}
     }
 

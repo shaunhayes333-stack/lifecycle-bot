@@ -2184,6 +2184,21 @@ object PipelineHealthCollector {
                     "ENTRY_SIZE_CAPPED_TO_MCAP_DEPTH_7278",
                     "ENTRY_SIZE_CAPPED_TO_CURVE_EXIT_7278",
                     "LLM_MODEL_LEVEL_REFUSAL_ROTATED_NOT_BENCHED_7278",
+                    // V5.0.7279 — launches priced at intake from the curve key;
+                    // the trade-stream mark reaches the registry; the curve read
+                    // batched down the ladder; a superseded allow cleared, not
+                    // alarmed; the websocket frames named by type.
+                    "INTAKE_PRICE_SEEDED_FROM_CURVE_KEY_7279",
+                    "PUMP_CREATE_MARK_EMITTED_7279",
+                    "PUMP_TRADE_MARK_REGISTRY_PUBLISHED_7279",
+                    "PUMP_TRADE_MARK_REGISTRY_REFUSED_7279",
+                    "PUMP_TRADE_SUBSCRIBED_MINTS_7279",
+                    "PUMP_TRADE_SUBSCRIBE_FRAME_SENT_7279",
+                    "PUMP_TRADE_SUBSCRIBE_FRAME_QUEUED_NO_SOCKET_7279",
+                    "PUMP_CURVE_RPC_CIRCUIT_BLOCKED_7279",
+                    "PUMP_CURVE_RPC_LADDER_FALLBACK_7279",
+                    "PUMP_CURVE_RPC_NO_RUNG_ANSWERED_7279",
+                    "FDG_ALLOW_SUPERSEDED_STALE_STATE_CLEARED_7279",
                     "CRYPTO_DYN_MARK_STALE_OR_MISSING_6654",
                     "CRYPTO_HELD_MARK_REFRESH_COALESCED_7251",
                     "SOL_MARK_RESCUE_7167",
@@ -2268,6 +2283,10 @@ object PipelineHealthCollector {
                     // single cycle; anything reaching 3 is a seal that is not
                     // arriving and is now named rather than retried forever.
                     "FDG_ALLOW_SEALING_RACE_DEFERRED_7219_ATTEMPT_",
+                    // V5.0.7279 — PumpPortal frames by type; curve-read circuit
+                    // blocks by the rung that refused.
+                    "PUMP_WS_FRAME_7279_",
+                    "PUMP_CURVE_RPC_CIRCUIT_BLOCKED_7279_",
                     // V5.0.7221 — the directive's third term, per lane: FDG
                     // allows that were then declined downstream. Information,
                     // not an alarm; a cancelled allow is the pipeline working.

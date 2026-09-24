@@ -3015,6 +3015,42 @@ object ExecutableOpenGate {
                     shadow = true,
                 )
             }
+            // V5.0.7279 §A SUPERSEDED ALLOW IS CLEARED, NOT ALARMED.
+            //
+            // 7220 left the alarm in place to learn which of four causes the
+            // mismatch had. Three snapshots answered: 5.0.7278 shows
+            // FDG_ALLOW_STATE_SUPERSEDED_BY_NEWER_CANDIDATE_7220=232 against
+            // 232 total, zero for the other three, and it follows
+            // EXPIRED_TICKET_REVOKED_FOR_FRESH_CANDIDATE_7255=398 exactly: the
+            // ticket sealed for the allow expired unexecuted (the launch had no
+            // canonical mark — fixed at intake this build), 7255 revoked it, and
+            // the provisional state kept fdgCan=true under the dead version for
+            // its ten-minute TTL, so every later gate on the mint re-raised an
+            // integrity alarm for a routine expiry. The stale allow is dropped
+            // from the state here so the next cycle gates the current candidate
+            // on its own verdict; the remaining three causes still alarm.
+            if (paperMode && state != null && stateVersion7220 > 0L &&
+                currentCandidateVersion > 0L && stateVersion7220 < currentCandidateVersion
+            ) {
+                try {
+                    put(mint) { old ->
+                        (old ?: state).copy(fdgCan = false, fdgAllowedAtMs7276 = 0L, updatedAtMs = System.currentTimeMillis())
+                    }
+                    PipelineHealthCollector.labelInc("FDG_ALLOW_STATE_SUPERSEDED_BY_NEWER_CANDIDATE_7220")
+                    PipelineHealthCollector.labelInc("FDG_ALLOW_SUPERSEDED_STALE_STATE_CLEARED_7279")
+                    ForensicLogger.lifecycle(
+                        "FDG_ALLOW_SUPERSEDED_STALE_STATE_CLEARED_7279",
+                        "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol lane=$canonicalSelectedLane " +
+                            "stateVersion=$stateVersion7220 currentVersion=$currentCandidateVersion stateAgeMs=$stateAgeMs " +
+                            "action=stale_allow_dropped_current_candidate_regated_next_cycle",
+                    )
+                } catch (_: Throwable) {}
+                return blocked(
+                    "EXEC_OPEN_DEFERRED_STALE_ALLOW_CLEARED_7279",
+                    "FDG_ALLOW_SUPERSEDED_STALE_STATE_CLEARED_7279",
+                    shadow = true,
+                )
+            }
             // V5.0.7219 — the invariant path merged three different faults into
             // one counter, so six builds of FDG_ALLOW_WITHOUT_EXECUTION_INTENT
             // could not say which had occurred. Split before raising it.

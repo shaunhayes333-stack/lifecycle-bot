@@ -398,6 +398,9 @@ object KeylessLlmClient {
             b.contains("api key not valid") ||
             b.contains("invalid api key") ||
             b.contains("incorrect api key") ||
+            // V5.0.7279 — 402 Payment Required is the account, not the model
+            // or the minute: Cerebras answered it 122 times on 5.0.7278.
+            b.contains("payment required") || code == 402 ||
             code == 401 || code == 403
         // A daily/plan quota names the plan or the billing account. A bare 429
         // with no such wording is an ordinary per-minute rate limit, and those

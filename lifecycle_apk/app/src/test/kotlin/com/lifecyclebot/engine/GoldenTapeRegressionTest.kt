@@ -10416,4 +10416,63 @@ class GoldenTapeRegressionTest {
         assertTrue(phc.contains("\"ENTRY_SIZE_CAPPED_TO_CURVE_EXIT_7278\","))
     }
 
+    /** V5.0.7279 — a pump.fun launch is priced at intake from its remembered
+     * curve key, not only from the "pump" suffix; the trade-stream mark is
+     * published to the canonical mark registry; the curve read is one
+     * getMultipleAccounts call walked down the RPC ladder with synthetic blocks
+     * named; the Enhanced websocket backs off under its own key; a superseded
+     * FDG allow is cleared instead of alarmed; 402 benches an LLM provider;
+     * USDF is a pegged symbol; the fast lane admits six. */
+    @Test
+    fun V5_0_7279_launch_priced_from_curve_key_batched_curve_read_and_stale_allow_cleared() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val ws = java.io.File("src/main/kotlin/com/lifecyclebot/network/PumpFunWS.kt").readText()
+        val fan = java.io.File("src/main/kotlin/com/lifecyclebot/network/ParallelMarkFanout7088.kt").readText()
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val hws = java.io.File("src/main/kotlin/com/lifecyclebot/network/HeliusEnhancedWS.kt").readText()
+        val llm = java.io.File("src/main/kotlin/com/lifecyclebot/network/KeylessLlmClient.kt").readText()
+        val peg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PeggedAssetGuard7270.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        // Intake: the curve key is pump.fun evidence for both the seed and the WS refresh.
+        assertTrue(bot.contains("com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(mint) || curveKnown7279"))
+        assertTrue(bot.contains("INTAKE_PRICE_SEEDED_FROM_CURVE_KEY_7279"))
+        val wsRefreshIdx = bot.indexOf("val isPumpMintWs7089 = try {")
+        assertTrue(wsRefreshIdx > 0)
+        assertTrue(bot.substring(wsRefreshIdx, wsRefreshIdx + 400).contains("PumpCurveKeys7269.keyFor(mint) != null"))
+
+        // Trade mark reaches the registry; create frame emits the t=0 mark.
+        assertTrue(bot.contains("source = \"PUMP_PORTAL_TRADE_WS_7278\","))
+        assertTrue(bot.contains("PUMP_TRADE_MARK_REGISTRY_PUBLISHED_7279"))
+        assertTrue(ws.contains("onTradeCb?.invoke(mint, priceSol0, marketCapSol, true)"))
+        assertTrue(ws.contains("PUMP_WS_FRAME_7279_"))
+        assertTrue(ws.contains("PUMP_TRADE_SUBSCRIBED_MINTS_7279"))
+
+        // Curve read: one batched call, ladder, synthetic block named.
+        assertTrue(fan.contains(".put(\"method\", \"getMultipleAccounts\")"))
+        assertTrue(fan.contains("RuntimeProviderAuthority6685.rpcCandidates(url).take(CURVE_LADDER_RUNGS_7279)"))
+        assertTrue(fan.contains("if (HostCircuitInterceptor.isSyntheticBlock(resp)) {"))
+        assertTrue(fan.contains("PUMP_CURVE_RPC_CIRCUIT_BLOCKED_7279"))
+        assertFalse(fan.contains("\"method\":\"getAccountInfo\""))
+
+        // Helius websocket backs off under its own key.
+        assertTrue(hws.contains("ApiBackoff.markFailure(\"helius_ws\", code)"))
+        assertFalse(hws.contains("ApiBackoff.markFailure(\"helius\", code)"))
+
+        // Gate: superseded allow cleared, not alarmed.
+        assertTrue(gate.contains("FDG_ALLOW_SUPERSEDED_STALE_STATE_CLEARED_7279"))
+        assertTrue(gate.contains("(old ?: state).copy(fdgCan = false, fdgAllowedAtMs7276 = 0L, updatedAtMs = System.currentTimeMillis())"))
+        val clearIdx = gate.indexOf("FDG_ALLOW_SUPERSEDED_STALE_STATE_CLEARED_7279")
+        val alarmIdx = gate.indexOf("PipelineHealthCollector.labelInc(\"FDG_ALLOW_WITHOUT_ANY_STATE_7219\")")
+        assertTrue(clearIdx > 0 && alarmIdx > clearIdx)
+
+        // LLM 402 is terminal; USDF pegged; fast lane six.
+        assertTrue(llm.contains("b.contains(\"payment required\") || code == 402 ||"))
+        assertTrue(peg.contains("\"USDF\", \"SUSDF\", \"USDF.E\","))
+        assertTrue(bot.contains("private val fastLaneSemaphore7277 = java.util.concurrent.Semaphore(6)"))
+
+        assertTrue(phc.contains("\"FDG_ALLOW_SUPERSEDED_STALE_STATE_CLEARED_7279\","))
+        assertTrue(phc.contains("\"PUMP_CURVE_RPC_CIRCUIT_BLOCKED_7279\","))
+    }
+
 }

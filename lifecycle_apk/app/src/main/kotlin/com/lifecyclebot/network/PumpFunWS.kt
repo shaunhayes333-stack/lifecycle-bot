@@ -57,6 +57,7 @@ object PumpFunWS {
     // the stream); the header above was wrong about that.
     @Volatile private var onTradeCb: ((mint: String, priceSolPerToken: Double, marketCapSol: Double, isBuy: Boolean) -> Unit)? = null
     private val tradeSubscriptions7278 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val firstUntypedLogged7279 = AtomicBoolean(false)
 
     fun setOnTrade7278(cb: (mint: String, priceSolPerToken: Double, marketCapSol: Double, isBuy: Boolean) -> Unit) {
         onTradeCb = cb
@@ -74,8 +75,17 @@ object PumpFunWS {
         val sock = ws
         if (add.isNotEmpty()) {
             tradeSubscriptions7278.addAll(add)
-            sock?.send(JSONObject().put("method", "subscribeTokenTrade").put("keys", JSONArray(add.toList())).toString())
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_SUBSCRIBED_7278") } catch (_: Throwable) {}
+            val sent7279 = sock?.send(JSONObject().put("method", "subscribeTokenTrade").put("keys", JSONArray(add.toList())).toString()) == true
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_SUBSCRIBED_7278")
+                // V5.0.7279 — 7278 counted sync calls (17) and could not say how
+                // many mints were on the stream, nor whether the frame reached a
+                // live socket. Mints and frames are counted separately now.
+                repeat(add.size) { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_SUBSCRIBED_MINTS_7279") }
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                    if (sent7279) "PUMP_TRADE_SUBSCRIBE_FRAME_SENT_7279" else "PUMP_TRADE_SUBSCRIBE_FRAME_QUEUED_NO_SOCKET_7279",
+                )
+            } catch (_: Throwable) {}
         }
         if (drop.isNotEmpty()) {
             tradeSubscriptions7278.removeAll(drop)
@@ -133,6 +143,20 @@ object PumpFunWS {
             try {
                 val j = JSONObject(text)
                 val txType = j.optString("txType", "")
+                // V5.0.7279 — every frame is counted by its own type, so a stream
+                // that delivers no buy/sell frames is distinguishable from one
+                // whose frames arrive under a name this parser does not read.
+                // 5.0.7278: 17 subscriptions, 0 trade events, and nothing to say
+                // which of the two it was.
+                try {
+                    val kind7279 = if (txType.isBlank()) {
+                        if (j.has("message")) "message" else if (j.has("errors")) "error" else "untyped"
+                    } else txType.lowercase().filter { it.isLetterOrDigit() || it == '_' }.take(16)
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_WS_FRAME_7279_$kind7279")
+                    if (txType.isBlank() && firstUntypedLogged7279.compareAndSet(false, true)) {
+                        ErrorLogger.info(TAG, "first untyped frame: ${text.take(220)}")
+                    }
+                } catch (_: Throwable) {}
                 when {
                     // V5.0.7278 — a trade on a held curve is a mark.
                     txType == "buy" || txType == "sell" -> {
@@ -168,6 +192,21 @@ object PumpFunWS {
                         // burn. Threshold rises when watchlist saturates.
                         if (!com.lifecyclebot.engine.PumpPortalThrottle.allowCreate(marketCapSol)) return
                         onNewTokenCb?.invoke(mint, symbol, name, marketCapSol)
+                        // V5.0.7279 — the create frame carries the curve's virtual
+                        // reserves after the dev buy: the spot price at t=0, from
+                        // the same field pair every trade frame carries. Delivered
+                        // through the trade callback after intake has created the
+                        // token row, so the first mark exists before the first
+                        // evaluation instead of after the first aggregator poll.
+                        val vSol0 = j.optDouble("vSolInBondingCurve", 0.0)
+                        val vTok0 = j.optDouble("vTokensInBondingCurve", 0.0)
+                        if (vSol0.isFinite() && vTok0.isFinite() && vSol0 > 0.0 && vTok0 > 0.0) {
+                            val priceSol0 = vSol0 / vTok0
+                            if (priceSol0.isFinite() && priceSol0 > 0.0) {
+                                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_CREATE_MARK_EMITTED_7279") } catch (_: Throwable) {}
+                                onTradeCb?.invoke(mint, priceSol0, marketCapSol, true)
+                            }
+                        }
                     }
                     txType == "migrate" || j.optString("event", "") == "migration" -> {
                         val mint = j.optString("mint", j.optString("address", ""))

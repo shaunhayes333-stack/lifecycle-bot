@@ -183,7 +183,13 @@ object HeliusEnhancedWS {
                 msg.contains("401") -> 401
                 else -> 0
             }
-            try { if (code in 400..599) ApiBackoff.markFailure("helius", code) } catch (_: Throwable) {}
+            // V5.0.7279 — the websocket's handshake refusals used to arm the
+            // shared "helius" REST backoff, so an Enhanced-WS 401/403 (a plan
+            // tier, not the key) short-circuited every HealthAwareHttp call
+            // labelled helius — 3,591 synthetic 503s on the pump-curve read on
+            // 5.0.7278 while the helius REST row read 95% with zero 4xx/5xx.
+            // The socket backs itself off (below); the REST key stays clean.
+            try { if (code in 400..599) ApiBackoff.markFailure("helius_ws", code) } catch (_: Throwable) {}
             val isRateLimited = code == 429 || msg.contains("429")
             val isAuthFatal = code == 403 || code == 401 || msg.contains("403") || msg.contains("401")
             if (isRateLimited) {

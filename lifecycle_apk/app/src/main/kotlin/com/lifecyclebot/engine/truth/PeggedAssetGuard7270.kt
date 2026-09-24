@@ -36,6 +36,8 @@ object PeggedAssetGuard7270 {
         "USDC", "USDT", "USDE", "SUSDE", "USDG", "USDGO", "USD1", "USDS", "USDY", "USDX", "USDH",
         "PYUSD", "USYC", "BUIDL", "USTB", "DAI", "FDUSD", "TUSD", "GUSD", "CUSD", "EURC", "EURT",
         "UXD", "PAI", "USDD", "FRAX", "LUSD", "SUSD", "USDP", "USDR", "CASH", "USDCET", "USDTET",
+        // V5.0.7279 — USDF (5.0.7278: Ufwjn7mtvg held at a 20,616x "gain" against a $0.99 mark).
+        "USDF", "SUSDF", "USDF.E",
     )
 
     /** V5.0.7273 — the mints behind the symbols the lanes keep buying. */
