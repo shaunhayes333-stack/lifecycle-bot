@@ -82,6 +82,24 @@ object MarkIdentityRepairAuthority7236 {
                 val solUsd = try {
                     com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
                 } catch (_: Throwable) { 0.0 }
+                // V5.0.7298 — ask every feed at once first. The cascade returns
+                // the first provider that answers, which for an identity-broken
+                // mark is often the very feed that produced the bad tick; the
+                // parallel fan-out only answers with a price the feeds do not
+                // contest (a corroborated cluster, or a single feed alone).
+                val bare7298 = mint.removePrefix("solana|").trim()
+                val fan7298 = if (bare7298.isBlank() || bare7298.contains('|')) null else try {
+                    com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(listOf(bare7298))[bare7298]
+                        ?.takeIf { !(it.sourceCount >= 2 && !it.corroborated) && it.priceUsd.isFinite() && it.priceUsd > 0.0 }
+                } catch (_: Throwable) { null }
+                if (fan7298 != null) {
+                    val label7298 = if (fan7298.corroborated) "FANOUT_CORROBORATED_7088_x${fan7298.agreeingCount}" else "FANOUT_UNCORROBORATED_7088"
+                    cache[mint] = Repaired(fan7298.priceUsd, label7298, System.currentTimeMillis())
+                    try { MarkIdentityExecutionGate7230.markRepairedUsable7243(mint) } catch (_: Throwable) {}
+                    repairSucceeded.incrementAndGet()
+                    try { PipelineHealthCollector.labelInc("MARK_REPAIR_SUCCEEDED_7236_FANOUT_7298") } catch (_: Throwable) {}
+                    return@launch
+                }
                 val resolved = com.lifecyclebot.engine.sell.PriceResolverFallback.resolve(mint, solUsd)
                 if (resolved != null && resolved.priceUsd.isFinite() && resolved.priceUsd > 0.0) {
                     // A cross-source cascade returned a positive price.

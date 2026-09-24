@@ -874,8 +874,62 @@ object CryptoAltTrader {
         ErrorLogger.info(TAG, "🪙 CryptoAltTrader STOPPED")
     }
 
+    /**
+     * V5.0.7298 §STOP_CLOSES_AT_THE_PRICE_NOW, NOT THE PRICE AT ENTRY.
+     *
+     * Operator: "keep shut down closes but close at real prices". The monitor
+     * loop is the only writer of currentPrice, and STOP cancels it before
+     * closing. A position restored at startup is projected with
+     * currentPrice = entry (canonical recovery), so a STOP soon after a
+     * restart booked every CryptoAlt close at exactly +0.000. One bounded
+     * pass now re-marks every open position the way monitorPositions does —
+     * the static feed for enum markets, the exact-identity held mark for
+     * dynamic tokens — before the closes run. A position no feed answers for
+     * keeps its last mark; an untrusted dynamic mark is still held by
+     * closePosition as before.
+     */
+    private fun refreshMarksForStop7298() {
+        if (positions.isEmpty()) return
+        try {
+            kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+                kotlinx.coroutines.withTimeoutOrNull(6_000L) {
+                    positions.toMap().map { (id, position) ->
+                        async {
+                            val mark: Triple<Double, String, Long>? = try {
+                                if (position.isDynamic) {
+                                    val key = position.canonicalAssetKey.trim()
+                                    val held = refreshDynamicMark7251(key)
+                                    if (held.freshObservation && held.canonicalIdentity.equals(key, true) &&
+                                        held.price.isFinite() && held.price > 0.0) Triple(held.price, key, held.observedAtMs) else null
+                                } else {
+                                    val px = PerpsMarketDataFetcher.getMarketData(position.market).price
+                                    val ratio = if (position.entryPrice > 0) px / position.entryPrice else 1.0
+                                    if (px.isFinite() && px > 0.0 && ratio in 0.1..10.0) Triple(px, position.market.name, System.currentTimeMillis()) else null
+                                }
+                            } catch (_: Throwable) { null }
+                            if (mark != null) {
+                                val cur = positions[id] ?: return@async
+                                val updated = cur.copy(
+                                    currentPrice = mark.first,
+                                    markAssetKey = mark.second,
+                                    markUpdatedAtMs = mark.third,
+                                )
+                                positions[id] = updated
+                                if (updated.isSpot) spotPositions[id] = updated else leveragePositions[id] = updated
+                                try { PipelineHealthCollector.labelInc("CRYPTO_STOP_MARK_REFRESHED_7298") } catch (_: Throwable) {}
+                            } else {
+                                try { PipelineHealthCollector.labelInc("CRYPTO_STOP_MARK_UNANSWERED_7298") } catch (_: Throwable) {}
+                            }
+                        }
+                    }.forEach { it.await() }
+                }
+            }
+        } catch (_: Throwable) {}
+    }
+
     /** Close all open positions immediately (called on STOP). */
     fun closeAllPositions() {
+        refreshMarksForStop7298()
         val ids = positions.keys.toList()
         val closedCount = ids.count { id ->
             try { closePosition(id, "USER_STOP"); true }

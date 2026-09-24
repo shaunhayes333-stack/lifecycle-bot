@@ -4,6 +4,17 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7298] - 2026-09-24 — SHUTDOWN CLOSES AT REAL PRICES; QUARANTINED MARKS GET RE-PINGED; TWO BUILT BRAINS WIRED
+
+- Operator: "keep shut down closes but close at real prices" … the basis-wait tokens "should of never been bought … or it needs to be aware and reping the price to correct".
+- **Meme shutdown closes re-price first.** `closeAllPositions` booked each close at whatever `ts.lastPrice` held when STOP arrived. One batched eight-feed pass (`ParallelMarkFanout7088`, 4 s for the whole book) now prices every open position before the closes, applied exactly as the dead-token door (7274) applies one: a corroborated or single-feed price becomes the mark, a contested median is not an answer, and a mint nobody answers for keeps its mark (`SHUTDOWN_MARKS_REFRESHED_7298`).
+- **CryptoAlt STOP closes re-price first.** STOP cancels the monitor loop (the only writer of `currentPrice`) before closing, and a position restored at startup is projected at `currentPrice = entry`, so a STOP after a restart booked every CryptoAlt close at exactly +0.000. One bounded pass now re-marks every position the way the monitor does — static feed with its spike guard, exact-identity held mark for dynamic tokens (`CRYPTO_STOP_MARK_REFRESHED_7298`).
+- **An absurd mark is re-pinged instead of held forever.** The basis-wait positions (entries ~$48k cap) were rejected as `OPEN_PNL_ABSURD_GAIN_6854` on every tick and nothing asked the feeds again, so they could neither exit nor be valued. The absurd-gain branch now asks for a repair and, once a fresh repaired price exists: if it agrees with the mark, independent feeds confirm the move and it stands (a real runner is not capped); if it is a sane multiple, PnL, exits and stops run on the repaired price (`OPEN_PNL_ABSURD_GAIN_REPAIRED_7298`); otherwise it is rejected as before.
+- **Repairs ask every feed at once.** `MarkIdentityRepairAuthority7236` took the first provider in the fallback cascade, which for an identity-broken mark is often the feed that produced it. It now asks the parallel fan-out first and caches only an uncontested answer, falling back to the cascade.
+- **Built, never read — now wired:**
+  - `ModeLearning.getScannerPrefs` (per-lane scanner brain, March, "Paper mode will use these"): once a lane has ≥5 graded closes, rows in its best-winning liquidity bucket rank up to +15% in that lane's hunt.
+  - `MomentumPredictorAI.getStrongMomentumTokens` ("for discovery"): tokens it calls STRONG_PUMP / PUMP_BUILDING become MOONSHOT claims while inside MOONSHOT's band; an existing hunt claim is never overwritten.
+
 ## [5.0.7297] - 2026-09-24 — THE MARKET SCANNER; EVERY SPECIALIST HUNTS ITS OWN BAND
 
 - Operator: "its meant to be a parallel sweep of providers. even helius can feed the scanner" … "each individual lane had its own scanner and brain to help the scanner tune" … "its meant to have a market scanner not just a token scanner". And: Quality / BlueChip / ShitCoin "meant to have their own fluid scorebands marketcaps token types … thats drifted into they are last choices".

@@ -28816,6 +28816,58 @@ class Executor(
 
     // ── Close all positions (for bot shutdown) ────────────────────────
 
+    /**
+     * V5.0.7298 §SHUTDOWN_CLOSES_AT_REAL_PRICES.
+     *
+     * Operator: "keep shut down closes but close at real prices". A shutdown
+     * close books getActualPrice(ts), i.e. whatever ts.lastPrice held when STOP
+     * arrived — a mark that can be minutes old, or a broken identity's absurd
+     * tick. One batched eight-feed pass (ParallelMarkFanout7088, 4 s budget
+     * for the whole book, not per mint) now prices every open position first,
+     * and each answer is applied exactly as the dead-token door (7274) applies
+     * one: a corroborated or single-feed price becomes the mark; a contested
+     * median (two or more feeds that disagree) is not an answer and the old
+     * mark stands. A mint nobody answers for keeps its mark, as before.
+     */
+    private fun refreshMarksForShutdown7298(open: List<com.lifecyclebot.data.TokenState>) {
+        val byBare = open.mapNotNull { ts ->
+            val bare = ts.mint.removePrefix("solana|").trim()
+            if (bare.isBlank() || bare.contains('|')) null else bare to ts
+        }
+        if (byBare.isEmpty()) return
+        val marks = try {
+            com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(byBare.map { it.first })
+        } catch (_: Throwable) { emptyMap() }
+        var applied = 0
+        for ((bare, ts) in byBare) {
+            val m = marks[bare] ?: continue
+            if (m.sourceCount >= 2 && !m.corroborated) continue
+            if (!m.priceUsd.isFinite() || m.priceUsd <= 0.0) continue
+            val label = if (m.corroborated) "FANOUT_CORROBORATED_7088_x${m.agreeingCount}" else "FANOUT_UNCORROBORATED_7088"
+            synchronized(ts) {
+                ts.lastPrice = m.priceUsd
+                ts.lastPriceSource = label
+                ts.lastPriceUpdate = System.currentTimeMillis()
+            }
+            try {
+                com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.note(
+                    mint = ts.mint,
+                    priceUsd = m.priceUsd,
+                    source = com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.Provenance.REST_LIVE,
+                )
+            } catch (_: Throwable) {}
+            applied++
+        }
+        try {
+            PipelineHealthCollector.labelInc("SHUTDOWN_MARKS_REFRESHED_7298")
+            ForensicLogger.lifecycle(
+                "SHUTDOWN_MARKS_REFRESHED_7298",
+                "open=${open.size} asked=${byBare.size} answered=${marks.size} applied=$applied",
+            )
+        } catch (_: Throwable) {}
+        onLog("🛑 Shutdown marks refreshed: $applied/${byBare.size} priced now", "shutdown")
+    }
+
     fun closeAllPositions(
         tokens: Map<String, com.lifecyclebot.data.TokenState>,
         wallet: SolanaWallet?,
@@ -28837,6 +28889,7 @@ class Executor(
         }
         
         onLog("🛑 Bot stopping — closing ${openPositions.size} open position(s)...", "shutdown")
+        refreshMarksForShutdown7298(openPositions)
         onNotify("🛑 Bot Stopping", 
                  "Closing ${openPositions.size} open position(s)",
                  com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)

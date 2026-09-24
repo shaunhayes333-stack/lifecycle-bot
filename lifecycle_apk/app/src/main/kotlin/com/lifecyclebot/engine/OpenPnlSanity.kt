@@ -152,9 +152,9 @@ object OpenPnlSanity {
                 return reject("CURRENT_PRICE_INVALID", entryPrice, currentPrice, context, emit, mint)
             }
         }
-        val ratio = currentPriceEffective7236 / entryPrice
+        var ratio = currentPriceEffective7236 / entryPrice
         if (!ratio.isFinite() || ratio <= 0.0) return reject("PRICE_RATIO_INVALID", entryPrice, currentPriceEffective7236, context, emit, mint)
-        val pnl = (ratio - 1.0) * 100.0
+        var pnl = (ratio - 1.0) * 100.0
         if (!pnl.isFinite()) return reject("OPEN_PNL_NOT_FINITE", entryPrice, currentPriceEffective7236, context, emit, mint)
         if (pnl < MIN_PNL_PCT) return reject("OPEN_PNL_BELOW_TOTAL_LOSS", entryPrice, currentPriceEffective7236, context, emit, mint)
 
@@ -168,9 +168,55 @@ object OpenPnlSanity {
         // straight through into peak tracking, profit locks and learner rewards.
         // Same invariant, same gate, and routing it through the guard means the
         // quarantine flag finally gets set by the thing that detects the problem.
+        //
+        // V5.0.7298 §QUARANTINE_WITHOUT_A_REPING_IS_A_LIFE_SENTENCE. Operator:
+        // the basis-wait tokens "should of never been bought … or it needs to be
+        // aware and reping the price to correct". Five held positions (entries
+        // ~$48k cap) sat here for the whole session: every tick rejected as
+        // absurd, and nothing ever asked the feeds again, so the position could
+        // neither exit nor be valued. Now an absurd multiple asks for a repair
+        // (MarkIdentityRepairAuthority7236, parallel feeds first) and, once a
+        // fresh repaired price exists:
+        //   - repaired agrees with the mark  → independent feeds confirm the
+        //     move; it is a real runner and is not capped;
+        //   - repaired is a sane multiple    → the mark was the fault; PnL is
+        //     evaluated on the repaired price so exits and stops can fire;
+        //   - otherwise                     → rejected as before.
         if (!com.lifecyclebot.engine.sell.StalePriceExitGuard
                 .isGainTrustworthy(mint, entryPrice, currentPriceEffective7236, ratio)) {
-            return reject("OPEN_PNL_ABSURD_GAIN_6854", entryPrice, currentPriceEffective7236, context, emit, mint)
+            val repaired7298 = try {
+                if (mint.isNotBlank()) com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getRepairedPriceIfFresh(mint) else null
+            } catch (_: Throwable) { null }
+            val agrees7298 = repaired7298 != null && repaired7298.isFinite() && repaired7298 > 0.0 &&
+                (repaired7298 / currentPriceEffective7236) in 0.60..1.67
+            val saneRepair7298 = repaired7298 != null && repaired7298.isFinite() && repaired7298 > 0.0 &&
+                repaired7298 / entryPrice <= com.lifecyclebot.engine.sell.StalePriceExitGuard.ABSURD_GAIN_MULTIPLE
+            when {
+                agrees7298 -> {
+                    try { PipelineHealthCollector.labelInc("OPEN_PNL_ABSURD_GAIN_CONFIRMED_BY_REPAIR_7298") } catch (_: Throwable) {}
+                }
+                saneRepair7298 -> {
+                    currentPriceEffective7236 = repaired7298!!
+                    try {
+                        PipelineHealthCollector.labelInc("OPEN_PNL_ABSURD_GAIN_REPAIRED_7298")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "OPEN_PNL_ABSURD_GAIN_REPAIRED_7298",
+                            "mint=${mint.take(10)} rawCurrent=$currentPrice repaired=${"%.10g".format(repaired7298)} " +
+                                "src=${com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getRepairedSource(mint)} " +
+                                "context=${context.take(96)} action=proceed_with_repaired_value",
+                        )
+                    } catch (_: Throwable) {}
+                    ratio = currentPriceEffective7236 / entryPrice
+                    pnl = (ratio - 1.0) * 100.0
+                    if (pnl < MIN_PNL_PCT) return reject("OPEN_PNL_BELOW_TOTAL_LOSS", entryPrice, currentPriceEffective7236, context, emit, mint)
+                }
+                else -> {
+                    try {
+                        if (mint.isNotBlank()) com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.requestRepair(mint, "OpenPnlSanity_absurd_gain_7298")
+                    } catch (_: Throwable) {}
+                    return reject("OPEN_PNL_ABSURD_GAIN_6854", entryPrice, currentPriceEffective7236, context, emit, mint)
+                }
+            }
         }
 
         // V5.0.6701 — this must run BEFORE source/pool comparability. The defect

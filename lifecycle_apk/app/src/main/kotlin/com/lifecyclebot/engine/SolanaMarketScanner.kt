@@ -2098,6 +2098,7 @@ class SolanaMarketScanner(
         val heliusKey = try { cfg().heliusApiKey } catch (_: Throwable) { "" }
         val snap = com.lifecyclebot.engine.market.MarketSweep7297.sweep(heliusKey) ?: return
         val picks = com.lifecyclebot.engine.market.LaneHunter7297.hunt(snap)
+        try { com.lifecyclebot.engine.market.LaneHunter7297.claimMomentum7298() } catch (_: Throwable) {}
         var emitted = 0
         for ((lane, rows) in picks) {
             val source = try {

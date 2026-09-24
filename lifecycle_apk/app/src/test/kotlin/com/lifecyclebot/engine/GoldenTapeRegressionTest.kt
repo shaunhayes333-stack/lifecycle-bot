@@ -10953,4 +10953,21 @@ class GoldenTapeRegressionTest {
         assertTrue(q.contains("LaneHunter7297.floorFor(\"QUALITY\", MIN_MARKET_CAP_USD)"))
     }
 
+    @Test
+    fun V5_0_7298_shutdown_reprices_absurd_marks_reping_and_built_brains_are_read() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("refreshMarksForShutdown7298(openPositions)"))
+        assertTrue(ex.contains("if (m.sourceCount >= 2 && !m.corroborated) continue"))
+        val alt = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue(alt.contains("refreshMarksForStop7298()\n        val ids = positions.keys.toList()"))
+        val sanity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OpenPnlSanity.kt").readText()
+        assertTrue(sanity.contains("requestRepair(mint, \"OpenPnlSanity_absurd_gain_7298\")"))
+        assertTrue(sanity.contains("OPEN_PNL_ABSURD_GAIN_REPAIRED_7298"))
+        val repair = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MarkIdentityRepairAuthority7236.kt").readText()
+        assertTrue(repair.indexOf("resolve7088(listOf(bare7298))") < repair.indexOf("PriceResolverFallback.resolve(mint, solUsd)"))
+        val hunter = java.io.File("src/main/kotlin/com/lifecyclebot/engine/market/LaneHunter7297.kt").readText()
+        assertTrue(hunter.contains("ModeLearning.getScannerPrefs(k)"))
+        assertTrue(hunter.contains("MomentumPredictorAI.getStrongMomentumTokens()"))
+    }
+
 }

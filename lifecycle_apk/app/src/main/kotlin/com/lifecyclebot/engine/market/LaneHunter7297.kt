@@ -187,6 +187,47 @@ object LaneHunter7297 {
         return fluidBand(p.baseMin, p.baseMax, bucketStatsFor(lane))
     }
 
+    /**
+     * V5.0.7298 — the per-mode scanner brain, finally read. ModeLearning has
+     * graded every close by trading mode (the lane names) and liquidity bucket
+     * since March, and getScannerPrefs() — built "so paper mode will use these"
+     * — never had a caller. Once a lane's history is reliable (≥5 closes), rows
+     * inside its best-winning liquidity bucket rank up to +15% (scaled by that
+     * history's confidence). Ordering only; nothing is removed.
+     */
+    private fun modeLiqMultiplier(lane: String, liquidityUsd: Double): Double {
+        val keys = if (lane == "BLUECHIP") listOf("BLUECHIP", "BLUE_CHIP") else listOf(lane)
+        val prefs = keys.firstNotNullOfOrNull { k ->
+            try { com.lifecyclebot.engine.ModeLearning.getScannerPrefs(k).takeIf { it.confidence > 0.0 } } catch (_: Throwable) { null }
+        } ?: return 1.0
+        return if (liquidityUsd in prefs.preferredLiqMin..prefs.preferredLiqMax) 1.0 + 0.15 * prefs.confidence else 1.0
+    }
+
+    /**
+     * V5.0.7298 — MomentumPredictorAI's discovery list, finally read.
+     * It is fed every price point and classifies each watched token; its
+     * getStrongMomentumTokens() ("for discovery") had no caller, so a token it
+     * called STRONG_PUMP / PUMP_BUILDING was still elected by intake source.
+     * Those tokens are now MOONSHOT's claims while inside MOONSHOT's band
+     * (claimFor re-checks the band against the live cap). An existing hunt
+     * claim is never overwritten.
+     */
+    fun claimMomentum7298(): Int {
+        ensureSubscribed()
+        val strong = try { com.lifecyclebot.engine.MomentumPredictorAI.getStrongMomentumTokens() } catch (_: Throwable) { emptyList() }
+        val now = System.currentTimeMillis()
+        var n = 0
+        for (m in strong.take(20)) {
+            val existing = claims[m.mint]
+            if (existing != null && now - existing.atMs <= CLAIM_TTL_MS) continue
+            val mcap = try { com.lifecyclebot.engine.GlobalTradeRegistry.getEntry(m.mint)?.initialMcap ?: 0.0 } catch (_: Throwable) { 0.0 }
+            claims[m.mint] = Claim("MOONSHOT", mcap, now)
+            n++
+        }
+        if (n > 0) try { PipelineHealthCollector.labelInc("LANE_HUNT_7298_MOMENTUM_CLAIMED") } catch (_: Throwable) {}
+        return n
+    }
+
     private fun brainMultiplier(lane: String, mcap: Double): Double {
         val s = stats[lane]?.get(bucketOf(mcap)) ?: return 1.0
         if (s.n < MIN_BUCKET_N) return 1.0
@@ -206,7 +247,8 @@ object LaneHunter7297 {
                 .filter { it.mcapUsd in lo..hi && p.fits(it) }
                 .sortedByDescending { r ->
                     val heat = MarketSweep7297.Band.of(r.mcapUsd)?.let { snap.bands[it]?.breadthPct } ?: 50.0
-                    p.rank(r) * brainMultiplier(p.lane, r.mcapUsd) * (0.9 + 0.2 * heat / 100.0)
+                    p.rank(r) * brainMultiplier(p.lane, r.mcapUsd) * modeLiqMultiplier(p.lane, r.liquidityUsd) *
+                        (0.9 + 0.2 * heat / 100.0)
                 }
                 .map { it.mint }
         }
