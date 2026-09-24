@@ -43,6 +43,14 @@ object LlmLabStore {
     const val MIN_TRADES_BEFORE_PROMOTION = 30
     const val MIN_WR_FOR_PROMOTION_PCT = 33.0
     const val MIN_PAPER_PNL_SOL_FOR_PROMOTION = 0.05    // ~$6+ proof of asymmetric-R/R
+    // V5.0.7293 — PAPER promotion bar, separate from the live proof above.
+    // Operator: "the llm labs needs to auto promote strategies into paper
+    // trading. its meant to anyway". 5.0.7289: 36 strategies, 23 lab trades
+    // between them, promoted=0 — no strategy could reach 30 trades, so none
+    // ever reached the main paper book. Paper promotion needs a small positive
+    // sample; the 30-trade bar stays the proof for LIVE authority.
+    const val MIN_TRADES_FOR_PAPER_PROMOTION_7293 = 8
+    const val DEMOTE_PAPER_AFTER_TRADES_7293 = 16
     const val ARCHIVE_LOSER_AFTER_TRADES = 30
     const val ARCHIVE_LOSER_BELOW_WR_PCT = 30.0
 

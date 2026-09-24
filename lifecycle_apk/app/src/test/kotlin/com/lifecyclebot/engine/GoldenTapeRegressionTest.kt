@@ -10848,4 +10848,19 @@ class GoldenTapeRegressionTest {
         assertTrue(block.contains("lastReconciledTreasuryEquitySol7292"))
     }
 
+    @Test
+    fun V5_0_7293_dexpaprika_candles_lab_paper_promotion_and_starved_lanes_get_slots() {
+        val feed = java.io.File("src/main/kotlin/com/lifecyclebot/network/SolanaOhlcvFeed6916.kt").readText()
+        assertTrue(feed.contains("https://api.dexpaprika.com/networks/solana"))
+        assertTrue(feed.contains("val paprika7293 = fetchDexPaprika7293(mint, poolHint, timeframeLabel, n)"))
+        assertEquals(8, com.lifecyclebot.engine.lab.LlmLabStore.MIN_TRADES_FOR_PAPER_PROMOTION_7293)
+        assertEquals(30, com.lifecyclebot.engine.lab.LlmLabStore.MIN_TRADES_BEFORE_PROMOTION)
+        val trader = java.io.File("src/main/kotlin/com/lifecyclebot/engine/lab/LlmLabTrader.kt").readText()
+        assertTrue(trader.contains("scanner = \"LAB_PROMOTED_7293\""))
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("volumeChange = expressVolumeSurge7293(ts)"))
+        val pol = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionAuthorityPolicy6533.kt").readText()
+        assertTrue(pol.contains("RESCUE_SLOT_TO_UNDERSAMPLED_LANE_7293"))
+    }
+
 }

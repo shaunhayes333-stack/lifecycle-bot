@@ -28384,7 +28384,12 @@ if (hotExitHandledSweep) {
                             // the floor falls to 3 and the threshold becomes load-bearing.
                             // Plumb a genuine surge ratio (volumeH1 vs volume24h/24) here to
                             // restore the signal properly.
-                            volumeChange = 0.0,
+                            // V5.0.7293 — the genuine surge ratio, from fetched OHLCV
+                            // bars that carry per-bar volume (DexPaprika 7293 /
+                            // GeckoTerminal 6916 store it in volume24h). Latest bar
+                            // vs the mean of up to 12 before it; 0.0 (unmeasured)
+                            // when fewer than 6 volume-bearing bars exist.
+                            volumeChange = expressVolumeSurge7293(ts),
                             priceChange5Min = priceChange5Min,
                             isTrending = isTrending,
                             isBoosted = isBoosted,
@@ -32290,6 +32295,19 @@ if (hotExitHandledSweep) {
      *
      * The caller owns the decision. This only executes it.
      */
+    private fun expressVolumeSurge7293(ts: com.lifecyclebot.data.TokenState): Double {
+        val bars = try { synchronized(ts) { ts.history.toList() } } catch (_: Throwable) { return 0.0 }
+            .filter { it.volume24h.isFinite() && it.volume24h > 0.0 }
+            .takeLast(13)
+        if (bars.size < 7) return 0.0
+        val prior = bars.dropLast(1)
+        val mean = prior.sumOf { it.volume24h } / prior.size
+        if (!mean.isFinite() || mean <= 0.0) return 0.0
+        val r = bars.last().volume24h / mean
+        try { PipelineHealthCollector.labelInc("EXPRESS_VOLUME_SURGE_MEASURED_7293") } catch (_: Throwable) {}
+        return if (r.isFinite()) r.coerceIn(0.0, 50.0) else 0.0
+    }
+
     private fun catastropheContradicted7289(ts: com.lifecyclebot.data.TokenState, markPx: Double): Boolean {
         if (!markPx.isFinite() || markPx <= 0.0) return false
         val src = ts.lastPriceSource.uppercase()

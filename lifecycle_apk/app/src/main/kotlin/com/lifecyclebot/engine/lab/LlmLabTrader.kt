@@ -58,6 +58,29 @@ object LlmLabTrader {
         // remain in LlmLabStore and must never masquerade as canonical paper
         // inventory in TradeHistoryStore / sell pressure / wallet reports.
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAB_SANDBOX_OPEN_ISOLATED_6490") } catch (_: Throwable) {}
+        // V5.0.7293 — a PROMOTED strategy's pick also enters the MAIN paper
+        // pipeline as a candidate (V3 → FDG → sizing → the one canonical
+        // ledger), the way a smart-money signal does. The sandbox position
+        // above stays isolated; the main book trades its own fill, so nothing
+        // here moves canonical cash. Solana mints only.
+        if (strategy.status == LabStrategyStatus.PROMOTED &&
+            (tick.asset == LabAssetClass.MEME || tick.asset == LabAssetClass.ANY) &&
+            tick.mint.length in 32..64 && !tick.mint.contains(':')
+        ) {
+            try {
+                com.lifecyclebot.engine.TokenMergeQueue.enqueue(
+                    mint = tick.mint,
+                    symbol = tick.symbol,
+                    scanner = "LAB_PROMOTED_7293",
+                    marketCapUsd = 0.0,
+                    liquidityUsd = 0.0,
+                    volumeH1 = 0.0,
+                    laneAffinity = setOf("QUALITY", "MOONSHOT", "SHITCOIN", "PROJECT_SNIPER"),
+                    toolAffinity = setOf("LAB_STRATEGY"),
+                )
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAB_PROMOTED_PICK_TO_MAIN_PAPER_7293")
+            } catch (_: Throwable) {}
+        }
 
         ErrorLogger.info(TAG, "🧪 OPEN ${strategy.name} → ${tick.symbol} ${"%.6f".format(tick.price)} size=${"%.4f".format(sizeSol)}◎ (asset=${tick.asset})")
     }

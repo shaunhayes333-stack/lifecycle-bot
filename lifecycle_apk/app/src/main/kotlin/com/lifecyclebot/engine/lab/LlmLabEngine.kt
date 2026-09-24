@@ -43,7 +43,7 @@ object LlmLabEngine {
     private const val CREATION_FAST_INTERVAL_MS    = 3L * 60L * 1000L           // 3min in bootstrap (20/hr)
     private const val CREATION_FAST_WINDOW_MS      = 90L * 60L * 1000L          // first 90min after install
     private const val EVAL_INTERVAL_MS             = 10_000L                    // 10s (was 30s) → 3× the trade volume
-    private const val CULL_INTERVAL_MS             = 20L * 60L * 1000L          // 20min
+    private const val CULL_INTERVAL_MS             = 5L * 60L * 1000L           // 5min (V5.0.7293, was 20)
     private const val HEARTBEAT_INTERVAL_MS        = 60_000L                    // 60s heartbeat
 
     private const val MAX_LIVE_STRATEGIES   = 36       // 24 → 36 (more variety)
@@ -603,11 +603,24 @@ Reply with just the JSON object, nothing else.
             // engine via LabPromotedFeed. No user approval needed for paper
             // proving → live influence; the real-money guardrail still kicks
             // in inside Executor.doBuy via LabPromotedFeed.requireLiveApproval.
-            if (s.status == LabStrategyStatus.ACTIVE &&
-                s.paperTrades >= LlmLabStore.MIN_TRADES_BEFORE_PROMOTION &&
-                s.winRatePct() >= LlmLabStore.MIN_WR_FOR_PROMOTION_PCT &&
-                s.paperPnlSol >= LlmLabStore.MIN_PAPER_PNL_SOL_FOR_PROMOTION
+            // V5.0.7293 — promotion INTO PAPER needs 8 trades, WR >= 33% and
+            // positive paper PnL; the 30-trade bar remains the LIVE proof
+            // (LabPromotedFeed.isLiveAuthorised / 7106). A promoted strategy
+            // that turns net-negative after 16 trades returns to ACTIVE.
+            if (s.status == LabStrategyStatus.PROMOTED &&
+                s.paperTrades >= LlmLabStore.DEMOTE_PAPER_AFTER_TRADES_7293 &&
+                s.paperPnlSol < 0.0
             ) {
+                LlmLabStore.updateStrategy(s.copy(status = LabStrategyStatus.ACTIVE))
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAB_PAPER_DEMOTED_7293") } catch (_: Throwable) {}
+                continue
+            }
+            if (s.status == LabStrategyStatus.ACTIVE &&
+                s.paperTrades >= LlmLabStore.MIN_TRADES_FOR_PAPER_PROMOTION_7293 &&
+                s.winRatePct() >= LlmLabStore.MIN_WR_FOR_PROMOTION_PCT &&
+                s.paperPnlSol > 0.0
+            ) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAB_PAPER_PROMOTED_7293") } catch (_: Throwable) {}
                 LlmLabStore.updateStrategy(s.copy(status = LabStrategyStatus.PROMOTED))
                 ErrorLogger.info(TAG, "🧪 AUTO-PROMOTED ${s.name} → live influence " +
                     "(${s.paperTrades} trades · WR ${"%.0f".format(s.winRatePct())}% · " +

@@ -304,7 +304,7 @@ class LabActivity : AppCompatActivity() {
             .filter { it.status == LabStrategyStatus.ACTIVE && it.paperPnlSol > 0 }
             .maxByOrNull { it.paperTrades }
         if (hottest != null) {
-            val needed = LlmLabStore.MIN_TRADES_BEFORE_PROMOTION
+            val needed = LlmLabStore.MIN_TRADES_FOR_PAPER_PROMOTION_7293
             val pct = (hottest.paperTrades * 100 / needed).coerceIn(0, 100)
             tvProofLabel.text = "› PROOF [${hottest.name.take(22)}] ${hottest.paperTrades}/$needed · WR ${"%.0f".format(hottest.winRatePct())}%"
             pbProof.progress = pct
@@ -318,7 +318,7 @@ class LabActivity : AppCompatActivity() {
 
         val on = LlmLabStore.isEnabled()
         btnToggle.text = if (on) "◉ LIVE" else "◌ DORMANT"
-        tvSubtitle.text = if (on) "› sandbox online · proof-required: ${LlmLabStore.MIN_TRADES_BEFORE_PROMOTION} trades"
+        tvSubtitle.text = if (on) "› sandbox online · proof-required: ${LlmLabStore.MIN_TRADES_FOR_PAPER_PROMOTION_7293} trades"
                           else    "› sandbox dormant · LLM is silent"
 
         // Ticker --------------------------------------------------------------
@@ -690,7 +690,7 @@ class LabActivity : AppCompatActivity() {
 
         // Proof bar (only ACTIVE, going for promotion)
         if (s.status == LabStrategyStatus.ACTIVE) {
-            val needed = LlmLabStore.MIN_TRADES_BEFORE_PROMOTION
+            val needed = LlmLabStore.MIN_TRADES_FOR_PAPER_PROMOTION_7293
             val pct = (s.paperTrades * 100 / needed).coerceIn(0, 100)
             val pb = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
                 progress = pct

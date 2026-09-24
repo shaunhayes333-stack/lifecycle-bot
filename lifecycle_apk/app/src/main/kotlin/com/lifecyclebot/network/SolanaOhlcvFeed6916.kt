@@ -356,6 +356,24 @@ object SolanaOhlcvFeed6916 {
         // A local decline is the absence of an observation. Return empty for
         // now — there genuinely are no bars this instant — but write nothing
         // down, and count it as a skip rather than as an empty result.
+        // V5.0.7293 — DexPaprika first. GeckoTerminal answered 5xx on every
+        // call for several sessions (geckoterminal sr=0% 5xx=95, served=0);
+        // DexPaprika publishes pool OHLCV keyless on a host this app already
+        // reads for prices. GeckoTerminal remains the fallback.
+        try {
+            val paprika7293 = fetchDexPaprika7293(mint, poolHint, timeframeLabel, n)
+            if (paprika7293.isNotEmpty()) {
+                cache[key] = Cached(paprika7293, now)
+                served.incrementAndGet()
+                paprikaServed7293.incrementAndGet()
+                barsDelivered.addAndGet(paprika7293.size.toLong())
+                try {
+                    PipelineHealthCollector.labelInc("OHLCV_DEXPAPRIKA_SERVED_7293")
+                    PipelineHealthCollector.labelInc("OHLCV_KEYLESS_SERVED_6916_${timeframeLabel.uppercase()}")
+                } catch (_: Throwable) {}
+                return paprika7293
+            }
+        } catch (_: Throwable) {}
         val lookup6982 = resolvePool(mint, poolHint)
         val pool = lookup6982.pool
         if (pool == null) {
@@ -427,6 +445,114 @@ object SolanaOhlcvFeed6916 {
         return chronological
     }
 
+    // ══════ V5.0.7293 — DexPaprika keyless OHLCV ══════
+    //
+    //   GET https://api.dexpaprika.com/networks/solana/pools/{pool}/ohlcv
+    //       ?start={unixSec}&limit={n}&interval={1m|5m|15m|1h|6h|24h}
+    //   -> [ {time_open, time_close, open, high, low, close, volume}, ... ]
+    //      ascending by time_open (ISO-8601).
+    //
+    // Free tier is keyless at ~15 requests/minute, so the gate is 4.5 s and a
+    // 429/5xx backs the host off for a minute. Pool comes from the caller's
+    // hint, else /networks/solana/tokens/{mint}/pools (deepest by volume),
+    // cached with the GeckoTerminal pool cache's TTL. Bars pass the same strict
+    // validation as 6916; a shape this parser does not recognise yields no
+    // bars, never flattened ones.
+    private const val PAPRIKA_HOST_7293 = "dexpaprika"
+    private const val PAPRIKA_BASE_7293 = "https://api.dexpaprika.com/networks/solana"
+    private const val PAPRIKA_MIN_INTERVAL_MS_7293 = 4_500L
+    private val paprikaLastCallMs7293 = AtomicLong(0L)
+    private val paprikaCooldownUntilMs7293 = AtomicLong(0L)
+    private val paprikaServed7293 = AtomicLong(0L)
+    private val paprikaEmpty7293 = AtomicLong(0L)
+    private val paprikaPools7293 = ConcurrentHashMap<String, PoolRef>()
+
+    private fun paprikaGet7293(url: String): String? {
+        val now = System.currentTimeMillis()
+        if (now < paprikaCooldownUntilMs7293.get()) return null
+        val prev = paprikaLastCallMs7293.get()
+        if (now - prev < PAPRIKA_MIN_INTERVAL_MS_7293 || !paprikaLastCallMs7293.compareAndSet(prev, now)) return null
+        val req = Request.Builder().url(url).header("Accept", "application/json").build()
+        return try {
+            http.newCall(req).execute().use { resp ->
+                try { ApiHealthMonitor.record(PAPRIKA_HOST_7293, resp.code, System.currentTimeMillis() - now) } catch (_: Throwable) {}
+                if (resp.code == 429 || resp.code >= 500) paprikaCooldownUntilMs7293.set(System.currentTimeMillis() + COOLDOWN_MS)
+                if (!resp.isSuccessful) null else resp.body?.string()
+            }
+        } catch (e: Throwable) {
+            try { ApiHealthMonitor.recordNetworkError(PAPRIKA_HOST_7293, e.message) } catch (_: Throwable) {}
+            null
+        }
+    }
+
+    private fun paprikaPool7293(mint: String, poolHint: String): String? {
+        val hint = poolHint.trim()
+        if (hint.length in 32..64 && !hint.contains(':') && !hint.equals("UNKNOWN", true)) return hint
+        paprikaPools7293[mint]?.let {
+            if (System.currentTimeMillis() - it.atMs <= POOL_CACHE_TTL_MS) return it.pool
+        }
+        poolCache[mint]?.let { return it.pool }
+        val body = paprikaGet7293("$PAPRIKA_BASE_7293/tokens/$mint/pools?limit=5&order_by=volume_usd&sort=desc") ?: return null
+        return try {
+            val trimmed = body.trim()
+            val arr = if (trimmed.startsWith("[")) org.json.JSONArray(trimmed)
+                else JSONObject(trimmed).optJSONArray("pools") ?: return null
+            var best: String? = null
+            var bestVol = -1.0
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val id = o.optString("id", "").ifBlank { o.optString("address", "") }
+                if (id.length !in 32..64) continue
+                val vol = o.optDouble("volume_usd", 0.0).takeIf { it.isFinite() } ?: 0.0
+                if (vol > bestVol) { bestVol = vol; best = id }
+            }
+            best?.also { paprikaPools7293[mint] = PoolRef(it, System.currentTimeMillis()) }
+        } catch (_: Throwable) { null }
+    }
+
+    private fun fetchDexPaprika7293(mint: String, poolHint: String, timeframeLabel: String, n: Int): List<Candle> {
+        val (interval, stepSec) = when (timeframeLabel.trim().lowercase()) {
+            "1m" -> "1m" to 60L
+            "5m" -> "5m" to 300L
+            "15m" -> "15m" to 900L
+            "1h" -> "1h" to 3_600L
+            "4h" -> "6h" to 21_600L
+            "1d", "1day" -> "24h" to 86_400L
+            else -> return emptyList()
+        }
+        val pool = paprikaPool7293(mint, poolHint) ?: return emptyList()
+        val limit = n.coerceIn(2, 366)
+        val startSec = System.currentTimeMillis() / 1000L - stepSec * limit
+        val body = paprikaGet7293("$PAPRIKA_BASE_7293/pools/$pool/ohlcv?start=$startSec&limit=$limit&interval=$interval")
+            ?: return emptyList()
+        val arr = try {
+            val t = body.trim()
+            if (t.startsWith("[")) org.json.JSONArray(t) else JSONObject(t).optJSONArray("data")
+        } catch (_: Throwable) { null } ?: run { paprikaEmpty7293.incrementAndGet(); return emptyList() }
+        val out = ArrayList<Candle>(arr.length())
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val tsMs = try { java.time.Instant.parse(o.optString("time_open", "")).toEpochMilli() } catch (_: Throwable) { 0L }
+            val op = o.optDouble("open", Double.NaN)
+            val h = o.optDouble("high", Double.NaN)
+            val l = o.optDouble("low", Double.NaN)
+            val c = o.optDouble("close", Double.NaN)
+            val vol = o.optDouble("volume", 0.0)
+            val sane = tsMs > 0L &&
+                op.isFinite() && h.isFinite() && l.isFinite() && c.isFinite() &&
+                op > 0.0 && h > 0.0 && l > 0.0 && c > 0.0 &&
+                l <= minOf(op, c) + 1e-12 && h >= maxOf(op, c) - 1e-12
+            if (!sane) { rowsRejected.incrementAndGet(); continue }
+            out.add(Candle(
+                ts = tsMs, priceUsd = c, marketCap = 0.0, volumeH1 = 0.0,
+                volume24h = if (vol.isFinite() && vol >= 0.0) vol else 0.0,
+                highUsd = h, lowUsd = l, openUsd = op,
+            ))
+        }
+        if (out.isEmpty()) paprikaEmpty7293.incrementAndGet()
+        return out.sortedBy { it.ts }
+    }
+
     fun statusLine(): String =
         "fetches=${fetches.get()} served=${served.get()} cacheHits=${cacheHits.get()} " +
             "empty=${emptyResults.get()} poolResolves=${poolResolves.get()} " +
@@ -435,7 +561,8 @@ object SolanaOhlcvFeed6916 {
             "rateLimited6944=${rateLimited.get()} cooldownSkips6944=${cooldownSkips.get()} " +
             "negativeHits6944=${negativeHits.get()} negCached6944=${negativeCache.size} " +
             "localSkips6982=${localSkips6982.get()} " +
-            "minIntervalMs=$MIN_INTERVAL_MS"
+            "minIntervalMs=$MIN_INTERVAL_MS " +
+            "| dexpaprika7293 served=${paprikaServed7293.get()} empty=${paprikaEmpty7293.get()} pools=${paprikaPools7293.size}"
 
     internal fun resetForTest() {
         cache.clear(); poolCache.clear()
