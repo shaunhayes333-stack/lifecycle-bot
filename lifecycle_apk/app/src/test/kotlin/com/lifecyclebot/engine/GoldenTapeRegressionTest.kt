@@ -452,7 +452,10 @@ class GoldenTapeRegressionTest {
     fun paper_to_live_transfer_uses_executable_net_edge_not_gross_paper_pct() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val openGate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
-        assertTrue("Terminal paper sells must charge live-like round-trip friction plus learned route slip", exec.contains("executable-live paper friction") && exec.contains("expectedExtraSlipPct(ts.lastLiquidityUsd)") && exec.contains("val simulatedFeePct = (1.6 + expectedRouteSlipPct"))
+        // V5.0.7287 — terminal paper sells pay the venue's fee + the app fee +
+        // the fixed network leg; the learned slip term that re-charged the
+        // tier slippage is gone (PaperVenueCost7287).
+        assertTrue("Terminal paper sells must charge venue-priced friction", exec.contains("executable-live paper friction") && exec.contains(".venueFeePct(ts.mint, ts.lastLiquidityUsd, ts.lastMcap) + MEME_TRADING_FEE_PERCENT * 100.0") && !exec.contains("val simulatedFeePct = (1.6 + expectedRouteSlipPct"))
         assertTrue("Paper terminal SELL rows must carry feeSol/netPnlSol into journal and learning", exec.contains("val simulatedFeeSol") && exec.contains("feeSol = simulatedFeeSol") && exec.contains("netPnlSol = pnl"))
         assertTrue("Legacy journal consumers must receive net-normalized pnlPct before TradeHistoryStore", exec.contains("paper→live transfer authority") && exec.contains("PAPER_LIVE_TRANSFER_NET_PCT_NORMALIZED") && exec.indexOf("paper→live transfer authority") < exec.indexOf("TradeHistoryStore.recordTrade(tradeWithMint)"))
         assertTrue("Partial net pct must use sold-leg basis, not full position cost", exec.contains("val isPartialClose = tradeWithMint.side.equals(\"PARTIAL_SELL\", true)") && exec.contains("Partial SELL rows use sol as the sold-leg cost basis"))
@@ -9521,12 +9524,14 @@ class GoldenTapeRegressionTest {
 
         // V5.0.7263 — the 7259 gates survive verbatim but are reachable only
         // once OracleEdgeProof7263 reads PROVEN.
-        assertTrue(learned.contains("ORACLE_PROBE_NON_EXECUTABLE_7259"))
-        assertTrue(learned.contains("ORACLE_UNAVAILABLE_7259"))
+        // V5.0.7287 — PROBE is gone; a proven oracle's REFUSE denies in both
+        // modes and its ADMIT trades.
+        assertTrue(learned.contains("ORACLE_PROVEN_REFUSE_7287"))
+        assertTrue(learned.contains("ORACLE_PROVEN_ADMIT_7287"))
         assertTrue(inputs.contains("oracleVerdict6915 = oracle6915?.verdict"))
         assertTrue(crossAsset.contains("ORACLE_ADMIT_REQUIRED_7259"))
         assertTrue(crossAsset.contains("oracle7259.verdict == PredictiveEntryOracle6915.Verdict.ADMIT"))
-        assertTrue(crossAsset.contains("probe = paperExploration7262"))
+        assertTrue(crossAsset.contains("probe = false,"))
         assertTrue(fdg.contains("BRAIN_CONSENSUS_NOT_UNANIMOUS_7259"))
     }
 
@@ -9557,13 +9562,13 @@ class GoldenTapeRegressionTest {
         assertTrue(proof.contains("CanonicalTradeFinalizedBus6450.subscribe"))
         assertTrue(proof.contains("MIN_ADMIT_CLOSES_7263: Int = 20"))
         assertTrue(proof.contains("MIN_NON_ADMIT_CLOSES_7263: Int = 10"))
-        assertTrue(proof.contains("admitRet>=nonAdmitRet+"))
+        assertTrue(proof.contains("admitRet>=refuseRet+"))
         assertTrue(proof.contains("ORACLE_EDGE_DEMOTED_7263"))
         assertTrue(oracle.contains("OracleEdgeProof7263.stamp(mint, f)"))
         assertTrue(oracle.contains("OracleEdgeProof7263.stamp(mint, cold7263)"))
 
         // ADVISORY: the verdict word gates nothing, in either mode.
-        assertTrue(learned.contains("if (oracleTier7263 == OracleEdgeProof7263.Tier.PROVEN) {"))
+        assertTrue(learned.contains("val oracleBinding7287 = oracleTier7263 == OracleEdgeProof7263.Tier.PROVEN"))
         assertFalse(learned.contains("PAPER_EXPLORE\""))
         assertTrue(learned.contains("return allow(inputs, \"clear\")"))
         assertTrue(authority.contains("EXECUTABLE_ENTRY_PROBE_EXECUTABLE_7263"))
@@ -9573,9 +9578,9 @@ class GoldenTapeRegressionTest {
         assertTrue(fdg.contains("BRAIN_CONSENSUS_SOFT_BLOCK_DAMPED_7263"))
         assertTrue(fdg.contains("BRAIN_CONSENSUS_UNAVAILABLE_FAIL_OPEN_7263"))
 
-        // PROVEN: live is ADMIT or nothing; paper meters a PROBE.
-        assertTrue(learned.contains("if (!paperRuntime7263) return deny(\"ORACLE_PROBE_NON_EXECUTABLE_7259\""))
-        assertTrue(learned.contains("PROVEN_ORACLE_PROBE_PAPER_7263"))
+        // PROVEN (V5.0.7287): the verdict is the decision in both modes.
+        assertTrue(learned.contains("return deny(\"ORACLE_PROVEN_REFUSE_7287\""))
+        assertFalse(learned.contains("PROVEN_ORACLE_PROBE_PAPER_7263"))
         assertTrue(fdg.contains("if (oracleProven7263 && !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {"))
     }
 
@@ -9923,7 +9928,9 @@ class GoldenTapeRegressionTest {
         assertTrue(oracle.contains("quality: String = \"\""))
         assertTrue(oracle.contains("edgePhase: String = \"\""))
         assertTrue(oracle.contains("UnifiedPolicyHead.predictWinProb("))
-        assertTrue(oracle.contains("predictivePWin7260 > 0.50"))
+        // V5.0.7287 — ADMIT is expected value > 0 with a binding head's
+        // agreement; the pWin > 0.5 requirement starved fat-tailed lanes.
+        assertTrue(oracle.contains("finalE > ADMIT_EXPECTANCY_PCT && policySupportsProfit7260"))
         assertTrue(oracle.contains("exactFwd7260="))
         assertTrue(oracle.contains("policyReads7260="))
 
@@ -9953,20 +9960,19 @@ class GoldenTapeRegressionTest {
         ).readText()
 
         assertTrue(oracle.contains("COLD_START_CURRENT_CANDIDATE_UNANIMOUS_ADMIT_7261"))
-        assertTrue(oracle.contains("COLD_START_CURRENT_CANDIDATE_NOT_UNANIMOUS_7261"))
-        assertTrue(oracle.contains("s >= 60"))
-        assertTrue(oracle.contains("candidateConfidenceSafe7260 >= 0.40"))
+        // V5.0.7287 — a cold non-admit is a REFUSE on expected value, not a probe.
+        assertTrue(oracle.contains("COLD_START_EXPECTED_VALUE_NOT_POSITIVE_7287"))
+        assertTrue(oracle.contains("currentCandidatePWin7261 > 0.50"))
         assertTrue(oracle.contains("policyAgrees7261"))
         assertTrue(oracle.contains("brainDelta7261 >= -5.0"))
         assertTrue(oracle.contains("hardSafetyRefusal6927(creator)"))
-        assertTrue(oracle.contains("coldAdmit7261=") && oracle.contains("coldProbe7261="))
+        assertTrue(oracle.contains("coldAdmit7261=") && oracle.contains("coldRefuse7287="))
 
         // The deadlock was the old early neutral return, before policy/brain
         // reads. It must never reappear, and PROBE must remain non-economic.
         assertFalse(oracle.contains("Verdict.PROBE, 0.0, 0.5, 0.0,\n                contributions + \"noEvidenceAnywhere\""))
-        // V5.0.7263 — the non-economic PROBE rule is now conditional on
-        // OracleEdgeProof7263 reading PROVEN.
-        assertTrue(learned.contains("ORACLE_PROBE_NON_EXECUTABLE_7259"))
+        // V5.0.7287 — no PROBE verdict exists to be non-economic.
+        assertFalse(oracle.contains("Verdict.PROBE"))
         assertTrue(learned.contains("OracleEdgeProof7263.Tier.PROVEN"))
     }
 
@@ -10710,6 +10716,58 @@ class GoldenTapeRegressionTest {
         assertTrue(ws.contains("rememberUntyped7286(text, isError = j.has(\"errors\") || j.has(\"error\"))"))
         assertTrue(ws.contains("\"lastError7286=\${lastErrorFrame7286.ifBlank { \"-\" }} \""))
         assertTrue(phc.contains("\"LLM_REASONING_EFFORT_LOW_APPLIED_7286\","))
+    }
+
+    /** V5.0.7287 — paper pays what the venue charges; the oracle reads the
+     * whole journal, is binary, its proof persists, and once proven its
+     * verdict is the admission decision; no probe verdict exists. */
+    @Test
+    fun V5_0_7287_venue_priced_fees_binary_oracle_persistent_proof_and_no_probes() {
+        // Venue fees and impact, evaluated directly.
+        val v = com.lifecyclebot.engine.truth.PaperVenueCost7287
+        val curveMint = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789pump"
+        val ammMint = "So11111111111111111111111111111111111111112"
+        assertEquals(1.25, v.venueFeePct(curveMint, 3_000.0, 4_000.0), 1e-9)
+        assertEquals(1.20, v.venueFeePct(curveMint, 60_000.0, 250_000.0), 1e-9)
+        assertEquals(0.30, v.venueFeePct(curveMint, 60_000.0, 50_000_000.0), 1e-9)
+        assertEquals(0.25, v.venueFeePct(ammMint, 60_000.0, 50_000_000.0), 1e-9)
+        // 0.107 SOL into a fresh curve (30 virtual SOL) moves the price well under 1%.
+        val curveImpact = v.impactPct(curveMint, 0.107, 2_800.0, 115.0)
+        assertTrue(curveImpact > 0.0 && curveImpact < 1.0)
+        // A bigger clip against the same depth moves it more; nothing exceeds the cap.
+        assertTrue(v.impactPct(curveMint, 1.0, 2_800.0, 115.0) > curveImpact)
+        assertTrue(v.impactPct(ammMint, 1_000.0, 1_000.0, 115.0) <= 15.0)
+        assertEquals(0.00161, v.FIXED_SOL_PER_SIDE * 2.0, 1e-12)
+
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(exec.contains("val effectiveSol = actualSol\n"))
+        assertFalse(exec.contains("val fee6485 = actualSol * 0.005"))
+        assertTrue(exec.contains("PaperVenueCost7287.FIXED_SOL_PER_SIDE"))
+        assertTrue(exec.contains("val paperFeeEstimate6510 = paperPartialFeeSol7287(ts, sellSol)"))
+        assertFalse(exec.contains("lastLiquidityUsd < 5_000.0   -> 5.0"))
+
+        val oracle = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PredictiveEntryOracle6915.kt").readText()
+        val proof = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OracleEdgeProof7263.kt").readText()
+        val learned = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LearnedAdmissionAuthority6846.kt").readText()
+        val crossAsset = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+
+        // The oracle is binary and reads the full journal.
+        assertEquals(2, com.lifecyclebot.engine.truth.PredictiveEntryOracle6915.Verdict.values().size)
+        assertTrue(oracle.contains("OracleTradeHistory7287.lane(laneKey)"))
+        assertTrue(oracle.contains("hardSafety7287 = true"))
+        // The proof persists and is attached before the durable replay.
+        assertTrue(proof.contains("fun attach7287(context: Context)"))
+        assertTrue(proof.contains("if (event.settledAtMs < s.atMs)"))
+        assertTrue(bot.indexOf("OracleEdgeProof7263.attach7287(applicationContext)") in 0 until
+            bot.indexOf("CanonicalFinalityPersistence6486.initAndReplay(applicationContext)"))
+        // Admission: no probe helper, proven oracle binds, safety facts always refuse.
+        assertFalse(learned.contains("private fun probe("))
+        assertFalse(learned.contains("cohortProbeBudgetAllows6909("))
+        assertTrue(learned.contains("return allow(inputs, \"ORACLE_PROVEN_ADMIT_7287\")"))
+        assertTrue(learned.contains("ORACLE_HARD_SAFETY_REFUSE_7287"))
+        assertTrue(learned.contains("return deny(\"COHORT_MATURE_NEGATIVE_6909\", inputs, detail)"))
+        assertTrue(crossAsset.contains("val provenAdmit7287 = oracleProven7263 && oracleAdmitted7262 && !oracleHardSafety7287"))
     }
 
 }

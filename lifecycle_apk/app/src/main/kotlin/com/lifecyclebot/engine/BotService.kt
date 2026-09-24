@@ -2155,6 +2155,9 @@ class BotService : Service() {
 
         // V5.9.438 — durable outcome-learning trackers across restarts.
         try { LearningPersistence.init(applicationContext) } catch (_: Exception) {}
+        // V5.0.7287 — the oracle's edge proof persists; restore it and
+        // subscribe before the durable finality replay below publishes.
+        try { com.lifecyclebot.engine.truth.OracleEdgeProof7263.attach7287(applicationContext) } catch (_: Throwable) {}
         try {
             val replayedFinality6486 = com.lifecyclebot.engine.truth.CanonicalFinalityPersistence6486.initAndReplay(applicationContext)
             if (replayedFinality6486 > 0) PipelineHealthCollector.labelInc("DURABLE_FINALITY_REPLAYED_6486")

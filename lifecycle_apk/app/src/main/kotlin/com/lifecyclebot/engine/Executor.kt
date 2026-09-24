@@ -700,6 +700,21 @@ class Executor(
     fun getActualPricePublic(ts: TokenState): Double = getActualPrice(ts)
 
     /**
+     * V5.0.7287 — the fee on a paper partial sale: the venue's fee
+     * (PaperVenueCost7287) plus the app's MEME_TRADING_FEE_PERCENT on the SOL
+     * the partial sells, plus the fixed network leg. The sale's impact is
+     * not added here: partial proceeds are priced at the mark by the caller.
+     */
+    private fun paperPartialFeeSol7287(ts: TokenState, sellSol: Double): Double {
+        if (!sellSol.isFinite() || sellSol <= 0.0) return 0.0
+        val venuePct = try {
+            com.lifecyclebot.engine.truth.PaperVenueCost7287.venueFeePct(ts.mint, ts.lastLiquidityUsd, ts.lastMcap)
+        } catch (_: Throwable) { 0.25 }
+        return sellSol * (venuePct / 100.0 + MEME_TRADING_FEE_PERCENT) +
+            com.lifecyclebot.engine.truth.PaperVenueCost7287.FIXED_SOL_PER_SIDE
+    }
+
+    /**
      * V5.0.7029 §THE_SELL_LEG_NEVER_GOT_THE_6310_UNITS_FIX.
      *
      * Token quantity times a USD mark, expressed in SOL. Null when the SOL/USD
@@ -6728,7 +6743,9 @@ class Executor(
             return
         }
         val pid6510 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
-        val paperFeeEstimate6510 = (pos.costSol * sellFraction) * MEME_TRADING_FEE_PERCENT
+        // V5.0.7287 — a partial pays the venue's fee, the app's 0.5% and the
+        // fixed network leg on what it SELLS (sellSol), not 0.5% of cost basis.
+        val paperFeeEstimate6510 = paperPartialFeeSol7287(ts, sellSol)
         val partial6510 = com.lifecyclebot.engine.truth.CanonicalPaperPartialOperation6510.commit(
             pid6510, ts.mint, ts.symbol, sellFraction, sellSol, paperFeeEstimate6510, reason,
             // V5.0.7101 — V5.0.7092 named this site as needing the same fix it
@@ -9644,7 +9661,8 @@ class Executor(
                 } catch (_: Throwable) {}
                 return false
             }
-            val paperPartialFee = (pos.costSol * sellFraction) * MEME_TRADING_FEE_PERCENT
+            // V5.0.7287 — venue + app + fixed leg on proceeds; see paperPartialFeeSol7287.
+            val paperPartialFee = paperPartialFeeSol7287(ts, sellSol)
             val paperPartialReason = if (newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct"
             val pid6510 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(ts.mint)
             val partial6510 = com.lifecyclebot.engine.truth.CanonicalPaperPartialOperation6510.commit(
@@ -15885,13 +15903,14 @@ class Executor(
         // phantom -88/-93% prints. Retuned to the operator's real fill
         // profile: ~1% typical, hard-capped at 5% on the dustiest pools.
         // Tier shape preserved (deeper pool = tighter fill). Live untouched.
-        val simulatedSlippagePct = when {
-            ts.lastLiquidityUsd < 5_000.0   -> 5.0   // dust pump.fun bonding curve (was 12)
-            ts.lastLiquidityUsd < 20_000.0  -> 3.0   // (was 6)
-            ts.lastLiquidityUsd < 50_000.0  -> 2.0   // (was 3.5)
-            ts.lastLiquidityUsd < 250_000.0 -> 1.0   // (was 1.5)
-            else -> 0.5                               // (was 0.8)
-        }
+        // V5.0.7287 — the liquidity tier (5/3/2/1/0.5%) was a flat guess at a
+        // number that depends on the clip: the same $3k pool moves 0.8% for a
+        // 0.1 SOL buy and 6% for a 1 SOL buy. Price impact is now computed
+        // from the clip against the pool's SOL-side depth (PaperVenueCost7287).
+        val solUsdForImpact7287 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        val simulatedSlippagePct = com.lifecyclebot.engine.truth.PaperVenueCost7287.impactPct(
+            ts.mint, actualSol, ts.lastLiquidityUsd, solUsdForImpact7287,
+        )
         val slippageMultiplier = 1.0 + (simulatedSlippagePct / 100.0)
         val effectivePrice = price * slippageMultiplier
         // V5.0.6911 §THE_FINGERPRINTS_WERE_POST_SLIPPAGE_AND_THE_GUARD_RAN_PRE_SLIPPAGE.
@@ -15957,9 +15976,14 @@ class Executor(
             return
         }
 
-        val simulatedFeePct = 0.5
-        val effectiveSol = actualSol * (1.0 - simulatedFeePct / 100.0)
-        
+        // V5.0.7287 — was `actualSol * (1 - 0.5%)` here AND a separate 0.5%
+        // cash debit at the atomic commit (fee6485): the same fee taken twice,
+        // once out of the tokens and once out of the wallet. The fee is now a
+        // single cash debit at the commit (venue + app fee + fixed network
+        // leg), and the tokens are what the full notional buys at the impacted
+        // price, which is how a curve buy settles: SOL in plus fee on top.
+        val effectiveSol = actualSol
+
         val currentMode = try {
             val tokenAgeMs = System.currentTimeMillis() - ts.addedToWatchlistAt
             val hasWhales = ts.meta.whaleSummary.isNotBlank()
@@ -16203,7 +16227,19 @@ class Executor(
         // V5.0.6485 — ATOMIC PAPER BUY COMMIT.
         // Nothing is externally OPEN until economic debit, canonical lifecycle,
         // funded lot, economic event and occupancy OPEN have all succeeded.
-        val fee6485 = actualSol * 0.005
+        // V5.0.7287 — venue fee (1.25% on a curve, 0.25% + creator on
+        // PumpSwap, 0.25% on an AMM) plus the app's own 0.5% plus the fixed
+        // network leg, debited once. See PaperVenueCost7287.
+        val venueFeePct7287 = com.lifecyclebot.engine.truth.PaperVenueCost7287
+            .venueFeePct(ts.mint, ts.lastLiquidityUsd, ts.lastMcap)
+        val fee6485 = actualSol * (venueFeePct7287 / 100.0 + MEME_TRADING_FEE_PERCENT) +
+            com.lifecyclebot.engine.truth.PaperVenueCost7287.FIXED_SOL_PER_SIDE
+        try {
+            PipelineHealthCollector.labelInc(
+                "PAPER_FEE_VENUE_7287_BUY_" + com.lifecyclebot.engine.truth.PaperVenueCost7287
+                    .venue(ts.mint, ts.lastLiquidityUsd).name,
+            )
+        } catch (_: Throwable) {}
         val qtyInvariant6509 = com.lifecyclebot.engine.truth.PaperTokenQuantityAuthority6509.independentCheck(
             actualSol, solPriceForQty6509, effectivePrice, buyQtyRaw6485, paperQuantityScale6514,
         )
@@ -24425,13 +24461,16 @@ class Executor(
         // prints in the journal. Capped at the operator's real 5% worst-case
         // (typical ~1%). Tier shape preserved. Live execution untouched —
         // real Jupiter slippage IS the real cost there.
-        val simulatedSlippagePct = when {
-            ts.lastLiquidityUsd < 5_000.0   -> 5.0   // dust pump.fun bonding curve (was 18)
-            ts.lastLiquidityUsd < 20_000.0  -> 3.0   // small post-grad pool (was 10)
-            ts.lastLiquidityUsd < 50_000.0  -> 2.0   // (was 6)
-            ts.lastLiquidityUsd < 250_000.0 -> 1.0   // (was 3)
-            else -> 0.5                               // (was 1.5)
-        }
+        // V5.0.7287 — exit impact from the clip against pool depth, as on the
+        // buy side (PaperVenueCost7287). The clip is what the position is
+        // worth at the mark, so a runner exiting at 10x pays impact on 10x the
+        // notional, not on its cost.
+        val solUsdForImpact7287 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        val markMultiple7287 = if (pos.entryPrice > 0.0 && price > 0.0) (price / pos.entryPrice).coerceIn(0.0, 1_000.0) else 1.0
+        val exitClipSol7287 = (terminalRemainingCost6492 * markMultiple7287).coerceAtLeast(0.0)
+        val simulatedSlippagePct = com.lifecyclebot.engine.truth.PaperVenueCost7287.impactPct(
+            ts.mint, exitClipSol7287, ts.lastLiquidityUsd, solUsdForImpact7287,
+        )
         val slippageMultiplier = 1.0 - (simulatedSlippagePct / 100.0)
         var effectivePrice = price * slippageMultiplier
 
@@ -24448,13 +24487,24 @@ class Executor(
         // liquidity slippage. Train paper on executable net edge, not optimistic
         // gross paper edge, so readiness/lane memory promote only trades that can
         // survive real fees/slip.
-        val expectedRouteSlipPct = try {
-            com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.expectedExtraSlipPct(ts.lastLiquidityUsd)
-        } catch (_: Throwable) { 0.0 }
-        val simulatedFeePct = (1.6 + expectedRouteSlipPct.coerceIn(0.0, 8.0)).coerceIn(1.6, 9.6)
+        // V5.0.7287 — was `1.6% + ExecutionCostPredictorAI.expectedExtraSlipPct`
+        // (up to 9.6%) on top of the tier slippage above: the learned slippage
+        // term re-charged what the tier had already charged, and 1.6% was a
+        // nominal round trip applied to one side. The sell side now pays the
+        // venue's fee, the app's 0.5% and the fixed network leg; impact is
+        // already in effectivePrice.
+        val simulatedFeePct = com.lifecyclebot.engine.truth.PaperVenueCost7287
+            .venueFeePct(ts.mint, ts.lastLiquidityUsd, ts.lastMcap) + MEME_TRADING_FEE_PERCENT * 100.0
+        try {
+            PipelineHealthCollector.labelInc(
+                "PAPER_FEE_VENUE_7287_SELL_" + com.lifecyclebot.engine.truth.PaperVenueCost7287
+                    .venue(ts.mint, ts.lastLiquidityUsd).name,
+            )
+        } catch (_: Throwable) {}
 
         val priceDerivedPnlPct = pct(pos.entryPrice, effectivePrice).coerceIn(-100.0, PAPER_GAIN_CLAMP_PCT_7271)
-        val rawValue = terminalRemainingCost6492 * (1.0 + priceDerivedPnlPct / 100.0) * (1.0 - simulatedFeePct / 100.0)
+        val rawValue = (terminalRemainingCost6492 * (1.0 + priceDerivedPnlPct / 100.0) * (1.0 - simulatedFeePct / 100.0) -
+            com.lifecyclebot.engine.truth.PaperVenueCost7287.FIXED_SOL_PER_SIDE).coerceAtLeast(0.0)
         // (3) Cost-basis paper proceeds — paper has no real token balance. Do
         // NOT book proceeds from qtyToken * price; a stale qty or source-basis
         // mismatch creates impossible million-SOL rows. We already have the

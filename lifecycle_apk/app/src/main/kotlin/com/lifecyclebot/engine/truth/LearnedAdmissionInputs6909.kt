@@ -62,7 +62,6 @@ object LearnedAdmissionInputs6909 {
     // capital commits at all; the verdict split shows what it concluded.
     private val oracleReads6915 = AtomicLong(0L)
     private val oracleAdmit6915 = AtomicLong(0L)
-    private val oracleProbe6915 = AtomicLong(0L)
     private val oracleRefuse6915 = AtomicLong(0L)
 
     /**
@@ -246,7 +245,6 @@ object LearnedAdmissionInputs6909 {
             oracleReads6915.incrementAndGet()
             when (oracle6915.verdict) {
                 PredictiveEntryOracle6915.Verdict.REFUSE -> oracleRefuse6915.incrementAndGet()
-                PredictiveEntryOracle6915.Verdict.PROBE -> oracleProbe6915.incrementAndGet()
                 PredictiveEntryOracle6915.Verdict.ADMIT -> oracleAdmit6915.incrementAndGet()
             }
         }
@@ -273,7 +271,12 @@ object LearnedAdmissionInputs6909 {
         // Absent snapshot -> 0 -> thin -> probe, which is exactly the pre-7207
         // behaviour, so a failure here can only ever be the permissive
         // direction and never a new refusal.
-        val laneRawTerminalN7207 = laneSnap?.sample?.coerceAtLeast(0) ?: 0
+        // V5.0.7287 — the lane's true count is the whole journal's, when that
+        // is larger than the session snapshot (OracleTradeHistory7287).
+        val laneRawTerminalN7207 = maxOf(
+            laneSnap?.sample?.coerceAtLeast(0) ?: 0,
+            try { OracleTradeHistory7287.lane(laneKey)?.n ?: 0 } catch (_: Throwable) { 0 },
+        )
 
         return LearnedAdmissionAuthority6846.Inputs(
             lane = laneKey,
@@ -312,6 +315,7 @@ object LearnedAdmissionInputs6909 {
             // branch for the full reasoning; this line is the input it needed.
             oracleRawLaneN7207 = laneRawTerminalN7207,
             oracleVerdict6915 = oracle6915?.verdict,
+            oracleHardSafety7287 = oracle6915?.hardSafety7287 == true,
             laneWrPct = laneWrPct,
             laneLossRatePct = laneLossRatePct,
             // V5.0.6915 — §5 source-family adaptation is no longer inert. The
@@ -383,5 +387,5 @@ object LearnedAdmissionInputs6909 {
             "forecastResolved=${forecastResolved.get()} " +
             "aggUsed6911=${aggregateUsed6911.get()} matureCohorts6911=${matureCohorts6911.get()} " +
             "oracle6915[reads=${oracleReads6915.get()} admit=${oracleAdmit6915.get()} " +
-            "probe=${oracleProbe6915.get()} refuse=${oracleRefuse6915.get()}]"
+            "refuse=${oracleRefuse6915.get()}]"
 }

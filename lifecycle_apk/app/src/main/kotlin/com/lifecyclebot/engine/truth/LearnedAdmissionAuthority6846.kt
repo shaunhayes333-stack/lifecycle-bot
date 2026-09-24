@@ -2,7 +2,6 @@ package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -115,52 +114,9 @@ object LearnedAdmissionAuthority6846 {
      */
     private const val ORACLE_REFUSE_EV_6915 = -0.08
 
-    /** Probe window per dead cohort. One admission per window, so a proven
-     *  cohort keeps learning without manufacturing entry volume. */
-    private const val COHORT_PROBE_WINDOW_DEAD_MS_6909 = 900_000L
-    /** Looser window for merely-negative (not proven-dead) cohorts. */
-    private const val COHORT_PROBE_WINDOW_NEGATIVE_MS_6909 = 300_000L
-    private const val COHORT_BUDGET_MAX_KEYS_6909 = 2_000
-
-    /**
-     * V5.0.7139 — a probe is a quarter-size information purchase, not an entry.
-     *
-     * Chosen to sit below the regime damper already in force (DUMP applies
-     * sizeMult 0.35) and below the worst lane's expectancy damper
-     * (PROJECT_SNIPER x0.40 on the 7136 device), so a probe is unambiguously
-     * the smallest thing the system does rather than another full bet wearing
-     * a different label.
-     */
-    private const val PROBE_SIZE_FRACTION_7139: Double = 0.25
-
-    private val cohortProbeLastMs6909 = ConcurrentHashMap<String, Long>()
-
-    /**
-     * V5.0.6909 — one probe per cohort per window. Returns true when this
-     * cohort may spend its probe now, and stamps it.
-     *
-     * Bounded: the key space is lane x scoreBand x regime, which is naturally
-     * small, but the map is capped anyway so a vocabulary change upstream can
-     * never grow it without limit.
-     */
-    private fun cohortProbeBudgetAllows6909(cohortKey: String, provenDead: Boolean): Boolean {
-        val windowMs = if (provenDead) COHORT_PROBE_WINDOW_DEAD_MS_6909
-            else COHORT_PROBE_WINDOW_NEGATIVE_MS_6909
-        val now = System.currentTimeMillis()
-        if (cohortProbeLastMs6909.size > COHORT_BUDGET_MAX_KEYS_6909) {
-            try {
-                val it = cohortProbeLastMs6909.entries.iterator()
-                while (it.hasNext()) {
-                    if (now - it.next().value > COHORT_PROBE_WINDOW_DEAD_MS_6909 * 2) it.remove()
-                }
-            } catch (_: Throwable) {}
-        }
-        var allowed = false
-        cohortProbeLastMs6909.compute(cohortKey) { _, prior ->
-            if (prior == null || now - prior >= windowMs) { allowed = true; now } else prior
-        }
-        return allowed
-    }
+    // V5.0.7287 — the cohort probe budget (one quarter-size probe per cohort
+    // per 5/15 minutes) and PROBE_SIZE_FRACTION_7139 are retired with the
+    // probe itself: a candidate trades at its size or does not trade.
 
     /** Amount by which projected exposure must exceed adaptive target
      *  before §6 damping kicks in (fractional, not absolute). */
@@ -205,6 +161,8 @@ object LearnedAdmissionAuthority6846 {
         // only pWin/EV/confidence let PROBE be reconstructed as executable
         // exploration downstream, even when the oracle had admitted nothing.
         val oracleVerdict6915: PredictiveEntryOracle6915.Verdict? = null,
+        /** V5.0.7287 — the oracle's REFUSE rests on a recorded safety fact. */
+        val oracleHardSafety7287: Boolean = false,
         val laneWrPct: Double,          // 0..100
         val laneLossRatePct: Double,    // 0..100
         val sourceFamily: String,       // "PUMP_FUN_NEW" / "BIRDEYE_TRENDING" / …
@@ -292,27 +250,39 @@ object LearnedAdmissionAuthority6846 {
                 "ORACLE_VERDICT_${oracleTier7263.name}_7263_${inputs.oracleVerdict6915?.name ?: "MISSING"}",
             )
         } catch (_: Throwable) {}
-        if (oracleTier7263 == OracleEdgeProof7263.Tier.PROVEN) {
-            val paperRuntime7263 = try {
-                com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
-            } catch (_: Throwable) { false }
-            when (inputs.oracleVerdict6915) {
-                PredictiveEntryOracle6915.Verdict.ADMIT -> Unit
-                PredictiveEntryOracle6915.Verdict.REFUSE ->
-                    return deny("ORACLE_REFUSE_7259", inputs, "oracle=REFUSE tier=PROVEN")
-                PredictiveEntryOracle6915.Verdict.PROBE -> {
-                    if (!paperRuntime7263) return deny("ORACLE_PROBE_NON_EXECUTABLE_7259", inputs, "oracle=PROBE tier=PROVEN")
-                    val cohortKey7263 = "$laneKey|S${inputs.scoreBand}|PROVEN_ORACLE_PROBE"
-                    val budgeted7263 = cohortProbeBudgetAllows6909(cohortKey7263, provenDead = false)
-                    return if (budgeted7263) probe("PROVEN_ORACLE_PROBE_PAPER_7263", inputs, "cohort=$cohortKey7263 oracle=PROBE tier=PROVEN")
-                    else deny("PROVEN_ORACLE_PROBE_BUDGET_7263", inputs, "cohort=$cohortKey7263 oracle=PROBE tier=PROVEN")
-                }
-                null -> if (!paperRuntime7263) return deny("ORACLE_UNAVAILABLE_7259", inputs, "oracle=missing tier=PROVEN")
-            }
+        // V5.0.7287 §A PROVEN ORACLE GUIDES; IT DOES NOT ADVISE.
+        //
+        // Operator: "once it proves itself absolutely should be guiding the
+        // trading not just advising." And: "just trade or dont trade."
+        //
+        // A recorded safety fact (serial-rugger creator, tier-B risk) refuses
+        // in every tier. Otherwise, once OracleEdgeProof7263 reads PROVEN and
+        // the estimator is not degenerate, the oracle's verdict IS the
+        // admission decision, in paper and live alike: ADMIT trades at the
+        // requested size past every cruder cohort rule below (those rules
+        // estimate the same expectancy the oracle has now been shown to
+        // estimate better), REFUSE does not trade. The policy head's
+        // HARD_BLOCK stays absolute ahead of it. While ADVISORY, the verdict
+        // is recorded and graded, and the evidence rules below decide.
+        if (inputs.oracleHardSafety7287) {
+            return deny("ORACLE_HARD_SAFETY_REFUSE_7287", inputs, "oracle=REFUSE hardSafety=true")
         }
 
         // §1 — UnifiedPolicyHead HARD_BLOCK is absolute (per directive).
         if (inputs.policyHardBlock) return deny("POLICY_HARD_BLOCK", inputs, "policyHead=HARD_BLOCK")
+
+        val oracleBinding7287 = oracleTier7263 == OracleEdgeProof7263.Tier.PROVEN && !try {
+            PredictiveEntryOracle6915.isDegenerateNow7120()
+        } catch (_: Throwable) { false }
+        if (oracleBinding7287) {
+            when (inputs.oracleVerdict6915) {
+                PredictiveEntryOracle6915.Verdict.ADMIT ->
+                    return allow(inputs, "ORACLE_PROVEN_ADMIT_7287")
+                PredictiveEntryOracle6915.Verdict.REFUSE ->
+                    return deny("ORACLE_PROVEN_REFUSE_7287", inputs, "oracle=REFUSE tier=PROVEN")
+                null -> Unit
+            }
+        }
 
         // Bootstrap grace — we don't deny cohorts we have not seen enough of.
         val cohortMature = inputs.cohortSample >= MATURITY_MIN_N
@@ -343,15 +313,12 @@ object LearnedAdmissionAuthority6846 {
                 // next window, so exploration continues at a rate the evidence
                 // justifies instead of continuously.
                 val dumpCohortKey7139 = "$laneKey|S${inputs.scoreBand}|$regimeKey"
-                val dumpBudgeted7139 = cohortProbeBudgetAllows6909(dumpCohortKey7139, provenDead = true)
                 val dumpDetail7139 = "dump strong n=${inputs.cohortSample} " +
                     "lanePWin=${"%.2f".format(lanePWin)} EV=${"%.2f".format(inputs.expectedPnl)} " +
-                    "cohort=$dumpCohortKey7139 budgeted=$dumpBudgeted7139"
-                return if (dumpBudgeted7139) {
-                    probe("REGIME_DUMP_STRONG_NEGATIVE", inputs, dumpDetail7139)
-                } else {
-                    deny("REGIME_DUMP_STRONG_NEGATIVE_PROBE_BUDGET_7139", inputs, dumpDetail7139)
-                }
+                    "cohort=$dumpCohortKey7139"
+                // V5.0.7287 — trade or don't: strong negative evidence in a
+                // DUMP regime does not trade. No quarter-size probe.
+                return deny("REGIME_DUMP_STRONG_NEGATIVE", inputs, dumpDetail7139)
             }
             val matureNegative =
                 inputs.cohortSample >= DUMP_MATURE_MIN_N &&
@@ -522,7 +489,6 @@ object LearnedAdmissionAuthority6846 {
             inputs.expectedPnl <= ORACLE_REFUSE_EV_6915
         ) {
             val cohortKey6915 = "$laneKey|S${inputs.scoreBand}|ORACLE"
-            val budgeted = cohortProbeBudgetAllows6909(cohortKey6915, provenDead = true)
             val detail = "cohort=$cohortKey6915 effN=${inputs.cohortSample} " +
                 "rawN=${inputs.oracleRawCohortN7154} " +
                 // V5.0.7207 — print the lane count beside the cell count. The
@@ -530,7 +496,7 @@ object LearnedAdmissionAuthority6846 {
                 // operator no way to see that ten real lane closes existed.
                 "laneN7207=${inputs.oracleRawLaneN7207} " +
                 "oracleEV=${"%.4f".format(inputs.expectedPnl)} " +
-                "pWin=${"%.2f".format(inputs.livePWin)} budgeted=$budgeted"
+                "pWin=${"%.2f".format(inputs.livePWin)}"
             if (!oracleThinEvidence7154) {
                 try {
                     PipelineHealthCollector.labelInc("ORACLE_REFUSAL_HONOURED_ON_LANE_EVIDENCE_7207")
@@ -546,10 +512,13 @@ object LearnedAdmissionAuthority6846 {
                         "ORACLE_REFUSAL_ON_WEIGHT_NOT_COUNT_7154|$laneKey".take(60),
                     )
                 } catch (_: Throwable) {}
-                return probe("ORACLE_THIN_EVIDENCE_PROBE_7154", inputs, detail)
+                // V5.0.7287 — thin at both cell and lane: there is no
+                // evidence to refuse on, so the candidate trades at full size
+                // through the rest of the checks instead of as a probe.
+            } else {
+                // V5.0.7287 — evidenced negative expectancy does not trade.
+                return deny("ORACLE_NEGATIVE_EXPECTANCY_6915", inputs, detail)
             }
-            return if (budgeted) probe("ORACLE_NEGATIVE_EXPECTANCY_6915", inputs, detail)
-            else deny("ORACLE_PROBE_BUDGET_6915", inputs, detail)
         }
 
         // ── §2b V5.0.6909 §COHORT_EVIDENCE_IS_NOT_A_REGIME_PRIVILEGE ───────
@@ -605,18 +574,13 @@ object LearnedAdmissionAuthority6846 {
                 inputs.livePWin < COHORT_NEGATIVE_PWIN_MAX_6909
             if (provenDead || matureNegative6909) {
                 val cohortKey6909 = "$laneKey|S${inputs.scoreBand}|$regimeKey"
-                val budgeted = cohortProbeBudgetAllows6909(cohortKey6909, provenDead)
                 val detail = "cohort=$cohortKey6909 n=${inputs.cohortSample} " +
                     "pWin=${"%.2f".format(inputs.livePWin)} EV=${"%.4f".format(inputs.expectedPnl)} " +
-                    "provenDead=$provenDead budgeted=$budgeted"
-                return if (budgeted) {
-                    probe("COHORT_MATURE_NEGATIVE_6909", inputs, detail)
-                } else {
-                    // Not a disable: this exact cohort already spent its probe
-                    // for the current window and will be admitted again on the
-                    // next one.
-                    deny("COHORT_PROBE_BUDGET_6909", inputs, detail)
-                }
+                    "provenDead=$provenDead"
+                // V5.0.7287 — a mature cohort with negative expectancy does
+                // not trade. It re-admits itself as soon as its expectancy
+                // (which the rest of its lane and the book keep moving) turns.
+                return deny("COHORT_MATURE_NEGATIVE_6909", inputs, detail)
             }
         }
 
@@ -627,7 +591,7 @@ object LearnedAdmissionAuthority6846 {
             inputs.sourcePWin < SOURCE_FAMILY_PWIN_SUSPECT &&
             inputs.sourceExpectedPnl < 0.0
         ) {
-            return probe("SOURCE_FAMILY_MATURE_NEGATIVE", inputs,
+            return deny("SOURCE_FAMILY_MATURE_NEGATIVE", inputs,
                 "srcKey=$srcKey n=${inputs.sourceSample} srcPWin=${"%.2f".format(inputs.sourcePWin)} srcEV=${"%.2f".format(inputs.sourceExpectedPnl)}")
         }
 
@@ -635,7 +599,7 @@ object LearnedAdmissionAuthority6846 {
         // mature negative evidence. Route to PROBE_ONLY rather than
         // silently pass through.
         if (inputs.losingPatternMatch && inputs.brainSoftBlock && cohortMature) {
-            return probe("POLICY_SOFT_NEGATIVE", inputs,
+            return deny("POLICY_SOFT_NEGATIVE", inputs,
                 "brainSoft=true losingPattern=true cohortN=${inputs.cohortSample}")
         }
 
@@ -734,58 +698,6 @@ object LearnedAdmissionAuthority6846 {
         allows.incrementAndGet()
         try { PipelineHealthCollector.labelInc("ENTRY_AUTHORITY_ALLOW") } catch (_: Throwable) {}
         return Decision(Verdict.ALLOW, inputs.requestedSizeSol, "allow:$reason", "")
-    }
-
-    private fun probe(category: String, inputs: Inputs, detail: String): Decision {
-        probes.incrementAndGet()
-        try {
-            PipelineHealthCollector.labelInc("ENTRY_AUTHORITY_PROBE")
-            PipelineHealthCollector.labelInc("ENTRY_AUTHORITY_DENY_REASON_$category")
-            ForensicLogger.lifecycle(
-                "ENTRY_AUTHORITY_PROBE_6846",
-                "lane=${inputs.lane} regime=${inputs.regime} src=${inputs.sourceFamily} " +
-                    "category=$category $detail",
-            )
-        } catch (_: Throwable) {}
-        // V5.0.7139 — A PROBE WAS THE SAME SIZE AS A CONVICTION ENTRY.
-        //
-        // Operator: "it seems to be good at losing money live."
-        //
-        // Both callers of this authority pass requestedSizeSol = 1.0 AND
-        // probeSizeSol = 1.0 (ExecutableOpenGate:2970, BotService:23875) — these
-        // are size MULTIPLIERS, and the old arithmetic was:
-        //
-        //     probeSizeSol(1.0).coerceAtLeast(minExecutable 0.0)
-        //                      .coerceAtMost(requestedSizeSol 1.0)   ->  1.0
-        //
-        // So every "deny normal, allow probe" decision returned FULL SIZE. The
-        // word probe appeared in the verdict, the telemetry and the reason
-        // string, and nowhere in the arithmetic. On the 5.0.7136 device that
-        // produced 716 full-size entries under
-        // ENTRY_AUTHORITY_DENY_REASON_REGIME_DUMP_STRONG_NEGATIVE, in a DUMP
-        // regime, against V3 scores of -31 to -37, with the cohort at
-        // PROJECT_SNIPER|S0-10 losses=9 wins=1 meanPnl=-57.95%.
-        //
-        // A probe exists to BUY INFORMATION CHEAPLY. Its whole justification is
-        // that being wrong is affordable, which is false at 1.0. The fraction
-        // below restores that meaning, and the caller's own probe size still
-        // wins when it is smaller, so nothing that already asked for a small
-        // probe is made larger.
-        //
-        // The floor still applies: minExecutableSol and the fluid routable floor
-        // downstream (SmartSizerV3 7127) keep a probe executable rather than
-        // dust. This shrinks bets on no information; it does not disable a lane,
-        // block a probe, or change any threshold that decides WHETHER to enter.
-        val requested7139 = inputs.requestedSizeSol.coerceAtLeast(0.0)
-        val callerProbe7139 = inputs.probeSizeSol.coerceAtLeast(0.0)
-            .takeIf { it > 0.0 } ?: requested7139
-        val probeSize = minOf(callerProbe7139, requested7139 * PROBE_SIZE_FRACTION_7139)
-            .coerceAtLeast(inputs.minExecutableSol.coerceAtLeast(0.0))
-            .coerceAtMost(requested7139)
-        try {
-            PipelineHealthCollector.labelInc("ENTRY_AUTHORITY_PROBE_SIZED_7139")
-        } catch (_: Throwable) {}
-        return Decision(Verdict.PROBE_ONLY, probeSize, "probe:$category:$detail", category)
     }
 
     private fun deny(category: String, inputs: Inputs, detail: String): Decision {

@@ -2230,6 +2230,9 @@ object PipelineHealthCollector {
                     // V5.0.7286 — reasoning models asked for a short thought so the
                     // answer fits the budget.
                     "LLM_REASONING_EFFORT_LOW_APPLIED_7286",
+                    // V5.0.7287 — the oracle read the journal; its proof was restored.
+                    "ORACLE_HISTORY_REFRESHED_7287",
+                    "ORACLE_EDGE_PROOF_RESTORED_7287",
                     "CRYPTO_DYN_MARK_STALE_OR_MISSING_6654",
                     "CRYPTO_HELD_MARK_REFRESH_COALESCED_7251",
                     "SOL_MARK_RESCUE_7167",
@@ -2324,6 +2327,10 @@ object PipelineHealthCollector {
                     "PUMP_CURVE_RPC_DATA_ENCODING_7283_",
                     // V5.0.7284 — the shape of an HTTP-200 inference that produced no
                     // text, and the exception class behind a transport/parse failure.
+                    // V5.0.7287 — which venue each paper leg was priced as, and a
+                    // degenerate oracle verdict that was held non-binding.
+                    "PAPER_FEE_VENUE_7287_",
+                    "ORACLE_DEGENERATE_NON_BINDING_7287_",
                     "LLM_EMPTY_CONTENT_SHAPE_7284_",
                     "LLM_TRANSPORT_OR_PARSE_7284_",
                     // V5.0.7280 — every curve buy's multiple over its launch price.

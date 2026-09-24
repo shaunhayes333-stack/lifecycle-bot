@@ -106,12 +106,21 @@ import java.util.concurrent.atomic.AtomicLong
  */
 object PredictiveEntryOracle6915 {
 
+    // V5.0.7287 §TRADE OR DON'T TRADE.
+    //
+    // Operator: "I hate this whole probe bullshit. its paper. just trade or
+    // dont trade. it makes even less sense in live because it costs more to
+    // make the trade than it could ever return." A probe was a quarter-size
+    // position on a candidate the oracle could not call. At 0.107 SOL the
+    // fixed network leg alone is 1.5% of the ticket, so a quarter-size probe
+    // pays four times the cost share for the same information. The oracle now
+    // makes the call: positive expected value net of cost trades, anything
+    // else does not. Whether its calls are any good is OracleEdgeProof7263's
+    // job to measure, and that is what decides whether they bind.
     enum class Verdict {
-        /** Positive expectancy with real evidence behind it. */
+        /** Expected value positive: trade. */
         ADMIT,
-        /** Evidence too thin to judge — bounded exploration, learn from it. */
-        PROBE,
-        /** Negative expectancy AND enough weight to trust that. */
+        /** Expected value not positive, or a recorded safety fact: don't trade. */
         REFUSE,
     }
 
@@ -126,6 +135,12 @@ object PredictiveEntryOracle6915 {
         /** Per-level and per-brain breakdown, for the operator. */
         val contributions: List<String>,
         val reason: String,
+        /**
+         * V5.0.7287 — a REFUSE that rests on a recorded fact (serial-rugger
+         * creator, tier-B risk read) rather than an estimate. Callers honour
+         * it whether or not the oracle has proven its edge.
+         */
+        val hardSafety7287: Boolean = false,
     ) {
         fun line(): String =
             "verdict=$verdict E=${"%+.2f".format(expectancyPct)}% pWin=${"%.2f".format(pWin)} " +
@@ -169,7 +184,6 @@ object PredictiveEntryOracle6915 {
 
     private val evaluations = AtomicLong(0L)
     private val admits = AtomicLong(0L)
-    private val probes = AtomicLong(0L)
     private val refuses = AtomicLong(0L)
     private val cellHits = AtomicLong(0L)
     private val laneHits = AtomicLong(0L)
@@ -183,6 +197,8 @@ object PredictiveEntryOracle6915 {
     /** V5.0.7261 — cold books must still judge the current candidate. */
     private val coldCandidateAdmits7261 = AtomicLong(0L)
     private val coldCandidateProbes7261 = AtomicLong(0L)
+    /** V5.0.7287 — how often the full-journal lane level replaced the session learner. */
+    private val historyReads7287 = AtomicLong(0L)
 
     private data class Level(val name: String, val mean: Double, val pWin: Double, val n: Double) {
         val weight: Double get() = if (n <= 0.0) 0.0 else n / (n + SHRINK_K)
@@ -729,6 +745,26 @@ object PredictiveEntryOracle6915 {
             }
         } catch (_: Throwable) {}
 
+        // V5.0.7287 — the journal is the evidence. Where the full terminal
+        // history holds more closes for this lane (or the book) than the
+        // session learner does, it replaces that level. See
+        // OracleTradeHistory7287.
+        try {
+            OracleTradeHistory7287.lane(laneKey)?.let { h ->
+                if (h.n.toDouble() > (lane1?.n ?: 0.0)) {
+                    lane1 = Level("laneHist", h.meanNetPct, h.winRate.coerceIn(0.0, 1.0), h.n.toDouble())
+                    contributions += "laneHist(n=${h.n},E=${"%+.1f".format(h.meanNetPct)},WR=${"%.0f".format(h.winRate * 100.0)}%)"
+                    historyReads7287.incrementAndGet()
+                }
+            }
+            OracleTradeHistory7287.book()?.let { h ->
+                if (h.n.toDouble() > (globalLevel?.n ?: 0.0)) {
+                    globalLevel = Level("global", h.meanNetPct, h.winRate.coerceIn(0.0, 1.0), h.n.toDouble())
+                    contributions += "bookHist(n=${h.n},E=${"%+.1f".format(h.meanNetPct)})"
+                }
+            }
+        } catch (_: Throwable) {}
+
         // ── SHRINKAGE BLEND ─────────────────────────────────────────────────
         val levels = listOfNotNull(cell, lane1, globalLevel).filter { it.weight > 0.0 }
         if (levels.isEmpty()) {
@@ -755,6 +791,7 @@ object PredictiveEntryOracle6915 {
                     Verdict.REFUSE, -100.0, 0.0, 1.0,
                     contributions + hardRefusal7261,
                     hardRefusal7261,
+                    hardSafety7287 = true,
                 ).also { OracleEdgeProof7263.stamp(mint, it) }
             }
 
@@ -822,10 +859,13 @@ object PredictiveEntryOracle6915 {
             )
             val policyAgrees7261 = policyRead7261 &&
                 (!policyBinding7261 || policyPWin7261 > 0.50)
+            // V5.0.7287 — a cold book trades what the candidate says has
+            // positive expected value. 7261 demanded unanimity (score>=60,
+            // confidence>=0.40, p>0.56) against a scorer that produces 9-32,
+            // which is why cold ADMITs never happened and every cold verdict
+            // was a probe. The measured bar replaces the declared one.
             val candidateAdmit7261 =
-                s >= 60 &&
-                    candidateConfidenceSafe7260 >= 0.40 &&
-                    currentCandidatePWin7261 > 0.56 &&
+                currentCandidatePWin7261 > 0.50 &&
                     !explicitWeakQuality7261 &&
                     !explicitNonEntryPhase7261 &&
                     policyAgrees7261 &&
@@ -849,13 +889,13 @@ object PredictiveEntryOracle6915 {
                     "COLD_START_CURRENT_CANDIDATE_UNANIMOUS_ADMIT_7261",
                 )
             } else {
-                probes.incrementAndGet()
+                refuses.incrementAndGet()
                 coldCandidateProbes7261.incrementAndGet()
                 Forecast(
-                    Verdict.PROBE, coldExpectancy7261, currentCandidatePWin7261,
+                    Verdict.REFUSE, coldExpectancy7261, currentCandidatePWin7261,
                     currentCandidatePWin7261.coerceIn(0.0, MIN_CONFIDENCE_TO_REFUSE),
                     contributions + "noHistoricalEvidence",
-                    "COLD_START_CURRENT_CANDIDATE_NOT_UNANIMOUS_7261",
+                    "COLD_START_EXPECTED_VALUE_NOT_POSITIVE_7287",
                 )
             }
             // V5.0.7263 — every forecast is stamped so a later close can grade it.
@@ -984,6 +1024,7 @@ object PredictiveEntryOracle6915 {
             val f = Forecast(
                 Verdict.REFUSE, finalE, blendedPWin, confidence,
                 contributions + hardRefusal6927, hardRefusal6927,
+                hardSafety7287 = true,
             )
             try {
                 PipelineHealthCollector.labelInc("PREDICTIVE_ORACLE_REFUSE_6915")
@@ -1084,29 +1125,29 @@ object PredictiveEntryOracle6915 {
         }
         contributions += "candidatePWin(p=${"%.2f".format(candidatePWin7260)},blend=${"%.2f".format(predictivePWin7260)})"
 
-        val verdict = when {
-            finalE <= REFUSE_EXPECTANCY_PCT && refuseConfidence7174 >= MIN_CONFIDENCE_TO_REFUSE -> Verdict.REFUSE
-            // V5.0.7260 — ADMIT means the measured expectancy, empirical win
-            // prior, current-candidate confidence and every MATURE learned
-            // policy all point to profit. Bootstrap/advisory heads contribute
-            // to the blend but cannot deadlock the learner before earning
-            // binding authority.
-            finalE > ADMIT_EXPECTANCY_PCT &&
-                predictivePWin7260 > 0.50 && candidatePWin7260 > 0.50 &&
-                policySupportsProfit7260 &&
-                confidence >= MIN_CONFIDENCE_TO_REFUSE -> Verdict.ADMIT
-            else -> Verdict.PROBE
+        // V5.0.7287 — one question: is the expected value, net of cost,
+        // positive? Expectancy is mean PnL, so a fat-tailed lane with a low
+        // win rate and a positive mean trades (the runner doctrine); a lane
+        // whose mean is negative does not. A binding policy head that says
+        // this candidate loses still vetoes. 7260 also required blended and
+        // candidate pWin > 0.5 and confidence >= 0.45, which a fat-tailed
+        // lane never meets and which made ADMIT all but unreachable; the
+        // uncertain middle then became a probe.
+        val evidencedNegative7287 =
+            finalE <= REFUSE_EXPECTANCY_PCT && refuseConfidence7174 >= MIN_CONFIDENCE_TO_REFUSE
+        val verdict = if (!evidencedNegative7287 && finalE > ADMIT_EXPECTANCY_PCT && policySupportsProfit7260) {
+            Verdict.ADMIT
+        } else {
+            Verdict.REFUSE
         }
-        val reason = when (verdict) {
-            Verdict.REFUSE -> "NEGATIVE_EXPECTANCY_WITH_EVIDENCE_6915"
-            Verdict.ADMIT -> "POSITIVE_EXPECTANCY_WITH_EVIDENCE_6915"
-            Verdict.PROBE ->
-                if (confidence < MIN_CONFIDENCE_TO_REFUSE) "EVIDENCE_TOO_THIN_TO_JUDGE_6915"
-                else "EXPECTANCY_NEUTRAL_6915"
+        val reason = when {
+            verdict == Verdict.ADMIT -> "POSITIVE_EXPECTANCY_6915"
+            evidencedNegative7287 -> "NEGATIVE_EXPECTANCY_WITH_EVIDENCE_6915"
+            !policySupportsProfit7260 && finalE > ADMIT_EXPECTANCY_PCT -> "BINDING_POLICY_HEAD_SAYS_LOSS_7287"
+            else -> "EXPECTANCY_NOT_POSITIVE_7287"
         }
         when (verdict) {
             Verdict.ADMIT -> admits.incrementAndGet()
-            Verdict.PROBE -> probes.incrementAndGet()
             Verdict.REFUSE -> refuses.incrementAndGet()
         }
         // V5.0.7102 — these three counters already knew, on 5.0.7088, that this
@@ -1144,19 +1185,19 @@ object PredictiveEntryOracle6915 {
         val degenerate7120 = try {
             LearnedPolicyDegeneracyWatch7102.isDegenerate7102(ORACLE_AUTHORITY_7120)
         } catch (_: Throwable) { false }
-        val effectiveVerdict7120 = if (degenerate7120 && verdict != Verdict.PROBE) {
+        // V5.0.7287 — with no neutral verdict left, a collapsed estimator is
+        // not rewritten to one. Its verdict stands as telemetry and the
+        // admission authority declines to let it bind while it is degenerate
+        // (LearnedAdmissionAuthority6846 reads isDegenerateNow7120()).
+        if (degenerate7120) {
             degenerateDemotions7120.incrementAndGet()
             try {
-                PipelineHealthCollector.labelInc("ORACLE_DEGENERATE_DEMOTED_NEUTRAL_7260")
-                PipelineHealthCollector.labelInc("ORACLE_DEGENERATE_DEMOTED_NEUTRAL_7260_${verdict.name}")
+                PipelineHealthCollector.labelInc("ORACLE_DEGENERATE_NON_BINDING_7287_${verdict.name}")
             } catch (_: Throwable) {}
-            Verdict.PROBE
-        } else {
-            verdict
         }
+        val effectiveVerdict7120 = verdict
         val effectiveReason7120 =
-            if (effectiveVerdict7120 != verdict) "DEGENERATE_LEARNER_NEUTRAL_NON_EXECUTABLE_7260"
-            else reason
+            if (degenerate7120) "${reason}_DEGENERATE_NON_BINDING_7287" else reason
 
         val f = Forecast(
             effectiveVerdict7120, finalE, predictivePWin7260, confidence, contributions, effectiveReason7120,
@@ -1281,17 +1322,18 @@ object PredictiveEntryOracle6915 {
     }
 
     fun statusLine(): String =
-        "evals=${evaluations.get()} admit=${admits.get()} probe=${probes.get()} refuse=${refuses.get()} " +
+        "evals=${evaluations.get()} admit=${admits.get()} refuse=${refuses.get()} " +
             "cellEvidence=${cellHits.get()} laneEvidence=${laneHits.get()} noEvidence=${globalOnly.get()} " +
             "brainReads6917=${brainReads6917.get()} brainCap=${BRAIN_NETWORK_CAP_PCT_6917}% " +
             "exactFwd7260=${exactForecastHits7260.get()} policyReads7260=${unifiedPolicyReads7260.get()} " +
             "policyVeto7260=${unifiedPolicyBindingVetoes7260.get()} " +
-            "coldAdmit7261=${coldCandidateAdmits7261.get()} coldProbe7261=${coldCandidateProbes7261.get()} " +
+            "coldAdmit7261=${coldCandidateAdmits7261.get()} coldRefuse7287=${coldCandidateProbes7261.get()} " +
+            "historyLaneReads7287=${historyReads7287.get()} ${OracleTradeHistory7287.statusLine()} " +
             "authority7263=${OracleEdgeProof7263.tier().name} " +
             "shrinkK=$SHRINK_K refuseAt=${REFUSE_EXPECTANCY_PCT}% minConf=$MIN_CONFIDENCE_TO_REFUSE"
 
     internal fun resetForTest() {
-        evaluations.set(0L); admits.set(0L); probes.set(0L); refuses.set(0L)
+        evaluations.set(0L); admits.set(0L); refuses.set(0L)
         cellHits.set(0L); laneHits.set(0L); globalOnly.set(0L); brainReads6917.set(0L)
         exactForecastHits7260.set(0L); unifiedPolicyReads7260.set(0L)
         unifiedPolicyBindingVetoes7260.set(0L)

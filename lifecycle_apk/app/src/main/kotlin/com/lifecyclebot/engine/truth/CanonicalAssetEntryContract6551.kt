@@ -166,11 +166,20 @@ object CanonicalEntryAuthority6551 {
         // shaping in both modes (REFUSE is a recorded negative-expectancy or
         // hard-safety fact and stays blocked). Once PROVEN, LIVE is 7259
         // (ADMIT or nothing) and PAPER opens a probe-sized position on PROBE.
+        // V5.0.7287 §TRADE OR DON'T, ON EVERY ASSET CLASS.
+        //
+        // 7263 blocked a REFUSE even while ADVISORY and, once PROVEN, opened
+        // a probe-sized paper position on a PROBE. With the oracle now
+        // binary that would block most crypto candidates on an unproven
+        // verdict. So: a recorded safety fact refuses always; while ADVISORY
+        // everything else proceeds and is graded; once PROVEN (and not
+        // degenerate) ADMIT proceeds and REFUSE does not. No probe-sized open.
         val oracleProven7263 = try {
-            OracleEdgeProof7263.tier() == OracleEdgeProof7263.Tier.PROVEN
+            OracleEdgeProof7263.tier() == OracleEdgeProof7263.Tier.PROVEN &&
+                !PredictiveEntryOracle6915.isDegenerateNow7120()
         } catch (_: Throwable) { false }
-        val oracleRefused7263 = oracle7259?.verdict == PredictiveEntryOracle6915.Verdict.REFUSE
-        val advisoryPass7263 = !oracleProven7263 && !oracleAdmitted7262 && !oracleRefused7263
+        val oracleHardSafety7287 = oracle7259?.hardSafety7287 == true
+        val advisoryPass7263 = !oracleProven7263 && !oracleHardSafety7287
         if (advisoryPass7263) {
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_ORACLE_ADVISORY_PASS_7263")
@@ -179,34 +188,18 @@ object CanonicalEntryAuthority6551 {
                 )
             } catch (_: Throwable) {}
         }
-        val paperExploration7262 = oracleProven7263 &&
-            candidate.mode.equals("PAPER", true) &&
-            !oracleAdmitted7262 &&
-            !oracleRefused7263
-        if (paperExploration7262) {
-            val verdict7262 = oracle7259?.verdict?.name ?: "UNAVAILABLE"
-            try {
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_ORACLE_PAPER_EXPLORATION_7262")
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_ORACLE_PAPER_EXPLORATION_7262_$verdict7262")
-                ForensicLogger.lifecycle(
-                    "CROSS_ASSET_ORACLE_PAPER_EXPLORATION_7262",
-                    "asset=${candidate.assetId.take(32)} class=${candidate.assetClass.tag} " +
-                        "symbol=${candidate.symbol} verdict=$verdict7262 " +
-                        "expectancyPct=${oracle7259?.expectancyPct} action=paper_probe_sized_open",
-                )
-            } catch (_: Throwable) {}
-        }
-        if (!oracleAdmitted7262 && !paperExploration7262 && !advisoryPass7263) {
+        val provenAdmit7287 = oracleProven7263 && oracleAdmitted7262 && !oracleHardSafety7287
+        if (!advisoryPass7263 && !provenAdmit7287) {
             val verdict7259 = oracle7259?.verdict?.name ?: "UNAVAILABLE"
-            val reason7259 = "ORACLE_ADMIT_REQUIRED_7259:$verdict7259"
+            val reason7259 = if (oracleHardSafety7287) "ORACLE_HARD_SAFETY_REFUSE_7287" else "ORACLE_ADMIT_REQUIRED_7259:$verdict7259"
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_ORACLE_BLOCK_7259")
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CROSS_ASSET_ORACLE_BLOCK_7259_$verdict7259")
                 ForensicLogger.lifecycle(
                     "CROSS_ASSET_ORACLE_BLOCK_7259",
                     "asset=${candidate.assetId.take(32)} class=${candidate.assetClass.tag} " +
-                        "symbol=${candidate.symbol} verdict=$verdict7259 " +
-                        "expectancyPct=${oracle7259?.expectancyPct} confidence=${oracle7259?.confidence} action=shadow_only",
+                        "symbol=${candidate.symbol} verdict=$verdict7259 hardSafety=$oracleHardSafety7287 " +
+                        "expectancyPct=${oracle7259?.expectancyPct} confidence=${oracle7259?.confidence} action=do_not_trade",
                 )
             } catch (_: Throwable) {}
             return blocked(candidate, venue, reason7259)
@@ -216,9 +209,9 @@ object CanonicalEntryAuthority6551 {
             scorePenalty = if (candidate.score < 0.0) 1 else 0,
             sizeMultiplier = if (candidate.confidence.isFinite()) candidate.confidence.coerceIn(0.35, 1.0) else 0.35,
             // An admitted trade may still be sized conservatively, but it is
-            // never relabelled PROBE_ONLY: probe is not executable authority.
-            // V5.0.7262 — except a PAPER exploration open, which IS a probe.
-            probe = paperExploration7262,
+            // never relabelled PROBE_ONLY. V5.0.7287 — the 7262 paper
+            // exploration probe is retired with every other probe.
+            probe = false,
             reasons = candidate.evidence.entries.take(4).map { "${it.key}=${it.value}" },
         )
         val shapedSize = candidate.requestedSizeSol * shaping.sizeMultiplier
