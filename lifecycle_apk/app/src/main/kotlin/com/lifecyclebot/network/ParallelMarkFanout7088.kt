@@ -670,8 +670,34 @@ object ParallelMarkFanout7088 {
                         val mint = targets[i].first
                         val value = values.optJSONObject(i)
                         if (value == null) { PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_NO_ACCOUNT_7278"); continue }
-                        val b64 = value.optJSONArray("data")?.optString(0, "").orEmpty()
-                        if (b64.isBlank()) { PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_NO_DATA_7278"); continue }
+                        // V5.0.7283 — 5.0.7281 read NO_DATA=108 against NO_ACCOUNT=0
+                        // and SHORT_ACCOUNT=0: the rung answered, every account
+                        // existed, and every data field read blank to this line.
+                        // A curve account is never empty, so either the rung
+                        // answered in a shape this reader does not take (a string,
+                        // an object, a different encoding) or returned empty
+                        // accounts for a reason it did not state. The shape and the
+                        // declared encoding are named; only base64 in the documented
+                        // array shape is decoded, never a guess at a string.
+                        val dataField7283 = value.opt("data")
+                        val shape7283 = when (dataField7283) {
+                            null -> "absent"
+                            is JSONArray -> "array_len${dataField7283.length()}"
+                            is String -> "string"
+                            is JSONObject -> "object"
+                            else -> dataField7283.javaClass.simpleName.lowercase()
+                        }
+                        val declaredEncoding7283 = (dataField7283 as? JSONArray)?.optString(1, "").orEmpty()
+                        val b64 = (dataField7283 as? JSONArray)?.optString(0, "").orEmpty()
+                        if (b64.isBlank()) {
+                            PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_NO_DATA_7278")
+                            PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_NO_DATA_SHAPE_7283_$shape7283")
+                            continue
+                        }
+                        if (declaredEncoding7283.isNotBlank() && declaredEncoding7283 != "base64") {
+                            PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_DATA_ENCODING_7283_${declaredEncoding7283.filter { it.isLetterOrDigit() }.take(12)}")
+                            continue
+                        }
                         val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
                         if (bytes.size < 49) { PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_SHORT_ACCOUNT_7278"); continue }
                         val vTok = readU64Le7269(bytes, 8)

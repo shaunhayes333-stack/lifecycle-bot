@@ -10592,4 +10592,53 @@ class GoldenTapeRegressionTest {
         assertFalse(fluid.contains("return trail.coerceIn(8.0, 32.0)"))
     }
 
+    /** V5.0.7283 — the 1 Hz mark loop names its phase, gauges its in-flight
+     * time, and is relaunched on a new generation when an iteration does not
+     * return; a superseded iteration may not write; the serial keyless chain
+     * rotates its start and yields the tick past its budget; a blank curve
+     * read names its shape. */
+    @Test
+    fun V5_0_7283_the_tick_loop_names_its_phase_and_is_relaunched_when_it_stalls() {
+        // Pure gauges, evaluated directly.
+        val t = com.lifecyclebot.engine.truth.ExitSweepTiming7264
+        t.onHotTickStart(1_000L)
+        t.onHotTickPhase7283("fanout")
+        assertTrue(t.hotTickPhase7283() == "fanout")
+        assertTrue(t.hotTickInFlightMs7283(41_000L) == 40_000L)
+        assertTrue(t.hotTickThreadTop7283(4).startsWith("thread="))
+        t.onHotTickEnd7283(41_500L)
+        assertTrue(t.hotTickInFlightMs7283(90_000L) == 0L)
+        assertTrue(t.hotTickPhase7283() == "idle")
+        t.onHotTickStall7283("STALLED", "fanout", 40_000L, "thread=x")
+        val line = t.statusLine()
+        assertTrue(line.contains("inFlightMs7283="))
+        assertTrue(line.contains("stalls=1") || line.contains("stalls="))
+        assertTrue(line.contains("lastStall=STALLED phase=fanout"))
+
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val fan = java.io.File("src/main/kotlin/com/lifecyclebot/network/ParallelMarkFanout7088.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        // The supervisor runs beside the hot-exit healer every cycle and relaunches on the next generation.
+        assertTrue(bot.contains("superviseOpenPositionTickLoop7283(postSupervisorOpenCount, postSupervisorNowMs)"))
+        assertTrue(bot.contains("private suspend fun openPositionTickLoop(gen7283: Long)"))
+        assertTrue(bot.contains("openPositionTickLoop(openPosLoopGeneration7283.incrementAndGet())"))
+        assertTrue(bot.contains("val stalled = !dead && inFlightMs >= OPEN_POS_LOOP_STALL_MS_7283"))
+        assertTrue(bot.contains("OPEN_POS_TICK_SUPERSEDED_MARKS_DROPPED_7283"))
+        // Every iteration ends the gauge, thrown or not; an Error no longer ends the loop.
+        assertTrue(bot.contains("ExitSweepTiming7264.onHotTickEnd7283(System.currentTimeMillis())"))
+        assertTrue(bot.contains("OPEN_POS_TICK_SKIPPED_6983_THREW_ERROR"))
+        // The serial chain rotates and yields past its budget.
+        assertTrue(bot.contains("MARK_KEYLESS_CHAIN_BUDGET_DEFERRED_7283"))
+        assertTrue(bot.contains("keylessChainCursor7283 += chainWalked7283.coerceAtLeast(1)"))
+        assertFalse(bot.contains("for (mint in missingBeforeKeyless6946.take(keylessCap6958)) {"))
+        // A blank curve read names its shape; only documented base64 is decoded.
+        assertTrue(fan.contains("PUMP_CURVE_RPC_NO_DATA_SHAPE_7283_\$shape7283"))
+        assertTrue(fan.contains("if (declaredEncoding7283.isNotBlank() && declaredEncoding7283 != \"base64\")"))
+
+        assertTrue(phc.contains("\"OPEN_POS_LOOP_STALLED_RELAUNCHED_7283\","))
+        assertTrue(phc.contains("\"MARK_KEYLESS_CHAIN_BUDGET_DEFERRED_7283\","))
+        assertTrue(phc.contains("\"PUMP_CURVE_RPC_NO_DATA_SHAPE_7283_\","))
+    }
+
 }

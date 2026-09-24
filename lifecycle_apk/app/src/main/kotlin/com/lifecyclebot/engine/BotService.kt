@@ -770,9 +770,63 @@ class BotService : Service() {
         } catch (_: Throwable) {}
         try {
             if (openPositionTickJob?.isActive != true) {
-                openPositionTickJob = scope.launch(Dispatchers.IO + CoroutineName("open-mark-6647")) { openPositionTickLoop() }
+                openPositionTickJob = scope.launch(Dispatchers.IO + CoroutineName("open-mark-6647")) {
+                    openPositionTickLoop(openPosLoopGeneration7283.incrementAndGet())
+                }
             }
         } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.7283 §THE LOOP THAT TICKED FORTY-THREE TIMES IN TWENTY MINUTES.
+     *
+     * 5.0.7281: hotTicks7270=43 in 1192 s with lastGapMs=1003 and
+     * maxGapMs=5001 — every iteration that returned did so in under five
+     * seconds, and the forty-third never returned. 39 held, 33 with no fresh
+     * mark, HELD_STALE_TIMEOUT_REFRESH_ONLY=7396, a +1408% runner unbanked.
+     * maybeHealHotExit reset the exit lease 25 times; nothing looked at the
+     * loop that prices the positions the exits read. Called once per bot
+     * cycle beside it. A loop whose current iteration has run past
+     * OPEN_POS_LOOP_STALL_MS, or whose job is no longer active while the
+     * service runs, is named with its phase and the frames of the thread it
+     * started on (ExitSweepTiming7264), cancelled, and relaunched on the next
+     * generation. The stuck iteration, if it ever returns, may not write.
+     */
+    private fun superviseOpenPositionTickLoop7283(openCount: Int, nowMs: Long) {
+        if (!status.running) return
+        val job = openPositionTickJob ?: return
+        val inFlightMs = try {
+            com.lifecyclebot.engine.truth.ExitSweepTiming7264.hotTickInFlightMs7283(nowMs)
+        } catch (_: Throwable) { 0L }
+        val dead = !job.isActive
+        val stalled = !dead && inFlightMs >= OPEN_POS_LOOP_STALL_MS_7283
+        if (!dead && !stalled) return
+        if (nowMs - lastOpenPosLoopRelaunchMs7283 < OPEN_POS_LOOP_RELAUNCH_MIN_GAP_MS_7283) return
+        lastOpenPosLoopRelaunchMs7283 = nowMs
+        val state = if (dead) "DEAD" else "STALLED"
+        val phase = try { com.lifecyclebot.engine.truth.ExitSweepTiming7264.hotTickPhase7283() } catch (_: Throwable) { "-" }
+        val top = try { com.lifecyclebot.engine.truth.ExitSweepTiming7264.hotTickThreadTop7283(8) } catch (_: Throwable) { "-" }
+        try { com.lifecyclebot.engine.truth.ExitSweepTiming7264.onHotTickStall7283(state, phase, inFlightMs, top) } catch (_: Throwable) {}
+        try {
+            PipelineHealthCollector.labelInc("OPEN_POS_LOOP_${state}_RELAUNCHED_7283")
+            ForensicLogger.lifecycle(
+                "OPEN_POS_LOOP_RELAUNCHED_7283",
+                "state=$state open=$openCount inFlightMs=$inFlightMs phase=$phase $top action=cancel_and_relaunch_next_generation",
+            )
+        } catch (_: Throwable) {}
+        ErrorLogger.warn("BotService", "📡 open-position tick loop $state (inFlight=${inFlightMs}ms phase=$phase) — relaunching")
+        if (!dead) {
+            try { job.cancel(CancellationException("OPEN_POS_LOOP_STALLED_7283")) } catch (_: Throwable) {}
+        }
+        try {
+            openPositionTickJob = scope.launch(Dispatchers.IO + CoroutineName("open-mark-7283")) {
+                openPositionTickLoop(openPosLoopGeneration7283.incrementAndGet())
+            }
+        } catch (_: Throwable) {}
+    }
+
+    private fun openPosPhase7283(phase: String) {
+        try { com.lifecyclebot.engine.truth.ExitSweepTiming7264.onHotTickPhase7283(phase) } catch (_: Throwable) {}
     }
 
     private fun ensureSpecialistWorkers6647() {
@@ -1018,6 +1072,19 @@ class BotService : Service() {
     @Volatile private var loopJob: Job? = null
     @Volatile private var rapidStopLossMonitorJob: Job? = null
     @Volatile private var openPositionTickJob: Job? = null
+    // V5.0.7283 — generation of the open-position tick loop. A relaunched loop
+    // takes the next generation; an iteration of an earlier generation that
+    // eventually unblocks may finish, but may not write marks.
+    private val openPosLoopGeneration7283 = java.util.concurrent.atomic.AtomicLong(0L)
+    @Volatile private var lastOpenPosLoopRelaunchMs7283 = 0L
+    private val OPEN_POS_LOOP_STALL_MS_7283 = 30_000L
+    private val OPEN_POS_LOOP_RELAUNCH_MIN_GAP_MS_7283 = 60_000L
+    // The serial per-mint keyless chain may walk six providers at up to 4 s
+    // each per mint; past this much of an iteration the rest wait for the
+    // next tick. The cursor rotates the start so the same failing mints do not
+    // consume every tick's budget while the ones behind them never get a read.
+    private val KEYLESS_CHAIN_BUDGET_MS_7283 = 3_000L
+    @Volatile private var keylessChainCursor7283 = 0
     // V5.0.6908 §ONE_MAP_WAS_DOING_TWO_JOBS_AND_THEREFORE_NEITHER.
     //
     // `tokenMintUploadInFlight` was used simultaneously as an in-flight guard
@@ -10820,13 +10887,19 @@ class BotService : Service() {
     // V5.9.946 — track first-miss timestamp per mint so chronic DS-misses (>60s) get a 60s backoff
     private val openPosFallbackFirstMiss = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
-        private suspend fun openPositionTickLoop() {
-        ErrorLogger.info("BotService", "📡 Open-Position Tick Loop STARTED (1Hz when positions open)")
+        private suspend fun openPositionTickLoop(gen7283: Long) {
+        ErrorLogger.info("BotService", "📡 Open-Position Tick Loop STARTED (1Hz when positions open) gen=$gen7283")
         val TICK_MS = 1_000L
         val IDLE_MS = 5_000L
         var consecutiveEmpty = 0
 
         while (status.running) {
+            // V5.0.7283 — a superseded generation stops here; the supervisor
+            // launched its successor while this one was blocked.
+            if (openPosLoopGeneration7283.get() != gen7283) {
+                ErrorLogger.info("BotService", "📡 Open-Position Tick Loop gen=$gen7283 superseded — exiting")
+                return
+            }
             // V5.0.7270 — the hot-exit heartbeat is fed from this loop. 7267 read
             // five EXIT_COORDINATOR_STALE_RESET (LOCK_AGE_>=10s) while the sweep
             // itself took 3–22 ms, so the stall is here, not in the sweep. Gap
@@ -10860,6 +10933,7 @@ class BotService : Service() {
                 PipelineHealthCollector.labelInc("OPEN_POS_LOOP_TICK_6983")
             } catch (_: Throwable) {}
             try {
+                openPosPhase7283("snapshot")
                 val openMints = canonicalExitTokenSnapshot6512()
                     .map { it.mint }
                     .filter { it.isNotBlank() }
@@ -10867,6 +10941,7 @@ class BotService : Service() {
 
                 // V5.0.7278 — held bonding-curve mints ride the PumpPortal trade
                 // stream; the subscription follows the open set every tick.
+                openPosPhase7283("ws_sync")
                 try {
                     val curveMints7278 = openMints.filter { m ->
                         com.lifecyclebot.network.PumpCurveKeys7269.keyFor(m) != null ||
@@ -10899,6 +10974,7 @@ class BotService : Service() {
                 // Fetched in PARALLEL now, so wall time is one batch (~370ms)
                 // instead of the sum of four.
                 val tickStartedAtMs6945 = System.currentTimeMillis()
+                openPosPhase7283("ds_batch")
                 // V5.0.6970 §MY_PARALLEL_FETCH_STARVED_THE_RATE_LIMITER.
                 //
                 // THIS IS THE MISSING-MARK BUG, and it is a regression I shipped
@@ -11054,6 +11130,7 @@ class BotService : Service() {
                 //     a missing record cannot manufacture work.
                 val quoteStaleLimitMs7093 = 60_000L
                 val nowForStale7093 = System.currentTimeMillis()
+                openPosPhase7283("stale_scan")
                 // `status.tokens` is guarded by `synchronized` everywhere else in
                 // this file (e.g. the liveOpenSet build), so this read takes the
                 // same lock once for the whole scan rather than per mint.
@@ -11133,6 +11210,7 @@ class BotService : Service() {
                 // five other feeds reporting $675k — it loses on count, and the
                 // outlier shows up in the spread instead of in the book.
                 if (missingBeforeKeyless6946Raw.isNotEmpty()) {
+                    openPosPhase7283("fanout")
                     try {
                         val fanoutStart7270 = System.currentTimeMillis()
                         val fanout7088 = com.lifecyclebot.network.ParallelMarkFanout7088
@@ -11187,6 +11265,7 @@ class BotService : Service() {
                     } catch (_: Throwable) { /* fail-soft: every serial path below still runs */ }
                 }
                 if (missingBeforeKeyless6946.isNotEmpty()) {
+                    openPosPhase7283("keyless_batch")
                     try {
                         val rescued6996 = com.lifecyclebot.network.KeylessPriceSources6996
                             .fillMissing(missingBeforeKeyless6946)
@@ -11282,7 +11361,24 @@ class BotService : Service() {
                         if (com.lifecyclebot.engine.truth.RuntimeTune6833
                                 .exitWorkerShouldBoost(opens6958, cashRatio6958)) 24 else 8
                     } catch (_: Throwable) { 8 }
-                    for (mint in missingBeforeKeyless6946.take(keylessCap6958)) {
+                    // V5.0.7283 — `take(cap)` from the head of the same list every
+                    // tick: when the first eight could not be priced, the ninth
+                    // and onward were never asked. Rotate the start each tick.
+                    val chainOrder7283 = if (missingBeforeKeyless6946.size <= 1) missingBeforeKeyless6946 else {
+                        val off = ((keylessChainCursor7283 % missingBeforeKeyless6946.size) + missingBeforeKeyless6946.size) % missingBeforeKeyless6946.size
+                        missingBeforeKeyless6946.drop(off) + missingBeforeKeyless6946.take(off)
+                    }
+                    var chainWalked7283 = 0
+                    for (mint in chainOrder7283.take(keylessCap6958)) {
+                        // The chain is serial and each resolve may walk six providers
+                        // at up to 4 s each. Past the budget the rest wait for the next
+                        // tick rather than the tick — and the exits — for them.
+                        if (System.currentTimeMillis() - tickStartedAtMs6945 >= KEYLESS_CHAIN_BUDGET_MS_7283) {
+                            try { PipelineHealthCollector.labelInc("MARK_KEYLESS_CHAIN_BUDGET_DEFERRED_7283") } catch (_: Throwable) {}
+                            break
+                        }
+                        chainWalked7283++
+                        openPosPhase7283("keyless_chain:${mint.take(8)}")
                         val r = try {
                             com.lifecyclebot.engine.sell.PriceResolverFallback.resolve(mint, solUsdHint6946)
                         } catch (_: Throwable) { null }
@@ -11296,6 +11392,7 @@ class BotService : Service() {
                             } catch (_: Throwable) {}
                         }
                     }
+                    keylessChainCursor7283 += chainWalked7283.coerceAtLeast(1)
                     if (resolved6946 > 0) {
                         try {
                             PipelineHealthCollector.labelInc("MARK_KEYLESS_FALLBACK_RESOLVED_6946")
@@ -11312,6 +11409,7 @@ class BotService : Service() {
                 // against a budget that is already 401-dead.
                 val missing = solanaMints6970.filter { it !in priceMap }
                 if (missing.isNotEmpty()) {
+                    openPosPhase7283("birdeye")
                     // ═══════════════════════════════════════════════════════════════
                     // V5.9.946 — BIRDEYE FALLBACK BUDGET DISCIPLINE.
                     //
@@ -11407,12 +11505,20 @@ class BotService : Service() {
                 }
                 consecutiveEmpty = 0
 
+                // V5.0.7283 — a superseded iteration's prices were fetched before
+                // the successor's; they are not written over fresher marks.
+                if (openPosLoopGeneration7283.get() != gen7283) {
+                    try { PipelineHealthCollector.labelInc("OPEN_POS_TICK_SUPERSEDED_MARKS_DROPPED_7283") } catch (_: Throwable) {}
+                    return
+                }
+
                 val now = System.currentTimeMillis()
                 var updated = 0
                 for ((mint, priceUsd) in priceMap) {
                     val ts = status.tokens[mint] ?: continue
                     if (!ts.position.isOpen) continue
                     if (priceUsd <= 0.0) continue
+                    openPosPhase7283("apply:${mint.take(8)}")
 
                     // V5.9.734 — WS TICK-FILTER for OPEN positions.
                     // The pair-poll ingest path at line ~8500 already
@@ -11725,6 +11831,7 @@ class BotService : Service() {
                     //      give-back exceed a peak-tier-specific share. Lets
                     //      runners run but never gives back a 1000% ride.
                     // ═══════════════════════════════════════════════════════════════
+                    openPosPhase7283("tick_lock:${mint.take(8)}")
                     try {
                         val pos = ts.position
                         val entryPx = pos.entryPrice
@@ -12005,6 +12112,7 @@ class BotService : Service() {
                 // Throttled to every 2s (not every tick) so we don't burn CPU
                 // and so the bot-loop EXIT_SWEEP continues to serve as the
                 // authoritative path for orphan/edge-case positions.
+                openPosPhase7283("sweep")
                 try {
                     val nowSweepMs = System.currentTimeMillis()
                     if (nowSweepMs - lastTickExitSweepMs >= 30_000L) {
@@ -12029,6 +12137,7 @@ class BotService : Service() {
                 // period stays 1s, with a 150ms floor so a slow pass cannot
                 // spin the CPU.
                 val elapsed6945 = System.currentTimeMillis() - tickStartedAtMs6945
+                openPosPhase7283("delay")
                 kotlinx.coroutines.delay((TICK_MS - elapsed6945).coerceIn(150L, TICK_MS))
 
             } catch (ce: kotlinx.coroutines.CancellationException) {
@@ -12042,6 +12151,18 @@ class BotService : Service() {
                     PipelineHealthCollector.labelInc("OPEN_POS_TICK_SKIPPED_6983_THREW")
                 } catch (_: Throwable) {}
                 kotlinx.coroutines.delay(2_000L)
+            } catch (t: Throwable) {
+                // V5.0.7283 — an Error (a class that failed to initialise, a stack
+                // overflow in a scorer) escaped the Exception clause above and
+                // ended the loop with no log line and no counter. The supervisor
+                // would now relaunch it; better that it does not die.
+                ErrorLogger.error("BotService", "OpenPositionTickLoop error(${t.javaClass.simpleName}): ${t.message}")
+                try {
+                    PipelineHealthCollector.labelInc("OPEN_POS_TICK_SKIPPED_6983_THREW_ERROR")
+                } catch (_: Throwable) {}
+                kotlinx.coroutines.delay(2_000L)
+            } finally {
+                try { com.lifecyclebot.engine.truth.ExitSweepTiming7264.onHotTickEnd7283(System.currentTimeMillis()) } catch (_: Throwable) {}
             }
         }
         ErrorLogger.info("BotService", "📡 Open-Position Tick Loop STOPPED")
@@ -19888,6 +20009,10 @@ val tickExitSweepFresh = postSupervisorOpenCount > 0
 // The heavy resurrect+force-sweep logic lives in maybeHealHotExit() (a plain
 // member fun) so botLoop's coroutine state-machine stays small enough for the
 // JVM back-end to transform (1313a: inlining it overflowed botLoop's method).
+// V5.0.7283 — and the loop that prices what the hot exit reads. 5.0.7281:
+// 25 stale resets while the 1 Hz mark loop had not started an iteration
+// in nineteen minutes; nothing supervised the loop itself.
+superviseOpenPositionTickLoop7283(postSupervisorOpenCount, postSupervisorNowMs)
 val hotExitHandledSweep = maybeHealHotExit(loopCount, postSupervisorOpenCount, postSupervisorNowMs)
 if (hotExitHandledSweep) {
     // hotExit was stale — maybeHealHotExit resurrected it and forced the sweep.

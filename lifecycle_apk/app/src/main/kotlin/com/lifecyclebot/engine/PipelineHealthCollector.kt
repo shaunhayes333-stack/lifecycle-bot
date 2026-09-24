@@ -2215,6 +2215,15 @@ object PipelineHealthCollector {
                     "PAPER_ATOMIC_REFUSED_QTY_ZERO_7281",
                     "CRYPTO_PAPER_ENTRY_BASIS_RECENT_7281",
                     "PUMP_CURVE_RPC_RUNG_SKIPPED_LOCKED_7281",
+                    // V5.0.7283 — the 1 Hz mark loop supervised: relaunches by
+                    // state, a superseded iteration's dropped marks, the serial
+                    // chain's budget deferrals, and an Error that would have ended
+                    // the loop silently.
+                    "OPEN_POS_LOOP_STALLED_RELAUNCHED_7283",
+                    "OPEN_POS_LOOP_DEAD_RELAUNCHED_7283",
+                    "OPEN_POS_TICK_SUPERSEDED_MARKS_DROPPED_7283",
+                    "MARK_KEYLESS_CHAIN_BUDGET_DEFERRED_7283",
+                    "OPEN_POS_TICK_SKIPPED_6983_THREW_ERROR",
                     "CRYPTO_DYN_MARK_STALE_OR_MISSING_6654",
                     "CRYPTO_HELD_MARK_REFRESH_COALESCED_7251",
                     "SOL_MARK_RESCUE_7167",
@@ -2303,6 +2312,10 @@ object PipelineHealthCollector {
                     // blocks by the rung that refused.
                     "PUMP_WS_FRAME_7279_",
                     "PUMP_CURVE_RPC_CIRCUIT_BLOCKED_7279_",
+                    // V5.0.7283 — the shape of a blank curve-account data field and
+                    // any encoding the rung declared other than base64.
+                    "PUMP_CURVE_RPC_NO_DATA_SHAPE_7283_",
+                    "PUMP_CURVE_RPC_DATA_ENCODING_7283_",
                     // V5.0.7280 — every curve buy's multiple over its launch price.
                     "LAUNCH_ENTRY_MULTIPLE_OF_CREATE_7280_",
                     // V5.0.7221 — the directive's third term, per lane: FDG
