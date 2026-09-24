@@ -50,4 +50,24 @@ object PumpCurveKeys7269 {
     fun keyFor(mint: String): String? = keys[mint.trim()]
 
     fun size(): Int = keys.size
+
+    // V5.0.7280 — the curve's price at creation and the create time, from the
+    // same frame that carries the key. A ticket's multiple over this price is
+    // what LaunchChase7280 reads.
+    private val createPriceSol7280 = ConcurrentHashMap<String, Double>()
+    private val createdAtMs7280 = ConcurrentHashMap<String, Long>()
+
+    fun rememberCreate7280(mint: String, priceSol: Double, atMs: Long) {
+        val m = mint.trim()
+        if (m.isBlank() || !priceSol.isFinite() || priceSol <= 0.0) return
+        if (createPriceSol7280.size >= MAX_KEYS && !createPriceSol7280.containsKey(m)) {
+            val victim = createPriceSol7280.keys.firstOrNull()
+            if (victim != null) { createPriceSol7280.remove(victim); createdAtMs7280.remove(victim) }
+        }
+        createPriceSol7280.putIfAbsent(m, priceSol)
+        createdAtMs7280.putIfAbsent(m, atMs)
+    }
+
+    fun createPriceSol7280(mint: String): Double? = createPriceSol7280[mint.trim()]
+    fun createdAtMs7280(mint: String): Long? = createdAtMs7280[mint.trim()]
 }

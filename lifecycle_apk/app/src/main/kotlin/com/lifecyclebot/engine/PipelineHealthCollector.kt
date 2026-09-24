@@ -2199,6 +2199,15 @@ object PipelineHealthCollector {
                     "PUMP_CURVE_RPC_LADDER_FALLBACK_7279",
                     "PUMP_CURVE_RPC_NO_RUNG_ANSWERED_7279",
                     "FDG_ALLOW_SUPERSEDED_STALE_STATE_CLEARED_7279",
+                    // V5.0.7280 — the ticket bounded by the sizer; chase tickets
+                    // floored; cap-derived bases observed at the door.
+                    "PAPER_TICKET_BOUND_TO_REQUESTED_SIZE_7280",
+                    "PAPER_TICKET_CAP_FROM_REALISTIC_SIZER_7280",
+                    "LAUNCH_CHASE_TICKET_FLOORED_7280",
+                    "PAPER_ENTRY_BASIS_CAP_DERIVED_OBSERVED_7280",
+                    "PAPER_ENTRY_BASIS_CAP_DERIVED_UNOBSERVED_7280",
+                    "PAPER_ENTRY_BASIS_CAP_DERIVED_CONTESTED_7280",
+                    "PAPER_ENTRY_BASIS_CAP_DERIVED_CONTRADICTED_7280",
                     "CRYPTO_DYN_MARK_STALE_OR_MISSING_6654",
                     "CRYPTO_HELD_MARK_REFRESH_COALESCED_7251",
                     "SOL_MARK_RESCUE_7167",
@@ -2287,6 +2296,8 @@ object PipelineHealthCollector {
                     // blocks by the rung that refused.
                     "PUMP_WS_FRAME_7279_",
                     "PUMP_CURVE_RPC_CIRCUIT_BLOCKED_7279_",
+                    // V5.0.7280 — every curve buy's multiple over its launch price.
+                    "LAUNCH_ENTRY_MULTIPLE_OF_CREATE_7280_",
                     // V5.0.7221 — the directive's third term, per lane: FDG
                     // allows that were then declined downstream. Information,
                     // not an alarm; a cancelled allow is the pipeline working.
@@ -2946,6 +2957,11 @@ object PipelineHealthCollector {
             // shape, not a fault.
             sb.append("  Parallel marks    (§7088): ").append(
                 com.lifecyclebot.network.ParallelMarkFanout7088.status()
+            ).append("\n")
+            // V5.0.7280 — what the PumpPortal socket is doing, and the last frame
+            // it received that this parser has no type for.
+            sb.append("  PumpPortal WS     (§7280): ").append(
+                try { com.lifecyclebot.network.PumpFunWS.status7280() } catch (_: Throwable) { "unavailable" }
             ).append("\n")
             sb.append("  On-chain supply   (§7075): ").append(
                 com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.status()

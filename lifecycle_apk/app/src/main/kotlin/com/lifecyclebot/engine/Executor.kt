@@ -1033,8 +1033,9 @@ class Executor(
         // at intake in the same build, so this guard covers positions opened
         // before it.
         if (livePrice != null && pos.isOpen && pos.isPaperPosition && pos.entryPrice > 0.0 &&
-            pos.entryPriceSource == "PUMP_FUN_BC_SYNTHETIC" &&
-            !com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint) &&
+            // V5.0.7280 — the seed's own label, or the old shared label on a
+            // mint with no curve evidence (key or suffix).
+            com.lifecyclebot.engine.truth.EntryBasisSeed7280.isCapDerived(pos.entryPriceSource, ts.mint) &&
             ts.lastPriceSource.contains("FANOUT_CORROBORATED", ignoreCase = true)
         ) {
             val ratio7270 = livePrice / pos.entryPrice
@@ -3522,6 +3523,9 @@ class Executor(
         } else {
             minOf(liquidityCapSol, walletCapSol6408, spendable)
         }
+        // V5.0.7280 — the binding cap is remembered for the ticket that follows.
+        try { if (cap.isFinite() && cap > 0.0) lastRealisticCapSol7280[ts.mint] = cap to System.currentTimeMillis() } catch (_: Throwable) {}
+        try { if (lastRealisticCapSol7280.size > 4096) lastRealisticCapSol7280.clear() } catch (_: Throwable) {}
         val minRealistic = growthPolicy.minExecutableSol.coerceAtMost(cap)
         val desired = maxOf(requestedSol, walletTarget, minRealistic).coerceAtMost(cap)
         val out = desired.coerceAtLeast(minOf(requestedSol, cap)).coerceAtMost(spendable)
@@ -3621,6 +3625,63 @@ class Executor(
     // their owners (KeylessLlmClient, LearnedPolicyDegeneracyWatch7102) are
     // objects; this one is not, and 7162 went red on exactly that line.
     private val COST_EDGE_MARGIN_7162 = 1.15
+
+    // V5.0.7280 — the realistic sizer's binding cap per mint (liquidity /
+    // curve / wallet / spendable), stamped with its time, so the paper ticket
+    // that follows can be bounded by the same cap instead of by a sealed
+    // notional and a confidence press that never saw it.
+    private val lastRealisticCapSol7280 = java.util.concurrent.ConcurrentHashMap<String, Pair<Double, Long>>()
+
+    /**
+     * V5.0.7280 — a cap-derived entry basis (see EntryBasisSeed7280) is
+     * observed against the mark stack before it can be debited. Returns the
+     * snapshot unchanged when the basis is not cap-derived, a re-priced
+     * snapshot when the stack agrees within 25%, and null when the stack is
+     * empty, contested, or contradicts the seed — in which case there is no
+     * honest basis to buy on and the entry is refused, exactly as 7275 does
+     * for CRYPTO_ALT.
+     */
+    private fun observeCapDerivedBasis7280(ts: TokenState, snap: MintEntryMarketSnapshot): MintEntryMarketSnapshot? {
+        if (!com.lifecyclebot.engine.truth.EntryBasisSeed7280.isCapDerived(snap.priceSource, ts.mint)) return snap
+        val fan = try {
+            com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(listOf(ts.mint))[ts.mint]
+        } catch (_: Throwable) { null }
+        val now = System.currentTimeMillis()
+        if (fan == null || !fan.priceUsd.isFinite() || fan.priceUsd <= 0.0) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_ENTRY_BASIS_CAP_DERIVED_UNOBSERVED_7280")
+                ForensicLogger.lifecycle(
+                    "PAPER_ENTRY_BASIS_CAP_DERIVED_UNOBSERVED_7280",
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} seed=${snap.priceUsd} src=${snap.priceSource} action=refuse_no_observed_basis",
+                )
+            } catch (_: Throwable) {}
+            return null
+        }
+        if (fan.sourceCount >= 2 && !fan.corroborated) {
+            try { PipelineHealthCollector.labelInc("PAPER_ENTRY_BASIS_CAP_DERIVED_CONTESTED_7280") } catch (_: Throwable) {}
+            return null
+        }
+        val ratio = fan.priceUsd / snap.priceUsd
+        if (!ratio.isFinite() || ratio < 0.8 || ratio > 1.25) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_ENTRY_BASIS_CAP_DERIVED_CONTRADICTED_7280")
+                ForensicLogger.lifecycle(
+                    "PAPER_ENTRY_BASIS_CAP_DERIVED_CONTRADICTED_7280",
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} seed=${snap.priceUsd} observed=${fan.priceUsd} " +
+                        "ratio=${"%.4g".format(ratio)} sources=${fan.sources} action=refuse_seed_is_not_the_market",
+                )
+            } catch (_: Throwable) {}
+            return null
+        }
+        val label = if (fan.corroborated) "FANOUT_CORROBORATED_7088_x${fan.agreeingCount}" else "FANOUT_UNCORROBORATED_7088"
+        synchronized(ts) {
+            ts.lastPrice = fan.priceUsd
+            ts.lastPriceSource = label
+            ts.lastPriceUpdate = now
+        }
+        try { PipelineHealthCollector.labelInc("PAPER_ENTRY_BASIS_CAP_DERIVED_OBSERVED_7280") } catch (_: Throwable) {}
+        return snap.copy(priceUsd = fan.priceUsd, priceSource = label, capturedAtMs = now)
+    }
 
     private fun costExceedsEdge7162(
         ts: TokenState,
@@ -15503,10 +15564,34 @@ class Executor(
         // V5.0.6552 — execution consumes the sealed notional. No WR,
         // runner, cold-streak, lane-admission, or second resolver may mutate
         // size after ticket dispatch. A changed market cancels/requotes.
-        val sol = try {
+        val sealedOrIntentSol7280 = try {
             com.lifecyclebot.engine.truth.SealedOrderSizeAuthority6497.sealedSize(ts.mint)
                 ?: canonicalBuyIntentSol6490
         } catch (_: Throwable) { canonicalBuyIntentSol6490 }
+        // V5.0.7280 §THE TICKET CANNOT OUTSIZE THE SIZER.
+        //
+        // 6567's rule for this site was "a downstream minimum may reject or
+        // shadow a reduced request, but must never inflate it back into a
+        // normal position." The sealed notional is the FDG-time figure from
+        // the lane trader and the resolver (cash cap, lane cap of 5 SOL) — it
+        // has never been through realisticEntrySize6867, where the liquidity
+        // cap, the curve exit cap, the wallet share and the boosts live. The
+        // caller's `sol` has. On 5.0.7279 the sealed figure won here at 0.6–
+        // 0.8 SOL, the confidence press below multiplied it by up to 2.5, and
+        // QUALITY put 1.538 SOL into a $22.7k launch that died 43 s later.
+        // The larger of the two may not be the ticket.
+        val requestedBound7280 = effectiveBuySol6451.takeIf { it.isFinite() && it > 0.0 }
+        val sol = if (requestedBound7280 != null && sealedOrIntentSol7280 > requestedBound7280 * 1.001) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_TICKET_BOUND_TO_REQUESTED_SIZE_7280")
+                ForensicLogger.lifecycle(
+                    "PAPER_TICKET_BOUND_TO_REQUESTED_SIZE_7280",
+                    "mint=${ts.mint.take(10)} lane=$finalityLane sealedOrIntent=${sealedOrIntentSol7280.fmt(4)} " +
+                        "requested=${requestedBound7280.fmt(4)} action=ticket_takes_the_sized_figure",
+                )
+            } catch (_: Throwable) {}
+            requestedBound7280
+        } else sealedOrIntentSol7280
         try {
             ForensicLogger.lifecycle(
                 "PAPER_SEALED_NOTIONAL_CONSUMED_6552",
@@ -15598,13 +15683,67 @@ class Executor(
         // getActualPrice + discovery source/tokenMap pool, then persisted a
         // different lastPrice/lastPriceSource/lastPricePool snapshot.  That
         // source-of-creation split admitted template prices into canonical lots.
-        val entryMarketSnapshot = mintEntryMarketSnapshot(ts)
-        if (entryMarketSnapshot == null) {
+        val entryMarketSnapshotRaw7280 = mintEntryMarketSnapshot(ts)
+        if (entryMarketSnapshotRaw7280 == null) {
             ErrorLogger.debug("Executor", "Paper buy skipped: no authoritative market snapshot for ${tradeId.symbol}")
             markPaperBuyNotOpened("NO_VALID_MARKET_SNAPSHOT")
             return
         }
+        // V5.0.7280 — a cap-derived seed must be observed by the stack before
+        // it is a basis anyone pays. See observeCapDerivedBasis7280.
+        val entryMarketSnapshot = observeCapDerivedBasis7280(ts, entryMarketSnapshotRaw7280)
+        if (entryMarketSnapshot == null) {
+            markPaperBuyNotOpened("ENTRY_BASIS_CAP_DERIVED_UNOBSERVED_7280")
+            return
+        }
         val price = entryMarketSnapshot.priceUsd
+        // V5.0.7280 — the multiple this ticket pays over the launch price, for
+        // every bonding-curve buy; a chase inside the fresh window is sized at
+        // the executable minimum. See LaunchChase7280.
+        val launchChaseCapSol7280: Double? = try {
+            val createPx7280 = com.lifecyclebot.network.PumpCurveKeys7269.createPriceSol7280(ts.mint)
+            val createdAt7280 = com.lifecyclebot.network.PumpCurveKeys7269.createdAtMs7280(ts.mint)
+            val solUsd7280 = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+            if (createPx7280 != null && createdAt7280 != null && solUsd7280.isFinite() && solUsd7280 > 0.0 && price > 0.0) {
+                val multiple7280 = price / (createPx7280 * solUsd7280)
+                val ageMs7280 = System.currentTimeMillis() - createdAt7280
+                val bucket7280 = com.lifecyclebot.engine.truth.LaunchChase7280.bucket(multiple7280)
+                try { PipelineHealthCollector.labelInc("LAUNCH_ENTRY_MULTIPLE_OF_CREATE_7280_$bucket7280") } catch (_: Throwable) {}
+                if (com.lifecyclebot.engine.truth.LaunchChase7280.isChase(multiple7280, ageMs7280)) {
+                    val floor7280 = minConfiguredPaperTradeSol()
+                    try {
+                        PipelineHealthCollector.labelInc("LAUNCH_CHASE_TICKET_FLOORED_7280")
+                        ForensicLogger.lifecycle(
+                            "LAUNCH_CHASE_TICKET_FLOORED_7280",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$layerTag multiple=${"%.2f".format(multiple7280)}x " +
+                                "ageMs=$ageMs7280 window=${com.lifecyclebot.engine.truth.LaunchChase7280.FRESH_WINDOW_MS} " +
+                                "chaseAt=${com.lifecyclebot.engine.truth.LaunchChase7280.CHASE_MULTIPLE}x floorSol=${floor7280.fmt(4)} " +
+                                "action=lottery_ticket_not_a_position",
+                        )
+                    } catch (_: Throwable) {}
+                    floor7280
+                } else null
+            } else null
+        } catch (_: Throwable) { null }
+        // V5.0.7280 — the ticket's ceiling: the caller's override, the realistic
+        // sizer's binding cap for this mint (stamped within two minutes), and
+        // the chase floor; never below the executable minimum, so this bounds
+        // and never blocks.
+        val realisticCap7280 = try {
+            lastRealisticCapSol7280[ts.mint]
+                ?.takeIf { System.currentTimeMillis() - it.second <= 120_000L }
+                ?.first?.takeIf { it.isFinite() && it > 0.0 }
+        } catch (_: Throwable) { null }
+        val ticketCapOverride7280: Double? = listOfNotNull(
+            maxPaperTradeSolOverride?.takeIf { it.isFinite() && it > 0.0 },
+            realisticCap7280,
+            launchChaseCapSol7280,
+        ).minOrNull()?.coerceAtLeast(minConfiguredPaperTradeSol())
+        if (ticketCapOverride7280 != null && realisticCap7280 != null &&
+            ticketCapOverride7280 == realisticCap7280.coerceAtLeast(minConfiguredPaperTradeSol())
+        ) {
+            try { PipelineHealthCollector.labelInc("PAPER_TICKET_CAP_FROM_REALISTIC_SIZER_7280") } catch (_: Throwable) {}
+        }
         // V5.0.6658 §ENTRY_PRICE_PROVENANCE_ENFORCEMENT — operator dump Feb
         //   2026 UI screenshot showed dozens of open positions with
         //   fabricated entry prices ($0.05025 / $50M mcap / $0.00005253
@@ -15709,7 +15848,7 @@ class Executor(
         } catch (_: Throwable) { sol }
 
         if (skipGraduated || quality == "C") {
-            actualSol = clampPaperTradeSol(fluidSol, ts.mint, ts.symbol, "paperBuy.actual", maxPaperTradeSolOverride)
+            actualSol = clampPaperTradeSol(fluidSol, ts.mint, ts.symbol, "paperBuy.actual", ticketCapOverride7280)
             buildPhase = if (quality != "C") 1 else 3
             targetBuild = if (quality != "C") fluidSol / graduatedInitialPct(quality) else 0.0
         } else {
@@ -15726,7 +15865,7 @@ class Executor(
             // slippage protection. V5.0.6550 §P0-A floor preservation
             // remains in place as a belt-and-braces guard when the
             // graduated code path is re-enabled elsewhere.
-            actualSol = clampPaperTradeSol(fluidSol, ts.mint, ts.symbol, "paperBuy.paperFullFluid_6572", maxPaperTradeSolOverride)
+            actualSol = clampPaperTradeSol(fluidSol, ts.mint, ts.symbol, "paperBuy.paperFullFluid_6572", ticketCapOverride7280)
             try { PipelineHealthCollector.labelInc("PAPER_GRADUATED_TRANCHE_SKIPPED_6572") } catch (_: Throwable) {}
             buildPhase = 1
             targetBuild = fluidSol.coerceAtMost(maxConfiguredPaperTradeSol())

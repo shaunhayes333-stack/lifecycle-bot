@@ -1917,10 +1917,21 @@ class BotService : Service() {
                             // a COMPILE failure, and a runtime guard around it
                             // reads as safety while providing none.
                             val cfg7075 = com.lifecyclebot.data.ConfigStore.load(cacheCtx)
-                            val rpc7075 = cfg7075.rpcUrl.trim().ifBlank {
-                                if (cfg7075.heliusApiKey.isNotBlank()) {
-                                    "https://mainnet.helius-rpc.com/?api-key=${cfg7075.heliusApiKey}"
-                                } else "https://api.mainnet-beta.solana.com"
+                            // V5.0.7280 — the ladder's head, not the raw saved field.
+                            // Settings saves a blank RPC as the public node, so this
+                            // read handed the supply reader and the mark fan-out
+                            // api.mainnet-beta.solana.com as rung 0 while the paid
+                            // Helius endpoint sat second: 5.0.7279 shows the curve
+                            // read circuit-blocked on `solana_rpc` 880 times and
+                            // falling to rung 1 (Helius) 677 times per 1,929 passes.
+                            val rpc7075 = try {
+                                com.lifecyclebot.engine.RuntimeProviderAuthority6685.preferredRpc(explicit = applicationContext)
+                            } catch (_: Throwable) { "" }.ifBlank {
+                                cfg7075.rpcUrl.trim().ifBlank {
+                                    if (cfg7075.heliusApiKey.isNotBlank()) {
+                                        "https://mainnet.helius-rpc.com/?api-key=${cfg7075.heliusApiKey}"
+                                    } else "https://api.mainnet-beta.solana.com"
+                                }
                             }
                             com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.installRpc7075(rpc7075)
                             // V5.0.7088 — the same endpoint drives Helius DAS
@@ -15131,9 +15142,17 @@ class BotService : Service() {
                     // DexScreener WS will overwrite this with the REAL pool quote
                     // on a different basis. getActualPrice detects the basis switch
                     // and rescales entryPrice once so PnL stays honest.
-                    ts.lastPriceSource = "PUMP_FUN_BC_SYNTHETIC"
-                    ts.lastPriceDex = "PUMP_FUN"
-                } else if (trustedMarketCapUsd6492 > 0.0 && ts.lastPriceSource == "PUMP_FUN_BC_SYNTHETIC") {
+                    // V5.0.7280 — case 2 (cap ÷ chain supply) carried case 1's
+                    // label, so everything downstream assumed a 1e9 supply and a
+                    // curve for a mint that has neither. 5.0.7279: 98sMhv entered at
+                    // $0.96 under this label from a $683k cap over a 712k supply
+                    // while two feeds quoted $90.8 — 20.7 SOL of fabricated
+                    // unrealized on a 0.22 SOL ticket. The two cases are named apart.
+                    ts.lastPriceSource = if (isPumpMint7089) "PUMP_FUN_BC_SYNTHETIC" else com.lifecyclebot.engine.truth.EntryBasisSeed7280.CHAIN_SUPPLY_CAP_SEED
+                    ts.lastPriceDex = if (isPumpMint7089) "PUMP_FUN" else "CAP_OVER_CHAIN_SUPPLY"
+                } else if (trustedMarketCapUsd6492 > 0.0 &&
+                    (ts.lastPriceSource == "PUMP_FUN_BC_SYNTHETIC" || ts.lastPriceSource == com.lifecyclebot.engine.truth.EntryBasisSeed7280.CHAIN_SUPPLY_CAP_SEED)
+                ) {
                     // V5.9.1328 — ROOT FIX F: Synthetic price refresh.
                     // The initial seed above only fires once (lastPrice <= 0
                     // guard). As pump-portal WS keeps streaming updated mcaps

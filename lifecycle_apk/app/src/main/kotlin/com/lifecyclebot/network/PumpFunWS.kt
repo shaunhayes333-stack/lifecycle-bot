@@ -58,6 +58,14 @@ object PumpFunWS {
     @Volatile private var onTradeCb: ((mint: String, priceSolPerToken: Double, marketCapSol: Double, isBuy: Boolean) -> Unit)? = null
     private val tradeSubscriptions7278 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val firstUntypedLogged7279 = AtomicBoolean(false)
+    @Volatile private var lastUntypedFrame7280: String = ""
+    private val untypedFrames7280 = AtomicLong(0L)
+
+    /** V5.0.7280 — one line for the pipeline report: what the socket is doing. */
+    fun status7280(): String =
+        "running=${running.get()} socket=${if (ws != null) "open" else "none"} reconnects=${reconnectAttempt.get()} " +
+            "tradeSubscribedMints=${tradeSubscriptions7278.size} untypedFrames=${untypedFrames7280.get()} " +
+            "lastUntyped=${lastUntypedFrame7280.ifBlank { "-" }}"
 
     fun setOnTrade7278(cb: (mint: String, priceSolPerToken: Double, marketCapSol: Double, isBuy: Boolean) -> Unit) {
         onTradeCb = cb
@@ -156,6 +164,13 @@ object PumpFunWS {
                     if (txType.isBlank() && firstUntypedLogged7279.compareAndSet(false, true)) {
                         ErrorLogger.info(TAG, "first untyped frame: ${text.take(220)}")
                     }
+                    // V5.0.7280 — 5.0.7279: 85 `message` frames, 50 mints subscribed,
+                    // zero trade frames, and the frame text never reached the
+                    // snapshot. The last one is kept for the status line.
+                    if (txType.isBlank()) {
+                        lastUntypedFrame7280 = text.take(200).replace('\n', ' ')
+                        untypedFrames7280.incrementAndGet()
+                    }
                 } catch (_: Throwable) {}
                 when {
                     // V5.0.7278 — a trade on a held curve is a mark.
@@ -190,22 +205,25 @@ object PumpFunWS {
                         // (provider proofs, rugcheck, Birdeye/DexScreener
                         // enrichment) that drives the bulk of mobile-data
                         // burn. Threshold rises when watchlist saturates.
-                        if (!com.lifecyclebot.engine.PumpPortalThrottle.allowCreate(marketCapSol)) return
-                        onNewTokenCb?.invoke(mint, symbol, name, marketCapSol)
                         // V5.0.7279 — the create frame carries the curve's virtual
                         // reserves after the dev buy: the spot price at t=0, from
                         // the same field pair every trade frame carries. Delivered
                         // through the trade callback after intake has created the
                         // token row, so the first mark exists before the first
                         // evaluation instead of after the first aggregator poll.
+                        // V5.0.7280 — and remembered as the launch price before the
+                        // throttle, so a later ticket's multiple over it is known.
                         val vSol0 = j.optDouble("vSolInBondingCurve", 0.0)
                         val vTok0 = j.optDouble("vTokensInBondingCurve", 0.0)
-                        if (vSol0.isFinite() && vTok0.isFinite() && vSol0 > 0.0 && vTok0 > 0.0) {
-                            val priceSol0 = vSol0 / vTok0
-                            if (priceSol0.isFinite() && priceSol0 > 0.0) {
-                                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_CREATE_MARK_EMITTED_7279") } catch (_: Throwable) {}
-                                onTradeCb?.invoke(mint, priceSol0, marketCapSol, true)
-                            }
+                        val priceSol0 = if (vSol0.isFinite() && vTok0.isFinite() && vSol0 > 0.0 && vTok0 > 0.0) vSol0 / vTok0 else 0.0
+                        if (priceSol0.isFinite() && priceSol0 > 0.0) {
+                            try { PumpCurveKeys7269.rememberCreate7280(mint, priceSol0, System.currentTimeMillis()) } catch (_: Throwable) {}
+                        }
+                        if (!com.lifecyclebot.engine.PumpPortalThrottle.allowCreate(marketCapSol)) return
+                        onNewTokenCb?.invoke(mint, symbol, name, marketCapSol)
+                        if (priceSol0.isFinite() && priceSol0 > 0.0) {
+                            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_CREATE_MARK_EMITTED_7279") } catch (_: Throwable) {}
+                            onTradeCb?.invoke(mint, priceSol0, marketCapSol, true)
                         }
                     }
                     txType == "migrate" || j.optString("event", "") == "migration" -> {

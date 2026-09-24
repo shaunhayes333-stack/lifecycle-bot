@@ -10475,4 +10475,51 @@ class GoldenTapeRegressionTest {
         assertTrue(phc.contains("\"PUMP_CURVE_RPC_CIRCUIT_BLOCKED_7279\","))
     }
 
+    /** V5.0.7280 — the paper ticket cannot exceed the caller's sized figure or
+     * the realistic sizer's binding cap; a launch-chase ticket (≥3x the create
+     * price inside three minutes) is floored to the executable minimum; a
+     * cap-over-supply seed is named apart from the pump.fun constant and must
+     * be observed by the stack before it is debited; the RPC head comes from
+     * the ladder; the PumpPortal socket reports its last untyped frame. */
+    @Test
+    fun V5_0_7280_ticket_bounded_by_sizer_launch_chase_floored_and_cap_seed_observed() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val ws = java.io.File("src/main/kotlin/com/lifecyclebot/network/PumpFunWS.kt").readText()
+        val keys = java.io.File("src/main/kotlin/com/lifecyclebot/network/PumpCurveKeys7269.kt").readText()
+        val chase = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LaunchChase7280.kt").readText()
+        val seed = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/EntryBasisSeed7280.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        // Ticket size: the larger of sealed/intent and the sized figure may not be the ticket.
+        assertTrue(exec.contains("val sol = if (requestedBound7280 != null && sealedOrIntentSol7280 > requestedBound7280 * 1.001) {"))
+        assertTrue(exec.contains("lastRealisticCapSol7280[ts.mint] = cap to System.currentTimeMillis()"))
+        assertTrue(exec.contains("actualSol = clampPaperTradeSol(fluidSol, ts.mint, ts.symbol, \"paperBuy.actual\", ticketCapOverride7280)"))
+        assertTrue(exec.contains("actualSol = clampPaperTradeSol(fluidSol, ts.mint, ts.symbol, \"paperBuy.paperFullFluid_6572\", ticketCapOverride7280)"))
+        assertTrue(exec.contains(").minOrNull()?.coerceAtLeast(minConfiguredPaperTradeSol())"))
+
+        // Launch chase: measured against the create price, floored not blocked.
+        assertTrue(chase.contains("const val FRESH_WINDOW_MS = 180_000L"))
+        assertTrue(chase.contains("const val CHASE_MULTIPLE = 3.0"))
+        assertTrue(keys.contains("fun rememberCreate7280(mint: String, priceSol: Double, atMs: Long) {"))
+        assertTrue(ws.contains("PumpCurveKeys7269.rememberCreate7280(mint, priceSol0, System.currentTimeMillis())"))
+        assertTrue(exec.contains("LAUNCH_CHASE_TICKET_FLOORED_7280"))
+        assertTrue(exec.contains("LAUNCH_ENTRY_MULTIPLE_OF_CREATE_7280_\$bucket7280"))
+
+        // Cap-derived seed: its own label at intake; observed at the door.
+        assertTrue(seed.contains("const val CHAIN_SUPPLY_CAP_SEED = \"CHAIN_SUPPLY_CAP_SEED_7280\""))
+        assertTrue(bot.contains("ts.lastPriceSource = if (isPumpMint7089) \"PUMP_FUN_BC_SYNTHETIC\" else com.lifecyclebot.engine.truth.EntryBasisSeed7280.CHAIN_SUPPLY_CAP_SEED"))
+        assertTrue(exec.contains("val entryMarketSnapshot = observeCapDerivedBasis7280(ts, entryMarketSnapshotRaw7280)"))
+        assertTrue(exec.contains("PAPER_ENTRY_BASIS_CAP_DERIVED_CONTRADICTED_7280"))
+        assertTrue(exec.contains("com.lifecyclebot.engine.truth.EntryBasisSeed7280.isCapDerived(pos.entryPriceSource, ts.mint) &&"))
+
+        // RPC head from the ladder; socket status line.
+        assertTrue(bot.contains("com.lifecyclebot.engine.RuntimeProviderAuthority6685.preferredRpc(explicit = applicationContext)"))
+        assertTrue(ws.contains("fun status7280(): String ="))
+        assertTrue(phc.contains("PumpPortal WS     (§7280): "))
+
+        assertTrue(phc.contains("\"PAPER_TICKET_BOUND_TO_REQUESTED_SIZE_7280\","))
+        assertTrue(phc.contains("\"LAUNCH_ENTRY_MULTIPLE_OF_CREATE_7280_\","))
+    }
+
 }
