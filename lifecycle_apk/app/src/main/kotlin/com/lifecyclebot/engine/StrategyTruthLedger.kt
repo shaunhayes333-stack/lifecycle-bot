@@ -212,6 +212,22 @@ object StrategyTruthLedger {
                     inc("STRATEGY_HISTORICAL_QUARANTINED_6501")
                     continue
                 }
+                // V5.0.7274 — the third leg of the 6504 purity gate. 6501 wired
+                // the quantity-invariant and historical quarantines into this
+                // filter; the gate's own untrusted set (marked by the 7271 gain
+                // door, the 6692 stale-quote exit and the 7274 dead-token door)
+                // was read by the reward bridge and the paper eligibility gate
+                // but not here, so a mint every learner on the finalized bus
+                // refused still counted in the leaderboard the damper, the
+                // regime and the admission floor read.
+                val economicUntrusted7274 = try {
+                    com.lifecyclebot.engine.truth.EconomicPurityGate6504.shouldExcludeFromAnalytics(row.mint)
+                } catch (_: Throwable) { false }
+                if (economicUntrusted7274) {
+                    forensic++
+                    inc("STRATEGY_ECONOMIC_UNTRUSTED_EXCLUDED_7274")
+                    continue
+                }
             }
 
             val terminalKey = terminalKey(row)
@@ -298,6 +314,18 @@ object StrategyTruthLedger {
         }
         val mode = t.mode.trim().uppercase()
         val live = mode == "LIVE"
+        // V5.0.7274 — a paper DEAD_TOKEN_NO_PRICE_EXIT is a fill booked at the
+        // entry price because no feed was consulted or none answered for
+        // fifteen minutes (Executor V5.9.723). Its P&L is the fee model, not the
+        // market; the token's real outcome is unknown. A live close under that
+        // reason is a real market sell and stays. AdaptiveLearningEngine has
+        // skipped this reason since V5.9.723; the clean leaderboard — which
+        // LaneExpectancyDamper, RegimeDetector and the 7266 floor read — did
+        // not, and on 5.0.7273 fifteen such closes were a third of the losses
+        // that raised every lane's admission floor.
+        if (!live && terminalReason.contains("DEAD_TOKEN_NO_PRICE")) {
+            return "UNOBSERVED_PAPER_FILL_7274"
+        }
         val proof = t.proofState.trim().uppercase()
         val basis = t.entryCostSol.takeIf { it.isFinite() && it > 0.0 } ?: return "MISSING_ENTRY_COST_BASIS"
         if (mode == "PAPER" && t.economicEventId.isNotBlank()) {

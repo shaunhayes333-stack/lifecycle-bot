@@ -23810,6 +23810,32 @@ class Executor(
         return contradicted
     }
 
+    /**
+     * V5.0.7274 — the dead-token door's one question: can anyone price this
+     * mint right now? The repair cache first, then one bounded eight-feed
+     * fan-out pass. A `solana|<mint>` cross-asset identity is asked by its
+     * bare mint. A contested median is not an answer (7273). Returns the
+     * observed price, or null when no feed answers — silence is the honest
+     * result for a dead token and the caller books the close as before.
+     */
+    private fun observeMarkOnDemand7274(ts: TokenState): Pair<Double, String>? {
+        val repaired = try {
+            com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getRepairedPriceIfFresh(ts.mint)
+        } catch (_: Throwable) { null }
+        if (repaired != null && repaired.isFinite() && repaired > 0.0) return repaired to "REPAIR_7236"
+        val bareMint = ts.mint.removePrefix("solana|").trim()
+        if (bareMint.isBlank() || bareMint.contains('|')) return null
+        val fanout = try {
+            com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(listOf(bareMint))[bareMint]
+        } catch (_: Throwable) { null }
+        if (fanout == null) return null
+        if (fanout.sourceCount >= 2 && !fanout.corroborated) return null
+        val px = fanout.priceUsd
+        if (!px.isFinite() || px <= 0.0) return null
+        val label = if (fanout.corroborated) "FANOUT_CORROBORATED_7088_x${fanout.agreeingCount}" else "FANOUT_UNCORROBORATED_7088"
+        return px to label
+    }
+
     fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null): SellResult {
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         fun reconcileCanonicalClosed6509(): Boolean {
@@ -23926,6 +23952,71 @@ class Executor(
                     PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_ABSURD_LOSS_CONTRADICTED_7273:$reason")
                     return SellResult.FAILED_RETRYABLE
                 }
+            }
+        }
+        // V5.0.7274 §A FILL AT A PRICE NOBODY OBSERVED IS NOT A LOSS, IT IS A
+        // QUESTION.
+        //
+        // 5.0.7273, 25 minutes: 47 of the session's 52 closes were losses and
+        // 15 of them were DEAD_TOKEN_NO_PRICE_EXIT — six CRYPTO_ALT, seven
+        // PROJECT_SNIPER, one QUALITY (USDe, a dollar stable), one CORE (a
+        // $296M-cap token). That exit fires when the mark has sat exactly on
+        // the entry price for fifteen minutes, i.e. when getActualPrice has
+        // been falling back to entry because no feed was consulted or none
+        // answered. The paper fill then books at that entry price less the
+        // fee model and journals a −5% to −14% LOSS, and the regime detector,
+        // the lane damper, the losing-streak reflex and the score-bucket
+        // tracker all read it as market evidence. It is not: the token may be
+        // up 3x or dead; the one thing known is that nobody looked.
+        //
+        // The door asks the stack once (repair cache, then one fan-out pass).
+        // If a feed answers, the mark is stamped and the dead-token fill is
+        // refused — the position is not dead, it was unpriced, and the normal
+        // exits manage it from a real mark on the next tick. If no feed
+        // answers, the close proceeds exactly as before (the slot is freed;
+        // "never disable") but the mint is marked economically untrusted so
+        // the learners do not train on the invented fill; StrategyTruthLedger
+        // (7274) drops the row from the clean leaderboard by its reason too.
+        run {
+            if (pos.isPaperPosition && reason.contains("DEAD_TOKEN_NO_PRICE", ignoreCase = true)) {
+                val observed7274 = observeMarkOnDemand7274(ts)
+                if (observed7274 != null) {
+                    val (px7274, label7274) = observed7274
+                    synchronized(ts) {
+                        ts.lastPrice = px7274
+                        ts.lastPriceSource = label7274
+                        ts.lastPriceUpdate = System.currentTimeMillis()
+                    }
+                    try {
+                        com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.note(
+                            mint = ts.mint,
+                            priceUsd = px7274,
+                            source = com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.Provenance.REST_LIVE,
+                        )
+                        PipelineHealthCollector.labelInc("PAPER_SELL_DEAD_TOKEN_REFUSED_MARK_FOUND_7274")
+                        if (ForensicEmitRateLimiter6356.shouldEmit("PAPER_SELL_DEAD_TOKEN_REFUSED_MARK_FOUND_7274", ts.mint.take(10))) {
+                            ForensicLogger.lifecycle(
+                                "PAPER_SELL_DEAD_TOKEN_REFUSED_MARK_FOUND_7274",
+                                "mint=${ts.mint.take(10)} sym=${ts.symbol} entry=${pos.entryPrice} observed=$px7274 " +
+                                    "src=$label7274 movePct=${"%.1f".format((px7274 / pos.entryPrice - 1.0) * 100.0)} " +
+                                    "action=not_dead_unpriced_mark_stamped_normal_exits_resume",
+                            )
+                        }
+                    } catch (_: Throwable) {}
+                    PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_DEAD_TOKEN_MARK_FOUND_7274:$reason")
+                    return SellResult.FAILED_RETRYABLE
+                }
+                try {
+                    PipelineHealthCollector.labelInc("PAPER_SELL_DEAD_TOKEN_UNOBSERVED_FILL_7274")
+                    com.lifecyclebot.engine.truth.EconomicPurityGate6504.markUntrusted(ts.mint, "DEAD_TOKEN_UNOBSERVED_FILL_7274")
+                    if (ForensicEmitRateLimiter6356.shouldEmit("PAPER_SELL_DEAD_TOKEN_UNOBSERVED_FILL_7274", ts.mint.take(10))) {
+                        ForensicLogger.lifecycle(
+                            "PAPER_SELL_DEAD_TOKEN_UNOBSERVED_FILL_7274",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} entry=${pos.entryPrice} mark=$price src=${ts.lastPriceSource} " +
+                                "action=no_feed_answers_close_books_as_before_excluded_from_learning",
+                        )
+                    }
+                } catch (_: Throwable) {}
             }
         }
         // V5.0.6920 — the exit brain's only stamp site was unreachable for

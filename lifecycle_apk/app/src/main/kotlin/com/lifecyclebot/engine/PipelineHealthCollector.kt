@@ -2120,6 +2120,22 @@ object PipelineHealthCollector {
                     "MARK_BATCH_EMPTY_6970",
                     "EXIT_MARK_REFRESH_ADVANCED_7225",
                     "QUICK_RUNNER_EMERGENCY_FULL_EXIT",
+                    // V5.0.7274 — a held solana-chain CRYPTO_ALT mark is rescued
+                    // before it is carried, the cross-asset router asks the
+                    // fan-out for a `solana|` identity, the dead-token door asks
+                    // the stack before booking an unobserved fill, and the clean
+                    // leaderboard drops what the purity gate refuses.
+                    "DYN_MARK_SOLANA_RESCUE_BEFORE_CARRY_7274",
+                    "CROSS_ASSET_MARK_FROM_SOLANA_FANOUT_7274",
+                    "CROSS_ASSET_SOLANA_FANOUT_CONTESTED_7274",
+                    "CROSS_ASSET_SOLANA_FANOUT_EMPTY_7274",
+                    "PAPER_SELL_DEAD_TOKEN_REFUSED_MARK_FOUND_7274",
+                    "PAPER_SELL_DEAD_TOKEN_UNOBSERVED_FILL_7274",
+                    "STRATEGY_ECONOMIC_UNTRUSTED_EXCLUDED_7274",
+                    "STRATEGY_FORENSIC_EXCLUDED_UNOBSERVED_PAPER_FILL_7274",
+                    "CRYPTO_DYN_MARK_STALE_OR_MISSING_6654",
+                    "CRYPTO_HELD_MARK_REFRESH_COALESCED_7251",
+                    "SOL_MARK_RESCUE_7167",
                     // V5.0.7226 — the second live sizing authority. On 7225 the
                     // sizer's floor fired 0 times and two 0.007 SOL live buys
                     // landed anyway; the resolver had been sizing LIVE against

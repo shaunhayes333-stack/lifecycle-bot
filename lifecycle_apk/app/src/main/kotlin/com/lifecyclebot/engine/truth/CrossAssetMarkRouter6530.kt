@@ -159,6 +159,64 @@ object CrossAssetMarkRouter6530 {
                     PipelineHealthCollector.labelInc("CROSS_ASSET_ALT_REGISTRY_MARK_STALE_7178")
                 } catch (_: Throwable) {}
             }
+            // V5.0.7274 §THE OTHER MARK PATH STILL DID NOT ASK THE STACK.
+            //
+            // 7178 read the registry because "the price was already in the
+            // building". On 5.0.7273 it was not: the registry's own refresh
+            // was carrying a five-minute-old DexScreener price (see
+            // DynamicAltTokenRegistry.refreshPriceForMintBlocking, 7274), so
+            // this branch refused it as stale — correctly — and declared the
+            // identity unroutable. Six `solana|<mint>` CRYPTO_ALT positions
+            // then sat at their entry price for fifteen minutes and were
+            // closed as dead tokens on a fill nobody observed.
+            //
+            // A `solana|<mint>` identity IS a Solana mint. The eight-feed
+            // fan-out this app already runs for every native candidate and
+            // every held native position (7269 Jupiter quote, pump curve RPC,
+            // Raydium, DefiLlama, DexScreener, Birdeye, Helius, Gecko) prices
+            // it in one bounded pass. Ask it, refuse a contested median the
+            // way 7273 does on the hot loop, stamp what agrees, and hand the
+            // observation back to the registry so CryptoAltTrader's monitor
+            // sees a dated mark too. A mint no feed answers still returns
+            // false here and still reads UNROUTABLE below — but it will have
+            // been asked.
+            val solanaMint7274 = ts.mint.takeIf { it.startsWith("solana|") }?.removePrefix("solana|")?.trim().orEmpty()
+            if (solanaMint7274.isNotBlank()) {
+                val fan7274 = try {
+                    withContext(Dispatchers.IO) {
+                        com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(listOf(solanaMint7274))[solanaMint7274]
+                    }
+                } catch (_: Throwable) { null }
+                val contested7274 = fan7274 != null && fan7274.sourceCount >= 2 && !fan7274.corroborated
+                val px7274 = fan7274?.priceUsd?.takeIf { it.isFinite() && it > 0.0 && !contested7274 } ?: 0.0
+                if (px7274 > 0.0) {
+                    val label7274 = if (fan7274!!.corroborated) "FANOUT_CORROBORATED_7088_x${fan7274.agreeingCount}" else "FANOUT_UNCORROBORATED_7088"
+                    ts.lastPrice = px7274
+                    ts.lastPriceSource = label7274
+                    ts.lastPriceUpdate = System.currentTimeMillis()
+                    try {
+                        QuoteFreshnessGuard6452.note(
+                            mint = ts.mint,
+                            priceUsd = px7274,
+                            source = QuoteFreshnessGuard6452.Provenance.REST_LIVE,
+                            sourceCount7188 = fan7274.sourceCount,
+                            agreeingCount7188 = fan7274.agreeingCount,
+                        )
+                        com.lifecyclebot.perps.DynamicAltTokenRegistry.observeHeldMark7274(ts.mint, px7274)
+                        PipelineHealthCollector.labelInc("CROSS_ASSET_MARK_FROM_SOLANA_FANOUT_7274")
+                    } catch (_: Throwable) {}
+                    emit(
+                        "OK_SOLANA_FANOUT_7274", assetClass, symbol,
+                        "price=$px7274 sources=${fan7274.sources} agreeing=${fan7274.agreeingCount}/${fan7274.sourceCount} id=${ts.mint.take(24)}",
+                    )
+                    return true
+                }
+                try {
+                    PipelineHealthCollector.labelInc(
+                        if (contested7274) "CROSS_ASSET_SOLANA_FANOUT_CONTESTED_7274" else "CROSS_ASSET_SOLANA_FANOUT_EMPTY_7274",
+                    )
+                } catch (_: Throwable) {}
+            }
             emit("UNROUTABLE_SYMBOL", assetClass, symbol, "no PerpsMarket entry, no keyless cross-chain mark and no fresh alt-registry price for id=${ts.mint.take(24)} regKnown=${regTok7178 != null} regAgeMs=$regAgeMs7178")
             return false
         }

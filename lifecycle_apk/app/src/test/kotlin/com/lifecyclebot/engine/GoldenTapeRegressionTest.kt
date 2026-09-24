@@ -10129,4 +10129,57 @@ class GoldenTapeRegressionTest {
         assertTrue(phc.contains("\"ENTRY_HYDRATION_FANOUT_PRICED_7273\","))
     }
 
+    /** V5.0.7274 — a held solana-chain CRYPTO_ALT mark is rescued before it is
+     * carried; the cross-asset router asks the fan-out for a `solana|` identity;
+     * the dead-token paper door asks the stack and refuses when a feed answers,
+     * books and excludes when none does; the clean leaderboard drops paper
+     * dead-token fills by reason and untrusted mints by the purity gate. */
+    @Test
+    fun V5_0_7274_unobserved_fills_are_asked_about_then_excluded_and_solana_alt_marks_reach_the_fanout() {
+        val reg = java.io.File("src/main/kotlin/com/lifecyclebot/perps/DynamicAltTokenRegistry.kt").readText()
+        val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CrossAssetMarkRouter6530.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val ledger = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTruthLedger.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        // Registry: solana chain rescues before carrying; carry is the fallback.
+        assertTrue(reg.contains("val solanaChain7274 = chain == \"solana\""))
+        val refreshIdx = reg.indexOf("fun refreshPriceForMintBlocking(")
+        val refreshBody = reg.substring(refreshIdx, reg.indexOf("fun heldMarkSnapshot7251(", refreshIdx))
+        val rescueIdx = refreshBody.indexOf("val rescued7274 = rescueSolanaPriceBlocking7167(existing)")
+        val carryIdx = refreshBody.indexOf("val carried6819 = carryForwardPrice6819(existing, ageMs)")
+        assertTrue(rescueIdx > 0 && carryIdx > rescueIdx)
+        assertTrue(reg.contains("DYN_MARK_SOLANA_RESCUE_BEFORE_CARRY_7274"))
+        assertTrue(reg.contains("fun observeHeldMark7274(identityOrAddress: String, priceUsd: Double): Boolean {"))
+
+        // Router: solana| identity → single-mint fan-out, contested refused, stamped, registry told.
+        assertTrue(router.contains("val solanaMint7274 = ts.mint.takeIf { it.startsWith(\"solana|\") }?.removePrefix(\"solana|\")?.trim().orEmpty()"))
+        assertTrue(router.contains("ParallelMarkFanout7088.resolve7088(listOf(solanaMint7274))[solanaMint7274]"))
+        assertTrue(router.contains("val contested7274 = fan7274 != null && fan7274.sourceCount >= 2 && !fan7274.corroborated"))
+        assertTrue(router.contains("DynamicAltTokenRegistry.observeHeldMark7274(ts.mint, px7274)"))
+        assertTrue(router.contains("CROSS_ASSET_MARK_FROM_SOLANA_FANOUT_7274"))
+        val fanIdx = router.indexOf("CROSS_ASSET_MARK_FROM_SOLANA_FANOUT_7274")
+        val unroutableIdx = router.indexOf("emit(\"UNROUTABLE_SYMBOL\"")
+        assertTrue(fanIdx > 0 && unroutableIdx > fanIdx)
+
+        // Dead-token door: paper only, asks the stack, refuses on an answer, excludes on silence, sits before the exit stamp.
+        assertTrue(exec.contains("private fun observeMarkOnDemand7274(ts: TokenState): Pair<Double, String>? {"))
+        assertTrue(exec.contains("if (fanout.sourceCount >= 2 && !fanout.corroborated) return null"))
+        assertTrue(exec.contains("if (pos.isPaperPosition && reason.contains(\"DEAD_TOKEN_NO_PRICE\", ignoreCase = true)) {"))
+        assertTrue(exec.contains("PAPER_SELL_DEAD_TOKEN_MARK_FOUND_7274:\$reason"))
+        assertTrue(exec.contains("EconomicPurityGate6504.markUntrusted(ts.mint, \"DEAD_TOKEN_UNOBSERVED_FILL_7274\")"))
+        val doorIdx = exec.indexOf("PAPER_SELL_DEAD_TOKEN_UNOBSERVED_FILL_7274\")")
+        val stampIdx = exec.indexOf("stampUnifiedExitForClose6920(ts, reason)")
+        assertTrue(doorIdx > 0 && stampIdx > doorIdx)
+
+        // Clean ledger: paper dead-token fills excluded by reason, live kept; purity set is the third leg.
+        assertTrue(ledger.contains("if (!live && terminalReason.contains(\"DEAD_TOKEN_NO_PRICE\")) {"))
+        assertTrue(ledger.contains("return \"UNOBSERVED_PAPER_FILL_7274\""))
+        assertTrue(ledger.contains("EconomicPurityGate6504.shouldExcludeFromAnalytics(row.mint)"))
+        assertTrue(ledger.contains("STRATEGY_ECONOMIC_UNTRUSTED_EXCLUDED_7274"))
+
+        assertTrue(phc.contains("\"PAPER_SELL_DEAD_TOKEN_UNOBSERVED_FILL_7274\","))
+        assertTrue(phc.contains("\"CROSS_ASSET_MARK_FROM_SOLANA_FANOUT_7274\","))
+    }
+
 }

@@ -1366,10 +1366,32 @@ object DynamicAltTokenRegistry {
         }
         val pair = try { dex.getBestPair(chain, existing.tokenAddress) } catch (_: Exception) { null }
         // V5.0.6819: transient DEX failure — carry last-known price rather than returning 0 after 60s.
+        //
+        // V5.0.7274 §A CARRIED NUMBER IS NOT AN OBSERVATION. On 5.0.7273 six
+        // CRYPTO_ALT paper positions on solana-chain mints were opened at
+        // 10:52:35 and every one of them was closed by DEAD_TOKEN_NO_PRICE_EXIT
+        // at 11:07–11:08 — fifteen minutes with the mark never once moving off
+        // the entry price. CRYPTO_DYN_MARK_STALE_OR_MISSING_6654=8222,
+        // CRYPTO_HELD_MARK_REFRESH_COALESCED_7251=7563, SOL_MARK_RESCUE_7167=4.
+        // The held refresh WAS asked; it took this branch: DexScreener was
+        // rate-limited (MARK_BATCH_EMPTY_6970=1049), the carry window handed
+        // back the five-minute-old price with its old timestamp, and the
+        // solana rescue below — the eight-feed fan-out that priced 9,994
+        // corroborated marks in the same session — was only reached once the
+        // carry window had lapsed. A stale carry for a solana mint is now the
+        // fallback of the rescue, not the other way round.
+        val solanaChain7274 = chain == "solana"
         if (pair == null) {
+            if (solanaChain7274) {
+                val rescued7274 = rescueSolanaPriceBlocking7167(existing)
+                if (rescued7274 > 0.0) {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DYN_MARK_SOLANA_RESCUE_BEFORE_CARRY_7274") } catch (_: Throwable) {}
+                    return rescued7274
+                }
+            }
             val carried6819 = carryForwardPrice6819(existing, ageMs)
             if (carried6819 > 0.0) return carried6819
-            return rescueSolanaPriceBlocking7167(existing)
+            return if (solanaChain7274) 0.0 else rescueSolanaPriceBlocking7167(existing)
         }
         val price = pair.candle.priceUsd
         if (price <= 0.0) return rescueSolanaPriceBlocking7167(existing)
@@ -1411,6 +1433,23 @@ object DynamicAltTokenRegistry {
     fun refreshHeldMark7251(identityOrAddress: String): HeldMarkRefresh7251 {
         refreshPriceForMintBlocking(identityOrAddress, forceRefresh = true)
         return heldMarkSnapshot7251(identityOrAddress)
+    }
+
+    /**
+     * V5.0.7274 — record a mark another authority observed for a held
+     * identity, so this registry's own held snapshot (what CryptoAltTrader's
+     * monitor reads) is dated by the observation rather than by the last
+     * DexScreener success. Only a finite positive price for a known identity
+     * is written; nothing is created and nothing is inferred.
+     */
+    fun observeHeldMark7274(identityOrAddress: String, priceUsd: Double): Boolean {
+        if (!priceUsd.isFinite() || priceUsd <= 0.0) return false
+        val existing = registry[identityOrAddress] ?: getTokenByMint(identityOrAddress) ?: return false
+        registry[existing.canonicalIdentity6544] = existing.copy(
+            price = priceUsd,
+            lastUpdatedMs = System.currentTimeMillis(),
+        )
+        return true
     }
 
     // ─── Discovery implementations ───────────────────────────────────────────
