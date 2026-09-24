@@ -2133,6 +2133,13 @@ object PipelineHealthCollector {
                     "PAPER_SELL_DEAD_TOKEN_UNOBSERVED_FILL_7274",
                     "STRATEGY_ECONOMIC_UNTRUSTED_EXCLUDED_7274",
                     "STRATEGY_FORENSIC_EXCLUDED_UNOBSERVED_PAPER_FILL_7274",
+                    // V5.0.7275 — a paper CRYPTO_ALT entry's basis is observed at
+                    // the fill: how many were, how many moved ≥5% from the scan
+                    // row, how many were refused for lack of any observation.
+                    "CRYPTO_PAPER_ENTRY_BASIS_OBSERVED_7275",
+                    "CRYPTO_PAPER_ENTRY_BASIS_MOVED_FROM_SCAN_7275",
+                    "CRYPTO_PAPER_ENTRY_BASIS_UNOBSERVED_7275",
+                    "CRYPTO_PAPER_ENTRY_BASIS_CONTESTED_7275",
                     "CRYPTO_DYN_MARK_STALE_OR_MISSING_6654",
                     "CRYPTO_HELD_MARK_REFRESH_COALESCED_7251",
                     "SOL_MARK_RESCUE_7167",

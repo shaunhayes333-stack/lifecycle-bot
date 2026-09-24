@@ -10182,4 +10182,37 @@ class GoldenTapeRegressionTest {
         assertTrue(phc.contains("\"CROSS_ASSET_MARK_FROM_SOLANA_FANOUT_7274\","))
     }
 
+    /** V5.0.7275 — a paper CRYPTO_ALT entry is based on a price observed at the
+     * fill (fan-out for a solana| identity, forced registry refresh otherwise);
+     * a contested or absent observation refuses the open before debit; every
+     * downstream reader of the signal sees the fresh basis; the canonical open
+     * names the observation as its source. Live fills are untouched. */
+    @Test
+    fun V5_0_7275_crypto_alt_paper_entry_basis_is_observed_at_the_fill() {
+        val alt = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        assertTrue(alt.contains("private suspend fun freshDynamicEntryBasis7275(signal: AltSignal, isSpot: Boolean): Pair<Double, String>? {"))
+        assertTrue(alt.contains("val contested = fan != null && fan.sourceCount >= 2 && !fan.corroborated"))
+        assertTrue(alt.contains("CRYPTO_PAPER_ENTRY_BASIS_CONTESTED_7275"))
+        assertTrue(alt.contains("DynamicAltTokenRegistry.refreshHeldMark7251(identity)"))
+        assertTrue(alt.contains("if (snap != null && snap.freshObservation && snap.price.isFinite() && snap.price > 0.0) {"))
+
+        // Paper + dynamic only; refusal happens before the sealed candidate and before debit.
+        assertTrue(alt.contains("val wantsFreshBasis7275 = isPaperMode.get() && signal.isDynamic"))
+        assertTrue(alt.contains("terminalDisposition6613(\"CRYPTO_PAPER_ENTRY_BASIS_UNOBSERVED_7275\", \"PRE_SUBMIT\")"))
+        assertTrue(alt.contains("signal.copy(price = freshPx7275)"))
+        val execIdx = alt.indexOf("private suspend fun executeSignal(signal: AltSignal, isSpot: Boolean) {")
+        val shadowIdx = alt.indexOf("val signal = if (basis7275 != null) {", execIdx)
+        val mktSymIdx = alt.indexOf("val mktSym = signal.marketSymbol", execIdx)
+        val tpIdx = alt.indexOf("PerpsDirection.LONG  -> signal.price * (1 + finalTp / 100)", execIdx)
+        val openIdx = alt.indexOf("entryPriceUsd = signal.price,", execIdx)
+        assertTrue(execIdx > 0 && shadowIdx > execIdx && mktSymIdx > shadowIdx && tpIdx > shadowIdx && openIdx > tpIdx)
+        assertTrue(alt.contains("entryPriceSource = \"CryptoAltTrader/\$entryBasisSource7275\","))
+        assertFalse(alt.contains("entryPriceSource = \"CryptoAltTrader/signal.price\","))
+
+        assertTrue(phc.contains("\"CRYPTO_PAPER_ENTRY_BASIS_OBSERVED_7275\","))
+        assertTrue(phc.contains("\"CRYPTO_PAPER_ENTRY_BASIS_UNOBSERVED_7275\","))
+    }
+
 }

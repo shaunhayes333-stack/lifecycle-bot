@@ -2457,6 +2457,64 @@ object CryptoAltTrader {
     // EXECUTION
     // ═══════════════════════════════════════════════════════════════════════════
 
+    /**
+     * V5.0.7275 §THE ENTRY BASIS IS THE PRICE AT THE FILL, NOT THE PRICE AT
+     * THE SCAN.
+     *
+     * Operator's 5.0.7274 tape, CRYPTO_ALT paper:
+     *
+     *   15:05:30.593 BUY  entry=0.0001768   15:05:31.435 SELL HARD_TP +84.8%
+     *   15:05:31.105 BUY  entry=0.0002966   15:05:31.314 SELL TICK_HARD_FLOOR −34%
+     *   15:05:30.838 BUY  entry=0.0005519   15:05:31.347 SELL TICK_HARD_FLOOR −13%
+     *
+     * Three closes 200–840 ms after their opens, reading +85%, −34% and −13%.
+     * No market moved a third in a fifth of a second. `signal.price` is the
+     * registry row's price as it stood when the dynamic scan built the signal
+     * — a DexScreener or Gecko figure that can be minutes old on a launch
+     * moving 30% a minute — and it was written as the entry basis unchanged.
+     * 7274 then gave these positions a live mark within a second of the open,
+     * and the gap between a stale basis and a fresh mark booked as P&L in
+     * both directions: an imagined gain and an imagined loss from the same
+     * defect. Both fed the regime detector, the lane damper and every learner.
+     *
+     * A paper fill happens now, so its basis must be observed now: one bounded
+     * fan-out pass for a `solana|<mint>` identity (contested medians refused,
+     * as everywhere since 7273), otherwise the registry's own forced refresh
+     * with its 60 s freshness bar. No fresh observation means no basis, and
+     * no basis means the open is refused before cash is debited — the same
+     * rule 7252 applies to a missing quantity witness. Live fills are
+     * untouched: their basis is the venue's fill.
+     */
+    private suspend fun freshDynamicEntryBasis7275(signal: AltSignal, isSpot: Boolean): Pair<Double, String>? {
+        val identity = try { cryptoAssetKey(signal, isSpot).trim() } catch (_: Throwable) { "" }
+        if (identity.isBlank() || identity.startsWith("unresolved:") || identity.startsWith("perps:")) return null
+        val bareSolanaMint = identity.takeIf { it.startsWith("solana|") }?.removePrefix("solana|")?.trim().orEmpty()
+        if (bareSolanaMint.isNotBlank()) {
+            val fan = try {
+                withContext(Dispatchers.IO) {
+                    com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(listOf(bareSolanaMint))[bareSolanaMint]
+                }
+            } catch (_: Throwable) { null }
+            val contested = fan != null && fan.sourceCount >= 2 && !fan.corroborated
+            if (contested) {
+                try { PipelineHealthCollector.labelInc("CRYPTO_PAPER_ENTRY_BASIS_CONTESTED_7275") } catch (_: Throwable) {}
+                return null
+            }
+            val px = fan?.priceUsd?.takeIf { it.isFinite() && it > 0.0 }
+            if (px != null) {
+                try { DynamicAltTokenRegistry.observeHeldMark7274(identity, px) } catch (_: Throwable) {}
+                return px to (if (fan!!.corroborated) "FANOUT_CORROBORATED_7088_x${fan.agreeingCount}" else "FANOUT_UNCORROBORATED_7088")
+            }
+        }
+        val snap = try {
+            withContext(Dispatchers.IO) { DynamicAltTokenRegistry.refreshHeldMark7251(identity) }
+        } catch (_: Throwable) { null }
+        if (snap != null && snap.freshObservation && snap.price.isFinite() && snap.price > 0.0) {
+            return snap.price to "ALT_REGISTRY_FRESH_7251"
+        }
+        return null
+    }
+
     private suspend fun executeSignal(signal: AltSignal, isSpot: Boolean) {
         /**
          * V5.0.7171 §TWO WRITERS FOR ONE REFUSAL, AND ONE OF THEM COUNTED
@@ -2520,6 +2578,47 @@ object CryptoAltTrader {
                 }
             } catch (_: Throwable) {}
         }
+        // V5.0.7275 — a paper dynamic entry is based on a price observed now,
+        // not on the scan-time registry figure the signal carried. See
+        // freshDynamicEntryBasis7275. Everything below — TP/SL, the sealed
+        // candidate, the quantity witness, the canonical open — reads the
+        // shadowed signal, so the position's basis and its first mark come
+        // from the same moment.
+        val wantsFreshBasis7275 = isPaperMode.get() && signal.isDynamic
+        val basis7275: Pair<Double, String>? =
+            if (wantsFreshBasis7275) freshDynamicEntryBasis7275(signal, isSpot) else null
+        if (wantsFreshBasis7275 && basis7275 == null) {
+            terminalDisposition6613("CRYPTO_PAPER_ENTRY_BASIS_UNOBSERVED_7275", "PRE_SUBMIT")
+            try {
+                PipelineHealthCollector.labelInc("CRYPTO_PAPER_ENTRY_BASIS_UNOBSERVED_7275")
+                ForensicLogger.lifecycle(
+                    "CRYPTO_PAPER_ENTRY_BASIS_UNOBSERVED_7275",
+                    "symbol=${signal.marketSymbol} asset=${cryptoAssetKey(signal, isSpot).take(32)} scanPrice=${signal.price} " +
+                        "action=no_fresh_observation_no_basis_refuse_before_debit",
+                )
+            } catch (_: Throwable) {}
+            return
+        }
+        val entryBasisSource7275 = basis7275?.second ?: "signal.price"
+        @Suppress("NAME_SHADOWING")
+        val signal = if (basis7275 != null) {
+            val scanPx7275 = signal.price
+            val freshPx7275 = basis7275.first
+            val movePct7275 = if (scanPx7275 > 0.0) (freshPx7275 / scanPx7275 - 1.0) * 100.0 else 0.0
+            try {
+                PipelineHealthCollector.labelInc("CRYPTO_PAPER_ENTRY_BASIS_OBSERVED_7275")
+                if (kotlin.math.abs(movePct7275) >= 5.0) {
+                    PipelineHealthCollector.labelInc("CRYPTO_PAPER_ENTRY_BASIS_MOVED_FROM_SCAN_7275")
+                    ForensicLogger.lifecycle(
+                        "CRYPTO_PAPER_ENTRY_BASIS_MOVED_FROM_SCAN_7275",
+                        "symbol=${signal.marketSymbol} scanPrice=$scanPx7275 fillPrice=$freshPx7275 " +
+                            "movePct=${"%.1f".format(movePct7275)} src=$entryBasisSource7275 " +
+                            "action=basis_is_the_observed_fill_not_the_scan_row",
+                    )
+                }
+            } catch (_: Throwable) {}
+            signal.copy(price = freshPx7275)
+        } else signal
         // V5.9.1472 — DYNAMIC CRYPTO: resolve the REAL coin symbol once. For DYN
         // sentinel signals (arbitrary non-Solana coin) this is dynSymbol; for
         // hardcoded enum coins it's market.symbol. ALL learning/record/log calls
@@ -3016,7 +3115,8 @@ object CryptoAltTrader {
                     // V5.0.6525 §ASSET_CLASS + §ENTRY_PRICE.
                     assetClass = com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT,
                     entryPriceUsd = signal.price,
-                    entryPriceSource = "CryptoAltTrader/signal.price",
+                    // V5.0.7275 — names the observation the basis came from.
+                    entryPriceSource = "CryptoAltTrader/$entryBasisSource7275",
                     executionIntent = canonicalCryptoIntent6565,
                 )
             } catch (t: Throwable) {
