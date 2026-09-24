@@ -363,6 +363,10 @@ object NetworkSignalAutoBuyer {
             
             if (success) {
                 successfulBuys.incrementAndGet()
+                try {
+                    com.lifecyclebot.engine.truth.SignalSourceProof7291.stamp(
+                        com.lifecyclebot.engine.truth.SignalSourceProof7291.Source.NETWORK, signal.mint)
+                } catch (_: Throwable) {}
                 ErrorLogger.info(TAG, "✅ AUTO-BUY EXECUTED: ${signal.symbol} (${signal.signalType})")
                 
                 // Record to learning

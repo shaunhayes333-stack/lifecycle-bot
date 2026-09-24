@@ -2669,7 +2669,10 @@ object PipelineHealthCollector {
                 try { com.lifecyclebot.engine.truth.OracleEdgeProof7263.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")
             sb.append("     read: ADVISORY = the oracle's numbers feed the evidence branches but its verdict cannot refuse a trade;\n")
-            sb.append("           PROVEN = live is ADMIT-or-nothing, paper meters PROBE. It demotes itself if the edge stops holding.\n")
+            sb.append("           PROVEN = live is ADMIT-or-nothing. It demotes itself if the edge stops holding.\n")
+            sb.append("  Signal source proof (§7291):  ").append(
+                try { com.lifecyclebot.engine.truth.SignalSourceProof7291.statusLine() } catch (_: Throwable) { "unavailable" }
+            ).append("\n")
             sb.append("  Learner degeneracy (§7102):   ").append(
                 com.lifecyclebot.engine.truth.LearnedPolicyDegeneracyWatch7102.statusLine7102()
             ).append("\n")

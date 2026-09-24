@@ -2143,7 +2143,19 @@ class BotService : Service() {
                 // V5.0.7277 — a copy signal for a mint the watchlist has never
                 // seen used to be dropped here (ts == null). It now enters the
                 // INSIDER_SHARK route (V3 + FDG + sizing) and the fast lane.
-                if (c.copyTradingEnabled) {
+                // V5.0.7291 — copy signals always run in paper (paper learns
+                // everything; 33 were dropped on 5.0.7289 behind a toggle that
+                // defaulted off) and run live once SignalSourceProof7291 has
+                // graded them PROVEN on settled closes. The toggle remains a
+                // manual live override. Every routed signal is stamped so its
+                // close is graded. The direct autoMode copy below is unchanged.
+                val copyProven7291 = com.lifecyclebot.engine.truth.SignalSourceProof7291
+                    .isProven(com.lifecyclebot.engine.truth.SignalSourceProof7291.Source.COPY)
+                if (c.copyTradingEnabled || c.paperMode || copyProven7291) {
+                    try {
+                        com.lifecyclebot.engine.truth.SignalSourceProof7291.stamp(
+                            com.lifecyclebot.engine.truth.SignalSourceProof7291.Source.COPY, mint)
+                    } catch (_: Throwable) {}
                     try {
                         val label7277 = try { copyTradeEngine.getWallets().firstOrNull { it.address == wallet }?.label } catch (_: Throwable) { null } ?: wallet.take(8)
                         com.lifecyclebot.engine.InsiderCopyEngine.copyBuyFromSmartMoney7277(
@@ -2217,6 +2229,7 @@ class BotService : Service() {
         // V5.0.7287 — the oracle's edge proof persists; restore it and
         // subscribe before the durable finality replay below publishes.
         try { com.lifecyclebot.engine.truth.OracleEdgeProof7263.attach7287(applicationContext) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.SignalSourceProof7291.attach(applicationContext) } catch (_: Throwable) {}
         try {
             val replayedFinality6486 = com.lifecyclebot.engine.truth.CanonicalFinalityPersistence6486.initAndReplay(applicationContext)
             if (replayedFinality6486 > 0) PipelineHealthCollector.labelInc("DURABLE_FINALITY_REPLAYED_6486")
@@ -2934,7 +2947,11 @@ class BotService : Service() {
         try {
             // Only start if user has explicitly enabled it
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            if (cfg.autoTradeNetworkSignals) {
+            // V5.0.7291 — always on in paper; live once the hive's signals are
+            // PROVEN on settled closes (SignalSourceProof7291), or by toggle.
+            val networkProven7291 = com.lifecyclebot.engine.truth.SignalSourceProof7291
+                .isProven(com.lifecyclebot.engine.truth.SignalSourceProof7291.Source.NETWORK)
+            if (cfg.autoTradeNetworkSignals || cfg.paperMode || networkProven7291) {
                 com.lifecyclebot.perps.NetworkSignalAutoBuyer.start(
                     com.lifecyclebot.perps.NetworkSignalAutoBuyer.AutoBuyerConfig(
                         enabled = true,

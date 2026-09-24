@@ -4,6 +4,11 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7291] - 2026-09-24 — COPY AND NETWORK SIGNALS TRADE IN PAPER AND EARN LIVE
+
+- Operator: "copy trading can just be live in paper and enabled live if its proven. same as the network auto buyer in paper." On 5.0.7289 `SMART_MONEY_COPY_SIGNAL_DISABLED_IN_SETTINGS_7277=33`: every smart-money copy signal was dropped behind a toggle that defaults off, and the hive NetworkSignalAutoBuyer only started when its own toggle was set — so paper, whose job is to learn everything, never produced the evidence that would justify either one live.
+- **Both now always run in paper**, through the same V3 → FDG → sizing path as any candidate. New `SignalSourceProof7291` stamps each mint a source routes and grades the settled close (net of fees) from the canonical finalized bus into that source's persisted tally. A source is **PROVEN** at ≥20 graded closes with positive mean return and profit factor ≥1.2; a proven source runs live without the toggle and demotes itself if the tally stops holding. The toggles remain manual live overrides. Report line: `Signal source proof (§7291)`; counters `SIGNAL_SOURCE_STAMPED_7291_*`, `SIGNAL_SOURCE_GRADED_7291_*`.
+
 ## [5.0.7290] - 2026-09-24 — A TICK CATASTROPHE ASKS THE MARKET TOO
 
 - Operator 5.0.7289 at 1566 s: equity now reads honestly — cash 19.98 + open value 20.74 = **40.72 SOL**, unrealized −0.02 (was a phantom +243). `MARK_QUOTE_7289_CAP_DERIVED_FROM_PRICE_NOT_CORROBORATED=7,538`. Loop healthy: max cycle 11.8 s, no wedge sampled, 1 stale reset.
