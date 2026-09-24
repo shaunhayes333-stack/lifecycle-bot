@@ -3221,11 +3221,42 @@ class Executor(
         // Intended live buy should be small relative to pool depth. Use current SOL
         // price and live liquidity to prevent unrealistic impact, but don't mistake
         // low-but-exitable liquidity for a dust-only probe.
-        val liquidityCapSol = if (liqUsd > 0.0) {
+        // V5.0.7278 §SIZE TO WHAT YOU CAN EXIT.
+        //
+        // 5.0.7277 tape: CORE 0.827 SOL and 0.850 SOL into $3.9k-cap launches,
+        // QUALITY 0.532 into $3.9k, PROJECT_SNIPER 0.38–0.49 into $3.5k–$4k.
+        // Those sizes came from the `else` branch below: liquidity was
+        // unknown at sizing time (the fast lane sizes seconds after the create
+        // event, before any pair exists), so the cap fell back to a WALLET
+        // share as if depth were not a question. A fresh bonding curve holds
+        // a few tenths of a SOL of real depth; a 0.8 SOL entry could not be
+        // exited until other buyers arrived, and live it would move the curve
+        // several percent on the way in.
+        //
+        // Unknown liquidity on a launch is sized to the cap (the intake's own
+        // 0.85 × mcap depth estimate), and a bonding-curve position is further
+        // bounded to 1% of the cap in SOL — the order the curve can absorb on
+        // the way out. Known liquidity keeps the existing impact arithmetic.
+        val mcapUsd7278 = ts.lastMcap.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+        val onCurve7278 = try {
+            com.lifecyclebot.network.PumpCurveKeys7269.keyFor(ts.mint) != null ||
+                com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint)
+        } catch (_: Throwable) { false }
+        val depthCapSol7278 = if (liqUsd > 0.0) {
             ((liqUsd * growthPolicy.liquidityImpactPct * impactMult4131) / solPx).coerceIn(0.005, spendable)
+        } else if (mcapUsd7278 > 0.0) {
+            try { PipelineHealthCollector.labelInc("ENTRY_SIZE_CAPPED_TO_MCAP_DEPTH_7278") } catch (_: Throwable) {}
+            ((mcapUsd7278 * 0.85 * growthPolicy.liquidityImpactPct * impactMult4131) / solPx).coerceIn(0.005, spendable)
         } else {
             spendable * (growthPolicy.maxWalletPct * 0.65)
         }
+        val curveExitCapSol7278 = if (onCurve7278 && mcapUsd7278 > 0.0) {
+            (mcapUsd7278 / solPx * 0.01).coerceAtLeast(0.005)
+        } else Double.MAX_VALUE
+        if (curveExitCapSol7278 < depthCapSol7278) {
+            try { PipelineHealthCollector.labelInc("ENTRY_SIZE_CAPPED_TO_CURVE_EXIT_7278") } catch (_: Throwable) {}
+        }
+        val liquidityCapSol = minOf(depthCapSol7278, curveExitCapSol7278)
         val walletCapSol = (spendable * growthPolicy.maxWalletPct).coerceAtMost(growthPolicy.absoluteCapSol)
         // V5.0.7191 — name the binding ceiling. Until this build there was no
         // counter anywhere saying "the absolute cap decided this trade's size",

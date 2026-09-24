@@ -10363,4 +10363,57 @@ class GoldenTapeRegressionTest {
         assertTrue(phc.contains("\"FAST_LANE_EVALUATED_7277\","))
     }
 
+    /** V5.0.7278 — held bonding-curve positions are marked from the PumpPortal
+     * trade stream; the curve read from chain no longer requires the "pump"
+     * suffix and names every silent exit; unknown-liquidity launches size to the
+     * cap and curve positions to 1% of cap; model-level LLM refusals rotate the
+     * ladder instead of benching the host; the fast lane's second pass is
+     * skipped once the first opened the position. */
+    @Test
+    fun V5_0_7278_curve_marks_from_trade_stream_curve_sizing_and_llm_model_level_rotation() {
+        val ws = java.io.File("src/main/kotlin/com/lifecyclebot/network/PumpFunWS.kt").readText()
+        val fan = java.io.File("src/main/kotlin/com/lifecyclebot/network/ParallelMarkFanout7088.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val llm = java.io.File("src/main/kotlin/com/lifecyclebot/network/KeylessLlmClient.kt").readText()
+        val health = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ApiHealthMonitor.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        // Trade stream: subscription sync, reconnect re-arm, buy/sell parsed before create.
+        assertTrue(ws.contains("fun syncTradeSubscriptions7278(mints: Set<String>) {"))
+        assertTrue(ws.contains("put(\"method\", \"subscribeTokenTrade\")"))
+        assertTrue(ws.contains("put(\"method\", \"unsubscribeTokenTrade\")"))
+        val tradeIdx = ws.indexOf("txType == \"buy\" || txType == \"sell\" -> {")
+        val createIdx = ws.indexOf("txType == \"create\" || j.has(\"name\")")
+        assertTrue(tradeIdx > 0 && createIdx > tradeIdx)
+        assertTrue(ws.contains("val priceSol = vSol / vTok"))
+        assertTrue(bot.contains("com.lifecyclebot.network.PumpFunWS.setOnTrade7278 { mint, priceSol, mcapSol, _ ->"))
+        assertTrue(bot.contains("com.lifecyclebot.network.PumpFunWS.syncTradeSubscriptions7278(curveMints7278)"))
+        assertTrue(bot.contains("private fun applyPumpTradeMark7278(mint: String, priceSolPerToken: Double, marketCapSol: Double) {"))
+        assertTrue(bot.contains("ts.lastPriceSource = \"PUMP_PORTAL_TRADE_WS_7278\""))
+
+        // Curve read: key is the evidence; every exit named.
+        assertTrue(fan.contains("val targets = mints.mapNotNull { m -> PumpCurveKeys7269.keyFor(m)?.let { m to it } }"))
+        assertFalse(fan.contains("if (!PumpFunDirectApi.isPumpFunMint(m)) null"))
+        assertTrue(fan.contains("PUMP_CURVE_RPC_NO_ACCOUNT_7278"))
+        assertTrue(fan.contains("PUMP_CURVE_RPC_HTTP_FAIL_7278"))
+
+        // Sizing: unknown liquidity → cap depth; curve → 1% of cap in SOL.
+        assertTrue(exec.contains("val liquidityCapSol = minOf(depthCapSol7278, curveExitCapSol7278)"))
+        assertTrue(exec.contains("(mcapUsd7278 / solPx * 0.01).coerceAtLeast(0.005)"))
+        assertTrue(exec.contains("ENTRY_SIZE_CAPPED_TO_MCAP_DEPTH_7278"))
+
+        // LLM: model-level refusals rotate; error bodies reach the health row; 403 rotates the generic ladder.
+        assertTrue(llm.contains("if (host in LADDERED_HOSTS_7276 && modelLevel7278 && !keyBad7278) {"))
+        assertTrue(llm.contains("ApiHealthMonitor.noteLastError(host, \"http=\${resp.code} \${snippet.take(120)}\")"))
+        assertTrue(llm.contains("if (resp.code == 429 || resp.code == 404 || resp.code == 400 || resp.code == 403) {"))
+        assertTrue(health.contains("fun noteLastError(host: String, errorMessage: String?) {"))
+
+        // Fast lane: second pass only when the first did not open the position.
+        assertTrue(bot.contains("if (status.running && !alreadyOpen7278) processTokenCycle(mint, cfg, wallet, System.currentTimeMillis())"))
+
+        assertTrue(phc.contains("\"PUMP_TRADE_MARK_APPLIED_7278\","))
+        assertTrue(phc.contains("\"ENTRY_SIZE_CAPPED_TO_CURVE_EXIT_7278\","))
+    }
+
 }

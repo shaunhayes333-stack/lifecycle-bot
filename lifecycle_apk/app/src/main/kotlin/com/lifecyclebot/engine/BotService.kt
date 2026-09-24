@@ -9216,6 +9216,11 @@ class BotService : Service() {
         } catch (_: Throwable) { 0L }
         // 1) PumpPortal WS — new pump.fun launches + migrations
         try {
+            // V5.0.7278 — every trade on a held curve is a mark; see
+            // applyPumpTradeMark7278 and the subscription sync in the hot loop.
+            com.lifecyclebot.network.PumpFunWS.setOnTrade7278 { mint, priceSol, mcapSol, _ ->
+                try { applyPumpTradeMark7278(mint, priceSol, mcapSol) } catch (_: Throwable) {}
+            }
             com.lifecyclebot.network.PumpFunWS.start(
                 onNewToken = onNewToken@{ mint, symbol, name, mcapSol ->
                     try {
@@ -10846,6 +10851,16 @@ class BotService : Service() {
                     .map { it.mint }
                     .filter { it.isNotBlank() }
                     .distinct()
+
+                // V5.0.7278 — held bonding-curve mints ride the PumpPortal trade
+                // stream; the subscription follows the open set every tick.
+                try {
+                    val curveMints7278 = openMints.filter { m ->
+                        com.lifecyclebot.network.PumpCurveKeys7269.keyFor(m) != null ||
+                            com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(m)
+                    }.take(60).toSet()
+                    com.lifecyclebot.network.PumpFunWS.syncTradeSubscriptions7278(curveMints7278)
+                } catch (_: Throwable) {}
 
                 if (openMints.isEmpty()) {
                     try { PipelineHealthCollector.labelInc("OPEN_POS_TICK_SKIPPED_6983_NO_OPEN_POSITIONS") } catch (_: Throwable) {}
@@ -23086,6 +23101,35 @@ if (hotExitHandledSweep) {
      * fastLaneSemaphore7277; a saturated fast lane simply leaves the token to
      * the ordinary loop, which still sees it.
      */
+    /**
+     * V5.0.7278 — a PumpPortal trade on a held curve becomes the position's
+     * mark: the curve's virtual reserves give the spot price in SOL, the
+     * cached SOL/USD gives the dollar mark, and the quote guard is stamped as
+     * a live websocket observation so the exit feed treats it as fresh.
+     * Only held mints are subscribed, so this never touches discovery.
+     */
+    private fun applyPumpTradeMark7278(mint: String, priceSolPerToken: Double, marketCapSol: Double) {
+        val ts = status.tokens[mint] ?: return
+        val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        if (!solUsd.isFinite() || solUsd <= 0.0) return
+        val px = priceSolPerToken * solUsd
+        if (!px.isFinite() || px <= 0.0) return
+        val now = System.currentTimeMillis()
+        synchronized(ts) {
+            ts.lastPrice = px
+            ts.lastPriceSource = "PUMP_PORTAL_TRADE_WS_7278"
+            ts.lastPriceUpdate = now
+            if (marketCapSol.isFinite() && marketCapSol > 0.0) ts.lastMcap = marketCapSol * solUsd
+        }
+        try {
+            com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.note(
+                mint = mint, priceUsd = px,
+                source = com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.Provenance.WS_LIVE,
+            )
+            PipelineHealthCollector.labelInc("PUMP_TRADE_MARK_APPLIED_7278")
+        } catch (_: Throwable) {}
+    }
+
     private fun fastLaneEvaluate7277(mint: String, cfg: BotConfig, origin: String) {
         if (mint.isBlank() || !status.running) return
         if (!fastLaneOnce7277.add(mint)) return
@@ -23101,7 +23145,13 @@ if (hotExitHandledSweep) {
                 PipelineHealthCollector.labelInc("FAST_LANE_EVALUATED_7277_$origin")
                 processTokenCycle(mint, cfg, wallet, t0)
                 delay(1_500L)
-                if (status.running) processTokenCycle(mint, cfg, wallet, System.currentTimeMillis())
+                // V5.0.7278 — the second pass is for a token the first pass could
+                // only hydrate; when the first pass already opened it, a second
+                // cycle just trips the same-mint dedupe (68 on 5.0.7277).
+                val alreadyOpen7278 = try {
+                    com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.firstOpenForMint(mint) != null
+                } catch (_: Throwable) { false }
+                if (status.running && !alreadyOpen7278) processTokenCycle(mint, cfg, wallet, System.currentTimeMillis())
                 val ms = System.currentTimeMillis() - t0
                 ForensicLogger.lifecycle(
                     "FAST_LANE_EVALUATED_7277",

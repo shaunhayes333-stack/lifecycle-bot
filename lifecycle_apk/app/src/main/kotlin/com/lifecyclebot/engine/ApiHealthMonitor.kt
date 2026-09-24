@@ -93,6 +93,17 @@ object ApiHealthMonitor {
         }
     }
 
+    /**
+     * V5.0.7278 — attach the last error body to a host whose response was
+     * already counted by HealthAwareHttp. Counts nothing; the snapshot's
+     * `last_err` line then says what the provider said (the LLM members had
+     * 243 and 29 unexplained 4xx on 5.0.7277).
+     */
+    fun noteLastError(host: String, errorMessage: String?) {
+        if (errorMessage.isNullOrBlank()) return
+        stats(host).lastErrorMessage.set(redactSecrets(errorMessage)?.take(140))
+    }
+
     /** Record a network-layer failure (IOException, timeout, DNS, ConnectException). */
     fun recordNetworkError(host: String, errorMessage: String? = null) {
         val st = stats(host)

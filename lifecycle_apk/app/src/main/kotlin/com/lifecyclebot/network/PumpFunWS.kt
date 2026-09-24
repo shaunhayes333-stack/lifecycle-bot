@@ -6,6 +6,7 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -42,6 +43,45 @@ object PumpFunWS {
     @Volatile private var client: OkHttpClient? = null
     @Volatile private var onNewTokenCb: ((String, String, String, Double) -> Unit)? = null
     @Volatile private var onMigrationCb: ((String) -> Unit)? = null
+
+    // V5.0.7278 §THE CURVE PRICES ITSELF ON EVERY TRADE.
+    //
+    // 5.0.7277: 31 of 32 open positions had no fresh mark. They were
+    // bonding-curve launches the fast lane bought within seconds of the
+    // create event; no aggregator lists them, the pump.fun frontend answered
+    // 9% of calls, and the curve read from chain produced nothing. Yet the
+    // same socket that announced each launch streams every buy and sell on
+    // it, with the curve's virtual reserves in the payload — the spot price,
+    // for free, sub-second. `subscribeTokenTrade` is a free data
+    // subscription on this endpoint (the paid tier is the trading API, not
+    // the stream); the header above was wrong about that.
+    @Volatile private var onTradeCb: ((mint: String, priceSolPerToken: Double, marketCapSol: Double, isBuy: Boolean) -> Unit)? = null
+    private val tradeSubscriptions7278 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    fun setOnTrade7278(cb: (mint: String, priceSolPerToken: Double, marketCapSol: Double, isBuy: Boolean) -> Unit) {
+        onTradeCb = cb
+    }
+
+    /**
+     * Keep the trade subscription equal to [mints]: subscribe the new ones,
+     * unsubscribe the ones no longer held. Idempotent; safe every tick.
+     */
+    fun syncTradeSubscriptions7278(mints: Set<String>) {
+        val wanted = mints.filter { it.isNotBlank() }.toSet()
+        val add = wanted - tradeSubscriptions7278
+        val drop = tradeSubscriptions7278 - wanted
+        if (add.isEmpty() && drop.isEmpty()) return
+        val sock = ws
+        if (add.isNotEmpty()) {
+            tradeSubscriptions7278.addAll(add)
+            sock?.send(JSONObject().put("method", "subscribeTokenTrade").put("keys", JSONArray(add.toList())).toString())
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_SUBSCRIBED_7278") } catch (_: Throwable) {}
+        }
+        if (drop.isNotEmpty()) {
+            tradeSubscriptions7278.removeAll(drop)
+            sock?.send(JSONObject().put("method", "unsubscribeTokenTrade").put("keys", JSONArray(drop.toList())).toString())
+        }
+    }
 
     fun start(
         onNewToken: (mint: String, symbol: String, name: String, marketCapSol: Double) -> Unit,
@@ -82,6 +122,11 @@ object PumpFunWS {
             ErrorLogger.info(TAG, "✅ connected — subscribing to subscribeNewToken + subscribeMigration (free)")
             webSocket.send(JSONObject().put("method", "subscribeNewToken").toString())
             webSocket.send(JSONObject().put("method", "subscribeMigration").toString())
+            // V5.0.7278 — re-arm the held-mint trade stream after a reconnect.
+            val held7278 = tradeSubscriptions7278.toList()
+            if (held7278.isNotEmpty()) {
+                webSocket.send(JSONObject().put("method", "subscribeTokenTrade").put("keys", JSONArray(held7278)).toString())
+            }
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
@@ -89,6 +134,20 @@ object PumpFunWS {
                 val j = JSONObject(text)
                 val txType = j.optString("txType", "")
                 when {
+                    // V5.0.7278 — a trade on a held curve is a mark.
+                    txType == "buy" || txType == "sell" -> {
+                        val mint = j.optString("mint", "")
+                        if (mint.isBlank()) return
+                        try { PumpCurveKeys7269.remember(mint, j.optString("bondingCurveKey", "")) } catch (_: Throwable) {}
+                        val vSol = j.optDouble("vSolInBondingCurve", 0.0)
+                        val vTok = j.optDouble("vTokensInBondingCurve", 0.0)
+                        val mcapSol = j.optDouble("marketCapSol", 0.0)
+                        if (!vSol.isFinite() || !vTok.isFinite() || vSol <= 0.0 || vTok <= 0.0) return
+                        val priceSol = vSol / vTok
+                        if (!priceSol.isFinite() || priceSol <= 0.0) return
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMP_TRADE_EVENT_7278") } catch (_: Throwable) {}
+                        onTradeCb?.invoke(mint, priceSol, mcapSol, txType == "buy")
+                    }
                     txType == "create" || j.has("name") && j.has("symbol") && j.has("mint") -> {
                         val mint = j.optString("mint", "")
                         val symbol = j.optString("symbol", "?")

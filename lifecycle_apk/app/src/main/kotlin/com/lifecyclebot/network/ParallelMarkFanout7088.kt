@@ -570,41 +570,68 @@ object ParallelMarkFanout7088 {
         if (url.isBlank()) return emptyMap()
         val solUsd = solUsd7269()
         if (solUsd <= 0.0) return emptyMap()
-        val targets = mints.mapNotNull { m ->
-            if (!PumpFunDirectApi.isPumpFunMint(m)) null
-            else PumpCurveKeys7269.keyFor(m)?.let { m to it }
-        }.take(CURVE_MAX_MINTS_7269)
+        // V5.0.7278 — a remembered curve key IS the evidence the mint is on a
+        // curve; the "pump" suffix is optional on pump.fun since 2025 and
+        // excluded most of the launches the fast lane was buying. And every
+        // silent `return@use` below now has a name, because on 5.0.7277 this
+        // task produced zero marks for 31 held positions and nothing said why.
+        val targets = mints.mapNotNull { m -> PumpCurveKeys7269.keyFor(m)?.let { m to it } }
+            .take(CURVE_MAX_MINTS_7269)
         if (targets.isEmpty()) return emptyMap()
         val out = HashMap<String, Double>()
         var skippedComplete = 0
         for ((mint, curve) in targets) {
             try {
+                PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_ATTEMPT_7278")
                 val payload =
                     """{"jsonrpc":"2.0","id":"7269","method":"getAccountInfo",""" +
                         """"params":["$curve",{"encoding":"base64","commitment":"processed"}]}"""
                 val req = Request.Builder()
                     .url(url)
+                    .header("Content-Type", "application/json")
                     .post(payload.toRequestBody("application/json".toMediaType()))
                     .build()
                 com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "helius").use { resp ->
-                    if (!resp.isSuccessful) return@use
+                    if (!resp.isSuccessful) {
+                        val snippet7278 = try { resp.peekBody(300L).string().replace('\n', ' ') } catch (_: Throwable) { "" }
+                        PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_HTTP_FAIL_7278")
+                        try { com.lifecyclebot.engine.ApiHealthMonitor.record("pump_curve_rpc", resp.code, 0L, snippet7278) } catch (_: Throwable) {}
+                        return@use
+                    }
                     val body = resp.body?.string() ?: return@use
-                    val value = JSONObject(body).optJSONObject("result")?.optJSONObject("value") ?: return@use
-                    val dataArr = value.optJSONArray("data") ?: return@use
-                    val b64 = dataArr.optString(0, "")
-                    if (b64.isBlank()) return@use
+                    val root7278 = JSONObject(body)
+                    val err7278 = root7278.optJSONObject("error")
+                    if (err7278 != null) {
+                        PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_JSONRPC_ERROR_7278")
+                        try { com.lifecyclebot.engine.ApiHealthMonitor.record("pump_curve_rpc", 0, 0L, err7278.toString().take(140)) } catch (_: Throwable) {}
+                        return@use
+                    }
+                    val value = root7278.optJSONObject("result")?.optJSONObject("value")
+                    if (value == null) {
+                        PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_NO_ACCOUNT_7278")
+                        return@use
+                    }
+                    val dataArr = value.optJSONArray("data")
+                    val b64 = dataArr?.optString(0, "").orEmpty()
+                    if (b64.isBlank()) { PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_NO_DATA_7278"); return@use }
                     val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
-                    if (bytes.size < 49) return@use
+                    if (bytes.size < 49) { PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_SHORT_ACCOUNT_7278"); return@use }
                     val vTok = readU64Le7269(bytes, 8)
                     val vSol = readU64Le7269(bytes, 16)
                     val complete = (bytes[48].toInt() and 0xFF) != 0
                     if (complete) { skippedComplete++; return@use }
-                    if (vTok <= 0.0 || vSol <= 0.0) return@use
+                    if (vTok <= 0.0 || vSol <= 0.0) { PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_ZERO_RESERVES_7278"); return@use }
                     val priceSol = (vSol / 1e9) / (vTok / Math.pow(10.0, PUMP_TOKEN_DECIMALS_7269.toDouble()))
                     val px = priceSol * solUsd
-                    if (px.isFinite() && px > 0.0) out[mint] = px
+                    if (px.isFinite() && px > 0.0) {
+                        out[mint] = px
+                        try { com.lifecyclebot.engine.ApiHealthMonitor.record("pump_curve_rpc", 200, 0L) } catch (_: Throwable) {}
+                    }
                 }
-            } catch (_: Throwable) {}
+            } catch (t: Throwable) {
+                PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_EXCEPTION_7278")
+                try { com.lifecyclebot.engine.ApiHealthMonitor.record("pump_curve_rpc", 0, 0L, "${t.javaClass.simpleName}:${t.message?.take(100)}") } catch (_: Throwable) {}
+            }
         }
         if (out.isNotEmpty()) {
             try { PipelineHealthCollector.labelInc("KEYLESS_MARK_PUMP_CURVE_RPC_7269") } catch (_: Throwable) {}

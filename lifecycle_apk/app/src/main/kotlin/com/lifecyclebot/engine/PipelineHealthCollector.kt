@@ -2167,6 +2167,23 @@ object PipelineHealthCollector {
                     "SMART_MONEY_PUSH_BUY_DETECTED_7277",
                     "SMART_MONEY_COPY_BUY_ENQUEUED_7277",
                     "SMART_MONEY_COPY_SIGNAL_DISABLED_IN_SETTINGS_7277",
+                    // V5.0.7278 — held curves priced from the trade stream; the
+                    // curve read from chain itemised; launch sizing bounded to
+                    // the curve; model-level LLM refusals rotate, not bench.
+                    "PUMP_TRADE_SUBSCRIBED_7278",
+                    "PUMP_TRADE_EVENT_7278",
+                    "PUMP_TRADE_MARK_APPLIED_7278",
+                    "PUMP_CURVE_RPC_ATTEMPT_7278",
+                    "PUMP_CURVE_RPC_HTTP_FAIL_7278",
+                    "PUMP_CURVE_RPC_JSONRPC_ERROR_7278",
+                    "PUMP_CURVE_RPC_NO_ACCOUNT_7278",
+                    "PUMP_CURVE_RPC_NO_DATA_7278",
+                    "PUMP_CURVE_RPC_SHORT_ACCOUNT_7278",
+                    "PUMP_CURVE_RPC_ZERO_RESERVES_7278",
+                    "PUMP_CURVE_RPC_EXCEPTION_7278",
+                    "ENTRY_SIZE_CAPPED_TO_MCAP_DEPTH_7278",
+                    "ENTRY_SIZE_CAPPED_TO_CURVE_EXIT_7278",
+                    "LLM_MODEL_LEVEL_REFUSAL_ROTATED_NOT_BENCHED_7278",
                     "CRYPTO_DYN_MARK_STALE_OR_MISSING_6654",
                     "CRYPTO_HELD_MARK_REFRESH_COALESCED_7251",
                     "SOL_MARK_RESCUE_7167",

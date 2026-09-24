@@ -332,6 +332,9 @@ object KeylessLlmClient {
                 resp.peekBody(600L).string().trim().replace('\n', ' ')
             } catch (_: Throwable) { "" }
             val safeUrl = resp.request.url.toString().substringBefore("?key=")
+            // V5.0.7278 — the body also lands on the health row, so the snapshot
+            // names the refusal instead of counting it.
+            try { com.lifecyclebot.engine.ApiHealthMonitor.noteLastError(host, "http=${resp.code} ${snippet.take(120)}") } catch (_: Throwable) {}
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_PROVIDER_HTTP_${resp.code}_7141")
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_PROVIDER_HTTP_${resp.code}_7141_$host".take(60))
             ErrorLogger.warn(
@@ -407,6 +410,22 @@ object KeylessLlmClient {
                 b.contains("daily limit") ||
                 b.contains("credits")
             )
+        // V5.0.7278 — on a laddered provider a refusal that names the MODEL is
+        // answered by rotating the ladder, not by benching the host. Mistral
+        // sat on a six-hour TERMINAL bench on 5.0.7277 with a 97% success rate
+        // because one rotated model id came back 4xx with a terminal phrase.
+        // A 403 on one model of a laddered provider is that model's tier, not
+        // the account's key, unless the body says the key is bad.
+        val keyBad7278 = b.contains("api key not valid") || b.contains("invalid api key") ||
+            b.contains("incorrect api key") || b.contains("invalid_api_key") || code == 401
+        val modelLevel7278 = b.contains("is not a valid model") || b.contains("invalid model") ||
+            b.contains("model_not_found") || b.contains("no longer available") ||
+            b.contains("unavailable for free") || b.contains("does not exist") ||
+            (code == 403 && !keyBad7278)
+        if (host in LADDERED_HOSTS_7276 && modelLevel7278 && !keyBad7278) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LLM_MODEL_LEVEL_REFUSAL_ROTATED_NOT_BENCHED_7278") } catch (_: Throwable) {}
+            return
+        }
         val (ms, why) = when {
             terminal -> PENALTY_TERMINAL_MS_7150 to "TERMINAL"
             quota -> PENALTY_QUOTA_MS_7150 to "QUOTA"
@@ -1143,8 +1162,9 @@ object KeylessLlmClient {
             if (k.isNotBlank()) b.header("Authorization", "Bearer $k")
             exec(b.build(), healthHost).use { resp ->
                 if (!okOrThrow(resp, healthHost)) {
-                    if (resp.code == 429 || resp.code == 404 || resp.code == 400) {
-                        if (resp.code == 404 && ladder.size > 1) catalogue = ladder.filterNot { it == model }
+                    // V5.0.7278 — 403 rotates too: a model outside this key's tier.
+                    if (resp.code == 429 || resp.code == 404 || resp.code == 400 || resp.code == 403) {
+                        if ((resp.code == 404 || resp.code == 403) && ladder.size > 1) catalogue = ladder.filterNot { it == model }
                         val next = models()
                         modelIdx = if (next.isEmpty()) 0 else (idx + 1) % next.size
                         try {
