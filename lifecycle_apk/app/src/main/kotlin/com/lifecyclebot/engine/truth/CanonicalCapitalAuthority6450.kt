@@ -398,9 +398,12 @@ object CanonicalCapitalAuthority6450 {
         // Stale/fallback positions remain UNPRICED COST and contribute zero
         // to growth, compounding, sizing, or learning rewards.
         val unrealized = authoritativeOpenMv6508 - authoritativeOpenCost6508
-        val equity = cash + reserved + openMv
+        // V5.0.7294 — the paper treasury is owned (equity) but not tradeable
+        // (not cash); it closes the identity alongside reserved and open cost.
+        val treasury7294 = PaperCapitalAuthority6577.treasurySol7294()
+        val equity = cash + reserved + openMv + treasury7294
         val expected = startingCash + realized - fees
-        val actual = cash + reserved + openCost
+        val actual = cash + reserved + openCost + treasury7294
         return Snapshot(
             startingCashSol = startingCash,
             cashSol = cash,
@@ -419,7 +422,7 @@ object CanonicalCapitalAuthority6450 {
             // AUTHORITATIVE openMV only (excludes stale/fallback marks).
             // Main UI hero uses this to avoid the +28400% start
             // impossibility that stale entry-basis marks manufactured.
-            authoritativeEquitySol = cash + reserved + authoritativeOpenMv6508,
+            authoritativeEquitySol = cash + reserved + authoritativeOpenMv6508 + treasury7294,
         )
     }
 

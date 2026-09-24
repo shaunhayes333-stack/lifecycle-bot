@@ -461,9 +461,14 @@ object TreasuryManager {
         if (realizedProfitSol <= 0.0) return 0.0
         if (realizedProfitSol < 1e-6) return 0.0
         val safePx = if (solPrice > 0.0) solPrice else 0.0
-        treasurySol += realizedProfitSol
-        treasuryUsd += realizedProfitSol * safePx
-        lifetimeLocked += realizedProfitSol
+        // V5.0.7294 — in paper the deposit is a real ledger transfer out of
+        // trading cash; the treasury grows by exactly what moved.
+        val paper7294 = isPaper || paperRuntime7294()
+        val moved7294 = if (paper7294) paperDeposit7294(realizedProfitSol, "TREASURY_SCALP_100") else realizedProfitSol
+        if (moved7294 < 1e-9) return 0.0
+        treasurySol += moved7294
+        treasuryUsd += moved7294 * safePx
+        lifetimeLocked += moved7294
         ErrorLogger.info("Treasury",
             "💰 TREASURY SCALP 100%: profit=${realizedProfitSol.fmtSol()}◎ → treasury " +
             "+${realizedProfitSol.fmtSol()}◎ | balance=${treasurySol.fmtSol()}◎"
@@ -479,8 +484,8 @@ object TreasuryManager {
         // V5.9.495z26 — live mode: physically move the SOL on-chain to the
         // treasury wallet so the operator's two-wallet separation is real,
         // not virtual. Paper mode keeps the virtual ledger only (no transfer).
-        triggerOnChainTransferIfLive(realizedProfitSol, "TREASURY_SCALP_100", isPaperSell = isPaper)
-        return realizedProfitSol
+        triggerOnChainTransferIfLive(moved7294, "TREASURY_SCALP_100", isPaperSell = paper7294)
+        return moved7294
     }
 
     /**
@@ -571,14 +576,18 @@ object TreasuryManager {
                 "TREASURY_SPLIT_BAND_7125_${(splitPct * 100).toInt()}PCT",
             )
         } catch (_: Throwable) {}
-        val contribSol = realizedProfitSol * splitPct
+        val contribWanted7294 = realizedProfitSol * splitPct
         // V5.9.425 — removed the 0.0001 SOL floor so small wins still accumulate;
         // negligible rounding (<1e-6) is the only thing skipped.
-        if (contribSol < 1e-6) return 0.0
+        if (contribWanted7294 < 1e-6) return 0.0
         // V5.9.425 — don't silently drop on missing SOL price (cold-start before
         // WalletManager populates lastKnownSolPrice). Use 0 for USD bookkeeping;
         // the SOL-side ledger is the source of truth.
         val safePx = if (solPrice > 0.0) solPrice else 0.0
+        // V5.0.7294 — in paper the split is a real ledger transfer out of
+        // trading cash (it used to stay in cash AND be counted here).
+        val contribSol = if (effectiveIsPaper7125) paperDeposit7294(contribWanted7294, "MEME_SELL_SPLIT") else contribWanted7294
+        if (contribSol < 1e-9) return 0.0
         val contribUsd = contribSol * safePx
         treasurySol += contribSol
         treasuryUsd += contribUsd
@@ -620,8 +629,13 @@ object TreasuryManager {
         // *real* lifetime-locked profit; if the user has never locked
         // anything, the entire treasury is available to the trading
         // wallet (as it should be — there's nothing to "protect" yet).
-        val effectiveFloor = lifetimeLocked.coerceAtLeast(0.0)
-        val available = (treasurySol - effectiveFloor).coerceAtLeast(0.0)
+        // V5.0.7294 §CASHGEN_NEVER_RUNS_DRY — operator: "cash gen ... should
+        // never run out of money ever". The floor here was lifetimeLocked,
+        // which is the sum of every deposit, so `available` was always ~0 and
+        // the back-fund never fired. When trading cash is below its floor the
+        // treasury IS the reserve: up to half of it may be drawn per pass.
+        val effectiveFloor = 0.0
+        val available = treasurySol.coerceAtLeast(0.0)
         if (available <= 0.0001) {
             ErrorLogger.debug("Treasury",
                 "💸 BACK-FUND skipped: treasury=${treasurySol.fmtSol()}◎ ≤ locked-floor ${effectiveFloor.fmtSol()}◎ (lifetime=${lifetimeLocked.fmtSol()})")
@@ -629,7 +643,9 @@ object TreasuryManager {
         }
         val deficit = floorSol - walletSol
         val maxPull = available * 0.50    // never drain more than half of the *available* (unlocked) treasury
-        val pull = minOf(deficit, maxPull, available)
+        val pullWanted7294 = minOf(deficit, maxPull, available)
+        if (pullWanted7294 < 0.0001) return 0.0
+        val pull = moveTreasuryToPaperCash7294(pullWanted7294, "CASHGEN_BACKFUND")
         if (pull < 0.0001) return 0.0
         treasurySol -= pull
         treasuryUsd -= pull * solPrice
@@ -706,7 +722,11 @@ object TreasuryManager {
      * Call this AFTER the on-chain transfer succeeds (or paper mode confirmation).
      */
     fun executeWithdrawal(approvedSol: Double, solPrice: Double, destination: String) {
-        val actual = approvedSol.coerceAtMost(treasurySol)
+        // V5.0.7294 — paper has no external wallet: a paper withdrawal returns
+        // the SOL to trading cash in the ledger so the account still balances.
+        val actual = if (paperRuntime7294()) {
+            moveTreasuryToPaperCash7294(approvedSol.coerceAtMost(treasurySol), "PAPER_WITHDRAWAL")
+        } else approvedSol.coerceAtMost(treasurySol)
         treasurySol       -= actual
         treasuryUsd       -= actual * solPrice
         lifetimeWithdrawn += actual
@@ -718,6 +738,43 @@ object TreasuryManager {
             walletUsd   = (treasurySol * solPrice),
             solPrice    = solPrice,
         ))
+    }
+
+    // ── V5.0.7294 paper treasury ↔ ledger ─────────────────────────────
+
+    private fun paperRuntime7294(): Boolean = try {
+        com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+    } catch (_: Throwable) { false }
+
+    private fun paperDeposit7294(sol: Double, reason: String): Double = try {
+        com.lifecyclebot.engine.truth.PaperAccountLedger6430.moveCashToTreasury7294(sol, reason)
+    } catch (_: Throwable) { 0.0 }
+
+    private fun moveTreasuryToPaperCash7294(sol: Double, reason: String): Double = try {
+        com.lifecyclebot.engine.truth.PaperAccountLedger6430.moveTreasuryToCash7294(sol, reason)
+    } catch (_: Throwable) { 0.0 }
+
+    @Volatile private var paperSeeded7294 = false
+
+    /**
+     * V5.0.7294 — in paper the ledger's treasury bucket is the money and this
+     * object mirrors it. Once per process, a treasurySol accumulated before
+     * 7294 (counted but never taken out of cash) is moved into the ledger, then
+     * treasurySol follows the ledger. No-op in live.
+     */
+    fun syncPaperTreasury7294() {
+        if (!paperRuntime7294()) return
+        val ledger = com.lifecyclebot.engine.truth.PaperAccountLedger6430
+        if (!ledger.isAuthorityInitialized6489()) return
+        if (!paperSeeded7294) {
+            paperSeeded7294 = true
+            val legacy = treasurySol
+            if (ledger.treasurySol7294() <= 0.0 && legacy > 0.0) {
+                ledger.moveCashToTreasury7294(legacy, "SEED_PRE_7294_TREASURY")
+                try { PipelineHealthCollector.labelInc("PAPER_TREASURY_SEEDED_7294") } catch (_: Throwable) {}
+            }
+        }
+        treasurySol = ledger.treasurySol7294()
     }
 
     // ── Tradeable balance ─────────────────────────────────────────────

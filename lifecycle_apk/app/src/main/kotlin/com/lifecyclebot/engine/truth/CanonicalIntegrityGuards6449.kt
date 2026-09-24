@@ -134,7 +134,8 @@ object CanonicalIntegrityGuards6449 {
         val realized = PaperCapitalAuthority6577.realizedPnlSol()
         val fees = PaperCapitalAuthority6577.feesSol()
         val expected = startingCash + realized - fees
-        val actual = cash + openCost
+        // V5.0.7294 — paper treasury transfers leave cash but stay in the account.
+        val actual = cash + openCost + PaperCapitalAuthority6577.treasurySol7294()
         val delta = actual - expected
         if (kotlin.math.abs(delta) > toleranceSol) {
             conservationViolations.incrementAndGet()

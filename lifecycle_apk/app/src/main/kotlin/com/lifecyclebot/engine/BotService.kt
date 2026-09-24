@@ -19543,6 +19543,7 @@ class BotService : Service() {
                         // configured starting capital. Runs every 5 loops to
                         // smooth out churn.
                         if (cfg.paperMode && loopCount % 5 == 0) {
+                            try { TreasuryManager.syncPaperTreasury7294() } catch (_: Throwable) {}
                             try {
                                 val floor = (cfg.paperSimulatedBalance * 0.10).coerceAtLeast(1.0)
                                 val pulled = TreasuryManager.backFundPaperWalletIfLow(

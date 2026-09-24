@@ -42,6 +42,8 @@ object PaperAccountLedger6430 {
         val feesSol: Double,
         val operationCount: Long,
         val capturedAtMs: Long,
+        // V5.0.7294 — paper treasury sub-account (owned, not tradeable).
+        val treasurySol: Double = 0.0,
     )
 
     private const val PICO_UNIT: Long = 1_000_000_000L  // 9 dp
@@ -57,6 +59,17 @@ object PaperAccountLedger6430 {
     private val openCostBasisPico = AtomicLong(0L)
     private val realizedPnlPico = AtomicLong(0L)
     private val feesPico = AtomicLong(0L)
+    // V5.0.7294 §THE PAPER TREASURY IS MONEY, NOT A COUNTER.
+    //
+    // TreasuryManager moved 25% of meme profit and 100% of treasury-lane
+    // profit into `treasurySol` without taking it out of paper cash, so the
+    // same SOL was counted in trading cash AND in the treasury; its back-fund
+    // decremented the treasury and credited nothing (the 6475 callback is
+    // projection-only). This bucket makes both movements real:
+    //   startingCash + realized − fees == cash + reserved + openCost + treasury
+    // Treasury SOL is owned (it is in equity) and is not tradeable (it is not
+    // in cash), which is exactly what "build the treasury" means.
+    private val treasuryPico = AtomicLong(0L)
     private val opCount = AtomicLong(0L)
     @Volatile private var prefs6487: SharedPreferences? = null
     private const val PREFS_6487 = "paper_account_ledger_6487"
@@ -77,10 +90,12 @@ object PaperAccountLedger6430 {
             val open = o.getString("open").toLong()
             val realized = o.getString("realized").toLong()
             val fees = o.getString("fees").toLong()
-            val delta = (start + realized - fees) - (cash + reserved + open)
-            require(cash >= 0L && reserved >= 0L && open >= 0L && fees >= 0L && kotlin.math.abs(delta) <= 1_000_000L)
+            val treasury = o.optString("treasury", "0").toLongOrNull() ?: 0L
+            val delta = (start + realized - fees) - (cash + reserved + open + treasury)
+            require(cash >= 0L && reserved >= 0L && open >= 0L && fees >= 0L && treasury >= 0L && kotlin.math.abs(delta) <= 1_000_000L)
             startingCashPico.set(start); cashPico.set(cash); reservedCashPico.set(reserved)
             openCostBasisPico.set(open); realizedPnlPico.set(realized); feesPico.set(fees)
+            treasuryPico.set(treasury)
             opCount.set(o.optLong("ops", 0L))
             try { PipelineHealthCollector.labelInc("PAPER_LEDGER_AUTHORITY_RESTORED_6487") } catch (_: Throwable) {}
             // V5.0.6616 §STARTUP_ORDER — journal replay complete;
@@ -106,6 +121,7 @@ object PaperAccountLedger6430 {
             .put("open", openCostBasisPico.get().toString())
             .put("realized", realizedPnlPico.get().toString())
             .put("fees", feesPico.get().toString())
+            .put("treasury", treasuryPico.get().toString())
             .put("ops", opCount.get())
         prefs.edit().putString(STATE_6487, o.toString()).apply()
     }
@@ -124,6 +140,7 @@ object PaperAccountLedger6430 {
         feesSol = fromPico(feesPico.get()),
         operationCount = opCount.get(),
         capturedAtMs = System.currentTimeMillis(),
+        treasurySol = fromPico(treasuryPico.get()),
     )
 
     fun initialize(startingCashSol: Double) {
@@ -134,6 +151,7 @@ object PaperAccountLedger6430 {
         openCostBasisPico.set(0L)
         realizedPnlPico.set(0L)
         feesPico.set(0L)
+        treasuryPico.set(0L)
         opCount.set(0L)
         // V5.0.6616 — cold-start publishes a rev-0 economic snapshot so
         //   hero binders never fall back to a stale SharedPreferences
@@ -181,6 +199,7 @@ object PaperAccountLedger6430 {
         openCostBasisPico.set(0L)
         realizedPnlPico.set(0L)
         feesPico.set(0L)
+        treasuryPico.set(0L)
         opCount.set(0L)
         // Persist the fresh state immediately so any process restart in
         // the next second still sees the reset value.
@@ -511,6 +530,7 @@ object PaperAccountLedger6430 {
             openCostBasisPico.set(toPico(openCostBasisSol))
             realizedPnlPico.set(toPico(realizedPnlSol))
             feesPico.set(toPico(feesSol))
+            treasuryPico.set(0L)
             opCount.incrementAndGet()
         }
         persistCurrent6487()
@@ -526,6 +546,57 @@ object PaperAccountLedger6430 {
     fun realizedPnlSol(): Double = fromPico(realizedPnlPico.get())
     fun feesSol(): Double = fromPico(feesPico.get())
     fun startingCashSol(): Double = fromPico(startingCashPico.get())
+    fun treasurySol7294(): Double = fromPico(treasuryPico.get())
+
+    /**
+     * V5.0.7294 — move SOL from trading cash into the paper treasury. Clamped
+     * to available cash; returns the SOL actually moved. Equity is unchanged.
+     */
+    @Synchronized
+    fun moveCashToTreasury7294(sol: Double, reason: String): Double {
+        if (!sol.isFinite() || sol <= 0.0) return 0.0
+        val p = minOf(toPico(sol), cashPico.get()).coerceAtLeast(0L)
+        if (p <= 0L) return 0.0
+        cashPico.addAndGet(-p)
+        treasuryPico.addAndGet(p)
+        opCount.incrementAndGet()
+        persistCurrent6487()
+        try {
+            PipelineHealthCollector.labelInc("PAPER_TREASURY_DEPOSIT_7294")
+            ForensicLogger.lifecycle(
+                "PAPER_TREASURY_DEPOSIT_7294",
+                "sol=${"%.6f".format(fromPico(p))} cash=${"%.6f".format(cashSol())} " +
+                    "treasury=${"%.6f".format(treasurySol7294())} reason=${reason.take(60)}",
+            )
+        } catch (_: Throwable) {}
+        try { JournalEconomicAuthority6616.notifyEconomicMutation("TREASURY_DEPOSIT_7294") } catch (_: Throwable) {}
+        return fromPico(p)
+    }
+
+    /**
+     * V5.0.7294 — move SOL from the paper treasury back into trading cash
+     * (CashGen back-fund, paper withdrawal). Clamped to the treasury.
+     */
+    @Synchronized
+    fun moveTreasuryToCash7294(sol: Double, reason: String): Double {
+        if (!sol.isFinite() || sol <= 0.0) return 0.0
+        val p = minOf(toPico(sol), treasuryPico.get()).coerceAtLeast(0L)
+        if (p <= 0L) return 0.0
+        treasuryPico.addAndGet(-p)
+        cashPico.addAndGet(p)
+        opCount.incrementAndGet()
+        persistCurrent6487()
+        try {
+            PipelineHealthCollector.labelInc("PAPER_TREASURY_BACKFUND_7294")
+            ForensicLogger.lifecycle(
+                "PAPER_TREASURY_BACKFUND_7294",
+                "sol=${"%.6f".format(fromPico(p))} cash=${"%.6f".format(cashSol())} " +
+                    "treasury=${"%.6f".format(treasurySol7294())} reason=${reason.take(60)}",
+            )
+        } catch (_: Throwable) {}
+        try { JournalEconomicAuthority6616.notifyEconomicMutation("TREASURY_BACKFUND_7294") } catch (_: Throwable) {}
+        return fromPico(p)
+    }
 
     /**
      * V5.0.6502 §3 — CANONICAL WALLET REBUILD.
@@ -633,7 +704,8 @@ object PaperAccountLedger6430 {
         val realized = fromPico(realizedPnlPico.get())
         val fees = fromPico(feesPico.get())
         val openCost = fromPico(openCostBasisPico.get())
-        val recomputed = starting + realized - fees - openCost
+        // V5.0.7294 — treasury SOL is owned but not cash.
+        val recomputed = starting + realized - fees - openCost - fromPico(treasuryPico.get())
         val prior = fromPico(cashPico.get())
         val delta = recomputed - prior
         if (kotlin.math.abs(delta) > 0.001) {
@@ -667,7 +739,11 @@ object PaperAccountLedger6430 {
         val starting = fromPico(startingCashPico.get())
         val identityDelta = (starting + realizedSol - feesSol) - (cashSol + openCostSol)
         if (kotlin.math.abs(identityDelta) > 1e-6) return false
-        cashPico.set(toPico(cashSol))
+        // V5.0.7294 — the journal knows nothing of treasury transfers, so its
+        // cash is trading cash + treasury. Keep the treasury; cash is the rest.
+        val treasuryKeep7294 = minOf(treasuryPico.get(), toPico(cashSol).coerceAtLeast(0L))
+        treasuryPico.set(treasuryKeep7294)
+        cashPico.set(toPico(cashSol) - treasuryKeep7294)
         openCostBasisPico.set(toPico(openCostSol.coerceAtLeast(0.0)))
         realizedPnlPico.set(toPico(realizedSol))
         feesPico.set(toPico(feesSol.coerceAtLeast(0.0)))
@@ -732,7 +808,7 @@ object PaperAccountLedger6430 {
      */
     fun assertInvariant(toleranceSol: Double = 0.001): String? {
         val lhs = fromPico(startingCashPico.get() + realizedPnlPico.get() - feesPico.get())
-        val rhs = fromPico(cashPico.get() + openCostBasisPico.get() + reservedCashPico.get())
+        val rhs = fromPico(cashPico.get() + openCostBasisPico.get() + reservedCashPico.get() + treasuryPico.get())
         val delta = lhs - rhs
         if (kotlin.math.abs(delta) <= toleranceSol) return null
         val msg = "startingCash+realized-fees=${"%.6f".format(lhs)} cash+openCost+reserved=${"%.6f".format(rhs)} delta=${"%.6f".format(delta)}"
@@ -744,10 +820,11 @@ object PaperAccountLedger6430 {
     }
 
     fun statusLine(): String =
-        "cash=${"%.4f".format(cashSol())} openCost=${"%.4f".format(openCostBasisSol())} realized=${"%+.4f".format(realizedPnlSol())} fees=${"%.4f".format(feesSol())} ops=${opCount.get()}"
+        "cash=${"%.4f".format(cashSol())} openCost=${"%.4f".format(openCostBasisSol())} realized=${"%+.4f".format(realizedPnlSol())} fees=${"%.4f".format(feesSol())} treasury=${"%.4f".format(treasurySol7294())} ops=${opCount.get()}"
 
     internal fun resetForTest() {
         startingCashPico.set(0); cashPico.set(0); reservedCashPico.set(0)
         openCostBasisPico.set(0); realizedPnlPico.set(0); feesPico.set(0); opCount.set(0)
+        treasuryPico.set(0)
     }
 }

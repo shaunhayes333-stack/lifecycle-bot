@@ -75,7 +75,11 @@ object ForensicReconciliation6635 {
      */
     fun reconcile6635(precomputedReplay6699: JournalEconomicReplay6619.ReplayResult? = null) {
         checks.incrementAndGet()
-        val cashLedger = try { PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { Double.NaN }
+        // V5.0.7294 — the journal has no treasury transfers, so its cash is
+        // trading cash + paper treasury; compare like with like.
+        val cashLedger = try {
+            PaperCapitalAuthority6577.cashSol() + PaperCapitalAuthority6577.treasurySol7294()
+        } catch (_: Throwable) { Double.NaN }
         val replay6647 = precomputedReplay6699 ?: try { JournalEconomicReplay6619.replay() } catch (_: Throwable) { null }
         // V5.0.6750 §ACCOUNTING_ERROR_UI_ROOT_CAUSE — operator screenshot
         //   Feb 2026: "ACCOUNTING ERROR" / "ACCOUNT UNAVAILABLE"

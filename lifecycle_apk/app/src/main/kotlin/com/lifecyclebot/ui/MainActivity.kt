@@ -3818,6 +3818,7 @@ for legal compliance.
             val isPaper = cfg.paperMode
             val trs: Double
             val trsUsd: Double
+            var tierUsd7294 = -1.0
 
             // V5.6.20: Get SOL price with fallback to prevent $0 display bug
             val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0 }
@@ -3853,14 +3854,21 @@ for legal compliance.
                     if (snap.status == com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED) snap.equitySol else 0.0
                 } catch (_: Throwable) { 0.0 }
                 if (canonicalPaperEquitySol6596 > 0.0) lastReconciledTreasuryEquitySol7292 = canonicalPaperEquitySol6596
-                trs = when {
+                // V5.0.7294 — operator: "treasury lane is purely to help build
+                // the treasury balance". The tile's AMOUNT is the treasury
+                // (TreasuryManager.treasurySol); the TIER ladder stays on wallet
+                // equity, which is what the milestones are defined against.
+                // 7292 had pinned the amount to equity — the wrong one of the two.
+                trs = com.lifecyclebot.engine.TreasuryManager.treasurySol.coerceAtLeast(0.0)
+                trsUsd = trs * solPrice
+                val tierEquitySol7294 = when {
                     canonicalPaperEquitySol6596 > 0.0 -> canonicalPaperEquitySol6596
                     lastReconciledTreasuryEquitySol7292 > 0.0 -> lastReconciledTreasuryEquitySol7292
                     else -> try {
                         com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.snapshot().totalEquitySol.coerceAtLeast(0.0)
                     } catch (_: Throwable) { 0.0 }
                 }
-                trsUsd = trs * solPrice
+                tierUsd7294 = tierEquitySol7294 * solPrice
             } else {
                 // V5.0.6687 — live Treasury tile must use the same capped on-chain
                 // authority as sizing/WalletActivity, never the persisted raw ledger.
@@ -3874,8 +3882,9 @@ for legal compliance.
             // This fixes the issue where paper mode showed "Max tier reached" with only $780
             val milestones = com.lifecyclebot.engine.TreasuryManager.MILESTONES
             var currentTierIdx = -1
+            val ladderUsd7294 = if (tierUsd7294 >= 0.0) tierUsd7294 else trsUsd
             for ((idx, m) in milestones.withIndex()) {
-                if (trsUsd >= m.thresholdUsd) {
+                if (ladderUsd7294 >= m.thresholdUsd) {
                     currentTierIdx = idx
                 }
             }
@@ -3886,11 +3895,11 @@ for legal compliance.
             val modeLabel = if (isPaper) " [PAPER]" else ""
 
             // Update BOTH old and new treasury views (new views have "2" suffix)
-            val tierText = if (trs > 0.001) "Tier: $tier$modeLabel" else "Tier: None$modeLabel"
-            val amountText = if (trs > 0.001) "${"%.3f".format(trs)} SOL  ($${"%.0f".format(trsUsd)})" else "—"
+            val tierText = if (ladderUsd7294 > 0.0 && currentTierIdx >= 0) "Tier: $tier$modeLabel" else "Tier: None$modeLabel"
+            val amountText = if (trs > 0.001) "${"%.3f".format(trs)} SOL  ($${"%.0f".format(trsUsd)})" else "0.000 SOL"
             val nextText = when {
                 nextUsd > 0 -> "Next: $${"%,.0f".format(nextUsd)}"
-                trs > 0     -> "Max tier reached"
+                ladderUsd7294 > 0 -> "Max tier reached"
                 else        -> "First: $500"
             }
 

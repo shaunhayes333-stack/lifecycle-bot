@@ -10844,8 +10844,9 @@ class GoldenTapeRegressionTest {
         val ui = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
         val a = ui.indexOf("V5.0.7292 — operator: \"one moment")
         val block = ui.substring(a, ui.indexOf("} else {", a))
-        assertFalse(block.contains("TreasuryManager.treasurySol"))
-        assertTrue(block.contains("lastReconciledTreasuryEquitySol7292"))
+        // V5.0.7294 — amount is the treasury itself; the tier ladder reads equity.
+        assertTrue(block.contains("trs = com.lifecyclebot.engine.TreasuryManager.treasurySol.coerceAtLeast(0.0)"))
+        assertTrue(block.contains("tierUsd7294 = tierEquitySol7294 * solPrice"))
     }
 
     @Test
@@ -10861,6 +10862,32 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("volumeChange = expressVolumeSurge7293(ts)"))
         val pol = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionAuthorityPolicy6533.kt").readText()
         assertTrue(pol.contains("RESCUE_SLOT_TO_UNDERSAMPLED_LANE_7293"))
+    }
+
+    @Test
+    fun V5_0_7294_paper_treasury_is_a_real_ledger_bucket() {
+        val l = com.lifecyclebot.engine.truth.PaperAccountLedger6430
+        l.resetForTest()
+        l.initialize(10.0)
+        assertEquals(2.0, l.moveCashToTreasury7294(2.0, "test"), 1e-9)
+        assertEquals(8.0, l.cashSol(), 1e-9)
+        assertEquals(2.0, l.treasurySol7294(), 1e-9)
+        assertTrue(l.assertInvariant() == null)
+        // Clamped to what exists.
+        assertEquals(2.0, l.moveTreasuryToCash7294(5.0, "test"), 1e-9)
+        assertEquals(10.0, l.cashSol(), 1e-9)
+        assertEquals(0.0, l.treasurySol7294(), 1e-9)
+        assertEquals(10.0, l.moveCashToTreasury7294(50.0, "test"), 1e-9)
+        assertEquals(0.0, l.cashSol(), 1e-9)
+        assertTrue(l.assertInvariant() == null)
+        l.resetForTest()
+
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertFalse(ex.contains("grossProceedsSol = (grossNoFrictionValue - treasuryShare)"))
+        assertTrue(ex.contains("if (canonicalPaperSellCommitted6474 && pnl > 0) {"))
+        val tm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TreasuryManager.kt").readText()
+        assertTrue(tm.contains("val effectiveFloor = 0.0"))
+        assertTrue(tm.contains("paperDeposit7294(contribWanted7294, \"MEME_SELL_SPLIT\")"))
     }
 
 }

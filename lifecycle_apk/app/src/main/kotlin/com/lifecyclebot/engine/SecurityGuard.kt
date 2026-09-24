@@ -153,7 +153,9 @@ class SecurityGuard(
         // ── 4. Wallet reserve floor ───────────────────────────────────
         // Available = gross balance minus operating reserve
         // Treasury lock is now OPTIONAL and only applies if milestones were actually hit
-        val treasuryLocked = if (TreasuryManager.highestMilestoneHit >= 0) {
+        // V5.0.7294 — paper cash already excludes the paper treasury (a real
+        // ledger transfer since 7294); subtracting it again double-counts.
+        val treasuryLocked = if (c.paperMode) 0.0 else if (TreasuryManager.highestMilestoneHit >= 0) {
             TreasuryManager.effectiveLockedSol(walletSol, c.paperMode) // V5.0.6687 mode-safe live lock
         } else {
             0.0  // No milestones hit = no lock

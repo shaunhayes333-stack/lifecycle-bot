@@ -96,7 +96,10 @@ object UnifiedAccountSnapshot6635 {
         // diagnostic until they are captured in the same immutable account
         // transaction; never splice a second-time snapshot into this read.
         val unrealized = 0.0
-        val equity = cashLedger + openCost + unrealized
+        // V5.0.7294 — the paper treasury is owned capital held outside cash.
+        val equity = cashLedger + openCost + unrealized + (capital?.let {
+            it.totalEquitySol - it.availableCashSol - it.openMarketValueSol
+        }?.coerceAtLeast(0.0) ?: 0.0)
 
         val forensicLine = try { ForensicReconciliation6635.healthLine6635() } catch (_: Throwable) { "" }
         val status = when {

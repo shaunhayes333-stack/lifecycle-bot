@@ -82,7 +82,8 @@ object PaperCapitalAuthority6577 {
             openMarketValueSol = open,
             realizedPnlSol = realized,
             feesSol = fees,
-            totalEquitySol = cash + open,
+            // V5.0.7294 — the paper treasury is owned capital (not tradeable cash).
+            totalEquitySol = cash + open + (ledger?.treasurySol ?: 0.0),
             startingCashSol = start,
             timestampMs = ledger?.capturedAtMs ?: System.currentTimeMillis(),
         )
@@ -106,6 +107,7 @@ object PaperCapitalAuthority6577 {
     fun realizedPnlSol(): Double = snapshot().realizedPnlSol
     fun feesSol(): Double = snapshot().feesSol
     fun startingCashSol(): Double = snapshot().startingCashSol
+    fun treasurySol7294(): Double = try { PaperAccountLedger6430.treasurySol7294() } catch (_: Throwable) { 0.0 }
     fun isAuthorityInitialized6489(): Boolean = try {
         PaperAccountLedger6430.isAuthorityInitialized6489()
     } catch (_: Throwable) { false }

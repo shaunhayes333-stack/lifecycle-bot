@@ -128,7 +128,8 @@ object JournalEconomicAuthority6616 {
         val s = CanonicalEconomicSnapshot(
             revision = rev,
             mode = "paper",
-            cashSol = replay.cashSol,
+            // V5.0.7294 — journal cash includes SOL moved to the paper treasury.
+            cashSol = (replay.cashSol - PaperCapitalAuthority6577.treasurySol7294()).coerceAtLeast(0.0),
             reservedSol = 0.0,
             openMarketValueSol = replay.openCostBasisSol, // UNPRICED COST until authoritative marks land
             unrealizedPnlSol = 0.0,
@@ -170,7 +171,8 @@ object JournalEconomicAuthority6616 {
         cached.set(
             CanonicalEconomicSnapshot(
                 revision = rev, mode = "paper",
-                cashSol = replay.cashSol, reservedSol = 0.0,
+                cashSol = (replay.cashSol - PaperCapitalAuthority6577.treasurySol7294()).coerceAtLeast(0.0),
+                reservedSol = 0.0,
                 openMarketValueSol = replay.openCostBasisSol,
                 unrealizedPnlSol = 0.0,
                 realizedPnlSol = replay.realizedPnlSol,

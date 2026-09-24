@@ -24621,18 +24621,18 @@ class Executor(
         //   • Losing/scratch sells           → treasuryShare = 0 (unchanged)
         //   • Treasury-scalp wins            → 100% of profit → treasury
         //   • All other meme wins            → 30% of profit  → treasury
-        val treasuryShare = if (pnl > 0) {
-            try {
-                if (pos.isTreasuryPosition || pos.tradingMode == "TREASURY") {
-                    TreasuryManager.contributeFullyFromTreasuryScalp(pnl, WalletManager.lastKnownSolPrice, isPaper = true)
-                } else {
-                    TreasuryManager.contributeFromMemeSell(pnl, WalletManager.lastKnownSolPrice, isPaper = true)
-                }
-            } catch (e: Exception) {
-                ErrorLogger.debug("Executor", "Treasury split error (paper): ${e.message}")
-                0.0
-            }
-        } else 0.0
+        //
+        // V5.0.7294 §THE SPLIT WAS SUBTRACTED FROM THE SALE ITSELF.
+        // `grossProceedsSol = gross - treasuryShare` removed the treasury share
+        // from the canonical sale, so realized PnL on every winning full close
+        // was understated by 25% (100% on treasury scalps) — every learner and
+        // expectancy read trained on it — and the SOL left the paper account
+        // entirely (neither cash nor equity), surviving only as a counter in
+        // TreasuryManager. The sale now books its full proceeds; AFTER it has
+        // committed, the treasury share is a real ledger transfer from cash to
+        // the paper treasury (PaperAccountLedger6430.moveCashToTreasury7294),
+        // exactly as the partial-sell paths already do.
+        var treasuryShare = 0.0
 
         var canonicalPaperSellCommitted6474 = false
         try {
@@ -24657,7 +24657,7 @@ class Executor(
                 preRemainingCostBasisSol = terminalRemainingCost6492,
                 // `value` is already net of simulatedFeeSol.  The terminal
                 // reducer subtracts fees exactly once, so pass pre-fee gross.
-                grossProceedsSol = (grossNoFrictionValue - treasuryShare).coerceAtLeast(0.0),
+                grossProceedsSol = grossNoFrictionValue.coerceAtLeast(0.0),
                 soldCostBasisSol = terminalRemainingCost6492,
                 feesSol = simulatedFeeSol.coerceAtLeast(0.0),
                 lane = pos.tradingMode.ifBlank { tradeId.symbol },
@@ -24667,6 +24667,18 @@ class Executor(
                     reason.contains("data_quality", ignoreCase = true),
             )
             canonicalPaperSellCommitted6474 = close6474.applied
+            if (canonicalPaperSellCommitted6474 && pnl > 0) {
+                treasuryShare = try {
+                    if (pos.isTreasuryPosition || pos.tradingMode == "TREASURY") {
+                        TreasuryManager.contributeFullyFromTreasuryScalp(pnl, WalletManager.lastKnownSolPrice, isPaper = true)
+                    } else {
+                        TreasuryManager.contributeFromMemeSell(pnl, WalletManager.lastKnownSolPrice, isPaper = true)
+                    }
+                } catch (e: Exception) {
+                    ErrorLogger.debug("Executor", "Treasury split error (paper): ${e.message}")
+                    0.0
+                }
+            }
             if (canonicalPaperSellCommitted6474) {
                 val rawVerdict6520 = com.lifecyclebot.engine.truth.CanonicalRawQuantityAuthority6520.normalizeLegacyJournalRaw(
                     journalRaw = close6474.canonicalConsumedRaw,
