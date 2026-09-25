@@ -11466,4 +11466,18 @@ class GoldenTapeRegressionTest {
         assertTrue(ex.contains("            quote = jq7325\n            }  // end if (pumpFirstResult == null)"))
     }
 
+    @Test
+    fun V5_0_7329_learning_reads_expectancy_not_win_rate() {
+        val o = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PredictiveEntryOracle6915.kt").readText()
+        assertTrue(o.contains("val finalE = blendedE + (boundedAdjust + boundedBrain6917) * opinionShare7329 +"))
+        assertTrue(o.contains("finalE <= REFUSE_EXPECTANCY_PCT && refuseConfidence7174 >= MIN_CONFIDENCE_TO_REFUSE &&\n                measuredNotPositive7329"))
+        assertFalse(o.contains("val finalE = blendedE + boundedAdjust + boundedBrain6917\n"))
+        val lp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LosingPatternMemory.kt").readText()
+        assertTrue(lp.contains("(losses.toDouble() / sample) >= 0.70 &&\n            meanPnl <= 0.0"))
+        val ct = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AICrossTalk.kt").readText()
+        assertTrue(ct.contains("insights.topBadPatterns.firstOrNull { patternAppliesToLane7329(it.signature, lane) }"))
+        val ca = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue(ca.contains("maxOf(updated.highestPnlPct, updated.getPnlPct()) >= _tpImpliedPct * 1.5"))
+    }
+
 }

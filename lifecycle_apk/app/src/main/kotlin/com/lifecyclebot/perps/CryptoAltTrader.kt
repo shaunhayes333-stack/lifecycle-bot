@@ -3851,7 +3851,12 @@ object CryptoAltTrader {
                         val raw = (kotlin.math.abs(updated.takeProfitPrice - updated.entryPrice) / updated.entryPrice) * 100.0 * updated.leverage
                         raw.coerceAtLeast(0.01)
                     } else 999.0
-                    val _runnerProven = updated.highestPnlPct >= _tpImpliedPct * 1.5
+                    // V5.0.7329 — the peak read here lagged the mark, so a tick that
+                    // gapped straight through TP (+67.7% against a ~+4% target on
+                    // 5.0.7324) closed the whole runner at the gap. The current PnL
+                    // counts as peak evidence too; the trail and peak-drawdown
+                    // exits own the position from there.
+                    val _runnerProven = maxOf(updated.highestPnlPct, updated.getPnlPct()) >= _tpImpliedPct * 1.5
                     if (hitTp && !_runnerProven) {
                         closePosition(id, "HARD_TP: price=${markPrice.fmt(6)} crossed TP=${updated.takeProfitPrice.fmt(6)} (+${"%.2f".format(updated.getPnlPct())}%)")
                         continue

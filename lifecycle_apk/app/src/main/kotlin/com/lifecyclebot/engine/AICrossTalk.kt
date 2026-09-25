@@ -372,8 +372,12 @@ object AICrossTalk {
 
                 if (totalPatterns >= minPatterns) {
                     val insights = BehaviorLearning.getInsights()
-                    val topGood = insights.topGoodPatterns.firstOrNull()
-                    val topBad = insights.topBadPatterns.firstOrNull()
+                    // V5.0.7329 — the book's single top pattern was applied to
+                    // every candidate as a "match": the sniper's bonding-curve
+                    // loss pattern shaved BLUECHIP ZEC and SHITCOIN SHIBA. A
+                    // pattern now speaks only to candidates of its own lane.
+                    val topGood = insights.topGoodPatterns.firstOrNull { patternAppliesToLane7329(it.signature, lane) }
+                    val topBad = insights.topBadPatterns.firstOrNull { patternAppliesToLane7329(it.signature, lane) }
 
                     if (topGood != null && topGood.winRate >= 70.0 && topGood.confidence >= 0.7) {
                         val boost = (topGood.winRate - 50.0) * 0.4
@@ -577,6 +581,16 @@ object AICrossTalk {
      * Each signal type has a natural "owner" weight (whale, momentum,
      * liquidity, narrative, regime) that the lane profile modulates.
      */
+    private fun canonLane7329(s: String): String = s.uppercase()
+        .replace("PRESALE_SNIPE", "PROJECT_SNIPER")
+        .replace("BLUE_CHIP", "BLUECHIP")
+
+    /** V5.0.7329 — does a learned behaviour pattern describe this candidate's lane? */
+    private fun patternAppliesToLane7329(signature: String, lane: String?): Boolean {
+        if (lane.isNullOrBlank()) return true
+        return canonLane7329(signature).contains(canonLane7329(lane.trim()))
+    }
+
     private fun applyLaneWeights(raw: CrossTalkSignal, lane: String?): CrossTalkSignal {
         if (lane.isNullOrBlank()) return raw
         val w = try { LaneTag.crossTalkWeights(lane) } catch (_: Throwable) { return raw }

@@ -982,10 +982,12 @@ object PredictiveEntryOracle6915 {
         // operator can tell from the contributions list which tier moved the
         // number.
         var brainAdjust6917 = 0.0
+        var creatorRugAdjust7329 = 0.0
         try {
             val reads = brainNetwork6917(laneKey, s, mint, symbol, sourceFamily, liquidityUsd, creator)
             for (r in reads) {
-                brainAdjust6917 += r.deltaPct
+                if (r.label.startsWith("creatorRugs(")) creatorRugAdjust7329 += r.deltaPct
+                else brainAdjust6917 += r.deltaPct
                 contributions += "${r.label}=${"%+.1f".format(r.deltaPct)}"
             }
             if (reads.isNotEmpty()) brainReads6917.addAndGet(reads.size.toLong())
@@ -993,7 +995,32 @@ object PredictiveEntryOracle6915 {
         val boundedBrain6917 = brainAdjust6917
             .coerceIn(-BRAIN_NETWORK_CAP_PCT_6917, BRAIN_NETWORK_CAP_PCT_6917)
         val boundedAdjust = adjust.coerceIn(-STACK_ADJUST_CAP_PCT, STACK_ADJUST_CAP_PCT)
-        val finalE = blendedE + boundedAdjust + boundedBrain6917
+
+        // V5.0.7329 — OPINIONS FADE AS EVIDENCE GROWS. The stack and brain
+        // tiers are priors: win-rate posteriors, a per-layer expectancy, a
+        // regime read. They were added at full strength on top of the measured
+        // cell/lane expectancy, so a lane with n=24 closes at E=+5.6% and a
+        // cell at E=+11.4% was refused at E=-14% (PROJECT_SNIPER, 5.0.7324),
+        // the whole swing coming from opinions that WR 29% is "bad" — which is
+        // the fat-tailed runner shape the lane is paid for. Their weight is now
+        // (1 - candidate-specific evidence weight): full on a cold lane, a
+        // fifth at n=24. A creator's recorded rugs are a fact about this
+        // candidate, not a prior, and keep full weight.
+        val specificLevels7329 = levels.filter { it.name != "global" }
+        val evidenceWeight7329 = if (specificLevels7329.isEmpty()) 0.0 else {
+            val sw = specificLevels7329.sumOf { it.weight }
+            (specificLevels7329.maxOf { it.weight } * 0.5 +
+                (sw / specificLevels7329.size.toDouble()) * 0.5).coerceIn(0.0, 1.0)
+        }
+        val specificE7329 = if (specificLevels7329.isEmpty()) Double.NaN else
+            specificLevels7329.sumOf { it.mean * it.weight } / specificLevels7329.sumOf { it.weight }
+        val opinionShare7329 = 1.0 - evidenceWeight7329
+        val finalE = blendedE + (boundedAdjust + boundedBrain6917) * opinionShare7329 +
+            creatorRugAdjust7329.coerceIn(-BRAIN_NETWORK_CAP_PCT_6917, 0.0)
+        if (evidenceWeight7329 > 0.0) {
+            contributions += "opinionShare7329(${"%.2f".format(opinionShare7329)})"
+            try { PipelineHealthCollector.labelInc("ORACLE_OPINIONS_FADED_BY_EVIDENCE_7329") } catch (_: Throwable) {}
+        }
 
         // ── V5.0.6927 · RECORDED-FACT SAFETY REFUSAL ────────────────────────
         //
@@ -1133,8 +1160,18 @@ object PredictiveEntryOracle6915 {
         // candidate pWin > 0.5 and confidence >= 0.45, which a fat-tailed
         // lane never meets and which made ADMIT all but unreachable; the
         // uncertain middle then became a probe.
+        // V5.0.7329 — "evidenced" means the candidate's own measured levels
+        // are negative. Confident POSITIVE evidence dragged under the bar by
+        // the global book or by opinions is not evidence of a loss.
+        val measuredNotPositive7329 = !specificE7329.isFinite() || specificE7329 <= 0.0
         val evidencedNegative7287 =
-            finalE <= REFUSE_EXPECTANCY_PCT && refuseConfidence7174 >= MIN_CONFIDENCE_TO_REFUSE
+            finalE <= REFUSE_EXPECTANCY_PCT && refuseConfidence7174 >= MIN_CONFIDENCE_TO_REFUSE &&
+                measuredNotPositive7329
+        if (finalE <= REFUSE_EXPECTANCY_PCT && refuseConfidence7174 >= MIN_CONFIDENCE_TO_REFUSE &&
+            !measuredNotPositive7329
+        ) {
+            try { PipelineHealthCollector.labelInc("ORACLE_REFUSE_NOT_EVIDENCED_MEASURED_POSITIVE_7329") } catch (_: Throwable) {}
+        }
         val verdict = if (!evidencedNegative7287 && finalE > ADMIT_EXPECTANCY_PCT && policySupportsProfit7260) {
             Verdict.ADMIT
         } else {

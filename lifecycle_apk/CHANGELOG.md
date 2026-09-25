@@ -4,6 +4,26 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7329] - 2026-09-26 — LEARNING READS EXPECTANCY, NOT WIN RATE
+
+On 5.0.7324 paper the best-paying lane was being taught it was the worst:
+PROJECT_SNIPER measured EV +16%/trade (lane oracle level n=24 E=+5.6%, cell
+E=+11.4%) and was refused at E=-14% by the oracle, flagged a "danger bucket"
+at meanPnl +28.9%, and its bonding-curve loss pattern shaved other lanes.
+
+- PredictiveEntryOracle6915: stack and brain-network adjustments (win-rate
+  posteriors, per-layer expectancy, regime, momentum…) are priors and now
+  weigh (1 - candidate-specific evidence weight); creator rug counts keep
+  full weight. "Evidenced negative" also needs the candidate's own measured
+  levels to be non-positive (ORACLE_REFUSE_NOT_EVIDENCED_MEASURED_POSITIVE_7329).
+  LearnedAdmissionAuthority6846 reads the same faded expectancy.
+- LosingPatternMemory: a bucket is dangerous only if it also loses money
+  (meanPnl <= 0), so fat-tailed winners are no longer shrunk or vetoed.
+- AICrossTalk: a learned behaviour pattern applies only to candidates of its
+  own lane.
+- CryptoAltTrader: HARD_TP counts the current PnL as runner evidence, so a
+  tick that gaps far past TP is left to the trail instead of closed whole.
+
 ## [5.0.7328] - 2026-09-26 — THE RAYDIUM BUY COMPILES
 
 5.0.7325-7327 did not compile: wrapping the Jupiter buy in

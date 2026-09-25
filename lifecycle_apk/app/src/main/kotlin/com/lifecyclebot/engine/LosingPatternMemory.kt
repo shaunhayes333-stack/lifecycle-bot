@@ -46,7 +46,13 @@ object LosingPatternMemory {
         // AGI stack must be able to identify bleeder buckets within
         // ~10 trades per bucket, not 20+. Doctrine still soft-shape — this
         // just accelerates the sizing shrink ladder.
-        val isDangerous: Boolean get() = losses >= 5 && sample >= 10 && (losses.toDouble() / sample) >= 0.70
+        // V5.0.7329 — a loss RATE is not a loss. PROJECT_SNIPER|S11-25 was
+        // flagged dangerous at 8L/3W with meanPnl=+28.9% — the fat-tailed
+        // runner shape that pays — and every consumer (BrainConsensusGate,
+        // BandLossVetoGuard, the sniper and treasury paths, bucket state)
+        // shrank or vetoed it. Danger now also needs the bucket to lose money.
+        val isDangerous: Boolean get() = losses >= 5 && sample >= 10 && (losses.toDouble() / sample) >= 0.70 &&
+            meanPnl <= 0.0
         // V5.0.4597 — earlier still: 3 losses at 75%+ loss rate + negative mean
         // triggers emerging danger (was: 5 losses / 8-19 sample / 80%). Fresh
         // install can now shrink obvious losers by trade 4-5 instead of trade 8+.
