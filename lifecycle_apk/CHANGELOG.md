@@ -4,6 +4,16 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7310] - 2026-09-26 — A SELL NEVER RUNS OUT OF ROUTES; NO BUYING WHILE AN EXIT IS STUCK
+
+Live 02:56-02:58: TTP's -7% stop fired, one Jupiter "GET 599" and one PumpPortal 503 shut both route builders (PumpPortal primary + rescue, Jupiter ladder), so nothing ever reached a sender (Helius / RPC / Jito); the drain exit's 9999 bps never reached a quote — and in the same second the bot bought AQVcP67E through Jupiter.
+
+- ExitProviderHealth: recordJupiterProviderFailure and recordPumpProviderFailure opened their breakers on ONE failure; both now follow the documented rule (2 failures within 30 s). Breakers order routes, they never remove the last one: when both are open, the provider that failed least recently is tried anyway (ties to Jupiter). Per-mint 0x1788 suppression is unchanged. Counters EXIT_ALL_ROUTES_OPEN_{JUPITER,PUMP}_TRIED_7310, *_PROVIDER_FAILURE_7310.
+- Any successful Jupiter GET (buy or sell side) closes the exit breaker (recordJupiterAnyOk) — the buy path was using Jupiter while sells refused it.
+- isProviderClassFailure matches exact 502/503/504, provider phrases and the word "timeout" — not substrings. 599 is this app's local circuit code (request never left the device) and no longer counts as a provider outage.
+- Live entries freeze while any held position's exit produced no signature in the last 3 minutes (cleared when the position closes or the window lapses). Counter LIVE_BUY_HELD_EXIT_STUCK_7310.
+- Pump rescue skip now names its real cause (PumpPortal 5xx cooldown vs 0x1788 strikes) instead of always "0x1788 suppression".
+
 ## [5.0.7309] - 2026-09-26 — THE BOT STOPS DROPPING TOKENS IT BOUGHT
 
 Operator: the wallet holds TNSR, CAKE, XMR and POPCAT the bot bought, and the bot no longer tracks them. 5.0.7307 logged START_GHOST_REAP and GHOST_POSITION_REAPED mints=4qQeZ5Lw,7GCihgDB (7GCihgDB = POPCAT).

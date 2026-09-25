@@ -11149,4 +11149,24 @@ class GoldenTapeRegressionTest {
         assertTrue(bs.contains("GHOST_REAP_SKIPPED_WALLET_HELD_7309"))
     }
 
+    @Test
+    fun V5_0_7310_exit_never_runs_out_of_routes_and_entries_freeze_on_stuck_exit() {
+        val h = com.lifecyclebot.engine.sell.ExitProviderHealth
+        assertTrue(h.isProviderClassFailure("PumpPortal HTTP 503"))
+        assertTrue(h.isProviderClassFailure("Jupiter GET 502: bad gateway"))
+        assertTrue(h.isProviderClassFailure("Jupiter GET timeout"))
+        assertFalse(h.isProviderClassFailure("Jupiter GET 599: local circuit"))
+        assertFalse(h.isProviderClassFailure("amount=15990000 slot=285990"))
+        assertFalse(h.isProviderClassFailure("slippage exceeded 0x1771"))
+        val now = 10_000_000L
+        assertEquals("M1", h.anyStuck(mapOf("M1" to now - 60_000L), { true }, now))
+        assertTrue(h.anyStuck(mapOf("M1" to now - 60_000L), { false }, now) == null)
+        assertTrue(h.anyStuck(mapOf("M1" to now - 4 * 60_000L), { true }, now) == null)
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("LIVE_BUY_HELD_EXIT_STUCK_7310"))
+        assertFalse(ex.contains("PUMP_RESCUE_SKIPPED — mint is in 0x1788 suppression cooldown."))
+        val jup = java.io.File("src/main/kotlin/com/lifecyclebot/network/JupiterApi.kt").readText()
+        assertTrue(jup.contains("ExitProviderHealth.recordJupiterAnyOk()"))
+    }
+
 }

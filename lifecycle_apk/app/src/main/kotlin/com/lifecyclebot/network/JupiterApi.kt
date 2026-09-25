@@ -894,6 +894,8 @@ class JupiterApi(private val apiKey: String = "") {
                         throw RuntimeException(msg)
                     }
                     if (body.isNullOrBlank()) throw RuntimeException("Empty Jupiter GET response")
+                    // V5.0.7310 — any successful Jupiter call closes the exit breaker.
+                    try { com.lifecyclebot.engine.sell.ExitProviderHealth.recordJupiterAnyOk() } catch (_: Throwable) {}
                     return body
                 }
             } catch (e: UnknownHostException) {

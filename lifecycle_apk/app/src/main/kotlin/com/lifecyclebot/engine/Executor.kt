@@ -18031,6 +18031,22 @@ class Executor(
             }
             else -> {}
         }
+        // V5.0.7310 — no new live entries while any held position's exit is
+        // failing. 02:57-02:58: TTP's stop could not get a signature for over
+        // a minute while the bot bought AQVcP67E and tried 8 other buys.
+        try {
+            val stuck7310 = com.lifecyclebot.engine.sell.ExitProviderHealth.stuckExitMint { m ->
+                BotService.status.tokens[m]?.position?.let { it.isOpen && !it.isPaperPosition } == true
+            }
+            if (stuck7310 != null) {
+                PipelineHealthCollector.labelInc("LIVE_BUY_HELD_EXIT_STUCK_7310")
+                ForensicLogger.lifecycle(
+                    "LIVE_BUY_HELD_EXIT_STUCK_7310",
+                    "mint=${ts.mint.take(10)} lane=$gateLaneLive6451 stuckExit=${stuck7310.take(10)}",
+                )
+                return false
+            }
+        } catch (_: Throwable) {}
         // V5.0.7304 — the last routable live slot goes to a lane with proven
         // net edge first; it self-releases after 10 minutes with no taker.
         try {
@@ -27286,10 +27302,10 @@ class Executor(
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
                         LiveTradeLogStore.Phase.SELL_ROUTE_SKIPPED,
-                        "PUMP_RESCUE_SKIPPED — mint is in 0x1788 suppression cooldown.",
+                        "PUMP_RESCUE_SKIPPED — ${try { com.lifecyclebot.engine.sell.ExitProviderHealth.pumpSuppressionReason(ts.mint) } catch (_: Throwable) { "suppressed" }}.",
                         traderTag = "MEME",
                     )
-                    try { ForensicLogger.lifecycle("PUMP_RESCUE_SKIPPED_SUPPRESSED", "mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("PUMP_RESCUE_SKIPPED_SUPPRESSED", "mint=${ts.mint.take(10)} cause=${com.lifecyclebot.engine.sell.ExitProviderHealth.pumpSuppressionReason(ts.mint)}") } catch (_: Throwable) {}
                 } else {
                 sig = tryPumpPortalSell(
                     ts = ts,
@@ -28249,8 +28265,11 @@ class Executor(
                 try { com.lifecyclebot.engine.sell.SellForensics.inc(
                     com.lifecyclebot.engine.sell.SellForensics.EXEC_LIVE_SELL_ROUTE_FAILED_NO_SIGNATURE,
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} class=${routeCls.name} action=release_no_queue") } catch (_: Throwable) {}
+                // V5.0.7310 — a held position whose exit produced no signature.
+                try { com.lifecyclebot.engine.sell.ExitProviderHealth.noteExitFailure(ts.mint) } catch (_: Throwable) {}
                 return SellResult.ROUTE_FAILED_NO_SIGNATURE
             }
+            try { com.lifecyclebot.engine.sell.ExitProviderHealth.noteExitFailure(ts.mint) } catch (_: Throwable) {}
             return SellResult.FAILED_RETRYABLE
         }
 

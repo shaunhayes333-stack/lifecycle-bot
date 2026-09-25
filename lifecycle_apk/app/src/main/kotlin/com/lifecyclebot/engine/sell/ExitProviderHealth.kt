@@ -51,27 +51,51 @@ object ExitProviderHealth {
     @Volatile private var jupiterExitDisabledUntilMs: Long = 0L
     @Volatile private var jupiterProbeArmedAtMs: Long = 0L
 
+    // V5.0.7310 — exact codes and phrases, not substrings. "599" matched any
+    // message containing those digits (amounts, slots, ids) and 599 itself is
+    // this app's own local-circuit code (HostCircuitInterceptor), i.e. the
+    // request never left the device — it is not evidence the provider is down.
+    private val PROVIDER_CODE_7310 = Regex("(?<![0-9])(502|503|504)(?![0-9])")
+    private val PROVIDER_PHRASES_7310 = listOf(
+        "service unavailable", "temporarily unavailable", "bad gateway",
+        "gateway timeout", "quote unavailable", "timed out", "sockettimeout",
+    )
+    private val TIMEOUT_WORD_7310 = Regex("(?<![a-z_])timeout(?![a-z_])")
+
     fun isProviderClassFailure(message: String?): Boolean {
         val m = message.orEmpty().lowercase()
-        return listOf("http 599", "http_599", "599", "http 503", "http_503", "503",
-            "quote unavailable", "service unavailable", "temporarily unavailable",
-            "bad gateway", "gateway timeout", "http 502", "http 504", "timed out", "timeout")
-            .any { m.contains(it) }
+        if (m.isBlank()) return false
+        return PROVIDER_CODE_7310.containsMatchIn(m) ||
+            PROVIDER_PHRASES_7310.any { m.contains(it) } ||
+            TIMEOUT_WORD_7310.containsMatchIn(m)
     }
 
-    /** Provider-class failure is not route/slippage information. Rotate now and
-     * cool the dead provider after the first occurrence instead of replaying the
-     * full 200/350/500 ladder against the same outage. */
+    @Volatile private var jupiterLastFailMs7310: Long = 0L
+    @Volatile private var pumpLastFailMs7310: Long = 0L
+    private val pumpFailHistory7310 = ConcurrentLinkedDeque<Long>()
+
+    /** V5.0.7310 — a provider-class failure is recorded, but the breaker only
+     *  opens on the documented rule: 2 failures inside 30 s. One blip used to
+     *  shut Jupiter out of every sell for 90 s. */
     fun recordJupiterProviderFailure(reason: String) {
-        val now = System.currentTimeMillis()
-        jupiterSell503History.add(now)
-        jupiterExitDisabledUntilMs = maxOf(jupiterExitDisabledUntilMs, now + JUP_COOLDOWN_MS)
-        jupiterProbeArmedAtMs = jupiterExitDisabledUntilMs
+        jupiterLastFailMs7310 = System.currentTimeMillis()
         try {
-            ForensicLogger.lifecycle("JUPITER_EXIT_PROVIDER_COOLDOWN_7228",
-                "reason=${reason.take(120)} cooldownMs=$JUP_COOLDOWN_MS action=rotate_immediately")
-            PipelineHealthCollector.labelInc("JUPITER_EXIT_PROVIDER_COOLDOWN_7228")
+            ForensicLogger.lifecycle("JUPITER_EXIT_PROVIDER_FAILURE_7310",
+                "reason=${reason.take(120)} action=count_toward_2_in_30s")
+            PipelineHealthCollector.labelInc("JUPITER_EXIT_PROVIDER_FAILURE_7310")
         } catch (_: Throwable) {}
+        recordJupiterSell503()
+    }
+
+    /** V5.0.7310 — any successful Jupiter call (buy or sell side, quote or
+     *  swap) proves the provider is up and closes the exit breaker. */
+    fun recordJupiterAnyOk() {
+        if (jupiterExitDisabledUntilMs > System.currentTimeMillis()) {
+            try { PipelineHealthCollector.labelInc("JUPITER_EXIT_CIRCUIT_CLOSED_BY_ANY_OK_7310") } catch (_: Throwable) {}
+            recordJupiterSellOk()
+        } else {
+            jupiterSell503History.clear()
+        }
     }
 
     fun recordJupiterSell503() {
@@ -100,9 +124,22 @@ object ExitProviderHealth {
         }
     }
 
-    /** True if sell-side Jupiter calls should be skipped right now. */
-    fun isJupiterExitDegraded(): Boolean =
-        System.currentTimeMillis() < jupiterExitDisabledUntilMs
+    private fun jupiterBreakerOpen(now: Long): Boolean = now < jupiterExitDisabledUntilMs
+    private fun pumpBreakerOpen(now: Long): Boolean = now < pumpProviderDisabledUntilMs
+
+    /** True if sell-side Jupiter calls should be skipped right now.
+     *  V5.0.7310 — a breaker orders routes; it never removes the last one.
+     *  When the Pump provider breaker is also open, the provider that failed
+     *  least recently is tried anyway (ties go to Jupiter). */
+    fun isJupiterExitDegraded(): Boolean {
+        val now = System.currentTimeMillis()
+        if (!jupiterBreakerOpen(now)) return false
+        if (pumpBreakerOpen(now) && jupiterLastFailMs7310 <= pumpLastFailMs7310) {
+            try { PipelineHealthCollector.labelInc("EXIT_ALL_ROUTES_OPEN_JUPITER_TRIED_7310") } catch (_: Throwable) {}
+            return false
+        }
+        return true
+    }
 
     /** Probe attempt — call this BEFORE making a Jupiter sell call when
      *  isJupiterExitDegraded() is false. If it returns true, the caller
@@ -144,13 +181,21 @@ object ExitProviderHealth {
 
     @Volatile private var pumpProviderDisabledUntilMs: Long = 0L
 
+    /** V5.0.7310 — same 2-in-30s rule as Jupiter; one PumpPortal 503 used to
+     *  shut Pump direct out of every mint's exit for 60 s. */
     fun recordPumpProviderFailure(reason: String) {
         val now = System.currentTimeMillis()
-        pumpProviderDisabledUntilMs = maxOf(pumpProviderDisabledUntilMs, now + PUMP_SUPPRESSION_MS)
+        pumpLastFailMs7310 = now
+        pumpFailHistory7310.add(now)
+        while (pumpFailHistory7310.isNotEmpty() && (pumpFailHistory7310.peekFirst() ?: now) < now - JUP_WINDOW_MS) {
+            pumpFailHistory7310.pollFirst()
+        }
+        val opened = pumpFailHistory7310.size >= JUP_THRESHOLD
+        if (opened) pumpProviderDisabledUntilMs = maxOf(pumpProviderDisabledUntilMs, now + PUMP_SUPPRESSION_MS)
         try {
-            ForensicLogger.lifecycle("PUMP_EXIT_PROVIDER_COOLDOWN_7228",
-                "reason=${reason.take(120)} cooldownMs=$PUMP_SUPPRESSION_MS action=continue_independent_rotation")
-            PipelineHealthCollector.labelInc("PUMP_EXIT_PROVIDER_COOLDOWN_7228")
+            ForensicLogger.lifecycle(if (opened) "PUMP_EXIT_PROVIDER_COOLDOWN_7228" else "PUMP_EXIT_PROVIDER_FAILURE_7310",
+                "reason=${reason.take(120)} inWindow=${pumpFailHistory7310.size} cooldownMs=${if (opened) PUMP_SUPPRESSION_MS else 0}")
+            PipelineHealthCollector.labelInc(if (opened) "PUMP_EXIT_PROVIDER_COOLDOWN_7228" else "PUMP_EXIT_PROVIDER_FAILURE_7310")
         } catch (_: Throwable) {}
     }
 
@@ -194,9 +239,55 @@ object ExitProviderHealth {
     /** True if Pump direct should be skipped for this mint right now. */
     fun isPumpDirectSuppressed(mint: String): Boolean {
         val now = System.currentTimeMillis()
-        if (now < pumpProviderDisabledUntilMs) return true
-        val s = pump1788ByMint[mint] ?: return false
-        return now < s.suppressedUntilMs
+        val s = pump1788ByMint[mint]
+        val mint1788 = s != null && now < s.suppressedUntilMs
+        if (pumpBreakerOpen(now)) {
+            // V5.0.7310 — never the last route: if Jupiter is also open and
+            // failed more recently, Pump is tried anyway.
+            if (jupiterBreakerOpen(now) && pumpLastFailMs7310 < jupiterLastFailMs7310 && !mint1788) {
+                try { PipelineHealthCollector.labelInc("EXIT_ALL_ROUTES_OPEN_PUMP_TRIED_7310") } catch (_: Throwable) {}
+                return false
+            }
+            return true
+        }
+        return mint1788
+    }
+
+    /** V5.0.7310 — the real reason Pump is being skipped for this mint. */
+    fun pumpSuppressionReason(mint: String): String {
+        val now = System.currentTimeMillis()
+        val s = pump1788ByMint[mint]
+        return when {
+            s != null && now < s.suppressedUntilMs -> "0x1788 strikes=${s.count}"
+            pumpBreakerOpen(now) -> "PumpPortal 5xx cooldown remainMs=${pumpProviderCooldownRemainingMs()}"
+            else -> "none"
+        }
+    }
+
+    // ── V5.0.7310 — held positions whose exit is failing ───────────────
+    private const val STUCK_EXIT_WINDOW_MS = 3 * 60_000L
+    private val stuckExitAtMs = ConcurrentHashMap<String, Long>()
+
+    fun noteExitFailure(mint: String) {
+        if (mint.isBlank()) return
+        stuckExitAtMs[mint] = System.currentTimeMillis()
+        try { PipelineHealthCollector.labelInc("EXIT_FAILURE_NOTED_7310") } catch (_: Throwable) {}
+    }
+
+    private fun clearExit(mint: String) {
+        if (stuckExitAtMs.remove(mint) != null) {
+            try { PipelineHealthCollector.labelInc("EXIT_STUCK_CLEARED_7310") } catch (_: Throwable) {}
+        }
+    }
+
+    /** Pure: does any held mint have an exit that failed recently? */
+    fun anyStuck(failures: Map<String, Long>, isHeld: (String) -> Boolean, nowMs: Long): String? =
+        failures.entries.firstOrNull { (m, at) -> nowMs - at < STUCK_EXIT_WINDOW_MS && isHeld(m) }?.key
+
+    fun stuckExitMint(isHeld: (String) -> Boolean): String? {
+        val now = System.currentTimeMillis()
+        stuckExitAtMs.entries.removeIf { now - it.value >= STUCK_EXIT_WINDOW_MS || !isHeld(it.key) }
+        return anyStuck(stuckExitAtMs, isHeld, now)
     }
 
     /** True if this mint's Pump route cache was recently invalidated and the
@@ -208,6 +299,8 @@ object ExitProviderHealth {
 
     /** Successful Pump sell — clears the suppression for this mint. */
     fun recordPumpSellOk(mint: String) {
+        clearExit(mint)
+        pumpFailHistory7310.clear()
         val s = pump1788ByMint.remove(mint) ?: return
         try {
             ErrorLogger.info(
