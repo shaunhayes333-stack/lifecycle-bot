@@ -4,6 +4,12 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7304] - 2026-09-25 — AN INVERTED ORACLE DOES NOT VETO; FANOUT BUDGET REFILLS; THE LAST LIVE SLOT GOES TO PROVEN EDGE
+
+- OracleEdgeProof7263.isInverted7304(): when refused candidates measurably outperform admitted ones (>=20 admit, >=10 refuse closes, margin 0.02), LearnedAdmissionAuthority6846 no longer applies the ORACLE_NEGATIVE_EXPECTANCY_6915 deny. Counter ORACLE_INVERTED_EV_NOT_HONOURED_7304; statusLine shows inverted7304=.
+- IntakeFanoutGovernor6835.allowFdgEval: a spent per-candidate FDG budget refills after 60 s since the last allowed evaluation, so a token re-evaluates as its market changes instead of being silenced for the 10-minute causal TTL. Counter FDG_FANOUT_BUDGET_REFILLED_7304.
+- LiveSlotPriority7304: when exactly one routable live slot is free (SmartSizerV3.routableCapacityPreflight7224 on wallet minus the 7255 reserve), lanes without proven net edge (OracleTradeHistory7287 n>=20, mean net > 0) wait; the slot self-releases to any lane after 10 minutes. Paper untouched. Counters LIVE_LAST_SLOT_*_7304.
+
 ## [5.0.7303] - 2026-09-25 — FIRST LIVE SESSION: V3 SIZED AGAINST THE WRONG RESERVE
 
 - Operator, first live session (0.1198 SOL): "its being weird with how its reading and scoring tokens". The decision log was a wall of `V3 REJECT … | SIZE_ZERO` (136) and FDG refused 156 on `CANONICAL_V3_SCORE_FLOOR_7243` with `entryScore=0.0` beside lane scores of 63; zero executions.

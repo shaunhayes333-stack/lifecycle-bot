@@ -61,7 +61,21 @@ object IntakeFanoutGovernor6835 {
         val laneCapped: AtomicLong = AtomicLong(0L),
         val fdgCapped: AtomicLong = AtomicLong(0L),
         val stampMs: Long = System.currentTimeMillis(),
+        val lastFdgMs7304: AtomicLong = AtomicLong(0L),
     )
+
+    /**
+     * V5.0.7304 §A_LONG_LIVED_TOKEN_GOT_TWO_LOOKS_PER_TEN_MINUTES.
+     * The FDG budget (2 per mint × candidate version × lane) was sized for
+     * fresh launches, where every new sighting is a new version. An established
+     * token keeps its version, so BLUECHIP / QUALITY / TREASURY saw it twice
+     * and then not again for the whole causal TTL (10 min) however the chart
+     * moved: FDG_SUPPRESSED_FANOUT_CAP_7232_BLUECHIP = 499 on 5.0.7301 and 96
+     * in the first 5 minutes live. A lane's budget now refills once no FDG
+     * evaluation has run for [FDG_REFILL_MS_7304]; bursts inside that window
+     * are still capped exactly as before.
+     */
+    private const val FDG_REFILL_MS_7304 = 60_000L
 
     private val chains = ConcurrentHashMap<String, LaneCounters>()
 
@@ -146,6 +160,12 @@ object IntakeFanoutGovernor6835 {
         val key = if (lane7265.isBlank()) keyFor(mint, causalRoot)
             else keyFor(mint, causalRoot) + "::" + lane7265.take(20)
         val c = chains.computeIfAbsent(key) { LaneCounters() }
+        val now7304 = System.currentTimeMillis()
+        val last7304 = c.lastFdgMs7304.get()
+        if (c.fdgSeen.get() >= FDG_EVAL_CAP && last7304 > 0L && now7304 - last7304 >= FDG_REFILL_MS_7304) {
+            c.fdgSeen.set(0L)
+            try { PipelineHealthCollector.labelInc("FDG_FANOUT_BUDGET_REFILLED_7304") } catch (_: Throwable) {}
+        }
         val current = c.fdgSeen.get()
         if (current >= FDG_EVAL_CAP) {
             c.fdgCapped.incrementAndGet()
@@ -161,6 +181,7 @@ object IntakeFanoutGovernor6835 {
             return false
         }
         c.fdgSeen.incrementAndGet()
+        c.lastFdgMs7304.set(now7304)
         return true
     }
 

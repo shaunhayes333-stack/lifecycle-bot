@@ -18024,6 +18024,21 @@ class Executor(
             }
             else -> {}
         }
+        // V5.0.7304 — the last routable live slot goes to a lane with proven
+        // net edge first; it self-releases after 10 minutes with no taker.
+        try {
+            val slots7304 = com.lifecyclebot.v3.sizing.SmartSizerV3.routableCapacityPreflight7224(
+                (walletSol - com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL).coerceAtLeast(0.0),
+                WalletManager.lastKnownSolPrice,
+            ).capacity
+            if (com.lifecyclebot.engine.truth.LiveSlotPriority7304.deferLive(gateLaneLive6451, slots7304)) {
+                ForensicLogger.lifecycle(
+                    "LIVE_LAST_SLOT_RESERVED_FOR_PROVEN_LANE_7304",
+                    "mint=${ts.mint.take(10)} lane=$gateLaneLive6451 freeSlots=$slots7304",
+                )
+                return false
+            }
+        } catch (_: Throwable) {}
         val entryAuthoritySol6487 = gateVerdictLive6451.recommendedSizeSol.coerceAtMost(sol)
         // V5.0.6444 §1 LIVE EXECUTOR MIGRATION — mirror the live buy
         // attempt into CanonicalPositionAuthority6441 via

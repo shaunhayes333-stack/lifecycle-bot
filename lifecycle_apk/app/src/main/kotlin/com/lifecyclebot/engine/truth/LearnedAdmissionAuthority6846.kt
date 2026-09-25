@@ -484,7 +484,15 @@ object LearnedAdmissionAuthority6846 {
         val oracleThinEvidence7154 =
             inputs.oracleRawCohortN7154 < ORACLE_MIN_CONFIDENT_N_6915 &&
                 inputs.oracleRawLaneN7207 < ORACLE_MIN_CONFIDENT_N_6915
-        if (!oracleDegenerate7120 &&
+        // V5.0.7304 — an oracle graded as scoring backwards (its refusals settle
+        // better than its admissions) does not refuse on its own expectancy.
+        val oracleInverted7304 = try { OracleEdgeProof7263.isInverted7304() } catch (_: Throwable) { false }
+        if (oracleInverted7304 && inputs.cohortSample >= ORACLE_MIN_CONFIDENT_N_6915 &&
+            inputs.expectedPnl <= ORACLE_REFUSE_EV_6915
+        ) {
+            try { PipelineHealthCollector.labelInc("ORACLE_INVERTED_EV_NOT_HONOURED_7304") } catch (_: Throwable) {}
+        }
+        if (!oracleDegenerate7120 && !oracleInverted7304 &&
             inputs.cohortSample >= ORACLE_MIN_CONFIDENT_N_6915 &&
             inputs.expectedPnl <= ORACLE_REFUSE_EV_6915
         ) {

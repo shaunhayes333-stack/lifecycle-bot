@@ -258,10 +258,30 @@ object OracleEdgeProof7263 {
 
     fun tier(): Tier = tier
 
+    /**
+     * V5.0.7304 §AN_ORACLE_THAT_SCORES_BACKWARDS.
+     *
+     * 5.0.7302, first live session: admit[n=266 ret=+5.4%] against
+     * refuse[n=102 ret=+42.5%] — the candidates the oracle refused settled
+     * eight times better than the ones it admitted. ADVISORY only stops the
+     * verdict from gating; the oracle's expectancy still denied entries through
+     * the evidence branch (ORACLE_NEGATIVE_EXPECTANCY_6915, 275 live denies).
+     * Inverted = at the proof's own sample bars (>=20 admit, >=10 refuse) the
+     * refused pile beats the admitted pile by at least the proof's margin.
+     * While inverted its expectancy is not evidence; it clears itself when the
+     * graded closes stop saying so.
+     */
+    fun isInverted7304(): Boolean {
+        val (aN, aRet, _) = admit.snapshot()
+        val (rN, rRet, _) = refuse.snapshot()
+        return aN >= MIN_ADMIT_CLOSES_7263 && rN >= MIN_NON_ADMIT_CLOSES_7263 &&
+            rRet >= aRet + MIN_EDGE_MARGIN_RETURN_7263
+    }
+
     fun statusLine(): String {
         val (aN, aRet, aWr) = admit.snapshot()
         val (rN, rRet, rWr) = refuse.snapshot()
-        return "tier=${tier.name} reason=$tierReason scored=${scored.get()} unmatched=${unmatched.get()} stale=${staleStamps.get()} " +
+        return "tier=${tier.name} inverted7304=${isInverted7304()} reason=$tierReason scored=${scored.get()} unmatched=${unmatched.get()} stale=${staleStamps.get()} " +
             "admit[n=$aN ret=${"%+.1f".format(aRet * 100.0)}% wr=${"%.0f".format(aWr * 100.0)}% brier=${"%.3f".format(admit.brier())}] " +
             "refuse[n=$rN ret=${"%+.1f".format(rRet * 100.0)}% wr=${"%.0f".format(rWr * 100.0)}%] " +
             "promotions=${promotions.get()} demotions=${demotions.get()} stamps=${stamps.size} " +

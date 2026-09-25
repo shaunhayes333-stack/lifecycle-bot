@@ -11036,4 +11036,29 @@ class GoldenTapeRegressionTest {
         assertEquals(0.012, com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL, 1e-12)
     }
 
+    @Test
+    fun V5_0_7304_inverted_oracle_fanout_refill_and_last_slot_to_proven_lane() {
+        val eg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OracleEdgeProof7263.kt").readText()
+        assertTrue(eg.contains("fun isInverted7304(): Boolean"))
+        val la = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LearnedAdmissionAuthority6846.kt").readText()
+        assertTrue(la.contains("!oracleInverted7304"))
+        val fg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/IntakeFanoutGovernor6835.kt").readText()
+        assertTrue(fg.contains("FDG_FANOUT_BUDGET_REFILLED_7304"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("LiveSlotPriority7304.deferLive(gateLaneLive6451, slots7304)"))
+        val p = com.lifecyclebot.engine.truth.LiveSlotPriority7304
+        val proven = com.lifecyclebot.engine.truth.OracleTradeHistory7287.Stat(25, 4.0, 0.5)
+        val young = com.lifecyclebot.engine.truth.OracleTradeHistory7287.Stat(7, 40.0, 0.6)
+        val losing = com.lifecyclebot.engine.truth.OracleTradeHistory7287.Stat(40, -2.0, 0.3)
+        assertTrue(p.isProven(proven))
+        assertFalse(p.isProven(young))
+        assertFalse(p.isProven(losing))
+        assertFalse(p.isProven(null))
+        val t0 = 1_000_000L
+        assertFalse(p.shouldDefer(2, false, t0, t0))
+        assertFalse(p.shouldDefer(1, true, t0, t0))
+        assertTrue(p.shouldDefer(1, false, t0, t0 + 60_000L))
+        assertFalse(p.shouldDefer(1, false, t0, t0 + p.SLOT_RELEASE_MS_7304))
+    }
+
 }
