@@ -15,7 +15,10 @@ class EntryAI : ScoringModule {
         val reasons = mutableListOf<String>()
         
         // Buy pressure
-        when {
+        // V5.0.7327 — an unmeasured buy pressure (neutral 50 default) scores nothing.
+        if (candidate.extra["buyPressureKnown"] == false) {
+            reasons += "Buy pressure NO_DATA"
+        } else when {
             candidate.buyPressurePct >= 70 -> { score += 8; reasons += "Strong buy pressure" }
             candidate.buyPressurePct >= 60 -> { score += 4; reasons += "Good buy pressure" }
             candidate.buyPressurePct < 35 -> { score -= 8; reasons += "Weak buy pressure" }
@@ -57,7 +60,17 @@ class MomentumAI : ScoringModule {
         val volRegime    = candidate.extraString("volatilityRegime")
 
         // Core momentum score — graded across full range
+        // V5.0.7327 — buyPct is only a proxy when it was measured; with no
+        // buy/sell counts and no price history there is nothing to grade.
+        val bpKnown = candidate.extra["buyPressureKnown"] != false
+        val momKnown = candidate.extra["momentumKnown"] != false
         val baseScore = when {
+            !bpKnown && !momKnown -> { reasons += "Momentum NO_DATA"; 0 }
+            !bpKnown -> when {
+                momentumUp -> { reasons += "Momentum rising (price only)"; 2 }
+                momentumWeak -> { reasons += "Momentum weak (price only)"; -7 }
+                else -> { reasons += "Neutral momentum (price only)"; 0 }
+            }
             pumpBuilding -> { reasons += "Pump building"; 12 }
             buyPct >= 75 -> { reasons += "Strong buy momentum"; 8 }
             buyPct >= 65 -> { reasons += "Good buy pressure"; 5 }

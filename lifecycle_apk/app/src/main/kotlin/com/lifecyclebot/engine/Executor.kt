@@ -17648,7 +17648,12 @@ class Executor(
             callerScore.isFinite() && callerScore >= 0.0 -> callerScore
             ts.lastV3Score?.toDouble()?.isFinite() == true -> ts.lastV3Score!!.toDouble()
             ts.entryScore.isFinite() && ts.entryScore > 0.0 -> ts.entryScore
-            else -> 50.0
+            else -> {
+                // V5.0.7327 — no score exists anywhere for this live buy; the 50
+                // is a stand-in, so name it in the pipeline instead of hiding it.
+                try { PipelineHealthCollector.labelInc("LIVE_SCORE_STANDIN_50_7327") } catch (_: Throwable) {}
+                50.0
+            }
         }
         // V5.0.7308 — FDG admitted this mint on its lane's own score; the
         // ticket still holds the generic V3 score. Judge on the admission.

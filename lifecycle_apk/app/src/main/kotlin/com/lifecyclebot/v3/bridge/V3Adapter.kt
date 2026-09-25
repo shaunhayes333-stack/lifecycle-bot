@@ -293,22 +293,59 @@ object V3Adapter {
         }
     }
 
+    internal data class DataKnowledge7327(
+        val buyPressure: Boolean,
+        val momentum: Boolean,
+        val volume: Boolean,
+    ) {
+        /** 0..100: share of the three measured inputs that came from real history. */
+        val completeness: Int get() = listOf(buyPressure, momentum, volume).count { it } * 100 / 3
+    }
+
+    /**
+     * V5.0.7327 — mirrors the minimum history LifecycleStrategy needs before its
+     * pressure / momentum / volume scores stop returning the neutral 50:
+     * pressure needs a recent candle with real buy/sell counts, momentum needs
+     * 8 prices, volume needs 3 candles with volume.
+     */
+    internal fun dataKnowledge7327(ts: TokenState): DataKnowledge7327 {
+        val hist = try { ts.history.toList() } catch (_: Exception) { emptyList() }
+        val recent = hist.takeLast(5)
+        val bp = recent.any { (it.buysH1 + it.sellsH1 + it.buys24h + it.sells24h) > 0 }
+        val mom = hist.count { it.priceUsd > 0.0 } >= 8
+        val vol = hist.count { it.vol > 0.0 } >= 3
+        return DataKnowledge7327(bp, mom, vol)
+    }
+
     private fun buildExtraMap(ts: TokenState): Map<String, Any?> {
         val meta = ts.meta
         val safety = ts.safety
         val extras = mutableMapOf<String, Any?>()
 
-        extras["rsiOversold"] = meta.rsi < 30.0
-        extras["momentumUp"] = meta.momScore > 55.0
-        extras["momentumWeak"] = meta.momScore < 35.0
-        extras["higherLows"] = !meta.lowerHighs
-        extras["pumpBuilding"] = meta.pressScore > 65.0 && meta.momScore > 60.0
+        // V5.0.7327 — the strategy fills VOL / BUY% / MOM with a neutral 50 when
+        // it has no candles to measure, and `!meta.lowerHighs` is true for a
+        // token with no history at all. Those defaults were being scored as
+        // observed signals ("Higher lows forming" +3 on a 0-candle token).
+        // Each signal is only asserted when the history it is computed from
+        // actually exists; the knowledge flags ride along so the scorers and
+        // the card can say NO_DATA instead of pretending.
+        val known = dataKnowledge7327(ts)
+        extras["buyPressureKnown"] = known.buyPressure
+        extras["momentumKnown"] = known.momentum
+        extras["volumeKnown"] = known.volume
+        extras["dataCompleteness"] = known.completeness
+
+        extras["rsiOversold"] = known.momentum && meta.rsi < 30.0
+        extras["momentumUp"] = known.momentum && meta.momScore > 55.0
+        extras["momentumWeak"] = known.momentum && meta.momScore < 35.0
+        extras["higherLows"] = known.momentum && !meta.lowerHighs
+        extras["pumpBuilding"] = known.buyPressure && known.momentum && meta.pressScore > 65.0 && meta.momScore > 60.0
 
         extras["liquidityDraining"] = meta.breakdown
-        extras["volumeExpanding"] = meta.volScore > 60.0
+        extras["volumeExpanding"] = known.volume && meta.volScore > 60.0
 
         extras["accumulationAtVal"] = meta.curveStage.contains("ACCUM", ignoreCase = true)
-        extras["sellCluster"] = meta.pressScore < 30.0
+        extras["sellCluster"] = known.buyPressure && meta.pressScore < 30.0
 
         extras["phase"] = ts.phase
         extras["price"] = ts.lastPrice.coerceAtLeast(0.0)
@@ -411,7 +448,7 @@ object V3Adapter {
         // zeroHolders above. Only assert pureSellPressure when there is REAL
         // pressure data: a low-but-nonzero reading (genuine sell skew), never the
         // uninitialised 0.0. Train-First doctrine: pending data must reach FDG.
-        extras["pureSellPressure"] = meta.pressScore in 0.01..20.0
+        extras["pureSellPressure"] = known.buyPressure && meta.pressScore in 0.01..20.0
         extras["unsellableSignal"] = safety.isBlocked
 
         extras["suspiciousName"] =

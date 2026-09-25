@@ -11440,4 +11440,22 @@ class GoldenTapeRegressionTest {
         assertTrue(reg.contains("\"TNSR\"     to \"TNSRxcUxoT9xBG3de7PiJyTDYu7kskLqcpddxnEJAS6\""))
     }
 
+    @Test
+    fun V5_0_7327_unmeasured_inputs_are_not_scored_as_signals() {
+        val ad = java.io.File("src/main/kotlin/com/lifecyclebot/v3/bridge/V3Adapter.kt").readText()
+        assertTrue(ad.contains("extras[\"higherLows\"] = known.momentum && !meta.lowerHighs"))
+        assertFalse(ad.contains("extras[\"higherLows\"] = !meta.lowerHighs"))
+        assertTrue(ad.contains("extras[\"dataCompleteness\"] = known.completeness"))
+        assertTrue(ad.contains("internal fun dataKnowledge7327(ts: TokenState): DataKnowledge7327"))
+        val sm = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ScoringModules.kt").readText()
+        assertTrue(sm.contains("reasons += \"Buy pressure NO_DATA\""))
+        assertTrue(sm.contains("!bpKnown && !momKnown -> { reasons += \"Momentum NO_DATA\"; 0 }"))
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("TREASURY_V3_SCORE_NOT_CACHED_7327"))
+        assertTrue(bs.contains("val volScore = if (volKnown7327) ts.meta.volScore.toInt().coerceIn(0, 100)"))
+        val ma = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue(ma.contains("com.lifecyclebot.engine.BotService.status.paperWalletSol"))
+        assertFalse(ma.contains("crossed threshold\"\n            }\n            signal in"))
+    }
+
 }

@@ -26009,8 +26009,17 @@ if (hotExitHandledSweep) {
                         }
                         
                         // Cache scores for later use
-                        ts.lastV3Score = v3Score
-                        ts.lastV3Confidence = v3Confidence
+                        // V5.0.7327 — only a score V3 actually produced is cached. The
+                        // 20/15 stand-ins for Rejected/Blocked used to overwrite the
+                        // token's real last score and then feed Moonshot and the
+                        // executor's live score fallback as if measured.
+                        if (v3Decision is com.lifecyclebot.v3.V3Decision.Execute ||
+                            v3Decision is com.lifecyclebot.v3.V3Decision.Watch) {
+                            ts.lastV3Score = v3Score
+                            ts.lastV3Confidence = v3Confidence
+                        } else {
+                            try { PipelineHealthCollector.labelInc("TREASURY_V3_SCORE_NOT_CACHED_7327") } catch (_: Throwable) {}
+                        }
                         
                         // ═══════════════════════════════════════════════════════════════════
                         // V4.1 COLD-START FIX: Check for bootstrap forced entry
@@ -27186,7 +27195,13 @@ if (hotExitHandledSweep) {
                             } catch (_: Throwable) {}
                         } else {
                             // Calculate volume score from recent data (use lastV3Score as proxy)
-                            val volScore = ts.lastV3Score ?: 20
+                            // V5.0.7327 — once the token has real volume candles, score the
+                            // measured volume expansion instead of the generic V3 total.
+                            val volKnown7327 = try {
+                                com.lifecyclebot.v3.bridge.V3Adapter.dataKnowledge7327(ts).volume
+                            } catch (_: Throwable) { false }
+                            val volScore = if (volKnown7327) ts.meta.volScore.toInt().coerceIn(0, 100)
+                                else ts.lastV3Score ?: 20
                             
                             // Check for collective intelligence boost
                             val isCollectiveWinner = com.lifecyclebot.v3.scoring.MoonshotTraderAI.isCollectiveWinner(ts.mint)

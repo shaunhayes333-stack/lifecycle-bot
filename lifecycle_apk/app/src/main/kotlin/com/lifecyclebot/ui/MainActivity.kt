@@ -9768,9 +9768,12 @@ This cannot be undone!
 
         tvLogEntry.text  = "ENTRY  ${ts.entryScore.toInt()}"
         tvLogExit.text   = "EXIT   ${ts.exitScore.toInt()}"
-        tvLogVol.text    = "VOL    ${meta.volScore.toInt()}"
-        tvLogPress.text  = "BUY%%   ${meta.pressScore.toInt()}"
-        tvLogMom.text    = "MOM    ${meta.momScore.toInt()}"
+        // V5.0.7327 — a 50 with no candles behind it is the strategy's neutral
+        // default, not a reading. Show it as unmeasured.
+        val known7327 = try { com.lifecyclebot.v3.bridge.V3Adapter.dataKnowledge7327(ts) } catch (_: Throwable) { null }
+        tvLogVol.text    = if (known7327?.volume == false) "VOL    —" else "VOL    ${meta.volScore.toInt()}"
+        tvLogPress.text  = if (known7327?.buyPressure == false) "BUY%%   —" else "BUY%%   ${meta.pressScore.toInt()}"
+        tvLogMom.text    = if (known7327?.momentum == false) "MOM    —" else "MOM    ${meta.momScore.toInt()}"
         // V5.9.992 — mirror to visual bars
         try {
             barLogEntry?.value = ts.entryScore.toInt()
@@ -9811,7 +9814,12 @@ This cannot be undone!
         // V5.0.7303 — in live the view model's walletSol is not populated, so
         // this card read "wallet=0.0000" beside a 0.1198 SOL live wallet. Show
         // the figure live sizing actually uses (LIVE_WALLET_AUTHORITY_6686).
-        val walletSol = vm.ui.value.walletSol.takeIf { it > 0.0 }
+        // V5.0.7327 — in paper the sizer works from the paper wallet; the live
+        // wallet fields are 0 there, so the card read "wallet=0.0000".
+        val paperCard7327 = try { vm.ui.value.config.paperMode } catch (_: Throwable) { false }
+        val walletSol = if (paperCard7327) {
+            try { com.lifecyclebot.engine.BotService.status.paperWalletSol } catch (_: Throwable) { 0.0 }
+        } else vm.ui.value.walletSol.takeIf { it > 0.0 }
             ?: try { com.lifecyclebot.engine.BotService.status.walletSol } catch (_: Throwable) { 0.0 }
         val tier = when {
             walletSol < 0.5  -> "MICRO"
@@ -9873,7 +9881,7 @@ This cannot be undone!
                 "strong_reclaim" -> "Strong reclaim: double-bottom + vol expanding on recovery"
                 "reclaim_attempt"-> "Reclaim attempt: price above EMA, buyers returning"
                 "cooling"        -> "Post-pump cooling: EMA fan healthy, dip entry"
-                else             -> "Entry score ${ts.entryScore.toInt()} crossed threshold"
+                else             -> "Entry score ${ts.entryScore.toInt()} · ${dataCompletenessLine7327(ts)}"
             }
             signal in listOf("SELL", "EXIT") -> when {
                 meta.exhaustion          -> "Volume exhaustion: 3+ declining candles + buy ratio drop"
@@ -9889,9 +9897,20 @@ This cannot be undone!
             signal == "WAIT_PULLBACK"  -> "Pumping: waiting for pullback entry"
             signal == "WAIT_CONFIRM"   -> "Reclaim: waiting for volume confirmation"
             signal == "WAIT_COOLING"   -> "Cooling: EMA fan not yet aligned for entry"
-            else                       -> "Monitoring — E:${ts.entryScore.toInt()} X:${ts.exitScore.toInt()}"
+            else                       -> "Monitoring — E:${ts.entryScore.toInt()} X:${ts.exitScore.toInt()} · ${dataCompletenessLine7327(ts)}"
         }
     }
+
+    /** V5.0.7327 — which of the measured inputs behind the score are real. */
+    private fun dataCompletenessLine7327(ts: TokenState): String = try {
+        val k = com.lifecyclebot.v3.bridge.V3Adapter.dataKnowledge7327(ts)
+        val missing = buildList {
+            if (!k.volume) add("vol")
+            if (!k.buyPressure) add("buy%")
+            if (!k.momentum) add("mom")
+        }
+        if (missing.isEmpty()) "data 100%" else "data ${k.completeness}% (no ${missing.joinToString("/")})"
+    } catch (_: Throwable) { "data ?" }
 
     private fun saveScannerSettings() {
         val cfg = vm.ui.value.config

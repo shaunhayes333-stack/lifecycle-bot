@@ -4,6 +4,25 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7327] - 2026-09-26 — UNMEASURED INPUTS ARE NOT SIGNALS
+
+The strategy returns a neutral 50 for VOL / BUY% / MOM when it has no candles to
+measure, and V3 scored those defaults as readings: a zero-history token got
+"Higher lows forming" (+3) from `!meta.lowerHighs`.
+
+- V3Adapter: `dataKnowledge7327` (buy pressure needs recent buy/sell counts,
+  momentum 8 prices, volume 3 volume candles). momentumUp/Weak, higherLows,
+  rsiOversold, pumpBuilding, volumeExpanding, sellCluster and pureSellPressure
+  are only asserted on measured history. Extras carry buyPressureKnown,
+  momentumKnown, volumeKnown and dataCompleteness.
+- EntryAI / MomentumAI: unmeasured buy pressure scores 0 with a NO_DATA reason.
+- Treasury: the 20/15 stand-ins for Rejected/Blocked no longer overwrite
+  `ts.lastV3Score` (TREASURY_V3_SCORE_NOT_CACHED_7327).
+- Moonshot: scores measured volume expansion once volume candles exist.
+- Executor: the live 50 stand-in score is labelled LIVE_SCORE_STANDIN_50_7327.
+- Decision card: VOL / BUY% / MOM show "—" when unmeasured, the reason line
+  names the data completeness, and the paper sizer shows the paper wallet.
+
 ## [5.0.7326] - 2026-09-26 — CRYPTO EXECUTES THROUGH THE STACK IT HAS
 
 - Crypto live buys failed (ROUTE_DISCOVERY_FAILED 14, EXEC_FAILED 7) while none of the meme execution stack reached them: every crypto Jupiter swap (UniversalBridgeEngine buy, MarketsLiveExecutor close) used a non-binding Ultra quote re-ordered at build time (the 7241 RFQ-decline bug), sent with no Helius Sender and no Jito, outside the execution scope (our own backoff could refuse it).
