@@ -124,11 +124,35 @@ object MoonshotFreshLaunchAdmission7044 {
             get() = "admit=$admit reason=$reason mcap=${mcapUsd.toInt()} liq=${liqUsd.toInt()} bp=${buyPressurePct.toInt()}"
     }
 
+    // V5.0.7323 — age is the TOKEN's age when its create was observed (the
+    // PumpPortal create frame), not how long the bot has watched it: a $2M
+    // trending coin that just joined the watchlist is not a fresh launch.
     private fun ageMinutes(ts: TokenState): Double = try {
-        ((System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0).coerceAtLeast(0.0)
+        val created = com.lifecyclebot.network.PumpCurveKeys7269.createdAtMs7280(ts.mint)
+        val from = if (created != null && created > 0L) created else ts.addedToWatchlistAt
+        ((System.currentTimeMillis() - from) / 60_000.0).coerceAtLeast(0.0)
     } catch (_: Throwable) {
         Double.MAX_VALUE
     }
+
+    /** V5.0.7323 — a pump.fun bonding-curve token whose create frame we saw. */
+    private fun isObservedCurveToken(ts: TokenState): Boolean = try {
+        ts.mint.endsWith("pump", ignoreCase = true) &&
+            com.lifecyclebot.network.PumpCurveKeys7269.createPriceSol7280(ts.mint) != null
+    } catch (_: Throwable) { false }
+
+    /**
+     * V5.0.7323 — curve progress as demand. Without the trade stream a curve
+     * token's buy pressure sits at the 50.0 default forever (NO_DEMAND_SIGNAL
+     * = 254), yet its price over the create price IS what buyers did. 1.3x..3x
+     * counts; 3x+ is LaunchChase7280's chase band and stays excluded.
+     */
+    private fun curveProgressMultiple(ts: TokenState): Double? = try {
+        val create = com.lifecyclebot.network.PumpCurveKeys7269.createPriceSol7280(ts.mint)
+        val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
+        if (create == null || create <= 0.0 || !solUsd.isFinite() || solUsd <= 0.0 || ts.lastPrice <= 0.0) null
+        else EconomicUnitInvariant7061.usdToSol(ts.lastPrice, solUsd) / create
+    } catch (_: Throwable) { null }
 
     /**
      * The shape test. Ordered so the counter that fires names the first thing
@@ -146,13 +170,19 @@ object MoonshotFreshLaunchAdmission7044 {
         if (ageMinutes(ts) > FRESH_AGE_MAX_MIN) return no("AGE_PAST_FRESH_WINDOW")
         // Data absence is its own answer. It is not evidence against the token.
         if (!mcap.isFinite() || mcap <= 0.0) return no("MCAP_UNKNOWN")
-        if (!liq.isFinite() || liq <= 0.0) return no("LIQ_UNKNOWN")
+        // V5.0.7323 — a bonding curve has no pool liquidity figure (providers
+        // report 0) but always carries its own depth; the pool-shell tests
+        // below say nothing about it.
+        val curve7323 = isObservedCurveToken(ts)
+        if (!curve7323 && (!liq.isFinite() || liq <= 0.0)) return no("LIQ_UNKNOWN")
         if (mcap < MCAP_FLOOR_USD) return no("MCAP_BELOW_FLOOR")
         if (mcap > MCAP_RUNNER_CEILING_USD) return no("MCAP_ABOVE_RUNNER_CEILING")
-        if (liq < LIQ_FLOOR_USD) return no("LIQ_BELOW_FLOOR")
-        if (liq / mcap < LIQ_TO_MCAP_MIN) return no("LIQ_TO_MCAP_SHELL")
-        if (!bp.isFinite() || bp < BUY_PRESSURE_MIN_PCT) return no("NO_DEMAND_SIGNAL")
-        return Verdict(true, "RUNNER_SHAPED", mcap, liq, bp)
+        if (!curve7323 && liq < LIQ_FLOOR_USD) return no("LIQ_BELOW_FLOOR")
+        if (!curve7323 && liq / mcap < LIQ_TO_MCAP_MIN) return no("LIQ_TO_MCAP_SHELL")
+        val curveDemand7323 = curve7323 && (bp == 50.0 || !bp.isFinite()) &&
+            (curveProgressMultiple(ts)?.let { it >= 1.3 && it < LaunchChase7280.CHASE_MULTIPLE } ?: false)
+        if (!curveDemand7323 && (!bp.isFinite() || bp < BUY_PRESSURE_MIN_PCT)) return no("NO_DEMAND_SIGNAL")
+        return Verdict(true, if (curveDemand7323) "RUNNER_SHAPED_CURVE_7323" else "RUNNER_SHAPED", mcap, liq, bp)
     }
 
     /**

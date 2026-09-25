@@ -940,7 +940,8 @@ object FinalDecisionGate {
         // closes. Shadow proof keeps accruing for every other refusal.
         val exploration7308 = !config.paperMode && laneScoreClears7307 && !laneProvenForLive7307 &&
             canonicalV3Score7243 < canonicalFloor7266 &&
-            try { com.lifecyclebot.engine.truth.LaneScoreAdmission7308.explorationSlotFreeNow(laneProven7308) } catch (_: Throwable) { false }
+            (try { com.lifecyclebot.engine.truth.LaneScoreAdmission7308.explorationSlotFreeNow(laneProven7308) } catch (_: Throwable) { false } ||
+                try { com.lifecyclebot.engine.truth.LaneScoreAdmission7308.runnerSlotFreeNow(floorLane7266) } catch (_: Throwable) { false })
         val laneOwnScoreAdmitted7292 = laneScoreClears7307 && (laneProvenForLive7307 || exploration7308)
         if (laneScoreClears7307 && !laneProvenForLive7307 && !exploration7308 && canonicalV3Score7243 < canonicalFloor7266) {
             try {

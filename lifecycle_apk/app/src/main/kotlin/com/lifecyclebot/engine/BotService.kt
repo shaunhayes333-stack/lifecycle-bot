@@ -24120,7 +24120,19 @@ if (hotExitHandledSweep) {
                 else -> "UNKNOWN"
             }
             ts.lastMcap         = pair.candle.marketCap
-            ts.lastLiquidityUsd = pair.liquidity
+            // V5.0.7323 — a bonding-curve pair has no liquidity object, so the
+            // poll reported 0 and erased the create-time depth estimate:
+            // MOONSHOT_FRESH_DECLINED LIQ_UNKNOWN, V3 ZERO_LIQUIDITY. A curve
+            // cannot be drained to zero, so an observed curve token keeps its
+            // last positive figure when the poll has none.
+            val curveKeep7323 = pair.liquidity <= 0.0 && ts.lastLiquidityUsd > 0.0 &&
+                ts.mint.endsWith("pump", ignoreCase = true) &&
+                try { com.lifecyclebot.network.PumpCurveKeys7269.createPriceSol7280(ts.mint) != null } catch (_: Throwable) { false }
+            if (curveKeep7323) {
+                try { PipelineHealthCollector.labelInc("CURVE_LIQUIDITY_KEPT_ON_ZERO_POLL_7323") } catch (_: Throwable) {}
+            } else {
+                ts.lastLiquidityUsd = pair.liquidity
+            }
             ts.lastFdv          = pair.fdv
 
             // V5.9: Populate lastBuyPressurePct from polling candle data.
@@ -27299,7 +27311,7 @@ if (hotExitHandledSweep) {
                                     } catch (_: Exception) { null }
                                     FinalDecisionGate.evaluate(
                                         ts = ts,
-                                        candidate = laneQualifiedBuyDecision(decision, "MOONSHOT", confidenceFloor = moonshotScore.confidence * 100.0, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
+                                        candidate = laneQualifiedBuyDecision(decision, "MOONSHOT", confidenceFloor = moonshotScore.confidence /* V5.0.7323: already 0-100 */, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                         laneScore = moonshotScore.confidence,            // already 0-100
                                         config = cfg,
                                         proposedSizeSol = moonshotScore.suggestedSizeSol,
@@ -27330,7 +27342,20 @@ if (hotExitHandledSweep) {
                                     RejectionTelemetry.record("MOONSHOT_FDG_PROBE", moonshotFdgDecision.blockReason ?: "fdg_caution")
                                     true
                                 } else false
-                                if (fdgIsStructuralBlock) {
+                                // V5.0.7323 — in LIVE a refused FDG carries sizeSol=0, so the
+                                // "probe size" fallback below authorized a 0 SOL order that
+                                // the open gate then refused as SIZE_ZERO. Name the refusal
+                                // instead of dressing it up as a probe.
+                                val fdgRefusedLive7323 = !cfg.paperMode && moonshotFdgDecision != null &&
+                                    !moonshotFdgDecision.canExecute()
+                                if (fdgRefusedLive7323 && !fdgIsStructuralBlock) {
+                                    try {
+                                        PipelineHealthCollector.labelInc(
+                                            "MOONSHOT_FDG_REFUSED_7323_" + (moonshotFdgDecision?.blockReason ?: "UNKNOWN").substringBefore(':').take(40),
+                                        )
+                                    } catch (_: Throwable) {}
+                                }
+                                if (fdgIsStructuralBlock || fdgRefusedLive7323) {
                                     ErrorLogger.info("BotService", "🚫 FDG STRUCTURAL BLOCK on MOONSHOT: ${ts.symbol} | ${moonshotFdgDecision?.blockReason ?: "no reason"}")
                                     RejectionTelemetry.record("MOONSHOT_FDG", moonshotFdgDecision?.blockReason ?: "fdg_block")
                                 } else {

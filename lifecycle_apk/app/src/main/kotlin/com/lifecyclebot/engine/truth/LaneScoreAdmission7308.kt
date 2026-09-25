@@ -34,7 +34,10 @@ object LaneScoreAdmission7308 {
     fun record(mint: String, lane: String, score: Double, exploration: Boolean, nowMs: Long = System.currentTimeMillis()) {
         if (mint.isBlank() || !score.isFinite()) return
         byMint[mint] = Admission(lane.trim().uppercase(), score, exploration, nowMs)
-        if (exploration) lastExplorationMs = nowMs
+        if (exploration) {
+            lastExplorationMs = nowMs
+            lastExplorationByLane7323[lane.trim().uppercase()] = nowMs
+        }
         try {
             PipelineHealthCollector.labelInc(if (exploration) "LANE_EXPLORATION_ADMITTED_7308" else "LANE_SCORE_ADMISSION_RECORDED_7308")
         } catch (_: Throwable) {}
@@ -49,6 +52,35 @@ object LaneScoreAdmission7308 {
     /** Pure: is the exploration slot free? */
     fun explorationSlotFree(openUnprovenLivePositions: Int, lastExplorationAtMs: Long, nowMs: Long): Boolean =
         openUnprovenLivePositions == 0 && (lastExplorationAtMs <= 0L || nowMs - lastExplorationAtMs >= EXPLORATION_SPACING_MS)
+
+    /**
+     * V5.0.7323 — runner lanes get their own exploration slot. The single
+     * global slot was held by any unproven live position in any lane, so one
+     * slow QUALITY/BLUECHIP exploration locked MOONSHOT out for its whole hold
+     * and fresh launches died at FDG as CANONICAL_V3_SCORE_FLOOR_7243 (90).
+     * MOONSHOT may hold 2 unproven live probes, other runner lanes 1, each
+     * spaced 5 min per lane. The global slot is unchanged for everyone else.
+     */
+    private val lastExplorationByLane7323 = ConcurrentHashMap<String, Long>()
+
+    /** Pure: is a runner lane's own exploration slot free? */
+    fun runnerSlotFree(lane: String, openInLane: Int, lastAtMs: Long, nowMs: Long): Boolean {
+        val cap = if (lane.contains("MOONSHOT")) 2 else 1
+        return com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane) && openInLane < cap &&
+            (lastAtMs <= 0L || nowMs - lastAtMs >= EXPLORATION_SPACING_MS)
+    }
+
+    fun runnerSlotFreeNow(lane: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val l = lane.trim().uppercase()
+        val open = try {
+            CanonicalPositionAuthority6441.openPositions().count {
+                it.mode.equals("LIVE", ignoreCase = true) && it.lane.trim().uppercase() == l
+            }
+        } catch (_: Throwable) { return false }
+        val free = runnerSlotFree(l, open, lastExplorationByLane7323[l] ?: 0L, nowMs)
+        if (free) try { PipelineHealthCollector.labelInc("LANE_EXPLORATION_RUNNER_SLOT_7323_$l") } catch (_: Throwable) {}
+        return free
+    }
 
     fun explorationSlotFreeNow(isProven: (String) -> Boolean, nowMs: Long = System.currentTimeMillis()): Boolean {
         val openUnproven = try {

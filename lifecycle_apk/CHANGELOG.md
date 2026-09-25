@@ -4,6 +4,15 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7323] - 2026-09-26 — FRESH-LAUNCH MOONSHOTS REACH LIVE
+
+- Fresh-launch admission (7044) measured age from when the bot first saw a token, so $2M trending coins read as "fresh" and were declined for mcap (569). Age now comes from the observed pump.fun create frame when known.
+- Bonding-curve tokens have no pool liquidity figure, so they were declined LIQ_UNKNOWN (282) and rejected ZERO_LIQUIDITY; an observed curve token now skips the pool-shell liquidity tests, and a zero DexScreener poll no longer erases its create-time depth (CURVE_LIQUIDITY_KEPT_ON_ZERO_POLL_7323).
+- Without the trade stream a curve token's buy pressure sat at the 50.0 default (NO_DEMAND_SIGNAL 296); curve progress of 1.3x..3x over the create price now counts as demand (3x+ stays excluded as launch-chasing).
+- Runner lanes get their own exploration slot (MOONSHOT 2, other runner lanes 1, 5 min spacing per lane); the single global slot was held by any unproven position in any lane, so MOONSHOT died at FDG as CANONICAL_V3_SCORE_FLOOR_7243.
+- MOONSHOT lane: an FDG refusal in live is named (MOONSHOT_FDG_REFUSED_7323_*) instead of authorizing a 0 SOL "probe" that the open gate refused; its confidence floor is no longer multiplied by 100.
+- "Token in DEAD phase" now needs a full 12-candle window; with fewer, the "older" window was the launch spike itself.
+
 ## [5.0.7322] - 2026-09-26 — A RUNNER KEEPS A MOONBAG
 
 - Live runner-lane positions were closed 100% by the first give-back lock: the 500ms rapid trail sat ~4 points under the peak with no runner arming bar (25nV9u MOONSHOT sold at +31.8% from ~+36%), and the rapid profit capture re-sold slices every tick and sold everything at +500%.

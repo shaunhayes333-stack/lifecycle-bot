@@ -1521,8 +1521,12 @@ class LifecycleStrategy(
                 }
                 
                 // DEAD phase with high confidence = token is dying
+                // V5.0.7323 — DEAD compares the last 6 candles' volume with the
+                // 6 before; under 12 candles the "older" window is the launch
+                // spike itself, so every fresh launch that paused read DEAD at
+                // 60-90% confidence. Judge DEAD only on a full comparison window.
                 if (edgePhase.phase == EdgeOptimizer.MarketPhase.DEAD && 
-                    edgePhase.confidence > 60.0) {
+                    edgePhase.confidence > 60.0 && hist.size >= 12) {
                     return "Token in DEAD phase (confidence ${edgePhase.confidence.toInt()}%)"
                 }
             }

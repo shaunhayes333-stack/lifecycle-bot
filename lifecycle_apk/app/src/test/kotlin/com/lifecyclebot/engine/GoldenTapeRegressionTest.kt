@@ -11373,4 +11373,27 @@ class GoldenTapeRegressionTest {
         assertTrue(ex.contains("moonbagGate7322(ts, reason, wallet, walletSol)?.let { return it }"))
     }
 
+    @Test
+    fun V5_0_7323_fresh_launch_moonshots_reach_live() {
+        val lsa = com.lifecyclebot.engine.truth.LaneScoreAdmission7308
+        assertTrue(lsa.runnerSlotFree("MOONSHOT", 1, 0L, 1_000_000L))
+        assertFalse(lsa.runnerSlotFree("MOONSHOT", 2, 0L, 1_000_000L))
+        assertTrue(lsa.runnerSlotFree("PROJECT_SNIPER", 0, 0L, 1_000_000L))
+        assertFalse(lsa.runnerSlotFree("PROJECT_SNIPER", 1, 0L, 1_000_000L))
+        assertFalse(lsa.runnerSlotFree("QUALITY", 0, 0L, 1_000_000L))
+        assertFalse(lsa.runnerSlotFree("MOONSHOT", 0, 900_000L, 1_000_000L))
+        val adm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MoonshotFreshLaunchAdmission7044.kt").readText()
+        assertTrue(adm.contains("PumpCurveKeys7269.createdAtMs7280(ts.mint)"))
+        assertTrue(adm.contains("RUNNER_SHAPED_CURVE_7323"))
+        assertTrue(adm.contains("if (!curve7323 && (!liq.isFinite() || liq <= 0.0)) return no(\"LIQ_UNKNOWN\")"))
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("LaneScoreAdmission7308.runnerSlotFreeNow(floorLane7266)"))
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("if (fdgIsStructuralBlock || fdgRefusedLive7323)"))
+        assertFalse(bs.contains("confidenceFloor = moonshotScore.confidence * 100.0"))
+        assertTrue(bs.contains("CURVE_LIQUIDITY_KEPT_ON_ZERO_POLL_7323"))
+        val ls = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LifecycleStrategy.kt").readText()
+        assertTrue(ls.contains("edgePhase.confidence > 60.0 && hist.size >= 12"))
+    }
+
 }
