@@ -4,6 +4,14 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7309] - 2026-09-26 — THE BOT STOPS DROPPING TOKENS IT BOUGHT
+
+Operator: the wallet holds TNSR, CAKE, XMR and POPCAT the bot bought, and the bot no longer tracks them. 5.0.7307 logged START_GHOST_REAP and GHOST_POSITION_REAPED mints=4qQeZ5Lw,7GCihgDB (7GCihgDB = POPCAT).
+
+- Startup reaper: the manual-stop branch wiped PositionPersistence regardless of mode, though its comment says live keeps its rows. Every live stop/start erased the persisted lane and entry basis of tokens still held on-chain, which then came back as basis-less orphans. The manual-stop wipe is now paper-only; the paper mass-ghost rule is unchanged.
+- isTerminalDust7309: auto-heal, rehydrate and the orphan sweep called any holding of <= 1.0 UI units terminal dust — 0.00515 XMR ($4.06) was purged from the live store. Dust is now a value: < $0.50 at a known price (tracker, else token mark); unpriced, only a vanishing amount. Counter WALLET_SUB_UNIT_HOLDING_KEPT_7309.
+- isGhostMint: in live, a mint the wallet still holds at value is never reaped as a ghost, whatever the close ledger or a sub-trader store says. Counter GHOST_REAP_SKIPPED_WALLET_HELD_7309.
+
 ## [5.0.7308] - 2026-09-26 — ONE ADMISSION, ONE SCORE; ONE EXPLORATION SLOT; PROVEN LANES DROP THE PAPER STREAK
 
 - LaneScoreAdmission7308 (new): FDG 7292 admits a specialist on its own lane score (80-90) when the generic V3 score (0-15) cannot clear the floor, but the execution ticket carried the V3 score, so Executor's pre-lease floor (LiveMinimumScoreFloor7239, 30) refused the trade FDG had admitted — LIVE_BUY_REFUSED_PRELEASE_SCORE_7256=91 against 8 FDG allows on 5.0.7305 — and the routable-min lift refused it again as pending-proof. FDG now records each live lane-score admission; the executor judges the trade on max(ticket score, admission score) within 10 minutes and the lift guard does not apply the pending-proof penalty to it. Counters LANE_SCORE_ADMISSION_RECORDED_7308, LIVE_SCORE_FROM_LANE_ADMISSION_7308.

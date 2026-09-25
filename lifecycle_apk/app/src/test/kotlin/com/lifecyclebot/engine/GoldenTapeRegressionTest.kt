@@ -11138,4 +11138,15 @@ class GoldenTapeRegressionTest {
         assertTrue(pp.contains("OracleTradeHistory7287.lane(lane)?.let { it.n >= 20 && it.meanNetPct > 0.0 } == true"))
     }
 
+    @Test
+    fun V5_0_7309_live_holdings_are_not_dust_by_count_or_ghosts_by_restart() {
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("private fun isTerminalDust7309(mint: String, qty: Double): Boolean"))
+        assertFalse(bs.contains("            if (qty <= 1.0) {\n                try { ForensicLogger.lifecycle(\"TOKEN_STATE_REHYDRATE_SKIPPED_TERMINAL_DUST\""))
+        assertFalse(bs.contains("                if (bal <= 1.0) {"))
+        assertFalse(bs.contains("                if (qty < 1.0) return@forEach"))
+        assertTrue(bs.contains("val shouldReap = (isPaperReap && prevWasManualStop && persistedBefore > 0) || massGhost"))
+        assertTrue(bs.contains("GHOST_REAP_SKIPPED_WALLET_HELD_7309"))
+    }
+
 }

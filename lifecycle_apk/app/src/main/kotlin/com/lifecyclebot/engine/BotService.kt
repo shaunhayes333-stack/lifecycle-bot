@@ -6048,7 +6048,12 @@ class BotService : Service() {
                 val cfgForReap = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
                 val isPaperReap = cfgForReap?.paperMode ?: true
                 val massGhost = isPaperReap && persistedBefore > MASS_GHOST_THRESHOLD
-                val shouldReap = (prevWasManualStop && persistedBefore > 0) || massGhost
+                // V5.0.7309 — the comment above says live keeps its rows, but the
+                // manual-stop branch never checked the mode: every live stop/start
+                // wiped the persisted lane and entry basis of tokens the wallet
+                // still holds, which then came back as basis-less orphans. A
+                // manual stop does not make an on-chain holding a ghost.
+                val shouldReap = (isPaperReap && prevWasManualStop && persistedBefore > 0) || massGhost
                 if (shouldReap) {
                     try {
                         PositionPersistence.clear()
@@ -8154,6 +8159,28 @@ class BotService : Service() {
     }
 
 
+    /**
+     * V5.0.7309 — dust is a VALUE, not a token count. The three wallet paths
+     * below treated any holding of <= 1.0 UI units as terminal dust, so
+     * 0.00515 XMR ($4.06), or any high-priced token the bot bought, was
+     * purged from the live store / skipped by the orphan sweep and left
+     * unmanaged in the wallet. With a known price, dust is < $0.50; with no
+     * price, only a vanishing amount is dust — an unpriced holding is not
+     * worthless, it is unpriced.
+     */
+    private fun isTerminalDust7309(mint: String, qty: Double): Boolean {
+        if (!qty.isFinite() || qty <= 0.0) return true
+        val px = try {
+            com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(mint)?.currentPriceUsd?.takeIf { it.isFinite() && it > 0.0 }
+                ?: status.tokens[mint]?.lastPrice?.takeIf { it.isFinite() && it > 0.0 }
+        } catch (_: Throwable) { null }
+        val dust = if (px != null) qty * px < 0.50 else qty <= 1e-6
+        if (!dust && qty <= 1.0) {
+            try { PipelineHealthCollector.labelInc("WALLET_SUB_UNIT_HOLDING_KEPT_7309") } catch (_: Throwable) {}
+        }
+        return dust
+    }
+
     private fun rehydrateTokenStateFromTracker(
         mint: String,
         symbolHint: String,
@@ -8163,7 +8190,7 @@ class BotService : Service() {
             val tracked = com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(mint)
             val sym = (tracked?.symbol?.takeIf { it.isNotBlank() }) ?: symbolHint.takeIf { it.isNotBlank() } ?: "?"
             val qty = tracked?.uiAmount?.takeIf { it > 0.0 } ?: balanceHint
-            if (qty <= 1.0) {
+            if (isTerminalDust7309(mint, qty)) {
                 try { ForensicLogger.lifecycle("TOKEN_STATE_REHYDRATE_SKIPPED_TERMINAL_DUST", "mint=${mint.take(12)} qty=$qty") } catch (_: Throwable) {}
                 try { purgeGhostLivePosition(mint, "REHYDRATE_TERMINAL_TOKEN_DUST") } catch (_: Throwable) {}
                 return null
@@ -8283,7 +8310,7 @@ class BotService : Service() {
                 val tracked = HostWalletTokenTracker.getEntry(mint)
                 val sym = tracked?.symbol?.takeIf { it.isNotBlank() } ?: mint.take(6)
                 val bal = tracked?.uiAmount ?: 0.0
-                if (bal <= 1.0) {
+                if (isTerminalDust7309(mint, bal)) {
                     try { ForensicLogger.lifecycle("POSITION_AUTO_HEAL_SKIPPED_TERMINAL_DUST", "mint=${mint.take(12)} qty=$bal") } catch (_: Throwable) {}
                     try { purgeGhostLivePosition(mint, "AUTO_HEAL_TERMINAL_TOKEN_DUST") } catch (_: Throwable) {}
                     continue   // terminal token dust / not economically held
@@ -21659,6 +21686,16 @@ if (hotExitHandledSweep) {
      * (real open in a store) are NEVER ghosts.
      */
     private fun isGhostMint(mint: String, liveOpenSet: Set<String>): Boolean {
+        // V5.0.7309 — in live, a mint the wallet still holds at value is not
+        // a ghost, whatever the close ledger or a sub-trader store says.
+        val walletHeld7309 = try {
+            com.lifecyclebot.engine.RuntimeModeAuthority.isLive() &&
+                com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(mint)?.let { !isTerminalDust7309(mint, it.uiAmount) } == true
+        } catch (_: Throwable) { false }
+        if (walletHeld7309) {
+            try { PipelineHealthCollector.labelInc("GHOST_REAP_SKIPPED_WALLET_HELD_7309") } catch (_: Throwable) {}
+            return false
+        }
         if (com.lifecyclebot.engine.PositionCloseLedger.isClosed(mint)) return true
         // If nothing anywhere reports this mint as a live open, the slot is stale.
         if (mint !in liveOpenSet) return true
@@ -33369,8 +33406,8 @@ if (hotExitHandledSweep) {
             var orphansSold = 0
             
             tokenAccounts.forEach { (mint, qty) ->
-                // Skip dust
-                if (qty < 1.0) return@forEach
+                // Skip dust (V5.0.7309 — by value, not token count)
+                if (isTerminalDust7309(mint, qty)) return@forEach
                 // Skip tracked positions
                 if (mint in trackedMints) return@forEach
                 // Skip SOL
