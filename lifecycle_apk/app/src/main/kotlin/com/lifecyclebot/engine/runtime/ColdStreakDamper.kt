@@ -123,7 +123,7 @@ object ColdStreakDamper {
         if (isPaper) return own
         val paper = streaks[key(lane, true)]?.lossStreak?.get() ?: 0
         if (paper <= own) return own
-        val seeded = com.lifecyclebot.engine.truth.PaperSeededPrior6991.seedProtective(paper, own)
+        val seeded = com.lifecyclebot.engine.truth.PaperSeededPrior6991.seedProtectiveLiveAware(lane.trim().uppercase(), paper, own)
         if (seeded > own) {
             try {
                 com.lifecyclebot.engine.truth.PaperSeededPrior6991.noteProtectiveSeed(

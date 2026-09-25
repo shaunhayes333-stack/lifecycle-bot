@@ -141,6 +141,32 @@ object PaperSeededPrior6991 {
         return maxOf(p * CAUTION_WEIGHT, l)
     }
 
+    /**
+     * V5.0.7307 — the hand-over the protective seed always promised and never
+     * made. "Once live has its own view maxOf selects it" is false for a
+     * streak: a live WIN resets live's streak to 0, and max(paper, 0) keeps
+     * the frozen paper streak forever. Paper does not trade while live, so on
+     * 5.0.7305 QUALITY carried paper streak 6 (floor +15 to 95, size x0.35,
+     * weak candidates shadow-only) for the whole session with no way out.
+     *
+     * Paper caution still transfers whole until live has booked a terminal
+     * close in that lane (OracleTradeHistory7287, journal, all sessions).
+     * From then on live's own streak is the streak.
+     */
+    fun seedProtectiveLiveAware(lane: String, paperValue: Long, liveValue: Long): Long {
+        val liveHasView = try { OracleTradeHistory7287.liveCloses(lane) > 0 } catch (_: Throwable) { false }
+        if (liveHasView) {
+            if (paperValue > liveValue) {
+                try { PipelineHealthCollector.labelInc("PAPER_PRIOR_HANDED_TO_LIVE_7307") } catch (_: Throwable) {}
+            }
+            return liveValue
+        }
+        return seedProtective(paperValue, liveValue)
+    }
+
+    fun seedProtectiveLiveAware(lane: String, paperValue: Int, liveValue: Int): Int =
+        seedProtectiveLiveAware(lane, paperValue.toLong(), liveValue.toLong()).toInt()
+
     /** Integer form, for streak counters. */
     fun seedProtective(paperValue: Int, liveValue: Int): Int =
         maxOf((paperValue * CAUTION_WEIGHT).toInt(), liveValue)

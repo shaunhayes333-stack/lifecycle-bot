@@ -33,6 +33,9 @@ object OracleTradeHistory7287 {
 
     @Volatile private var byLane: Map<String, Stat> = emptyMap()
     @Volatile private var global: Stat = Stat(0, 0.0, 0.0)
+    // V5.0.7307 — terminal LIVE closes per lane, so a paper-seeded caution
+    // can hand authority to live once live has a view of its own.
+    @Volatile private var liveClosesByLane: Map<String, Int> = emptyMap()
     @Volatile private var computedAtMs = 0L
 
     private fun netPct(t: com.lifecyclebot.data.Trade): Double? {
@@ -50,14 +53,17 @@ object OracleTradeHistory7287 {
         } catch (_: Throwable) { return }
         val acc = HashMap<String, DoubleArray>() // [n, sum, wins]
         val all = DoubleArray(3)
+        val live7307 = HashMap<String, Int>()
         for (t in rows) {
             if (!t.side.equals("SELL", ignoreCase = true)) continue
             val r = netPct(t) ?: continue
             val lane = t.tradingMode.trim().uppercase().ifBlank { "UNKNOWN" }
+            if (t.mode.equals("live", ignoreCase = true)) live7307[lane] = (live7307[lane] ?: 0) + 1
             val a = acc.getOrPut(lane) { DoubleArray(3) }
             a[0] += 1.0; a[1] += r; if (r > 0.0) a[2] += 1.0
             all[0] += 1.0; all[1] += r; if (r > 0.0) all[2] += 1.0
         }
+        liveClosesByLane = live7307
         byLane = acc.mapValues { (_, a) -> Stat(a[0].toInt(), a[1] / a[0], a[2] / a[0]) }
         global = if (all[0] > 0.0) Stat(all[0].toInt(), all[1] / all[0], all[2] / all[0]) else Stat(0, 0.0, 0.0)
         try {
@@ -68,6 +74,12 @@ object OracleTradeHistory7287 {
     fun lane(lane: String, nowMs: Long = System.currentTimeMillis()): Stat? {
         refreshIfDue(nowMs)
         return byLane[lane.trim().uppercase()]?.takeIf { it.n > 0 }
+    }
+
+    /** V5.0.7307 — terminal LIVE closes this lane has booked (journal, all sessions). */
+    fun liveCloses(lane: String, nowMs: Long = System.currentTimeMillis()): Int {
+        refreshIfDue(nowMs)
+        return liveClosesByLane[lane.trim().uppercase()] ?: 0
     }
 
     fun book(nowMs: Long = System.currentTimeMillis()): Stat? {

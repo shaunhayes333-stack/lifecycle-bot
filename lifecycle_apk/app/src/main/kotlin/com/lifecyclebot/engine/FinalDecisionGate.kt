@@ -919,14 +919,31 @@ object FinalDecisionGate {
         // paper + live closes) shows ≥20 closes with positive mean net return.
         // The floors themselves, hard safety and every later gate are unchanged;
         // trunk callers with no specialist lane are unchanged.
-        val laneOwnScoreAdmitted7292 = specialistLane != null &&
+        val laneScoreClears7307 = specialistLane != null &&
             laneEvidenceScore7243 >= canonicalFloor7266 &&
-            laneEvidenceScore7243 > canonicalV3Score7243 &&
-            (config.paperMode || try {
-                val st = com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane(floorLane7266)
-                    ?: com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane(floorLane7266.replace("_", ""))
-                st != null && st.n >= 20 && st.meanNetPct > 0.0
-            } catch (_: Throwable) { false })
+            laneEvidenceScore7243 > canonicalV3Score7243
+        // V5.0.7307 — proven by its journal OR by its fee-net shadow record
+        // (LaneShadowProof7307), so a lane refused here can still earn live.
+        val laneProvenForLive7307 = config.paperMode || try {
+            val st = com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane(floorLane7266)
+                ?: com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane(floorLane7266.replace("_", ""))
+            (st != null && st.n >= 20 && st.meanNetPct > 0.0) ||
+                com.lifecyclebot.engine.truth.LaneShadowProof7307.shadowProves(
+                    com.lifecyclebot.engine.truth.LaneShadowProof7307.stat(floorLane7266),
+                )
+        } catch (_: Throwable) { false }
+        val laneOwnScoreAdmitted7292 = laneScoreClears7307 && laneProvenForLive7307
+        if (laneScoreClears7307 && !laneProvenForLive7307 && canonicalV3Score7243 < canonicalFloor7266) {
+            try {
+                com.lifecyclebot.engine.truth.LaneShadowProof7307.onUnprovenRefusal(
+                    lane = floorLane7266,
+                    mint = ts.mint,
+                    price = ts.lastPrice,
+                    liquidityUsd = ts.lastLiquidityUsd,
+                    sizeSol = 0.042,
+                )
+            } catch (_: Throwable) {}
+        }
         val effectiveEntryScore7292 = if (laneOwnScoreAdmitted7292) laneEvidenceScore7243 else canonicalV3Score7243
         if (laneOwnScoreAdmitted7292 && canonicalV3Score7243 < canonicalFloor7266) {
             try {

@@ -128,7 +128,7 @@ object ExecutableEntryAuthority6450 {
         if (mode == "LIVE") {
             val paperKey7035 = cohortKey("PAPER", lane)
             val paperStreak7035 = cohortLosses[paperKey7035]?.get() ?: 0L
-            val seeded7035 = PaperSeededPrior6991.seedProtective(paperStreak7035, ownStreak7035)
+            val seeded7035 = PaperSeededPrior6991.seedProtectiveLiveAware(normalizedLane(lane), paperStreak7035, ownStreak7035)
             if (seeded7035 > ownStreak7035) {
                 try {
                     PaperSeededPrior6991.noteProtectiveSeed(
@@ -382,7 +382,7 @@ object ExecutableEntryAuthority6450 {
         if (!isLive) return own
         val paper = cohortLosses[cohortKey("PAPER", lane)]?.get() ?: 0L
         if (paper <= own) return own
-        val seeded = PaperSeededPrior6991.seedProtective(paper, own)
+        val seeded = PaperSeededPrior6991.seedProtectiveLiveAware(normalizedLane(lane), paper, own)
         if (seeded > own) {
             try {
                 PaperSeededPrior6991.noteProtectiveSeed(

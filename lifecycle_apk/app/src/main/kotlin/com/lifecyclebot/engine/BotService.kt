@@ -2229,6 +2229,7 @@ class BotService : Service() {
         // V5.0.7287 — the oracle's edge proof persists; restore it and
         // subscribe before the durable finality replay below publishes.
         try { com.lifecyclebot.engine.truth.OracleEdgeProof7263.attach7287(applicationContext) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.LaneShadowProof7307.attach7307(applicationContext) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.truth.SignalSourceProof7291.attach(applicationContext) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.market.LaneHunter7297.attach(applicationContext) } catch (_: Throwable) {}
         try {
@@ -20222,6 +20223,12 @@ if (hotExitHandledSweep) {
                         status.tokens.toMap()
                     }
                     executor.checkShadowPositions(tokenStatesCopy)
+                    // V5.0.7307 — lane shadow proof follows FDG's unproven-lane
+                    // refusals; a mark older than two minutes is not a price.
+                    val nowShadow7307 = System.currentTimeMillis()
+                    com.lifecyclebot.engine.truth.LaneShadowProof7307.tick({ m ->
+                        tokenStatesCopy[m]?.takeIf { nowShadow7307 - it.lastPriceUpdate < 120_000L }?.lastPrice
+                    }, nowShadow7307)
                 } catch (e: Exception) {
                     ErrorLogger.debug("BotService", "Shadow position check error: ${e.message}")
                 }

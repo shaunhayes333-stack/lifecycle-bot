@@ -11095,4 +11095,29 @@ class GoldenTapeRegressionTest {
         assertTrue(bs.contains("ts.position.tradingMode = recoveredLane7306"))
     }
 
+    @Test
+    fun V5_0_7307_lane_proves_itself_while_live_and_paper_streak_hands_over() {
+        val sp = com.lifecyclebot.engine.truth.LaneShadowProof7307
+        assertEquals("HARD_FLOOR", sp.exitReason(-15.0, 0.0, 1_000L))
+        assertEquals("GIVEBACK", sp.exitReason(10.0, 40.0, 1_000L))
+        assertTrue(sp.exitReason(30.0, 40.0, 1_000L) == null)
+        assertEquals("HORIZON", sp.exitReason(5.0, 5.0, 60 * 60_000L))
+        assertTrue(sp.exitReason(500.0, 500.0, 1_000L) == null)
+        val st = com.lifecyclebot.engine.truth.OracleTradeHistory7287
+        assertTrue(sp.shadowProves(st.Stat(20, 0.5, 0.4)))
+        assertFalse(sp.shadowProves(st.Stat(19, 9.0, 0.6)))
+        assertFalse(sp.shadowProves(st.Stat(40, -0.1, 0.5)))
+        assertFalse(sp.shadowProves(null))
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("val laneOwnScoreAdmitted7292 = laneScoreClears7307 && laneProvenForLive7307"))
+        assertTrue(fdg.contains("LaneShadowProof7307.onUnprovenRefusal("))
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("LaneShadowProof7307.tick("))
+        assertTrue(bs.contains("LaneShadowProof7307.attach7307(applicationContext)"))
+        val eea = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt").readText()
+        assertFalse(eea.contains("PaperSeededPrior6991.seedProtective(paper"))
+        val csd = java.io.File("src/main/kotlin/com/lifecyclebot/engine/runtime/ColdStreakDamper.kt").readText()
+        assertTrue(csd.contains("seedProtectiveLiveAware("))
+    }
+
 }

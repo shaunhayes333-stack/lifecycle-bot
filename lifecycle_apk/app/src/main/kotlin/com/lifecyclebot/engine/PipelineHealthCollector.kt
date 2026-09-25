@@ -2670,6 +2670,9 @@ object PipelineHealthCollector {
             ).append("\n")
             sb.append("     read: ADVISORY = the oracle's numbers feed the evidence branches but its verdict cannot refuse a trade;\n")
             sb.append("           PROVEN = live is ADMIT-or-nothing. It demotes itself if the edge stops holding.\n")
+            sb.append("  Lane shadow proof (§7307):    ").append(
+                try { com.lifecyclebot.engine.truth.LaneShadowProof7307.statusLine() } catch (_: Throwable) { "unavailable" }
+            ).append("\n")
             sb.append("  Signal source proof (§7291):  ").append(
                 try { com.lifecyclebot.engine.truth.SignalSourceProof7291.statusLine() } catch (_: Throwable) { "unavailable" }
             ).append("\n")
