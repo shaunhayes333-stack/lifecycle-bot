@@ -4,6 +4,12 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7303] - 2026-09-25 — FIRST LIVE SESSION: V3 SIZED AGAINST THE WRONG RESERVE
+
+- Operator, first live session (0.1198 SOL): "its being weird with how its reading and scoring tokens". The decision log was a wall of `V3 REJECT … | SIZE_ZERO` (136) and FDG refused 156 on `CANONICAL_V3_SCORE_FLOOR_7243` with `entryScore=0.0` beside lane scores of 63; zero executions.
+- **Cause: the one live reserve 7255 missed.** 7255 made `LiveSpendReserveAuthority7255.RESERVE_SOL` (0.012 SOL) the reserve "for every live sizing authority"; `V3EngineManager` still subtracted its config's 0.05. V3 therefore saw 0.0698 SOL tradeable instead of 0.1078, which fits one routable position at a 60% share — 0.0419 SOL — against a 0.04197 SOL routable minimum. `SMART_SIZER_V3_DUST_BLOCK_NO_HEADROOM_6271` refused all 478 candidates, V3 returned SIZE_ZERO, no V3 score was recorded, and FDG then refused on a canonical score of 0. Live preflight, reading the same wallet with the correct reserve, reported tradeable 0.1078 and capacity 2. Live V3 now uses the shared reserve; paper keeps its config value.
+- **The decision card read "wallet=0.0000".** Its sizer line read the view model's wallet, which live does not populate; it now shows the live wallet figure sizing uses (LIVE_WALLET_AUTHORITY_6686). Display only.
+
 ## [5.0.7302] - 2026-09-25 — TREASURY IN THE IDENTITY; SNIPER CLEARS COST ON ITS NET; NO FLAT STOCK CHURN; UI OFF THE RECONCILER
 
 From the 5.0.7301 snapshot (40 min, paper): the hunts now reach owners — QUALITY 39, BLUECHIP 55, MOONSHOT 61 owner selections (from 2/1/2) and `MARKET_HUNT_*` intakes 21. Paper cash 1.28 SOL against 88 open positions, `capitalRefusals7194=430`.

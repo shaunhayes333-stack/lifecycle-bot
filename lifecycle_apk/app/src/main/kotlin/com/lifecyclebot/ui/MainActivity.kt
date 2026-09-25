@@ -9775,7 +9775,11 @@ This cannot be undone!
         } catch (_: Exception) {}
 
         // Show SmartSizer tier + multipliers
-        val walletSol = vm.ui.value.walletSol
+        // V5.0.7303 — in live the view model's walletSol is not populated, so
+        // this card read "wallet=0.0000" beside a 0.1198 SOL live wallet. Show
+        // the figure live sizing actually uses (LIVE_WALLET_AUTHORITY_6686).
+        val walletSol = vm.ui.value.walletSol.takeIf { it > 0.0 }
+            ?: try { com.lifecyclebot.engine.BotService.status.walletSol } catch (_: Throwable) { 0.0 }
         val tier = when {
             walletSol < 0.5  -> "MICRO"
             walletSol < 2.0  -> "SMALL"

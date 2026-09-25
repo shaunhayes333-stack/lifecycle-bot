@@ -426,7 +426,22 @@ object V3EngineManager {
 
             val candidate = V3Adapter.toCandidate(ts)
 
-            val reserveSol = config?.reserveSol ?: 0.05
+            // V5.0.7303 §THE_RESERVE_7255_MISSED.
+            // 7255 made LiveSpendReserveAuthority7255.RESERVE_SOL (0.012) the one
+            // live reserve "for every live sizing authority"; this reader kept the
+            // V3 config's 0.05. On the operator's first live session (0.1198 SOL)
+            // V3 saw 0.0698 tradeable instead of 0.1078, which fits only one
+            // routable position at a 60% share = 0.0419 SOL against a 0.04197
+            // routable minimum — SMART_SIZER_V3_DUST_BLOCK_NO_HEADROOM_6271 = 478,
+            // every candidate rejected SIZE_ZERO, and with no V3 score recorded
+            // FDG then refused on CANONICAL_V3_SCORE_FLOOR_7243 (entryScore=0).
+            // Live preflight read the same wallet as tradeable 0.1078, capacity 2.
+            // Live now uses the shared reserve; paper keeps its config value.
+            val reserveSol = if (!currentBotConfig.paperMode) {
+                com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL
+            } else {
+                config?.reserveSol ?: 0.05
+            }
             val wallet = WalletSnapshot(
                 totalSol = walletSol,
                 tradeableSol = (walletSol - reserveSol).coerceAtLeast(0.0)

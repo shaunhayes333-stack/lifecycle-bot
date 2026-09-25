@@ -11028,4 +11028,12 @@ class GoldenTapeRegressionTest {
         assertTrue(sweep.contains(".callTimeout(25, TimeUnit.SECONDS)"))
     }
 
+    @Test
+    fun V5_0_7303_live_v3_uses_the_shared_live_reserve() {
+        val v3 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/V3EngineManager.kt").readText()
+        assertTrue(v3.contains("com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL"))
+        assertFalse(v3.contains("val reserveSol = config?.reserveSol ?: 0.05\n"))
+        assertEquals(0.012, com.lifecyclebot.engine.truth.LiveSpendReserveAuthority7255.RESERVE_SOL, 1e-12)
+    }
+
 }
