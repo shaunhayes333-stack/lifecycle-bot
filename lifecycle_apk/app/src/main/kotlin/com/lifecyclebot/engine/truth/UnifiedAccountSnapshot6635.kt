@@ -75,7 +75,6 @@ object UnifiedAccountSnapshot6635 {
     )
     private val lastReconciled = java.util.concurrent.ConcurrentHashMap<String, Snapshot>()
 
-    @Synchronized
     /**
      * V5.0.7302 §A_BALANCE_READ_RAN_A_FULL_RECONCILIATION_ON_THE_UI_THREAD.
      * 5.0.7301's ANR sampler caught UnifiedAccountSnapshot6635.read as the top
@@ -111,6 +110,7 @@ object UnifiedAccountSnapshot6635 {
         } catch (_: Throwable) { reconcileInFlight7302.set(false) }
     }
 
+    @Synchronized
     fun read(surface: String, mode: String = "paper"): Snapshot {
         reads.incrementAndGet()
         try { PipelineHealthCollector.labelInc("HERO_UNIFIED_SNAPSHOT_READ_6635") } catch (_: Throwable) {}

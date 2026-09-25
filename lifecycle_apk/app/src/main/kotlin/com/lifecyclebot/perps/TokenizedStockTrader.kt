@@ -1173,7 +1173,6 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     // EXECUTION
     // ═══════════════════════════════════════════════════════════════════════════
     
-    // V5.7.6b: Updated to support SPOT vs LEVERAGE + LIVE mode
     private val stockLastPrice7302 = ConcurrentHashMap<String, Pair<Double, Long>>()
     private const val STOCK_MOVE_WINDOW_MS_7302 = 30L * 60 * 1000
 
@@ -1189,6 +1188,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         return prev.second > 0L && now - prev.second <= STOCK_MOVE_WINDOW_MS_7302
     }
 
+    // V5.7.6b: Updated to support SPOT vs LEVERAGE + LIVE mode
     private suspend fun executeSignal(signal: StockSignal, isSpot: Boolean = false) {
         // V5.9.953 — DO NOT open stock positions outside extended trading
         // hours. Pre-V5.9.953 behaviour: stock signals fired 24/7. Pyth
