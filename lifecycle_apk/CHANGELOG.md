@@ -4,6 +4,21 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7330] - 2026-09-26 — RUNNER STOPS FIRE AT THE RUNNER FLOOR
+
+5.0.7324 paper MOONSHOT: EV -29.6%/trade, closes at -59%/-61%, one position
+re-triggering TICK_CATASTROPHIC_CONFIRMED 18 times, CATASTROPHIC_EXIT
+latency avg 22s / max 45s.
+
+- BotService tick floor: runner lanes exit on the first breach of their own
+  -15% floor (they had two-strike grace after the 2-minute early-cut
+  window); an unconfirmed phantom read no longer clears the first strike.
+- PaperPositionCloseAuthority / Executor: "CATASTROPHIC" counts as an
+  emergency reason (TICK_CATASTROPHIC_CONFIRMED never matched "CATASTROPHE"
+  and waited out the 20-30s close latch) and as an immediate price exit.
+- Executor.doSell: a paper settle-in deferral releases the CLOSE_REQUESTED
+  state it set, instead of latching the next exit out for 30s.
+
 ## [5.0.7329] - 2026-09-26 — LEARNING READS EXPECTANCY, NOT WIN RATE
 
 On 5.0.7324 paper the best-paying lane was being taught it was the worst:

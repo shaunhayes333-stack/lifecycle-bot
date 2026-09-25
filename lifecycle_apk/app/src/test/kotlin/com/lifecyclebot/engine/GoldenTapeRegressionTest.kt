@@ -11480,4 +11480,17 @@ class GoldenTapeRegressionTest {
         assertTrue(ca.contains("maxOf(updated.highestPnlPct, updated.getPnlPct()) >= _tpImpliedPct * 1.5"))
     }
 
+    @Test
+    fun V5_0_7330_runner_stops_fire_at_the_runner_floor() {
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("private const val RUNNER_LANE_FLOOR_PCT_7330 = -15.0"))
+        assertTrue(bs.contains("runnerEarlyCut7277 || runnerFloor7330 || (!phantomRead && twoStrike)"))
+        assertFalse(bs.contains("pos.lastTickFloorBreach = (pnlPctNow <= TICK_HARD_FLOOR_PCT && !phantomRead)"))
+        val pa = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").readText()
+        assertTrue(pa.contains("\"CATASTROPHE\", \"CATASTROPHIC\", \"ZOMBIE\""))
+        assertTrue(pa.contains("fun releaseDeferredRequest7330("))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("PaperPositionCloseAuthority.releaseDeferredRequest7330(\"PAPER\", ts.mint)"))
+    }
+
 }

@@ -68,6 +68,7 @@ class BotService : Service() {
         // catastrophic kill-switch. Tighter (-10) at operator directive after a
         // -29.4% real-money fill on a -15% stop (V5.9.1454 dump).
         private const val TICK_HARD_FLOOR_PCT = -10.0
+        private const val RUNNER_LANE_FLOOR_PCT_7330 = -15.0
 
         // Dust-probe size multiplier (applied via qualityPenalty) — tiny, so a
         // weak/blind context can still generate a labelled learning sample
@@ -12079,8 +12080,19 @@ class BotService : Service() {
                                 } catch (_: Throwable) { false }
                                 // Update the strike flag for the next tick. Confirmed catastrophic
                                 // executable-price reads bypass the old phantom dead-zone immediately.
-                                pos.lastTickFloorBreach = (pnlPctNow <= TICK_HARD_FLOOR_PCT && !phantomRead)
-                                if (pnlPctNow <= TICK_HARD_FLOOR_PCT && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || runnerEarlyCut7277 || (!phantomRead && twoStrike))) {
+                                // V5.0.7330 — an unconfirmed phantom read keeps the strike it
+                                // found instead of clearing it: a real gap through -50% used to
+                                // reset the first strike and sell a tick later at -60%.
+                                pos.lastTickFloorBreach = if (phantomRead) pos.lastTickFloorBreach
+                                    else pnlPctNow <= TICK_HARD_FLOOR_PCT
+                                // V5.0.7330 — runner lanes have a -15% lane floor
+                                // (MoonshotTraderAI.HARD_FLOOR_STOP). Past two minutes they sat
+                                // on two-strike grace and closed at -59%/-61% (5.0.7324
+                                // MOONSHOT EV -29.6%). At their own floor they exit first strike.
+                                val runnerFloor7330 = !phantomRead && pnlPctNow <= RUNNER_LANE_FLOOR_PCT_7330 && try {
+                                    RunnerExitProfile7277.isRunnerLane(laneName4588)
+                                } catch (_: Throwable) { false }
+                                if (pnlPctNow <= TICK_HARD_FLOOR_PCT && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || runnerEarlyCut7277 || runnerFloor7330 || (!phantomRead && twoStrike))) {
                                     ErrorLogger.warn("BotService",
                                         "🛑 TICK_HARD_FLOOR ${ts.symbol} ${"%.1f".format(pnlPctNow)}% " +
                                         "≤ ${TICK_HARD_FLOOR_PCT.toInt()}% — immediate exit (peak=${"%.1f".format(peakPct)}% catastrophic=$catastrophicConfirmed4485 oneStrikeLane=$oneStrikeCatastrophic4588)")

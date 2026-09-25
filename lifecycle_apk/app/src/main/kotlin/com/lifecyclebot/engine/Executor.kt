@@ -22194,6 +22194,7 @@ class Executor(
         val immediatePriceBased = listOf(
             "HARD_FLOOR",
             "CATASTROPHE",
+            "CATASTROPHIC",  // V5.0.7330 — TICK_CATASTROPHIC_CONFIRMED_*
             "DEEP_CATASTROPHE"
         )
         if (immediateStructural.any { r.contains(it) }) return false
@@ -23864,7 +23865,10 @@ class Executor(
                 try { ForensicLogger.lifecycle("PAPER_SELL_DUPLICATE_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalCloseId=$existingCloseId reason=$reason stage=pre_sell_lock") } catch (_: Throwable) {}
                 return SellResult.ALREADY_CLOSED
             }
-            if (shouldDelayPaperSoftLossExit(ts, reason)) return SellResult.FAILED_RETRYABLE
+            if (shouldDelayPaperSoftLossExit(ts, reason)) {
+                try { PaperPositionCloseAuthority.releaseDeferredRequest7330("PAPER", ts.mint) } catch (_: Throwable) {}
+                return SellResult.FAILED_RETRYABLE
+            }
         } else {
             if (blockIfSellInFlight(ts, reason)) return SellResult.FAILED_RETRYABLE
         }

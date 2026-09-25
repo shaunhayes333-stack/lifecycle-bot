@@ -53,7 +53,9 @@ object PaperPositionCloseAuthority {
     private fun isEmergencyRetryReason6702(reason: String): Boolean {
         val r = reason.uppercase()
         return listOf(
-            "STALE", "MAX_HOLD", "CATASTROPHE", "ZOMBIE", "MUST_SELL",
+            // V5.0.7330 — "CATASTROPHIC" too: TICK_CATASTROPHIC_CONFIRMED does
+            // not contain "CATASTROPHE" and sat out the full 20-30s latch.
+            "STALE", "MAX_HOLD", "CATASTROPHE", "CATASTROPHIC", "ZOMBIE", "MUST_SELL",
             "EMERGENCY", "RUG", "HARD_FLOOR", "PHANTOM", "SHUTDOWN",
         ).any { r.contains(it) }
     }
@@ -316,6 +318,17 @@ object PaperPositionCloseAuthority {
                     "closeId=$cid paper=${normMode(mode) == "PAPER"}",
             )
         } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.7330 — doSell marks CLOSE_REQUESTED before the paper settle-in hold
+     * decides to defer, and nothing released it, so the next exit (including a
+     * catastrophe) was latched out for the 30s stuck-close TTL. A deferred
+     * request that never reached a close goes back to no state.
+     */
+    fun releaseDeferredRequest7330(mode: String = "PAPER", mint: String) {
+        if (mint.isBlank()) return
+        states.computeIfPresent(key(mode, mint)) { _, s -> if (s.state == State.CLOSE_REQUESTED) null else s }
     }
 
     fun markFailed(mode: String = "PAPER", mint: String, symbol: String = "", reason: String = "") {
