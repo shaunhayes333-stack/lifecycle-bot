@@ -11341,4 +11341,36 @@ class GoldenTapeRegressionTest {
         assertTrue(bs.contains("if (fresh.blockReason != \"FDG_FANOUT_CAP_7232\") FdgReEvalThrottle.put("))
     }
 
+    @Test
+    fun V5_0_7322_runner_keeps_a_moonbag() {
+        val m = MoonbagRunner7322
+        // runner lane, give-back exit, peak >= 100 -> bank a partial
+        assertTrue(m.decide("MOONSHOT", "RAPID_TRAILING_STOP", 120.0, 150.0, null) == MoonbagRunner7322.Action.BANK_PARTIAL)
+        // under +100% peak -> normal exit
+        assertTrue(m.decide("MOONSHOT", "RAPID_TRAILING_STOP", 40.0, 60.0, null) == MoonbagRunner7322.Action.PASS)
+        // banked: hold while above half the peak gain, release below it
+        assertTrue(m.decide("MOONSHOT", "TICK_PROFIT_LOCK_peak400_now300", 300.0, 400.0, 400.0) == MoonbagRunner7322.Action.HOLD_MOONBAG)
+        assertTrue(m.decide("MOONSHOT", "TICK_PROFIT_LOCK_peak400_now150", 150.0, 400.0, 400.0) == MoonbagRunner7322.Action.PASS)
+        // stops, floors, non-runner lanes, losses: untouched
+        assertTrue(m.decide("MOONSHOT", "TICK_HARD_FLOOR_-15PCT", 150.0, 400.0, 400.0) == MoonbagRunner7322.Action.PASS)
+        assertTrue(m.decide("MOONSHOT", "RAPID_CATASTROPHE_STOP", 150.0, 400.0, null) == MoonbagRunner7322.Action.PASS)
+        assertTrue(m.decide("QUALITY", "RAPID_TRAILING_STOP", 150.0, 400.0, null) == MoonbagRunner7322.Action.PASS)
+        assertTrue(m.decide("MOONSHOT", "RAPID_TRAILING_STOP", -5.0, 400.0, null) == MoonbagRunner7322.Action.PASS)
+        assertTrue(m.decide("MOONSHOT", "[PARTIAL→FULL] RAPID_INSTANT_PROFIT_CAPTURE_4301", 150.0, 400.0, null) == MoonbagRunner7322.Action.PASS)
+        // capture tiers: runner lanes wait for +100%, one slice per tier
+        assertEquals(listOf(100.0, 300.0, 1000.0), m.captureTiers("PROJECT_SNIPER", 20.0))
+        assertEquals(-1, m.tierIndex(m.captureTiers("MOONSHOT", 20.0), 60.0))
+        assertEquals(1, m.tierIndex(m.captureTiers("MOONSHOT", 20.0), 350.0))
+        assertTrue(m.nextCaptureFraction("t7322", "MOONSHOT", 150.0, 20.0) == 0.25)
+        assertTrue(m.nextCaptureFraction("t7322", "MOONSHOT", 160.0, 20.0) == null)
+        assertTrue(m.nextCaptureFraction("t7322", "MOONSHOT", 320.0, 20.0) == 0.25)
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("pnlPct <= explicitPeakLockFloor4301 && !runnerDefer7322"))
+        assertTrue(bs.contains("if (pnlPct <= dynamicStopPct && !(dynamicStopPct > 0.0 && runnerDefer7322))"))
+        assertFalse(bs.contains("pnlPct >= 500.0 -> 1.0"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("if (isLivePositionEarly) moonbagGate7322(ts, requestReason, wallet, walletSol)?.let { return it }"))
+        assertTrue(ex.contains("moonbagGate7322(ts, reason, wallet, walletSol)?.let { return it }"))
+    }
+
 }

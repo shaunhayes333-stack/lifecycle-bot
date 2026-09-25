@@ -10673,7 +10673,8 @@ class BotService : Service() {
                                 currentPnlPct = pnlPct,
                                 peakPnlPct = peakPnlPct,
                                 holdTimeSeconds = holdTimeSecs,
-                                volatility = volatility
+                                volatility = volatility,
+                                lane = ts.position.tradingMode,  // V5.0.7322 — lane-shaped band
                             )
                         } catch (_: Exception) {
                             // Fallback to static fluid stop
@@ -10706,7 +10707,14 @@ class BotService : Service() {
                             } catch (_: Throwable) { peakPnlPct - 8.0 }
                             else -> Double.NEGATIVE_INFINITY
                         }
-                        if (explicitPeakLockFloor4301.isFinite() && pnlPct <= explicitPeakLockFloor4301) {
+                        // V5.0.7322 — the 500ms monitor now honours the runner arming
+                        // bar the 1Hz tick lock already used (+50% peak before a
+                        // give-back lock on a runner lane). 25nV9u MOONSHOT sold at
+                        // +31.8% here, ~4 points under a +36% peak.
+                        val runnerDefer7322 = try {
+                            RunnerExitProfile7277.deferGiveBackLock(ts.position.tradingMode, peakPnlPct)
+                        } catch (_: Throwable) { false }
+                        if (explicitPeakLockFloor4301.isFinite() && pnlPct <= explicitPeakLockFloor4301 && !runnerDefer7322) {
                             ErrorLogger.warn("BotService", "🚨 RAPID_PEAK_LOCK_BREACH_4301: ${ts.symbol} peak=${peakPnlPct.toInt()}% lock=${explicitPeakLockFloor4301.toInt()}% now=${pnlPct.toInt()}% — force sell")
                             addLog("🛑 PEAK LOCK BREACH: ${ts.symbol} peak +${peakPnlPct.toInt()}% → now ${pnlPct.toInt()}%", ts.mint)
                             try { PipelineHealthCollector.labelInc("RAPID_PEAK_LOCK_BREACH_4301") } catch (_: Throwable) {}
@@ -10731,7 +10739,7 @@ class BotService : Service() {
                         // exits with appropriate reason codes; this trailing
                         // path only matters for non-catastrophe / non-floor
                         // exits driven by FluidLearningAI's adaptive stop.
-                        if (pnlPct <= dynamicStopPct) {
+                        if (pnlPct <= dynamicStopPct && !(dynamicStopPct > 0.0 && runnerDefer7322)) {
                             // V5.9.1431 — RAPID ENTRY PROTECT REMOVED (operator
                             // directive). No more ENTRY_PROTECT stop label/behaviour.
                             // The 40s warmup HOLD above already prevents the dynamic
@@ -10798,35 +10806,29 @@ class BotService : Service() {
                                         // instant peaks while the rapid monitor only delegated to
                                         // manage-only. On live fast pumps, send a sell/partial
                                         // request immediately from the 500ms monitor.
-                                        val capturePct4301 = when {
-                                            pnlPct >= 500.0 -> 1.0
-                                            pnlPct >= 200.0 -> 0.75
-                                            pnlPct >= 50.0  -> 0.50
-                                            else            -> 0.25
-                                        }
+                                        // V5.0.7322 — one 25% slice per tier crossed, remembered
+                                        // per position (it re-sold every 500ms tick before), and
+                                        // never the whole position; runner lanes start at +100%.
+                                        val capturePct4301 = MoonbagRunner7322.nextCaptureFraction(
+                                            ts.position.positionId.ifBlank { ts.mint },
+                                            ts.position.tradingMode, pnlPct, tpPct,
+                                        )
+                                        if (capturePct4301 != null) {
                                         ErrorLogger.warn("BotService", "⚡ RAPID_INSTANT_PROFIT_CAPTURE_4301: ${ts.symbol} pnl=${pnlPct.toInt()}% tp=${tpPct.toInt()}% capture=${(capturePct4301*100).toInt()}%")
                                         addLog("⚡ RAPID PROFIT CAPTURE: ${ts.symbol} +${pnlPct.toInt()}% sell ${(capturePct4301*100).toInt()}%", ts.mint)
                                         try { PipelineHealthCollector.labelInc("RAPID_INSTANT_PROFIT_CAPTURE_4301") } catch (_: Throwable) {}
                                         try { ForensicLogger.lifecycle("RAPID_INSTANT_PROFIT_CAPTURE_4301", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${"%.1f".format(pnlPct)} peak=${"%.1f".format(peakPnlPct)} tp=${"%.1f".format(tpPct)} capturePct=${"%.2f".format(capturePct4301)} action=immediate_live_sell_or_partial") } catch (_: Throwable) {}
-                                        if (capturePct4301 >= 0.999) {
-                                            executor.requestSell(
-                                                ts = ts,
-                                                reason = "RAPID_INSTANT_PROFIT_CAPTURE_4301_${pnlPct.toInt()}PCT",
-                                                wallet = wallet,
-                                                walletSol = effectiveBalance
-                                            )
-                                        } else {
-                                            val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
-                                                ts = ts,
-                                                sellPercentage = capturePct4301,
-                                                reason = "RAPID_INSTANT_PROFIT_CAPTURE_4301_${(capturePct4301*100).toInt()}PCT_${pnlPct.toInt()}PCT",
-                                                wallet = wallet,
-                                                walletBalance = effectiveBalance
-                                            )
-                                            if (!partialReceipt6566.applied) continue
-                                        }
+                                        val partialReceipt6566 = executor.requestPartialSellConfirmed6566(
+                                            ts = ts,
+                                            sellPercentage = capturePct4301,
+                                            reason = "RAPID_INSTANT_PROFIT_CAPTURE_4301_${(capturePct4301*100).toInt()}PCT_${pnlPct.toInt()}PCT",
+                                            wallet = wallet,
+                                            walletBalance = effectiveBalance
+                                        )
+                                        if (!partialReceipt6566.applied) continue
                                         TradeStateMachine.startCooldown(ts.mint)
                                         continue
+                                        }
                                     } else {
                                         ErrorLogger.info("BotService",
                                             "🎯 RAPID TAKE_PROFIT_DELEGATE: ${ts.symbol} pnl=${pnlPct.toInt()}% ≥ tp=${tpPct.toInt()}% — manage-only partial/profit-lock first")

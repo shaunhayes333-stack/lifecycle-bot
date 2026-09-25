@@ -4,6 +4,13 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7322] - 2026-09-26 — A RUNNER KEEPS A MOONBAG
+
+- Live runner-lane positions were closed 100% by the first give-back lock: the 500ms rapid trail sat ~4 points under the peak with no runner arming bar (25nV9u MOONSHOT sold at +31.8% from ~+36%), and the rapid profit capture re-sold slices every tick and sold everything at +500%.
+- The rapid monitor now honours the runner arming bar (+50% peak before a give-back lock) for its trailing stop and peak-lock breach, and passes the lane to the fluid stop. Losses and hard floors are unchanged.
+- The rapid profit capture takes one 25% slice per tier crossed, remembered per position, never the whole position; runner lanes start at +100% (tiers 100/300/1000).
+- New MoonbagRunner7322 at the sell door (requestSell and doSell, so every lane's exits): the first give-back/take-profit exit on a runner lane that peaked >= +100% banks 60% instead of closing; the moonbag then ignores give-back exits while it holds more than half the peak gain. Stops, floors, rug/catastrophe, manual and reconciler exits are never intercepted (MOONBAG_BANKED_7322 / MOONBAG_HELD_7322).
+
 ## [5.0.7321] - 2026-09-26 — UNCHOKE LIVE BUYING
 
 - Jupiter buy quotes: quoteReq=66 quoteOk=1. Keyless JupiterApi("") callers (mark fan-out, identity repair, price fallback, crypto, bridge) hit api.jup.ag without a key, got 401 and armed the shared jupiter_quote/jupiter lockout, which then refused the live buy quote before it was sent. A blank key now resolves to the app key; the taker-bound live buy quote runs in the execution scope (like exits) so another caller's lockout cannot refuse it; the quote failure now carries its real cause.

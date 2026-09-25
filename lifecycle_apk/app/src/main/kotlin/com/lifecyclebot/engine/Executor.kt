@@ -22788,6 +22788,9 @@ class Executor(
         // V5.0.7148 — classify on the CALLER's reason, not on requestReason,
         // which this function rewrote itself a few lines above. Telemetry
         // below still reports requestReason so the logs stay comparable.
+        // V5.0.7322 — a runner keeps a moonbag (see MoonbagRunner7322).
+        if (isLivePositionEarly) moonbagGate7322(ts, requestReason, wallet, walletSol)?.let { return it }
+
         if (isLivePositionEarly && liveProfitDustExitShouldDefer(ts, reason)) {
             try {
                 val px = ts.lastPrice.takeIf { it > 0.0 } ?: ts.position.entryPrice
@@ -23771,6 +23774,44 @@ class Executor(
         } catch (_: Throwable) { false }
     }
 
+    /** V5.0.7322 — non-null short-circuits the sell (moonbag banked or held). */
+    private fun moonbagGate7322(ts: TokenState, requestReason: String, wallet: SolanaWallet?, walletSol: Double): SellResult? {
+        if (ts.position.isPaperPosition) return null
+        val mbKey7322 = ts.position.positionId.ifBlank { ts.mint }
+        val mbPx7322 = ts.lastPrice.takeIf { it > 0.0 } ?: ts.position.entryPrice
+        val mbPnl7322 = if (ts.position.entryPrice > 0.0) ((mbPx7322 - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else Double.NaN
+        val mbPeak7322 = maxOf(ts.position.peakGainPct, if (mbPnl7322.isFinite()) mbPnl7322 else 0.0)
+        MoonbagRunner7322.notePeak(mbKey7322, mbPeak7322)
+        val mbLane7322 = ts.position.tradingMode
+        when (MoonbagRunner7322.decide(mbLane7322, requestReason, mbPnl7322, mbPeak7322, MoonbagRunner7322.bankedPeakFor(mbKey7322))) {
+            MoonbagRunner7322.Action.BANK_PARTIAL -> {
+                val bank7322 = requestPartialSellConfirmed6566(
+                    ts = ts,
+                    sellPercentage = MoonbagRunner7322.BANK_FRACTION,
+                    reason = "MOONBAG_BANK_7322_peak${mbPeak7322.toInt()}_now${mbPnl7322.toInt()}",
+                    wallet = wallet,
+                    walletBalance = walletSol,
+                )
+                if (bank7322.applied) {
+                    MoonbagRunner7322.markBanked(mbKey7322, mbPeak7322)
+                    try {
+                        PipelineHealthCollector.labelInc("MOONBAG_BANKED_7322")
+                        ForensicLogger.lifecycle("MOONBAG_BANKED_7322",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$mbLane7322 peak=${"%.1f".format(mbPeak7322)} now=${"%.1f".format(mbPnl7322)} sold=${MoonbagRunner7322.BANK_FRACTION} trigger=${requestReason.take(60)}")
+                    } catch (_: Throwable) {}
+                    return SellResult.FAILED_RETRYABLE
+                }
+                // The partial did not apply: fall through to the full exit.
+            }
+            MoonbagRunner7322.Action.HOLD_MOONBAG -> {
+                try { PipelineHealthCollector.labelInc("MOONBAG_HELD_7322") } catch (_: Throwable) {}
+                return SellResult.FAILED_RETRYABLE
+            }
+            MoonbagRunner7322.Action.PASS -> Unit
+        }
+        return null
+    }
+
     internal fun doSell(ts: TokenState, reason: String,
                        wallet: SolanaWallet?, walletSol: Double,
                        identity: TradeIdentity? = null): SellResult {
@@ -23912,6 +23953,8 @@ class Executor(
             onToast("🚨 Cannot sell ${ts.symbol} - reconnect wallet!")
             return SellResult.NO_WALLET
         } else {
+            // V5.0.7322 — sweep/lane take-profits reach here without requestSell.
+            moonbagGate7322(ts, reason, wallet, walletSol)?.let { return it }
             if (blockIfSellInFlight(ts, reason, LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime))) {
                 return SellResult.FAILED_RETRYABLE
             }
