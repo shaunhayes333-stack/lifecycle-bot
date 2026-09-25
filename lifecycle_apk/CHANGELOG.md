@@ -4,6 +4,10 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7315] - 2026-09-26 — THE LIVE HEADLINE IS THE WHOLE WALLET
+
+- MainActivity hero (LIVE only): the headline was ws.solBalance — SOL alone — so the operator's wallet read A$47.66 while the bot read A$29.83; the difference was every token the bot holds (TNSR, CAKE, XMR, POPCAT and open positions). The live headline is now SOL + held tokens at their observed price (HostWalletTokenTracker, seen in the wallet within 10 min), with "LIVE · CASH x SOL · TOKENS y SOL (+n unpriced)" beneath. Unpriced holdings are counted and named, never valued by guess. Paper keeps its 7258 CASH headline; live sizing still uses spendable SOL.
+
 ## [5.0.7314] - 2026-09-26 — AN EXIT IS NEVER REFUSED BY OUR OWN BACKOFF; EXITS GO HELIUS SENDER FIRST
 
 TTP (5.0.7311 live) could not be sold because the app refused its own sell requests before they reached the wire.

@@ -11226,4 +11226,13 @@ class GoldenTapeRegressionTest {
         assertTrue(ex.contains("ExitHttpScope7314.run { liveSellInScope7314(ts, reason, wallet, walletSol, identity) }"))
     }
 
+    @Test
+    fun V5_0_7315_live_hero_counts_held_tokens() {
+        val ui = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue(ui.contains("ws.solBalance + (liveTokens7315?.first ?: 0.0)"))
+        assertTrue(ui.contains("private fun liveHeldTokenValue7315(): Pair<Double, Int>"))
+        assertTrue(ui.contains("now - t.lastSeenWalletMs > 10 * 60_000L"))
+        assertTrue(ui.contains("\"PAPER · CASH ${\"%.4f\".format(account7045.cashSol)} SOL\""))
+    }
+
 }

@@ -739,6 +739,32 @@ class MainActivity : AppCompatActivity() {
     private var lastCandleChartSig: String = ""
 
 
+    /** V5.0.7315 — (value of wallet-held tokens in SOL, unpriced count). */
+    private fun liveHeldTokenValue7315(): Pair<Double, Int> {
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        if (!solUsd.isFinite() || solUsd <= 0.0) return 0.0 to 0
+        val now = System.currentTimeMillis()
+        var sol = 0.0
+        var unpriced = 0
+        try {
+            for (t in com.lifecyclebot.engine.HostWalletTokenTracker.snapshot()) {
+                if (t.uiAmount <= 0.0 || now - t.lastSeenWalletMs > 10 * 60_000L) continue
+                val px = t.currentPriceUsd
+                if (px == null || !px.isFinite() || px <= 0.0) { unpriced++; continue }
+                val v = com.lifecyclebot.engine.truth.EconomicUnitInvariant7061.usdToSol(t.uiAmount * px, solUsd)
+                if (v.isFinite()) sol += v else unpriced++
+            }
+        } catch (_: Throwable) {}
+        return sol to unpriced
+    }
+
+    private fun liveHeroSubtitle7315(cashSol: Double, tokens: Pair<Double, Int>?): String {
+        val tok = tokens?.first ?: 0.0
+        val unpriced = tokens?.second ?: 0
+        return "LIVE · CASH ${"%.4f".format(cashSol)} SOL · TOKENS ${"%.4f".format(tok)} SOL" +
+            if (unpriced > 0) " (+$unpriced unpriced)" else ""
+    }
+
     private fun compactHeroBalance(sol: Double): String {
         return try {
             val info = currency.selectedInfo
@@ -3347,10 +3373,17 @@ for legal compliance.
         // screens correctly painted ~$132 from the same account revision.
         // Equity remains available in the accessibility/account breakdown,
         // but it is not relabelled as spendable balance.
+        // V5.0.7315 — LIVE headline is the whole wallet, not SOL alone. The
+        // operator's wallet read A$47.66 while the hero read A$29.83: the
+        // difference was every token the bot holds (TNSR, CAKE, XMR, POPCAT,
+        // open positions). Tokens count at their observed price only if the
+        // wallet saw them in the last 10 minutes; unpriced holdings are counted
+        // and named, never valued by guess. Paper keeps its 7258 CASH headline.
+        val liveTokens7315 = if (config.paperMode) null else liveHeldTokenValue7315()
         val balSol = if (config.paperMode) {
             if (accountRenderable7045) account7045!!.cashSol else 0.0
         } else {
-            ws.solBalance
+            ws.solBalance + (liveTokens7315?.first ?: 0.0)
         }
 
         // V5.0.3871 — paper CASH vs EQUITY clarity.
@@ -3383,7 +3416,7 @@ for legal compliance.
                 // same revision as the equity headline above it.
                 if (config.paperMode && account7045 != null)
                     "PAPER · CASH ${"%.4f".format(account7045.cashSol)} SOL"
-                else "LIVE"
+                else liveHeroSubtitle7315(ws.solBalance, liveTokens7315)
             )
             tvBalanceUsd.contentDescription = if (config.paperMode && account7045 != null) {
                 // §2 — every canonical field the operator named, one snapshot.
@@ -3398,7 +3431,7 @@ for legal compliance.
                     "POSITIONS ${account7045.openPositions}"
             } else if (config.paperMode) {
                 "Paper cash ${"%.4f".format(balSol)} SOL. Account unavailable until ledger hydration."
-            } else "Live wallet ${"%.4f".format(balSol)} SOL."
+            } else "Live wallet ${"%.4f".format(balSol)} SOL total. ${liveHeroSubtitle7315(ws.solBalance, liveTokens7315)}."
             if (config.paperMode) {
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("WALLET_CASH_SURFACE_RENDERED_7258") } catch (_: Throwable) {}
             }
