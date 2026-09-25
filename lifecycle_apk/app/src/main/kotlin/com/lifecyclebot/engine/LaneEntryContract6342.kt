@@ -157,7 +157,18 @@ object LaneEntryContract6342 {
                 val (canOpen, limitReason) = try {
                     com.lifecyclebot.engine.truth.ProbationEntryLimiter6388.canOpen()
                 } catch (_: Throwable) { true to "OK" }
-                if (canOpen) {
+                // V5.0.7324 — the probation limiter (1 open, 3/hour, 3-min spacing)
+                // belongs to HOLD_PROBATION. Once the recovery machine has promoted
+                // itself out of probation (SOFT_TIGHT/BASELINE/EXPANSION: it proved
+                // >=5 clean closes, >=3 wins, PF>=1), its allowBuys is the answer and
+                // its own sizing band applies. Holding it to the probation rate
+                // stopped every live buy (5.0.7321: 12 blocked, 0 bought) — the
+                // HOLD-as-shape-not-block rule LiveEntrySafetyHold already states.
+                val promotedPastProbation7324 = !recoveryAuth7214.probationSized
+                if (!canOpen && promotedPastProbation7324) {
+                    try { PipelineHealthCollector.labelInc("LANE_ENTRY_PROMOTED_RECOVERY_PAST_PROBATION_LIMIT_7324") } catch (_: Throwable) {}
+                }
+                if (canOpen || promotedPastProbation7324) {
                     try {
                         PipelineHealthCollector.labelInc("LANE_ENTRY_CONTRACT_ALLOW_PROBATION_6388")
                         ForensicLogger.lifecycle(

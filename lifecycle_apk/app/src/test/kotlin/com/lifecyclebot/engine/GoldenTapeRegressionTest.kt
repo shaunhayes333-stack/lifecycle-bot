@@ -11396,4 +11396,14 @@ class GoldenTapeRegressionTest {
         assertTrue(ls.contains("edgePhase.confidence > 60.0 && hist.size >= 12"))
     }
 
+    @Test
+    fun V5_0_7324_hold_shapes_not_blocks_and_sniper_carries_its_score() {
+        val lec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneEntryContract6342.kt").readText()
+        assertTrue(lec.contains("val promotedPastProbation7324 = !recoveryAuth7214.probationSized"))
+        assertTrue(lec.contains("if (canOpen || promotedPastProbation7324) {"))
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("if (!cfg.paperMode && _sniperScore >= 30) {"))
+        assertTrue(bs.contains("ts.mint, \"PROJECT_SNIPER\", _sniperScore.toDouble(), exploration = false,"))
+    }
+
 }

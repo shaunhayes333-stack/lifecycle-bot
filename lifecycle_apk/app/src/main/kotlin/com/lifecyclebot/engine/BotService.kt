@@ -28908,6 +28908,19 @@ if (hotExitHandledSweep) {
                             
                             if (authResult.isExecutable()) {
                                 val projectSniperAttemptId = authResult.attemptId
+                                // V5.0.7324 — the sniper path never passes FDG; it
+                                // already requires its OWN score >= 30 above, then the
+                                // executor re-judged the trade on the generic V3 score
+                                // (0-5) and refused it at the pre-lease floor
+                                // (LIVE_BUY_REFUSED_PRELEASE_SCORE_7256 = 225 of 238).
+                                // Carry the score it was admitted on, as FDG does (7308).
+                                if (!cfg.paperMode && _sniperScore >= 30) {
+                                    try {
+                                        com.lifecyclebot.engine.truth.LaneScoreAdmission7308.record(
+                                            ts.mint, "PROJECT_SNIPER", _sniperScore.toDouble(), exploration = false,
+                                        )
+                                    } catch (_: Throwable) {}
+                                }
                                 ErrorLogger.info("BotService", "🎯 [SNIPER] ${ts.symbol} | ENGAGE | " +
                                     "${assessment.threatLevel.emoji} | age=${assessment.tokenAgeSecs}s | " +
                                     "size=${assessment.positionSizeSol.fmt(3)}◎ | conf=${assessment.confidence}%")

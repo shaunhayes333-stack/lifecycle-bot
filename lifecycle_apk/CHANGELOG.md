@@ -4,6 +4,12 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7324] - 2026-09-26 — HOLD SHAPES, IT DOES NOT BLOCK; THE SNIPER IS JUDGED ON ITS OWN SCORE
+
+- 5.0.7321 live: 0 buys. Every executor attempt that got through was refused by one of two gates.
+- Governor HOLD: the lane entry contract held the recovery machine to the HOLD_PROBATION rate (1 open, 3/hour, 3-min spacing) even after the machine had promoted itself to SOFT_TIGHT (>=5 clean closes, >=3 wins, PF>=1) — 12 LIVE_ENTRY_POLICY_BLOCKED, 1 probation authorised. A promoted recovery state now has its allowBuys honoured with its own sizing band (LANE_ENTRY_PROMOTED_RECOVERY_PAST_PROBATION_LIMIT_7324). HOLD_PROBATION itself is unchanged.
+- PROJECT_SNIPER never passes FDG and already requires its own score >= 30, but the executor re-judged it on the generic V3 score (0-5) and refused it at the pre-lease floor (LIVE_BUY_REFUSED_PRELEASE_SCORE_7256 = 225 of 238). The sniper now records the score it was admitted on through LaneScoreAdmission7308, exactly as FDG does for lane admissions.
+
 ## [5.0.7323] - 2026-09-26 — FRESH-LAUNCH MOONSHOTS REACH LIVE
 
 - Fresh-launch admission (7044) measured age from when the bot first saw a token, so $2M trending coins read as "fresh" and were declined for mcap (569). Age now comes from the observed pump.fun create frame when known.
