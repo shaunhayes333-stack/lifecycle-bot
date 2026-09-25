@@ -1055,6 +1055,16 @@ object DynamicAltTokenRegistry {
                     .ifBlank { "none" }
                 append("crypto refusal by route 7156=[").append(byRoute7156).append("]\n")
             } catch (_: Throwable) {}
+            // V5.0.7318 — why a dispatched live crypto buy did not open.
+            try {
+                val notOpened7318 = com.lifecyclebot.engine.PipelineHealthCollector
+                    .labelsWithPrefix7156("CRYPTO_LIVE_NOT_OPENED_7318_")
+                    .entries
+                    .sortedByDescending { it.value }
+                    .joinToString(",") { "${it.key.removePrefix("CRYPTO_LIVE_NOT_OPENED_7318_")}=${it.value}" }
+                    .ifBlank { "none" }
+                append("crypto live not-opened by reason 7318=[").append(notOpened7318).append("]\n")
+            } catch (_: Throwable) {}
             append("static-vs-dynamic evaluation share=").append(staticEvaluated6544.get()).append('/').append(dynamicEvaluated6544.get()).append('\n')
             val terminal6567 = evaluationDisposition6567.values.sumOf { it.get() }
             append("evaluation terminal dispositions=started:").append(evaluationStarted6567.get())

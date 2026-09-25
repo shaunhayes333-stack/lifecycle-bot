@@ -63,6 +63,7 @@ object LivePositionCloseAuthority {
     fun preSellGuard(mint: String, symbol: String, wallet: SolanaWallet?): Guard {
         if (mint.isBlank()) return Guard(false, "blank", null)
         pruneMint(mint)
+        val reopened7318 = releaseStaleCloseForOpenPosition7318(mint, symbol, wallet)
         if (runCatching { PositionCloseLedger.isClosed(mint) }.getOrDefault(false)) {
             purgeSellResidue(mint, "PRESELL_LEDGER_CLOSED")
             return Guard(true, "LEDGER_CLOSED", State.CLOSED)
@@ -83,7 +84,7 @@ object LivePositionCloseAuthority {
                 HostWalletTokenTracker.PositionStatus.SOLD_CONFIRMED,
             ) && p.uiAmount <= 0.000001
         }.getOrDefault(false)
-        if (trackerClosed) {
+        if (trackerClosed && !reopened7318) {
             finalizeClosed(mint, symbol, null, "TRACKER_ALREADY_CLOSED_PRESELL", source = "tracker_presell")
             return Guard(true, "TRACKER_CLOSED", State.CLOSED)
         }
@@ -95,6 +96,50 @@ object LivePositionCloseAuthority {
             }
         }
         return Guard(false, "OPEN", State.OPEN_CONFIRMED)
+    }
+
+    /**
+     * V5.0.7318 — a close stamp belongs to the position it closed.
+     *
+     * 3xfsfo and GgsSae were re-bought after an earlier position on the same
+     * mint had closed. The old CLOSED stamp (close ledger, this state map, the
+     * tracker row) then answered for the NEW position: every stop was filed
+     * REQUEST_SELL_SUPPRESSED_CLOSE_AUTHORITY guard=LEDGER_CLOSED (324 times)
+     * and 3xfsfo rode to -97% with its catastrophe exit firing every tick.
+     *
+     * A stamp is stale when the canonical authority holds an OPEN live position
+     * with remaining quantity for this mint AND the wallet confirms a positive
+     * balance. A position whose sell really finalised has zero canonical
+     * quantity, so it is never reopened here; an in-flight sell (pending sig /
+     * unknown / confirming) is left alone.
+     */
+    private fun releaseStaleCloseForOpenPosition7318(mint: String, symbol: String, wallet: SolanaWallet?): Boolean {
+        val st = states[mint]?.state
+        val ledgerClosed = runCatching { PositionCloseLedger.isClosed(mint) }.getOrDefault(false)
+        val trackerClosed = runCatching {
+            HostWalletTokenTracker.snapshot().firstOrNull { it.mint == mint }?.status in setOf(
+                HostWalletTokenTracker.PositionStatus.CLOSED,
+                HostWalletTokenTracker.PositionStatus.CLOSED_SOLD_BY_AATE,
+                HostWalletTokenTracker.PositionStatus.CLOSED_EXTERNALLY_MANUAL_SWAP,
+                HostWalletTokenTracker.PositionStatus.SOLD_CONFIRMED,
+            )
+        }.getOrDefault(false)
+        if (!ledgerClosed && st != State.CLOSED && !trackerClosed) return false
+        if (st == State.CLOSING_PENDING_SIG || st == State.CLOSING_UNKNOWN || st == State.CLOSING_CONFIRMED) return false
+        val canonicalOpen = runCatching {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().any {
+                it.mint == mint && !it.mode.equals("paper", true) && it.remainingQtyRaw.signum() > 0
+            }
+        }.getOrDefault(false)
+        if (!canonicalOpen || wallet == null) return false
+        val held = runCatching { SellAmountAuthority.resolve(mint, wallet) }.getOrNull()
+        if (held !is SellAmountAuthority.Resolution.Confirmed || held.rawAmount.signum() <= 0) return false
+        runCatching { PositionCloseLedger.reopen(mint) }
+        if (st == State.CLOSED) states.remove(mint)
+        emit("LIVE_STALE_CLOSE_RELEASED_7318", mint, symbol,
+            "ledgerClosed=$ledgerClosed state=$st trackerClosed=$trackerClosed raw=${held.rawAmount} action=sell_allowed")
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_STALE_CLOSE_RELEASED_7318") } catch (_: Throwable) {}
+        return true
     }
 
     fun markBroadcast(

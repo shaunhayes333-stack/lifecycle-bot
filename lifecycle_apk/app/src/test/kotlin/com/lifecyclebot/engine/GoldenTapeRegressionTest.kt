@@ -11270,4 +11270,21 @@ class GoldenTapeRegressionTest {
         assertFalse(bs.contains("// hold for more upside — high-lock will retry on next tick"))
     }
 
+    @Test
+    fun V5_0_7318_stale_close_never_blocks_a_reopened_position_and_crypto_names_its_failure() {
+        val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/LivePositionCloseAuthority.kt").readText()
+        assertTrue(auth.contains("val reopened7318 = releaseStaleCloseForOpenPosition7318(mint, symbol, wallet)"))
+        assertTrue(auth.contains("if (trackerClosed && !reopened7318)"))
+        assertTrue(auth.contains("if (held !is SellAmountAuthority.Resolution.Confirmed || held.rawAmount.signum() <= 0) return false"))
+        assertTrue(auth.contains("if (st == State.CLOSING_PENDING_SIG || st == State.CLOSING_UNKNOWN || st == State.CLOSING_CONFIRMED) return false"))
+        val led = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionCloseLedger.kt").readText()
+        assertTrue(led.contains("POSITION_CLOSE_LEDGER_RECONSTRUCT_SKIPPED_REOPENED_7318"))
+        val alt = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue(alt.contains("CRYPTO_LIVE_NOT_OPENED_7318_"))
+        assertTrue(alt.contains("CanonicalEntryAuthority6551.markFailed(canonicalCryptoIntent6565, liveFail7318)"))
+        assertFalse(alt.contains("markFailed(canonicalCryptoIntent6565, \"CRYPTO_LIVE_BUY_NOT_OPENED\")"))
+        val reg = java.io.File("src/main/kotlin/com/lifecyclebot/perps/DynamicAltTokenRegistry.kt").readText()
+        assertTrue(reg.contains("crypto live not-opened by reason 7318=["))
+    }
+
 }

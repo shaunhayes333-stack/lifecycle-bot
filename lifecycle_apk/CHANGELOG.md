@@ -4,6 +4,11 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7318] - 2026-09-26 — A CLOSE STAMP BELONGS TO THE POSITION IT CLOSED
+
+- 3xfsfo and GgsSae were re-bought on mints whose earlier position had closed. The old CLOSED stamp answered for the new position, so every stop was suppressed (REQUEST_SELL_SUPPRESSED_CLOSE_AUTHORITY guard=LEDGER_CLOSED, 324) and 3xfsfo rode to -97%. The close authority now releases a stale stamp when the canonical authority holds an open live position with quantity AND the wallet confirms a positive balance (LIVE_STALE_CLOSE_RELEASED_7318); in-flight sells are untouched. The canonical close reconstruct no longer re-stamps a mint that has been re-opened.
+- Crypto: every dispatched live buy that did not open was filed as CRYPTO_LIVE_BUY_NOT_OPENED (33/33), with the cause only in a log line. The exact reason (floor / route deferred + diag code / exec failure / exception) now reaches the canonical failure, a CRYPTO_LIVE_NOT_OPENED_7318_* counter, and a report line in the Crypto Universe section.
+
 ## [5.0.7317] - 2026-09-26 — AN EXIT RELEASES ITS LOCK THE MOMENT IT RETURNS
 
 - liveSell reserved the terminal close and never settled it, so a failed or deferred attempt held CLOSING for the whole stale window and every exit in between was refused as a duplicate (3xfsfo profit lock peak 71% -> 9%: TERMINAL_SELL_DUPLICATE_CLOSING_REJECTED_6454=215). Each attempt now settles its own reservation on return: zero canonical quantity -> CLOSED; a signed transaction that may still land -> kept; otherwise released for the next tick (LIVE_SELL_RESERVATION_*_7317).

@@ -255,11 +255,22 @@ object PositionCloseLedger {
                 .filter { (now - it.lastMutationMs) < CLOSE_TTL_MS }
         } catch (_: Throwable) { emptyList() }
         if (recent.isEmpty()) return 0
+        // V5.0.7318 — a mint re-bought after this close has an OPEN canonical
+        // row; stamping the old close onto it made the new position unsellable.
+        val openMints7318 = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                .filter { it.remainingQtyRaw > java.math.BigInteger.ZERO }
+                .map { it.mint }.toSet()
+        } catch (_: Throwable) { emptySet() }
         var stamped = 0
         for (p in recent) {
             val mint = p.mint
             if (mint.isBlank()) continue
             if (closed.containsKey(mint)) continue
+            if (mint in openMints7318) {
+                try { PipelineHealthCollector.labelInc("POSITION_CLOSE_LEDGER_RECONSTRUCT_SKIPPED_REOPENED_7318") } catch (_: Throwable) {}
+                continue
+            }
             // Synthesize a stamp-eligible reason so the reject deny-list
             // does not swallow it. Carries the canonical positionId so
             // downstream forensic tools can trace the reconstruction.
