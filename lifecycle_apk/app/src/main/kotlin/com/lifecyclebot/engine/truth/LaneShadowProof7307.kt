@@ -67,6 +67,15 @@ object LaneShadowProof7307 {
                 }
             }
         } catch (_: Throwable) {}
+        // V5.0.7320 — the BLUECHIP tally was built from pump.fun candidates;
+        // drop it once so the lane is graded on its own asset class.
+        try {
+            if (!p.getBoolean("bluechip_reset_7320", false)) {
+                tallies.remove("BLUECHIP"); tallies.remove("BLUE_CHIP")
+                persist()
+                p.edit().putBoolean("bluechip_reset_7320", true).apply()
+            }
+        } catch (_: Throwable) {}
     }
 
     private fun persist() {
@@ -92,6 +101,10 @@ object LaneShadowProof7307 {
     fun onUnprovenRefusal(lane: String, mint: String, price: Double, liquidityUsd: Double, sizeSol: Double, nowMs: Long = System.currentTimeMillis()) {
         val l = lane.trim().uppercase()
         if (l.isBlank() || mint.isBlank() || !price.isFinite() || price <= 0.0) return
+        // V5.0.7320 — a pump.fun mint is not BLUECHIP's asset class; grading
+        // meme outcomes against BLUECHIP (n=6, -28.5%) proves nothing about it.
+        if ((l == "BLUECHIP" || l == "BLUE_CHIP") &&
+            mint.endsWith("pump", ignoreCase = true)) return
         val key = "$l::$mint"
         if (open.containsKey(key)) return
         if (open.keys.count { it.startsWith("$l::") } >= MAX_OPEN_PER_LANE_7307) {

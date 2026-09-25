@@ -2171,7 +2171,12 @@ class BotService : Service() {
                     autoMode.triggerCopy(mint, wallet)
                     addLog("📋 COPY BUY triggered: ${mint.take(8)}… from ${wallet.take(8)}…", mint)
                     // V5.9: also fire copy-perps trade on SOL via MarketsLiveExecutor
-                    if (!c.paperMode && c.heliusApiKey.isNotBlank()) {
+                    // V5.0.7320 — copy trading is now on by default, and this
+                    // side-trade is a 2x SOL long on EVERY copy signal (47 in ten
+                    // minutes on a 0.38 SOL wallet). It trades live once the COPY
+                    // source is proven on settled closes; the copied token itself
+                    // routes through V3/FDG/sizing above either way.
+                    if (!c.paperMode && c.heliusApiKey.isNotBlank() && copyProven7291) {
                         scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                             try {
                                 val copySizeSol = (c.smallBuySol * 0.5).coerceIn(0.01, 0.5)
@@ -26863,8 +26868,21 @@ if (hotExitHandledSweep) {
                         com.lifecyclebot.engine.truth.PeggedAssetGuard7270.noteSkipped("BLUECHIP", ts.symbol)
                     }
 
-                    if (!permitResult.allowed || peggedBlue7270) {
-                        ErrorLogger.debug("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | BLOCKED | ${if (peggedBlue7270) "PEGGED_ASSET_7270" else permitResult.reason}")
+                    // V5.0.7320 — this block runs inside QUALITY's, outside lane
+                    // election, so pump.fun mints reached BLUECHIP only to be
+                    // aborted by the executor's lane contract (6342: 46 aborts),
+                    // burning FDG's exploration slot and polluting the BLUECHIP
+                    // shadow proof. Election already applies this identity rule;
+                    // the token continues to the MOONSHOT/SHITCOIN evaluators below.
+                    val pumpBlue7320 = !ts.position.isOpen && try {
+                        !LaneEntryContract6342.isLaneIdentityEligible7252(ts, "BLUECHIP")
+                    } catch (_: Throwable) { false }
+                    if (pumpBlue7320) {
+                        try { PipelineHealthCollector.labelInc("BLUECHIP_SUBTRADER_PUMPFUN_SKIPPED_7320") } catch (_: Throwable) {}
+                    }
+
+                    if (!permitResult.allowed || peggedBlue7270 || pumpBlue7320) {
+                        ErrorLogger.debug("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | BLOCKED | ${if (peggedBlue7270) "PEGGED_ASSET_7270" else if (pumpBlue7320) "PUMPFUN_IDENTITY_7320" else permitResult.reason}")
                     } else {
                         val (v3Score, v3Confidence) = when (val result = v3Decision) {
                             is com.lifecyclebot.v3.V3Decision.Execute -> result.score to result.confidence.toInt()

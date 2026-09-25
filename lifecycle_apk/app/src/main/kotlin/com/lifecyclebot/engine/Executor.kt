@@ -585,7 +585,10 @@ class Executor(
         val source: String,
     )
     private val shadowPositions = mutableMapOf<String, ShadowPosition>()
-    private val MAX_SHADOW_POSITIONS = 20  // Limit to prevent memory bloat
+    private val MAX_SHADOW_POSITIONS = 60  // V5.0.7320: 20 -> 60 (8 small fields each)
+    // V5.0.7320 — last observed mark per shadow mint, so an evicted position is
+    // booked at a real price instead of being dropped unclosed.
+    private val shadowLastMark7320 = java.util.concurrent.ConcurrentHashMap<String, Double>()
 
     // V5.0.7215 — the shadow paper book's counters live in
     // ShadowBookTelemetry7215, not here. PipelineHealthCollector has no handle
@@ -14473,29 +14476,6 @@ class Executor(
                 }
             }
             
-            if (shadowPositions.size >= MAX_SHADOW_POSITIONS) {
-                val oldest = shadowPositions.values.minByOrNull { it.entryTime }
-                oldest?.let {
-                    shadowPositions.remove(it.mint)
-                    // V5.0.7215 — this position is removed WITHOUT being closed,
-                    // so brain.learnFromTrade never sees it and its outcome is
-                    // lost. With a 20-slot book and a 30-minute timeout, a busy
-                    // session can evict more than it closes, and acceptance J's
-                    // "20 clean paper closes" then recedes as candidates arrive.
-                    // The cap is left where it is — changing it is a capacity
-                    // decision for the operator, not a silent fix — but the cost
-                    // is now on the report instead of being invisible.
-                    try {
-                        com.lifecyclebot.engine.truth.ShadowBookTelemetry7215.onEvictedUnclosed7215(
-                            mint = it.mint,
-                            symbol = it.symbol,
-                            ageMs = System.currentTimeMillis() - it.entryTime,
-                            cap = MAX_SHADOW_POSITIONS,
-                        )
-                    } catch (_: Throwable) {}
-                }
-            }
-
             if (shadowPositions.containsKey(ts.mint)) {
                 try { com.lifecyclebot.engine.truth.ShadowBookTelemetry7215.onSkipDuplicate7215() } catch (_: Throwable) {}
                 return
@@ -14505,6 +14485,24 @@ class Executor(
             if (price <= 0) {
                 try { com.lifecyclebot.engine.truth.ShadowBookTelemetry7215.onSkipNoPrice7215() } catch (_: Throwable) {}
                 return
+            }
+
+            // V5.0.7320 — full book: close the oldest at its last observed mark
+            // (booked, learned, counted) instead of evicting it unclosed
+            // (408 of 431 opens were thrown away on 5.0.7317). This now runs
+            // after the duplicate/no-price checks, so a skipped candidate never
+            // costs an open position. With no mark for the oldest, the new open
+            // is skipped rather than losing the old evidence.
+            if (shadowPositions.size >= MAX_SHADOW_POSITIONS) {
+                val oldest = shadowPositions.values.minByOrNull { it.entryTime }
+                val mark = oldest?.let { shadowLastMark7320[it.mint] }
+                if (oldest == null || mark == null || !mark.isFinite() || mark <= 0.0) {
+                    try { PipelineHealthCollector.labelInc("SHADOW_OPEN_SKIPPED_BOOK_FULL_7320") } catch (_: Throwable) {}
+                    return
+                }
+                closeShadow7320(oldest, mark, "evicted_at_mark", (shadowPositions.size - 1).coerceAtLeast(0))
+                shadowPositions.remove(oldest.mint)
+                shadowLastMark7320.remove(oldest.mint)
             }
 
             val shadowPos = ShadowPosition(
@@ -14541,6 +14539,7 @@ class Executor(
             val ts = tokenStates[mint] ?: continue
             val currentPrice = getActualPrice(ts)
             if (currentPrice <= 0) continue
+            shadowLastMark7320[mint] = currentPrice
             
             val pnlPct = OpenPnlSanity.inspect(shadow.entryPrice, currentPrice, context = "Executor.shadow_position_6038/${shadow.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
             val holdTimeMin = (System.currentTimeMillis() - shadow.entryTime) / 60000
@@ -14553,59 +14552,66 @@ class Executor(
             }
             
             if (shouldExit != null) {
-                val isWin = pnlPct >= 1.0  // V5.9.225: unified 1% threshold
-                val pnlSol = pnlPct * shadow.entrySol / 100
-                val shadowHoldMins = (System.currentTimeMillis() - shadow.entryTime) / 60_000.0
-                
-                brain?.learnFromTrade(
-                    isWin = isWin,
-                    phase = "shadow_${shadow.quality}",
-                    emaFan = "FLAT",
-                    source = shadow.source,
-                    pnlPct = pnlPct,
-                    mint = shadow.mint,
-                    rugcheckScore = 50,
-                    buyPressure = 50.0,
-                    topHolderPct = 10.0,
-                    liquidityUsd = 10000.0,
-                    isLiveTrade = false,
-                    approvalClass = "PAPER_EXPLORATION",
-                    holdTimeMinutes = shadowHoldMins,
-                    maxGainPct = pnlPct.coerceAtLeast(0.0),
-                    exitReason = shouldExit,
-                    tokenAgeMinutes = 0.0,
-                )
-                
-                brain?.learnThreshold(
-                    isWin = isWin,
-                    rugcheckScore = 50,
-                    buyPressure = 50.0,
-                    topHolderPct = 10.0,
-                    liquidityUsd = 10000.0,
-                    pnlPct = pnlPct,
-                )
-                
-                // V5.0.7215 — the close acceptance test J counts. A shadow
-                // close is a complete round trip on observed prices with the
-                // learner already fed on the line above, which is exactly what
-                // "a clean paper close" means.
-                try {
-                    com.lifecyclebot.engine.truth.ShadowBookTelemetry7215.onClose7215(
-                        exitReason = shouldExit,
-                        isWin = isWin,
-                        pnlPct = pnlPct,
-                        openCount = (shadowPositions.size - toRemove.size - 1).coerceAtLeast(0),
-                    )
-                } catch (_: Throwable) {}
-
-                val emoji = if (isWin) "✅" else "❌"
-                onLog("👻 SHADOW EXIT: ${shadow.symbol} | $shouldExit | ${pnlPct.toInt()}% | ${pnlSol.toString().take(6)} SOL | $emoji ${if(isWin) "WIN" else "LOSS"} → LEARNING", mint)
-
+                closeShadow7320(shadow, currentPrice, shouldExit, (shadowPositions.size - toRemove.size - 1).coerceAtLeast(0))
                 toRemove.add(mint)
             }
         }
         
-        toRemove.forEach { shadowPositions.remove(it) }
+        toRemove.forEach { shadowPositions.remove(it); shadowLastMark7320.remove(it) }
+    }
+
+    /** V5.0.7320 — one close path for timeout/stop/TP and eviction. */
+    private fun closeShadow7320(shadow: ShadowPosition, currentPrice: Double, shouldExit: String, openAfter: Int) {
+        val mint = shadow.mint
+        val pnlPct = OpenPnlSanity.inspect(shadow.entryPrice, currentPrice, context = "Executor.shadow_position_6038/${shadow.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
+        val isWin = pnlPct >= 1.0  // V5.9.225: unified 1% threshold
+        val pnlSol = pnlPct * shadow.entrySol / 100
+        val shadowHoldMins = (System.currentTimeMillis() - shadow.entryTime) / 60_000.0
+        
+        brain?.learnFromTrade(
+            isWin = isWin,
+            phase = "shadow_${shadow.quality}",
+            emaFan = "FLAT",
+            source = shadow.source,
+            pnlPct = pnlPct,
+            mint = shadow.mint,
+            rugcheckScore = 50,
+            buyPressure = 50.0,
+            topHolderPct = 10.0,
+            liquidityUsd = 10000.0,
+            isLiveTrade = false,
+            approvalClass = "PAPER_EXPLORATION",
+            holdTimeMinutes = shadowHoldMins,
+            maxGainPct = pnlPct.coerceAtLeast(0.0),
+            exitReason = shouldExit,
+            tokenAgeMinutes = 0.0,
+        )
+        
+        brain?.learnThreshold(
+            isWin = isWin,
+            rugcheckScore = 50,
+            buyPressure = 50.0,
+            topHolderPct = 10.0,
+            liquidityUsd = 10000.0,
+            pnlPct = pnlPct,
+        )
+        
+        // V5.0.7215 — the close acceptance test J counts. A shadow
+        // close is a complete round trip on observed prices with the
+        // learner already fed on the line above, which is exactly what
+        // "a clean paper close" means.
+        try {
+            com.lifecyclebot.engine.truth.ShadowBookTelemetry7215.onClose7215(
+                exitReason = shouldExit,
+                isWin = isWin,
+                pnlPct = pnlPct,
+                openCount = openAfter,
+            )
+        } catch (_: Throwable) {}
+
+        val emoji = if (isWin) "✅" else "❌"
+        onLog("👻 SHADOW EXIT: ${shadow.symbol} | $shouldExit | ${pnlPct.toInt()}% | ${pnlSol.toString().take(6)} SOL | $emoji ${if(isWin) "WIN" else "LOSS"} → LEARNING", mint)
+
     }
 
 

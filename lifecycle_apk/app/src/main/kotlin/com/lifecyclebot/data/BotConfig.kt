@@ -206,7 +206,7 @@ data class BotConfig(
     // 0 = Ultra Defensive, 5 = Normal, 11 = Goes to 11 (maximum aggression)
     val behaviorAggressionLevel: Int = 5,    // Default to NORMAL (middle)
     // copy trading
-    val copyTradingEnabled: Boolean = false,
+    val copyTradingEnabled: Boolean = true,  // V5.0.7320: default on (operator)
     val copySizeMultiplier: Double = 1.0,   // relative to normal position size
     // time-of-day
     val useTimeFilter: Boolean = true,
@@ -694,7 +694,10 @@ object ConfigStore {
             defensiveLossThreshold      = p.getInt("defensive_loss_threshold", 3),
             aggressiveWhaleThreshold    = p.getFloat("aggressive_whale_threshold", 70.0f).toDouble(),
             behaviorAggressionLevel     = p.getInt("behavior_aggression_level", 5),  // V5.2: Default NORMAL
-            copyTradingEnabled          = p.getBoolean("copy_trading_enabled", false),
+            // V5.0.7320 — copy trading is meant to be on. There was never a
+            // UI toggle, so the persisted false was written by unrelated saves,
+            // not chosen; read true until the operator has an actual switch.
+            copyTradingEnabled          = p.getBoolean("copy_trading_enabled", true) || !p.getBoolean("copy_trading_default_on_7320", false),
             copySizeMultiplier          = p.getFloat("copy_size_multiplier", 1.0f).toDouble(),
             useTimeFilter               = p.getBoolean("use_time_filter", true),
             topUpEnabled                = p.getBoolean("top_up_enabled", true),

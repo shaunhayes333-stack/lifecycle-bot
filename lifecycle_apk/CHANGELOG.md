@@ -4,6 +4,12 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7320] - 2026-09-26 — BLUECHIP GETS ITS OWN ASSET CLASS; THE SHADOW BOOK KEEPS ITS EVIDENCE; COPY TRADING ON
+
+- The BlueChip sub-trader runs inside QUALITY's block, outside lane election, so pump.fun mints reached BLUECHIP only to be aborted at the executor's lane contract (6342: 46 aborts), burning FDG's shared exploration slot and grading meme outcomes as BLUECHIP shadow proof (n=6, -28.5%). Pump mints now skip the BlueChip sub-trader and continue to MOONSHOT/SHITCOIN (BLUECHIP_SUBTRADER_PUMPFUN_SKIPPED_7320); LaneShadowProof refuses them for BLUECHIP and the polluted tally is reset once.
+- Shadow paper book: 408 of 431 opens were evicted unclosed. A full book now closes its oldest position at its last observed mark (learned, counted toward acceptance J) instead of discarding it; eviction happens only after the duplicate/no-price checks; cap 20 -> 60.
+- Copy trading is on by default (there was never a UI toggle; the persisted false came from unrelated saves). Copied tokens route through V3/FDG/sizing. The legacy 2x SOL perps side-trade on every copy signal trades live only once the COPY source is proven.
+
 ## [5.0.7319] - 2026-09-26 — THE STRATEGY LEDGER STOPS RE-SCORING THE WHOLE BOOK
 
 - StrategyTruthLedger.clean cached one result for all callers; callers pass different journals and limits, so they evicted each other (2,066 misses in 10 minutes, each re-scoring every trade row: PNL_PCT_RECONCILED_ON_SOLD_COST_7164 = 684,453). The cache now keeps one slot per input (bounded at 16), cutting a large share of the per-cycle CPU that was slowing the bot loop (avg 7.2s, max 32s) and expiring buy tickets.

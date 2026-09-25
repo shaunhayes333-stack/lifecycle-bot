@@ -11296,4 +11296,23 @@ class GoldenTapeRegressionTest {
         assertFalse(src.contains("@Volatile private var cleanCacheKey"))
     }
 
+    @Test
+    fun V5_0_7320_bluechip_identity_shadow_close_on_evict_and_copy_on() {
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("BLUECHIP_SUBTRADER_PUMPFUN_SKIPPED_7320"))
+        assertTrue(bs.contains("if (!permitResult.allowed || peggedBlue7270 || pumpBlue7320)"))
+        assertTrue(bs.contains("if (!c.paperMode && c.heliusApiKey.isNotBlank() && copyProven7291)"))
+        val proof = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LaneShadowProof7307.kt").readText()
+        assertTrue(proof.contains("mint.endsWith(\"pump\", ignoreCase = true)) return"))
+        assertTrue(proof.contains("bluechip_reset_7320"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("private val MAX_SHADOW_POSITIONS = 60"))
+        assertTrue(ex.contains("closeShadow7320(oldest, mark, \"evicted_at_mark\""))
+        assertTrue(ex.contains("SHADOW_OPEN_SKIPPED_BOOK_FULL_7320"))
+        assertTrue(ex.indexOf("onSkipDuplicate7215") < ex.indexOf("closeShadow7320(oldest, mark"))
+        val cfg = java.io.File("src/main/kotlin/com/lifecyclebot/data/BotConfig.kt").readText()
+        assertTrue(cfg.contains("val copyTradingEnabled: Boolean = true,"))
+        assertTrue(cfg.contains("p.getBoolean(\"copy_trading_enabled\", true)"))
+    }
+
 }
