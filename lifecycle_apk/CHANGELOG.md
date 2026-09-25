@@ -4,6 +4,16 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7302] - 2026-09-25 — TREASURY IN THE IDENTITY; SNIPER CLEARS COST ON ITS NET; NO FLAT STOCK CHURN; UI OFF THE RECONCILER
+
+From the 5.0.7301 snapshot (40 min, paper): the hunts now reach owners — QUALITY 39, BLUECHIP 55, MOONSHOT 61 owner selections (from 2/1/2) and `MARKET_HUNT_*` intakes 21. Paper cash 1.28 SOL against 88 open positions, `capitalRefusals7194=430`.
+
+- **Accounting defect (from 7294): three identity checks never learned about the paper treasury.** Since 7294 the identity is `start + realized − fees == cash + openCost + treasury`; `PaperEquityCalculator6467`, `CapitalConservationTracer6469` and `CanonicalEconomicIdentity6470` still checked `cash + openCost`, so every treasury deposit read as a breach — 13 `PAPER_EQUITY_CONSERVATION_VIOLATION_6467`, 13 `CAPITAL_CONSERVATION_DELTA_6469`, 13 `CAPITAL_IDENTITY_BREACH_6470` and the report's "root cause likely" line. A 6470 breach also flips `LearningQuarantineGate6470`, so learning was being quarantined over a correct ledger. All three now count the treasury. The ledger's own replay/reconcile paths were already right (journal cash contains the treasury).
+- **PROJECT_SNIPER was refused on cost despite the best net on the book.** `COST_EXCEEDS_EDGE_REFUSED_7162` fired 173 times on it (+127% mean per close, +1.36 SOL): `expectedEdgePct` reads lane evidence only at ≥8 leaderboard trades / ≥15 rows, so at 7 closes it saw only a small score prior, which loses to a thin pool's round-trip cost. In paper, a lane at or past the damper's maturity count whose realised mean NET return (OracleTradeHistory7287 — net of every fee it paid) is positive now proceeds (`COST_EDGE_LANE_NET_POSITIVE_PROCEEDS_7302_<lane>`). Live keeps the live-terminal rule.
+- **No paper stock entries on a frozen feed.** 52 paper stock closes were all exactly 0.00% (`ADAPTIVE_HOLD_MAX`, `DEAD_TOKEN_NO_PRICE_EXIT`): off-hours the feed returns the last close, so each position could not move, paid its round trip and held a slot. Paper still trades stocks off-hours where the price moves (6560); an off-hours entry now needs that stock's feed to have changed within 30 minutes (`MARKETS_PAPER_OFFHOURS_FLAT_FEED_SKIPPED_7302`). Market hours are unchanged.
+- **UI no longer runs the forensic reconciliation.** The ANR sampler's top main-thread blocker was `UnifiedAccountSnapshot6635.read` (42 samples): nine UI surfaces read it while rendering and each read ran `ForensicReconciliation6635.reconcile6635()` inline. It now runs at most every 5 s, on a background thread when called from the main thread. Snapshot values are unchanged.
+- **Jupiter lists were cut off mid-body.** `fail=JUP_*:EXC_InterruptedIOException`, served 1/12: the inherited 12 s call timeout ended the 100-row downloads. The sweep client now has its own 25 s ceiling (it is off the hot path) and asks for 50 rows.
+
 ## [5.0.7301] - 2026-09-25 — AGREEING FEEDS ARE NOT A FILL; HUNTS REACH THE WATCHLIST; CASHGEN CAN BUY
 
 From the 5.0.7300 snapshot (354 s): GMGN smart money served 100 rows (4/4), Raydium 65, Helius 8, all four Jupiter lists 0; lanes hunted 40 each but only 3 `MARKET_HUNT` intakes; QUALITY/BLUECHIP owned 2/1 tokens, TREASURY/CASHGEN/DIP 0; `OPEN_PNL_ABSURD_GAIN_CONFIRMED_BY_REPAIR_7298` = 7,171.

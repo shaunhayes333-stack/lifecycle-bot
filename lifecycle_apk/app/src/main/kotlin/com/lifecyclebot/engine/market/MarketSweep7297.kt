@@ -103,7 +103,7 @@ object MarketSweep7297 {
     private const val MIN_SWEEP_INTERVAL_MS = 45_000L
     private const val HELIUS_INTERVAL_MS = 120_000L
     private const val HELIUS_SIGNATURES = 15
-    private const val PROVIDER_TIMEOUT_MS = 12_000L
+    private const val PROVIDER_TIMEOUT_MS = 26_000L
 
     private val QUOTE_MINTS = setOf(
         "So11111111111111111111111111111111111111112",
@@ -111,9 +111,13 @@ object MarketSweep7297 {
         "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
     )
 
+    // V5.0.7302 — the inherited 12 s callTimeout cut the 100-row Jupiter
+    // lists off mid-body (fail=EXC_InterruptedIOException, served 1/12 on
+    // 5.0.7301). The sweep runs off the hot path; it gets its own ceiling.
     private val http = SharedHttpClient.builder()
         .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(12, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .callTimeout(25, TimeUnit.SECONDS)
         .build()
 
     @Volatile private var last: Snapshot? = null
@@ -136,10 +140,10 @@ object MarketSweep7297 {
         if (runHelius) lastHeliusAtMs = now
 
         val tasks = mutableListOf<Pair<String, suspend () -> List<Row>>>(
-            "JUP_TRENDING" to { jupiterList("/toptrending/1h?limit=100", "JUP_TRENDING") },
-            "JUP_TRADED" to { jupiterList("/toptraded/1h?limit=100", "JUP_TRADED") },
-            "JUP_ORGANIC" to { jupiterList("/toporganicscore/1h?limit=100", "JUP_ORGANIC") },
-            "JUP_RECENT" to { jupiterList("/recent?limit=100", "JUP_RECENT") },
+            "JUP_TRENDING" to { jupiterList("/toptrending/1h?limit=50", "JUP_TRENDING") },
+            "JUP_TRADED" to { jupiterList("/toptraded/1h?limit=50", "JUP_TRADED") },
+            "JUP_ORGANIC" to { jupiterList("/toporganicscore/1h?limit=50", "JUP_ORGANIC") },
+            "JUP_RECENT" to { jupiterList("/recent?limit=50", "JUP_RECENT") },
             "RAYDIUM_VOLUME" to { raydiumPools() },
         )
         if (runHelius) tasks += "HELIUS_SWAPS" to { heliusSwaps(heliusKey) }

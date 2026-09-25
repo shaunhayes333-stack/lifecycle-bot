@@ -11011,4 +11011,21 @@ class GoldenTapeRegressionTest {
         assertTrue(sweep.contains("fail=\$fails"))
     }
 
+    @Test
+    fun V5_0_7302_treasury_in_identity_net_positive_lane_clears_cost_and_ui_off_reconciler() {
+        val eq = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PaperEquityCalculator6467.kt").readText()
+        assertTrue(eq.contains("val actualAccounted = cash + openCost + treasury7302"))
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("cashSol = cap6469.cashSol + (try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.treasurySol7294()"))
+        assertTrue(bs.contains("canonicalCashSol = cap6470.cashSol + (try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.treasurySol7294()"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("COST_EDGE_LANE_NET_POSITIVE_PROCEEDS_7302"))
+        val stock = java.io.File("src/main/kotlin/com/lifecyclebot/perps/TokenizedStockTrader.kt").readText()
+        assertTrue(stock.contains("if (!stockPriceMovedRecently7302(signal.market.symbol, signal.price))"))
+        val snap = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/UnifiedAccountSnapshot6635.kt").readText()
+        assertTrue(snap.contains("reconcileThrottled7302()"))
+        val sweep = java.io.File("src/main/kotlin/com/lifecyclebot/engine/market/MarketSweep7297.kt").readText()
+        assertTrue(sweep.contains(".callTimeout(25, TimeUnit.SECONDS)"))
+    }
+
 }

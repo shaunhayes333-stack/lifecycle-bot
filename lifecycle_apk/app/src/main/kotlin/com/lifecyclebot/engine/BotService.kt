@@ -18209,7 +18209,10 @@ class BotService : Service() {
                             val cap6469 = com.lifecyclebot.engine.truth.CanonicalCapitalAuthority6450.snapshot()
                             com.lifecyclebot.engine.truth.CapitalConservationTracer6469.reconcile(
                                 baselineSol = startCap6464,
-                                cashSol = cap6469.cashSol,
+                                // V5.0.7302 — the paper treasury is owned capital outside
+                                // cash since 7294; the identity must count it or it reads
+                                // the treasury balance as a conservation breach.
+                                cashSol = cap6469.cashSol + (try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.treasurySol7294() } catch (_: Throwable) { 0.0 }),
                                 openCostBasisSol = cap6469.openCostBasisSol,
                                 realizedFromLedger = cap6469.realizedPnlSol,
                                 feesFromLedger = cap6469.feesSol,
@@ -18246,7 +18249,9 @@ class BotService : Service() {
                                 startingCapitalSol = startCap6464,
                                 canonicalRealizedPnlSol = cap6470.realizedPnlSol,
                                 canonicalFeesSol = cap6470.feesSol,
-                                canonicalCashSol = cap6470.cashSol,
+                                // V5.0.7302 — cash + treasury (see 6469 above). A breach
+                                // here also quarantines learning (LearningQuarantineGate6470).
+                                canonicalCashSol = cap6470.cashSol + (try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.treasurySol7294() } catch (_: Throwable) { 0.0 }),
                                 canonicalOpenCostBasisSol = cap6470.openCostBasisSol,
                             )
                         } catch (_: Throwable) {}

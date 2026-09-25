@@ -3787,6 +3787,34 @@ class Executor(
                     PipelineHealthCollector.labelInc("COST_EDGE_ZERO_WITH_LANE_EVIDENCE_7162")
                 } catch (_: Throwable) {}
             }
+            // V5.0.7302 §A_LANE_THAT_NETS_POSITIVE_HAS_ALREADY_PAID_ITS_COSTS.
+            //
+            // 5.0.7301: PROJECT_SNIPER — the best lane on the book at +127%
+            // mean per close and +1.36 SOL net — was refused 173 times here.
+            // expectedEdgePct only reads lane evidence at >=8 leaderboard
+            // trades / >=15 journal rows, so with 7 closes it saw nothing but
+            // a small score prior, which loses to the round-trip cost of a
+            // thin pool every time. The lane's realised mean NET return
+            // (OracleTradeHistory7287: net of every fee and slippage it paid)
+            // is the direct measurement this gate estimates. In paper, a lane
+            // at or past the damper's own maturity count whose realised net
+            // mean is positive proceeds. Live keeps the live-terminal rule.
+            if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+                val netStat7302 = try {
+                    com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane(laneKey)
+                        ?: if (laneKey.equals("PROJECT_SNIPER", true)) com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane("PRESALE_SNIPE") else null
+                } catch (_: Throwable) { null }
+                if (netStat7302 != null &&
+                    netStat7302.n >= com.lifecyclebot.engine.LaneExpectancyDamper.MATURE_EVIDENCE_CLOSES_7265 &&
+                    netStat7302.meanNetPct > 0.0 && expected < required * COST_EDGE_MARGIN_7162
+                ) {
+                    try {
+                        PipelineHealthCollector.labelInc("COST_EDGE_LANE_NET_POSITIVE_PROCEEDS_7302")
+                        PipelineHealthCollector.labelInc("COST_EDGE_LANE_NET_POSITIVE_PROCEEDS_7302_${laneKey.uppercase().take(20)}")
+                    } catch (_: Throwable) {}
+                    return false
+                }
+            }
             val blocked = expected < required * COST_EDGE_MARGIN_7162
             if (blocked) {
                 try {

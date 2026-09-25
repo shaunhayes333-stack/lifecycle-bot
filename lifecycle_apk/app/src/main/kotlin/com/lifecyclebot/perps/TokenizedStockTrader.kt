@@ -1174,6 +1174,21 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
     // ═══════════════════════════════════════════════════════════════════════════
     
     // V5.7.6b: Updated to support SPOT vs LEVERAGE + LIVE mode
+    private val stockLastPrice7302 = ConcurrentHashMap<String, Pair<Double, Long>>()
+    private const val STOCK_MOVE_WINDOW_MS_7302 = 30L * 60 * 1000
+
+    /** Records [price] for [symbol]; true when it changed within the window. */
+    private fun stockPriceMovedRecently7302(symbol: String, price: Double): Boolean {
+        if (!price.isFinite() || price <= 0.0) return false
+        val now = System.currentTimeMillis()
+        val prev = stockLastPrice7302[symbol]
+        if (prev == null || kotlin.math.abs(prev.first - price) > prev.first * 1e-6) {
+            stockLastPrice7302[symbol] = price to (if (prev == null) 0L else now)
+            return prev != null
+        }
+        return prev.second > 0L && now - prev.second <= STOCK_MOVE_WINDOW_MS_7302
+    }
+
     private suspend fun executeSignal(signal: StockSignal, isSpot: Boolean = false) {
         // V5.9.953 — DO NOT open stock positions outside extended trading
         // hours. Pre-V5.9.953 behaviour: stock signals fired 24/7. Pyth
@@ -1217,6 +1232,17 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         }
         if (isPaperMode.get() && !isStockMarketOpen()) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_PAPER_24X7_EXECUTION_6560") } catch (_: Throwable) {}
+            // V5.0.7302 §A_FROZEN_LAST_CLOSE_IS_NOT_A_MARKET.
+            // 5.0.7301: 52 paper stock closes, every one at exactly 0.00%
+            // (ADAPTIVE_HOLD_MAX / DEAD_TOKEN_NO_PRICE_EXIT) — off-hours the feed
+            // returns the last close, so the position cannot move, pays its round
+            // trip and ties up slots while paper cash sat at 1.28 SOL. Paper keeps
+            // trading off-hours (6560) wherever the price is actually moving; an
+            // entry now needs this stock's feed to have changed within 30 minutes.
+            if (!stockPriceMovedRecently7302(signal.market.symbol, signal.price)) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_PAPER_OFFHOURS_FLAT_FEED_SKIPPED_7302") } catch (_: Throwable) {}
+                return
+            }
         }
         // V5.9.114: UNIFIED paper + live pipeline.
         // Per user policy — live must behave exactly like paper. All

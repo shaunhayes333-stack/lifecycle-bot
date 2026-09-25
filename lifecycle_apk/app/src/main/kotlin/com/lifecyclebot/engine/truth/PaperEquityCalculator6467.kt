@@ -33,7 +33,11 @@ object PaperEquityCalculator6467 {
         // cash-baseline-realized and therefore reported every deployed/fee-paying account as corrupt.
         // Mark-to-market value belongs to displayed equity, not this invariant.
         val expectedAccounted = baselineSol + realized - fees
-        val actualAccounted = cash + openCost
+        // V5.0.7302 — since 7294 the identity is start + realized − fees ==
+        // cash + openCost + treasury; without the treasury term every paper
+        // treasury deposit read as a conservation violation (13 on 5.0.7301).
+        val treasury7302 = try { PaperCapitalAuthority6577.treasurySol7294() } catch (_: Throwable) { 0.0 }
+        val actualAccounted = cash + openCost + treasury7302
         val delta = actualAccounted - expectedAccounted
         val snap = Snapshot(cash, mv, equity, baselineSol, delta)
         lastSnap.set(snap)

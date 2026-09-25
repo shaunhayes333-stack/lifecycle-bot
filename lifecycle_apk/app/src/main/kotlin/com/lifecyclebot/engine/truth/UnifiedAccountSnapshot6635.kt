@@ -76,6 +76,41 @@ object UnifiedAccountSnapshot6635 {
     private val lastReconciled = java.util.concurrent.ConcurrentHashMap<String, Snapshot>()
 
     @Synchronized
+    /**
+     * V5.0.7302 §A_BALANCE_READ_RAN_A_FULL_RECONCILIATION_ON_THE_UI_THREAD.
+     * 5.0.7301's ANR sampler caught UnifiedAccountSnapshot6635.read as the top
+     * main-thread blocker (42 of the samples): nine UI surfaces read it while
+     * rendering, and every read ran ForensicReconciliation6635.reconcile6635()
+     * inline. The reconciliation is observe-and-report only (read-path purity,
+     * below), so it now runs at most every [RECONCILE_EVERY_MS_7302], and a
+     * call from the main thread hands it to a background thread instead of
+     * running it there. The snapshot values themselves are unchanged.
+     */
+    private const val RECONCILE_EVERY_MS_7302 = 5_000L
+    private val lastReconcileMs7302 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val reconcileInFlight7302 = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    private fun reconcileThrottled7302() {
+        val now = System.currentTimeMillis()
+        if (now - lastReconcileMs7302.get() < RECONCILE_EVERY_MS_7302) return
+        val onMain = try {
+            android.os.Looper.myLooper() == android.os.Looper.getMainLooper()
+        } catch (_: Throwable) { false }
+        if (!onMain) {
+            lastReconcileMs7302.set(now)
+            try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
+            return
+        }
+        if (!reconcileInFlight7302.compareAndSet(false, true)) return
+        lastReconcileMs7302.set(now)
+        try {
+            Thread({
+                try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
+                finally { reconcileInFlight7302.set(false) }
+            }, "reconcile-6635").apply { isDaemon = true }.start()
+        } catch (_: Throwable) { reconcileInFlight7302.set(false) }
+    }
+
     fun read(surface: String, mode: String = "paper"): Snapshot {
         reads.incrementAndGet()
         try { PipelineHealthCollector.labelInc("HERO_UNIFIED_SNAPSHOT_READ_6635") } catch (_: Throwable) {}
@@ -84,7 +119,7 @@ object UnifiedAccountSnapshot6635 {
         // Read-path purity: reconciliation may observe and report deltas, but
         // this UI-facing method must never repair, project, refund, or mutate
         // canonical economic state as a side effect of rendering a balance.
-        try { ForensicReconciliation6635.reconcile6635() } catch (_: Throwable) {}
+        reconcileThrottled7302()
 
         val capital = try { PaperCapitalAuthority6577.snapshot() } catch (_: Throwable) { null }
         val markAuthority = try { CanonicalCapitalAuthority6450.snapshot() } catch (_: Throwable) { null }
