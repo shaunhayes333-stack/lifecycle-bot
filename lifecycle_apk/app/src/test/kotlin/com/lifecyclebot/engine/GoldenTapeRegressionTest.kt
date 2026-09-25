@@ -11061,4 +11061,16 @@ class GoldenTapeRegressionTest {
         assertFalse(p.shouldDefer(1, false, t0, t0 + p.SLOT_RELEASE_MS_7304))
     }
 
+    @Test
+    fun V5_0_7305_live_buy_keeps_its_lane_dns_cached_proven_lane_lifts() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("LIVE_BUY_LANE_RECLAIMED_FROM_RECOVERY_7305"))
+        assertTrue(ex.contains("existingPos4576.tradingMode = ownLane7305"))
+        assertTrue(ex.contains("livePendingProofPenalty = pendingProof7305,"))
+        val dns = java.io.File("src/main/kotlin/com/lifecyclebot/network/CloudflareDns.kt").readText()
+        assertTrue(dns.contains(".callTimeout(3, TimeUnit.SECONDS)"))
+        assertTrue(dns.contains("cache7305[key] = Cached7305(resolved, now)"))
+        assertFalse(dns.contains(".connectTimeout(5, TimeUnit.SECONDS)"))
+    }
+
 }

@@ -27,11 +27,24 @@ class CloudflareDns private constructor() : Dns {
     
     // Bootstrap client uses system DNS (needed to resolve DoH provider IPs)
     // We use IP addresses directly for DoH providers to avoid circular dependency
+    // V5.0.7305 — a hard per-provider ceiling. At 5 s connect + 5 s read per
+    // provider, one unanswered name cost up to 30 s before system DNS was
+    // tried; the 5.0.7304 exit sweep sat 35 s parked in DnsOverHttps.
     private val bootstrapClient = SharedHttpClient.builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.SECONDS)
-        .writeTimeout(5, TimeUnit.SECONDS)
+        .connectTimeout(2, TimeUnit.SECONDS)
+        .readTimeout(2, TimeUnit.SECONDS)
+        .writeTimeout(2, TimeUnit.SECONDS)
+        .callTimeout(3, TimeUnit.SECONDS)
         .build()
+
+    // V5.0.7305 — resolved names are cached. Nothing cached before, so every
+    // new Jupiter connection paid a DoH round trip (or three). Fresh for
+    // CACHE_FRESH_MS; if every resolver then fails, the last good answer is
+    // served for up to CACHE_STALE_MS rather than failing the request.
+    private data class Cached7305(val addrs: List<InetAddress>, val atMs: Long)
+    private val cache7305 = java.util.concurrent.ConcurrentHashMap<String, Cached7305>()
+    private val CACHE_FRESH_MS = 10 * 60_000L
+    private val CACHE_STALE_MS = 60 * 60_000L
     
     // Primary DoH provider: Cloudflare (using IP to avoid DNS)
     private val cloudflareDns: DnsOverHttps = DnsOverHttps.Builder()
@@ -64,6 +77,22 @@ class CloudflareDns private constructor() : Dns {
         .build()
     
     override fun lookup(hostname: String): List<InetAddress> {
+        val key = hostname.lowercase()
+        val now = System.currentTimeMillis()
+        val hit = cache7305[key]
+        if (hit != null && now - hit.atMs < CACHE_FRESH_MS) return hit.addrs
+        val resolved = try { resolveUncached(hostname) } catch (e: UnknownHostException) {
+            if (hit != null && now - hit.atMs < CACHE_STALE_MS) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DNS_STALE_CACHE_SERVED_7305") } catch (_: Throwable) {}
+                return hit.addrs
+            }
+            throw e
+        }
+        cache7305[key] = Cached7305(resolved, now)
+        return resolved
+    }
+
+    private fun resolveUncached(hostname: String): List<InetAddress> {
         log("🔍 DoH lookup: $hostname")
         
         // Try Cloudflare first

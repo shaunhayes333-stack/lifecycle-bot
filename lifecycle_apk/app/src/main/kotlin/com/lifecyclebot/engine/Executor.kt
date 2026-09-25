@@ -20121,6 +20121,23 @@ class Executor(
                 // score). Refusing the lift on weak candidates and
                 // taking the DUST_REFUSED branch fixes the sizing
                 // contradiction at source.
+                // V5.0.7305 — "pending proof" means no live closes yet, which
+                // is every lane on a new live wallet. A lane whose recorded
+                // net history (paper and live, OracleTradeHistory7287) is
+                // proven positive is not an unproven signal; its lift is
+                // judged on score alone. Unproven and bleeding lanes are
+                // unchanged.
+                val laneProven7305 = livePendingProofPenalty && try {
+                    val k7305 = lane7226.uppercase()
+                    com.lifecyclebot.engine.truth.LiveSlotPriority7304.isProven(
+                        com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane(k7305)
+                            ?: if (k7305 == "PROJECT_SNIPER") com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane("PRESALE_SNIPE") else null,
+                    )
+                } catch (_: Throwable) { false }
+                if (laneProven7305) {
+                    try { PipelineHealthCollector.labelInc("ROUTABLE_MIN_PROOF_PENALTY_WAIVED_PROVEN_LANE_7305") } catch (_: Throwable) {}
+                }
+                val pendingProof7305 = livePendingProofPenalty && !laneProven7305
                 val guardDecision7236 = try {
                     com.lifecyclebot.engine.truth.RoutableMinRiskGuard7236.evaluate(
                         mint = ts.mint,
@@ -20130,8 +20147,8 @@ class Executor(
                         // livePendingProofPenalty already dampens size by
                         // 0.65 upstream; represent that as the effective
                         // regime multiplier we can see at this site.
-                        regimeSizeMult = if (livePendingProofPenalty) 0.65 else 1.0,
-                        livePendingProofPenalty = livePendingProofPenalty,
+                        regimeSizeMult = if (pendingProof7305) 0.65 else 1.0,
+                        livePendingProofPenalty = pendingProof7305,
                         riskSizedSol = sol,
                         routableMinSol = routable7226.routableMinSol,
                     )
@@ -20790,6 +20807,28 @@ class Executor(
                 // to StrategyTruthLedger / learning / reports.
                 onLog("✅ Position opened during confirmation wait — late-confirm success (idempotent)", ts.mint)
                 val existingPos4576 = ts.position
+                // V5.0.7305 — the wallet reconciler can see the tokens land
+                // before this confirmation returns and open a placeholder
+                // position under WALLET_RECOVERED. The signature is ours, so
+                // the lane that bought it owns it: without this every live
+                // close taught WALLET_RECOVERED instead of the buying lane,
+                // and the 15-minute recovered-hold grace muted our own exits.
+                val ownLane7305 = routedLaneTag.ifBlank { layerTag }
+                if (ownLane7305.isNotBlank() && sig.isNotBlank() &&
+                    existingPos4576.tradingMode.uppercase() in setOf("", "WALLET_RECOVERED", "STANDARD")
+                ) {
+                    val placeholder7305 = existingPos4576.tradingMode
+                    existingPos4576.tradingMode = ownLane7305
+                    existingPos4576.tradingModeEmoji = layerTagEmoji.ifBlank { existingPos4576.tradingModeEmoji }
+                    try { RecoveredHoldGuard.clearOnFullExit(ts.mint) } catch (_: Throwable) {}
+                    try {
+                        PipelineHealthCollector.labelInc("LIVE_BUY_LANE_RECLAIMED_FROM_RECOVERY_7305")
+                        ForensicLogger.lifecycle(
+                            "LIVE_BUY_LANE_RECLAIMED_FROM_RECOVERY_7305",
+                            "mint=${ts.mint.take(10)} sig=${sig.take(16)} from=${placeholder7305.ifBlank { "BLANK" }} to=$ownLane7305",
+                        )
+                    } catch (_: Throwable) {}
+                }
                 val journalKey4576 = sig.ifBlank { "${ts.mint}:${existingPos4576.entryTime}:${existingPos4576.costSol}" }
                 if (!existingPos4576.pendingVerify &&
                     existingPos4576.qtyToken > 0.0 &&

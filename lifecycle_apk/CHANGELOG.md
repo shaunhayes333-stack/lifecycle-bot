@@ -4,6 +4,12 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7305] - 2026-09-25 — A LIVE BUY KEEPS ITS LANE; JUPITER DNS IS CACHED; PROVEN LANES LIFT TO ROUTABLE
+
+- Executor 4576 confirm path: the wallet reconciler could open a WALLET_RECOVERED placeholder before our own buy confirmed, so every live trade on 5.0.7304 journaled and closed as WALLET_RECOVERED — the buying lane never learned from live, and the 15-minute recovered-hold grace applied to our own position. With a signature in hand and a placeholder lane (WALLET_RECOVERED/STANDARD/blank), the position is re-stamped to the routed lane and the recovered-hold grace is cleared. Counter LIVE_BUY_LANE_RECLAIMED_FROM_RECOVERY_7305.
+- CloudflareDns (Jupiter + readiness clients): resolved names are cached 10 min (stale answer served up to 1 h if every resolver fails), and each DoH provider is bounded at 2 s connect/read, 3 s call. Before, every new Jupiter connection did an uncached lookup costing up to 30 s across three providers; 5.0.7304 showed jupiter_quote transport 48% (net=284) and a 35 s exit-sweep stall parked in DnsOverHttps. Counter DNS_STALE_CACHE_SERVED_7305.
+- RoutableMinRiskGuard7236 call site: the live pending-proof penalty (no live closes yet — true of every lane on a new wallet) no longer refuses the routable-minimum lift for a lane whose recorded net history is proven (OracleTradeHistory7287 n>=20, mean > 0). The score<30 refusal is unchanged; unproven and bleeding lanes are unchanged. Counter ROUTABLE_MIN_PROOF_PENALTY_WAIVED_PROVEN_LANE_7305.
+
 ## [5.0.7304] - 2026-09-25 — AN INVERTED ORACLE DOES NOT VETO; FANOUT BUDGET REFILLS; THE LAST LIVE SLOT GOES TO PROVEN EDGE
 
 - OracleEdgeProof7263.isInverted7304(): when refused candidates measurably outperform admitted ones (>=20 admit, >=10 refuse closes, margin 0.02), LearnedAdmissionAuthority6846 no longer applies the ORACLE_NEGATIVE_EXPECTANCY_6915 deny. Counter ORACLE_INVERTED_EV_NOT_HONOURED_7304; statusLine shows inverted7304=.
