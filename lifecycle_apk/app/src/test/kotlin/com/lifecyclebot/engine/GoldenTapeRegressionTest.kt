@@ -11073,4 +11073,26 @@ class GoldenTapeRegressionTest {
         assertFalse(dns.contains(".connectTimeout(5, TimeUnit.SECONDS)"))
     }
 
+    @Test
+    fun V5_0_7306_rehydrated_live_position_keeps_its_buying_lane() {
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("REHYDRATED_POSITION_LANE_RESTORED_7306"))
+        assertTrue(bs.contains("ts.position.tradingMode = recoveredLane7306"))
+        assertTrue(bs.contains("val placeholderLanes7306 = setOf(\"\", \"STANDARD\", \"WALLET_RECOVERED\")"))
+    }
+
+    @Test
+    fun V5_0_7306_unreported_volume_is_not_thin_established_tokens_route_and_lane_survives_rehydrate() {
+        val ls = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LifecycleStrategy.kt").readText()
+        assertTrue(ls.contains("val volHist = hist.filter { it.volumeH1 > 0.0 || it.volume24h > 0.0 }"))
+        assertTrue(ls.contains("THIN_MARKET_VOLUME_UNREPORTED_LIQ_PASS_7306"))
+        assertTrue(ls.contains("if (!passesGates(hist, ts)) {"))
+        assertFalse(ls.contains("        if (latest.vol < 10.0 && hist.size > 5) return false\n"))
+        val sr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenMetricStageRouter.kt").readText()
+        assertTrue(sr.contains("private fun isEstablished7306("))
+        assertFalse(sr.contains("s.liquidityUsd >= 50_000.0 && s.ageMin >= 60.0"))
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("ts.position.tradingMode = recoveredLane7306"))
+    }
+
 }

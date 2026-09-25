@@ -59,7 +59,12 @@ object TokenMetricStageRouter {
         val top = (ts.safety.topHolderPct.takeIf { it > 0.0 } ?: ts.topHolderPct ?: -1.0)
         val liqThin = liq in 1.0..2_500.0
         val topHeavy = top >= 35.0
-        val valuationAir = mcapToLiq >= 85.0 && mcap >= 150_000.0
+        // V5.0.7306 — a single pool's depth against a large cap's whole
+        // valuation is normally hundreds of x (BONK read mcapLiq=780 on one
+        // $428K pool and was staged RUG_PRONE, so it could never be BLUECHIP).
+        // Valuation air is a thin-meme test; it does not apply to an
+        // established asset.
+        val valuationAir = mcapToLiq >= 85.0 && mcap >= 150_000.0 && !isEstablished7306(ts, mcap, liq, ageMin)
         val rugProne = topHeavy || (valuationAir && (sp >= 55.0 || bp < 52.0)) || (liqThin && runup >= 80.0)
         val peakExhaustion = currentVsPeak >= 0.88 && runup >= 70.0 && (sp >= 52.0 || bp < 52.0 || ts.lastPriceChange1h >= 80.0)
         val dumping = dd >= 24.0 && (bp < 52.0 || sp >= 55.0)
@@ -97,6 +102,23 @@ object TokenMetricStageRouter {
         Snapshot(Stage.UNKNOWN, 999.0, 0.0, 0.0, 0.0, 50.0, 50.0, 0.0, 0.0, 9999.0, -1.0, "stage_error=${t.javaClass.simpleName}")
     }
 
+    /**
+     * V5.0.7306 — "established" without a watchlist clock. ageMin here is time
+     * since the token joined THIS session's watchlist, so the 4091 override's
+     * age>=60 test meant no established token could be BLUECHIP/DIP_HUNTER in
+     * the first hour of any session (5.0.7305 ran 9 minutes: $WIF, BONK and
+     * FWOG all elected QUALITY). Pool age is never populated, so the evidence
+     * used is what exists: an established-universe scanner source, or scale
+     * no fresh launch reaches, with the watchlist clock kept as a third route.
+     */
+    private fun isEstablished7306(ts: TokenState, mcap: Double, liq: Double, watchAgeMin: Double): Boolean {
+        if (mcap < 5_000_000.0 || liq < 50_000.0) return false
+        val src = ts.source.uppercase()
+        val establishedSource = src.contains("BLUECHIP") || src.contains("ESTABLISHED") ||
+            src.contains("COINGECKO") || src.contains("MARKET_HUNT_TREASURY")
+        return establishedSource || mcap >= 50_000_000.0 || watchAgeMin >= 60.0
+    }
+
     fun preferredPrimaryLane(ts: TokenState, fallback: String): String {
         val s = snapshot(ts)
         // V5.0.4091 — ESTABLISHED-TOKEN BLUECHIP OVERRIDE (operator P0: intake
@@ -110,7 +132,7 @@ object TokenMetricStageRouter {
         // the 2x-5x daily wallet-growth target. Memes don't accidentally hit
         // this gate because pump.fun launches rarely have \$5M mcap + \$50K liq
         // + 60min age all at once.
-        if (s.marketCapUsd >= 5_000_000.0 && s.liquidityUsd >= 50_000.0 && s.ageMin >= 60.0 &&
+        if (isEstablished7306(ts, s.marketCapUsd, s.liquidityUsd, s.ageMin) &&
             s.stage != Stage.RUG_PRONE && s.stage != Stage.PEAK_EXHAUSTION && s.stage != Stage.DUMPING) {
             // Dip-buyable established tokens go to DIP_HUNTER, otherwise BLUECHIP.
             return if (s.drawdownFromPeakPct >= 15.0 && s.buyPressurePct >= 50.0) "DIP_HUNTER" else "BLUECHIP"

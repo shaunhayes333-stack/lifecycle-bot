@@ -4,6 +4,18 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7306] - 2026-09-25 — A REHYDRATED LIVE POSITION KEEPS ITS BUYING LANE
+
+- BotService.rehydrateTokenStateFromTracker: wallet auto-heal can rebuild a live position while its own buy is still awaiting proof, and the rebuilt Position defaulted to tradingMode STANDARD. On 5.0.7305 the PROJECT_SNIPER buy of Bqy9DS (+0.0077 SOL, +18.5%) therefore closed as lane=STANDARD and taught STANDARD. The rebuilt position now takes its lane from the canonical open LIVE position for that mint (mirrored at buy time), falling back to the persisted live row; placeholder lanes (STANDARD, WALLET_RECOVERED, blank) are never restored. Counter REHYDRATED_POSITION_LANE_RESTORED_7306.
+
+## [5.0.7306] - 2026-09-25 — UNREPORTED VOLUME IS NOT ZERO VOLUME; ESTABLISHED TOKENS ROUTE; LANE SURVIVES REHYDRATE
+
+5.0.7305 live: FDG allowed 8 of 1150 in nine minutes; seven lanes had zero buy intents.
+
+- LifecycleStrategy.passesGates (live only): every fallback price path — synthesized pair, Birdeye overview, pump.fun frontend, open-position tick — appends a candle with volumeH1 = volume24h = 0 because it carries no volume field. SYNTH_PAIR_SOURCE_PRESERVED_7271 fired 3078 times, and the gate read "no volume reported" as "no volume traded": ~800 of 862 pre-FDG rejects were "Insufficient data: thin_market" (MOONSHOT 426, QUALITY 374), which then also fed the defensive-wait shadow path. Volume is now judged only on candles that carry a reading; with none, the token's known liquidity against minLiquidityUsd is the thin-market test. Paper is unchanged. Counter THIN_MARKET_VOLUME_UNREPORTED_LIQ_PASS_7306.
+- TokenMetricStageRouter: the 4091 established-token override (mcap >= $5M, liq >= $50K) required ageMin >= 60, but ageMin is time on this session's watchlist, so no established token could route to BLUECHIP/DIP_HUNTER in the first hour of any session ($WIF, BONK, FWOG all elected QUALITY). Established is now an established-universe scanner source, mcap >= $50M, or the watchlist clock. The valuation-air rug test (mcap/liq >= 85) no longer applies to established assets — BONK on one $428K pool read 780x and was staged RUG_PRONE.
+- BotService.rehydrateTokenStateFromTracker: auto-heal rebuilt a live position awaiting buy proof with tradingMode STANDARD, so the PROJECT_SNIPER win on Bqy9DS closed and taught STANDARD. The lane now comes from the canonical open LIVE position, else the persisted live row; placeholder lanes are never restored. Counter REHYDRATED_POSITION_LANE_RESTORED_7306.
+
 ## [5.0.7305] - 2026-09-25 — A LIVE BUY KEEPS ITS LANE; JUPITER DNS IS CACHED; PROVEN LANES LIFT TO ROUTABLE
 
 - Executor 4576 confirm path: the wallet reconciler could open a WALLET_RECOVERED placeholder before our own buy confirmed, so every live trade on 5.0.7304 journaled and closed as WALLET_RECOVERED — the buying lane never learned from live, and the 15-minute recovered-hold grace applied to our own position. With a signature in hand and a placeholder lane (WALLET_RECOVERED/STANDARD/blank), the position is re-stamped to the routed lane and the recovered-hold grace is cleared. Counter LIVE_BUY_LANE_RECLAIMED_FROM_RECOVERY_7305.

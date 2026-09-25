@@ -8203,6 +8203,21 @@ class BotService : Service() {
                 useTrackerBasis -> "HOST_WALLET_TRACKER_REHYDRATED_SANITY_OK"
                 else -> "HOST_WALLET_TRACKER_BASIS_UNKNOWN"
             }
+            // V5.0.7306 — the lane that bought this mint. Auto-heal can rebuild a
+            // live position while its own buy is still awaiting proof; the rebuilt
+            // Position defaulted to STANDARD, so the 5.0.7305 PROJECT_SNIPER
+            // winner closed and taught STANDARD. The canonical open position
+            // (mirrored at buy time) and the persisted row both carry the lane.
+            val placeholderLanes7306 = setOf("", "STANDARD", "WALLET_RECOVERED")
+            val recoveredLane7306 = try {
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                    .firstOrNull { it.mint == mint && it.mode.equals("LIVE", ignoreCase = true) }
+                    ?.lane?.trim()?.uppercase()?.takeIf { it !in placeholderLanes7306 }
+            } catch (_: Throwable) { null } ?: try {
+                com.lifecyclebot.engine.PositionPersistence.loadPositions()[mint]
+                    ?.takeIf { !it.isPaperPosition }
+                    ?.tradingMode?.trim()?.uppercase()?.takeIf { it !in placeholderLanes7306 }
+            } catch (_: Throwable) { null }
             ts.position = com.lifecyclebot.data.Position(
                 qtyToken = qty,
                 entryPrice = recoveredEntryUsd,
@@ -8212,6 +8227,13 @@ class BotService : Service() {
                 entryPriceSource = recoveredSource,
                 priceBasisRescaled = useMetaBasis || useTrackerBasis,
             )
+            if (recoveredLane7306 != null) {
+                ts.position.tradingMode = recoveredLane7306
+                try {
+                    PipelineHealthCollector.labelInc("REHYDRATED_POSITION_LANE_RESTORED_7306")
+                    ForensicLogger.lifecycle("REHYDRATED_POSITION_LANE_RESTORED_7306", "mint=${mint.take(10)} lane=$recoveredLane7306")
+                } catch (_: Throwable) {}
+            }
             if (ts.position.entryPrice <= 0.0 || ts.position.costSol <= 0.0) {
                 try { com.lifecyclebot.engine.sell.RecoveryLockTracker.lock(mint = mint, symbol = sym, reason = "HOST_WALLET_TRACKER_BASIS_UNKNOWN") } catch (_: Throwable) {}
                 try { ForensicLogger.lifecycle("TOKEN_STATE_REHYDRATED_BASIS_LOCKED", "mint=${mint.take(10)} symbol=$sym trackerEntry=$trackerEntryUsd metaEntry=$metaEntryUsd current=$currentUsd qty=$qty source=$recoveredSource") } catch (_: Throwable) {}

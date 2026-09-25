@@ -96,7 +96,7 @@ class LifecycleStrategy(
             ErrorLogger.debug("Strategy", "${ts.symbol}: bootstrap - only ${hist.size} candles (need $minCandles)")
             return StrategyResult("bootstrap", "WAIT", 0.0, 0.0, StrategyMeta())
         }
-        if (!passesGates(hist)) {
+        if (!passesGates(hist, ts)) {
             ErrorLogger.debug("Strategy", "${ts.symbol}: thin_market - failed gates")
             return StrategyResult("thin_market", "WAIT", 0.0, 0.0, StrategyMeta())
         }
@@ -1684,7 +1684,7 @@ class LifecycleStrategy(
         return score.coerceIn(0.0, 100.0)
     }
 
-    private fun passesGates(hist: List<Candle>): Boolean {
+    private fun passesGates(hist: List<Candle>, ts: TokenState): Boolean {
         val latest = hist.last()
         val isPaperMode = cfg().paperMode
         
@@ -1697,28 +1697,45 @@ class LifecycleStrategy(
             return true  // Skip all other gates in paper mode
         }
         
-        // REAL MODE: Apply all gates
-        if (latest.vol < 10.0 && hist.size > 5) return false
+        // V5.0.7306 §UNKNOWN_VOLUME_IS_NOT_ZERO_VOLUME.
+        // Every fallback price path (synthesized pair, Birdeye overview,
+        // pump.fun frontend, open-position tick) appends a candle with
+        // volumeH1 = volume24h = 0 because it has no volume field at all.
+        // 5.0.7305 live: SYNTH_PAIR_SOURCE_PRESERVED_7271=3078 and ~800 of 862
+        // pre-FDG rejects were "Insufficient data: thin_market" — the gates
+        // below read "no volume reported" as "no volume traded" and refused
+        // every token whose last few prices came from a fallback. Volume is
+        // judged only on candles that carry a volume reading. With none at
+        // all, the token's known liquidity is the thin-market test instead.
+        val c = cfg()
+        val volHist = hist.filter { it.volumeH1 > 0.0 || it.volume24h > 0.0 }
+        val lastVol = volHist.lastOrNull()
+        if (lastVol != null) {
+            if (lastVol.vol < 10.0 && volHist.size > 5) return false
+        } else if (hist.size > 5) {
+            val liq = ts.lastLiquidityUsd
+            if (!liq.isFinite() || liq < c.minLiquidityUsd) return false
+            try { PipelineHealthCollector.labelInc("THIN_MARKET_VOLUME_UNREPORTED_LIQ_PASS_7306") } catch (_: Throwable) {}
+        }
 
         // v4.4: Signal-based liquidity gate — replaces crude time filter
         // Thin markets = wide spreads, easy manipulation, rug risk
-        val c = cfg()
-        if (c.liquidityGateEnabled && hist.size > 8) {
-            val recentVol = sma(hist.takeLast(3).map { it.vol }).coerceAtLeast(1.0)
-            val baseVol   = sma(hist.takeLast(12).map { it.vol }).coerceAtLeast(1.0)
+        if (c.liquidityGateEnabled && volHist.size > 8) {
+            val recentVol = sma(volHist.takeLast(3).map { it.vol }).coerceAtLeast(1.0)
+            val baseVol   = sma(volHist.takeLast(12).map { it.vol }).coerceAtLeast(1.0)
             // Absolute floor: if recent volume is negligible, skip
             if (recentVol < c.minLiquidityUsd / 100.0) return false
             // Relative floor: if volume has completely dried up vs baseline, skip
-            if (hist.size > 10 && recentVol / baseVol < c.minVolLiqRatio) return false
+            if (volHist.size > 10 && recentVol / baseVol < c.minVolLiqRatio) return false
         }
         // Hard gate: rapid holder decline + dying volume = slow bleed
         // (This is a hard block; applyEstablishedTokenScore handles graduated penalties)
-        if (hist.size >= 20) {
+        if (hist.size >= 20 && volHist.size >= 20) {
             val rh = hist.takeLast(3).map { it.holderCount }.filter { it > 0 }
             val eh = hist.takeLast(10).take(5).map { it.holderCount }.filter { it > 0 }
             if (rh.isNotEmpty() && eh.isNotEmpty()) {
-                val rv2 = sma(hist.takeLast(3).map { it.vol }).coerceAtLeast(1.0)
-                val bv2 = sma(hist.takeLast(20).map { it.vol }).coerceAtLeast(1.0)
+                val rv2 = sma(volHist.takeLast(3).map { it.vol }).coerceAtLeast(1.0)
+                val bv2 = sma(volHist.takeLast(20).map { it.vol }).coerceAtLeast(1.0)
                 // Only hard-block on severe decline: >15% holder drop AND vol <30% baseline
                 if (rh.average() < eh.average() * 0.85 && rv2 < bv2 * 0.30) return false
             }
