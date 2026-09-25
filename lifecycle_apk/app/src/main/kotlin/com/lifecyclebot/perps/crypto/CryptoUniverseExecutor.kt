@@ -249,6 +249,21 @@ object CryptoUniverseExecutor {
         }
 
         val sig = bridge.swapTxSig?.trim().orEmpty()
+        // V5.0.7313 — a confirmed swap signature whose target delta the bridge
+        // could not prove yet is NOT a failed buy: the SOL is spent and the
+        // token is (normally) in the wallet. Returning ExecFailed left those
+        // tokens unmanaged (TNSR/CAKE/XMR) and armed a failure cooldown. It is
+        // accepted as VerifyPending; wallet proof owns promotion.
+        if (!bridge.success && sig.isNotBlank() && bridge.proofState == "SIGNATURE_ONLY_UNPROVED") {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CU_SIGNATURE_UNPROVED_ACCEPTED_PENDING_7313")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle("CU_SIGNATURE_UNPROVED_ACCEPTED_PENDING_7313",
+                    "symbol=$symbol mint=${mint.take(10)} sig=${sig.take(16)} reason=${bridge.errorMsg.take(120)}")
+            } catch (_: Throwable) {}
+            CryptoUniverseForensics.logPhase("CU_VERIFY_PENDING", symbol, mint, mint, bridge.sourceMint, bridge.targetMint,
+                resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, sig, job.id, "signature confirmed, target delta unproved — awaiting wallet proof")
+            return@runAwaited Outcome.VerifyPending(sig, mint, resolution, bridge.proofState)
+        }
         if (!bridge.success || sig.isBlank()) {
             CryptoExecFailureTracker.recordFailure(symbol)
             val reason = bridge.errorMsg.ifBlank { "bridge/Jupiter returned no signature" }

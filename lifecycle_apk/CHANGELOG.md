@@ -4,6 +4,14 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7313] - 2026-09-26 — LIVE CRYPTO BUYS STOP VANISHING
+
+5.0.7309 live CRYPTO_ALT funnel: dispatch=8 dispatchReject=0 unexplained=0 open=0.
+
+- CryptoUniverseExecutor: UniversalBridgeEngine returns success=false with a confirmed swap signature when the target token delta is not yet proved (SIGNATURE_ONLY_UNPROVED). The executor treated that as ExecFailed — no position, a failure cooldown armed, and the bought token left unmanaged in the wallet (TNSR / CAKE / XMR). A confirmed signature with an unproved delta is now VerifyPending (the existing accepted-pending outcome; wallet proof owns promotion). The "target did not land / intermediate held" path is unchanged. Counter CU_SIGNATURE_UNPROVED_ACCEPTED_PENDING_7313.
+- CanonicalEntryAuthority6551: pending intents expired at 2 min from creation even after dispatch; a live bridge + confirmation can take longer, the attempt went terminal EXPIRED and its later markConfirmed was dropped as a duplicate terminal. Dispatched attempts now expire at 10 min.
+- A dispatched attempt that then failed had no funnel bucket. It is now counted: DISPATCH_FAIL_7313_<ASSET> and DISPATCH_FAIL_7313_<ASSET>_<reason>, with a DISPATCH_FAIL_7313 forensic line.
+
 ## [5.0.7312] - 2026-09-26 — THE CRYPTO BRAIN ACTS ON THE BEST OF THE MARKET
 
 - CryptoAltTrader.scoreDynamicCrypto7244: CryptoFluidLearning's spot floors rise with trade COUNT (bootstrap 48/42 -> learning 55/50 -> validating 62/58 -> maturing 68/64 -> ready 72/68) while the native score has no learned term that rises with them; confidence tops out near 42 + |24h change| + |buy pressure - 50|/2 + 6, and a token without a buy/sell split reads ~50. Past bootstrap almost nothing could clear it — 5.0.7309: 1394 CRYPTO_BRAIN_OBSERVE_7244, 1376 NO_ACTIONABLE_SIGNAL, cryptoBrainSignals=0, ~1200 evaluations expired stale. The floor is now min(maturity floor, 90th percentile of the last 400 scores/confidences), never below the bootstrap floor (48/42), with the maturity floor alone until 50 samples. The long-evidence requirement and the losing-pattern shadow gate are unchanged. Counter CRYPTO_FLOOR_MARKET_DECILE_7312.

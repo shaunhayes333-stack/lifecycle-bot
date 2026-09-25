@@ -11192,4 +11192,14 @@ class GoldenTapeRegressionTest {
         assertTrue(src.contains("if (recent.size < 50) return maturityFloor"))
     }
 
+    @Test
+    fun V5_0_7313_crypto_dispatch_failures_counted_unproved_signature_pending_long_ttl() {
+        val ca = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt").readText()
+        assertTrue(ca.contains("DISPATCHED_TTL_MS_7313 = 10 * 60 * 1000L"))
+        assertTrue(ca.contains("DISPATCH_FAIL_7313_"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoUniverseExecutor.kt").readText()
+        assertTrue(ex.contains("bridge.proofState == \"SIGNATURE_ONLY_UNPROVED\""))
+        assertTrue(ex.contains("CU_SIGNATURE_UNPROVED_ACCEPTED_PENDING_7313"))
+    }
+
 }

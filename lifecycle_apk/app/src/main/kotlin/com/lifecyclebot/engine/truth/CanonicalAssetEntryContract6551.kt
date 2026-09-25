@@ -58,6 +58,7 @@ sealed class CanonicalAssetEntryResult6551 {
  */
 object CanonicalEntryAuthority6551 {
     private const val PENDING_TTL_MS_6554 = 2 * 60 * 1000L
+    private const val DISPATCHED_TTL_MS_7313 = 10 * 60 * 1000L
     private val pending = ConcurrentHashMap<String, ExecutableOpenGate.ExecutionIntent>()
     private val dispatchedAttempts6569 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val immutableIntentAttempts6647 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -70,7 +71,12 @@ object CanonicalEntryAuthority6551 {
     private fun expirePending6554() {
         val now = System.currentTimeMillis()
         pending.entries.removeIf { (_, intent) ->
-            val expired = now - intent.createdAt > PENDING_TTL_MS_6554
+            // V5.0.7313 — a DISPATCHED attempt is a live swap in flight (a bridge
+            // + confirmation can exceed 2 min). Expiring it at 2 min marked it
+            // terminal, so its later markConfirmed was dropped as a duplicate
+            // terminal and a real open never counted. Dispatched: 10 min.
+            val ttl7313 = if (intent.attemptId in dispatchedAttempts6569) DISPATCHED_TTL_MS_7313 else PENDING_TTL_MS_6554
+            val expired = now - intent.createdAt > ttl7313
             if (expired) try {
                 val firstTerminal6647 = terminalByAttempt6647.putIfAbsent(intent.attemptId, "EXPIRED") == null
                 dispatchedAttempts6569.remove(intent.attemptId)
@@ -399,6 +405,14 @@ object CanonicalEntryAuthority6551 {
         val wasDispatched6647 = dispatchedAttempts6569.remove(intent.attemptId)
         if (!wasDispatched6647)
             CanonicalEntryAuthority6540.markDispatchRejectFor6569(intentAssetClass6569(intent), intent.symbol, "$state:$reason")
+        else try {
+            // V5.0.7313 — dispatched, then failed: had no bucket, so the funnel
+            // read dispatch=8 dispatchReject=0 open=0 with nothing unexplained.
+            val cls7313 = intentAssetClass6569(intent).tag
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DISPATCH_FAIL_7313_$cls7313")
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DISPATCH_FAIL_7313_${cls7313}_${reason.substringBefore(':').take(40)}")
+            ForensicLogger.lifecycle("DISPATCH_FAIL_7313", "asset=$cls7313 symbol=${intent.symbol} state=$state reason=${reason.take(160)}")
+        } catch (_: Throwable) {}
         if (pending.remove("${intent.mode}:${intent.mint}:${intent.candidateVersion}") != null) {
             try {
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CANONICAL_PENDING_${state}_RELEASE")
