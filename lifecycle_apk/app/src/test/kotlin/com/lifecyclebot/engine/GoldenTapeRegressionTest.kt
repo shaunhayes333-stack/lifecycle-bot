@@ -11419,4 +11419,25 @@ class GoldenTapeRegressionTest {
         assertTrue(ex.indexOf("raydiumBuy7325 = tryRaydiumBuy7325") < ex.indexOf("BUY ABORTED: all slippage levels failed"))
     }
 
+    @Test
+    fun V5_0_7326_crypto_executes_through_the_stack_it_has() {
+        val ube = java.io.File("src/main/kotlin/com/lifecyclebot/engine/UniversalBridgeEngine.kt").readText()
+        assertTrue(ube.contains("jupiter.buildSwapTx(quote, wallet.publicKeyB58, senderTipLamports = SENDER_TIP_LAMPORTS_7326)"))
+        assertTrue(ube.contains("senderCompatible = txResult.senderCompatible,"))
+        assertTrue(ube.contains("taker      = wallet.publicKeyB58,"))
+        assertTrue(ube.contains("proofState = \"SIGNATURE_ONLY_UNPROVED\","))
+        val cue = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoUniverseExecutor.kt").readText()
+        assertTrue(cue.contains("JupiterApi(\"\").getQuoteWithTaker(UniversalBridgeEngine.SOL_MINT, mint, sizeLamports7326, SLIPPAGE_BPS, wallet.publicKeyB58)"))
+        assertTrue(cue.contains("sourceMint = UniversalBridgeEngine.SOL_MINT)"))
+        assertTrue(cue.contains("private fun tryRaydiumBuy7326("))
+        assertFalse(cue.contains("routeProbeUsdcRaw"))
+        val mle = java.io.File("src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt").readText()
+        assertTrue(mle.contains("private fun executeJupiterSwapCore7326("))
+        assertTrue(mle.contains("if (outputMint != JupiterApi.SOL_MINT) return null"))
+        assertTrue(mle.contains("senderCompatible = txResult.senderCompatible,  // V5.0.7326 — Helius Sender"))
+        val reg = java.io.File("src/main/kotlin/com/lifecyclebot/perps/DynamicAltTokenRegistry.kt").readText()
+        assertTrue(reg.contains("\"JTO\"      to \"jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL\""))
+        assertTrue(reg.contains("\"TNSR\"     to \"TNSRxcUxoT9xBG3de7PiJyTDYu7kskLqcpddxnEJAS6\""))
+    }
+
 }

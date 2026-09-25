@@ -24,6 +24,22 @@ import kotlinx.coroutines.CancellationException
  */
 object CryptoUniverseExecutor {
 
+    /** V5.0.7326 — Raydium SOL -> target buy, Helius Sender first. Null on any failure. */
+    private fun tryRaydiumBuy7326(wallet: com.lifecyclebot.network.SolanaWallet, mint: String, lamports: Long): String? = try {
+        val built = com.lifecyclebot.network.RaydiumSellRoute7311.buildBuy(wallet, mint, lamports, SLIPPAGE_BPS * 2)
+        val sig = com.lifecyclebot.network.RaydiumSellRoute7311.sendBuilt(wallet, built, 200_000L, false, 0L)
+        try {
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                if (sig.isNullOrBlank()) "CU_RAYDIUM_BUY_FAILED_7326" else "CU_RAYDIUM_BUY_LANDED_7326",
+            )
+        } catch (_: Throwable) {}
+        sig?.takeIf { it.isNotBlank() }
+    } catch (e: Throwable) {
+        if (e is CancellationException) throw e
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CU_RAYDIUM_BUY_FAILED_7326") } catch (_: Throwable) {}
+        null
+    }
+
     private const val TAG = "CryptoUniverseExecutor"
     private const val USDC_MINT = UniversalBridgeEngine.USDC_MINT
     private const val SOL_MINT = UniversalBridgeEngine.SOL_MINT
@@ -182,22 +198,34 @@ object CryptoUniverseExecutor {
 
         val solPriceUsd = WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 150.0
         val sizeUsd = sizeSol * solPriceUsd
-        val routeProbeUsdcRaw = (sizeUsd.coerceAtLeast(1.0) * 1_000_000.0).toLong()
+        val sizeLamports7326 = (sizeSol * 1_000_000_000.0).toLong()
 
-        // Hard route proof: USDC -> target. The capital engine may source SOL or
-        // another wallet token, but if Jupiter cannot route the USDC rail to the
-        // target mint, Crypto Universe must stay paper-only.
+        // V5.0.7326 — route proof IS the order that will run: SOL -> target,
+        // binding with the wallet as taker, in the execution scope (our own
+        // backoff cannot refuse it; v6-first so it can go out via Sender).
+        // The old USDC -> target probe proved a route the SOL-funded swap never
+        // used, added a non-exempt Jupiter call per attempt, and was the source
+        // of ROUTE_DISCOVERY_FAILED (14 on 5.0.7321).
         val routeQuote = try {
-            CryptoUniverseForensics.logPhase("CU_QUOTE_REQUEST", symbol, mint, mint, USDC_MINT, mint, resolution.route.name, SLIPPAGE_BPS, null, null, job.id, "probe USDC→target amountUsd=${"%.2f".format(sizeUsd)}")
-            JupiterApi("").getQuote(USDC_MINT, mint, routeProbeUsdcRaw, SLIPPAGE_BPS)
+            CryptoUniverseForensics.logPhase("CU_QUOTE_REQUEST", symbol, mint, mint, UniversalBridgeEngine.SOL_MINT, mint, resolution.route.name, SLIPPAGE_BPS, null, null, job.id, "probe SOL→target sizeSol=${"%.4f".format(sizeSol)}")
+            com.lifecyclebot.network.ExitHttpScope7314.run {
+                JupiterApi("").getQuoteWithTaker(UniversalBridgeEngine.SOL_MINT, mint, sizeLamports7326, SLIPPAGE_BPS, wallet.publicKeyB58)
+            }
         } catch (ce: CancellationException) {
             CryptoUniverseForensics.logPhase("CU_QUOTE_REJECTED", symbol, mint, mint, USDC_MINT, mint, resolution.route.name, SLIPPAGE_BPS, null, null, job.id, "cancelled: ${ce.message}")
             throw ce
         } catch (t: Throwable) {
+            // V5.0.7326 — Jupiter is not the only venue: try Raydium (Sender-first).
+            if (direction == PerpsDirection.LONG) {
+                tryRaydiumBuy7326(wallet, mint, sizeLamports7326)?.let { raySig ->
+                    CryptoUniverseForensics.logPhase("CU_VERIFY_PENDING", symbol, mint, mint, "SOL", mint, "RAYDIUM_7326", SLIPPAGE_BPS, null, raySig, job.id, "Jupiter had no route; Raydium buy confirmed — awaiting wallet proof")
+                    return@runAwaited Outcome.VerifyPending(raySig, mint, resolution, "RAYDIUM_SIGNATURE_CONFIRMED_7326")
+                }
+            }
             val paper = resolution.copy(
                 route = CryptoExecutionRoute.PAPER_ONLY,
                 diagCode = CryptoUniverseDiagCodes.ROUTE_DISCOVERY_FAILED,
-                humanMessage = "No Jupiter USDC→target route: ${t.message ?: t.javaClass.simpleName}",
+                humanMessage = "No Jupiter SOL→target route (Raydium also failed): ${t.message ?: t.javaClass.simpleName}",
                 executable = false,
             )
             CryptoUniverseForensics.logPhase("CU_QUOTE_REJECTED", symbol, mint, mint, USDC_MINT, mint, paper.route.name, SLIPPAGE_BPS, null, null, job.id, paper.humanMessage)
@@ -208,6 +236,13 @@ object CryptoUniverseExecutor {
         val outputCheck = MintIntegrityGate.validateQuoteOutput(symbol, mint, routeQuote.outputMint)
         if (outputCheck is MintIntegrityGate.Result.Reject || routeQuote.priceImpactPct > MAX_PRICE_IMPACT_PCT) {
             val why = if (outputCheck is MintIntegrityGate.Result.Reject) outputCheck.reason else "priceImpact ${routeQuote.priceImpactPct}% > $MAX_PRICE_IMPACT_PCT%"
+            // V5.0.7326 — a thin Jupiter route is not proof every venue is thin.
+            if (outputCheck !is MintIntegrityGate.Result.Reject && direction == PerpsDirection.LONG) {
+                tryRaydiumBuy7326(wallet, mint, sizeLamports7326)?.let { raySig ->
+                    CryptoUniverseForensics.logPhase("CU_VERIFY_PENDING", symbol, mint, mint, "SOL", mint, "RAYDIUM_7326", SLIPPAGE_BPS, null, raySig, job.id, "Jupiter impact too high; Raydium buy confirmed — awaiting wallet proof")
+                    return@runAwaited Outcome.VerifyPending(raySig, mint, resolution, "RAYDIUM_SIGNATURE_CONFIRMED_7326")
+                }
+            }
             val paper = resolution.copy(
                 route = CryptoExecutionRoute.PAPER_ONLY,
                 diagCode = CryptoUniverseDiagCodes.ROUTE_DISCOVERY_FAILED,
@@ -236,7 +271,10 @@ object CryptoUniverseExecutor {
         CryptoUniverseForensics.logPhase("CU_TX_BUILD_START", symbol, mint, mint, "CAPITAL_RAIL", mint, resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, null, job.id, "UniversalBridge prepareCapital sizeUsd=${"%.2f".format(sizeUsd)}")
 
         val bridge = try {
-            UniversalBridgeEngine.prepareCapital(wallet, targetMint = mint, sizeUsd = sizeUsd)
+            // V5.0.7326 — fund from SOL, the currency sizing, floors and the
+            // route proof are all in (USDC/USDT dust above $1 used to be chosen
+            // first and produce partial fills booked at the full SOL cost).
+            UniversalBridgeEngine.prepareCapital(wallet, targetMint = mint, sizeUsd = sizeUsd, sourceMint = UniversalBridgeEngine.SOL_MINT)
         } catch (ce: CancellationException) {
             CryptoUniverseForensics.logPhase("CU_TX_BUILD_FAILED", symbol, mint, mint, "CAPITAL_RAIL", mint, resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, null, job.id, "cancelled: ${ce.message}")
             throw ce

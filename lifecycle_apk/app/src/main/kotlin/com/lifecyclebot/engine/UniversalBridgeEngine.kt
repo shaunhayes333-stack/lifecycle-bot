@@ -550,6 +550,11 @@ object UniversalBridgeEngine {
                 targetAmountUi = 0.0,
                 swapTxSig = txSig,
                 errorMsg = "Target token did not land after Jupiter swap — recovery record created if intermediate held",
+                // V5.0.7326 — a CONFIRMED swap whose delta was not yet seen is
+                // signature-only, not a failure: the executor's 7313 branch
+                // then books it VerifyPending instead of EXEC_FAILED (which
+                // left the tokens unmanaged and armed the failure cooldown).
+                proofState = "SIGNATURE_ONLY_UNPROVED",
             )
         }
 
@@ -644,12 +649,19 @@ object UniversalBridgeEngine {
         amountRaw: Long,
         slippageBps: Int,
     ): String? = withContext(Dispatchers.IO) {
-        try {
-            val quote = jupiter.getQuote(
+        // V5.0.7326 — the crypto / markets swap now runs the meme pipeline:
+        // execution scope (our own backoff can't refuse it), a BINDING quote
+        // with the wallet as taker (an RFQ decline surfaces here, and v6 is
+        // tried — 7241), and a Helius Sender envelope on the built tx
+        // (senderCompatible), instead of a non-binding Ultra quote re-ordered
+        // at build time and sent with no Sender, no Jito.
+        com.lifecyclebot.network.ExitHttpScope7314.run { try {
+            val quote = jupiter.getQuoteWithTaker(
                 inputMint  = inputMint,
                 outputMint = outputMint,
                 amountRaw  = amountRaw,
                 slippageBps= slippageBps,
+                taker      = wallet.publicKeyB58,
             )
             if (quote.outAmount <= 0) {
                 ErrorLogger.warn(TAG, "Quote returned 0 output for ${mintLabel(inputMint)} → ${mintLabel(outputMint)}")
@@ -660,11 +672,16 @@ object UniversalBridgeEngine {
                 return@withContext null
             }
 
-            val txResult = jupiter.buildSwapTx(quote, wallet.publicKeyB58)
+            val txResult = jupiter.buildSwapTx(quote, wallet.publicKeyB58, senderTipLamports = SENDER_TIP_LAMPORTS_7326)
             if (txResult.txBase64.isEmpty()) {
                 ErrorLogger.warn(TAG, "Empty swap tx for bridge")
                 return@withContext null
             }
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                    if (txResult.senderCompatible) "BRIDGE_SWAP_SENDER_ENVELOPE_7326" else "BRIDGE_SWAP_NO_SENDER_ENVELOPE_7326",
+                )
+            } catch (_: Throwable) {}
 
             wallet.signSendAndConfirm(
                 txBase64      = txResult.txBase64,
@@ -673,12 +690,16 @@ object UniversalBridgeEngine {
                 ultraRequestId  = if (quote.isUltra) txResult.requestId else null,
                 jupiterApiKey   = "",
                 isRfqRoute      = txResult.isRfqRoute,
+                senderCompatible = txResult.senderCompatible,
             )
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "Jupiter bridge swap error: ${e.message}", e)
             null
-        }
+        } }
     }
+
+    /** V5.0.7326 — Sender tip for bridge swaps (same 200k floor the meme path uses). */
+    private const val SENDER_TIP_LAMPORTS_7326 = 200_000L
 
     private fun estimateUsdValue(mint: String, amount: Double): Double {
         val known = approxPricesUsd[mint]

@@ -4,6 +4,15 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7326] - 2026-09-26 — CRYPTO EXECUTES THROUGH THE STACK IT HAS
+
+- Crypto live buys failed (ROUTE_DISCOVERY_FAILED 14, EXEC_FAILED 7) while none of the meme execution stack reached them: every crypto Jupiter swap (UniversalBridgeEngine buy, MarketsLiveExecutor close) used a non-binding Ultra quote re-ordered at build time (the 7241 RFQ-decline bug), sent with no Helius Sender and no Jito, outside the execution scope (our own backoff could refuse it).
+- UniversalBridgeEngine and MarketsLiveExecutor swaps now: binding taker quote, execution scope, Helius Sender envelope (senderCompatible) — the meme pipeline. This also covers tokenized-stock/markets spot buys.
+- CryptoUniverseExecutor: the route proof is the order that runs (SOL -> target binding quote) instead of a USDC -> target probe the SOL-funded swap never used; capital is sourced from SOL (USDC/USDT dust above $1 was chosen first and produced partial fills booked at full cost); Raydium (Sender-first) is tried when Jupiter has no route or its impact is too high — before any Jupiter tx is sent, so it can never double-buy.
+- A confirmed bridge swap whose delta was not yet seen is SIGNATURE_ONLY_UNPROVED -> VerifyPending, not EXEC_FAILED (which left tokens unmanaged and armed the cooldown).
+- The crypto close gets a second venue: Raydium sell (Sender-first) when Jupiter produced no signature. Buys never fall back after a send (a sent-but-unconfirmed buy could land twice).
+- PYTH, JTO and TNSR seed mints corrected (the old values never quoted).
+
 ## [5.0.7325] - 2026-09-26 — RAYDIUM IS THE THIRD LIVE BUY BUILDER
 
 - Live meme buys tried PumpPortal, then the Jupiter ladder, and aborted as QUOTE_EXHAUSTED when Jupiter had no route. The Raydium trade-API builder (7311, sells only until now) now also builds SOL -> token buys (wrapSol, ATA created by the tx) and is tried before the buy aborts. Its transactions are wrapped in the Helius Sender envelope and sent Helius-first, then Jito/RPC. A Raydium fill takes the identical confirmed-buy path as a PumpPortal fill (wallet-delta qty or price math + PendingReconcileQueue proof) (RAYDIUM_BUY_BUILT/LANDED/FAILED_7325).

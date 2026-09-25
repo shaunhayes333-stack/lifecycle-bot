@@ -1024,7 +1024,45 @@ object MarketsLiveExecutor {
      * 3. Sign with wallet
      * 4. Send and confirm
      */
+    /**
+     * V5.0.7326 — Jupiter first (binding quote, execution scope, Helius Sender
+     * envelope), then — for SELLS (token -> SOL), notably the crypto close,
+     * which had no second venue at all — Raydium's builder (Sender-first)
+     * when Jupiter produced no signature.
+     */
     private suspend fun executeJupiterSwap(
+        wallet: SolanaWallet,
+        walletAddress: String,
+        inputMint: String,
+        outputMint: String,
+        amountLamports: Long,
+        slippageBps: Int,
+    ): String? {
+        executeJupiterSwapCore7326(wallet, walletAddress, inputMint, outputMint, amountLamports, slippageBps)?.let { return it }
+        // Sells only: a Jupiter BUY that was sent but not confirmed may still
+        // land, and a second venue would double the position. A duplicate SELL
+        // of an already-sold bag simply fails on chain.
+        if (outputMint != JupiterApi.SOL_MINT) return null
+        return try {
+            val built = com.lifecyclebot.network.RaydiumSellRoute7311.buildSell(wallet, inputMint, amountLamports, slippageBps.coerceAtLeast(300))
+            val sig = com.lifecyclebot.network.ExitHttpScope7314.run {
+                com.lifecyclebot.network.RaydiumSellRoute7311.sendBuilt(wallet, built, 200_000L, false, 0L)
+            }
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                    if (sig.isNullOrBlank()) "MARKETS_RAYDIUM_FALLBACK_FAILED_7326" else "MARKETS_RAYDIUM_FALLBACK_LANDED_7326",
+                )
+            } catch (_: Throwable) {}
+            sig?.takeIf { it.isNotBlank() }
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_RAYDIUM_FALLBACK_FAILED_7326") } catch (_: Throwable) {}
+            ErrorLogger.warn(TAG, "  Raydium fallback failed: ${e.message}")
+            null
+        }
+    }
+
+    private fun executeJupiterSwapCore7326(
         wallet: SolanaWallet,
         walletAddress: String,
         inputMint: String,
@@ -1039,12 +1077,16 @@ object MarketsLiveExecutor {
                 // Step 1: Get quote
                 ErrorLogger.debug(TAG, "  Getting Jupiter quote (attempt ${attempt + 1})...")
                 val quote = try {
-                    api.getQuote(
-                        inputMint = inputMint,
-                        outputMint = outputMint,
-                        amountRaw = amountLamports,
-                        slippageBps = slippageBps,
-                    )
+                    // V5.0.7326 — binding (taker) quote, in the execution scope.
+                    com.lifecyclebot.network.ExitHttpScope7314.run {
+                        api.getQuoteWithTaker(
+                            inputMint = inputMint,
+                            outputMint = outputMint,
+                            amountRaw = amountLamports,
+                            slippageBps = slippageBps,
+                            taker = walletAddress,
+                        )
+                    }
                 } catch (e: Exception) {
                     ErrorLogger.warn(TAG, "  Quote failed: ${e.message}")
                     return null
@@ -1065,7 +1107,9 @@ object MarketsLiveExecutor {
                 // Step 2: Build transaction
                 ErrorLogger.debug(TAG, "  Building transaction...")
                 val txResult = try {
-                    api.buildSwapTx(quote, walletAddress)
+                    com.lifecyclebot.network.ExitHttpScope7314.run {
+                        api.buildSwapTx(quote, walletAddress, senderTipLamports = 200_000L)
+                    }
                 } catch (e: Exception) {
                     ErrorLogger.warn(TAG, "  Build tx failed: ${e.message}")
                     return null
@@ -1079,14 +1123,17 @@ object MarketsLiveExecutor {
                 // Step 3: Sign and send
                 ErrorLogger.debug(TAG, "  Signing and sending transaction...")
                 val signature = try {
-                    wallet.signSendAndConfirm(
-                        txBase64 = txResult.txBase64,
-                        useJito = false,
-                        jitoTipLamports = 0,
-                        ultraRequestId = if (quote.isUltra) txResult.requestId else null,
-                        jupiterApiKey = "",
-                        isRfqRoute = txResult.isRfqRoute,
-                    )
+                    com.lifecyclebot.network.ExitHttpScope7314.run {
+                        wallet.signSendAndConfirm(
+                            txBase64 = txResult.txBase64,
+                            useJito = false,
+                            jitoTipLamports = 0,
+                            ultraRequestId = if (quote.isUltra) txResult.requestId else null,
+                            jupiterApiKey = "",
+                            isRfqRoute = txResult.isRfqRoute,
+                            senderCompatible = txResult.senderCompatible,  // V5.0.7326 — Helius Sender
+                        )
+                    }
                 } catch (e: Exception) {
                     // 422 means the transaction was stale — retry with a fresh quote
                     if (attempt == 0 && e.message?.contains("422") == true) {

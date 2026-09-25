@@ -326,10 +326,12 @@ object DynamicAltTokenRegistry {
         "JUP"      to "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
         "RAY"      to "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
         "ORCA"     to "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE",
-        "PYTH"     to "HZ1JovNiVvGrGs68OD7MZaN5aFfMRXX7q8DXXCWFTW",
+        // V5.0.7326 — PYTH/JTO/TNSR corrected to the canonical SPL mints
+        // (TNSR already matches CryptoAssetRegistry); the old values never quoted.
+        "PYTH"     to "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3",
         "DRIFT"    to "DriFtupJYLTosbwoN8koMbEYSx54aFAVLddWsbksjwg7",
-        "JTO"      to "jtojtomepa8bdqftztzaudthkkna8ktwdbqfptdqtqk",
-        "TNSR"     to "TNSRxcUxoT9xBG3de7A4QJ6kLK9h2s7rH5pNNJVUqHy",
+        "JTO"      to "jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL",
+        "TNSR"     to "TNSRxcUxoT9xBG3de7PiJyTDYu7kskLqcpddxnEJAS6",
         "KMNO"     to "KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS",
         "MSOL"     to "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So",
         // Solana meme coins  (real on-chain mints — tradeable via Jupiter)
