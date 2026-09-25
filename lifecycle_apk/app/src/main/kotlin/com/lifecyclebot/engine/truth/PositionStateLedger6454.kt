@@ -78,7 +78,9 @@ object PositionStateLedger6454 {
     // pending confirmation is never interrupted, and recovery still requires the
     // canonical authority to prove the position is economically open — if the
     // close did land, remainingQtyRaw is zero and nothing is reclaimed.
-    private const val LIVE_STALE_CLOSING_MS_7146 = 180_000L
+    // V5.0.7317 — 90s: a signed sell's blockhash (150 slots, ~60s) has expired
+    // by then, so it can no longer land and a retry cannot double-sell.
+    private const val LIVE_STALE_CLOSING_MS_7146 = 90_000L
     private const val LIVE_EMERGENCY_STALE_CLOSING_MS_7146 = 30_000L
 
     private fun emergencyReason6702(reason: String): Boolean {
@@ -359,6 +361,34 @@ object PositionStateLedger6454 {
             } catch (_: Throwable) {}
         }
         return ok
+    }
+
+    /**
+     * V5.0.7317 — settle the reservation a LIVE sell attempt took, the moment
+     * it returns. liveSell reserves but never confirms or abandons, so every
+     * failed or deferred attempt held CLOSING for the full stale window and
+     * every exit in between was refused (3xfsfo's profit lock: 215 duplicate
+     * rejections, ageMs=90112). Now:
+     *   - canonical row shows zero quantity -> CLOSING -> CLOSED
+     *   - a signed transaction may still land -> keep (stale recovery owns it)
+     *   - otherwise                         -> CLOSING -> OPEN, retry next tick
+     */
+    fun settleLiveAttempt7317(positionId: String, txMayLand: Boolean, reason: String): String {
+        if (positionId.isBlank() || states[positionId] != Lifecycle.CLOSING) return "NOT_CLOSING"
+        val canonical = try { CanonicalPositionAuthority6441.getPosition(positionId) } catch (_: Throwable) { null }
+        val drained = canonical != null && !canonical.mode.equals("paper", true) &&
+            canonical.remainingQtyRaw.signum() <= 0
+        val outcome = when {
+            drained -> {
+                confirmTerminalSell(positionId)
+                "CONFIRMED_NO_QTY"
+            }
+            txMayLand -> "KEPT_TX_IN_FLIGHT"
+            abandonTerminalSell(positionId, "live_attempt_released_7317:${reason.take(24)}") -> "RELEASED"
+            else -> "RACE_LOST"
+        }
+        try { PipelineHealthCollector.labelInc("LIVE_SELL_RESERVATION_${outcome}_7317") } catch (_: Throwable) {}
+        return outcome
     }
 
     fun terminalCount(positionId: String): Long = terminalCount[positionId]?.get() ?: 0L

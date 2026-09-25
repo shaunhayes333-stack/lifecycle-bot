@@ -4,6 +4,13 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7317] - 2026-09-26 — AN EXIT RELEASES ITS LOCK THE MOMENT IT RETURNS
+
+- liveSell reserved the terminal close and never settled it, so a failed or deferred attempt held CLOSING for the whole stale window and every exit in between was refused as a duplicate (3xfsfo profit lock peak 71% -> 9%: TERMINAL_SELL_DUPLICATE_CLOSING_REJECTED_6454=215). Each attempt now settles its own reservation on return: zero canonical quantity -> CLOSED; a signed transaction that may still land -> kept; otherwise released for the next tick (LIVE_SELL_RESERVATION_*_7317).
+- The live stale window is 90s (was 180s): a signed sell's blockhash has expired by then, so a retry cannot double-sell.
+- A breached profit lock no longer waits on the sell-side break-even check "for more upside" (TICK_PROFIT_LOCK_BREAKEVEN_HOLD_SKIPPED_7317).
+- Stop exits (STOP / STRICT_SL) bypass the live min-hold at any depth; only -15% counted as hard safety before.
+
 ## [5.0.7316] - 2026-09-26 — THE CROSS-CHAIN BRIDGE GOES LIVE (deBridge DLN, per attested chain)
 
 The deBridge DLN round trip (Solana -> EVM buy, EVM -> Solana sell, ERC-20 approval, idempotent EVM submission, crash recovery, destination balance proof) was built in 6646/6649/6987 but held off by three constants and four gaps. It now runs, with each gate replaced by a real condition:

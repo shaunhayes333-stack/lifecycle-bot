@@ -11255,4 +11255,19 @@ class GoldenTapeRegressionTest {
         assertTrue(cfg.contains("val cryptoUniverseAllowBridgeAdapters: Boolean = true,"))
     }
 
+    @Test
+    fun V5_0_7317_live_sell_settles_its_reservation_and_stops_skip_deferrals() {
+        val led = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PositionStateLedger6454.kt").readText()
+        assertTrue(led.contains("fun settleLiveAttempt7317(positionId: String, txMayLand: Boolean, reason: String): String"))
+        assertTrue(led.contains("private const val LIVE_STALE_CLOSING_MS_7146 = 90_000L"))
+        assertTrue(led.contains("canonical.remainingQtyRaw.signum() <= 0"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("liveSellReservedPid7317.set(terminalPidLive6455)"))
+        assertTrue(ex.contains("PositionStateLedger6454.settleLiveAttempt7317(pid, txMayLand, reason)"))
+        assertTrue(ex.contains("isStopExitReason7317(intent.normalizedReason)"))
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("TICK_PROFIT_LOCK_BREAKEVEN_HOLD_SKIPPED_7317"))
+        assertFalse(bs.contains("// hold for more upside — high-lock will retry on next tick"))
+    }
+
 }

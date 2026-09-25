@@ -22502,8 +22502,14 @@ class Executor(
         // confirmed rugs, wallet-zero cleanup, or sell finality cleanup. Tiny
         // profit dust still gets caught earlier by liveProfitDustExitShouldDefer().
         return intent.severity.ordinal >= LiveExitSeverity.RUNNER_PROTECT.ordinal ||
-            intent.severity == LiveExitSeverity.PROFIT
+            intent.severity == LiveExitSeverity.PROFIT ||
+            isStopExitReason7317(intent.normalizedReason)
     }
+
+    // V5.0.7317 — a stop is capital protection at any depth. Only -15% counted
+    // as hard safety, so a -8% STOP_LOSS was CHURN and waited out the min-hold.
+    private fun isStopExitReason7317(r: String): Boolean =
+        r.contains("STOP") || r.contains("STRICT_SL")
 
     private fun liveHoldDelayIfNeeded(ts: TokenState, reason: String): LiveHoldDelay? {
         if (reason.startsWith("RECONCILER_REQUEUE", ignoreCase = true)) return null
@@ -26055,8 +26061,34 @@ class Executor(
     // so our own backoff/cool-down can never refuse it (TTP, 5.0.7311).
     private fun liveSell(ts: TokenState, reason: String,
                          wallet: SolanaWallet, walletSol: Double,
-                         identity: TradeIdentity? = null): SellResult =
-        com.lifecyclebot.network.ExitHttpScope7314.run { liveSellInScope7314(ts, reason, wallet, walletSol, identity) }
+                         identity: TradeIdentity? = null): SellResult {
+        liveSellReservedPid7317.set(null)
+        val result = try {
+            com.lifecyclebot.network.ExitHttpScope7314.run { liveSellInScope7314(ts, reason, wallet, walletSol, identity) }
+        } finally {
+            // V5.0.7317 — settle the reservation this attempt took (only this
+            // attempt's; a rejected reserve never sets the pid).
+            val pid = liveSellReservedPid7317.get()
+            liveSellReservedPid7317.set(null)
+            if (!pid.isNullOrBlank()) {
+                try {
+                    val job = com.lifecyclebot.engine.sell.SellJobRegistry.get(ts.mint)
+                    val txMayLand = job != null && job.status != com.lifecyclebot.engine.sell.SellJobStatus.LANDED && (
+                        !job.signature.isNullOrBlank() ||
+                            job.status == com.lifecyclebot.engine.sell.SellJobStatus.BROADCASTING ||
+                            job.status == com.lifecyclebot.engine.sell.SellJobStatus.CONFIRMING ||
+                            job.status == com.lifecyclebot.engine.sell.SellJobStatus.VERIFYING ||
+                            job.status == com.lifecyclebot.engine.sell.SellJobStatus.CLOSING_UNKNOWN)
+                    val outcome = com.lifecyclebot.engine.truth.PositionStateLedger6454.settleLiveAttempt7317(pid, txMayLand, reason)
+                    ForensicLogger.lifecycle("LIVE_SELL_RESERVATION_SETTLED_7317",
+                        "mint=${ts.mint.take(10)} pid=${pid.take(12)} outcome=$outcome txMayLand=$txMayLand job=${job?.status} reason=${reason.take(60)}")
+                } catch (_: Throwable) {}
+            }
+        }
+        return result
+    }
+
+    private val liveSellReservedPid7317 = ThreadLocal<String?>()
 
     private fun liveSellInScope7314(ts: TokenState, reason: String,
                          wallet: SolanaWallet, walletSol: Double,
@@ -26119,6 +26151,7 @@ class Executor(
             try { com.lifecyclebot.engine.sell.SellExecutionLocks.forceRelease(ts.mint) } catch (_: Throwable) {}
             return SellResult.ALREADY_CLOSED
         }
+        liveSellReservedPid7317.set(terminalPidLive6455)
         // V5.0.6486 — canonical LIVE sell mutation occurs only inside
         // SellFinalizationCoordinator after tx-meta proves consumed raw qty and SOL proceeds.
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)

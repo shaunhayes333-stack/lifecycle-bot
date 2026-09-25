@@ -12179,9 +12179,14 @@ class BotService : Service() {
                                             // only fires on positive pnl give-back).
                                             val isPaperRt = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
                                             val beOk = com.lifecyclebot.engine.LiveRestoreExecutionPolicy.sellSideBreakEvenOk(ts, pnlPctNow, isPaperRt)
+                                            // V5.0.7317 — a breached lock is give-back
+                                            // protection, not a take-profit. Holding it "for
+                                            // more upside" let 3xfsfo ride peak 71% -> 9%
+                                            // while every tick re-deferred. The lock sells.
                                             if (!beOk) {
-                                                // hold for more upside — high-lock will retry on next tick
-                                            } else {
+                                                try { PipelineHealthCollector.labelInc("TICK_PROFIT_LOCK_BREAKEVEN_HOLD_SKIPPED_7317") } catch (_: Throwable) {}
+                                            }
+                                            run {
                                             // V5.0.6263 — HARD BREAKEVEN GUARD. Op-report V5.0.6262
                                             // showed 5-of-10 recent BLUECHIP closes labelled
                                             // REALIZED_LOSS_AFTER_PROFIT_SIGNAL at -2% to -7%.
