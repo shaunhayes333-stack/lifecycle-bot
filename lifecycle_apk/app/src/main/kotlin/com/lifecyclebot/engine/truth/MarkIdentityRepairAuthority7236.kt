@@ -139,6 +139,62 @@ object MarkIdentityRepairAuthority7236 {
      * priceUsd when a fresh (<REPAIR_FRESH_MS) corroborated cache entry
      * exists; null otherwise.
      */
+    /**
+     * V5.0.7301 §AGREEING_FEEDS_ARE_NOT_A_FILL.
+     *
+     * 7298 accepted an absurd multiple whenever the repaired price agreed with
+     * the mark. On 5.0.7300 that fired 7,171 times: two price feeds (a pool
+     * aggregator and a DEX pool list) agreed that WOTF/NTDA/WWR sat 1,600x to
+     * 31,000x above an entry made at a ~$48k cap. Feeds that read the same
+     * broken or thin pool agree with each other; neither is what a sale would
+     * receive. The only confirmation now is an executable Jupiter quote —
+     * 0.01 SOL routed into the mint, converted with the token's own decimals —
+     * i.e. the price a swap actually gets. Debounced per mint, async, cached
+     * for [EXEC_FRESH_MS_7301].
+     */
+    private const val EXEC_FRESH_MS_7301 = 60_000L
+    private const val EXEC_DEBOUNCE_MS_7301 = 30_000L
+    private const val EXEC_QUOTE_LAMPORTS_7301 = 10_000_000L
+    private val executable7301 = ConcurrentHashMap<String, Repaired>()
+    private val execAttempt7301 = ConcurrentHashMap<String, Long>()
+    private val quoteApi7301 by lazy { com.lifecyclebot.network.JupiterApi("") }
+
+    fun requestExecutableQuote7301(mint: String, tokenDecimals: Int) {
+        val bare = mint.removePrefix("solana|").trim()
+        if (bare.isBlank() || bare.contains('|') || tokenDecimals !in 0..18) return
+        val now = System.currentTimeMillis()
+        if (now - (execAttempt7301[mint] ?: 0L) < EXEC_DEBOUNCE_MS_7301) return
+        execAttempt7301[mint] = now
+        scope.launch {
+            try {
+                val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+                if (!solUsd.isFinite() || solUsd <= 0.0) return@launch
+                val q = quoteApi7301.getQuote(
+                    inputMint = com.lifecyclebot.network.JupiterApi.SOL_MINT,
+                    outputMint = bare,
+                    amountRaw = EXEC_QUOTE_LAMPORTS_7301,
+                    slippageBps = 300,
+                )
+                val tokens = q.outAmount.toDouble() / Math.pow(10.0, tokenDecimals.toDouble())
+                val px = if (tokens > 0.0) (EXEC_QUOTE_LAMPORTS_7301 / 1e9 * solUsd) / tokens else 0.0
+                if (px.isFinite() && px > 0.0) {
+                    executable7301[mint] = Repaired(px, "JUPITER_EXECUTABLE_QUOTE_7301", System.currentTimeMillis())
+                    try { PipelineHealthCollector.labelInc("MARK_EXECUTABLE_QUOTE_OK_7301") } catch (_: Throwable) {}
+                } else {
+                    try { PipelineHealthCollector.labelInc("MARK_EXECUTABLE_QUOTE_EMPTY_7301") } catch (_: Throwable) {}
+                }
+            } catch (_: Throwable) {
+                try { PipelineHealthCollector.labelInc("MARK_EXECUTABLE_QUOTE_NO_ROUTE_7301") } catch (_: Throwable) {}
+            }
+        }
+    }
+
+    fun getExecutablePriceIfFresh7301(mint: String): Double? {
+        val e = executable7301[mint] ?: return null
+        if (System.currentTimeMillis() - e.tsMs > EXEC_FRESH_MS_7301) return null
+        return e.priceUsd
+    }
+
     fun getRepairedPriceIfFresh(mint: String): Double? {
         if (mint.isBlank()) return null
         val entry = cache[mint] ?: return null

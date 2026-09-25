@@ -128,17 +128,18 @@ object MarketSweep7297 {
      * last sweep is younger than [MIN_SWEEP_INTERVAL_MS], so the scanner can
      * call this on every cycle without exceeding the free-tier rates.
      */
-    suspend fun sweep(heliusKey: String): Snapshot? {
+    suspend fun sweep(heliusKey: String, jupiterKey: String = ""): Snapshot? {
+        jupiterKey7301 = jupiterKey.trim()
         val now = System.currentTimeMillis()
         last?.let { if (now - it.atMs < MIN_SWEEP_INTERVAL_MS) return it }
         val runHelius = heliusKey.isNotBlank() && now - lastHeliusAtMs >= HELIUS_INTERVAL_MS
         if (runHelius) lastHeliusAtMs = now
 
         val tasks = mutableListOf<Pair<String, suspend () -> List<Row>>>(
-            "JUP_TRENDING" to { jupiterList("$JUP/toptrending/1h?limit=100", "JUP_TRENDING") },
-            "JUP_TRADED" to { jupiterList("$JUP/toptraded/1h?limit=100", "JUP_TRADED") },
-            "JUP_ORGANIC" to { jupiterList("$JUP/toporganicscore/1h?limit=100", "JUP_ORGANIC") },
-            "JUP_RECENT" to { jupiterList("$JUP/recent?limit=100", "JUP_RECENT") },
+            "JUP_TRENDING" to { jupiterList("/toptrending/1h?limit=100", "JUP_TRENDING") },
+            "JUP_TRADED" to { jupiterList("/toptraded/1h?limit=100", "JUP_TRADED") },
+            "JUP_ORGANIC" to { jupiterList("/toporganicscore/1h?limit=100", "JUP_ORGANIC") },
+            "JUP_RECENT" to { jupiterList("/recent?limit=100", "JUP_RECENT") },
             "RAYDIUM_VOLUME" to { raydiumPools() },
         )
         if (runHelius) tasks += "HELIUS_SWAPS" to { heliusSwaps(heliusKey) }
@@ -224,30 +225,103 @@ object MarketSweep7297 {
 
     // ── providers ────────────────────────────────────────────────────────
 
-    private fun getBody(url: String): String? = try {
-        http.newCall(
-            Request.Builder().url(url)
-                .header("Accept", "application/json")
-                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AATE")
-                .build()
-        ).execute().use { resp ->
+    /**
+     * V5.0.7301 — 5.0.7300 showed JUP_TRENDING/TRADED/ORGANIC/RECENT at 0 rows
+     * every sweep with no reason on the report. Each provider now records why
+     * its last call returned nothing (HTTP code, local circuit, exception,
+     * non-array body), shown as `fail=` on the Market sweep line.
+     */
+    private val lastFail7301 = ConcurrentHashMap<String, String>()
+    @Volatile private var jupiterKey7301 = ""
+    private const val JUP_KEYED_7301 = "https://api.jup.ag/tokens/v2"
+
+    private fun getBody(url: String, provider: String = "", headers: Map<String, String> = emptyMap()): String? = try {
+        val b = Request.Builder().url(url)
+            .header("Accept", "application/json")
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AATE")
+        headers.forEach { (k, v) -> b.header(k, v) }
+        http.newCall(b.build()).execute().use { resp ->
             if (HostCircuitInterceptor.isSyntheticBlock(resp)) {
                 try { PipelineHealthCollector.labelInc("MARKET_SWEEP_7297_LOCAL_CIRCUIT_BLOCK") } catch (_: Throwable) {}
+                if (provider.isNotBlank()) lastFail7301[provider] = "LOCAL_CIRCUIT"
                 null
             } else if (!resp.isSuccessful) {
                 try { PipelineHealthCollector.labelInc("MARKET_SWEEP_7297_HTTP_${resp.code}") } catch (_: Throwable) {}
+                if (provider.isNotBlank()) lastFail7301[provider] = "HTTP_${resp.code}"
                 null
             } else resp.body?.string()
         }
     } catch (e: Exception) {
         ErrorLogger.debug("MarketSweep7297", "GET ${url.take(60)} failed: ${e.message}")
+        if (provider.isNotBlank()) lastFail7301[provider] = "EXC_${e.javaClass.simpleName}"
         null
     }
 
-    private fun jupiterList(url: String, provider: String): List<Row> {
-        val body = getBody(url)?.trim() ?: return emptyList()
-        if (!body.startsWith("[")) return emptyList()
+    /** Keyless lite-api first; with an operator Jupiter key, the keyed host next. */
+    private fun jupiterBody(path: String, provider: String): String? {
+        getBody("$JUP$path", provider)?.trim()?.takeIf { it.startsWith("[") }?.let { lastFail7301.remove(provider); return it }
+        val key = jupiterKey7301
+        if (key.isBlank()) return null
+        return getBody("$JUP_KEYED_7301$path", provider, mapOf("x-api-key" to key))?.trim()
+            ?.takeIf { it.startsWith("[") }?.also { lastFail7301.remove(provider) }
+    }
+
+    private fun jupiterList(path: String, provider: String): List<Row> {
+        val body = jupiterBody(path, provider) ?: run {
+            if (!lastFail7301.containsKey(provider)) lastFail7301[provider] = "NON_ARRAY_BODY"
+            return emptyList()
+        }
         return parseJupiter(JSONArray(body), provider)
+    }
+
+    /**
+     * V5.0.7301 — cap enrichment fallback. Raydium and Helius rows carry no
+     * market cap, and the lane hunters work in market-cap bands, so when the
+     * Jupiter search fails those rows reach no lane. DexScreener's token
+     * endpoint (30 mints per call) supplies cap, liquidity, 1h volume, 1h move
+     * and 1h trades for the best-liquidity pair of each mint.
+     */
+    private fun dexScreenerEnrich7301(mints: List<String>): List<Row> {
+        val out = ArrayList<Row>()
+        val now = System.currentTimeMillis()
+        for (chunk in mints.chunked(30).take(3)) {
+            val body = getBody("https://api.dexscreener.com/tokens/v1/solana/${chunk.joinToString(",")}", "DEXSCREENER_ENRICH")?.trim()
+            if (body == null || !body.startsWith("[")) continue
+            val arr = JSONArray(body)
+            val best = HashMap<String, JSONObject>()
+            for (i in 0 until arr.length()) {
+                val p = arr.optJSONObject(i) ?: continue
+                val mint = p.optJSONObject("baseToken")?.optString("address").orEmpty()
+                if (mint !in chunk) continue
+                val liq = p.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0
+                val cur = best[mint]
+                if (cur == null || liq > (cur.optJSONObject("liquidity")?.optDouble("usd", 0.0) ?: 0.0)) best[mint] = p
+            }
+            for ((mint, p) in best) {
+                val base = p.optJSONObject("baseToken")
+                val tx = p.optJSONObject("txns")?.optJSONObject("h1")
+                val created = p.optLong("pairCreatedAt", 0L)
+                val cap = p.optDouble("marketCap", 0.0).finite().takeIf { it > 0.0 } ?: p.optDouble("fdv", 0.0).finite()
+                out += Row(
+                    mint = mint,
+                    symbol = base?.optString("symbol", "").orEmpty(),
+                    name = base?.optString("name", "").orEmpty(),
+                    priceUsd = p.optString("priceUsd", "0").toDoubleOrNull()?.finite() ?: 0.0,
+                    mcapUsd = cap,
+                    liquidityUsd = p.optJSONObject("liquidity")?.optDouble("usd", 0.0)?.finite() ?: 0.0,
+                    volumeH1Usd = p.optJSONObject("volume")?.optDouble("h1", 0.0)?.finite() ?: 0.0,
+                    volumeH24Usd = p.optJSONObject("volume")?.optDouble("h24", 0.0)?.finite() ?: 0.0,
+                    priceChangeH1Pct = p.optJSONObject("priceChange")?.optDouble("h1", 0.0)?.finite() ?: 0.0,
+                    txCountH1 = (tx?.optInt("buys", 0) ?: 0) + (tx?.optInt("sells", 0) ?: 0),
+                    holders = 0,
+                    organicScore = 0.0,
+                    verified = false,
+                    ageHours = if (created > 0L && created <= now) (now - created) / 3_600_000.0 else 0.0,
+                    providers = setOf("DEXSCREENER_ENRICH"),
+                )
+            }
+        }
+        return out
     }
 
     private fun parseJupiter(arr: JSONArray, provider: String): List<Row> {
@@ -373,8 +447,12 @@ object MarketSweep7297 {
         val missing = rows.filter { it.mcapUsd <= 0.0 }.map { it.mint }.take(100)
         if (missing.isEmpty()) return rows
         val found = withContext(Dispatchers.IO) {
-            val body = getBody("$JUP/search?query=${missing.joinToString(",")}")?.trim()
-            if (body == null || !body.startsWith("[")) emptyList() else parseJupiter(JSONArray(body), "JUP_SEARCH")
+            val body = jupiterBody("/search?query=${missing.joinToString(",")}", "JUP_SEARCH")
+            val jup = if (body == null) emptyList() else parseJupiter(JSONArray(body), "JUP_SEARCH")
+            // V5.0.7301 — DexScreener fills whatever Jupiter did not.
+            val stillMissing = missing - jup.filter { it.mcapUsd > 0.0 }.map { it.mint }.toSet()
+            val dex = if (stillMissing.isEmpty()) emptyList() else try { dexScreenerEnrich7301(stillMissing) } catch (_: Throwable) { emptyList() }
+            jup + dex
         }
         if (found.isEmpty()) return rows
         try { PipelineHealthCollector.labelInc("MARKET_SWEEP_7297_ENRICH_CALL_SERVED") } catch (_: Throwable) {}
@@ -393,6 +471,7 @@ object MarketSweep7297 {
             else "${b.name}[n=${st.count} up=${st.breadthPct.toInt()}% med=${"%+.1f".format(st.medianChangeH1Pct)}% vol=${(100 * st.volumeShare).toInt()}%]"
         }
         val served = providerServed.entries.joinToString(",") { "${it.key}:${it.value}/${it.value + (providerEmpty[it.key] ?: 0L)}" }
-        return "rows=${s.rows.size} age=${age}s $providers | $bands | served=$served"
+        val fails = lastFail7301.entries.joinToString(",") { "${it.key}:${it.value}" }.ifBlank { "none" }
+        return "rows=${s.rows.size} age=${age}s $providers | $bands | served=$served | fail=$fails keyedJupiter=${jupiterKey7301.isNotBlank()}"
     }
 }

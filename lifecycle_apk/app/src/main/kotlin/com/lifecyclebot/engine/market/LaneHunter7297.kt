@@ -321,7 +321,10 @@ object LaneHunter7297 {
 
     private fun onSettled(e: CanonicalTradeFinalizedBus6450.Event) {
         val c = claims[e.mint] ?: return
-        if (!e.entryLane.equals(c.lane, ignoreCase = true)) return
+        // V5.0.7301 — a CASHGEN hunt executes through the TREASURY book.
+        val laneMatches = e.entryLane.equals(c.lane, ignoreCase = true) ||
+            (c.lane == "CASHGEN" && e.entryLane.equals("TREASURY", ignoreCase = true))
+        if (!laneMatches) return
         if (e.settledAtMs < c.atMs) return
         val ret = e.returnFraction
         if (!ret.isFinite()) return

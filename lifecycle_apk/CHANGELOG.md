@@ -4,6 +4,16 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7301] - 2026-09-25 — AGREEING FEEDS ARE NOT A FILL; HUNTS REACH THE WATCHLIST; CASHGEN CAN BUY
+
+From the 5.0.7300 snapshot (354 s): GMGN smart money served 100 rows (4/4), Raydium 65, Helius 8, all four Jupiter lists 0; lanes hunted 40 each but only 3 `MARKET_HUNT` intakes; QUALITY/BLUECHIP owned 2/1 tokens, TREASURY/CASHGEN/DIP 0; `OPEN_PNL_ABSURD_GAIN_CONFIRMED_BY_REPAIR_7298` = 7,171.
+
+- **My 7298 rule accepted absurd marks on feed agreement — reverted to executable proof.** WOTF/NTDA/WWR/Ai66 (entries at a ~$48k cap) read 1,600x–31,000x, and two price feeds agreed, so 7298 treated them as confirmed runners 7,171 times. Feeds reading the same thin or broken pool agree with each other; neither is what a sale receives. An absurd multiple (>1000x) is now confirmed only by an executable Jupiter quote — 0.01 SOL routed into the mint, converted with the token's own decimals (`MarkIdentityRepairAuthority7236.requestExecutableQuote7301`, async, 30 s debounce, 60 s fresh). A sane executable quote, or failing that a sane repaired price, becomes the price exits and stops run on; otherwise the mark is rejected as before. The paper sell door (7271) applies the same rule above 1000x: feed corroboration still books an ordinary big runner, an absurd one needs the quote (`PAPER_SELL_ABSURD_GAIN_EXECUTABLE_CONFIRMED_7301` / `_NEEDS_EXECUTABLE_QUOTE_7301`). No fake profit was booked (`PAPER_SELL_ABSURD_GAIN_CORROBORATED_BOOKED_7271` = 0).
+- **Hunted tokens reach the watchlist.** A hunted pick that another source had already surfaced was skipped as seen, and it was usually no longer on the watchlist, so the claim pointed at a token nobody evaluated. A seen pick that is not being watched is now re-queued with its lane (at most once per 10 min per mint). Per-lane counters: `MARKET_HUNT_7301_EMITTED_/REQUEUED_/ALREADY_WATCHED_/FILTER_REJECTED_/REQUEUE_COOLDOWN_<lane>`.
+- **CASHGEN can execute.** CASHGEN has no buy section of its own; it runs through TREASURY's (alias `TREASURY_CASHGEN_SHARED_EXEC`, CashGenerationAI), which only runs when TREASURY owns the token. A CASHGEN hunt now elects TREASURY as owner, and those closes grade back to CASHGEN's hunter.
+- **Market sweep says why a provider is empty.** Each provider records the reason its last call returned nothing (HTTP code, local circuit, exception, non-array body), shown as `fail=` on the Market sweep line. Jupiter lists try the keyless lite host first and, when a Jupiter API key is set in Settings, the keyed `api.jup.ag` host next (`keyedJupiter=` on the line).
+- **Rows without a cap get one from DexScreener.** Raydium and Helius rows carry no market cap and the hunters work in cap bands; with the Jupiter search failing those rows reached no lane. DexScreener's token endpoint (30 mints per call, up to 3 calls) now fills cap, liquidity, 1h volume, 1h move and 1h trades for whatever Jupiter did not.
+
 ## [5.0.7300] - 2026-09-24 — THE HIVES, READ: NETWORK WHALES AND GMGN SMART MONEY
 
 - Operator: "3. and what ever else we use the internal and external hives for". Every hive read path was traced end to end.

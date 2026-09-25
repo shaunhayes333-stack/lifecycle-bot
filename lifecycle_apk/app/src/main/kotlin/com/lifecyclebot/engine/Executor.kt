@@ -24119,8 +24119,23 @@ class Executor(
                     // held GEM at +1254% for 74 ticks (about 4.9 SOL) because the
                     // mark had one feed. A door that can only wait is a stall on
                     // the one trade the operator wants most; it now asks the stack.
-                    val corroborated7271 = ts.lastPriceSource.contains("FANOUT_CORROBORATED", ignoreCase = true) ||
+                    val feedsCorroborate7271 = ts.lastPriceSource.contains("FANOUT_CORROBORATED", ignoreCase = true) ||
                         corroborateMarkOnDemand7272(ts, price)
+                    // V5.0.7301 — at an absurd multiple (>1000x) two feeds reading
+                    // the same thin or broken pool agree with each other and prove
+                    // nothing a sale would receive; only an executable Jupiter
+                    // quote confirms it. Below that line the 7271/7272 rule stands.
+                    val absurd7301 = price / entry7271 > com.lifecyclebot.engine.sell.StalePriceExitGuard.ABSURD_GAIN_MULTIPLE
+                    val corroborated7271 = if (!absurd7301) feedsCorroborate7271 else run {
+                        val repairAuth = com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236
+                        val exec = try { repairAuth.getExecutablePriceIfFresh7301(ts.mint) } catch (_: Throwable) { null }
+                        if (exec == null) {
+                            try { repairAuth.requestExecutableQuote7301(ts.mint, ts.tokenMap.decimals ?: -1) } catch (_: Throwable) {}
+                        }
+                        val ok = exec != null && exec.isFinite() && exec > 0.0 && (exec / price) in 0.60..1.67
+                        try { PipelineHealthCollector.labelInc(if (ok) "PAPER_SELL_ABSURD_GAIN_EXECUTABLE_CONFIRMED_7301" else "PAPER_SELL_ABSURD_GAIN_NEEDS_EXECUTABLE_QUOTE_7301") } catch (_: Throwable) {}
+                        ok
+                    }
                     if (!corroborated7271) {
                         try {
                             PipelineHealthCollector.labelInc("PAPER_SELL_REFUSED_ABSURD_GAIN_UNCORROBORATED_7271")

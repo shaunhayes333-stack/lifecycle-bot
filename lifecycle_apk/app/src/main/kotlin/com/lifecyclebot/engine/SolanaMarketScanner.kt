@@ -2094,9 +2094,13 @@ class SolanaMarketScanner(
         }
     }
 
+    private val huntRequeuedAt7301 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     private suspend fun scanMarketSweep7297() {
         val heliusKey = try { cfg().heliusApiKey } catch (_: Throwable) { "" }
-        val snap = com.lifecyclebot.engine.market.MarketSweep7297.sweep(heliusKey) ?: return
+        val jupiterKey7301 = try { cfg().jupiterApiKey } catch (_: Throwable) { "" }
+        huntRequeuedAt7301.entries.removeIf { System.currentTimeMillis() - it.value > 60L * 60 * 1000 }
+        val snap = com.lifecyclebot.engine.market.MarketSweep7297.sweep(heliusKey, jupiterKey7301) ?: return
         val picks = com.lifecyclebot.engine.market.LaneHunter7297.hunt(snap)
         try { com.lifecyclebot.engine.market.LaneHunter7297.claimMomentum7298() } catch (_: Throwable) {}
         try { TreasuryScannerFeed.recirculate7299() } catch (_: Throwable) {}
@@ -2108,7 +2112,34 @@ class SolanaMarketScanner(
             for (r in rows) {
                 // Claimed either way: a mint another source already surfaced
                 // still belongs to this lane while it stays in band.
-                if (isSeen(r.mint)) continue
+                if (isSeen(r.mint)) {
+                    // V5.0.7301 — 7297 dropped a seen pick here, so on 5.0.7300
+                    // ~280 hunts produced 3 MARKET_HUNT intakes: most hunted rows
+                    // (GMGN smart money, Raydium top volume) had already been
+                    // seen by another source and were no longer on the watchlist,
+                    // so the claim pointed at a token nobody evaluated. A seen
+                    // pick that is not being watched is re-queued with its lane.
+                    val watching = try { GlobalTradeRegistry.isWatching(r.mint) } catch (_: Throwable) { true }
+                    val now7301 = System.currentTimeMillis()
+                    if (!watching && now7301 - (huntRequeuedAt7301[r.mint] ?: 0L) >= 10L * 60 * 1000) {
+                        huntRequeuedAt7301[r.mint] = now7301
+                        try {
+                            TokenMergeQueue.enqueue(
+                                mint = r.mint,
+                                symbol = r.symbol.ifBlank { r.mint.take(6) },
+                                scanner = source.name,
+                                marketCapUsd = r.mcapUsd,
+                                liquidityUsd = r.liquidityUsd,
+                                volumeH1 = r.volumeH1Usd,
+                                laneAffinity = setOf(lane),
+                            )
+                            PipelineHealthCollector.labelInc("MARKET_HUNT_7301_REQUEUED_$lane")
+                        } catch (_: Throwable) {}
+                    } else {
+                        try { PipelineHealthCollector.labelInc(if (watching) "MARKET_HUNT_7301_ALREADY_WATCHED_$lane" else "MARKET_HUNT_7301_REQUEUE_COOLDOWN_$lane") } catch (_: Throwable) {}
+                    }
+                    continue
+                }
                 val token = ScannedToken(
                     mint = r.mint,
                     symbol = r.symbol.ifBlank { r.mint.take(6) },
@@ -2124,7 +2155,12 @@ class SolanaMarketScanner(
                     score = scoreToken(r.liquidityUsd, r.volumeH1Usd, r.txCountH1, r.mcapUsd, r.priceChangeH1Pct, r.ageHours),
                     priceUsd = r.priceUsd,
                 )
-                if (passesFilter(token)) { emitWithRugcheck(token); emitted++ }
+                if (passesFilter(token)) {
+                    emitWithRugcheck(token); emitted++
+                    try { PipelineHealthCollector.labelInc("MARKET_HUNT_7301_EMITTED_$lane") } catch (_: Throwable) {}
+                } else {
+                    try { PipelineHealthCollector.labelInc("MARKET_HUNT_7301_FILTER_REJECTED_$lane") } catch (_: Throwable) {}
+                }
             }
         }
         ErrorLogger.info("Scanner", "scanMarketSweep7297: rows=${snap.rows.size} picks=${picks.values.sumOf { it.size }} emitted=$emitted")

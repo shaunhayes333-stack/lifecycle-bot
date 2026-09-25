@@ -13245,6 +13245,11 @@ class BotService : Service() {
             val huntClaim7297: String? = if (forced != null) null else {
                 try {
                     com.lifecyclebot.engine.market.LaneHunter7297.claimFor(ts.mint, ts.lastMcap)
+                        // V5.0.7301 — CASHGEN has no buy section of its own: it
+                        // executes through TREASURY's (alias TREASURY_CASHGEN_SHARED_EXEC,
+                        // CashGenerationAI), which only runs when TREASURY owns the
+                        // token. A CASHGEN owner therefore reached nothing.
+                        ?.let { if (it == "CASHGEN") "TREASURY" else it }
                         ?.takeIf { LaneEntryContract6342.isLaneIdentityEligible7252(ts, it) }
                 } catch (_: Throwable) { null }
             }
@@ -13470,7 +13475,8 @@ class BotService : Service() {
         val designatedDeskHypothesis6599 = designatedDeskSheet6599?.deskHypotheses?.get(l)
         // V5.0.7297 — the lane's own hunt is its desk hypothesis for this token.
         val huntedByLane7297 = try {
-            com.lifecyclebot.engine.market.LaneHunter7297.claimFor(ts.mint, ts.lastMcap).equals(l, ignoreCase = true)
+            val claim7301 = com.lifecyclebot.engine.market.LaneHunter7297.claimFor(ts.mint, ts.lastMcap)
+            claim7301.equals(l, ignoreCase = true) || (claim7301 == "CASHGEN" && l.equals("TREASURY", ignoreCase = true))
         } catch (_: Throwable) { false }
         val designatedDeskQualified6599 = designatedDeskSheet6599 == null || designatedDeskSheet6599.deskHypotheses.isEmpty() || designatedDeskHypothesis6599 != null || huntedByLane7297
         val candidateVersion6600 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)

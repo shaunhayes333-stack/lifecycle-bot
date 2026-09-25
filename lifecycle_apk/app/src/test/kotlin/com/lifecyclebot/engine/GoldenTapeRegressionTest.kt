@@ -10995,4 +10995,20 @@ class GoldenTapeRegressionTest {
         assertTrue(sweep.contains("ExternalAlphaFeeds.smartMoneyRows7300()"))
     }
 
+    @Test
+    fun V5_0_7301_absurd_marks_need_an_executable_quote_and_hunts_reach_the_watchlist() {
+        val sanity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OpenPnlSanity.kt").readText()
+        assertFalse(sanity.contains("(repaired7298 / currentPriceEffective7236) in 0.60..1.67"))
+        assertTrue(sanity.contains("(executable7301 / currentPriceEffective7236) in 0.60..1.67"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("val corroborated7271 = if (!absurd7301) feedsCorroborate7271 else run {"))
+        val sc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SolanaMarketScanner.kt").readText()
+        assertTrue(sc.contains("MARKET_HUNT_7301_REQUEUED_"))
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("?.let { if (it == \"CASHGEN\") \"TREASURY\" else it }"))
+        val sweep = java.io.File("src/main/kotlin/com/lifecyclebot/engine/market/MarketSweep7297.kt").readText()
+        assertTrue(sweep.contains("dexScreenerEnrich7301(stillMissing)"))
+        assertTrue(sweep.contains("fail=\$fails"))
+    }
+
 }

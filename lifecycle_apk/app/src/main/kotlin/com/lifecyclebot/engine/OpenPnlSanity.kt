@@ -184,25 +184,39 @@ object OpenPnlSanity {
         //   - otherwise                     → rejected as before.
         if (!com.lifecyclebot.engine.sell.StalePriceExitGuard
                 .isGainTrustworthy(mint, entryPrice, currentPriceEffective7236, ratio)) {
+            val repairAuth7301 = com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236
+            val executable7301 = try { if (mint.isNotBlank()) repairAuth7301.getExecutablePriceIfFresh7301(mint) else null } catch (_: Throwable) { null }
+            if (executable7301 == null && mint.isNotBlank()) {
+                try { repairAuth7301.requestExecutableQuote7301(mint, tokenDecimals) } catch (_: Throwable) {}
+            }
             val repaired7298 = try {
-                if (mint.isNotBlank()) com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getRepairedPriceIfFresh(mint) else null
+                if (mint.isNotBlank()) repairAuth7301.getRepairedPriceIfFresh(mint) else null
             } catch (_: Throwable) { null }
-            val agrees7298 = repaired7298 != null && repaired7298.isFinite() && repaired7298 > 0.0 &&
-                (repaired7298 / currentPriceEffective7236) in 0.60..1.67
+            // V5.0.7301 — only an executable quote confirms an absurd multiple;
+            // two price feeds agreeing with each other no longer does.
+            val execAgrees7301 = executable7301 != null && executable7301.isFinite() && executable7301 > 0.0 &&
+                (executable7301 / currentPriceEffective7236) in 0.60..1.67
+            val execSane7301 = executable7301 != null && executable7301.isFinite() && executable7301 > 0.0 &&
+                executable7301 / entryPrice <= com.lifecyclebot.engine.sell.StalePriceExitGuard.ABSURD_GAIN_MULTIPLE
             val saneRepair7298 = repaired7298 != null && repaired7298.isFinite() && repaired7298 > 0.0 &&
                 repaired7298 / entryPrice <= com.lifecyclebot.engine.sell.StalePriceExitGuard.ABSURD_GAIN_MULTIPLE
+            val saneReplacement7301 = when {
+                execSane7301 -> executable7301
+                saneRepair7298 -> repaired7298
+                else -> null
+            }
             when {
-                agrees7298 -> {
-                    try { PipelineHealthCollector.labelInc("OPEN_PNL_ABSURD_GAIN_CONFIRMED_BY_REPAIR_7298") } catch (_: Throwable) {}
+                execAgrees7301 -> {
+                    try { PipelineHealthCollector.labelInc("OPEN_PNL_ABSURD_GAIN_CONFIRMED_BY_EXECUTABLE_QUOTE_7301") } catch (_: Throwable) {}
                 }
-                saneRepair7298 -> {
-                    currentPriceEffective7236 = repaired7298!!
+                saneReplacement7301 != null -> {
+                    currentPriceEffective7236 = saneReplacement7301
                     try {
-                        PipelineHealthCollector.labelInc("OPEN_PNL_ABSURD_GAIN_REPAIRED_7298")
+                        PipelineHealthCollector.labelInc(if (execSane7301) "OPEN_PNL_ABSURD_GAIN_REPAIRED_BY_EXECUTABLE_QUOTE_7301" else "OPEN_PNL_ABSURD_GAIN_REPAIRED_7298")
                         com.lifecyclebot.engine.ForensicLogger.lifecycle(
                             "OPEN_PNL_ABSURD_GAIN_REPAIRED_7298",
-                            "mint=${mint.take(10)} rawCurrent=$currentPrice repaired=${"%.10g".format(repaired7298)} " +
-                                "src=${com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getRepairedSource(mint)} " +
+                            "mint=${mint.take(10)} rawCurrent=$currentPrice repaired=${"%.10g".format(saneReplacement7301)} " +
+                                "src=${if (execSane7301) "JUPITER_EXECUTABLE_QUOTE_7301" else repairAuth7301.getRepairedSource(mint)} " +
                                 "context=${context.take(96)} action=proceed_with_repaired_value",
                         )
                     } catch (_: Throwable) {}
