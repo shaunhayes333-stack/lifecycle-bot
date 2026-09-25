@@ -65,6 +65,8 @@ object ExitProviderHealth {
     fun isProviderClassFailure(message: String?): Boolean {
         val m = message.orEmpty().lowercase()
         if (m.isBlank()) return false
+        // V5.0.7314 — our own refusals are not provider evidence.
+        if (m.contains("local_lockout") || m.contains("backoff lockout") || m.contains("apibackoff")) return false
         return PROVIDER_CODE_7310.containsMatchIn(m) ||
             PROVIDER_PHRASES_7310.any { m.contains(it) } ||
             TIMEOUT_WORD_7310.containsMatchIn(m)
@@ -268,8 +270,26 @@ object ExitProviderHealth {
     private const val STUCK_EXIT_WINDOW_MS = 3 * 60_000L
     private val stuckExitAtMs = ConcurrentHashMap<String, Long>()
 
+    // V5.0.7314 — a mint whose last exit failed is not re-bought for 30 min,
+    // whether or not the position has since closed (the stuck map is pruned
+    // when a position closes; this one is not).
+    private const val FAILED_EXIT_REENTRY_MS = 30 * 60_000L
+    private val lastExitFailedAtMs = ConcurrentHashMap<String, Long>()
+
+    /** Pure: is a re-buy of this mint refused? */
+    fun reentryBlocked(failedAtMs: Long?, nowMs: Long): Boolean =
+        failedAtMs != null && nowMs - failedAtMs < FAILED_EXIT_REENTRY_MS
+
+    fun reentryBlockedNow(mint: String): Boolean {
+        val now = System.currentTimeMillis()
+        val at = lastExitFailedAtMs[mint]
+        if (at != null && !reentryBlocked(at, now)) lastExitFailedAtMs.remove(mint)
+        return reentryBlocked(lastExitFailedAtMs[mint], now)
+    }
+
     fun noteExitFailure(mint: String) {
         if (mint.isBlank()) return
+        lastExitFailedAtMs[mint] = System.currentTimeMillis()
         stuckExitAtMs[mint] = System.currentTimeMillis()
         try { PipelineHealthCollector.labelInc("EXIT_FAILURE_NOTED_7310") } catch (_: Throwable) {}
     }

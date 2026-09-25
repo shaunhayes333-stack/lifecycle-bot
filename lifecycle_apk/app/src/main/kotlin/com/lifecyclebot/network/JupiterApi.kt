@@ -162,6 +162,29 @@ class JupiterApi(private val apiKey: String = "") {
         require(amountRaw > 0L) { "amountRaw must be > 0" }
         require(taker.isNotBlank()) { "taker blank" }
 
+        // V5.0.7314 — EXITS GO v6 + HELIUS SENDER FIRST. A v6 swap is built by
+        // our own builder with the CU price + Helius tip envelope, so the sell
+        // is broadcast Helius Sender first (then Jito / RPC). Ultra orders are
+        // landed by Jupiter's /execute and never reach Sender — and, per the
+        // note below, RFQ makers usually decline dumping meme inventory, so
+        // Ultra-first cost two failed round trips before v6 on every stop.
+        // Ultra remains the fallback if v6 has no route.
+        if (ExitHttpScope7314.active()) {
+            try {
+                val exitV6 = getQuoteV6(
+                    inputMint = inputMint,
+                    outputMint = outputMint,
+                    amountRaw = amountRaw,
+                    slippageBps = slippageBps,
+                )
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_QUOTE_V6_SENDER_FIRST_7314") } catch (_: Throwable) {}
+                return exitV6
+            } catch (e: Exception) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_QUOTE_V6_MISS_ULTRA_FALLBACK_7314") } catch (_: Throwable) {}
+                log("⚠️ Exit v6 quote failed (${e.message?.take(80)}) — trying Ultra binding order")
+            }
+        }
+
         // V5.9.481 — try Ultra binding order TWICE before falling back to v6.
         // RFQ providers (iris/dflow/okx) are bursty under load; a one-shot
         // failure is often network-side. Double-tap Ultra so we don't dump
@@ -872,9 +895,10 @@ class JupiterApi(private val apiKey: String = "") {
         val quoteLockedOut: Boolean = try {
             com.lifecyclebot.engine.ApiBackoff.isLockedOut("jupiter_quote")
         } catch (_: Throwable) { false }
-        if (quoteLockedOut) {
+        if (quoteLockedOut && !ExitHttpScope7314.active()) {
             throw RuntimeException("Jupiter GET skipped: jupiter_quote in backoff lockout")
         }
+        if (quoteLockedOut) ExitHttpScope7314.noteBypass("JUPITER_QUOTE_PRECHECK")
 
         var lastErr: RuntimeException = RuntimeException("Jupiter GET failed")
         for (attempt in 0..1) {

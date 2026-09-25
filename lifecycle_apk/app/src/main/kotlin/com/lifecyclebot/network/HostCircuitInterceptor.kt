@@ -140,6 +140,8 @@ object HostCircuitInterceptor : Interceptor {
         val provider = providerLabelFor(host, req.url.encodedPath)
         // V5.0.6976 — probes bypass the circuit (never the Birdeye budget).
         val isProbe = req.header(PROBE_HEADER_6976) != null && provider != "birdeye"
+        // V5.0.7314 — an exit is never refused by the local lockout/cool-down.
+        val isExit7314 = req.header(ExitHttpScope7314.HEADER) != null || ExitHttpScope7314.active()
 
         // V5.0.6758 — Birdeye is a paid/escalation source. The runtime snapshot
         // showed 150000/150000 daily CU while raw callers were still reaching the
@@ -164,7 +166,10 @@ object HostCircuitInterceptor : Interceptor {
 
         // V5.0.6758 — all mapped providers now share ApiBackoff, so direct
         // SharedHttpClient users cannot bypass the reactive health authority.
-        if (!isProbe && provider.isNotBlank() && try {
+        if (isExit7314 && provider.isNotBlank() && try {
+                com.lifecyclebot.engine.ApiBackoff.isLockedOut(provider)
+            } catch (_: Throwable) { false }) ExitHttpScope7314.noteBypass("SHARED_CLIENT")
+        if (!isProbe && !isExit7314 && provider.isNotBlank() && try {
                 com.lifecyclebot.engine.ApiBackoff.isLockedOut(provider)
             } catch (_: Throwable) { false }) {
             state.totalBypassed.incrementAndGet()
@@ -178,7 +183,8 @@ object HostCircuitInterceptor : Interceptor {
         }
 
         val cooldownUntil = state.cooldownUntilMs.get()
-        if (!isProbe && now < cooldownUntil) {
+        if (isExit7314 && now < cooldownUntil) ExitHttpScope7314.noteBypass("HOST_COOLDOWN")
+        if (!isProbe && !isExit7314 && now < cooldownUntil) {
             state.totalBypassed.incrementAndGet()
             val remaining = cooldownUntil - now
             if (remaining > SERVER_FAIL_COOLDOWN_MS) totalNxBypass.incrementAndGet()
@@ -187,8 +193,8 @@ object HostCircuitInterceptor : Interceptor {
         }
 
         // The probe marker is an internal routing hint — never put it on the wire.
-        val wireReq = if (req.header(PROBE_HEADER_6976) != null) {
-            req.newBuilder().removeHeader(PROBE_HEADER_6976).build()
+        val wireReq = if (req.header(PROBE_HEADER_6976) != null || req.header(ExitHttpScope7314.HEADER) != null) {
+            req.newBuilder().removeHeader(PROBE_HEADER_6976).removeHeader(ExitHttpScope7314.HEADER).build()
         } else req
 
         val response: Response = try {

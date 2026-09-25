@@ -76,7 +76,13 @@ object HealthAwareHttp {
         // within the backoff window), don't fire another request. Return
         // a synthetic 503 so callers see `!resp.isSuccessful` and skip.
         try {
-            if (!allowDuringLockout && ApiBackoff.isLockedOut(host)) {
+            // V5.0.7314 — exits are never refused by our own lockout.
+            val exit7314 = request.header(com.lifecyclebot.network.ExitHttpScope7314.HEADER) != null ||
+                com.lifecyclebot.network.ExitHttpScope7314.active()
+            if (exit7314 && !allowDuringLockout && ApiBackoff.isLockedOut(host)) {
+                com.lifecyclebot.network.ExitHttpScope7314.noteBypass("HEALTH_AWARE")
+            }
+            if (!allowDuringLockout && !exit7314 && ApiBackoff.isLockedOut(host)) {
                 return Response.Builder()
                     .request(request)
                     .protocol(Protocol.HTTP_1_1)

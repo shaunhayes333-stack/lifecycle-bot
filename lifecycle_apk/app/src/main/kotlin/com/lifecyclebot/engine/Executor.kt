@@ -18038,6 +18038,11 @@ class Executor(
             val stuck7310 = com.lifecyclebot.engine.sell.ExitProviderHealth.stuckExitMint { m ->
                 BotService.status.tokens[m]?.position?.let { it.isOpen && !it.isPaperPosition } == true
             }
+            if (com.lifecyclebot.engine.sell.ExitProviderHealth.reentryBlockedNow(ts.mint)) {
+                PipelineHealthCollector.labelInc("LIVE_BUY_REFUSED_LAST_EXIT_FAILED_7314")
+                ForensicLogger.lifecycle("LIVE_BUY_REFUSED_LAST_EXIT_FAILED_7314", "mint=${ts.mint.take(10)} lane=$gateLaneLive6451")
+                return false
+            }
             if (stuck7310 != null) {
                 PipelineHealthCollector.labelInc("LIVE_BUY_HELD_EXIT_STUCK_7310")
                 ForensicLogger.lifecycle(
@@ -26046,7 +26051,14 @@ class Executor(
         }
     }
 
+    // V5.0.7314 — every HTTP call made by a live exit runs in the exit scope,
+    // so our own backoff/cool-down can never refuse it (TTP, 5.0.7311).
     private fun liveSell(ts: TokenState, reason: String,
+                         wallet: SolanaWallet, walletSol: Double,
+                         identity: TradeIdentity? = null): SellResult =
+        com.lifecyclebot.network.ExitHttpScope7314.run { liveSellInScope7314(ts, reason, wallet, walletSol, identity) }
+
+    private fun liveSellInScope7314(ts: TokenState, reason: String,
                          wallet: SolanaWallet, walletSol: Double,
                          identity: TradeIdentity? = null): SellResult {
         ExecutionRootCauseTrace.sell("LIVE_SELL_ENTRY", ts, "reason=$reason walletSol=$walletSol posQty=${ts.position.qtyToken} entry=${ts.position.entryPrice} high=${ts.position.highestPrice}")

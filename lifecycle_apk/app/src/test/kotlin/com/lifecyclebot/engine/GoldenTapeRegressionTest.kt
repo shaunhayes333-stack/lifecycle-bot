@@ -11202,4 +11202,28 @@ class GoldenTapeRegressionTest {
         assertTrue(ex.contains("CU_SIGNATURE_UNPROVED_ACCEPTED_PENDING_7313"))
     }
 
+    @Test
+    fun V5_0_7314_exits_bypass_our_own_lockout_and_go_v6_helius_sender_first() {
+        val h = com.lifecyclebot.engine.sell.ExitProviderHealth
+        assertFalse(h.isProviderClassFailure("LOCAL_LOCKOUT (not sent to PumpPortal): ApiBackoff lockout"))
+        assertFalse(h.isProviderClassFailure("Jupiter GET skipped: jupiter_quote in backoff lockout"))
+        assertTrue(h.isProviderClassFailure("PumpPortal HTTP 503: upstream"))
+        assertTrue(h.reentryBlocked(1_000L, 1_000L + 60_000L))
+        assertFalse(h.reentryBlocked(1_000L, 1_000L + 31 * 60_000L))
+        assertFalse(h.reentryBlocked(null, 5_000L))
+        val scope = com.lifecyclebot.network.ExitHttpScope7314
+        assertFalse(scope.active())
+        assertTrue(scope.run { scope.active() })
+        assertFalse(scope.active())
+        val pump = java.io.File("src/main/kotlin/com/lifecyclebot/network/PumpFunDirectApi.kt").readText()
+        assertTrue(pump.contains("host = \"pumpportal_trade\""))
+        val jup = java.io.File("src/main/kotlin/com/lifecyclebot/network/JupiterApi.kt").readText()
+        assertTrue(jup.contains("EXIT_QUOTE_V6_SENDER_FIRST_7314"))
+        assertTrue(jup.contains("if (quoteLockedOut && !ExitHttpScope7314.active())"))
+        val hci = java.io.File("src/main/kotlin/com/lifecyclebot/network/HostCircuitInterceptor.kt").readText()
+        assertTrue(hci.contains("if (!isProbe && !isExit7314 && now < cooldownUntil)"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("ExitHttpScope7314.run { liveSellInScope7314(ts, reason, wallet, walletSol, identity) }"))
+    }
+
 }

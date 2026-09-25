@@ -4,6 +4,16 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7314] - 2026-09-26 — AN EXIT IS NEVER REFUSED BY OUR OWN BACKOFF; EXITS GO HELIUS SENDER FIRST
+
+TTP (5.0.7311 live) could not be sold because the app refused its own sell requests before they reached the wire.
+
+- ExitHttpScope7314 (new): Executor.liveSell now runs its whole body in an exit scope. HealthAwareHttp's ApiBackoff lockout (the synthetic "503 {}"), HostCircuitInterceptor's shared-client lockout and host cool-down (the synthetic "599"), and JupiterApi's jupiter_quote pre-check all let exit requests through. Outcomes are still recorded; exits are never blocked by them. Counters EXIT_BYPASSED_LOCAL_LOCKOUT_7314_<layer>.
+- PumpPortal trading uses its own health key "pumpportal_trade"; pump.fun frontend price lookups (sr=8%) had locked the shared "pumpfun" key and refused every PumpPortal sell.
+- A response we synthesised (X-AATE-Synthetic) is raised as "LOCAL_LOCKOUT (not sent to PumpPortal)" and ExitProviderHealth never counts a local lockout toward the exit breakers — it had opened the 7310 Pump breaker and skipped the rescue. Counter PUMPPORTAL_LOCAL_LOCKOUT_7314.
+- Exits quote Jupiter v6 first: our v6 builder carries the CU price + Helius tip envelope, so the sell is broadcast Helius Sender first (then Jito / RPC). Ultra orders are landed by Jupiter /execute and never reach Sender, and its RFQ makers usually decline meme dumps; Ultra remains the fallback when v6 has no route. Counters EXIT_QUOTE_V6_SENDER_FIRST_7314 / EXIT_QUOTE_V6_MISS_ULTRA_FALLBACK_7314.
+- No live re-buy of a mint whose last exit failed within 30 minutes, even after the position closes. Counter LIVE_BUY_REFUSED_LAST_EXIT_FAILED_7314.
+
 ## [5.0.7313] - 2026-09-26 — LIVE CRYPTO BUYS STOP VANISHING
 
 5.0.7309 live CRYPTO_ALT funnel: dispatch=8 dispatchReject=0 unexplained=0 open=0.

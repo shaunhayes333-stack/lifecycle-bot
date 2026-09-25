@@ -128,6 +128,13 @@ object PumpFunDirectApi {
                 ?: throw RuntimeException("PumpPortal returned empty body (HTTP ${resp.code})")
             val ct = resp.header("Content-Type", "")?.lowercase() ?: ""
             val bytes = body.bytes()
+            // V5.0.7314 — a response we generated ourselves is not PumpPortal's
+            // reply. Name it LOCAL_LOCKOUT so it is never logged as "PumpPortal
+            // HTTP 503: {}" and never counted toward the exit provider breaker.
+            if (!resp.isSuccessful && resp.header(HostCircuitInterceptor.SYNTHETIC_HEADER_6969) != null) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMPPORTAL_LOCAL_LOCKOUT_7314") } catch (_: Throwable) {}
+                throw RuntimeException("LOCAL_LOCKOUT (not sent to PumpPortal): ${resp.message.take(160)}")
+            }
             if (!resp.isSuccessful) {
                 val text = try { String(bytes) } catch (_: Throwable) { "<binary ${bytes.size}B>" }
                 ErrorLogger.warn(TAG,
@@ -293,7 +300,10 @@ object PumpFunDirectApi {
         ErrorLogger.info(TAG,
             "🚀 PUMP DIRECT SELL → mint=${mint.take(8)}… amount=$amountField pool=$pool slip=$slip%")
 
-        com.lifecyclebot.engine.HealthAwareHttp.execute(httpClient, req, host = "pumpfun").use { resp ->
+        // V5.0.7314 — PumpPortal trading has its own health key: pump.fun
+        // frontend price lookups (sr=8%) used to lock "pumpfun" and refuse
+        // every PumpPortal sell with a synthetic 503.
+        com.lifecyclebot.engine.HealthAwareHttp.execute(httpClient, req, host = "pumpportal_trade").use { resp ->
             val body = resp.body
             if (body == null) {
                 throw RuntimeException("PumpPortal returned empty body (HTTP ${resp.code})")
@@ -302,6 +312,13 @@ object PumpFunDirectApi {
             // Read bytes once. PumpPortal returns octet-stream on success
             // and JSON (or plain text) on error. resp.code is the discriminator.
             val bytes = body.bytes()
+            // V5.0.7314 — a response we generated ourselves is not PumpPortal's
+            // reply. Name it LOCAL_LOCKOUT so it is never logged as "PumpPortal
+            // HTTP 503: {}" and never counted toward the exit provider breaker.
+            if (!resp.isSuccessful && resp.header(HostCircuitInterceptor.SYNTHETIC_HEADER_6969) != null) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PUMPPORTAL_LOCAL_LOCKOUT_7314") } catch (_: Throwable) {}
+                throw RuntimeException("LOCAL_LOCKOUT (not sent to PumpPortal): ${resp.message.take(160)}")
+            }
             if (!resp.isSuccessful) {
                 val text = try { String(bytes) } catch (_: Throwable) { "<binary ${bytes.size}B>" }
                 ErrorLogger.warn(TAG,
