@@ -4,6 +4,18 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7316] - 2026-09-26 — THE CROSS-CHAIN BRIDGE GOES LIVE (deBridge DLN, per attested chain)
+
+The deBridge DLN round trip (Solana -> EVM buy, EVM -> Solana sell, ERC-20 approval, idempotent EVM submission, crash recovery, destination balance proof) was built in 6646/6649/6987 but held off by three constants and four gaps. It now runs, with each gate replaced by a real condition:
+
+- FULL_ROUND_TRIP_IMPLEMENTED = true; cryptoUniverseAllowBridgeAdapters defaults true.
+- integrationTests is no longer a constant false: a chain graduates when its dry run (live RPC block, gas oracle, pending nonce, tx construction, signature recovered to our own EVM address) passes on this device; attestation lasts 7 days and re-runs automatically (hourly at most) when stale. Counter BRIDGE_CHAIN_ATTESTED_7316_<chainId>.
+- The Solana side is the connected TRADING wallet (funds and signs the forward order, receives the reverse, recorded on the lot); the EVM side is the vault's derived signer. An imported trading key no longer fails SOURCE_SIGNER_MISMATCH.
+- Destination gas: per-chain floors (L2 0.00003 ETH, BSC 0.0005 BNB, Polygon 0.1 POL, Avalanche 0.005 AVAX, Ethereum 0.002 ETH) replace the flat 0.001; when missing, a small SOL -> native DLN order buys it (0.012 SOL, 0.04 on Ethereum) instead of refusing. Counter BRIDGE_GAS_TOPPED_UP_7316_<chainId>.
+- Cost gate: forward + reverse order cost from deBridge's own USD estimates must be <= 8% of size, else BRIDGE_COST_TOO_HIGH; missing estimates are BRIDGE_COST_UNPROVEN (refused, never guessed). On a small wallet this will refuse most bridged trades — that is the correct outcome.
+- Chain aliases for discovery names: polygon_pos, matic, avax, arbitrum-one/arbitrum_one, optimistic-ethereum, bnb.
+- The close no longer blocks the monitor: EVM submission polls ~15 s then returns Pending (engine is idempotent), and the DLN order is read once per cycle. Reverse proceeds are the order's committed take amount (a DLN order is Fulfilled only when exactly that is delivered), not a wallet SOL delta that other trades move while the order is pending. A cancelled/reverted reverse order resets the lot and re-quotes (EVM idempotency is now keyed per order id). Counter BRIDGE_REVERSE_REQUOTE_7316.
+
 ## [5.0.7315] - 2026-09-26 — THE LIVE HEADLINE IS THE WHOLE WALLET
 
 - MainActivity hero (LIVE only): the headline was ws.solBalance — SOL alone — so the operator's wallet read A$47.66 while the bot read A$29.83; the difference was every token the bot holds (TNSR, CAKE, XMR, POPCAT and open positions). The live headline is now SOL + held tokens at their observed price (HostWalletTokenTracker, seen in the wallet within 10 min), with "LIVE · CASH x SOL · TOKENS y SOL (+n unpriced)" beneath. Unpriced holdings are counted and named, never valued by guess. Paper keeps its 7258 CASH headline; live sizing still uses spendable SOL.

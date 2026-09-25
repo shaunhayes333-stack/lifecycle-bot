@@ -11235,4 +11235,24 @@ class GoldenTapeRegressionTest {
         assertTrue(ui.contains("\"PAPER · CASH ${\"%.4f\".format(account7045.cashSol)} SOL\""))
     }
 
+    @Test
+    fun V5_0_7316_cross_chain_bridge_goes_live_per_attested_chain_with_cost_and_gas_gates() {
+        val b = com.lifecyclebot.perps.crypto.CryptoBridgeAdapter
+        val cost = b.roundTripCostFrac7316(10.0, 9.8, 9.8, 9.6)!!
+        assertTrue(cost > 0.039 && cost < 0.041)
+        assertTrue(b.roundTripCostFrac7316(5.0, 4.0, 4.0, 3.2)!! > 0.08)
+        assertTrue(b.roundTripCostFrac7316(Double.NaN, 1.0, 1.0, 1.0) == null)
+        assertTrue(b.roundTripCostFrac7316(5.0, 0.0, 4.0, 3.2) == null)
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoBridgeAdapter.kt").readText()
+        assertTrue(src.contains("\"polygon_pos\" to Chain(137"))
+        assertTrue(src.contains("\"avax\" to Chain(43114"))
+        assertTrue(src.contains("ensureDestinationGas7316(wallet, chain, stored.ethereumAddress)"))
+        assertTrue(src.contains("val status = orderStatus7316(position.reverseOrderId)"))
+        assertFalse(src.contains("withTimeout(620_000L)"))
+        assertTrue(src.contains("\"$positionId:DLN_REVERSE:${position.reverseOrderId}\""))
+        assertTrue(src.contains("position.reverseTakeLamports.toBigDecimal().movePointLeft(9).toDouble()"))
+        val cfg = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoUniverseConfig.kt").readText()
+        assertTrue(cfg.contains("val cryptoUniverseAllowBridgeAdapters: Boolean = true,"))
+    }
+
 }

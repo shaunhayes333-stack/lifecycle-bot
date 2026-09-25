@@ -26,7 +26,7 @@ class Aate6644CryptoUniverseLivenessTest {
         val bridgeLower = bridge.lowercase()
         val bridgeIsStub = bridgeLower.contains("stub") || bridgeLower.contains("not wired")
         val bridgeHasExecutableGate = bridge.contains("MultiChainWalletVault6546.executable") &&
-            bridge.contains("MULTICHAIN_WALLET_NOT_ACTIVE") && bridge.contains("SOURCE_SIGNER_MISMATCH")
+            bridge.contains("MULTICHAIN_WALLET_NOT_ACTIVE") && bridge.contains("EVM_SIGNER_MISMATCH")
         assertTrue(bridgeIsStub || bridgeHasExecutableGate)
 
         val cexLower = cex.lowercase()

@@ -30,9 +30,11 @@ class CrossBridgeRoundTrip6649Test {
         assertTrue(wallet.contains("signSerializedTransaction6649") && wallet.contains("sendSignedAndConfirm6649"))
     }
 
-    @Test fun public_chain_live_gate_remains_closed_until_real_integration_attestation() {
+    @Test fun each_public_chain_graduates_only_on_its_own_device_attested_dry_run() {
         val bridge = source("perps/crypto/CryptoBridgeAdapter.kt")
-        assertTrue(bridge.contains("FULL_ROUND_TRIP_IMPLEMENTED = false"))
-        assertTrue(bridge.contains("integrationTests = false"))
+        assertTrue(bridge.contains("FULL_ROUND_TRIP_IMPLEMENTED = true"))
+        assertTrue(bridge.contains("implementedReadiness6649.copy(integrationTests = attested7316(it.id))"))
+        assertTrue(bridge.contains("if (probe.unfundedGreen) recordAttestation7316(chain.id)"))
+        assertTrue(bridge.contains("ATTEST_TTL_MS_7316 = 7L * 24 * 60 * 60 * 1000"))
     }
 }

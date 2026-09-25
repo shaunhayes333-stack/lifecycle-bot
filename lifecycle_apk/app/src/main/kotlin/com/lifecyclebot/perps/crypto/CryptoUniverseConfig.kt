@@ -7,7 +7,9 @@ package com.lifecyclebot.perps.crypto
  *   - cryptoUniverseLiveEnabled            = true
  *   - cryptoUniverseSolToUsdcBridgeEnabled = true
  *   - cryptoUniverseAllowWrappedAssets     = true
- *   - cryptoUniverseAllowBridgeAdapters    = false  (no adapter wired yet)
+ *   - cryptoUniverseAllowBridgeAdapters    = true   (V5.0.7316: deBridge DLN round trip;
+ *                                                   each chain still needs its own attested
+ *                                                   dry run, a vault EVM signer and <=8% cost)
  *   - cryptoUniverseAllowCexAdapters       = false  (no adapter wired yet)
  *   - cryptoUniversePaperOnlyWhenNoExecutor = true
  */
@@ -15,7 +17,7 @@ data class CryptoUniverseConfig(
     val cryptoUniverseLiveEnabled: Boolean = true,
     val cryptoUniverseSolToUsdcBridgeEnabled: Boolean = true,
     val cryptoUniverseAllowWrappedAssets: Boolean = true,
-    val cryptoUniverseAllowBridgeAdapters: Boolean = false,
+    val cryptoUniverseAllowBridgeAdapters: Boolean = true,
     val cryptoUniverseAllowCexAdapters: Boolean = false,
     val cryptoUniversePaperOnlyWhenNoExecutor: Boolean = true,
     val cryptoUniverseMaxRouteResolveMs: Long = 1500L,
