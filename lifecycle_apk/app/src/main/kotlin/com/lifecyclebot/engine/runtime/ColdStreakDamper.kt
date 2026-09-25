@@ -89,6 +89,20 @@ object ColdStreakDamper {
      */
     fun sizeMultiplier(lane: String, isPaper: Boolean): Double {
         val n = effectiveLossStreak6991(lane, isPaper)
+        // V5.0.7331 — a loss streak on a lane whose measured expectancy is
+        // positive is its fat-tailed shape, not a cold spell: shrinking the
+        // next entry is shrinking the one that pays for the streak.
+        if (n > 2) {
+            val laneEvPositive7331 = try {
+                com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
+                    .firstOrNull { it.lane.equals(lane, true) }
+                    ?.let { it.sample >= 10 && it.evPct > 0.0 } == true
+            } catch (_: Throwable) { false }
+            if (laneEvPositive7331) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("COLD_STREAK_NOT_DAMPED_POSITIVE_EV_7331") } catch (_: Throwable) {}
+                return 1.0
+            }
+        }
         val mult = when {
             n <= 2  -> 1.00
             n <= 5  -> 0.75

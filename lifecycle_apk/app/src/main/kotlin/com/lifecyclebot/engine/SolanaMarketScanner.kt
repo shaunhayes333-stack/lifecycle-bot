@@ -53,8 +53,15 @@ object ScannerLearning {
     }
 
     fun recordTrade(source: String, liqUsd: Double, ageHours: Double, isWin: Boolean) {
-        if (isWin) sourceWins.merge(source, 1) { a, b -> a + b }
-        else sourceLosses.merge(source, 1) { a, b -> a + b }
+        // V5.0.7331 — ts.source is a provenance list ("DEX_TRENDING,SCANNER_DIRECT,
+        // RAYDIUM_NEW_POOL"); the reader asks by one source name. Recorded under
+        // the joined string, no key ever matched and every source read 50%.
+        val sources7331 = source.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+            .ifEmpty { listOf(source) }
+        for (src in sources7331) {
+            if (isWin) sourceWins.merge(src, 1) { a, b -> a + b }
+            else sourceLosses.merge(src, 1) { a, b -> a + b }
+        }
 
         val liqBucket = when {
             liqUsd < 2_000 -> "liq_0_2k"

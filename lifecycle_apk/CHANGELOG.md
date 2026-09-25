@@ -4,6 +4,17 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7331] - 2026-09-26 — STREAKS AND SOURCES LEARN FROM WHAT PAYS
+
+- ScannerLearning: trades were recorded under the joined provenance string
+  ("DEX_TRENDING,SCANNER_DIRECT,…") while the scanner asks by one source
+  name, so every source read 50% forever. Each named source now records.
+- FinalExecutionPermit: a lane loss streak raises the consensus veto signal
+  only when that lane's measured EV (n>=10) is not positive
+  (LOSING_STREAK_ON_POSITIVE_EV_LANE_NOT_RAISED_7331).
+- ColdStreakDamper: no size damping on a lane with positive measured EV
+  (COLD_STREAK_NOT_DAMPED_POSITIVE_EV_7331).
+
 ## [5.0.7330] - 2026-09-26 — RUNNER STOPS FIRE AT THE RUNNER FLOOR
 
 5.0.7324 paper MOONSHOT: EV -29.6%/trade, closes at -59%/-61%, one position

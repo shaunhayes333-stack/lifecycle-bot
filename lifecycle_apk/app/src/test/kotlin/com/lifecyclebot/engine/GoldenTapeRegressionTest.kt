@@ -11493,4 +11493,14 @@ class GoldenTapeRegressionTest {
         assertTrue(ex.contains("PaperPositionCloseAuthority.releaseDeferredRequest7330(\"PAPER\", ts.mint)"))
     }
 
+    @Test
+    fun V5_0_7331_streaks_and_sources_learn_from_what_pays() {
+        val sc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SolanaMarketScanner.kt").readText()
+        assertTrue(sc.contains("val sources7331 = source.split(',')"))
+        val fp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalExecutionPermit.kt").readText()
+        assertTrue(fp.contains("if (cohortCooldown6488 > 0L && !laneEvPositive7331) {"))
+        val cs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/runtime/ColdStreakDamper.kt").readText()
+        assertTrue(cs.contains("COLD_STREAK_NOT_DAMPED_POSITIVE_EV_7331"))
+    }
+
 }

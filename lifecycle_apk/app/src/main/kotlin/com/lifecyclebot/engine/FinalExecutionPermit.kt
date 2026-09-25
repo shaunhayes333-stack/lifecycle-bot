@@ -294,7 +294,19 @@ object FinalExecutionPermit {
         val cohortCooldown6488 = try {
             com.lifecyclebot.engine.truth.LosingStreakReflex6439.cooldownRemainingSec(requestingLayer, if (isPaperMode) "PAPER" else "LIVE")
         } catch (_: Throwable) { 0L }
-        if (cohortCooldown6488 > 0L) {
+        // V5.0.7331 — three straight losses is the normal texture of a
+        // fat-tailed lane (PROJECT_SNIPER: 29% WR, +16%/trade). A streak only
+        // counts as a veto signal when the lane's measured expectancy is not
+        // positive; otherwise it is telemetry.
+        val laneEvPositive7331 = try {
+            com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
+                .firstOrNull { it.lane.equals(requestingLayer, true) }
+                ?.let { it.sample >= 10 && it.evPct > 0.0 } == true
+        } catch (_: Throwable) { false }
+        if (cohortCooldown6488 > 0L && laneEvPositive7331) {
+            try { PipelineHealthCollector.labelInc("LOSING_STREAK_ON_POSITIVE_EV_LANE_NOT_RAISED_7331") } catch (_: Throwable) {}
+        }
+        if (cohortCooldown6488 > 0L && !laneEvPositive7331) {
             try {
                 PipelineHealthCollector.labelInc("LOSING_STREAK_COHORT_NO_GLOBAL_VETO_6488")
                 com.lifecyclebot.engine.truth.AdaptiveVetoConsensusAuthority6728.raise(
