@@ -4,6 +4,10 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7319] - 2026-09-26 — THE STRATEGY LEDGER STOPS RE-SCORING THE WHOLE BOOK
+
+- StrategyTruthLedger.clean cached one result for all callers; callers pass different journals and limits, so they evicted each other (2,066 misses in 10 minutes, each re-scoring every trade row: PNL_PCT_RECONCILED_ON_SOLD_COST_7164 = 684,453). The cache now keeps one slot per input (bounded at 16), cutting a large share of the per-cycle CPU that was slowing the bot loop (avg 7.2s, max 32s) and expiring buy tickets.
+
 ## [5.0.7318] - 2026-09-26 — A CLOSE STAMP BELONGS TO THE POSITION IT CLOSED
 
 - 3xfsfo and GgsSae were re-bought on mints whose earlier position had closed. The old CLOSED stamp answered for the new position, so every stop was suppressed (REQUEST_SELL_SUPPRESSED_CLOSE_AUTHORITY guard=LEDGER_CLOSED, 324) and 3xfsfo rode to -97%. The close authority now releases a stale stamp when the canonical authority holds an open live position with quantity AND the wallet confirms a positive balance (LIVE_STALE_CLOSE_RELEASED_7318); in-flight sells are untouched. The canonical close reconstruct no longer re-stamps a mint that has been re-opened.

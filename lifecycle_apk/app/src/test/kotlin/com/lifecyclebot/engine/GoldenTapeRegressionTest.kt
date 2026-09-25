@@ -11287,4 +11287,13 @@ class GoldenTapeRegressionTest {
         assertTrue(reg.contains("crypto live not-opened by reason 7318=["))
     }
 
+    @Test
+    fun V5_0_7319_strategy_clean_cache_keeps_one_slot_per_input() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTruthLedger.kt").readText()
+        assertTrue(src.contains("private val cleanCache7319 = LinkedHashMap<String, CleanCacheEntry7319>()"))
+        assertTrue(src.contains("val key = \"${rawRows.size / 10}|${newestTs / 30_000}|$limit|$oldestTs7319\""))
+        assertTrue(src.contains("if (cleanCache7319.size > 16)"))
+        assertFalse(src.contains("@Volatile private var cleanCacheKey"))
+    }
+
 }

@@ -54,9 +54,12 @@ object StrategyTruthLedger {
 
     private const val CLEAN_CACHE_TTL_MS: Long = 10_000L
     private val cleanCacheLock = Any()
-    @Volatile private var cleanCacheKey: String = ""
-    @Volatile private var cleanCacheValue: Result? = null
-    @Volatile private var cleanCacheStampMs: Long = 0L
+    // V5.0.7319 — one slot per input, not one slot for everyone. Callers pass
+    // different journals (live/paper/all) and limits; a single slot made them
+    // evict each other (2,066 misses in 10 minutes, each re-scoring every row:
+    // PNL_PCT_RECONCILED_ON_SOLD_COST_7164 = 684,453). Bounded at 16 keys.
+    private class CleanCacheEntry7319(val value: Result, val stampMs: Long)
+    private val cleanCache7319 = LinkedHashMap<String, CleanCacheEntry7319>()
 
     // V5.0.6404 §A — LIFETIME TERMINAL COUNTER DEDUPER.
     // Operator's V5.0.6404 emergency dump showed STRATEGY_CLEAN_TERMINAL_ROWS
@@ -126,10 +129,10 @@ object StrategyTruthLedger {
         // strategy learning already runs at (TRIAL_WINDOW=25, PERSIST=40).
         val now = System.currentTimeMillis()
         val newestTs = rawRows.firstOrNull()?.ts ?: 0L
-        val key = "${rawRows.size / 10}|${newestTs / 30_000}|$limit"
+        val oldestTs7319 = rawRows.lastOrNull()?.ts ?: 0L
+        val key = "${rawRows.size / 10}|${newestTs / 30_000}|$limit|$oldestTs7319"
         val cached = synchronized(cleanCacheLock) {
-            val v = cleanCacheValue
-            if (v != null && cleanCacheKey == key && now - cleanCacheStampMs < CLEAN_CACHE_TTL_MS) v else null
+            cleanCache7319[key]?.takeIf { now - it.stampMs < CLEAN_CACHE_TTL_MS }?.value
         }
         if (cached != null) {
             try { PipelineHealthCollector.labelInc("STRATEGY_CLEAN_CACHE_HIT_6358") } catch (_: Throwable) {}
@@ -265,9 +268,11 @@ object StrategyTruthLedger {
         // V5.0.6358 — publish to cache. Overwrite is unconditional under lock
         // so races produce identical Result contents for the same key.
         synchronized(cleanCacheLock) {
-            cleanCacheKey = key
-            cleanCacheValue = result
-            cleanCacheStampMs = System.currentTimeMillis()
+            cleanCache7319[key] = CleanCacheEntry7319(result, System.currentTimeMillis())
+            if (cleanCache7319.size > 16) {
+                val stale = cleanCache7319.keys.first()
+                cleanCache7319.remove(stale)
+            }
         }
         return result
     }
