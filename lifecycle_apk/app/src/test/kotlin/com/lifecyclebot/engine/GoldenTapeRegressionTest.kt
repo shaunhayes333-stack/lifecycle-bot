@@ -11183,4 +11183,13 @@ class GoldenTapeRegressionTest {
         assertFalse(ex.contains("maxOf(jitoTipLamports, 200_000L), senderCompatible = false)"))
     }
 
+    @Test
+    fun V5_0_7312_crypto_brain_floor_follows_the_market_decile() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue(src.contains("val scoreFloor = cryptoFloor7312(maturityScoreFloor7312, recentCryptoScores7312, 48)"))
+        assertTrue(src.contains("val confFloor = cryptoFloor7312(maturityConfFloor7312, recentCryptoConfs7312, 42)"))
+        assertTrue(src.contains("return minOf(maturityFloor, p90).coerceAtLeast(bootstrapFloor)"))
+        assertTrue(src.contains("if (recent.size < 50) return maturityFloor"))
+    }
+
 }

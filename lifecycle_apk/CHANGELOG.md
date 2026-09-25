@@ -4,6 +4,10 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7312] - 2026-09-26 — THE CRYPTO BRAIN ACTS ON THE BEST OF THE MARKET
+
+- CryptoAltTrader.scoreDynamicCrypto7244: CryptoFluidLearning's spot floors rise with trade COUNT (bootstrap 48/42 -> learning 55/50 -> validating 62/58 -> maturing 68/64 -> ready 72/68) while the native score has no learned term that rises with them; confidence tops out near 42 + |24h change| + |buy pressure - 50|/2 + 6, and a token without a buy/sell split reads ~50. Past bootstrap almost nothing could clear it — 5.0.7309: 1394 CRYPTO_BRAIN_OBSERVE_7244, 1376 NO_ACTIONABLE_SIGNAL, cryptoBrainSignals=0, ~1200 evaluations expired stale. The floor is now min(maturity floor, 90th percentile of the last 400 scores/confidences), never below the bootstrap floor (48/42), with the maturity floor alone until 50 samples. The long-evidence requirement and the losing-pattern shadow gate are unchanged. Counter CRYPTO_FLOOR_MARKET_DECILE_7312.
+
 ## [5.0.7311] - 2026-09-26 — A THIRD SELL BUILDER (RAYDIUM); HELIUS SENDER ON PUMPPORTAL ROUTES
 
 - RaydiumSellRoute7311 (new): the live exit had two transaction builders, PumpPortal (pool=auto) and the Jupiter ladder; on 5.0.7309 one failure each left TTP's stop with nothing to build, so no sender was ever reached. Raydium's trade API (compute/swap-base-in -> auto-fee CU price -> transaction/swap-base-in, token account from getTokenAccountsByOwner by mint) now builds token->SOL v0 transactions independently of both. It runs after the Jupiter ladder and before the PumpPortal rescue; each transaction is wrapped in the Helius Sender envelope and broadcast Helius Sender first, then Jito / RPC. Its HTTP calls bypass host lockout — a backoff is never why a stop cannot leave. Slippage 500 bps (2500 on drain exits) through SellSafetyPolicy's cap. Counters RAYDIUM_SELL_{BUILT,LANDED,FAILED}_7311.

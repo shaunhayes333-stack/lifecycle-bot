@@ -974,6 +974,33 @@ object CryptoAltTrader {
         else -> "TIER3"
     }
 
+    private val recentCryptoScores7312 = java.util.ArrayDeque<Int>()
+    private val recentCryptoConfs7312 = java.util.ArrayDeque<Int>()
+
+    @Synchronized
+    private fun recordCryptoScore7312(score: Int, conf: Int) {
+        recentCryptoScores7312.addLast(score); recentCryptoConfs7312.addLast(conf)
+        while (recentCryptoScores7312.size > 400) recentCryptoScores7312.pollFirst()
+        while (recentCryptoConfs7312.size > 400) recentCryptoConfs7312.pollFirst()
+    }
+
+    /** Pure: min(maturity floor, p90 of recent values), never below [bootstrapFloor]. */
+    private fun cryptoFloorFrom7312(maturityFloor: Int, recent: List<Int>, bootstrapFloor: Int): Int {
+        if (recent.size < 50) return maturityFloor
+        val sorted = recent.sorted()
+        val p90 = sorted[((sorted.size - 1) * 0.90).toInt()]
+        return minOf(maturityFloor, p90).coerceAtLeast(bootstrapFloor)
+    }
+
+    @Synchronized
+    private fun cryptoFloor7312(maturityFloor: Int, recent: java.util.ArrayDeque<Int>, bootstrapFloor: Int): Int {
+        val f = cryptoFloorFrom7312(maturityFloor, recent.toList(), bootstrapFloor)
+        if (f < maturityFloor) {
+            try { PipelineHealthCollector.labelInc("CRYPTO_FLOOR_MARKET_DECILE_7312") } catch (_: Throwable) {}
+        }
+        return f
+    }
+
     private fun scoreDynamicCrypto7244(
         tok: DynamicAltTokenRegistry.DynToken,
         marketCapUsd: Double,
@@ -1012,8 +1039,19 @@ object CryptoAltTrader {
             (if (liquidityUsd > 0.0) 6 else 0) + brainConfAdj
         ).coerceIn(0, 100)
 
-        val scoreFloor = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotScoreFloor() } catch (_: Throwable) { 50 }
-        val confFloor = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotConfFloor() } catch (_: Throwable) { 40 }
+        val maturityScoreFloor7312 = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotScoreFloor() } catch (_: Throwable) { 50 }
+        val maturityConfFloor7312 = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotConfFloor() } catch (_: Throwable) { 40 }
+        // V5.0.7312 — the maturity floors rise with trade COUNT (48/42 ->
+        // 72/68) while this score has no learned term to rise with them;
+        // confidence tops out near 42 + |chg| + |bp-50|/2 + 6, so past
+        // bootstrap almost nothing could clear it (5.0.7309: 1394 OBSERVE,
+        // 1376 NO_ACTIONABLE, cryptoBrainSignals=0). The floor is now the
+        // lower of the maturity floor and the market's own top decile, never
+        // below the bootstrap floor: the brain always acts on the best of what
+        // is on offer. Long-evidence and the losing-pattern shadow gate stand.
+        recordCryptoScore7312(score, confidence)
+        val scoreFloor = cryptoFloor7312(maturityScoreFloor7312, recentCryptoScores7312, 48)
+        val confFloor = cryptoFloor7312(maturityConfFloor7312, recentCryptoConfs7312, 42)
         val longEvidence = change24hPct >= 0.50 || buyPressurePct >= 56.0 ||
             (tok.isTrending && change24hPct > -1.0) || (tok.isBoosted && buyPressurePct >= 52.0)
         val shadowOnlyLive = try {
