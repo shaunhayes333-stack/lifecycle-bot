@@ -924,16 +924,25 @@ object FinalDecisionGate {
             laneEvidenceScore7243 > canonicalV3Score7243
         // V5.0.7307 — proven by its journal OR by its fee-net shadow record
         // (LaneShadowProof7307), so a lane refused here can still earn live.
-        val laneProvenForLive7307 = config.paperMode || try {
-            val st = com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane(floorLane7266)
-                ?: com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane(floorLane7266.replace("_", ""))
-            (st != null && st.n >= 20 && st.meanNetPct > 0.0) ||
-                com.lifecyclebot.engine.truth.LaneShadowProof7307.shadowProves(
-                    com.lifecyclebot.engine.truth.LaneShadowProof7307.stat(floorLane7266),
-                )
-        } catch (_: Throwable) { false }
-        val laneOwnScoreAdmitted7292 = laneScoreClears7307 && laneProvenForLive7307
-        if (laneScoreClears7307 && !laneProvenForLive7307 && canonicalV3Score7243 < canonicalFloor7266) {
+        val laneProven7308: (String) -> Boolean = { laneKey ->
+            try {
+                val st = com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane(laneKey)
+                    ?: com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane(laneKey.replace("_", ""))
+                (st != null && st.n >= 20 && st.meanNetPct > 0.0) ||
+                    com.lifecyclebot.engine.truth.LaneShadowProof7307.shadowProves(
+                        com.lifecyclebot.engine.truth.LaneShadowProof7307.stat(laneKey),
+                    )
+            } catch (_: Throwable) { false }
+        }
+        val laneProvenForLive7307 = config.paperMode || laneProven7308(floorLane7266)
+        // V5.0.7308 — one live exploration slot for an unproven lane: it may
+        // hold ONE live position at a time (spaced 5 min) so it earns real
+        // closes. Shadow proof keeps accruing for every other refusal.
+        val exploration7308 = !config.paperMode && laneScoreClears7307 && !laneProvenForLive7307 &&
+            canonicalV3Score7243 < canonicalFloor7266 &&
+            try { com.lifecyclebot.engine.truth.LaneScoreAdmission7308.explorationSlotFreeNow(laneProven7308) } catch (_: Throwable) { false }
+        val laneOwnScoreAdmitted7292 = laneScoreClears7307 && (laneProvenForLive7307 || exploration7308)
+        if (laneScoreClears7307 && !laneProvenForLive7307 && !exploration7308 && canonicalV3Score7243 < canonicalFloor7266) {
             try {
                 com.lifecyclebot.engine.truth.LaneShadowProof7307.onUnprovenRefusal(
                     lane = floorLane7266,
@@ -941,6 +950,15 @@ object FinalDecisionGate {
                     price = ts.lastPrice,
                     liquidityUsd = ts.lastLiquidityUsd,
                     sizeSol = 0.042,
+                )
+            } catch (_: Throwable) {}
+        }
+        // V5.0.7308 — carry the admission score to the executor so its
+        // pre-lease floor judges the trade on the score FDG admitted it on.
+        if (!config.paperMode && laneOwnScoreAdmitted7292 && canonicalV3Score7243 < canonicalFloor7266) {
+            try {
+                com.lifecyclebot.engine.truth.LaneScoreAdmission7308.record(
+                    ts.mint, floorLane7266, laneEvidenceScore7243, exploration = exploration7308,
                 )
             } catch (_: Throwable) {}
         }

@@ -11120,4 +11120,22 @@ class GoldenTapeRegressionTest {
         assertTrue(csd.contains("seedProtectiveLiveAware("))
     }
 
+    @Test
+    fun V5_0_7308_lane_admission_score_reaches_executor_and_one_exploration_slot() {
+        val a = com.lifecyclebot.engine.truth.LaneScoreAdmission7308
+        val t0 = 10_000_000L
+        assertTrue(a.explorationSlotFree(0, 0L, t0))
+        assertFalse(a.explorationSlotFree(1, 0L, t0))
+        assertFalse(a.explorationSlotFree(0, t0 - 60_000L, t0))
+        assertTrue(a.explorationSlotFree(0, t0 - 5 * 60_000L, t0))
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("val laneOwnScoreAdmitted7292 = laneScoreClears7307 && (laneProvenForLive7307 || exploration7308)"))
+        assertTrue(fdg.contains("LaneScoreAdmission7308.record("))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("val effectiveScore = maxOf(rawScore, laneAdmission7308?.score ?: 0.0).coerceIn(0.0, 100.0)"))
+        assertTrue(ex.contains("val pendingProof7305 = livePendingProofPenalty && !laneProven7305 && laneAdmission7308 == null"))
+        val pp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PaperSeededPrior6991.kt").readText()
+        assertTrue(pp.contains("OracleTradeHistory7287.lane(lane)?.let { it.n >= 20 && it.meanNetPct > 0.0 } == true"))
+    }
+
 }

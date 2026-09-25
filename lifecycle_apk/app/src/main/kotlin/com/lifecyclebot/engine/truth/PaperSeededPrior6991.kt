@@ -154,7 +154,14 @@ object PaperSeededPrior6991 {
      * From then on live's own streak is the streak.
      */
     fun seedProtectiveLiveAware(lane: String, paperValue: Long, liveValue: Long): Long {
-        val liveHasView = try { OracleTradeHistory7287.liveCloses(lane) > 0 } catch (_: Throwable) { false }
+        // V5.0.7308 — a lane whose whole recorded history (paper + live, net
+        // of fees) is proven positive is not a lane "paper knows is bad": its
+        // recent paper streak is already inside that net figure. QUALITY
+        // (+25% mean over 44 closes) sat shadow-only on a paper streak of 6.
+        val liveHasView = try {
+            OracleTradeHistory7287.liveCloses(lane) > 0 ||
+                OracleTradeHistory7287.lane(lane)?.let { it.n >= 20 && it.meanNetPct > 0.0 } == true
+        } catch (_: Throwable) { false }
         if (liveHasView) {
             if (paperValue > liveValue) {
                 try { PipelineHealthCollector.labelInc("PAPER_PRIOR_HANDED_TO_LIVE_7307") } catch (_: Throwable) {}

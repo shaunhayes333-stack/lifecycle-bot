@@ -17636,8 +17636,15 @@ class Executor(
             ts.entryScore.isFinite() && ts.entryScore > 0.0 -> ts.entryScore
             else -> 50.0
         }
-        val effectiveScore = rawScore.coerceIn(0.0, 100.0)
+        // V5.0.7308 — FDG admitted this mint on its lane's own score; the
+        // ticket still holds the generic V3 score. Judge on the admission.
+        val laneAdmission7308 = try { com.lifecyclebot.engine.truth.LaneScoreAdmission7308.forMint(ts.mint) } catch (_: Throwable) { null }
+        val effectiveScore = maxOf(rawScore, laneAdmission7308?.score ?: 0.0).coerceIn(0.0, 100.0)
+        if (laneAdmission7308 != null && laneAdmission7308.score > rawScore) {
+            try { PipelineHealthCollector.labelInc("LIVE_SCORE_FROM_LANE_ADMISSION_7308") } catch (_: Throwable) {}
+        }
         val authoritySource = when {
+            laneAdmission7308 != null && laneAdmission7308.score > rawScore -> "FDG_LANE_ADMISSION_7308"
             ticketScore >= 0 -> "FDG_TICKET"
             snapshotScore.isFinite() && snapshotScore >= 0.0 -> "DECISION_SNAPSHOT"
             else -> "LEGACY_FALLBACK"
@@ -20137,13 +20144,16 @@ class Executor(
                 if (laneProven7305) {
                     try { PipelineHealthCollector.labelInc("ROUTABLE_MIN_PROOF_PENALTY_WAIVED_PROVEN_LANE_7305") } catch (_: Throwable) {}
                 }
-                val pendingProof7305 = livePendingProofPenalty && !laneProven7305
+                // V5.0.7308 — a lane-score admission (proven or the single
+                // exploration slot) is judged on that score, not the V3 one.
+                val laneAdmission7308 = try { com.lifecyclebot.engine.truth.LaneScoreAdmission7308.forMint(ts.mint) } catch (_: Throwable) { null }
+                val pendingProof7305 = livePendingProofPenalty && !laneProven7305 && laneAdmission7308 == null
                 val guardDecision7236 = try {
                     com.lifecyclebot.engine.truth.RoutableMinRiskGuard7236.evaluate(
                         mint = ts.mint,
                         symbol = ts.symbol,
                         lane = lane7226,
-                        score = score,
+                        score = maxOf(score, laneAdmission7308?.score ?: 0.0),
                         // livePendingProofPenalty already dampens size by
                         // 0.65 upstream; represent that as the effective
                         // regime multiplier we can see at this site.
