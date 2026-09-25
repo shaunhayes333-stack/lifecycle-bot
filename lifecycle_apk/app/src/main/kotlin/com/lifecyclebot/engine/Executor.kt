@@ -20465,6 +20465,8 @@ class Executor(
             // V5.0.7325 — Raydium is the third buy builder (see tryRaydiumBuy7325).
             var raydiumBuy7325: Pair<String, Double>? = null
             if (pumpFirstResult == null) run jupiterBuy7325@{
+            // V5.0.7327 — the Jupiter quote lives inside this block so it smart-casts; the outer `quote` is published at the end.
+            var jq7325: com.lifecyclebot.network.SwapQuote? = null
             // V5.9.495d — explicit Ultra-first signal for forensics.
             // getQuoteWithSlippageGuard internally tries Jupiter Ultra v2
             // first then falls back to v6 Metis on RFQ rejection — log
@@ -20498,18 +20500,18 @@ class Executor(
                         tradeKey = tradeKey,
                         traderTag = "MEME",
                     ) ?: throw Exception("BUY_BALANCE_PLAN_UNAVAILABLE")
-                    quote = getQuoteWithSlippageGuard(
+                    jq7325 = getQuoteWithSlippageGuard(
                         JupiterApi.SOL_MINT, ts.mint, jupiterBuyPlan.lamports,
                         slip.coerceAtMost(500), jupiterBuyPlan.solAmount,
                         buyTaker = wallet.publicKeyB58,  // V5.0.7241 — bind at quote time
                     )
-                    if (quote != null) {
+                    if (jq7325 != null) {
                         if (slip != buyBaseSlippage) onLog("BUY: quote OK at ${slip}bps slippage", ts.mint)
                         buyPhase("QUOTE_OK")
                         LiveTradeLogStore.log(
                             tradeKey, ts.mint, ts.symbol, "BUY",
                             LiveTradeLogStore.Phase.BUY_QUOTE_OK,
-                            "Quote OK @ ${slip}bps | impact=${quote.priceImpactPct.fmt(2)}% | router=${quote.router.ifBlank { "?" }}",
+                            "Quote OK @ ${slip}bps | impact=${jq7325.priceImpactPct.fmt(2)}% | router=${jq7325.router.ifBlank { "?" }}",
                             slippageBps = slip, traderTag = "MEME",
                         )
                         break
@@ -20527,7 +20529,7 @@ class Executor(
                     Thread.sleep(250)
                 }
             }
-            if (quote == null) {
+            if (jq7325 == null) {
                 raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey)
                 if (raydiumBuy7325 != null) return@jupiterBuy7325
                 onLog("🚫 BUY ABORTED: all slippage levels failed (${slippageLadder.joinToString()}bps): ${lastQuoteError?.message?.take(80)}", ts.mint)
@@ -20549,7 +20551,7 @@ class Executor(
                 return false
             }
 
-            val qGuard = security.validateQuote(quote, isBuy = true, inputSol = sol)
+            val qGuard = security.validateQuote(jq7325, isBuy = true, inputSol = sol)
             if (qGuard is GuardResult.Block) {
                 onLog("🚫 Quote rejected: ${qGuard.reason}", ts.mint)
                 LiveTradeLogStore.log(
@@ -20581,10 +20583,10 @@ class Executor(
             // surface impact) reports impact > 8% on the same buy, abort —
             // the pool liquidity is thinner than the bonding curve claims.
             run {
-                val routerStr = try { quote?.router?.uppercase() ?: "" } catch (_: Throwable) { "" }
-                val impactUnsurfaced = (quote?.priceImpactPct ?: 0.0) == 0.0
+                val routerStr = try { jq7325?.router?.uppercase() ?: "" } catch (_: Throwable) { "" }
+                val impactUnsurfaced = (jq7325?.priceImpactPct ?: 0.0) == 0.0
                 val isPumpRouter = routerStr.contains("PUMP")
-                if (quote != null && impactUnsurfaced && isPumpRouter) {
+                if (jq7325 != null && impactUnsurfaced && isPumpRouter) {
                     val lamports = try { (effectiveSol * 1_000_000_000L).toLong() } catch (_: Throwable) { 0L }
                     if (lamports > 0L) {
                         val jupSanityQuote = try {
@@ -20597,7 +20599,7 @@ class Executor(
                         } catch (_: Throwable) { null }
                         if (jupSanityQuote != null) {
                             val jupImpact = jupSanityQuote.priceImpactPct
-                            val pumpOut = (quote?.outAmount ?: 0L).toDouble()
+                            val pumpOut = (jq7325?.outAmount ?: 0L).toDouble()
                             val jupOut = jupSanityQuote.outAmount.toDouble()
                             val divergencePct = if (pumpOut > 0.0 && jupOut > 0.0) {
                                 kotlin.math.abs(pumpOut - jupOut) / pumpOut * 100.0
@@ -20641,7 +20643,7 @@ class Executor(
             }
 
             val txResultLocal = buildTxWithRetry(
-                        quote, wallet.publicKeyB58,
+                        jq7325, wallet.publicKeyB58,
                         senderTipLamports = effectiveSenderTipLamports(c, urgent = false),
                     )
             txResult = txResultLocal
@@ -20698,10 +20700,10 @@ class Executor(
 
             security.enforceSignDelay()
 
-            useJito = c.jitoEnabled && !quote.isUltra
+            useJito = c.jitoEnabled && !jq7325.isUltra
             jitoTip = effectiveJitoTipLamports(c, urgent = false)
             
-            if (quote.isUltra) {
+            if (jq7325.isUltra) {
                 onLog("🚀 Broadcasting via Jupiter Ultra (Beam MEV protection)…", ts.mint)
             } else if (useJito) {
                 onLog("⚡ Broadcasting buy tx via Jito MEV protection…", ts.mint)
@@ -20711,10 +20713,11 @@ class Executor(
             LiveTradeLogStore.log(
                 tradeKey, ts.mint, ts.symbol, "BUY",
                 LiveTradeLogStore.Phase.BUY_BROADCAST,
-                "Broadcasting | route=${if (quote.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"}",
+                "Broadcasting | route=${if (jq7325.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"}",
                 traderTag = "MEME",
             )
-            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_BROADCAST", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${if (quote.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"} sol=$sol") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_BROADCAST", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${if (jq7325.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"} sol=$sol") } catch (_: Throwable) {}
+            quote = jq7325
             }  // end if (pumpFirstResult == null) — Jupiter pipeline only runs when PUMP-FIRST didn't land
             
             val sig: String

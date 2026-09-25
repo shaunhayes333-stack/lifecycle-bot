@@ -4,6 +4,14 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7328] - 2026-09-26 — THE RAYDIUM BUY COMPILES
+
+5.0.7325-7327 did not compile: wrapping the Jupiter buy in
+`run jupiterBuy7325@{ }` made the outer `var quote` a closure-modified local,
+so every `quote.x` after the null check lost its smart cast (8 errors). The
+Jupiter quote now lives in a block-local `jq7325` and is published to `quote`
+at the end of the block. No behaviour change.
+
 ## [5.0.7327] - 2026-09-26 — UNMEASURED INPUTS ARE NOT SIGNALS
 
 The strategy returns a neutral 50 for VOL / BUY% / MOM when it has no candles to

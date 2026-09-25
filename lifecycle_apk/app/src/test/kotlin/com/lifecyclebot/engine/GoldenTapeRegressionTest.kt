@@ -11458,4 +11458,12 @@ class GoldenTapeRegressionTest {
         assertFalse(ma.contains("crossed threshold\"\n            }\n            signal in"))
     }
 
+    @Test
+    fun V5_0_7328_the_raydium_buy_compiles() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("var jq7325: com.lifecyclebot.network.SwapQuote? = null"))
+        assertTrue(ex.contains("useJito = c.jitoEnabled && !jq7325.isUltra"))
+        assertTrue(ex.contains("            quote = jq7325\n            }  // end if (pumpFirstResult == null)"))
+    }
+
 }
