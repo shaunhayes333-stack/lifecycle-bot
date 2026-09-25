@@ -72,7 +72,7 @@ object RaydiumSellRoute7311 {
     }
 
     /** Pure: base64 transactions from the build response, in send order. */
-    fun transactionsFrom(buildJson: JSONObject): List<String> {
+    private fun transactionsFrom(buildJson: JSONObject): List<String> {
         if (!buildJson.optBoolean("success", false)) return emptyList()
         val arr = buildJson.optJSONArray("data") ?: return emptyList()
         return (0 until arr.length()).mapNotNull { i ->
