@@ -3891,7 +3891,16 @@ object CryptoAltTrader {
                 // entry-time recommendation; legacy restores retain a one-hour
                 // safety cap.
                 val adaptiveMaxHold6663 = updated.adaptiveMaxHoldSeconds.takeIf { it > 0 } ?: 3_600
-                if (holdSec >= adaptiveMaxHold6663) {
+                // V5.0.7332 — the hold horizon frees capital from positions that
+                // are going nowhere. A position past its TP and still holding at
+                // least half its peak is running; the timer closing it caps the
+                // win, so it is left to the trail / peak-drawdown exits.
+                val pnlNow7332 = updated.getPnlPct()
+                val runningWinner7332 = tpPct > 0.0 && pnlNow7332 >= tpPct && pnlNow7332 >= peakPnl * 0.5
+                if (holdSec >= adaptiveMaxHold6663 && runningWinner7332) {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_HOLD_MAX_DEFERRED_RUNNING_WINNER_7332") } catch (_: Throwable) {}
+                }
+                if (holdSec >= adaptiveMaxHold6663 && !runningWinner7332) {
                     closePosition(id, "ADAPTIVE_HOLD_MAX_6663:${adaptiveMaxHold6663}s pnl=${"%.2f".format(updated.getPnlPct())}%")
                     continue
                 }

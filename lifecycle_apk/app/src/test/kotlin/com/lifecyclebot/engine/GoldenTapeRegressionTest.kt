@@ -11503,4 +11503,11 @@ class GoldenTapeRegressionTest {
         assertTrue(cs.contains("COLD_STREAK_NOT_DAMPED_POSITIVE_EV_7331"))
     }
 
+    @Test
+    fun V5_0_7332_the_hold_timer_does_not_close_a_running_winner() {
+        val ca = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue(ca.contains("val runningWinner7332 = tpPct > 0.0 && pnlNow7332 >= tpPct && pnlNow7332 >= peakPnl * 0.5"))
+        assertTrue(ca.contains("if (holdSec >= adaptiveMaxHold6663 && !runningWinner7332) {"))
+    }
+
 }

@@ -4,6 +4,12 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7332] - 2026-09-26 — THE HOLD TIMER DOES NOT CLOSE A RUNNING WINNER
+
+- CryptoAltTrader: ADAPTIVE_HOLD_MAX_6663 frees capital from positions going
+  nowhere. A position past its TP and holding at least half its peak is left
+  to the trail / peak-drawdown exits (CRYPTO_HOLD_MAX_DEFERRED_RUNNING_WINNER_7332).
+
 ## [5.0.7331] - 2026-09-26 — STREAKS AND SOURCES LEARN FROM WHAT PAYS
 
 - ScannerLearning: trades were recorded under the joined provenance string
