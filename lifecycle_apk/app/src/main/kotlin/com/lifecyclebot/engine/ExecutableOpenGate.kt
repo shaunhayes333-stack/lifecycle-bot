@@ -231,8 +231,11 @@ object ExecutableOpenGate {
 
     fun activeExecutionIntent6519(mode: String, mint: String, candidateVersion: Long = 0L): ExecutionIntent? {
         if (candidateVersion > 0L) activeExecutionIntents6519[intentKey6519(mode, mint, candidateVersion)]?.let { return it }
+        // V5.0.7321 — the any-version fallback handed a DEAD (expired) intent
+        // to every later allow on the mint, which was then rejected as a stale
+        // ticket, forever (EXPIRED_TICKET_ECONOMIC_REJECT_6614 = 167).
         return activeExecutionIntents6519.values
-            .filter { it.mode.equals(mode, true) && it.mint == mint }
+            .filter { it.mode.equals(mode, true) && it.mint == mint && ticketLive(it) }
             .maxByOrNull { it.candidateVersion }
     }
 
@@ -336,6 +339,9 @@ object ExecutableOpenGate {
                 sameDecisionContract6734(existing, intent) &&
                     existing.resolvedSize <= 0.0 && intent.resolvedSize.isFinite() && intent.resolvedSize > 0.0 ->
                     existing.copy(resolvedSize = intent.resolvedSize)
+                // V5.0.7321 — an expired intent is replaced, not reused with
+                // its old createdAt (which made the new allow stale on arrival).
+                !ticketLive(existing) -> intent.also { created6734 = true }
                 else -> existing
             }
         } ?: return null
@@ -640,6 +646,8 @@ object ExecutableOpenGate {
         restorePenalties.remove(attemptId)
         executableBuyClaim6487.entries.removeIf { (attemptId.isNotBlank() && it.value.startsWith("$attemptId:")) ||
             it.key.contains(":${mint.trim()}:") }
+        // V5.0.7321 — revoked intents were never removed from the active map.
+        if (attemptId.isNotBlank()) activeExecutionIntents6519.entries.removeIf { it.value.attemptId == attemptId }
     }
 
     // V5.0.6548 §P0-A — RETRY-PENDING OWNERSHIP.
@@ -717,7 +725,10 @@ object ExecutableOpenGate {
             } catch (_: Throwable) {}
         }
         restorePenalties.remove(attemptId)
-        executableBuyClaim6487.entries.removeIf { attemptId.isNotBlank() && it.value.startsWith("$attemptId:") }
+        // V5.0.7321 — the stored claim value IS the execKey (often the bare
+        // attemptId), so the "$attemptId:" prefix match never released it and
+        // a failed attempt burned the mint version for every retry.
+        executableBuyClaim6487.entries.removeIf { attemptId.isNotBlank() && (it.value == attemptId || it.value.startsWith("$attemptId:")) }
         val key = mint.trim()
         if (key.isNotEmpty()) {
             retryPending6548[key] = RetryPending6548(attemptId, key, lane, reason)
@@ -1281,6 +1292,9 @@ object ExecutableOpenGate {
             // candidate that follows it. The ticket is revoked at the call
             // site; re-gate immediately on the next loop.
             log.contains("STALE_TICKET") || r.contains("EXPIRED_TICKET") -> 0L
+            // V5.0.7321 — the per-version dedup is already a shadow block; a
+            // 15s (mint, lane) cooldown on top also refused the NEXT version.
+            r.contains("ONE_EXECUTABLE_BUY_PER_MINT_VERSION") -> 0L
             log.contains("FDG") -> 30_000L
             else -> 15_000L
         }
@@ -1397,7 +1411,8 @@ object ExecutableOpenGate {
         // The recordFdg compatibility block also projects optional policy and
         // identity telemetry. None of those secondary stores may erase the
         // mandatory immutable intent if they throw under runtime contention.
-        val intent = activeExecutionIntent6519(mode, mint, candidateVersion) ?: run {
+        // V5.0.7321 — a fresh FDG allow never inherits an expired intent.
+        val intent = activeExecutionIntent6519(mode, mint, candidateVersion)?.takeIf { ticketLive(it) } ?: run {
             val verdict = preFdgVerdict.uppercase()
             if (hardNoReasons.isEmpty() && verdict in setOf("BUY", "PROBE_ONLY") &&
                 resolvedSizeSol6558.isFinite() && resolvedSizeSol6558 > 0.0

@@ -70,7 +70,9 @@ class SlippageGuard(private val jupiter: JupiterApi) {
             ?: return ValidatedQuote(
                 com.lifecyclebot.network.SwapQuote(raw = org.json.JSONObject(), outAmount = 0L, priceImpactPct = 0.0),
                 false, 0.0, 0.0,
-                "Quote 1 failed after retries - Jupiter API may be down"
+                // V5.0.7321 — carry the real cause (lockout / 401 / no route)
+                // instead of a fixed "may be down" that hid all three.
+                "Quote 1 failed: ${lastQuoteError7321.get()?.take(160) ?: "unknown"}"
             ).also { ErrorLogger.error("SlippageGuard", "❌ Quote 1 FAILED after retries") }
 
         ErrorLogger.debug("SlippageGuard", "Quote 1 OK: out=${q1.outAmount}")
@@ -107,6 +109,8 @@ class SlippageGuard(private val jupiter: JupiterApi) {
      * V5.0.7241 — [buyTaker] non-blank routes through [JupiterApi.getQuoteWithTaker]
      * so a LIVE BUY quote is binding at quote time, matching the sell-side fix.
      */
+    private val lastQuoteError7321 = ThreadLocal<String?>()
+
     private fun getQuoteWithRetry(
         inputMint: String,
         outputMint: String,
@@ -128,6 +132,7 @@ class SlippageGuard(private val jupiter: JupiterApi) {
                 }
             } catch (e: Exception) {
                 lastError = e
+                lastQuoteError7321.set(e.message ?: e.javaClass.simpleName)
                 val isNetworkError = e.message?.contains("resolve host") == true ||
                                      e.message?.contains("Unable to resolve") == true ||
                                      e.message?.contains("timeout") == true ||

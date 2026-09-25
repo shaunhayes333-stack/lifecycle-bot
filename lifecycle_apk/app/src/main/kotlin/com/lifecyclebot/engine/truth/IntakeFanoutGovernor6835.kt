@@ -62,7 +62,19 @@ object IntakeFanoutGovernor6835 {
         val fdgCapped: AtomicLong = AtomicLong(0L),
         val stampMs: Long = System.currentTimeMillis(),
         val lastFdgMs7304: AtomicLong = AtomicLong(0L),
+        val lastLaneAddMs7321: AtomicLong = AtomicLong(0L),
     )
+
+    /**
+     * V5.0.7321 — the refill was a fixed 60s, but a candidate version rolls
+     * every 30s, so it almost never fired (FDG_SUPPRESSED_FANOUT_CAP_7232 = 464
+     * on 5.0.7317; BLUECHIP 204 / QUALITY 145 / MOONSHOT 110). The window is now
+     * three bot-loop cycles (15-60s): the same burst attrition is still capped,
+     * but a lane gets a fresh look as fast as the loop can produce one.
+     */
+    private fun refillMs7321(): Long = try {
+        (3L * PipelineHealthCollector.rollingAvgCycleMs6626()).coerceIn(15_000L, FDG_REFILL_MS_7304)
+    } catch (_: Throwable) { FDG_REFILL_MS_7304 }
 
     /**
      * V5.0.7304 §A_LONG_LIVED_TOKEN_GOT_TWO_LOOKS_PER_TEN_MINUTES.
@@ -108,6 +120,13 @@ object IntakeFanoutGovernor6835 {
         val lane = laneName.trim().uppercase()
         val alreadyPresent = c.lanesSeen.contains(lane)
         if (alreadyPresent) return true
+        // V5.0.7321 — the lane budget had no refill at all (2,933 caps).
+        val lastAdd7321 = c.lastLaneAddMs7321.get()
+        if (c.lanesSeen.size >= LANE_EVAL_CAP && lastAdd7321 > 0L &&
+            System.currentTimeMillis() - lastAdd7321 >= refillMs7321()) {
+            c.lanesSeen.clear()
+            try { PipelineHealthCollector.labelInc("LANE_FANOUT_BUDGET_REFILLED_7321") } catch (_: Throwable) {}
+        }
         if (c.lanesSeen.size >= LANE_EVAL_CAP) {
             c.laneCapped.incrementAndGet()
             laneCappedTotal.incrementAndGet()
@@ -122,6 +141,7 @@ object IntakeFanoutGovernor6835 {
             return false
         }
         c.lanesSeen.add(lane)
+        c.lastLaneAddMs7321.set(System.currentTimeMillis())
         return true
     }
 
@@ -162,7 +182,7 @@ object IntakeFanoutGovernor6835 {
         val c = chains.computeIfAbsent(key) { LaneCounters() }
         val now7304 = System.currentTimeMillis()
         val last7304 = c.lastFdgMs7304.get()
-        if (c.fdgSeen.get() >= FDG_EVAL_CAP && last7304 > 0L && now7304 - last7304 >= FDG_REFILL_MS_7304) {
+        if (c.fdgSeen.get() >= FDG_EVAL_CAP && last7304 > 0L && now7304 - last7304 >= refillMs7321()) {
             c.fdgSeen.set(0L)
             try { PipelineHealthCollector.labelInc("FDG_FANOUT_BUDGET_REFILLED_7304") } catch (_: Throwable) {}
         }

@@ -11315,4 +11315,30 @@ class GoldenTapeRegressionTest {
         assertTrue(cfg.contains("p.getBoolean(\"copy_trading_enabled\", true)"))
     }
 
+    @Test
+    fun V5_0_7321_live_buy_unchoked_quote_scope_stale_intents_fanout_refill() {
+        val jup = java.io.File("src/main/kotlin/com/lifecyclebot/network/JupiterApi.kt").readText()
+        assertTrue(jup.contains("class JupiterApi(apiKey: String = \"\")"))
+        assertTrue(jup.contains("com.lifecyclebot.data.DefaultKeys.JUPITER"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("com.lifecyclebot.network.ExitHttpScope7314.run {\n                slippageGuard.validateQuote(inMint, outMint, amount, slippageBps, inputSol, buyTaker)"))
+        assertTrue(ex.contains("observedLiquidityUsd7321 = ts.lastLiquidityUsd,"))
+        val sg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SlippageGuard.kt").readText()
+        assertTrue(sg.contains("lastQuoteError7321.set(e.message ?: e.javaClass.simpleName)"))
+        assertFalse(sg.contains("Quote 1 failed after retries - Jupiter API may be down"))
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertTrue(gate.contains("it.mode.equals(mode, true) && it.mint == mint && ticketLive(it)"))
+        assertTrue(gate.contains("!ticketLive(existing) -> intent.also { created6734 = true }"))
+        assertTrue(gate.contains("activeExecutionIntents6519.entries.removeIf { it.value.attemptId == attemptId }"))
+        assertTrue(gate.contains("it.value == attemptId || it.value.startsWith(\"$attemptId:\")"))
+        assertTrue(gate.contains("r.contains(\"ONE_EXECUTABLE_BUY_PER_MINT_VERSION\") -> 0L"))
+        val gov = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/IntakeFanoutGovernor6835.kt").readText()
+        assertTrue(gov.contains("private fun refillMs7321(): Long"))
+        assertTrue(gov.contains("LANE_FANOUT_BUDGET_REFILLED_7321"))
+        val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
+        assertTrue(router.contains("mint, causalRoot7243 + \"::STYLE\", lane7243,"))
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("if (fresh.blockReason != \"FDG_FANOUT_CAP_7232\") FdgReEvalThrottle.put("))
+    }
+
 }

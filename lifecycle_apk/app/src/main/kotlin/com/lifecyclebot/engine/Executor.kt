@@ -59,6 +59,7 @@ data class MintEntryMarketSnapshot(
             marketCapUsd: Double,
             dex: String,
             nowMs: Long = System.currentTimeMillis(),
+            observedLiquidityUsd7321: Double = 0.0,
         ): MintEntryMarketSnapshot? {
             if (mark.mint != mint || mark.baseMint != mint || mark.timestampMs <= 0L ||
                 nowMs - mark.timestampMs !in -5_000L..120_000L ||
@@ -70,7 +71,13 @@ data class MintEntryMarketSnapshot(
             return MintEntryMarketSnapshot(
                 priceUsd = price,
                 marketCapUsd = marketCapUsd.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0,
-                liquidityUsd = mark.liquidityUsd?.toDouble() ?: 0.0,
+                // V5.0.7321 — many fresh marks (Jupiter quote, pump curve)
+                // carry no liquidity field; the snapshot then read invalid and
+                // the buy deferred (ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED = 40)
+                // despite a fresh executable price. Fall back to the last
+                // OBSERVED pool liquidity for this mint — never an inferred one.
+                liquidityUsd = mark.liquidityUsd?.toDouble()?.takeIf { it.isFinite() && it > 0.0 }
+                    ?: observedLiquidityUsd7321.takeIf { it.isFinite() && it > 0.0 } ?: 0.0,
                 poolAddress = mark.pairId, priceSource = mark.source, dex = dex,
                 capturedAtMs = mark.timestampMs,
             ).takeIf { it.valid }
@@ -14728,6 +14735,7 @@ class Executor(
             com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.getFresh6734(ts.mint, purpose, now)
                 ?.let { MintEntryMarketSnapshot.fromCanonicalMark6735(
                     ts.mint, it, ts.lastMcap, ts.lastPriceDex.ifBlank { "UNKNOWN" }, now,
+                    observedLiquidityUsd7321 = ts.lastLiquidityUsd,
                 ) }
         }.maxByOrNull { it.capturedAtMs }
         if (canonical != null) return canonical
@@ -29483,7 +29491,14 @@ class Executor(
         // makes SlippageGuard request the binding order AT QUOTE TIME so
         // an RFQ decline surfaces here as a quote failure (retryable/
         // escalatable) instead of a silent dead end at the builder.
-        val validated = slippageGuard.validateQuote(inMint, outMint, amount, slippageBps, inputSol, buyTaker)
+        // V5.0.7321 — a LIVE BUY quote (taker-bound) runs in the execution
+        // scope, like exits: a shared lockout armed by some other caller's
+        // 401/429 must not refuse the buy before it reaches Jupiter.
+        val validated = if (!buyTaker.isNullOrBlank()) {
+            com.lifecyclebot.network.ExitHttpScope7314.run {
+                slippageGuard.validateQuote(inMint, outMint, amount, slippageBps, inputSol, buyTaker)
+            }
+        } else slippageGuard.validateQuote(inMint, outMint, amount, slippageBps, inputSol, buyTaker)
         if (!validated.isValid) {
             throw Exception(validated.rejectReason)
         }

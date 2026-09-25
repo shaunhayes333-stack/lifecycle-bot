@@ -30119,7 +30119,9 @@ if (hotExitHandledSweep) {
             // One immutable FDG result per candidate/evidence version.  BUY
             // decisions are sealed too; downstream mint/version claims prevent
             // a second execution while evidence changes bust this key.
-            FdgReEvalThrottle.put(
+            // V5.0.7321 — a fan-out cap is "not looked at", not a verdict;
+            // caching it replayed the refusal for another cycle.
+            if (fresh.blockReason != "FDG_FANOUT_CAP_7232") FdgReEvalThrottle.put(
                 identity.mint, fdgCandidateVersion6653, cyclePrimaryLane,
                 fdgEvidenceVersion6653, fdgScoreNow, fresh,
             )

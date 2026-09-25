@@ -4,6 +4,14 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7321] - 2026-09-26 — UNCHOKE LIVE BUYING
+
+- Jupiter buy quotes: quoteReq=66 quoteOk=1. Keyless JupiterApi("") callers (mark fan-out, identity repair, price fallback, crypto, bridge) hit api.jup.ag without a key, got 401 and armed the shared jupiter_quote/jupiter lockout, which then refused the live buy quote before it was sent. A blank key now resolves to the app key; the taker-bound live buy quote runs in the execution scope (like exits) so another caller's lockout cannot refuse it; the quote failure now carries its real cause.
+- Stale tickets (EXPIRED_TICKET_ECONOMIC_REJECT_6614 = 167): an expired intent was never removed and the any-version lookup handed it to every later allow on the mint. Expired intents are no longer returned, reused or kept after revoke; a fresh FDG allow gets a fresh intent.
+- Mint-version claim leak: the non-terminal release matched "$attemptId:" against a value that IS the attemptId, so a failed attempt burned the version; fixed, and the per-version dedup no longer adds a 15s cooldown that also blocked the next version.
+- Fan-out caps: the FDG budget refill was 60s against a 30s version roll, so it almost never fired (464 caps). Refill is now three loop cycles (15-60s); the lane budget (2,933 caps, no refill at all) gets the same refill, and the style router has its own budget key instead of spending the ring lanes' slots. A fan-out cap block is no longer cached as an FDG verdict.
+- Entry market snapshot (40 deferrals): fresh marks without a liquidity field now fall back to the mint's last observed pool liquidity.
+
 ## [5.0.7320] - 2026-09-26 — BLUECHIP GETS ITS OWN ASSET CLASS; THE SHADOW BOOK KEEPS ITS EVIDENCE; COPY TRADING ON
 
 - The BlueChip sub-trader runs inside QUALITY's block, outside lane election, so pump.fun mints reached BLUECHIP only to be aborted at the executor's lane contract (6342: 46 aborts), burning FDG's shared exploration slot and grading meme outcomes as BLUECHIP shadow proof (n=6, -28.5%). Pump mints now skip the BlueChip sub-trader and continue to MOONSHOT/SHITCOIN (BLUECHIP_SUBTRADER_PUMPFUN_SKIPPED_7320); LaneShadowProof refuses them for BLUECHIP and the polluted tally is reset once.

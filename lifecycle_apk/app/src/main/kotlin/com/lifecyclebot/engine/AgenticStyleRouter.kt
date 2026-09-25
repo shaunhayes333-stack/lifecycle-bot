@@ -108,8 +108,11 @@ object AgenticStyleRouter {
         val governed7243 = linkedSetOf<String>()
         for (lane7243 in out) {
             val allow7243 = try {
+                // V5.0.7321 — its own budget key: the style router spent the
+                // ring lanes' two slots first, so MOONSHOT/QUALITY/BLUECHIP/...
+                // were refused on that mint for the whole version.
                 com.lifecyclebot.engine.truth.IntakeFanoutGovernor6835.allowLaneEval(
-                    mint, causalRoot7243, lane7243,
+                    mint, causalRoot7243 + "::STYLE", lane7243,
                 )
             } catch (_: Throwable) { true }
             if (allow7243) governed7243 += lane7243

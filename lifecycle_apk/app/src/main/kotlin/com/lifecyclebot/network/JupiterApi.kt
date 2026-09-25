@@ -54,7 +54,16 @@ data class SwapTxResult(
     val senderTipLamports: Long = 0L,
 )
 
-class JupiterApi(private val apiKey: String = "") {
+class JupiterApi(apiKey: String = "") {
+
+    // V5.0.7321 — keyless callers (mark fan-out, identity repair, price
+    // fallback, crypto, bridge) hit api.jup.ag without a key, got 401, and
+    // armed the shared jupiter_quote/jupiter lockout that then refused the
+    // LIVE BUY quote before it was sent (quoteReq=66 quoteOk=1). A blank key
+    // now resolves to the app's Jupiter key.
+    private val apiKey: String = apiKey.ifBlank {
+        try { com.lifecyclebot.data.DefaultKeys.JUPITER } catch (_: Throwable) { "" }
+    }
 
     companion object {
         const val SOL_MINT = "So11111111111111111111111111111111111111112"
