@@ -27286,6 +27286,69 @@ class Executor(
             // pool="auto" router covers bonding curve + PumpSwap + Raydium,
             // so a tighter market might land here when Jupiter and the
             // initial PUMP-FIRST attempt couldn't.
+            // V5.0.7311 — THIRD SELL BUILDER: Raydium's trade API, independent of
+            // PumpPortal and Jupiter. Its v0 transactions carry a CU price, so they
+            // are wrapped in the Helius Sender envelope and broadcast Helius Sender
+            // first, then Jito / RPC. Tried after the Jupiter ladder, before the
+            // PumpPortal rescue.
+            if (sig == null) {
+                try {
+                    val rayPlan7311 = recalcSellPlanForProcessor(
+                        ts = ts,
+                        wallet = wallet,
+                        processor = "RAYDIUM_SELL_7311",
+                        requestedUiQty = confirmedSellUiQty,
+                        sellTradeKey = sellTradeKey,
+                        traderTag = "MEME",
+                    )
+                    if (rayPlan7311 != null && rayPlan7311.rawAmount > 0L) {
+                        val raySlip7311 = com.lifecyclebot.engine.sell.SellSafetyPolicy.assertWithinCap(reason, if (isDrainExit) 2_500 else 500)
+                        val built7311 = com.lifecyclebot.network.RaydiumSellRoute7311.buildSell(wallet, ts.mint, rayPlan7311.rawAmount, raySlip7311)
+                        val senderTip7311 = effectiveSenderTipLamports(c, urgent = isDrainExit)
+                        LiveTradeLogStore.log(
+                            sellTradeKey, ts.mint, ts.symbol, "SELL",
+                            LiveTradeLogStore.Phase.SELL_BROADCAST,
+                            "RAYDIUM sell @ ${raySlip7311}bps | txs=${built7311.transactions.size} | out≈${built7311.outLamports} lamports | sender=HELIUS_FIRST",
+                            slippageBps = raySlip7311, traderTag = "MEME",
+                        )
+                        var raySig7311: String? = null
+                        for (rayTx in built7311.transactions) {
+                            val env7311 = try {
+                                com.lifecyclebot.network.HeliusSenderEnvelope7250.build(rayTx, wallet.publicKeyB58, senderTip7311)
+                            } catch (_: Throwable) { null }
+                            raySig7311 = wallet.signAndSend(
+                                env7311?.txBase64 ?: rayTx,
+                                useJito = c.jitoEnabled && env7311 == null,
+                                jitoTipLamports = effectiveJitoTipLamports(c, urgent = isDrainExit),
+                                senderCompatible = env7311 != null,
+                                awaitFinality = true,
+                            )
+                        }
+                        val landed7311 = raySig7311
+                        sig = landed7311
+                        if (landed7311 != null) {
+                            try {
+                                PipelineHealthCollector.labelInc("RAYDIUM_SELL_LANDED_7311")
+                                ForensicLogger.lifecycle("RAYDIUM_SELL_LANDED_7311", "mint=${ts.mint.take(10)} sig=${landed7311.take(16)} slipBps=$raySlip7311")
+                            } catch (_: Throwable) {}
+                            onLog("✅ RAYDIUM SELL landed (third builder, Helius-first sender): ${landed7311.take(16)}…", ts.mint)
+                        }
+                    }
+                } catch (rayEx: Throwable) {
+                    val safeRay = security.sanitiseForLog(rayEx.message ?: "raydium_failed")
+                    try {
+                        PipelineHealthCollector.labelInc("RAYDIUM_SELL_FAILED_7311")
+                        ForensicLogger.lifecycle("RAYDIUM_SELL_FAILED_7311", "mint=${ts.mint.take(10)} err=${safeRay.take(160)}")
+                    } catch (_: Throwable) {}
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_FAILED,
+                        "RAYDIUM sell failed: ${safeRay.take(200)} — trying PumpPortal rescue",
+                        traderTag = "MEME",
+                    )
+                }
+            }
+
             if (sig == null) {
                 val rescueSlip = 5  // V5.9.1524 — 5% live sell cap (was 90/50; builder also caps)
                 val rescueJito = c.jitoEnabled
@@ -29915,7 +29978,25 @@ class Executor(
             // A raw sendTransaction signature only means RPC/Jito accepted the
             // packet; it can still expire/fail before landing. Wallet polling
             // below remains the authority for token-gone/SOL-returned proof.
-            val sig = wallet.signSendAndConfirm(built.txBase64, useJito, maxOf(jitoTipLamports, 200_000L), senderCompatible = false)
+            // V5.0.7311 — PumpPortal sell was hard-wired senderCompatible=false,
+            // so Helius Sender never carried it. The PumpPortal v0 tx carries its
+            // priority fee (CU price); wrap it in the Helius Sender envelope and
+            // broadcast Helius first. An envelope miss keeps the original tx on
+            // the Jito / RPC path exactly as before.
+            val pumpEnv7311 = try {
+                com.lifecyclebot.network.HeliusSenderEnvelope7250.build(
+                    built.txBase64, wallet.publicKeyB58, effectiveSenderTipLamports(cfg(), urgent = labelTag.contains("DRAIN")),
+                )
+            } catch (_: Throwable) { null }
+            try {
+                PipelineHealthCollector.labelInc(if (pumpEnv7311 != null) "PUMP_SELL_HELIUS_SENDER_7311" else "PUMP_SELL_HELIUS_ENVELOPE_REFUSED_7311")
+            } catch (_: Throwable) {}
+            val sig = wallet.signSendAndConfirm(
+                pumpEnv7311?.txBase64 ?: built.txBase64,
+                useJito && pumpEnv7311 == null,
+                maxOf(jitoTipLamports, 200_000L),
+                senderCompatible = pumpEnv7311 != null,
+            )
             if (sig.isBlank()) {
                 LiveTradeLogStore.log(
                     sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -30176,7 +30257,25 @@ class Executor(
             // a completed buy. sendTransaction/Jito acceptance can still expire
             // or fail before landing, which created ghost "held" positions with
             // no wallet tokens. Use the confirmed path just like Jupiter.
-            val sig = wallet.signSendAndConfirm(built.txBase64, useJito, maxOf(jitoTipLamports, 200_000L), senderCompatible = false)
+            // V5.0.7311 — PumpPortal buy was hard-wired senderCompatible=false,
+            // so Helius Sender never carried it. The PumpPortal v0 tx carries its
+            // priority fee (CU price); wrap it in the Helius Sender envelope and
+            // broadcast Helius first. An envelope miss keeps the original tx on
+            // the Jito / RPC path exactly as before.
+            val pumpEnv7311 = try {
+                com.lifecyclebot.network.HeliusSenderEnvelope7250.build(
+                    built.txBase64, wallet.publicKeyB58, effectiveSenderTipLamports(cfg(), urgent = false),
+                )
+            } catch (_: Throwable) { null }
+            try {
+                PipelineHealthCollector.labelInc(if (pumpEnv7311 != null) "PUMP_BUY_HELIUS_SENDER_7311" else "PUMP_BUY_HELIUS_ENVELOPE_REFUSED_7311")
+            } catch (_: Throwable) {}
+            val sig = wallet.signSendAndConfirm(
+                pumpEnv7311?.txBase64 ?: built.txBase64,
+                useJito && pumpEnv7311 == null,
+                maxOf(jitoTipLamports, 200_000L),
+                senderCompatible = pumpEnv7311 != null,
+            )
             // Sanity: signSendAndConfirm throws on RPC/on-chain failure, but defensively
             // verify the returned sig is non-blank before trusting it.
             if (sig.isBlank()) {

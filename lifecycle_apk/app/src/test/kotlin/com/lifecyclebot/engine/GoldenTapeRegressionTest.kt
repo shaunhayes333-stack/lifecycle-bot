@@ -11169,4 +11169,18 @@ class GoldenTapeRegressionTest {
         assertTrue(jup.contains("ExitProviderHealth.recordJupiterAnyOk()"))
     }
 
+    @Test
+    fun V5_0_7311_raydium_third_sell_builder_and_helius_sender_on_pump_routes() {
+        val r = com.lifecyclebot.network.RaydiumSellRoute7311
+        assertEquals(200_000L, r.cuPriceFrom(null))
+        val rs = java.io.File("src/main/kotlin/com/lifecyclebot/network/RaydiumSellRoute7311.kt").readText()
+        assertTrue(rs.contains("allowDuringLockout = true"))
+        assertTrue(rs.contains(".put(\"unwrapSol\", true)"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("RaydiumSellRoute7311.buildSell(wallet, ts.mint, rayPlan7311.rawAmount, raySlip7311)"))
+        assertTrue(ex.contains("PUMP_SELL_HELIUS_SENDER_7311"))
+        assertTrue(ex.contains("PUMP_BUY_HELIUS_SENDER_7311"))
+        assertFalse(ex.contains("maxOf(jitoTipLamports, 200_000L), senderCompatible = false)"))
+    }
+
 }

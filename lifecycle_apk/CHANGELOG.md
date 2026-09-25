@@ -4,6 +4,11 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7311] - 2026-09-26 — A THIRD SELL BUILDER (RAYDIUM); HELIUS SENDER ON PUMPPORTAL ROUTES
+
+- RaydiumSellRoute7311 (new): the live exit had two transaction builders, PumpPortal (pool=auto) and the Jupiter ladder; on 5.0.7309 one failure each left TTP's stop with nothing to build, so no sender was ever reached. Raydium's trade API (compute/swap-base-in -> auto-fee CU price -> transaction/swap-base-in, token account from getTokenAccountsByOwner by mint) now builds token->SOL v0 transactions independently of both. It runs after the Jupiter ladder and before the PumpPortal rescue; each transaction is wrapped in the Helius Sender envelope and broadcast Helius Sender first, then Jito / RPC. Its HTTP calls bypass host lockout — a backoff is never why a stop cannot leave. Slippage 500 bps (2500 on drain exits) through SellSafetyPolicy's cap. Counters RAYDIUM_SELL_{BUILT,LANDED,FAILED}_7311.
+- PumpPortal sell AND buy broadcasts were hard-wired senderCompatible=false, so Helius Sender never carried a Pump trade. The PumpPortal v0 transaction is now wrapped in the Helius Sender envelope (it carries its CU price) and broadcast Helius first; an envelope refusal keeps the original transaction on the Jito / RPC path. Counters PUMP_{SELL,BUY}_HELIUS_SENDER_7311 / _HELIUS_ENVELOPE_REFUSED_7311.
+
 ## [5.0.7310] - 2026-09-26 — A SELL NEVER RUNS OUT OF ROUTES; NO BUYING WHILE AN EXIT IS STUCK
 
 Live 02:56-02:58: TTP's -7% stop fired, one Jupiter "GET 599" and one PumpPortal 503 shut both route builders (PumpPortal primary + rescue, Jupiter ladder), so nothing ever reached a sender (Helius / RPC / Jito); the drain exit's 9999 bps never reached a quote — and in the same second the bot bought AQVcP67E through Jupiter.
