@@ -4,6 +4,10 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7325] - 2026-09-26 — RAYDIUM IS THE THIRD LIVE BUY BUILDER
+
+- Live meme buys tried PumpPortal, then the Jupiter ladder, and aborted as QUOTE_EXHAUSTED when Jupiter had no route. The Raydium trade-API builder (7311, sells only until now) now also builds SOL -> token buys (wrapSol, ATA created by the tx) and is tried before the buy aborts. Its transactions are wrapped in the Helius Sender envelope and sent Helius-first, then Jito/RPC. A Raydium fill takes the identical confirmed-buy path as a PumpPortal fill (wallet-delta qty or price math + PendingReconcileQueue proof) (RAYDIUM_BUY_BUILT/LANDED/FAILED_7325).
+
 ## [5.0.7324] - 2026-09-26 — HOLD SHAPES, IT DOES NOT BLOCK; THE SNIPER IS JUDGED ON ITS OWN SCORE
 
 - 5.0.7321 live: 0 buys. Every executor attempt that got through was refused by one of two gates.

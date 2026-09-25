@@ -11406,4 +11406,17 @@ class GoldenTapeRegressionTest {
         assertTrue(bs.contains("ts.mint, \"PROJECT_SNIPER\", _sniperScore.toDouble(), exploration = false,"))
     }
 
+    @Test
+    fun V5_0_7325_raydium_is_the_third_live_buy_builder() {
+        val ray = java.io.File("src/main/kotlin/com/lifecyclebot/network/RaydiumSellRoute7311.kt").readText()
+        assertTrue(ray.contains("fun buildBuy(wallet: SolanaWallet, mint: String, lamports: Long, slippageBps: Int): Built"))
+        assertTrue(ray.contains(".put(\"wrapSol\", true)"))
+        assertTrue(ray.contains("HeliusSenderEnvelope7250.build(tx, wallet.publicKeyB58, senderTipLamports)"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("if (pumpFirstResult == null) run jupiterBuy7325@{"))
+        assertTrue(ex.contains("raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey)"))
+        assertTrue(ex.contains("val directFill7325 = pumpFirstResult ?: raydiumBuy7325"))
+        assertTrue(ex.indexOf("raydiumBuy7325 = tryRaydiumBuy7325") < ex.indexOf("BUY ABORTED: all slippage levels failed"))
+    }
+
 }

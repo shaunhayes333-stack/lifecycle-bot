@@ -137,4 +137,68 @@ object RaydiumSellRoute7311 {
         } catch (_: Throwable) {}
         return Built(txs, outLamports, cuPrice)
     }
+
+    /**
+     * V5.0.7325 — the same builder for BUYS (SOL -> token, exact-in).
+     *
+     * Live meme buys tried PumpPortal then the Jupiter ladder and aborted as
+     * QUOTE_EXHAUSTED; crypto-universe buys refused any token Jupiter could not
+     * quote (ROUTE_DISCOVERY_FAILED). Raydium routes independently of both.
+     * SOL is wrapped by the build (wrapSol=true); the output token account is
+     * created by the transaction when it does not exist. [Built.outLamports]
+     * is the quoted raw OUTPUT token amount here.
+     */
+    fun buildBuy(wallet: SolanaWallet, mint: String, lamports: Long, slippageBps: Int): Built {
+        require(lamports > 0L) { "raydium_buy_zero_amount" }
+        val quote = get(
+            "$COMPUTE_URL?inputMint=${JupiterApi.SOL_MINT}&outputMint=$mint" +
+                "&amount=$lamports&slippageBps=${slippageBps.coerceIn(50, 5_000)}&txVersion=V0",
+        )
+        if (!quote.optBoolean("success", false)) {
+            throw RuntimeException("Raydium no buy route: ${quote.optString("msg", quote.toString()).take(160)}")
+        }
+        val outRaw = quote.optJSONObject("data")?.optString("outputAmount", "0")?.toLongOrNull() ?: 0L
+        val cuPrice = cuPriceFrom(try { get(FEE_URL) } catch (_: Throwable) { null })
+        val built = post(
+            BUILD_URL,
+            JSONObject()
+                .put("computeUnitPriceMicroLamports", cuPrice.toString())
+                .put("swapResponse", quote)
+                .put("txVersion", "V0")
+                .put("wallet", wallet.publicKeyB58)
+                .put("wrapSol", true)
+                .put("unwrapSol", false),
+        )
+        val txs = transactionsFrom(built)
+        if (txs.isEmpty()) throw RuntimeException("Raydium buy build returned no transaction: ${built.toString().take(160)}")
+        try {
+            PipelineHealthCollector.labelInc("RAYDIUM_BUY_BUILT_7325")
+            ForensicLogger.lifecycle(
+                "RAYDIUM_BUY_BUILT_7325",
+                "mint=${mint.take(10)} lamports=$lamports outRaw=$outRaw txs=${txs.size} cuPrice=$cuPrice slipBps=$slippageBps",
+            )
+        } catch (_: Throwable) {}
+        return Built(txs, outRaw, cuPrice)
+    }
+
+    /**
+     * V5.0.7325 — broadcast built Raydium transactions Helius Sender first
+     * (tip + CU envelope), then Jito / RPC. Returns the last landed signature.
+     */
+    fun sendBuilt(wallet: SolanaWallet, built: Built, senderTipLamports: Long, jitoEnabled: Boolean, jitoTipLamports: Long): String? {
+        var sig: String? = null
+        for (tx in built.transactions) {
+            val env = try {
+                HeliusSenderEnvelope7250.build(tx, wallet.publicKeyB58, senderTipLamports)
+            } catch (_: Throwable) { null }
+            sig = wallet.signAndSend(
+                env?.txBase64 ?: tx,
+                useJito = jitoEnabled && env == null,
+                jitoTipLamports = jitoTipLamports,
+                senderCompatible = env != null,
+                awaitFinality = true,
+            )
+        }
+        return sig
+    }
 }

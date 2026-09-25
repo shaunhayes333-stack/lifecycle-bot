@@ -20457,7 +20457,9 @@ class Executor(
             var txResult: com.lifecyclebot.network.SwapTxResult? = null
             var useJito = false
             var jitoTip = 0L
-            if (pumpFirstResult == null) {
+            // V5.0.7325 — Raydium is the third buy builder (see tryRaydiumBuy7325).
+            var raydiumBuy7325: Pair<String, Double>? = null
+            if (pumpFirstResult == null) run jupiterBuy7325@{
             // V5.9.495d — explicit Ultra-first signal for forensics.
             // getQuoteWithSlippageGuard internally tries Jupiter Ultra v2
             // first then falls back to v6 Metis on RFQ rejection — log
@@ -20521,6 +20523,8 @@ class Executor(
                 }
             }
             if (quote == null) {
+                raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey)
+                if (raydiumBuy7325 != null) return@jupiterBuy7325
                 onLog("🚫 BUY ABORTED: all slippage levels failed (${slippageLadder.joinToString()}bps): ${lastQuoteError?.message?.take(80)}", ts.mint)
                 LiveTradeLogStore.log(
                     tradeKey, ts.mint, ts.symbol, "BUY",
@@ -20712,11 +20716,14 @@ class Executor(
             val qty: Double
             val priceImpactPct: Double
             val routerLabel: String
-            if (pumpFirstResult != null) {
+            // V5.0.7325 — a Raydium fill takes the same confirmed-buy path as Pump.
+            val directFill7325 = pumpFirstResult ?: raydiumBuy7325
+            val directVenue7325 = if (pumpFirstResult != null) pumpVenue else "raydium"
+            if (directFill7325 != null) {
                 liveStage("TX_SUBMIT_START", "route=PUMPPORTAL")
                 // V5.9.495 — PUMP-FIRST landed; skip the entire Jupiter pipeline.
-                sig = pumpFirstResult.first
-                qty = pumpFirstResult.second
+                sig = directFill7325.first
+                qty = directFill7325.second
                 buyPhase("TX_SIGNED")
                 try { ForensicLogger.lifecycle("BUY_TX_SUBMITTED", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL sig=${sig.take(16)}") } catch (_: Throwable) {}
                 liveStage("TX_SUBMITTED", "route=PUMPPORTAL signature=${sig.take(16)}")
@@ -20733,7 +20740,7 @@ class Executor(
                 // Jupiter: pending intent, confirmed tx, then HELD only after
                 // the verifier proves tokens landed.
                 try {
-                    TokenLifecycleTracker.onBuyPending(ts.mint, ts.symbol, pumpVenue, effectiveSol)
+                    TokenLifecycleTracker.onBuyPending(ts.mint, ts.symbol, directVenue7325, effectiveSol)
                     TokenLifecycleTracker.onBuyConfirmed(ts.mint, sig)
                     // V5.0.4173 — bust the wallet account cache so the next
                     // wallet read sees the new bag (cache TTL is 5s; this
@@ -20750,7 +20757,7 @@ class Executor(
                     try { ForensicLogger.lifecycle("HOST_BUY_PENDING_AT_TX_CONFIRMED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL sig=${sig.take(16)}") } catch (_: Throwable) {}
                 } catch (_: Throwable) {}
                 priceImpactPct = 0.0  // PumpPortal does not surface impact
-                routerLabel = "PUMP_DIRECT [$pumpVenue]"
+                routerLabel = if (pumpFirstResult != null) "PUMP_DIRECT [$pumpVenue]" else "RAYDIUM_7325"
                 onLog("LIVE BUY (PUMP-FIRST): ${ts.symbol} | sig=${sig.take(16)}…", tradeId.mint)
             } else {
                 val q = quote!!
@@ -20808,7 +20815,7 @@ class Executor(
             if (price <= 0.0) {
                 throw Exception("Invalid normalized price for ${ts.symbol}")
             }
-            val finalQty: Double = if (pumpFirstResult != null) qty
+            val finalQty: Double = if (directFill7325 != null) qty
                 else {
                     // V5.0.6310 — plumb explicit mint decimals so BUY qty
                     // never lands on the inferUiScaleFromTrade heuristic.
@@ -30271,6 +30278,55 @@ class Executor(
      * The common pendingVerify safeguards downstream are still the authority
      * for whether tokens actually landed in the wallet.
      */
+    /**
+     * V5.0.7325 — Raydium as the third BUY builder (after PumpPortal and the
+     * Jupiter ladder). Returns (signature, qty) like tryPumpPortalBuy so the
+     * landed buy takes the identical confirmed-buy path; qty is the wallet
+     * delta when already visible, else the price-math estimate, and an
+     * unproven delta is handed to PendingReconcileQueue exactly as Pump does.
+     */
+    private fun tryRaydiumBuy7325(ts: TokenState, wallet: SolanaWallet, solAmount: Double, tradeKey: String): Pair<String, Double>? {
+        return try {
+            val c = cfg()
+            val lamports = (solAmount * 1_000_000_000.0).toLong()
+            if (lamports <= 0L) return null
+            val preTokenQty = try { wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.first ?: 0.0 } catch (_: Throwable) { 0.0 }
+            val built = com.lifecyclebot.network.RaydiumSellRoute7311.buildBuy(wallet, ts.mint, lamports, 500)
+            LiveTradeLogStore.log(
+                tradeKey, ts.mint, ts.symbol, "BUY",
+                LiveTradeLogStore.Phase.BUY_BROADCAST,
+                "RAYDIUM buy (third builder) ${"%.4f".format(solAmount)}◎ | txs=${built.transactions.size} | sender=HELIUS_FIRST",
+                traderTag = "MEME",
+            )
+            val sig = com.lifecyclebot.network.RaydiumSellRoute7311.sendBuilt(
+                wallet, built, effectiveSenderTipLamports(c, urgent = false), c.jitoEnabled, effectiveJitoTipLamports(c, urgent = false),
+            ) ?: return null
+            val firstReadQty = try {
+                ((wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.first ?: 0.0) - preTokenQty).coerceAtLeast(0.0)
+            } catch (_: Throwable) { 0.0 }
+            val price = getActualPrice(ts).takeIf { it > 0.0 }
+            val solUsd = WalletManager.lastKnownSolPrice
+            val priceMathQty = if (price != null && solUsd > 0.0) (solAmount * solUsd) / price else 0.0
+            val qty = if (firstReadQty > 0.0) firstReadQty else priceMathQty
+            if (firstReadQty <= 0.0) {
+                try { PendingReconcileQueue.registerBuy(sig = sig, mint = ts.mint, symbol = ts.symbol, tradeKey = tradeKey, traderTag = "MEME", wallet = wallet) } catch (_: Throwable) {}
+            }
+            try {
+                PipelineHealthCollector.labelInc("RAYDIUM_BUY_LANDED_7325")
+                ForensicLogger.lifecycle("RAYDIUM_BUY_LANDED_7325", "mint=${ts.mint.take(10)} sig=${sig.take(16)} sol=${"%.4f".format(solAmount)} qty=${"%.4f".format(qty)} walletProof=${firstReadQty > 0.0}")
+            } catch (_: Throwable) {}
+            onLog("✅ RAYDIUM BUY landed (third builder, Helius-first sender): ${sig.take(16)}…", ts.mint)
+            Pair(sig, qty)
+        } catch (e: Throwable) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            try {
+                PipelineHealthCollector.labelInc("RAYDIUM_BUY_FAILED_7325")
+                ForensicLogger.lifecycle("RAYDIUM_BUY_FAILED_7325", "mint=${ts.mint.take(10)} err=${security.sanitiseForLog(e.message ?: e.javaClass.simpleName).take(160)}")
+            } catch (_: Throwable) {}
+            null
+        }
+    }
+
     private fun tryPumpPortalBuy(
         ts: TokenState,
         wallet: SolanaWallet,
