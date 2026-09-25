@@ -1275,14 +1275,19 @@ object TradeHistoryStore {
      * wallet inventory or repeated close fanout.
      */
     fun getRecentValidClosedTrades(limit: Int = 1000, includePartials: Boolean = true): List<Trade> {
-        val raw = getRecentValidClosedTradesRaw(limit = (limit * 4).coerceAtLeast(limit), includePartials = includePartials)
-        if (includePartials) return raw
+        if (includePartials) {
+            return getRecentValidClosedTradesRaw(limit = (limit * 4).coerceAtLeast(limit), includePartials = true)
+        }
+        // V5.0.7333 — the clean ledger needs the partial legs to price a
+        // terminal row as the whole position; it still emits terminal rows only.
+        val raw = getRecentValidClosedTradesRaw(limit = (limit * 4).coerceAtLeast(limit), includePartials = true)
         return StrategyTruthLedger.cleanedTerminalRows(raw, limit)
     }
 
     fun getRecentCleanStrategyTerminalTrades(limit: Int = 1000): List<Trade> =
         StrategyTruthLedger.cleanedTerminalRows(
-            getRecentValidClosedTradesRaw(limit = (limit * 4).coerceAtLeast(limit), includePartials = false),
+            // V5.0.7333 — partial legs let the ledger price the whole position.
+            getRecentValidClosedTradesRaw(limit = (limit * 4).coerceAtLeast(limit), includePartials = true),
             limit,
         )
 

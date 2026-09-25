@@ -86,7 +86,8 @@ object RegimeDetector {
             TradeHistoryStore.getRecentValidClosedTrades(limit = 2_000, includePartials = false)
                 .filter { it.mode.equals(mode6679, ignoreCase = true) }
                 .filter { DeskPerformanceAuthority6648.classify(it) == DeskPerformanceAuthority6648.Book.MEME }
-                .takeLast(100)
+                // V5.0.7333 — rows arrive newest-first; takeLast kept the OLDEST 100.
+                .take(100)
         } catch (_: Throwable) { emptyList() }
 
         val v3Median = try {

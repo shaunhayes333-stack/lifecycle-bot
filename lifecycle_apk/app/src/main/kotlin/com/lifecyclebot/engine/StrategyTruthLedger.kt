@@ -141,6 +141,7 @@ object StrategyTruthLedger {
         try { PipelineHealthCollector.labelInc("STRATEGY_CLEAN_CACHE_MISS_6358") } catch (_: Throwable) {}
 
         val newestFirst = rawRows.sortedByDescending { it.ts }
+        val partialsByPosition7333 = partialLegsByPosition7333(newestFirst)
         val seenTerminalKeys = LinkedHashSet<String>()
         val seenGenerationKeys = LinkedHashSet<String>()
         val seenMintCloseWindows = LinkedHashMap<String, Long>()
@@ -262,7 +263,7 @@ object StrategyTruthLedger {
             if (seenTerminalKeysLifetime.add(terminalKey)) {
                 inc("STRATEGY_CLEAN_TERMINAL_ROWS")
             }
-            out += normalizedStrategyRow(row)
+            out += foldPartialLegs7333(normalizedStrategyRow(row), partialsByPosition7333)
         }
         val result = Result(out, Audit(out.size, deduped, recovery, partial, badEntry, forensic))
         // V5.0.6358 — publish to cache. Overwrite is unconditional under lock
@@ -475,6 +476,54 @@ object StrategyTruthLedger {
         TradeHistoryStore.normalizeTradeModeName(t.tradingMode).ifBlank { "STANDARD" }
     } catch (_: Throwable) {
         t.tradingMode.ifBlank { "STANDARD" }.uppercase()
+    }
+
+    private class PartialLegs7333(var pnlSol: Double = 0.0, var costSol: Double = 0.0, var n: Int = 0)
+
+    /**
+     * V5.0.7333 — the terminal SELL row prices only the RUNNER leg (its cost is
+     * the remaining cost after partials). A position that banked +40% on its
+     * rungs and stopped the runner at -8% was a LOSS to every learner that
+     * reads this ledger (5.0.7324: blended WR 7.9% against 37.9% per
+     * position; PROJECT_SNIPER 1W/17L here, 7W/17L on the per-position book).
+     * Non-terminal partial legs are summed per positionId so the terminal row
+     * can carry the whole position's result. Each leg's cost is
+     * proceeds - realized PnL (fees land in the cost, a conservative read).
+     */
+    private fun partialLegsByPosition7333(rows: List<Trade>): Map<String, PartialLegs7333> {
+        val out = HashMap<String, PartialLegs7333>()
+        val seen = HashSet<String>()
+        for (r in rows) {
+            if (!r.side.trim().equals("PARTIAL_SELL", true)) continue
+            if (r.remainingQtyToken <= 0.000000001) continue
+            val pid = r.positionId.trim()
+            if (pid.isEmpty()) continue
+            val cost = r.sol - r.pnlSol
+            if (!cost.isFinite() || cost <= 0.0 || !r.pnlSol.isFinite()) continue
+            if (!seen.add("$pid|${r.ts}|${r.sol}|${r.sig}")) continue
+            val legs = out.getOrPut(pid) { PartialLegs7333() }
+            legs.pnlSol += r.pnlSol
+            legs.costSol += cost
+            legs.n++
+        }
+        return out
+    }
+
+    private fun foldPartialLegs7333(t: Trade, legs: Map<String, PartialLegs7333>): Trade {
+        val l = legs[t.positionId.trim()] ?: return t
+        if (l.n <= 0) return t
+        val runnerCost = t.sol - t.pnlSol
+        if (!runnerCost.isFinite() || runnerCost < 0.0) return t
+        val positionCost = runnerCost + l.costSol
+        if (positionCost <= 0.0) return t
+        val positionPnl = t.pnlSol + l.pnlSol
+        inc("STRATEGY_TERMINAL_FOLDED_PARTIALS_7333")
+        return t.copy(
+            pnlSol = positionPnl,
+            netPnlSol = positionPnl,
+            pnlPct = positionPnl * 100.0 / positionCost,
+            entryCostSol = positionCost,
+        )
     }
 
     private fun normalizedStrategyRow(t: Trade): Trade {

@@ -11510,4 +11510,15 @@ class GoldenTapeRegressionTest {
         assertTrue(ca.contains("if (holdSec >= adaptiveMaxHold6663 && !runningWinner7332) {"))
     }
 
+    @Test
+    fun V5_0_7333_a_position_is_judged_on_its_whole_result() {
+        val st = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTruthLedger.kt").readText()
+        assertTrue(st.contains("out += foldPartialLegs7333(normalizedStrategyRow(row), partialsByPosition7333)"))
+        assertTrue(st.contains("pnlPct = positionPnl * 100.0 / positionCost,"))
+        val th = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        assertFalse(th.contains("getRecentValidClosedTradesRaw(limit = (limit * 4).coerceAtLeast(limit), includePartials = false),"))
+        val rd = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RegimeDetector.kt").readText()
+        assertFalse(rd.contains(".takeLast(100)"))
+    }
+
 }

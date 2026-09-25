@@ -4,6 +4,25 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7333] - 2026-09-26 — A POSITION IS JUDGED ON ITS WHOLE RESULT
+
+The terminal SELL row prices only the runner leg left after partials, and
+StrategyTruthLedger dropped the partial legs, so a position that banked
++40% on its rungs and stopped the runner at -8% was a LOSS to every learner
+reading the ledger (5.0.7324: blended WR 7.9% vs 37.9% per position;
+PROJECT_SNIPER 1W/17L there vs 7W/17L on the position book). Readers include
+RegimeDetector, LaneAutoPauseGuard, hasProvenEdge, LosingPatternMemory,
+LiveBreakEvenGuard, StrategyHypothesisEngine, OracleTradeHistory7287 and
+PerformanceAnalytics.
+
+- StrategyTruthLedger.clean folds each position's non-terminal partial legs
+  (by positionId) into its terminal row: pnlSol/netPnlSol, pnlPct and
+  entryCostSol describe the whole position (STRATEGY_TERMINAL_FOLDED_PARTIALS_7333).
+- TradeHistoryStore: the clean-terminal fetches now pass partial rows to the
+  ledger so it can fold them; output is still terminal rows only.
+- RegimeDetector: rows arrive newest-first; takeLast(100) kept the oldest
+  100, now take(100).
+
 ## [5.0.7332] - 2026-09-26 — THE HOLD TIMER DOES NOT CLOSE A RUNNING WINNER
 
 - CryptoAltTrader: ADAPTIVE_HOLD_MAX_6663 frees capital from positions going
