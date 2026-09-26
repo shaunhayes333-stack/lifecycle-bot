@@ -4,6 +4,23 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7365] - 2026-09-26 — THE FREEZE PROOF ASKS A VALIDATOR THAT ANSWERS
+
+5.0.7364 live: the top buy refusal was PRETRADE:FREEZE_AUTHORITY_UNVERIFIED_7238
+(45). Helius is at 429 "max usage reached" (10M credits in two days); the public
+Solana RPC answered 93% of calls. OnChainMintAuthorityProof7248 asked Helius
+first and tried only three endpoints, so with Helius-hosted URLs leading the
+candidate list every attempt could be Helius, and every live buy that needed the
+proof was refused. The same token was also re-proved on every attempt.
+
+- Endpoint order: distinct non-Helius RPCs first, configured Helius last.
+- A proof that both authorities are revoked is cached for the process (an SPL
+  mint's revoked authority can never be re-set); an ACTIVE proof is cached 5 min;
+  an unanswered probe is not retried for 20s.
+- Strictness unchanged: unknown freeze status still blocks live buys.
+- Golden tape: V5_0_7365_authority_proof_public_rpc_first_and_cached; the 7248
+  ordering test is repointed.
+
 ## [5.0.7364] - 2026-09-26 — A WALLET READ THAT LACKS A MINT CLOSES NOTHING
 
 Operator: "it keeps dropping held live positions off the ui. that cant happen."

@@ -19,7 +19,8 @@ class Aate7248HeliusTransitTest {
         val gate = src("engine/truth/FreezeAuthorityHardBlock7238.kt")
         val safety = src("engine/TokenSafetyChecker.kt")
 
-        assertTrue(proof.indexOf("configuredHeliusRpc()") < proof.indexOf("rpcCandidates()"))
+        // V5.0.7365 — public RPCs first, Helius kept as the last resort (credit burn).
+        assertTrue(proof.contains("val endpoints = (publicEps7365.take(maxProviders.coerceIn(1, 5)) + heliusEps7365.take(1))"))
         assertTrue(gate.contains("FREEZE_AUTHORITY_REPROVED_7248"))
         assertTrue(gate.contains("freezeAuthorityDisabled = proof.freezeAuthorityDisabled"))
         assertTrue(safety.contains("OnChainMintAuthorityProof7248.resolve(mint)"))

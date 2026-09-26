@@ -11945,4 +11945,17 @@ class GoldenTapeRegressionTest {
         assertTrue(th.contains("if (isXrefRugRow7364(t)) continue"))
     }
 
+
+    @Test
+    fun V5_0_7365_authority_proof_public_rpc_first_and_cached() {
+        val p = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OnChainMintAuthorityProof7248.kt").readText()
+        assertTrue(p.contains("val endpoints = (publicEps7365.take(maxProviders.coerceIn(1, 5)) + heliusEps7365.take(1))"))
+        assertTrue(p.contains("provenDisabled7365[mint]?.let {"))
+        assertTrue(p.contains("if (proof.freezeAuthorityDisabled && proof.mintAuthorityDisabled) {"))
+        assertTrue(p.contains("unansweredAt7365[mint]?.let { at -> if (now7365 - at < UNANSWERED_RETRY_MS_7365) return null }"))
+        // Unknown still blocks: the gate is unchanged.
+        val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/FreezeAuthorityHardBlock7238.kt").readText()
+        assertTrue(g.contains("return Decision(Verdict.BLOCK_FREEZE_UNVERIFIED, \"FREEZE_AUTHORITY_UNVERIFIED\")"))
+    }
+
 }
