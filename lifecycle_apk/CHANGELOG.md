@@ -4,6 +4,24 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7354] - 2026-09-26 — THE BOT LOOP DEADLOCK
+
+Operator: "the decision log has gone dry and the bot loop has stopped."
+
+5.0.7352 made PaperLearningSanity.configuredMaxTradeSol follow paper equity via
+ProvenLaneEquityBase7352.paperEquitySol(), which read PaperAccountLedger6430.
+snapshotAtomic6643() — a @Synchronized read of the ledger monitor. That ceiling
+is evaluated per journal row by the accounting validator, under the journal
+lock / validated-row build. Every ledger mutation (onBuy, onSell, purge,
+treasury) holds the ledger monitor while JournalEconomicAuthority6616 replays
+the journal. One thread held the ledger and waited for the journal; another
+held the journal and waited for the ledger: ABBA deadlock, the loop froze.
+
+- PaperAccountLedger6430.equitySolNoLock7354(): cash + open cost from the
+  atomics, no monitor. ProvenLaneEquityBase7352.paperEquitySol() uses it.
+  The capital-conservation invariant still reads snapshotAtomic6643().
+- Golden tape: V5_0_7354_equity_read_never_takes_the_ledger_monitor.
+
 ## [5.0.7353] - 2026-09-26 — A FLAT POSITION IS A SLOT, NOT A TRADE
 
 Operator: "there seems to be a lot of tokens held that may not need to be."

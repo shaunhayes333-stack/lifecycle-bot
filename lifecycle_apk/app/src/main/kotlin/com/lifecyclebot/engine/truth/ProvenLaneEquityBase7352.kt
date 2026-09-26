@@ -38,10 +38,12 @@ object ProvenLaneEquityBase7352 {
     /** Same bar as EvidenceMaturity7277's lane opinion (30 closes). */
     const val MIN_PROVEN_CLOSES = 30
 
+    // V5.0.7354 — lock-free read. This is called per journal row by
+    // PaperLearningSanity.configuredMaxTradeSol under the journal lock, while
+    // ledger mutations replay the journal under the ledger monitor; taking the
+    // monitor here deadlocked the bot loop (5.0.7352/7353).
     fun paperEquitySol(): Double = try {
-        val cash = PaperCapitalAuthority6577.cashSol().coerceAtLeast(0.0)
-        val openCost = PaperCapitalAuthority6577.openCostBasisSol().coerceAtLeast(0.0)
-        (cash + openCost).takeIf { it.isFinite() } ?: 0.0
+        PaperAccountLedger6430.equitySolNoLock7354().coerceAtLeast(0.0).takeIf { it.isFinite() } ?: 0.0
     } catch (_: Throwable) { 0.0 }
 
     private fun norm(lane: String): String = try {

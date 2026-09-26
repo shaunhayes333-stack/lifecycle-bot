@@ -11768,4 +11768,19 @@ class GoldenTapeRegressionTest {
         assertTrue(ps.contains("(openMints7353 == null || mint !in openMints7353)"))
     }
 
+
+    @Test
+    fun V5_0_7354_equity_read_never_takes_the_ledger_monitor() {
+        val led = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PaperAccountLedger6430.kt").readText()
+        val idx = led.indexOf("fun equitySolNoLock7354()")
+        assertTrue(idx > 0)
+        // No @Synchronized directly above the lock-free read.
+        assertFalse(led.substring(maxOf(0, idx - 120), idx).contains("@Synchronized"))
+        assertTrue(led.contains("fromPico(cashPico.get()) + fromPico(openCostBasisPico.get())"))
+        val b = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ProvenLaneEquityBase7352.kt").readText()
+        assertTrue(b.contains("PaperAccountLedger6430.equitySolNoLock7354()"))
+        assertFalse(b.contains("PaperCapitalAuthority6577.cashSol()"))
+        assertFalse(b.contains("snapshotAtomic6643"))
+    }
+
 }

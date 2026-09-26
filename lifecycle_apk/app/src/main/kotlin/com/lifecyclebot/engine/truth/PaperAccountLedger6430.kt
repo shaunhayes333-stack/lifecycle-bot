@@ -143,6 +143,18 @@ object PaperAccountLedger6430 {
         treasurySol = fromPico(treasuryPico.get()),
     )
 
+    /**
+     * V5.0.7354 — cash + open cost WITHOUT the ledger monitor, for callers that
+     * may run under the journal lock (the per-row accounting validator). Every
+     * @Synchronized mutation here replays the journal while holding this
+     * monitor, so a journal-side reader that also wanted the monitor deadlocked
+     * the bot loop in 5.0.7352/7353. Two atomic reads can straddle one mutation;
+     * sizing ceilings tolerate that, the capital invariant still uses
+     * [snapshotAtomic6643].
+     */
+    fun equitySolNoLock7354(): Double =
+        fromPico(cashPico.get()) + fromPico(openCostBasisPico.get())
+
     fun initialize(startingCashSol: Double) {
         val p = toPico(startingCashSol.coerceAtLeast(0.0))
         startingCashPico.set(p)
