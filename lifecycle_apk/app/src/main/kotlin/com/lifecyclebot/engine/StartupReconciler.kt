@@ -482,6 +482,24 @@ class StartupReconciler(
                             try { com.lifecyclebot.engine.ForensicLogger.lifecycle(
                                 "JOURNAL_RECOVERY_ADOPT", "mint=${jMint.take(12)} qty=$walletQty mode=${buyRow.mode}") } catch (_: Throwable) {}
                         } else if (buyRow.mode != "paper") {
+                            // V5.0.7362 — a journal-open mint with a live canonical position
+                            // still OPEN is not a rug: it is a sale whose finalization never
+                            // wrote its row (resumed from the signature by
+                            // Executor.resumeLiveSellFinalization7362, or retired without PnL
+                            // when no signature exists). Booking it here as -100% misstates a
+                            // real sale; 14 such rows per pass were also quarantined
+                            // (proofState defaulted to LIVE_BROADCAST) and retried forever.
+                            val canonicalOpen7362 = try {
+                                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                                    .any { it.mint == jMint && it.mode.equals("live", true) }
+                            } catch (_: Throwable) { false }
+                            val closeSig7362 = try {
+                                com.lifecyclebot.engine.PositionCloseLedger.recordOf(jMint)?.sellSig.orEmpty()
+                            } catch (_: Throwable) { "" }
+                            if (canonicalOpen7362 || closeSig7362.isNotBlank()) {
+                                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("JOURNAL_XREF_RUG_SKIPPED_SALE_PENDING_FINALITY_7362") } catch (_: Throwable) {}
+                                return@jx
+                            }
                             // Journal says open, wallet says zero → externally closed while dead.
                             // V5.0.3926 — RUG-CLOSE ACCURACY. The wallet going
                             // to zero on an open live position is a rug or
@@ -526,6 +544,13 @@ class StartupReconciler(
                                         feeSol = 0.0,
                                         score = buyRow.score,
                                         mint = jMint,
+                                        // V5.0.7362 — the trusted wallet snapshot proved the zero;
+                                        // without a proof state the row defaulted to LIVE_BROADCAST
+                                        // and was rejected as non-terminal. The event id is fixed per
+                                        // BUY so a later pass acknowledges it instead of re-writing.
+                                        proofState = "LIVE_BALANCE_CONFIRMED",
+                                        positionId = buyRow.positionId,
+                                        economicEventId = "EXTERNAL_RUG_CLOSE_7362:$jMint:${buyRow.ts}",
                                     )
                                     com.lifecyclebot.engine.TradeHistoryStore.recordTrade(rugSell)
                                 } catch (_: Throwable) {}

@@ -11893,4 +11893,16 @@ class GoldenTapeRegressionTest {
         assertTrue(ex.contains("private val ENTRY_REPRICE_COOLDOWN_MS_7361 = 30_000L"))
     }
 
+
+    @Test
+    fun V5_0_7362_journal_xref_no_rug_for_pending_sale_and_rug_rows_are_terminal() {
+        val sr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StartupReconciler.kt").readText()
+        assertTrue(sr.contains("if (canonicalOpen7362 || closeSig7362.isNotBlank()) {"))
+        assertTrue(sr.contains("proofState = \"LIVE_BALANCE_CONFIRMED\","))
+        assertTrue(sr.contains("economicEventId = \"EXTERNAL_RUG_CLOSE_7362:$jMint:${buyRow.ts}\","))
+        val cm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPriceMark6522.kt").readText()
+        assertTrue(cm.contains("evidenceTimestampMs: Long = nowMs,"))
+        assertTrue(cm.contains("liquidityUsd = liquidityUsd, evidenceTimestampMs = evidenceTimestampMs, nowMs = nowMs,"))
+    }
+
 }

@@ -366,13 +366,18 @@ object CanonicalPriceMarkRegistry6522 {
         mint: String, pairOrPool: String, quoteMint: String, source: String,
         priceUsd: Double, liquidityUsd: Double, routeStatus: String,
         nowMs: Long = System.currentTimeMillis(),
+        // V5.0.7362 — when the price was actually observed. Stamping `nowMs` made
+        // an intake-time price look seconds old, so a stale price could become an
+        // EXECUTABLE_ENTRY_QUOTE and a live buy could size on it. Callers pass the
+        // observation time; the default keeps any caller not yet updated as before.
+        evidenceTimestampMs: Long = nowMs,
     ): PromotionResult6613 {
         if (routeStatus.uppercase() !in setOf("PUMPFUN_BONDING_CURVE_EXECUTABLE", "DEX_ROUTABLE"))
             return PromotionResult6613(null, "TOKEN_MAP_ROUTE_NOT_EXECUTABLE", source, priceUsd, identity = mint)
         return resolveExecutableFromSourceEvidence6616(
             mint = mint, observedBaseMint = mint, pairOrPool = pairOrPool,
             quoteMint = quoteMint, source = source, priceUsd = priceUsd,
-            liquidityUsd = liquidityUsd, evidenceTimestampMs = nowMs, nowMs = nowMs,
+            liquidityUsd = liquidityUsd, evidenceTimestampMs = evidenceTimestampMs, nowMs = nowMs,
         )
     }
 

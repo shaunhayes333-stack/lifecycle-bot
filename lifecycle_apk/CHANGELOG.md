@@ -4,6 +4,27 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7362] - 2026-09-26 — A PENDING SALE IS NOT A RUG
+
+5.0.7360 showed a repeating cluster of 14: JOURNAL_XREF_EXTERNAL_CLOSE,
+POSITION_CLOSE_LEDGER_REJECTED and ACCOUNTING_QUARANTINED|PROJECT_SNIPER|
+EXTERNAL_RUG_CLOSE. A live sale that landed but never wrote its SELL row leaves
+the mint "open" in the journal; with the wallet at zero, StartupReconciler's
+journal cross-check booked it as a -100% rug. That row carried no proof state,
+defaulted to LIVE_BROADCAST, was rejected as non-terminal, and every reconcile
+pass tried again.
+
+- StartupReconciler: a journal-open mint whose live canonical position is still
+  OPEN, or whose close record carries a sell signature, is a sale awaiting
+  finality, not a rug: skipped (JOURNAL_XREF_RUG_SKIPPED_SALE_PENDING_FINALITY_7362).
+- A genuine external close keeps its -100% row, now with proofState
+  LIVE_BALANCE_CONFIRMED (the trusted wallet snapshot proved the zero), the BUY's
+  positionId, and a fixed event id per BUY so it is written once.
+- CanonicalPriceMarkRegistry6522.refreshFromExecutableTokenMap6614 takes the
+  price's observation time (evidenceTimestampMs, default unchanged) instead of
+  always stamping "now", which could make an intake-time price look fresh.
+- Golden tape: V5_0_7362_journal_xref_no_rug_for_pending_sale_and_rug_rows_are_terminal.
+
 ## [5.0.7361] - 2026-09-26 — A STALE CANDIDATE GETS ONE HONEST RE-PRICE
 
 5.0.7360 live: BUY ok/fail 4/70, 46 of them ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED.
