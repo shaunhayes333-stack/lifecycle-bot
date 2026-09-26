@@ -408,7 +408,38 @@ object StrategyTelemetry {
     // Paper must compound and learn while the operator is testing. This mirrors
     // clean-live StrategyTruthLedger hygiene, but keeps the environment boundary
     // explicit so paper evidence never authorizes LIVE sizing.
+    // V5.0.7346 §THE_PAPER_BOARD_HAD_NO_CACHE_AT_ALL.
+    //
+    // The clean-LIVE board has been cached since 6001; this paper twin never
+    // was, and in paper mode LiveProbabilityEngine.laneSnapshots() — read by
+    // FDG, Executor (5 sites), the order-size resolver, the oracle, lane
+    // capital fairness, learned admission, entry authority, the permit, the
+    // cold-streak damper and the regime detector — rebuilt it from the journal
+    // on every call: copy up to 10k rows, canonicalise each, clean, group.
+    // Reused only while the journal is unchanged (journalRevision7343) AND for
+    // at most 10s, the tolerance StrategyTruthLedger.clean already applies to
+    // its own inputs, so quarantine changes are seen no later than today. A
+    // board built on the main thread is never kept: that read can be a stale
+    // single-slot cache or empty.
+    private class PaperBoardEntry7346(val rev: Long, val stampMs: Long, val board: List<StrategyMetric>)
+    private val paperBoardCache7346 = java.util.concurrent.ConcurrentHashMap<Int, PaperBoardEntry7346>()
+    private const val PAPER_BOARD_MAX_AGE_MS_7346 = 10_000L
+
     fun computeCleanPaperTerminalLeaderboard(limit: Int = 2_500): List<StrategyMetric> {
+        val now7346 = System.currentTimeMillis()
+        val rev7346 = try { TradeHistoryStore.journalRevision7343() } catch (_: Throwable) { -1L }
+        val hit7346 = paperBoardCache7346[limit]
+        if (hit7346 != null && rev7346 >= 0L && hit7346.rev == rev7346 && now7346 - hit7346.stampMs < PAPER_BOARD_MAX_AGE_MS_7346) {
+            try { PipelineHealthCollector.labelInc("STRATEGY_CLEAN_PAPER_BOARD_REUSED_7346") } catch (_: Throwable) {}
+            return hit7346.board
+        }
+        val board7346 = computeCleanPaperTerminalLeaderboardUncached7346(limit)
+        val onMain7346 = try { android.os.Looper.myLooper() == android.os.Looper.getMainLooper() } catch (_: Throwable) { false }
+        if (!onMain7346 && rev7346 >= 0L) paperBoardCache7346[limit] = PaperBoardEntry7346(rev7346, now7346, board7346)
+        return board7346
+    }
+
+    private fun computeCleanPaperTerminalLeaderboardUncached7346(limit: Int): List<StrategyMetric> {
         val raw = try { TradeHistoryStore.getRecentValidClosedTradesRaw(limit = limit, includePartials = true) } catch (_: Throwable) { emptyList() }
         val cleanRows = try { StrategyTruthLedger.clean(raw, limit).rows } catch (_: Throwable) { raw }
             .filter { it.mode.equals("paper", true) && it.side.equals("SELL", true) }

@@ -123,7 +123,7 @@ object LiveStylePivotRouter {
             val rows = TradeHistoryStore.getRecentValidClosedTrades(limit = 250, includePartials = false)
                 .filter { it.side.equals("SELL", true) }
                 .filter { it.mode.equals("live", true) || it.tradingMode.equals("live", true) || !it.mode.equals("paper", true) }
-                .takeLast(80)
+                .take(80) // V5.0.7346 — rows are newest-first; takeLast kept the oldest 80
             val decisive = rows.filter { it.pnlPct >= 0.5 || it.pnlPct <= -2.0 }
             val wr = if (decisive.isNotEmpty()) decisive.count { it.pnlPct >= 0.5 } * 100.0 / decisive.size else 0.0
             val net = rows.sumOf { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }

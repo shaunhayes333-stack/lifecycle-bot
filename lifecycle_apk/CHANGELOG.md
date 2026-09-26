@@ -4,6 +4,39 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7346] - 2026-09-26 — SWEEP 2: THE JOURNAL IS VALIDATED ONCE, NOT SIXTY TIMES
+
+Second batch of the data-wastage sweep.
+
+- `TradeHistoryStore`: ~60 production readers (several per candidate on the
+  paper admission path) each copied the journal and ran the per-row sanitiser and
+  accounting validator over every row on every call. The validated, canonicalised,
+  newest-first list is now built once per journal revision (plus the paper
+  entry-size ceiling, the validator's only outside input) and shared by
+  `getRecentValidTrades`, `getAllValidTradesSnapshot` and the closed-rows reader.
+  Main-thread callers are served from it when current, which also fixes the
+  single-slot cache returning `emptyList()` when another caller's limit/partials
+  had clobbered it. Status: `validRowsBuilds7346` / `validRowsReuse7346`.
+- `StrategyTelemetry.computeCleanPaperTerminalLeaderboard` had no cache at all and
+  feeds `LiveProbabilityEngine.laneSnapshots()` (FDG, Executor x5, sizing, oracle,
+  lane fairness, admission, entry authority, permit, cold-streak damper). Reused
+  while the journal is unchanged and for at most 10s; main-thread builds are never
+  kept. `STRATEGY_CLEAN_PAPER_BOARD_REUSED_7346`.
+- `ExecutionDecisionSnapshot6510` only ever grew and both by-mint queries walked
+  every entry (candidateVersionFor has ~51 call sites, several in loops). Indexed
+  by (generation, mode, mint) with identical filters and ordering; entries from an
+  earlier runtime generation, which no query can return, are dropped.
+- Runner exits: the give-back deferral is decided before the lock floor, so a
+  deferred runner no longer computes a floor every 500ms/1s only to discard it.
+- `OracleTradeHistory7287`: fresh reads no longer take the monitor.
+- Per-row regexes: removed an unreachable `Regex("PARTIAL_\\d+PCT")` compiled per
+  SELL row (any match already contains "PARTIAL", tested first); hoisted the
+  `normalizeTradeModeName` regex. The desk POOL/QUALIFIED causal id is resolved
+  once per sheet, not per hypothesis.
+- Bug fix: `LiveBreakEvenGuard` (live and paper edge) and `LiveStylePivotRouter`
+  used `takeLast(N)` on newest-first rows, so the cost-vs-edge read came from the
+  OLDEST closes. Now `take(N)` — the 7333 RegimeDetector defect in two more places.
+
 ## [5.0.7345] - 2026-09-26 — SWEEP 1: NO RE-PROVING, NO REQUESTS THE BACKOFF WILL REFUSE
 
 First batch of the data-wastage sweep.

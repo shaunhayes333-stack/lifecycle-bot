@@ -44,8 +44,16 @@ object OracleTradeHistory7287 {
         return if (v.isFinite()) v.coerceIn(-100.0, 100_000.0) else null
     }
 
-    @Synchronized
+    // V5.0.7346 — read the volatile stamp before taking the monitor. Every
+    // lane()/book() call (per pool lane, per lane, per token) used to enter the
+    // lock even when the data was fresh; the locked path re-checks as before.
     private fun refreshIfDue(nowMs: Long) {
+        if (nowMs - computedAtMs < REFRESH_MS && computedAtMs > 0L) return
+        refreshIfDueLocked7346(nowMs)
+    }
+
+    @Synchronized
+    private fun refreshIfDueLocked7346(nowMs: Long) {
         if (nowMs - computedAtMs < REFRESH_MS && computedAtMs > 0L) return
         computedAtMs = nowMs
         val rows = try {

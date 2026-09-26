@@ -10699,7 +10699,13 @@ class BotService : Service() {
                         // floor the tick lock and the give-back stop read. The
                         // lock still fires; it fires where the three mechanisms
                         // agree instead of 12 points under a +900% high.
+                        // V5.0.7346 — deferral is decided first; a deferred runner's
+                        // floor was computed every 500ms and then discarded.
+                        val runnerDefer7322 = try {
+                            RunnerExitProfile7277.deferGiveBackLock(ts.position.tradingMode, peakPnlPct)
+                        } catch (_: Throwable) { false }
                         val explicitPeakLockFloor4301 = when {
+                            runnerDefer7322 -> Double.NEGATIVE_INFINITY
                             peakPnlPct >= 20.0 -> try {
                                 // V5.0.7267 — the lane's learned give-back band shapes this lock.
                                 com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(
@@ -10712,9 +10718,7 @@ class BotService : Service() {
                         // bar the 1Hz tick lock already used (+50% peak before a
                         // give-back lock on a runner lane). 25nV9u MOONSHOT sold at
                         // +31.8% here, ~4 points under a +36% peak.
-                        val runnerDefer7322 = try {
-                            RunnerExitProfile7277.deferGiveBackLock(ts.position.tradingMode, peakPnlPct)
-                        } catch (_: Throwable) { false }
+                        // (runnerDefer7322 is now evaluated above, before the floor.)
                         if (explicitPeakLockFloor4301.isFinite() && pnlPct <= explicitPeakLockFloor4301 && !runnerDefer7322) {
                             ErrorLogger.warn("BotService", "🚨 RAPID_PEAK_LOCK_BREACH_4301: ${ts.symbol} peak=${peakPnlPct.toInt()}% lock=${explicitPeakLockFloor4301.toInt()}% now=${pnlPct.toInt()}% — force sell")
                             addLog("🛑 PEAK LOCK BREACH: ${ts.symbol} peak +${peakPnlPct.toInt()}% → now ${pnlPct.toInt()}%", ts.mint)
@@ -12122,7 +12126,11 @@ class BotService : Service() {
                                     // ─── Guard 2: TICK_PROFIT_LOCK (UI high-lock parity) ───
                                     // Use FluidLearningAI's high-lock floor — the same value
                                     // rendered as "lock +X%" in the open-position card.
-                                    val lockedFloor = try {
+                                    // V5.0.7346 — deferral first; the floor is only read when not deferred.
+                                    val runnerLockDeferred7277 = try {
+                                        RunnerExitProfile7277.deferGiveBackLock(ts.position.tradingMode, peakPct)
+                                    } catch (_: Throwable) { false }
+                                    val lockedFloor = if (runnerLockDeferred7277) Double.NaN else try {
                                         com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
                                             modeDefaultStop = 20.0,
                                             currentPnlPct = pnlPctNow,
@@ -12134,9 +12142,6 @@ class BotService : Service() {
                                     } catch (_: Throwable) { Double.NaN }
                                     // V5.0.7277 — a runner lane's give-back lock waits for a
                                     // +50% peak; "peak14 now11" is not a runner outcome.
-                                    val runnerLockDeferred7277 = try {
-                                        RunnerExitProfile7277.deferGiveBackLock(ts.position.tradingMode, peakPct)
-                                    } catch (_: Throwable) { false }
                                     if (!lockedFloor.isNaN() && lockedFloor > 0.0 && !runnerLockDeferred7277) {
                                         // V5.0.7182 §THE_GUILLOTINE_AT_200_PERCENT.
                                         //

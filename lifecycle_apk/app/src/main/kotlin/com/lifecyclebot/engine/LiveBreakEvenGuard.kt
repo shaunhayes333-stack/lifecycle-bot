@@ -50,7 +50,9 @@ object LiveBreakEvenGuard {
                 .filter { it.side.equals("SELL", true) }
                 .filter { it.mode.equals("live", true) || it.tradingMode.equals("live", true) || !it.mode.equals("paper", true) }
                 .filter { aliases.contains(BleederMemoryRouter.canon(it.tradingMode.ifBlank { it.reason })) }
-                .takeLast(150)
+                // V5.0.7346 — rows arrive newest-first; takeLast kept the OLDEST 150
+                // (the RegimeDetector defect fixed in 7333). The edge is the recent one.
+                .take(150)
             edgeFromRows(rows, minRows = 5, minWr = 45.0, minNetSol = 0.0, cap = 140.0)
         } catch (_: Throwable) { 0.0 }
         val paperAdvisoryEdge = try {
@@ -59,7 +61,7 @@ object LiveBreakEvenGuard {
                 .filter { it.side.equals("SELL", true) }
                 .filter { it.mode.equals("paper", true) }
                 .filter { aliases.contains(BleederMemoryRouter.canon(it.tradingMode.ifBlank { it.reason })) }
-                .takeLast(250)
+                .take(250) // V5.0.7346 — newest 250, not oldest (see above)
             edgeFromRows(rows, minRows = 15, minWr = 45.0, minNetSol = 0.0, cap = 55.0)
         } catch (_: Throwable) { 0.0 }
         // V5.0.3972 — LIVE TRUST REBASE.

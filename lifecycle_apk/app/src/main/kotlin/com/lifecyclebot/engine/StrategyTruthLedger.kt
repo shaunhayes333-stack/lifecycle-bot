@@ -614,7 +614,7 @@ object StrategyTruthLedger {
         val inv = inventoryRecoveryRows(raw)
         val invPnl = inv.sumOf { it.netPnlSol.takeIf { v -> abs(v) > 0.0 } ?: it.pnlSol }
         val head7171 =
-            "StrategyTruthLedger: clean=${result.audit.cleaned} deduped=${result.audit.deduped} recovered=${result.audit.recoveryExcluded} partialNonTerminal=${result.audit.partialNotTerminal} badEntry=${result.audit.badEntryExcluded} inventory=${inv.size} inventoryPnl=${"%+.4f".format(invPnl)} rowsJudgedOnce7344=${synchronized(forensicVerdicts7344) { forensicVerdicts7344.size }} verdictReuse7344=${forensicVerdictHits7344.get()}"
+            "StrategyTruthLedger: clean=${result.audit.cleaned} deduped=${result.audit.deduped} recovered=${result.audit.recoveryExcluded} partialNonTerminal=${result.audit.partialNotTerminal} badEntry=${result.audit.badEntryExcluded} inventory=${inv.size} inventoryPnl=${"%+.4f".format(invPnl)} rowsJudgedOnce7344=${synchronized(forensicVerdicts7344) { forensicVerdicts7344.size }} verdictReuse7344=${forensicVerdictHits7344.get()} ${TradeHistoryStore.validRowsStatus7346()}"
         // V5.0.7171 — print the rows the percentage check threw out. This is
         // the largest single exclusion in the file and the only one whose
         // cause cannot be read off a counter.

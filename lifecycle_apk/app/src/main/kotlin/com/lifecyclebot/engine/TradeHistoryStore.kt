@@ -646,8 +646,11 @@ object TradeHistoryStore {
     // V5.9.1043 — exposed so read-side aggregators (StrategyTelemetry,
     // BrainConsensusGate, etc.) can collapse legacy bin names recorded
     // before V5.9.1038's choke-point normalization shipped.
+    // V5.0.7346 — compiled once; this runs per row in every leaderboard groupBy.
+    private val NON_ALNUM_7346 = Regex("[^A-Z0-9]")
+
     fun normalizeTradeModeName(raw: String): String {
-        val upper = raw.trim().uppercase().replace("[^A-Z0-9]".toRegex(), "")
+        val upper = raw.trim().uppercase().replace(NON_ALNUM_7346, "")
         return when {
             upper.isBlank() -> ""
             upper.contains("BLUECHIP") -> "BLUECHIP"
@@ -1195,15 +1198,51 @@ object TradeHistoryStore {
      * Newest-first, no full-list materialisation by callers. */
     fun getRecentValidTrades(limit: Int = 250): List<Trade> {
         ensureInitialized()
-        val cap = limit.coerceAtLeast(1)
-        return synchronized(lock) {
-            trades.asReversed().asSequence()
-                .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
-                .filter { isValidAccountingTrade(it) }
-                .take(cap)
-                .toList()
-        }
+        return validRowsNewestFirst7346().take(limit.coerceAtLeast(1))
     }
+
+    // V5.0.7346 §A_JOURNAL_ROW_IS_VALIDATED_ONCE_PER_REVISION.
+    //
+    // Operator: "we do this a lot. there's an extreme amount of data wastage."
+    // About sixty production readers — several per candidate on the paper
+    // admission path — each copied the journal and ran the per-row sanitiser
+    // and accounting validator over every row, on every call, while the journal
+    // had not changed. The validated, canonicalised, newest-first list is now
+    // built once per journal revision and shared. It depends on the rows and on
+    // one outside input, the paper entry-size ceiling (configuredMaxTradeSol,
+    // which moves with the paper balance), so that is part of the key. Every
+    // other validator input is a fixed rule over the row. Filtering the shared
+    // list by side selects exactly the rows the per-reader pipelines selected,
+    // because each row's verdict is independent of every other row.
+    private class ValidRowsMemo7346(val rev: Long, val cfgBits: Long, val newestFirst: List<Trade>)
+    @Volatile private var validRowsMemo7346: ValidRowsMemo7346? = null
+    private val validRowsBuilds7346 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val validRowsReuse7346 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    private fun validRowsNewestFirst7346(): List<Trade> {
+        val cfgBits = try {
+            com.lifecyclebot.engine.PaperLearningSanity.configuredMaxTradeSol().toRawBits()
+        } catch (_: Throwable) { 0L }
+        val memo = validRowsMemo7346
+        if (memo != null && memo.rev == journalRevision7343.get() && memo.cfgBits == cfgBits) {
+            validRowsReuse7346.incrementAndGet()
+            return memo.newestFirst
+        }
+        // Revision read inside the same lock as the copy, so a list can never be
+        // stored under a revision newer than the rows it was built from.
+        val (rev, copy) = synchronized(lock) { journalRevision7343.get() to ArrayList(trades) }
+        val out = copy.asReversed()
+            .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
+            .filter { isValidAccountingTrade(it) }
+        validRowsMemo7346 = ValidRowsMemo7346(rev, cfgBits, out)
+        validRowsBuilds7346.incrementAndGet()
+        return out
+    }
+
+    /** V5.0.7346 — builds vs reuses of the shared validated journal list. */
+    fun validRowsStatus7346(): String =
+        "validRowsBuilds7346=${validRowsBuilds7346.get()} validRowsReuse7346=${validRowsReuse7346.get()} " +
+            "rows=${validRowsMemo7346?.newestFirst?.size ?: 0}"
 
     /** V5.0.4497 — bounded full lifecycle valid-trade snapshot for Journal UI.
      * Includes BUY, SELL, and PARTIAL_SELL rows newest-first. Do not use closed-row
@@ -1212,15 +1251,8 @@ object TradeHistoryStore {
         ensureInitialized()
         val cap = limit.coerceAtLeast(1)
         // V5.0.7343 — copy under the lock, canonicalise outside it (same fix as
-        // 7337). The journal replay calls this on every economic mutation, and
-        // running the per-row sanitiser under the journal lock held every other
-        // journal reader, including the bot loop, for the whole pass.
-        val copy7343 = synchronized(lock) { ArrayList(trades) }
-        return copy7343.asReversed().asSequence()
-            .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
-            .filter { isValidAccountingTrade(it) }
-            .take(cap)
-            .toList()
+        // 7337). V5.0.7346 — served from the per-revision validated list.
+        return validRowsNewestFirst7346().take(cap)
     }
 
     /** Newest-first bounded RAW close rows (SELL + PARTIAL_SELL by default). */
@@ -1229,6 +1261,16 @@ object TradeHistoryStore {
         val now = System.currentTimeMillis()
         val onMain = try { Looper.myLooper() == Looper.getMainLooper() } catch (_: Throwable) { false }
         if (onMain) {
+            // V5.0.7346 — a validated list at the current revision is the exact
+            // answer; serve it rather than the single-slot cache, which another
+            // caller's (limit, includePartials) can clobber into emptyList().
+            val memo7346 = validRowsMemo7346
+            if (memo7346 != null && memo7346.rev == journalRevision7343.get()) {
+                return memo7346.newestFirst.asSequence()
+                    .filter { if (includePartials) isJournalSellLike(it.side) else it.side.equals("SELL", true) }
+                    .take(cap)
+                    .toList()
+            }
             val cached = rawClosedTradesCache
             val cacheMatches = rawClosedTradesCacheLimit >= cap && rawClosedTradesCacheIncludePartials == includePartials
             if (cached.isNotEmpty() && cacheMatches && now - rawClosedTradesCacheMs < RAW_CLOSED_CACHE_MS) return cached.take(cap)
@@ -1250,11 +1292,9 @@ object TradeHistoryStore {
         // per-row sanitiser ran while holding the journal lock, and on
         // 5.0.7336 the bot loop sat BLOCKED on that lock in
         // computeLatestBuyByMintSnapshot for up to 190s (cycle max 228s).
-        val snapshot7337 = synchronized(lock) { ArrayList(trades) }
-        return snapshot7337.asReversed().asSequence()
-            .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
+        // V5.0.7346 — served from the per-revision validated list.
+        return validRowsNewestFirst7346().asSequence()
             .filter { if (includePartials) isJournalSellLike(it.side) else it.side.equals("SELL", true) }
-            .filter { isValidAccountingTrade(it) }
             .take(cap.coerceAtLeast(1))
             .toList()
     }

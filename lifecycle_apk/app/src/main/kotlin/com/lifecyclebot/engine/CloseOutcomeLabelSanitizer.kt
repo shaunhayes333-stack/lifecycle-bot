@@ -38,7 +38,10 @@ object CloseOutcomeLabelSanitizer {
         val pnl = t.pnlPct
         if (!pnl.isFinite()) return LabelVerdict(true, "DIRTY_CLOSE_PNL_NOT_FINITE", "PNL_NOT_FINITE")
 
-        val isPartial = side == "PARTIAL_SELL" || r.contains("PARTIAL") || Regex("PARTIAL_\\d+PCT").containsMatchIn(r)
+        // V5.0.7346 — the trailing Regex("PARTIAL_\\d+PCT") was compiled per row and
+        // could never be true when reached: any match contains "PARTIAL", which
+        // the preceding test already caught. Removing it changes no verdict.
+        val isPartial = side == "PARTIAL_SELL" || r.contains("PARTIAL")
         val looksProfit = r.contains("TAKE_PROFIT") || r.contains("PROFIT_LOCK") ||
             r.contains("CAPITAL_RECOVERY") || r.contains("SWEEP_TAKE_PROFIT") ||
             r == "TP" || r.endsWith("_TP")

@@ -11569,7 +11569,7 @@ class GoldenTapeRegressionTest {
         assertTrue(a.contains("const val MCAP_FLOOR_USD = com.lifecyclebot.v3.scoring.MoonshotTraderAI.MIN_MARKET_CAP_USD"))
         assertFalse(a.contains("MCAP_RUNNER_CEILING_USD = 150_000.0"))
         val th = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
-        assertTrue(th.contains("val snapshot7337 = synchronized(lock) { ArrayList(trades) }"))
+        assertTrue(th.contains("val (rev, copy) = synchronized(lock) { journalRevision7343.get() to ArrayList(trades) }"))
     }
 
     @Test
@@ -11633,7 +11633,7 @@ class GoldenTapeRegressionTest {
         val h = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
         assertTrue(h.contains("fun journalRevision7343(): Long = journalRevision7343.get()"))
         assertEquals(9, Regex("journalRevision7343\\.incrementAndGet\\(\\)").findAll(h).count())
-        assertTrue(h.contains("val copy7343 = synchronized(lock) { ArrayList(trades) }"))
+        assertTrue(h.contains("val (rev, copy) = synchronized(lock) { journalRevision7343.get() to ArrayList(trades) }"))
     }
 
     @Test
@@ -11657,6 +11657,24 @@ class GoldenTapeRegressionTest {
         val o = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OnChainSupplyAuthority7075.kt").readText()
         assertTrue(o.contains("if (ApiBackoff.lockoutRemainingMs(hostLabel7116()) > LOCKOUT_PROBE_WINDOW_MS_7345) {"))
         assertFalse(o.contains("ApiBackoff.isLockedOut(hostLabel7116())"))
+    }
+
+    @Test
+    fun V5_0_7346_journal_validated_once_per_revision() {
+        val h = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        assertTrue(h.contains("val (rev, copy) = synchronized(lock) { journalRevision7343.get() to ArrayList(trades) }"))
+        assertTrue(h.contains("return validRowsNewestFirst7346().take(cap)"))
+        assertTrue(h.contains("private val NON_ALNUM_7346 = Regex(\"[^A-Z0-9]\")"))
+        val st = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTelemetry.kt").readText()
+        assertTrue(st.contains("if (!onMain7346 && rev7346 >= 0L) paperBoardCache7346[limit] = PaperBoardEntry7346(rev7346, now7346, board7346)"))
+        val ed = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutionDecisionSnapshot6510.kt").readText()
+        assertTrue(ed.contains("return bucket7346(mint, mode).asSequence()"))
+        assertFalse(ed.contains("return byAuthorityKey.values.asSequence()"))
+        val be = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveBreakEvenGuard.kt").readText()
+        assertFalse(be.contains(".takeLast(150)"))
+        assertFalse(be.contains(".takeLast(250)"))
+        val cs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CloseOutcomeLabelSanitizer.kt").readText()
+        assertFalse(cs.contains("Regex(\"PARTIAL_"))
     }
 
 }

@@ -499,8 +499,9 @@ object ToolkitSignalSheet {
                 reason = "ensemble=${deskHypotheses.keys.joinToString("+")};leader=${strongest.lane};${strongest.reason}",
             )
         }
+        // V5.0.7346 — depends only on ts.mint; was re-resolved per hypothesis.
+        val causalId6647 = "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}"
         deskHypotheses.values.forEach { h ->
-            val causalId6647 = "${ts.mint}:${LaneExecutionCoordinator.candidateVersionFor(ts.mint)}"
             recordDeskStage(h.lane, "POOL", causalId6647)
             recordDeskStage(h.lane, "QUALIFIED", causalId6647)
         }
