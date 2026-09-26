@@ -11783,4 +11783,20 @@ class GoldenTapeRegressionTest {
         assertFalse(b.contains("snapshotAtomic6643"))
     }
 
+
+    @Test
+    fun V5_0_7355_live_partial_sell_journals_its_own_slice_cost() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        // The journal choke point prefers the exit row's own slice cost over the
+        // already-reduced position cost.
+        assertTrue(ex.contains("val entryCostForJournal = if (exitCarriesSliceCost7355) trade.entryCostSol"))
+        // The canonical-fill override no longer replaces a slice basis with the whole fill.
+        assertTrue(ex.contains("entryCostSol = if (!exitCarriesSliceCost7355 && fill6320.solSpentNet > 0.0) fill6320.solSpentNet else tradeWithMint.entryCostSol,"))
+        // Both live partial writers stamp the basis their pnl was computed on.
+        assertTrue(ex.contains("entryCostSol = pos.costSol * pct, entryPriceSnapshot = pos.entryPrice,"))
+        assertTrue(ex.contains("entryCostSol = pos.costSol * sellFraction, entryPriceSnapshot = pos.entryPrice,"))
+        // Ordering: the choke-point decision precedes the override that reads it.
+        assertTrue(ex.indexOf("val exitCarriesSliceCost7355") < ex.indexOf("!exitCarriesSliceCost7355 && fill6320"))
+    }
+
 }

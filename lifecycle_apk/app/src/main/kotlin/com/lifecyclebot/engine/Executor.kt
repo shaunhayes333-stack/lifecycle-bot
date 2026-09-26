@@ -4171,7 +4171,16 @@ class Executor(
         }
         val ledgerPositionId = try { com.lifecyclebot.engine.TradeOutcomeLedger.positionId(ts, trade) } catch (_: Throwable) { "" }
         val entryTsForJournal = ts.position.entryTime.takeIf { it > 0L } ?: if (trade.side.equals("BUY", true)) trade.ts else trade.entryTsMs
-        val entryCostForJournal = ts.position.costSol.takeIf { it > 0.0 } ?: if (trade.side.equals("BUY", true)) trade.sol else trade.entryCostSol
+        // V5.0.7355 — an exit row that carries its own sold-slice cost keeps it.
+        // The live partial path shrinks ts.position BEFORE journaling, so the
+        // position cost here is the REMAINING cost: the 60% moonbag bank was
+        // judged against the 40% left (implied +232% vs +155%, quarantined as
+        // PNL_PCT_SOL_BASIS_MISMATCH) and the final slice against 0 (no basis,
+        // quarantined). Both halves of a real on-chain sale never reached the journal.
+        val exitCarriesSliceCost7355 = (trade.side.equals("SELL", true) || trade.side.equals("PARTIAL_SELL", true)) &&
+            trade.entryCostSol > 0.0 && trade.entryCostSol.isFinite()
+        val entryCostForJournal = if (exitCarriesSliceCost7355) trade.entryCostSol
+            else ts.position.costSol.takeIf { it > 0.0 } ?: if (trade.side.equals("BUY", true)) trade.sol else trade.entryCostSol
         // V5.0.6449 §3 — For SELL/PARTIAL rows, the caller (paperSell /
         // executeProfitLockSell) now supplies canonical-locked qty in
         // trade.entryQtyToken / trade.soldQtyToken. Prefer that over the
@@ -4261,7 +4270,9 @@ class Executor(
                         tradeWithMint = tradeWithMint.copy(
                             entryPriceSnapshot = if (canonicalEntryPx > 0.0) canonicalEntryPx else tradeWithMint.entryPriceSnapshot,
                             entryQtyToken = fill6320.walletVerifiedQty,
-                            entryCostSol = if (fill6320.solSpentNet > 0.0) fill6320.solSpentNet else tradeWithMint.entryCostSol,
+                            // V5.0.7355 — a slice-costed exit keeps its slice basis; the
+                            // whole-fill cost would re-break its pnl/cost reconciliation.
+                            entryCostSol = if (!exitCarriesSliceCost7355 && fill6320.solSpentNet > 0.0) fill6320.solSpentNet else tradeWithMint.entryCostSol,
                             entryDecimals = if (fill6320.decimals >= 0) fill6320.decimals else tradeWithMint.entryDecimals,
                             entryTsMs = fill6320.entryTsMs.takeIf { it > 0L } ?: tradeWithMint.entryTsMs,
                             remainingQtyToken = correctedRemaining,
@@ -10129,7 +10140,11 @@ class Executor(
                 val liveTrade = Trade("PARTIAL_SELL", "live", livePartialCostBasisSol, actualPrice,
                     System.currentTimeMillis(), livePartialReason,
                     livePnl, liveScore, sig = sig, feeSol = feeSol, netPnlSol = netPnl,
-                    mint = ts.mint, tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji)
+                    mint = ts.mint, tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji,
+                    // V5.0.7355 — the slice basis livePnl/liveScore were computed on;
+                    // ts.position was already reduced to the remainder above.
+                    entryCostSol = pos.costSol * sellFraction, entryPriceSnapshot = pos.entryPrice,
+                    soldCostBasisSol = pos.costSol * sellFraction, grossProceedsSol = solBack)
                 recordTrade(ts, liveTrade); security.recordTrade(liveTrade)
                 SmartSizer.recordTrade(netPnl > 0, isPaperMode = false)
                 LiveSafetyCircuitBreaker.recordTradeResult(netPnl)  // V5.9.105 session drawdown halt
@@ -23800,8 +23815,11 @@ class Executor(
                     val liveTrade = Trade(liveSideBySemantics6458, "live", livePartialCostBasisSol, currentPrice,
                         System.currentTimeMillis(), if (newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct",
                         livePnl, liveScore, sig = finalSig, feeSol = feeSol, netPnlSol = netPnl,
-                        mint = ts.mint, tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji)
-                    
+                        mint = ts.mint, tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji,
+                        // V5.0.7355 — cost of THIS slice; ts.position already holds only the remainder.
+                        entryCostSol = pos.costSol * pct, entryPriceSnapshot = pos.entryPrice,
+                        soldCostBasisSol = pos.costSol * pct, grossProceedsSol = solBack)
+
                     recordTrade(ts, liveTrade)
                     security.recordTrade(liveTrade)
                     SmartSizer.recordTrade(netPnl > 0, isPaperMode = false)

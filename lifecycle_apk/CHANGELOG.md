@@ -4,6 +4,29 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7355] - 2026-09-26 — A REAL SALE REACHES THE JOURNAL
+
+Operator: "it sold. the full amount and returned my sol. but the bot doesn't
+show it in the journal."
+
+froges (live, PROJECT_SNIPER) peaked +204% and the moonbag rule banked 60% at
++155%, then the remainder sold. Both sales landed on chain; neither row was
+journaled. The live partial-sell paths reduce ts.position to the remainder
+BEFORE recordTrade, and the journal took entryCostSol from ts.position:
+- the 60% bank was judged against the 40% cost left: implied +232% vs booked
+  +155%, outside tolerance, quarantined as PNL_PCT_SOL_BASIS_MISMATCH (the
+  snapshot's ACCOUNTING_QUARANTINED|MOONSHOT|partial_60pct);
+- the last slice saw a remaining cost of 0: no basis, quarantined.
+The reconciler's zero-balance close deliberately writes no row (it assumes the
+sell path already did), so the trade vanished from journal, WR and learning.
+
+- Executor.recordTrade: an exit row that supplies its own entryCostSol keeps it.
+- The canonical buy-fill override (6320) no longer swaps a slice basis for the
+  whole-fill cost.
+- Both live partial writers stamp entryCostSol / soldCostBasisSol with the slice
+  basis their pnl was computed on, plus entryPriceSnapshot and grossProceedsSol.
+- Golden tape: V5_0_7355_live_partial_sell_journals_its_own_slice_cost.
+
 ## [5.0.7354] - 2026-09-26 — THE BOT LOOP DEADLOCK
 
 Operator: "the decision log has gone dry and the bot loop has stopped."
