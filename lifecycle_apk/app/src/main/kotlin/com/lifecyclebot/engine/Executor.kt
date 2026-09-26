@@ -15066,6 +15066,10 @@ class Executor(
         return changed
     }
 
+    /** V5.0.7361 — per-mint cooldown for the entry re-price fan-out. */
+    private val entryRepriceLastMs7361 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val ENTRY_REPRICE_COOLDOWN_MS_7361 = 30_000L
+
     private fun requireMintEntryMarketSnapshot(ts: TokenState, reason: String): MintEntryMarketSnapshot? {
         val snap = mintEntryMarketSnapshot(ts)
         if (snap != null) { persistMintEntryMarketSnapshot(ts, snap, reason); return snap }
@@ -15083,6 +15087,48 @@ class Executor(
                 persistMintEntryMarketSnapshot(ts, retry7215, reason)
                 return retry7215
             }
+        }
+        // V5.0.7361 — one corroborated re-price before deferring. A candidate
+        // whose price came from a synthesized pair (no DexScreener pair yet, or
+        // the pair poll rate-limited) keeps its intake price, and nothing
+        // re-prices a candidate that is not held, so the 120s window lapses and
+        // every retry defers the same way: 46 of 70 live buy failures on 5.0.7360.
+        // The gate is not relaxed: only a price two or more independent feeds
+        // agree on is accepted, liquidity must already be an observed value for
+        // this mint, and the snapshot is rebuilt through the same validity rules.
+        // One fan-out per mint per 30s, before any lease or wallet spend.
+        if (!RuntimeModeAuthority.isPaper() && ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0) {
+            val now7361 = System.currentTimeMillis()
+            val last7361 = entryRepriceLastMs7361[ts.mint] ?: 0L
+            if (now7361 - last7361 >= ENTRY_REPRICE_COOLDOWN_MS_7361) {
+                if (entryRepriceLastMs7361.size > 2_000) entryRepriceLastMs7361.clear()
+                entryRepriceLastMs7361[ts.mint] = now7361
+                val fan7361 = try {
+                    com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(listOf(ts.mint))[ts.mint]
+                } catch (_: Throwable) { null }
+                if (fan7361 != null && fan7361.corroborated && fan7361.priceUsd.isFinite() && fan7361.priceUsd > 0.0) {
+                    val stamp7361 = System.currentTimeMillis()
+                    synchronized(ts) {
+                        ts.lastPrice = fan7361.priceUsd
+                        ts.lastPriceUpdate = stamp7361
+                        ts.lastPriceSource = "FANOUT_CORROBORATED_7088_x${fan7361.agreeingCount}"
+                    }
+                    val repriced7361 = mintEntryMarketSnapshot(ts)
+                    if (repriced7361 != null) {
+                        try { PipelineHealthCollector.labelInc("ENTRY_SNAPSHOT_RECOVERED_BY_FANOUT_7361") } catch (_: Throwable) {}
+                        persistMintEntryMarketSnapshot(ts, repriced7361, reason)
+                        return repriced7361
+                    }
+                } else {
+                    try {
+                        PipelineHealthCollector.labelInc(
+                            if (fan7361 == null) "ENTRY_SNAPSHOT_FANOUT_EMPTY_7361" else "ENTRY_SNAPSHOT_FANOUT_UNCORROBORATED_7361"
+                        )
+                    } catch (_: Throwable) {}
+                }
+            }
+        } else if (!RuntimeModeAuthority.isPaper()) {
+            try { PipelineHealthCollector.labelInc("ENTRY_SNAPSHOT_NO_OBSERVED_LIQUIDITY_7361") } catch (_: Throwable) {}
         }
         try {
             ForensicLogger.lifecycle("ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason price=${ts.lastPrice} mcap=${ts.lastMcap} liq=${ts.lastLiquidityUsd} pool=${ts.lastPricePoolAddr.ifBlank { ts.pairAddress }.take(16)} source=${ts.lastPriceSource.ifBlank { ts.source }} action=no_entry_no_fake_basis")

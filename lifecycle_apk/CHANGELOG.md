@@ -4,6 +4,24 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7361] - 2026-09-26 — A STALE CANDIDATE GETS ONE HONEST RE-PRICE
+
+5.0.7360 live: BUY ok/fail 4/70, 46 of them ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED.
+With 7356 a deferred buy now retries instead of being refused as a duplicate, so
+the stale-price cause is exposed: a candidate priced from a synthesized pair (no
+DexScreener pair yet, or the pair poll rate-limited) keeps its intake price, and
+nothing re-prices a candidate that is not held. Its 120s window lapses and every
+retry defers identically.
+
+- requireMintEntryMarketSnapshot: before deferring, one ParallelMarkFanout7088
+  pass for the mint. Only a CORROBORATED price (two or more agreeing feeds) is
+  accepted, only when liquidity is already an observed value for the mint, and the
+  snapshot is rebuilt through the unchanged validity rules. At most one fan-out per
+  mint per 30s, before any lease or wallet spend. Otherwise it defers as before.
+- Counters: ENTRY_SNAPSHOT_RECOVERED_BY_FANOUT_7361, ENTRY_SNAPSHOT_FANOUT_EMPTY_7361,
+  ENTRY_SNAPSHOT_FANOUT_UNCORROBORATED_7361, ENTRY_SNAPSHOT_NO_OBSERVED_LIQUIDITY_7361.
+- Golden tape: V5_0_7361_missing_entry_snapshot_gets_one_corroborated_reprice.
+
 ## [5.0.7360] - 2026-09-26 — THE JOURNAL CATCHES UP WITH THE LEDGER
 
 Operator: "can you rebuild them so it reconciles?"

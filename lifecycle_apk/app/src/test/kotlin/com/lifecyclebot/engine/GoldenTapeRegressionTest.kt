@@ -11878,4 +11878,19 @@ class GoldenTapeRegressionTest {
         assertFalse(a.contains("!replay.reconciled || !globallyReconciled6647"))
     }
 
+
+    @Test
+    fun V5_0_7361_missing_entry_snapshot_gets_one_corroborated_reprice() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val fn = ex.indexOf("private fun requireMintEntryMarketSnapshot(")
+        val defer = ex.indexOf("ForensicLogger.lifecycle(\"ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED\"", fn)
+        val reprice = ex.indexOf("ParallelMarkFanout7088.resolve7088(listOf(ts.mint))[ts.mint]", fn)
+        assertTrue(fn > 0 && reprice > fn && defer > reprice)
+        // Strict: corroborated only, observed liquidity only, rebuilt through the same rules.
+        assertTrue(ex.contains("if (fan7361 != null && fan7361.corroborated && fan7361.priceUsd.isFinite() && fan7361.priceUsd > 0.0) {"))
+        assertTrue(ex.contains("if (!RuntimeModeAuthority.isPaper() && ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0) {"))
+        assertTrue(ex.contains("val repriced7361 = mintEntryMarketSnapshot(ts)"))
+        assertTrue(ex.contains("private val ENTRY_REPRICE_COOLDOWN_MS_7361 = 30_000L"))
+    }
+
 }
