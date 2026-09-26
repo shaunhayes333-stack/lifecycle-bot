@@ -11534,4 +11534,15 @@ class GoldenTapeRegressionTest {
         assertTrue(ea.contains("consecutiveLossesFor6488(lane, mode) >= STREAK_TIGHTEN_ONE && lanePaysEv7334(lane) -> 0"))
     }
 
+    @Test
+    fun V5_0_7335_moonshot_lets_its_winners_become_runners() {
+        val m = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
+        assertTrue(m.contains("RunnerExitProfile7277.deferGiveBackLock(\"MOONSHOT\", pos.peakPnlPct)"))
+        assertTrue(m.contains("if (!runnerGiveBackDeferred7335 && pnlPct < profitFloor) {"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("if (!settleRunnerDefer7335 && PeakDrawdownLock.shouldFloorLock(peakPnlPct, curPnlPct)) {"))
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("?.takeIf { it > 0.0 || !fdgReducedSize || !cfg.paperMode }"))
+    }
+
 }

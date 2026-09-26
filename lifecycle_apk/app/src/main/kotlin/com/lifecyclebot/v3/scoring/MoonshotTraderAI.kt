@@ -1567,7 +1567,17 @@ object MoonshotTraderAI {
         // Runs before every other gate. Catches catastrophic cases where
         // the fluid profit floor was somehow bypassed. User reported Kenny
         // peaked +326%, floor +314%, stayed open all the way to +108%.
-        if (com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(pos.peakPnlPct, pnlPct)) {
+        // V5.0.7335 — 7277 gave runner lanes a +50% arming bar for give-back
+        // locks on the tick path only. This lane's own checkExit still armed
+        // the peak-drawdown lock at +20%, the MFE floor at +35% and the fluid
+        // floor at +5%, so a +20% peak closed at +12% and winners banked a
+        // few points each against -60%..-99% rug losses. Under the runner bar
+        // those three give-back locks wait; the -15% floor and rug exits don't.
+        val runnerGiveBackDeferred7335 = try {
+            com.lifecyclebot.engine.RunnerExitProfile7277.deferGiveBackLock("MOONSHOT", pos.peakPnlPct)
+        } catch (_: Throwable) { false }
+        if (!runnerGiveBackDeferred7335 &&
+            com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(pos.peakPnlPct, pnlPct)) {
             ErrorLogger.warn(TAG, "🚀🔒🛑 PEAK-DRAWDOWN LOCK: ${pos.symbol} | " +
                 "peak +${pos.peakPnlPct.toInt()}% → now +${pnlPct.fmt(1)}% " +
                 "(gave back ≥${(com.lifecyclebot.engine.PeakDrawdownLock.DRAWDOWN_TRIGGER_FRAC * 100).toInt()}% of peak)")
@@ -1578,7 +1588,8 @@ object MoonshotTraderAI {
         // Once this position has banked a real MFE, never let it round-trip below
         // the ratcheted positive floor (e.g. MFE>=+75% can never realize red).
         // Tightening-only; the -15% hard floor and give-back lock remain.
-        if (com.lifecyclebot.engine.PeakDrawdownLock.shouldFloorLock(pos.peakPnlPct, pnlPct)) {
+        if (!runnerGiveBackDeferred7335 &&
+            com.lifecyclebot.engine.PeakDrawdownLock.shouldFloorLock(pos.peakPnlPct, pnlPct)) {
             ErrorLogger.warn(TAG, "🚀🔒 MFE_PROFIT_FLOOR: ${pos.symbol} | " +
                 "peak +${pos.peakPnlPct.toInt()}% → now +${pnlPct.fmt(1)}% " +
                 "(floor +${com.lifecyclebot.engine.PeakDrawdownLock.mfeProfitFloorPct(pos.peakPnlPct)?.toInt() ?: 0}% — locking banked gain)")
@@ -1672,7 +1683,7 @@ object MoonshotTraderAI {
         // V5.9.169 — continuous fluid profit floor (shared engine).
         val _holdSec = (System.currentTimeMillis() - pos.entryTime) / 1000.0  // V5.9.835
         val profitFloor = FluidLearningAI.fluidProfitFloor(pos.peakPnlPct, holdSeconds = _holdSec)
-        if (pnlPct < profitFloor) {
+        if (!runnerGiveBackDeferred7335 && pnlPct < profitFloor) {
             ErrorLogger.info(TAG, "🔒 FLOOR LOCK: ${pos.symbol} | peak +${pos.peakPnlPct.toInt()}% → now +${pnlPct.fmt(1)}% < floor +${profitFloor.toInt()}%")
             return ExitSignal.TRAILING_STOP
         }

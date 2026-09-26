@@ -27395,7 +27395,13 @@ if (hotExitHandledSweep) {
                                 val legacyMoonshotSize = ((if (fdgReducedSize)
                                     (moonshotScore.suggestedSizeSol * 0.5).coerceAtLeast(cfg.smallBuySol)
                                 else moonshotScore.suggestedSizeSol) * _msCalMult).coerceAtLeast(0.01)
+                                // V5.0.7335 — in PAPER a non-structural FDG refusal also
+                                // carries sizeSol=0, so the V5.9.691 half-size probe went
+                                // out as a 0 SOL order (MOONSHOT sizedExecutable=2 ticket=0
+                                // on 5.0.7333). Paper learns: a zero FDG size on a probe
+                                // takes the lane's own halved probe size.
                                 val msEffectiveSize = moonshotFdgDecision?.sizeSol
+                                    ?.takeIf { it > 0.0 || !fdgReducedSize || !cfg.paperMode }
                                     ?: legacyMoonshotSize.coerceIn(0.01, moonshotScore.suggestedSizeSol.coerceAtLeast(0.01))
                                 // V5.2: Authorize through TradeAuthorizer
                                 val authResult = TradeAuthorizer.authorize(

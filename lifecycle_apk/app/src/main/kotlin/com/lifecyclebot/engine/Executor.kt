@@ -9201,7 +9201,11 @@ class Executor(
                 if (ep > 0.0 && currentPrice > 0.0) (currentPrice / ep - 1.0) * 100.0 else 0.0
             } catch (_: Throwable) { 0.0 }
             val peakPnlPct: Double = try { ts.position.peakGainPct.coerceAtLeast(curPnlPct) } catch (_: Throwable) { curPnlPct }
-            if (PeakDrawdownLock.shouldFloorLock(peakPnlPct, curPnlPct)) {
+            // V5.0.7335 — runner lanes wait for their +50% arming bar here too.
+            val settleRunnerDefer7335 = try {
+                RunnerExitProfile7277.deferGiveBackLock(ts.position.tradingMode, peakPnlPct)
+            } catch (_: Throwable) { false }
+            if (!settleRunnerDefer7335 && PeakDrawdownLock.shouldFloorLock(peakPnlPct, curPnlPct)) {
                 try {
                     ForensicLogger.lifecycle("SETTLE_MFE_FLOOR_FIRED_6063",
                         "mint=${ts.mint.take(10)} symbol=${ts.symbol} peakPct=${peakPnlPct.toInt()} curPct=${curPnlPct.toInt()} ageMs=$posAgeMs reason=peak_gave_back_below_mfe_floor_inside_settle")
@@ -9211,7 +9215,7 @@ class Executor(
                 requestSell(ts, "SETTLE_MFE_FLOOR_PEAK_${peakPnlPct.toInt()}pct", wallet, walletSol)
                 return
             }
-            if (PeakDrawdownLock.shouldLock(peakPnlPct, curPnlPct)) {
+            if (!settleRunnerDefer7335 && PeakDrawdownLock.shouldLock(peakPnlPct, curPnlPct)) {
                 try {
                     ForensicLogger.lifecycle("SETTLE_PEAK_DRAWDOWN_FIRED_6063",
                         "mint=${ts.mint.take(10)} symbol=${ts.symbol} peakPct=${peakPnlPct.toInt()} curPct=${curPnlPct.toInt()} ageMs=$posAgeMs reason=give_back_lock_fired_inside_settle")

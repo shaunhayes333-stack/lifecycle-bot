@@ -4,6 +4,23 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7335] - 2026-09-26 — MOONSHOT LETS ITS WINNERS BECOME RUNNERS
+
+MOONSHOT on 5.0.7333 paper: EV -33%/trade. 7277 gave runner lanes a +50%
+peak arming bar for give-back locks, but only on the tick path.
+MoonshotTraderAI.checkExit still armed the peak-drawdown lock at +20%, the
+MFE profit floor at +35% and the fluid profit floor at +5%, so a +20% peak
+closed near +12%: winners banked a few points against rug losses.
+
+- MoonshotTraderAI.checkExit: those three give-back locks wait for the runner
+  arming bar (RunnerExitProfile7277.deferGiveBackLock). Hard floor, rug and
+  catastrophe exits, ladder slices and the moonbag are unchanged.
+- Executor settle window: the same MFE floor / give-back lock pair honours the
+  runner bar for runner lanes.
+- BotService MOONSHOT: in paper a non-structural FDG refusal carried sizeSol=0,
+  so the half-size learning probe went out as a 0 SOL order; it now takes the
+  lane's own halved probe size.
+
 ## [5.0.7334] - 2026-09-26 — PROFIT-LOCK WINNERS COUNT, AND +EV LANES ARE NOT VETOED FOR LOW WIN RATE
 
 From the 5.0.7333 paper snapshot:
