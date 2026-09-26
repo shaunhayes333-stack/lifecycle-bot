@@ -375,7 +375,13 @@ object InsiderTrackerAI {
     private var onSignalCallback: ((InsiderSignal) -> Unit)? = null
     
     // Config
-    private const val SCAN_INTERVAL_MS = 30_000L  // 30 seconds
+    // V5.0.7368 — every scan calls the Helius Enhanced Transactions API (100
+    // credits) once per tracked wallet (~22). At 30 s that was ~4M credits/day on
+    // its own — the bulk of 10M credits burned in two days, which left Helius at
+    // 429 and starved the live RPC reads. Whale moves remain visible at 15 min.
+    private const val SCAN_INTERVAL_MS = 15 * 60_000L  // 15 minutes
+    private const val HELIUS_429_COOLDOWN_MS_7368 = 60 * 60_000L
+    @Volatile private var heliusCooldownUntil7368: Long = 0L
     private const val SIGNAL_EXPIRY_MS = 4 * 60 * 60 * 1000L  // 4 hours
     
     // ═══════════════════════════════════════════════════════════════════════════
@@ -580,6 +586,7 @@ object InsiderTrackerAI {
         // "hive-pattern-learn" key 401s on the Enhanced txns API every call.
         val key = heliusApiKey
         if (!com.lifecyclebot.engine.KeyValidator.isUsableEnhancedHeliusKey(key)) return@withContext emptyActivity(wallet)
+        if (System.currentTimeMillis() < heliusCooldownUntil7368) return@withContext emptyActivity(wallet)
 
         return@withContext try {
             val url = "${HELIUS_TXN_URL.format(wallet.address)}?api-key=$key&limit=$HELIUS_LIMIT"
@@ -587,6 +594,9 @@ object InsiderTrackerAI {
 
             val body = httpClient.newCall(req).execute().use { resp ->
                 if (!resp.isSuccessful) {
+                    // V5.0.7368 — credits exhausted: stop asking for an hour instead
+                    // of spending the rest of the wallet list on 429s every scan.
+                    if (resp.code == 429) heliusCooldownUntil7368 = System.currentTimeMillis() + HELIUS_429_COOLDOWN_MS_7368
                     ErrorLogger.warn(TAG, "Helius ${resp.code} for ${wallet.label}")
                     return@withContext emptyActivity(wallet)
                 }

@@ -344,9 +344,28 @@ object ParallelMarkFanout7088 {
      * from every DEX aggregator above and therefore a genuinely independent
      * vote rather than a fifth copy of the same number.
      */
+    /**
+     * V5.0.7368 — DAS getAssetBatch costs 10 Helius credits a call and ran on every
+     * resolve7088 (open-position stale-mark rescue each tick plus several per-mint
+     * callers), uncached — while contributing no quote at all on 5.0.7364
+     * (quotesBySource had no HELIUS_DAS). At most one call per minute; none for an
+     * hour after Helius answers 429 (credits exhausted). The other seven feeds are
+     * unaffected.
+     */
+    @Volatile private var heliusDasLastMs7368: Long = 0L
+    @Volatile private var heliusDasCooldownUntil7368: Long = 0L
+    private const val HELIUS_DAS_MIN_INTERVAL_MS_7368 = 60_000L
+    private const val HELIUS_429_COOLDOWN_MS_7368 = 60 * 60_000L
+
     private fun heliusAssetBatch7088(mints: List<String>): Map<String, Double> {
         val url = rpcUrl
         if (url.isBlank()) return emptyMap()
+        val now7368 = System.currentTimeMillis()
+        if (now7368 < heliusDasCooldownUntil7368 || now7368 - heliusDasLastMs7368 < HELIUS_DAS_MIN_INTERVAL_MS_7368) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HELIUS_DAS_THROTTLED_7368") } catch (_: Throwable) {}
+            return emptyMap()
+        }
+        heliusDasLastMs7368 = now7368
         val out = HashMap<String, Double>()
         mints.chunked(100).forEach { chunk ->
             try {
@@ -385,6 +404,7 @@ object ParallelMarkFanout7088 {
                     .post(payload.toRequestBody("application/json".toMediaType()))
                     .build()
                 com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "helius").use { resp ->
+                    if (resp.code == 429) heliusDasCooldownUntil7368 = System.currentTimeMillis() + HELIUS_429_COOLDOWN_MS_7368
                     if (!resp.isSuccessful) return@use
                     val body = resp.body?.string() ?: return@use
                     val arr = JSONObject(body).optJSONArray("result") ?: return@use

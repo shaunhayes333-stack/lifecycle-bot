@@ -11985,4 +11985,16 @@ class GoldenTapeRegressionTest {
         assertTrue(r.contains("reason = \"ORPHANED_STOP_LOT_REFUND_6662\","))
     }
 
+
+    @Test
+    fun V5_0_7368_helius_credit_burners_throttled() {
+        val ins = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/InsiderTrackerAI.kt").readText()
+        assertTrue(ins.contains("private const val SCAN_INTERVAL_MS = 15 * 60_000L"))
+        assertFalse(ins.contains("SCAN_INTERVAL_MS = 30_000L"))
+        assertTrue(ins.contains("if (resp.code == 429) heliusCooldownUntil7368 = System.currentTimeMillis() + HELIUS_429_COOLDOWN_MS_7368"))
+        val fan = java.io.File("src/main/kotlin/com/lifecyclebot/network/ParallelMarkFanout7088.kt").readText()
+        assertTrue(fan.contains("private const val HELIUS_DAS_MIN_INTERVAL_MS_7368 = 60_000L"))
+        assertTrue(fan.contains("if (resp.code == 429) heliusDasCooldownUntil7368 = System.currentTimeMillis() + HELIUS_429_COOLDOWN_MS_7368"))
+    }
+
 }

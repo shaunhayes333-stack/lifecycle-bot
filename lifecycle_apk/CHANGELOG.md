@@ -4,6 +4,26 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7368] - 2026-09-26 — HELIUS STOPS BURNING 5M CREDITS A DAY
+
+Operator: "it used 10,000,000 helius credits in 2 days." Audit of every Helius call
+site by cost and cadence:
+
+- InsiderTrackerAI polled the Helius Enhanced Transactions API (100 credits/call)
+  for ~22 tracked wallets every 30 s, started unconditionally — ~3.8-4.5M
+  credits/day by itself. Scan interval is now 15 min (~135k/day), and a 429 pauses
+  it for an hour instead of spending the rest of the wallet list on errors.
+- ParallelMarkFanout7088's HELIUS_DAS leg (getAssetBatch, 10 credits/call) ran on
+  every resolve — the open-position stale-mark rescue each tick plus several
+  per-mint callers — uncached, and returned no quote at all on 5.0.7364. It now
+  runs at most once a minute and pauses an hour after a 429. The other seven price
+  feeds are unaffected.
+- (5.0.7365 already moved the mint/freeze authority proof to public RPC first with
+  permanent caching of revoked authorities.)
+- Remaining Helius use (wallet reads, confirmations, Sender) is roughly 1-2% of
+  the previous burn.
+- Golden tape: V5_0_7368_helius_credit_burners_throttled.
+
 ## [5.0.7367] - 2026-09-26 — A REJECTED ORPHAN REFUND IS RE-SIZED, NOT SKIPPED FOREVER
 
 After the 7360 receipt rebuild ~29 paper lots stayed journal-open (journal open cost
