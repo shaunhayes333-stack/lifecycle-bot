@@ -4,6 +4,25 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7334] - 2026-09-26 — PROFIT-LOCK WINNERS COUNT, AND +EV LANES ARE NOT VETOED FOR LOW WIN RATE
+
+From the 5.0.7333 paper snapshot:
+- TerminalCloseAuthority6499 classified every exit reason containing
+  "profit_lock" as a partial sale, so TICK_PROFIT_LOCK full-position wins left
+  the analytics WR (12.8% vs 32.3% per position) and every
+  CanonicalTradeStream6501 consumer. profit_lock / capital_recovery /
+  wr_recovery are now partial only when the row's own quantity says so, and
+  "PARTIAL→FULL" is terminal.
+- PredictiveEntryOracle6915: a binding policy head vetoed every candidate it
+  rated at or under 0.5 (policyVeto7260=1074). On a lane with positive
+  measured EV (n>=10) the bar is that lane's own win rate
+  (POLICY_HEAD_LANE_WR_BAR_ADMITS_7334).
+- AutonomousMetaPolicy.conviction: a context with a positive realised mean
+  (n>=3) is never damped below neutral (SHITCOIN|S20 winP 20% avg +23% n=18
+  was at ~0.46).
+- ExecutableEntryAuthority6450: the streak score-floor raise and size damping
+  do not apply to a lane with positive measured EV (n>=10).
+
 ## [5.0.7333] - 2026-09-26 — A POSITION IS JUDGED ON ITS WHOLE RESULT
 
 The terminal SELL row prices only the runner leg left after partials, and

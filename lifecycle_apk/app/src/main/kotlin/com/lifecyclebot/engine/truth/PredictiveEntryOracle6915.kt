@@ -1145,8 +1145,26 @@ object PredictiveEntryOracle6915 {
             com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.LEARNED,
             com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE,
         )
+        // V5.0.7334 — a binding head vetoed any candidate it put at or under a
+        // coin flip (policyVeto7260=1074 on 5.0.7333). A calibrated head on a
+        // lane that wins 25% can never say more than 0.5, yet that lane pays
+        // if its measured expectancy is positive: the bar is the lane's own
+        // win rate at positive EV, not 50%. A candidate the head rates at or
+        // above that rate is at least lane-average, and the lane is +EV.
+        val laneBreakEvenPWin7334 = try {
+            com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
+                .firstOrNull { it.lane.equals(laneKey, true) }
+                ?.takeIf { it.sample >= 10 && it.evPct > 0.0 }
+                ?.let { (it.wrPct / 100.0).coerceIn(0.0, 0.50) }
+        } catch (_: Throwable) { null } ?: 0.50
+        if (policyIsBinding7260 && unifiedPolicyPWin7260 <= 0.50 &&
+            unifiedPolicyPWin7260 >= laneBreakEvenPWin7334
+        ) {
+            try { PipelineHealthCollector.labelInc("POLICY_HEAD_LANE_WR_BAR_ADMITS_7334") } catch (_: Throwable) {}
+        }
         val policySupportsProfit7260 = unifiedPolicyReadOk7260 &&
-            (!policyIsBinding7260 || unifiedPolicyPWin7260 > 0.50)
+            (!policyIsBinding7260 || unifiedPolicyPWin7260 > 0.50 ||
+                (laneBreakEvenPWin7334 < 0.50 && unifiedPolicyPWin7260 >= laneBreakEvenPWin7334))
         if (policyIsBinding7260 && !policySupportsProfit7260) {
             unifiedPolicyBindingVetoes7260.incrementAndGet()
         }

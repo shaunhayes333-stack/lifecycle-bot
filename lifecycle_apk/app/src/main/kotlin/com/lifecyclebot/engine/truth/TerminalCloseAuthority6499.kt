@@ -53,12 +53,23 @@ object TerminalCloseAuthority6499 {
     // without importing Executor internals.
     private val PARTIAL_REASON_PATTERNS = listOf(
         "partial",
-        "profit_lock",
-        "capital_recovery",
-        "wr_recovery",
         "profit_take_partial",
         "scale_out",
     )
+
+    // V5.0.7334 — these name exits that can be a slice OR a full close.
+    // TICK_PROFIT_LOCK_peak99_now91 is the lane's main full-position win exit,
+    // and it was classified partial by name, so every profit-lock winner left
+    // the analytics WR (12.8% vs 32.3% per position on 5.0.7333) and every
+    // CanonicalTradeStream6501 consumer. They are partial only when the row's
+    // own quantity says so.
+    private val AMBIGUOUS_REASON_PATTERNS = listOf(
+        "profit_lock",
+        "capital_recovery",
+        "wr_recovery",
+    )
+
+    private val PARTIAL_BECAME_FULL = listOf("partial→full", "partial->full", "partial_to_full")
 
     /**
      * True iff [record] represents a genuine terminal close.
@@ -75,19 +86,24 @@ object TerminalCloseAuthority6499 {
     fun isTerminalClose(record: TradeRecord): Boolean {
         classifications.incrementAndGet()
         val exitReason = record.exitReason.trim().lowercase()
-        if (exitReason.isNotBlank()) {
+        val partialPct = record.partialSold
+        val qtyPartial7334 = partialPct > 0.0 && partialPct < 99.0
+        if (exitReason.isNotBlank() && PARTIAL_BECAME_FULL.none { exitReason.contains(it) }) {
             for (p in PARTIAL_REASON_PATTERNS) {
                 if (exitReason.contains(p)) {
                     partials.incrementAndGet()
                     return false
                 }
             }
+            if (qtyPartial7334 && AMBIGUOUS_REASON_PATTERNS.any { exitReason.contains(it) }) {
+                partials.incrementAndGet()
+                return false
+            }
         }
         // Quantity gate: a row where partialSold > 0 but < 99 means
         // this row represents a partial that scaled out some quantity
         // and left the rest open. Skip.
-        val partialPct = record.partialSold
-        if (partialPct > 0.0 && partialPct < 99.0 && exitReason.isBlank()) {
+        if (qtyPartial7334 && exitReason.isBlank()) {
             // Legacy row with partial-sold but no exit reason — treat
             // as partial to be safe.
             partials.incrementAndGet()

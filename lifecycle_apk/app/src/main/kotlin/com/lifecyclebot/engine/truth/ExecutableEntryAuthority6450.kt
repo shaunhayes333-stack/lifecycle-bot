@@ -396,7 +396,20 @@ object ExecutableEntryAuthority6450 {
     fun defensiveActiveFor6488(lane: String, mode: String = currentMode()): Boolean =
         consecutiveLossesFor6488(lane, mode) > 0L
 
+    /**
+     * V5.0.7334 — a streak on a lane whose measured expectancy is positive
+     * (n>=10) is the lane's fat-tailed shape, not a cold spell. 5.0.7333:
+     * SHITCOIN streak=3 raised its floor 72 -> 87 (939 times) while its
+     * cohort read 5W/0L at +130% and its meta arm +23% over 18 closes.
+     */
+    private fun lanePaysEv7334(lane: String): Boolean = try {
+        com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
+            .firstOrNull { it.lane.equals(lane, true) }
+            ?.let { it.sample >= 10 && it.evPct > 0.0 } == true
+    } catch (_: Throwable) { false }
+
     fun scoreFloorDeltaFor6488(lane: String, mode: String = currentMode()): Int = when {
+        consecutiveLossesFor6488(lane, mode) >= STREAK_TIGHTEN_ONE && lanePaysEv7334(lane) -> 0
         consecutiveLossesFor6488(lane, mode) >= STREAK_HARD_LIMIT -> 15
         consecutiveLossesFor6488(lane, mode) >= STREAK_TIGHTEN_TWO -> 15
         consecutiveLossesFor6488(lane, mode) >= STREAK_TIGHTEN_ONE -> 8
@@ -404,6 +417,7 @@ object ExecutableEntryAuthority6450 {
     }
 
     fun sizeMultiplierFor6488(lane: String, mode: String = currentMode()): Double = when {
+        consecutiveLossesFor6488(lane, mode) >= STREAK_TIGHTEN_ONE && lanePaysEv7334(lane) -> 1.0
         consecutiveLossesFor6488(lane, mode) >= STREAK_HARD_LIMIT -> 0.35
         consecutiveLossesFor6488(lane, mode) >= STREAK_TIGHTEN_TWO -> 0.35
         consecutiveLossesFor6488(lane, mode) >= STREAK_TIGHTEN_ONE -> 0.65

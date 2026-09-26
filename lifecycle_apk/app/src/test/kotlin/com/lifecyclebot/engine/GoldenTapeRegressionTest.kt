@@ -11521,4 +11521,17 @@ class GoldenTapeRegressionTest {
         assertFalse(rd.contains(".takeLast(100)"))
     }
 
+    @Test
+    fun V5_0_7334_profit_lock_winners_count_and_ev_lanes_are_not_vetoed() {
+        val tc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/TerminalCloseAuthority6499.kt").readText()
+        assertTrue(tc.contains("if (qtyPartial7334 && AMBIGUOUS_REASON_PATTERNS.any { exitReason.contains(it) }) {"))
+        assertFalse(tc.contains("        \"partial\",\n        \"profit_lock\","))
+        val o = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PredictiveEntryOracle6915.kt").readText()
+        assertTrue(o.contains("(laneBreakEvenPWin7334 < 0.50 && unifiedPolicyPWin7260 >= laneBreakEvenPWin7334))"))
+        val mp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AutonomousMetaPolicy.kt").readText()
+        assertTrue(mp.contains("(if (payingContext7334) maxOf(raw, 1.0) else raw).coerceIn(CONVICTION_FLOOR, CONVICTION_CAP)"))
+        val ea = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt").readText()
+        assertTrue(ea.contains("consecutiveLossesFor6488(lane, mode) >= STREAK_TIGHTEN_ONE && lanePaysEv7334(lane) -> 0"))
+    }
+
 }

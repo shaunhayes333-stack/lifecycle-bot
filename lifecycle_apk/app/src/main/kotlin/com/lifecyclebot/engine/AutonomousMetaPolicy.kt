@@ -140,7 +140,13 @@ object AutonomousMetaPolicy {
             // Map the sampled win-prob to a conviction multiplier around a 0.5 hinge.
             // sample 0.5 → 1.0 ; sample 0.8 → lean in ; sample 0.2 → damp.
             val raw = 1.0 + (sample - 0.5) * 1.8 * trade1Ramp6077
-            raw.coerceIn(CONVICTION_FLOOR, CONVICTION_CAP)
+            // V5.0.7334 — the hinge is win PROBABILITY, so SHITCOIN|S20 at
+            // winP 20% and avgPnl +23% over n=18 was damped to ~0.46. A context
+            // whose realised mean is positive is paying; its low win rate is
+            // the runner shape, so it is never damped below neutral.
+            val avgPnl7334 = if (arm.samples > 0) arm.pnlSum / arm.samples else 0.0
+            val payingContext7334 = arm.samples >= 3 && avgPnl7334 > 0.0
+            (if (payingContext7334) maxOf(raw, 1.0) else raw).coerceIn(CONVICTION_FLOOR, CONVICTION_CAP)
         } catch (_: Throwable) { 1.0 }
     }
 
