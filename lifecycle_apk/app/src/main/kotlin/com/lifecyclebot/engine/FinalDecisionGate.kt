@@ -783,6 +783,12 @@ object FinalDecisionGate {
         //   old TradingModeTag-derived label for callers that have not
         //   been updated yet (Cyclic ring, tests).
         specialistLane: String? = null,
+        // V5.0.7357 — which decision this call is, for the fanout budget only.
+        // The lane's own evaluation and the V3 execution evaluation passed the
+        // same lane and shared its 2-eval budget, so one cycle spent both slots
+        // and the next cycles' V3 execution call (the only one that creates an
+        // executable intent) was capped: 173 FDG_FANOUT_CAP_7232 blocks on 7354.
+        fanoutRole: String = "",
     ): FinalDecision {
         // V5.0.6548 §P0-C — FDG background progress beacon. Every FDG
         // evaluation is a decision boundary that must show up in the
@@ -812,7 +818,8 @@ object FinalDecisionGate {
             // two had looked at (1143 of 1377 FDG blocks on 5.0.7263, and
             // SHITCOIN/EXPRESS at zero intents). Trunk/main callers that
             // pass no specialist lane share the "TRUNK" bucket.
-            val fanoutLane7265 = specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: "TRUNK"
+            val fanoutLane7265 = (specialistLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: "TRUNK") +
+                (fanoutRole.trim().uppercase().takeIf { it.isNotBlank() }?.let { ":$it" } ?: "")
             val ok = com.lifecyclebot.engine.truth.IntakeFanoutGovernor6835.allowFdgEval(
                 mint = ts.mint,
                 causalRoot = causalRoot7232,

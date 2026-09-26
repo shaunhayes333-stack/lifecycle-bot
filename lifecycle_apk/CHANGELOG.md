@@ -4,6 +4,26 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7357] - 2026-09-26 — FDG JUDGES THIS CYCLE, AND THE EXECUTING CALL GETS A VERDICT
+
+5.0.7354 live: FDG allow=17 block=485.
+
+- CANONICAL_V3_SCORE_FLOOR_7243 (199): FDG's floor reads ts.lastV3Score, which was
+  written only inside the Treasury block (behind its permit) and after every lane's
+  FDG call. Lanes were judged on last cycle's score, or on candidate.entryScore
+  (often 0) for a fresh mint — 199 blocks under a floor of 15 with a V3 median of
+  72. The Execute/Watch score is now published immediately after V3 runs (same
+  only-a-real-score rule as 7327). The floor itself is unchanged.
+- FDG_FANOUT_CAP_7232 (173): the lane's own evaluation and the V3 execution
+  evaluation shared one 2-eval budget per (mint, version, lane), so each cycle
+  spent both and the next cycles' V3 execution call — the only one that creates an
+  executable intent — was capped. FinalDecisionGate.evaluate takes a fanoutRole;
+  both V3 execution call sites pass V3_EXEC and get their own budget. The cap per
+  role is unchanged.
+- "blocked::" (94): the block histogram keyed on the first token of
+  "blocked: <reason>", i.e. the wrapper. It now keys on the reason.
+- Golden tape: V5_0_7357_fdg_reads_fresh_v3_score_and_v3_exec_has_its_own_fanout_budget.
+
 ## [5.0.7356] - 2026-09-26 — A DEFERRED BUY IS NOT A BOUGHT MINT
 
 5.0.7354 live: BUY ok/fail 2/34. 22 fails were ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED

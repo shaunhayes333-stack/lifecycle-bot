@@ -497,7 +497,11 @@ object PipelineHealthCollector {
         if (!allow) {
             // V5.9.915 — block-reason histogram. Truncate to the first token of
             // the reason so we group "EXCEPTION cls=Foo" across distinct messages.
-            val reasonKey = reason.substringBefore(' ').take(40).ifEmpty { "unspecified" }
+            // V5.0.7357 — FDG's generic "blocked: <X>" wrapper made the first token
+            // the literal "blocked:", so 94 blocks on 5.0.7354 showed as "blocked::"
+            // with the real reason cut off. Key on what follows the wrapper.
+            val reasonKey = reason.removePrefix("blocked: ").trimStart()
+                .substringBefore(' ').take(40).ifEmpty { "unspecified" }
             // V5.0.7213 §ACCEPTANCE_A — "ok" must never be a block reason.
             //
             // OPERATOR DIRECTIVE 7212 §1: "An FDG result must be exactly

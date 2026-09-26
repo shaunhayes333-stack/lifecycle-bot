@@ -25713,6 +25713,24 @@ if (hotExitHandledSweep) {
                 marketRegime = modeConf?.mode?.name ?: "NEUTRAL",
                 isAIDegraded = isAIDegraded  // V3 SELECTIVITY: Pass AI degradation
             )
+            // V5.0.7357 — publish THIS cycle's V3 score before any lane reaches FDG.
+            // FDG's canonical floor reads ts.lastV3Score, which was only written in
+            // the Treasury block (behind its permit) and after every lane's FDG call,
+            // so lanes were judged on last cycle's score, or on candidate.entryScore
+            // (often 0) for a fresh mint: 199 CANONICAL_V3_SCORE_FLOOR_7243 blocks at
+            // a floor of 15 with a V3 median of 72. Same rule as 7327: only a score V3
+            // actually produced is cached.
+            when (val fresh7357 = v3Decision) {
+                is com.lifecyclebot.v3.V3Decision.Execute -> {
+                    ts.lastV3Score = fresh7357.score
+                    ts.lastV3Confidence = fresh7357.confidence.toInt()
+                }
+                is com.lifecyclebot.v3.V3Decision.Watch -> {
+                    ts.lastV3Score = fresh7357.score
+                    ts.lastV3Confidence = fresh7357.confidence
+                }
+                else -> Unit
+            }
 
             // ═══════════════════════════════════════════════════════════════════
             // V5.9.349 — MEME UNIFIED SCORER BRIDGE (universal visibility)
@@ -29594,6 +29612,7 @@ if (hotExitHandledSweep) {
                                 proposedSizeSol = proposedSize, brain = executor.brain,
                                 tradingModeTag = modeTag, laneScore = result.score.toDouble(),
                                 specialistLane = cyclePrimaryLane,
+                                fanoutRole = "V3_EXEC",
                             )
                             val v3CandidateVersion6533 = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
                             val v3Intent6533 = ExecutableOpenGate.recordFdgAndGetIntent6533(
@@ -30222,6 +30241,7 @@ if (hotExitHandledSweep) {
                 brain = executor.brain,
                 tradingModeTag = tradingModeTag,
                 specialistLane = cyclePrimaryLane,
+                fanoutRole = "V3_EXEC",
             )
             // One immutable FDG result per candidate/evidence version.  BUY
             // decisions are sealed too; downstream mint/version claims prevent

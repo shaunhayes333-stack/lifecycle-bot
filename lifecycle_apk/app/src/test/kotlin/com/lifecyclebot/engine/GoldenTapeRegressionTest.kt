@@ -11813,4 +11813,20 @@ class GoldenTapeRegressionTest {
         assertFalse(ex.contains("        ts.lastPricePoolAddr = snap.poolAddress\n        ts.lastPriceSource = snap.priceSource"))
     }
 
+
+    @Test
+    fun V5_0_7357_fdg_reads_fresh_v3_score_and_v3_exec_has_its_own_fanout_budget() {
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        // This cycle's V3 score is published right after V3 runs, before lane FDGs.
+        val v3Call = bs.indexOf("val v3Decision = com.lifecyclebot.v3.V3EngineManager.processToken(")
+        val publish = bs.indexOf("when (val fresh7357 = v3Decision)")
+        assertTrue(v3Call > 0 && publish > v3Call && publish - v3Call < 3000)
+        assertEquals(2, Regex("fanoutRole = \"V3_EXEC\"").findAll(bs).count())
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("fanoutRole: String = \"\","))
+        assertTrue(fdg.contains("(fanoutRole.trim().uppercase().takeIf { it.isNotBlank() }?.let { \":$it\" } ?: \"\")"))
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue(phc.contains("reason.removePrefix(\"blocked: \").trimStart()"))
+    }
+
 }
