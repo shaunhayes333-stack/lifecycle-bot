@@ -316,6 +316,7 @@ object LearnedAdmissionInputs6909 {
             oracleRawLaneN7207 = laneRawTerminalN7207,
             oracleVerdict6915 = oracle6915?.verdict,
             oracleHardSafety7287 = oracle6915?.hardSafety7287 == true,
+            oracleEvidencedRefuse7340 = oracle6915?.reason == "NEGATIVE_EXPECTANCY_WITH_EVIDENCE_6915",
             laneWrPct = laneWrPct,
             laneLossRatePct = laneLossRatePct,
             // V5.0.6915 — §5 source-family adaptation is no longer inert. The

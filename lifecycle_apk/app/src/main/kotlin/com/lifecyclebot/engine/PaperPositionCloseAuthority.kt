@@ -75,6 +75,7 @@ object PaperPositionCloseAuthority {
         if (mint.isBlank()) return Guard(false, null, "blank")
         val k = key(mode, mint)
         syncLedger(mode, mint, symbol)
+        releaseStaleCloseForOpenPosition7340(mode, mint, symbol)
         val now = System.currentTimeMillis()
         val st = states[k]
         if (st != null) {
@@ -348,6 +349,30 @@ object PaperPositionCloseAuthority {
             s
         }
         emit("PAPER_CLOSE_FAILED", mint, symbol, "reason=$reason")
+    }
+
+    /**
+     * V5.0.7340 — a close stamp on a position that is still open is stale.
+     * Pablo pepe (EXPRESS, paper, -12%) sat 670 minutes answering every stop
+     * with PAPER_CLOSE_ALREADY_PENDING: the close ledger said CLOSED, the
+     * canonical book said OPEN with quantity, and syncLedger re-stamped CLOSED
+     * on every call. Paper mirror of LIVE_STALE_CLOSE_RELEASED_7318: when the
+     * canonical paper position is open with quantity, the stamp is released so
+     * the exit can run. CLOSING is never touched.
+     */
+    private fun releaseStaleCloseForOpenPosition7340(mode: String, mint: String, symbol: String) {
+        if (normMode(mode) != "PAPER") return
+        val k = key(mode, mint)
+        if (states[k]?.state != State.CLOSED) return
+        val canonicalOpen = runCatching {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().any {
+                it.mint == mint && it.mode.equals("paper", true) && it.remainingQtyRaw.signum() > 0
+            }
+        }.getOrDefault(false)
+        if (!canonicalOpen) return
+        runCatching { PositionCloseLedger.reopen(mint) }
+        states.remove(k)
+        emit("PAPER_STALE_CLOSE_RELEASED_7340", mint, symbol, "action=exit_allowed_canonical_open")
     }
 
     private fun syncLedger(mode: String, mint: String, symbol: String) {

@@ -11589,4 +11589,14 @@ class GoldenTapeRegressionTest {
         assertTrue(pa.contains("if (now - st.updatedAtMs >= FAILED_RETRY_TTL_MS || isEmergencyRetryReason6702(reason) ||"))
     }
 
+    @Test
+    fun V5_0_7340_a_proven_oracle_refuses_on_evidence() {
+        val la = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LearnedAdmissionAuthority6846.kt").readText()
+        assertTrue(la.contains("PredictiveEntryOracle6915.Verdict.REFUSE -> if (inputs.oracleEvidencedRefuse7340) {"))
+        val li = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LearnedAdmissionInputs6909.kt").readText()
+        assertTrue(li.contains("oracleEvidencedRefuse7340 = oracle6915?.reason == \"NEGATIVE_EXPECTANCY_WITH_EVIDENCE_6915\","))
+        val pa = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").readText()
+        assertTrue(pa.contains("releaseStaleCloseForOpenPosition7340(mode, mint, symbol)"))
+    }
+
 }

@@ -163,6 +163,8 @@ object LearnedAdmissionAuthority6846 {
         val oracleVerdict6915: PredictiveEntryOracle6915.Verdict? = null,
         /** V5.0.7287 — the oracle's REFUSE rests on a recorded safety fact. */
         val oracleHardSafety7287: Boolean = false,
+        /** V5.0.7340 — the REFUSE rests on the candidate's own measured negative expectancy. */
+        val oracleEvidencedRefuse7340: Boolean = false,
         val laneWrPct: Double,          // 0..100
         val laneLossRatePct: Double,    // 0..100
         val sourceFamily: String,       // "PUMP_FUN_NEW" / "BIRDEYE_TRENDING" / …
@@ -278,8 +280,19 @@ object LearnedAdmissionAuthority6846 {
             when (inputs.oracleVerdict6915) {
                 PredictiveEntryOracle6915.Verdict.ADMIT ->
                     return allow(inputs, "ORACLE_PROVEN_ADMIT_7287")
-                PredictiveEntryOracle6915.Verdict.REFUSE ->
+                // V5.0.7340 — "proven" earns the oracle the right to refuse on
+                // EVIDENCE, not on a thin or opinion-led estimate. On 5.0.7339,
+                // after the journal was cleared (book n=6, E=-23%), its
+                // EXPECTANCY_NOT_POSITIVE verdicts — BLUECHIP refused at -60%
+                // on global(n=6) alone — were binding and denied 3,750 entries
+                // across every lane. Only a refusal backed by the candidate's
+                // own measured negative expectancy binds; the rest falls
+                // through to the evidence rules below, as when ADVISORY.
+                PredictiveEntryOracle6915.Verdict.REFUSE -> if (inputs.oracleEvidencedRefuse7340) {
                     return deny("ORACLE_PROVEN_REFUSE_7287", inputs, "oracle=REFUSE tier=PROVEN")
+                } else {
+                    try { PipelineHealthCollector.labelInc("ORACLE_PROVEN_UNEVIDENCED_REFUSE_NOT_BINDING_7340") } catch (_: Throwable) {}
+                }
                 null -> Unit
             }
         }

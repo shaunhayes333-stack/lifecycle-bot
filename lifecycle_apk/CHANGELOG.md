@@ -4,6 +4,24 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7340] - 2026-09-26 — A PROVEN ORACLE REFUSES ON EVIDENCE, NOT ON A HUNCH
+
+5.0.7339 paper, 33 minutes: 17 buys, all QUALITY. The journal had been
+cleared from the Journal screen, so the oracle's history dropped from 223 to 6
+closes (book E=-23%). With the oracle PROVEN, every REFUSE was binding, and
+most were EXPECTANCY_NOT_POSITIVE on that thin book (BLUECHIP refused at -60%
+on global(n=6) alone): ENTRY_AUTHORITY_DENY 3,750, oracle refuse 3,968 vs
+admit 1,062.
+
+- LearnedAdmissionAuthority6846: a PROVEN oracle's REFUSE binds only when it
+  rests on the candidate's own measured negative expectancy
+  (NEGATIVE_EXPECTANCY_WITH_EVIDENCE); otherwise the evidence rules decide
+  (ORACLE_PROVEN_UNEVIDENCED_REFUSE_NOT_BINDING_7340). ADMIT still binds.
+- PaperPositionCloseAuthority: a CLOSED stamp on a paper position the canonical
+  book holds open with quantity is released so its exit can run
+  (PAPER_STALE_CLOSE_RELEASED_7340); Pablo pepe had sat 670 minutes on
+  PAPER_CLOSE_ALREADY_PENDING.
+
 ## [5.0.7339] - 2026-09-26 — A REFUSED DEAD-TOKEN EXIT NO LONGER LOCKS OUT THE STOP
 
 Operator: "tokens aren't selling". 5.0.7336: 40 sell attempts, 40
