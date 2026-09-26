@@ -37,19 +37,27 @@ import java.util.concurrent.atomic.AtomicLong
  * in exchange for higher quality. A live throughput drop is the
  * correct economic outcome.
  *
- * CONFIG — the floor is intentionally a constant (not tunable at
- * runtime) so downstream adaptive layers cannot lower it in response
- * to reduced sample volume. This is a safety invariant, not a
- * throughput knob.
+ * V5.0.7359 §THE LIVE FLOOR IS FLUID — operator: "lower it but remember
+ * its fluid." The constant 30 disagreed with the gate that admits the trade:
+ * FDG's canonical floor (CanonicalEntryFloor7266) starts at the bootstrap
+ * (15) and matures toward 30 — or the lane's learned floor — as the lane
+ * earns closes, with regime/damper raises capped at the band that lost. FDG
+ * allowed 15-29 and this check then refused every one of them before the
+ * lease (176 LIVE_BUY_REFUSED_PRELEASE_SCORE_7256 on 5.0.7354). The live
+ * floor is now that same per-lane fluid floor, so one number decides.
  */
 object LiveMinimumScoreFloor7239 {
 
-    /**
-     * Live score floor. All observed live losses in 5.0.7234 were at
-     * score 16 or below; the deepest catastrophe was at score 6. 30
-     * gives an 87.5% margin above the observed loss ceiling.
-     */
-    private const val LIVE_MIN_SCORE: Double = 30.0
+    /** The 7239 constant, kept only as the fallback if the fluid floor is unavailable. */
+    private const val LIVE_MIN_SCORE_FALLBACK: Double = 30.0
+
+    @Volatile private var lastFloor7359: Double = LIVE_MIN_SCORE_FALLBACK
+
+    /** V5.0.7359 — the canonical fluid floor for [lane], same value FDG admits on. */
+    private fun fluidFloor(ts: TokenState, lane: String?): Double = try {
+        CanonicalEntryFloor7266.resolve(lane?.takeIf { it.isNotBlank() } ?: ts.position.tradingMode)
+            .floor.takeIf { it.isFinite() } ?: LIVE_MIN_SCORE_FALLBACK
+    } catch (_: Throwable) { LIVE_MIN_SCORE_FALLBACK }
 
     enum class Verdict { ALLOW, BLOCK_BELOW_FLOOR }
 
@@ -67,8 +75,10 @@ object LiveMinimumScoreFloor7239 {
      * Called at the top of Executor.liveBuy — before PreTradeHardGate,
      * before sizing, before any wallet spend path.
      */
-    fun evaluate(ts: TokenState, score: Double): Decision {
-        if (!score.isFinite() || score < LIVE_MIN_SCORE) {
+    fun evaluate(ts: TokenState, score: Double, lane: String? = null): Decision {
+        val floor7359 = fluidFloor(ts, lane)
+        lastFloor7359 = floor7359
+        if (!score.isFinite() || score < floor7359) {
             blocked.incrementAndGet()
             try {
                 PipelineHealthCollector.labelInc("LIVE_MIN_SCORE_FLOOR_BLOCKED_7239")
@@ -78,23 +88,23 @@ object LiveMinimumScoreFloor7239 {
                     ForensicLogger.lifecycle(
                         "LIVE_MIN_SCORE_FLOOR_BLOCKED_7239",
                         "mint=${ts.mint.take(10)} symbol=${ts.symbol} " +
-                            "score=${"%.2f".format(score)} floor=${"%.2f".format(LIVE_MIN_SCORE)} " +
+                            "score=${"%.2f".format(score)} floor=${"%.2f".format(floor7359)} " +
                             "action=refuse_live_buy_below_score_floor " +
-                            "note=operator_5_0_7234_all_live_losses_were_score_6_to_16",
+                            "floorSource=CanonicalEntryFloor7266_fluid lane=${lane ?: ts.position.tradingMode}",
                     )
                 }
             } catch (_: Throwable) {}
-            return Decision(Verdict.BLOCK_BELOW_FLOOR, score, LIVE_MIN_SCORE,
-                "SCORE=${"%.2f".format(score)}<${"%.2f".format(LIVE_MIN_SCORE)}")
+            return Decision(Verdict.BLOCK_BELOW_FLOOR, score, floor7359,
+                "SCORE=${"%.2f".format(score)}<${"%.2f".format(floor7359)}")
         }
         allowed.incrementAndGet()
         try { PipelineHealthCollector.labelInc("LIVE_MIN_SCORE_FLOOR_ALLOWED_7239") } catch (_: Throwable) {}
-        return Decision(Verdict.ALLOW, score, LIVE_MIN_SCORE, "ABOVE_FLOOR")
+        return Decision(Verdict.ALLOW, score, floor7359, "ABOVE_FLOOR")
     }
 
     data class Summary(val allowed: Long, val blocked: Long, val floor: Double)
 
-    fun summary(): Summary = Summary(allowed.get(), blocked.get(), LIVE_MIN_SCORE)
+    fun summary(): Summary = Summary(allowed.get(), blocked.get(), lastFloor7359)
 
     fun statusLine(): String {
         val s = summary()

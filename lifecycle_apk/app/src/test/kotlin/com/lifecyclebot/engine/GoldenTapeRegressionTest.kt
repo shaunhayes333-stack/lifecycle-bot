@@ -11845,4 +11845,16 @@ class GoldenTapeRegressionTest {
         assertTrue(bs.contains("else -> \"PEAK_CAPTURE_DISTRIBUTION_6394\""))
     }
 
+
+    @Test
+    fun V5_0_7359_live_score_floor_is_the_fluid_canonical_floor() {
+        val f = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveMinimumScoreFloor7239.kt").readText()
+        assertTrue(f.contains("CanonicalEntryFloor7266.resolve(lane?.takeIf { it.isNotBlank() } ?: ts.position.tradingMode)"))
+        assertTrue(f.contains("fun evaluate(ts: TokenState, score: Double, lane: String? = null): Decision {"))
+        assertTrue(f.contains("val floor7359 = fluidFloor(ts, lane)"))
+        assertFalse(f.contains("private const val LIVE_MIN_SCORE: Double = 30.0"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("LiveMinimumScoreFloor7239.evaluate(ts, effectiveScore, canonicalLane)"))
+    }
+
 }

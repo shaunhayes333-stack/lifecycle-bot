@@ -4,6 +4,24 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7359] - 2026-09-26 — ONE FLUID LIVE SCORE FLOOR
+
+Operator: "lower it but remember its fluid."
+
+FDG admits a live candidate on CanonicalEntryFloor7266 — the bootstrap (15) with
+no evidence, maturing toward 30 or the lane's learned floor as the lane earns
+closes, with regime/damper raises capped at the band that lost. The executor's
+pre-lease check then refused anything under a hardcoded 30
+(LiveMinimumScoreFloor7239), so every 15-29 admission died there: 176
+LIVE_BUY_REFUSED_PRELEASE_SCORE_7256 on 5.0.7354.
+
+- LiveMinimumScoreFloor7239.evaluate now takes the lane and uses the same per-lane
+  fluid floor. The 30 remains only as the fallback if the floor cannot resolve.
+- Executor passes the canonical lane.
+- Risk note (operator-approved): live now buys from 15 on a lane with no
+  evidence, rising automatically as its closes accumulate.
+- Golden tape: V5_0_7359_live_score_floor_is_the_fluid_canonical_floor.
+
 ## [5.0.7358] - 2026-09-26 — PEAK CAPTURE SELLS
 
 PeakCaptureAuthority6390 has computed an exit verdict every 500ms since the

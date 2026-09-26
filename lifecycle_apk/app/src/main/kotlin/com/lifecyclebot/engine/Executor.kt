@@ -17822,7 +17822,7 @@ class Executor(
         } catch (_: Throwable) {}
 
         val floorDecision = try {
-            com.lifecyclebot.engine.truth.LiveMinimumScoreFloor7239.evaluate(ts, effectiveScore)
+            com.lifecyclebot.engine.truth.LiveMinimumScoreFloor7239.evaluate(ts, effectiveScore, canonicalLane)
         } catch (_: Throwable) { null }
         if (floorDecision?.verdict ==
             com.lifecyclebot.engine.truth.LiveMinimumScoreFloor7239.Verdict.BLOCK_BELOW_FLOOR) {
