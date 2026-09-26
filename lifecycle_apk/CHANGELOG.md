@@ -4,6 +4,37 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7360] - 2026-09-26 — THE JOURNAL CATCHES UP WITH THE LEDGER
+
+Operator: "can you rebuild them so it reconciles?"
+
+5.0.7354: PAPER_LEDGER_VS_JOURNAL_DIVERGENCE ledgerCash=73.86 journalCash=30.82;
+journal open cost 30.11 vs ledger 2.63; ~139 positions open in the journal that
+the canonical authority holds CLOSED. The ledger released those lots and
+credited ~43 SOL of proceeds, but the closing journal rows were dropped after
+the ledger commit (quarantined at TradeHistoryStore.recordTrade, or the paper
+sell returned before journaling). Nothing repaired them: the 6662 orphan repair
+only handled positions canonical no longer knows.
+
+- JournalEconomicReplay6619.repairOrphanedOpenLots6662 now also handles a
+  position canonical holds CLOSED: rebuildClosedLotFromReceipts7360 writes ONE
+  terminal SELL built from the ledger's own typed sale receipts
+  (EconomicEventSchema6464.Sell, same event identity as the journal). It credits
+  the missing receipts' gross proceeds and fees and releases exactly the open
+  basis and raw quantity the journal still carries, so cash and open cost meet
+  the ledger. Reason JOURNAL_REBUILT_FROM_RECEIPT_7360, event id REBUILT7360:<key>.
+- Skips (counted as JOURNAL_RECEIPT_REBUILD_SKIPPED_7360_*) when there is no
+  terminal receipt, when any journal sell row lacks a matching receipt, when a
+  terminal SELL is already journaled, when every receipt is already journaled,
+  or when no BUY row proves the entry. Nothing is invented.
+- The repair runs at bot start and in the reconciliation pass while the ledger
+  and journal disagree, so a future dropped row is rebuilt the same way.
+- JournalEconomicAuthority6616 publishes on totalsComplete6899 (as
+  ForensicReconciliation6635 already does) instead of `reconciled`, which the
+  balanced TERMINAL_SELL_INCOMPLETE_LOT write-offs held false forever (158
+  blocked publishes). The ledger-vs-journal check still has to pass.
+- Golden tape: V5_0_7360_closed_paper_lots_rebuilt_from_ledger_receipts.
+
 ## [5.0.7359] - 2026-09-26 — ONE FLUID LIVE SCORE FLOOR
 
 Operator: "lower it but remember its fluid."

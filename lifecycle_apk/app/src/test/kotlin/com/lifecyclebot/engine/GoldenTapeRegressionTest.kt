@@ -11857,4 +11857,25 @@ class GoldenTapeRegressionTest {
         assertTrue(ex.contains("LiveMinimumScoreFloor7239.evaluate(ts, effectiveScore, canonicalLane)"))
     }
 
+
+    @Test
+    fun V5_0_7360_closed_paper_lots_rebuilt_from_ledger_receipts() {
+        val r = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt").readText()
+        assertTrue(r.contains("private fun rebuildClosedLotFromReceipts7360("))
+        assertTrue(r.contains("if (canonical.lifecycle == CanonicalPositionAuthority6441.Lifecycle.CLOSED) {"))
+        // Conservative guards.
+        assertTrue(r.contains("return skip(\"NO_TERMINAL_RECEIPT\")"))
+        assertTrue(r.contains("return skip(\"JOURNAL_ROW_WITHOUT_RECEIPT\")"))
+        assertTrue(r.contains("return skip(\"TERMINAL_ALREADY_JOURNALED\")"))
+        assertTrue(r.contains("return skip(\"ALL_RECEIPTS_JOURNALED\")"))
+        // Closes exactly what the journal holds open, credits the receipts' proceeds.
+        assertTrue(r.contains("canonicalConsumedRaw = openRaw, remainingRawQty = java.math.BigInteger.ZERO,"))
+        assertTrue(r.contains("tokenDecimals = scale, soldCostBasisSol = openBasis,"))
+        assertTrue(r.contains("economicEventId = \"REBUILT7360:${terminal.idempotencyKey}\""))
+        val a = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicAuthority6616.kt").readText()
+        assertTrue(a.contains("if (replay == null || !replay.totalsComplete6899 || !globallyReconciled6647) {"))
+        assertTrue(a.contains("if (!replay.totalsComplete6899 || !globallyReconciled6647) return"))
+        assertFalse(a.contains("!replay.reconciled || !globallyReconciled6647"))
+    }
+
 }

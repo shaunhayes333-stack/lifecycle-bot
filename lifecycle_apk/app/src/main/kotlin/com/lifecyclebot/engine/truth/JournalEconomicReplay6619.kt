@@ -762,10 +762,43 @@ object JournalEconomicReplay6619 {
             }
             .groupBy { it.positionId }
         var repaired = 0
+        // V5.0.7360 — journal rows per position, read once for the receipt rebuild.
+        val journalSellsByPosition7360: Map<String, List<Trade>> = try {
+            TradeHistoryStore.getAllValidTradesSnapshot(limit = 20_000)
+                .asSequence()
+                .filter { it.mode.equals("paper", true) && it.positionId.isNotBlank() }
+                .filter { it.side.equals("SELL", true) || it.side.equals("PARTIAL_SELL", true) }
+                .groupBy { it.positionId }
+        } catch (_: Throwable) { emptyMap() }
+        val paperSellReceipts7360: Map<String, List<EconomicEventSchema6464.Sell>> = try {
+            EconomicEventSchema6464.snapshot()
+                .asSequence()
+                .filterIsInstance<EconomicEventSchema6464.Sell>()
+                .filter { it.mode.equals("paper", true) && it.positionId.isNotBlank() }
+                .groupBy { it.positionId }
+        } catch (_: Throwable) { emptyMap() }
         replay.openBasisByPosition.forEach { (positionId, basis) ->
             if (!basis.isFinite() || basis <= 1e-9) return@forEach
             val canonical = try { CanonicalPositionAuthority6441.getPosition(positionId) } catch (_: Throwable) { null }
-            if (canonical != null) return@forEach
+            if (canonical != null) {
+                // V5.0.7360 — the ledger CLOSED this position and credited its
+                // proceeds, but the journal never received the closing row(s):
+                // written-then-dropped at TradeHistoryStore.recordTrade, or never
+                // written after the ledger commit. ~139 such lots held the journal
+                // 43 SOL short of the ledger on 5.0.7354 and blocked every hero
+                // publish. Operator-approved: rebuild from the ledger's receipts.
+                if (canonical.lifecycle == CanonicalPositionAuthority6441.Lifecycle.CLOSED) {
+                    if (rebuildClosedLotFromReceipts7360(
+                            positionId, basis,
+                            replay.openRawQtyByPosition[positionId] ?: java.math.BigInteger.ZERO,
+                            buys[positionId].orEmpty(),
+                            paperSellReceipts7360[positionId].orEmpty(),
+                            journalSellsByPosition7360[positionId].orEmpty(),
+                        )
+                    ) repaired++
+                }
+                return@forEach
+            }
             val positionBuys = buys[positionId].orEmpty()
             val seed = positionBuys.firstOrNull() ?: return@forEach
             val newestBuyAt = positionBuys.maxOfOrNull { it.ts } ?: 0L
@@ -821,6 +854,84 @@ object JournalEconomicReplay6619 {
             } catch (_: Throwable) {}
         }
         return repaired
+    }
+
+    /**
+     * V5.0.7360 — project the ledger's own sale receipts for a CLOSED position
+     * into ONE terminal journal row that closes exactly what the journal still
+     * holds open. Cash is credited with the receipts' real proceeds net of fees,
+     * so journal cash and open cost converge on the ledger; the open lot's own
+     * basis is released so the lot closes without a residual.
+     *
+     * Conservative by construction — returns false and changes nothing when:
+     *  - the receipts carry no terminal (non-partial) sale;
+     *  - a journal sell row for this position has no matching receipt key (the
+     *    receipt/journal identities disagree, so a rebuild could double-count);
+     *  - every receipt is already journaled (the journal row exists and the
+     *    replay rejected it; adding another would not be a repair);
+     *  - the position has no BUY row to prove the entry.
+     * Idempotent: the row's event id is derived from the terminal receipt, and
+     * TradeHistoryStore acknowledges a durable event id without writing twice.
+     */
+    private fun rebuildClosedLotFromReceipts7360(
+        positionId: String,
+        openBasis: Double,
+        openRaw: java.math.BigInteger,
+        positionBuys: List<Trade>,
+        receipts: List<EconomicEventSchema6464.Sell>,
+        journalSells: List<Trade>,
+    ): Boolean {
+        fun skip(reason: String): Boolean {
+            try { PipelineHealthCollector.labelInc("JOURNAL_RECEIPT_REBUILD_SKIPPED_7360_$reason") } catch (_: Throwable) {}
+            return false
+        }
+        val seed = positionBuys.firstOrNull() ?: return skip("NO_BUY_ROW")
+        val terminal = receipts.firstOrNull { !it.partial } ?: return skip("NO_TERMINAL_RECEIPT")
+        val receiptKeys = receipts.map { it.idempotencyKey }.toSet()
+        if (journalSells.any { it.economicEventId.isBlank() || it.economicEventId !in receiptKeys }) {
+            return skip("JOURNAL_ROW_WITHOUT_RECEIPT")
+        }
+        // A terminal SELL row already in the journal owns this position's SELL fill
+        // index; a second one would be rejected as DUPLICATE_FILL_INDEX.
+        if (journalSells.any { it.side.equals("SELL", true) }) return skip("TERMINAL_ALREADY_JOURNALED")
+        val journaled = journalSells.map { it.economicEventId }.toSet()
+        val missing = receipts.filter { it.idempotencyKey !in journaled }
+        if (missing.isEmpty()) return skip("ALL_RECEIPTS_JOURNALED")
+        val gross = missing.sumOf { it.grossProceedsSol.coerceAtLeast(0.0) }
+        val fees = missing.sumOf { it.exitFeesSol.coerceAtLeast(0.0) }
+        if (!gross.isFinite() || !fees.isFinite()) return skip("NON_FINITE_RECEIPT")
+        val pnl = gross - openBasis - fees
+        val scale = seed.tokenDecimals.takeIf { it in 0..18 } ?: seed.entryDecimals.coerceIn(0, 18)
+        val displayQty = try { openRaw.toBigDecimal().movePointLeft(scale).toDouble() } catch (_: Throwable) { 0.0 }
+        val entryPx = seed.entryPriceSnapshot.takeIf { it.isFinite() && it > 0.0 }
+            ?: seed.price.takeIf { it.isFinite() && it > 0.0 } ?: return skip("NO_ENTRY_PRICE")
+        TradeHistoryStore.recordTrade(Trade(
+            side = "SELL", mode = "paper", sol = gross,
+            price = entryPx,
+            ts = terminal.atMs.takeIf { it > 0L } ?: System.currentTimeMillis(),
+            reason = "JOURNAL_REBUILT_FROM_RECEIPT_7360",
+            pnlSol = pnl, pnlPct = if (openBasis > 0.0) (pnl / openBasis) * 100.0 else 0.0,
+            feeSol = fees, netPnlSol = pnl,
+            tradingMode = seed.tradingMode, tradingModeEmoji = seed.tradingModeEmoji,
+            mint = seed.mint, proofState = "PAPER_SIMULATED",
+            positionId = positionId, entryTsMs = seed.entryTsMs.takeIf { it > 0L } ?: seed.ts,
+            entryPriceSnapshot = entryPx,
+            entryCostSol = openBasis, entryDecimals = scale,
+            soldQtyToken = displayQty, remainingQtyToken = 0.0,
+            canonicalConsumedRaw = openRaw, remainingRawQty = java.math.BigInteger.ZERO,
+            tokenDecimals = scale, soldCostBasisSol = openBasis,
+            grossProceedsSol = gross, economicEventId = "REBUILT7360:${terminal.idempotencyKey}",
+        ))
+        try {
+            PipelineHealthCollector.labelInc("JOURNAL_RECEIPT_REBUILT_7360")
+            ForensicLogger.lifecycle(
+                "JOURNAL_RECEIPT_REBUILT_7360",
+                "positionId=${positionId.take(24)} mint=${seed.mint.take(10)} receipts=${missing.size} " +
+                    "gross=${"%.6f".format(gross)} fees=${"%.6f".format(fees)} basis=${"%.6f".format(openBasis)} " +
+                    "pnl=${"%+.6f".format(pnl)} action=terminal_row_from_ledger_receipts",
+            )
+        } catch (_: Throwable) {}
+        return true
     }
 
     fun latest(): ReplayResult? = lastResult.get()

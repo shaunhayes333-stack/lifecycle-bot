@@ -118,10 +118,15 @@ object JournalEconomicAuthority6616 {
         // work and historical supersession counters on every mutation.
         try { ForensicReconciliation6635.reconcile6635(replay) } catch (_: Throwable) {}
         val globallyReconciled6647 = try { ForensicReconciliation6635.deltas6647().reconciled } catch (_: Throwable) { false }
-        if (replay == null || !replay.reconciled || !globallyReconciled6647) {
+        // V5.0.7360 — gate on totalsComplete6899 like ForensicReconciliation6635
+        // already does. `reconciled` is "no anomaly at all", and the balanced
+        // TERMINAL_SELL_INCOMPLETE_LOT write-offs (both legs applied) keep it
+        // false forever: 158 blocked publishes on 5.0.7354 with the UI frozen on
+        // a stale balance. The ledger-vs-journal check below still has to pass.
+        if (replay == null || !replay.totalsComplete6899 || !globallyReconciled6647) {
             try {
                 PipelineHealthCollector.labelInc("JOURNAL_ECONOMIC_PUBLISH_BLOCKED_FAILED_REPLAY_6647")
-                ForensicLogger.lifecycle("JOURNAL_ECONOMIC_PUBLISH_BLOCKED_FAILED_REPLAY_6647", "kind=$kind replayOk=${replay?.reconciled == true} globallyReconciled=$globallyReconciled6647 failures=${replay?.invariantFailures?.take(3)} action=retain_last_reconciled")
+                ForensicLogger.lifecycle("JOURNAL_ECONOMIC_PUBLISH_BLOCKED_FAILED_REPLAY_6647", "kind=$kind replayOk=${replay?.totalsComplete6899 == true} globallyReconciled=$globallyReconciled6647 failures=${replay?.invariantFailures?.take(3)} action=retain_last_reconciled")
             } catch (_: Throwable) {}
             return
         }
@@ -167,7 +172,7 @@ object JournalEconomicAuthority6616 {
         val replay = try { JournalEconomicReplay6619.replay() } catch (_: Throwable) { null } ?: return
         try { ForensicReconciliation6635.reconcile6635(replay) } catch (_: Throwable) {}
         val globallyReconciled6647 = try { ForensicReconciliation6635.deltas6647().reconciled } catch (_: Throwable) { false }
-        if (!replay.reconciled || !globallyReconciled6647) return
+        if (!replay.totalsComplete6899 || !globallyReconciled6647) return  // V5.0.7360 — see notifyEconomicMutation
         cached.set(
             CanonicalEconomicSnapshot(
                 revision = rev, mode = "paper",
