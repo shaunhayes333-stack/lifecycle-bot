@@ -1028,10 +1028,12 @@ object TradeHistoryStore {
         if (tradeToStore.side.equals("BUY", true) && tradeToStore.mint.isNotBlank()) {
             try {
                 latestBuyByMintCache = LinkedHashMap(latestBuyByMintCache).apply { put(tradeToStore.mint, tradeToStore) }
+                latestBuyMemoKey7347 = ""  // V5.0.7347 — any other writer invalidates the revision memo
                 latestBuyByMintCacheMs = System.currentTimeMillis()
             } catch (_: Throwable) { latestBuyByMintCacheMs = 0L }
         } else if (tradeToStore.mint.isNotBlank()) {
             latestBuyByMintCacheMs = 0L
+            latestBuyMemoKey7347 = ""  // V5.0.7347 — any other writer invalidates the revision memo
         }
         bumpLifetimeFor(tradeToStore)
         insertTradeAsync(tradeToStore)
@@ -1174,6 +1176,7 @@ object TradeHistoryStore {
             toAdd.forEach { bumpLifetimeFor(it) }
             toAdd.forEach { insertTradeAsync(it) }
             latestBuyByMintCacheMs = 0L
+            latestBuyMemoKey7347 = ""  // V5.0.7347 — any other writer invalidates the revision memo
             ErrorLogger.debug("TradeHistoryStore", "💾 Added ${toAdd.size} new linked trades")
         }
     }
@@ -1358,11 +1361,30 @@ object TradeHistoryStore {
             try { PipelineHealthCollector.labelInc("LATEST_BUY_SNAPSHOT_MAIN_CACHE_RETURN") } catch (_: Throwable) {}
             return cached
         }
+        // V5.0.7347 §THE_EXIT_SNAPSHOT_REREAD_THE_JOURNAL_FIVE_TIMES_A_SECOND.
+        //
+        // canonicalExitTokenSnapshot6512 calls this from the 500ms rapid monitor,
+        // the 1s tick, the hot-exit manager and twice per exit sweep. Off-main the
+        // cache was never read, so each call copied up to 2,000 rows and validated
+        // every BUY again. The map is a pure function of the journal tail and the
+        // validator's one outside input (the paper entry-size ceiling), so it is
+        // reused while the revision, limit and ceiling are all unchanged.
+        val cfgBits7347 = try {
+            com.lifecyclebot.engine.PaperLearningSanity.configuredMaxTradeSol().toRawBits()
+        } catch (_: Throwable) { 0L }
+        val key7347 = "${journalRevision7343.get()}|$cap|$cfgBits7347"
+        if (key7347 == latestBuyMemoKey7347) {
+            try { PipelineHealthCollector.labelInc("LATEST_BUY_SNAPSHOT_REUSED_7347") } catch (_: Throwable) {}
+            return latestBuyByMintCache
+        }
         return computeLatestBuyByMintSnapshot(cap).also {
             latestBuyByMintCache = it
             latestBuyByMintCacheMs = System.currentTimeMillis()
+            latestBuyMemoKey7347 = key7347
         }
     }
+
+    @Volatile private var latestBuyMemoKey7347: String = ""
 
     private fun computeLatestBuyByMintSnapshot(cap: Int): Map<String, Trade> {
         ensureInitialized()
@@ -1392,6 +1414,7 @@ object TradeHistoryStore {
             try {
                 val fresh = computeLatestBuyByMintSnapshot(cap)
                 latestBuyByMintCache = fresh
+                latestBuyMemoKey7347 = ""  // V5.0.7347 — any other writer invalidates the revision memo
                 latestBuyByMintCacheMs = System.currentTimeMillis()
             } catch (_: Throwable) {
             } finally {
@@ -1452,6 +1475,7 @@ object TradeHistoryStore {
                 // consumer (including the QTY_DECIMAL_SKEW_6309 audit and the
                 // learning-quarantine gate) reads the corrected row.
                 latestBuyByMintCacheMs = 0L
+                latestBuyMemoKey7347 = ""  // V5.0.7347 — any other writer invalidates the revision memo
                 break
             }
         }
@@ -1670,7 +1694,9 @@ object TradeHistoryStore {
     fun clearAllTrades() {
         synchronized(lock) { trades.clear(); journalRevision7343.incrementAndGet() }
         latestBuyByMintCache = emptyMap()
+        latestBuyMemoKey7347 = ""  // V5.0.7347 — any other writer invalidates the revision memo
         latestBuyByMintCacheMs = 0L
+        latestBuyMemoKey7347 = ""  // V5.0.7347 — any other writer invalidates the revision memo
         // V5.0.6389 (S5) — journal reset must generate a fresh cohort so all
         // subsequent positions are classified against a known-clean baseline.
         // Positions opened before this instant become INHERITED_POSITION and
@@ -2561,7 +2587,9 @@ object TradeHistoryStore {
             synchronized(lock) {
                 trades.clear()
                 latestBuyByMintCache = emptyMap()
+                latestBuyMemoKey7347 = ""  // V5.0.7347 — any other writer invalidates the revision memo
                 latestBuyByMintCacheMs = 0L
+                latestBuyMemoKey7347 = ""  // V5.0.7347 — any other writer invalidates the revision memo
                 trades.addAll(enrichedLoaded)
                 journalRevision7343.incrementAndGet()
             }

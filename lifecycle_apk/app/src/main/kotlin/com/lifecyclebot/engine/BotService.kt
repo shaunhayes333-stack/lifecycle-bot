@@ -11819,8 +11819,9 @@ class BotService : Service() {
                     // the derivation checks the other four organs call
                     // "corroborated".
                     val agreeing7188 = try {
-                        Regex("_x(\\d+)$").find(resolvedSource6999)
-                            ?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 1
+                        // V5.0.7347 — was a Regex compiled per mint per 1s tick.
+                        resolvedSource6999.substringAfterLast("_x", "").takeIf { it.isNotEmpty() && it.all(Char::isDigit) }
+                            ?.toIntOrNull() ?: 1
                     } catch (_: Throwable) { 1 }
                     try {
                         com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.note(
@@ -25634,7 +25635,9 @@ if (hotExitHandledSweep) {
 
             // STEP 2: BIRDEYE PREMIUM — gated by tradability + budget.
             val tradable = liqUsd >= 2_000.0 && mcapUsd >= 5_000.0
-            val budgetOk = com.lifecyclebot.engine.BirdeyeBudgetGate.canAfford(4)
+            // V5.0.7347 — only consult the budget when there is a key to spend it on;
+            // both branches that read budgetOk also require beKey.isNotBlank().
+            val budgetOk = beKey.isNotBlank() && com.lifecyclebot.engine.BirdeyeBudgetGate.canAfford(4)
             if (beKey.isNotBlank() && tradable && budgetOk) {
                 // V5.0.4299 — provider-budget accounting belongs at the actual
                 // network-call/provider layer, not here. The old code called

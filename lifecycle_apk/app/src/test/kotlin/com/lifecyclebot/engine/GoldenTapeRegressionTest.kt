@@ -11677,4 +11677,16 @@ class GoldenTapeRegressionTest {
         assertFalse(cs.contains("Regex(\"PARTIAL_"))
     }
 
+    @Test
+    fun V5_0_7347_exit_snapshot_birdeye_regex() {
+        val h = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        assertTrue(h.contains("if (key7347 == latestBuyMemoKey7347) {"))
+        assertTrue(h.contains("latestBuyMemoKey7347 = key7347"))
+        val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt").readText()
+        assertFalse(g.contains("        rolloverIfNeeded()\n        if (!birdeyeKeyIsUsable6275()) return false\n"))
+        val b = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(b.contains("val budgetOk = beKey.isNotBlank() && com.lifecyclebot.engine.BirdeyeBudgetGate.canAfford(4)"))
+        assertFalse(b.contains("Regex(\"_x("))
+    }
+
 }

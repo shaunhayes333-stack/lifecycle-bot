@@ -90,8 +90,10 @@ object BirdeyeBudgetGate {
     }
 
     fun canAfford(estimatedCalls: Int): Boolean {
-        rolloverIfNeeded()
+        // V5.0.7347 — a dead key (auth-terminal latch, never reset in-process) is
+        // refused before the calendar rollover, which allocated a Calendar per call.
         if (!birdeyeKeyIsUsable6275()) return false
+        rolloverIfNeeded()
         if (EMERGENCY_CONSERVATION_MODE) return false
         if (isLockedDown()) return false
         if (dailyCap == 0L) return true
@@ -158,8 +160,10 @@ object BirdeyeBudgetGate {
 
     /** Emergency-only allowance for open-position price fallback. */
     fun canAffordOpenPositionEmergency(estimatedCalls: Int = 1): Boolean {
-        rolloverIfNeeded()
+        // V5.0.7347 — a dead key (auth-terminal latch, never reset in-process) is
+        // refused before the calendar rollover, which allocated a Calendar per call.
         if (!birdeyeKeyIsUsable6275()) return false
+        rolloverIfNeeded()
         if (isProviderLockedDown()) return false
         if (isProviderBrownoutActive()) return false
         val estCu = estimatedCalls * 25L
@@ -181,8 +185,10 @@ object BirdeyeBudgetGate {
      * Throttles them from every-8s to every-5min when burn is high.
      */
     fun canAffordScannerLane(): Boolean {
-        rolloverIfNeeded()
+        // V5.0.7347 — a dead key (auth-terminal latch, never reset in-process) is
+        // refused before the calendar rollover, which allocated a Calendar per call.
         if (!birdeyeKeyIsUsable6275()) return false
+        rolloverIfNeeded()
         if (EMERGENCY_CONSERVATION_MODE) return false
         if (isLockedDown()) return false
         if (isProviderBrownoutActive()) return false
@@ -231,8 +237,10 @@ object BirdeyeBudgetGate {
      * cap headroom.
      */
     fun canAffordSafety(): Boolean {
-        rolloverIfNeeded()
+        // V5.0.7347 — a dead key (auth-terminal latch, never reset in-process) is
+        // refused before the calendar rollover, which allocated a Calendar per call.
         if (!birdeyeKeyIsUsable6275()) return false
+        rolloverIfNeeded()
         if (EMERGENCY_CONSERVATION_MODE) return false
         if (isLockedDown()) return false
         if (isProviderBrownoutActive()) return false

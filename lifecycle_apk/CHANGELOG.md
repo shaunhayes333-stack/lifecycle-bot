@@ -4,6 +4,24 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7347] - 2026-09-26 — SWEEP 3: EXIT SNAPSHOT, DEAD BIRDEYE KEY, PER-TICK REGEX
+
+Third batch of the data-wastage sweep (price-mark path).
+
+- `TradeHistoryStore.getLatestBuyByMintSnapshot`: read by
+  `canonicalExitTokenSnapshot6512` from the 500ms rapid monitor, the 1s tick, the
+  hot-exit manager and twice per exit sweep (~4-5/s). Off-main its cache was never
+  read, so every call copied up to 2,000 rows and re-validated every BUY. Reused
+  while the journal revision, limit and paper entry-size ceiling are unchanged;
+  every other writer of that cache invalidates the key.
+  `LATEST_BUY_SNAPSHOT_REUSED_7347`.
+- `BirdeyeBudgetGate`: all four `canAfford*` refuse a dead key (auth-terminal latch)
+  before the calendar rollover that allocated a `Calendar` per call;
+  `processTokenCycle` only consults the Birdeye budget when a key is configured
+  (both readers of that flag already required one).
+- Open-position tick: the fanout agreement count was parsed with a `Regex`
+  compiled per mint per second; replaced with an equivalent string read.
+
 ## [5.0.7346] - 2026-09-26 — SWEEP 2: THE JOURNAL IS VALIDATED ONCE, NOT SIXTY TIMES
 
 Second batch of the data-wastage sweep.
