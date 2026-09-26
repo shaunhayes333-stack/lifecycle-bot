@@ -327,6 +327,7 @@ object FinalizedBusConsumerBridge6465 {
     private fun deliverToGrowthRewardShaper(env: CanonicalFinalizedTradeBus6464.Envelope): Boolean = try {
         com.lifecyclebot.engine.truth.GrowthAlignedRewardShaper6439.shape(
             env.realizedPnlSol, (env.atMs - env.holdingTimeMs).coerceAtLeast(0L), env.atMs, env.mint,
+            realizedReturnPct = env.realizedReturnPct,
         )
         true
     } catch (t: Throwable) { threw7154(t) }

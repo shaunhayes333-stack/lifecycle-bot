@@ -507,10 +507,21 @@ object StrategyTruthLedger {
         return null
     }
 
+    // V5.0.7349b §A_RUNNER_IS_CREDITED_TO_THE_LANE_THAT_BOUGHT_IT.
+    //
+    // The terminal row carries the lane at CLOSE. HoldingLogicLayer
+    // (LONG_HOLD / DIAMOND_HANDS) and LaneTransitionManager rewrite a position's
+    // lane mid-hold, so a MOONSHOT that ran was credited to whichever lane held
+    // it last (5.0.7347: promotionLeaks=119). Lane expectancy is a verdict on the
+    // lane's ENTRY decision, so the entry lane recorded at open wins when it is
+    // known; restored positions from an earlier process fall back to the row.
     fun strategyLaneFor(t: Trade): String = if (isRecoveryInventory(t)) {
         "RECOVERY_INVENTORY"
     } else try {
-        TradeHistoryStore.normalizeTradeModeName(t.tradingMode).ifBlank { "STANDARD" }
+        val entryLane7349 = t.positionId.takeIf { it.isNotBlank() }?.let {
+            com.lifecyclebot.engine.truth.LaneAttributionLedger6427.getEntryLane(it)
+        }?.takeIf { it.isNotBlank() }
+        TradeHistoryStore.normalizeTradeModeName(entryLane7349 ?: t.tradingMode).ifBlank { "STANDARD" }
     } catch (_: Throwable) {
         t.tradingMode.ifBlank { "STANDARD" }.uppercase()
     }

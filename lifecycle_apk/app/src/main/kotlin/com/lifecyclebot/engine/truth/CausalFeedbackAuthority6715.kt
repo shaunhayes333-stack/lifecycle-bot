@@ -56,6 +56,9 @@ object CausalFeedbackAuthority6715 {
         // consume this counter to reduce exposure without hard-blocking.
         var wins: Int = 0,
         var losses: Int = 0,
+        // V5.0.7349b — the realised return behind those wins and losses, so a
+        // band that earns through a few big runners is not read as a loser.
+        var returnSumPct7349: Double = 0.0,
         val reservedAttempts: MutableSet<String> = linkedSetOf(),
         val openPositions: MutableSet<String> = linkedSetOf(),
         val pendingLearning: MutableSet<String> = linkedSetOf(),
@@ -487,12 +490,15 @@ object CausalFeedbackAuthority6715 {
             }
             val earlyAck = earlyLearnAcks.remove(env.positionId)
             val isWin6721 = env.realizedReturnPct > 0.0
+            val ret7349 = env.realizedReturnPct.takeIf { it.isFinite() }
+                ?.coerceIn(-100.0, com.lifecyclebot.engine.StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349) ?: 0.0
             if (env.learningEligible) {
                 if (earlyAck) {
                     ks.forEach { k -> state(k).apply {
                         learningRevision += 1L
                         cleanLearnedCloses += 1
                         if (isWin6721) wins += 1 else losses += 1
+                        returnSumPct7349 += ret7349
                     } }
                     learnedSeen.add(env.positionId)
                     positionScopes.remove(env.positionId)
@@ -504,6 +510,7 @@ object CausalFeedbackAuthority6715 {
                     // advisory sees the truth immediately.
                     ks.forEach { k -> state(k).apply {
                         if (isWin6721) wins += 1 else losses += 1
+                        returnSumPct7349 += ret7349
                     } }
                 }
             } else {
@@ -646,6 +653,15 @@ object CausalFeedbackAuthority6715 {
                 if (decided < ADVISORY_MIN_DECIDED) continue
                 val wr = s.wins.toDouble() / decided.toDouble()
                 if (wr >= ADVISORY_WR_FLOOR) continue
+                // V5.0.7349b §A_LOW_WIN_RATE_IS_THE_SHAPE_OF_A_RUNNER_LANE.
+                // This was win rate alone, so MOONSHOT — a lane that wins rarely
+                // and big by design — was sized x0.71 by it whatever its return.
+                // A band whose realised return is net positive is not a chronic
+                // loser; it keeps its size.
+                if (s.returnSumPct7349 > 0.0) {
+                    try { PipelineHealthCollector.labelInc("COHORT_ADVISORY_SKIPPED_POSITIVE_RETURN_7349") } catch (_: Throwable) {}
+                    continue
+                }
                 val band = k.removePrefix(bandPrefix)
                 // Linear scale: at wr==0 → ADVISORY_MULT_FLOOR; at wr==WR_FLOOR → 1.0.
                 val frac = (wr / ADVISORY_WR_FLOOR).coerceIn(0.0, 1.0)
@@ -680,6 +696,7 @@ object CausalFeedbackAuthority6715 {
             if (decided < ADVISORY_MIN_DECIDED) return null
             val wr = s.wins.toDouble() / decided.toDouble()
             if (wr >= ADVISORY_WR_FLOOR) return null
+            if (s.returnSumPct7349 > 0.0) return null // V5.0.7349b — net-positive band is not a loser
             val frac = (wr / ADVISORY_WR_FLOOR).coerceIn(0.0, 1.0)
             val mult = (ADVISORY_MULT_FLOOR + (1.0 - ADVISORY_MULT_FLOOR) * frac).coerceIn(ADVISORY_MULT_FLOOR, 1.0)
             return CohortLoserAdvisory(nb, wr * 100.0, decided, mult)
@@ -728,6 +745,7 @@ object CausalFeedbackAuthority6715 {
             if (decided < TERMINAL_MIN_DECIDED) return null
             val wr = s.wins.toDouble() / decided.toDouble()
             if (wr >= TERMINAL_WR_FLOOR) return null
+            if (s.returnSumPct7349 > 0.0) return null // V5.0.7349b — net-positive band is not suppressed
             return TerminalSuppression(nb, wr * 100.0, decided)
         }
     }

@@ -242,7 +242,7 @@ object AutonomousMetaPolicy {
             synchronized(arm) {
                 if (win) arm.alpha += 1.0 else arm.beta += 1.0
                 arm.samples += 1
-                arm.pnlSum += pnlPct.coerceIn(-95.0, 1000.0)
+                arm.pnlSum += pnlPct.coerceIn(-95.0, com.lifecyclebot.engine.StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349) /* V5.0.7349b — was +1,000%: a real runner is the expectancy, not an outlier */
             }
             totalUpdates += 1
             if (totalUpdates % DECAY_EVERY == 0L) decayAll()

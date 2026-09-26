@@ -96,6 +96,8 @@ object LearnerRewardBridge6440 {
         try { PipelineHealthCollector.labelInc("LEARNER_REWARD_BRIDGE_6440") } catch (_: Throwable) {}
         return when {
             pnlPct < -0.5 -> lossMultiplier(holdTimeMins).also { lossMultCount.incrementAndGet() }
+            // V5.0.7349b — a runner that at least doubled is not a slow win.
+            pnlPct >= RUNNER_WIN_NO_HOLD_PENALTY_PCT_7349 -> 1.0.also { winMultCount.incrementAndGet() }
             pnlPct > 0.5  -> winMultiplier(holdTimeMins).also { winMultCount.incrementAndGet() }
             else -> {
                 // Break-even zone (-0.5% .. +0.5%). Per capital-preservation creed,
@@ -115,6 +117,15 @@ object LearnerRewardBridge6440 {
         val mult = (1.0 + steps * 0.25).coerceAtMost(3.0)
         return mult
     }
+
+    /**
+     * V5.0.7349b — the hold-time penalty exists because a slow small win is
+     * opportunity cost. A win of +100% or more is the compounding the creed asks
+     * for however long it took; halving a two-hour 600x taught every learner that
+     * the lane's best outcome was a mediocre one. Mirrors
+     * GrowthAlignedRewardShaper6439.RUNNER_WIN_NO_HOLD_PENALTY_PCT_7349.
+     */
+    const val RUNNER_WIN_NO_HOLD_PENALTY_PCT_7349 = 100.0
 
     private fun winMultiplier(holdTimeMins: Double): Double = when {
         holdTimeMins > 60.0 -> 0.5

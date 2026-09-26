@@ -68,13 +68,19 @@ object GrowthAlignedRewardShaper6439 {
         openedAtMs: Long,
         closedAtMs: Long,
         mint: String,
+        // V5.0.7349b — realised return %, when the caller has it. A win of
+        // +100% or more is exempt from the hold-time penalty.
+        realizedReturnPct: Double = Double.NaN,
     ): Double {
         totalShaped.incrementAndGet()
         val holdMs = (closedAtMs - openedAtMs).coerceAtLeast(0L)
         val shaped = when {
             realizedSolDelta > 0.0 -> {
                 totalWinShaped.incrementAndGet()
-                shapeWin(realizedSolDelta, holdMs)
+                if (realizedReturnPct.isFinite() && realizedReturnPct >= RUNNER_WIN_NO_HOLD_PENALTY_PCT_7349) {
+                    try { PipelineHealthCollector.labelInc("REWARD_RUNNER_WIN_NOT_HOLD_PENALISED_7349") } catch (_: Throwable) {}
+                    realizedSolDelta
+                } else shapeWin(realizedSolDelta, holdMs)
             }
             realizedSolDelta < 0.0 -> {
                 totalLossShaped.incrementAndGet()
@@ -98,6 +104,9 @@ object GrowthAlignedRewardShaper6439 {
         try { PipelineHealthCollector.labelInc("REWARD_SHAPED_6439") } catch (_: Throwable) {}
         return shaped
     }
+
+    /** V5.0.7349b — see LearnerRewardBridge6440.RUNNER_WIN_NO_HOLD_PENALTY_PCT_7349. */
+    const val RUNNER_WIN_NO_HOLD_PENALTY_PCT_7349 = 100.0
 
     private fun shapeWin(delta: Double, holdMs: Long): Double {
         // Reward held-too-long wins less. If a win took > 60 min, halve it —

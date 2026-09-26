@@ -305,7 +305,7 @@ object StrategyHypothesisEngine {
             val ctx = a.first; val variant = a.second
             val h = active[ctx] ?: return
             outcomeUpdates6512 += 1L
-            val pnl = pnlPct.coerceIn(-95.0, 1000.0)
+            val pnl = pnlPct.coerceIn(-95.0, com.lifecyclebot.engine.StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349) /* V5.0.7349b — was +1,000%: a real runner is the expectancy, not an outlier */
             if (variant) h.variant.update(pnl) else h.control.update(pnl)
             try {
                 val laneForVariant4342 = ctx.substringBefore("|").uppercase()
@@ -467,7 +467,7 @@ object StrategyHypothesisEngine {
                     if (suppressVariantForContext(lane, scoreInt, regime)) continue
                     val h = active.getOrPut(ctx) { spawn(ctx) }
                     if (h.control.n >= MIN_ARM.toLong()) continue
-                    h.control.update(t.pnlPct.coerceIn(-95.0, 1000.0))
+                    h.control.update(t.pnlPct.coerceIn(-95.0, com.lifecyclebot.engine.StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349) /* V5.0.7349b — was +1,000%: a real runner is the expectancy, not an outlier */)
                     seeded += 1
                 }
             }

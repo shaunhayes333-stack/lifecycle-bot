@@ -4,6 +4,34 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7350] - 2026-09-26 — THE LEARNERS SEE A RUNNER AT ITS SIZE
+
+The rest of the 7349 trace: after the books, the learners themselves shrank or
+misread a real MOONSHOT runner.
+
+- **+1,000% reward caps.** `ForwardOutcomeModel`, `AutonomousMetaPolicy` and
+  `StrategyHypothesisEngine` (control and seeding) clipped every outcome at
+  +1,000% before updating their running means. They now use
+  `StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349` (+100,000%): for a fat-tailed
+  lane the runner IS the expectancy.
+- **Win-rate-only cohort damper.** `CausalFeedbackAuthority6715`'s cohort advisory
+  (the source of MOONSHOT x0.71 in `LaneExpectancyDamper`) and its terminal
+  suppressor judged a band on win rate alone. Scopes now also sum realised return;
+  a band whose realised return is net positive is neither damped nor suppressed.
+  `COHORT_ADVISORY_SKIPPED_POSITIVE_RETURN_7349`.
+- **Policy head counted a 600x as one win.** `UnifiedPolicyHead` trains a logistic
+  win/loss model whose output vetoes entries. Winning samples now carry a bounded
+  importance weight `1 + ln(1 + pnl/100)` (~1.7 at 2x, ~4.6 at 100x, ~6.4 at 600x);
+  losses keep 1.0. Brier calibration is unchanged.
+- **Slow big wins were halved.** `GrowthAlignedRewardShaper6439` and
+  `LearnerRewardBridge6440` cut any win held > 20 min by 25% and > 60 min by 50% as
+  "opportunity cost". A win of +100% or more is now exempt;
+  the finalized bus passes the realised return to the shaper.
+  `REWARD_RUNNER_WIN_NOT_HOLD_PENALISED_7349`.
+- **Credited to the wrong lane.** `StrategyTruthLedger.strategyLaneFor` used the
+  lane at close, which HoldingLogicLayer / LaneTransitionManager rewrite mid-hold.
+  It now uses the entry lane from `LaneAttributionLedger6427` when known.
+
 ## [5.0.7349] - 2026-09-26 — A REAL RUNNER REACHES THE BOOKS AND THE LEARNERS
 
 Operator: "moonshot was and has found 600x runs." The strategy table read

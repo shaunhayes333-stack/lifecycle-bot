@@ -450,7 +450,7 @@ object ForwardOutcomeModel {
                 try { PipelineHealthCollector.labelInc("FORWARD_OUTCOME_UNMAPPED_CLOSE_6862") } catch (_: Throwable) {}
                 return
             }
-            val pnl = pnlPct.coerceIn(-95.0, 1000.0)
+            val pnl = pnlPct.coerceIn(-95.0, com.lifecyclebot.engine.StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349) /* V5.0.7349b — was +1,000%: a real runner is the expectancy, not an outlier */
             update(fine.getOrPut(keys.first) { Cell() }, pnl)
             update(coarse.getOrPut(keys.second) { Cell() }, pnl)
             totalUpdates += 1

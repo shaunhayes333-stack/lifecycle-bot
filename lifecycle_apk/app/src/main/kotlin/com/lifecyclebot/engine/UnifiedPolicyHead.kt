@@ -401,10 +401,18 @@ object UnifiedPolicyHead {
 
     private fun trainOneOutcome6681(lane: String, x: DoubleArray, pnlPct: Double) {
         val y = if (pnlPct > 0.0) 1.0 else 0.0
+        // V5.0.7349b §A_600X_IS_NOT_ONE_WIN. The label is win/loss, so a +59,900%
+        // runner taught this head exactly what a +1% scratch did — and its output
+        // vetoes entries (policyVeto7260). Winning samples now carry a bounded
+        // importance weight, 1 + ln(1 + pnl/100) (~1.7 at 2x, ~4.6 at 100x, ~6.4
+        // at 600x), so the features of big winners pull harder. Losses keep 1.0.
+        val sampleW7349 = if (y > 0.0 && pnlPct.isFinite())
+            1.0 + kotlin.math.ln(1.0 + pnlPct.coerceIn(0.0, com.lifecyclebot.engine.StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349) / 100.0)
+        else 1.0
 
         // Exactly ONE global update per terminal canonical position.
         val pG = rawProbGlobal(x)
-        val errG = pG - y
+        val errG = (pG - y) * sampleW7349
         for (i in 0 until NF) {
             val g = errG * (x[i] - featMean[i]) + L2 * w[i]
             w[i] -= LR * g
@@ -417,7 +425,7 @@ object UnifiedPolicyHead {
         // labelled as if they executed this trade.
         val h = getOrCreateLaneHead(lane)
         val pL = rawProbLane(h, x)
-        val errL = pL - y
+        val errL = (pL - y) * sampleW7349
         for (i in 0 until NF) {
             val g = errL * (x[i] - h.featMean[i]) + L2 * h.w[i]
             h.w[i] -= LR * g

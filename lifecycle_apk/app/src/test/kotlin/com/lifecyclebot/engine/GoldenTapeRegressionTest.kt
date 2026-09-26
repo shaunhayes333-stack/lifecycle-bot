@@ -11714,4 +11714,24 @@ class GoldenTapeRegressionTest {
         assertTrue(op.contains("\"PRICE_BASIS_UNPROVEN_EXTREME_RATIO_7349\" else \"PRICE_BASIS_UNTRUSTED_EXTREME_RATIO\""))
     }
 
+    @Test
+    fun V5_0_7350_learners_see_a_runner_at_its_size() {
+        fun src(p: String) = java.io.File("src/main/kotlin/com/lifecyclebot/engine/" + p).readText()
+        for (f in listOf("ForwardOutcomeModel.kt", "AutonomousMetaPolicy.kt", "StrategyHypothesisEngine.kt")) {
+            assertFalse(src(f).contains("pnlPct.coerceIn(-95.0, 1000.0)"))
+            assertTrue(src(f).contains("StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349"))
+        }
+        val cf = src("truth/CausalFeedbackAuthority6715.kt")
+        assertTrue(cf.contains("if (s.returnSumPct7349 > 0.0) {"))
+        assertTrue(cf.contains("if (s.returnSumPct7349 > 0.0) return null // V5.0.7349b — net-positive band is not a loser"))
+        assertTrue(cf.contains("if (s.returnSumPct7349 > 0.0) return null // V5.0.7349b — net-positive band is not suppressed"))
+        val uph = src("UnifiedPolicyHead.kt")
+        assertTrue(uph.contains("val errG = (pG - y) * sampleW7349"))
+        assertTrue(uph.contains("val errL = (pL - y) * sampleW7349"))
+        assertTrue(src("truth/GrowthAlignedRewardShaper6439.kt").contains("realizedReturnPct >= RUNNER_WIN_NO_HOLD_PENALTY_PCT_7349"))
+        assertTrue(src("truth/FinalizedBusConsumerBridge6465.kt").contains("realizedReturnPct = env.realizedReturnPct,"))
+        assertTrue(src("truth/LearnerRewardBridge6440.kt").contains("pnlPct >= RUNNER_WIN_NO_HOLD_PENALTY_PCT_7349 -> 1.0"))
+        assertTrue(src("StrategyTruthLedger.kt").contains("TradeHistoryStore.normalizeTradeModeName(entryLane7349 ?: t.tradingMode)"))
+    }
+
 }
