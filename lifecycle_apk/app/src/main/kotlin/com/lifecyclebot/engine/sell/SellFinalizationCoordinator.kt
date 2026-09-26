@@ -201,6 +201,21 @@ object SellFinalizationCoordinator {
             // Duplicate observations bail before any of the above.
             try {
                 val positionId = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.positionIdOf(intent.mint, paperMode = false)
+                // V5.0.7362 — a skipped canonical mutation is NOT success while the
+                // live canonical position is still open: report pendingRetry so the
+                // caller never journals/closes around an OPEN canonical row. A
+                // position already CLOSED (or quarantined) is a genuine duplicate.
+                fun skipCanonical7362(why: String) {
+                    val p7362 = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId) } catch (_: Throwable) { null }
+                    val stillOpen7362 = p7362 != null &&
+                        (p7362.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.OPEN ||
+                            p7362.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED)
+                    if (stillOpen7362) {
+                        canonicalMutationFailed6486 = true
+                        try { PipelineHealthCollector.labelInc("LIVE_SELL_CANONICAL_SKIPPED_STILL_OPEN_7362_$why") } catch (_: Throwable) {}
+                    }
+                }
+                // No canonical row at all is not an OPEN canonical row: unchanged.
                 val canonicalPosition6522 = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId) ?: return@run
                 val partial = fin.finalState != TxMetaSellFinalizer.FinalState.CLEARED
                 val qtyValidation6522 = com.lifecyclebot.engine.truth.CanonicalSellQuantityGuard6522.validate(
@@ -208,7 +223,7 @@ object SellFinalizationCoordinator {
                     sellRaw = actualConsumedRaw, sellDecimals = canonicalPosition6522.quantityScale,
                     callerRemainingRaw = canonicalPosition6522.remainingQtyRaw, terminal = !partial,
                 )
-                if (!qtyValidation6522.allowed) return@run
+                if (!qtyValidation6522.allowed) { skipCanonical7362("QTY_GUARD"); return@run }
                 val invariantCloseKey6522 = if (!partial) "live|$positionId|${canonicalPosition6522.openedAtMs}|FULL_CLOSE" else "live|$positionId|${canonicalPosition6522.openedAtMs}|PARTIAL_CLOSE|$sellSig"
                 val idKey = com.lifecyclebot.engine.truth.TerminalSellIdempotency6464.makeKey(
                     sellExecutionId = invariantCloseKey6522, fillId = invariantCloseKey6522, signature = invariantCloseKey6522,
@@ -234,6 +249,7 @@ object SellFinalizationCoordinator {
                     )
                     if (termClaim6466 != com.lifecyclebot.engine.truth.TerminalMutationAuthority6466.ClaimResult.GRANTED) {
                         // Duplicate: bail before any side effect.
+                        skipCanonical7362("TERMINAL_CLAIM_DUP")
                         return@run
                     }
                     val positionApplied6486 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorSell(

@@ -4,6 +4,44 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7363] - 2026-09-26 — A LANDED LIVE SALE CLOSES AND JOURNALS, MATCHED TO THE WALLET
+
+5.0.7360 live: SELL ok=5 but zero live SELL journal rows; TAGG sold on-chain
+(close signature stamped) yet its canonical position stayed OPEN, so the exit
+engine re-requested the sell every 500ms (327 REQUEST_SELL_SUPPRESSED_CLOSE_AUTHORITY,
+4480 lane-release lines). liveSell bails out FAILED_RETRYABLE after broadcast
+(inconclusive verify, no SOL delta seen, or TOKEN_DELTA_EXCEEDS_PREVIOUS_QTY from a
+lossy Double entry quantity); the reconciler's zero-balance close then stamps only
+the close ledger — no canonical close, no journal row.
+
+Operator: "it needs to be flexible to match the wallet balance."
+
+- Executor.resumeLiveSellFinalization7362 (async via
+  scheduleLiveSellFinalizationResume7362, once in flight per signature, 30s retry
+  gap): requires an OPEN live canonical position, no active close lease, a LANDED
+  TradeVerifier verdict for the exact signature, and a signature not older than the
+  position. It then reads the wallet — unknown/timeout/empty is never zero:
+  wallet at dust → terminal SELL of the exact canonical remainder; wallet still
+  holding → PARTIAL_SELL of only what left, canonical stays open with the residual;
+  nothing sold → no-op. Finalizes through SellFinalizationCoordinator, verifies
+  canonical actually changed, and writes ONE live row (LIVE_FINALIZED, sig,
+  slice cost, verified proceeds, event id LIVE_SELL_RESUME_7362:<sig>).
+- Wired from the reconciler's zero-with-signature close (BotService onZeroClose)
+  and from requestSell's ALREADY_CLOSED branch when the live canonical row is still
+  open (onLiveClosedWithOpenCanonical7362). With no usable signature it never
+  invents a sale: after 60s it quarantines the canonical row only on a trusted
+  zero wallet read (LIVE_CLOSED_NO_SIG_FINALITY_7362); a wallet that still holds
+  keeps it open and sellable (LIVE_CLOSED_BUT_WALLET_HOLDS_7362).
+- liveSell's finalization intent uses the live canonical BigInteger remainder and
+  its remaining cost instead of a Double-derived quantity.
+- SellFinalizationCoordinator no longer reports success when it skipped the
+  canonical mutation (quantity guard / duplicate terminal claim) while the live
+  canonical position is still open.
+- liveSell's no-wallet decimals preview falls back to the canonical position's
+  quantity scale (14 false SELL_ABORTED_DECIMAL_INTEGRITY_6405 per session).
+- The token-map mark refresh passes the price's real observation time.
+- Golden tape: V5_0_7363_live_sell_finality_resumes_from_signature_matched_to_wallet.
+
 ## [5.0.7362] - 2026-09-26 — A PENDING SALE IS NOT A RUG
 
 5.0.7360 showed a repeating cluster of 14: JOURNAL_XREF_EXTERNAL_CLOSE,

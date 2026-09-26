@@ -11905,4 +11905,31 @@ class GoldenTapeRegressionTest {
         assertTrue(cm.contains("liquidityUsd = liquidityUsd, evidenceTimestampMs = evidenceTimestampMs, nowMs = nowMs,"))
     }
 
+
+    @Test
+    fun V5_0_7363_live_sell_finality_resumes_from_signature_matched_to_wallet() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("fun resumeLiveSellFinalization7362(mint: String, sig: String, wallet: SolanaWallet?, tsHint: TokenState? = null): Boolean {"))
+        assertTrue(ex.contains("fun scheduleLiveSellFinalizationResume7362(mint: String, sig: String, wallet: SolanaWallet?, ts: TokenState? = null) {"))
+        // Definitive on-chain verdict and a trusted wallet read; unknown is never zero.
+        assertTrue(ex.contains("TradeVerifier.Outcome.LANDED -> {}"))
+        assertTrue(ex.contains("null -> return skip(\"WALLET_UNKNOWN\")"))
+        // Wallet-matched: terminal only at dust, otherwise partial with the residual open.
+        assertTrue(ex.contains("val terminal = walletRaw <= TERMINAL_DUST_RAW_7362"))
+        assertTrue(ex.contains("side = if (terminal) \"SELL\" else \"PARTIAL_SELL\","))
+        assertTrue(ex.contains("economicEventId = \"LIVE_SELL_RESUME_7362:$sig\","))
+        // ALREADY_CLOSED with canonical still open resumes or quarantines, never invents a sale.
+        assertTrue(ex.contains("try { onLiveClosedWithOpenCanonical7362(ts, wallet) } catch (_: Throwable) {}"))
+        assertTrue(ex.contains("CanonicalPositionAuthority6441.quarantine(canon.positionId, \"LIVE_CLOSED_NO_SIG_FINALITY_7362\")"))
+        // Exact raw qty from canonical in liveSell.
+        assertTrue(ex.contains("val entryTokenRawFinal = canon7362?.remainingQtyRaw"))
+        // Preview decimals fallback.
+        assertTrue(ex.contains("?: liveCanonicalOpen7362(ts.mint)?.quantityScale?.takeIf { it in 0..18 },"))
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("executor.scheduleLiveSellFinalizationResume7362(mint, sig, WalletManager.getWallet() ?: wallet, ts7362)"))
+        assertTrue(bs.contains("tokenMap6614.updatedAtMs.takeIf { it > 0L } ?: ts.lastPriceUpdate"))
+        val co = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellFinalizationCoordinator.kt").readText()
+        assertTrue(co.contains("if (!qtyValidation6522.allowed) { skipCanonical7362(\"QTY_GUARD\"); return@run }"))
+    }
+
 }

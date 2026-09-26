@@ -1466,6 +1466,18 @@ class BotService : Service() {
                 // PositionCloseLedger stamp inside confirmZeroBalanceClose is the
                 // authoritative trainable close record.
                 onZeroClose = { mint, symbol, sig ->
+                    // V5.0.7362 — the reconciler's zero-with-signature close stamps the
+                    // ledger only. Resume the canonical close + journal SELL from that
+                    // signature (async, idempotent, wallet-matched) so canonical does not
+                    // stay OPEN behind a CLOSED ledger.
+                    if (!sig.isNullOrBlank()) {
+                        try {
+                            if (::executor.isInitialized) {
+                                val ts7362 = try { status.tokens[mint] } catch (_: Throwable) { null }
+                                executor.scheduleLiveSellFinalizationResume7362(mint, sig, WalletManager.getWallet() ?: wallet, ts7362)
+                            }
+                        } catch (_: Throwable) {}
+                    }
                     DownstreamWorkQueue.reconciliation("reconciler_zero_close", mint) {
                         try {
                             val laneGuess = try {
@@ -30303,6 +30315,11 @@ if (hotExitHandledSweep) {
                 priceUsd = tokenMap6614.priceUsd ?: ts.lastPrice,
                 liquidityUsd = tokenMap6614.liquidityUsd ?: ts.lastLiquidityUsd,
                 routeStatus = tokenMap6614.routeStatus,
+                // V5.0.7362 — when this price was observed, not "now". A 0 stamp
+                // (never observed) is correctly too old to become executable.
+                evidenceTimestampMs = if (tokenMap6614.priceUsd != null)
+                    tokenMap6614.updatedAtMs.takeIf { it > 0L } ?: ts.lastPriceUpdate
+                else ts.lastPriceUpdate,
             )
         } catch (_: Throwable) { com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.PromotionResult6613(null, "TOKEN_MAP_MARK_REFRESH_EXCEPTION", identity = identity.mint) }
         if (markRefresh6614.promoted) {

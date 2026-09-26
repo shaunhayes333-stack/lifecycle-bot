@@ -22862,6 +22862,314 @@ class Executor(
         WAITING_BALANCE_PROOF,
     }
     
+    // ═══ V5.0.7362 — LIVE SELL FINALITY RESUME ═══
+    // A live sell can land on-chain while liveSell returns FAILED_RETRYABLE
+    // (inconclusive verify / tx-meta qty mismatch). SellReconciler later closes
+    // the ledger from the signature but never closes CanonicalPositionAuthority6441
+    // or journals the SELL, so canonical stays OPEN and every exit tick re-requests
+    // a sell against a closed ledger (LEDGER_CLOSED → ALREADY_CLOSED → lane purge
+    // spam). These helpers resume finalization from the confirmed signature and
+    // match the CURRENT wallet balance (terminal close or partial), never a guess.
+    private val resumeProcessedSigs7362: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    private val resumeInFlightSigs7362: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    /** Signatures that can never finalize this position (failed on chain / canonical refused). */
+    private val resumeUnusableSigs7362: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    private val resumeLastAttemptMs7362 = ConcurrentHashMap<String, Long>()
+    private val liveClosedNoSigFirstSeenMs7362 = ConcurrentHashMap<String, Long>()
+    private val liveClosedNoSigQuarantined7362: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    private val RESUME_RETRY_GAP_MS_7362 = 30_000L
+    private val LIVE_CLOSED_NO_SIG_GRACE_MS_7362 = 60_000L
+    // Mirrors TxMetaSellFinalizer.DUST_RAW: a remainder at/below this finalizes CLEARED.
+    private val TERMINAL_DUST_RAW_7362: java.math.BigInteger = java.math.BigInteger.valueOf(1_000L)
+    private val RESUME_REASON_7362 = "LIVE_SELL_FINALIZED_FROM_SIG_7362"
+
+    private fun label7362(label: String) { try { PipelineHealthCollector.labelInc(label) } catch (_: Throwable) {} }
+
+    /** V5.0.7362 — the OPEN (or partially closed) LIVE canonical position for [mint], or null. */
+    private fun liveCanonicalOpen7362(mint: String): com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Position? = try {
+        val m = mint.trim()
+        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+            .firstOrNull { it.mint == m && it.mode.equals("live", ignoreCase = true) }
+    } catch (_: Throwable) { null }
+
+    /** V5.0.7362 — trusted wallet read for one mint. null = UNKNOWN (throw/timeout/empty map). */
+    private sealed class WalletRead7362 {
+        data class Held(val raw: java.math.BigInteger, val decimals: Int) : WalletRead7362()
+        object Zero : WalletRead7362()    // trusted read returned the mint at 0
+        object Absent : WalletRead7362()  // trusted non-empty read without the mint (ATA closed)
+    }
+
+    private fun readWalletMint7362(wallet: SolanaWallet?, mint: String): WalletRead7362? {
+        val w = wallet ?: return null
+        val map = try { w.getTokenAccountsWithDecimalsBounded() } catch (_: Throwable) { return null }
+        if (map.isEmpty()) return null
+        val e = map[mint] ?: return WalletRead7362.Absent
+        return if (e.raw.signum() <= 0) WalletRead7362.Zero else WalletRead7362.Held(e.raw, e.decimals)
+    }
+
+    /** V5.0.7362 — async, throttled, at most one in flight per signature. Never blocks the caller. */
+    fun scheduleLiveSellFinalizationResume7362(mint: String, sig: String, wallet: SolanaWallet?, ts: TokenState? = null) {
+        try {
+            if (mint.isBlank() || sig.isBlank() || sig.startsWith("PHANTOM_")) return
+            if (sig in resumeProcessedSigs7362 || sig in resumeUnusableSigs7362 || sig in resumeInFlightSigs7362) return
+            val now = System.currentTimeMillis()
+            val last = resumeLastAttemptMs7362[sig]
+            if (last != null && now - last < RESUME_RETRY_GAP_MS_7362) return
+            resumeLastAttemptMs7362[sig] = now
+            GlobalScope.launch(Dispatchers.IO) {
+                try { resumeLiveSellFinalization7362(mint, sig, wallet, ts) } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.0.7362 — finalize a LIVE sell from a signature that already landed.
+     * Requires an OPEN live canonical position, a definitive LANDED verdict for
+     * [sig], and a trusted wallet read. Wallet 0 → terminal SELL; wallet > 0 with
+     * a real reduction → PARTIAL_SELL (canonical stays open with the residual).
+     * Idempotent per signature and on canonical state; never throws.
+     */
+    fun resumeLiveSellFinalization7362(mint: String, sig: String, wallet: SolanaWallet?, tsHint: TokenState? = null): Boolean {
+        if (mint.isBlank() || sig.isBlank() || sig.startsWith("PHANTOM_")) return false
+        if (sig in resumeProcessedSigs7362 || sig in resumeUnusableSigs7362) {
+            label7362("LIVE_SELL_FINALITY_RESUME_SKIPPED_7362_SIG_DONE")
+            return false
+        }
+        if (!resumeInFlightSigs7362.add(sig)) {
+            label7362("LIVE_SELL_FINALITY_RESUME_SKIPPED_7362_IN_FLIGHT")
+            return false
+        }
+        fun skip(reason: String, done: Boolean = false, unusable: Boolean = false): Boolean {
+            label7362("LIVE_SELL_FINALITY_RESUME_SKIPPED_7362_$reason")
+            try { ForensicLogger.lifecycle("LIVE_SELL_FINALITY_RESUME_SKIPPED_7362", "mint=${mint.take(10)} sig=${sig.take(16)} reason=$reason done=$done unusable=$unusable") } catch (_: Throwable) {}
+            if (done) resumeProcessedSigs7362.add(sig)
+            if (unusable) resumeUnusableSigs7362.add(sig)
+            return false
+        }
+        return try {
+            val canon = liveCanonicalOpen7362(mint) ?: return skip("NO_OPEN_CANONICAL", done = true)
+            val w = wallet ?: return skip("NO_WALLET")
+            val remaining = canon.remainingQtyRaw
+            val remainingCost = canon.entryCostSol - canon.soldCostBasisSol
+            if (remaining.signum() <= 0 || !remainingCost.isFinite() || remainingCost <= 0.0) return skip("NO_REMAINING_BASIS")
+            val scale = canon.quantityScale
+            // A live sell still holding the close lease owns its own finalization.
+            fun liveSellInFlight(): Boolean = try { com.lifecyclebot.engine.sell.CloseLease.isLeased(mint) } catch (_: Throwable) { true }
+            if (liveSellInFlight()) return skip("CLOSE_LEASE_ACTIVE")
+            // 1) Definitive on-chain verdict for this exact signature.
+            val v = TradeVerifier.verifySell(w, sig, mint, timeoutMs = 45_000L)
+            when (v.outcome) {
+                TradeVerifier.Outcome.LANDED -> {}
+                TradeVerifier.Outcome.FAILED_CONFIRMED -> return skip("SIG_FAILED_ON_CHAIN", done = true, unusable = true)
+                else -> return skip("VERIFY_${v.outcome.name}")
+            }
+            if (v.decimals > 0 && v.decimals != scale) return skip("DECIMAL_SKEW", done = true, unusable = true)
+            // A close stamp can outlive its position: a sig that landed before this
+            // position opened belongs to an earlier cycle and must never close it.
+            val blockTimeMs = try {
+                val params = org.json.JSONArray().put(sig).put(org.json.JSONObject()
+                    .put("encoding", "json").put("commitment", "confirmed").put("maxSupportedTransactionVersion", 0))
+                (w.rpcCall("getTransaction", params).optJSONObject("result")?.optLong("blockTime", 0L) ?: 0L) * 1000L
+            } catch (_: Throwable) { 0L }
+            if (blockTimeMs > 0L && canon.openedAtMs > 0L && blockTimeMs + 120_000L < canon.openedAtMs) {
+                return skip("SIG_PREDATES_POSITION", done = true, unusable = true)
+            }
+            val proceedsSol = v.solReceivedLamports / 1_000_000_000.0
+            if (v.solReceivedLamports <= 0L || !proceedsSol.isFinite()) return skip("NO_PROCEEDS")
+            // 2) Match the CURRENT wallet balance. Unknown is never zero.
+            val tol = remaining.divide(java.math.BigInteger.valueOf(1_000_000L)).max(java.math.BigInteger.ONE)
+            val txDelta = v.rawTokenConsumed
+            val walletRaw: java.math.BigInteger = when (val read = readWalletMint7362(w, mint)) {
+                null -> return skip("WALLET_UNKNOWN")
+                is WalletRead7362.Held -> {
+                    if (read.decimals != scale) return skip("WALLET_DECIMAL_SKEW")
+                    read.raw
+                }
+                WalletRead7362.Zero -> java.math.BigInteger.ZERO
+                // An absent mint is zero only when the tx itself proves the exit.
+                WalletRead7362.Absent ->
+                    if (v.tokenAccountClosedFullExit || (txDelta.signum() > 0 && txDelta.add(tol) >= remaining)) java.math.BigInteger.ZERO
+                    else return skip("WALLET_ABSENT_UNCORROBORATED")
+            }
+            if (walletRaw > remaining) return skip("WALLET_EXCEEDS_CANONICAL")
+            val terminal = walletRaw <= TERMINAL_DUST_RAW_7362
+            val walletDelta = remaining.subtract(walletRaw).max(java.math.BigInteger.ZERO)
+            if (walletDelta.signum() <= 0) return skip("NOTHING_SOLD")
+            // Terminal must consume the exact canonical remainder (CanonicalSellQuantityGuard6522);
+            // a partial prefers the tx delta when it disagrees and fits inside the remainder.
+            var soldRaw = if (terminal) remaining else walletDelta
+            if (txDelta.signum() > 0 && txDelta.subtract(walletDelta).abs() > tol) {
+                try { ForensicLogger.lifecycle("LIVE_SELL_FINALITY_RESUME_QTY_DISAGREE_7362", "mint=${mint.take(10)} sig=${sig.take(16)} txDelta=$txDelta walletDelta=$walletDelta remaining=$remaining terminal=$terminal") } catch (_: Throwable) {}
+                label7362("LIVE_SELL_FINALITY_RESUME_QTY_DISAGREE_7362")
+                if (!terminal && txDelta < remaining) soldRaw = txDelta
+            }
+            if (liveSellInFlight()) return skip("CLOSE_LEASE_ACTIVE")
+            if (liveCanonicalOpen7362(mint)?.let { it.positionId == canon.positionId && it.remainingQtyRaw == remaining } != true) return skip("CANONICAL_CHANGED")
+            // 3) Canonical finalization through the same coordinator liveSell uses.
+            val intent = com.lifecyclebot.engine.sell.SellIntent.build(
+                mint = mint,
+                symbol = canon.symbol,
+                reason = com.lifecyclebot.engine.sell.SellReasonClassifier.fullExitFromString(RESUME_REASON_7362),
+                requestedFractionBps = 10_000,
+                confirmedWalletRaw = remaining,
+                decimals = scale,
+                slippageBps = 0,
+                emergencyDrain = true,
+                entrySolSpent = remainingCost,
+                entryTokenRaw = remaining,
+            )
+            val fin = com.lifecyclebot.engine.sell.SellFinalizationCoordinator.finalize(
+                intent = intent,
+                preTokenBalanceRaw = remaining,
+                postTokenBalanceRaw = remaining.subtract(soldRaw),
+                walletPollRaw = if (terminal) java.math.BigInteger.ZERO else walletRaw,
+                solReceivedLamports = v.solReceivedLamports,
+                sellSolReceived = proceedsSol,
+                feesSol = 0.0,  // solReceivedLamports is already net of the tx fee
+                decimals = scale,
+                slippageUsedBps = 0,
+                sellSig = sig,
+                traderTag = "MEME",
+            )
+            val after = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(canon.positionId)
+            val mutated = after != null && (after.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.CLOSED ||
+                after.remainingQtyRaw < remaining)
+            if (fin.pendingRetry || !mutated) return skip("CANONICAL_NOT_MUTATED", done = true, unusable = true)
+            // 4) One LIVE journal row, costed on the exact slice the canonical close used.
+            val sliceCost = fin.realizedPnl.proportionalCostBasisSol
+            if (!sliceCost.isFinite() || sliceCost <= 0.0) return skip("NO_SLICE_COST", done = true)
+            val pnlSol = proceedsSol - sliceCost
+            val pnlPct = pnlSol / sliceCost * 100.0
+            val ts = (tsHint ?: try { BotService.status.tokens[mint] } catch (_: Throwable) { null })
+                ?.takeIf { !it.position.isPaperPosition }
+            fun ui(raw: java.math.BigInteger): Double = try { raw.toBigDecimal().movePointLeft(scale).toDouble() } catch (_: Throwable) { 0.0 }
+            val exitPx = ts?.lastPrice?.takeIf { it > 0.0 && it.isFinite() }
+                ?: if (canon.entryPriceUsd > 0.0) canon.entryPriceUsd * (proceedsSol / sliceCost) else 0.0
+            val postRaw = remaining.subtract(soldRaw)
+            val trade = Trade(
+                side = if (terminal) "SELL" else "PARTIAL_SELL",
+                mode = "live",
+                // Live PARTIAL_SELL rows carry the slice cost in `sol` (recordTrade's partial basis);
+                // terminal SELL rows carry gross proceeds, as liveSell does.
+                sol = if (terminal) proceedsSol else sliceCost,
+                price = exitPx,
+                ts = System.currentTimeMillis(),
+                reason = if (terminal) RESUME_REASON_7362 else "${RESUME_REASON_7362}_partial_resume",
+                pnlSol = pnlSol,
+                pnlPct = pnlPct,
+                sig = sig,
+                feeSol = 0.0,
+                netPnlSol = pnlSol,
+                tradingMode = canon.lane.ifBlank { ts?.position?.tradingMode ?: "" },
+                mint = mint,
+                proofState = "LIVE_FINALIZED",
+                positionId = canon.positionId,
+                entryTsMs = canon.openedAtMs,
+                entryPriceSnapshot = canon.entryPriceUsd,
+                entryQtyToken = ui(remaining),
+                entryCostSol = sliceCost,
+                entryDecimals = scale,
+                soldQtyToken = ui(soldRaw),
+                remainingQtyToken = ui(postRaw),
+                entryRawQty = remaining,
+                canonicalConsumedRaw = soldRaw,
+                remainingRawQty = postRaw,
+                tokenDecimals = scale,
+                preCostSol = remainingCost,
+                soldCostBasisSol = sliceCost,
+                postCostSol = (remainingCost - sliceCost).coerceAtLeast(0.0),
+                grossProceedsSol = proceedsSol,
+                economicEventId = "LIVE_SELL_RESUME_7362:$sig",
+            )
+            if (ts != null) {
+                // Local position follows the wallet: zero on terminal, residual on partial.
+                try {
+                    ts.position = if (terminal) ts.position.copy(qtyToken = 0.0, pendingVerify = false)
+                    else ts.position.copy(qtyToken = ui(walletRaw), costSol = (remainingCost - sliceCost).coerceAtLeast(0.0))
+                } catch (_: Throwable) {}
+                recordTrade(ts, trade)
+            } else {
+                TradeHistoryStore.recordTrade(trade)
+            }
+            try { security.recordTrade(trade) } catch (_: Throwable) {}
+            try { LiveSafetyCircuitBreaker.recordTradeResult(pnlSol) } catch (_: Throwable) {}
+            resumeProcessedSigs7362.add(sig)
+            label7362("LIVE_SELL_FINALITY_RESUMED_7362")
+            label7362(if (terminal) "LIVE_SELL_FINALITY_RESUMED_7362_TERMINAL" else "LIVE_SELL_FINALITY_RESUMED_7362_PARTIAL")
+            try {
+                ForensicLogger.lifecycle(
+                    "LIVE_SELL_FINALITY_RESUMED_7362",
+                    "mint=${mint.take(10)} symbol=${canon.symbol} sig=${sig.take(16)} positionId=${canon.positionId} terminal=$terminal " +
+                        "soldRaw=$soldRaw remainingRaw=$remaining walletRaw=$walletRaw proceeds=${"%.6f".format(proceedsSol)} " +
+                        "cost=${"%.6f".format(sliceCost)} pnlSol=${"%.6f".format(pnlSol)}",
+                )
+            } catch (_: Throwable) {}
+            true
+        } catch (t: Throwable) {
+            skip("EXCEPTION_${t.javaClass.simpleName}")
+        } finally {
+            resumeInFlightSigs7362.remove(sig)
+        }
+    }
+
+    /**
+     * V5.0.7362 — requestSell saw the live close authority CLOSED while the live
+     * canonical position is still OPEN. With a usable signature, resume finality
+     * from it (async). Without one, never invent a sale: after a 60s grace for the
+     * reconciler, quarantine the canonical row ONLY on a trusted zero wallet read.
+     */
+    private fun onLiveClosedWithOpenCanonical7362(ts: TokenState, wallet: SolanaWallet?) {
+        val canon = liveCanonicalOpen7362(ts.mint) ?: return
+        val sig = listOfNotNull(
+            com.lifecyclebot.engine.sell.LivePositionCloseAuthority.signatureOf7362(ts.mint),
+            try { PositionCloseLedger.recordOf(ts.mint)?.sellSig } catch (_: Throwable) { null },
+        ).firstOrNull { it.isNotBlank() && !it.startsWith("PHANTOM_") && it !in resumeUnusableSigs7362 }
+        if (sig != null) {
+            liveClosedNoSigFirstSeenMs7362.remove(canon.positionId)
+            scheduleLiveSellFinalizationResume7362(ts.mint, sig, wallet, ts)
+            return
+        }
+        if (canon.positionId in liveClosedNoSigQuarantined7362) return
+        val now = System.currentTimeMillis()
+        val first = liveClosedNoSigFirstSeenMs7362.putIfAbsent(canon.positionId, now) ?: now
+        if (now - first < LIVE_CLOSED_NO_SIG_GRACE_MS_7362) return
+        val throttleKey = "NOSIG:${canon.positionId}"
+        val last = resumeLastAttemptMs7362[throttleKey]
+        if (last != null && now - last < RESUME_RETRY_GAP_MS_7362) return
+        resumeLastAttemptMs7362[throttleKey] = now
+        if (!liveClosedNoSigQuarantined7362.add(canon.positionId)) return
+        GlobalScope.launch(Dispatchers.IO) {
+            var quarantined = false
+            try {
+                val read = readWalletMint7362(wallet, ts.mint)
+                val trackerHolds = try { (HostWalletTokenTracker.getEntry(ts.mint)?.uiAmount ?: 0.0) > 0.0 } catch (_: Throwable) { true }
+                when {
+                    read == null -> label7362("LIVE_CLOSED_NO_SIG_7362_WALLET_UNKNOWN")
+                    read is WalletRead7362.Held -> {
+                        // The wallet still holds tokens: stay open and sellable. preSellGuard's
+                        // 7318 stale-close release reopens the ledger on its next wallet proof.
+                        label7362("LIVE_CLOSED_BUT_WALLET_HOLDS_7362")
+                        try { ForensicLogger.lifecycle("LIVE_CLOSED_BUT_WALLET_HOLDS_7362", "mint=${ts.mint.take(10)} symbol=${ts.symbol} positionId=${canon.positionId} walletRaw=${read.raw} canonicalRaw=${canon.remainingQtyRaw} action=keep_open") } catch (_: Throwable) {}
+                    }
+                    read is WalletRead7362.Absent && trackerHolds -> label7362("LIVE_CLOSED_NO_SIG_7362_ABSENT_TRACKER_HOLDS")
+                    else -> {
+                        val still = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(canon.positionId)
+                        if (still != null && (still.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.OPEN ||
+                                still.lifecycle == com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED)) {
+                            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.quarantine(canon.positionId, "LIVE_CLOSED_NO_SIG_FINALITY_7362")
+                            label7362("LIVE_CLOSED_NO_SIG_FINALITY_7362")
+                            try { ForensicLogger.lifecycle("LIVE_CLOSED_NO_SIG_FINALITY_7362", "mint=${ts.mint.take(10)} symbol=${ts.symbol} positionId=${canon.positionId} remainingRaw=${canon.remainingQtyRaw} wallet=${read?.javaClass?.simpleName} action=quarantine_no_invented_sale") } catch (_: Throwable) {}
+                        }
+                        quarantined = true
+                    }
+                }
+            } catch (_: Throwable) {
+            } finally {
+                if (!quarantined) liveClosedNoSigQuarantined7362.remove(canon.positionId)
+            }
+        }
+    }
+
     fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
         // V5.0.6501 §4 — CANONICAL EXISTENCE GATE. Operator's 6500 dump
         // showed 140 PAPER_CLOSE_FAILED + 140 SELL_BLOCKED_NO_CANONICAL_POSITION_6373
@@ -23068,6 +23376,10 @@ class Executor(
                 try { ForensicLogger.lifecycle("REQUEST_SELL_SUPPRESSED_CLOSE_AUTHORITY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} guard=${closeGuard.reason} state=${closeGuard.state}") } catch (_: Throwable) {}
                 if (closeGuard.state == com.lifecyclebot.engine.sell.LivePositionCloseAuthority.State.CLOSED || closeGuard.state == com.lifecyclebot.engine.sell.LivePositionCloseAuthority.State.CLOSING_CONFIRMED) {
                     try { ts.position = ts.position.copy(qtyToken = 0.0, pendingVerify = false) } catch (_: Throwable) {}
+                    // V5.0.7362 — a closed ledger with the live canonical row still OPEN
+                    // re-projected this exit every tick. Resume finality from the close
+                    // signature (async), or quarantine on confirmed-zero when none exists.
+                    try { onLiveClosedWithOpenCanonical7362(ts, wallet) } catch (_: Throwable) {}
                     return SellResult.ALREADY_CLOSED
                 }
                 try { SellDecisionMatrixReport.recordPreSellDefer(ts.mint, ts.symbol ?: "?", requestReason, "CLOSE_AUTHORITY_WAIT") } catch (_: Throwable) {}
@@ -26774,7 +27086,17 @@ class Executor(
             ErrorLogger.warn("Executor", "⚠️ SELL PROCEEDING: Integrity failed but attempting anyway for ${ts.symbol}")
         }
 
-        var tokenUnits = resolveSellUnits(ts, pos.qtyToken)
+        // V5.0.7362 — this is a preview (tokenUnits is re-derived from the wallet
+        // read below). With no wallet and unknown token decimals it hard-blocked
+        // on every live sell (14 SELL_ABORTED_DECIMAL_INTEGRITY_6405 on 5.0.7360).
+        // The live canonical position's own quantity scale is the proven fallback.
+        var tokenUnits = resolveSellUnitsForMint(
+            mint = ts.mint,
+            qty = pos.qtyToken,
+            wallet = null,
+            fallbackDecimals = getTokenDecimals(ts).takeIf { it >= 0 }
+                ?: liveCanonicalOpen7362(ts.mint)?.quantityScale?.takeIf { it in 0..18 },
+        )
         onLog("📊 SELL DEBUG: Initial tokenUnits from tracker = $tokenUnits", tradeId.mint)
 
         // V5.9.601: every live sell requires current exact owner+mint balance
@@ -28407,11 +28729,23 @@ class Executor(
                 val decFinal = txSellTruth6486?.decimals
                     ?: entryMetaFinal?.entryDecimals
                     ?: getTokenDecimals(ts)
-                val entrySolSpentFinal = entryMetaFinal?.entrySolSpent
+                // V5.0.7362 — exact raw qty. The lossy Double walletVerifiedQty
+                // fallback produced TOKEN_DELTA_EXCEEDS_PREVIOUS_QTY on a landed
+                // sell. Prefer the live canonical position's BigInteger remainder
+                // (same scale as this sell), paired with its remaining cost so the
+                // proportional basis stays on one unit of account.
+                val canon7362 = liveCanonicalOpen7362(ts.mint)?.takeIf {
+                    val cost7362 = it.entryCostSol - it.soldCostBasisSol
+                    it.remainingQtyRaw.signum() > 0 && it.quantityScale == decFinal && cost7362.isFinite() && cost7362 > 0.0
+                }
+                if (canon7362 != null) try { PipelineHealthCollector.labelInc("LIVE_SELL_ENTRY_RAW_FROM_CANONICAL_7362") } catch (_: Throwable) {}
+                val entrySolSpentFinal = canon7362?.let { it.entryCostSol - it.soldCostBasisSol }
+                    ?: entryMetaFinal?.entrySolSpent
                     ?.takeIf { it > 0.0 }
                     ?: com.lifecyclebot.engine.CanonicalBuyFillRegistry.get(ts.mint)?.solSpentNet
                     ?: pos.costSol
-                val entryTokenRawFinal = entryMetaFinal?.entryTokenRawConfirmed
+                val entryTokenRawFinal = canon7362?.remainingQtyRaw
+                    ?: entryMetaFinal?.entryTokenRawConfirmed
                     ?.takeIf { it.signum() > 0 }
                     ?: com.lifecyclebot.engine.CanonicalBuyFillRegistry.get(ts.mint)?.let { fill ->
                         java.math.BigDecimal(fill.walletVerifiedQty).movePointRight(fill.decimals).toBigInteger()

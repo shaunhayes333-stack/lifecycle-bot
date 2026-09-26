@@ -55,6 +55,9 @@ object LivePositionCloseAuthority {
         return states[mint]?.state
     }
 
+    /** V5.0.7362 — read-only: the sell signature stamped with this mint's close state, if any. */
+    fun signatureOf7362(mint: String): String? = states[mint]?.signature?.takeIf { it.isNotBlank() }
+
     fun isTerminalOrClosing(mint: String): Boolean {
         val s = stateOf(mint)
         return s == State.CLOSED || s == State.CLOSING_CONFIRMED || s == State.CLOSING_PENDING_SIG || s == State.CLOSING_UNKNOWN
