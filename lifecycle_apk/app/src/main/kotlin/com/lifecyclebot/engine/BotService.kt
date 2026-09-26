@@ -10704,6 +10704,42 @@ class BotService : Service() {
                         val runnerDefer7322 = try {
                             RunnerExitProfile7277.deferGiveBackLock(ts.position.tradingMode, peakPnlPct)
                         } catch (_: Throwable) { false }
+                        // V5.0.7358 — PEAK CAPTURE ACTS. PeakCaptureAuthority6390's
+                        // verdict above was only logged: 5.0.7354 printed TRAIL_EXIT
+                        // (peak +12.5%, now +6.7%) on a live position every 500ms and
+                        // nothing sold, because under +20% peak no other lock arms.
+                        // Full-exit verdicts now request the sell. A runner the
+                        // runner profile defers is left alone (the 25nV9u rule), and
+                        // the give-back reasons carry TRAIL / PEAK_GIVEBACK so a runner
+                        // past +100% banks its moonbag instead of closing. Partial
+                        // verdicts stay advisory: LADDER_PARTIAL overlaps the rapid
+                        // capture tiers, and a half cut has no per-position latch.
+                        val peakExit7358 = peakDecision?.takeIf {
+                            it.sellFraction >= 0.999 && it.verdict in setOf(
+                                com.lifecyclebot.engine.truth.PeakCaptureAuthority6390.Verdict.TRAIL_EXIT,
+                                com.lifecyclebot.engine.truth.PeakCaptureAuthority6390.Verdict.DISTRIBUTION_EXIT,
+                                com.lifecyclebot.engine.truth.PeakCaptureAuthority6390.Verdict.FULL_CUT,
+                            )
+                        }
+                        if (peakExit7358 != null && !runnerDefer7322 && pnlPct.isFinite()) {
+                            val tag7358 = when (peakExit7358.verdict) {
+                                com.lifecyclebot.engine.truth.PeakCaptureAuthority6390.Verdict.TRAIL_EXIT -> "PEAK_CAPTURE_TRAIL_6394"
+                                com.lifecyclebot.engine.truth.PeakCaptureAuthority6390.Verdict.FULL_CUT -> "PEAK_GIVEBACK_SLIP_6394"
+                                else -> "PEAK_CAPTURE_DISTRIBUTION_6394"
+                            }
+                            try {
+                                PipelineHealthCollector.labelInc("PEAK_CAPTURE_EXIT_REQUESTED_7358")
+                                ForensicLogger.lifecycle("PEAK_CAPTURE_EXIT_REQUESTED_7358", "mint=${ts.mint.take(10)} symbol=${ts.symbol} verdict=${peakExit7358.verdict} peak=${"%.1f".format(peakPnlPct)} now=${"%.1f".format(pnlPct)} lane=${ts.position.tradingMode} reason=${peakExit7358.reason}")
+                            } catch (_: Throwable) {}
+                            executor.requestSell(
+                                ts = ts,
+                                reason = "${tag7358}_peak${peakPnlPct.toInt()}_now${pnlPct.toInt()}",
+                                wallet = wallet,
+                                walletSol = effectiveBalance
+                            )
+                            TradeStateMachine.startCooldown(ts.mint)
+                            continue
+                        }
                         val explicitPeakLockFloor4301 = when {
                             runnerDefer7322 -> Double.NEGATIVE_INFINITY
                             peakPnlPct >= 20.0 -> try {

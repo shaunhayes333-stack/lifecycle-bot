@@ -11829,4 +11829,20 @@ class GoldenTapeRegressionTest {
         assertTrue(phc.contains("reason.removePrefix(\"blocked: \").trimStart()"))
     }
 
+
+    @Test
+    fun V5_0_7358_peak_capture_full_exit_requests_the_sell() {
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val defer = bs.indexOf("RunnerExitProfile7277.deferGiveBackLock(ts.position.tradingMode, peakPnlPct)")
+        val wire = bs.indexOf("val peakExit7358 = peakDecision?.takeIf {")
+        val lock = bs.indexOf("val explicitPeakLockFloor4301 = when {")
+        assertTrue(defer > 0 && wire > defer && lock > wire)
+        assertTrue(bs.contains("if (peakExit7358 != null && !runnerDefer7322 && pnlPct.isFinite()) {"))
+        assertTrue(bs.contains("it.sellFraction >= 0.999 && it.verdict in setOf("))
+        // Give-back reasons carry the moonbag markers; distribution does not.
+        assertTrue(bs.contains("-> \"PEAK_CAPTURE_TRAIL_6394\""))
+        assertTrue(bs.contains("-> \"PEAK_GIVEBACK_SLIP_6394\""))
+        assertTrue(bs.contains("else -> \"PEAK_CAPTURE_DISTRIBUTION_6394\""))
+    }
+
 }

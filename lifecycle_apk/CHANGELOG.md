@@ -4,6 +4,23 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7358] - 2026-09-26 — PEAK CAPTURE SELLS
+
+PeakCaptureAuthority6390 has computed an exit verdict every 500ms since the
+repository's first commit and only ever logged it. 5.0.7354 printed
+TRAIL_EXIT (peak +12.5%, now +6.7%) on a live position every tick with no sell:
+under a +20% peak no other give-back lock arms.
+
+- Full-exit verdicts (TRAIL_EXIT, DISTRIBUTION_EXIT, FULL_CUT at sellFraction 1.0)
+  now call executor.requestSell and start the cooldown, after the paper warmup
+  hold and before the rapid peak lock.
+- A runner the runner profile defers (RunnerExitProfile7277.deferGiveBackLock) is
+  left alone. Give-back reasons carry TRAIL / PEAK_GIVEBACK, so a runner past
+  +100% banks its moonbag (MoonbagRunner7322) instead of closing.
+- Partial verdicts (LADDER_PARTIAL, the 0.5/0.75 cuts) stay advisory: the ladder
+  overlaps the rapid capture tiers and a half cut has no per-position latch.
+- Golden tape: V5_0_7358_peak_capture_full_exit_requests_the_sell.
+
 ## [5.0.7357] - 2026-09-26 — FDG JUDGES THIS CYCLE, AND THE EXECUTING CALL GETS A VERDICT
 
 5.0.7354 live: FDG allow=17 block=485.
