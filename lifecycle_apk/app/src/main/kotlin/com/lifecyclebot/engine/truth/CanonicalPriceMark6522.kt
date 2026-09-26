@@ -174,7 +174,12 @@ object CanonicalPriceMarkRegistry6522 {
         if (mark.purpose != CanonicalMarkPurpose6570.OBSERVATION_SCORING && mintRoute && !sourceGroundedMintIdentity6613) return false
         if (mark.purpose == CanonicalMarkPurpose6570.OBSERVATION_SCORING) {
             val ageMs = System.currentTimeMillis() - mark.timestampMs
-            if (ageMs !in -5_000L..120_000L) return false
+            // V5.0.7341 — was 120_000L, which made 6743's 121-300s observation
+            // routing unreachable: resolveBestSourceEvidence6734 sends exactly
+            // that evidence here and this line refused every one of them.
+            // Observation reads (getFresh6734) already use the 300s window; the
+            // executable slot keeps its strict 120s contract in getFresh6734.
+            if (ageMs !in -5_000L..OBSERVATION_FRESHNESS_WINDOW_MS_6743) return false
             val observationOk = MarkAuthorityIntegrityGate6496.isObservationAuthoritative6570(
                 mint = mark.mint, priceUsd = mark.priceUsd.value.toDouble(), source = mark.source,
                 poolAddress = mark.pairId, fresh = true,
@@ -245,11 +250,16 @@ object CanonicalPriceMarkRegistry6522 {
             mint, price, obs.source, obs.pairId, age in -5_000L..300_000L,
         )
         val liquidityOk = obs.liquidityUsd?.let { it.signum() > 0 } == true
+        // V5.0.7341 — a single unverified fanout answer may feed paper
+        // observation, never the executable slot a live entry reads.
+        val uncorroboratedFanout7341 = obs.source.trim().uppercase()
+            .removePrefix("KEYLESS_") == "FANOUT_UNCORROBORATED_7088"
         val reason = when {
             !exactIdentity -> "IDENTITY_MISMATCH"
             age !in -5_000L..300_000L -> "STALE_SOURCE_MARK"
             !unitOk -> "PRICE_UNIT_DECIMAL_INVALID"
             !sourceOk -> "SOURCE_PROVENANCE_REJECTED"
+            uncorroboratedFanout7341 -> "FANOUT_UNCORROBORATED_OBSERVATION_ONLY_7341"
             !liquidityOk -> "LIQUIDITY_MISSING"
             obs.quoteMint.isBlank() -> "QUOTE_IDENTITY_MISSING"
             else -> "PROMOTED"

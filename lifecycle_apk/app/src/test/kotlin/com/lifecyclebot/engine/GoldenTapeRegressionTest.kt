@@ -11599,4 +11599,17 @@ class GoldenTapeRegressionTest {
         assertTrue(pa.contains("releaseStaleCloseForOpenPosition7340(mode, mint, symbol)"))
     }
 
+    @Test
+    fun V5_0_7341_keyless_fanout_prices_can_price_a_paper_entry() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MarkAuthorityIntegrityGate6496.kt").readText()
+        assertTrue(gate.contains("sourceUpper.startsWith(\"FANOUT_CORROBORATED_7088\") || sourceUpper == \"FANOUT_UNCORROBORATED_7088\""))
+        assertTrue(gate.contains("setOf(\"DEXSCREENER\", \"GECKOTERMINAL\", \"BIRDEYE\", \"JUPITER\", \"PUMPFUN\", \"DEFILLAMA\", \"RAYDIUM\")"))
+        assertFalse(gate.contains("val whitelistedSource = canonicalSource in setOf(\"DEXSCREENER\", \"GECKOTERMINAL\", \"BIRDEYE\", \"JUPITER\", \"PUMPFUN\")"))
+        val reg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPriceMark6522.kt").readText()
+        assertTrue(reg.contains("uncorroboratedFanout7341 -> \"FANOUT_UNCORROBORATED_OBSERVATION_ONLY_7341\""))
+        assertTrue(reg.contains("if (ageMs !in -5_000L..OBSERVATION_FRESHNESS_WINDOW_MS_6743) return false"))
+        assertFalse(reg.contains("if (ageMs !in -5_000L..120_000L) return false"))
+        assertTrue(reg.contains("MARK_FRESHNESS_WINDOW_MS_6739 = 120_000L"))
+    }
+
 }

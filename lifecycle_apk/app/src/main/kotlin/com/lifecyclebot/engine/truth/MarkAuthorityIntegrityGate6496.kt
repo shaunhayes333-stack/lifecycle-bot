@@ -355,8 +355,27 @@ object MarkAuthorityIntegrityGate6496 {
         fresh: Boolean,
     ): Boolean {
         if (mint.isBlank() || poolAddress.isBlank() || !fresh || !priceUsd.isFinite() || priceUsd <= 0.0) return false
-        val sourceUpper = source.trim().uppercase()
+        // V5.0.7341 §THE_FOURTH_ALLOW_LIST_THAT_NEVER_LEARNED_THE_VOCABULARY.
+        //
+        // evaluate() above learned KEYLESS_, DefiLlama and Raydium in 7004 and
+        // the fanout labels in 7148. This observation list is a second copy of
+        // the same allow-list and learned none of it, so the keyless fanout —
+        // the price path the bot leans on while Helius is 429 — could never
+        // publish an observation mark. 5.0.7340: BLUECHIP buyIntent=52
+        // markReady=0 (MARK_CHOKED), EXECUTION_BLOCKED_NO_CANONICAL_MARK_6613
+        // = 1202. A FANOUT_CORROBORATED mark is two independent providers
+        // agreeing, stronger than any single name on this list; the fanout
+        // ladder only contains real providers, and a contested fanout is never
+        // labelled at all. Scanner names (MARKET_HUNT_*, SCANNER_DIRECT_*) are
+        // not price providers and stay refused.
+        val sourceUpper = source.trim().uppercase().removePrefix("KEYLESS_")
+        if (sourceUpper.startsWith("FANOUT_CORROBORATED_7088") || sourceUpper == "FANOUT_UNCORROBORATED_7088") {
+            try { PipelineHealthCollector.labelInc("OBSERVATION_MARK_FANOUT_ADMITTED_7341") } catch (_: Throwable) {}
+            return true
+        }
         val canonicalSource = when {
+            sourceUpper.startsWith("BATCH_6996") || sourceUpper.startsWith("DEFILLAMA") || sourceUpper.startsWith("LLAMA") -> "DEFILLAMA"
+            sourceUpper.startsWith("RAYDIUM") -> "RAYDIUM"
             sourceUpper.startsWith("DEXSCREENER") -> "DEXSCREENER"
             sourceUpper.startsWith("GECKOTERMINAL") || sourceUpper.startsWith("GECKO_TERMINAL") -> "GECKOTERMINAL"
             sourceUpper.startsWith("BIRDEYE") -> "BIRDEYE"
@@ -364,7 +383,7 @@ object MarkAuthorityIntegrityGate6496 {
             sourceUpper.startsWith("PUMPFUN") || sourceUpper.startsWith("PUMP_FUN") || sourceUpper.startsWith("PUMP_PORTAL") -> "PUMPFUN"
             else -> sourceUpper
         }
-        val whitelistedSource = canonicalSource in setOf("DEXSCREENER", "GECKOTERMINAL", "BIRDEYE", "JUPITER", "PUMPFUN")
+        val whitelistedSource = canonicalSource in setOf("DEXSCREENER", "GECKOTERMINAL", "BIRDEYE", "JUPITER", "PUMPFUN", "DEFILLAMA", "RAYDIUM")
         // V5.0.6581 §P0-2 — non-blank poolAddress is sufficient for observation
         // (MINT_ROUTE:xxx tokens still admitted to scoring). Was previously
         // implicitly rejected because the caller often defaulted MINT_ROUTE

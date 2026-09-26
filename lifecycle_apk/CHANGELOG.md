@@ -4,6 +4,25 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7341] - 2026-09-26 — KEYLESS FANOUT PRICES CAN PRICE A PAPER ENTRY
+
+5.0.7340: BLUECHIP buyIntent=52 fdgAllow=25 markReady=0 (MARK_CHOKED), CORE
+377 intents for 2 fills, EXECUTION_BLOCKED_NO_CANONICAL_MARK_6613 = 1202.
+
+- `MarkAuthorityIntegrityGate6496.isObservationAuthoritative6570` was a second
+  copy of the provider allow-list and never learned what `evaluate()` learned in
+  7004/7148. It now strips `KEYLESS_`, accepts DefiLlama/Raydium, and admits the
+  keyless fanout labels (`FANOUT_CORROBORATED_7088_xN`, `FANOUT_UNCORROBORATED_7088`)
+  — the price path the bot runs on while Helius is 429. Scanner names are still
+  refused. Counter: `OBSERVATION_MARK_FANOUT_ADMITTED_7341`.
+- A single uncorroborated fanout answer feeds paper observation only; it is not
+  promoted into the executable slot a live entry reads
+  (`FANOUT_UNCORROBORATED_OBSERVATION_ONLY_7341`).
+- `CanonicalPriceMarkRegistry6522.publish` refused observation marks older than
+  120s, so 6743's 121–300s observation routing could never succeed. It now uses
+  `OBSERVATION_FRESHNESS_WINDOW_MS_6743`, matching `getFresh6734`. The executable
+  120s contract is unchanged.
+
 ## [5.0.7340] - 2026-09-26 — A PROVEN ORACLE REFUSES ON EVIDENCE, NOT ON A HUNCH
 
 5.0.7339 paper, 33 minutes: 17 buys, all QUALITY. The journal had been
