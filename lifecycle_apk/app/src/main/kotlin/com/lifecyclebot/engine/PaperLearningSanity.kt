@@ -34,7 +34,14 @@ object PaperLearningSanity {
         // fantasy rows. NOTE: this is a LEARNING-ELIGIBILITY ceiling only,
         // NOT a trade-sizing cap. Paper sizing still comes from Executor.paperBuy().
         val paperCeiling6366 = (cfg.paperSimulatedBalance * 0.25).coerceIn(2.0, 20.0)
-        return maxOf(legacyMax, paperCeiling6366)
+        // V5.0.7352 — proven lanes now size at 1% of paper EQUITY. A ceiling read
+        // from the configured starting balance (11.76 x 0.25 = 2.94 SOL) would, once
+        // equity passed ~294 SOL, mark those real BUY rows invalid: dropped from
+        // learning and from the latest-BUY map. The ceiling follows equity too.
+        val equityCeiling7352 = try {
+            com.lifecyclebot.engine.truth.ProvenLaneEquityBase7352.paperEquitySol() * 0.25
+        } catch (_: Throwable) { 0.0 }
+        return maxOf(legacyMax, paperCeiling6366, equityCeiling7352)
     }
 
     fun inspect(t: Trade): Verdict {

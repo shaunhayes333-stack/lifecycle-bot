@@ -4,6 +4,31 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7352] - 2026-09-26 — A PROVEN LANE SIZES WITH THE ACCOUNT
+
+Operator (option B): "grow the base with equity."
+
+5.0.7351 at 25 minutes: paper equity 70.7 SOL, cash 39.8 SOL idle, 99 of 100 slots
+full, and almost every entry 0.107 SOL — the same as at 11 SOL equity. Paper
+sizing read cash, never equity; with 70+ positions open the inventory-pressure
+multiplier (x0.20, applied on each of three resolver passes) pushed nearly every
+request under `FeeAwareSizeFloor7277` (0.1073) and it was promoted back to that
+floor. The runner-compounding ladder's `recommendedSizeSol` is telemetry only.
+
+- New `truth/ProvenLaneEquityBase7352`: for a lane with >= 30 clean paper terminal
+  closes, net-positive SOL and a positive mean, the base is 1% of paper equity
+  (cash + open cost basis, never marks). Other lanes are unchanged.
+- `Executor.clampPaperTradeSol` (every paper meme entry passes through it) uses
+  that base as the resolver's executable minimum, never above the ticket's lane
+  cap — on the ticket path the realistic market-depth / curve-exit cap — so real
+  liquidity, available cash, the exit-throughput block and the collapsed-conviction
+  refusal all still apply. `PAPER_PROVEN_LANE_FLOOR_RAISED_7352`.
+- `PaperLearningSanity.configuredMaxTradeSol` also follows equity (25%), so large
+  proven-lane BUY rows are not quarantined from learning or from the latest-BUY map.
+
+Fresh bonding-curve launches stay small: their curve-exit cap (~1% of market cap)
+is a real depth limit and is kept.
+
 ## [5.0.7351] - 2026-09-26 — A LONG-HELD RUNNER IS NOT AN ORPHAN
 
 Operator: "one just ran 400%, went basis wait, then got dumped from the open

@@ -24202,9 +24202,28 @@ class Executor(
         val laneCap = (maxOverrideSol?.takeIf { it.isFinite() && it > 0.0 } ?: maxConfiguredPaperTradeSol()).coerceAtLeast(0.0)
         val lane6510 = TradeIdentityManager.get(mint)?.executionLane?.takeIf { it.isNotBlank() } ?: source
         val cash6510 = try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.cashSol() } catch (_: Throwable) { 0.0 }
+        // V5.0.7352 — a PROVEN lane's executable floor is 1% of paper equity
+        // (see ProvenLaneEquityBase7352), never above this ticket's lane cap, which
+        // on the ticket path is the realistic market-depth / curve-exit cap. The
+        // resolver still requires cash to fund it and still refuses a collapsed
+        // conviction. Unproven lanes keep the existing floor.
+        val provenBase7352 = try {
+            com.lifecyclebot.engine.truth.ProvenLaneEquityBase7352.baseSolFor(lane6510)
+        } catch (_: Throwable) { null }
+        val laneMin7352 = if (provenBase7352 != null && provenBase7352 > minSol && laneCap > minSol) {
+            try {
+                PipelineHealthCollector.labelInc("PAPER_PROVEN_LANE_FLOOR_RAISED_7352")
+                ForensicLogger.lifecycle(
+                    "PAPER_PROVEN_LANE_FLOOR_RAISED_7352",
+                    "mint=${mint.take(10)} symbol=$symbol lane=$lane6510 base=${"%.4f".format(provenBase7352)} " +
+                        "laneCap=${"%.4f".format(laneCap)} requested=${"%.4f".format(requested)}",
+                )
+            } catch (_: Throwable) {}
+            maxOf(minSol, minOf(provenBase7352, laneCap))
+        } else minSol
         val resolved6510 = com.lifecyclebot.engine.truth.OrderSizeResolver6441.resolve(
             requestedSol = requested, laneName = lane6510, walletSol = cash6510, paperMode = true,
-            laneRiskCapSol = laneCap, laneMinExecutableSol = minSol,
+            laneRiskCapSol = laneCap, laneMinExecutableSol = laneMin7352,
         )
         try {
             ForensicLogger.lifecycle("PAPER_SIZE_CANONICAL_RESOLVER_6510", "mint=${mint.take(10)} symbol=$symbol source=$source ${resolved6510.trace()}")

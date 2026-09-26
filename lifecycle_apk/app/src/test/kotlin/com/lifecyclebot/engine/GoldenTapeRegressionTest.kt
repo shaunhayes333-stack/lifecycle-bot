@@ -11746,4 +11746,16 @@ class GoldenTapeRegressionTest {
         assertFalse(m.contains("TradeHistoryStore.getLatestBuyByMintSnapshot(2_000)"))
     }
 
+    @Test
+    fun V5_0_7352_proven_lane_sizes_with_equity() {
+        val b = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ProvenLaneEquityBase7352.kt").readText()
+        assertTrue(b.contains("const val EQUITY_FRACTION = 0.01"))
+        assertTrue(b.contains("row.trades >= MIN_PROVEN_CLOSES && row.totalSolPnl > 0.0 && row.meanPnlPct > 0.0"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("maxOf(minSol, minOf(provenBase7352, laneCap))"))
+        assertTrue(ex.contains("laneRiskCapSol = laneCap, laneMinExecutableSol = laneMin7352,"))
+        val ps = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperLearningSanity.kt").readText()
+        assertTrue(ps.contains("return maxOf(legacyMax, paperCeiling6366, equityCeiling7352)"))
+    }
+
 }
