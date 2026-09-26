@@ -11571,4 +11571,12 @@ class GoldenTapeRegressionTest {
         assertTrue(th.contains("val snapshot7337 = synchronized(lock) { ArrayList(trades) }"))
     }
 
+    @Test
+    fun V5_0_7338_paper_takes_the_profit_it_announces() {
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("// V5.0.7338 — paper takes the same capture as live."))
+        assertFalse(bs.contains("checking dynamic partial/profit-lock first"))
+        assertTrue(bs.contains("if (ts.position.isPaperPosition) executor.runManageOnly(ts, wallet, effectiveBalance)"))
+    }
+
 }

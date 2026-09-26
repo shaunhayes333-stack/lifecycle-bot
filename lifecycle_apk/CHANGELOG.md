@@ -4,6 +4,17 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7338] - 2026-09-26 — PAPER TAKES THE PROFIT IT ANNOUNCES
+
+Operator: "it's ignoring its own thoughts" — the decision log read
+"RAPID TP: HANS +93% — checking dynamic partial/profit-lock first" every
+500ms and nothing sold. In paper the 500ms monitor only delegated to
+manage-only; the capture slice (one 25% slice per tier crossed, moonbag kept)
+ran for live positions only.
+- BotService rapid take-profit: paper and live both take the
+  MoonbagRunner7322 capture slice; once a tier is banked, paper hands the rest
+  to manage-only as before.
+
 ## [5.0.7337] - 2026-09-26 — MOONSHOT HUNTS ITS OWN $10K-$5M BAND AGAIN
 
 Operator: restore MOONSHOT's old entry band.

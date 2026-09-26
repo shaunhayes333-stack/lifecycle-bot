@@ -10800,7 +10800,12 @@ class BotService : Service() {
                                     } catch (_: Throwable) { true }  // never block on verifier failure
                                 } else true
                                 if (priceReal) {
-                                    if (!ts.position.isPaperPosition) {
+                                    // V5.0.7338 — paper takes the same capture as live. Paper
+                                    // only delegated to manage-only, whose partial / profit-lock
+                                    // path is gated separately, so "RAPID TP: HANS +93%" was
+                                    // logged every 500ms and nothing sold. Paper learns what live
+                                    // will do: one 25% slice per tier crossed, never the whole bag.
+                                    if (ts.position.isOpen) {
                                         // V5.0.4301 — live rapid profit capture must ACT, not
                                         // delegate and wait. Paper learning looked good because it
                                         // captured/managed many runners; live missed Pride-style
@@ -10830,11 +10835,9 @@ class BotService : Service() {
                                         TradeStateMachine.startCooldown(ts.mint)
                                         continue
                                         }
-                                    } else {
-                                        ErrorLogger.info("BotService",
-                                            "🎯 RAPID TAKE_PROFIT_DELEGATE: ${ts.symbol} pnl=${pnlPct.toInt()}% ≥ tp=${tpPct.toInt()}% — manage-only partial/profit-lock first")
-                                        addLog("🎯 RAPID TP: ${ts.symbol} +${pnlPct.toInt()}% — checking dynamic partial/profit-lock first", ts.mint)
-                                        executor.runManageOnly(ts, wallet, effectiveBalance)
+                                        // Tier already banked: the lane's own exits (trail,
+                                        // profit lock, moonbag) run the rest of the position.
+                                        if (ts.position.isPaperPosition) executor.runManageOnly(ts, wallet, effectiveBalance)
                                     }
                                 }
                             }
