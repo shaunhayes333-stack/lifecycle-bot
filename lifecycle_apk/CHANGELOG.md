@@ -4,6 +4,22 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7339] - 2026-09-26 — A REFUSED DEAD-TOKEN EXIT NO LONGER LOCKS OUT THE STOP
+
+Operator: "tokens aren't selling". 5.0.7336: 40 sell attempts, 40
+PAPER_SELL_DEAD_TOKEN_REFUSED_MARK_FOUND_7274, 40 PAPER_CLOSE_FAILED, 0 sells;
+Pablo pepe (EXPRESS, -12%) held 563 minutes through 132 stop triggers.
+DEAD_TOKEN_NO_PRICE_EXIT fired whenever getActualPrice fell back to entry;
+the 7274 door found a real price, refused, and marked the mint FAILED, which
+blocked every stop exit for 20s; when the latch expired the dead-token exit
+fired first again.
+
+- Executor.paperSell 7274 door: releases the close request instead of marking
+  it FAILED, and keeps the observed price as the position's route price so the
+  entry fallback (and the dead-token re-fire) stops.
+- PaperPositionCloseAuthority.preSellGuard: stop / hard-floor / catastrophe
+  exits are never held behind a FAILED latch.
+
 ## [5.0.7338] - 2026-09-26 — PAPER TAKES THE PROFIT IT ANNOUNCES
 
 Operator: "it's ignoring its own thoughts" — the decision log read

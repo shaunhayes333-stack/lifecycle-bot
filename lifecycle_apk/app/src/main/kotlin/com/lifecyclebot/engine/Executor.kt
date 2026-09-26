@@ -24457,7 +24457,18 @@ class Executor(
                             )
                         }
                     } catch (_: Throwable) {}
-                    PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_DEAD_TOKEN_MARK_FOUND_7274:$reason")
+                    // V5.0.7339 — the refusal armed the 20s FAILED latch, which
+                    // then blocked the position's real stop exits; when it expired
+                    // the dead-token exit fired first again and re-armed it. Pablo
+                    // pepe (EXPRESS, -12%) sat 563 minutes with 132 stop triggers.
+                    // Release the request instead, and keep the observed price as
+                    // the route price so getActualPrice stops falling back to entry
+                    // (which is what re-fired DEAD_TOKEN_NO_PRICE).
+                    try {
+                        pos.lastRoutePrice = px7274
+                        pos.lastRoutePriceTs = System.currentTimeMillis()
+                    } catch (_: Throwable) {}
+                    PaperPositionCloseAuthority.releaseDeferredRequest7330("PAPER", ts.mint)
                     return SellResult.FAILED_RETRYABLE
                 }
                 try {

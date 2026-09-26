@@ -112,7 +112,11 @@ object PaperPositionCloseAuthority {
             }
 
             if (st.state == State.FAILED || st.state == State.REJECTED) {
-                if (now - st.updatedAtMs >= FAILED_RETRY_TTL_MS) {
+                // V5.0.7339 — a protective exit (hard floor, catastrophe, stop)
+                // is never held behind a FAILED latch another exit left behind.
+                if (now - st.updatedAtMs >= FAILED_RETRY_TTL_MS || isEmergencyRetryReason6702(reason) ||
+                    reason.uppercase().let { it.contains("STOP") || it.contains("STRICT_SL") }
+                ) {
                     try {
                         PipelineHealthCollector.labelInc("PAPER_CLOSE_RETRY_ATTEMPTED_6547")
                         ForensicLogger.lifecycle(

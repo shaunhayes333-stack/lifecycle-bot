@@ -10178,7 +10178,8 @@ class GoldenTapeRegressionTest {
         assertTrue(exec.contains("private fun observeMarkOnDemand7274(ts: TokenState): Pair<Double, String>? {"))
         assertTrue(exec.contains("if (fanout.sourceCount >= 2 && !fanout.corroborated) return null"))
         assertTrue(exec.contains("if (pos.isPaperPosition && reason.contains(\"DEAD_TOKEN_NO_PRICE\", ignoreCase = true)) {"))
-        assertTrue(exec.contains("PAPER_SELL_DEAD_TOKEN_MARK_FOUND_7274:\$reason"))
+        // V5.0.7339 — the refusal releases the request instead of marking FAILED.
+        assertTrue(exec.contains("PaperPositionCloseAuthority.releaseDeferredRequest7330(\"PAPER\", ts.mint)"))
         assertTrue(exec.contains("EconomicPurityGate6504.markUntrusted(ts.mint, \"DEAD_TOKEN_UNOBSERVED_FILL_7274\")"))
         val doorIdx = exec.indexOf("PAPER_SELL_DEAD_TOKEN_UNOBSERVED_FILL_7274\")")
         val stampIdx = exec.indexOf("stampUnifiedExitForClose6920(ts, reason)")
@@ -11577,6 +11578,15 @@ class GoldenTapeRegressionTest {
         assertTrue(bs.contains("// V5.0.7338 — paper takes the same capture as live."))
         assertFalse(bs.contains("checking dynamic partial/profit-lock first"))
         assertTrue(bs.contains("if (ts.position.isPaperPosition) executor.runManageOnly(ts, wallet, effectiveBalance)"))
+    }
+
+    @Test
+    fun V5_0_7339_a_refused_dead_token_exit_no_longer_locks_out_the_stop() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertFalse(ex.contains("PAPER_SELL_DEAD_TOKEN_MARK_FOUND_7274:\$reason"))
+        assertTrue(ex.contains("pos.lastRoutePrice = px7274"))
+        val pa = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").readText()
+        assertTrue(pa.contains("if (now - st.updatedAtMs >= FAILED_RETRY_TTL_MS || isEmergencyRetryReason6702(reason) ||"))
     }
 
 }
