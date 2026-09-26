@@ -4,6 +4,25 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7351] - 2026-09-26 — A LONG-HELD RUNNER IS NOT AN ORPHAN
+
+Operator: "one just ran 400%, went basis wait, then got dumped from the open
+positions. no sol back to the paper wallet, no sale, nothing."
+
+- `BotService.currentPaperOpenMintsFromLedger` (the 6373c ghost purge, run on every
+  paper slot-health rebuild) wiped any open paper position whose mint was not in
+  `TradeHistoryStore.getLatestBuyByMintSnapshot()`: position reset, persistence
+  removed, close ledger stamped — no sale, no proceeds, and the cost left in the
+  paper ledger as open. That map scanned only the newest 2,000 of up to 10,000
+  in-memory journal rows; at ~1,100 rows per 30 minutes a position held about an
+  hour lost its BUY row from it and was purged. Runners are the longest holds.
+  (`PAPER_GHOST_PURGED_6373C_NO_BUY_ROW` = 13 on 5.0.7340, 16 on 5.0.7347.)
+  - The latest-BUY map now scans the whole in-memory journal by default (cached per
+    journal revision since 7347). The UI's sub-trader row recovery uses the same.
+  - The purge never touches a position `CanonicalPositionAuthority6441` holds OPEN
+    (the declared source of truth for open inventory); an unknown canonical state
+    also keeps it. `PAPER_GHOST_PURGE_REFUSED_CANONICAL_OPEN_7351`.
+
 ## [5.0.7350] - 2026-09-26 — THE LEARNERS SEE A RUNNER AT ITS SIZE
 
 The rest of the 7349 trace: after the books, the learners themselves shrank or

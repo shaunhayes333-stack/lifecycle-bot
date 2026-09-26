@@ -11734,4 +11734,16 @@ class GoldenTapeRegressionTest {
         assertTrue(src("StrategyTruthLedger.kt").contains("TradeHistoryStore.normalizeTradeModeName(entryLane7349 ?: t.tradingMode)"))
     }
 
+    @Test
+    fun V5_0_7351_long_held_runner_is_not_an_orphan() {
+        val h = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        assertTrue(h.contains("fun getLatestBuyByMintSnapshot(limit: Int = MAX_IN_MEMORY_TRADES): Map<String, Trade> {"))
+        assertFalse(h.contains("fun getLatestBuyByMintSnapshot(limit: Int = 2_000)"))
+        val b = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(b.contains("val canonicalOpen7351 = canonicalOpenPaperMints7351?.contains(ts.mint) ?: true"))
+        assertTrue(b.contains("val ghost6373c = noBuyRow6373c && !canonicalOpen7351"))
+        val m = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertFalse(m.contains("TradeHistoryStore.getLatestBuyByMintSnapshot(2_000)"))
+    }
+
 }

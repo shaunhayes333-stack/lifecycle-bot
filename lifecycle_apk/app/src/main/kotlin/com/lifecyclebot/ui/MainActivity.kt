@@ -5355,7 +5355,7 @@ for legal compliance.
             val cached = latestBuyByMint
             if (cached != null) return cached[mint]
             val built = try {
-                com.lifecyclebot.engine.TradeHistoryStore.getLatestBuyByMintSnapshot(2_000)
+                com.lifecyclebot.engine.TradeHistoryStore.getLatestBuyByMintSnapshot() // V5.0.7351 — whole journal, not the newest 2,000 rows
             } catch (_: Throwable) { emptyMap() }
             latestBuyByMint = built
             return built[mint]

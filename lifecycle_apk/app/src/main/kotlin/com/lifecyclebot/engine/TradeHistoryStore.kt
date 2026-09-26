@@ -1392,7 +1392,15 @@ object TradeHistoryStore {
         )
 
     /** Latest BUY row per mint, bounded newest-first so MainActivity never copies the whole journal. */
-    fun getLatestBuyByMintSnapshot(limit: Int = 2_000): Map<String, Trade> {
+    // V5.0.7351 §A_LONG_HOLD_IS_NOT_AN_ORPHAN. The default scanned only the
+    // newest 2,000 of up to MAX_IN_MEMORY_TRADES journal rows. At ~1,100 rows per
+    // 30 minutes, a paper position held about an hour lost its BUY row from this
+    // map, and the 6373c ghost purge (BotService.currentPaperOpenMintsFromLedger)
+    // then wiped it as an orphan: no sale, no proceeds, its cost left in the paper
+    // ledger as open forever. Runners are the longest holds, so they went first.
+    // The whole in-memory journal is scanned; since 7347 the result is reused
+    // until the journal changes, so this is paid once per revision.
+    fun getLatestBuyByMintSnapshot(limit: Int = MAX_IN_MEMORY_TRADES): Map<String, Trade> {
         val cap = limit.coerceAtLeast(1)
         val now = System.currentTimeMillis()
         val onMain = try { Looper.myLooper() == Looper.getMainLooper() } catch (_: Throwable) { false }

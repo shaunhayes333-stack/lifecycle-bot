@@ -21768,6 +21768,15 @@ if (hotExitHandledSweep) {
             val recentBuyMintsForGhost6373c = try {
                 com.lifecyclebot.engine.TradeHistoryStore.getLatestBuyByMintSnapshot().keys
             } catch (_: Throwable) { emptySet<String>() }
+            // V5.0.7351 — the canonical authority is the source of truth for what
+            // is open. A paper position it holds OPEN is never an orphan, whatever
+            // the journal view says: wiping it destroyed the position without a
+            // sale or proceeds and left its cost stranded in the ledger.
+            val canonicalOpenPaperMints7351 = try {
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                    .filter { it.mode.equals("paper", true) }
+                    .mapTo(HashSet()) { it.mint }
+            } catch (_: Throwable) { null }
             synchronized(status.tokens) {
                 status.tokens.values.forEach { ts ->
                     val p = ts.position
@@ -21790,7 +21799,20 @@ if (hotExitHandledSweep) {
                             // do not close-mark. Only rows with NO BUY row anywhere are
                             // truly orphaned (crashed session / persistence-only). Empty
                             // recentBuyMintsForGhost6373c fails safe: keep the position.
-                            val ghost6373c = recentBuyMintsForGhost6373c.isNotEmpty() && ts.mint !in recentBuyMintsForGhost6373c
+                            val noBuyRow6373c = recentBuyMintsForGhost6373c.isNotEmpty() && ts.mint !in recentBuyMintsForGhost6373c
+                            // Unknown canonical state (null) fails safe: keep the position.
+                            val canonicalOpen7351 = canonicalOpenPaperMints7351?.contains(ts.mint) ?: true
+                            if (noBuyRow6373c && canonicalOpen7351) {
+                                try {
+                                    PipelineHealthCollector.labelInc("PAPER_GHOST_PURGE_REFUSED_CANONICAL_OPEN_7351")
+                                    ForensicLogger.lifecycle(
+                                        "PAPER_GHOST_PURGE_REFUSED_CANONICAL_OPEN_7351",
+                                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} qty=${p.qtyToken} cost=${p.costSol} " +
+                                            "positionId=${p.positionId.take(24)} action=keep_canonical_open_position",
+                                    )
+                                } catch (_: Throwable) {}
+                            }
+                            val ghost6373c = noBuyRow6373c && !canonicalOpen7351
                             if (ghost6373c) {
                                 try { ts.position = com.lifecyclebot.data.Position() } catch (_: Throwable) {}
                                 try { com.lifecyclebot.engine.PositionPersistence.removePosition(ts.mint) } catch (_: Throwable) {}
