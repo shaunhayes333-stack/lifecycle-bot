@@ -1041,8 +1041,13 @@ object ToolkitSignalSheet {
 
     fun specialistCapitalReport6599(): String = buildString {
         appendLine("===== MEME SPECIALIST CAPITAL =====")
-        val positions = try { com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions() } catch (_: Throwable) { emptyList() }
         val paperMode6686 = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }
+        // V5.0.7371 — capital used is measured against this mode's cash only; paper
+        // positions showed 0.64/0.67/0.48 SOL used against a 0.31 SOL live wallet.
+        val positions = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                .filter { it.mode.equals(if (paperMode6686) "paper" else "live", true) }
+        } catch (_: Throwable) { emptyList() }
         val capital = if (paperMode6686) try { com.lifecyclebot.engine.truth.PaperCapitalAuthority6577.snapshot() } catch (_: Throwable) { null } else null
         val sharedCash = if (paperMode6686) capital?.availableCashSol ?: 0.0 else try { BotService.status.walletSol.coerceAtLeast(0.0) } catch (_: Throwable) { 0.0 }
         val sharedEquity = if (paperMode6686) capital?.totalEquitySol ?: sharedCash else sharedCash

@@ -1707,6 +1707,11 @@ class BotService : Service() {
                     val curWallet = WalletManager.getWallet()
                     val curSol = status.getEffectiveBalance(cfg.paperMode)
                     val openTokens = canonicalExitTokenSnapshot6512()
+                    // V5.0.7371 — the loop is alive with nothing in its scope. The
+                    // watchdog counts open positions across modes, so with only
+                    // paper positions open every cycle over 10s read as a dead
+                    // hot-exit: 6 false EXIT_COORDINATOR_STALE_RESETs on 5.0.7368.
+                    if (openTokens.isEmpty()) lastTickExitSweepMs = System.currentTimeMillis()
                     if (openTokens.isNotEmpty()) {
                         // V5.9.1196 — make hotExit the authoritative active
                         // exit-maintenance heartbeat. 3163 showed POST_SUPERVISOR

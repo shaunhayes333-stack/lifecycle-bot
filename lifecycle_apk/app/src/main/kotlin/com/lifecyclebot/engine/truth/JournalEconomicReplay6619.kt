@@ -838,8 +838,15 @@ object JournalEconomicReplay6619 {
                     "JournalEconomicReplay6619.orphanRefund6662",
                 ) == PaperEconomicAtomicCommit6632.Verdict.DUPLICATE_IGNORED
             ) {
-                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ATOMIC_COMMIT_REPAIR_SKIPPED_ALREADY_STAMPED_7050") } catch (_: Throwable) {}
-                return@forEach
+                // V5.0.7371 — the stamp is taken before the (asynchronous) journal
+                // write, so a write that never landed left the refund marked done
+                // and the lot journal-open forever (1944 skips on 5.0.7368). Only a
+                // durably written refund is skipped; an unlanded one is written again.
+                if (TradeHistoryStore.isDurableEconomicEvent7371(eventId)) {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ATOMIC_COMMIT_REPAIR_SKIPPED_ALREADY_STAMPED_7050") } catch (_: Throwable) {}
+                    return@forEach
+                }
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("JOURNAL_ORPHAN_REFUND_REWRITE_UNLANDED_7371") } catch (_: Throwable) {}
             }
             TradeHistoryStore.recordTrade(Trade(
                 side = "SELL", mode = "paper", sol = basis,

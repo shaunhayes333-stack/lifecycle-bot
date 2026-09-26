@@ -4,6 +4,35 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7371] - 2026-09-26 — THE REST OF THE 5.0.7368 LOG
+
+Operator: "what else in the log needs fixing?" Each item was checked against the source.
+
+- **Live buys deferred on a stale price (36 of 152).** The 7361 re-price only took
+  a price two feeds agreed on; most marks are single-source (3314). A single fresh
+  feed within 10% of the intake price is now accepted — two observations still agree.
+- **Stop exits filed as NORMAL_STOP.** requestSell had its own classifier that
+  missed STRICT_SL / STOP_LOSS / PROTECTIVE_EXIT, so 25-52 s stop latencies never
+  counted against the hard-stop target. It now uses ExitTelemetryStamper6732.classify.
+- **TOKEN_MAP_INCOMPLETE booked as a terminal failure (16).** The route lookup is
+  started asynchronously and checked on the next line. A pending route now defers
+  the buy (lease and mint claim released) up to three times in five minutes.
+- **Helius marked dead for the session.** The key probe treated a 5xx/599/timeout
+  as a dead key for 30 min (session was 21), so creator lookups failed 1630/1630.
+  Transient failures now bench it for 2 min; 401/403/429 keep 30. The preflight
+  HELIUS check reads helius_rpc, the host the trade path uses.
+- **False exit-coordinator resets (6).** The watchdog counts paper positions too;
+  with no live position the hot-exit heartbeat never moved. It now beats while
+  the loop is alive with nothing in scope.
+- **Paper refund loop (1944 skips).** The refund was stamped done before its
+  asynchronous journal write; an unlanded write stayed "done" forever. Only a
+  durably written refund is skipped now; an unlanded one is written again.
+- **Counters:** pre-trade blocks were logged as LIVE_BUY_FAIL twice; one live buy or
+  sell counted up to four times as "ok"; the lane capital report included paper
+  positions against the live wallet. All three fixed.
+
+---
+
 ## [5.0.7370] - 2026-09-26 — THE BOT'S OWN TOKENS ARE ITS OWN POSITIONS AGAIN
 
 Operator: the two RECOVERED_ tokens in the wallet (6eftxV, TNSRxc) "are from the bot!"

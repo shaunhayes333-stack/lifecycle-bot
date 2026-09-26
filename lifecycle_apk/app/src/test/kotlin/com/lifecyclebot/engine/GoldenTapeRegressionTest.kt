@@ -11887,7 +11887,7 @@ class GoldenTapeRegressionTest {
         val reprice = ex.indexOf("ParallelMarkFanout7088.resolve7088(listOf(ts.mint))[ts.mint]", fn)
         assertTrue(fn > 0 && reprice > fn && defer > reprice)
         // Strict: corroborated only, observed liquidity only, rebuilt through the same rules.
-        assertTrue(ex.contains("if (fan7361 != null && fan7361.corroborated && fan7361.priceUsd.isFinite() && fan7361.priceUsd > 0.0) {"))
+        assertTrue(ex.contains("if (fan7361 != null && (fan7361.corroborated || singleAgrees7371) && fan7361.priceUsd.isFinite() && fan7361.priceUsd > 0.0) {"))
         assertTrue(ex.contains("if (!RuntimeModeAuthority.isPaper() && ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0) {"))
         assertTrue(ex.contains("val repriced7361 = mintEntryMarketSnapshot(ts)"))
         assertTrue(ex.contains("private val ENTRY_REPRICE_COOLDOWN_MS_7361 = 30_000L"))
@@ -12036,5 +12036,27 @@ class GoldenTapeRegressionTest {
         val tr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
         assertTrue(tr.contains("fun adoptBotLineage7370("))
         assertTrue(tr.contains("p.source = PositionSource.TX_PARSE"))
+    }
+
+
+    @Test
+    fun V5_0_7371_snapshot_faults_entry_reprice_exit_class_token_map_helius_watchdog_refund_counters() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("kotlin.math.abs(fan7361.priceUsd - intakePx7371) / intakePx7371 <= 0.10"))
+        assertTrue(ex.contains("val cls6752 = com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.classify(requestReason)"))
+        assertTrue(ex.contains("if (deferPendingTokenMap7371(\"pre_plan\")) return false"))
+        assertTrue(ex.contains("if (deferPendingTokenMap7371(\"late\")) return false"))
+        assertTrue(ex.contains("ExecutionAttemptLease.releaseNonTerminal(buyLease.key, \"BUY\", ts.mint, ts.symbol, \"TOKEN_MAP_PENDING_DEFERRED_7371\")"))
+        assertEquals(com.lifecyclebot.engine.truth.StopLatencyClasses6464.Class.HARD_STOP,
+            com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.classify("STRICT_SL_-8"))
+        val kv = java.io.File("src/main/kotlin/com/lifecyclebot/engine/KeyValidator.kt").readText()
+        assertTrue(kv.contains("private const val TRANSIENT_DEAD_TTL_MS_7371 = 2 * 60_000L"))
+        assertTrue(kv.contains("if (!v.isLive && age < v.deadTtlMs) return false"))
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("if (openTokens.isEmpty()) lastTickExitSweepMs = System.currentTimeMillis()"))
+        val rep = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt").readText()
+        assertTrue(rep.contains("if (TradeHistoryStore.isDurableEconomicEvent7371(eventId)) {"))
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue(phc.contains("if (firstOkForMint7371(execOkSeenSell7371, fields)) execLiveSellOk.incrementAndGet()"))
     }
 }

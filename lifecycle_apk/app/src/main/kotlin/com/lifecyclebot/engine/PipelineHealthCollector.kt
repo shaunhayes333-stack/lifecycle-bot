@@ -607,6 +607,18 @@ object PipelineHealthCollector {
         appendEvent(Event(System.currentTimeMillis(), "EXEC/$action", symbol, fields.take(220)))
     }
 
+    private val execOkSeenBuy7371 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val execOkSeenSell7371 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val mintField7371 = Regex("mint=([A-Za-z0-9]+)")
+
+    private fun firstOkForMint7371(seen: java.util.concurrent.ConcurrentHashMap<String, Long>, fields: String): Boolean {
+        val mint = mintField7371.find(fields)?.groupValues?.get(1) ?: return true
+        val now = System.currentTimeMillis()
+        val prev = seen.put(mint, now)
+        if (seen.size > 2_000) seen.clear()
+        return prev == null || now - prev > 120_000L
+    }
+
     fun onLifecycle(event: String, fields: String) {
         if (!attached) return
         bump(labelCounts, "LIFECYCLE/$event")
@@ -624,8 +636,12 @@ object PipelineHealthCollector {
         // execution in the per-mode block.
         when (event) {
             "MEME_LIVE_EXEC_ENTRY" -> execLiveAttempt.incrementAndGet()
-            "LIVE_BUY_LANDED", "BUY_CONFIRMED", "LIVE_POSITION_CONFIRMED_FROM_WALLET", "LIVE_POSITION_CONFIRMED_FROM_SIGNATURE" -> execLiveBuyOk.incrementAndGet()
-            "SELL_FINALIZED_ONCE", "SELL_FINALIZED", "EXEC_LIVE_SELL_ZERO_BALANCE_CONFIRMED", "SELL_SIG_CONFIRMED" -> execLiveSellOk.incrementAndGet()
+            // V5.0.7371 — each landing emits up to four of these events; count one per
+            // mint per two minutes (5.0.7368 showed SELL ok=15 for 3 sells, BUY ok=8 for 4).
+            "LIVE_BUY_LANDED", "BUY_CONFIRMED", "LIVE_POSITION_CONFIRMED_FROM_WALLET", "LIVE_POSITION_CONFIRMED_FROM_SIGNATURE" ->
+                if (firstOkForMint7371(execOkSeenBuy7371, fields)) execLiveBuyOk.incrementAndGet()
+            "SELL_FINALIZED_ONCE", "SELL_FINALIZED", "EXEC_LIVE_SELL_ZERO_BALANCE_CONFIRMED", "SELL_SIG_CONFIRMED" ->
+                if (firstOkForMint7371(execOkSeenSell7371, fields)) execLiveSellOk.incrementAndGet()
             "SELL_FINALITY_PENDING_RETRY", "SELL_VERIFY_INCONCLUSIVE_PENDING" -> execLiveSellPendingFinality.incrementAndGet()
         }
         // V5.9.1046 — V3 reject reason histogram. Extract the normalised

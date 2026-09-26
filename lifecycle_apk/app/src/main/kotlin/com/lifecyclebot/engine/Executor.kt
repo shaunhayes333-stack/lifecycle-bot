@@ -15089,6 +15089,9 @@ class Executor(
         return changed
     }
 
+    /** V5.0.7371 — recent pending-route deferrals per mint (bounded retries). */
+    private val tokenMapDeferrals7371 = java.util.concurrent.ConcurrentHashMap<String, List<Long>>()
+
     /** V5.0.7361 — per-mint cooldown for the entry re-price fan-out. */
     private val entryRepriceLastMs7361 = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val ENTRY_REPRICE_COOLDOWN_MS_7361 = 30_000L
@@ -15129,12 +15132,25 @@ class Executor(
                 val fan7361 = try {
                     com.lifecyclebot.network.ParallelMarkFanout7088.resolve7088(listOf(ts.mint))[ts.mint]
                 } catch (_: Throwable) { null }
-                if (fan7361 != null && fan7361.corroborated && fan7361.priceUsd.isFinite() && fan7361.priceUsd > 0.0) {
+                // V5.0.7371 — a single fresh feed is accepted when it lands within 10%
+                // of the intake price: two independent observations still agree. Most
+                // marks are single-source (5.0.7368 singleSource=3314), so requiring
+                // two live feeds left 36 of 152 live buys deferred until the window lapsed.
+                val intakePx7371 = ts.lastPrice
+                val singleAgrees7371 = fan7361 != null && !fan7361.corroborated &&
+                    fan7361.priceUsd.isFinite() && fan7361.priceUsd > 0.0 &&
+                    intakePx7371.isFinite() && intakePx7371 > 0.0 &&
+                    kotlin.math.abs(fan7361.priceUsd - intakePx7371) / intakePx7371 <= 0.10
+                if (fan7361 != null && (fan7361.corroborated || singleAgrees7371) && fan7361.priceUsd.isFinite() && fan7361.priceUsd > 0.0) {
                     val stamp7361 = System.currentTimeMillis()
+                    if (singleAgrees7371) {
+                        try { PipelineHealthCollector.labelInc("ENTRY_SNAPSHOT_SINGLE_FEED_AGREES_INTAKE_7371") } catch (_: Throwable) {}
+                    }
                     synchronized(ts) {
                         ts.lastPrice = fan7361.priceUsd
                         ts.lastPriceUpdate = stamp7361
-                        ts.lastPriceSource = "FANOUT_CORROBORATED_7088_x${fan7361.agreeingCount}"
+                        ts.lastPriceSource = if (singleAgrees7371) "FANOUT_SINGLE_AGREES_INTAKE_7371"
+                            else "FANOUT_CORROBORATED_7088_x${fan7361.agreeingCount}"
                     }
                     val repriced7361 = mintEntryMarketSnapshot(ts)
                     if (repriced7361 != null) {
@@ -19673,10 +19689,36 @@ class Executor(
             if (!tm.dexRouteOk && !tm.pumpFunExecutable && tm.expectedOutAmount <= 0.0) miss += "executableQuote"
             return miss.distinct().joinToString(",").ifBlank { "route_not_executable" }
         }
+        // V5.0.7371 — a route lookup that is still resolving is not a failed route.
+        // ensureDiscoveryTokenMap starts it asynchronously and the check ran on the
+        // next line, so a fresh candidate read PENDING and was booked as a terminal
+        // BUY failure (TOKEN_MAP_INCOMPLETE = 16 on 5.0.7368). Pending routes defer
+        // like the entry-snapshot path; after three deferrals in five minutes the
+        // old terminal failure applies.
+        fun deferPendingTokenMap7371(stage: String): Boolean {
+            val status = ts.tokenMap.routeStatus
+            val pending = status.isBlank() || status.contains("PENDING", ignoreCase = true)
+            if (!pending) return false
+            val now = System.currentTimeMillis()
+            val prior = tokenMapDeferrals7371[ts.mint]?.filter { now - it < 5 * 60_000L }.orEmpty()
+            if (prior.size >= 3) return false
+            if (tokenMapDeferrals7371.size > 2_000) tokenMapDeferrals7371.clear()
+            tokenMapDeferrals7371[ts.mint] = prior + now
+            liveBuyDeferred(ts, sol, "TOKEN_MAP_PENDING_DEFERRED_7371", "stage=$stage route=$status")
+            ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, "TOKEN_MAP_PENDING_DEFERRED_7371")
+            try {
+                val deferredAttempt7371 = attemptId.ifBlank { executionContext?.attemptId.orEmpty() }
+                    .ifBlank { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint).orEmpty() }
+                ExecutableOpenGate.releaseDeferredLiveClaim7356(deferredAttempt7371, ts.mint, "TOKEN_MAP_PENDING_DEFERRED_7371")
+            } catch (_: Throwable) {}
+            buyTerminalRecorded = true
+            return true
+        }
         liveStage("TOKEN_MAP_START", "source=${ts.source.take(80)}")
         try { TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source) } catch (_: Throwable) {}
         val prePlanRouteOk = try { TokenMapAuthority.executableForLiveBuy(ts) } catch (_: Throwable) { false }
         if (!prePlanRouteOk) {
+            if (deferPendingTokenMap7371("pre_plan")) return false
             val missing = missingTokenMapFields()
             liveStage("LIVE_BUY_FAILED", "reason=TOKEN_MAP_INCOMPLETE missing=$missing route=${ts.tokenMap.routeStatus}")
             emitLiveBuyFail(ts, sol, "TOKEN_MAP_INCOMPLETE", "missing=$missing route=${ts.tokenMap.routeStatus}")
@@ -20099,6 +20141,7 @@ class Executor(
                     buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:TOKEN_MAP_${verdict.status}")
                     return false
                 }
+                if (deferPendingTokenMap7371("late")) return false
                 val missing = missingTokenMapFields()
                 liveStage("LIVE_BUY_FAILED", "reason=TOKEN_MAP_INCOMPLETE_LATE missing=$missing route=${ts.tokenMap.routeStatus}")
                 emitLiveBuyFail(ts, sol, "TOKEN_MAP_INCOMPLETE", "late missing=$missing route=${ts.tokenMap.routeStatus}")
@@ -20188,12 +20231,10 @@ class Executor(
                 try {
                     ForensicLogger.lifecycle(
                         "EXEC_OPEN_ABORT_TERMINAL",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} stage=PreTradeHardGate reason=${preTrade.reason} detail=${preTrade.detail.take(80)}",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} stage=PreTradeHardGate reason=PRETRADE:${preTrade.reason} detail=${preTrade.detail.take(80)}",
                     )
-                    ForensicLogger.exec(
-                        "LIVE_BUY_FAIL", ts.symbol,
-                        "mint=${ts.mint.take(10)} sol=$sol reason=PRETRADE:${preTrade.reason} detail=${preTrade.detail.take(80)}",
-                    )
+                    // V5.0.7371 — the LIVE_BUY_FAIL exec line is written once, by
+                    // emitLiveBuyFail below; this copy counted every pre-trade block twice.
                 } catch (_: Throwable) {}
                 try {
                     LiveTradeLogStore.log(
@@ -23300,16 +23341,10 @@ class Executor(
         // stop / profit-lock / catastrophic / cross-asset) is visible
         // on the formal EXIT_GATE_ALLOWED_* counters.
         try {
-            val ru = requestReason.uppercase()
-            val cls6752 = when {
-                ru.contains("CATASTROPHIC") || ru.contains("PANIC") || ru.contains("RUG") ->
-                    com.lifecyclebot.engine.truth.StopLatencyClasses6464.Class.CATASTROPHIC_EXIT
-                ru.contains("HARD_FLOOR") || ru.contains("HARD_STOP") ->
-                    com.lifecyclebot.engine.truth.StopLatencyClasses6464.Class.HARD_STOP
-                ru.contains("TRAIL") ->
-                    com.lifecyclebot.engine.truth.StopLatencyClasses6464.Class.TRAILING_STOP
-                else -> com.lifecyclebot.engine.truth.StopLatencyClasses6464.Class.NORMAL_STOP
-            }
+            // V5.0.7371 — one classifier. This inline copy filed STRICT_SL, STOP_LOSS
+            // and PROTECTIVE_EXIT as NORMAL_STOP, so 25-52s stop latencies on
+            // 5.0.7368 were never measured against the hard-stop target.
+            val cls6752 = com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.classify(requestReason)
             com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.noteExitIntent(ts.position.positionId, cls6752)
         } catch (_: Throwable) {}
         // V5.0.3801 — PAPER source guard before any executor activity.

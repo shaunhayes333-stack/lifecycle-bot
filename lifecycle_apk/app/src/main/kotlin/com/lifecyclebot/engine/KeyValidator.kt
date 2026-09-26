@@ -49,6 +49,7 @@ object KeyValidator {
         val lastHttp: Int,
         val lastError: String?,
         val status: String = if (isLive) "HEALTHY" else "UNHEALTHY",
+        val deadTtlMs: Long = DEAD_TTL_MS,
     )
 
     private val verdicts = ConcurrentHashMap<String, Verdict>()
@@ -117,7 +118,7 @@ object KeyValidator {
     fun isLive(service: String): Boolean {
         val v = verdicts[service.lowercase()] ?: return true
         val age = System.currentTimeMillis() - v.timestampMs
-        if (!v.isLive && age < DEAD_TTL_MS) return false
+        if (!v.isLive && age < v.deadTtlMs) return false
         // DEAD verdict expired — clear and treat as unknown
         if (!v.isLive) verdicts.remove(service.lowercase())
         return true
@@ -141,9 +142,24 @@ object KeyValidator {
         }
     }
 
+    /**
+     * V5.0.7371 — a 5xx, 599 or timeout is a transient outage, not a dead key.
+     * The Helius probe marked those DEAD for 30 min, longer than the 5.0.7368
+     * session, so creator lookups returned null all session
+     * (CREATOR_UNRESOLVED_FOR_ADMISSION_7070 = 1630/1630) while helius_rpc ran
+     * at 100%. Transient failures bench the service for 2 min; 401/403/429 and a
+     * missing key keep the full window.
+     */
+    private const val TRANSIENT_DEAD_TTL_MS_7371 = 2 * 60_000L
+
+    private fun isTransient7371(httpStatus: Int, status: String): Boolean =
+        httpStatus >= 500 || status.endsWith("_TIMEOUT") ||
+            (httpStatus == 0 && status.endsWith("_RPC_ERROR"))
+
     private fun markDead(service: String, httpStatus: Int, error: String?, status: String = "${service.uppercase()}_UNHEALTHY") {
         val key = service.lowercase()
-        verdicts[key] = Verdict(false, System.currentTimeMillis(), httpStatus, error, status = status)
+        val ttl7371 = if (isTransient7371(httpStatus, status)) TRANSIENT_DEAD_TTL_MS_7371 else DEAD_TTL_MS
+        verdicts[key] = Verdict(false, System.currentTimeMillis(), httpStatus, error, status = status, deadTtlMs = ttl7371)
         try {
             ErrorLogger.info(TAG, "🔑❌ $service flagged DEAD (http=$httpStatus, err=${error?.take(60)})")
         } catch (_: Throwable) {}

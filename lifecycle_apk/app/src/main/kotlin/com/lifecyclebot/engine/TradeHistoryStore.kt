@@ -556,6 +556,10 @@ object TradeHistoryStore {
      * are not economic events: excluded from accounting, learning and the
      * journal-open view. Kept on disk, so this is reversible.
      */
+    /** V5.0.7371 — true once a row with this economic event id is durably in SQLite. */
+    fun isDurableEconomicEvent7371(eventId: String): Boolean =
+        eventId.isNotBlank() && eventId in durableEconomicEventIds
+
     fun isXrefRugRow7364(t: Trade): Boolean = t.economicEventId.startsWith("EXTERNAL_RUG_CLOSE_7362:")
 
     fun isValidAccountingTrade(t: Trade): Boolean {

@@ -89,7 +89,7 @@ object ExitTelemetryStamper6732 {
      * Bucket only. This changes which histogram a latency sample lands in and
      * nothing else: no exit is admitted, refused, delayed or re-routed.
      */
-    private fun classify(reason: String): StopLatencyClasses6464.Class {
+    internal fun classify(reason: String): StopLatencyClasses6464.Class {
         val r = reason.uppercase()
         return when {
             // Get-out-now class: the 1000ms target applies to these.

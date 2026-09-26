@@ -173,7 +173,13 @@ object LivePreflight7222 {
         }
         checks += check("JUPITER_QUOTE") { provider("JUPITER_QUOTE", "jupiter_quote", 50.0, requestScoped4xx = true) }
         checks += check("JUPITER_SEND") { provider("JUPITER_SEND", "jupiter_send", 50.0) }
-        checks += check("HELIUS") { provider("HELIUS", "helius", 50.0) }
+        // V5.0.7371 — the buy/sell path uses helius_rpc; the "helius" host is only
+        // fed by the enhanced-transactions creator lookup, so 5.0.7368 showed
+        // HELIUS REFUSE sr=0% while helius_rpc ran at 100%.
+        checks += check("HELIUS") {
+            val rpcHost7371 = if (com.lifecyclebot.engine.ApiHealthMonitor.hasSamples("helius_rpc")) "helius_rpc" else "helius"
+            provider("HELIUS", rpcHost7371, 50.0)
+        }
 
         // 7. Exit engine can see what is held.
         checks += check("EXIT_SCOPE") {
