@@ -4,6 +4,23 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7348] - 2026-09-26 — A SMALL READ DOES NOT PAY FOR THE WHOLE JOURNAL
+
+5.0.7347 at 30 minutes: EXIT_COORDINATOR_STALE_RESET = 69 (LOCK_AGE >= 10s; 0 on
+5.0.7340), NORMAL_STOP latency avg 38s. The hot-exit loop stamps its heartbeat
+around each position's runManageOnly, so a reset means one position's exit
+handling took > 10s.
+
+- Regression from 7346: every `TradeHistoryStore` reader was routed through the
+  full validated journal list. Readers that want the newest 160-250 rows —
+  including `PaperPositionCloseAuthority` on every close and `V3JournalRecorder`
+  per trade — used to stop after that many rows; after 7346 the first one after
+  any trade rebuilt the entire journal (1,129 rows on that run), and concurrent
+  readers could each rebuild it simultaneously. Small reads (<= 500) now use the
+  shared list only when it is current and otherwise read just their own head,
+  exactly as before 7346. Full builds are single-flight: concurrent callers wait
+  for one build and re-check.
+
 ## [5.0.7347] - 2026-09-26 — SWEEP 3: EXIT SNAPSHOT, DEAD BIRDEYE KEY, PER-TICK REGEX
 
 Third batch of the data-wastage sweep (price-mark path).

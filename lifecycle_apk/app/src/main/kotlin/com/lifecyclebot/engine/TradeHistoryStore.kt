@@ -1201,7 +1201,39 @@ object TradeHistoryStore {
      * Newest-first, no full-list materialisation by callers. */
     fun getRecentValidTrades(limit: Int = 250): List<Trade> {
         ensureInitialized()
-        return validRowsNewestFirst7346().take(limit.coerceAtLeast(1))
+        return validRowsHead7348(limit.coerceAtLeast(1))
+    }
+
+    // V5.0.7348 §A_SMALL_READ_MUST_NOT_PAY_FOR_THE_WHOLE_JOURNAL.
+    //
+    // 7346 routed every reader through the full validated list. Readers that
+    // want the newest 160-250 rows (V3JournalRecorder per trade,
+    // PaperPositionCloseAuthority per close — on the sell path) used to stop
+    // after that many rows; after 7346 the first of them after any trade
+    // rebuilt the entire journal, and concurrent readers could each rebuild it
+    // at once. 5.0.7347: EXIT_COORDINATOR_STALE_RESET = 69 (0 on 7340),
+    // NORMAL_STOP avg 38s. A small read now uses the shared list only when it is
+    // already current, and otherwise reads just its own head exactly as before
+    // 7346; full builds are single-flight.
+    private const val SMALL_READ_CAP_7348 = 500
+    private val validRowsBuildLock7348 = Any()
+
+    private fun validRowsHead7348(cap: Int): List<Trade> {
+        val memo = validRowsMemo7346
+        val cfgBits = try {
+            com.lifecyclebot.engine.PaperLearningSanity.configuredMaxTradeSol().toRawBits()
+        } catch (_: Throwable) { 0L }
+        if (memo != null && memo.rev == journalRevision7343.get() && memo.cfgBits == cfgBits) {
+            validRowsReuse7346.incrementAndGet()
+            return memo.newestFirst.take(cap)
+        }
+        if (cap > SMALL_READ_CAP_7348) return validRowsNewestFirst7346().take(cap)
+        val copy = synchronized(lock) { ArrayList(trades) }
+        return copy.asReversed().asSequence()
+            .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
+            .filter { isValidAccountingTrade(it) }
+            .take(cap)
+            .toList()
     }
 
     // V5.0.7346 §A_JOURNAL_ROW_IS_VALIDATED_ONCE_PER_REVISION.
@@ -1231,15 +1263,24 @@ object TradeHistoryStore {
             validRowsReuse7346.incrementAndGet()
             return memo.newestFirst
         }
-        // Revision read inside the same lock as the copy, so a list can never be
-        // stored under a revision newer than the rows it was built from.
-        val (rev, copy) = synchronized(lock) { journalRevision7343.get() to ArrayList(trades) }
-        val out = copy.asReversed()
-            .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
-            .filter { isValidAccountingTrade(it) }
-        validRowsMemo7346 = ValidRowsMemo7346(rev, cfgBits, out)
-        validRowsBuilds7346.incrementAndGet()
-        return out
+        // V5.0.7348 — single-flight: concurrent callers wait for one build and
+        // re-check, instead of each walking the whole journal at once.
+        synchronized(validRowsBuildLock7348) {
+            val again = validRowsMemo7346
+            if (again != null && again.rev == journalRevision7343.get() && again.cfgBits == cfgBits) {
+                validRowsReuse7346.incrementAndGet()
+                return again.newestFirst
+            }
+            // Revision read inside the same lock as the copy, so a list can never be
+            // stored under a revision newer than the rows it was built from.
+            val (rev, copy) = synchronized(lock) { journalRevision7343.get() to ArrayList(trades) }
+            val out = copy.asReversed()
+                .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
+                .filter { isValidAccountingTrade(it) }
+            validRowsMemo7346 = ValidRowsMemo7346(rev, cfgBits, out)
+            validRowsBuilds7346.incrementAndGet()
+            return out
+        }
     }
 
     /** V5.0.7346 — builds vs reuses of the shared validated journal list. */
@@ -1254,8 +1295,9 @@ object TradeHistoryStore {
         ensureInitialized()
         val cap = limit.coerceAtLeast(1)
         // V5.0.7343 — copy under the lock, canonicalise outside it (same fix as
-        // 7337). V5.0.7346 — served from the per-revision validated list.
-        return validRowsNewestFirst7346().take(cap)
+        // 7337). V5.0.7346 — served from the per-revision validated list;
+        // V5.0.7348 — a small read only reuses it when current.
+        return validRowsHead7348(cap)
     }
 
     /** Newest-first bounded RAW close rows (SELL + PARTIAL_SELL by default). */
