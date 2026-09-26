@@ -11799,4 +11799,18 @@ class GoldenTapeRegressionTest {
         assertTrue(ex.indexOf("val exitCarriesSliceCost7355") < ex.indexOf("!exitCarriesSliceCost7355 && fill6320"))
     }
 
+
+    @Test
+    fun V5_0_7356_deferred_live_buy_releases_its_mint_version_claim() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertTrue(gate.contains("fun releaseDeferredLiveClaim7356(attemptId: String, mint: String, reason: String)"))
+        assertTrue(gate.contains("executableBuyClaim6487.entries.removeIf { it.value == attemptId || it.value.startsWith(\"$attemptId:\") }"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("ExecutableOpenGate.releaseDeferredLiveClaim7356(deferredAttempt7356, ts.mint, \"ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED\")"))
+        assertTrue(ex.contains("ExecutableOpenGate.releaseDeferredLiveClaim7356(recoveredLiveAttemptId, ts.mint, \"MUTEX_BUSY_DEFERRED\")"))
+        // The pool sentinel stays on the snapshot, never on the token.
+        assertTrue(ex.contains("if (!poolIsSentinel7356) ts.lastPricePoolAddr = snap.poolAddress"))
+        assertFalse(ex.contains("        ts.lastPricePoolAddr = snap.poolAddress\n        ts.lastPriceSource = snap.priceSource"))
+    }
+
 }

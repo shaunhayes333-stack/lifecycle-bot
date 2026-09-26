@@ -4,6 +4,25 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7356] - 2026-09-26 — A DEFERRED BUY IS NOT A BOUGHT MINT
+
+5.0.7354 live: BUY ok/fail 2/34. 22 fails were ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED
+and 92 EXEC_GATE blocks plus 9 finality blocks were ONE_EXECUTABLE_BUY_PER_MINT_VERSION.
+
+The snapshot check is a real safety gate (no fresh executable price + liquidity,
+no live buy) and is unchanged. The bug is ordering: the finality gate claims the
+mint version first, and a live buy that then DEFERS (no snapshot, or the wallet
+spend mutex busy) never released that claim. Every re-approval inside the same
+~30s candidate version was refused as a duplicate although nothing was bought.
+
+- ExecutableOpenGate.releaseDeferredLiveClaim7356: releases only that attempt's
+  mint-version claim, open request and restore penalty.
+- liveBuy snapshot deferral and the mutex deferral call it.
+- persistMintEntryMarketSnapshot no longer writes the MINT_ROUTE: pool sentinel
+  into the token or the meta cache (hydration only fills a blank pool, so the
+  real pool could never be recovered).
+- Golden tape: V5_0_7356_deferred_live_buy_releases_its_mint_version_claim.
+
 ## [5.0.7355] - 2026-09-26 — A REAL SALE REACHES THE JOURNAL
 
 Operator: "it sold. the full amount and returned my sol. but the bot doesn't

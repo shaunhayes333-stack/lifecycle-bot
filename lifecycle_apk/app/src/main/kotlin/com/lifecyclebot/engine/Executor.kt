@@ -14884,11 +14884,15 @@ class Executor(
         ts.lastPrice = snap.priceUsd
         if (snap.marketCapUsd > 0.0) ts.lastMcap = snap.marketCapUsd
         ts.lastLiquidityUsd = snap.liquidityUsd
-        ts.lastPricePoolAddr = snap.poolAddress
+        // V5.0.7356 — the MINT_ROUTE: sentinel belongs on the snapshot only. Written
+        // into the token (and the meta cache below) it occupied the pool field, and
+        // hydration only fills a BLANK pool, so the real pool was never recovered.
+        val poolIsSentinel7356 = snap.poolAddress.startsWith("MINT_ROUTE:", true)
+        if (!poolIsSentinel7356) ts.lastPricePoolAddr = snap.poolAddress
         ts.lastPriceSource = snap.priceSource
         ts.lastPriceDex = snap.dex
         ts.lastPriceUpdate = snap.capturedAtMs
-        if (snap.poolAddress.startsWith("MINT_ROUTE:", true)) {
+        if (poolIsSentinel7356) {
             try {
                 PipelineHealthCollector.labelInc("MINT_ENTRY_MARKET_SNAPSHOT_POOL_SENTINEL")
                 ForensicLogger.lifecycle(
@@ -14903,11 +14907,11 @@ class Executor(
                 mint = ts.mint,
                 symbol = ts.symbol,
                 name = ts.name,
-                pairAddress = ts.pairAddress.ifBlank { snap.poolAddress },
+                pairAddress = ts.pairAddress.ifBlank { if (poolIsSentinel7356) "" else snap.poolAddress },
                 pairUrl = ts.pairUrl,
                 logoUrl = ts.logoUrl,
                 lastPriceSource = snap.priceSource,
-                lastPricePoolAddr = snap.poolAddress,
+                lastPricePoolAddr = if (poolIsSentinel7356) ts.lastPricePoolAddr else snap.poolAddress,
                 lastPriceDex = snap.dex,
                 lastPrice = snap.priceUsd,
                 lastMcap = snap.marketCapUsd.takeIf { it > 0.0 } ?: ts.lastMcap,
@@ -19384,6 +19388,13 @@ class Executor(
         val entryMarketSnapshot = requireMintEntryMarketSnapshot(ts, "liveBuy")
         if (entryMarketSnapshot == null) {
             emitLiveBuyFail(ts, sol, "ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED", "price=${ts.lastPrice} mcap=${ts.lastMcap} liq=${ts.lastLiquidityUsd} pool=${ts.lastPricePoolAddr.ifBlank { ts.pairAddress }.take(16)} source=${ts.lastPriceSource.ifBlank { ts.source }}")
+            // V5.0.7356 — nothing was spent; give back the mint-version claim so the
+            // next cycle (with a fresh mark) is not refused as a duplicate buy.
+            try {
+                val deferredAttempt7356 = attemptId.ifBlank { executionContext?.attemptId.orEmpty() }
+                    .ifBlank { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint).orEmpty() }
+                ExecutableOpenGate.releaseDeferredLiveClaim7356(deferredAttempt7356, ts.mint, "ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED")
+            } catch (_: Throwable) {}
             return false
         }
 
@@ -20510,6 +20521,9 @@ class Executor(
             // — non-terminal release lets the bot retry immediately once
             // the current wallet spend completes, instead of 30s orphan.
             ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, "MUTEX_BUSY_DEFERRED_TRANSIENT")
+            // V5.0.7356 — the lease was released but the mint-version claim was not,
+            // so the promised immediate retry was refused as a duplicate buy.
+            try { ExecutableOpenGate.releaseDeferredLiveClaim7356(recoveredLiveAttemptId, ts.mint, "MUTEX_BUSY_DEFERRED") } catch (_: Throwable) {}
             buyTerminalRecorded = true
             return false
         }

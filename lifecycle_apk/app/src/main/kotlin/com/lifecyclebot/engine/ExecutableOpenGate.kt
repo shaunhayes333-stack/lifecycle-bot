@@ -697,6 +697,29 @@ object ExecutableOpenGate {
         }
     }
 
+    /**
+     * V5.0.7356 — a live buy DEFERRED before any side effect (no fresh entry
+     * snapshot, buy mutex held) must give back its mint-version claim. Neither
+     * release above was called on the live path, so the deferred attempt kept
+     * the claim and every retry inside that ~30s version was refused as
+     * ONE_EXECUTABLE_BUY_PER_MINT_VERSION (92 blocks + 9 finality blocks on
+     * 5.0.7354) although nothing was bought. Only this attempt's claim, open
+     * request and restore penalty are released; tickets and other attempts,
+     * and the paper retry bookkeeping, are untouched.
+     */
+    fun releaseDeferredLiveClaim7356(attemptId: String, mint: String, reason: String) {
+        if (attemptId.isBlank()) return
+        val released = executableBuyClaim6487.entries.removeIf { it.value == attemptId || it.value.startsWith("$attemptId:") }
+        openRequests.remove(attemptId)
+        restorePenalties.remove(attemptId)
+        if (released) {
+            try {
+                PipelineHealthCollector.labelInc("LIVE_DEFERRED_BUY_CLAIM_RELEASED_7356")
+                ForensicLogger.lifecycle("LIVE_DEFERRED_BUY_CLAIM_RELEASED_7356", "attemptId=$attemptId mint=${mint.take(10)} reason=$reason")
+            } catch (_: Throwable) {}
+        }
+    }
+
     fun releaseAttemptNonTerminal6514(attemptId: String, mint: String, lane: String, reason: String) {
         // V5.0.6548 §P0-A — retain the ticket + allowedAttempts[mint] entry
         // so the immutable authority stays owned across the retry window.
