@@ -9715,10 +9715,10 @@ class GoldenTapeRegressionTest {
         assertTrue(RegimeDetector.ownSeverity7266(marketSnap) == 0.0)
 
         // Moonshot: the admission window is the floor for a runner-shaped launch.
-        assertTrue(admission.contains("const val MCAP_FLOOR_USD = 500.0"))
+        // V5.0.7337 — operator restored the lane's own $10k floor.
+        assertTrue(admission.contains("const val MCAP_FLOOR_USD = com.lifecyclebot.v3.scoring.MoonshotTraderAI.MIN_MARKET_CAP_USD"))
         assertTrue(admission.contains("const val LIQ_FLOOR_USD = 800.0"))
         assertTrue(moon.contains("runnerShaped7266: Boolean = false"))
-        assertTrue(moon.contains("MoonshotFreshLaunchAdmission7044.MCAP_FLOOR_USD"))
         assertTrue(moon.contains("MOONSHOT_RUNNER_SHAPED_FLOOR_ADMIT_7266"))
         assertTrue(bot.contains(".isRunnerShaped(ts, modeClassification.tradeType)"))
         assertTrue(bot.contains("if (mcapInZone || mcapUnknownButLiq || runnerShaped7266) {"))
@@ -11556,6 +11556,19 @@ class GoldenTapeRegressionTest {
         assertTrue(fl.contains("kotlin.math.min(continuousLockTight7335, band)"))
         val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bs.contains("lane = ts.position.tradingMode,  // V5.0.7335 — same band as the tick lock"))
+    }
+
+    @Test
+    fun V5_0_7337_moonshot_hunts_its_own_band_again() {
+        val m = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
+        assertTrue(m.contains("val minMcap7266 = MIN_MARKET_CAP_USD"))
+        assertTrue(m.contains("if (marketCapUsd > MAX_MARKET_CAP_USD) {"))
+        assertTrue(m.contains("val minLiq = minLiqStatic"))
+        val a = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/MoonshotFreshLaunchAdmission7044.kt").readText()
+        assertTrue(a.contains("const val MCAP_FLOOR_USD = com.lifecyclebot.v3.scoring.MoonshotTraderAI.MIN_MARKET_CAP_USD"))
+        assertFalse(a.contains("MCAP_RUNNER_CEILING_USD = 150_000.0"))
+        val th = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        assertTrue(th.contains("val snapshot7337 = synchronized(lock) { ArrayList(trades) }"))
     }
 
 }

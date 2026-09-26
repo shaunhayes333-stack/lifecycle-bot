@@ -4,6 +4,19 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7337] - 2026-09-26 — MOONSHOT HUNTS ITS OWN $10K-$5M BAND AGAIN
+
+Operator: restore MOONSHOT's old entry band.
+- MoonshotTraderAI.scoreToken: market cap must be $10k-$5M (the lane's own
+  MIN/MAX_MARKET_CAP_USD) and liquidity must meet the lane's own floor. The 7266
+  "runner-shaped" relaxation ($500 mcap / $800 liq) and the 7297 lane-hunter
+  band moves no longer apply.
+- MoonshotFreshLaunchAdmission7044: ownership window floor $500 -> $10k and
+  ceiling $150k -> $5M, read from the lane's constants.
+- TradeHistoryStore: the raw-closed and latest-buy scans copy the journal under
+  its lock and work outside it. On 5.0.7336 the bot loop sat BLOCKED on that
+  lock for up to 190s (cycle max 228s).
+
 ## [5.0.7336] - 2026-09-26 — SNIPER AND CORE STOP CUTTING WINNERS BOTH WAYS
 
 5.0.7333 paper: PROJECT_SNIPER cut losses at STRICT_SL_-5 and trimmed winners

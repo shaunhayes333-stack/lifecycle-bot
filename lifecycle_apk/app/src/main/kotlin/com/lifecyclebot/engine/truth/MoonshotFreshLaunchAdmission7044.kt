@@ -80,7 +80,8 @@ object MoonshotFreshLaunchAdmission7044 {
      * magnitude inside it; the executions PROJECT_SNIPER was taking (~$4k) sit
      * two.
      */
-    private const val MCAP_RUNNER_CEILING_USD = 150_000.0
+    // V5.0.7337 — the lane's own band ($10k-$5M), per operator; was 150k.
+    private const val MCAP_RUNNER_CEILING_USD = com.lifecyclebot.v3.scoring.MoonshotTraderAI.MAX_MARKET_CAP_USD
 
     /**
      * Below this the "market cap" is almost always a bonding-curve artifact
@@ -90,7 +91,8 @@ object MoonshotFreshLaunchAdmission7044 {
     // V5.0.7266 — public: MoonshotTraderAI reads these for a runner-shaped
     // fresh launch so the admission window and the lane's own floor are the
     // same authority instead of two numbers that disagree ($500 vs $10k).
-    const val MCAP_FLOOR_USD = 500.0
+    // V5.0.7337 — operator restored MOONSHOT's $10k floor; was $500 (7266).
+    const val MCAP_FLOOR_USD = com.lifecyclebot.v3.scoring.MoonshotTraderAI.MIN_MARKET_CAP_USD
 
     /** Enough of a pool that an exit is a real transaction and not a wish. */
     const val LIQ_FLOOR_USD = 800.0

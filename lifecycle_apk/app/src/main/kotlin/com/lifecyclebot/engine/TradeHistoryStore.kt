@@ -1234,14 +1234,17 @@ object TradeHistoryStore {
 
     private fun computeRecentValidClosedTradesRaw(cap: Int, includePartials: Boolean): List<Trade> {
         ensureInitialized()
-        return synchronized(lock) {
-            trades.asReversed().asSequence()
-                .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
-                .filter { if (includePartials) isJournalSellLike(it.side) else it.side.equals("SELL", true) }
-                .filter { isValidAccountingTrade(it) }
-                .take(cap.coerceAtLeast(1))
-                .toList()
-        }
+        // V5.0.7337 — copy under the lock, canonicalise outside it. The
+        // per-row sanitiser ran while holding the journal lock, and on
+        // 5.0.7336 the bot loop sat BLOCKED on that lock in
+        // computeLatestBuyByMintSnapshot for up to 190s (cycle max 228s).
+        val snapshot7337 = synchronized(lock) { ArrayList(trades) }
+        return snapshot7337.asReversed().asSequence()
+            .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
+            .filter { if (includePartials) isJournalSellLike(it.side) else it.side.equals("SELL", true) }
+            .filter { isValidAccountingTrade(it) }
+            .take(cap.coerceAtLeast(1))
+            .toList()
     }
 
     private fun scheduleRawClosedTradesRefresh(cap: Int, includePartials: Boolean) {
@@ -1312,8 +1315,13 @@ object TradeHistoryStore {
     private fun computeLatestBuyByMintSnapshot(cap: Int): Map<String, Trade> {
         ensureInitialized()
         val out = LinkedHashMap<String, Trade>()
-        synchronized(lock) {
-            val it = trades.asReversed().iterator()
+        // V5.0.7337 — copy the tail under the lock, scan outside it.
+        val tail7337 = synchronized(lock) {
+            val n = trades.size
+            ArrayList(trades.subList((n - cap).coerceAtLeast(0), n))
+        }
+        run {
+            val it = tail7337.asReversed().iterator()
             var seen = 0
             while (it.hasNext() && seen < cap) {
                 val t = it.next(); seen++

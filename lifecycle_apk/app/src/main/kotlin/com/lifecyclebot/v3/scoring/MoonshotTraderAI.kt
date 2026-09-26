@@ -444,22 +444,22 @@ object MoonshotTraderAI {
         }
 
         // 1. Market cap filter - Moonshot zone
-        val minMcap7266 = if (runnerShaped7266) {
-            com.lifecyclebot.engine.truth.MoonshotFreshLaunchAdmission7044.MCAP_FLOOR_USD
-        } else com.lifecyclebot.engine.market.LaneHunter7297.floorFor("MOONSHOT", MIN_MARKET_CAP_USD)
+        // V5.0.7337 — operator: restore MOONSHOT's own $10k-$5M band. 7266 let a
+        // "runner-shaped" fresh launch in at $500 mcap / $800 liq and 7297 let
+        // the lane hunter move both edges; the lane was profitable when it
+        // hunted $10k-$5M tokens with a real pool, not first-block launches
+        // that rug in one block. The band is the lane's own constants again.
+        val minMcap7266 = MIN_MARKET_CAP_USD
         if (marketCapUsd < minMcap7266) {
-            return MoonshotScore(false, 0, 0.0, "mcap_too_low_${(marketCapUsd/1000).toInt()}K_min_100K")
+            return MoonshotScore(false, 0, 0.0, "mcap_too_low_${(marketCapUsd/1000).toInt()}K_min_10K")
         }
-        // V5.0.7297 — fluid ceiling from the lane's own graded closes.
-        if (marketCapUsd > com.lifecyclebot.engine.market.LaneHunter7297.ceilingFor("MOONSHOT", MAX_MARKET_CAP_USD)) {
+        if (marketCapUsd > MAX_MARKET_CAP_USD) {
             return MoonshotScore(false, 0, 0.0, "mcap_too_high_${(marketCapUsd/1_000_000).toInt()}M")
         }
 
         // 2. Liquidity filter
         val minLiqStatic = if (learningProgress < 0.5) MIN_LIQUIDITY_USD_BOOTSTRAP else MIN_LIQUIDITY_USD_MATURE
-        val minLiq = if (runnerShaped7266) {
-            kotlin.math.min(minLiqStatic, com.lifecyclebot.engine.truth.MoonshotFreshLaunchAdmission7044.LIQ_FLOOR_USD)
-        } else minLiqStatic
+        val minLiq = minLiqStatic
         if (liquidityUsd < minLiq) {
             return MoonshotScore(false, 0, 0.0, "liq_too_low_${(liquidityUsd/1000).toInt()}K")
         }
