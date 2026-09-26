@@ -11636,4 +11636,16 @@ class GoldenTapeRegressionTest {
         assertTrue(h.contains("val copy7343 = synchronized(lock) { ArrayList(trades) }"))
     }
 
+    @Test
+    fun V5_0_7344_unchanged_answers_are_not_rederived() {
+        val l = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTruthLedger.kt").readText()
+        assertTrue(l.contains("val forensicReject = forensicVerdictOnce7344(row)"))
+        assertFalse(l.contains("val forensicReject = forensicRejectReason(row)"))
+        assertTrue(l.contains("synchronized(forensicVerdicts7344) { forensicVerdicts7344[key] = verdict ?: VERDICT_CLEAN_7344 }"))
+        val m = java.io.File("src/main/kotlin/com/lifecyclebot/data/Models.kt").readText()
+        assertTrue(m.contains("if (canonicalOpenMints7344 != null && ts.mint !in canonicalOpenMints7344) return@filter false"))
+        val h = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/HeroSnapshotAuthority6503.kt").readText()
+        assertTrue(h.contains("if (canonicalOpenMints7344 != null && ts.mint !in canonicalOpenMints7344) continue"))
+    }
+
 }

@@ -674,7 +674,15 @@ data class BotStatus(
             // Fall through to the inline filter when the authority is
             // not started or the cache is stale.
             com.lifecyclebot.engine.truth.UiSnapshotAuthority6496.current()?.let { return it }
+            // V5.0.7344 — isRuntimeOpenEligible6636 can only pass for a mint the
+            // canonical authority holds open, so ask the ~80 canonical mints, not
+            // every watchlist row (RUNTIME_OPEN_SKIPPED_NOT_A_POSITION_7155 =
+            // 508,402 in 30 minutes, each a "no" that was already known).
+            val canonicalOpenMints7344 = try {
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().mapTo(HashSet()) { it.mint }
+            } catch (_: Throwable) { null }
             return tokens.values.filter { ts ->
+                if (canonicalOpenMints7344 != null && ts.mint !in canonicalOpenMints7344) return@filter false
                 val pos = ts.position
                 // V5.9.1530 — UI/COUNT AUTHORITY: a CLOSED-ledger mint is never open.
                 if (com.lifecyclebot.engine.PositionCloseLedger.isClosed(ts.mint)) return@filter false

@@ -150,8 +150,14 @@ object HeroSnapshotAuthority6503 {
             val entrySource: String, val currentSource: String,
         )
         val contribs = ArrayList<Contrib>(values.size)
+        // V5.0.7344 — only mints the canonical authority holds open can pass the
+        // 6636 gate below; skip the rest of the watchlist without asking.
+        val canonicalOpenMints7344 = try {
+            CanonicalPositionAuthority6441.openPositions().mapTo(HashSet()) { it.mint }
+        } catch (_: Throwable) { null }
         for (ts in values) {
             try {
+                if (canonicalOpenMints7344 != null && ts.mint !in canonicalOpenMints7344) continue
                 val pos = ts.position
                 if (com.lifecyclebot.engine.PositionCloseLedger.isClosed(ts.mint)) continue
                 if (!QuantityInvariantAuthority6500.isRuntimeOpenEligible6636(ts.mint, pos)) continue

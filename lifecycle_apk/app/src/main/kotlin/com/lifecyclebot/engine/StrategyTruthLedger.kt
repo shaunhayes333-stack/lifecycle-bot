@@ -185,7 +185,7 @@ object StrategyTruthLedger {
                 inc("STRATEGY_BAD_ENTRY_EXCLUDED")
                 continue
             }
-            val forensicReject = forensicRejectReason(row)
+            val forensicReject = forensicVerdictOnce7344(row)
             if (forensicReject != null) {
                 forensic++
                 inc("STRATEGY_FORENSIC_EXCLUDED_${forensicReject}")
@@ -311,6 +311,43 @@ object StrategyTruthLedger {
     // large live PnL rows unless price, SOL basis, and wallet/proof finality line
     // up. Raw rows stay in the journal; this only prevents unaudited money from
     // becoming strategy-clean PnL/WR and poisoning decisions.
+    /**
+     * V5.0.7344 §A_JOURNAL_ROW_IS_JUDGED_ONCE.
+     *
+     * Operator: "we do this a lot. there's an extreme amount of data wastage."
+     * The forensic verdict is a pure function of the row, and a journal row
+     * never changes after it is written (an in-place repair changes its
+     * economics, and so its key below). clean() still re-judged every row on
+     * every cache miss: PNL_PCT_RECONCILED_ON_SOLD_COST_7164 = 571,693 in 30
+     * minutes against ~400 closes — each row judged ~1,400 times, with a label
+     * string built and counted each time. The verdict is now kept per row, so a
+     * row costs one judgement for its lifetime and the 7164 counters count rows,
+     * not repetitions. Bounded LRU; an evicted row is simply judged again.
+     */
+    private const val FORENSIC_VERDICT_CAP_7344 = 8_192
+    private const val VERDICT_CLEAN_7344 = "\u0000CLEAN"
+    private val forensicVerdicts7344 = object : java.util.LinkedHashMap<String, String>(1024, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean =
+            size > FORENSIC_VERDICT_CAP_7344
+    }
+    private val forensicVerdictHits7344 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    private fun forensicVerdictKey7344(t: Trade): String =
+        "${t.mode}|${t.positionId}|${t.sig}|${t.ts}|${t.side}|${t.reason}|${t.sol}|${t.pnlSol}|${t.netPnlSol}|" +
+            "${t.pnlPct}|${t.feeSol}|${t.entryCostSol}|${t.soldCostBasisSol}|${t.grossProceedsSol}|${t.proofState}|${t.economicEventId}"
+
+    private fun forensicVerdictOnce7344(t: Trade): String? {
+        val key = forensicVerdictKey7344(t)
+        val known = synchronized(forensicVerdicts7344) { forensicVerdicts7344[key] }
+        if (known != null) {
+            forensicVerdictHits7344.incrementAndGet()
+            return if (known == VERDICT_CLEAN_7344) null else known
+        }
+        val verdict = forensicRejectReason(t)
+        synchronized(forensicVerdicts7344) { forensicVerdicts7344[key] = verdict ?: VERDICT_CLEAN_7344 }
+        return verdict
+    }
+
     private fun forensicRejectReason(t: Trade): String? {
         val side = t.side.trim().uppercase()
         if (side != "SELL" && side != "PARTIAL_SELL") return null
@@ -577,7 +614,7 @@ object StrategyTruthLedger {
         val inv = inventoryRecoveryRows(raw)
         val invPnl = inv.sumOf { it.netPnlSol.takeIf { v -> abs(v) > 0.0 } ?: it.pnlSol }
         val head7171 =
-            "StrategyTruthLedger: clean=${result.audit.cleaned} deduped=${result.audit.deduped} recovered=${result.audit.recoveryExcluded} partialNonTerminal=${result.audit.partialNotTerminal} badEntry=${result.audit.badEntryExcluded} inventory=${inv.size} inventoryPnl=${"%+.4f".format(invPnl)}"
+            "StrategyTruthLedger: clean=${result.audit.cleaned} deduped=${result.audit.deduped} recovered=${result.audit.recoveryExcluded} partialNonTerminal=${result.audit.partialNotTerminal} badEntry=${result.audit.badEntryExcluded} inventory=${inv.size} inventoryPnl=${"%+.4f".format(invPnl)} rowsJudgedOnce7344=${synchronized(forensicVerdicts7344) { forensicVerdicts7344.size }} verdictReuse7344=${forensicVerdictHits7344.get()}"
         // V5.0.7171 — print the rows the percentage check threw out. This is
         // the largest single exclusion in the file and the only one whose
         // cause cannot be read off a counter.

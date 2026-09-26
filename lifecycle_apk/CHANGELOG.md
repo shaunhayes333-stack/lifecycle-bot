@@ -4,6 +4,25 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7344] - 2026-09-26 — STOP RE-DERIVING ANSWERS THAT HAVE NOT CHANGED
+
+Operator: "we do this a lot. there's an extreme amount of data wastage." The
+5.0.7342 emergency report's biggest counters were all the same known answer
+recomputed: PNL_PCT_RECONCILED_ON_SOLD_COST_7164 = 571,693 and
+RUNTIME_OPEN_SKIPPED_NOT_A_POSITION_7155 = 508,402 in 30 minutes.
+
+- `StrategyTruthLedger`: the forensic verdict on a journal row is a pure function
+  of that row, and was recomputed for every row on every cache miss (~1,400 times
+  per close). It is now judged once and kept per row (bounded LRU; the key
+  includes the row's economics, so an in-place repair is judged afresh). The 7164
+  counters now count rows, not repetitions. Status line: `rowsJudgedOnce7344`,
+  `verdictReuse7344`.
+- `BotStatus.openPositions` (fallback path) and `HeroSnapshotAuthority6503` asked
+  every watchlist row (~370) whether it was an open position. The 6636 gate can
+  only pass for a mint the canonical authority holds open, so both now build that
+  set once per scan and skip everything else. Same answers, ~80 checks instead of
+  ~370.
+
 ## [5.0.7343] - 2026-09-26 — A FINISHED TRADE IS SCORED ONCE
 
 Emergency report at 30 minutes: full report builder timed out (8s), cycles
