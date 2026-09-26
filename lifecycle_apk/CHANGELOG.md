@@ -4,6 +4,25 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7343] - 2026-09-26 — A FINISHED TRADE IS SCORED ONCE
+
+Emergency report at 30 minutes: full report builder timed out (8s), cycles
+climbed from ~5s to 31s, 922 paper journal rows, and the journal replay's
+residual write-off fired 16,320 times (13 lots re-emitted on every replay).
+
+- `JournalEconomicReplay6619.replay()` walked the entire journal on every
+  economic mutation — up to three times per trade via
+  `CanonicalPaperTransaction6486` — so total work grew with the square of the
+  row count and the loop slowed the longer it ran. The result depends only on
+  the journal rows, the starting bankroll and the quarantine scope; it is now
+  kept and reused until one of those changes (`JOURNAL_REPLAY_REUSED_UNCHANGED_7343`,
+  `reused7343=` in the status line). The ledger-vs-journal divergence check
+  still runs on every call.
+- `TradeHistoryStore.journalRevision7343()` — bumped at every in-memory journal
+  mutation (append, batch append, in-place fix, trim, clear, reload).
+- `TradeHistoryStore.getAllValidTradesSnapshot` copies under the journal lock
+  and canonicalises outside it (the 7337 fix, applied to the replay's reader).
+
 ## [5.0.7342] - 2026-09-26 — IDLE CAPITAL GOES TO THE LANES THAT EARN IT
 
 5.0.7340 at 27 minutes: cash 0.81 of 13.12 SOL equity across 81 positions.

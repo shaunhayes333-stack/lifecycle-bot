@@ -11622,4 +11622,18 @@ class GoldenTapeRegressionTest {
         assertTrue(f.contains("private const val MIN_CLOSES_FOR_RELEASE_EVIDENCE_7342 = 5"))
     }
 
+    @Test
+    fun V5_0_7343_a_finished_trade_is_scored_once() {
+        val r = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt").readText()
+        assertTrue(r.contains("TradeHistoryStore.journalRevision7343()}|"))
+        assertTrue(r.contains("val memoKey7343 = "))
+        assertTrue(r.contains("if (memo7343 != null && memoKey7343 == lastReplayKey7343.get()) {"))
+        assertTrue(r.contains("lastReplayKey7343.set(memoKey7343)"))
+        assertTrue(r.contains("publishLedgerDivergence7343(memo7343.cashSol, memo7343.paperRows, memo7343.paperBuys, memo7343.paperSells, memo7343.paperPartialSells)"))
+        val h = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        assertTrue(h.contains("fun journalRevision7343(): Long = journalRevision7343.get()"))
+        assertEquals(9, Regex("journalRevision7343\\.incrementAndGet\\(\\)").findAll(h).count())
+        assertTrue(h.contains("val copy7343 = synchronized(lock) { ArrayList(trades) }"))
+    }
+
 }

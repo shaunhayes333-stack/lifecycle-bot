@@ -82,6 +82,12 @@ object TradeHistoryStore {
     private val lock   = Any()
     private val trades = mutableListOf<Trade>()
 
+    // V5.0.7343 — bumped on every in-memory journal mutation, so a consumer that
+    // derives a whole-journal result (JournalEconomicReplay6619) can keep it until
+    // the journal actually changes instead of recomputing it on every call.
+    private val journalRevision7343 = java.util.concurrent.atomic.AtomicLong(0L)
+    fun journalRevision7343(): Long = journalRevision7343.get()
+
     // V5.9.115: Persistent lifetime totals. NEVER cleared by clearAllTrades().
     @Volatile private var lifetimeSells:         Int    = 0
     @Volatile private var lifetimeWins:          Int    = 0
@@ -478,6 +484,7 @@ object TradeHistoryStore {
         synchronized(lock) {
             if (trades.size > MAX_IN_MEMORY_TRADES) {
                 trades.subList(0, trades.size - MAX_IN_MEMORY_TRADES).clear()
+                journalRevision7343.incrementAndGet()
             }
         }
 
@@ -1008,9 +1015,11 @@ object TradeHistoryStore {
         try { LearningRejectLabelSentinel.inspect(tradeToStore, "TradeHistoryStore.recordTrade.prePersistence") } catch (_: Throwable) {}
         synchronized(lock) {
             trades.add(tradeToStore)
+            journalRevision7343.incrementAndGet()
             // V5.9.330: Trim in-memory list to avoid OOM. SQLite retains everything.
             if (trades.size > MAX_IN_MEMORY_TRADES) {
                 trades.subList(0, trades.size - MAX_IN_MEMORY_TRADES).clear()
+                journalRevision7343.incrementAndGet()
             }
         }
         if (tradeToStore.side.equals("BUY", true) && tradeToStore.mint.isNotBlank()) {
@@ -1154,7 +1163,7 @@ object TradeHistoryStore {
                     if (enriched.mode.equals("paper", true)) PipelineHealthCollector.labelInc("PAPER_COUNTER_SKIPPED_QUARANTINED_ROW")
                 } catch (_: Throwable) {}
                 if (ok) {
-                    synchronized(lock) { trades.add(enriched) }
+                    synchronized(lock) { trades.add(enriched); journalRevision7343.incrementAndGet() }
                     toAdd += enriched
                 }
             }
@@ -1202,13 +1211,16 @@ object TradeHistoryStore {
     fun getAllValidTradesSnapshot(limit: Int = 5_000): List<Trade> {
         ensureInitialized()
         val cap = limit.coerceAtLeast(1)
-        return synchronized(lock) {
-            trades.asReversed().asSequence()
-                .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
-                .filter { isValidAccountingTrade(it) }
-                .take(cap)
-                .toList()
-        }
+        // V5.0.7343 — copy under the lock, canonicalise outside it (same fix as
+        // 7337). The journal replay calls this on every economic mutation, and
+        // running the per-row sanitiser under the journal lock held every other
+        // journal reader, including the bot loop, for the whole pass.
+        val copy7343 = synchronized(lock) { ArrayList(trades) }
+        return copy7343.asReversed().asSequence()
+            .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
+            .filter { isValidAccountingTrade(it) }
+            .take(cap)
+            .toList()
     }
 
     /** Newest-first bounded RAW close rows (SELL + PARTIAL_SELL by default). */
@@ -1393,6 +1405,7 @@ object TradeHistoryStore {
                     entryDecimals = if (walletDecimals >= 0) walletDecimals else t.entryDecimals,
                 )
                 trades[i] = fixed
+                journalRevision7343.incrementAndGet()
                 updatedTradeTs = fixed.ts
                 touched = 1
                 // Bust the latest-buy cache so any getLatestBuyByMintSnapshot()
@@ -1615,7 +1628,7 @@ object TradeHistoryStore {
      *  trust, FluidLearningAI progress, and the active 30-Day Proof Run
      *  timeline are PRESERVED — only the visible scoreboard resets. */
     fun clearAllTrades() {
-        synchronized(lock) { trades.clear() }
+        synchronized(lock) { trades.clear(); journalRevision7343.incrementAndGet() }
         latestBuyByMintCache = emptyMap()
         latestBuyByMintCacheMs = 0L
         // V5.0.6389 (S5) — journal reset must generate a fresh cohort so all
@@ -1671,7 +1684,7 @@ object TradeHistoryStore {
 
     /** FULL RESET — wipe journal AND lifetime counters. Only from BehaviorActivity / FluidLearningAI. */
     fun fullResetIncludingLifetime() {
-        synchronized(lock) { trades.clear() }
+        synchronized(lock) { trades.clear(); journalRevision7343.incrementAndGet() }
         lifetimeSells          = 0
         lifetimeWins           = 0
         lifetimeLosses         = 0
@@ -2510,6 +2523,7 @@ object TradeHistoryStore {
                 latestBuyByMintCache = emptyMap()
                 latestBuyByMintCacheMs = 0L
                 trades.addAll(enrichedLoaded)
+                journalRevision7343.incrementAndGet()
             }
             ErrorLogger.debug("TradeHistoryStore", "SQLite: loaded ${loaded.size} trades")
         } catch (e: Exception) {
@@ -2561,7 +2575,7 @@ object TradeHistoryStore {
                             tradeToContentValues(trade),
                             SQLiteDatabase.CONFLICT_IGNORE
                         )
-                        synchronized(lock) { trades.add(trade) }
+                        synchronized(lock) { trades.add(trade); journalRevision7343.incrementAndGet() }
                     } else {
                         try { ErrorLogger.warn("TradeHistoryStore", "TRADE_ACCOUNTING_PREFS_MIGRATION_FILTERED mint=${trade.mint.take(8)} side=${trade.side} pnlPct=${trade.pnlPct} pnl=${trade.pnlSol} reason=${trade.reason}") } catch (_: Throwable) {}
                     }

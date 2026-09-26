@@ -105,6 +105,8 @@ object JournalEconomicReplay6619 {
     // create a new counter/log event every 5 seconds forever.
     private val reportedReplaySupersessions6699 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val quarantineScopeSignature7251 = AtomicReference("")
+    private val lastReplayKey7343 = AtomicReference("")
+    private val replayMemoHits7343 = java.util.concurrent.atomic.AtomicLong(0L)
 
     fun replay(): ReplayResult {
         replays.incrementAndGet()
@@ -135,6 +137,7 @@ object JournalEconomicReplay6619 {
                 )
             }
             lastResult.set(fast)
+            lastReplayKey7343.set("")
             return fast
         }
 
@@ -172,6 +175,26 @@ object JournalEconomicReplay6619 {
         val quarantinedPositionIds7251 = try {
             CanonicalPositionAuthority6441.quarantinedPositionIds6635("paper")
         } catch (_: Throwable) { emptySet() }
+        // V5.0.7343 §A_FINISHED_TRADE_IS_SCORED_ONCE.
+        //
+        // Operator: "shouldn't it just score the result once then move on?"
+        // Yes. This walked the whole journal on every economic mutation — up to
+        // three times per trade through CanonicalPaperTransaction6486 — so total
+        // work grew with the square of the row count. The 5.0.7342 emergency
+        // report at 30 minutes: 922 paper rows, 16,320 residual write-offs
+        // re-emitted (13 lots x ~1,250 replays), cycles 5s -> 31s, and the
+        // report builder timing out at 8s. The result depends only on the
+        // journal rows, the starting bankroll and the quarantine scope; while
+        // none of those has changed, the stored result IS the answer.
+        val memoKey7343 = "${TradeHistoryStore.journalRevision7343()}|$startingSol|" +
+            "${quarantinedPositionIds7251.size}:${quarantinedPositionIds7251.hashCode()}"
+        val memo7343 = lastResult.get()
+        if (memo7343 != null && memoKey7343 == lastReplayKey7343.get()) {
+            replayMemoHits7343.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("JOURNAL_REPLAY_REUSED_UNCHANGED_7343") } catch (_: Throwable) {}
+            publishLedgerDivergence7343(memo7343.cashSol, memo7343.paperRows, memo7343.paperBuys, memo7343.paperSells, memo7343.paperPartialSells)
+            return memo7343
+        }
         val allRows7251 = try {
             TradeHistoryStore.getAllValidTradesSnapshot(limit = 20_000)
         } catch (_: Throwable) { emptyList() }
@@ -656,7 +679,16 @@ object JournalEconomicReplay6619 {
             sellCountByPosition6980 = sellCount6980.toMap(),
         )
         lastResult.set(result)
+        lastReplayKey7343.set(memoKey7343)
 
+        publishLedgerDivergence7343(cash, totalRows, buys, sells, partials)
+
+        return result
+    }
+
+    /** V5.0.7343 — the ledger-vs-journal comparison, run on every replay call
+     *  including a reused one, because ledger cash can move without a journal row. */
+    private fun publishLedgerDivergence7343(cash: Double, totalRows: Int, buys: Int, sells: Int, partials: Int) {
         try {
             val ledgerCash = PaperCapitalAuthority6577.cashSol()
             val delta = ledgerCash - cash
@@ -701,7 +733,6 @@ object JournalEconomicReplay6619 {
             }
         } catch (_: Throwable) {}
 
-        return result
     }
 
     /**
@@ -799,7 +830,7 @@ object JournalEconomicReplay6619 {
     fun statusLine(): String {
         val r = lastResult.get()
         val div = ledgerDivergenceLast.get() ?: 0.0
-        return "replays=${replays.get()} " +
+        return "replays=${replays.get()} reused7343=${replayMemoHits7343.get()} " +
             (if (r != null)
                 "rows=${r.paperRows} buys=${r.paperBuys} sells=${r.paperSells} partials=${r.paperPartialSells} " +
                     "cash=${"%.4f".format(r.cashSol)} realized=${"%+.4f".format(r.realizedPnlSol)} " +
@@ -810,6 +841,7 @@ object JournalEconomicReplay6619 {
 
     internal fun resetForTest() {
         replays.set(0L); lastResult.set(null); ledgerDivergenceLast.set(0.0)
+        lastReplayKey7343.set(""); replayMemoHits7343.set(0L)
         reportedInvariantFailures6653.clear()
         reportedEmbeddedEntryRecoveries6664.clear()
         reportedReplaySupersessions6699.clear()
