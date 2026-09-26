@@ -796,6 +796,10 @@ object JournalEconomicReplay6619 {
                             journalSellsByPosition7360[positionId].orEmpty(),
                         )
                     ) repaired++
+                } else {
+                    // V5.0.7367 — a journal-open lot whose canonical row is not CLOSED
+                    // (OPEN/PARTIALLY_CLOSED with no quantity, PENDING_ENTRY) left no trace.
+                    try { PipelineHealthCollector.labelInc("JOURNAL_OPEN_LOT_CANONICAL_NOT_CLOSED_7367_${canonical.lifecycle}") } catch (_: Throwable) {}
                 }
                 return@forEach
             }
@@ -803,8 +807,21 @@ object JournalEconomicReplay6619 {
             val seed = positionBuys.firstOrNull() ?: return@forEach
             val newestBuyAt = positionBuys.maxOfOrNull { it.ts } ?: 0L
             if (System.currentTimeMillis() - newestBuyAt < 10_000L) return@forEach
-            val eventId = "PAPER6619:ORPHAN_REFUND:$positionId"
             val raw = replay.openRawQtyByPosition[positionId] ?: java.math.BigInteger.ZERO
+            // V5.0.7367 — the refund id was fixed per position, so a refund written
+            // when the lot looked different (earlier replay rules) was rejected by
+            // today's replay (basis/qty exceed the lot, or its SELL fill slot taken)
+            // and could never be re-sized: ~29 lots stayed journal-open, and the
+            // ledger stamp made every later pass skip them (7050). Keying the id on
+            // the lot's CURRENT raw quantity and basis writes one correctly sized row
+            // for a changed lot and stays idempotent for an unchanged one.
+            val eventId = "PAPER6619:ORPHAN_REFUND:$positionId:r$raw:b${(basis * 1e9).toLong()}"
+            val priorSells7367 = journalSellsByPosition7360[positionId].orEmpty()
+            if (priorSells7367.any { it.economicEventId.startsWith("PAPER6619:ORPHAN_REFUND:$positionId") && it.economicEventId != eventId }) {
+                try { PipelineHealthCollector.labelInc("JOURNAL_ORPHAN_REFUND_SUPERSEDED_7367") } catch (_: Throwable) {}
+            }
+            // A rejected earlier row still holds its SELL fill index; take the next one.
+            val nextSequence7367 = (priorSells7367.maxOfOrNull { it.partialSequence } ?: -1L) + 1L
             val scale = seed.tokenDecimals.takeIf { it in 0..18 }
                 ?: seed.entryDecimals.coerceIn(0, 18)
             val displayQty = try {
@@ -843,6 +860,7 @@ object JournalEconomicReplay6619 {
                 canonicalConsumedRaw = raw, remainingRawQty = java.math.BigInteger.ZERO,
                 tokenDecimals = scale, soldCostBasisSol = basis,
                 grossProceedsSol = basis, economicEventId = eventId,
+                partialSequence = nextSequence7367,
             ))
             repaired++
             try {
@@ -881,6 +899,7 @@ object JournalEconomicReplay6619 {
         receipts: List<EconomicEventSchema6464.Sell>,
         journalSells: List<Trade>,
     ): Boolean {
+        val allJournalSells7367 = journalSells
         fun skip(reason: String): Boolean {
             try { PipelineHealthCollector.labelInc("JOURNAL_RECEIPT_REBUILD_SKIPPED_7360_$reason") } catch (_: Throwable) {}
             return false
@@ -888,6 +907,9 @@ object JournalEconomicReplay6619 {
         val seed = positionBuys.firstOrNull() ?: return skip("NO_BUY_ROW")
         val terminal = receipts.firstOrNull { !it.partial } ?: return skip("NO_TERMINAL_RECEIPT")
         val receiptKeys = receipts.map { it.idempotencyKey }.toSet()
+        // V5.0.7367 — a stale 6662 orphan refund the replay rejected is not a sale;
+        // it must not block the receipt rebuild (the lot is still open because of it).
+        val journalSells = journalSells.filterNot { it.economicEventId.startsWith("PAPER6619:ORPHAN_REFUND:") }
         if (journalSells.any { it.economicEventId.isBlank() || it.economicEventId !in receiptKeys }) {
             return skip("JOURNAL_ROW_WITHOUT_RECEIPT")
         }
@@ -921,6 +943,7 @@ object JournalEconomicReplay6619 {
             canonicalConsumedRaw = openRaw, remainingRawQty = java.math.BigInteger.ZERO,
             tokenDecimals = scale, soldCostBasisSol = openBasis,
             grossProceedsSol = gross, economicEventId = "REBUILT7360:${terminal.idempotencyKey}",
+            partialSequence = (allJournalSells7367.maxOfOrNull { it.partialSequence } ?: -1L) + 1L,
         ))
         try {
             PipelineHealthCollector.labelInc("JOURNAL_RECEIPT_REBUILT_7360")

@@ -4,6 +4,29 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7367] - 2026-09-26 — A REJECTED ORPHAN REFUND IS RE-SIZED, NOT SKIPPED FOREVER
+
+After the 7360 receipt rebuild ~29 paper lots stayed journal-open (journal open cost
+7.21 vs ledger 1.75). Their canonical positions are gone (the economic-event store
+evicts old events), so they go to the 6662 zero-PnL orphan refund — which already
+wrote a row keyed "PAPER6619:ORPHAN_REFUND:<pid>", sized to the lot as it looked
+then. Later replay rules reject it (basis/qty exceed the lot, or its SELL fill slot
+taken), and because the id is fixed per position it was never re-sized: every pass
+hit ATOMIC_COMMIT_REPAIR_SKIPPED_ALREADY_STAMPED_7050 (1134).
+
+- The refund id now carries the lot's current raw quantity and basis, so a changed
+  lot gets one correctly sized zero-PnL row and an unchanged one stays idempotent;
+  it takes the next free SELL fill index instead of colliding with the rejected row.
+  JOURNAL_ORPHAN_REFUND_SUPERSEDED_7367 counts the replacements.
+- The 7360 receipt rebuild ignores stale orphan-refund rows (they are not sales)
+  and also takes the next fill index.
+- A journal-open lot whose canonical row is not CLOSED is now counted
+  (JOURNAL_OPEN_LOT_CANONICAL_NOT_CLOSED_7367_<lifecycle>).
+- Remaining after this: realized PnL the ledger holds for evicted events is a
+  per-mint carry, not per-position, and cannot be rebuilt without inventing
+  proceeds; it stays as a reported offset.
+- Golden tape: V5_0_7367_orphan_refund_resized_to_current_lot.
+
 ## [5.0.7366] - 2026-09-26 — LIVE RUNNERS EXIT THE WAY PAPER PROVED THEM
 
 5.0.7364 live: 1W/8L, PF 0.66 — fresh positions stopped at -5% to -10% within

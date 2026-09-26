@@ -11973,4 +11973,16 @@ class GoldenTapeRegressionTest {
         assertTrue(ex.contains("catastrophePx = pos.entryPrice * 0.75,"))
     }
 
+
+    @Test
+    fun V5_0_7367_orphan_refund_resized_to_current_lot() {
+        val r = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/JournalEconomicReplay6619.kt").readText()
+        assertTrue(r.contains("val eventId = \"PAPER6619:ORPHAN_REFUND:$positionId:r$raw:b${(basis * 1e9).toLong()}\""))
+        assertTrue(r.contains("partialSequence = nextSequence7367,"))
+        assertTrue(r.contains("val journalSells = journalSells.filterNot { it.economicEventId.startsWith(\"PAPER6619:ORPHAN_REFUND:\") }"))
+        assertTrue(r.contains("JOURNAL_OPEN_LOT_CANONICAL_NOT_CLOSED_7367_"))
+        // Still zero-PnL at the open basis: nothing invented.
+        assertTrue(r.contains("reason = \"ORPHANED_STOP_LOT_REFUND_6662\","))
+    }
+
 }
