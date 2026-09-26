@@ -7969,6 +7969,13 @@ class Executor(
         // declining here removes a contradictory full-exit rather than removing risk
         // control. Returning false simply means "this path takes no exit".
         if (laneKey.contains("MOONSHOT", ignoreCase = true)) return false
+        // V5.0.7335 — the same contradiction held for the sniper: a
+        // PROJECT_SNIPER runner was fully closed here at ~max(35·tpMult, 50)%
+        // while its moonbag (banks 60% at +100%) and trail own its exits.
+        if (laneKey.contains("PROJECT_SNIPER", ignoreCase = true) || laneKey.contains("PRESALE", ignoreCase = true)) {
+            try { PipelineHealthCollector.labelInc("SWEEP_TP_DECLINED_RUNNER_LANE_7335") } catch (_: Throwable) {}
+            return false
+        }
         val tpPct = when {
             // V5.0.4125 — style-adjusted TP takes PRIORITY over lane-specific TPs.
             ts.position.entryTakeProfitPct > 0.0 ->
@@ -8999,7 +9006,18 @@ class Executor(
                 com.lifecyclebot.engine.truth.CanonicalTokenMetricsSnapshot6725.HealthTier.NEUTRAL -> -5.0
                 else -> -3.0
             }
-            val hardFloor = metricAwareStop6725.coerceIn(-50.0, floorCeiling6730)
+            val hardFloorRaw7335 = metricAwareStop6725.coerceIn(-50.0, floorCeiling6730)
+            // V5.0.7335 — on a runner lane the slippage pull-in and the -5%
+            // NEUTRAL-tier ceiling turned the lane's own stop (PROJECT_SNIPER
+            // -12%) into STRICT_SL_-5 — tightest in the thinnest pools, which is
+            // exactly where fresh launches trade and where 5-10% is launch
+            // noise. A runner lane's stop is never tighter than its own
+            // configured (fluid) stop; the runner floor and rug exits still act.
+            val runnerLane7335 = try { RunnerExitProfile7277.isRunnerLane(pos.tradingMode) } catch (_: Throwable) { false }
+            val hardFloor = if (runnerLane7335 && fluidStopNegative < hardFloorRaw7335) {
+                try { PipelineHealthCollector.labelInc("RUNNER_STOP_HELD_AT_LANE_STOP_7335") } catch (_: Throwable) {}
+                fluidStopNegative
+            } else hardFloorRaw7335
             val pnlPctNowVerdict6038 = OpenPnlSanity.inspectPosition(pos, currentPrice, "Executor.dynamic_stop_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true, mint = ts.mint)
             val pnlPctNow = if (pnlPctNowVerdict6038.ok) pnlPctNowVerdict6038.pnlPct else 0.0
             if (currentPrice > 0.0 && pnlPctNow <= hardFloor) {

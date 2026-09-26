@@ -4,6 +4,25 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7336] - 2026-09-26 — SNIPER AND CORE STOP CUTTING WINNERS BOTH WAYS
+
+5.0.7333 paper: PROJECT_SNIPER cut losses at STRICT_SL_-5 and trimmed winners
+below +100% (TICK_PROFIT_LOCK_peak99_now91); CORE closed
+UNIVERSAL_PEAK_LOCK_peak107_now0 and _peak33_now0.
+
+- MissingMarkExitVeto6835: UNIVERSAL_PEAK_LOCK is no longer treated as a
+  catastrophic exit. It only fires in profit, and deferring it 10-20 minutes on
+  a quiet feed held the lock until the whole gain was gone.
+- Executor dynamic stop: on a runner lane the slippage pull-in and the -5%
+  NEUTRAL-tier ceiling may not make the stop tighter than the lane's own
+  configured (fluid) stop — PROJECT_SNIPER's -12% had become -5%, tightest in
+  the thinnest pools (RUNNER_STOP_HELD_AT_LANE_STOP_7335).
+- Executor sweep take-profit: PROJECT_SNIPER is exempt like MOONSHOT; its moonbag
+  and trail own its exits (SWEEP_TP_DECLINED_RUNNER_LANE_7335).
+- FluidLearningAI profit lock: runner lanes between a +50% and +100% peak use the
+  scaled PeakDrawdownLock band instead of a 5-point retrace; the sweep-path lock
+  now passes the lane like the tick lock.
+
 ## [5.0.7335] - 2026-09-26 — MOONSHOT LETS ITS WINNERS BECOME RUNNERS
 
 MOONSHOT on 5.0.7333 paper: EV -33%/trade. 7277 gave runner lanes a +50%

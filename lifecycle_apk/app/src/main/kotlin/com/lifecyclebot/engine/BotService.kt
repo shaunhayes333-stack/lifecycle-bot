@@ -23103,6 +23103,7 @@ if (hotExitHandledSweep) {
                             peakPnlPct = peakPct,
                             holdTimeSeconds = (posAgeMs / 1000.0).coerceAtLeast(0.0),
                             volatility = ts.volatility ?: 50.0,
+                            lane = ts.position.tradingMode,  // V5.0.7335 — same band as the tick lock
                         )
                     } catch (_: Throwable) { Double.NaN }
                     // V5.0.7182 — same guillotine as the tick loop, second copy.

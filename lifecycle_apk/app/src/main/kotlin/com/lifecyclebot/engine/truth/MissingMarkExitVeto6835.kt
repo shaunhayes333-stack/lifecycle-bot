@@ -153,9 +153,13 @@ object MissingMarkExitVeto6835 {
         val nowMs = System.currentTimeMillis()
 
         // Reason must be catastrophic to gate. Anything else passes.
+        // V5.0.7335 — UNIVERSAL_PEAK_LOCK only fires while the position is
+        // still in profit (pnl > 0 under its fluid floor): it BANKS, it is not
+        // a catastrophe. Deferring it for 10-20 minutes on a quiet feed is how
+        // CORE closed UNIVERSAL_PEAK_LOCK_peak107_now0 and _peak33_now0 on
+        // 5.0.7333 — the lock was held until the whole gain was gone.
         val catastrophic = exitReason.startsWith("UNIVERSAL_HARD_FLOOR") ||
-            exitReason.startsWith("CATASTROPHIC_HARD_BACKSTOP") ||
-            exitReason.startsWith("UNIVERSAL_PEAK_LOCK")
+            exitReason.startsWith("CATASTROPHIC_HARD_BACKSTOP")
         if (!catastrophic) {
             allowCount.incrementAndGet()
             return Verdict(true, "NON_CATASTROPHIC_REASON")

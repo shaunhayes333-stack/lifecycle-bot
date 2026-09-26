@@ -1828,7 +1828,21 @@ object FluidLearningAI {
             val keepRatio = (0.40 + 0.57 * kotlin.math.log10(1.0 + peakClamped / 10.0) /
                                           kotlin.math.log10(1001.0)).coerceIn(0.40, 0.97)
             val peakFloor = peakClamped * keepRatio
-            val continuousLock = kotlin.math.max(peakAnchoredLock, peakFloor)
+            val continuousLockTight7335 = kotlin.math.max(peakAnchoredLock, peakFloor)
+            // V5.0.7335 — a runner lane between +50% and +100% was sold on the
+            // same 5-point retrace as a base hit (TICK_PROFIT_LOCK_peak99_now91:
+            // a 2.5% price dip closing a sniper runner in full just under the
+            // moonbag's +100% bar). Runner lanes get the scaled band the
+            // peak-lock already uses at that peak; it stays a profit lock.
+            val runnerScaled7335 = peakClamped >= 50.0 && peakClamped < 100.0 && try {
+                com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane)
+            } catch (_: Throwable) { false }
+            val continuousLock = if (runnerScaled7335) {
+                val band = try {
+                    peakClamped * (1.0 - com.lifecyclebot.engine.PeakDrawdownLock.triggerFracForPeak(peakClamped, lane))
+                } catch (_: Throwable) { continuousLockTight7335 }
+                kotlin.math.min(continuousLockTight7335, band)
+            } else continuousLockTight7335
 
             // Absolute safety floor: once peak >= +8%, never go back to entry
             val breakEvenFloor = if (peakClamped >= 8.0) 1.0 else Double.NEGATIVE_INFINITY
