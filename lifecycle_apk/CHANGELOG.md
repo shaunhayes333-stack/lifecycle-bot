@@ -4,6 +4,21 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7342] - 2026-09-26 — IDLE CAPITAL GOES TO THE LANES THAT EARN IT
+
+5.0.7340 at 27 minutes: cash 0.81 of 13.12 SOL equity across 81 positions.
+QUALITY (n=5, EV -11.4%) and TREASURY (n=7, EV -0.2%) held 4.9 SOL — 40% of
+the book — on enforced targets of 2.92 SOL each (nominal ~0.99), while
+PROJECT_SNIPER (+37.8%), CORE (+29.2%) and MOONSHOT (+26.9%) were refused for cash.
+
+- `LaneCapitalFairness6732.laneTargetSol`: the 7185 release of unclaimed lane
+  budget went to whichever lanes were spending, weighted by a damper that barely
+  separates earners from bleeders. A lane whose own closes measure negative EV
+  (>=5 closes) now keeps its full nominal share but no longer absorbs other lanes'
+  idle capital; it is also excluded from the demand weight, so the release goes
+  to lanes that have shown they grow it. Nothing is throttled or disabled.
+  Counter: `LANE_RELEASE_WITHHELD_NEGATIVE_EV_7342[_LANE]`.
+
 ## [5.0.7341] - 2026-09-26 — KEYLESS FANOUT PRICES CAN PRICE A PAPER ENTRY
 
 5.0.7340: BLUECHIP buyIntent=52 fdgAllow=25 markReady=0 (MARK_CHOKED), CORE

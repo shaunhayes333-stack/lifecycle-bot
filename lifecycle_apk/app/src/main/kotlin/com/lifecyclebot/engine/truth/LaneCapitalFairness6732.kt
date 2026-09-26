@@ -42,6 +42,10 @@ object LaneCapitalFairness6732 {
      */
     private const val MAX_CLAIM_MULT_7185 = 3.0
 
+    /** V5.0.7342 — same-mode closes before a negative EV withholds released budget
+     *  (matches the Strategy expectancy table's ">=5 trainable" bar). */
+    private const val MIN_CLOSES_FOR_RELEASE_EVIDENCE_7342 = 5
+
     private val MEME_LANES = setOf(
         "QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "EXPRESS", "CORE",
         "MOONSHOT", "PROJECT_SNIPER", "DIP_HUNTER", "MANIPULATED", "TREASURY", "CASHGEN",
@@ -256,13 +260,40 @@ object LaneCapitalFairness6732 {
         val ownUsed7185 = usedByLane7185[lane] ?: 0.0
         if (usedByLane7185.isEmpty() || ownUsed7185 < nominal7185) return nominal7185
 
+        // V5.0.7342 §IDLE_CAPITAL_GOES_TO_THE_LANES_THAT_EARN_IT.
+        //
+        // 5.0.7340, 27 minutes in: cash 0.81 of 13.12 equity, 81 positions.
+        // QUALITY (n=5, EV -11.4%) enforcedTarget 2.92 used 2.76, TREASURY
+        // (n=7, EV -0.2%) enforcedTarget 2.92 used 2.13 — 4.9 SOL, 40% of the
+        // book, parked in the two lanes that lose, while PROJECT_SNIPER
+        // (+37.8%), CORE (+29.2%) and MOONSHOT (+26.9%) were refused for cash.
+        // The release below handed idle budget to whoever was SPENDING, weighted
+        // by a damper multiplier that barely separates them (0.88 vs 1.12), so
+        // buying fast was rewarded the same as earning. A lane whose own closes
+        // measure negative expectancy keeps its full nominal share — it is not
+        // throttled or disabled — but it does not absorb other lanes' idle
+        // capital. That capital compounds only where it has been shown to grow.
+        val laneEv7342 = try {
+            com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
+                .associate { normLane(it.lane).let { l -> if (l == "BLUE_CHIP") "BLUECHIP" else l } to it }
+        } catch (_: Throwable) { emptyMap() }
+        fun measuredLoser7342(l: String): Boolean =
+            laneEv7342[l]?.let { it.sample >= MIN_CLOSES_FOR_RELEASE_EVIDENCE_7342 && it.evPct < 0.0 } == true
+        if (measuredLoser7342(lane)) {
+            try {
+                PipelineHealthCollector.labelInc("LANE_RELEASE_WITHHELD_NEGATIVE_EV_7342")
+                PipelineHealthCollector.labelInc("LANE_RELEASE_WITHHELD_NEGATIVE_EV_7342_$lane")
+            } catch (_: Throwable) {}
+            return nominal7185
+        }
+
         var released7185 = 0.0
         var demandWeight7185 = 0.0
         for (l in MEME_LANES) {
             val w = weights[l] ?: 1.0
             val n = sharedEquity * (w / weightSum)
             val u = usedByLane7185[l] ?: 0.0
-            if (u < n) released7185 += (n - u) else demandWeight7185 += w
+            if (u < n) released7185 += (n - u) else if (!measuredLoser7342(l)) demandWeight7185 += w
         }
         if (released7185 <= 0.0 || demandWeight7185 <= 0.0) return nominal7185
 

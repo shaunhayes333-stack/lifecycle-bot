@@ -11612,4 +11612,14 @@ class GoldenTapeRegressionTest {
         assertTrue(reg.contains("MARK_FRESHNESS_WINDOW_MS_6739 = 120_000L"))
     }
 
+    @Test
+    fun V5_0_7342_idle_capital_goes_to_lanes_that_earn_it() {
+        val f = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LaneCapitalFairness6732.kt").readText()
+        assertTrue(f.contains("it.sample >= MIN_CLOSES_FOR_RELEASE_EVIDENCE_7342 && it.evPct < 0.0"))
+        assertTrue(f.contains("if (measuredLoser7342(lane)) {"))
+        assertTrue(f.contains("if (u < n) released7185 += (n - u) else if (!measuredLoser7342(l)) demandWeight7185 += w"))
+        assertFalse(f.contains("if (u < n) released7185 += (n - u) else demandWeight7185 += w"))
+        assertTrue(f.contains("private const val MIN_CLOSES_FOR_RELEASE_EVIDENCE_7342 = 5"))
+    }
+
 }
