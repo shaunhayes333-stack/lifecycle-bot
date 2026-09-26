@@ -10004,7 +10004,7 @@ class GoldenTapeRegressionTest {
         // Paper sell door: gain above the shared clamp, uncorroborated → refused
         // before the close-idempotency stamp and the CAS door; corroborated → booked.
         assertTrue(exec.contains("private const val PAPER_GAIN_CLAMP_PCT_7271: Double = 1000.0"))
-        assertTrue(exec.contains("val priceDerivedPnlPct = pct(pos.entryPrice, effectivePrice).coerceIn(-100.0, PAPER_GAIN_CLAMP_PCT_7271)"))
+        assertTrue(exec.contains(".coerceIn(-100.0, StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349)"))
         assertTrue(exec.contains("if (gainPct7271 > PAPER_GAIN_CLAMP_PCT_7271) {"))
         assertTrue(exec.contains("val corroborated7271 = ts.lastPriceSource.contains(\"FANOUT_CORROBORATED\", ignoreCase = true)"))
         assertTrue(exec.contains("PAPER_SELL_ABSURD_GAIN_UNCORROBORATED_7271:\$reason"))
@@ -11696,6 +11696,22 @@ class GoldenTapeRegressionTest {
         assertTrue(h.contains("synchronized(validRowsBuildLock7348) {"))
         assertTrue(h.contains("return validRowsHead7348(cap)"))
         assertFalse(h.contains("return validRowsNewestFirst7346().take(limit.coerceAtLeast(1))"))
+    }
+
+    @Test
+    fun V5_0_7349_a_real_runner_reaches_the_books_and_the_learners() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("if (!runnerBanked7349 && runnerLane7349 && (bothConfirm10x || bothConfirm6x)) {"))
+        assertTrue(ex.contains("reason = \"QUICK_RUNNER_MOONBAG_BANK_7349_${bestPnl.toInt()}PCT\","))
+        assertFalse(ex.contains("        if (ts.position.isPaperPosition) return null\n        val mbKey7322"))
+        assertTrue(ex.contains("if (moonbagWouldAct7349(ts, reason)) {"))
+        assertFalse(ex.contains("pct(pos.entryPrice, effectivePrice).coerceIn(-100.0, PAPER_GAIN_CLAMP_PCT_7271)"))
+        val st = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTelemetry.kt").readText()
+        assertTrue(st.contains("const val LEARNABLE_GAIN_CEILING_PCT_7349 = 100_000.0"))
+        assertFalse(st.contains("p.coerceIn(-100.0, 5_000.0)"))
+        assertFalse(st.contains("                val ABS_CAP_SOL = 25.0\n"))
+        val op = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OpenPnlSanity.kt").readText()
+        assertTrue(op.contains("\"PRICE_BASIS_UNPROVEN_EXTREME_RATIO_7349\" else \"PRICE_BASIS_UNTRUSTED_EXTREME_RATIO\""))
     }
 
 }

@@ -283,7 +283,24 @@ object OpenPnlSanity {
         val syntheticInvolved = eSrc.contains("SYNTH") || cSrc.contains("SYNTH") || eSrc.contains("PUMP_FUN_BC") || cSrc.contains("PUMP_FUN_BC")
 
         if (ratio > MAX_UNKNOWN_BASIS_RATIO && (!explicitComparable || syntheticInvolved)) {
-            return reject("PRICE_BASIS_UNTRUSTED_EXTREME_RATIO", entryPrice, currentPrice, context, emit, mint)
+            // V5.0.7349 §NO_PROVENANCE_IS_NOT_PROOF_OF_IMPOSSIBILITY.
+            //
+            // Several callers (inspectPosition, MoonshotTraderAI.checkExit and
+            // exit managers) never pass the current mark's source or pool, so
+            // explicitComparable is false by construction for them. Above 51x
+            // every such call rejected with PRICE_BASIS_UNTRUSTED_EXTREME_RATIO,
+            // which is a learning-poison reason: the mint was quarantined out of
+            // all learning for the process and its whole terminal row dropped.
+            // A genuine MOONSHOT 600x was therefore erased from what the lane
+            // learns. The caller still gets a rejection here (it cannot vouch
+            // for the basis), but when the current provenance is simply UNKNOWN
+            // and no synthetic basis is involved, the reason is one that does
+            // not quarantine. A contradicting provenance, or a synthetic basis
+            // (the 7089 fabricated-entry case), still quarantines as before.
+            val currentProvenanceUnknown7349 = cSrc.isBlank() && currentConcretePool6680 == null
+            val reason7349 = if (currentProvenanceUnknown7349 && !syntheticInvolved)
+                "PRICE_BASIS_UNPROVEN_EXTREME_RATIO_7349" else "PRICE_BASIS_UNTRUSTED_EXTREME_RATIO"
+            return reject(reason7349, entryPrice, currentPrice, context, emit, mint)
         }
         if (pnl > MAX_UNKNOWN_BASIS_PNL_PCT && !explicitComparable) {
             return reject("UNKNOWN_PRICE_BASIS_EXTREME_PNL", entryPrice, currentPrice, context, emit, mint)

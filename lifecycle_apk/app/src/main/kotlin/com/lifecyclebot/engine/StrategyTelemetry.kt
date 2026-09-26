@@ -73,11 +73,25 @@ object StrategyTelemetry {
     /**
      * Notional-weighted mean pnl%. Falls back to the old equal-weighted mean
      * when no row carries a usable basis, so this can never return nothing.
-     * Same winsorization as the callers (-100%..+5000%).
+     * Same winsorization as the callers (-100%..LEARNABLE_GAIN_CEILING_PCT_7349).
      */
+    /**
+     * V5.0.7349 §A_REAL_RUNNER_IS_NOT_A_FEED_ARTIFACT.
+     *
+     * Operator: "moonshot was and has found 600x runs." These means clipped every
+     * close at +5,000% (a 600x = +59,900% counted as 50x) to stop feed-artifact
+     * rows dominating (6848). Since then the paper sell door (7271/7272/7301)
+     * refuses any fill above +1,000% that the feeds do not corroborate, and above
+     * 1,000x requires an executable quote; journal validity rejects anything above
+     * LearningPnlSanitizer's +100,000%. A row that reaches these boards has been
+     * through both, so the winsorization ceiling is that same learnable ceiling:
+     * NaN and impossible rows stay out, real runners count at their real size.
+     */
+    const val LEARNABLE_GAIN_CEILING_PCT_7349 = 100_000.0
+
     private fun notionalWeightedMeanPct7184(trades: List<Trade>): Double {
         if (trades.isEmpty()) return 0.0
-        fun sane(p: Double): Double = if (!p.isFinite()) 0.0 else p.coerceIn(-100.0, 5_000.0)
+        fun sane(p: Double): Double = if (!p.isFinite()) 0.0 else p.coerceIn(-100.0, LEARNABLE_GAIN_CEILING_PCT_7349)
         val weightSum = trades.sumOf { rowNotionalSol7184(it) }
         if (!weightSum.isFinite() || weightSum <= 0.0) {
             return trades.sumOf { sane(it.pnlPct) } / trades.size
@@ -233,7 +247,7 @@ object StrategyTelemetry {
             // +5000% move)" — and -100% is a true total loss. This keeps the field a mean
             // (semantics unchanged for consumers) while removing single-row domination.
             fun sanePct(p: Double): Double =
-                if (!p.isFinite()) 0.0 else p.coerceIn(-100.0, 5_000.0)
+                if (!p.isFinite()) 0.0 else p.coerceIn(-100.0, LEARNABLE_GAIN_CEILING_PCT_7349)
             val sumPnl = trades.sumOf { sanePct(it.pnlPct) }
             val mean = if (trades.isNotEmpty()) sumPnl / trades.size else 0.0
             val wlDenom = wins + losses
@@ -264,7 +278,12 @@ object StrategyTelemetry {
                 // swing is physically impossible and must be a feed/unit artifact.
                 // A row must pass BOTH ceilings to enter the SOL total.
                 val relCap = if (size > 0.0) size * 50.0 else 5.0
-                val ABS_CAP_SOL = 25.0
+                // V5.0.7349 — was a flat 25 SOL: a real 600x on a 0.4 SOL entry
+                // (~240 SOL) was deleted from the lane's SOL total as an artifact.
+                // Bounded by the position's own entry cost at the learnable
+                // 1,000x multiple, never below the old 25 SOL.
+                val entryCost7349 = t.entryCostSol.takeIf { it.isFinite() && it > 0.0 }
+                val ABS_CAP_SOL = if (entryCost7349 != null) maxOf(25.0, entryCost7349 * (LEARNABLE_GAIN_CEILING_PCT_7349 / 100.0)) else 25.0
                 if (kotlin.math.abs(p) > relCap || kotlin.math.abs(p) > ABS_CAP_SOL) {
                     try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ACCOUNTING_OUTLIER_NOT_TRAINED") } catch (_: Throwable) {}
                     return null
@@ -359,7 +378,7 @@ object StrategyTelemetry {
                 // V5.0.6848 — same winsorization as computeLeaderboardUncached above; see
                 // the rationale there. Duplicated formula, duplicated defect.
                 fun sanePct(p: Double): Double =
-                    if (!p.isFinite()) 0.0 else p.coerceIn(-100.0, 5_000.0)
+                    if (!p.isFinite()) 0.0 else p.coerceIn(-100.0, LEARNABLE_GAIN_CEILING_PCT_7349)
                 val wins = trades.count { rowPnlSol(it) > 0.0 }
                 val losses = trades.count { rowPnlSol(it) < 0.0 }
                 val scratches = trades.size - wins - losses
@@ -456,7 +475,7 @@ object StrategyTelemetry {
                 // so an outlier-dominated mean here mis-ranks lanes for sizing, for the
                 // 6838 admission floor and for the 6841 election priority.
                 fun sanePct(p: Double): Double =
-                    if (!p.isFinite()) 0.0 else p.coerceIn(-100.0, 5_000.0)
+                    if (!p.isFinite()) 0.0 else p.coerceIn(-100.0, LEARNABLE_GAIN_CEILING_PCT_7349)
                 val wins = trades.count { rowPnlSol(it) > 0.0 }
                 val losses = trades.count { rowPnlSol(it) < 0.0 }
                 val scratches = trades.size - wins - losses

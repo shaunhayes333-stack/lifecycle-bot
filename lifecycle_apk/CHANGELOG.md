@@ -4,6 +4,45 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7349] - 2026-09-26 — A REAL RUNNER REACHES THE BOOKS AND THE LEARNERS
+
+Operator: "moonshot was and has found 600x runs." The strategy table read
+MOONSHOT n=59, EV +0.81%/trade, +0.41 SOL, and the damper sized it x0.71. A traced
++59,900% paper MOONSHOT could not reach the P&L or the learners at anything like
+its size:
+
+- **Sold out at 6x.** `runManageOnly`'s quick-runner exit fully closed every lane
+  at +500% (or +1,000%) — "BANK_95PCT" was only a label. On a runner lane it now
+  banks `MoonbagRunner7322.BANK_FRACTION` (60%) the first time and the moonbag rides
+  on the lane's own exits; once banked it stands aside. Non-runner lanes unchanged.
+  `QUICK_RUNNER_MOONBAG_BANKED_7349`.
+- **Paper never held a moonbag.** `moonbagGate7322` returned early for paper, so the
+  bank-then-hold rule only ran live and paper (where MOONSHOT learns) sold every
+  runner in full. Paper now runs the same gate before `paperSell`; the close stamp
+  is released only when the gate will act and restored if it passes.
+- **Booked at most +1,000%.** `paperSell` clipped every fill to +1,000% whatever
+  the corroboration, although the door above it already refuses any fill over
+  +1,000% the feeds do not corroborate (executable quote above 1,000x). A proven
+  fill now books at its price up to the learnable ceiling (+100,000%); pool
+  liquidity still caps proceeds.
+- **Erased from learning above 51x.** Callers that do not pass the current mark's
+  source/pool (inspectPosition, MoonshotTraderAI.checkExit) were rejected with
+  `PRICE_BASIS_UNTRUSTED_EXTREME_RATIO`, a learning-poison reason that quarantined
+  the mint for the process and dropped its terminal row. Unknown provenance (with
+  no synthetic basis) now rejects with `PRICE_BASIS_UNPROVEN_EXTREME_RATIO_7349`,
+  which does not quarantine; a contradicting provenance or synthetic basis still
+  does.
+- **Clipped in the lane tables.** Leaderboard means winsorized every close at
+  +5,000% and the SOL total dropped any close above a flat 25 SOL. Both now use
+  `StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349` (+100,000%, the journal's
+  own validity ceiling; the SOL cap is 1,000x the row's entry cost, never below
+  25 SOL).
+
+Not in this build: learners with their own +1,000% reward caps
+(ForwardOutcomeModel, AutonomousMetaPolicy, StrategyHypothesisEngine), the
+win/loss-only UnifiedPolicyHead, and the win-rate-only cohort advisory behind the
+MOONSHOT x0.71 damper.
+
 ## [5.0.7348] - 2026-09-26 — A SMALL READ DOES NOT PAY FOR THE WHOLE JOURNAL
 
 5.0.7347 at 30 minutes: EXIT_COORDINATOR_STALE_RESET = 69 (LOCK_AGE >= 10s; 0 on

@@ -8502,7 +8502,48 @@ class Executor(
                     (livePnl.isFinite() && livePnl >= 350.0 || !livePnl.isFinite() && cachedPnl.isFinite() && cachedPnl >= 500.0)
                 val livePnlFmt = if (livePnl.isFinite()) livePnl.fmt(1) else "NaN"
                 val cachedPnlFmt = if (cachedPnl.isFinite()) cachedPnl.fmt(1) else "NaN"
-                if (bestPnl >= 500.0 && !bothConfirm10x && !bothConfirm6x) {
+                // V5.0.7349 §A_RUNNER_LANE_IS_NOT_SOLD_OUT_AT_6X.
+                //
+                // Operator: "moonshot was and has found 600x runs." This block
+                // sold the WHOLE position at +500% (6x) or +1,000% (11x) on every
+                // lane, every 2s — "BANK_95PCT" was a label, doSell closes all of
+                // it — so a MOONSHOT could never be holding when the 600x came.
+                // On a runner lane it now banks MoonbagRunner7322.BANK_FRACTION the
+                // first time (the same bank the sell door already applies to live
+                // give-back exits) and the moonbag rides on the lane's own exits;
+                // once banked this block stands aside. Non-runner lanes unchanged.
+                val runnerLane7349 = try { RunnerExitProfile7277.isRunnerLane(ts.position.tradingMode) } catch (_: Throwable) { false }
+                val runnerKey7349 = ts.position.positionId.ifBlank { ts.mint }
+                val runnerBanked7349 = runnerLane7349 && MoonbagRunner7322.bankedPeakFor(runnerKey7349) != null
+                if (runnerBanked7349) {
+                    try { MoonbagRunner7322.notePeak(runnerKey7349, bestPnl) } catch (_: Throwable) {}
+                }
+                if (!runnerBanked7349 && runnerLane7349 && (bothConfirm10x || bothConfirm6x)) {
+                    val bank7349 = requestPartialSellConfirmed6566(
+                        ts = ts,
+                        sellPercentage = MoonbagRunner7322.BANK_FRACTION,
+                        reason = "QUICK_RUNNER_MOONBAG_BANK_7349_${bestPnl.toInt()}PCT",
+                        wallet = wallet,
+                        walletBalance = walletSol,
+                    )
+                    if (bank7349.applied) {
+                        MoonbagRunner7322.markBanked(runnerKey7349, bestPnl)
+                        try {
+                            PipelineHealthCollector.labelInc("QUICK_RUNNER_MOONBAG_BANKED_7349")
+                            ForensicLogger.lifecycle(
+                                "QUICK_RUNNER_MOONBAG_BANKED_7349",
+                                "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=${ts.position.tradingMode} bestPnl=${bestPnl.fmt(1)}% " +
+                                    "banked=${MoonbagRunner7322.BANK_FRACTION} action=moonbag_rides_on_lane_exits",
+                            )
+                        } catch (_: Throwable) {}
+                        onLog("🚀 RUNNER BANKED: ${ts.symbol} +${bestPnl.toInt()}% — ${(MoonbagRunner7322.BANK_FRACTION * 100).toInt()}% banked, moonbag rides", ts.mint)
+                        return
+                    }
+                    // The partial did not apply: fall through to the original full exit.
+                }
+                if (runnerBanked7349) {
+                    // Moonbag already banked: the lane's own exits run the rest.
+                } else if (bestPnl >= 500.0 && !bothConfirm10x && !bothConfirm6x) {
                     try {
                         ForensicLogger.lifecycle(
                             "PRICE_DIVERGENCE_QUICK_RUNNER_BLOCK_6245",
@@ -23814,7 +23855,7 @@ class Executor(
 
     /** V5.0.7322 — non-null short-circuits the sell (moonbag banked or held). */
     private fun moonbagGate7322(ts: TokenState, requestReason: String, wallet: SolanaWallet?, walletSol: Double): SellResult? {
-        if (ts.position.isPaperPosition) return null
+        // V5.0.7349 — paper is no longer excluded; see moonbagWouldAct7349.
         val mbKey7322 = ts.position.positionId.ifBlank { ts.mint }
         val mbPx7322 = ts.lastPrice.takeIf { it > 0.0 } ?: ts.position.entryPrice
         val mbPnl7322 = if (ts.position.entryPrice > 0.0) ((mbPx7322 - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else Double.NaN
@@ -23849,6 +23890,22 @@ class Executor(
         }
         return null
     }
+
+    /**
+     * V5.0.7349 §PAPER_LEARNS_WHAT_LIVE_WILL_DO. The moonbag rule (bank on the
+     * first give-back exit past +100% on a runner lane, then hold the bag while
+     * it keeps half the peak) only ran for live, so every paper runner was sold
+     * in full and paper — where MOONSHOT learns — never held a bag. Pure check,
+     * so the paper close stamp is only released when the gate will act.
+     */
+    private fun moonbagWouldAct7349(ts: TokenState, reason: String): Boolean = try {
+        val key = ts.position.positionId.ifBlank { ts.mint }
+        val px = ts.lastPrice.takeIf { it > 0.0 } ?: ts.position.entryPrice
+        val pnl = if (ts.position.entryPrice > 0.0) ((px - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else Double.NaN
+        val peak = maxOf(ts.position.peakGainPct, if (pnl.isFinite()) pnl else 0.0)
+        MoonbagRunner7322.decide(ts.position.tradingMode, reason, pnl, peak, MoonbagRunner7322.bankedPeakFor(key)) !=
+            MoonbagRunner7322.Action.PASS
+    } catch (_: Throwable) { false }
 
     internal fun doSell(ts: TokenState, reason: String,
                        wallet: SolanaWallet?, walletSol: Double,
@@ -23983,6 +24040,17 @@ class Executor(
         }
         
         if (isPaper) {
+            // V5.0.7349 — paper keeps a moonbag too. The close stamp set at the
+            // top of doSell is released first so the bank partial (and later
+            // exits) are not blocked by it, and restored if the gate passes.
+            if (moonbagWouldAct7349(ts, reason)) {
+                PaperPositionCloseAuthority.releaseDeferredRequest7330("PAPER", ts.mint)
+                moonbagGate7322(ts, reason, wallet, walletSol)?.let {
+                    try { PipelineHealthCollector.labelInc("PAPER_MOONBAG_GATE_ACTED_7349") } catch (_: Throwable) {}
+                    return it
+                }
+                PaperPositionCloseAuthority.markCloseRequested("PAPER", ts.mint, ts.symbol, reason)
+            }
             onLog("📄 Routing to paperSell (paperMode=$isPaper)", tradeId.mint)
             return paperSell(ts, reason, tradeId)
         } else if (wallet == null) {
@@ -24745,7 +24813,14 @@ class Executor(
             )
         } catch (_: Throwable) {}
 
-        val priceDerivedPnlPct = pct(pos.entryPrice, effectivePrice).coerceIn(-100.0, PAPER_GAIN_CLAMP_PCT_7271)
+        // V5.0.7349 — was coerceIn(-100.0, PAPER_GAIN_CLAMP_PCT_7271): every paper
+        // sell booked at most +1,000% whatever the corroboration, so a real 600x
+        // Moonshot paid out as 11x. The door above already refuses any fill over
+        // +1,000% the feeds do not corroborate (and above 1,000x demands an
+        // executable quote), so a fill that reaches here was proven; it books at
+        // its price up to the learnable ceiling. Pool liquidity still caps proceeds.
+        val priceDerivedPnlPct = pct(pos.entryPrice, effectivePrice)
+            .coerceIn(-100.0, StrategyTelemetry.LEARNABLE_GAIN_CEILING_PCT_7349)
         val rawValue = (terminalRemainingCost6492 * (1.0 + priceDerivedPnlPct / 100.0) * (1.0 - simulatedFeePct / 100.0) -
             com.lifecyclebot.engine.truth.PaperVenueCost7287.FIXED_SOL_PER_SIDE).coerceAtLeast(0.0)
         // (3) Cost-basis paper proceeds — paper has no real token balance. Do
