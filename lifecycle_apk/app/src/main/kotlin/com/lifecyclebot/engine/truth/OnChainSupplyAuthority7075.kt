@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine.truth
 
+import com.lifecyclebot.engine.ApiBackoff
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.HealthAwareHttp
@@ -157,6 +158,11 @@ object OnChainSupplyAuthority7075 {
 
     // V5.0.7116 — the reasons that were collapsed into one `failed` counter.
     private val skippedCooldown = AtomicLong(0L)
+    private val skippedProviderLocked7345 = AtomicLong(0L)
+
+    /** V5.0.7345 — leave the tail of a lockout alone so ApiBackoff's one real
+     *  probe per lockout still reaches the provider through HealthAwareHttp. */
+    private const val LOCKOUT_PROBE_WINDOW_MS_7345 = 10_000L
     private val skippedNegative = AtomicLong(0L)
     private val skippedSaturated = AtomicLong(0L)
     private val declinedLocally = AtomicLong(0L)
@@ -241,6 +247,21 @@ object OnChainSupplyAuthority7075 {
     fun requestAsync7075(mint: String) {
         if (mint.isBlank() || rpcUrl.isBlank()) return
         if (resolved.containsKey(mint)) return
+        // V5.0.7345 §DO_NOT_BUILD_A_REQUEST_THE_BACKOFF_WILL_REFUSE.
+        //
+        // With Helius at max usage for a whole run: requested=2245, dec7116=2237
+        // (refused locally by ApiBackoff via HealthAwareHttp's synthetic 503),
+        // resolved=0. Every one of those was a pool handoff, a JSON payload, an
+        // OkHttp request and a fake response, only to be declined without
+        // touching the network. While the provider is locked out, a DECLINED
+        // attempt writes nothing to resolved/failed/fetched, so skipping it
+        // changes no supply, no verdict and no trade. lockoutRemainingMs is used
+        // rather than isLockedOut because the latter consumes the one probe
+        // per lockout; the final 10s of the lockout is left to that probe.
+        if (ApiBackoff.lockoutRemainingMs(hostLabel7116()) > LOCKOUT_PROBE_WINDOW_MS_7345) {
+            skippedProviderLocked7345.incrementAndGet()
+            return
+        }
         // V5.0.7116 — the suppression that was missing. Without this the only
         // guard was `resolved.containsKey`, which by construction never holds
         // for a mint that has failed, so every failure was retried on the next
@@ -448,6 +469,6 @@ object OnChainSupplyAuthority7075 {
             "correctedInference=${corrections.get()} cached=${resolved.size} " +
             "noSupply7116=${noSupply.get()} malformed7116=${malformed.get()} " +
             "rl7116=${rateLimited.get()} tx7116=${transportError.get()} dec7116=${declinedLocally.get()} " +
-            "sat7116=${skippedSaturated.get()} cd7116=${skippedCooldown.get()} " +
+            "sat7116=${skippedSaturated.get()} cd7116=${skippedCooldown.get()} locked7345=${skippedProviderLocked7345.get()} " +
             "negCached7116=${skippedNegative.get()} cooling7116=${retryNotBefore.size}"
 }

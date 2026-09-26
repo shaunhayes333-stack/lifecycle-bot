@@ -11648,4 +11648,15 @@ class GoldenTapeRegressionTest {
         assertTrue(h.contains("if (canonicalOpenMints7344 != null && ts.mint !in canonicalOpenMints7344) continue"))
     }
 
+    @Test
+    fun V5_0_7345_sweep_no_reproving_no_refused_requests() {
+        val q = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/QuantityInvariantAuthority6500.kt").readText()
+        assertTrue(q.contains("if (memo7345 != null && memo7345.canonicalRef === canonical && memo7345.mint == mint &&"))
+        assertTrue(q.contains("passMemo7345.remove(pos.positionId)"))
+        assertTrue(q.contains("passMemo7345.clear(); passMemoHits7345.set(0L)"))
+        val o = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OnChainSupplyAuthority7075.kt").readText()
+        assertTrue(o.contains("if (ApiBackoff.lockoutRemainingMs(hostLabel7116()) > LOCKOUT_PROBE_WINDOW_MS_7345) {"))
+        assertFalse(o.contains("ApiBackoff.isLockedOut(hostLabel7116())"))
+    }
+
 }

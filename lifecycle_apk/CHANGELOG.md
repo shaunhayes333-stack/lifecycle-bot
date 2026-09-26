@@ -4,6 +4,26 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7345] - 2026-09-26 — SWEEP 1: NO RE-PROVING, NO REQUESTS THE BACKOFF WILL REFUSE
+
+First batch of the data-wastage sweep.
+
+- `QuantityInvariantAuthority6500.check`: QUANTITY_INVARIANT_CHECK_CALLS_6727 =
+  337,033 in 30 minutes (~187/s) for ~80 positions — the hero snapshot (every
+  500ms), every capital snapshot and every UI build re-proved the same positions
+  from the same inputs. The verdict is a pure function of the canonical row
+  (immutable; every write installs a new instance, so identity is its version)
+  and the runtime qty/entry/cost/source. A PASS is now kept per positionId and
+  reused while both are unchanged; failures are never stored and always
+  recompute with their quarantine side effects. Projection-quarantine
+  self-release still runs on reuse. Status: `passReuse7345`, `passStored7345`.
+- `OnChainSupplyAuthority7075.requestAsync7075`: with Helius at max usage,
+  2,245 supply requests were built and submitted, 2,237 refused locally by
+  ApiBackoff and 0 resolved. While the provider is locked out, a request is no
+  longer built (a declined attempt writes nothing, so no supply, verdict or
+  trade changes); the last 10s of each lockout is left for ApiBackoff's one real
+  probe. Status: `locked7345=`.
+
 ## [5.0.7344] - 2026-09-26 — STOP RE-DERIVING ANSWERS THAT HAVE NOT CHANGED
 
 Operator: "we do this a lot. there's an extreme amount of data wastage." The

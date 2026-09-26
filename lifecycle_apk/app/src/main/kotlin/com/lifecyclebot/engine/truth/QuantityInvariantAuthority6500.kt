@@ -216,6 +216,34 @@ object QuantityInvariantAuthority6500 {
                 .maxByOrNull { it.lastMutationMs }
         } ?: return InvariantCheck(false, Double.POSITIVE_INFINITY, 0.0, 0.0,
             "canonical_open_missing_or_identity_mismatch")
+        // V5.0.7345 §AN_UNCHANGED_POSITION_IS_NOT_RE_PROVEN.
+        //
+        // QUANTITY_INVARIANT_CHECK_CALLS_6727 = 337,033 in 30 minutes (~187/s)
+        // for ~80 positions: HeroSnapshotAuthority6503 every 500ms, every
+        // CanonicalCapitalAuthority6450.snapshot() and every UI build re-proved
+        // the same positions from the same inputs. Everything below is a pure
+        // function of this canonical row (immutable; every canonical write
+        // installs a new instance, so identity is its version) and of the
+        // runtime qty/entry/cost/source, which are vals. A PASS is therefore
+        // kept and reused while both are unchanged. Failures are never stored:
+        // they carry quarantine side effects and always recompute. The one
+        // pass-path side effect, self-release of a projection quarantine, still
+        // runs on a reuse against the live quarantine map.
+        val memo7345 = if (pos.positionId.isNotBlank()) passMemo7345[pos.positionId] else null
+        if (memo7345 != null && memo7345.canonicalRef === canonical && memo7345.mint == mint &&
+            memo7345.qtyBits == pos.qtyToken.toRawBits() && memo7345.entryBits == pos.entryPrice.toRawBits() &&
+            memo7345.costBits == pos.costSol.toRawBits() && memo7345.entrySource == pos.entryPriceSource
+        ) {
+            passMemoHits7345.incrementAndGet()
+            val prior7345 = quarantined[mint]
+            if (prior7345?.startsWith("runtime_projection_vs_canonical_raw") == true && quarantined.remove(mint, prior7345)) {
+                try {
+                    ForensicLogger.lifecycle("QUANTITY_INVARIANT_REPAIRED_RELEASED_6521", "mint=${mint.take(10)} source=pass_memo_7345")
+                    PipelineHealthCollector.labelInc("QUANTITY_INVARIANT_REPAIRED_RELEASED_6521")
+                } catch (_: Throwable) {}
+            }
+            return memo7345.result
+        }
         if (canonical.lifecycle !in setOf(
                 CanonicalPositionAuthority6441.Lifecycle.OPEN,
                 CanonicalPositionAuthority6441.Lifecycle.PARTIALLY_CLOSED,
@@ -283,9 +311,35 @@ object QuantityInvariantAuthority6500 {
                 } catch (_: Throwable) {}
             }
         }
-        return InvariantCheck(ok, ratio, canonicalQty * (canonicalEntry ?: pos.entryPrice), canonicalCost,
+        val result7345 = InvariantCheck(ok, ratio, canonicalQty * (canonicalEntry ?: pos.entryPrice), canonicalCost,
             if (ok) "ok_canonical_raw" else "runtime_projection_vs_canonical_raw qtyRatio=$qtyRatio costRatio=$costRatio priceRatio=$priceRatio")
+        if (pos.positionId.isNotBlank()) {
+            if (ok) {
+                if (passMemo7345.size >= PASS_MEMO_CAP_7345) passMemo7345.clear()
+                passMemo7345[pos.positionId] = PassMemo7345(
+                    canonical, mint, pos.qtyToken.toRawBits(), pos.entryPrice.toRawBits(),
+                    pos.costSol.toRawBits(), pos.entryPriceSource, result7345,
+                )
+            } else {
+                passMemo7345.remove(pos.positionId)
+            }
+        }
+        return result7345
     }
+
+    /** V5.0.7345 — a stored PASS; see the reuse block in check(). */
+    private class PassMemo7345(
+        val canonicalRef: CanonicalPositionAuthority6441.Position,
+        val mint: String,
+        val qtyBits: Long,
+        val entryBits: Long,
+        val costBits: Long,
+        val entrySource: String,
+        val result: InvariantCheck,
+    )
+    private const val PASS_MEMO_CAP_7345 = 1_024
+    private val passMemo7345 = java.util.concurrent.ConcurrentHashMap<String, PassMemo7345>()
+    private val passMemoHits7345 = java.util.concurrent.atomic.AtomicLong(0L)
 
     /**
      * V5.0.6636 — the single admission gate for every runtime OPEN consumer
@@ -542,7 +596,7 @@ object QuantityInvariantAuthority6500 {
             .joinToString(",") { "${it.key}=${it.value.size}" }
             .ifBlank { "none" }
         return "validations=${validations.get()} breaks=${breaks.get()} quarantined=${quarantined.size} " +
-            "rejectedDistinctMintsByCause7152=[$byCause7152]"
+            "rejectedDistinctMintsByCause7152=[$byCause7152] passReuse7345=${passMemoHits7345.get()} passStored7345=${passMemo7345.size}"
     }
 
     fun release(mint: String) {
@@ -553,5 +607,6 @@ object QuantityInvariantAuthority6500 {
     internal fun resetForTest() {
         quarantined.clear()
         validations.set(0L); breaks.set(0L)
+        passMemo7345.clear(); passMemoHits7345.set(0L)
     }
 }
