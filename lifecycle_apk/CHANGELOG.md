@@ -4,6 +4,33 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7364] - 2026-09-26 — A WALLET READ THAT LACKS A MINT CLOSES NOTHING
+
+Operator: "it keeps dropping held live positions off the ui. that cant happen."
+
+5.0.7363 at 03:29:36 wrote five EXTERNAL_RUG_CLOSE rows at -100% in one pass:
+G4PF5v and CDbZLe had already been sold at a profit, 96ghzg was bought two minutes
+earlier, EKpQGS/ARPwPP were live holds. StartupReconciler's journal cross-check
+treats "mint missing from the token-account snapshot" as "wallet at zero"; with
+Helius at 429 and 550 indeterminate token reads that snapshot is routinely
+partial, and it runs before live canonical positions are rebuilt, so the 7362
+"canonical still open" guard saw nothing. Before 7362 the row was rejected and did
+nothing; 7362 made it valid, so it closed the journal position, dropped it from the
+UI and booked a total loss. My regression.
+
+- StartupReconciler: a journal-open live mint that is absent from the wallet read
+  books nothing — no close-ledger stamp, no journal row, logged once per mint
+  (JOURNAL_XREF_ZERO_NOT_BOOKED_7364). Held mints are still adopted as before.
+  Real exits are finalized by the sell path, the reconciler's signature close
+  (7363) or the no-signature retirement, all of which require an explicit zero.
+- TradeHistoryStore: rows written by the 7362 cross-check (economicEventId
+  EXTERNAL_RUG_CLOSE_7362:*) are excluded from accounting, learning and the
+  journal-open view (kept on disk; reversible). Their mints become journal-open
+  again, so a position the wallet still holds is re-adopted and managed on the
+  next reconcile, and the two real sales stop counting as -100% losses.
+- Golden tape: V5_0_7364_absent_wallet_read_never_closes_a_live_position; the 7362
+  test is repointed.
+
 ## [5.0.7363] - 2026-09-26 — A LANDED LIVE SALE CLOSES AND JOURNALS, MATCHED TO THE WALLET
 
 5.0.7360 live: SELL ok=5 but zero live SELL journal rows; TAGG sold on-chain

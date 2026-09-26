@@ -11898,8 +11898,8 @@ class GoldenTapeRegressionTest {
     fun V5_0_7362_journal_xref_no_rug_for_pending_sale_and_rug_rows_are_terminal() {
         val sr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StartupReconciler.kt").readText()
         assertTrue(sr.contains("if (canonicalOpen7362 || closeSig7362.isNotBlank()) {"))
-        assertTrue(sr.contains("proofState = \"LIVE_BALANCE_CONFIRMED\","))
-        assertTrue(sr.contains("economicEventId = \"EXTERNAL_RUG_CLOSE_7362:$jMint:${buyRow.ts}\","))
+        // V5.0.7364 — the rug row itself is gone: an absent wallet read books nothing.
+        assertTrue(sr.contains("JOURNAL_XREF_ZERO_NOT_BOOKED_7364"))
         val cm = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPriceMark6522.kt").readText()
         assertTrue(cm.contains("evidenceTimestampMs: Long = nowMs,"))
         assertTrue(cm.contains("liquidityUsd = liquidityUsd, evidenceTimestampMs = evidenceTimestampMs, nowMs = nowMs,"))
@@ -11930,6 +11930,19 @@ class GoldenTapeRegressionTest {
         assertTrue(bs.contains("tokenMap6614.updatedAtMs.takeIf { it > 0L } ?: ts.lastPriceUpdate"))
         val co = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellFinalizationCoordinator.kt").readText()
         assertTrue(co.contains("if (!qtyValidation6522.allowed) { skipCanonical7362(\"QTY_GUARD\"); return@run }"))
+    }
+
+
+    @Test
+    fun V5_0_7364_absent_wallet_read_never_closes_a_live_position() {
+        val sr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StartupReconciler.kt").readText()
+        assertFalse(sr.contains("reason = \"EXTERNAL_RUG_CLOSE\","))
+        assertFalse(sr.contains("mint = jMint, reason = \"EXTERNAL_CLOSE_RECONCILED_RUG\","))
+        assertTrue(sr.contains("action=no_close_no_pnl_from_absent_wallet_read"))
+        val th = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        assertTrue(th.contains("fun isXrefRugRow7364(t: Trade): Boolean = t.economicEventId.startsWith(\"EXTERNAL_RUG_CLOSE_7362:\")"))
+        assertTrue(th.contains("if (isXrefRugRow7364(t)) return false"))
+        assertTrue(th.contains("if (isXrefRugRow7364(t)) continue"))
     }
 
 }

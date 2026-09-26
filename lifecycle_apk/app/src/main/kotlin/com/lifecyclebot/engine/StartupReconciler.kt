@@ -34,6 +34,9 @@ import okhttp3.RequestBody.Companion.toRequestBody
  * This runs in ~3-5 seconds on startup and prevents the most dangerous
  * class of bug: the bot operating on stale/incorrect state.
  */
+/** V5.0.7364 — journal-open mints already reported as absent from a wallet read (once per process). */
+private val xrefZeroLogged7364: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
 class StartupReconciler(
     private val wallet: SolanaWallet,
     private val status: BotStatus,
@@ -442,7 +445,7 @@ class StartupReconciler(
                 val journalOpen = com.lifecyclebot.engine.TradeHistoryStore.openMintsFromJournal()
                 if (journalOpen.isNotEmpty()) {
                     onLog("📒 JOURNAL: ${journalOpen.size} mint(s) opened-but-not-closed per durable journal")
-                    var jAdopted = 0; var jClosed = 0
+                    var jAdopted = 0
                     journalOpen.forEach jx@{ (jMint, buyRow) ->
                         val alreadyTracked = status.tokens[jMint]?.position?.isOpen == true
                         val walletQty = tokenAccounts[jMint] ?: 0.0
@@ -500,68 +503,30 @@ class StartupReconciler(
                                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("JOURNAL_XREF_RUG_SKIPPED_SALE_PENDING_FINALITY_7362") } catch (_: Throwable) {}
                                 return@jx
                             }
-                            // Journal says open, wallet says zero → externally closed while dead.
-                            // V5.0.3926 — RUG-CLOSE ACCURACY. The wallet going
-                            // to zero on an open live position is a rug or
-                            // external drain — NOT a 0% close. Recording
-                            // pnlPct=0 corrupts WR math (rugs were appearing
-                            // as scratch trades in the journal). Mark the
-                            // realized loss as the full entry cost (-100%
-                            // PnL%, -buyRow.sol realized SOL) so the journal
-                            // and learning bus see the true outcome. Also
-                            // emit a TradeHistoryStore SELL row so canonical
-                            // closes count this trade.
-                            try {
-                                val lostSol = buyRow.sol.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
-                                com.lifecyclebot.engine.PositionCloseLedger.markClosedFull(
-                                    mint = jMint, reason = "EXTERNAL_CLOSE_RECONCILED_RUG",
-                                    pnlPct = -100,
-                                    sellSig = "", soldQtyRaw = 0L, remainingQtyRaw = 0L, dustAmount = 0.0,
-                                    realizedSol = -lostSol, realizedPnl = -lostSol, source = "JOURNAL_XREF",
-                                )
-                                jClosed++
-                                // Record a synthesized SELL row in the journal
-                                // so closes/WR math include this rug.
+                            // V5.0.7364 — never book a close from a wallet read. The snapshot
+                            // here can simply lack the mint (partial RPC answer, Helius 429,
+                            // ATA not yet indexed for a buy made minutes ago), and it runs
+                            // before live canonical positions are rebuilt, so the 7362 guard
+                            // above cannot see them yet. 7362 made the -100% row it used to
+                            // attempt valid: on 5.0.7363 five live positions were closed in the
+                            // journal at once (two already sold at a profit, one bought two
+                            // minutes earlier), dropped from the UI and booked as total losses.
+                            // A position that really left the wallet is finalized by the sell
+                            // path, the reconciler's signature close (7363) or the no-signature
+                            // retirement — all of which read the wallet with an explicit zero.
+                            if (xrefZeroLogged7364.add(jMint)) {
                                 try {
-                                    val rugSell = com.lifecyclebot.data.Trade(
-                                        side = "SELL",
-                                        mode = "live",
-                                        // V5.0.6382 — carry lane from BUY so the SELL bins under
-                                        // the ORIGINATING lane (not "STANDARD"). Prevents the
-                                        // ACCOUNTING_QUARANTINED|STANDARD|EXTERNAL_RUG_CLOSE
-                                        // metric-poisoning that plagued V5.0.6381c startup.
-                                        tradingMode = buyRow.tradingMode,
-                                        sol = lostSol,
-                                        price = 0.0,
-                                        entryPriceSnapshot = buyRow.price.takeIf { it > 0.0 } ?: 0.0,
-                                        entryCostSol = lostSol,
-                                        ts = System.currentTimeMillis(),
-                                        entryTsMs = buyRow.ts,
-                                        reason = "EXTERNAL_RUG_CLOSE",
-                                        pnlSol = -lostSol,
-                                        pnlPct = -100.0,
-                                        netPnlSol = -lostSol,
-                                        feeSol = 0.0,
-                                        score = buyRow.score,
-                                        mint = jMint,
-                                        // V5.0.7362 — the trusted wallet snapshot proved the zero;
-                                        // without a proof state the row defaulted to LIVE_BROADCAST
-                                        // and was rejected as non-terminal. The event id is fixed per
-                                        // BUY so a later pass acknowledges it instead of re-writing.
-                                        proofState = "LIVE_BALANCE_CONFIRMED",
-                                        positionId = buyRow.positionId,
-                                        economicEventId = "EXTERNAL_RUG_CLOSE_7362:$jMint:${buyRow.ts}",
+                                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("JOURNAL_XREF_ZERO_NOT_BOOKED_7364")
+                                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                        "JOURNAL_XREF_ZERO_NOT_BOOKED_7364",
+                                        "mint=${jMint.take(12)} buyAgeMs=${System.currentTimeMillis() - buyRow.ts} walletQty=$walletQty action=no_close_no_pnl_from_absent_wallet_read",
                                     )
-                                    com.lifecyclebot.engine.TradeHistoryStore.recordTrade(rugSell)
                                 } catch (_: Throwable) {}
-                                com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                                    "JOURNAL_XREF_EXTERNAL_CLOSE",
-                                    "mint=${jMint.take(12)} reason=wallet_zero_while_journal_open lostSol=$lostSol pnlPct=-100")
-                            } catch (_: Throwable) {}
+                            }
                         }
                     }
-                    if (jAdopted > 0 || jClosed > 0)
-                        onLog("📒 JOURNAL XREF: adopted=$jAdopted externally-closed=$jClosed")
+                    if (jAdopted > 0)
+                        onLog("📒 JOURNAL XREF: adopted=$jAdopted")
                 }
             } catch (e: Exception) {
                 onLog("Reconcile: journal cross-ref failed — ${e.message}")

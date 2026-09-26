@@ -550,7 +550,16 @@ object TradeHistoryStore {
     private fun isJournalSellLike(side: String): Boolean =
         side.equals("SELL", ignoreCase = true) || side.equals("PARTIAL_SELL", ignoreCase = true)
 
+    /**
+     * V5.0.7364 — rows written by 5.0.7362's journal cross-check from an absent
+     * wallet read (two were real profitable sales, others still held). They
+     * are not economic events: excluded from accounting, learning and the
+     * journal-open view. Kept on disk, so this is reversible.
+     */
+    fun isXrefRugRow7364(t: Trade): Boolean = t.economicEventId.startsWith("EXTERNAL_RUG_CLOSE_7362:")
+
     fun isValidAccountingTrade(t: Trade): Boolean {
+        if (isXrefRugRow7364(t)) return false
         val paperVerdict = com.lifecyclebot.engine.PaperLearningSanity.inspect(t)
         if (!paperVerdict.ok) {
             com.lifecyclebot.engine.PaperLearningSanity.emitQuarantine(t, paperVerdict.reason)
@@ -1837,6 +1846,10 @@ object TradeHistoryStore {
         for (t in rows) {  // already ts DESC (newest first)
             val mint = t.mint
             if (mint.isBlank()) continue
+            // V5.0.7364 — a 7362 journal cross-check "rug" row closed a position from
+            // an absent wallet read; it is not a close. Ignoring it restores the mint
+            // as journal-open so a held position is re-adopted and managed again.
+            if (isXrefRugRow7364(t)) continue
             // First time we see this mint == its most recent event.
             if (!latestSideSeen.containsKey(mint)) {
                 latestSideSeen[mint] = t.side
