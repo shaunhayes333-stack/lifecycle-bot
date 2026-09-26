@@ -71,6 +71,20 @@ object RunnerExitProfile7277 {
         return cut
     }
 
+    /**
+     * V5.0.7369 — true when a held position may not be re-laned from [fromLane]
+     * to [toLane]: a runner-lane entry keeps runner exits until it closes. 5.0.7368
+     * FBdrdZ was bought by PROJECT_SNIPER and sold as STANDARD at -15% by a fluid
+     * stop the runner profile would have held through.
+     */
+    fun refusesLaneChange(fromLane: String?, toLane: String?): Boolean {
+        val refused = isRunnerLane(fromLane) && !isRunnerLane(toLane)
+        if (refused) {
+            try { PipelineHealthCollector.labelInc("RUNNER_LANE_IDENTITY_KEPT_7369") } catch (_: Throwable) {}
+        }
+        return refused
+    }
+
     /** Lower bound the exit tuner may apply to [lane]'s take-profit multiplier. */
     fun tpMultFloor(lane: String?, tunerMin: Double): Double =
         if (isRunnerLane(lane)) maxOf(tunerMin, TP_MULT_FLOOR) else tunerMin

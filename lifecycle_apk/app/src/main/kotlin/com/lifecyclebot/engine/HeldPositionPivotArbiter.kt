@@ -144,6 +144,9 @@ object HeldPositionPivotArbiter {
             if (bestLane == current || (bestScore - incumbentScore) < CONVICTION_MARGIN) {
                 return PivotResult(false, current, current, bestScore, incumbentScore, "below_margin")
             }
+            if (RunnerExitProfile7277.refusesLaneChange(current, bestLane)) {
+                return PivotResult(false, current, current, bestScore, incumbentScore, "runner_lane_kept_7369")
+            }
 
             // ── PIVOT. Soft-shape: only changes the live exit style. ──
             ts.position.tradingMode = bestLane

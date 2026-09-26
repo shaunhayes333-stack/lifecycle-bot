@@ -10352,7 +10352,7 @@ class GoldenTapeRegressionTest {
         assertTrue(peak.contains("if (peakPnlPct < RunnerExitProfile7277.armThresholdPct(lane, ARM_THRESHOLD_PCT)) return false"))
         assertTrue(tuner.contains("st.tpMult = shrunkTp7186.coerceIn(tpFloor7277, TP_MAX)"))
         assertTrue(bot.contains("if (!lockedFloor.isNaN() && lockedFloor > 0.0 && !runnerLockDeferred7277) {"))
-        assertTrue(bot.contains("oneStrikeCatastrophic4588 || runnerEarlyCut7277 || (!phantomRead && twoStrike)"))
+        assertTrue(bot.contains("oneStrikeCatastrophic4588 || runnerEarlyCut7277 || runnerFloor7330 || genericTwoStrike7369"))
         assertTrue(bot.contains("else if (runnerEarlyCut7277) \"RUNNER_EARLY_CUT_\${laneName4588}_\${pnlPctNow.toInt()}PCT_7277\""))
         assertTrue(runner.contains("const val MIN_PEAK_FOR_GIVEBACK_LOCK_PCT = 50.0"))
 
@@ -11485,7 +11485,7 @@ class GoldenTapeRegressionTest {
     fun V5_0_7330_runner_stops_fire_at_the_runner_floor() {
         val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bs.contains("private const val RUNNER_LANE_FLOOR_PCT_7330 = -15.0"))
-        assertTrue(bs.contains("runnerEarlyCut7277 || runnerFloor7330 || (!phantomRead && twoStrike)"))
+        assertTrue(bs.contains("runnerEarlyCut7277 || runnerFloor7330 || genericTwoStrike7369"))
         assertFalse(bs.contains("pos.lastTickFloorBreach = (pnlPctNow <= TICK_HARD_FLOOR_PCT && !phantomRead)"))
         val pa = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").readText()
         assertTrue(pa.contains("\"CATASTROPHE\", \"CATASTROPHIC\", \"ZOMBIE\""))
@@ -11997,4 +11997,26 @@ class GoldenTapeRegressionTest {
         assertTrue(fan.contains("if (resp.code == 429) heliusDasCooldownUntil7368 = System.currentTimeMillis() + HELIUS_429_COOLDOWN_MS_7368"))
     }
 
+
+    @Test
+    fun V5_0_7369_runner_lanes_keep_identity_and_floor_and_freeze_proof_per_host() {
+        val runner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RunnerExitProfile7277.kt").readText()
+        assertTrue(runner.contains("val refused = isRunnerLane(fromLane) && !isRunnerLane(toLane)"))
+        assertTrue(com.lifecyclebot.engine.RunnerExitProfile7277.refusesLaneChange("PROJECT_SNIPER", "STANDARD"))
+        assertFalse(com.lifecyclebot.engine.RunnerExitProfile7277.refusesLaneChange("PROJECT_SNIPER", "MOONSHOT"))
+        assertFalse(com.lifecyclebot.engine.RunnerExitProfile7277.refusesLaneChange("STANDARD", "QUALITY"))
+        val piv = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HeldPositionPivotArbiter.kt").readText()
+        assertTrue(piv.contains("\"runner_lane_kept_7369\""))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("!RunnerExitProfile7277.refusesLaneChange(ts.position.tradingMode, holdEval.modeSwitchRecommendation.newMode)"))
+        assertTrue(ex.contains("!RunnerExitProfile7277.refusesLaneChange(ts.position.tradingMode, modeSwitchSignal.recommendedMode)"))
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("if (RunnerExitProfile7277.refusesLaneChange(currentLane, td.targetLane)) {"))
+        assertTrue(bs.contains("if ((cfg.paperMode || runnerWarmup7369) && holdTimeMs in 0L until 40_000L && pnlPct > -HARD_FLOOR_STOP_PCT)"))
+        assertTrue(bs.contains("val genericTwoStrike7369 = !phantomRead && twoStrike && !runnerLane7369"))
+        val proof = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/OnChainMintAuthorityProof7248.kt").readText()
+        assertTrue(proof.contains("HealthAwareHttp.execute(http, req, host = hostKey7369)"))
+        assertTrue(proof.contains("val publicEps7365 = publicAll7369.filter { !ApiBackoff.isLockedOut(backoffKey7369(it)) }"))
+        assertFalse(proof.contains("host = provider)"))
+    }
 }

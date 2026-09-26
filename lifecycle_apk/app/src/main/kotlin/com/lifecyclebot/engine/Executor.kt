@@ -12062,8 +12062,9 @@ class Executor(
                     return
                 }
 
-                if (holdEval.action == HoldingLogicLayer.HoldAction.SWITCH_MODE && 
-                    holdEval.modeSwitchRecommendation?.shouldSwitch == true) {
+                if (holdEval.action == HoldingLogicLayer.HoldAction.SWITCH_MODE &&
+                    holdEval.modeSwitchRecommendation?.shouldSwitch == true &&
+                    !RunnerExitProfile7277.refusesLaneChange(ts.position.tradingMode, holdEval.modeSwitchRecommendation.newMode)) {
                     val rec = holdEval.modeSwitchRecommendation
                     val oldMode = ts.position.tradingMode
                     val oldEmoji = ts.position.tradingModeEmoji
@@ -12111,7 +12112,8 @@ class Executor(
                         holdTimeMs = holdTimeMs,
                     )
                     
-                    if (modeSwitchSignal.shouldSwitch && modeSwitchSignal.confidence >= 70.0) {
+                    if (modeSwitchSignal.shouldSwitch && modeSwitchSignal.confidence >= 70.0 &&
+                        !RunnerExitProfile7277.refusesLaneChange(ts.position.tradingMode, modeSwitchSignal.recommendedMode)) {
                         val oldMode = ts.position.tradingMode
                         val oldEmoji = ts.position.tradingModeEmoji
                         val newEmoji = HoldingLogicLayer.getModeEmoji(modeSwitchSignal.recommendedMode)

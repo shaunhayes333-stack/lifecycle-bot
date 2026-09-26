@@ -4,6 +4,34 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7369] - 2026-09-26 — LIVE RUNNERS KEEP THEIR LANE, THEIR FLOOR AND THEIR WARMUP
+
+Operator on 5.0.7368: "Nahn not quite there." Live 1W/11L while paper PROJECT_SNIPER
+runs +38.8% over 143 closes. The live losses were exits the paper lane never takes:
+
+- **Lane identity.** FBdrdZ was bought by PROJECT_SNIPER and sold as STANDARD. Four
+  paths re-lane a held position (HeldPositionPivotArbiter, the HoldingLogicLayer
+  mode switch, the AICrossTalk switch, LaneTransitionManager promotion). Once the
+  lane name changed, every runner rule (no give-back lock under +50%, -15% floor,
+  warmup) stopped applying. A runner-lane entry may now only be re-laned to another
+  runner lane (`RunnerExitProfile7277.refusesLaneChange`, label
+  `RUNNER_LANE_IDENTITY_KEPT_7369`).
+- **Warmup.** Paper holds the adaptive fluid stop for the first 40 s; live had
+  nothing, and `RAPID_FLUID_STOP` fired 13 times on live PROJECT_SNIPER. Live runner
+  lanes now get the same 40 s hold. The -15% hard floor and catastrophe exits
+  still fire during it.
+- **Tick floor.** The generic -10% two-strike `TICK_HARD_FLOOR` cut runner lanes at
+  -10/-12/-13, inside the -15% floor they own. Runner lanes now exit at their
+  floor (first strike) or the early cut; MANIPULATED/SHITCOIN/EXPRESS keep their
+  one-strike -10.
+- **Freeze proof.** Every public RPC shared one backoff key (`solana_rpc`), so a
+  single 429 from api.mainnet-beta locked out all of them. With Helius also
+  locked, the proof came back unknown and 36 live buys were refused as
+  FREEZE_AUTHORITY_UNVERIFIED. Each endpoint now has its own key, and endpoints
+  already in lockout are skipped. Unknown still blocks.
+
+---
+
 ## [5.0.7368] - 2026-09-26 — HELIUS STOPS BURNING 5M CREDITS A DAY
 
 Operator: "it used 10,000,000 helius credits in 2 days." Audit of every Helius call

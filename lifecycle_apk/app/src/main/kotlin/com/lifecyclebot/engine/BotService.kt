@@ -1791,7 +1791,9 @@ class BotService : Service() {
                                                 // encodes (an active position with real size) is
                                                 // checked directly instead.
                                                 val promotable6855 = ts.position.isOpen && ts.position.qtyToken > 0.0
-                                                if (!promotable6855) {
+                                                if (RunnerExitProfile7277.refusesLaneChange(currentLane, td.targetLane)) {
+                                                    // V5.0.7369 — a runner-lane entry keeps its runner exits.
+                                                } else if (!promotable6855) {
                                                     try { PipelineHealthCollector.labelInc("LANE_PROMOTION_BLOCKED_GHOST_6855") } catch (_: Throwable) {}
                                                 } else {
                                                     ts.position.modeHistory = if (ts.position.modeHistory.isEmpty()) {
@@ -10662,7 +10664,13 @@ class BotService : Service() {
                         // The unconditional -15% hard floor (pnlPct > -HARD_FLOOR_STOP_PCT)
                         // and the true catastrophe exits handled ABOVE this block remain
                         // active — a token genuinely crashing past -15% still exits now.
-                        if (cfg.paperMode && holdTimeMs in 0L until 40_000L && pnlPct > -HARD_FLOOR_STOP_PCT) {  // V5.9.1429 60s->40s warmup
+                        // V5.0.7369 — live runner lanes get the same warmup. 5.0.7368 live
+                        // PROJECT_SNIPER logged RAPID_FLUID_STOP 13 times inside the window
+                        // the paper lane that proved it holds through.
+                        val runnerWarmup7369 = !cfg.paperMode && try {
+                            RunnerExitProfile7277.isRunnerLane(ts.position.tradingMode)
+                        } catch (_: Throwable) { false }
+                        if ((cfg.paperMode || runnerWarmup7369) && holdTimeMs in 0L until 40_000L && pnlPct > -HARD_FLOOR_STOP_PCT) {  // V5.9.1429 60s->40s warmup
                             val nowWarmup = System.currentTimeMillis()
                             val holdUntil = rapidEntryWarmupHoldUntilMs[ts.mint] ?: 0L
                             if (nowWarmup >= holdUntil) {
@@ -12145,10 +12153,16 @@ class BotService : Service() {
                                 // (MoonshotTraderAI.HARD_FLOOR_STOP). Past two minutes they sat
                                 // on two-strike grace and closed at -59%/-61% (5.0.7324
                                 // MOONSHOT EV -29.6%). At their own floor they exit first strike.
-                                val runnerFloor7330 = !phantomRead && pnlPctNow <= RUNNER_LANE_FLOOR_PCT_7330 && try {
+                                val runnerLane7369 = try {
                                     RunnerExitProfile7277.isRunnerLane(laneName4588)
                                 } catch (_: Throwable) { false }
-                                if (pnlPctNow <= TICK_HARD_FLOOR_PCT && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || runnerEarlyCut7277 || runnerFloor7330 || (!phantomRead && twoStrike))) {
+                                val runnerFloor7330 = !phantomRead && pnlPctNow <= RUNNER_LANE_FLOOR_PCT_7330 && runnerLane7369
+                                // V5.0.7369 — a runner lane's floor is its own -15%, not the
+                                // generic -10% two-strike; 5.0.7368 live snipers were cut at
+                                // -10/-12/-13 inside the band their lane holds through.
+                                // MANIPULATED/SHITCOIN/EXPRESS keep their one-strike -10.
+                                val genericTwoStrike7369 = !phantomRead && twoStrike && !runnerLane7369
+                                if (pnlPctNow <= TICK_HARD_FLOOR_PCT && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || runnerEarlyCut7277 || runnerFloor7330 || genericTwoStrike7369)) {
                                     ErrorLogger.warn("BotService",
                                         "🛑 TICK_HARD_FLOOR ${ts.symbol} ${"%.1f".format(pnlPctNow)}% " +
                                         "≤ ${TICK_HARD_FLOOR_PCT.toInt()}% — immediate exit (peak=${"%.1f".format(peakPct)}% catastrophic=$catastrophicConfirmed4485 oneStrikeLane=$oneStrikeCatastrophic4588)")

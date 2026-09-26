@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine.truth
 
+import com.lifecyclebot.engine.ApiBackoff
 import com.lifecyclebot.engine.ForensicLogger
 import com.lifecyclebot.engine.HealthAwareHttp
 import com.lifecyclebot.engine.PipelineHealthCollector
@@ -66,7 +67,14 @@ object OnChainMintAuthorityProof7248 {
             addAll(RuntimeProviderAuthority6685.rpcCandidates())
             if (helius.isNotBlank()) add(helius)
         }
-        val (heliusEps7365, publicEps7365) = candidates7365.partition { it.contains("helius", ignoreCase = true) }
+        val (heliusEps7365, publicAll7369) = candidates7365.partition { it.contains("helius", ignoreCase = true) }
+        // V5.0.7369 — each endpoint has its own backoff key. They all shared
+        // "solana_rpc", so one 429 from api.mainnet-beta locked out every public
+        // node and 36 live buys on 5.0.7368 still refused FREEZE_AUTHORITY_UNVERIFIED.
+        // Endpoints already in lockout are skipped so the three probes go to
+        // nodes that can answer.
+        val publicEps7365 = publicAll7369.filter { !ApiBackoff.isLockedOut(backoffKey7369(it)) }
+            .ifEmpty { publicAll7369 }
         val endpoints = (publicEps7365.take(maxProviders.coerceIn(1, 5)) + heliusEps7365.take(1))
 
         val payload = JSONObject()
@@ -80,12 +88,13 @@ object OnChainMintAuthorityProof7248 {
 
         for (rpc in endpoints) {
             val provider = if (rpc.contains("helius", ignoreCase = true)) "helius" else "solana_rpc"
+            val hostKey7369 = if (provider == "helius") provider else backoffKey7369(rpc)
             try {
                 val req = Request.Builder()
                     .url(rpc)
                     .post(payload.toRequestBody("application/json".toMediaType()))
                     .build()
-                HealthAwareHttp.execute(http, req, host = provider).use { resp ->
+                HealthAwareHttp.execute(http, req, host = hostKey7369).use { resp ->
                     if (!resp.isSuccessful) return@use
                     val info = JSONObject(resp.body?.string().orEmpty())
                         .optJSONObject("result")
@@ -126,4 +135,7 @@ object OnChainMintAuthorityProof7248 {
         unansweredAt7365[mint] = System.currentTimeMillis()
         return null
     }
+
+    private fun backoffKey7369(rpc: String): String =
+        "solana_rpc:" + (try { java.net.URI(rpc).host } catch (_: Throwable) { null } ?: rpc)
 }
