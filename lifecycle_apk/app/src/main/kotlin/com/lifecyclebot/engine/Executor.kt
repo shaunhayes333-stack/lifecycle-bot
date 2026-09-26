@@ -112,6 +112,11 @@ private const val CROSS_BASIS_MAX_RATIO_6895: Double = 10.0
  * One value for both so the clamp can never book what the door would refuse.
  */
 private const val PAPER_GAIN_CLAMP_PCT_7271: Double = 1000.0
+// V5.0.7353 — flat-position cull (see runManageOnly).
+private const val FLAT_CULL_MIN_HOLD_MS_7353: Long = 20L * 60_000L
+private const val FLAT_CULL_MAX_PEAK_PCT_7353: Double = 10.0
+private const val FLAT_CULL_BAND_PCT_7353: Double = 3.0
+private const val FLAT_CULL_MARK_MAX_AGE_MS_7353: Long = 60_000L
 
 // V5.0.6904 — evidence thresholds for the catastrophic backstop.
 //
@@ -9319,6 +9324,49 @@ class Executor(
             }
         }
 
+        // V5.0.7353 §A_FLAT_POSITION_IS_A_SLOT_NOT_A_TRADE.
+        //
+        // Operator: "there seems to be a lot of tokens held that may not need to
+        // be." Since 6647 open positions no longer pass through processTokenCycle,
+        // where most lanes' time/flat exits live (TREASURY TIME_EXIT, BLUECHIP
+        // TIME_EXIT, QUALITY dead tiers), and HoldingLogicLayer's
+        // STALE_FLAT_CULL_6366 verdict has no caller that sells. The dead-token
+        // exit above only catches a price that never moved at all. So BONK, HNT,
+        // AMC and baton sat at ~0% holding slots while the 100-slot cap refused
+        // new entries with 39.8 SOL idle. runManageOnly runs for every open
+        // position, so the cull lives here:
+        //   - never a runner lane (MOONSHOT / PROJECT_SNIPER keep their shape);
+        //   - held >= 20 min, never peaked +10%, |pnl| <= 3% on a trusted mark
+        //     that is itself fresh (a stale price is a feed problem, not a flat).
+        // It exits through requestSell like every other exit.
+        run {
+            val lane7353 = ts.position.tradingMode
+            val runner7353 = try { RunnerExitProfile7277.isRunnerLane(lane7353) } catch (_: Throwable) { true }
+            if (!runner7353 && posAgeMs >= FLAT_CULL_MIN_HOLD_MS_7353 &&
+                ts.position.peakGainPct < FLAT_CULL_MAX_PEAK_PCT_7353 &&
+                (ts.position.highestPrice <= 0.0 || ts.position.entryPrice <= 0.0 ||
+                    ts.position.highestPrice < ts.position.entryPrice * (1.0 + FLAT_CULL_MAX_PEAK_PCT_7353 / 100.0)) &&
+                ts.lastPriceUpdate > 0L && System.currentTimeMillis() - ts.lastPriceUpdate <= FLAT_CULL_MARK_MAX_AGE_MS_7353
+            ) {
+                val v7353 = try {
+                    OpenPnlSanity.inspectPosition(ts.position, currentPrice, "Executor.flatCull7353/${ts.symbol}/${ts.mint.take(8)}", emit = false, mint = ts.mint)
+                } catch (_: Throwable) { null }
+                if (v7353 != null && v7353.ok && kotlin.math.abs(v7353.pnlPct) <= FLAT_CULL_BAND_PCT_7353) {
+                    try {
+                        PipelineHealthCollector.labelInc("STALE_FLAT_CULL_7353")
+                        PipelineHealthCollector.labelInc("STALE_FLAT_CULL_7353_${lane7353.uppercase().take(20)}")
+                        ForensicLogger.lifecycle(
+                            "STALE_FLAT_CULL_7353",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$lane7353 heldMin=${posAgeMs / 60_000L} " +
+                                "pnl=${"%.2f".format(v7353.pnlPct)} peak=${"%.1f".format(ts.position.peakGainPct)} action=free_slot_and_capital",
+                        )
+                    } catch (_: Throwable) {}
+                    requestSell(ts = ts, reason = "STALE_FLAT_CULL_7353", wallet = wallet, walletSol = walletSol)
+                    return
+                }
+            }
+        }
+
         if (checkProfitLock(ts, wallet, walletSol)) return
         // V5.9.1558 — source fix: a partial rung is an exit action for THIS tick.
         // Pre-fix, runManageOnly could partial-sell and then immediately fall
@@ -15265,6 +15313,19 @@ class Executor(
         // V5.0.6616 — resolve the same source evidence synchronously through
         // the sole canonical mark authority. No second ad-hoc writer and no
         // wait for an asynchronous TokenMap refresh.
+        // V5.0.7353 — PeggedAssetGuard7270 was consulted by only three lanes
+        // (QUALITY, BLUECHIP, CORE trunk); TREASURY, SHITCOIN, EXPRESS, MOONSHOT,
+        // DIP_HUNTER and PROJECT_SNIPER could still buy a dollar-pegged token
+        // (USDF held on 5.0.7351) that has no move to capture and only occupies a
+        // slot. Checked once here, where every paper entry passes.
+        val pegged7353 = try {
+            com.lifecyclebot.engine.truth.PeggedAssetGuard7270.isPegged(ts.symbol, ts.lastPrice, ts.lastMcap, ts.mint)
+        } catch (_: Throwable) { false }
+        if (pegged7353) {
+            try { com.lifecyclebot.engine.truth.PeggedAssetGuard7270.noteSkipped(layerTag.ifBlank { "PAPER" }, ts.symbol) } catch (_: Throwable) {}
+            markPaperBuyNotOpened("PEGGED_ASSET_7353")
+            return
+        }
         val now6616 = System.currentTimeMillis()
         val WINDOW_MS_6616 = 300_000L
         val tokenMapFresh6616 = ts.tokenMap.updatedAtMs > 0L && now6616 - ts.tokenMap.updatedAtMs <= WINDOW_MS_6616

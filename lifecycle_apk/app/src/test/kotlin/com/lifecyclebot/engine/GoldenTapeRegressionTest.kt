@@ -11758,4 +11758,14 @@ class GoldenTapeRegressionTest {
         assertTrue(ps.contains("return maxOf(legacyMax, paperCeiling6366, equityCeiling7352)"))
     }
 
+    @Test
+    fun V5_0_7353_flat_position_is_a_slot_not_a_trade() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("requestSell(ts = ts, reason = \"STALE_FLAT_CULL_7353\", wallet = wallet, walletSol = walletSol)"))
+        assertTrue(ex.contains("if (!runner7353 && posAgeMs >= FLAT_CULL_MIN_HOLD_MS_7353 &&"))
+        assertTrue(ex.contains("markPaperBuyNotOpened(\"PEGGED_ASSET_7353\")"))
+        val ps = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ProjectSniperAI.kt").readText()
+        assertTrue(ps.contains("(openMints7353 == null || mint !in openMints7353)"))
+    }
+
 }

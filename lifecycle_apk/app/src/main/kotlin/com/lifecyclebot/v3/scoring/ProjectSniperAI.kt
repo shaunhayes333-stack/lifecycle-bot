@@ -792,8 +792,15 @@ object ProjectSniperAI {
      */
     fun sweepStaleMissions(maxHoldSecs: Long = 300L) {
         val now = System.currentTimeMillis()
-        val stale = activeMissions.entries.filter { (_, m) ->
-            (now - m.entryTime) / 1000 > maxHoldSecs
+        // V5.0.7353 — a mission is only stale when its position is gone. The
+        // 5-minute purge removed the lane's own tracking from positions that were
+        // still open, orphaning them with no sniper exit (WSOS +5% PROJECT_SNIPER
+        // held on 5.0.7351). A mission whose canonical position is still open stays.
+        val openMints7353 = try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().mapTo(HashSet()) { it.mint }
+        } catch (_: Throwable) { null }
+        val stale = activeMissions.entries.filter { (mint, m) ->
+            (now - m.entryTime) / 1000 > maxHoldSecs && (openMints7353 == null || mint !in openMints7353)
         }
         if (stale.isEmpty()) return
         stale.forEach { (mint, mission) ->

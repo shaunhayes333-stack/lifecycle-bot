@@ -4,6 +4,28 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7353] - 2026-09-26 — A FLAT POSITION IS A SLOT, NOT A TRADE
+
+Operator: "there seems to be a lot of tokens held that may not need to be."
+5.0.7351: 99 of 100 slots full (POSITION_HARD_CAP_EXIT_THROUGHPUT blocked 70
+entries) with 39.8 SOL idle, while BONK, HNT, AMC and baton sat at ~0%.
+
+Since 6647 open positions no longer pass through `processTokenCycle`, where most
+lanes' time and flat exits live (TREASURY `TIME_EXIT`, BLUECHIP `TIME_EXIT`, QUALITY
+dead tiers), and `HoldingLogicLayer`'s `STALE_FLAT_CULL_6366` verdict had no caller
+that sold. The dead-token exit only caught a price that never moved.
+
+- **Flat cull** in `Executor.runManageOnly` (runs for every open position): a
+  non-runner-lane position held >= 20 min that never peaked +10% and sits within
+  +/-3% on a trusted, fresh (<= 60s) mark exits via `requestSell`
+  (`STALE_FLAT_CULL_7353[_LANE]`). MOONSHOT / PROJECT_SNIPER are exempt.
+- **Pegged assets at the choke point:** `PeggedAssetGuard7270` was consulted by only
+  three lanes; `paperBuy` now declines a pegged token for every lane
+  (`PAPER_BUY_NOT_OPENED_PEGGED_ASSET_7353`).
+- **Sniper orphaning:** `ProjectSniperAI.sweepStaleMissions` dropped the lane's own
+  tracking after 5 minutes even while the position was open. A mission whose
+  canonical position is still open is kept.
+
 ## [5.0.7352] - 2026-09-26 — A PROVEN LANE SIZES WITH THE ACCOUNT
 
 Operator (option B): "grow the base with equity."
