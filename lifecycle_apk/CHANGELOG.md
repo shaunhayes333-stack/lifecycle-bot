@@ -4,6 +4,28 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7366] - 2026-09-26 — LIVE RUNNERS EXIT THE WAY PAPER PROVED THEM
+
+5.0.7364 live: 1W/8L, PF 0.66 — fresh positions stopped at -5% to -10% within
+minutes, while the same paper lanes (PROJECT_SNIPER +85%/trade, avgWin +207%)
+earn from runners. Three parity bugs:
+
+- RAPID_DRAWDOWN_FROM_PEAK_SETTLE_BYPASS_6080 (a profit lock) had no `pnl > 0`
+  guard and ignored the runner deferral the other two give-back locks honour, and
+  it runs first: G4PF5v peaked +20% and was sold at -8% by it. It now needs the
+  position in profit and respects RunnerExitProfile7277.deferGiveBackLock. Losers
+  are left to the -10/-15/-25 floors that run right after.
+- STRICT_SL was suspended during the lane settle-in window only in paper. Runner
+  lanes (MOONSHOT, PROJECT_SNIPER) now settle in live identically. The -15% hard
+  floor, -25% backstop, gap/drain guards, runner tick floors and rug/catastrophe
+  exits are untouched.
+- The risk clock's protective stop used the raw global stop (≈5%) for every
+  position while riskCheck holds a runner lane at its own fluid stop (7335); the
+  clock's tighter stop sold first (3WcZUV -5.5% in 5 min). Runner lanes are never
+  tighter than their lane stop on the clock either; catastrophe (entry × 0.75) and
+  non-runner lanes unchanged.
+- Golden tape: V5_0_7366_live_runner_exits_match_proven_paper.
+
 ## [5.0.7365] - 2026-09-26 — THE FREEZE PROOF ASKS A VALIDATOR THAT ANSWERS
 
 5.0.7364 live: the top buy refusal was PRETRADE:FREEZE_AUTHORITY_UNVERIFIED_7238

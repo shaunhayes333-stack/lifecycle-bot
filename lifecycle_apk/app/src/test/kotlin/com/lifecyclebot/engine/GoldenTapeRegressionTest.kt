@@ -11958,4 +11958,19 @@ class GoldenTapeRegressionTest {
         assertTrue(g.contains("return Decision(Verdict.BLOCK_FREEZE_UNVERIFIED, \"FREEZE_AUTHORITY_UNVERIFIED\")"))
     }
 
+
+    @Test
+    fun V5_0_7366_live_runner_exits_match_proven_paper() {
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        // The give-back profit lock never sells a loser and honours runner deferral.
+        assertTrue(bs.contains("val giveBackTrigger = peakGainPct >= 20.0 && pnlPct > 0.0 && !runnerDefer7366 &&"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        // Runner lanes settle in live exactly as in paper.
+        assertTrue(ex.contains("if (!isPaperRT() && !runnerLiveSettle7366) return@run false"))
+        // Risk clock never tighter than the runner lane's own fluid stop.
+        assertTrue(ex.contains("maxOf(effStopPctGlobal7366, laneStop7366)"))
+        // Catastrophe price unchanged.
+        assertTrue(ex.contains("catastrophePx = pos.entryPrice * 0.75,"))
+    }
+
 }

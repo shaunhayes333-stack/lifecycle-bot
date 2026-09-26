@@ -8940,7 +8940,16 @@ class Executor(
         }
 
         val paperSettleInActive = run {
-            if (!isPaperRT()) return@run false
+            // V5.0.7366 — paper proved its runner lanes (PROJECT_SNIPER +85%/trade,
+            // MOONSHOT) with STRICT_SL suspended for the lane's settle-in window;
+            // live ran it from the first second and stopped 5-10% launch noise out
+            // (1W/8L on 5.0.7364). Runner lanes now settle in live exactly as in
+            // paper. The -15% hard floor, -25% backstop, gap/drain guards, runner
+            // tick floors and rug/catastrophe exits above and elsewhere still act.
+            val runnerLiveSettle7366 = try {
+                !isPaperRT() && RunnerExitProfile7277.isRunnerLane(ts.position.tradingMode)
+            } catch (_: Throwable) { false }
+            if (!isPaperRT() && !runnerLiveSettle7366) return@run false
             val entryMs = ts.position.entryTime
             if (entryMs <= 0L) return@run false
             val ageMs = System.currentTimeMillis() - entryMs
@@ -10501,7 +10510,19 @@ class Executor(
         // V5.0.6709 — magnitude authority: a negative learned stopLossPct
         // used to make the `> 0` predicate false and silently zero stopPx.
         val effStopPctRaw = modeConf?.stopLossPct ?: cfg().stopLossPct
-        val effStopPct = kotlin.math.abs(effStopPctRaw)
+        val effStopPctGlobal7366 = kotlin.math.abs(effStopPctRaw)
+        // V5.0.7366 — the risk clock used the raw global stop (≈5% on device) for
+        // every position, while riskCheck holds a RUNNER lane at its own fluid
+        // stop (V5.0.7335): the same position had two stop levels and the clock's
+        // tighter one sold it first (3WcZUV -5.5% in 5 min). Runner lanes are now
+        // never tighter than that same lane stop here too. Non-runner lanes and the
+        // catastrophe price (entry × 0.75) are unchanged.
+        val effStopPct = if (try { RunnerExitProfile7277.isRunnerLane(pos.tradingMode) } catch (_: Throwable) { false }) {
+            val laneStop7366 = try {
+                kotlin.math.abs(com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(-effStopPctGlobal7366.coerceIn(3.0, 50.0)))
+            } catch (_: Throwable) { effStopPctGlobal7366 }
+            maxOf(effStopPctGlobal7366, laneStop7366)
+        } else effStopPctGlobal7366
         if (effStopPctRaw < 0.0) {
             try { PipelineHealthCollector.labelInc("PROTECTIVE_EXIT_STOP_SIGN_NORMALIZED_6709") } catch (_: Throwable) {}
         }

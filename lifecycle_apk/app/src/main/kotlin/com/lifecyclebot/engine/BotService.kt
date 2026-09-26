@@ -17653,7 +17653,18 @@ class BotService : Service() {
             // V5.0.7267 — the lane's learned give-back band shapes this stop too.
             peakGainPct * PeakDrawdownLock.triggerFracForPeak(peakGainPct, ts.position.tradingMode)
         )
-        val giveBackTrigger = peakGainPct >= 20.0 && drawdownFromPeak >= requiredGiveBackPts6836
+        // V5.0.7366 — this is a PROFIT lock. Without `pnlPct > 0` it sold losers:
+        // G4PF5v peaked +20% and was closed at -8% as RAPID_DRAWDOWN_FROM_PEAK_...
+        // A position already below entry is owned by the -10/-15/-25 floors that
+        // run right after this. It also ignored the runner deferral (hold give-back
+        // locks on a runner lane until its peak reaches the runner arming bar) that
+        // the peak-lock breach and the tick profit lock both honour, and it runs
+        // first — so every sub-bar peak on MOONSHOT/PROJECT_SNIPER was sold here.
+        val runnerDefer7366 = try {
+            RunnerExitProfile7277.deferGiveBackLock(ts.position.tradingMode, peakGainPct)
+        } catch (_: Throwable) { false }
+        val giveBackTrigger = peakGainPct >= 20.0 && pnlPct > 0.0 && !runnerDefer7366 &&
+            drawdownFromPeak >= requiredGiveBackPts6836
 
         // V5.9.1521 — UNCONDITIONAL SAFETY MUST PRECEDE SETTLE-IN.
         // ROOT CAUSE of "live/paper trading really poorly": the paper settle-in
