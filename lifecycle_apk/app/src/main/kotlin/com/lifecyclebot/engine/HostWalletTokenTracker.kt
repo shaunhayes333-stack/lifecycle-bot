@@ -427,6 +427,33 @@ object HostWalletTokenTracker {
      * Real bot-bought positions (BOT_BUY / TX_PARSE with a buy signature) are kept.
      */
     @Synchronized
+    /**
+     * V5.0.7370 — a row adopted as a stranger (RECOVERED_x, WALLET_RECONCILED, no
+     * basis) whose buy was later found in the durable records is the bot's own
+     * position: it takes the recovered symbol, basis and lineage. Rows that
+     * already carry a basis are left alone.
+     */
+    fun adoptBotLineage7370(mint: String, symbol: String, entryPriceUsd: Double, entrySol: Double, buySig: String, buyTimeMs: Long): Boolean {
+        val p = positions[mint] ?: return false
+        val stranger = p.source == PositionSource.WALLET_RECONCILED ||
+            p.source == PositionSource.RECOVERED_AFTER_RESTART ||
+            p.symbol.orEmpty().startsWith("RECOVERED_") ||
+            (p.entrySol ?: 0.0) <= 0.0
+        if (!stranger) return false
+        if (!entryPriceUsd.isFinite() || entryPriceUsd <= 0.0 || !entrySol.isFinite() || entrySol <= 0.0) return false
+        p.symbol = symbol
+        p.name = symbol
+        p.source = PositionSource.TX_PARSE
+        p.entryPriceUsd = entryPriceUsd
+        p.entrySol = entrySol
+        if (p.buySignature.isNullOrBlank() && buySig.length > 40) p.buySignature = buySig
+        if (buyTimeMs > 0L) p.buyTimeMs = buyTimeMs
+        p.notes.add("V5.0.7370 bot lineage restored from durable buy record")
+        save()
+        try { PipelineHealthCollector.labelInc("TRACKER_BOT_LINEAGE_RESTORED_7370") } catch (_: Throwable) {}
+        return true
+    }
+
     fun purgeOrphanRecoveredRows(phase: String) {
         if (RECOVER_ORPHAN_WALLET_TOKENS) return
         val drop = positions.values.filter { p ->

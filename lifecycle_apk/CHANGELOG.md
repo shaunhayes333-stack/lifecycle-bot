@@ -4,6 +4,30 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7370] - 2026-09-26 — THE BOT'S OWN TOKENS ARE ITS OWN POSITIONS AGAIN
+
+Operator: the two RECOVERED_ tokens in the wallet (6eftxV, TNSRxc) "are from the bot!"
+
+5.0.7368 read LIVE_WALLET_CANONICAL_RECOVERY_BASIS_MISSING_6686 = 30 and
+ORPHAN_WALLET_TOKEN_ATTACHED = 2: the recovery bridge found no basis for either,
+so both were adopted as strangers (symbol RECOVERED_x, lane WALLET_RECOVERED,
+cost 0, P&L suppressed as bot_owned_basis_unsealed).
+
+- The bridge's last source, the live BUY journal row, was searched in the newest
+  5 000 journal rows. Paper writes thousands a day, so a live buy from a day or
+  two earlier was outside the window. The mint's own live rows are now read by
+  mint from SQLite (`TradeHistoryStore.liveRowsForMint7370`), with a 5-minute
+  retry on a miss.
+- A signed live BUY row whose tokens the wallet holds now counts even if it
+  stopped at LIVE_BROADCAST or left cost/price/quantity unstamped (falls back to
+  SOL spent / fill price / whole buy). A later terminal sell still blocks it.
+- After the canonical position is restored, the reconciler's zero-basis stub and
+  the tracker row take the recovered basis, lane and name
+  (`LIVE_RECOVERED_STUB_REHYDRATED_7370`, `TRACKER_BOT_LINEAGE_RESTORED_7370`),
+  so the panel shows the bot's position with its P&L and exits.
+
+---
+
 ## [5.0.7369] - 2026-09-26 — LIVE RUNNERS KEEP THEIR LANE, THEIR FLOOR AND THEIR WARMUP
 
 Operator on 5.0.7368: "Nahn not quite there." Live 1W/11L while paper PROJECT_SNIPER

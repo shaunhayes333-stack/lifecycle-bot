@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.BotStatus
+import com.lifecyclebot.data.Trade
 import com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441
 import com.lifecyclebot.engine.truth.CanonicalTokenAmount
 import java.math.BigInteger
@@ -292,6 +293,7 @@ object LiveCanonicalRecovery6686 {
             if (result == CanonicalPositionAuthority6441.MutateResult.APPLIED) {
                 existingLive.add(mint)
                 repaired++
+                rehydrateRecoveredStub7370(status, mint, amount, basis)
                 try {
                     ForensicLogger.lifecycle(
                         "LIVE_WALLET_CANONICAL_POSITION_RECOVERED_6686",
@@ -319,6 +321,54 @@ object LiveCanonicalRecovery6686 {
     }
 
     /**
+     * V5.0.7370 — the reconciler's orphan stub (symbol RECOVERED_x, lane
+     * WALLET_RECOVERED, cost 0) and the tracker row were left as they were after
+     * the canonical position was restored, so the panel still showed a stranger
+     * with no P&L. Both now carry the recovered basis and the lane that bought it.
+     */
+    private fun rehydrateRecoveredStub7370(status: BotStatus, mint: String, amount: CanonicalTokenAmount, basis: Basis) {
+        val qty = amount.uiDoubleForDisplay()
+        val symbol7370 = try {
+            CanonicalPositionAuthority6441.closedPositions()
+                .filter { it.mint == mint && it.symbol.isNotBlank() && !it.symbol.startsWith("RECOVERED_") }
+                .maxByOrNull { it.openedAtMs }?.symbol
+        } catch (_: Throwable) { null } ?: mint.take(8)
+        try {
+            val ts = status.tokens[mint]
+            if (ts != null) {
+                val stub = ts.position.costSol <= 0.0 || ts.position.tradingMode.equals("WALLET_RECOVERED", true)
+                if (stub && qty.isFinite() && qty > 0.0) {
+                    ts.position = ts.position.copy(
+                        qtyToken = qty,
+                        entryPrice = basis.entryPriceUsd,
+                        entryTime = basis.openedAtMs,
+                        costSol = basis.entryCostSol,
+                        highestPrice = maxOf(ts.position.highestPrice, basis.entryPriceUsd),
+                        lowestPrice = basis.entryPriceUsd,
+                        entryPhase = "RECOVERED_BASIS_7370",
+                        isPaperPosition = false,
+                        tradingMode = basis.lane,
+                        entryPriceSource = basis.source,
+                    )
+                }
+                if (ts.symbol.startsWith("RECOVERED_")) {
+                    synchronized(status.tokens) {
+                        status.tokens[mint] = ts.copy(symbol = symbol7370, name = symbol7370)
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
+        try { HostWalletTokenTracker.adoptBotLineage7370(mint, symbol7370, basis.entryPriceUsd, basis.entryCostSol, basis.identity, basis.openedAtMs) } catch (_: Throwable) {}
+        try {
+            PipelineHealthCollector.labelInc("LIVE_RECOVERED_STUB_REHYDRATED_7370")
+            ForensicLogger.lifecycle(
+                "LIVE_RECOVERED_STUB_REHYDRATED_7370",
+                "mint=${mint.take(12)} symbol=$symbol7370 lane=${basis.lane} cost=${basis.entryCostSol} entryUsd=${basis.entryPriceUsd} source=${basis.source}",
+            )
+        } catch (_: Throwable) {}
+    }
+
+    /**
      * V5.0.7253 — last durable recovery source: a finalized LIVE BUY journal
      * receipt. Some historical verified buys reached TradeHistoryStore but
      * missed both fill registries during the finality/canonical race. Wallet
@@ -331,16 +381,60 @@ object LiveCanonicalRecovery6686 {
      */
     private fun journalBasis7253(mint: String, amount: CanonicalTokenAmount): Basis? {
         val rows = try { TradeHistoryStore.getRecentValidTrades(5_000) } catch (_: Throwable) { return null }
-        val sameMint = rows.filter { it.mint == mint && it.mode.equals("live", true) }
+        val recent7370 = rows.filter { it.mint == mint && it.mode.equals("live", true) }
+        return journalBasisFromRows7253(mint, amount, recent7370) ?: olderJournalBasis7370(mint, amount)
+    }
+
+    /**
+     * V5.0.7370 — the journal read above only sees the newest 5 000 rows, and
+     * paper writes thousands a day. 5.0.7368: two tokens the bot bought were in
+     * the wallet with LIVE_WALLET_CANONICAL_RECOVERY_BASIS_MISSING_6686 = 30 and
+     * were adopted as RECOVERED_ strangers with no basis, no lane and no P&L.
+     * The mint's own live rows are read by mint; a miss is not re-read for
+     * five minutes so a truly foreign token does not scan SQLite every pass.
+     */
+    private val olderJournalMissAt7370 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private const val OLDER_JOURNAL_RETRY_MS_7370 = 5 * 60_000L
+
+    private fun olderJournalBasis7370(mint: String, amount: CanonicalTokenAmount): Basis? {
+        val now = System.currentTimeMillis()
+        olderJournalMissAt7370[mint]?.let { if (now - it < OLDER_JOURNAL_RETRY_MS_7370) return null }
+        val rows = try { TradeHistoryStore.liveRowsForMint7370(mint) } catch (_: Throwable) { emptyList() }
+        val basis = journalBasisFromRows7253(mint, amount, rows)
+        if (basis == null) {
+            if (olderJournalMissAt7370.size > 2_000) olderJournalMissAt7370.clear()
+            olderJournalMissAt7370[mint] = now
+        } else {
+            olderJournalMissAt7370.remove(mint)
+            try { PipelineHealthCollector.labelInc("LIVE_BASIS_REBUILT_FROM_OLDER_JOURNAL_7370") } catch (_: Throwable) {}
+        }
+        return basis
+    }
+
+    private fun buyCost7370(t: Trade): Double = when {
+        t.entryCostSol.isFinite() && t.entryCostSol > 0.0 -> t.entryCostSol
+        t.sol.isFinite() && t.sol > 0.0 -> t.sol
+        else -> 0.0
+    }
+
+    private fun buyPrice7370(t: Trade): Double = when {
+        t.entryPriceSnapshot.isFinite() && t.entryPriceSnapshot > 0.0 -> t.entryPriceSnapshot
+        t.price.isFinite() && t.price > 0.0 -> t.price
+        else -> 0.0
+    }
+
+    private fun journalBasisFromRows7253(mint: String, amount: CanonicalTokenAmount, sameMint: List<Trade>): Basis? {
+        // V5.0.7370 — a signed live BUY whose tokens the wallet holds right now is
+        // the bot's fill even when the row stopped at LIVE_BROADCAST or left one
+        // field unstamped: cost falls back to the SOL spent, price to the fill
+        // price, and a missing quantity attributes the whole buy to what is held.
         val buy = sameMint.firstOrNull {
             it.side.equals("BUY", true) &&
                 it.proofState.uppercase() in setOf(
-                    "LIVE_FINALIZED", "LIVE_BALANCE_CONFIRMED", "LIVE_SIG_CONFIRMED",
+                    "LIVE_FINALIZED", "LIVE_BALANCE_CONFIRMED", "LIVE_SIG_CONFIRMED", "LIVE_BROADCAST",
                 ) &&
                 it.sig.isNotBlank() &&
-                it.entryCostSol.isFinite() && it.entryCostSol > 0.0 &&
-                it.entryPriceSnapshot.isFinite() && it.entryPriceSnapshot > 0.0 &&
-                it.entryQtyToken.isFinite() && it.entryQtyToken > 0.0
+                buyCost7370(it) > 0.0 && buyPrice7370(it) > 0.0
         } ?: return null
         val laterTerminalSell = sameMint.firstOrNull {
             it.ts > buy.ts &&
@@ -356,7 +450,8 @@ object LiveCanonicalRecovery6686 {
 
         val heldQty = amount.uiDoubleForDisplay()
         if (!heldQty.isFinite() || heldQty <= 0.0) return null
-        val cost = buy.entryCostSol * (heldQty / buy.entryQtyToken).coerceIn(0.0, 1.0)
+        val buyQty7370 = buy.entryQtyToken.takeIf { it.isFinite() && it > 0.0 } ?: heldQty
+        val cost = buyCost7370(buy) * (heldQty / buyQty7370).coerceIn(0.0, 1.0)
         if (!cost.isFinite() || cost <= 0.0) return null
         try {
             PipelineHealthCollector.labelInc("LIVE_BASIS_REBUILT_FROM_FINALIZED_JOURNAL_7253")
@@ -367,7 +462,7 @@ object LiveCanonicalRecovery6686 {
         } catch (_: Throwable) {}
         return Basis(
             entryCostSol = cost,
-            entryPriceUsd = buy.entryPriceSnapshot,
+            entryPriceUsd = buyPrice7370(buy),
             lane = buy.tradingMode.ifBlank { "STANDARD" },
             openedAtMs = buy.entryTsMs.takeIf { it > 0L } ?: buy.ts,
             source = "LIVE_FINALIZED_JOURNAL_BASIS_7253",

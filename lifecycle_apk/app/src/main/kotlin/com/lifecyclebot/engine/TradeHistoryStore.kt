@@ -1666,6 +1666,71 @@ object TradeHistoryStore {
      * in-memory list yet. Always returns the full persisted history (no in-memory cap).
      * Returns empty list and logs if db is null (init not yet called).
      */
+    /**
+     * V5.0.7370 — every valid LIVE row for one mint, newest first, read by mint
+     * from SQLite. Recovery used the newest 5 000 rows of the whole journal;
+     * paper writes thousands a day, so a live buy from yesterday fell out of that
+     * window and the bot's own held tokens were adopted as strangers.
+     */
+    fun liveRowsForMint7370(mint: String): List<Trade> {
+        if (mint.isBlank()) return emptyList()
+        val database = db ?: return synchronized(lock) {
+            trades.filter { it.mint == mint && it.mode.equals("live", true) && isValidAccountingTrade(it) }
+                .sortedByDescending { it.ts }
+        }
+        val out = mutableListOf<Trade>()
+        try {
+            database.query(TradeDbHelper.TABLE, null, "mint = ?", arrayOf(mint), null, null, "ts DESC").use { c ->
+                while (c.moveToNext()) {
+                    val row = Trade(
+                        ts             = c.getLong(c.getColumnIndexOrThrow("ts")),
+                        side           = c.getString(c.getColumnIndexOrThrow("side")),
+                        sol            = c.getDouble(c.getColumnIndexOrThrow("sol")),
+                        price          = c.getDouble(c.getColumnIndexOrThrow("price")),
+                        pnlSol         = c.getDouble(c.getColumnIndexOrThrow("pnl_sol")),
+                        pnlPct         = c.getDouble(c.getColumnIndexOrThrow("pnl_pct")),
+                        reason         = c.getString(c.getColumnIndexOrThrow("reason")),
+                        score          = c.getDouble(c.getColumnIndexOrThrow("score")),
+                        mode           = c.getString(c.getColumnIndexOrThrow("mode")),
+                        mint           = c.getString(c.getColumnIndexOrThrow("mint")),
+                        tradingMode    = c.getString(c.getColumnIndexOrThrow("trading_mode")),
+                        tradingModeEmoji = c.getString(c.getColumnIndexOrThrow("trading_emoji")),
+                        feeSol         = c.getDouble(c.getColumnIndexOrThrow("fee_sol")),
+                        netPnlSol      = c.getDouble(c.getColumnIndexOrThrow("net_pnl_sol")),
+                        proofState     = c.stringOrBlank("proof_state"),
+                        positionId     = c.stringOrBlank("position_id"),
+                        entryTsMs      = c.longOrZero("entry_ts_ms"),
+                        entryPriceSnapshot = c.doubleOrZero("entry_price_snapshot"),
+                        entryMcapUsd   = c.doubleOrZero("entry_mcap_usd"),
+                        entryQtyToken  = c.doubleOrZero("entry_qty_token"),
+                        entryCostSol   = c.doubleOrZero("entry_cost_sol"),
+                        entryDecimals  = c.intOrZero("entry_decimals"),
+                        soldQtyToken   = c.doubleOrZero("sold_qty_token"),
+                        remainingQtyToken = c.doubleOrZero("remaining_qty_token"),
+                        entryRawQty = com.lifecyclebot.engine.truth.CanonicalRawQuantityAuthority6520.parseStoredRaw(c.stringOrBlank("entry_raw_qty")),
+                        canonicalConsumedRaw = com.lifecyclebot.engine.truth.CanonicalRawQuantityAuthority6520.parseStoredRaw(c.stringOrBlank("canonical_consumed_raw")),
+                        remainingRawQty = com.lifecyclebot.engine.truth.CanonicalRawQuantityAuthority6520.parseStoredRaw(c.stringOrBlank("remaining_raw_qty")),
+                        tokenDecimals = c.intOrZero("token_decimals").takeIf { it >= 0 } ?: -1,
+                        entryPriceSource = c.stringOrBlank("entry_price_source"),
+                        entryPoolAddress = c.stringOrBlank("entry_pool_address"),
+                        economicEventId = c.stringOrBlank("economic_event_id"),
+                        soldCostBasisSol = c.doubleOrZero("sold_cost_basis_sol"),
+                        grossProceedsSol = c.doubleOrZero("gross_proceeds_sol"),
+                    )
+                    if (!row.mode.equals("live", true)) continue
+                    val displayRow = CloseOutcomeLabelSanitizer.canonicalize(row, emit = false)
+                    if (isValidAccountingTrade(displayRow)) out.add(displayRow)
+                }
+            }
+        } catch (_: Throwable) {
+            return synchronized(lock) {
+                trades.filter { it.mint == mint && it.mode.equals("live", true) && isValidAccountingTrade(it) }
+                    .sortedByDescending { it.ts }
+            }
+        }
+        return out
+    }
+
     fun getAllTradesFromDb(): List<Trade> {
         val database = db
         if (database == null) {

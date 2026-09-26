@@ -12019,4 +12019,22 @@ class GoldenTapeRegressionTest {
         assertTrue(proof.contains("val publicEps7365 = publicAll7369.filter { !ApiBackoff.isLockedOut(backoffKey7369(it)) }"))
         assertFalse(proof.contains("host = provider)"))
     }
+
+
+    @Test
+    fun V5_0_7370_bot_bought_wallet_tokens_recover_their_basis() {
+        val th = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        assertTrue(th.contains("fun liveRowsForMint7370(mint: String): List<Trade>"))
+        assertTrue(th.contains("database.query(TradeDbHelper.TABLE, null, \"mint = ?\", arrayOf(mint), null, null, \"ts DESC\")"))
+        val r = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveCanonicalRecovery6686.kt").readText()
+        assertTrue(r.contains("return journalBasisFromRows7253(mint, amount, recent7370) ?: olderJournalBasis7370(mint, amount)"))
+        assertTrue(r.contains("TradeHistoryStore.liveRowsForMint7370(mint)"))
+        assertTrue(r.contains("rehydrateRecoveredStub7370(status, mint, amount, basis)"))
+        assertTrue(r.contains("buyCost7370(it) > 0.0 && buyPrice7370(it) > 0.0"))
+        // A later terminal sell still refuses resurrection.
+        assertTrue(r.contains("laterTerminalSell.remainingRawQty.signum() <= 0"))
+        val tr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        assertTrue(tr.contains("fun adoptBotLineage7370("))
+        assertTrue(tr.contains("p.source = PositionSource.TX_PARSE"))
+    }
 }
