@@ -29,6 +29,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 class BotService : Service() {
 
     companion object {
+        // V5.0.7395 — MANIPULATED is a danger overlay, never a buyer (operator decision).
+        private const val MANIPULATED_IS_A_BUYER_7395 = false
+
         // V5.9.1355 P0.3 — WAIT-override dust-probe controls.
         // Below this liquidity a weak-WAIT candidate is hard-rejected from EXEC
         // (no probe) because there isn't enough depth to even exit a dust probe.
@@ -28788,8 +28791,19 @@ if (hotExitHandledSweep) {
                         isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                     )
 
+                    // V5.0.7395 — operator: "manipulated was closed out from trading."
+                    // 5.0.7389 took MANIPULATED out of cycle ownership and the meme ring,
+                    // but this direct ManipulatedTraderAI entry still reached FDG and the
+                    // live executor, and 5.0.7394 opened a live MANIPULATED position. The
+                    // read above stays (it is the danger overlay); it never buys.
+                    if (manipSignal.shouldEnter) {
+                        try {
+                            PipelineHealthCollector.labelInc("MANIPULATED_DIRECT_ENTRY_CLOSED_7395")
+                            ForensicLogger.lifecycle("MANIPULATED_DIRECT_ENTRY_CLOSED_7395", "symbol=${ts.symbol} mint=${ts.mint.take(10)} score=${manipSignal.manipScore}")
+                        } catch (_: Throwable) {}
+                    }
                     // V5.0.7389 — labeled lane scope: MANIPULATED disabled exits only this lane.
-                    if (manipSignal.shouldEnter) run manipEntry7389@{
+                    if (manipSignal.shouldEnter && MANIPULATED_IS_A_BUYER_7395) run manipEntry7389@{
                         // V5.9.1110 — QUALITY-only containment must happen BEFORE FDG.
                         // V5.9.1108 blocked MANIP later, but the 1108 report still
                         // showed Active non-QUALITY FDG=42. Do not call FDG/auth/exec

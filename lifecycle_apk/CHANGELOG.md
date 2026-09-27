@@ -4,6 +4,11 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7396] — the treasury takes a small share of profit, never all of it; MANIPULATED never buys
+
+- **Treasury split.** Every TREASURY-tagged win called `contributeFullyFromTreasuryScalp`, which moved 100% of the profit to the treasury wallet on-chain; 5.0.7389 widened that lane onto meme-scale tokens, so more live wins left the trading wallet whole. It now takes the same balance-banded split as every other win (`currentSplitPct`: 5% under 2 SOL, 10% / 15% / 25% above) — `TREASURY_SCALP_SPLIT_NOT_FULL_PROFIT_7395`.
+- **MANIPULATED closed as a buyer.** 5.0.7389 removed MANIPULATED from cycle ownership, but the direct `ManipulatedTraderAI` entry in the cycle still reached FDG and the live executor (a live MANIPULATED position opened on 5.0.7394). The read still runs as the danger overlay; it never opens a position (`MANIPULATED_DIRECT_ENTRY_CLOSED_7395`).
+
 ## [5.0.7395] — live sizes against the live wallet again; one dead token no longer freezes live buys
 
 - **Root cause of the live stall.** The live sizer read `status.getEffectiveBalance(live)` = wallet − `TreasuryManager.effectiveLockedSol`. `treasurySol` is one number for both modes and mirrored the PAPER treasury (6.96 SOL), which then locked 70% of the real 0.17 SOL wallet: 0.056 effective → capacity 1 → 0.026 SOL size < 0.041 routable minimum → `LIVE_FLOOR_BLOCK_ROUTABLE_MIN_EXCEEDS_SHARE_7127` ×2045, while the preflight (full wallet) read capacity 3. At last night's 0.34 SOL the same arithmetic still cleared, which is why it traded then.

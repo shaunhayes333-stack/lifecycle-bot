@@ -482,40 +482,21 @@ object TreasuryManager {
     const val MEME_SELL_MIN_PROFIT_SOL_PAPER = 0.0001   // paper floor
 
     /**
-     * V5.9.428 — 100% of realized profit from a treasury-scalp sell goes to
-     * the treasury wallet (not split). Principal stays with the trading
-     * wallet; only the profit is siphoned. Caller is expected to deduct this
-     * amount from the wallet credit so accounting stays consistent.
+     * V5.9.428 — treasury-scalp sells used to send 100% of realized profit to
+     * the treasury wallet.
+     *
+     * V5.0.7395 — operator: "its only meant to be a small percentage of
+     * profit! not all of it!" Every TREASURY-tagged win (and 5.0.7389 widened
+     * that lane onto meme-scale tokens) moved its whole profit off the live
+     * trading wallet on-chain, so winning TREASURY trades never compounded.
+     * A treasury scalp now takes the same balance-banded split as every other
+     * meme win (currentSplitPct: 5% under 2 SOL, 10% / 15% / 25% above). The
+     * function keeps its name so every caller still books what actually moved.
      */
     fun contributeFullyFromTreasuryScalp(realizedProfitSol: Double, solPrice: Double, isPaper: Boolean = false): Double {
         if (realizedProfitSol <= 0.0) return 0.0
-        if (realizedProfitSol < 1e-6) return 0.0
-        val safePx = if (solPrice > 0.0) solPrice else 0.0
-        // V5.0.7294 — in paper the deposit is a real ledger transfer out of
-        // trading cash; the treasury grows by exactly what moved.
-        val paper7294 = isPaper || paperRuntime7294()
-        val moved7294 = if (paper7294) paperDeposit7294(realizedProfitSol, "TREASURY_SCALP_100") else realizedProfitSol
-        if (moved7294 < 1e-9) return 0.0
-        treasurySol += moved7294
-        treasuryUsd += moved7294 * safePx
-        lifetimeLocked += moved7294
-        ErrorLogger.info("Treasury",
-            "💰 TREASURY SCALP 100%: profit=${realizedProfitSol.fmtSol()}◎ → treasury " +
-            "+${realizedProfitSol.fmtSol()}◎ | balance=${treasurySol.fmtSol()}◎"
-        )
-        addEvent(TreasuryEvent(
-            type = TreasuryEventType.PROFIT_LOCKED,
-            amountSol = realizedProfitSol,
-            description = "Treasury scalp: locked 100% of +${realizedProfitSol.fmtSol()}◎ realized",
-            walletUsd = peakWalletUsd,
-            solPrice = safePx,
-        ))
-        forceSave()  // V5.9.1473 — write-through (was throttled autoSave); APK-update-safe
-        // V5.9.495z26 — live mode: physically move the SOL on-chain to the
-        // treasury wallet so the operator's two-wallet separation is real,
-        // not virtual. Paper mode keeps the virtual ledger only (no transfer).
-        triggerOnChainTransferIfLive(moved7294, "TREASURY_SCALP_100", isPaperSell = paper7294)
-        return moved7294
+        try { PipelineHealthCollector.labelInc("TREASURY_SCALP_SPLIT_NOT_FULL_PROFIT_7395") } catch (_: Throwable) {}
+        return contributeFromMemeSell(realizedProfitSol, solPrice, isPaper)
     }
 
     /**

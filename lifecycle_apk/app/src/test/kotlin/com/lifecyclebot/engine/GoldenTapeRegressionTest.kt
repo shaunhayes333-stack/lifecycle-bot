@@ -12465,4 +12465,14 @@ class GoldenTapeRegressionTest {
         val h = com.lifecyclebot.engine.sell.ExitProviderHealth
         assertFalse(h.exitFailureIsSystemic7395 { false })
     }
+
+    @Test
+    fun V5_0_7396_treasury_takes_a_small_split_and_manipulated_never_buys() {
+        val treasury = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TreasuryManager.kt").readText()
+        assertTrue(treasury.contains("return contributeFromMemeSell(realizedProfitSol, solPrice, isPaper)"))
+        assertFalse(treasury.contains("TREASURY SCALP 100%"))
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("private const val MANIPULATED_IS_A_BUYER_7395 = false"))
+        assertTrue(bot.contains("if (manipSignal.shouldEnter && MANIPULATED_IS_A_BUYER_7395) run manipEntry7389@{"))
+    }
 }
