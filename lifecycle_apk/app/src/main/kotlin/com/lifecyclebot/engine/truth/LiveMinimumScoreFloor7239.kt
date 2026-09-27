@@ -59,6 +59,16 @@ object LiveMinimumScoreFloor7239 {
             .floor.takeIf { it.isFinite() } ?: LIVE_MIN_SCORE_FALLBACK
     } catch (_: Throwable) { LIVE_MIN_SCORE_FALLBACK }
 
+    /**
+     * V5.0.7375 — the same fluid floor, for the live gates that still used a fixed
+     * 30 (the sniper entry rule, the routable-minimum weak-score guard). One floor,
+     * shifting with the lane's evidence, instead of a constant beside it.
+     */
+    fun floorFor(lane: String?): Double = try {
+        CanonicalEntryFloor7266.resolve(lane?.takeIf { it.isNotBlank() })
+            .floor.takeIf { it.isFinite() } ?: LIVE_MIN_SCORE_FALLBACK
+    } catch (_: Throwable) { LIVE_MIN_SCORE_FALLBACK }
+
     enum class Verdict { ALLOW, BLOCK_BELOW_FLOOR }
 
     data class Decision(

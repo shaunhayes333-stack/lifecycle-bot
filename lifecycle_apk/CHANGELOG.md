@@ -4,6 +4,26 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7375] - 2026-09-27 — THE LAST FIXED-30 LIVE GATES FOLLOW THE FLUID FLOOR
+
+Operator: "the base score is meant to be fluid. i'd already authorised it to shift from
+30 as needed in a fluid state."
+
+The live score floor became fluid in 7359 (CanonicalEntryFloor7266, ~15-16 on the
+5.0.7371 device), but two live gates beside it still used a constant 30:
+
+- **The sniper's live entry rule** blocked every PROJECT_SNIPER score under 30 — the
+  bands paper's +74 SOL came from (S0-10 +144%, S11-25 +38.8%). It now uses the
+  lane's fluid floor; the danger-zone block is unchanged.
+- **The routable-minimum weak-score guard** refused to lift any score under 30 to the
+  0.041 SOL routable minimum, so every sub-30 entry on a 0.34 SOL wallet died as
+  SUB_ROUTABLE_DUST (3 of 3 live entries on 5.0.7371). It now uses the same floor.
+
+`LiveMinimumScoreFloor7239.floorFor(lane)` is the one accessor; 30 stays only as the
+fallback if the fluid floor cannot be read.
+
+---
+
 ## [5.0.7374] - 2026-09-27 — WALLET READS FALL BACK TO THE MINTS THE BOT ALREADY KNOWS
 
 Operator: "the wallet reconciliation can be done with other already on board rows yeah?"

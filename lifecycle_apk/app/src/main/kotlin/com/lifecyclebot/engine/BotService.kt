@@ -28986,10 +28986,14 @@ if (hotExitHandledSweep) {
                         //          more losses add zero information. Unproven
                         //          bands keep learning (6069 doctrine preserved).
                         val _sniperIsPaper6072 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { cfg.paperMode }
+                        // V5.0.7375 — the live bar is the fluid floor (was a fixed 30).
+                        val _sniperFloor7375 = try {
+                            com.lifecyclebot.engine.truth.LiveMinimumScoreFloor7239.floorFor("PROJECT_SNIPER")
+                        } catch (_: Throwable) { 30.0 }
                         val _sniperBlocked6072 = if (_sniperIsPaper6072) {
                             _sniperIsDanger && _sniperScore < 30
                         } else {
-                            _sniperScore < 30 || _sniperIsDanger
+                            _sniperScore < _sniperFloor7375 || _sniperIsDanger
                         }
                         if (_sniperBlocked6072) {
                             ErrorLogger.info("BotService",
@@ -29077,7 +29081,7 @@ if (hotExitHandledSweep) {
                                 // (0-5) and refused it at the pre-lease floor
                                 // (LIVE_BUY_REFUSED_PRELEASE_SCORE_7256 = 225 of 238).
                                 // Carry the score it was admitted on, as FDG does (7308).
-                                if (!cfg.paperMode && _sniperScore >= 30) {
+                                if (!cfg.paperMode && _sniperScore >= _sniperFloor7375) {
                                     try {
                                         com.lifecyclebot.engine.truth.LaneScoreAdmission7308.record(
                                             ts.mint, "PROJECT_SNIPER", _sniperScore.toDouble(), exploration = false,

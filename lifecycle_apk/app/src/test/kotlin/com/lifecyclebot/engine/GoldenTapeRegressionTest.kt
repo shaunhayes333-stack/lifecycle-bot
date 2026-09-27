@@ -11403,7 +11403,7 @@ class GoldenTapeRegressionTest {
         assertTrue(lec.contains("val promotedPastProbation7324 = !recoveryAuth7214.probationSized"))
         assertTrue(lec.contains("if (canOpen || promotedPastProbation7324) {"))
         val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue(bs.contains("if (!cfg.paperMode && _sniperScore >= 30) {"))
+        assertTrue(bs.contains("if (!cfg.paperMode && _sniperScore >= _sniperFloor7375) {"))
         assertTrue(bs.contains("ts.mint, \"PROJECT_SNIPER\", _sniperScore.toDouble(), exploration = false,"))
     }
 
@@ -12095,5 +12095,18 @@ class GoldenTapeRegressionTest {
         assertTrue(w.contains("rpcTokenAccountsByOwnerFiltered(JSONObject().put(\"mint\", mint)"))
         val r = java.io.File("src/main/kotlin/com/lifecyclebot/engine/WalletReconciler.kt").readText()
         assertTrue(r.contains("if (partial7374) continue"))
+    }
+
+
+    @Test
+    fun V5_0_7375_fixed_30_live_gates_follow_the_fluid_floor() {
+        val f = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveMinimumScoreFloor7239.kt").readText()
+        assertTrue(f.contains("fun floorFor(lane: String?): Double"))
+        val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/RoutableMinRiskGuard7236.kt").readText()
+        assertTrue(g.contains("val weakScore = score < weakScoreBar7375"))
+        assertFalse(g.contains("val weakScore = score < WEAK_SCORE_CEILING.toDouble()"))
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("_sniperScore < _sniperFloor7375 || _sniperIsDanger"))
+        assertFalse(bs.contains("_sniperScore < 30 || _sniperIsDanger"))
     }
 }

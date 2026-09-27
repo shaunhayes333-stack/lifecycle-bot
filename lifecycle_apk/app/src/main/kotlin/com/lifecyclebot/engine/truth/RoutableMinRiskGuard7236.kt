@@ -96,7 +96,9 @@ object RoutableMinRiskGuard7236 {
         riskSizedSol: Double,
         routableMinSol: Double,
     ): Decision {
-        val weakScore = score < WEAK_SCORE_CEILING.toDouble()
+        // V5.0.7375 — the weak-score bar is the lane's fluid live floor, not a fixed 30.
+        val weakScoreBar7375 = try { LiveMinimumScoreFloor7239.floorFor(lane) } catch (_: Throwable) { WEAK_SCORE_CEILING.toDouble() }
+        val weakScore = score < weakScoreBar7375
         val weakRegime = regimeSizeMult.isFinite() && regimeSizeMult > 0.0 && regimeSizeMult < WEAK_REGIME_CEILING
         val pendingProof = livePendingProofPenalty
 
@@ -108,7 +110,7 @@ object RoutableMinRiskGuard7236 {
 
         // Refuse the lift and let the DUST_REFUSED path emit the terminal.
         val reasons = buildList {
-            if (weakScore) add("SCORE=${"%.2f".format(score)}<${WEAK_SCORE_CEILING}")
+            if (weakScore) add("SCORE=${"%.2f".format(score)}<${"%.1f".format(weakScoreBar7375)}")
             if (weakRegime) add("REGIME=${"%.2f".format(regimeSizeMult)}<${"%.2f".format(WEAK_REGIME_CEILING)}")
             if (pendingProof) add("PENDING_PROOF_PENALTY")
         }
