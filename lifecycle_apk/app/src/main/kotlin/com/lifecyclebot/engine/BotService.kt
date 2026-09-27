@@ -1934,8 +1934,18 @@ class BotService : Service() {
                     } catch (_: Throwable) { 11.76 }
                     com.lifecyclebot.engine.truth.EconomicEventSchema6464.init6486(canonicalCtx6515)
                     val durableEconomicEvents6486 = com.lifecyclebot.engine.truth.EconomicEventSchema6464.snapshot()
-                    com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.rebuildPaperFromEvents6486(durableEconomicEvents6486)
-                    com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.rebuildPaperFromEvents6486(durableEconomicEvents6486)
+                    // V5.0.7387 — a paper<->live switch recreates the service in the SAME
+                    // process, where the canonical position and lot authorities (process
+                    // singletons) already hold this exact event set. Rebuild only when the
+                    // process has not built them yet or the durable event count moved.
+                    val eventsN7387 = durableEconomicEvents6486.size
+                    if (CanonicalRebuildMemo7387.builtForEvents != eventsN7387) {
+                        com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.rebuildPaperFromEvents6486(durableEconomicEvents6486)
+                        com.lifecyclebot.engine.truth.CanonicalLotQuantity6464.rebuildPaperFromEvents6486(durableEconomicEvents6486)
+                        CanonicalRebuildMemo7387.builtForEvents = eventsN7387
+                    } else {
+                        try { PipelineHealthCollector.labelInc("CANONICAL_REBUILD_SKIPPED_SAME_PROCESS_7387") } catch (_: Throwable) {}
+                    }
                     val ledgerRestored6487 = com.lifecyclebot.engine.truth.PaperAccountLedger6430
                         .initPersistent6487(canonicalCtx6515, startCap6432)
                     if (!ledgerRestored6487) {
@@ -2267,19 +2277,26 @@ class BotService : Service() {
         // V5.0.6382 — COLD-BOOT TACTIC RE-DERIVE. Purges phantom μ drift from
         // pre-V5.0.6373d expectancy math (μ=+159% at 15% WR was blocking
         // rotation of broken tactics). Runs once per boot; fail-soft.
-        try { com.lifecyclebot.engine.learning.TacticSwitcher.rederiveFromRawJournal6382() } catch (_: Throwable) {}
-
+        //
         // V5.0.6386 — HISTORICAL QUARANTINE (Section 10 of directive).
         // Reads the raw journal, tags every live row matching any of the 12
         // corruption criteria, and emits HISTORICAL_QUARANTINE_6386_* counters.
         // Downstream truth-model consumers must ignore quarantined rows.
-        try { com.lifecyclebot.engine.truth.HistoricalQuarantine6386.runOnce() } catch (_: Throwable) {}
-
+        //
         // V5.0.6387 — FALSE-PROFIT HISTORICAL QUARANTINE + LEGACY_PRE_CANONICAL
-        // tagging (Directive B P0 + Directive A P0 "Journal migration without
-        // deleting forensics"). Tags every existing row LEGACY_PRE_CANONICAL_6387
-        // and flags rows whose profit exit reasons contradict realised PnL.
-        try { com.lifecyclebot.engine.truth.FalseProfitHistoricalQuarantine6387.runOnce() } catch (_: Throwable) {}
+        // tagging. Tags every existing row LEGACY_PRE_CANONICAL_6387 and flags
+        // rows whose profit exit reasons contradict realised PnL.
+        //
+        // V5.0.7387 — all three are whole-journal passes over HISTORY that no
+        // trading decision waits for, and they sat inside the bootstrap every
+        // Start waits on (up to ~5 min to first trade, worse on a mode switch).
+        // They now run in the background, in the same order, once per boot.
+        scope.launch(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.CoroutineName("post-boot-journal-audits-7387")) {
+            try { com.lifecyclebot.engine.learning.TacticSwitcher.rederiveFromRawJournal6382() } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.HistoricalQuarantine6386.runOnce() } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.FalseProfitHistoricalQuarantine6387.runOnce() } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("POST_BOOT_JOURNAL_AUDITS_DONE_7387") } catch (_: Throwable) {}
+        }
         // V5.0.4307 — report-only runtime proof for smart/dormant-system registry
         // and closeout sentinels. No scanner, FDG, sizing, routing, wallet, or
         // execution authority; this only makes theatre-vs-runtime visible.
@@ -14598,14 +14615,35 @@ class BotService : Service() {
             // check before any buy.
             val pumpPortalLaunch7384 = source == "PUMP_PORTAL_WS" || source == "PUMP_PORTAL_MIGRATE"
             if (liveMode && !isUserAdded && !isRestoredVetted && !pumpPortalLaunch7384 && lowLiqScannerRisk && this::safetyChecker.isInitialized) {
+                // V5.0.7387 — intake reads the cached report only. The synchronous
+                // check is a rugcheck HTTP call (8s connect + 10s read) and intake runs
+                // on the bot loop: the first live cycle drained the scanner backlog
+                // through it one token at a time (INTAKE 44.9s, first cycles 113-224s).
+                // On a cache miss the check runs in the background; a hard block found
+                // there is stamped for later sightings, and FDG / liveBuy re-check
+                // safety before any buy regardless.
                 val intakeSafety = try {
-                    safetyChecker.check(
-                        mint = mint,
-                        symbol = symbol.ifBlank { mint.take(6) },
-                        name = name.ifBlank { symbol.ifBlank { mint.take(6) } },
-                        currentLiquidityUsd = liquidityUsd,
-                        score = confidence.coerceIn(0, 100),
-                    )
+                    safetyChecker.peekFresh7387(mint) ?: run {
+                        val sym7387 = symbol.ifBlank { mint.take(6) }
+                        val nm7387 = name.ifBlank { sym7387 }
+                        val liq7387 = liquidityUsd
+                        val conf7387 = confidence.coerceIn(0, 100)
+                        val src7387 = source
+                        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            try {
+                                val r = safetyChecker.check(
+                                    mint = mint, symbol = sym7387, name = nm7387,
+                                    currentLiquidityUsd = liq7387, score = conf7387,
+                                )
+                                if (r.hardBlockReasons.isNotEmpty()) {
+                                    ScannerHardRejectStore.mark(mint, sym7387, "INTAKE_SAFETY_HARD_REJECT_4199:${r.hardBlockReasons.joinToString("|").take(160)}", src7387)
+                                    PipelineHealthCollector.labelInc("INTAKE_SAFETY_HARD_REJECT_ASYNC_7387")
+                                }
+                            } catch (_: Throwable) {}
+                        }
+                        try { PipelineHealthCollector.labelInc("INTAKE_SAFETY_CHECK_BACKGROUNDED_7387") } catch (_: Throwable) {}
+                        null
+                    }
                 } catch (e: Throwable) {
                     try { ForensicLogger.lifecycle("INTAKE_SAFETY_PRECHECK_FAILED_4199", "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source err=${e.javaClass.simpleName}:${e.message?.take(80)} action=fail_open_to_later_safety") } catch (_: Throwable) {}
                     null
@@ -15865,7 +15903,9 @@ class BotService : Service() {
     }
 
     private fun processTokenMergeQueue(loopCount: Int) {
-        val mergedTokens = TokenMergeQueue.processQueue(maxScan = 512, maxEmit = 96)
+        // V5.0.7387 — the first cycles after a start drain a large scanner backlog;
+        // emit it in smaller slices so cycle 1 reaches FDG in seconds, not minutes.
+        val mergedTokens = TokenMergeQueue.processQueue(maxScan = 512, maxEmit = if (loopCount <= 3) 24 else 96)
         for (merged in mergedTokens) {
             val boostLabel = if (merged.multiScannerBoost) " [MULTI-SCANNER]" else ""
             val scannersInfo = if (merged.allScanners.size > 1)
@@ -18223,10 +18263,24 @@ class BotService : Service() {
         // startBot enters from Main, where journal replay intentionally avoids
         // DB work. Reconcile on this dedicated background dispatcher before
         // the meme loop can admit another trade.
-        try {
-            com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486
-                .reconcileJournalAuthority6663()
-        } catch (_: Throwable) {}
+        //
+        // V5.0.7387 — in LIVE the paper journal authority does not gate a live trade,
+        // and this whole-journal reconcile delayed cycle 1; it runs in the background
+        // there (the 30s independent scheduler keeps it current). PAPER keeps it inline
+        // so no paper trade is admitted before the paper ledger is reconciled.
+        if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+            try {
+                com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486
+                    .reconcileJournalAuthority6663()
+            } catch (_: Throwable) {}
+        } else {
+            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486
+                        .reconcileJournalAuthority6663()
+                } catch (_: Throwable) {}
+            }
+        }
 
         // V5.9.1027 — orphan exit. See checkBotLoopOrphan() doc.
         val myJob: kotlinx.coroutines.Job? = try {
@@ -33923,3 +33977,8 @@ internal fun resolveLivePrice(ts: com.lifecyclebot.data.TokenState): Double {
 // runs SmartChartScanner.scan() multi-TF so longer-horizon patterns
 // (Cup & Handle, Wedges, Dead Cat Bounce…) can actually fire.
 private val smartChartScanCounter = java.util.concurrent.atomic.AtomicLong(0)
+
+/** V5.0.7387 — process-level memo: the durable event count the canonical rebuild last ran on. */
+internal object CanonicalRebuildMemo7387 {
+    @Volatile var builtForEvents: Int = -1
+}

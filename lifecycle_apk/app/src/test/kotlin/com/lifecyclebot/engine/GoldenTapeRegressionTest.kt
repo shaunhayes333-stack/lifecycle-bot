@@ -12295,4 +12295,22 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("SNIPER_TP_PARTIAL_7385"))
         assertTrue(bot.contains("if (lossExit7385) \"SNIPER_${exitSignal.rank.name}\" else \"SNIPER_TRAIL_${exitSignal.rank.name}\""))
     }
+
+
+    @Test
+    fun V5_0_7387_start_path_is_not_blocked_by_history_passes() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("post-boot-journal-audits-7387"))
+        assertTrue(bot.contains("CanonicalRebuildMemo7387.builtForEvents != eventsN7387"))
+        assertTrue(bot.contains("safetyChecker.peekFresh7387(mint) ?: run {"))
+        assertTrue(bot.contains("maxEmit = if (loopCount <= 3) 24 else 96"))
+        val fin = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalityPersistence6486.kt").readText()
+        assertTrue(fin.contains("if (replaying7387 && prefs?.contains(PREFIX + event.positionId) == true) return"))
+        val tx = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()
+        assertTrue(tx.contains("awaitDurableJournalBoundary6669(timeoutMs = 5_000L)"))
+        val snap = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/UnifiedAccountSnapshot6635.kt").readText()
+        assertTrue(snap.contains("RECONCILE_EVERY_MS_7302 = 30_000L"))
+        val fr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForensicReconciliation6635.kt").readText()
+        assertTrue(fr.contains("FORENSIC_RECONCILE_SKIPPED_UNCHANGED_7387"))
+    }
 }

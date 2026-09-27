@@ -34,11 +34,25 @@ object CanonicalFinalityPersistence6486 {
             .mapNotNull { decode(it.value as String) }
             .sortedBy { it.settledAtMs }
             .toList()
-        events.forEach { CanonicalTradeFinalizedBus6450.publish(it) }
+        // V5.0.7387 — the replay republishes every stored event, and each publish
+        // wrote that same event straight back to SharedPreferences (one apply()
+        // per event, on the bootstrap every Start waits on). The rows are already
+        // stored; the write-back is skipped while replaying.
+        replaying7387 = true
+        try {
+            events.forEach { CanonicalTradeFinalizedBus6450.publish(it) }
+        } finally {
+            replaying7387 = false
+        }
         return events.size
     }
 
+    @Volatile private var replaying7387 = false
+
     fun record(event: CanonicalTradeFinalizedBus6450.Event) {
+        // Only rows already stored are skipped, so a new terminal that lands during
+        // the replay window is still persisted.
+        if (replaying7387 && prefs?.contains(PREFIX + event.positionId) == true) return
         prefs?.edit()?.putString(PREFIX + event.positionId, encode(event))?.apply()
     }
 

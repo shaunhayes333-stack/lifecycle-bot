@@ -85,7 +85,9 @@ object UnifiedAccountSnapshot6635 {
      * call from the main thread hands it to a background thread instead of
      * running it there. The snapshot values themselves are unchanged.
      */
-    private const val RECONCILE_EVERY_MS_7302 = 5_000L
+    // V5.0.7387 — 30s (was 5s): a whole-ledger reconcile per UI read contended with
+    // startup; the 30s independent scheduler and mutation hooks keep it current.
+    private const val RECONCILE_EVERY_MS_7302 = 30_000L
     private val lastReconcileMs7302 = java.util.concurrent.atomic.AtomicLong(0L)
     private val reconcileInFlight7302 = java.util.concurrent.atomic.AtomicBoolean(false)
 

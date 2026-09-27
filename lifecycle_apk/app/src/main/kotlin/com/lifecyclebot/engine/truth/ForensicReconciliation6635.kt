@@ -73,7 +73,25 @@ object ForensicReconciliation6635 {
      * counter + line. When the caller has already replayed the journal for the
      * same mutation, pass that immutable result to avoid a second full replay.
      */
+    /** V5.0.7387 — state key of the last full reconcile (journal revision, canonical mutations, cash). */
+    private val lastKey7387 = java.util.concurrent.atomic.AtomicReference<String?>(null)
+
     fun reconcile6635(precomputedReplay6699: JournalEconomicReplay6619.ReplayResult? = null) {
+        // V5.0.7387 — nothing moved since the last pass: same journal revision, same
+        // canonical mutation count, same cash. Re-running only re-scanned ~1,300
+        // positions and re-emitted identical FORENSIC_* counters (171 per session,
+        // many of them while the bot waited to start).
+        if (precomputedReplay6699 == null) {
+            val key7387 = try {
+                "${com.lifecyclebot.engine.TradeHistoryStore.journalRevision7343()}|" +
+                    "${CanonicalPositionAuthority6441.mutationCount7387()}|" +
+                    "${"%.9f".format(PaperCapitalAuthority6577.cashSol() + PaperCapitalAuthority6577.treasurySol7294())}"
+            } catch (_: Throwable) { null }
+            if (key7387 != null && key7387 == lastKey7387.getAndSet(key7387)) {
+                try { PipelineHealthCollector.labelInc("FORENSIC_RECONCILE_SKIPPED_UNCHANGED_7387") } catch (_: Throwable) {}
+                return
+            }
+        }
         checks.incrementAndGet()
         // V5.0.7294 — the journal has no treasury transfers, so its cash is
         // trading cash + paper treasury; compare like with like.

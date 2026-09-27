@@ -115,6 +115,9 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
 
     private val cache = ConcurrentHashMap<String, SafetyReport>()
 
+    /** V5.0.7387 — the cached report if it is still fresh; never touches the network. */
+    fun peekFresh7387(mint: String): SafetyReport? = cache[mint]?.takeIf { !it.isStale }
+
     // V5.9.736 — IN-FLIGHT DEDUP + RC_PENDING DEFER QUEUE.
     //
     // Operator live-mode dump showed the same mint (MMIC) hard-blocked

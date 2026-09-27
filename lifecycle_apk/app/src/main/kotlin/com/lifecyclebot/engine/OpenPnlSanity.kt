@@ -128,7 +128,9 @@ object OpenPnlSanity {
             } catch (_: Throwable) { null }
             if (repaired7236 != null && repaired7236.isFinite() && repaired7236 > 0.0) {
                 currentPriceEffective7236 = repaired7236
-                try {
+                // V5.0.7387 — honour emit=false: UI refreshes call this for every open
+                // position every 2.5s and were logging each repair (302 per snapshot).
+                if (emit) try {
                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_PNL_CURRENT_PRICE_REPAIRED_7236")
                     com.lifecyclebot.engine.ForensicLogger.lifecycle(
                         "OPEN_PNL_CURRENT_PRICE_REPAIRED_7236",

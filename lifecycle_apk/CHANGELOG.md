@@ -4,6 +4,17 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7387] — the bot starts in seconds, not minutes
+
+Start waited on the whole service bootstrap, then the first cycles ran minutes long (a 47s snapshot showed the bootstrap still in CORE_STORES; first cycles 113-224s).
+- Three whole-journal history passes (TacticSwitcher re-derive, HistoricalQuarantine6386, FalseProfitHistoricalQuarantine6387) run in the background after boot instead of inside the bootstrap Start waits on.
+- Durable finality replay no longer rewrites every replayed event back to SharedPreferences.
+- A paper<->live switch (same process) skips the canonical position/lot rebuild when the durable event count is unchanged.
+- Intake uses the cached safety report; on a miss the rugcheck call runs in the background instead of on the bot loop (8s+10s timeouts per token drained the first live cycle). FDG and liveBuy still check safety before any buy.
+- The first 3 cycles emit 24 merged scanner tokens (not 96).
+- Live: the pre-loop journal reconcile runs in the background (paper keeps it inline). Journal-boundary waits are bounded at 5s (were 30s each, up to four per reconcile, under the paper lock).
+- UI-driven ledger reconciles: every 30s (was 5s), and skipped when the journal revision, canonical mutations and cash are unchanged. OpenPnlSanity honours emit=false for its repair log.
+
 ## [5.0.7386] — the sliding profit lock arms from the start on every lane
 
 Operator: "the sliding profit locks are meant to slide up with positions and lock the profit near peak."

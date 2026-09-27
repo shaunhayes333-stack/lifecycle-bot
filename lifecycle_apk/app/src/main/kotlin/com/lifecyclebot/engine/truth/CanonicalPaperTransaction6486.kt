@@ -63,7 +63,10 @@ object CanonicalPaperTransaction6486 {
     }
 
     private fun awaitJournalBoundary6669(stage: String): Boolean {
-        val reached = TradeHistoryStore.awaitDurableJournalBoundary6669()
+        // V5.0.7387 — 5s, not the 30s default: four boundaries per reconcile could hold
+        // the paper-transaction lock for two minutes while startup waited on it. A
+        // boundary not reached aborts this pass; the 30s scheduler runs it again.
+        val reached = TradeHistoryStore.awaitDurableJournalBoundary6669(timeoutMs = 5_000L)
         try {
             PipelineHealthCollector.labelInc(
                 if (reached) "PAPER_JOURNAL_BOUNDARY_REACHED_6669"

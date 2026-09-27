@@ -139,6 +139,9 @@ object CanonicalPositionAuthority6441 {
 
     // Telemetry counters.
     private val muts = AtomicLong(0L)
+
+    /** V5.0.7387 — mutation count, so reconcilers can skip when nothing moved. */
+    fun mutationCount7387(): Long = muts.get()
     private val duplicates = AtomicLong(0L)
     private val invariantViolations = AtomicLong(0L)
     private val quarantines = AtomicLong(0L)
