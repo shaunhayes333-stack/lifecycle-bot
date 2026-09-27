@@ -12420,4 +12420,19 @@ class GoldenTapeRegressionTest {
         val close = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").readText()
         assertTrue(close.contains("\"PROFIT_LOCK\", \"PEAK_LOCK\", \"PEAK_CAPTURE\""))
     }
+
+
+    @Test
+    fun V5_0_7392_one_account_authority_for_every_hero() {
+        // The shared snapshot renders the ledger while reconciliation is pending,
+        // once the ledger is initialised; screens never re-derive availability.
+        val unified = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/UnifiedAccountSnapshot6635.kt").readText()
+        assertTrue(unified.contains("LEDGER_RENDER_RECONCILE_PENDING_7392"))
+        assertTrue(unified.contains("val ledgerInitialized7392 = markAuthority?.startingCashSol?.let { it.isFinite() && it > 0.0 } == true"))
+        val markets = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MultiAssetActivity.kt").readText()
+        assertFalse(markets.contains("unified6635?.status != com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED"))
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt").readText()
+        assertTrue(crypto.contains("val paperSafe = isLive || unified?.accountAvailable == true"))
+        assertFalse(crypto.contains("unified?.status == com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED ||"))
+    }
 }

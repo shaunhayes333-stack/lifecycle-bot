@@ -411,14 +411,19 @@ class CryptoAltActivity : AppCompatActivity() {
         val phase  = getPhaseLabel()
         // V5.9.5: Show USD as main balance
         val solUsdPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..500.0 } ?: 85.0 //
-        val paperSafe = isLive || unified?.status == com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED
+        // V5.0.7392 — the shared snapshot decides availability (ledger renders
+        // while reconciliation is pending); this screen no longer re-derives it.
+        val paperSafe = isLive || unified?.accountAvailable == true
         val performanceSafe = performance.realizedPnlSol != null
         // V5.0.6830 §HERO_BINDING_PARITY — see line ~927 for the full note.
         //   Suppress ACCOUNTING ERROR when the ledger already reports a
         //   credible positive balance; reconciler catches up in-background.
         val hasCredibleBalance6830 = try { bal > 0.0 && bal.isFinite() } catch (_: Throwable) { false }
         val displayReady6830 = paperSafe || hasCredibleBalance6830
-        tvHeroBalance.text = if (!displayReady6830) "ACCOUNTING ERROR"
+        val warmup7392 = !isLive && (unified == null ||
+            unified.status == com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.WARMUP)
+        tvHeroBalance.text = if (!displayReady6830 && warmup7392) "LOADING…"
+            else if (!displayReady6830) "ACCOUNTING ERROR"
             else if (solUsdPrice >= 50.0) "$${"%,.0f".format(bal * solUsdPrice)}"
             else "◎ ${"%.4f".format(bal)}"
         tvHeroBalance.contentDescription = if (!displayReady6830) unified?.forensicLine
@@ -1004,9 +1009,11 @@ class CryptoAltActivity : AppCompatActivity() {
             bal > 0.0 && bal.isFinite()
         } catch (_: Throwable) { false }
         val accountReady = isLive ||
-            unified?.status == com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED ||
+            unified?.accountAvailable == true ||  // V5.0.7392 — shared availability
             hasCredibleBalance6830
-        val balUsdStr = if (!accountReady) "ACCOUNT UNAVAILABLE" else if (solUsd >= 1.0) "$${"%,.0f".format(bal * solUsd)}" else "◎ ${"%.4f".format(bal)}"
+        val balUsdStr = if (!accountReady && !isLive && (unified == null ||
+                unified.status == com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.WARMUP)) "LOADING…"
+            else if (!accountReady) "ACCOUNT UNAVAILABLE" else if (solUsd >= 1.0) "$${"%,.0f".format(bal * solUsd)}" else "◎ ${"%.4f".format(bal)}"
         tvHeroBalance = tv(balUsdStr, 28f, white, bold = true).apply {
             layoutParams = llp(0, wrap, 1f)
         }

@@ -1360,9 +1360,15 @@ class MultiAssetActivity : AppCompatActivity() {
                         tvTotalBalance.setTextColor(AateUi.GREEN)
                         balanceContainer.contentDescription =
                             "Live: \$${"%,.0f".format(usdValue)} (${"%.2f".format(liveWalletSol)} SOL)"
-                    } else if (unified6635?.status != com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED) {
-                        tvTotalBalance.text = "ACCOUNTING ERROR"
-                        tvTotalBalance.setTextColor(AateUi.RED)
+                    } else if (unified6635?.accountAvailable != true) {
+                        // V5.0.7392 — the shared snapshot now renders the ledger while
+                        // reconciliation is pending; only an account that genuinely
+                        // cannot be described is withheld, and a start-up read says so
+                        // rather than calling it an error.
+                        val warmup7392 = unified6635 == null ||
+                            unified6635.status == com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.WARMUP
+                        tvTotalBalance.text = if (warmup7392) "LOADING…" else "ACCOUNTING ERROR"
+                        tvTotalBalance.setTextColor(if (warmup7392) AateUi.AMBER else AateUi.RED)
                         balanceContainer.contentDescription = unified6635?.forensicLine
                             ?: "Paper accounting has not reconciled. Balance withheld."
                     } else {

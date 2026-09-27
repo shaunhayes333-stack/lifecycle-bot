@@ -4,6 +4,11 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7393] — 5.0.7392 builds; one account authority for every hero
+
+- 5.0.7392 failed CI before compiling (new-dead-code guard: two public labels only used in their own file). Fixed; this build carries everything listed under 5.0.7392.
+- See "One account authority for every hero" under 5.0.7392: Markets and Crypto no longer show ACCOUNTING ERROR / ACCOUNT UNAVAILABLE while the ledger holds the balance.
+
 ## [5.0.7392] — held positions priced from their locked venue; flat positions and wins exit
 
 Operator: "the exit loop isn't firing, heaps of flat held tokens, big wins not settled" and "we have an on-board token register — we shouldn't have stale or unknown prices; it stores full details on discovery then locks in at purchase."
@@ -19,6 +24,10 @@ Wins get banked
 - The dispatch re-check uses the same executable-price basis as the decision (raw lastPrice differed by 5+ points 249 times).
 - The profit lock banks on a fresh trusted repaired mark (corroborated fan-out, curve or locked venue) instead of holding forever on a refused one, and requests a repair when there is none.
 - Profit-lock and peak exits get the 2 s emergency close retry, not the 20-30 s latch; an off-loop profit-lock sell may be re-requested after 10 s, not 60 s.
+
+One account authority for every hero (ACCOUNTING ERROR / ACCOUNT UNAVAILABLE, again)
+- UnifiedAccountSnapshot6635 — the one read Markets and Crypto use — returned cash 0 and "unavailable" whenever the background reconciler had not reached RECONCILED (every start, and every failed audit pass) unless an earlier reconciled copy existed, although it already held the ledger's cash. It now renders the ledger once the ledger is initialised (the Main hero's bar) and carries the reconcile status as a badge (6650's rule). Growth milestones and desk stats still act only on a reconciled account.
+- Markets and Crypto no longer re-derive availability from the reconcile status; they read the snapshot's answer, and a start-up read says LOADING… (amber), not an error.
 
 Flat positions exit
 - The dead-money cull (-14% to +5%, no new high for 8 min) now applies to every lane after 20 min held (10 under inventory pressure); runner lanes waited 30 min and nearly the whole meme book is a runner lane. PROJECT_SNIPER, peaks >= +20% and banked positions stay exempt. The flat cull's mark freshness window is 120 s (was 60 s).

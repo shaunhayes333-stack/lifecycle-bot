@@ -160,6 +160,36 @@ object UnifiedAccountSnapshot6635 {
             lastRead.set(snap)
             return snap
         }
+        // V5.0.7392 §THE_LEDGER_IS_THE_BALANCE_RECONCILIATION_IS_A_BADGE.
+        //
+        // Operator, again: Markets "ACCOUNTING ERROR", Crypto "ACCOUNT
+        // UNAVAILABLE" while Main showed $11.1K from the same account. Every
+        // start (reconciler WARMUP) and every failed audit pass with no earlier
+        // reconciled copy fell through to cash=0 + accountAvailable=false,
+        // although this read already holds the ledger's own cash above. Each
+        // earlier fix patched one screen; this is the one source they all read.
+        // 6650's rule, applied here: the LEDGER figures render; the reconcile
+        // status travels with them (status/forensicLine) as a badge. Consumers
+        // that must act only on a reconciled account (growth milestones, desk
+        // performance) already check status == RECONCILED and are unchanged.
+        // Same initialisation bar as the Main hero (HeroAccountSnapshot7045): an
+        // uninitialised ledger is "not yet known", never a $0 account.
+        val ledgerInitialized7392 = markAuthority?.startingCashSol?.let { it.isFinite() && it > 0.0 } == true
+        if (capital != null && ledgerInitialized7392 && cashLedger.isFinite() && equity.isFinite()) {
+            try { PipelineHealthCollector.labelInc("HERO_LEDGER_RENDERED_RECONCILE_${status.name}_7392") } catch (_: Throwable) {}
+            val ledgerSnap = Snapshot(
+                mode = mode, cashSol = cashLedger, equitySol = equity,
+                realizedPnlSol = realized, unrealizedPnlSol = unrealized,
+                openPositionsCount = openPositions, status = status,
+                forensicLine = "$forensicLine accountAction=LEDGER_RENDER_RECONCILE_PENDING_7392",
+                readAtMs = System.currentTimeMillis(),
+                openMarketValueSol = openCost,
+                accountAvailable = true,
+                authoritativePrices = false,
+            )
+            lastRead.set(ledgerSnap)
+            return ledgerSnap
+        }
         val retained = lastReconciled[mode]?.copy(
             status = Status.FAILED,
             forensicLine = "$forensicLine accountAction=RETAIN_LAST_RECONCILED",

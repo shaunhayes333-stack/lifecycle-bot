@@ -100,9 +100,11 @@ class PaperCapitalAuthorityP0_1_6577Test {
             multiAssetSrc.contains("UnifiedAccountSnapshot6635.read(\"MARKETS\")")
         )
         assertTrue(
-            "MultiAssetActivity must withhold money when unified accounting is not reconciled",
-            multiAssetSrc.contains("UnifiedAccountSnapshot6635.Status.RECONCILED") &&
-                multiAssetSrc.contains("ACCOUNTING ERROR")
+            // V5.0.7392 — withhold only an account the shared snapshot cannot describe;
+            // a pending reconcile renders the ledger (6650) and start-up says LOADING.
+            "MultiAssetActivity must withhold money only when the shared snapshot says the account is unavailable",
+            multiAssetSrc.contains("unified6635?.accountAvailable != true") &&
+                multiAssetSrc.contains("ACCOUNTING ERROR") && multiAssetSrc.contains("LOADING…")
         )
     }
 }

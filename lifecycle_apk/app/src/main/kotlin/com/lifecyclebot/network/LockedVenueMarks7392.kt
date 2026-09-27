@@ -31,8 +31,8 @@ object LockedVenueMarks7392 {
 
     data class Mark(val priceUsd: Double, val source: String)
 
-    const val CURVE_SOURCE = "LOCKED_VENUE_CURVE_7392"
-    const val POOL_SOURCE = "LOCKED_VENUE_POOL_7392"
+    private const val CURVE_SOURCE = "LOCKED_VENUE_CURVE_7392"
+    private const val POOL_SOURCE = "LOCKED_VENUE_POOL_7392"
 
     private fun validPool(addr: String?): String? =
         addr?.trim()?.takeIf { it.length in 32..44 && it.none { c -> c == ':' || c == '|' || c == '/' } }
