@@ -144,6 +144,25 @@ object ScoreExpectancyTracker {
         }
     }
 
+    /**
+     * V5.0.7380 — (closes, win fraction, mean pnl%) for [layer] across all score
+     * buckets, paper and live. Survives a journal clear. Null when empty.
+     */
+    fun laneStats7380(layer: String): Triple<Int, Double, Double>? {
+        var n = 0; var wins = 0; var sum = 0.0
+        for (b in 0..9) {
+            val w = windows[keyOf(layer, b * BUCKET_WIDTH)] ?: continue
+            synchronized(w) {
+                for (v in w) {
+                    if (!v.isFinite()) continue
+                    val c = v.coerceIn(-100.0, 5000.0)
+                    n++; sum += c; if (c > 0.0) wins++
+                }
+            }
+        }
+        return if (n == 0) null else Triple(n, wins.toDouble() / n, sum / n)
+    }
+
     /** Sample count in this bucket (0 if never recorded). */
     fun bucketSamples(layer: String, score: Int): Int {
         val w = windows[keyOf(layer, score)] ?: return 0

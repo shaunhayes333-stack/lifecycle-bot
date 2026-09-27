@@ -112,11 +112,14 @@ object LivePauseButton {
         val wins = pSnap.count { it > 0.0 }
         val wr = if (n > 0) (wins.toDouble() / n) * 100.0 else 0.0
 
+        // V5.0.7380 — defensive only when the book loses on average too; a low
+        // win rate on a positive mean is a runner book, not a bleed.
+        val mean7380 = if (n > 0) pSnap.average() else 0.0
         val current = snap.get()
         val newMode = when {
             n < MIN_SAMPLES -> Mode.NORMAL
-            current.mode == Mode.NORMAL && wr < PAUSE_FLOOR_PCT -> Mode.DEFENSIVE
-            current.mode == Mode.DEFENSIVE && wr >= RECOVER_FLOOR_PCT -> Mode.NORMAL
+            current.mode == Mode.NORMAL && wr < PAUSE_FLOOR_PCT && mean7380 <= 0.0 -> Mode.DEFENSIVE
+            current.mode == Mode.DEFENSIVE && (wr >= RECOVER_FLOOR_PCT || mean7380 > 0.0) -> Mode.NORMAL
             else -> current.mode
         }
 

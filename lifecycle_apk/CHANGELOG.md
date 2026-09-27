@@ -4,6 +4,15 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7380] — live-only entry chokes defer to evidence and paper learning
+
+- FDG brain consensus: a live hard veto now needs the oracle PROVEN **and not degenerate** **and** at least two evidence-backed objections (FORWARD_NEGATIVE, LIVE_PROB_NEGATIVE, LOSING_PATTERN_DANGER_ZONE, PROVEN_DEAD_CONTEXT, LEARNED_TOXIC_LANE). Single opinions (second scorer, sentience, meta policy) shrink size as in paper. The consensus-unavailable veto also skips a degenerate oracle.
+- FDG live dust tuition: only PROVEN_DEAD contexts are refused; MICRO / PROBE / TRAIN_FIRST entries are lifted to the core floor like paper.
+- FDG RSI>90 live block: bypassed when the lane's learned score band proves it (paper + live), not only after 5 live closes.
+- Predictive oracle break-even bar: falls back to the lane's journal win rate, then the score-band tracker (survives a journal clear), before the 0.50 coin flip.
+- LaneTimeoutGate / LivePauseButton: low win rate alone no longer times out a lane that pays on average (runner lanes).
+- ExecutableEntryAuthority6450: paper cooldown is inherited only while the paper streak is actually seeded into live.
+
 ## [5.0.7379] - 2026-09-27 — HOLDER CONCENTRATION READ FROM CHAIN (FREE)
 
 Operator: "do the free fix."

@@ -9584,7 +9584,7 @@ class GoldenTapeRegressionTest {
         // PROVEN (V5.0.7287): the verdict is the decision in both modes.
         assertTrue(learned.contains("return deny(\"ORACLE_PROVEN_REFUSE_7287\""))
         assertFalse(learned.contains("PROVEN_ORACLE_PROBE_PAPER_7263"))
-        assertTrue(fdg.contains("if (oracleProven7263 && !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {"))
+        assertTrue(fdg.contains("if (oracleProven7263 && !oracleDegenerate7380 && evidenceObjections7380 >= 2 &&"))
     }
 
     /** V5.0.7264 — the cross-asset tick floor carries the same phantom-read
@@ -12163,5 +12163,25 @@ class GoldenTapeRegressionTest {
         assertTrue(t.contains("OnChainHolderConcentration7379.top10Pct(mint)?.let { topHolderPct = it }"))
         val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
         assertTrue(g.contains("if (!ts.holderDataResolved && topHolder < 0.0) pendingProofs.add(\"HOLDER_DATA_PENDING\")"))
+    }
+
+
+    @Test
+    fun V5_0_7380_live_only_chokes_defer_to_evidence_and_paper_learning() {
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("if (oracleProven7263 && !oracleDegenerate7380 && evidenceObjections7380 >= 2 &&"))
+        assertTrue(fdg.contains("if (oracleProvenExc7263 && !oracleDegenerateExc7380 &&"))
+        assertTrue(fdg.contains("val dustTuitionTag4526 = tags.any { t -> t.uppercase().contains(\"PROVEN_DEAD\") }"))
+        assertTrue(fdg.contains("liveWinner4595 || com.lifecyclebot.engine.truth.CanonicalEntryFloor7266.bandProvesLane7378("))
+        val st = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ScoreExpectancyTracker.kt").readText()
+        assertTrue(st.contains("fun laneStats7380(layer: String): Triple<Int, Double, Double>?"))
+        val o = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/PredictiveEntryOracle6915.kt").readText()
+        assertTrue(o.contains("ScoreExpectancyTracker.laneStats7380(laneKey.uppercase())"))
+        val lt = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneTimeoutGate.kt").readText()
+        assertTrue(lt.contains("wr < TIMEOUT_FLOOR_PCT && mean7380 <= 0.0 -> Status.TIMEOUT"))
+        val lp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LivePauseButton.kt").readText()
+        assertTrue(lp.contains("wr < PAUSE_FLOOR_PCT && mean7380 <= 0.0 -> Mode.DEFENSIVE"))
+        val ea = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt").readText()
+        assertTrue(ea.contains("coolUntil7035 = if (seeded7035 > ownStreak7035) maxOf("))
     }
 }

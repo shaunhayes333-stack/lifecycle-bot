@@ -94,11 +94,15 @@ object LaneTimeoutGate {
         val n = snap.size
         val wins = snap.count { it > 0.0 }
         val wr = if (n > 0) (wins.toDouble() / n) * 100.0 else 0.0
+        // V5.0.7380 — a low win rate on a lane that pays on average is its
+        // fat-tailed shape (runner lanes win ~25% and profit on the tail), not a
+        // bleed. Time out only when the lane also loses on average.
+        val mean7380 = if (n > 0) snap.average() else 0.0
         state.n = n; state.wrPct = wr
         state.status = when {
             n < MIN_SAMPLES -> Status.COLD_START
-            state.status == Status.NORMAL && wr < TIMEOUT_FLOOR_PCT -> Status.TIMEOUT
-            state.status == Status.TIMEOUT && wr >= RECOVER_FLOOR_PCT -> Status.NORMAL
+            state.status == Status.NORMAL && wr < TIMEOUT_FLOOR_PCT && mean7380 <= 0.0 -> Status.TIMEOUT
+            state.status == Status.TIMEOUT && (wr >= RECOVER_FLOOR_PCT || mean7380 > 0.0) -> Status.NORMAL
             state.status == Status.COLD_START -> Status.NORMAL
             else -> state.status
         }

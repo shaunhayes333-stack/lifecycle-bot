@@ -141,7 +141,11 @@ object ExecutableEntryAuthority6450 {
             // The cooldown is a timestamp, not a magnitude, so it is inherited
             // as-is rather than weighted: a lane paper stopped out sixty
             // seconds ago is still cooling when live picks it up.
-            coolUntil7035 = maxOf(ownCooldown7035, cohortCooldownMs[paperKey7035] ?: 0L)
+            // V5.0.7380 — only while the paper streak is actually seeded into live.
+            // Once live has its own view (seedProtectiveLiveAware hands back the live
+            // streak) the paper cooldown stops shrinking live entries to 0.35x.
+            coolUntil7035 = if (seeded7035 > ownStreak7035) maxOf(ownCooldown7035, cohortCooldownMs[paperKey7035] ?: 0L)
+                else ownCooldown7035
         } else {
             streak = ownStreak7035
             coolUntil7035 = ownCooldown7035

@@ -1156,7 +1156,23 @@ object PredictiveEntryOracle6915 {
                 .firstOrNull { it.lane.equals(laneKey, true) }
                 ?.takeIf { it.sample >= 10 && it.evPct > 0.0 }
                 ?.let { (it.wrPct / 100.0).coerceIn(0.0, 0.50) }
-        } catch (_: Throwable) { null } ?: 0.50
+        } catch (_: Throwable) { null }
+            // V5.0.7380 — with under 10 live closes the bar fell to a coin flip (0.50)
+            // and a binding head that rates a +EV 25%-win lane at 0.3 refused every
+            // candidate (762/762 on 5.0.7377). Fall back to the lane's own recorded
+            // win rate at positive expectancy — the journal (paper + live), then the
+            // score-band tracker (paper + live, survives a journal clear).
+            ?: try {
+                com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane(laneKey)
+                    ?.takeIf { it.n >= 20 && it.meanNetPct > 0.0 }
+                    ?.let { it.winRate.coerceIn(0.0, 0.50) }
+            } catch (_: Throwable) { null }
+            ?: try {
+                com.lifecyclebot.engine.ScoreExpectancyTracker.laneStats7380(laneKey.uppercase())
+                    ?.takeIf { it.first >= 20 && it.third > 0.0 }
+                    ?.let { it.second.coerceIn(0.0, 0.50) }
+            } catch (_: Throwable) { null }
+            ?: 0.50
         if (policyIsBinding7260 && unifiedPolicyPWin7260 <= 0.50 &&
             unifiedPolicyPWin7260 >= laneBreakEvenPWin7334
         ) {

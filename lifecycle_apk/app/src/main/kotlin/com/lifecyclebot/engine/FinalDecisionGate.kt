@@ -2690,10 +2690,17 @@ object FinalDecisionGate {
         // FDG downstream size shaping still applied).
         val provenWinnerRsiBypass4595 = try {
             val laneU = tradingModeTag?.name?.uppercase() ?: ""
-            if (laneU == "STANDARD" || laneU == "MOONSHOT") {
+            val liveWinner4595 = if (laneU == "STANDARD" || laneU == "MOONSHOT") {
                 val snap = LiveProbabilityEngine.laneSnapshots().firstOrNull { it.lane == laneU }
                 snap != null && snap.sample >= 5 && snap.wrPct >= 50.0
             } else false
+            // V5.0.7380 — or the lane's learned score band proves it (paper + live).
+            // The live-only snapshot above needs live closes a new wallet does not
+            // have, so the live RSI>90 hard block fired on proven runner lanes
+            // (RSI_OVERBOUGHT 63 in 6h on 5.0.7368) where paper takes the trade.
+            liveWinner4595 || com.lifecyclebot.engine.truth.CanonicalEntryFloor7266.bandProvesLane7378(
+                specialistLane?.takeIf { it.isNotBlank() } ?: laneU,
+            )
         } catch (_: Throwable) { false }
         if (blockReason == null && currentRsi > 90.0) {
             if (!config.paperMode && !rsiLenient && !provenWinnerRsiBypass4595) {
@@ -4891,7 +4898,20 @@ object FinalDecisionGate {
                             com.lifecyclebot.engine.truth.OracleEdgeProof7263.tier() ==
                                 com.lifecyclebot.engine.truth.OracleEdgeProof7263.Tier.PROVEN
                         } catch (_: Throwable) { false }
-                        if (oracleProven7263 && !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+                        // V5.0.7380 — a live veto needs the oracle proven AND not degenerate
+                        // (5.0.7377: it refused 762/762, reported DEGENERATE) AND at least two
+                        // evidence-backed objections. One opinion — second scorer, sentience —
+                        // shrinks the size as it does in paper; it does not refuse the trade.
+                        val oracleDegenerate7380 = try {
+                            com.lifecyclebot.engine.truth.PredictiveEntryOracle6915.isDegenerateNow7120()
+                        } catch (_: Throwable) { true }
+                        val evidenceObjections7380 = report.objections.count {
+                            it.startsWith("FORWARD_NEGATIVE") || it.startsWith("LIVE_PROB_NEGATIVE") ||
+                                it.startsWith("LOSING_PATTERN_DANGER_ZONE") || it.startsWith("PROVEN_DEAD_CONTEXT") ||
+                                it.startsWith("LEARNED_TOXIC_LANE")
+                        }
+                        if (oracleProven7263 && !oracleDegenerate7380 && evidenceObjections7380 >= 2 &&
+                            !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
                             shouldTradeFinal = false
                             blockReasonFinal = "BRAIN_CONSENSUS_NOT_UNANIMOUS_7259:${report.objections.joinToString("+").take(120)}"
                             blockLevelFinal = BlockLevel.HARD
@@ -5201,7 +5221,10 @@ object FinalDecisionGate {
                 com.lifecyclebot.engine.truth.OracleEdgeProof7263.tier() ==
                     com.lifecyclebot.engine.truth.OracleEdgeProof7263.Tier.PROVEN
             } catch (_: Throwable) { false }
-            if (oracleProvenExc7263 && !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+            val oracleDegenerateExc7380 = try {
+                com.lifecyclebot.engine.truth.PredictiveEntryOracle6915.isDegenerateNow7120()
+            } catch (_: Throwable) { true }
+            if (oracleProvenExc7263 && !oracleDegenerateExc7380 && !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
                 shouldTradeFinal = false
                 blockReasonFinal = "BRAIN_CONSENSUS_UNAVAILABLE_7260"
                 blockLevelFinal = BlockLevel.HARD
@@ -5360,10 +5383,13 @@ object FinalDecisionGate {
                     config.smallBuySol.takeIf { it.isFinite() && it > 0.0 } ?: 0.05,
                     com.lifecyclebot.data.BotConfig().smallBuySol,
                 ).coerceIn(0.03, 0.20)
-                val dustTuitionTag4526 = tags.any { t ->
-                    val u = t.uppercase()
-                    u.contains("MICRO") || u.contains("PROBE") || u.contains("PROVEN_DEAD") || u.contains("TRAIN_FIRST")
-                }
+                // V5.0.7380 — only a proven-dead context is refused here. MICRO / PROBE /
+                // TRAIN_FIRST tags are attached by live-only sizing paths (zero-confidence
+                // probe, rugcheck-pending probe, early-launch probe, lane-policy micro),
+                // whose 0.35x multipliers guarantee the size lands under the core floor —
+                // so every tagged live entry was rejected while paper lifted the same
+                // candidate. They are lifted to the core floor like any other entry.
+                val dustTuitionTag4526 = tags.any { t -> t.uppercase().contains("PROVEN_DEAD") }
                 if (finalSize < coreFloor4526) {
                     val before4526 = finalSize
                     if (dustTuitionTag4526) {
