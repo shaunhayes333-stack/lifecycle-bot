@@ -2291,7 +2291,7 @@ object ExecutableOpenGate {
             // had real liquidity (e.g. SantaHat $13,928) and wrongly blocked it. The live
             // ts numbers are the ground truth at decision time — pass them so the gate
             // never trusts a stale zero over a known-good live value.
-            liveLiquidityUsd = ts.lastLiquidityUsd,
+            liveLiquidityUsd = TokenMapAuthority.observedLiquidityUsd(ts), // V5.0.7384
             liveSafetyTier = ts.safety.tier.name,
             lastSafetyCheckMs = ts.lastSafetyCheck,
             preResolvedSizeSol6490 = preResolvedSizeSol6490,

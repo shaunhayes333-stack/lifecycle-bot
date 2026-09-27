@@ -4,6 +4,25 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7384] — live meme intake and entry parity with paper (bundled)
+
+Launch intake (PumpPortal):
+- Cold-pump probation cut lowered from $5k to $1.5k estimated liquidity: a ~28 SOL create (~$4.8k) was parked in probation in live while paper took it straight in.
+- The synchronous live intake safety precheck is skipped for PumpPortal launch/migration events (FDG and liveBuy still run full safety before any buy); it was stamping curve launches permanently rejected.
+- Probation promotions carry their observed mcap/liquidity on the result (the entry was removed before the caller read it, so every promotion arrived with liquidity 0 and was rejected); a zero on promotion no longer stamps a permanent reject.
+- PumpPortal migrations (graduations) now enter intake after reading the new pool's observed DexScreener pair liquidity (previously only logged).
+
+Safety:
+- A pump.fun bonding-curve rugcheck market (marketType pump_fun) leaves LP lock UNKNOWN (soft) and clears "LP unlocked" risk: the curve is program-held, there is no LP a dev can pull. Migrated AMM pools are read as reported.
+
+Liquidity truth:
+- TokenMapAuthority.observedLiquidityUsd (tick, then token map discovery liquidity, then curve reserves) now feeds V3 eligibility (ZERO_LIQUIDITY = 107), the live rug pre-filter, the executable-open gate and the entry snapshot.
+
+Admission:
+- A PROVEN oracle refusal becomes a probe-size entry while the refused cohort's measured mean return is positive (5.0.7382: +4.5% over 285); it still denies when refused trades lose.
+- lanePaysEv7334 falls back to the lane's journal / score-band history when live has under 10 closes, so a paper-seeded loss streak no longer triggers DEFENSIVE_WAIT on a lane that pays.
+- Executor: a finality block for a still-hydrating token map defers (re-gate next cycle) instead of an OBSERVE_ONLY terminal abort.
+
 ## [5.0.7383] — superseded FDG allows re-gate in live instead of cooling the mint
 
 - ExecutableOpenGate: the stale-allow clear (7279) and the bounded sealing-race deferral (7219) were paper-only. In live a superseded allow fell to AUTHORITY_INVARIANT_FAILURE and set a 30s (mint, lane) cooldown that refused the newer candidate (FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519 = 35 on 5.0.7382). Both now apply in live.

@@ -122,7 +122,9 @@ object V3Adapter {
         val safety = ts.safety
         val meta = ts.meta
 
-        val liquidityUsd = ts.lastLiquidityUsd.coerceAtLeast(0.0)
+        // V5.0.7384 — observed liquidity (tick, then token map); a curve token's
+        // pair poll reads 0 and V3 rejected it as ZERO_LIQUIDITY.
+        val liquidityUsd = com.lifecyclebot.engine.TokenMapAuthority.observedLiquidityUsd(ts).coerceAtLeast(0.0)
         val marketCapUsd = ts.lastMcap.coerceAtLeast(0.0)
         val buyPressurePct = meta.pressScore.coerceIn(0.0, 100.0)
         val holders = ts.peakHolderCount.takeIf { it > 0 }

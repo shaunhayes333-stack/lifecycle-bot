@@ -226,6 +226,15 @@ object OracleEdgeProof7263 {
         recompute()
     }
 
+    /**
+     * V5.0.7384 — mean return of the trades the oracle REFUSED, once the refuse
+     * cohort has the same minimum sample the tier proof uses. Null until then.
+     */
+    fun refuseCohortMeanReturn7384(): Double? {
+        val (n, r, _) = refuse.snapshot()
+        return if (n >= MIN_NON_ADMIT_CLOSES_7263 && r.isFinite()) r else null
+    }
+
     private fun recompute() {
         val (aN, aRet, aWr) = admit.snapshot()
         val (rN, rRet, rWr) = refuse.snapshot()

@@ -12205,7 +12205,7 @@ class GoldenTapeRegressionTest {
     fun V5_0_7382_entry_snapshot_uses_observed_token_map_liquidity_and_drpc_is_retired() {
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("private fun observedLiquidityUsd7382(ts: TokenState): Double"))
-        assertTrue(ex.contains("tm.liquidityUsd?.takeIf { it.isFinite() && it > 0.0 }?.let { return it }"))
+        assertTrue(java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenMapAuthority.kt").readText().contains("tm.liquidityUsd?.takeIf { it.isFinite() && it > 0.0 }?.let { return it }"))
         assertTrue(ex.contains("observedLiquidityUsd7321 = observedLiq7382,"))
         assertTrue(ex.contains("if (!RuntimeModeAuthority.isPaper() && observedLiquidityUsd7382(ts) > 0.0) {"))
         val rpcs = com.lifecyclebot.engine.RuntimeProviderAuthority6685.PUBLIC_SOLANA_RPCS
@@ -12221,5 +12221,34 @@ class GoldenTapeRegressionTest {
         assertFalse(g.contains("if (paperMode && sameCandidateState7219 &&"))
         assertTrue(g.contains("if (state != null && stateVersion7220 > 0L &&"))
         assertTrue(g.contains("if (sameCandidateState7219 &&"))
+    }
+
+
+    @Test
+    fun V5_0_7384_live_launch_intake_observed_liquidity_and_oracle_probe() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("volumeH1 <= 0.0 && liquidityUsd < 1_500.0"))
+        assertTrue(bot.contains("!pumpPortalLaunch7384 && lowLiqScannerRisk"))
+        assertTrue(bot.contains("marketCapUsd = result.initialMcap,"))
+        assertTrue(bot.contains("PUMP_PORTAL_MIGRATION_INTAKE_7384"))
+        val reg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt").readText()
+        assertTrue(reg.contains("entry.initialMcap, entry.initialLiquidity)"))
+        val safety = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenSafetyChecker.kt").readText()
+        assertTrue(safety.contains("if (onCurve7384) lpUnlockedRisk = false"))
+        assertTrue(safety.contains("val locked = if (curveMarket7384) -1.0 else"))
+        val v3 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/bridge/V3Adapter.kt").readText()
+        assertTrue(v3.contains("TokenMapAuthority.observedLiquidityUsd(ts).coerceAtLeast(0.0)"))
+        val rug = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HardRugPreFilter.kt").readText()
+        assertFalse(rug.contains("val liq = ts.lastLiquidityUsd\n"))
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertTrue(gate.contains("liveLiquidityUsd = TokenMapAuthority.observedLiquidityUsd(ts),"))
+        val learned = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/LearnedAdmissionAuthority6846.kt").readText()
+        assertTrue(learned.contains("ORACLE_PROVEN_REFUSE_PROBE_7384"))
+        assertTrue(learned.contains("if (refRet7384 == null || refRet7384 <= 0.0) {"))
+        val ea = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt").readText()
+        assertTrue(ea.contains("?: OracleTradeHistory7287.lane(u)?.takeIf { it.n >= 20 }?.let { it.meanNetPct > 0.0 }"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("LIVE_BUY_DEFERRED_TOKEN_MAP_PENDING_7384"))
+        assertFalse(ex.contains("reasonUpper.contains(\"WATCH\") || reasonUpper.contains(\"UNKNOWN\") ||"))
     }
 }

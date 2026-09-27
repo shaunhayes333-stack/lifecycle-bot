@@ -289,7 +289,23 @@ object LearnedAdmissionAuthority6846 {
                 // own measured negative expectancy binds; the rest falls
                 // through to the evidence rules below, as when ADVISORY.
                 PredictiveEntryOracle6915.Verdict.REFUSE -> if (inputs.oracleEvidencedRefuse7340) {
-                    return deny("ORACLE_PROVEN_REFUSE_7287", inputs, "oracle=REFUSE tier=PROVEN")
+                    // V5.0.7384 — a proven refusal binds only where refusing pays. The
+                    // proof itself records what the refused trades went on to do
+                    // (5.0.7382: refuse n=285 ret=+4.5%): while that cohort still
+                    // returns > 0 on average, the refusal shapes the entry to a probe
+                    // instead of denying it (FDG_SUPPRESSED_ENTRY_AUTHORITY_6487 = 458).
+                    val refRet7384 = try { OracleEdgeProof7263.refuseCohortMeanReturn7384() } catch (_: Throwable) { null }
+                    if (refRet7384 == null || refRet7384 <= 0.0) {
+                        return deny("ORACLE_PROVEN_REFUSE_7287", inputs, "oracle=REFUSE tier=PROVEN")
+                    }
+                    try { PipelineHealthCollector.labelInc("ORACLE_PROVEN_REFUSE_PROBE_POSITIVE_COHORT_7384") } catch (_: Throwable) {}
+                    val probe7384 = maxOf(inputs.probeSizeSol, inputs.minExecutableSol)
+                        .coerceAtMost(inputs.requestedSizeSol).coerceAtLeast(0.0)
+                    return Decision(
+                        Verdict.PROBE_ONLY, probe7384,
+                        "probe:ORACLE_PROVEN_REFUSE_POSITIVE_COHORT_7384:refuseRet=${"%.3f".format(refRet7384)}",
+                        "ORACLE_PROVEN_REFUSE_PROBE_7384",
+                    )
                 } else {
                     try { PipelineHealthCollector.labelInc("ORACLE_PROVEN_UNEVIDENCED_REFUSE_NOT_BINDING_7340") } catch (_: Throwable) {}
                 }

@@ -14883,14 +14883,8 @@ class Executor(
      * discovered pool liquidity, then the on-chain curve reserves priced in SOL.
      * Every source is an observation; none is inferred from market cap.
      */
-    private fun observedLiquidityUsd7382(ts: TokenState): Double {
-        ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 }?.let { return it }
-        val tm = ts.tokenMap
-        tm.liquidityUsd?.takeIf { it.isFinite() && it > 0.0 }?.let { return it }
-        val sol = (tm.realSolReserves ?: tm.liquiditySol)?.takeIf { it.isFinite() && it > 0.0 } ?: return 0.0
-        val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
-        return if (solUsd.isFinite() && solUsd > 0.0) sol * solUsd else 0.0
-    }
+    private fun observedLiquidityUsd7382(ts: TokenState): Double =
+        TokenMapAuthority.observedLiquidityUsd(ts)
 
     private fun mintEntryMarketSnapshot(ts: TokenState): MintEntryMarketSnapshot? {
         val now = System.currentTimeMillis()
@@ -19953,7 +19947,18 @@ class Executor(
                     buyTerminalFail("BUY_DEFERRED_STARTUP_6401")
                     return false
                 }
-                if (reasonUpper.contains("WATCH") || reasonUpper.contains("UNKNOWN") || reasonUpper.contains("CANON_LANE_UNRESOLVED")) {
+                // V5.0.7384 — a token map still hydrating is a deferral, not an
+                // observe-only abort: "UNKNOWN" matched LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP
+                // and every such FDG-approved buy was logged a terminal failure
+                // (OBSERVE_ONLY_NOT_LIVE_EXECUTABLE = 20 on 5.0.7382). Re-gate next cycle.
+                if (reasonUpper.contains("PENDING_TOKEN_MAP") || reasonUpper.contains("TOKEN_MAP_PENDING")) {
+                    try { PipelineHealthCollector.labelInc("LIVE_BUY_DEFERRED_TOKEN_MAP_PENDING_7384") } catch (_: Throwable) {}
+                    liveStage("LIVE_BUY_DEFERRED", "reason=TOKEN_MAP_PENDING detail=${executableOpen.reason.take(120)}")
+                    buyTerminalFail("BUY_DEFERRED_TOKEN_MAP_PENDING_7384")
+                    return false
+                }
+                if (reasonUpper.contains("WATCH") || reasonUpper.contains("SELECTED_UNKNOWN") ||
+                    reasonUpper.contains("UNKNOWN_MODE") || reasonUpper.contains("CANON_LANE_UNRESOLVED")) {
                     liveStage("LIVE_BUY_ABORTED", "reason=OBSERVE_ONLY_NOT_LIVE_EXECUTABLE detail=${executableOpen.reason.take(120)}")
                     emitLiveBuyFail(ts, sol, "LIVE_BUY_ABORTED", executableOpen.reason)
                     buyTerminalFail("BUY_TERMINAL_ABORTED:OBSERVE_ONLY_NOT_LIVE_EXECUTABLE")

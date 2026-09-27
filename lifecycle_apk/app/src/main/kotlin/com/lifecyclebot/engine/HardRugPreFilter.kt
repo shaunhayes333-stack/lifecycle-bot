@@ -198,7 +198,7 @@ object HardRugPreFilter {
         // ─────────────────────────────────────────────────────────────────
         // CHECK 1: Zero or critically low liquidity (FLUID thresholds)
         // ─────────────────────────────────────────────────────────────────
-        val liq = ts.lastLiquidityUsd
+        val liq = TokenMapAuthority.observedLiquidityUsd(ts) // V5.0.7384 — observed, not the tick's 0
         val minLiq = when {
             tokenAgeMins < 5 -> com.lifecyclebot.v3.scoring.FluidLearningAI.getRugFilterLiqFresh()
             tokenAgeMins < 30 -> com.lifecyclebot.v3.scoring.FluidLearningAI.getRugFilterLiqYoung()
@@ -355,7 +355,7 @@ object HardRugPreFilter {
         } else 0.0
 
         // CHECK 1 mirror — LOW_LIQUIDITY (not zero, just below threshold)
-        val liq = ts.lastLiquidityUsd
+        val liq = TokenMapAuthority.observedLiquidityUsd(ts) // V5.0.7384 — observed, not the tick's 0
         val minLiq = when {
             tokenAgeMins < 5 -> com.lifecyclebot.v3.scoring.FluidLearningAI.getRugFilterLiqFresh()
             tokenAgeMins < 30 -> com.lifecyclebot.v3.scoring.FluidLearningAI.getRugFilterLiqYoung()

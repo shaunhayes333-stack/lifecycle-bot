@@ -16,6 +16,23 @@ import java.util.concurrent.atomic.AtomicLong
  * then classifies liquidity only from completed route/provider evidence.
  */
 object TokenMapAuthority {
+
+    /**
+     * V5.0.7384 — liquidity this mint was OBSERVED to have. The price tick's
+     * value is 0 for pump.fun curve tokens and fresh pools even when discovery
+     * recorded the pool (tokenMap.liquidityUsd). V3 eligibility (ZERO_LIQUIDITY),
+     * the live rug pre-filter, the executable-open gate and the entry snapshot
+     * all read this one value. Order: the tick, the token map, curve reserves ×
+     * SOL price. Never inferred from market cap.
+     */
+    fun observedLiquidityUsd(ts: TokenState): Double {
+        ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 }?.let { return it }
+        val tm = ts.tokenMap
+        tm.liquidityUsd?.takeIf { it.isFinite() && it > 0.0 }?.let { return it }
+        val sol = (tm.realSolReserves ?: tm.liquiditySol)?.takeIf { it.isFinite() && it > 0.0 } ?: return 0.0
+        val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        return if (solUsd.isFinite() && solUsd > 0.0) sol * solUsd else 0.0
+    }
     private const val ROUTE_TTL_MS = 90_000L
     private const val ACTIVE_HYDRATION_STALE_MS = 20_000L
     private const val PENDING_RESULT_RETRY_MS_6492 = 2_000L

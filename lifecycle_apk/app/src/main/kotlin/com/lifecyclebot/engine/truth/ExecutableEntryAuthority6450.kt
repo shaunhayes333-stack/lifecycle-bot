@@ -418,10 +418,18 @@ object ExecutableEntryAuthority6450 {
      * SHITCOIN streak=3 raised its floor 72 -> 87 (939 times) while its
      * cohort read 5W/0L at +130% and its meta arm +23% over 18 closes.
      */
+    // V5.0.7384 — with under 10 live closes the live snapshot says nothing, while the
+    // streak it is weighed against is paper's (seedProtectiveLiveAware). Fall back to
+    // the lane's combined history, as the oracle's break-even bar does (7380): the
+    // journal (n>=20, mean>0), then the score-band tracker, which survives a clear.
     private fun lanePaysEv7334(lane: String): Boolean = try {
+        val u = lane.uppercase()
         com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots()
-            .firstOrNull { it.lane.equals(lane, true) }
-            ?.let { it.sample >= 10 && it.evPct > 0.0 } == true
+            .firstOrNull { it.lane.equals(lane, true) && it.sample >= 10 }
+            ?.let { it.evPct > 0.0 }
+            ?: OracleTradeHistory7287.lane(u)?.takeIf { it.n >= 20 }?.let { it.meanNetPct > 0.0 }
+            ?: (com.lifecyclebot.engine.ScoreExpectancyTracker.laneStats7380(u)
+                ?.let { it.first >= 20 && it.third > 0.0 } == true)
     } catch (_: Throwable) { false }
 
     fun scoreFloorDeltaFor6488(lane: String, mode: String = currentMode()): Int = when {
