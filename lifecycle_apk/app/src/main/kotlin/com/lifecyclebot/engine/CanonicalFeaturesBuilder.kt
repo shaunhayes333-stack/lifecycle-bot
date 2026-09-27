@@ -316,7 +316,10 @@ object CanonicalFeaturesBuilder {
         return try {
             val entryAt = ts.position.entryTime.takeIf { it > 0L } ?: System.currentTimeMillis()
             val now = System.currentTimeMillis()
+            // V5.0.7385 — poolAgeMs was never written; read the recorded creation time.
             val poolAgeNow = ts.tokenMap.poolAgeMs?.takeIf { it > 0L }
+                ?: com.lifecyclebot.engine.truth.PoolCreationTime7385.createdAtMs(ts.mint)
+                    ?.let { (now - it).takeIf { age -> age > 0L } }
             when {
                 poolAgeNow != null -> {
                     val createdAt = now - poolAgeNow

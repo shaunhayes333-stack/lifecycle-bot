@@ -24,7 +24,10 @@ import java.util.concurrent.ConcurrentHashMap
  * whole position), remembered per position so it cannot re-fire every tick.
  */
 object MoonbagRunner7322 {
-    private const val BANK_MIN_PEAK_PCT = 100.0
+    // V5.0.7385 — bank at the same +50% bar where runner give-back locks arm
+    // (RunnerExitProfile7277). Between +50% and +100% every such lock sold 100%,
+    // leaving no bag to ride.
+    private const val BANK_MIN_PEAK_PCT = RunnerExitProfile7277.MIN_PEAK_FOR_GIVEBACK_LOCK_PCT
     const val BANK_FRACTION = 0.60
     private const val MOONBAG_KEEP_OF_PEAK = 0.50
     private const val CAPTURE_SLICE = 0.25

@@ -260,6 +260,16 @@ class DexscreenerApi {
             }
         }
 
+        // V5.0.7385 — every pair served carries its creation time; record it per
+        // base mint (earliest wins, so a graduated token keeps its launch time).
+        try {
+            val baseAddr7385 = base?.optString("address", "").orEmpty()
+            if (p.optString("chainId", "").equals("solana", true) || p.optString("chainId", "").isBlank()) {
+                com.lifecyclebot.engine.truth.PoolCreationTime7385.record(
+                    baseAddr7385, p.optLong("pairCreatedAt", 0L), "DEXSCREENER",
+                )
+            }
+        } catch (_: Throwable) {}
         return PairInfo(
             pairAddress      = p.optString("pairAddress", ""),
             baseSymbol       = base?.optString("symbol", "") ?: "",

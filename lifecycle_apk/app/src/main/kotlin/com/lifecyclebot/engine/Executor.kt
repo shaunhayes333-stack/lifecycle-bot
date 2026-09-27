@@ -10938,7 +10938,8 @@ class Executor(
             }
         } catch (_: Throwable) {}
 
-        if (!isPaperRT() && gainPct >= 15) {
+        // V5.0.7385 — the live-only Gemini exit also respects the runner arming bar.
+        if (!isPaperRT() && gainPct >= 15 && !RunnerExitProfile7277.deferGiveBackLock(pos.tradingMode, pos.peakGainPct)) {
             try {
                 val recentPrices = ts.history.takeLast(10).map { it.priceUsd }
                 val peakPnl6479 = pos.highestPrice.let { if (it > 0) ((it - pos.entryPrice) / pos.entryPrice) * 100 else gainPct }
@@ -11094,7 +11095,8 @@ class Executor(
                 currentPnlPct = gainPct,
                 peakPnlPct = peakPnlPct,
                 holdTimeSeconds = heldSecs,
-                volatility = volatility
+                volatility = volatility,
+                lane = pos.tradingMode, // V5.0.7385 — the lane's learned give-back band
             )
         } catch (_: Exception) {
             val modeDefault = modeConf?.stopLossPct ?: cfg().stopLossPct
@@ -11150,7 +11152,11 @@ class Executor(
                     "symbol=${ts.symbol} pnl=${"%.1f".format(gainPct)}% heldSecs=${"%.1f".format(heldSecs)} dynLimit=${dynamicStopPct.toInt()} floor=-${effectiveHardFloorPct.toInt()} lock=40s"
                 )
             } catch (_: Throwable) {}
-        } else if (gainPct <= dynamicStopPct) {
+        } else if (gainPct <= dynamicStopPct &&
+            // V5.0.7385 — a POSITIVE dynamic stop is a profit lock; on a runner lane it
+            // arms only past the +50% runner bar (a +16% peak locked +13% and sold).
+            !(dynamicStopPct > 0.0 && RunnerExitProfile7277.deferGiveBackLock(pos.tradingMode, peakPnlPct))
+        ) {
             // V5.0.6415 — MOONSHOT PATIENT-HOLD SL SUPPRESSION.
             // Operator directive: "buy a good sized chunk and hold for huge
             // profits. it needs to be SMART, LEARN and INTEGRATE ACROSS THE
@@ -11205,7 +11211,9 @@ class Executor(
         // :8905 — and not ts.lastPrice. They are usually equal and occasionally
         // are not, and a guard that tests a different value than the one the rest
         // of the decision used is the defect class this audit keeps turning up.
-        if (breakevenArmed6948 && pos.entryPrice > 0.0 && price > 0.0) {
+        if (breakevenArmed6948 && pos.entryPrice > 0.0 && price > 0.0 &&
+            !RunnerExitProfile7277.deferGiveBackLock(pos.tradingMode, peakPnlPct) // V5.0.7385
+        ) {
             // V5.0.6952 — FEE MODEL, NOT A FEE CONSTANT. 6948 shipped this with a
             // flat feePct = 1.6, the nominal live round trip. That is wrong in the
             // direction that costs money: real break-even also carries PRICE
@@ -11430,7 +11438,9 @@ class Executor(
             exhaust = ts.meta.exhaustion,
         )
         
-        if (trailingStopActive && price < smartFloor) {
+        if (trailingStopActive && price < smartFloor &&
+            !RunnerExitProfile7277.deferGiveBackLock(pos.tradingMode, pos.peakGainPct) // V5.0.7385
+        ) {
             return "trailing_stop"
         }
         return null
@@ -14885,6 +14895,8 @@ class Executor(
      */
     /** V5.0.7385 — live sniper entries are launches: mcap at or under this, not graduated. */
     private val LIVE_SNIPER_MAX_MCAP_USD_7385 = 150_000.0
+    /** V5.0.7385 — and launch-aged: a known first pool older than this is not a launch. */
+    private val LIVE_SNIPER_MAX_AGE_SECS_7385 = 2L * 3600L
 
     private fun observedLiquidityUsd7382(ts: TokenState): Double =
         TokenMapAuthority.observedLiquidityUsd(ts)
@@ -19607,12 +19619,14 @@ class Executor(
         if (canonicalRoutedLane == "PROJECT_SNIPER") {
             val mcap7385 = entryMarketSnapshot.marketCapUsd.takeIf { it > 0.0 } ?: ts.lastMcap
             val graduated7385 = ts.tokenMap.migratedOrGraduated
-            if (mcap7385 > LIVE_SNIPER_MAX_MCAP_USD_7385 || graduated7385) {
+            val ageSecs7385 = try { com.lifecyclebot.engine.truth.PoolCreationTime7385.ageSecs(ts.mint) } catch (_: Throwable) { null }
+            val stale7385 = ageSecs7385 != null && ageSecs7385 > LIVE_SNIPER_MAX_AGE_SECS_7385
+            if (mcap7385 > LIVE_SNIPER_MAX_MCAP_USD_7385 || graduated7385 || stale7385) {
                 try {
                     PipelineHealthCollector.labelInc("LIVE_SNIPER_REFUSED_NOT_A_LAUNCH_7385")
                     ForensicLogger.lifecycle(
                         "LIVE_SNIPER_REFUSED_NOT_A_LAUNCH_7385",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} mcap=${mcap7385.toInt()} graduated=$graduated7385 cap=${LIVE_SNIPER_MAX_MCAP_USD_7385.toInt()}",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} mcap=${mcap7385.toInt()} graduated=$graduated7385 poolAgeSecs=${ageSecs7385 ?: -1} cap=${LIVE_SNIPER_MAX_MCAP_USD_7385.toInt()}",
                     )
                 } catch (_: Throwable) {}
                 liveStage("LIVE_BUY_ABORTED", "reason=LIVE_SNIPER_NOT_A_LAUNCH_7385 mcap=${mcap7385.toInt()} graduated=$graduated7385")

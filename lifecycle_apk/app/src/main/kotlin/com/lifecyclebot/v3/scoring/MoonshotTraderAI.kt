@@ -1700,7 +1700,7 @@ object MoonshotTraderAI {
         }
         
         // 4. TRAILING STOP - locks in gains while letting it run
-        if (pnlPct > 30.0 && currentPrice <= pos.trailingStop) {
+        if (!runnerGiveBackDeferred7335 && pnlPct > 30.0 && currentPrice <= pos.trailingStop) { // V5.0.7385
             ErrorLogger.info(TAG, "🎯 TRAIL EXIT: ${pos.symbol} | +${pnlPct.fmt(1)}% | Peak was +${pos.peakPnlPct.toInt()}%")
             return ExitSignal.TRAILING_STOP
         }

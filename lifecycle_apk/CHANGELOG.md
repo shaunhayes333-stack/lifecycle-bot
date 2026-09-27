@@ -4,6 +4,19 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7385] — live trade quality: sniper hunts launches, runners are allowed to run (bundled)
+
+Entry quality:
+- Pool creation time is recorded (PoolCreationTime7385): from every DexScreener pair served (pairCreatedAt, earliest wins) and from every PumpPortal create frame (the launch itself). ProjectSniperAI ages tokens from it instead of from when the bot first saw them — a long-graduated token was being read as a 15–600s launch (GyxJsD, bought at $481k, −51%). The canonical age feature reads it too.
+- Live PROJECT_SNIPER buys, from any path, require mcap <= $150k, not graduated, and a known first pool no older than 2h (live bought "sniper" entries at $28.6M and $37.5M). ProjectSniperAI also skips graduated tokens.
+- Live learned score floors: a band must average > +10% (live cost margin) to lower a lane's floor; the sniper's +7.4% 0–10 band had dragged its live floor to 1.
+
+Exits:
+- Sniper TP tiers bank their slice (33%) and keep riding instead of selling 100% at +15%; its trailing / momentum-fade profit exits hold below the +50% runner bar and, above it, go through the moonbag gate.
+- Moonbag banks 60% (keeps 40%) from a +50% peak (was +100%), matching the runner give-back arming bar.
+- Runner lanes no longer full-exit below a +50% peak via: ProfitabilityLayer trail, riskCheck positive dynamic stop (now lane-aware), trailing_stop, breakeven ratchet, the live-only Gemini exit, MoonshotTraderAI trail, ShitCoin/Express peak-drawdown and MFE floor locks.
+- Early live stops: within 45s of entry, a catastrophe/hard-floor stop read off a mark on a different basis than the fill (synthetic 1e9 seed, other pool) needs a confirming Jupiter executable quote; a real dump still exits once confirmed or at −60% after 10s.
+
 ## [5.0.7384] — live meme intake and entry parity with paper (bundled)
 
 Launch intake (PumpPortal):

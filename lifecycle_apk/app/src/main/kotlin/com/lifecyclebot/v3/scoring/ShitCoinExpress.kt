@@ -760,7 +760,7 @@ object ShitCoinExpress {
         if (pnlPct > ride.peakPnlPct) ride.peakPnlPct = pnlPct
 
         // V5.9.696 — PeakDrawdownLock (was missing from Express).
-        if (com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(ride.peakPnlPct, pnlPct)) {
+        if (com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(ride.peakPnlPct, pnlPct, "EXPRESS")) { // V5.0.7385 lane-aware
             ErrorLogger.warn(TAG, "💩🔒🛑 EXPRESS PEAK-DRAWDOWN LOCK: ${ride.symbol} | " +
                 "peak +${ride.peakPnlPct.toInt()}% → now +${pnlPct.fmt(1)}%")
             return ExitSignal.TRAILING_STOP

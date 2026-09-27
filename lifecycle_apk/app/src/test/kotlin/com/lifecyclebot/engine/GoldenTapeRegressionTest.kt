@@ -11348,7 +11348,7 @@ class GoldenTapeRegressionTest {
         // runner lane, give-back exit, peak >= 100 -> bank a partial
         assertTrue(m.decide("MOONSHOT", "RAPID_TRAILING_STOP", 120.0, 150.0, null) == MoonbagRunner7322.Action.BANK_PARTIAL)
         // under +100% peak -> normal exit
-        assertTrue(m.decide("MOONSHOT", "RAPID_TRAILING_STOP", 40.0, 60.0, null) == MoonbagRunner7322.Action.PASS)
+        assertTrue(m.decide("MOONSHOT", "RAPID_TRAILING_STOP", 30.0, 45.0, null) == MoonbagRunner7322.Action.PASS)
         // banked: hold while above half the peak gain, release below it
         assertTrue(m.decide("MOONSHOT", "TICK_PROFIT_LOCK_peak400_now300", 300.0, 400.0, 400.0) == MoonbagRunner7322.Action.HOLD_MOONBAG)
         assertTrue(m.decide("MOONSHOT", "TICK_PROFIT_LOCK_peak400_now150", 150.0, 400.0, 400.0) == MoonbagRunner7322.Action.PASS)
@@ -12250,5 +12250,39 @@ class GoldenTapeRegressionTest {
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("LIVE_BUY_DEFERRED_TOKEN_MAP_PENDING_7384"))
         assertFalse(ex.contains("reasonUpper.contains(\"WATCH\") || reasonUpper.contains(\"UNKNOWN\") ||"))
+    }
+
+
+    @Test
+    fun V5_0_7385_pool_creation_time_is_recorded_earliest_wins() {
+        val m = "Tst7385Mint1111111111111111111111111111111"
+        val now = System.currentTimeMillis()
+        com.lifecyclebot.engine.truth.PoolCreationTime7385.record(m, now - 3_600_000L, "TEST")
+        com.lifecyclebot.engine.truth.PoolCreationTime7385.record(m, now - 60_000L, "TEST")
+        com.lifecyclebot.engine.truth.PoolCreationTime7385.record(m, 1234L, "TEST") // implausible, ignored
+        assertEquals(now - 3_600_000L, com.lifecyclebot.engine.truth.PoolCreationTime7385.createdAtMs(m))
+        assertTrue((com.lifecyclebot.engine.truth.PoolCreationTime7385.ageSecs(m) ?: 0L) >= 3_599L)
+        val dex = java.io.File("src/main/kotlin/com/lifecyclebot/network/DexscreenerApi.kt").readText()
+        assertTrue(dex.contains("PoolCreationTime7385.record("))
+        val sniper = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ProjectSniperAI.kt").readText()
+        assertTrue(sniper.contains("PoolCreationTime7385.ageSecs(ts.mint)"))
+        assertTrue(sniper.contains("GRADUATED: not a launch"))
+    }
+
+    @Test
+    fun V5_0_7385_live_sniper_is_launch_only_and_runner_exits_wait_for_the_bar() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("LIVE_SNIPER_REFUSED_NOT_A_LAUNCH_7385"))
+        assertTrue(ex.contains("private val LIVE_SNIPER_MAX_MCAP_USD_7385 = 150_000.0"))
+        assertTrue(ex.contains("!(dynamicStopPct > 0.0 && RunnerExitProfile7277.deferGiveBackLock(pos.tradingMode, peakPnlPct))"))
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("SNIPER_TP_PARTIAL_7385"))
+        assertTrue(bot.contains("SNIPER_PROFIT_EXIT_HELD_UNDER_RUNNER_BAR_7385"))
+        assertTrue(bot.contains("if (pnlPct <= catastropheThreshold && stopConfirmed7385) {"))
+        assertTrue(bot.contains("PoolCreationTime7385.record(mint, System.currentTimeMillis(), \"PUMPPORTAL_CREATE\")"))
+        val floor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEntryFloor7266.kt").readText()
+        assertTrue(floor.contains("const val LIVE_BAND_COST_MARGIN_PCT_7385 = 10.0"))
+        assertTrue(MoonbagRunner7322.decide("MOONSHOT", "RAPID_TRAILING_STOP", 40.0, 60.0, null) == MoonbagRunner7322.Action.BANK_PARTIAL)
+        assertTrue(MoonbagRunner7322.decide("MOONSHOT", "RAPID_TRAILING_STOP", 30.0, 45.0, null) == MoonbagRunner7322.Action.PASS)
     }
 }

@@ -1876,7 +1876,7 @@ object ShitCoinTraderAI {
         // Reported: Kenny moonshot peaked +326%, lock computed at +314%,
         // position stayed open all the way down to +108% because the
         // partial-take return short-circuited the floor check.
-        if (com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(pos.peakPnlPct, pnlPct)) {
+        if (com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(pos.peakPnlPct, pnlPct, "SHITCOIN")) { // V5.0.7385 lane-aware
             ErrorLogger.warn(TAG, "💩🔒🛑 PEAK-DRAWDOWN LOCK: ${pos.symbol} | " +
                 "peak +${pos.peakPnlPct.toInt()}% → now +${pnlPct.fmt(1)}% " +
                 "(gave back ≥${(com.lifecyclebot.engine.PeakDrawdownLock.DRAWDOWN_TRIGGER_FRAC * 100).toInt()}% of peak)")
@@ -1887,7 +1887,8 @@ object ShitCoinTraderAI {
         // Once this position has banked a real MFE, never let it round-trip below
         // the ratcheted positive floor (e.g. MFE>=+75% can never realize red).
         // Tightening-only; the -15% hard floor and give-back lock remain.
-        if (com.lifecyclebot.engine.PeakDrawdownLock.shouldFloorLock(pos.peakPnlPct, pnlPct)) {
+        if (!com.lifecyclebot.engine.RunnerExitProfile7277.deferGiveBackLock("SHITCOIN", pos.peakPnlPct) && // V5.0.7385
+            com.lifecyclebot.engine.PeakDrawdownLock.shouldFloorLock(pos.peakPnlPct, pnlPct)) {
             ErrorLogger.warn(TAG, "💩🔒 MFE_PROFIT_FLOOR: ${pos.symbol} | " +
                 "peak +${pos.peakPnlPct.toInt()}% → now +${pnlPct.fmt(1)}% " +
                 "(floor +${com.lifecyclebot.engine.PeakDrawdownLock.mfeProfitFloorPct(pos.peakPnlPct)?.toInt() ?: 0}% — locking banked gain)")
