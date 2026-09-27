@@ -20431,7 +20431,7 @@ class Executor(
                     com.lifecyclebot.engine.truth.LiveSlotPriority7304.isProven(
                         com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane(k7305)
                             ?: if (k7305 == "PROJECT_SNIPER") com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane("PRESALE_SNIPE") else null,
-                    )
+                    ) || com.lifecyclebot.engine.truth.CanonicalEntryFloor7266.bandProvesLane7378(k7305)
                 } catch (_: Throwable) { false }
                 if (laneProven7305) {
                     try { PipelineHealthCollector.labelInc("ROUTABLE_MIN_PROOF_PENALTY_WAIVED_PROVEN_LANE_7305") } catch (_: Throwable) {}

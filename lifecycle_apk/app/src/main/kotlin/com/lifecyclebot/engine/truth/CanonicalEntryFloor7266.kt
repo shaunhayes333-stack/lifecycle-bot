@@ -128,6 +128,23 @@ object CanonicalEntryFloor7266 {
      * score should follow the same evidence (MoonshotTraderAI). Null when the
      * lane has no 10-point bucket with enough profitable closes yet.
      */
+    /**
+     * V5.0.7378 — a lane is proven by its learned score band when the journal
+     * cannot say. ScoreExpectancyTracker keeps its own store (paper and live
+     * closes) and survives a journal clear; OracleTradeHistory7287 reads the
+     * journal, so after the operator cleared it every meme lane read unproven and
+     * the ~1000 paper trades behind PROJECT_SNIPER/CORE/QUALITY/MOONSHOT stopped
+     * counting at the last live step. Proven here = a profitable 10-point bucket
+     * with >= LEARNED_MIN_SAMPLES closes (the learned floor) and >= 20 closes in
+     * the lane overall.
+     */
+    fun bandProvesLane7378(rawLane: String?): Boolean {
+        val lane = rawLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: return false
+        if (learnedFloor(lane) == null) return false
+        val n = try { (0..9).sumOf { ScoreExpectancyTracker.bucketSamples(lane, it * 10) } } catch (_: Throwable) { 0 }
+        return n >= 20
+    }
+
     fun learnedLaneFloor(rawLane: String?): Double? {
         val lane = rawLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: return null
         return learnedFloor(lane)

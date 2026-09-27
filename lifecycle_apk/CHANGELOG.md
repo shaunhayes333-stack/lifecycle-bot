@@ -4,6 +4,29 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7378] - 2026-09-27 — PAPER'S LEARNING SURVIVES A JOURNAL CLEAR; APPROVED BUYS ROUTE
+
+Operator: "why isn't it passing the learnt score bands from paper ... it did 1000 trades
+in paper. it shouldn't be totally blind."
+
+Paper's learning lives in two stores. The score bands (ScoreExpectancyTracker) survived
+the operator's journal clear and 7377 already applied them to the FDG floors
+(PROJECT_SNIPER 1/3, CORE 12/20, QUALITY 12/19, MOONSHOT 19/24). But "is this lane
+proven?" (OracleTradeHistory7287) reads the journal, so after the clear every meme lane
+read unproven. At the last live step that is the waiver for a token's pending safety
+data (holder data is pending on nearly every fresh meme while the Birdeye key returns
+401): the pending penalty shrank the size under the 0.040 SOL routable minimum and the
+round-up was refused. 5.0.7377: 2 of 2 live entries died SUB_ROUTABLE_DUST.
+
+- A lane is also proven by its learned score band (`bandProvesLane7378`: a profitable
+  bucket with >= 15 closes and >= 20 closes overall), at both proof checks — FDG's
+  lane-own-score admission and the executor's routable-minimum waiver.
+- Pending safety data alone no longer refuses the round-up to the routable minimum; a
+  weak score (below the lane's fluid floor) or a weak regime still refuses. Hard
+  safety (freeze, rug, liquidity), stop floors and the wallet reserve are unchanged.
+
+---
+
 ## [5.0.7377] - 2026-09-27 — LIVE INHERITS THE SCORE BANDS PAPER FOUND
 
 Operator: "we made the live scoring fluid. it's meant to have a base of 15-30 depending

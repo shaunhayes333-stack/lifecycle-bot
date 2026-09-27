@@ -936,6 +936,8 @@ object FinalDecisionGate {
                 val st = com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane(laneKey)
                     ?: com.lifecyclebot.engine.truth.OracleTradeHistory7287.lane(laneKey.replace("_", ""))
                 (st != null && st.n >= 20 && st.meanNetPct > 0.0) ||
+                    // V5.0.7378 — or its learned score band (paper + live, survives a journal clear).
+                    com.lifecyclebot.engine.truth.CanonicalEntryFloor7266.bandProvesLane7378(laneKey) ||
                     com.lifecyclebot.engine.truth.LaneShadowProof7307.shadowProves(
                         com.lifecyclebot.engine.truth.LaneShadowProof7307.stat(laneKey),
                     )

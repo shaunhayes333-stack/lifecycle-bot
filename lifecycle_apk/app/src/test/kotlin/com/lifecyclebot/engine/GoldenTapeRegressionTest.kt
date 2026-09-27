@@ -12134,4 +12134,19 @@ class GoldenTapeRegressionTest {
         val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bs.contains("ExecutableEntryAuthority6450.defensiveSuppressWait7377(lane)"))
     }
+
+
+    @Test
+    fun V5_0_7378_pending_proof_alone_does_not_refuse_the_routable_lift() {
+        val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/RoutableMinRiskGuard7236.kt").readText()
+        assertTrue(g.contains("if (!weakScore && !weakRegime) {"))
+        assertFalse(g.contains("if (!weakScore && !weakRegime && !pendingProof) {"))
+        assertTrue(g.contains("ROUTABLE_MIN_LIFT_ALLOWED_PENDING_PROOF_7378"))
+        val f = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEntryFloor7266.kt").readText()
+        assertTrue(f.contains("fun bandProvesLane7378(rawLane: String?): Boolean"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("|| com.lifecyclebot.engine.truth.CanonicalEntryFloor7266.bandProvesLane7378(k7305)"))
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("CanonicalEntryFloor7266.bandProvesLane7378(laneKey) ||"))
+    }
 }

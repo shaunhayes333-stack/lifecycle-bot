@@ -102,7 +102,16 @@ object RoutableMinRiskGuard7236 {
         val weakRegime = regimeSizeMult.isFinite() && regimeSizeMult > 0.0 && regimeSizeMult < WEAK_REGIME_CEILING
         val pendingProof = livePendingProofPenalty
 
-        if (!weakScore && !weakRegime && !pendingProof) {
+        // V5.0.7378 — no live track record alone does not refuse the lift. A new
+        // wallet (or a cleared journal) has no live closes in any lane, so every
+        // lift was refused and every entry died as SUB_ROUTABLE_DUST (5.0.7377:
+        // 2 of 2, LIFT refusedWeak proof=2). A candidate above its lane's fluid floor
+        // in a normal regime is lifted; "pending proof" only counts alongside a weak
+        // score or a weak regime.
+        if (!weakScore && !weakRegime) {
+            if (pendingProof) {
+                try { PipelineHealthCollector.labelInc("ROUTABLE_MIN_LIFT_ALLOWED_PENDING_PROOF_7378") } catch (_: Throwable) {}
+            }
             allowed.incrementAndGet()
             try { PipelineHealthCollector.labelInc("ROUTABLE_MIN_LIFT_ALLOWED_STRONG_7236") } catch (_: Throwable) {}
             return Decision(Verdict.ALLOW_LIFT, "STRONG_CANDIDATE score=${"%.2f".format(score)} regime=${"%.2f".format(regimeSizeMult)}")
