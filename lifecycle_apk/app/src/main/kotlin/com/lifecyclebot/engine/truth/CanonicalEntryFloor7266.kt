@@ -88,7 +88,17 @@ object CanonicalEntryFloor7266 {
     private val belowMature = AtomicLong(0L)
     private val aboveMature = AtomicLong(0L)
 
+    /**
+     * V5.0.7385 — in LIVE a band must clear real execution friction (swap fees,
+     * slippage, priority/Jito tips, failed fills) before it can pull the floor
+     * down, not merely beat zero. PROJECT_SNIPER's 0–10 band (+7.4% paper mean)
+     * dragged the live sniper floor to 1 while its 11–25 band carried the edge
+     * (+208.8%), and live bought whatever scored 1+. Paper keeps > 0.
+     */
+    const val LIVE_BAND_COST_MARGIN_PCT_7385 = 10.0
+
     private fun learnedFloor(lane: String): Double? = try {
+        val bar7385 = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) 0.0 else LIVE_BAND_COST_MARGIN_PCT_7385
         var found: Double? = null
         var bucket = 0
         while (bucket <= 9) {
@@ -96,7 +106,7 @@ object CanonicalEntryFloor7266 {
             val n = ScoreExpectancyTracker.bucketSamples(lane, score)
             if (n >= LEARNED_MIN_SAMPLES) {
                 val mean = ScoreExpectancyTracker.bucketMean(lane, score)
-                if (mean != null && mean.isFinite() && mean > 0.0) { found = score.toDouble(); break }
+                if (mean != null && mean.isFinite() && mean > bar7385) { found = score.toDouble(); break }
             }
             bucket++
         }
