@@ -9585,6 +9585,37 @@ class BotService : Service() {
                 },
                 onMigration = { mint ->
                     ErrorLogger.info("BotService", "🚀 PumpPortal migration: ${mint.take(8)}…")
+                    // V5.0.7384 — a graduation is a fresh, high-signal event; it only
+                    // logged. Off the socket thread, give the new AMM pool a moment to
+                    // index, read its OBSERVED pair liquidity, and admit it like a create.
+                    // No pair yet means no intake (never an inferred liquidity).
+                    try {
+                        scope.launch(com.lifecyclebot.util.AppDispatchers.sideEffect) {
+                            kotlinx.coroutines.delay(20_000L)
+                            val pair7384 = try { dex.getBestPair(mint) } catch (_: Throwable) { null }
+                            val liq7384 = pair7384?.liquidity?.takeIf { it.isFinite() && it > 0.0 }
+                            if (pair7384 == null || liq7384 == null) {
+                                try { PipelineHealthCollector.labelInc("PUMP_PORTAL_MIGRATION_NO_PAIR_7384") } catch (_: Throwable) {}
+                                return@launch
+                            }
+                            val sym7384 = pair7384.baseSymbol.ifBlank { mint.take(6) }
+                            admitProtectedMemeIntake(
+                                mint = mint,
+                                symbol = sym7384,
+                                name = pair7384.baseName.ifBlank { sym7384 },
+                                source = "PUMP_PORTAL_MIGRATE",
+                                marketCapUsd = pair7384.candle.marketCap.takeIf { it > 0.0 } ?: pair7384.fdv,
+                                liquidityUsd = liq7384,
+                                volumeH1 = pair7384.candle.volumeH1,
+                                confidence = 40,
+                                allSources = setOf("PUMP_PORTAL_MIGRATE", "PUMP_FUN_GRADUATE"),
+                                playSound = false,
+                                operatorLog = true,
+                                expectedRuntimeGeneration = streamGeneration,
+                            )
+                            try { PipelineHealthCollector.labelInc("PUMP_PORTAL_MIGRATION_INTAKE_7384") } catch (_: Throwable) {}
+                        }
+                    } catch (_: Throwable) {}
                 },
             )
         } catch (e: Exception) {
@@ -14555,7 +14586,13 @@ class BotService : Service() {
             val isRestoredVetted = source == "MEME_REGISTRY_RESTORE" || source == "PROBATION"
             val liveMode = try { !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }
             val lowLiqScannerRisk = liquidityUsd in 0.0..5_000.0 || confidence < 45 || source.contains("SCANNER", ignoreCase = true) || source.contains("PUMP", ignoreCase = true)
-            if (liveMode && !isUserAdded && !isRestoredVetted && lowLiqScannerRisk && this::safetyChecker.isInitialized) {
+            // V5.0.7384 — PumpPortal launch events skip this synchronous precheck. It ran
+            // on the socket thread, read a bonding-curve launch's LP as "0% locked" (a
+            // curve has no LP to lock), and stamped the mint permanently rejected before
+            // it ever reached the watchlist. FDG and liveBuy still run the full safety
+            // check before any buy.
+            val pumpPortalLaunch7384 = source == "PUMP_PORTAL_WS" || source == "PUMP_PORTAL_MIGRATE"
+            if (liveMode && !isUserAdded && !isRestoredVetted && !pumpPortalLaunch7384 && lowLiqScannerRisk && this::safetyChecker.isInitialized) {
                 val intakeSafety = try {
                     safetyChecker.check(
                         mint = mint,
@@ -14758,7 +14795,9 @@ class BotService : Service() {
                         "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source srcN=${allSources.size} liq=${"%.4f".format(liquidityUsd)} mcap=${"%.4f".format(trustedMarketCapUsd6492)} no_watchlist=true",
                     )
                 } catch (_: Throwable) {}
-                ScannerHardRejectStore.mark(mint, symbol, "PROBATION_LIQ_ZERO_REJECT_4507", source)
+                // V5.0.7384 — no permanent stamp for a promotion: its liquidity was
+                // observed at intake; a zero here is a lost read, and a later sighting
+                // with a real read must be allowed in.
                 return false
             }
             if (isDustLiq && !isUserAdded && !isRegistryRestore) {
@@ -14829,7 +14868,10 @@ class BotService : Service() {
             val sourceBrainProbationOnly = !lenientIntake && !isUserAdded && !isRestoredVetted && !multiSourceConfirmed &&
                 sourceBrainMult < 0.65 && liquidityUsd < 7_500.0 && volumeH1 <= 0.0
             val sourceBrainHotRescue = sourceBrainMult >= 1.25 && (multiSourceConfirmed || liquidityUsd >= 10_000.0 || volumeH1 > 0.0)
-            val coldPumpBase = !lenientIntake && isPumpPortalWs && !isUserAdded && !isRestoredVetted && volumeH1 <= 0.0 && liquidityUsd < 5_000.0
+            // V5.0.7384 — $1.5k, not $5k: a fresh pump.fun create at ~28 SOL is ~$4.8k,
+            // so the $5k cut parked nearly every live launch in probation while paper
+            // (lenient) took them straight in. Only dust launches wait now.
+            val coldPumpBase = !lenientIntake && isPumpPortalWs && !isUserAdded && !isRestoredVetted && volumeH1 <= 0.0 && liquidityUsd < 1_500.0
             val coldPump = coldPumpBase || sourceBrainProbationOnly || (pressureDecision.probationOnly && !sourceBrainHotRescue)
             if (sourceBrainProbationOnly || sourceBrainHotRescue) {
                 try {
@@ -15852,14 +15894,13 @@ class BotService : Service() {
                     addLog("✅ PROMOTED: ${result.symbol} | ${result.reason}", result.mint)
                     soundManager.playNewToken()
                     try {
-                        val probEntry = GlobalTradeRegistry.getProbationEntry(result.mint)
                         admitProtectedMemeIntake(
                             mint = result.mint,
                             symbol = result.symbol,
                             name = result.symbol,
                             source = "PROBATION",
-                            marketCapUsd = probEntry?.initialMcap ?: 0.0,
-                            liquidityUsd = probEntry?.initialLiquidity ?: 0.0,
+                            marketCapUsd = result.initialMcap,
+                            liquidityUsd = result.initialLiquidity,
                             confidence = 50,
                             allSources = setOf("PROBATION"),
                             playSound = false,

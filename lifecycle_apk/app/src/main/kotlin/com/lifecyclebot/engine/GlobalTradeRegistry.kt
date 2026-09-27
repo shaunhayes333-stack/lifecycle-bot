@@ -1045,7 +1045,7 @@ object GlobalTradeRegistry {
                     continue
                 }
                 promoteFromProbation(mint, "TIMEOUT_AUTO_PROMOTE")
-                results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "TIMEOUT_AUTO_PROMOTE"))
+                results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "TIMEOUT_AUTO_PROMOTE", entry.initialMcap, entry.initialLiquidity))
                 continue
             }
 
@@ -1058,7 +1058,7 @@ object GlobalTradeRegistry {
                 if (priceChange >= 5.0) {
                     // Price up 5%+ = promote
                     promoteFromProbation(mint, "PRICE_UP:${priceChange.toInt()}%")
-                    results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "PRICE_UP"))
+                    results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "PRICE_UP", entry.initialMcap, entry.initialLiquidity))
                     continue
                 }
                 if (priceChange <= -20.0) {
@@ -1072,14 +1072,14 @@ object GlobalTradeRegistry {
             // Check if multi-scanner confirmed
             if (entry.additionalScanners.isNotEmpty()) {
                 promoteFromProbation(mint, "MULTI_CONFIRM")
-                results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "MULTI_CONFIRM"))
+                results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "MULTI_CONFIRM", entry.initialMcap, entry.initialLiquidity))
                 continue
             }
 
             // V5.2: Check if RC confirmed (RC >= 2 is great for promotion)
             if (entry.rcScore >= 2) {
                 promoteFromProbation(mint, "RC_OK:${entry.rcScore}")
-                results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "RC_OK"))
+                results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "RC_OK", entry.initialMcap, entry.initialLiquidity))
                 continue
             }
         }
@@ -1092,6 +1092,11 @@ object GlobalTradeRegistry {
         val symbol: String,
         val action: String,  // "PROMOTED" or "REJECTED"
         val reason: String,
+        // V5.0.7384 — carried on the result: promoteFromProbation removes the
+        // entry before the caller can read it, so the caller's lookup always
+        // returned null and every promotion reached intake with liquidity 0.
+        val initialMcap: Double = 0.0,
+        val initialLiquidity: Double = 0.0,
     )
 
     /**

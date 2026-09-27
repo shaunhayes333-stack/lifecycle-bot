@@ -460,6 +460,13 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 // redFlagCount gate was softened whenever a route existed. In LIVE,
                 // this combo is not merely unknown metadata — it is executable rug
                 // authority. Hard-block it at the source; paper still learns.
+                // V5.0.7384 — liquidity on a pump.fun bonding curve is held by the
+                // program, not an LP a dev can pull; "LP unlocked" does not apply there.
+                val onCurve7384 = try {
+                    rugcheck.optJSONArray("markets")?.optJSONObject(0)?.optString("marketType", "").orEmpty()
+                        .equals("pump_fun", ignoreCase = true)
+                } catch (_: Throwable) { false }
+                if (onCurve7384) lpUnlockedRisk = false
                 if (lpUnlockedRisk && lpLockPct < 0.0) lpLockPct = 0.0
                 val lpUnlockedRugCombo = lpUnlockedRisk &&
                     (lowLiquidityRisk || currentLiquidityUsd in 0.0..2_500.0) &&
@@ -543,7 +550,16 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             if (markets != null && markets.length() > 0) {
                 val market = markets.optJSONObject(0)
                 val lp = market?.optJSONObject("lp")
-                val locked = lp?.optDouble("lpLockedPct", -1.0) ?: -1.0
+                // V5.0.7384 — a pump.fun bonding curve has no LP token to lock, and
+                // rugcheck reports it as 0% locked. Read literally, that hard-blocked
+                // every live curve launch ("LP only 0% locked"). A curve market leaves
+                // the lock UNKNOWN (soft penalty); the migrated AMM pool (pump_fun_amm,
+                // LP burned) is still read as reported.
+                val curveMarket7384 = market?.optString("marketType", "").orEmpty().equals("pump_fun", ignoreCase = true)
+                val locked = if (curveMarket7384) -1.0 else lp?.optDouble("lpLockedPct", -1.0) ?: -1.0
+                if (curveMarket7384) {
+                    try { PipelineHealthCollector.labelInc("LP_LOCK_CURVE_MARKET_UNKNOWN_7384") } catch (_: Throwable) {}
+                }
                 if (locked >= 0) {
                     lpLockPct = locked
                     // V5.9.939 Phase 5 — mirror to static cache for FDG tier-safety shape
