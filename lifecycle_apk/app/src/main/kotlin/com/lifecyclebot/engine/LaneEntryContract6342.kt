@@ -77,6 +77,35 @@ object LaneEntryContract6342 {
      * this predicate side-effect free so candidate ranking can call it without
      * incrementing rejection counters or consulting mutable governor state.
      */
+    /**
+     * V5.0.7389 — QUALITY's and BLUECHIP's mcap bands, from the same learned
+     * LaneHunter7297 band their traders use. Election, the BotService buy blocks
+     * and the lane proof all read these, so a token elected to a lane is always
+     * inside that lane's buy block (no orphaned owner).
+     */
+    fun qualityMcapBand7389(): ClosedFloatingPointRange<Double> {
+        val q = com.lifecyclebot.v3.scoring.QualityTraderAI
+        val floor = try { com.lifecyclebot.engine.market.LaneHunter7297.floorFor("QUALITY", q.MIN_MARKET_CAP_USD) } catch (_: Throwable) { q.MIN_MARKET_CAP_USD }
+        val ceiling = try { com.lifecyclebot.engine.market.LaneHunter7297.ceilingFor("QUALITY", q.MAX_MARKET_CAP_USD) } catch (_: Throwable) { q.MAX_MARKET_CAP_USD }
+        return floor..maxOf(floor, ceiling)
+    }
+
+    /** Liquidity each lane's BotService proof (qualityLaneProofOk) requires. */
+    const val QUALITY_MIN_LIQ_7389 = 15_000.0
+    const val BLUECHIP_MIN_LIQ_7389 = 50_000.0
+
+    /** True when QUALITY/BLUECHIP's buy block and proof can take this token. */
+    fun specialistCanBuy7389(ts: TokenState, lane: String): Boolean = when (lane.uppercase()) {
+        "QUALITY" -> ts.lastMcap in qualityMcapBand7389() && ts.lastLiquidityUsd >= QUALITY_MIN_LIQ_7389
+        "BLUECHIP", "BLUE_CHIP" -> ts.lastMcap >= blueChipMcapFloor7389() && ts.lastLiquidityUsd >= BLUECHIP_MIN_LIQ_7389
+        else -> false
+    }
+
+    fun blueChipMcapFloor7389(): Double {
+        val b = com.lifecyclebot.v3.scoring.BlueChipTraderAI.MIN_MARKET_CAP_USD
+        return try { com.lifecyclebot.engine.market.LaneHunter7297.floorFor("BLUECHIP", b) } catch (_: Throwable) { b }
+    }
+
     fun isLaneIdentityEligible7252(ts: TokenState, laneRequested: String): Boolean {
         val lane = laneRequested.uppercase()
         if ((lane == "BLUECHIP" || lane == "BLUE_CHIP") && isPumpFunMint(ts.mint)) return false
@@ -93,31 +122,18 @@ object LaneEntryContract6342 {
                 (src.contains("PUMP_FUN_BC") || src.contains("PUMP_PORTAL") || ts.lastMcap < 69_000.0)
             if (onCurve) return false
             if (lane == "QUALITY") {
-                val floor = try {
-                    com.lifecyclebot.engine.market.LaneHunter7297.floorFor(
-                        "QUALITY", com.lifecyclebot.v3.scoring.QualityTraderAI.MIN_MARKET_CAP_USD,
-                    )
-                } catch (_: Throwable) { 75_000.0 }
-                if (ts.lastMcap <= 0.0 || ts.lastMcap < floor) return false
                 // V5.0.7389 — QUALITY's band ends where BLUECHIP's begins ($1M), so a
                 // large cap is owned by BLUECHIP instead of both lanes claiming it.
-                val ceiling = try {
-                    com.lifecyclebot.engine.market.LaneHunter7297.ceilingFor(
-                        "QUALITY", com.lifecyclebot.v3.scoring.QualityTraderAI.MAX_MARKET_CAP_USD,
-                    )
-                } catch (_: Throwable) { com.lifecyclebot.v3.scoring.QualityTraderAI.MAX_MARKET_CAP_USD }
-                if (ts.lastMcap > ceiling) return false
+                if (ts.lastMcap <= 0.0 || ts.lastMcap !in qualityMcapBand7389()) return false
+                // Known liquidity under the lane proof's floor would elect an owner that cannot buy.
+                if (ts.lastLiquidityUsd > 0.0 && ts.lastLiquidityUsd < QUALITY_MIN_LIQ_7389) return false
             }
         }
         // V5.0.7389 — BLUECHIP is the $1M+ lane; a known smaller cap is not its token.
-        if ((lane == "BLUECHIP" || lane == "BLUE_CHIP") && ts.lastMcap > 0.0) {
-            val bcFloor = try {
-                com.lifecyclebot.engine.market.LaneHunter7297.floorFor(
-                    "BLUECHIP", com.lifecyclebot.v3.scoring.BlueChipTraderAI.MIN_MARKET_CAP_USD,
-                )
-            } catch (_: Throwable) { com.lifecyclebot.v3.scoring.BlueChipTraderAI.MIN_MARKET_CAP_USD }
-            if (ts.lastMcap < bcFloor) return false
-        }
+        if ((lane == "BLUECHIP" || lane == "BLUE_CHIP") && ts.lastMcap > 0.0 &&
+            ts.lastMcap < blueChipMcapFloor7389()) return false
+        if ((lane == "BLUECHIP" || lane == "BLUE_CHIP") && ts.lastLiquidityUsd > 0.0 &&
+            ts.lastLiquidityUsd < BLUECHIP_MIN_LIQ_7389) return false
         // V5.0.7389 — MOONSHOT's designed band is MoonshotTraderAI's own $10k-$5M.
         // A known mcap outside it cannot pass the lane's scorer, so election must not
         // mint a MOONSHOT ticket for it. Unknown mcap (0) is left to the lane.

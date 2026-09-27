@@ -12257,6 +12257,9 @@ class BotService : Service() {
                                             if (catastrophicConfirmed4485) "TICK_CATASTROPHIC_CONFIRMED_${pnlPctNow.toInt()}PCT"
                                             else if (oneStrikeCatastrophic4588) "TICK_HARD_FLOOR_CATASTROPHIC_LANE_${laneName4588}_${pnlPctNow.toInt()}PCT_4588"
                                             else if (runnerEarlyCut7277) "RUNNER_EARLY_CUT_${laneName4588}_${pnlPctNow.toInt()}PCT_7277"
+                                            // V5.0.7389 — above the -10 floor this is MOONSHOT's own routine
+                                            // stop, classified STOP_LOSS, not the emergency hard-stop ladder.
+                                            else if (moonshotLaneStop7389 && pnlPctNow > TICK_HARD_FLOOR_PCT) "MOONSHOT_LANE_STOP_LOSS_${pnlPctNow.toInt()}PCT_7389"
                                             else "TICK_HARD_FLOOR_${pnlPctNow.toInt()}PCT",
                                             walletTick, balTick)
                                     } catch (_: Throwable) {}
@@ -12727,6 +12730,10 @@ class BotService : Service() {
     // decision's entryScore/aiConfidence are often 0 for lane-owned candidates,
     // which fired EXPLORATION_BUDGET_REFUSED_ZERO_SIGNAL and showed
     // FLUID_SCORE_SCAFFOLD effective=0. Raise (never lower) both to the lane score.
+    // V5.0.7389 — mean conviction of the lanes that voted a CORE (ensemble)
+    // election, per mint; CORE's entry score blends it with V3's.
+    private val coreEnsembleScore7389 = java.util.concurrent.ConcurrentHashMap<String, Double>()
+
     private fun laneScoredBase7389(
         base: com.lifecyclebot.data.CandidateDecision,
         laneScore: Double,
@@ -13495,10 +13502,16 @@ class BotService : Service() {
                 .distinctBy { it.lane.uppercase() }
             val ensembleCoreFit6614 = strongestRole6614 != null && secondRole6614 != null &&
                 ensembleVoters7389.size >= 2 &&
+                // A lane at >= 75 conviction is a clear specialist call and keeps the token.
+                strongestRole6614.conviction < 75.0 &&
                 (strongestRole6614.conviction - secondRole6614.conviction <= 10.0 || strongestRole6614.conviction < 65.0) &&
                 LaneEntryContract6342.isLaneIdentityEligible7252(ts, "CORE")
             if (ensembleCoreFit6614) {
                 try { PipelineHealthCollector.labelInc("CORE_ENSEMBLE_ELECTED_7389") } catch (_: Throwable) {}
+                if (coreEnsembleScore7389.size > 5_000) coreEnsembleScore7389.clear()
+                coreEnsembleScore7389[ts.mint] = ensembleVoters7389.map { it.conviction }.average().coerceIn(0.0, 100.0)
+            } else {
+                coreEnsembleScore7389.remove(ts.mint)
             }
             // V5.0.7297 — a specialist that hunted this token from the market
             // view owns it while the token is still inside that lane's band.
@@ -13857,8 +13870,8 @@ class BotService : Service() {
             val holderProof = try { ts.safety.topHolderPct > 0.0 || ts.peakHolderCount > 0 || ts.holderGrowthRate != 0.0 } catch (_: Throwable) { false }
             val safeEnough = try { !ts.safety.isBlocked && ts.safety.hardBlockReasons.isEmpty() } catch (_: Throwable) { false }
             val blue7389 = lane7389.uppercase().let { it == "BLUECHIP" || it == "BLUE_CHIP" }
-            val minLiq7389 = if (blue7389) 50_000.0 else 15_000.0
-            val minMcap7389 = if (blue7389) 1_000_000.0 else 75_000.0
+            val minLiq7389 = if (blue7389) LaneEntryContract6342.BLUECHIP_MIN_LIQ_7389 else LaneEntryContract6342.QUALITY_MIN_LIQ_7389
+            val minMcap7389 = if (blue7389) LaneEntryContract6342.blueChipMcapFloor7389() else LaneEntryContract6342.qualityMcapBand7389().start
             val qualityStructure = routeProof && safeEnough && ts.lastLiquidityUsd >= minLiq7389 && ts.lastMcap >= minMcap7389
             if (qualityStructure && !holderProof) {
                 try {
@@ -25111,6 +25124,9 @@ if (hotExitHandledSweep) {
                 ts.styleTpMult = styleDecision.tunedTpMult
                 ts.styleHoldMult = styleDecision.tunedHoldMult
             } else {
+                // Neutral, not whatever an earlier cycle left stamped.
+                ts.styleTpMult = 1.0
+                ts.styleHoldMult = 1.0
                 try { PipelineHealthCollector.labelInc("STYLE_SHAPING_SKIPPED_NO_REAL_CANDLES_7389") } catch (_: Throwable) {}
             }
             // V5.0.6258 — PAPER→LIVE AGI REWIRE. Stamp entry context so
@@ -26181,7 +26197,7 @@ if (hotExitHandledSweep) {
                     // verdict so the executor sees V3's decision, not a
                     // stale prior-tick record.
                     // V5.0.7389 — no V3 BUY stamp on a QUALITY/BLUECHIP-owned lane (its evaluator decides).
-                    if (cyclePrimaryLane.uppercase() !in setOf("QUALITY", "BLUECHIP", "BLUE_CHIP")) try {
+                    if (!(cyclePrimaryLane.uppercase() in setOf("QUALITY", "BLUECHIP", "BLUE_CHIP") && LaneEntryContract6342.specialistCanBuy7389(ts, cyclePrimaryLane))) try {
                         ExecutableOpenGate.recordFdg(
                             mint = ts.mint,
                             symbol = ts.symbol,
@@ -26523,17 +26539,17 @@ if (hotExitHandledSweep) {
                         val v3BlockFatalIsRug = v3BlockFatalReason.contains("EXTREME_RUG", ignoreCase = true)
                         // V5.0.7389 — V3 scores fresh-meme structure; a deep-liquidity
                         // Treasury token rejected on meme-score/age grounds is not a
-                        // Treasury reject. Only structural V3 verdicts (liquidity,
-                        // rug, unsellable, invalid pair) bind this lane now; the
-                        // TREASURY_ROLE_REJECTED_6663 floor below still applies.
+                        // Treasury reject. Only V3's three meme-scale verdicts (TOO_OLD,
+                        // SCORE_TOO_LOW, SIZE_ZERO) are released; every other V3 reject
+                        // (liquidity, exposure cap, cooldown, already open, hydration,
+                        // safety) still binds. TREASURY_ROLE_REJECTED_6663 still applies.
                         val v3RejectReason7389 = when (val d = v3Decision) {
                             is com.lifecyclebot.v3.V3Decision.Rejected -> d.reason
                             is com.lifecyclebot.v3.V3Decision.Blocked -> d.reason
                             else -> ""
                         }.uppercase()
-                        val v3StructuralReject7389 = v3RejectReason7389.isNotEmpty() &&
-                            listOf("LIQ", "RUG", "UNSELL", "HONEYPOT", "INVALID", "PAIR", "FREEZE", "MINT_AUTH", "SAFETY", "SCAM")
-                                .any { v3RejectReason7389.contains(it) }
+                        val v3MemeScaleReject7389 = v3RejectReason7389 in setOf("TOO_OLD", "SCORE_TOO_LOW", "SIZE_ZERO")
+                        val v3StructuralReject7389 = v3RejectReason7389.isNotEmpty() && !v3MemeScaleReject7389
                         val v3HardReject = v3StructuralReject7389
                             || (v3Decision is com.lifecyclebot.v3.V3Decision.BlockFatal && !(v3IsPaperMode && v3BlockFatalIsRug))
                         if (!v3HardReject && v3RejectReason7389.isNotEmpty()) {
@@ -26998,7 +27014,8 @@ if (hotExitHandledSweep) {
                     )
                 } catch (_: Throwable) {}
             }
-            if (qualityLaneAllowedThisCycle && ts.lastMcap >= 75_000) {  // V5.9.191: was 100K, align with QualityTraderAI $75K min1M layer)
+            val qualityBand7389 = LaneEntryContract6342.qualityMcapBand7389()
+            if (qualityLaneAllowedThisCycle && ts.lastMcap >= qualityBand7389.start) {  // V5.9.191: was 100K, align with QualityTraderAI $75K min1M layer)
                 // V5.7.8: Modes run independently — Treasury positions don't block them
                 try {
                     // ═══════════════════════════════════════════════════════════════
@@ -27013,11 +27030,11 @@ if (hotExitHandledSweep) {
                     )
                     
                     // V5.2.12: Log when Quality is checked but mcap out of range
-                    if (qualityPermit.allowed && ts.lastMcap !in 75_000.0..1_000_000.0) {
+                    if (qualityPermit.allowed && ts.lastMcap !in qualityBand7389) {
                         ErrorLogger.debug("BotService", "⭐ [QUALITY SKIP] ${ts.symbol} | mcap=\$${(ts.lastMcap/1000).toInt()}K not in \$100K-\$1M range")
                     }
                     
-                    if (qualityPermit.allowed && ts.lastMcap in 75_000.0..1_000_000.0) {  // V5.9.191: was 100K, align with QualityTraderAI
+                    if (qualityPermit.allowed && ts.lastMcap in qualityBand7389) {  // V5.0.7389: learned band, same as election
                         val (v3Score, v3Confidence) = when (val result = v3Decision) {
                             is com.lifecyclebot.v3.V3Decision.Execute -> result.score to result.confidence.toInt()
                             is com.lifecyclebot.v3.V3Decision.Watch -> result.score to result.confidence
@@ -27247,7 +27264,7 @@ if (hotExitHandledSweep) {
             // owned the cycle — and then TradeAuthorizer saw QUALITY's election and
             // returned LANE_TELEMETRY_ONLY (2 executions from 33 intents). It now
             // enters through its own election check at its designed $1M+ band.
-            val blueChipLaneAllowed7389 = !ts.position.isOpen && ts.lastMcap >= 1_000_000.0 &&
+            val blueChipLaneAllowed7389 = !ts.position.isOpen && ts.lastMcap >= LaneEntryContract6342.blueChipMcapFloor7389() &&
                 shouldRunBuyLaneForCycle(ts, "BLUECHIP", cyclePrimaryLane)
             if (blueChipLaneAllowed7389) {
                 try {
@@ -29763,7 +29780,10 @@ if (hotExitHandledSweep) {
                     // evaluator decides; the V3 trunk no longer buys under its label without
                     // its gates or stops (trunk "QUALITY" buys: 0/7, EV -4.2%). Tokens that do
                     // not pinpoint to one lane are owned by CORE (the ensemble lane) instead.
-                    val specialistOwned7389 = cyclePrimaryLane.uppercase() in setOf("QUALITY", "BLUECHIP", "BLUE_CHIP")
+                    // Defers only when that lane's block can actually buy the token, so
+                    // an elected QUALITY/BLUECHIP token is never left with no buyer.
+                    val specialistOwned7389 = cyclePrimaryLane.uppercase() in setOf("QUALITY", "BLUECHIP", "BLUE_CHIP") &&
+                        LaneEntryContract6342.specialistCanBuy7389(ts, cyclePrimaryLane)
                     if (specialistOwned7389) {
                         try { PipelineHealthCollector.labelInc("V3_TRUNK_DEFERS_TO_SPECIALIST_OWNER_7389_${cyclePrimaryLane.uppercase()}") } catch (_: Throwable) {}
                     } else if (!trustAllowed) {
@@ -30040,8 +30060,18 @@ if (hotExitHandledSweep) {
                             // V5.0.6533 — V3 approval is causal input, not a finality bypass.
                             // Run the real FDG once for the elected canonical lane and require
                             // its exact immutable intent before Executor may see the order.
+                            // V5.0.7389 — CORE is the ensemble lane: its score is V3's
+                            // blended with the lanes that voted it CORE (raise-only).
+                            val coreEnsemble7389 = if (cyclePrimaryLane.equals("CORE", true)) coreEnsembleScore7389[ts.mint] else null
+                            val v3LaneScore7389 = if (coreEnsemble7389 != null)
+                                maxOf(result.score.toDouble(), (result.score.toDouble() + coreEnsemble7389) / 2.0)
+                            else result.score.toDouble()
+                            if (v3LaneScore7389 > result.score.toDouble()) {
+                                try { PipelineHealthCollector.labelInc("CORE_ENSEMBLE_SCORE_BLENDED_7389") } catch (_: Throwable) {}
+                            }
                             val v3Candidate6533 = laneQualifiedBuyDecision(
-                                decision, cyclePrimaryLane,
+                                if (coreEnsemble7389 != null) laneScoredBase7389(decision, v3LaneScore7389) else decision,
+                                cyclePrimaryLane,
                                 confidenceFloor = result.confidence.toDouble(),
                                 liquidityUsd = ts.lastLiquidityUsd,
                                 mintForProbe = ts.mint,
@@ -30049,7 +30079,7 @@ if (hotExitHandledSweep) {
                             val v3Fdg6533 = FinalDecisionGate.evaluate(
                                 ts = ts, candidate = v3Candidate6533, config = cfg,
                                 proposedSizeSol = proposedSize, brain = executor.brain,
-                                tradingModeTag = modeTag, laneScore = result.score.toDouble(),
+                                tradingModeTag = modeTag, laneScore = v3LaneScore7389,
                                 specialistLane = cyclePrimaryLane,
                                 fanoutRole = "V3_EXEC",
                             )
@@ -32430,7 +32460,7 @@ if (hotExitHandledSweep) {
                 val dipPartial7389 = executor.requestPartialSellConfirmed6566(
                     ts = ts,
                     sellPercentage = 0.50,
-                    reason = "DIP_RECOVERY_PARTIAL_50PCT",
+                    reason = "DIP_TARGET_PARTIAL_TAKE_PROFIT_50PCT",
                     wallet = wallet,
                     walletBalance = effectiveBalance,
                 )
@@ -32439,6 +32469,7 @@ if (hotExitHandledSweep) {
                     try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_DIP_HUNTER") } catch (_: Throwable) {}
                     return
                 }
+                com.lifecyclebot.v3.scoring.DipHunterAI.onRecoveryPartial(ts.mint, currentPrice, 0.50)
                 addLog("💰 DIP PARTIAL: ${ts.symbol} | recovery target banked 50% | ${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                 return
             }

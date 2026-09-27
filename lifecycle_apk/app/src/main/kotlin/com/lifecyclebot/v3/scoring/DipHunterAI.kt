@@ -148,6 +148,7 @@ object DipHunterAI {
         val isPaper: Boolean,
         var recoveryHighPct: Double = 0.0,  // Best recovery so far
         var recoveryBanked: Boolean = false, // V5.0.7389 — target partial taken, remainder rides
+        var remainingFrac: Double = 1.0,     // V5.0.7389 — share of entrySol still held
     )
     
     data class DipSignal(
@@ -635,10 +636,17 @@ object DipHunterAI {
         val targetRecovery = getFluidRecoveryTarget()
         val stopLoss = getFluidStopLoss()
         
-        // V5.0.7389 — sliding lock on the runner half: once the target is banked,
-        // the remainder exits when it gives back its share of the peak.
-        if (pos.recoveryBanked && com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(pos.recoveryHighPct, pnlPct)) {
+        // V5.0.7389 — sliding locks arm from the start (lane doctrine): the shared
+        // give-back lock and the fluid profit floor (+10% peak locks ~+7%) ratchet
+        // with the recovery peak, before and after the target half is banked.
+        if (com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(pos.recoveryHighPct, pnlPct)) {
             ErrorLogger.info(TAG, "📉🔒 RECOVERY LOCK! $mint | peak=${pos.recoveryHighPct.fmt(1)}% now=${pnlPct.fmt(1)}%")
+            return DipExitSignal.RECOVERY_TARGET
+        }
+        val dipHoldSec7389 = (System.currentTimeMillis() - pos.entryTime) / 1000.0
+        val dipProfitFloor7389 = FluidLearningAI.fluidProfitFloor(pos.recoveryHighPct, holdSeconds = dipHoldSec7389)
+        if (pnlPct < dipProfitFloor7389) {
+            ErrorLogger.info(TAG, "📉🔒 RECOVERY FLOOR! $mint | peak=${pos.recoveryHighPct.fmt(1)}% now=${pnlPct.fmt(1)}% < +${dipProfitFloor7389.toInt()}%")
             return DipExitSignal.RECOVERY_TARGET
         }
 
@@ -692,7 +700,8 @@ object DipHunterAI {
         val pos = synchronized(activeDips) { activeDips.remove(mint) } ?: return
         
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
-        val pnlSol = pos.entrySol * pnlPct / 100
+        // V5.0.7389 — after a recovery partial only the remainder is booked here.
+        val pnlSol = pos.entrySol * pos.remainingFrac * pnlPct / 100
         try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, "DIP_HUNTER", "DIP_CLOSE", pnlPct.toInt().coerceIn(-100, 100), "exit_${exitSignal.name}_pnl_${pnlPct.fmt(2)}") } catch (_: Throwable) {}
         
         // Record P&L
@@ -773,6 +782,20 @@ object DipHunterAI {
     }
     
     fun hasDip(mint: String): Boolean = activeDips.containsKey(mint)
+
+    /**
+     * V5.0.7389 — the recovery partial filled: book the banked slice's P&L into the
+     * lane's daily ledger now and shrink what closeDip will book for the remainder.
+     */
+    fun onRecoveryPartial(mint: String, price: Double, frac: Double) {
+        val pos = synchronized(activeDips) { activeDips[mint] } ?: return
+        if (pos.entryPrice <= 0.0 || price <= 0.0) return
+        val slice = (pos.remainingFrac * frac.coerceIn(0.0, 1.0))
+        val pnlSol = pos.entrySol * slice * ((price - pos.entryPrice) / pos.entryPrice)
+        dailyPnlSolBps.addAndGet(Math.round(pnlSol * 100))
+        if (pnlSol > 0.0) dipBalanceBps.addAndGet(Math.round(pnlSol * 40))
+        pos.remainingFrac = (pos.remainingFrac - slice).coerceAtLeast(0.0)
+    }
 
     /** V5.0.7389 — the recovery partial did not apply; re-arm the target. */
     fun unbankRecovery(mint: String) {

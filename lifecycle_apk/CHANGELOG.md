@@ -4,14 +4,24 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7390] — 5.0.7389 verified: review fixes (the 7389 entry below describes the combined behaviour)
+
+An independent review of 5.0.7389 found these; all fixed:
+- TREASURY was released past the global exposure cap, cooldown and already-open holds. Now only SCORE_TOO_LOW / TOO_OLD / SIZE_ZERO are released.
+- A QUALITY- or BLUECHIP-elected token could have no buyer (election used learned bands, the buy blocks used fixed ones, and the V3 trunk stepped aside). One shared band + liquidity floor now drives election, the buy blocks and the proof, and the trunk defers only when the lane can buy.
+- DIP: the banked half was counted twice in the lane's P&L; the remainder had no sliding profit floor under a +20% peak; the partial was classified as capital recovery.
+- The policy head's degenerate-input cap tightened entry floors (ADVISORY is the strictest floor tier). It now caps vetoes only.
+- CORE no longer takes a token from a lane at >= 75 conviction. MOONSHOT's tick stop is sold as STOP_LOSS, not an emergency hard stop. Stale style multipliers reset to neutral.
+- Added: CORE's entry score blends V3 with its voters' conviction (raise-only).
+
 ## [5.0.7389] — every specialist lane trades as designed (lane audit, bundled)
 
 Audit against PROJECT_SNIPER (the lane that works as designed). Additive: each lane keeps its gates; what changed is that each now buys what it was built for and exits the way its thesis pays.
 
 Lane ownership and election
-- CORE is the ensemble lane: it owns a token when at least two different lanes each rate it worth trading (conviction >= 45) and no single lane clearly dominates. CORE now rides and cuts like the runner lanes it combines.
+- CORE is the ensemble lane: it owns a token when at least two different lanes each rate it worth trading (conviction >= 45) and no single lane clearly dominates (a lane at >= 75 conviction keeps the token). CORE now rides and cuts like the runner lanes it combines. Its entry score is V3's blended with the mean conviction of the lanes that voted it (raise-only).
 - MANIPULATED is a danger signal, not a buyer: it no longer owns cycles or joins the meme ring. TREASURY (with CASHGEN folded in) owns only tokens at its own mcap/liquidity floor.
-- QUALITY's band ends at its $1M ceiling; BLUECHIP owns $1M+ (its own fluid floor at election). BLUECHIP runs as its own block (it could not execute inside QUALITY's), and its exit check matches the BLUECHIP label.
+- QUALITY's band ends at its $1M ceiling; BLUECHIP owns $1M+. Election, the buy blocks and the lane proof read the same learned bands and liquidity floors ($15k / $50k), and the V3 trunk defers only when that lane's block can actually buy the token, so an elected token always has a buyer. BLUECHIP runs as its own block (it could not execute inside QUALITY's), and its exit check matches the BLUECHIP label.
 - When QUALITY or BLUECHIP owns the cycle the V3 trunk no longer buys under that label; the lane's own evaluator decides.
 - The toolkit bridge refuses a hard lane reject (mcap, liquidity, top holder, too new, holders) and scores from the real V3 score (no floor of 42).
 - MOONSHOT election uses the lane's own $10k-$5M band and $2k liquidity floor; MoonshotTraderAI reads observed liquidity (curve reserves), so admitted curve launches are no longer refused as liq 0.
@@ -20,10 +30,10 @@ Lane ownership and election
 Exits
 - QUALITY/BLUECHIP: a take-profit under +20% is the ladder's first rung (a partial), not a full close; the rest rides the sliding locks.
 - BLUECHIP stop -8% (bootstrap) to -10% (mature), was -4/-7 on an 8h swing lane.
-- DIP_HUNTER banks 50% at the recovery target and lets the rest ride toward the pre-dip high under the sliding lock (never back under +2%).
+- DIP_HUNTER banks 50% at the recovery target and lets the rest ride toward the pre-dip high under the sliding lock (never back under +2%). The banked slice is booked to the lane's daily P&L when it fills; the close books only the remainder. The give-back lock and fluid profit floor slide from the start (a +10% recovery peak locks about +7%). The partial is classified PARTIAL_TAKE_PROFIT.
 - EXPRESS: max size 0.25 SOL (was 3.0 under a "never exceed 0.1" design note); trail 1.3x wider; momentum death needs < -2% and only before the first rung.
-- Tick floor: QUALITY/BLUECHIP/CORE exit first strike at -10% (rugs gap between ticks). MOONSHOT exits at its own lane stop on the tick (MoonshotTraderAI.stopFor, which mirrors checkExit including the GOLD pattern exemption).
-- TREASURY: a V3 meme-score/age reject no longer kills a deep-liquidity Treasury entry; structural V3 verdicts (liquidity, rug, unsellable, invalid pair) still bind.
+- Tick floor: QUALITY/BLUECHIP/CORE exit first strike at -10% (rugs gap between ticks). MOONSHOT exits at its own lane stop on the tick (MoonshotTraderAI.stopFor, which mirrors checkExit including the GOLD pattern exemption), sold as a STOP_LOSS reason, not the emergency hard-stop ladder.
+- TREASURY: only V3's three meme-scale verdicts (SCORE_TOO_LOW, TOO_OLD, SIZE_ZERO) are released for a deep-liquidity Treasury entry; every other V3 reject (liquidity, global exposure cap, cooldown, already open, hydration) still binds.
 
 Entries
 - DIP_HUNTER needs a confirmed bounce: a higher low after the dip low, price >= 2% off it, buy pressure >= 50, volume present. Pool age comes from recorded pool creation time.
@@ -34,7 +44,8 @@ Tools
 - Fabricated candles are marked synthetic; MovementPatternSignal and the toolkit read volume only from real candles (>= 8 needed), so a flat tick series no longer reads as ACCUMULATION_COMPRESSION / LIQUIDITY_DEPTH_QUALITY. Style TP/hold multipliers need 8 real candles.
 - ToolkitSignalSheet: every additive `if` term is parenthesised (trailing terms were silently dropped).
 - OracleEdgeProof: win rate removed from the proof (fat-tailed returns; return margin and Brier decide).
-- UnifiedPolicyHead: authority is capped at ADVISORY while its inputs are degenerate (constant or duplicate features) or too few observations exist. Training is untouched.
+- UnifiedPolicyHead: its veto authority (terminal WAIT veto, pWin gate, oracle tier) is capped at ADVISORY while its inputs are degenerate (constant or duplicate features) or too few observations exist. The floor/sizing tier is not capped, so entries are not tightened. Training is untouched.
+- Style TP/hold multipliers reset to neutral when a token has fewer than 8 real candles.
 
 ## [5.0.7388] — profit, quality volume and throughput (bundled)
 

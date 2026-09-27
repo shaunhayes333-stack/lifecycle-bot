@@ -12360,5 +12360,19 @@ class GoldenTapeRegressionTest {
         assertTrue(ex.contains("currentMomentum < -2.0 && pnlPct > 0 && ride.partialRungsTaken == 0"))
         val moon = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
         assertTrue(moon.contains("if (!goldProtected && pos.peakPnlPct < 8.0)"))
+        // CORE's score is blended with its voters; V3 position/cooldown holds still bind TREASURY.
+        assertTrue(bot.contains("CORE_ENSEMBLE_SCORE_BLENDED_7389"))
+        assertTrue(bot.contains("v3RejectReason7389 in setOf(\"TOO_OLD\", \"SCORE_TOO_LOW\", \"SIZE_ZERO\")"))
+        assertTrue(dip.contains("val pnlSol = pos.entrySol * pos.remainingFrac * pnlPct / 100"))
+        assertTrue(dip.contains("FluidLearningAI.fluidProfitFloor(pos.recoveryHighPct, holdSeconds = dipHoldSec7389)"))
+        assertTrue(bot.contains("DIP_TARGET_PARTIAL_TAKE_PROFIT_50PCT"))
+        assertTrue(com.lifecyclebot.engine.sell.SellReasonClassifier.fromString("DIP_TARGET_PARTIAL_TAKE_PROFIT_50PCT") == com.lifecyclebot.engine.sell.ExitReason.PARTIAL_TAKE_PROFIT)
+        // No orphaned owner: V3 defers only when QUALITY/BLUECHIP's block can buy.
+        assertTrue(bot.contains("LaneEntryContract6342.specialistCanBuy7389(ts, cyclePrimaryLane)"))
+        assertTrue(bot.contains("ts.lastMcap in qualityBand7389"))
+        assertTrue(bot.contains("MOONSHOT_LANE_STOP_LOSS_"))
+        // The degenerate-input cap limits vetoes only, never the floor/sizing tier.
+        val uph = java.io.File("src/main/kotlin/com/lifecyclebot/engine/UnifiedPolicyHead.kt").readText()
+        assertFalse(uph.contains("fun currentAuthority(lane: String): AuthorityTier = capForDegenerateInputs7389"))
     }
 }

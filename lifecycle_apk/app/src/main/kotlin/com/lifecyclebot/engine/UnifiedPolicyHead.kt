@@ -135,7 +135,8 @@ object UnifiedPolicyHead {
     // score), yet the head graduated to AUTHORITATIVE on close count alone and drove vetoes/sizing. We now
     // track decision-time input variance (runtime EWMA over stamp()) and cap the tier at ADVISORY while more
     // than two features are constant or exact duplicates of another feature, or before enough observations
-    // exist to tell. Training is untouched — the head keeps learning; only its authority is capped.
+    // exist to tell. Training is untouched — the head keeps learning; only its VETO authority is capped
+    // (laneHasOwnAuthoritativeHead, laneOwnHeadAuthority6605), never the floor/sizing tier.
     private const val DEGEN_MIN_OBS_7389 = 50L
     private const val DEGEN_VAR_EPS_7389 = 1e-4
     private const val DEGEN_DUP_EPS_7389 = 1e-3
@@ -269,10 +270,14 @@ object UnifiedPolicyHead {
         return h.trained >= AUTHORITY_AUTHORITATIVE
     }
 
-    /** Per-lane authority tier — calibration-aware; V5.0.7389 capped at ADVISORY on degenerate inputs. */
-    fun currentAuthority(lane: String): AuthorityTier = capForDegenerateInputs7389(rawCurrentAuthority7389(lane))
-
-    private fun rawCurrentAuthority7389(lane: String): AuthorityTier {
+    /**
+     * Per-lane authority tier — calibration-aware. V5.0.7389: NOT capped for
+     * degenerate inputs. This tier maps to entry score floors and sizing, where
+     * ADVISORY is the strictest tier, so capping it here would tighten entries
+     * (the governor is advisory). The cap applies only where the head can veto:
+     * laneHasOwnAuthoritativeHead and laneOwnHeadAuthority6605 (the pWin gate).
+     */
+    fun currentAuthority(lane: String): AuthorityTier {
         val h = laneHeads[normalizeLane(lane)] ?: return globalAuthority()
         val rawTier = when {
             h.trained >= AUTHORITY_AUTHORITATIVE -> AuthorityTier.AUTHORITATIVE
