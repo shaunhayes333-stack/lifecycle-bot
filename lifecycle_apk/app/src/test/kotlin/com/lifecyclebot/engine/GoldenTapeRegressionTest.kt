@@ -12071,4 +12071,17 @@ class GoldenTapeRegressionTest {
         assertTrue(r.contains("if (!hasSig && com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.isLastPartial()) {"))
         assertTrue(r.contains("RECONCILER_ZERO_SKIPPED_PARTIAL_SNAPSHOT_7372"))
     }
+
+
+    @Test
+    fun V5_0_7373_unsigned_false_close_on_held_token_is_released_so_it_can_sell() {
+        val a = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/LivePositionCloseAuthority.kt").readText()
+        assertTrue(a.contains("fun releaseUnsignedCloseOnWalletHeld7373(mint: String, symbol: String): Boolean"))
+        assertTrue(a.contains("if (st != null && !st.signature.isNullOrBlank()) return false"))
+        assertTrue(a.contains("if (ledgerSig.isNotBlank()) return false"))
+        val t = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        assertTrue(t.contains("if (priorSellSig7373.isNullOrBlank()) {"))
+        val r = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellReconciler.kt").readText()
+        assertTrue(r.contains("LivePositionCloseAuthority.releaseUnsignedCloseOnWalletHeld7373(pos.mint"))
+    }
 }

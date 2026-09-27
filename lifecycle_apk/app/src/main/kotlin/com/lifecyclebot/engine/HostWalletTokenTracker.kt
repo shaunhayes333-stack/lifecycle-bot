@@ -1123,11 +1123,22 @@ object HostWalletTokenTracker {
                     // stale (unverified) sell signature so the close lifecycle restarts
                     // clean. This is the parity repair: walletHeldMints will now match
                     // canonical open/held after this snapshot.
+                    val priorSellSig7373 = existing.sellSignature
                     existing.status = PositionStatus.OPEN_TRACKING
                     existing.sellSignature = null
                     existing.activeSellAttemptId = null
                     existing.consecutiveZeroConfirms = 0
+                    existing.zeroBalanceConfirmedByTwoProviders = false
                     existing.notes.add("REOPENED: WALLET_BALANCE_STILL_HELD qty=$uiAmount (was CLOSED with no zero-balance proof)")
+                    // V5.0.7373 — the close had no sell signature and the wallet still
+                    // holds the tokens: release the close authority and ledger too, or
+                    // every later sell of this position is refused as already closed.
+                    if (priorSellSig7373.isNullOrBlank()) {
+                        try {
+                            com.lifecyclebot.engine.sell.LivePositionCloseAuthority
+                                .releaseUnsignedCloseOnWalletHeld7373(mint, existing.symbol ?: mint.take(6))
+                        } catch (_: Throwable) {}
+                    }
                     emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_OPEN_TRACKING, mint, existing.symbol, null,
                         "WALLET_BALANCE_STILL_HELD → REOPENED ${existing.symbol ?: mint.take(6)} qty=$uiAmount (CLOSED-but-held invariant repair)")
                     try {

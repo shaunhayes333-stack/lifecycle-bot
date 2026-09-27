@@ -4,6 +4,25 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7373] - 2026-09-27 — THE FALSE CLOSES MADE HELD TOKENS UNSELLABLE
+
+Operator: "but it didn't sell anything either."
+
+The 92 reconciler zero-closes on 5.0.7368 (partial Token-2022 snapshots, fixed in 7372)
+did more than miscount. Each stamped the mint CLOSED in LivePositionCloseAuthority and
+PositionCloseLedger. The tracker reopened the row when the wallet still showed the
+tokens, but the close stamps stayed, and every sell path refuses a CLOSED mint. The only
+release (7318) needs a canonical OPEN live row, which the false close had removed and
+basis recovery could not rebuild. Six wallet tokens sat unmanaged — no stop, no take-
+profit, no sell — for six hours.
+
+- A close with no sell signature on a mint the wallet still holds is released
+  (`releaseUnsignedCloseOnWalletHeld7373`): on the tracker's reopen, and on every
+  reconciler tick with a positive balance, so positions stuck before this build heal.
+  A close that carries a signature is a real sale and is never reopened.
+
+---
+
 ## [5.0.7372] - 2026-09-27 — SIX HOURS, ZERO LIVE BUYS: A STUCK PROBATION SLOT
 
 Operator: "its been running for 6 hours" (device still on 5.0.7368).

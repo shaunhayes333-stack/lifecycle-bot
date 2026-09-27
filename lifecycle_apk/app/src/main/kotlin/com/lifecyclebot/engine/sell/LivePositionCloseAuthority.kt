@@ -370,6 +370,29 @@ object LivePositionCloseAuthority {
         return true
     }
 
+    /**
+     * V5.0.7373 — a close with no sell signature, on a mint the wallet still holds,
+     * was not a sale. The reconciler's zero path closed Token-2022 positions from
+     * partial snapshots (92 on 5.0.7368); the tracker reopened them, but this map and
+     * the close ledger kept CLOSED, and the 7318 release needs a canonical OPEN row
+     * the false close had removed. Every sell was refused for six hours and nothing
+     * was stopped out or sold. Called only on positive wallet proof; a close that
+     * carries a signature is a real sale and is left alone.
+     */
+    fun releaseUnsignedCloseOnWalletHeld7373(mint: String, symbol: String): Boolean {
+        if (mint.isBlank()) return false
+        val st = states[mint]
+        if (st != null && !st.signature.isNullOrBlank()) return false
+        if (st != null && st.state != State.CLOSED && st.state != State.CLOSING_UNKNOWN) return false
+        val ledgerSig = runCatching { PositionCloseLedger.recordOf(mint)?.sellSig.orEmpty() }.getOrDefault("")
+        if (ledgerSig.isNotBlank()) return false
+        states.remove(mint)
+        runCatching { PositionCloseLedger.reopen(mint) }
+        emit("LIVE_UNSIGNED_CLOSE_RELEASED_WALLET_HELD_7373", mint, symbol, "action=sell_allowed")
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_UNSIGNED_CLOSE_RELEASED_WALLET_HELD_7373") } catch (_: Throwable) {}
+        return true
+    }
+
     private fun pruneMint(mint: String) {
         val st = states[mint] ?: return
         if (st.state == State.CLOSING_PENDING_SIG || st.state == State.CLOSING_UNKNOWN) {

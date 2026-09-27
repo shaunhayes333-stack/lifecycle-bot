@@ -518,6 +518,13 @@ object SellReconciler {
             )
         } catch (_: Throwable) {}
 
+        // V5.0.7373 — a held position left stamped CLOSED by an unsigned (false) close
+        // is released here, on this tick's positive wallet read, so positions already
+        // stuck before this build can be stopped out and sold again.
+        if (balance > 1e-9 && runCatching { com.lifecyclebot.engine.PositionCloseLedger.isClosed(pos.mint) }.getOrDefault(false)) {
+            try { LivePositionCloseAuthority.releaseUnsignedCloseOnWalletHeld7373(pos.mint, pos.symbol ?: pos.mint.take(6)) } catch (_: Throwable) {}
+        }
+
         // Case 1: wallet says zero. V5.9.1496 — DEBOUNCED close per spec
         // (5.0.3501 ZERO-BALANCE OPEN_TRACKING CLEANUP): require TWO consecutive
         // zero confirmations OR a confirmed sell signature before stamping
