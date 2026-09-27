@@ -23,15 +23,16 @@ object RuntimeProviderAuthority6685 {
     // carried ten that do not: ankr (API key required), the three rpcpool/Triton
     // hosts (token required: 403 / timeout), chainstack "/1" (401), extrnode and
     // omniatech (shut down), blastapi and blockpi public (retired / key required),
-    // and jito (a block engine, not a general RPC). Every ladder walk burned its
+    // and jito (a block engine, not a general RPC); drpc since 7382. Every ladder walk burned its
     // budget on them before reaching an endpoint that works.
     val PUBLIC_SOLANA_RPCS: List<String> = listOf(
         "https://solana-rpc.publicnode.com",
         "https://api.mainnet-beta.solana.com",
-        "https://solana.drpc.org",
     )
 
+    // V5.0.7382 — drpc added: its keyless tier answered 0 of 14 calls with 4xx on 5.0.7381.
     private val RETIRED_KEYLESS_RPCS_7381: List<String> = listOf(
+        "https://solana.drpc.org",
         "https://rpc.ankr.com/solana",
         "https://api.mainnet.rpcpool.com",
         "https://solana-mainnet.core.chainstack.com/1",

@@ -14873,8 +14873,31 @@ class Executor(
         return changed
     }
 
+    /**
+     * V5.0.7382 — the liquidity this mint was OBSERVED to have, from any source the
+     * bot already holds. The price feed's liquidity field is often 0 for pump.fun
+     * curve tokens and fresh pools (a DexScreener pair poll reports liq=0 while the
+     * token map, from DEX discovery, holds liqUsd=1230), and a 0 there made every
+     * entry snapshot invalid: ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED was 11 of 14
+     * live buy failures on 5.0.7381. Order: the tick's own value, the token map's
+     * discovered pool liquidity, then the on-chain curve reserves priced in SOL.
+     * Every source is an observation; none is inferred from market cap.
+     */
+    private fun observedLiquidityUsd7382(ts: TokenState): Double {
+        ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 }?.let { return it }
+        val tm = ts.tokenMap
+        tm.liquidityUsd?.takeIf { it.isFinite() && it > 0.0 }?.let { return it }
+        val sol = (tm.realSolReserves ?: tm.liquiditySol)?.takeIf { it.isFinite() && it > 0.0 } ?: return 0.0
+        val solUsd = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        return if (solUsd.isFinite() && solUsd > 0.0) sol * solUsd else 0.0
+    }
+
     private fun mintEntryMarketSnapshot(ts: TokenState): MintEntryMarketSnapshot? {
         val now = System.currentTimeMillis()
+        val observedLiq7382 = observedLiquidityUsd7382(ts)
+        if (observedLiq7382 > 0.0 && !(ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0)) {
+            try { PipelineHealthCollector.labelInc("ENTRY_SNAPSHOT_LIQ_FROM_TOKEN_MAP_7382") } catch (_: Throwable) {}
+        }
         val paper = RuntimeModeAuthority.isPaper()
         val purposes = if (paper) listOf(
             com.lifecyclebot.engine.truth.CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE,
@@ -14884,7 +14907,7 @@ class Executor(
             com.lifecyclebot.engine.truth.CanonicalPriceMarkRegistry6522.getFresh6734(ts.mint, purpose, now)
                 ?.let { MintEntryMarketSnapshot.fromCanonicalMark6735(
                     ts.mint, it, ts.lastMcap, ts.lastPriceDex.ifBlank { "UNKNOWN" }, now,
-                    observedLiquidityUsd7321 = ts.lastLiquidityUsd,
+                    observedLiquidityUsd7321 = observedLiq7382,
                 ) }
         }.maxByOrNull { it.capturedAtMs }
         if (canonical != null) return canonical
@@ -14897,7 +14920,7 @@ class Executor(
         val rawPool = ts.lastPricePoolAddr.ifBlank { ts.pairAddress }
         val snap = MintEntryMarketSnapshot(
             ts.lastPrice, ts.lastMcap.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0,
-            ts.lastLiquidityUsd, rawPool.ifBlank { "MINT_ROUTE:${ts.mint}" },
+            observedLiq7382, rawPool.ifBlank { "MINT_ROUTE:${ts.mint}" },
             ts.lastPriceSource, ts.lastPriceDex.ifBlank { "UNKNOWN" }, ts.lastPriceUpdate,
         )
         return snap.takeIf { it.valid }
@@ -15123,7 +15146,7 @@ class Executor(
         // agree on is accepted, liquidity must already be an observed value for
         // this mint, and the snapshot is rebuilt through the same validity rules.
         // One fan-out per mint per 30s, before any lease or wallet spend.
-        if (!RuntimeModeAuthority.isPaper() && ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0) {
+        if (!RuntimeModeAuthority.isPaper() && observedLiquidityUsd7382(ts) > 0.0) {
             val now7361 = System.currentTimeMillis()
             val last7361 = entryRepriceLastMs7361[ts.mint] ?: 0L
             if (now7361 - last7361 >= ENTRY_REPRICE_COOLDOWN_MS_7361) {

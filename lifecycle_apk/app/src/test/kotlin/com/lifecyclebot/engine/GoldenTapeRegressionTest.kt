@@ -12189,7 +12189,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun V5_0_7381_rpc_ladder_drops_retired_endpoints_and_dex_feeds_share_one_read() {
         val rpcs = com.lifecyclebot.engine.RuntimeProviderAuthority6685.PUBLIC_SOLANA_RPCS
-        assertEquals(3, rpcs.size)
+        assertEquals(2, rpcs.size)
         assertFalse(rpcs.any { it.contains("ankr") || it.contains("rpcpool") || it.contains("extrnode") || it.contains("jito") })
         assertEquals("", com.lifecyclebot.engine.RuntimeProviderAuthority6685.sanitizeRpc("https://rpc.ankr.com/solana"))
         assertEquals("https://rpc.ankr.com/solana/abc", com.lifecyclebot.engine.RuntimeProviderAuthority6685.sanitizeRpc("https://rpc.ankr.com/solana/abc"))
@@ -12198,5 +12198,18 @@ class GoldenTapeRegressionTest {
         assertTrue(sc.contains("DEX_FEED_CACHE_HIT_7381"))
         val ws = java.io.File("src/main/kotlin/com/lifecyclebot/network/DexScreenerWebSocket.kt").readText()
         assertTrue(ws.contains("private val DISABLED_7381 = true"))
+    }
+
+
+    @Test
+    fun V5_0_7382_entry_snapshot_uses_observed_token_map_liquidity_and_drpc_is_retired() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("private fun observedLiquidityUsd7382(ts: TokenState): Double"))
+        assertTrue(ex.contains("tm.liquidityUsd?.takeIf { it.isFinite() && it > 0.0 }?.let { return it }"))
+        assertTrue(ex.contains("observedLiquidityUsd7321 = observedLiq7382,"))
+        assertTrue(ex.contains("if (!RuntimeModeAuthority.isPaper() && observedLiquidityUsd7382(ts) > 0.0) {"))
+        val rpcs = com.lifecyclebot.engine.RuntimeProviderAuthority6685.PUBLIC_SOLANA_RPCS
+        assertFalse(rpcs.any { it.contains("drpc") })
+        assertEquals("", com.lifecyclebot.engine.RuntimeProviderAuthority6685.sanitizeRpc("https://solana.drpc.org"))
     }
 }

@@ -4,6 +4,11 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7382] — live entry snapshot reads the liquidity the bot already observed
+
+- Executor entry snapshot: liquidity falls back from the price tick to the token map's discovered pool liquidity, then to on-chain curve reserves × SOL price. A price feed reporting liq=0 (pump curve tokens, fresh pools) no longer invalidates the snapshot; ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED was 11 of 14 live buy failures on 5.0.7381. The corroborated re-price retry uses the same observed liquidity.
+- RPC ladder: solana.drpc.org retired (0 of 14 calls answered, all 4xx, on 5.0.7381). Public fallbacks: publicnode, mainnet-beta.
+
 ## [5.0.7381] — working RPCs only; DexScreener feeds stop locking out enrichment
 
 - RPC ladder: removed ten keyless endpoints that no longer serve JSON-RPC (ankr, three rpcpool/Triton hosts, chainstack /1, extrnode, omniatech, blastapi, blockpi, jito). Public fallbacks are publicnode, mainnet-beta and drpc behind the configured Helius key. A saved RPC setting holding a retired endpoint is ignored.
