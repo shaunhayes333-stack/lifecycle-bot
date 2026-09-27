@@ -254,6 +254,16 @@ object ParallelMarkFanout7088 {
      */
     private fun merge7088(mint: String, quotes: List<Pair<String, Double>>): Mark7088 {
         val names = quotes.joinToString("+") { it.first }
+        // V5.0.7392 — the bonding curve IS the market for an un-graduated pump.fun
+        // token: every buy and sell executes against those reserves. A curve read
+        // is chain state, not one opinion among feeds, so it stands alone.
+        if (quotes.size == 1 && quotes[0].first == "PUMP_CURVE_RPC") {
+            corroborated.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("MARK_CURVE_CHAIN_STATE_AUTHORITATIVE_7392") } catch (_: Throwable) {}
+            // agreeingCount 2: downstream readers that require two agreeing feeds
+            // (cap rebuild, freshness guard) accept chain state as that proof.
+            return Mark7088(quotes[0].second, 1, 2, corroborated = true, spreadPct = 0.0, sources = names)
+        }
         if (quotes.size == 1) {
             single.incrementAndGet()
             try { PipelineHealthCollector.labelInc("MARK_SINGLE_SOURCE_UNCORROBORATED_7088") } catch (_: Throwable) {}
@@ -604,7 +614,14 @@ object ParallelMarkFanout7088 {
         return if (host.isBlank()) "solana_rpc" else "rpc_$host"
     }
 
-    private fun pumpCurveRpcFanout7269(mints: List<String>): Map<String, Double> {
+    /**
+     * V5.0.7392 — read [mints]' bonding curves directly (the caller already knows
+     * these are curve positions, from the token register). Uses the derived PDA.
+     */
+    internal fun curvePrices7392(mints: List<String>): Map<String, Double> =
+        pumpCurveRpcFanout7269(mints, explicitCurve7392 = true)
+
+    private fun pumpCurveRpcFanout7269(mints: List<String>, explicitCurve7392: Boolean = false): Map<String, Double> {
         val url = rpcUrl
         if (url.isBlank()) return emptyMap()
         val solUsd = solUsd7269()
@@ -627,8 +644,15 @@ object ParallelMarkFanout7088 {
         // a single endpoint when the RPC ladder has a dozen. One request per
         // rung, the ladder walked until a rung answers, and a block that is
         // this app's own is counted as such and never written as evidence.
-        val targets = mints.mapNotNull { m -> PumpCurveKeys7269.keyFor(m)?.let { m to it } }
-            .take(CURVE_MAX_MINTS_7269)
+        // V5.0.7392 — the curve account is DERIVED from the mint (canonical PDA),
+        // so a mint the WS never announced, or whose remembered key was lost on
+        // restart, is still read. Graduated mints are skipped (their curve is done).
+        val targets = mints.mapNotNull { m ->
+            val pumpLike7392 = explicitCurve7392 || PumpCurveKeys7269.keyFor(m) != null ||
+                m.endsWith("pump", ignoreCase = true)
+            if (!pumpLike7392 || PumpCurveKeys7269.isGraduated7392(m)) null
+            else (PumpCurveKeys7269.canonicalCurveKey7392(m) ?: PumpCurveKeys7269.keyFor(m))?.let { m to it }
+        }.take(CURVE_MAX_MINTS_7269)
         if (targets.isEmpty()) return emptyMap()
         val rungs7279 = (try {
             com.lifecyclebot.engine.RuntimeProviderAuthority6685.rpcCandidates(url).take(CURVE_LADDER_RUNGS_7279)
@@ -723,7 +747,7 @@ object ParallelMarkFanout7088 {
                         val vTok = readU64Le7269(bytes, 8)
                         val vSol = readU64Le7269(bytes, 16)
                         val complete = (bytes[48].toInt() and 0xFF) != 0
-                        if (complete) { skippedComplete++; continue }
+                        if (complete) { skippedComplete++; PumpCurveKeys7269.markGraduated7392(mint); continue }
                         if (vTok <= 0.0 || vSol <= 0.0) { PipelineHealthCollector.labelInc("PUMP_CURVE_RPC_ZERO_RESERVES_7278"); continue }
                         val priceSol = (vSol / 1e9) / (vTok / Math.pow(10.0, PUMP_TOKEN_DECIMALS_7269.toDouble()))
                         val px = priceSol * solUsd

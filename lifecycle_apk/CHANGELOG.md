@@ -4,6 +4,26 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7392] — held positions priced from their locked venue; flat positions and wins exit
+
+Operator: "the exit loop isn't firing, heaps of flat held tokens, big wins not settled" and "we have an on-board token register — we shouldn't have stale or unknown prices; it stores full details on discovery then locks in at purchase."
+
+Pricing held positions (the root cause)
+- The exit tick asked DexScreener's by-mint batch first, which does not list bonding-curve tokens (MARK_BATCH_EMPTY_6970 = 333 of 364 ticks), then a fan-out whose single answers were labelled untrusted, so locks, partials and culls refused them.
+- Held positions are now priced from the venue the token register sealed at purchase (LockedVenueMarks7392): an un-graduated pump.fun token from its bonding curve, read on-chain; anything else from the exact pool it was bought from (by pool address, base token must be the mint — never a "best pair" guess). The old chain only sees what this could not price.
+- The bonding-curve account is derived from the mint (pump.fun PDA). It was remembered only from live create frames, in memory: lost on every restart and empty for 383 of 586 reads on 5.0.7389.
+- A curve read, or any locked-venue read, is the executable market for the position: it counts as corroborated, lifts untrusted-mark suppression, feeds the repair cache and rebuilds the market cap from supply.
+
+Wins get banked
+- The tick profit lock remembers the highest floor it earned per position (it was recomputed from the current tick, so a stale or skipped tick forgot it). A price that gaps from above the floor to below zero sells on the lock instead of waiting for the stop.
+- The dispatch re-check uses the same executable-price basis as the decision (raw lastPrice differed by 5+ points 249 times).
+- The profit lock banks on a fresh trusted repaired mark (corroborated fan-out, curve or locked venue) instead of holding forever on a refused one, and requests a repair when there is none.
+- Profit-lock and peak exits get the 2 s emergency close retry, not the 20-30 s latch; an off-loop profit-lock sell may be re-requested after 10 s, not 60 s.
+
+Flat positions exit
+- The dead-money cull (-14% to +5%, no new high for 8 min) now applies to every lane after 20 min held (10 under inventory pressure); runner lanes waited 30 min and nearly the whole meme book is a runner lane. PROJECT_SNIPER, peaks >= +20% and banked positions stay exempt. The flat cull's mark freshness window is 120 s (was 60 s).
+- A quick-runner exit refused on an untrusted basis returned from the whole management pass, skipping every stop, lock and cull for that position; it now skips only the 10x exit.
+
 ## [5.0.7391] — crypto trades on the meme desk; crypto opens again
 
 Operator: "crypto is totally dead" and "crypto needs the same lanes, trading tools, signals, specialists as the meme trader."

@@ -838,6 +838,10 @@ class BotService : Service() {
     // mint; a sell still in flight after 60 s may be re-requested, so a hung
     // sell cannot pin its mint forever. The loop goes on pricing the book.
     private val offLoopSellsInFlight7288 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    // V5.0.7392 — the highest profit-lock floor each position has earned, keyed
+    // "mint|entryTime". The floor was recomputed from the current tick, so a
+    // stale or skipped tick could never remember a lock it had already earned.
+    private val tickLockFloor7392 = java.util.concurrent.ConcurrentHashMap<String, Double>()
     private val OFF_LOOP_SELL_RETRY_MS_7288 = 60_000L
 
     private fun requestSellOffLoop7288(
@@ -848,7 +852,10 @@ class BotService : Service() {
     ) {
         val now = System.currentTimeMillis()
         val prior = offLoopSellsInFlight7288[ts.mint]
-        if (prior != null && now - prior < OFF_LOOP_SELL_RETRY_MS_7288) {
+        // V5.0.7392 — a profit-lock sell may be re-requested after 10 s (a hung
+        // first request pinned the win for 60 s while it gave back the peak).
+        val retryMs7392 = if (reason.contains("PROFIT_LOCK") || reason.contains("PEAK")) 10_000L else OFF_LOOP_SELL_RETRY_MS_7288
+        if (prior != null && now - prior < retryMs7392) {
             try { PipelineHealthCollector.labelInc("TICK_SELL_OFF_LOOP_COALESCED_7288") } catch (_: Throwable) {}
             return
         }
@@ -11304,7 +11311,6 @@ class BotService : Service() {
                     m.length in 32..44 && m.none { it == '|' || it == ':' || it == '/' }
                 }
                 val nonSolanaSkipped6970 = openMints.size - solanaMints6970.size
-                val chunks = solanaMints6970.chunked(30)
                 val priceMap = HashMap<String, Double>(solanaMints6970.size)
                 // V5.0.6999 §THE_MARKS_ARRIVED_AND_THE_EXIT_ENGINE_NEVER_HEARD.
                 //
@@ -11313,6 +11319,22 @@ class BotService : Service() {
                 // at the bottom of this loop for why that stopped the bot
                 // trading.
                 val markSource6999 = HashMap<String, String>(solanaMints6970.size)
+                // V5.0.7392 — LOCKED VENUE FIRST. The token register sealed each
+                // position's venue at purchase: an un-graduated pump.fun token is
+                // priced from its bonding curve (chain state, PDA derived from the
+                // mint), anything else from the exact pool it was bought from. The
+                // by-mint DexScreener batch below does not list curve tokens at all
+                // (MARK_BATCH_EMPTY_6970 = 333 of 364 ticks on 5.0.7389), so it and
+                // the fan-out now only see what the locked venue could not price.
+                openPosPhase7283("locked_venue")
+                val locked7392 = try {
+                    com.lifecyclebot.network.LockedVenueMarks7392.resolve(solanaMints6970, dex)
+                } catch (_: Throwable) { emptyMap() }
+                for ((m7392, mk7392) in locked7392) {
+                    priceMap[m7392] = mk7392.priceUsd
+                    markSource6999[m7392] = mk7392.source
+                }
+                val chunks = solanaMints6970.filter { it !in locked7392 }.chunked(30)
                 var rateLimitedChunks6970 = 0
                 if (chunks.size == 1) {
                     val one = try { dex.batchPriceFetch(chunks[0]) } catch (_: Throwable) { emptyMap() }
@@ -11934,11 +11956,21 @@ class BotService : Service() {
                     // corroboration counters mean independent feeds rather than
                     // the derivation checks the other four organs call
                     // "corroborated".
-                    val agreeing7188 = try {
+                    // V5.0.7392 — a locked-venue read is the executable market for
+                    // this position (curve reserves, or the exact pool it was bought
+                    // from): it counts as corroborated, and it lifts any untrusted-
+                    // mark suppression, because the identity is locked.
+                    val lockedVenue7392 = resolvedSource6999.startsWith("LOCKED_VENUE_")
+                    val agreeing7188 = if (lockedVenue7392) 2 else try {
                         // V5.0.7347 — was a Regex compiled per mint per 1s tick.
                         resolvedSource6999.substringAfterLast("_x", "").takeIf { it.isNotEmpty() && it.all(Char::isDigit) }
                             ?.toIntOrNull() ?: 1
                     } catch (_: Throwable) { 1 }
+                    if (lockedVenue7392) {
+                        try {
+                            com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.recordLockedVenue7392(mint, priceUsd, resolvedSource6999)
+                        } catch (_: Throwable) {}
+                    }
                     try {
                         com.lifecyclebot.engine.truth.QuoteFreshnessGuard6452.note(
                             mint = mint,
@@ -11970,7 +12002,7 @@ class BotService : Service() {
                             val supply7269 = com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.supplyOf7075(mint)
                             if (supply7269 > 0.0) {
                                 val fromStack7269 = resolvedSource6999.contains("JUPITER_QUOTE") ||
-                                    resolvedSource6999.contains("PUMP_CURVE_RPC")
+                                    resolvedSource6999.contains("PUMP_CURVE_RPC") || lockedVenue7392
                                 // V5.0.7270 — a stale cap alone does not license a
                                 // rebuild from a single uncorroborated quote (7267
                                 // carried a 73,496x one-source quote); corroboration,
@@ -12283,7 +12315,36 @@ class BotService : Service() {
                                     } catch (_: Throwable) { Double.NaN }
                                     // V5.0.7277 — a runner lane's give-back lock waits for a
                                     // +50% peak; "peak14 now11" is not a runner outcome.
-                                    if (!lockedFloor.isNaN() && lockedFloor > 0.0 && !runnerLockDeferred7277) {
+                                    // V5.0.7392 — the lock remembers the highest floor it earned.
+                                    val floorKey7392 = "${ts.mint}|${pos.entryTime}"
+                                    val storedFloor7392 = if (runnerLockDeferred7277) Double.NaN else {
+                                        val prior7392 = tickLockFloor7392[floorKey7392]
+                                        val next7392 = when {
+                                            lockedFloor.isNaN() || lockedFloor <= 0.0 -> prior7392
+                                            prior7392 == null -> lockedFloor
+                                            else -> maxOf(prior7392, lockedFloor)
+                                        }
+                                        if (next7392 != null) {
+                                            if (tickLockFloor7392.size > 5_000) tickLockFloor7392.clear()
+                                            tickLockFloor7392[floorKey7392] = next7392
+                                        }
+                                        next7392 ?: Double.NaN
+                                    }
+                                    // A price that gapped from above an earned floor to below
+                                    // zero (but not into the hard-floor band handled above)
+                                    // still sells on the lock instead of waiting for the stop.
+                                    val gappedThrough7392 = !storedFloor7392.isNaN() && storedFloor7392 > 0.0 &&
+                                        pnlPctNow <= 0.0 && pnlPctNow > TICK_HARD_FLOOR_PCT && !phantomRead
+                                    if (gappedThrough7392) {
+                                        try { PipelineHealthCollector.labelInc("TICK_PROFIT_LOCK_GAPPED_THROUGH_7392") } catch (_: Throwable) {}
+                                        try {
+                                            val cfgTick = ConfigStore.load(applicationContext)
+                                            requestSellOffLoop7288(ts,
+                                                "TICK_PROFIT_LOCK_GAPPED_peak${peakPct.toInt()}_floor${storedFloor7392.toInt()}_now${pnlPctNow.toInt()}",
+                                                walletManager.getWallet(), status.getEffectiveBalance(cfgTick.paperMode))
+                                        } catch (_: Throwable) {}
+                                    } else if (!storedFloor7392.isNaN() && storedFloor7392 > 0.0 && !runnerLockDeferred7277) {
+                                        val lockedFloor = storedFloor7392
                                         // V5.0.7182 §THE_GUILLOTINE_AT_200_PERCENT.
                                         //
                                         // Was:
@@ -12368,11 +12429,9 @@ class BotService : Service() {
                                             // this lock attempt and let the next tick or the
                                             // stop-loss path own the exit. Winners never bank as
                                             // losses under this doctrine.
-                                            val pnlAtDispatch = try {
-                                                if (pos.entryPrice > 0.0 && ts.lastPrice > 0.0)
-                                                    (ts.lastPrice - pos.entryPrice) / pos.entryPrice * 100.0
-                                                else pnlPctNow
-                                            } catch (_: Throwable) { pnlPctNow }
+                                            // V5.0.7392 — the same executable-price basis the decision
+                                            // used; the raw ts.lastPrice differed by 5+ pts 249 times.
+                                            val pnlAtDispatch = pnlPctNow
                                             if (pnlAtDispatch < 0.5) {
                                                 try {
                                                     ForensicLogger.lifecycle(

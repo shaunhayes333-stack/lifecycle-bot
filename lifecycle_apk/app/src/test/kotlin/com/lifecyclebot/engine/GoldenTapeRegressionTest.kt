@@ -10352,7 +10352,7 @@ class GoldenTapeRegressionTest {
         assertTrue(com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(30.0, 5.0, "BLUECHIP"))
         assertTrue(peak.contains("if (peakPnlPct < RunnerExitProfile7277.armThresholdPct(lane, ARM_THRESHOLD_PCT)) return false"))
         assertTrue(tuner.contains("st.tpMult = shrunkTp7186.coerceIn(tpFloor7277, TP_MAX)"))
-        assertTrue(bot.contains("if (!lockedFloor.isNaN() && lockedFloor > 0.0 && !runnerLockDeferred7277) {"))
+        assertTrue(bot.contains("} else if (!storedFloor7392.isNaN() && storedFloor7392 > 0.0 && !runnerLockDeferred7277) {"))
         assertTrue(bot.contains("oneStrikeCatastrophic4588 || runnerEarlyCut7277 || runnerFloor7330 || genericTwoStrike7369"))
         assertTrue(bot.contains("else if (runnerEarlyCut7277) \"RUNNER_EARLY_CUT_\${laneName4588}_\${pnlPctNow.toInt()}PCT_7277\""))
         assertTrue(runner.contains("const val MIN_PEAK_FOR_GIVEBACK_LOCK_PCT = 50.0"))
@@ -10407,7 +10407,7 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("ts.lastPriceSource = \"PUMP_PORTAL_TRADE_WS_7278\""))
 
         // Curve read: key is the evidence; every exit named.
-        assertTrue(fan.contains("val targets = mints.mapNotNull { m -> PumpCurveKeys7269.keyFor(m)?.let { m to it } }"))
+        assertTrue(fan.contains("(PumpCurveKeys7269.canonicalCurveKey7392(m) ?: PumpCurveKeys7269.keyFor(m))?.let { m to it }"))
         assertFalse(fan.contains("if (!PumpFunDirectApi.isPumpFunMint(m)) null"))
         assertTrue(fan.contains("PUMP_CURVE_RPC_NO_ACCOUNT_7278"))
         assertTrue(fan.contains("PUMP_CURVE_RPC_HTTP_FAIL_7278"))
@@ -12395,5 +12395,29 @@ class GoldenTapeRegressionTest {
         // Pure desk helpers.
         assertTrue(com.lifecyclebot.perps.CryptoLaneDesk7391.laneFromReasons(listOf("x", "LANE7391=QUALITY desk=CORE")) == "QUALITY")
         assertTrue(com.lifecyclebot.perps.CryptoLaneDesk7391.laneFromReasons(listOf("x")) == "")
+    }
+
+
+    @Test
+    fun V5_0_7392_held_positions_priced_from_their_locked_venue_and_exits_fire() {
+        // The bonding curve is derived from the mint (pump.fun's global PDA as the check vector).
+        assertTrue(com.lifecyclebot.network.PumpCurveKeys7269.findProgramAddress7392(
+            listOf("global".toByteArray()), "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+        ) == "4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf")
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("com.lifecyclebot.network.LockedVenueMarks7392.resolve(solanaMints6970, dex)"))
+        assertTrue(bot.contains("val chunks = solanaMints6970.filter { it !in locked7392 }.chunked(30)"))
+        assertTrue(bot.contains("MarkIdentityRepairAuthority7236.recordLockedVenue7392(mint, priceUsd, resolvedSource6999)"))
+        assertTrue(bot.contains("TICK_PROFIT_LOCK_GAPPED_THROUGH_7392"))
+        assertTrue(bot.contains("val pnlAtDispatch = pnlPctNow"))
+        val fan = java.io.File("src/main/kotlin/com/lifecyclebot/network/ParallelMarkFanout7088.kt").readText()
+        assertTrue(fan.contains("MARK_CURVE_CHAIN_STATE_AUTHORITATIVE_7392"))
+        val dex = java.io.File("src/main/kotlin/com/lifecyclebot/network/DexscreenerApi.kt").readText()
+        assertTrue(dex.contains("https://api.dexscreener.com/latest/dex/pairs/solana/"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("val minAgeMs7388 = 20L * 60_000L / (if (pressure7388) 2L else 1L)"))
+        assertTrue(ex.contains("PROFIT_LOCK_ON_REPAIRED_MARK_7392"))
+        val close = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").readText()
+        assertTrue(close.contains("\"PROFIT_LOCK\", \"PEAK_LOCK\", \"PEAK_CAPTURE\""))
     }
 }

@@ -195,6 +195,19 @@ object MarkIdentityRepairAuthority7236 {
         return e.priceUsd
     }
 
+    /**
+     * V5.0.7392 — a price read from the position's locked venue (its bonding
+     * curve, or the exact pool sealed at purchase) is identity-true by
+     * construction: cache it as the repaired mark and lift any untrusted-mark
+     * suppression, so locks, partials and culls act on it.
+     */
+    fun recordLockedVenue7392(mint: String, priceUsd: Double, source: String) {
+        if (mint.isBlank() || !priceUsd.isFinite() || priceUsd <= 0.0) return
+        cache[mint] = Repaired(priceUsd, source, System.currentTimeMillis())
+        val lifted = try { MarkIdentityExecutionGate7230.markRepairedUsable7243(mint) } catch (_: Throwable) { false }
+        if (lifted) try { PipelineHealthCollector.labelInc("MARK_SUPPRESSION_LIFTED_BY_LOCKED_VENUE_7392") } catch (_: Throwable) {}
+    }
+
     fun getRepairedPriceIfFresh(mint: String): Double? {
         if (mint.isBlank()) return null
         val entry = cache[mint] ?: return null

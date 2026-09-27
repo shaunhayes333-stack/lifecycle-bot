@@ -369,7 +369,9 @@ object MarkAuthorityIntegrityGate6496 {
         // labelled at all. Scanner names (MARKET_HUNT_*, SCANNER_DIRECT_*) are
         // not price providers and stay refused.
         val sourceUpper = source.trim().uppercase().removePrefix("KEYLESS_")
-        if (sourceUpper.startsWith("FANOUT_CORROBORATED_7088") || sourceUpper == "FANOUT_UNCORROBORATED_7088") {
+        // V5.0.7392 — a locked-venue read (the position's own curve or sealed pool).
+        if (sourceUpper.startsWith("FANOUT_CORROBORATED_7088") || sourceUpper == "FANOUT_UNCORROBORATED_7088" ||
+            sourceUpper.startsWith("LOCKED_VENUE_")) {
             try { PipelineHealthCollector.labelInc("OBSERVATION_MARK_FANOUT_ADMITTED_7341") } catch (_: Throwable) {}
             return true
         }

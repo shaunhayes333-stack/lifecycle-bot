@@ -116,7 +116,7 @@ private const val PAPER_GAIN_CLAMP_PCT_7271: Double = 1000.0
 private const val FLAT_CULL_MIN_HOLD_MS_7353: Long = 20L * 60_000L
 private const val FLAT_CULL_MAX_PEAK_PCT_7353: Double = 10.0
 private const val FLAT_CULL_BAND_PCT_7353: Double = 3.0
-private const val FLAT_CULL_MARK_MAX_AGE_MS_7353: Long = 60_000L
+private const val FLAT_CULL_MARK_MAX_AGE_MS_7353: Long = 120_000L  // V5.0.7392 — was 60 s; matches the 7388 cull
 
 // V5.0.6904 — evidence thresholds for the catastrophic backstop.
 //
@@ -6313,7 +6313,7 @@ class Executor(
         // sanity ceiling already used on the journal path.
         val histRef = ts.history.lastOrNull { it.priceUsd > 0 && it.priceUsd.isFinite() }?.priceUsd
         val priceMoveMultiple = if (pos.entryPrice > 0.0 && actualPrice > 0.0) actualPrice / pos.entryPrice else rawGainMultiple
-        val gainMultiple = when {
+        val gainMultipleRaw7392 = when {
             !rawGainMultiple.isFinite() || rawGainMultiple <= 0.0 -> 1.0
             // If the position-derived multiple is wildly larger than the actual price
             // move (basis corruption), trust the price move, not the corrupted qty/basis.
@@ -6362,13 +6362,30 @@ class Executor(
         val pricingTruth7049 = try {
             OpenPnlSanity.pricingTruth(ts, "Executor.profitLock/${ts.symbol}/${ts.mint.take(8)}", emit = false)
         } catch (_: Throwable) { null }
-        if (pricingTruth7049 != null && !pricingTruth7049.trusted && gainMultiple > 1.0) {
+        // V5.0.7392 — a refused mark no longer strands the win: when the repair
+        // authority holds a fresh price from a corroborated fan-out or the pump
+        // curve itself, the lock banks on THAT price. Otherwise it asks for a
+        // repair (it never did) and holds as before.
+        val repairedGain7392: Double? = if (pricingTruth7049 != null && !pricingTruth7049.trusted && gainMultipleRaw7392 > 1.0) {
+            val rp7392 = try { com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getRepairedPriceIfFresh(ts.mint) } catch (_: Throwable) { null }
+            val src7392 = try { com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getRepairedSource(ts.mint).uppercase() } catch (_: Throwable) { "" }
+            val trustedSrc7392 = src7392.startsWith("FANOUT_CORROBORATED") || src7392.contains("PUMP_CURVE") ||
+                src7392.startsWith("LOCKED_VENUE_")
+            if (rp7392 != null && rp7392.isFinite() && rp7392 > 0.0 && pos.entryPrice > 0.0 && trustedSrc7392) {
+                try { PipelineHealthCollector.labelInc("PROFIT_LOCK_ON_REPAIRED_MARK_7392") } catch (_: Throwable) {}
+                rp7392 / pos.entryPrice
+            } else {
+                try { com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.requestRepair(ts.mint, "Executor.profitLock7392") } catch (_: Throwable) {}
+                null
+            }
+        } else null
+        if (repairedGain7392 == null && pricingTruth7049 != null && !pricingTruth7049.trusted && gainMultipleRaw7392 > 1.0) {
             try {
                 PipelineHealthCollector.labelInc("PROFIT_LOCK_REFUSED_UNTRUSTED_BASIS_7049")
                 ForensicLogger.lifecycle(
                     "PROFIT_LOCK_REFUSED_UNTRUSTED_BASIS_7049",
                     "mint=${ts.mint.take(10)} sym=${ts.symbol} entry=${pos.entryPrice} mark=$actualPrice " +
-                        "gainMultiple=${"%.2f".format(gainMultiple)} costSol=${"%.4f".format(pos.costSol)} " +
+                        "gainMultipleRaw7392=${"%.2f".format(gainMultipleRaw7392)} costSol=${"%.4f".format(pos.costSol)} " +
                         "reason=${pricingTruth7049.reason} src=${ts.lastPriceSource} " +
                         "action=hold_position_no_bank_on_refused_mark",
                 )
@@ -6377,6 +6394,7 @@ class Executor(
             // depend on this mark — stop loss, catastrophe, time — still runs.
             return false
         }
+        val gainMultiple = repairedGain7392 ?: gainMultipleRaw7392
         val currentValue = pos.costSol * gainMultiple
         val gainPct = (gainMultiple - 1.0) * 100.0
 
@@ -8607,8 +8625,10 @@ class Executor(
                         } catch (_: Throwable) {}
                         // Fall through to regular exit gating instead of firing
                         // the profit-lock branch on a lie.
-                        return
-                    }
+                        // V5.0.7392 — this `return` left runManageOnly entirely,
+                        // skipping stops, locks and culls for the position. It now
+                        // skips only the 10x exit and the rest of management runs.
+                    } else {
                     try {
                         ForensicLogger.lifecycle(
                             "QUICK_RUNNER_EMERGENCY_FULL_EXIT",
@@ -8619,6 +8639,7 @@ class Executor(
                     onLog("🚀🚀 QUICK RUNNER 10x EXIT: ${ts.symbol} +${bestPnl.toInt()}% — dual-source confirmed, full exit NOW", ts.mint)
                     doSell(ts, "QUICK_RUNNER_10X_FULL_EXIT", wallet, walletSol)
                     return
+                    }
                 } else if (bothConfirm6x) {
                     try {
                         ForensicLogger.lifecycle(
@@ -9413,8 +9434,12 @@ class Executor(
                 com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.pressureLevel() >=
                     com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.Pressure.HIGH
             } catch (_: Throwable) { false }
-            val runner7388 = try { RunnerExitProfile7277.isRunnerLane(lane7388) } catch (_: Throwable) { true }
-            val minAgeMs7388 = (if (runner7388) 30L else 20L) * 60_000L / (if (pressure7388) 2L else 1L)
+            // V5.0.7392 — one window for every lane. Runner lanes waited 30 min
+            // (15 under pressure) and nearly the whole meme book is a runner lane,
+            // so the cull almost never reached a flat meme position. A runner that
+            // is running makes new highs and is never culled; peaks >= +20% and
+            // banked positions stay exempt as before.
+            val minAgeMs7388 = 20L * 60_000L / (if (pressure7388) 2L else 1L)
             val noHighMs7388 = (if (pressure7388) 5L else 8L) * 60_000L
             val lastHigh7388 = lastNewHighMs7388["${ts.mint}|${p7388.entryTime}"] ?: return@run
             val now7388 = System.currentTimeMillis()

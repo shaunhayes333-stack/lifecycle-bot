@@ -308,6 +308,34 @@ class DexscreenerApi {
      * Used by BotService.openPositionTickLoop. Do NOT use this for scanner
      * intake — that path has its own caching and scoring needs.
      */
+    /**
+     * V5.0.7392 — price EXACT pools. The token register seals the pool a position
+     * was bought from; this reads that pool and nothing else, so the "best pair"
+     * guess (the source of the 283x wrong-pair marks) is never involved.
+     * Returns pairAddress -> (baseMint, priceUsd). Up to 30 pools per call.
+     */
+    fun pairPriceFetch7392(pairAddresses: List<String>): Map<String, Pair<String, Double>> {
+        val wanted = pairAddresses.map { it.trim() }.filter { it.length in 32..44 }.distinct()
+        if (wanted.isEmpty()) return emptyMap()
+        if (!RateLimiter.allowRequest("dexscreener")) return emptyMap()
+        val url = "https://api.dexscreener.com/latest/dex/pairs/solana/${wanted.take(30).joinToString(",")}"
+        val body = get(url) ?: return emptyMap()
+        val out = HashMap<String, Pair<String, Double>>()
+        try {
+            val root = JSONObject(body)
+            val arr = root.optJSONArray("pairs") ?: root.optJSONObject("pair")?.let { JSONArray().put(it) } ?: return emptyMap()
+            for (i in 0 until arr.length()) {
+                val p = arr.optJSONObject(i) ?: continue
+                val pairAddr = p.optString("pairAddress", "").trim()
+                val base = p.optJSONObject("baseToken")?.optString("address", "")?.trim().orEmpty()
+                val px = p.optString("priceUsd", "0").toDoubleOrNull() ?: 0.0
+                if (pairAddr.isBlank() || base.isBlank() || !px.isFinite() || px <= 0.0) continue
+                out[pairAddr] = base to px
+            }
+        } catch (_: Throwable) {}
+        return out
+    }
+
     fun batchPriceFetch(mints: List<String>): Map<String, Double> {
         if (mints.isEmpty()) return emptyMap()
         if (!RateLimiter.allowRequest("dexscreener")) return emptyMap()

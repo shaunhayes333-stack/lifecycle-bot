@@ -57,6 +57,9 @@ object PaperPositionCloseAuthority {
             // not contain "CATASTROPHE" and sat out the full 20-30s latch.
             "STALE", "MAX_HOLD", "CATASTROPHE", "CATASTROPHIC", "ZOMBIE", "MUST_SELL",
             "EMERGENCY", "RUG", "HARD_FLOOR", "PHANTOM", "SHUTDOWN",
+            // V5.0.7392 — banking a win is time-critical too: a give-back exit
+            // that sat out the 20-30s latch closed a +224% peak at +4%.
+            "PROFIT_LOCK", "PEAK_LOCK", "PEAK_CAPTURE", "PEAK_DRAWDOWN", "PROFIT_FLOOR", "MFE_FLOOR",
         ).any { r.contains(it) }
     }
 
