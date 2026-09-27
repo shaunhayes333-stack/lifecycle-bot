@@ -12026,6 +12026,7 @@ class BotService : Service() {
                             highUsd = priceUsd,
                             lowUsd = priceUsd,
                             openUsd = priceUsd,
+                            synthetic = true, // V5.0.7389 — no real OHLCV volume
                         )
                         synchronized(ts.history) {
                             ts.history.addLast(candle)
@@ -12195,7 +12196,13 @@ class BotService : Service() {
                                 val catastrophicLane4588 =
                                     laneName4588 == "MANIPULATED" ||
                                     laneName4588 == "SHITCOIN" ||
-                                    laneName4588 == "EXPRESS"
+                                    laneName4588 == "EXPRESS" ||
+                                    // V5.0.7389 — QUALITY/BLUECHIP/CORE rugs also gap between
+                                    // ticks; their -10% tick floor is first strike too.
+                                    laneName4588 == "QUALITY" ||
+                                    laneName4588 == "BLUECHIP" ||
+                                    laneName4588 == "BLUE_CHIP" ||
+                                    laneName4588 == "CORE"
                                 val oneStrikeCatastrophic4588 = catastrophicLane4588 && !phantomRead && pnlPctNow <= TICK_HARD_FLOOR_PCT
                                 // V5.0.7277 — a runner-lane launch that is -20% inside its
                                 // first two minutes did not launch; first strike, no grace.
@@ -12217,12 +12224,20 @@ class BotService : Service() {
                                     RunnerExitProfile7277.isRunnerLane(laneName4588)
                                 } catch (_: Throwable) { false }
                                 val runnerFloor7330 = !phantomRead && pnlPctNow <= RUNNER_LANE_FLOOR_PCT_7330 && runnerLane7369
+                                // V5.0.7389 — a MOONSHOT position exits at its OWN lane stop
+                                // (early -5 before +8% peak, -10 inside 12 min, hard floor after)
+                                // on the tick, instead of sitting until the generic -15 floor.
+                                val moonshotStop7389: Double? = if (laneName4588.startsWith("MOONSHOT")) try {
+                                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.stopFor(ts.mint)
+                                } catch (_: Throwable) { null } else null
+                                val moonshotLaneStop7389 = !phantomRead && moonshotStop7389 != null && pnlPctNow <= moonshotStop7389
                                 // V5.0.7369 — a runner lane's floor is its own -15%, not the
                                 // generic -10% two-strike; 5.0.7368 live snipers were cut at
                                 // -10/-12/-13 inside the band their lane holds through.
                                 // MANIPULATED/SHITCOIN/EXPRESS keep their one-strike -10.
                                 val genericTwoStrike7369 = !phantomRead && twoStrike && !runnerLane7369
-                                if (pnlPctNow <= TICK_HARD_FLOOR_PCT && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || runnerEarlyCut7277 || runnerFloor7330 || genericTwoStrike7369)) {
+                                if (moonshotLaneStop7389 || (pnlPctNow <= TICK_HARD_FLOOR_PCT && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || runnerEarlyCut7277 || runnerFloor7330 || genericTwoStrike7369))) {
+                                    if (moonshotLaneStop7389) try { PipelineHealthCollector.labelInc("TICK_MOONSHOT_LANE_STOP_7389") } catch (_: Throwable) {}
                                     ErrorLogger.warn("BotService",
                                         "🛑 TICK_HARD_FLOOR ${ts.symbol} ${"%.1f".format(pnlPctNow)}% " +
                                         "≤ ${TICK_HARD_FLOOR_PCT.toInt()}% — immediate exit (peak=${"%.1f".format(peakPct)}% catastrophic=$catastrophicConfirmed4485 oneStrikeLane=$oneStrikeCatastrophic4588)")
@@ -12648,6 +12663,18 @@ class BotService : Service() {
         return try {
             val laneKey = lane.uppercase().replace('-', '_').replace(' ', '_')
             if (laneKey !in setOf("QUALITY", "BLUECHIP", "BLUE_CHIP", "TREASURY", "CASHGEN", "MOONSHOT", "STANDARD")) return null
+            // V5.0.7389 — a lane's own hard criterion (its mcap/liquidity band, age,
+            // holder concentration, minimum quality) is its design, not a near-miss
+            // the bridge may rescue. It rescues only soft/timing refusals.
+            val hardLaneReject7389 = blockedReason.uppercase().let { b ->
+                b.startsWith("MCAP") || b.contains("MCAP_TOO") || b.startsWith("LIQ") || b.contains("LIQUIDITY_TOO") ||
+                    b.contains("TOP HOLDER") || b.contains("TOO NEW") || b.contains("QUALITY SCORE TOO LOW") ||
+                    b.contains("TOO FEW HOLDERS") || b.startsWith("MEME COIN")
+            }
+            if (hardLaneReject7389) {
+                try { PipelineHealthCollector.labelInc("TOOLKIT_BRIDGE_REFUSED_HARD_LANE_REJECT_7389") } catch (_: Throwable) {}
+                return null
+            }
             if (ts.safety.isBlocked || ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK || ts.safety.hardBlockReasons.isNotEmpty()) return null
             val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() } ?: 0.0
             if (liq < 1_500.0) return null
@@ -12664,7 +12691,8 @@ class BotService : Service() {
                 sheet.chartPattern.contains("smart_wallet", true) || sheet.chartPattern.contains("quality", true)
             if (!setupGood && !laneVoted && !chartGood) return null
             val conf = sheet.confidence.coerceIn(0.0, 100.0)
-            val score = maxOf(conf.toInt(), (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(0, 100), 42).coerceIn(25, 88)
+            // V5.0.7389 — the real score: no 42 floor lifting every bridged candidate.
+            val score = maxOf(conf.toInt(), (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(0, 100)).coerceIn(0, 88)
             val sizeBase = when (laneKey) {
                 "QUALITY" -> 0.020
                 "BLUECHIP", "BLUE_CHIP" -> 0.018
@@ -12693,6 +12721,23 @@ class BotService : Service() {
             } catch (_: Throwable) {}
             ToolkitGoodLaneBridge6022(laneKey, score, size, tp, sl, reason)
         } catch (_: Throwable) { null }
+    }
+
+    // V5.0.7389 — a specialist lane is admitted on ITS OWN score. The global V3
+    // decision's entryScore/aiConfidence are often 0 for lane-owned candidates,
+    // which fired EXPLORATION_BUDGET_REFUSED_ZERO_SIGNAL and showed
+    // FLUID_SCORE_SCAFFOLD effective=0. Raise (never lower) both to the lane score.
+    private fun laneScoredBase7389(
+        base: com.lifecyclebot.data.CandidateDecision,
+        laneScore: Double,
+    ): com.lifecyclebot.data.CandidateDecision {
+        if (!laneScore.isFinite() || laneScore <= 0.0) return base
+        val s7389 = laneScore.coerceIn(0.0, 100.0)
+        if (base.entryScore >= s7389 && base.aiConfidence >= s7389) return base
+        return base.copy(
+            entryScore = maxOf(base.entryScore, s7389),
+            aiConfidence = maxOf(base.aiConfidence, s7389),
+        )
     }
 
     private fun laneQualifiedBuyDecision(
@@ -13017,19 +13062,9 @@ class BotService : Service() {
             } catch (_: Throwable) {}
             // Fall through — downstream sizing stack applies heavy penalty via
             // laneQualityPenalty6011 below (score reduced so only dust-size fires).
-        } else if (manipulatedOnlyOverlay4553 && !lane.equals("MANIPULATED", ignoreCase = true)) {
-            // V5.0.6483 — learned lane pause cannot stamp a scanner hard reject.
-            try {
-                PipelineHealthCollector.labelInc("MANIPULATED_ONLY_NON_MANIPULATED_LANE_REJECTED_4553")
-                PipelineHealthCollector.labelInc("PREFDG_DROP_MANIPULATED_ONLY_${lane.uppercase()}")
-                ForensicLogger.lifecycle("MANIPULATED_ONLY_NON_MANIPULATED_LANE_REJECTED_4553", "lane=$lane mint=${mintForProbe.take(10)} symbol=$edgeSymbol4529 topHolder=${tsForManipulatedOnly4553?.safety?.topHolderPct} reasons=${tsForManipulatedOnly4553?.safety?.softPenalties?.joinToString("|") { it.first }?.take(160)} action=reject_non_manipulated_lane")
-                LearningLifecycleBus.preFdgReject("MANIPULATED_ONLY_NON_MANIPULATED_LANE", lane, sourceForChop, mintForProbe, edgeSymbol4529, "MANIPULATED_ONLY_OVERLAY_4553", base.entryScore, base.aiConfidence, liquidityUsd, edgeMcap4529, edgeRegime4529)
-            } catch (_: Throwable) {}
-            return base.copy(
-                signal = "WAIT", finalSignal = "WAIT", shouldTrade = false,
-                blockReason = "MANIPULATED_ONLY_OVERLAY_NON_MANIPULATED_LANE_4553",
-            )
         }
+        // V5.0.7389 — removed dead `else if` whose condition duplicated manipOverlayDustProbe6011
+        // (unreachable since V5.0.6046); the dust-probe path above is the only behaviour.
         val laneBase0 = if (chopPenalty > 0) {
             try {
                 PipelineHealthCollector.labelInc("CHOP_FILTER_SOFT_SHAPED_4206")
@@ -13429,8 +13464,15 @@ class BotService : Service() {
                 forced != null || LaneEntryContract6342.isLaneIdentityEligible7252(ts, metricProposal6599)
             ) metricProposal6599 else stylePrimary
             val metricPrimary = if (forced != null || deskSheet6599.deskHypotheses.isEmpty() || deskSheet6599.deskHypotheses.containsKey(eligibleMetricProposal7252.uppercase())) eligibleMetricProposal7252 else stylePrimary
+            // V5.0.7389 — MANIPULATED is a danger signal, not a cycle owner; TREASURY
+            // (with CASHGEN folded into it) owns only tokens at its designed $1M mcap /
+            // $50k liquidity role floor — electing it on memes its own gate rejects
+            // left every other lane contributor-only (TREASURY/CASHGEN 0 intents).
+            val treasuryRoleOk7389 = ts.lastMcap >= TreasuryScannerFeed.MIN_TREASURY_MCAP && ts.lastLiquidityUsd >= TreasuryScannerFeed.MIN_TREASURY_LIQUIDITY
             val roleHypotheses6614 = deskSheet6599.deskHypotheses.values
-                .filter { it.lane.uppercase() in setOf("CORE", "EXPRESS", "MANIPULATED", "DIP_HUNTER", "TREASURY", "CASHGEN", "QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "MOONSHOT", "PROJECT_SNIPER") }
+                .filter { it.lane.uppercase() in setOf("CORE", "EXPRESS", "DIP_HUNTER", "TREASURY", "CASHGEN", "QUALITY", "BLUECHIP", "SHITCOIN", "CYCLIC", "MOONSHOT", "PROJECT_SNIPER") }
+                .filter { it.lane.uppercase() !in setOf("TREASURY", "CASHGEN") || treasuryRoleOk7389 }
+                .map { if (it.lane.equals("CASHGEN", true)) it.copy(lane = "TREASURY") else it }
                 .filter { LaneEntryContract6342.isLaneIdentityEligible7252(ts, it.lane) }
                 .filter { it.lane.uppercase() != "PROJECT_SNIPER" || it.setup in setOf(ToolkitSignalSheet.Setup.DEGEN_MICRO_SNIPE, ToolkitSignalSheet.Setup.PUMP_GRADUATION_SNIPE) }
             val rankedRoleHypotheses6614 = roleHypotheses6614
@@ -13442,9 +13484,22 @@ class BotService : Service() {
                 }
             val strongestRole6614 = rankedRoleHypotheses6614.firstOrNull()
             val secondRole6614 = rankedRoleHypotheses6614.getOrNull(1)
+            // V5.0.7389 — CORE is the ENSEMBLE lane (operator: "a combination of every
+            // lane and trader, for coins that don't pinpoint to a single lane but are
+            // worth trading"). It owns the token when at least two DIFFERENT lanes each
+            // independently rate it worth trading (conviction >= 45) and no single lane
+            // clearly dominates (gap <= 10, or the leader is below 65). The old rule
+            // (any near-tie within 3 points, however weak) elected CORE on noise.
+            val ensembleVoters7389 = rankedRoleHypotheses6614
+                .filter { it.conviction >= 45.0 }
+                .distinctBy { it.lane.uppercase() }
             val ensembleCoreFit6614 = strongestRole6614 != null && secondRole6614 != null &&
-                kotlin.math.abs(strongestRole6614.conviction - secondRole6614.conviction) <= 3.0 &&
-                strongestRole6614.conviction < 65.0 && deskSheet6599.deskHypotheses.containsKey("CORE")
+                ensembleVoters7389.size >= 2 &&
+                (strongestRole6614.conviction - secondRole6614.conviction <= 10.0 || strongestRole6614.conviction < 65.0) &&
+                LaneEntryContract6342.isLaneIdentityEligible7252(ts, "CORE")
+            if (ensembleCoreFit6614) {
+                try { PipelineHealthCollector.labelInc("CORE_ENSEMBLE_ELECTED_7389") } catch (_: Throwable) {}
+            }
             // V5.0.7297 — a specialist that hunted this token from the market
             // view owns it while the token is still inside that lane's band.
             val huntClaim7297: String? = if (forced != null) null else {
@@ -13794,11 +13849,17 @@ class BotService : Service() {
             } catch (_: Throwable) {}
             return specialistEvaluationAllowed6600
         }
-        fun qualityLaneProofOk(): Boolean {
+        // V5.0.7389 — per-lane owner proof at each lane's designed floor. One
+        // $25k mcap / $15k liq proof gated both QUALITY ($75k design floor) and
+        // BLUECHIP ($1M / $50k liquidity design floor).
+        fun qualityLaneProofOk(lane7389: String = "QUALITY"): Boolean {
             val routeProof = ts.lastPrice > 0.0 && (ts.lastPriceSource.isNotBlank() || ts.source.isNotBlank())
             val holderProof = try { ts.safety.topHolderPct > 0.0 || ts.peakHolderCount > 0 || ts.holderGrowthRate != 0.0 } catch (_: Throwable) { false }
             val safeEnough = try { !ts.safety.isBlocked && ts.safety.hardBlockReasons.isEmpty() } catch (_: Throwable) { false }
-            val qualityStructure = routeProof && safeEnough && ts.lastLiquidityUsd >= 15_000.0 && ts.lastMcap >= 25_000.0
+            val blue7389 = lane7389.uppercase().let { it == "BLUECHIP" || it == "BLUE_CHIP" }
+            val minLiq7389 = if (blue7389) 50_000.0 else 15_000.0
+            val minMcap7389 = if (blue7389) 1_000_000.0 else 75_000.0
+            val qualityStructure = routeProof && safeEnough && ts.lastLiquidityUsd >= minLiq7389 && ts.lastMcap >= minMcap7389
             if (qualityStructure && !holderProof) {
                 try {
                     ForensicLogger.lifecycle(
@@ -13836,7 +13897,7 @@ class BotService : Service() {
         // primary from bypassing the bounded rescue cap during a sub-bootstrap
         // WR collapse while preserving meme-family training volume.
         if (l.equals(primaryLane, ignoreCase = true)) {
-            if (l in setOf("QUALITY", "BLUECHIP") && !qualityLaneProofOk()) {
+            if (l in setOf("QUALITY", "BLUECHIP") && !qualityLaneProofOk(l)) {
                 try { ForensicLogger.lifecycle("QUALITY_PRIMARY_PROOF_REJECTED", "lane=$l symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct}") } catch (_: Throwable) {}
                 return false
             }
@@ -13887,7 +13948,7 @@ class BotService : Service() {
             if (RuntimeModeAuthority.isLive() && successfulFeedAffinity6014) {
                 val paused6014 = try { LaneAutoPauseGuard.isPaused(l) } catch (_: Throwable) { false }
                 val qualityProofRequired6014 = l in setOf("QUALITY", "BLUECHIP")
-                val qualityProofOk6014 = !qualityProofRequired6014 || qualityLaneProofOk()
+                val qualityProofOk6014 = !qualityProofRequired6014 || qualityLaneProofOk(l)
                 if (paused6014) {
                     val pivot6483 = try { com.lifecyclebot.engine.learning.TacticSwitcher.rotateForLanePressure(l, ts.entryScore.toInt(), "successful_feed_pause").name } catch (_: Throwable) { "UNKNOWN" }
                     try { ForensicLogger.lifecycle("SUCCESSFUL_LANE_FEED_TACTIC_PIVOT_6483", "lane=$l tactic=$pivot6483 symbol=${ts.symbol} action=continue_same_lane") } catch (_: Throwable) {}
@@ -13956,9 +14017,11 @@ class BotService : Service() {
             // canonical specialist election competition. They still evaluate entries
             // via their dedicated AI classes but their positions are owned
             // by them, not passed to the memetrader ring.
+            // V5.0.7389 — MANIPULATED no longer owns cycles (it is a danger signal, not a
+            // buyer: WR ~6%, mean -25.7%), and CASHGEN is merged into TREASURY.
             val fullMemeTraderRing = listOf(
                 "MOONSHOT",
-                "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP"
+                "QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP"
             )
             val qualityEligible = qualityLaneProofOk()
             val cashGenEligible = cashGenProofOk()  // V5.0.6047 — CASHGEN/TREASURY have their own permissive proof
@@ -13966,7 +14029,8 @@ class BotService : Service() {
             val rawOwnerPool0 = (listOf(primaryLane.uppercase()) + affinityRanked + fullMemeTraderRing).distinct()
             val rawOwnerPool = rawOwnerPool0.filter { laneName ->
                 when (laneName) {
-                    "QUALITY", "BLUECHIP" -> qualityEligible
+                    "QUALITY" -> qualityEligible
+                    "BLUECHIP" -> qualityLaneProofOk("BLUECHIP")  // V5.0.7389 — BLUECHIP's own floor
                     "TREASURY", "CASHGEN" -> cashGenEligible  // V5.0.6047 — permissive proof for scalp/compounder lanes
                     else -> true
                 }
@@ -15730,6 +15794,7 @@ class BotService : Service() {
                         highUsd = ts.lastPrice,
                         lowUsd = ts.lastPrice,
                         openUsd = ts.lastPrice,
+                        synthetic = true, // V5.0.7389 — no real OHLCV volume
                     )
                     synchronized(ts.history) { ts.history.addLast(seedCandle) }
                 }
@@ -25037,8 +25102,17 @@ if (hotExitHandledSweep) {
             // downstream buy paths (paperBuy, liveBuy, treasuryBuy, blueChipBuy,
             // shitCoinBuy, dipHunterBuy, v3Buy) can apply them at Position creation.
             // Previously only MOONSHOT at line ~18180 used the style decision.
-            ts.styleTpMult = styleDecision.tunedTpMult
-            ts.styleHoldMult = styleDecision.tunedHoldMult
+            // V5.0.7389 — only from real candles. Tick-appended candles carry zero
+            // volume, so the toolkit read "accumulation / liquidity depth" on ~3,100
+            // tokens and its hold/TP multipliers reached every lane's exits. With fewer
+            // than 8 real-volume candles the style shaping stays neutral.
+            val realCandles7389 = try { ts.history.count { !it.synthetic && it.vol > 0.0 } } catch (_: Throwable) { 0 }
+            if (realCandles7389 >= 8) {
+                ts.styleTpMult = styleDecision.tunedTpMult
+                ts.styleHoldMult = styleDecision.tunedHoldMult
+            } else {
+                try { PipelineHealthCollector.labelInc("STYLE_SHAPING_SKIPPED_NO_REAL_CANDLES_7389") } catch (_: Throwable) {}
+            }
             // V5.0.6258 — PAPER→LIVE AGI REWIRE. Stamp entry context so
             // TokenWinMemory.recordTradeOutcome can enrich LiveWinDNAStore
             // rows with the REAL setup + chart pattern instead of "unknown".
@@ -25054,7 +25128,10 @@ if (hotExitHandledSweep) {
                     regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
                 )
             } catch (_: Throwable) {}
-            val charLanes = AgenticStyleRouter.lanesFor(ts, modeClassification, baseCharLanes)
+            // V5.0.7389 — the classifier's own lanes only. lanesFor() also unioned in
+            // the toolkit sheet's lane votes, spreading each token toward QUALITY/
+            // BLUECHIP/CYCLIC/TREASURY (the fan-out FDG_FANOUT_CAP then had to trim).
+            val charLanes = baseCharLanes
             val charTools = AgenticStyleRouter.toolsFor(ts, modeClassification, emptySet())
             if (charLanes.isNotEmpty() || charTools.isNotEmpty()) {
                 val newLanes = charLanes - (GlobalTradeRegistry.getLaneAffinity(ts.mint))
@@ -26103,7 +26180,8 @@ if (hotExitHandledSweep) {
                     // lane's snapshot — this only refreshes the string
                     // verdict so the executor sees V3's decision, not a
                     // stale prior-tick record.
-                    try {
+                    // V5.0.7389 — no V3 BUY stamp on a QUALITY/BLUECHIP-owned lane (its evaluator decides).
+                    if (cyclePrimaryLane.uppercase() !in setOf("QUALITY", "BLUECHIP", "BLUE_CHIP")) try {
                         ExecutableOpenGate.recordFdg(
                             mint = ts.mint,
                             symbol = ts.symbol,
@@ -26443,9 +26521,24 @@ if (hotExitHandledSweep) {
                         val v3IsPaperMode = cfg.paperMode
                         val v3BlockFatalReason = (v3Decision as? com.lifecyclebot.v3.V3Decision.BlockFatal)?.reason ?: ""
                         val v3BlockFatalIsRug = v3BlockFatalReason.contains("EXTREME_RUG", ignoreCase = true)
-                        val v3HardReject = v3Decision is com.lifecyclebot.v3.V3Decision.Rejected
+                        // V5.0.7389 — V3 scores fresh-meme structure; a deep-liquidity
+                        // Treasury token rejected on meme-score/age grounds is not a
+                        // Treasury reject. Only structural V3 verdicts (liquidity,
+                        // rug, unsellable, invalid pair) bind this lane now; the
+                        // TREASURY_ROLE_REJECTED_6663 floor below still applies.
+                        val v3RejectReason7389 = when (val d = v3Decision) {
+                            is com.lifecyclebot.v3.V3Decision.Rejected -> d.reason
+                            is com.lifecyclebot.v3.V3Decision.Blocked -> d.reason
+                            else -> ""
+                        }.uppercase()
+                        val v3StructuralReject7389 = v3RejectReason7389.isNotEmpty() &&
+                            listOf("LIQ", "RUG", "UNSELL", "HONEYPOT", "INVALID", "PAIR", "FREEZE", "MINT_AUTH", "SAFETY", "SCAM")
+                                .any { v3RejectReason7389.contains(it) }
+                        val v3HardReject = v3StructuralReject7389
                             || (v3Decision is com.lifecyclebot.v3.V3Decision.BlockFatal && !(v3IsPaperMode && v3BlockFatalIsRug))
-                            || v3Decision is com.lifecyclebot.v3.V3Decision.Blocked
+                        if (!v3HardReject && v3RejectReason7389.isNotEmpty()) {
+                            try { PipelineHealthCollector.labelInc("TREASURY_V3_SCORE_REJECT_NOT_BINDING_7389") } catch (_: Throwable) {}
+                        }
                         val hasDumpSignal = try { AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol) } catch (_: Exception) { false }
                         // V5.9.156 — CrossTalk dump veto is volume-killing on
                         // fresh pump.fun launches that ALWAYS fire LiquidityAI
@@ -26989,7 +27082,7 @@ if (hotExitHandledSweep) {
                             val qualityFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "QUALITY", confidenceFloor = qualitySignal6022.qualityScore.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
+                                    candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, qualitySignal6022.qualityScore.toDouble()), "QUALITY", confidenceFloor = qualitySignal6022.qualityScore.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = qualitySignal6022.qualityScore.toDouble(),
                                     config = cfg,
                                     proposedSizeSol = qualitySignal6022.positionSizeSol,
@@ -27028,7 +27121,13 @@ if (hotExitHandledSweep) {
                             val qualityFdgStructural = qualityFdg != null && !qualityFdg.canExecute() &&
                                 qualityFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
                             val qualityFdgProbe = qualityFdg != null && !qualityFdg.canExecute() && !qualityFdgStructural
-                            if (qualityFdgStructural) {
+                            // V5.0.7389 — an FDG refusal binds: in LIVE it does not buy; in PAPER it
+                            // trades a quarter-size learning probe (it used to proceed at FULL size).
+                            val qualityPaper7389 = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+                            val qualityProbeBinds7389 = qualityFdgProbe && !qualityPaper7389
+                            val qualitySize7389 = if (qualityFdgProbe && qualityPaper7389)
+                                (qualitySignal6022.positionSizeSol * 0.25).coerceAtLeast(0.01) else qualitySignal6022.positionSizeSol
+                            if (qualityFdgStructural || qualityProbeBinds7389) {
                                 ErrorLogger.info("BotService", "🚫 FDG STRUCTURAL BLOCK on QUALITY: ${ts.symbol} | ${qualityFdg?.blockReason ?: "fdg_block"}")
                                 RejectionTelemetry.record("QUALITY_FDG", qualityFdg?.blockReason ?: "fdg_block")
                             } else {
@@ -27043,13 +27142,13 @@ if (hotExitHandledSweep) {
                                 quality = "QUALITY", isPaperMode = cfg.paperMode,
                                 requestedBook = TradeAuthorizer.ExecutionBook.QUALITY,
                                 rugcheckScore = ts.safety.rugcheckScore, liquidity = ts.lastLiquidityUsd,
-                                preResolvedSizeSol = qualitySignal6022.positionSizeSol,
+                                preResolvedSizeSol = qualitySize7389,
                             )
                             val canExecute = qualityAuth6494.isExecutable() && FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 layer = "QUALITY",
-                                sizeSol = qualitySignal6022.positionSizeSol,
+                                sizeSol = qualitySize7389,
                                 attemptId = qualityAuth6494.attemptId,
                                 finalityPrechecked = true,
                                 paperMode = cfg.paperMode,
@@ -27063,7 +27162,7 @@ if (hotExitHandledSweep) {
                                 ErrorLogger.info("BotService", "⭐ [QUALITY] ${ts.symbol} | ENTER | " +
                                     "mcap=\$${(ts.lastMcap/1000).toInt()}K | " +
                                     "score=${qualitySignal6022.qualityScore} | " +
-                                    "size=${qualitySignal6022.positionSizeSol.fmt(3)} SOL")
+                                    "size=${qualitySize7389.fmt(3)} SOL")
                                 
                                 // V5.9.189: Use QualityTraderAI's own fluid TP (15-50%)
                                 // NOT 4-8% overrides — those make losses > wins structurally
@@ -27075,7 +27174,7 @@ if (hotExitHandledSweep) {
                                 // Execute Quality buy (reuse BlueChip executor pattern)
                                 val qualityOpened = executor.blueChipBuy(
                                     ts = ts,
-                                    sizeSol = qualitySignal6022.positionSizeSol,
+                                    sizeSol = qualitySize7389,
                                     walletSol = effectiveBalance,
                                     takeProfitPct = qualityTp,
                                     stopLossPct = qualitySignal6022.stopLossPct,
@@ -27111,7 +27210,7 @@ if (hotExitHandledSweep) {
                                         mint = ts.mint,
                                         symbol = ts.symbol,
                                         entryPrice = ts.ref,
-                                        entrySol = qualitySignal6022.positionSizeSol,
+                                        entrySol = qualitySize7389,
                                         entryTime = System.currentTimeMillis(),
                                         entryMcap = ts.lastMcap,
                                         takeProfitPct = qualityTp,
@@ -27138,6 +27237,20 @@ if (hotExitHandledSweep) {
                             } // close FDG-required else (QUALITY V5.9.688)
                         }
                     }
+                } catch (qEx7389: Exception) {
+                    ErrorLogger.debug("BotService", "⭐ [QUALITY] ${ts.symbol} | ERROR | ${qEx7389.message}")
+                    FinalExecutionPermit.releaseExecution(ts.mint)
+                }
+            }
+            // V5.0.7389 — BLUECHIP owns its own lane scope. It used to run inside
+            // QUALITY's `mcap >= 75k` block, so it was evaluated only when QUALITY
+            // owned the cycle — and then TradeAuthorizer saw QUALITY's election and
+            // returned LANE_TELEMETRY_ONLY (2 executions from 33 intents). It now
+            // enters through its own election check at its designed $1M+ band.
+            val blueChipLaneAllowed7389 = !ts.position.isOpen && ts.lastMcap >= 1_000_000.0 &&
+                shouldRunBuyLaneForCycle(ts, "BLUECHIP", cyclePrimaryLane)
+            if (blueChipLaneAllowed7389) {
+                try {
                     
                     // ═══════════════════════════════════════════════════════════════
                     // BLUE CHIP TRADER AI - For $1M+ mcap tokens
@@ -27230,7 +27343,7 @@ if (hotExitHandledSweep) {
                             val blueChipFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "BLUE_CHIP", confidenceFloor = blueChipSignal6022.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
+                                    candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, blueChipSignal6022.confidence.toDouble()), "BLUE_CHIP", confidenceFloor = blueChipSignal6022.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = blueChipSignal6022.confidence.toDouble(),
                                     config = cfg,
                                     proposedSizeSol = blueChipSignal6022.positionSizeSol,
@@ -27269,7 +27382,13 @@ if (hotExitHandledSweep) {
                             val bcFdgStructural = blueChipFdg != null && !blueChipFdg.canExecute() &&
                                 blueChipFdg.blockReason?.let { it.contains("LIQUIDITY") || it.contains("ML_RUG_PROBABILITY") || it.contains("COPY_TRADE") || it.contains("EMERGENCY_STOP") } == true
                             val bcFdgProbe = blueChipFdg != null && !blueChipFdg.canExecute() && !bcFdgStructural
-                            if (bcFdgStructural) {
+                            // V5.0.7389 — an FDG refusal binds: LIVE does not buy; PAPER trades a
+                            // quarter-size learning probe (it used to proceed at FULL size).
+                            val bcPaper7389 = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+                            val bcProbeBinds7389 = bcFdgProbe && !bcPaper7389
+                            val bcSize7389 = if (bcFdgProbe && bcPaper7389)
+                                (blueChipSignal6022.positionSizeSol * 0.25).coerceAtLeast(0.01) else blueChipSignal6022.positionSizeSol
+                            if (bcFdgStructural || bcProbeBinds7389) {
                                 ErrorLogger.info("BotService", "🚫 FDG STRUCTURAL BLOCK on BLUECHIP: ${ts.symbol} | ${blueChipFdg?.blockReason ?: "fdg_block"}")
                                 RejectionTelemetry.record("BLUECHIP_FDG", blueChipFdg?.blockReason ?: "fdg_block")
                             } else {
@@ -27285,13 +27404,13 @@ if (hotExitHandledSweep) {
                                 quality = "BLUECHIP", isPaperMode = cfg.paperMode,
                                 requestedBook = TradeAuthorizer.ExecutionBook.BLUECHIP,
                                 rugcheckScore = ts.safety.rugcheckScore, liquidity = ts.lastLiquidityUsd,
-                                preResolvedSizeSol = blueChipSignal6022.positionSizeSol,
+                                preResolvedSizeSol = bcSize7389,
                             )
                             val canExecute = blueChipAuth6494.isExecutable() && FinalExecutionPermit.tryAcquireExecution(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 layer = "BLUE_CHIP",
-                                sizeSol = blueChipSignal6022.positionSizeSol,
+                                sizeSol = bcSize7389,
                                 attemptId = blueChipAuth6494.attemptId,
                                 finalityPrechecked = true,
                                 paperMode = cfg.paperMode,
@@ -27311,13 +27430,13 @@ if (hotExitHandledSweep) {
 
                                 ErrorLogger.info("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | ENTER | " +
                                     "mcap=\$${(ts.lastMcap/1_000_000).fmt(2)}M | " +
-                                    "size=${blueChipSignal6022.positionSizeSol.fmt(3)} SOL | " +
+                                    "size=${bcSize7389.fmt(3)} SOL | " +
                                     "TP=$blueChipTp% (conf=$v3Confidence)")
 
                                 // Execute Blue Chip buy
                                 val blueChipOpened = executor.blueChipBuy(
                                     ts = ts,
-                                    sizeSol = blueChipSignal6022.positionSizeSol,
+                                    sizeSol = bcSize7389,
                                     walletSol = effectiveBalance,
                                     takeProfitPct = blueChipTp,
                                     stopLossPct = blueChipSignal6022.stopLossPct,
@@ -27345,7 +27464,7 @@ if (hotExitHandledSweep) {
                                         mint = ts.mint,
                                         symbol = ts.symbol,
                                         entryPrice = ts.ref.takeIf { it > 0 } ?: ts.lastPrice.takeIf { it > 0 } ?: ts.position.entryPrice,
-                                        entrySol = blueChipSignal6022.positionSizeSol,
+                                        entrySol = bcSize7389,
                                         entryTime = System.currentTimeMillis(),
                                         marketCapUsd = ts.lastMcap,
                                         liquidityUsd = ts.lastLiquidityUsd,
@@ -27372,7 +27491,7 @@ if (hotExitHandledSweep) {
                                 FinalExecutionPermit.releaseExecution(ts.mint)
                                 
                                 addLog("🔵 BLUE CHIP BUY: ${ts.symbol} | \$${(ts.lastMcap/1_000_000).fmt(1)}M mcap | " +
-                                    "${blueChipSignal6022.positionSizeSol.fmt(3)} SOL | " +
+                                    "${bcSize7389.fmt(3)} SOL | " +
                                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                             } else {
                                 ErrorLogger.debug("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | EXECUTION_BLOCKED | another layer executing")
@@ -27508,7 +27627,8 @@ if (hotExitHandledSweep) {
                             if (ts.bridgeAdvisoryAgrees && moonshotScore.eligible) {
                                 moonshotScore = moonshotScore.copy(
                                     score = (moonshotScore.score + 3).coerceAtMost(150),
-                                    confidence = (moonshotScore.confidence + 0.05).coerceAtMost(1.0)
+                                    // V5.0.7389 — confidence is 0-100 here; the old 0-1 clamp collapsed it to <=1.
+                                    confidence = (moonshotScore.confidence + 5.0).coerceAtMost(100.0)
                                 )
                             }
 
@@ -27550,7 +27670,7 @@ if (hotExitHandledSweep) {
                                     .coerceAtLeast(0.01)
                                 moonshotScore = moonshotScore.copy(
                                     score = (moonshotScore.score + moonshotEdge.scoreNudge.toInt()).coerceIn(0, 150),
-                                    confidence = (moonshotScore.confidence + moonshotEdge.confidenceNudge / 100.0).coerceIn(0.0, 1.0),
+                                    confidence = (moonshotScore.confidence + moonshotEdge.confidenceNudge).coerceIn(0.0, 100.0), // V5.0.7389 — 0-100 scale
                                     suggestedSizeSol = edgeSized
                                 )
                             }
@@ -27606,7 +27726,7 @@ if (hotExitHandledSweep) {
                                     } catch (_: Exception) { null }
                                     FinalDecisionGate.evaluate(
                                         ts = ts,
-                                        candidate = laneQualifiedBuyDecision(decision, "MOONSHOT", confidenceFloor = moonshotScore.confidence /* V5.0.7323: already 0-100 */, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
+                                        candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, moonshotScore.confidence), "MOONSHOT", confidenceFloor = moonshotScore.confidence /* V5.0.7323: already 0-100 */, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                         laneScore = moonshotScore.confidence,            // already 0-100
                                         config = cfg,
                                         proposedSizeSol = moonshotScore.suggestedSizeSol,
@@ -28191,7 +28311,10 @@ if (hotExitHandledSweep) {
                             shouldEnter = false
                         }
                         
-                        if (shouldEnter) {
+                        // V5.0.7389 — labeled lane scope: a lane-local refusal (FDG veto) exits
+                        // only the SHITCOIN buy via return@shitCoinEntry7389, not processTokenCycle,
+                        // so MANIPULATED/EXPRESS/PROJECT_SNIPER still evaluate this token.
+                        if (shouldEnter) run shitCoinEntry7389@{
                             // V5.9.353: Distrust pause — refuse ShitCoin entries when
                             // StrategyTrustAI reports DISTRUSTED + WR<10% + fp>70%.
                             // Prevents the converged-bad-brain from continuing to bleed
@@ -28225,7 +28348,7 @@ if (hotExitHandledSweep) {
                             val shitCoinFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "SHITCOIN", confidenceFloor = shitCoinSignal.confidence * 100.0, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
+                                    candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, shitCoinSignal.confidence.toDouble()), "SHITCOIN", confidenceFloor = shitCoinSignal.confidence.toDouble() /* V5.0.7389: Int 0-100, was *100 */, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = shitCoinSignal.confidence.toDouble(),  // Int 0-100
                                     config = cfg,
                                     proposedSizeSol = adjustedSize,
@@ -28271,6 +28394,12 @@ if (hotExitHandledSweep) {
                             // is preserved only for FDG exceptions/null result.
                             if (shitCoinFdg != null && !shitCoinFdg.canExecute()) {
                                 val scBlock = shitCoinFdg.blockReason ?: "FDG_BLOCK"
+                                // V5.0.7389 — fan-out cap is throughput pacing, not a verdict on the
+                                // token: silent lane-local skip, no veto telemetry.
+                                if (scBlock == "FDG_FANOUT_CAP_7232") {
+                                    releaseShitCoinAttempt4230("FDG_FANOUT_CAP_SKIP_7389", releasePermit = false, releaseAuth = false)
+                                    return@shitCoinEntry7389
+                                }
                                 // V5.9.1364 — align SHITCOIN with MOONSHOT/MANIPULATED: split
                                 // genuine safety blocks (hard veto, unchanged) from soft
                                 // data-starvation blocks that bootstrap should PROBE through at
@@ -28290,7 +28419,7 @@ if (hotExitHandledSweep) {
                                     } catch (_: Throwable) {}
                                     RejectionTelemetry.record("SHITCOIN_FDG_HARD_VETO", scBlock)
                                     releaseShitCoinAttempt4230("FDG_HARD_VETO", releasePermit = false, releaseAuth = false)
-                                    return
+                                    return@shitCoinEntry7389  // V5.0.7389 — lane-local veto; other lanes still run this cycle
                                 }
                                 // Soft block in wide-open bootstrap → tiny learning probe.
                                 adjustedSize = (adjustedSize * 0.25).coerceAtLeast(0.01)
@@ -28317,6 +28446,11 @@ if (hotExitHandledSweep) {
                                 }
                             }
 
+                            // V5.0.7389 — lane-owned causal attemptId (mirrors PROJECT_SNIPER 6842)
+                            // so INTENT/MARK/SIZE/TICKET join on one CausalKey for SHITCOIN.
+                            val shitCoinAttemptId7389 = try {
+                                ExecutableOpenGate.nextAttemptId(ts.mint, "SHITCOIN")
+                            } catch (_: Throwable) { "" }
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
@@ -28329,6 +28463,7 @@ if (hotExitHandledSweep) {
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
                                 preResolvedSizeSol = adjustedSize,
+                                attemptId = shitCoinAttemptId7389,
                             )
                             
                             if (!authResult.isExecutable()) {
@@ -28391,6 +28526,15 @@ if (hotExitHandledSweep) {
                                     releaseShitCoinAttempt4230("BUY_NOT_OPENED")
                                     return
                                 }
+                                // V5.0.7389 — buy opened: bind causal desk stages to the same
+                                // attemptId (dedupes on lane|stage|eventId), as PROJECT_SNIPER 6842.
+                                try {
+                                    ToolkitSignalSheet.recordDeskStage("SHITCOIN", "POOL", shitcoinAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("SHITCOIN", "BUY_INTENT", shitcoinAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("SHITCOIN", "MARK_READY", shitcoinAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("SHITCOIN", "SIZED_EXECUTABLE", shitcoinAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("SHITCOIN", "TICKET", shitcoinAttemptId)
+                                } catch (_: Throwable) {}
 
                                 
                                 // V5.6.8 FIX: Notify V3 exposure guards
@@ -28553,7 +28697,8 @@ if (hotExitHandledSweep) {
                         isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                     )
 
-                    if (manipSignal.shouldEnter) {
+                    // V5.0.7389 — labeled lane scope: MANIPULATED disabled exits only this lane.
+                    if (manipSignal.shouldEnter) run manipEntry7389@{
                         // V5.9.1110 — QUALITY-only containment must happen BEFORE FDG.
                         // V5.9.1108 blocked MANIP later, but the 1108 report still
                         // showed Active non-QUALITY FDG=42. Do not call FDG/auth/exec
@@ -28570,7 +28715,7 @@ if (hotExitHandledSweep) {
                                     "lane=MANIPULATED symbol=${ts.symbol} mint=${ts.mint.take(10)}"
                                 )
                             } catch (_: Throwable) {}
-                            return
+                            return@manipEntry7389  // V5.0.7389 — lane-local; EXPRESS/PROJECT_SNIPER still run
                         }
                         // V5.9.688 — FDG gate for Manip path
                         val manipFdg = try {
@@ -28771,14 +28916,19 @@ if (hotExitHandledSweep) {
                     // V5.9.1481 — DEAD-BAND FIX (mirror of ShitCoinExpress): proxy
                     // floor 55 -> 50 so WS-default (50.0) tokens synthesise momentum
                     // and reach evaluate() instead of being pre-filtered into silence.
-                    val effectiveExpressMom = if (momentum <= 0.0 && ts.lastBuyPressurePct >= 50.0) {
+                    // V5.0.7389 — EXPRESS rides pumps already in motion (design: 60%+ buy
+                    // pressure). A 50% WS-default reading is not momentum; only a genuine
+                    // 60%+ buy-pressure read may stand in for missing candle momentum.
+                    val effectiveExpressMom = if (momentum <= 0.0 && ts.lastBuyPressurePct >= 60.0) {
                         (ts.lastBuyPressurePct - 49.0).coerceAtLeast(expressMinMom)
                     } else momentum
                     // V5.9.240: Mirror Moonshot's mcapUnknownButLiq bypass —
                     // fresh pump.fun tokens arrive with lastMcap==0 before the
                     // first mcap fetch lands; still allow if liquidity >= $1K.
                     // V5.9.245: Raised Express mcap ceiling $300K → $5M — trending memes often 500K-3M
-                    val expressInMcapRange = ts.lastMcap in 1_000.0..5_000_000.0  // V5.9.1492: 2K->1K, match ShitCoinExpress floor (dead-quiet fix)
+                    // V5.0.7389 — ceiling aligned to ShitCoinExpress.evaluate's own $300K cap
+                    // (the $5M pre-filter only admitted tokens evaluate() then refused).
+                    val expressInMcapRange = ts.lastMcap in 1_000.0..300_000.0  // V5.9.1492: 2K->1K, match ShitCoinExpress floor (dead-quiet fix)
                     val expressUnknownMcapOk = ts.lastMcap <= 0.0 && ts.lastLiquidityUsd >= 1_000.0
                     val passesPreFilter = (expressInMcapRange || expressUnknownMcapOk) &&
                         effectiveExpressMom >= expressMinMom && ts.lastBuyPressurePct >= expressMinBuyP
@@ -28848,7 +28998,8 @@ if (hotExitHandledSweep) {
                             // V5.9.116: throttled diagnostic for score-stage rejections.
                             logLayerSkip("💩🚂 EXPRESS", ts.symbol, ts.mint, expressSignal.reason)
                         }
-                        if (expressSignal.shouldRide) {
+                        // V5.0.7389 — labeled lane scope: EXPRESS-local refusals exit only this lane.
+                        if (expressSignal.shouldRide) run expressEntry7389@{
                             // V5.9.1110 — QUALITY-only containment must happen BEFORE FDG.
                             // V5.9.1108 blocked EXPRESS later, but the 1108 report still
                             // showed Active non-QUALITY FDG=55. Do not call FDG/auth/exec
@@ -28865,13 +29016,13 @@ if (hotExitHandledSweep) {
                                         "lane=EXPRESS symbol=${ts.symbol} mint=${ts.mint.take(10)}"
                                     )
                                 } catch (_: Throwable) {}
-                                return
+                                return@expressEntry7389  // V5.0.7389 — lane-local; PROJECT_SNIPER still runs
                             }
                             // V5.9.688 — FDG gate for Express path
                             val expressFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "EXPRESS", confidenceFloor = expressSignal.confidence * 100.0, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
+                                    candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, expressSignal.confidence.toDouble()), "EXPRESS", confidenceFloor = expressSignal.confidence.toDouble() /* V5.0.7389: Int 0-100, was *100 */, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = expressSignal.confidence.toDouble(),   // Int 0-100
                                     config = cfg,
                                     proposedSizeSol = expressSignal.positionSizeSol,
@@ -28949,11 +29100,17 @@ if (hotExitHandledSweep) {
                             val expressFinalSize = expressFdg?.sizeSol
                                 ?: expressSignal.positionSizeSol.coerceAtLeast(0.01)
                             // V5.2: MUST check TradeAuthorizer BEFORE any execution
+                            // V5.0.7389 — lane-owned causal attemptId (mirrors PROJECT_SNIPER 6842).
+                            val expressAttemptId7389 = try {
+                                ExecutableOpenGate.nextAttemptId(ts.mint, "EXPRESS")
+                            } catch (_: Throwable) { "" }
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
-                                score = expressSignal.estimatedGainPct.toInt(),
-                                confidence = 60.0,  // Express rides are momentum plays
+                                // V5.0.7389 — the lane's own score/confidence (0-100), not the
+                                // ride's target gain% and a hard-coded 60.0.
+                                score = expressSignal.confidence,
+                                confidence = expressSignal.confidence.toDouble(),
                                 quality = "EXPRESS",
                                 isPaperMode = cfg.paperMode,
                                 requestedBook = TradeAuthorizer.ExecutionBook.EXPRESS,
@@ -28961,6 +29118,7 @@ if (hotExitHandledSweep) {
                                 liquidity = ts.lastLiquidityUsd,
                                 isBanned = BannedTokens.isBanned(ts.mint),
                                 preResolvedSizeSol = expressFinalSize,
+                                attemptId = expressAttemptId7389,
                             )
                             if (!authResult.isExecutable()) {
                                 ErrorLogger.info("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | ${if (authResult.isShadowOnly()) "SHADOW_ONLY" else "REJECTED"} | ${authResult.reason}")
@@ -29006,6 +29164,15 @@ if (hotExitHandledSweep) {
                                     try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.EXPRESS) } catch (_: Throwable) {}
                                     return
                                 }
+                                // V5.0.7389 — buy opened: bind causal desk stages to the same
+                                // attemptId (dedupes on lane|stage|eventId), as PROJECT_SNIPER 6842.
+                                try {
+                                    ToolkitSignalSheet.recordDeskStage("EXPRESS", "POOL", expressAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("EXPRESS", "BUY_INTENT", expressAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("EXPRESS", "MARK_READY", expressAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("EXPRESS", "SIZED_EXECUTABLE", expressAttemptId)
+                                    ToolkitSignalSheet.recordDeskStage("EXPRESS", "TICKET", expressAttemptId)
+                                } catch (_: Throwable) {}
 
 
                                 // V5.0.4223 — live buys can be pendingVerify=true
@@ -29354,7 +29521,13 @@ if (hotExitHandledSweep) {
                 } catch (_: Throwable) {}
                 // V5.7.8: DipHunter runs independently
                 try {
-                    val tokenAgeHours = if (ts.addedToWatchlistAt > 0) {
+                    // V5.0.7389 — real token age from the first pool (PoolCreationTime7385).
+                    // Watchlist age meant a 2-hour-old token had to sit on the watchlist
+                    // for 2 hours first; memes are evicted long before, so DIP never fired.
+                    val poolAgeSecs7389 = try { com.lifecyclebot.engine.truth.PoolCreationTime7385.ageSecs(ts.mint) } catch (_: Throwable) { null }
+                    val tokenAgeHours = if (poolAgeSecs7389 != null) {
+                        poolAgeSecs7389 / 3600.0
+                    } else if (ts.addedToWatchlistAt > 0) {
                         (System.currentTimeMillis() - ts.addedToWatchlistAt) / (60 * 60 * 1000.0)
                     } else 12.0
                     
@@ -29402,6 +29575,21 @@ if (hotExitHandledSweep) {
                             } else 1.0  // not enough samples → neutral (don't false-trip the guard)
                         }
                         
+                        // V5.0.7389 — bounce confirmation from the 1m chart: the lowest
+                        // of the last 8 prices is not in the last two (a higher low has
+                        // printed), price is >= 2% off that low, buyers lead and volume
+                        // has not collapsed.
+                        val dipBounce7389 = run {
+                            val px = try { synchronized(ts.history) { ts.history.toList() } } catch (_: Throwable) { emptyList() }
+                                .map { it.priceUsd }.filter { it.isFinite() && it > 0.0 }.takeLast(8)
+                            if (px.size < 4) false else {
+                                val lowIdx = px.indices.minByOrNull { px[it] } ?: 0
+                                val low = px[lowIdx]
+                                lowIdx <= px.size - 3 && px.last() >= low * 1.02 &&
+                                    ts.lastBuyPressurePct >= 50.0 && dipVolVsAvg >= 0.8
+                            }
+                        }
+                        if (!dipBounce7389) try { PipelineHealthCollector.labelInc("DIP_NO_BOUNCE_CONFIRMATION_7389") } catch (_: Throwable) {}
                         val dipSignal = com.lifecyclebot.v3.scoring.DipHunterAI.evaluate(
                             mint = ts.mint,
                             symbol = ts.symbol,
@@ -29415,6 +29603,7 @@ if (hotExitHandledSweep) {
                             holderCount = ts.peakHolderCount.takeIf { it > 0 } ?: 100,
                             holderChange24h = 0,
                             isDevSelling = ts.safety.bundleRisk == "HIGH",
+                            bounceConfirmed = dipBounce7389,
                         )
                         
                         if (dipSignal.shouldBuy) {
@@ -29422,7 +29611,7 @@ if (hotExitHandledSweep) {
                             val dipFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "DIP_HUNTER", confidenceFloor = dipSignal.confidence * 100.0, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
+                                    candidate = laneQualifiedBuyDecision(laneScoredBase7389(decision, dipSignal.confidence.toDouble()), "DIP_HUNTER", confidenceFloor = dipSignal.confidence.toDouble() /* V5.0.7389: Int 0-100, was *100 */, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = dipSignal.confidence.toDouble(),       // Int 0-100
                                     config = cfg,
                                     proposedSizeSol = dipSignal.positionSizeSol,
@@ -29570,7 +29759,14 @@ if (hotExitHandledSweep) {
                     val memeMode = ts.position.tradingMode.ifBlank { identity.phase.ifBlank { "SHITCOIN" } }
                     val trustAllowed = (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && FreeRangeMode.isWideOpen()) ||
                         com.lifecyclebot.v4.meta.StrategyTrustAI.isStrategyAllowed(memeMode)
-                    if (!trustAllowed) {
+                    // V5.0.7389 — when QUALITY or BLUECHIP owns the cycle, that lane's own
+                    // evaluator decides; the V3 trunk no longer buys under its label without
+                    // its gates or stops (trunk "QUALITY" buys: 0/7, EV -4.2%). Tokens that do
+                    // not pinpoint to one lane are owned by CORE (the ensemble lane) instead.
+                    val specialistOwned7389 = cyclePrimaryLane.uppercase() in setOf("QUALITY", "BLUECHIP", "BLUE_CHIP")
+                    if (specialistOwned7389) {
+                        try { PipelineHealthCollector.labelInc("V3_TRUNK_DEFERS_TO_SPECIALIST_OWNER_7389_${cyclePrimaryLane.uppercase()}") } catch (_: Throwable) {}
+                    } else if (!trustAllowed) {
                         ErrorLogger.warn("BotService", "🚫 [TRUST GATE] ${identity.symbol} | mode=$memeMode DISTRUSTED — skipping execute")
                     } else {
                     // Cache V3 scores on TokenState for Treasury Mode to use
@@ -32164,7 +32360,7 @@ if (hotExitHandledSweep) {
         // V5.2.12: Professional large-cap trading layer ($1M+ mcap)
         // ═══════════════════════════════════════════════════════════════════
         if (com.lifecyclebot.v3.scoring.BlueChipTraderAI.hasPosition(ts.mint) || 
-            ts.position.tradingMode == "BLUE_CHIP") {
+            ts.position.tradingMode.uppercase() in setOf("BLUE_CHIP", "BLUECHIP")) {  // V5.0.7389 — lane stamps BLUECHIP
             val currentPrice = resolveLivePrice(ts)
             
             val exitSignal = com.lifecyclebot.v3.scoring.BlueChipTraderAI.checkExit(ts.mint, currentPrice)
@@ -32229,6 +32425,23 @@ if (hotExitHandledSweep) {
             // V5.9.170 — firehose learning feedback.
             try { com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordHoldReason(ts.mint, "DipHunter:${exitSignal.name}") } catch (_: Exception) {}
             
+            // V5.0.7389 — recovery target banks half; the rest rides the lock.
+            if (exitSignal == com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.PARTIAL_TAKE) {
+                val dipPartial7389 = executor.requestPartialSellConfirmed6566(
+                    ts = ts,
+                    sellPercentage = 0.50,
+                    reason = "DIP_RECOVERY_PARTIAL_50PCT",
+                    wallet = wallet,
+                    walletBalance = effectiveBalance,
+                )
+                if (!dipPartial7389.applied) {
+                    com.lifecyclebot.v3.scoring.DipHunterAI.unbankRecovery(ts.mint)
+                    try { PipelineHealthCollector.labelInc("MEME_PARTIAL_NOT_APPLIED_6566_DIP_HUNTER") } catch (_: Throwable) {}
+                    return
+                }
+                addLog("💰 DIP PARTIAL: ${ts.symbol} | recovery target banked 50% | ${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
+                return
+            }
             if (exitSignal != com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.HOLD) {
                 val exitEmoji = when (exitSignal) {
                     com.lifecyclebot.v3.scoring.DipHunterAI.DipExitSignal.MAX_RECOVERY -> "🏆"
@@ -33321,6 +33534,7 @@ if (hotExitHandledSweep) {
             highUsd = ts.lastPrice,
             lowUsd = ts.lastPrice,
             openUsd = ts.lastPrice,
+            synthetic = true, // V5.0.7389 — no real OHLCV volume
         )
         // URL hint so processTokenCycle's source-inference still tags pump.fun
         // correctly when ts.source is empty (the WS feed sets PUMP_PORTAL_WS,
@@ -33395,6 +33609,7 @@ if (hotExitHandledSweep) {
                         marketCap = ov.marketCap, volumeH1 = 0.0, volume24h = 0.0,
                         buysH1 = 0, sellsH1 = 0, highUsd = ov.priceUsd,
                         lowUsd = ov.priceUsd, openUsd = ov.priceUsd,
+                        synthetic = true, // V5.0.7389 — no real OHLCV volume
                     )
                     synchronized(ts.history) {
                         ts.history.addLast(syntheticCandle)
@@ -33524,6 +33739,7 @@ if (hotExitHandledSweep) {
                                     marketCap = mcap, volumeH1 = 0.0, volume24h = 0.0,
                                     buysH1 = 0, sellsH1 = 0, highUsd = priceUsd,
                                     lowUsd = priceUsd, openUsd = priceUsd,
+                                    synthetic = true, // V5.0.7389 — no real OHLCV volume
                                 )
                                 synchronized(ts.history) {
                                     ts.history.addLast(syntheticCandle)

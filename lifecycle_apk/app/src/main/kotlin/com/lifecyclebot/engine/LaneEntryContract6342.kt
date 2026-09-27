@@ -99,8 +99,31 @@ object LaneEntryContract6342 {
                     )
                 } catch (_: Throwable) { 75_000.0 }
                 if (ts.lastMcap <= 0.0 || ts.lastMcap < floor) return false
+                // V5.0.7389 — QUALITY's band ends where BLUECHIP's begins ($1M), so a
+                // large cap is owned by BLUECHIP instead of both lanes claiming it.
+                val ceiling = try {
+                    com.lifecyclebot.engine.market.LaneHunter7297.ceilingFor(
+                        "QUALITY", com.lifecyclebot.v3.scoring.QualityTraderAI.MAX_MARKET_CAP_USD,
+                    )
+                } catch (_: Throwable) { com.lifecyclebot.v3.scoring.QualityTraderAI.MAX_MARKET_CAP_USD }
+                if (ts.lastMcap > ceiling) return false
             }
         }
+        // V5.0.7389 — BLUECHIP is the $1M+ lane; a known smaller cap is not its token.
+        if ((lane == "BLUECHIP" || lane == "BLUE_CHIP") && ts.lastMcap > 0.0) {
+            val bcFloor = try {
+                com.lifecyclebot.engine.market.LaneHunter7297.floorFor(
+                    "BLUECHIP", com.lifecyclebot.v3.scoring.BlueChipTraderAI.MIN_MARKET_CAP_USD,
+                )
+            } catch (_: Throwable) { com.lifecyclebot.v3.scoring.BlueChipTraderAI.MIN_MARKET_CAP_USD }
+            if (ts.lastMcap < bcFloor) return false
+        }
+        // V5.0.7389 — MOONSHOT's designed band is MoonshotTraderAI's own $10k-$5M.
+        // A known mcap outside it cannot pass the lane's scorer, so election must not
+        // mint a MOONSHOT ticket for it. Unknown mcap (0) is left to the lane.
+        if (lane == "MOONSHOT" && ts.lastMcap > 0.0 &&
+            (ts.lastMcap < com.lifecyclebot.v3.scoring.MoonshotTraderAI.MIN_MARKET_CAP_USD ||
+                ts.lastMcap > com.lifecyclebot.v3.scoring.MoonshotTraderAI.MAX_MARKET_CAP_USD)) return false
         return true
     }
 

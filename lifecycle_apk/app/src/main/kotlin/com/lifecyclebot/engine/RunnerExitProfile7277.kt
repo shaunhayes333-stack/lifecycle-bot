@@ -27,6 +27,9 @@ object RunnerExitProfile7277 {
     private val RUNNER_LANE_KEYS = arrayOf(
         "MOONSHOT", "SHITCOIN", "MEME", "EXPRESS", "MANIPULATED", "MANIP",
         "PRESALE", "PROJECT_SNIPER", "DIP_HUNTER", "INSIDER_SHARK", "COPY_TRADE", "WHALE_FOLLOW",
+        // V5.0.7389 — CORE is the ensemble of the lanes above (the "pocket degen"
+        // lane); it rides and cuts like them instead of scalping.
+        "CORE",
     )
 
     /** Peak the position must have reached before a give-back lock may arm on a runner lane. */

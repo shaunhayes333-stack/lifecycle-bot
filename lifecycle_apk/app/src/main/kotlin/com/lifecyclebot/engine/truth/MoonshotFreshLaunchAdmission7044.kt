@@ -95,7 +95,9 @@ object MoonshotFreshLaunchAdmission7044 {
     const val MCAP_FLOOR_USD = com.lifecyclebot.v3.scoring.MoonshotTraderAI.MIN_MARKET_CAP_USD
 
     /** Enough of a pool that an exit is a real transaction and not a wish. */
-    const val LIQ_FLOOR_USD = 800.0
+    // V5.0.7389 — was 800.0; MoonshotTraderAI.scoreToken refuses under its $2k
+    // bootstrap floor, so an $800-$2k pool was elected MOONSHOT and then refused.
+    const val LIQ_FLOOR_USD = com.lifecyclebot.v3.scoring.MoonshotTraderAI.MIN_LIQUIDITY_USD_BOOTSTRAP
 
     /**
      * Liquidity as a fraction of market cap. A shell with $30k "mcap" and $200

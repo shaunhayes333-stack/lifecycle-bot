@@ -642,7 +642,12 @@ object QualityTraderAI {
             return ExitSignal.TRAILING_STOP
         }
 
-        val rungs = doubleArrayOf(20.0, 50.0, 100.0, 300.0, 1000.0, 3000.0, 10000.0)
+        // V5.0.7389 — a bootstrap TP under +20% (12-15%) closed the WHOLE bag before
+        // rung #1 could fire, capping every runner at the TP. That TP is now the
+        // ladder's first rung (a partial); the rest rides the sliding locks.
+        val rungs = if (pos.takeProfitPct > 0.0 && pos.takeProfitPct < 20.0)
+            doubleArrayOf(pos.takeProfitPct, 50.0, 100.0, 300.0, 1000.0, 3000.0, 10000.0)
+        else doubleArrayOf(20.0, 50.0, 100.0, 300.0, 1000.0, 3000.0, 10000.0)
         if (pos.partialRungsTaken < rungs.size && pnlPct >= rungs[pos.partialRungsTaken]) {
             val hitRung = rungs[pos.partialRungsTaken]
             pos.partialRungsTaken += 1

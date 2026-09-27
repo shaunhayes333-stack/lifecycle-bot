@@ -77,8 +77,10 @@ object BlueChipTraderAI {
     // +25% on assets that routinely double in a week.
     private const val TAKE_PROFIT_BOOTSTRAP = 12.0     // was 10.0
     private const val TAKE_PROFIT_MATURE = 80.0        // was 25.0 — bluechips can run
-    private const val STOP_LOSS_BOOTSTRAP = -4.0       // 4% stop at start (tight)
-    private const val STOP_LOSS_MATURE = -7.0          // 7% stop when mature (learned volatility)
+    // V5.0.7389 — a -4% stop on an 8h swing lane stopped out on ordinary $1M+
+    // meme noise before the swing began. Sized to the lane's volatility.
+    private const val STOP_LOSS_BOOTSTRAP = -8.0       // was -4.0
+    private const val STOP_LOSS_MATURE = -10.0         // was -7.0
     // V5.0.6303 — BLUECHIP is not a scalper. 30-minute cap forced the trader
     // to close winners before the swing developed; raise to 8h so real
     // established-token trends can play out.
@@ -553,7 +555,12 @@ object BlueChipTraderAI {
         // quality meme from catching a mega-pump. Give it the same ladder
         // engine as Moonshot/ShitCoin so profits are locked progressively.
         // ═══════════════════════════════════════════════════════════════════
-        val rungs = doubleArrayOf(20.0, 50.0, 100.0, 300.0, 1000.0, 3000.0, 10000.0)
+        // V5.0.7389 — a bootstrap TP under +20% (12-15%) closed the WHOLE bag before
+        // rung #1 could fire, capping every runner at the TP. That TP is now the
+        // ladder's first rung (a partial); the rest rides the sliding locks.
+        val rungs = if (pos.takeProfitPct > 0.0 && pos.takeProfitPct < 20.0)
+            doubleArrayOf(pos.takeProfitPct, 50.0, 100.0, 300.0, 1000.0, 3000.0, 10000.0)
+        else doubleArrayOf(20.0, 50.0, 100.0, 300.0, 1000.0, 3000.0, 10000.0)
         if (pos.partialRungsTaken < rungs.size && pnlPct >= rungs[pos.partialRungsTaken]) {
             val hitRung = rungs[pos.partialRungsTaken]
             pos.partialRungsTaken += 1

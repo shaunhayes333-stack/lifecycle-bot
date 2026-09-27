@@ -147,6 +147,7 @@ object DipHunterAI {
         val entryLiquidity: Double,
         val isPaper: Boolean,
         var recoveryHighPct: Double = 0.0,  // Best recovery so far
+        var recoveryBanked: Boolean = false, // V5.0.7389 — target partial taken, remainder rides
     )
     
     data class DipSignal(
@@ -170,6 +171,7 @@ object DipHunterAI {
     enum class DipExitSignal {
         RECOVERY_TARGET,
         MAX_RECOVERY,
+        PARTIAL_TAKE,  // V5.0.7389 — bank half at the recovery target, let the rest ride
         STOP_LOSS,
         TIME_EXIT,
         DEATH_SPIRAL,
@@ -243,6 +245,9 @@ object DipHunterAI {
         holderCount: Int,
         holderChange24h: Int,        // Net holder change
         isDevSelling: Boolean,
+        // V5.0.7389 — the caller's read of the chart: a higher low printed after the
+        // dip low, price back above it, buy pressure >= 50 and volume present.
+        bounceConfirmed: Boolean = true,
     ): DipSignal {
         
         // ═══════════════════════════════════════════════════════════════════
@@ -376,6 +381,13 @@ object DipHunterAI {
             dangerReasons.add("DEEP_DIP(${dipDepthPct.toInt()}%)")
         }
         
+        // V5.0.7389 — BOUNCE CONFIRMATION. A dip was bought on depth alone, so a
+        // falling token read as a "golden" dip every candle on its way down. The
+        // lane buys the reclaim, not the knife: no confirmed bounce, no buy.
+        if (!bounceConfirmed) {
+            return noDip("NO_BOUNCE_CONFIRMATION: dip=${dipDepthPct.fmt(1)}% bp=${buyPressurePct.toInt()}% vol=${volumeVsAvg.fmt(2)}x")
+        }
+
         // If too dangerous, reject
         if (dangerScore >= 40) {
             return DipSignal(
@@ -623,17 +635,29 @@ object DipHunterAI {
         val targetRecovery = getFluidRecoveryTarget()
         val stopLoss = getFluidStopLoss()
         
-        // 1. MAX RECOVERY (2x the target)
-        val maxRecovery = targetRecovery * 2
+        // V5.0.7389 — sliding lock on the runner half: once the target is banked,
+        // the remainder exits when it gives back its share of the peak.
+        if (pos.recoveryBanked && com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(pos.recoveryHighPct, pnlPct)) {
+            ErrorLogger.info(TAG, "📉🔒 RECOVERY LOCK! $mint | peak=${pos.recoveryHighPct.fmt(1)}% now=${pnlPct.fmt(1)}%")
+            return DipExitSignal.RECOVERY_TARGET
+        }
+
+        // 1. MAX RECOVERY — the pre-dip high is the resistance a dip recovers to;
+        // the whole bag closes there (or at 2x target, whichever is further).
+        val priorHighPct = if (pos.entryPrice > 0.0 && pos.highPrice > pos.entryPrice)
+            (pos.highPrice / pos.entryPrice - 1.0) * 100.0 * 0.95 else 0.0
+        val maxRecovery = maxOf(targetRecovery * 2, priorHighPct)
         if (pnlPct >= maxRecovery) {
             ErrorLogger.info(TAG, "📉🏆 MAX RECOVERY! $mint | +${pnlPct.fmt(1)}% (target was ${targetRecovery.toInt()}%)")
             return DipExitSignal.MAX_RECOVERY
         }
         
-        // 2. TARGET RECOVERY - FLUID
-        if (pnlPct >= targetRecovery) {
-            ErrorLogger.info(TAG, "📉✅ TARGET HIT! $mint | +${pnlPct.fmt(1)}% (fluid target: ${targetRecovery.toInt()}%)")
-            return DipExitSignal.RECOVERY_TARGET
+        // 2. TARGET RECOVERY - FLUID. V5.0.7389 — banks half and lets the
+        // other half ride toward the pre-dip high instead of closing the lot.
+        if (!pos.recoveryBanked && pnlPct >= targetRecovery) {
+            pos.recoveryBanked = true
+            ErrorLogger.info(TAG, "📉✅ TARGET HIT! $mint | +${pnlPct.fmt(1)}% (fluid target: ${targetRecovery.toInt()}%) — banking half")
+            return DipExitSignal.PARTIAL_TAKE
         }
         
         // 3. STOP LOSS - FLUID
@@ -655,7 +679,8 @@ object DipHunterAI {
         }
         
         // 6. Protect profits - if recovered 15%+ then dropped back to 5%
-        if (pos.recoveryHighPct >= 15 && pnlPct <= 5) {
+        // V5.0.7389 — a banked runner half never goes back under breakeven+2.
+        if ((pos.recoveryHighPct >= 15 && pnlPct <= 5) || (pos.recoveryBanked && pnlPct <= 2.0)) {
             ErrorLogger.info(TAG, "📉📉 RECOVERY FADE! $mint | peak=${pos.recoveryHighPct.fmt(1)}% now=${pnlPct.fmt(1)}%")
             return DipExitSignal.RECOVERY_TARGET
         }
@@ -748,6 +773,11 @@ object DipHunterAI {
     }
     
     fun hasDip(mint: String): Boolean = activeDips.containsKey(mint)
+
+    /** V5.0.7389 — the recovery partial did not apply; re-arm the target. */
+    fun unbankRecovery(mint: String) {
+        synchronized(activeDips) { activeDips[mint] }?.recoveryBanked = false
+    }
     
     fun getDailyPnlSol(): Double = dailyPnlSolBps.get() / 100.0
     

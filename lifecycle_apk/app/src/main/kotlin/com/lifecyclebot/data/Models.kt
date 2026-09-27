@@ -18,6 +18,8 @@ data class Candle(
     val highUsd: Double = 0.0,    // candle high price
     val lowUsd: Double = 0.0,     // candle low price
     val openUsd: Double = 0.0,    // candle open price
+    // V5.0.7389 — marks tick-appended/fabricated candles (no real OHLCV volume) so pattern classifiers can ignore them.
+    val synthetic: Boolean = false,
 ) {
     val buyRatio: Double get() {
         val t = buysH1 + sellsH1

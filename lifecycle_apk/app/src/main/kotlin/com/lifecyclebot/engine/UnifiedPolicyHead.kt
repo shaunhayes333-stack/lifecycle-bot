@@ -122,12 +122,72 @@ object UnifiedPolicyHead {
     /** Explicit tier of the LANE'S OWN head, without global fallback. */
     fun laneOwnHeadAuthority6605(lane: String): AuthorityTier {
         val n = laneOwnHeadTrainedCount6605(lane)
-        return when {
+        return capForDegenerateInputs7389(when {
             n >= AUTHORITY_AUTHORITATIVE -> AuthorityTier.AUTHORITATIVE
             n >= AUTHORITY_LEARNED       -> AuthorityTier.LEARNED
             n >= AUTHORITY_ADVISORY      -> AuthorityTier.ADVISORY
             else                          -> AuthorityTier.BOOTSTRAP
+        })
+    }
+
+    // V5.0.7389 §DEGENERATE_INPUT_AUTHORITY_CAP.
+    // Live audit: 3 of the 6 inputs arrive as constant 0.5 and mlEntryConf == candConf (both the noisy V3
+    // score), yet the head graduated to AUTHORITATIVE on close count alone and drove vetoes/sizing. We now
+    // track decision-time input variance (runtime EWMA over stamp()) and cap the tier at ADVISORY while more
+    // than two features are constant or exact duplicates of another feature, or before enough observations
+    // exist to tell. Training is untouched — the head keeps learning; only its authority is capped.
+    private const val DEGEN_MIN_OBS_7389 = 50L
+    private const val DEGEN_VAR_EPS_7389 = 1e-4
+    private const val DEGEN_DUP_EPS_7389 = 1e-3
+    private const val DEGEN_MAX_FEATURES_7389 = 2
+    private const val DEGEN_ALPHA_7389 = 0.02
+    private val degenLock7389 = Any()
+    private val obsMean7389 = DoubleArray(NF) { 0.5 }
+    private val obsVar7389 = DoubleArray(NF) { 0.0 }
+    private val obsDupDiff7389 = Array(NF) { DoubleArray(NF) { 0.0 } }
+    @Volatile private var obsCount7389 = 0L
+    @Volatile private var degenerateCount7389 = NF
+
+    private fun observeInputs7389(x: DoubleArray) {
+        if (x.size < NF) return
+        synchronized(degenLock7389) {
+            val first = obsCount7389 == 0L
+            for (i in 0 until NF) {
+                if (first) { obsMean7389[i] = x[i]; obsVar7389[i] = 0.0 } else {
+                    val d = x[i] - obsMean7389[i]
+                    obsMean7389[i] += DEGEN_ALPHA_7389 * d
+                    obsVar7389[i] = (1.0 - DEGEN_ALPHA_7389) * (obsVar7389[i] + DEGEN_ALPHA_7389 * d * d)
+                }
+                for (j in 0 until i) {
+                    val diff = kotlin.math.abs(x[i] - x[j])
+                    obsDupDiff7389[i][j] = if (first) diff else obsDupDiff7389[i][j] + DEGEN_ALPHA_7389 * (diff - obsDupDiff7389[i][j])
+                }
+            }
+            obsCount7389 += 1
+            var degen = 0
+            for (i in 0 until NF) {
+                val constant = obsVar7389[i] < DEGEN_VAR_EPS_7389
+                var duplicate = false
+                if (!constant) {
+                    for (j in 0 until i) {
+                        if (obsVar7389[j] >= DEGEN_VAR_EPS_7389 && obsDupDiff7389[i][j] < DEGEN_DUP_EPS_7389) { duplicate = true; break }
+                    }
+                }
+                if (constant || duplicate) degen += 1
+            }
+            degenerateCount7389 = degen
         }
+    }
+
+    /** V5.0.7389 — true while the inputs are too degenerate (or too few observed) for authority above ADVISORY. */
+    private fun inputsDegenerate7389(): Boolean =
+        obsCount7389 < DEGEN_MIN_OBS_7389 || degenerateCount7389 > DEGEN_MAX_FEATURES_7389
+
+    private fun capForDegenerateInputs7389(tier: AuthorityTier): AuthorityTier {
+        if (tier.ordinal <= AuthorityTier.ADVISORY.ordinal) return tier
+        if (!inputsDegenerate7389()) return tier
+        try { PipelineHealthCollector.labelInc("UPH_AUTHORITY_CAPPED_DEGENERATE_INPUTS_7389") } catch (_: Throwable) {}
+        return AuthorityTier.ADVISORY
     }
 
     enum class AuthorityTier(val minSamples: Long) {
@@ -204,11 +264,15 @@ object UnifiedPolicyHead {
      */
     fun laneHasOwnAuthoritativeHead(lane: String): Boolean {
         val h = laneHeads[normalizeLane(lane)] ?: return false
+        // V5.0.7389 — degenerate inputs cap authority at ADVISORY, so no terminal-veto head either.
+        if (inputsDegenerate7389()) return false
         return h.trained >= AUTHORITY_AUTHORITATIVE
     }
 
-    /** Per-lane authority tier — calibration-aware. */
-    fun currentAuthority(lane: String): AuthorityTier {
+    /** Per-lane authority tier — calibration-aware; V5.0.7389 capped at ADVISORY on degenerate inputs. */
+    fun currentAuthority(lane: String): AuthorityTier = capForDegenerateInputs7389(rawCurrentAuthority7389(lane))
+
+    private fun rawCurrentAuthority7389(lane: String): AuthorityTier {
         val h = laneHeads[normalizeLane(lane)] ?: return globalAuthority()
         val rawTier = when {
             h.trained >= AUTHORITY_AUTHORITATIVE -> AuthorityTier.AUTHORITATIVE
@@ -285,7 +349,9 @@ object UnifiedPolicyHead {
     fun stamp(mint: String, lane: String, s: Signals) {
         try {
             val laneKey = normalizeLane(lane)
-            pending.computeIfAbsent(mint) { java.util.concurrent.ConcurrentHashMap() }[laneKey] = s.toArray()
+            val x7389 = s.toArray()
+            observeInputs7389(x7389) // V5.0.7389 — input degeneracy telemetry for the authority cap.
+            pending.computeIfAbsent(mint) { java.util.concurrent.ConcurrentHashMap() }[laneKey] = x7389
             appContext?.let { ctx -> GlobalScope.launch(AppDispatchers.sideEffect) { save(ctx) } }
         } catch (_: Throwable) {}
     }

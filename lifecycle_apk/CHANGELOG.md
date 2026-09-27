@@ -4,6 +4,38 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7389] — every specialist lane trades as designed (lane audit, bundled)
+
+Audit against PROJECT_SNIPER (the lane that works as designed). Additive: each lane keeps its gates; what changed is that each now buys what it was built for and exits the way its thesis pays.
+
+Lane ownership and election
+- CORE is the ensemble lane: it owns a token when at least two different lanes each rate it worth trading (conviction >= 45) and no single lane clearly dominates. CORE now rides and cuts like the runner lanes it combines.
+- MANIPULATED is a danger signal, not a buyer: it no longer owns cycles or joins the meme ring. TREASURY (with CASHGEN folded in) owns only tokens at its own mcap/liquidity floor.
+- QUALITY's band ends at its $1M ceiling; BLUECHIP owns $1M+ (its own fluid floor at election). BLUECHIP runs as its own block (it could not execute inside QUALITY's), and its exit check matches the BLUECHIP label.
+- When QUALITY or BLUECHIP owns the cycle the V3 trunk no longer buys under that label; the lane's own evaluator decides.
+- The toolkit bridge refuses a hard lane reject (mcap, liquidity, top holder, too new, holders) and scores from the real V3 score (no floor of 42).
+- MOONSHOT election uses the lane's own $10k-$5M band and $2k liquidity floor; MoonshotTraderAI reads observed liquidity (curve reserves), so admitted curve launches are no longer refused as liq 0.
+- Lane candidates enter FDG on their own score (a lane-owned candidate carried V3's 0 score and hit ZERO_SIGNAL). SHITCOIN/EXPRESS confidence is 0-100 (was x100). SHITCOIN/MANIPULATED/EXPRESS hard vetoes are lane-local.
+
+Exits
+- QUALITY/BLUECHIP: a take-profit under +20% is the ladder's first rung (a partial), not a full close; the rest rides the sliding locks.
+- BLUECHIP stop -8% (bootstrap) to -10% (mature), was -4/-7 on an 8h swing lane.
+- DIP_HUNTER banks 50% at the recovery target and lets the rest ride toward the pre-dip high under the sliding lock (never back under +2%).
+- EXPRESS: max size 0.25 SOL (was 3.0 under a "never exceed 0.1" design note); trail 1.3x wider; momentum death needs < -2% and only before the first rung.
+- Tick floor: QUALITY/BLUECHIP/CORE exit first strike at -10% (rugs gap between ticks). MOONSHOT exits at its own lane stop on the tick (MoonshotTraderAI.stopFor, which mirrors checkExit including the GOLD pattern exemption).
+- TREASURY: a V3 meme-score/age reject no longer kills a deep-liquidity Treasury entry; structural V3 verdicts (liquidity, rug, unsellable, invalid pair) still bind.
+
+Entries
+- DIP_HUNTER needs a confirmed bounce: a higher low after the dip low, price >= 2% off it, buy pressure >= 50, volume present. Pool age comes from recorded pool creation time.
+- EXPRESS momentum is only synthesized when buy pressure >= 60; mcap band $1k-$300k.
+- QUALITY/BLUECHIP FDG probes bind (live refuses a probe verdict; paper sizes it 0.25x).
+
+Tools
+- Fabricated candles are marked synthetic; MovementPatternSignal and the toolkit read volume only from real candles (>= 8 needed), so a flat tick series no longer reads as ACCUMULATION_COMPRESSION / LIQUIDITY_DEPTH_QUALITY. Style TP/hold multipliers need 8 real candles.
+- ToolkitSignalSheet: every additive `if` term is parenthesised (trailing terms were silently dropped).
+- OracleEdgeProof: win rate removed from the proof (fat-tailed returns; return margin and Brier decide).
+- UnifiedPolicyHead: authority is capped at ADVISORY while its inputs are degenerate (constant or duplicate features) or too few observations exist. Training is untouched.
+
 ## [5.0.7388] — profit, quality volume and throughput (bundled)
 
 - Lane identity: QUALITY and CORE never own an un-graduated pump.fun launch (curve source or mcap < $69k), and QUALITY needs its band floor (~$75k). The desk's role hypotheses had elected QUALITY for $3-4k launches and the V3 trunk bought them under that label (QUALITY 0/7 this session); those launches now go to PROJECT_SNIPER / MOONSHOT / SHITCOIN.

@@ -79,7 +79,9 @@ object MoonshotTraderAI {
     // V5.9.159 — bootstrap liquidity floor lowered. At 1% learning a $5K floor
     // was excluding most sub-$50K-mcap fresh pump.fun launches which are
     // exactly the volume we want the scorer to learn from.
-    private const val MIN_LIQUIDITY_USD_BOOTSTRAP = 2_000.0    // V5.9.343: walk-back to pre-V5.9.341
+    // V5.0.7389 — public: MoonshotFreshLaunchAdmission7044.LIQ_FLOOR_USD reads it so
+    // election and the lane refuse the same pools.
+    const val MIN_LIQUIDITY_USD_BOOTSTRAP = 2_000.0    // V5.9.343: walk-back to pre-V5.9.341
     private const val MIN_LIQUIDITY_USD_MATURE = 15_000.0     // Higher when mature
     
     // Position sizing - moderate but aggressive
@@ -460,8 +462,17 @@ object MoonshotTraderAI {
         // 2. Liquidity filter
         val minLiqStatic = if (learningProgress < 0.5) MIN_LIQUIDITY_USD_BOOTSTRAP else MIN_LIQUIDITY_USD_MATURE
         val minLiq = minLiqStatic
-        if (liquidityUsd < minLiq) {
-            return MoonshotScore(false, 0, 0.0, "liq_too_low_${(liquidityUsd/1000).toInt()}K")
+        // V5.0.7389 — MoonshotFreshLaunchAdmission7044 admits un-graduated pump.fun
+        // curve tokens whose tick liquidity is 0 (the liquidity sits in the curve),
+        // and this gate then refused every one as liq_too_low_0K. Read the observed
+        // liquidity (tick, token map, curve reserves × SOL) the V3 eligibility and
+        // executor gates use when the passed value is below the floor.
+        val liquidityObserved7389 = if (liquidityUsd >= minLiq) liquidityUsd else try {
+            val ts7389 = com.lifecyclebot.engine.BotService.status.tokens[mint]
+            if (ts7389 != null) maxOf(liquidityUsd, com.lifecyclebot.engine.TokenMapAuthority.observedLiquidityUsd(ts7389)) else liquidityUsd
+        } catch (_: Throwable) { liquidityUsd }
+        if (liquidityObserved7389 < minLiq) {
+            return MoonshotScore(false, 0, 0.0, "liq_too_low_${(liquidityObserved7389/1000).toInt()}K")
         }
         if (runnerShaped7266 && (marketCapUsd < MIN_MARKET_CAP_USD || liquidityUsd < minLiqStatic)) {
             // The admission window admitted what the static floor would have refused.
@@ -538,10 +549,10 @@ object MoonshotTraderAI {
         // thinnest (rug-risk) and the deepest (late) ends. Rug protection stays
         // with the dedicated holder/RC gates — this is upside targeting, not safety.
         val liqScore = when {
-            liquidityUsd in 8_000.0..80_000.0  -> 20   // early-gem sweet spot — pre-liftoff
-            liquidityUsd in 80_000.0..200_000.0 -> 14  // building momentum
-            liquidityUsd in 3_000.0..8_000.0   -> 12   // very early (higher risk, real upside)
-            liquidityUsd > 200_000             -> 8    // already liquid = less moonshot left
+            liquidityObserved7389 in 8_000.0..80_000.0  -> 20   // early-gem sweet spot — pre-liftoff
+            liquidityObserved7389 in 80_000.0..200_000.0 -> 14  // building momentum
+            liquidityObserved7389 in 3_000.0..8_000.0   -> 12   // very early (higher risk, real upside)
+            liquidityObserved7389 > 200_000             -> 8    // already liquid = less moonshot left
             else -> 3                                   // sub-$3K = mostly noise
         }
         score += liqScore
@@ -680,9 +691,14 @@ object MoonshotTraderAI {
         // and bar as CanonicalEntryFloor7266, so the lane's own gate and the
         // canonical gate move together instead of one hand-set number
         // overruling a learned one.
+        // V5.0.7389 — learnedLaneFloor is learned on the canonical V3 score scale
+        // (MOONSHOT ~L20) while this scorer's own output never falls below ~26, so
+        // taking it as the minimum replaced the lane's table with a floor that
+        // filtered nothing. The learned band may only RAISE the lane-native table
+        // floor (the "only high bands pay" case), never lower it.
         val learnedFloor7267 = try {
             com.lifecyclebot.engine.truth.CanonicalEntryFloor7266.learnedLaneFloor("MOONSHOT")
-        } catch (_: Throwable) { null }
+        } catch (_: Throwable) { null }?.takeIf { it >= minScoreRaw.toDouble() }
         val minScoreFluid7267 = learnedFloor7267?.toInt() ?: minScoreRaw
         if (learnedFloor7267 != null && minScoreFluid7267 != minScoreRaw) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MOONSHOT_MIN_SCORE_LEARNED_7267") } catch (_: Throwable) {}
@@ -1059,6 +1075,40 @@ object MoonshotTraderAI {
     // ═══════════════════════════════════════════════════════════════════════════
     
     fun hasPosition(mint: String): Boolean = activePositions.containsKey(mint)
+
+    // V5.0.7389 — the lane's live stop in pnl% (negative) for the fast tick path, or
+    // null when this lane has no position on the mint. Mirrors the loss gates of
+    // checkExit in order: hard floor (tightened by LosingPatternMemory), the early
+    // tight stop while peak < +8% (minOf(-5, hardFloor), so never tighter than the
+    // floor), the <60s early-death cutoff, the <=12-min -10% dead exit, and the
+    // position's stopLossPct once past the breather window. The tightest applies.
+    fun stopFor(mint: String): Double? {
+        val pos = synchronized(activePositions) { activePositions[mint] } ?: return null
+        val predictiveSlPct: Double? = try {
+            com.lifecyclebot.engine.LosingPatternMemory.recommendedSlPct(
+                tradingMode = "MOONSHOT",
+                v3Score = pos.entryScore.toInt(),
+            )
+        } catch (_: Throwable) { null }
+        val effectiveHardFloor = if (predictiveSlPct != null) maxOf(HARD_FLOOR_STOP, predictiveSlPct) else HARD_FLOOR_STOP
+        var stop = effectiveHardFloor
+        // GOLD pattern positions are spared the early tight stop in checkExit; mirror that.
+        val goldProtected = try {
+            com.lifecyclebot.engine.PatternGoldenGoose.edge("", pos.symbol).verdict ==
+                com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD
+        } catch (_: Throwable) { false }
+        if (!goldProtected && pos.peakPnlPct < 8.0) stop = maxOf(stop, minOf(-5.0, effectiveHardFloor))
+        val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000
+        if (holdSeconds < 60) {
+            val cutoff = try { com.lifecyclebot.engine.ChopFilter.earlyDeathCutoffPct("MOONSHOT") } catch (_: Throwable) { null }
+            if (cutoff != null && cutoff < 0.0) stop = maxOf(stop, cutoff)
+        }
+        val holdMinutes = holdSeconds / 60
+        if (holdMinutes <= 12) stop = maxOf(stop, -10.0)
+        val inBreatherWindow = holdMinutes <= 12 && pos.stopLossPct > -10.0
+        if (!inBreatherWindow && pos.stopLossPct < 0.0) stop = maxOf(stop, pos.stopLossPct)
+        return stop
+    }
 
     fun restorePosition(position: MoonshotPosition) {
         synchronized(activePositions) { activePositions[position.mint] = position }

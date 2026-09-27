@@ -64,7 +64,9 @@ object ShitCoinExpress {
     
     // Position sizing - SMALL but FAST
     private const val BASE_POSITION_SOL = 0.05        // Tiny base
-    private const val MAX_POSITION_SOL = 3.0          // Never exceed 0.1 SOL
+    // V5.0.7389 — was 3.0 under a "never exceed 0.1" design note: the fastest,
+    // least-confirmed lane could size 12x QUALITY. Small but fast, as designed.
+    private const val MAX_POSITION_SOL = 0.25
     private const val MAX_CONCURRENT_RIDES = 50       // V5.9.495z12: 20→50 — never choke trader volume
     
     // AGGRESSIVE take profits
@@ -768,7 +770,9 @@ object ShitCoinExpress {
         if (currentPrice > ride.highWaterMark) {
             ride.highWaterMark = currentPrice
             // V5.9.169 — continuous fluid trail (shared engine).
-            val dynamicTrailPct = com.lifecyclebot.v3.scoring.FluidLearningAI.fluidTrailPct(pnlPct)
+            // V5.0.7389 — fresh-launch momentum swings wider than the shared
+            // trail assumes; 1.3x room so a normal pullback is not the exit.
+            val dynamicTrailPct = (com.lifecyclebot.v3.scoring.FluidLearningAI.fluidTrailPct(pnlPct) * 1.3).coerceAtMost(40.0)
             ride.trailingStop = currentPrice * (1 - dynamicTrailPct / 100)
 
             // Update ride phase
@@ -822,7 +826,10 @@ object ShitCoinExpress {
         }
 
         // 6. MOMENTUM DEATH - Momentum collapsed
-        if (currentMomentum < 0 && pnlPct > 0) {
+        // V5.0.7389 — any negative momentum tick cut winners at +1% while losers
+        // ran to the -8% stop. Momentum must actually turn (< -2%), and once the
+        // first rung is banked the runner belongs to the trail and locks.
+        if (currentMomentum < -2.0 && pnlPct > 0 && ride.partialRungsTaken == 0) {
             ride.ridePhase = RidePhase.BRAKING
             ErrorLogger.info(TAG, "💩📉 MOM DEATH! $mint | +${pnlPct.fmt(1)}% mom=${currentMomentum.fmt(1)}%")
             return ExitSignal.MOMENTUM_DEATH

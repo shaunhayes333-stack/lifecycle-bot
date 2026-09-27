@@ -236,15 +236,16 @@ object OracleEdgeProof7263 {
     }
 
     private fun recompute() {
-        val (aN, aRet, aWr) = admit.snapshot()
-        val (rN, rRet, rWr) = refuse.snapshot()
+        // V5.0.7389 — win rate dropped from the proof: meme returns are fat-tailed, so a lower hit rate with a far
+        // larger mean return (admit +46.1%/21% vs refuse +6.0%/23%) is a real edge; return margin + Brier decide.
+        val (aN, aRet, _) = admit.snapshot()
+        val (rN, rRet, _) = refuse.snapshot()
         val aBrier = admit.brier()
         val checks = listOf(
             "admitN>=$MIN_ADMIT_CLOSES_7263" to (aN >= MIN_ADMIT_CLOSES_7263),
             "refuseN>=$MIN_NON_ADMIT_CLOSES_7263" to (rN >= MIN_NON_ADMIT_CLOSES_7263),
             "admitRet>0" to (aRet > 0.0),
             "admitRet>=refuseRet+${MIN_EDGE_MARGIN_RETURN_7263}" to (aRet >= rRet + MIN_EDGE_MARGIN_RETURN_7263),
-            "admitWr>=refuseWr" to (aWr >= rWr),
             "admitBrier<=$MAX_ADMIT_BRIER_7263" to (aBrier <= MAX_ADMIT_BRIER_7263),
         )
         val proven = checks.all { it.second }

@@ -2636,7 +2636,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun quality_owner_requires_quality_liquidity() {
         val service = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("QUALITY owner must require route/liquidity/mcap/safety proof while holder-blind proof soft-allows into downstream size shaping", service.contains("qualityLaneProofOk") && service.contains("qualityStructure = routeProof && safeEnough && ts.lastLiquidityUsd >= 15_000.0 && ts.lastMcap >= 25_000.0") && service.contains("QUALITY_OWNER_HOLDER_PROOF_BLIND_SOFT_ALLOW") && service.contains("QUALITY_OWNER_PROOF_REJECTED") && service.contains("QUALITY_PRIMARY_PROOF_REJECTED"))
+        assertTrue("QUALITY owner must require route/liquidity/mcap/safety proof while holder-blind proof soft-allows into downstream size shaping", service.contains("qualityLaneProofOk") && service.contains("qualityStructure = routeProof && safeEnough && ts.lastLiquidityUsd >= minLiq7389 && ts.lastMcap >= minMcap7389") && service.contains("QUALITY_OWNER_HOLDER_PROOF_BLIND_SOFT_ALLOW") && service.contains("QUALITY_OWNER_PROOF_REJECTED") && service.contains("QUALITY_PRIMARY_PROOF_REJECTED"))
     }
 
 
@@ -6883,8 +6883,8 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.4553: risk overlay parser must detect single-holder/unverified/high-holder-concentration manipulation", safety.contains("singleHolderOwnershipRisk") && safety.contains("unverifiedTokenRisk") && safety.contains("highHolderConcentrationRisk"))
         assertTrue("V5.0.4553: TokenSafetyChecker must stamp MANIPULATED_ONLY_OVERLAY_4553 for live manipulation overlays", safety.contains("MANIPULATED_ONLY_OVERLAY_4553") && safety.contains("action=manipulated_lane_only"))
-        assertTrue("V5.0.4553: shared pre-FDG lane gate must reject manipulated overlays from every non-MANIPULATED lane", bot.contains("manipulatedOnlyOverlayActive4553") && bot.contains("MANIPULATED_ONLY_NON_MANIPULATED_LANE_REJECTED_4553") && bot.contains("MANIPULATED_ONLY_OVERLAY_NON_MANIPULATED_LANE_4553"))
-        assertTrue("V5.0.4553: manipulated-only rejection must happen before weak WAIT/dust-probe override can turn it into a live buy", bot.indexOf("MANIPULATED_ONLY_NON_MANIPULATED_LANE_REJECTED_4553") < bot.indexOf("LANE_WAIT_OVERRIDE_DUST_PROBE"))
+        assertTrue("V5.0.4553: shared pre-FDG lane gate must reject manipulated overlays from every non-MANIPULATED lane", bot.contains("manipulatedOnlyOverlayActive4553") && bot.contains("val manipOverlayDustProbe6011 = manipulatedOnlyOverlay4553 && !lane.equals(\"MANIPULATED\", ignoreCase = true)"))
+        assertTrue("V5.0.4553: manipulated-only rejection must happen before weak WAIT/dust-probe override can turn it into a live buy", bot.indexOf("val manipOverlayDustProbe6011") in 0 until bot.indexOf("LANE_WAIT_OVERRIDE_DUST_PROBE"))
     }
 
 
@@ -9717,7 +9717,7 @@ class GoldenTapeRegressionTest {
         // Moonshot: the admission window is the floor for a runner-shaped launch.
         // V5.0.7337 — operator restored the lane's own $10k floor.
         assertTrue(admission.contains("const val MCAP_FLOOR_USD = com.lifecyclebot.v3.scoring.MoonshotTraderAI.MIN_MARKET_CAP_USD"))
-        assertTrue(admission.contains("const val LIQ_FLOOR_USD = 800.0"))
+        assertTrue(admission.contains("const val LIQ_FLOOR_USD = com.lifecyclebot.v3.scoring.MoonshotTraderAI.MIN_LIQUIDITY_USD_BOOTSTRAP"))
         assertTrue(moon.contains("runnerShaped7266: Boolean = false"))
         assertTrue(moon.contains("MOONSHOT_RUNNER_SHAPED_FLOOR_ADMIT_7266"))
         assertTrue(bot.contains(".isRunnerShaped(ts, modeClassification.tradeType)"))
@@ -12330,5 +12330,35 @@ class GoldenTapeRegressionTest {
         assertTrue(tx.contains("PAPER_PRELOOP_RECONCILE_PENDING_7388"))
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("lastBotLoopTickMs = System.currentTimeMillis()\n"))
+    }
+
+
+    @Test
+    fun V5_0_7389_specialist_lanes_trade_as_designed() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("CORE_ENSEMBLE_ELECTED_7389"))
+        assertTrue(bot.contains("V3_TRUNK_DEFERS_TO_SPECIALIST_OWNER_7389_"))
+        assertTrue(bot.contains("com.lifecyclebot.v3.scoring.MoonshotTraderAI.stopFor(ts.mint)"))
+        assertTrue(bot.contains("laneName4588 == \"CORE\""))
+        assertTrue(bot.contains("ts.position.tradingMode.uppercase() in setOf(\"BLUE_CHIP\", \"BLUECHIP\")"))
+        assertTrue(bot.contains("TREASURY_V3_SCORE_REJECT_NOT_BINDING_7389"))
+        assertTrue(bot.contains("bounceConfirmed = dipBounce7389"))
+        assertTrue(bot.contains("DIP_RECOVERY_PARTIAL_50PCT"))
+        val lec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneEntryContract6342.kt").readText()
+        assertTrue(lec.contains("if (ts.lastMcap > ceiling) return false"))
+        assertTrue(lec.contains("if (ts.lastMcap < bcFloor) return false"))
+        assertTrue(com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane("CORE"))
+        val dip = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/DipHunterAI.kt").readText()
+        assertTrue(dip.contains("NO_BOUNCE_CONFIRMATION"))
+        assertTrue(dip.contains("return DipExitSignal.PARTIAL_TAKE"))
+        val q = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/QualityTraderAI.kt").readText()
+        val bc = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/BlueChipTraderAI.kt").readText()
+        for (src in listOf(q, bc)) assertTrue(src.contains("doubleArrayOf(pos.takeProfitPct, 50.0, 100.0"))
+        assertTrue(bc.contains("STOP_LOSS_BOOTSTRAP = -8.0"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinExpress.kt").readText()
+        assertTrue(ex.contains("private const val MAX_POSITION_SOL = 0.25"))
+        assertTrue(ex.contains("currentMomentum < -2.0 && pnlPct > 0 && ride.partialRungsTaken == 0"))
+        val moon = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
+        assertTrue(moon.contains("if (!goldProtected && pos.peakPnlPct < 8.0)"))
     }
 }

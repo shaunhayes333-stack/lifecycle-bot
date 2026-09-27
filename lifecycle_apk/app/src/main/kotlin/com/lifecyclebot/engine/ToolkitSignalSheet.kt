@@ -186,7 +186,9 @@ object ToolkitSignalSheet {
     fun build(ts: TokenState, classification: ModeRouter.Classification? = null): Sheet {
         val hist = try { ts.history.toList().filter { it.priceUsd.isFinite() && it.priceUsd > 0.0 } } catch (_: Throwable) { emptyList() }
         val prices = hist.map { it.priceUsd }
-        val vols = hist.map { it.vol.takeIf { v -> v.isFinite() && v >= 0.0 } ?: 0.0 }
+        // V5.0.7389 — volume features use only real (non-synthetic, volume > 0) candles; tick-appended candles carry no volume.
+        val vols = hist.filter { !it.synthetic }.map { it.vol }.filter { it.isFinite() && it > 0.0 }
+        val realVolumeLowData = vols.size < 8
         val last = prices.lastOrNull() ?: ts.lastPrice.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         val ageMin = try { ((System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0).coerceAtLeast(0.0) } catch (_: Throwable) { 999.0 }
         val src = ts.source.uppercase()
@@ -241,7 +243,8 @@ object ToolkitSignalSheet {
                 setup = when (ms.pattern) {
                     "BREAKOUT_CONTINUATION" -> Setup.CHART_BREAKOUT
                     "PULLBACK_RECLAIM" -> Setup.CHART_PULLBACK_RECLAIM
-                    "ACCUMULATION_COMPRESSION" -> Setup.LIQUIDITY_DEPTH_QUALITY
+                    // V5.0.7389 — never derive a liquidity/accumulation setup from low-data (volume-less) movement input.
+                    "ACCUMULATION_COMPRESSION" -> if (realVolumeLowData) Setup.NONE else Setup.LIQUIDITY_DEPTH_QUALITY
                     "EXHAUSTION_CHASE" -> Setup.EXHAUSTION_QUICK_FLIP
                     "VOLUME_IGNITION" -> Setup.VOLUME_IGNITION_SCALP
                     "FREEFALL_NO_RECLAIM" -> Setup.REGIME_DEFENSIVE_PROBE
@@ -267,10 +270,12 @@ object ToolkitSignalSheet {
             ))
         }
 
+        // V5.0.7389 — every additive `if` term in the score expressions below is parenthesised; unparenthesised
+        // `x + if (c) 10.0 else 0.0 + if (d) ...` parsed as `else (0.0 + ...)` and dropped trailing terms when c was true.
         // Diamond hands / runner: strong structure, high confidence, near highs, not a scalp.
         add(Candidate(
             setup = Setup.DIAMOND_HANDS_RUNNER,
-            score = (if (nearHigh) 18.0 else 0.0) + (move12.coerceAtLeast(0.0) * 0.45).coerceAtMost(28.0) + conf * 0.25 + if (liq >= 8_000.0) 10.0 else 0.0 + if (higherLows >= 3) 10.0 else 0.0,
+            score = (if (nearHigh) 18.0 else 0.0) + (move12.coerceAtLeast(0.0) * 0.45).coerceAtMost(28.0) + conf * 0.25 + (if (liq >= 8_000.0) 10.0 else 0.0) + (if (higherLows >= 3) 10.0 else 0.0),
             chart = "runner_near_high",
             entry = "breakout_retest_or_strength_add",
             exit = "diamond_hands_high_water_trail",
@@ -301,7 +306,7 @@ object ToolkitSignalSheet {
         // Chart breakout: prior impulse + higher lows + volume ignition.
         add(Candidate(
             setup = Setup.CHART_BREAKOUT,
-            score = (if (move12 > 18.0) 18.0 else 0.0) + (if (higherLows >= 3) 18.0 else 0.0) + ((volIgnition - 1.0) * 18.0).coerceIn(0.0, 24.0) + if (nearHigh) 12.0 else 0.0 + conf * 0.18,
+            score = (if (move12 > 18.0) 18.0 else 0.0) + (if (higherLows >= 3) 18.0 else 0.0) + ((volIgnition - 1.0) * 18.0).coerceIn(0.0, 24.0) + (if (nearHigh) 12.0 else 0.0) + conf * 0.18,
             chart = "breakout_continuation",
             entry = "breakout_confirmation",
             exit = "runner_trail_partial_delayed",
@@ -316,7 +321,7 @@ object ToolkitSignalSheet {
         // Pullback reclaim: prior dump/pullback, stabilization, wicks bought.
         add(Candidate(
             setup = Setup.CHART_PULLBACK_RECLAIM,
-            score = (pullbackFromHigh * 0.9).coerceIn(0.0, 30.0) + if (wickBought >= 2) 18.0 else 0.0 + if (bp >= 48.0) 10.0 else 0.0 + if (move5 > -4.0) 10.0 else 0.0,
+            score = (pullbackFromHigh * 0.9).coerceIn(0.0, 30.0) + (if (wickBought >= 2) 18.0 else 0.0) + (if (bp >= 48.0) 10.0 else 0.0) + (if (move5 > -4.0) 10.0 else 0.0),
             chart = "pullback_reclaim",
             entry = "dip_reclaim_confirmation",
             exit = "reclaim_scalp_or_swing",
@@ -332,7 +337,7 @@ object ToolkitSignalSheet {
         val mainstream = liq >= 30_000.0 || mcap >= 1_000_000.0 || src.contains("COINGECKO") || src.contains("BIRDEYE")
         add(Candidate(
             setup = if (tt == ModeRouter.TradeType.WHALE_ACCUMULATION) Setup.WHALE_ACCUMULATION_HOLD else Setup.MAINSTREAM_CRYPTO_SWING,
-            score = (if (mainstream) 30.0 else 0.0) + conf * 0.25 + if (higherLows >= 3) 12.0 else 0.0 + if (abs(move5) < 18.0) 8.0 else 0.0,
+            score = (if (mainstream) 30.0 else 0.0) + conf * 0.25 + (if (higherLows >= 3) 12.0 else 0.0) + (if (abs(move5) < 18.0) 8.0 else 0.0),
             chart = "quality_accumulation_swing",
             entry = "quality_pullback_or_accumulation",
             exit = "swing_hold_trailing",
@@ -407,7 +412,7 @@ object ToolkitSignalSheet {
         // Liquidity depth quality: use liquidity/depth/quality toolkit for safer larger-cap crypto setups.
         add(Candidate(
             setup = Setup.LIQUIDITY_DEPTH_QUALITY,
-            score = (if (liq >= 50_000.0) 36.0 else 0.0) + if (mcap >= 1_000_000.0) 14.0 else 0.0 + conf * 0.20 + if (sellPressure <= 52.0) 8.0 else 0.0,
+            score = (if (liq >= 50_000.0) 36.0 else 0.0) + (if (mcap >= 1_000_000.0) 14.0 else 0.0) + conf * 0.20 + (if (sellPressure <= 52.0) 8.0 else 0.0),
             chart = "liquidity_depth_quality",
             entry = "liquid_quality_accumulation",
             exit = "quality_depth_swing_trail",
@@ -422,7 +427,7 @@ object ToolkitSignalSheet {
         // Panic reversion / recovery: route dumps that stabilize into reclaim tooling.
         add(Candidate(
             setup = if (laneHints.contains("DIP_HUNTER")) Setup.REENTRY_RECOVERY else Setup.PANIC_REVERSION_BOUNCE,
-            score = (if (pullbackFromHigh >= 28.0 && wickBought >= 1) 35.0 else 0.0) + if (move5 > -8.0) 10.0 else 0.0 + if (bp >= 45.0) 8.0 else 0.0,
+            score = (if (pullbackFromHigh >= 28.0 && wickBought >= 1) 35.0 else 0.0) + (if (move5 > -8.0) 10.0 else 0.0) + (if (bp >= 45.0) 8.0 else 0.0),
             chart = "panic_reversion_bounce",
             entry = "panic_reclaim_probe",
             exit = "bounce_bank_or_recovery_trail",
@@ -452,7 +457,7 @@ object ToolkitSignalSheet {
         // MEV protected entry / defensive probe: marks hostile microstructure and keeps sizing conservative.
         add(Candidate(
             setup = if (mevRisk) Setup.MEV_PROTECTED_ENTRY else Setup.REGIME_DEFENSIVE_PROBE,
-            score = (if (mevRisk) 40.0 else 0.0) + if (volatility > 55.0) 10.0 else 0.0 + if (sellPressure > 60.0) 10.0 else 0.0,
+            score = (if (mevRisk) 40.0 else 0.0) + (if (volatility > 55.0) 10.0 else 0.0) + (if (sellPressure > 60.0) 10.0 else 0.0),
             chart = "mev_or_hostile_microstructure",
             entry = "protected_probe_only",
             exit = "tight_invalidated_exit",
