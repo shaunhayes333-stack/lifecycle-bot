@@ -448,7 +448,16 @@ object ProbationEntryLimiter6388 {
 
     @Synchronized
     fun canOpen(nowMs: Long = System.currentTimeMillis()): Pair<Boolean, String> {
-        if (openCount.get() >= MAX_OPEN) return false to "PROBATION_MAX_OPEN_REACHED"
+        // V5.0.7372 — "open" is the live positions that are actually open, not a
+        // counter. recordOpen() runs when the lane contract authorises the entry,
+        // before the buy executes; a buy that then failed (5.0.7368: one
+        // SUB_ROUTABLE_DUST refusal) never decremented it, and every live entry
+        // for the next six hours was refused PROBATION_MAX_OPEN_REACHED (28/29).
+        val liveOpen7372 = try {
+            CanonicalPositionAuthority6441.openPositions().count { it.mode.equals("live", true) }
+        } catch (_: Throwable) { openCount.get().toInt() }
+        if (liveOpen7372 != openCount.get().toInt()) openCount.set(liveOpen7372.toLong())
+        if (liveOpen7372 >= MAX_OPEN) return false to "PROBATION_MAX_OPEN_REACHED"
         if (nowMs - lastEntryMs < MIN_SPACING_MS && lastEntryMs > 0L)
             return false to "PROBATION_MIN_SPACING_${(nowMs - lastEntryMs)}ms"
         // Trim entries older than one hour.

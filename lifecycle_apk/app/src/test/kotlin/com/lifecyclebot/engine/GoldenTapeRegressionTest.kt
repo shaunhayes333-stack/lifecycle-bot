@@ -12059,4 +12059,16 @@ class GoldenTapeRegressionTest {
         val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         assertTrue(phc.contains("if (firstOkForMint7371(execOkSeenSell7371, fields)) execLiveSellOk.incrementAndGet()"))
     }
+
+
+    @Test
+    fun V5_0_7372_probation_slot_reads_live_positions_and_partial_snapshot_never_zero_closes() {
+        val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/GovernorRecoverySubstrate6388.kt").readText()
+        assertTrue(g.contains("CanonicalPositionAuthority6441.openPositions().count { it.mode.equals(\"live\", true) }"))
+        assertTrue(g.contains("if (liveOpen7372 >= MAX_OPEN) return false to \"PROBATION_MAX_OPEN_REACHED\""))
+        assertFalse(g.contains("if (openCount.get() >= MAX_OPEN) return false"))
+        val r = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellReconciler.kt").readText()
+        assertTrue(r.contains("if (!hasSig && com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.isLastPartial()) {"))
+        assertTrue(r.contains("RECONCILER_ZERO_SKIPPED_PARTIAL_SNAPSHOT_7372"))
+    }
 }

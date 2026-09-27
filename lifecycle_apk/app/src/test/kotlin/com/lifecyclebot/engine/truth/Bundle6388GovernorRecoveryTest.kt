@@ -119,7 +119,10 @@ class Bundle6388GovernorRecoveryTest {
         val (ok1, _) = ProbationEntryLimiter6388.canOpen(now)
         assertTrue(ok1); ProbationEntryLimiter6388.recordOpen(now)
         val (ok2, reason) = ProbationEntryLimiter6388.canOpen(now)
-        assertFalse(ok2); assertTrue(reason.contains("MAX_OPEN"))
+        // V5.0.7372 — "open" is read from canonical live positions, not the
+        // authorisation counter (a failed buy used to hold the slot for hours);
+        // with no live position yet, the immediate retry is refused by spacing.
+        assertFalse(ok2); assertTrue(reason.contains("MIN_SPACING"))
     }
 
     @Test fun probation_entry_spacing_is_enforced() {

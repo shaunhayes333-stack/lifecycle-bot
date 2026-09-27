@@ -528,6 +528,15 @@ object SellReconciler {
         if (balance <= 1e-9) {
             val sellSig = pos.sellSignature
             val hasSig = !sellSig.isNullOrBlank()
+            if (!hasSig && com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.isLastPartial()) {
+                // V5.0.7372 — a snapshot missing the Token-2022 program cannot show a
+                // Token-2022 mint as gone. 5.0.7368 (6h): 557 partial reads, and 92
+                // held positions closed on "absent" then reopened next read
+                // (RECONCILE_REOPEN_WALLET_BALANCE_STILL_HELD = 92).
+                pos.consecutiveZeroConfirms = 0
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RECONCILER_ZERO_SKIPPED_PARTIAL_SNAPSHOT_7372") } catch (_: Throwable) {}
+                return
+            }
             if (!hasSig) {
                 // V5.0.3769 — successful non-empty wallet read + this mint absent
                 // is a zero observation, but still debounce it. The previous flow

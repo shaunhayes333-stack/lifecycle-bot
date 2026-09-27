@@ -4,6 +4,24 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7372] - 2026-09-27 — SIX HOURS, ZERO LIVE BUYS: A STUCK PROBATION SLOT
+
+Operator: "its been running for 6 hours" (device still on 5.0.7368).
+
+- **No live buys for six hours.** Under governor HOLD the probation limiter allows
+  one open live position. Its count was incremented when the lane contract
+  authorised an entry, before the buy ran, and only decremented by a journal close.
+  The one authorised buy failed as SUB_ROUTABLE_DUST, the slot never freed, and 28 of
+  29 live entries were refused PROBATION_MAX_OPEN_REACHED. The limiter now reads the
+  live positions that are actually open in canonical authority.
+- **92 held positions closed and reopened.** The Token-2022 half of the wallet read
+  failed 557 times; the SPL-only snapshot is marked partial (7140) but the sell
+  reconciler's zero path did not check, so a Token-2022 token absent from it was
+  proven "zero", closed (SELL ok=92, canonical LIVE active 0) and reopened by the
+  next full read. A partial snapshot no longer counts as a zero observation.
+
+---
+
 ## [5.0.7371] - 2026-09-26 — THE REST OF THE 5.0.7368 LOG
 
 Operator: "what else in the log needs fixing?" Each item was checked against the source.
