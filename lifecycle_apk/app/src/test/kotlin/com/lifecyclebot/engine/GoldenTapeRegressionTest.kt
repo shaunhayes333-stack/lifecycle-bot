@@ -12212,4 +12212,14 @@ class GoldenTapeRegressionTest {
         assertFalse(rpcs.any { it.contains("drpc") })
         assertEquals("", com.lifecyclebot.engine.RuntimeProviderAuthority6685.sanitizeRpc("https://solana.drpc.org"))
     }
+
+
+    @Test
+    fun V5_0_7383_superseded_and_sealing_race_allows_regate_in_live_too() {
+        val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertFalse(g.contains("if (paperMode && state != null && stateVersion7220 > 0L &&"))
+        assertFalse(g.contains("if (paperMode && sameCandidateState7219 &&"))
+        assertTrue(g.contains("if (state != null && stateVersion7220 > 0L &&"))
+        assertTrue(g.contains("if (sameCandidateState7219 &&"))
+    }
 }

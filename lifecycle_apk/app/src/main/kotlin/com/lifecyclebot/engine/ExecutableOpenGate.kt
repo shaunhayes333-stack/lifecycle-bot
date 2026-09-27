@@ -3028,7 +3028,10 @@ object ExecutableOpenGate {
             val sameCandidateState7219 = stateDescribesCurrent7220
             val deferKey7219 = "${laneKey(mint, lane)}|$stateVersion7220"
             val priorDeferrals7219 = sealingRaceDeferrals7219[deferKey7219] ?: 0
-            if (paperMode && sameCandidateState7219 &&
+            // V5.0.7383 — the bounded sealing-race deferral applies to live as well:
+            // waiting one cycle for the seal spends nothing, and the bound still
+            // raises the invariant for a seal that never lands.
+            if (sameCandidateState7219 &&
                 priorDeferrals7219 < MAX_SEALING_RACE_DEFERRALS_7219
             ) {
                 sealingRaceDeferrals7219[deferKey7219] = priorDeferrals7219 + 1
@@ -3044,7 +3047,7 @@ object ExecutableOpenGate {
                             "stateAgeMs=$stateAgeMs stateVersion=$stateVersion7220 currentVersion=$currentCandidateVersion " +
                             "gateCandidateVersion=$candidateVersion electedVersion=$electedCandidateVersion6494 " +
                             "deferral=${priorDeferrals7219 + 1}/$MAX_SEALING_RACE_DEFERRALS_7219 cooldownMs=0 " +
-                            "action=defer_and_regate_next_cycle_fdg_allow_is_for_the_current_candidate paper=true",
+                            "action=defer_and_regate_next_cycle_fdg_allow_is_for_the_current_candidate paper=$paperMode",
                     )
                 } catch (_: Throwable) {}
                 return blocked(
@@ -3067,7 +3070,12 @@ object ExecutableOpenGate {
             // integrity alarm for a routine expiry. The stale allow is dropped
             // from the state here so the next cycle gates the current candidate
             // on its own verdict; the remaining three causes still alarm.
-            if (paperMode && state != null && stateVersion7220 > 0L &&
+            // V5.0.7383 — live too. The paper-only guard sent every superseded live
+            // allow down to AUTHORITY_INVARIANT_FAILURE, which set a 30s (mint, lane)
+            // cooldown (COOLDOWN_FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519 = 35 on
+            // 5.0.7382) and refused the NEWER candidate its own verdict. Dropping a
+            // stale allow can only remove permission, never grant it.
+            if (state != null && stateVersion7220 > 0L &&
                 currentCandidateVersion > 0L && stateVersion7220 < currentCandidateVersion
             ) {
                 try {

@@ -4,6 +4,10 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7383] — superseded FDG allows re-gate in live instead of cooling the mint
+
+- ExecutableOpenGate: the stale-allow clear (7279) and the bounded sealing-race deferral (7219) were paper-only. In live a superseded allow fell to AUTHORITY_INVARIANT_FAILURE and set a 30s (mint, lane) cooldown that refused the newer candidate (FDG_ALLOW_WITHOUT_EXECUTION_INTENT_6519 = 35 on 5.0.7382). Both now apply in live.
+
 ## [5.0.7382] — live entry snapshot reads the liquidity the bot already observed
 
 - Executor entry snapshot: liquidity falls back from the price tick to the token map's discovered pool liquidity, then to on-chain curve reserves × SOL price. A price feed reporting liq=0 (pump curve tokens, fresh pools) no longer invalidates the snapshot; ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED was 11 of 14 live buy failures on 5.0.7381. The corroborated re-price retry uses the same observed liquidity.
