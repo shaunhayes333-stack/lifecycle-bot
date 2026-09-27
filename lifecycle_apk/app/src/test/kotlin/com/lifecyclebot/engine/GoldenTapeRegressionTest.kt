@@ -12313,4 +12313,22 @@ class GoldenTapeRegressionTest {
         val fr = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForensicReconciliation6635.kt").readText()
         assertTrue(fr.contains("FORENSIC_RECONCILE_SKIPPED_UNCHANGED_7387"))
     }
+
+
+    @Test
+    fun V5_0_7388_quality_lane_identity_dead_money_and_moonbag_slide() {
+        val lec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneEntryContract6342.kt").readText()
+        assertTrue(lec.contains("if (lane == \"QUALITY\" || lane == \"CORE\") {"))
+        assertTrue(lec.contains("src.contains(\"PUMP_FUN_BC\") || src.contains(\"PUMP_PORTAL\") || ts.lastMcap < 69_000.0"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("requestSell(ts = ts, reason = \"DEAD_MONEY_CULL_7388\", wallet = wallet, walletSol = walletSol)"))
+        assertTrue(ex.contains("if (lane7388.contains(\"PROJECT_SNIPER\")) return@run"))
+        // Moonbag slides: +1408% peak bag holds above ~+1060% (was +704%).
+        assertTrue(MoonbagRunner7322.decide("MOONSHOT", "RAPID_TRAILING_STOP", 1100.0, 1408.0, 1408.0) == MoonbagRunner7322.Action.HOLD_MOONBAG)
+        assertTrue(MoonbagRunner7322.decide("MOONSHOT", "RAPID_TRAILING_STOP", 900.0, 1408.0, 1408.0) == MoonbagRunner7322.Action.PASS)
+        val tx = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalPaperTransaction6486.kt").readText()
+        assertTrue(tx.contains("PAPER_PRELOOP_RECONCILE_PENDING_7388"))
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("lastBotLoopTickMs = System.currentTimeMillis()\n"))
+    }
 }

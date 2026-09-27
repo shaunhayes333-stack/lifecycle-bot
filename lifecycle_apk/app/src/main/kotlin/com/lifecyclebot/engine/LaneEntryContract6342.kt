@@ -79,7 +79,29 @@ object LaneEntryContract6342 {
      */
     fun isLaneIdentityEligible7252(ts: TokenState, laneRequested: String): Boolean {
         val lane = laneRequested.uppercase()
-        return !((lane == "BLUECHIP" || lane == "BLUE_CHIP") && isPumpFunMint(ts.mint))
+        if ((lane == "BLUECHIP" || lane == "BLUE_CHIP") && isPumpFunMint(ts.mint)) return false
+        // V5.0.7388 — QUALITY and CORE are not launch lanes. The desk's role
+        // hypotheses (DIAMOND_HANDS_RUNNER, CHART_BREAKOUT, PULLBACK_RECLAIM) tag a
+        // pumping $3-4k curve launch QUALITY with no mcap check, and the V3 trunk
+        // then bought it under that label without QualityTraderAI's own $75k gate
+        // (QUALITY 0/7 this session, EV -4.2%). An un-graduated pump.fun launch is
+        // left to the launch lanes (PROJECT_SNIPER / MOONSHOT / SHITCOIN), and
+        // QUALITY also needs its band floor.
+        if (lane == "QUALITY" || lane == "CORE") {
+            val src = ts.lastPriceSource.ifBlank { ts.source }.uppercase()
+            val onCurve = isPumpFunMint(ts.mint) &&
+                (src.contains("PUMP_FUN_BC") || src.contains("PUMP_PORTAL") || ts.lastMcap < 69_000.0)
+            if (onCurve) return false
+            if (lane == "QUALITY") {
+                val floor = try {
+                    com.lifecyclebot.engine.market.LaneHunter7297.floorFor(
+                        "QUALITY", com.lifecyclebot.v3.scoring.QualityTraderAI.MIN_MARKET_CAP_USD,
+                    )
+                } catch (_: Throwable) { 75_000.0 }
+                if (ts.lastMcap <= 0.0 || ts.lastMcap < floor) return false
+            }
+        }
+        return true
     }
 
     /** MINT_ROUTE placeholder means no real pool address is known yet. */

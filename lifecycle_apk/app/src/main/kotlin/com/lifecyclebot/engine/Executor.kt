@@ -8114,6 +8114,13 @@ class Executor(
         if (!manageableForExit7146(ts)) return
         val currentPrice = getActualPrice(ts)
         if (currentPrice > 0.0) {
+            // V5.0.7388 — when this position last made a new high (first sighting counts
+            // as "now", so a restart never triggers an instant dead-money cull).
+            val hk7388 = "${ts.mint}|${ts.position.entryTime}"
+            if (currentPrice > ts.position.highestPrice || !lastNewHighMs7388.containsKey(hk7388)) {
+                if (lastNewHighMs7388.size > 5_000) lastNewHighMs7388.clear()
+                lastNewHighMs7388[hk7388] = System.currentTimeMillis()
+            }
             ts.position.highestPrice = maxOf(ts.position.highestPrice, currentPrice)
             if (ts.position.lowestPrice == 0.0 || currentPrice < ts.position.lowestPrice)
                 ts.position.lowestPrice = currentPrice
@@ -9385,6 +9392,51 @@ class Executor(
                     return
                 }
             }
+        }
+
+        // V5.0.7388 — DEAD-MONEY CULL. Once a position is open, the lane exits
+        // (time exits, FLAT_EXIT, hold buckets) no longer run for it (6647 routes
+        // held positions straight to exit management), and the 7353 cull only takes
+        // non-runner lanes within +/-3%. So a position between -14% and +5% with no
+        // new high sat indefinitely: 85 open after 8 minutes, losers held 52.6 min vs
+        // winners 5.6 min, and intake blocked at 70 open (INVENTORY_PRESSURE_6829).
+        // It never touches PROJECT_SNIPER, a position that peaked >= +20% (the
+        // sliding lock is armed there), or one that has banked profit. Under inventory
+        // pressure the windows halve, so recycling speeds up exactly when intake chokes.
+        run {
+            val lane7388 = ts.position.tradingMode.uppercase()
+            if (lane7388.contains("PROJECT_SNIPER")) return@run
+            val p7388 = ts.position
+            if (p7388.peakGainPct >= PeakDrawdownLock.ARM_THRESHOLD_PCT || p7388.partialSoldPct > 0.0 ||
+                p7388.capitalRecovered || p7388.profitLocked || p7388.isHouseMoney) return@run
+            val pressure7388 = try {
+                com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.pressureLevel() >=
+                    com.lifecyclebot.engine.truth.InventoryPressureGovernor6829.Pressure.HIGH
+            } catch (_: Throwable) { false }
+            val runner7388 = try { RunnerExitProfile7277.isRunnerLane(lane7388) } catch (_: Throwable) { true }
+            val minAgeMs7388 = (if (runner7388) 30L else 20L) * 60_000L / (if (pressure7388) 2L else 1L)
+            val noHighMs7388 = (if (pressure7388) 5L else 8L) * 60_000L
+            val lastHigh7388 = lastNewHighMs7388["${ts.mint}|${p7388.entryTime}"] ?: return@run
+            val now7388 = System.currentTimeMillis()
+            if (posAgeMs < minAgeMs7388 || now7388 - lastHigh7388 < noHighMs7388) return@run
+            if (ts.lastPriceUpdate <= 0L || now7388 - ts.lastPriceUpdate > 120_000L) return@run
+            val v7388 = try {
+                OpenPnlSanity.inspectPosition(p7388, currentPrice, "Executor.deadMoney7388/${ts.symbol}", emit = false, mint = ts.mint)
+            } catch (_: Throwable) { null }
+            if (v7388 == null || !v7388.ok || v7388.pnlPct < -14.0 || v7388.pnlPct > 5.0) return@run
+            try {
+                PipelineHealthCollector.labelInc("DEAD_MONEY_CULL_7388")
+                PipelineHealthCollector.labelInc("DEAD_MONEY_CULL_7388_${lane7388.take(20)}")
+                ForensicLogger.lifecycle(
+                    "DEAD_MONEY_CULL_7388",
+                    "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$lane7388 heldMin=${posAgeMs / 60_000L} " +
+                        "noHighMin=${(now7388 - lastHigh7388) / 60_000L} pnl=${"%.2f".format(v7388.pnlPct)} " +
+                        "peak=${"%.1f".format(p7388.peakGainPct)} pressure=$pressure7388 action=recycle_capital",
+                )
+            } catch (_: Throwable) {}
+            lastNewHighMs7388.remove("${ts.mint}|${p7388.entryTime}")
+            requestSell(ts = ts, reason = "DEAD_MONEY_CULL_7388", wallet = wallet, walletSol = walletSol)
+            return
         }
 
         if (checkProfitLock(ts, wallet, walletSol)) return
@@ -14884,6 +14936,9 @@ class Executor(
      * discovered pool liquidity, then the on-chain curve reserves priced in SOL.
      * Every source is an observation; none is inferred from market cap.
      */
+    /** V5.0.7388 — when each open position (mint|entryTime) last made a new high. */
+    private val lastNewHighMs7388 = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     /** V5.0.7385 — live sniper entries are launches: mcap at or under this, not graduated. */
     private val LIVE_SNIPER_MAX_MCAP_USD_7385 = 150_000.0
     /** V5.0.7385 — and launch-aged: a known first pool older than this is not a launch. */

@@ -1970,6 +1970,8 @@ class BotService : Service() {
                         // choked meme cycle cannot also freeze reconciliation.
                         com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486
                             .reconcileJournalAuthority6663()
+                        // V5.0.7388 — a completed scheduler pass also opens the paper gate.
+                        com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.firstReconcileAttempted7388 = true
                         com.lifecyclebot.engine.truth.ForensicReconciliation6635
                             .reconcile6635()
                     }
@@ -18250,6 +18252,9 @@ class BotService : Service() {
 
     private suspend fun botLoop() {
         if (botLoopStartedAtMs == 0L) botLoopStartedAtMs = System.currentTimeMillis()
+        // V5.0.7388 — tick 1 measures this loop, not the service's lifetime/startup
+        // (it reported the whole boot as a 127s "cycle").
+        lastBotLoopTickMs = System.currentTimeMillis()
         // V5.9.919 — FIRST ACTION on botLoop entry: clear RESCUE_LAUNCHING
         // phase by stamping progress. Operator V5.9.916 freeze showed phase
         // stuck at RESCUE_LAUNCHING for 4+ minutes because the 78 lines of
@@ -18268,17 +18273,19 @@ class BotService : Service() {
         // and this whole-journal reconcile delayed cycle 1; it runs in the background
         // there (the 30s independent scheduler keeps it current). PAPER keeps it inline
         // so no paper trade is admitted before the paper ledger is reconciled.
-        if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) {
+        //
+        // V5.0.7388 — both modes run it in the background. In PAPER, paper opens are
+        // refused (PAPER_PRELOOP_RECONCILE_PENDING_7388) until this first attempt
+        // finishes; paper mutations share the transaction lock, so nothing interleaves.
+        com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.firstReconcileAttempted7388 =
+            !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486
                     .reconcileJournalAuthority6663()
-            } catch (_: Throwable) {}
-        } else {
-            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                try {
-                    com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486
-                        .reconcileJournalAuthority6663()
-                } catch (_: Throwable) {}
+            } catch (_: Throwable) {
+            } finally {
+                com.lifecyclebot.engine.truth.CanonicalPaperTransaction6486.firstReconcileAttempted7388 = true
             }
         }
 

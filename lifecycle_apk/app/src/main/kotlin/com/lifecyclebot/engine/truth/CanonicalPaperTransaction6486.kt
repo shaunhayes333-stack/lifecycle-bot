@@ -170,6 +170,9 @@ object CanonicalPaperTransaction6486 {
             } catch (_: Throwable) {}
         }
     }
+    /** V5.0.7388 — false from botLoop start until the first journal reconcile has been attempted. */
+    @Volatile @JvmStatic var firstReconcileAttempted7388: Boolean = true
+
     data class Result(
         val applied: Boolean,
         val positionId: String,
@@ -409,6 +412,13 @@ object CanonicalPaperTransaction6486 {
              entryPoolAddress: String = "",
              entryDex: String = "",
              executionIntent: com.lifecyclebot.engine.ExecutableOpenGate.ExecutionIntent? = null): Result = lock.withLock {
+        // V5.0.7388 — the pre-loop journal reconcile now runs in the background; no
+        // paper OPEN before its first attempt (exits are not gated). This is the same
+        // guarantee the inline call gave, without holding up the first cycle.
+        if (!firstReconcileAttempted7388) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_OPEN_DEFERRED_PRELOOP_RECONCILE_7388") } catch (_: Throwable) {}
+            return@withLock Result(false, positionId, "PAPER_PRELOOP_RECONCILE_PENDING_7388")
+        }
         // V5.0.6551 — every non-Solana paper open must be authorized before
         // debit. Missing/mismatched intent is rejected without mutation.
         if (assetClass != AssetClass.SOLANA_TOKEN) {

@@ -4,6 +4,13 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7388] — profit, quality volume and throughput (bundled)
+
+- Lane identity: QUALITY and CORE never own an un-graduated pump.fun launch (curve source or mcap < $69k), and QUALITY needs its band floor (~$75k). The desk's role hypotheses had elected QUALITY for $3-4k launches and the V3 trunk bought them under that label (QUALITY 0/7 this session); those launches now go to PROJECT_SNIPER / MOONSHOT / SHITCOIN.
+- Dead-money cull: a position with no new high for 8 min (5 under inventory pressure), held 20 min (30 on runner lanes; halved under pressure), between -14% and +5%, is closed to recycle capital and slots. Never PROJECT_SNIPER, never a position that peaked >= +20% or banked profit. Held positions had no time exit at all (lane exits stop running once open): 85 open in 8 min, losers held 52.6 min vs winners 5.6, intake blocked at 70.
+- Moonbag: the bag's lock slides with the peak (1.5x the sliding lock's give-back, capped at the old 50%) — a +1408% bag held to +704% before, ~+1060% now.
+- Start: the paper pre-loop journal reconcile runs in the background (paper opens wait for its first attempt; exits are not gated), and the scheduler's pass also opens that gate. Cycle 1's timing no longer includes the whole service startup (the 127s "cycle").
+
 ## [5.0.7387] — the bot starts in seconds, not minutes
 
 Start waited on the whole service bootstrap, then the first cycles ran minutes long (a 47s snapshot showed the bootstrap still in CORE_STORES; first cycles 113-224s).
