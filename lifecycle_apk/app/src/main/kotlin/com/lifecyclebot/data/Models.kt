@@ -713,8 +713,9 @@ data class BotStatus(
         return if (isPaperMode) {
             paperWalletSol
         } else {
+            // V5.0.7395 — live treasury SOL lives in the treasury wallet, not here.
             val locked = com.lifecyclebot.engine.TreasuryManager
-                .effectiveLockedSol(walletSol, isPaperMode = false)
+                .liveTradingLockSol7395(walletSol)
             (walletSol - locked).coerceAtLeast(0.0)
         }
     }

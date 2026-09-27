@@ -4,6 +4,13 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7395] — live sizes against the live wallet again; one dead token no longer freezes live buys
+
+- **Root cause of the live stall.** The live sizer read `status.getEffectiveBalance(live)` = wallet − `TreasuryManager.effectiveLockedSol`. `treasurySol` is one number for both modes and mirrored the PAPER treasury (6.96 SOL), which then locked 70% of the real 0.17 SOL wallet: 0.056 effective → capacity 1 → 0.026 SOL size < 0.041 routable minimum → `LIVE_FLOOR_BLOCK_ROUTABLE_MIN_EXCEEDS_SHARE_7127` ×2045, while the preflight (full wallet) read capacity 3. At last night's 0.34 SOL the same arithmetic still cleared, which is why it traded then.
+- Live profit splits are moved on-chain to the treasury wallet at the time of the win, so none of the trading wallet is treasury money. New `TreasuryManager.liveTradingLockSol7395` (0, labelled) feeds live `getEffectiveBalance`, `SmartSizer` and `SecurityGuard`; paper and every display are unchanged.
+- **Stuck-exit hold scoped to route outages.** A single held mint that no venue will buy (the rugged MANIPULATED position: PumpPortal/Jupiter/Raydium all refused) no longer holds every live buy. The 7310 hold now fires only when a provider breaker is open or two or more held mints are failing (`ExitProviderHealth.exitFailureIsSystemic7395`); the dead token stays barred from re-entry and keeps retrying its exit (`LIVE_BUY_NOT_HELD_TOKEN_SPECIFIC_EXIT_FAIL_7395`).
+- Buy and sell routes untouched.
+
 ## [5.0.7394] — live buys land: the cleared score reaches the executor; the sniper only gets launches; live basis is the fill
 
 From the 5.0.7393 live snapshot (0.18 SOL, 696 s): 216 buy attempts, 3 buys.

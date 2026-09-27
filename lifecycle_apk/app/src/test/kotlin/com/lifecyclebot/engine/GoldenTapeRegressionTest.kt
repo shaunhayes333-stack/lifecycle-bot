@@ -12449,4 +12449,20 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("val entryPxForTickLock = basisPx7393"))
     }
+
+
+    @Test
+    fun V5_0_7395_live_sizes_against_the_live_wallet_and_one_dead_token_does_not_freeze_buys() {
+        val models = java.io.File("src/main/kotlin/com/lifecyclebot/data/Models.kt").readText()
+        assertTrue(models.contains(".liveTradingLockSol7395(walletSol)"))
+        val treasury = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TreasuryManager.kt").readText()
+        assertTrue(treasury.contains("LIVE_TREASURY_LOCK_NOT_DEDUCTED_FROM_TRADING_WALLET_7395"))
+        val sizer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt").readText()
+        assertTrue(sizer.contains("else TreasuryManager.liveTradingLockSol7395(effectiveWallet)"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("if (stuck7310 != null && systemic7395) {"))
+        assertTrue(ex.contains("LIVE_BUY_NOT_HELD_TOKEN_SPECIFIC_EXIT_FAIL_7395"))
+        val h = com.lifecyclebot.engine.sell.ExitProviderHealth
+        assertFalse(h.exitFailureIsSystemic7395 { false })
+    }
 }

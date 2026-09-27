@@ -18393,7 +18393,17 @@ class Executor(
                 ForensicLogger.lifecycle("LIVE_BUY_REFUSED_LAST_EXIT_FAILED_7314", "mint=${ts.mint.take(10)} lane=$gateLaneLive6451")
                 return false
             }
-            if (stuck7310 != null) {
+            val systemic7395 = stuck7310 != null && com.lifecyclebot.engine.sell.ExitProviderHealth.exitFailureIsSystemic7395 { m ->
+                BotService.status.tokens[m]?.position?.let { it.isOpen && !it.isPaperPosition } == true
+            }
+            if (stuck7310 != null && !systemic7395) {
+                PipelineHealthCollector.labelInc("LIVE_BUY_NOT_HELD_TOKEN_SPECIFIC_EXIT_FAIL_7395")
+                ForensicLogger.lifecycle(
+                    "LIVE_BUY_NOT_HELD_TOKEN_SPECIFIC_EXIT_FAIL_7395",
+                    "mint=${ts.mint.take(10)} lane=$gateLaneLive6451 stuckExit=${stuck7310.take(10)} routes=healthy",
+                )
+            }
+            if (stuck7310 != null && systemic7395) {
                 PipelineHealthCollector.labelInc("LIVE_BUY_HELD_EXIT_STUCK_7310")
                 ForensicLogger.lifecycle(
                     "LIVE_BUY_HELD_EXIT_STUCK_7310",

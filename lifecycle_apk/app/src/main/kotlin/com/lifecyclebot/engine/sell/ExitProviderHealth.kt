@@ -310,6 +310,24 @@ object ExitProviderHealth {
         return anyStuck(stuckExitAtMs, isHeld, now)
     }
 
+    /**
+     * V5.0.7395 — is a failing exit a ROUTE problem or a TOKEN problem?
+     *
+     * 5.0.7394: one rugged MANIPULATED position had no buyer on any venue
+     * (PumpPortal 400, Jupiter 400, Raydium fail — 6 attempts each) and
+     * LIVE_BUY_HELD_EXIT_STUCK_7310 then froze every live buy 27 times while
+     * the routes themselves were healthy. The hold exists for a route outage,
+     * which shows up as a provider breaker or as more than one held mint
+     * failing at once. A single mint failing on healthy routes is that
+     * token's problem; it stays barred from re-entry (reentryBlockedNow) and
+     * keeps retrying its exit, but it does not hold other buys.
+     */
+    fun exitFailureIsSystemic7395(isHeld: (String) -> Boolean): Boolean {
+        val now = System.currentTimeMillis()
+        if (jupiterBreakerOpen(now) || pumpBreakerOpen(now)) return true
+        return stuckExitAtMs.entries.count { (m, at) -> now - at < STUCK_EXIT_WINDOW_MS && isHeld(m) } >= 2
+    }
+
     /** True if this mint's Pump route cache was recently invalidated and the
      *  route resolver should refresh venue/migration state before retry. */
     fun pumpRouteInvalidatedRecently(mint: String, withinMs: Long = 5_000L): Boolean {

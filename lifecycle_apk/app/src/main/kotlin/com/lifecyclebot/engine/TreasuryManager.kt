@@ -170,6 +170,36 @@ object TreasuryManager {
         return treasurySol.coerceIn(0.0, maxLockable)
     }
 
+    /**
+     * V5.0.7395 — the SOL a LIVE trading wallet must hold back for the treasury.
+     *
+     * Operator 5.0.7394: "I only have .17 because the rest is in positions. it
+     * was making money last night trading live." The snapshot's own preflight
+     * read the wallet as tradeable=0.1588, capacity 3 — and the V3 sizer refused
+     * every live candidate 2045 times (LIVE_FLOOR_BLOCK_ROUTABLE_MIN_EXCEEDS_SHARE_7127).
+     *
+     * The sizer is fed status.getEffectiveBalance(live) = wallet − effectiveLockedSol.
+     * treasurySol is ONE number for both modes, and in a paper runtime it mirrors
+     * the paper ledger's treasury (6.96 SOL in that snapshot). Back in live, that
+     * paper figure capped at 70% of the real wallet: 0.1708 − 0.1146 = 0.056 →
+     * capacity 1 → 0.6 share of 0.044 = 0.026 SOL < 0.041 routable minimum. Last
+     * night's 0.34 SOL wallet cleared the same arithmetic (0.047 ≥ 0.041), which
+     * is why it traded then and stopped once capital was out in positions.
+     *
+     * A live profit split is not held in the trading wallet at all:
+     * triggerOnChainTransferIfLive moves it to the treasury wallet on-chain, and
+     * when the working-capital floor defers that sweep the SOL is deliberately
+     * left for trading. So nothing in the trading wallet is treasury money and
+     * the live hold-back is zero. Displays keep effectiveLockedSol.
+     */
+    fun liveTradingLockSol7395(walletSol: Double): Double {
+        val wouldHaveLocked = effectiveLockedSol(walletSol, isPaperMode = false)
+        if (wouldHaveLocked > 0.0) {
+            try { PipelineHealthCollector.labelInc("LIVE_TREASURY_LOCK_NOT_DEDUCTED_FROM_TRADING_WALLET_7395") } catch (_: Throwable) {}
+        }
+        return 0.0
+    }
+
     // V5.9.433 — cached Context so contribute* / lock* / withdraw* helpers
     // can persist state immediately instead of waiting for BotService to
     // call save() on the next cycle. Set on restore() and on save() from
