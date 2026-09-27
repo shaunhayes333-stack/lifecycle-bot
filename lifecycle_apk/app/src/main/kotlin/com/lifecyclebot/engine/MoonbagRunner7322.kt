@@ -62,7 +62,11 @@ object MoonbagRunner7322 {
         if (!pnlPct.isFinite() || pnlPct <= 0.0) return Action.PASS
         if (bankedAtPeak != null) {
             val peak = maxOf(bankedAtPeak, if (peakPct.isFinite()) peakPct else 0.0)
-            return if (pnlPct > peak * MOONBAG_KEEP_OF_PEAK) Action.HOLD_MOONBAG else Action.PASS
+            // V5.0.7388 — the bag's lock slides with the peak too: 1.5x the sliding
+            // lock's give-back (PeakDrawdownLock), never more than the old 50%. A
+            // +1408% bag held down to +704% before; it now holds to ~+1060%.
+            val giveBack7388 = (1.5 * PeakDrawdownLock.triggerFracForPeak(peak)).coerceAtMost(1.0 - MOONBAG_KEEP_OF_PEAK)
+            return if (pnlPct > peak * (1.0 - giveBack7388)) Action.HOLD_MOONBAG else Action.PASS
         }
         return if (peakPct.isFinite() && peakPct >= BANK_MIN_PEAK_PCT) Action.BANK_PARTIAL else Action.PASS
     }
