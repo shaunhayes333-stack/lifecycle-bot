@@ -4328,7 +4328,35 @@ class SolanaMarketScanner(
         emit(token)
     }
 
+    // V5.0.7381 — DexScreener's token-profiles / token-boosts / community-takeovers
+    // feeds allow 60 requests a minute; its pair and token endpoints allow 300.
+    // Eight scanner passes read the same two feed URLs every cycle, drew 429s, and
+    // the 429 locked out the whole "dexscreener" host, so the 300/min enrichment
+    // (getBestPair, /tokens/v1) that every candidate needs was skipped too. Feed
+    // reads now share one response for 30s and back off under their own label.
+    private val dexFeedCache7381 = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, String>>()
+    private val DEX_FEED_TTL_MS_7381 = 30_000L
+
+    private fun isDexFeed7381(url: String): Boolean = url.contains("api.dexscreener.com/token-profiles/") ||
+        url.contains("api.dexscreener.com/token-boosts/") || url.contains("api.dexscreener.com/community-takeovers/")
+
     private fun getWithRetry(url: String, apiKey: String = "", maxRetries: Int = 2, extraHeaders: Map<String, String> = emptyMap()): String? {
+        if (isDexFeed7381(url)) {
+            val now = System.currentTimeMillis()
+            dexFeedCache7381[url]?.let { (at, body) ->
+                if (now - at < DEX_FEED_TTL_MS_7381) {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DEX_FEED_CACHE_HIT_7381") } catch (_: Throwable) {}
+                    return body
+                }
+            }
+            val fresh = getWithRetryWire7381(url, apiKey, maxRetries, extraHeaders)
+            if (fresh != null) dexFeedCache7381[url] = now to fresh
+            return fresh ?: dexFeedCache7381[url]?.takeIf { now - it.first < 5 * 60_000L }?.second
+        }
+        return getWithRetryWire7381(url, apiKey, maxRetries, extraHeaders)
+    }
+
+    private fun getWithRetryWire7381(url: String, apiKey: String, maxRetries: Int, extraHeaders: Map<String, String>): String? {
         // V5.9.1469 — SCANNER BACKOFF SHORT-CIRCUIT. The scanner path never consulted
         // ApiBackoff, so a failing host (snapshot: geckoterminal sr=56%, helius/groq
         // sr=0%) kept getting hit + retried INSIDE supervisor workers — each dead call
@@ -4376,6 +4404,7 @@ class SolanaMarketScanner(
 
     /** V5.9.859 — derive short host label for ApiHealthMonitor records. */
     private fun hostLabel(url: String): String = when {
+        isDexFeed7381(url)                 -> "dexscreener_feeds"
         url.contains("dexscreener.com")    -> "dexscreener"
         url.contains("pump.fun")           -> "pumpfun"
         url.contains("jup.ag")             -> "jupiter"

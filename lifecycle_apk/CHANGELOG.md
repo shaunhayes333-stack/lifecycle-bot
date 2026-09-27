@@ -4,6 +4,12 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7381] — working RPCs only; DexScreener feeds stop locking out enrichment
+
+- RPC ladder: removed ten keyless endpoints that no longer serve JSON-RPC (ankr, three rpcpool/Triton hosts, chainstack /1, extrnode, omniatech, blastapi, blockpi, jito). Public fallbacks are publicnode, mainnet-beta and drpc behind the configured Helius key. A saved RPC setting holding a retired endpoint is ignored.
+- DexScreener: token-profiles / token-boosts / community-takeovers (60 req/min) are read once per 30s and shared by all scanner passes, and back off under their own `dexscreener_feeds` label, so a feed 429 no longer locks out the 300 req/min pair/token enrichment every candidate needs.
+- DexScreener WebSocket disabled: DexScreener has no public socket API; the client never received data and reconnected forever.
+
 ## [5.0.7380] — live-only entry chokes defer to evidence and paper learning
 
 - FDG brain consensus: a live hard veto now needs the oracle PROVEN **and not degenerate** **and** at least two evidence-backed objections (FORWARD_NEGATIVE, LIVE_PROB_NEGATIVE, LOSING_PATTERN_DANGER_ZONE, PROVEN_DEAD_CONTEXT, LEARNED_TOXIC_LANE). Single opinions (second scorer, sentience, meta policy) shrink size as in paper. The consensus-unavailable veto also skips a degenerate oracle.

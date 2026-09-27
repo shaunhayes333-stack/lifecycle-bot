@@ -55,6 +55,8 @@ class DexScreenerWebSocket(
 
     val isConnected get() = ws != null && running
 
+    private val DISABLED_7381 = true
+
     fun connect() {
         // V5.0.4169 — DEMAND-DRIVEN MODE.
         // The DexScreener firehose at wss://io.dexscreener.com streams
@@ -106,6 +108,16 @@ class DexScreenerWebSocket(
     }
 
     private fun doConnect() {
+        // V5.0.7381 — DexScreener publishes no WebSocket API. io.dexscreener.com is
+        // the website's own socket: Cloudflare-gated and binary-framed, and the
+        // JSON subscribe protocol below was never its protocol, so this client
+        // received nothing and reconnected forever (Thread.sleep inside OkHttp's
+        // callback thread). Prices come from the REST pair/token endpoints, the
+        // PumpPortal stream and Jupiter. Kept as a no-op so callers are unchanged.
+        if (DISABLED_7381) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DEXSCREENER_WS_DISABLED_NO_PUBLIC_API_7381") } catch (_: Throwable) {}
+            return
+        }
         // DexScreener public WebSocket endpoint
         val url = "wss://io.dexscreener.com/dex/screener/pairs/solana/h24/1"
         val req = Request.Builder()

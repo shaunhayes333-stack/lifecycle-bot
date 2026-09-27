@@ -12184,4 +12184,19 @@ class GoldenTapeRegressionTest {
         val ea = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt").readText()
         assertTrue(ea.contains("coolUntil7035 = if (seeded7035 > ownStreak7035) maxOf("))
     }
+
+
+    @Test
+    fun V5_0_7381_rpc_ladder_drops_retired_endpoints_and_dex_feeds_share_one_read() {
+        val rpcs = com.lifecyclebot.engine.RuntimeProviderAuthority6685.PUBLIC_SOLANA_RPCS
+        assertEquals(3, rpcs.size)
+        assertFalse(rpcs.any { it.contains("ankr") || it.contains("rpcpool") || it.contains("extrnode") || it.contains("jito") })
+        assertEquals("", com.lifecyclebot.engine.RuntimeProviderAuthority6685.sanitizeRpc("https://rpc.ankr.com/solana"))
+        assertEquals("https://rpc.ankr.com/solana/abc", com.lifecyclebot.engine.RuntimeProviderAuthority6685.sanitizeRpc("https://rpc.ankr.com/solana/abc"))
+        val sc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SolanaMarketScanner.kt").readText()
+        assertTrue(sc.contains("isDexFeed7381(url)                 -> \"dexscreener_feeds\""))
+        assertTrue(sc.contains("DEX_FEED_CACHE_HIT_7381"))
+        val ws = java.io.File("src/main/kotlin/com/lifecyclebot/network/DexScreenerWebSocket.kt").readText()
+        assertTrue(ws.contains("private val DISABLED_7381 = true"))
+    }
 }
