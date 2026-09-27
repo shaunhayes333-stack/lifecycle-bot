@@ -54,7 +54,12 @@ data class SwapTxResult(
     val senderTipLamports: Long = 0L,
 )
 
-class JupiterApi(apiKey: String = "") {
+class JupiterApi(
+    apiKey: String = "",
+    // V5.0.7397 — price/mark lookups only. They yield the Jupiter quota to
+    // exits and buys for a short window after any 429.
+    private val observationOnly7397: Boolean = false,
+) {
 
     // V5.0.7321 — keyless callers (mark fan-out, identity repair, price
     // fallback, crypto, bridge) hit api.jup.ag without a key, got 401, and
@@ -76,6 +81,13 @@ class JupiterApi(apiKey: String = "") {
         // New free tier endpoint (no API key) is lite-api.jup.ag/swap/v1.
         // Paths /quote and /swap stay the same.
         private const val BASE_V6 = "https://lite-api.jup.ag/swap/v1"
+        // V5.0.7397 — keyed Metis host (same /quote and /swap paths). The exit
+        // v6 quote used only the keyless lite host, which the bot's own mark
+        // lookups rate-limit: 5.0.7394 sells died on "Jupiter v6 quote exhausted
+        // adaptive fallbacks: Jupiter GET 429" at every rung up to 9999bps.
+        private const val KEYED_V6_7397 = "https://api.jup.ag/swap/v1"
+        private const val OBSERVATION_YIELD_MS_7397 = 30_000L
+        @Volatile private var last429AtMs7397 = 0L
         private const val BASE_URL = "https://api.jup.ag"
         private const val ORDER_ENDPOINT = "$BASE_URL/swap/v2/order"
         private const val EXECUTE_ENDPOINT = "$BASE_URL/swap/v2/execute"
@@ -388,8 +400,7 @@ class JupiterApi(apiKey: String = "") {
     ): SwapQuote {
         val startMs = System.currentTimeMillis()
 
-        val baseUrl = buildString {
-            append(BASE_V6)
+        val quotePath = buildString {
             append("/quote?inputMint=").append(inputMint)
             append("&outputMint=").append(outputMint)
             append("&amount=").append(amountRaw)
@@ -402,20 +413,26 @@ class JupiterApi(apiKey: String = "") {
         var lastErr: Exception? = null
         var body: String? = null
         var picked = ""
-        for (params in attempts) {
-            val url = "$baseUrl&$params"
+        hosts@ for (base in v6Hosts7397()) {
+          for (params in attempts) {
+            val url = "$base$quotePath&$params"
             try {
                 log("📊 V6 QUOTE: ${shortMint(inputMint)} -> ${shortMint(outputMint)} | amountRaw=$amountRaw params=$params")
                 body = getOrThrow(url)
                 picked = params
-                break
+                break@hosts
             } catch (e: Exception) {
                 lastErr = e
                 val msg = e.message.orEmpty()
                 log("⚠️ V6 quote attempt failed params=$params err=${msg.take(100)}")
+                // A 429 is the host's quota, not the route: try the next host.
+                if (msg.contains(" 429")) continue@hosts
                 // 4xx from route constraints is often recoverable by changing route params;
                 // keep trying the adaptive ladder. Network/5xx also gets the next attempt.
             }
+          }
+          // A route refusal is the same on every host; only a rate limit moves on.
+          break@hosts
         }
         val elapsed = System.currentTimeMillis() - startMs
         val json = JSONObject(body ?: throw RuntimeException("Jupiter v6 quote exhausted adaptive fallbacks: ${lastErr?.message}"))
@@ -646,7 +663,12 @@ class JupiterApi(apiKey: String = "") {
              else if (dynamicSlippageMaxBps != null)
                 "[dynamicSlippage maxBps=$dynamicSlippageMaxBps minBps=${quote.raw.optInt("slippageBps", 50).coerceAtLeast(50)}]"
              else ""))
-        val body = postOrThrow("$BASE_V6/swap", payload.toString())
+        var swapErr7397: Exception? = null
+        var body: String? = null
+        for (base in v6Hosts7397()) {
+            try { body = postOrThrow("$base/swap", payload.toString()); break } catch (e: Exception) { swapErr7397 = e }
+        }
+        if (body == null) throw swapErr7397 ?: RuntimeException("Jupiter v6 swap build failed")
         val elapsed = System.currentTimeMillis() - startMs
         val json = JSONObject(body)
 
@@ -876,8 +898,18 @@ class JupiterApi(apiKey: String = "") {
     // HTTP HELPERS
     // ─────────────────────────────────────────────────────────────────────────────
 
+    /** V5.0.7397 — keyed host first when a key is configured, keyless lite as fallback. */
+    private fun v6Hosts7397(): List<String> =
+        if (apiKey.isNotBlank()) listOf(KEYED_V6_7397, BASE_V6) else listOf(BASE_V6)
+
     private fun getOrThrow(url: String): String {
         val endpoint = "JUPITER_QUOTE"
+        if (observationOnly7397 && !ExitHttpScope7314.active() &&
+            System.currentTimeMillis() - last429AtMs7397 < OBSERVATION_YIELD_MS_7397
+        ) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("JUPITER_OBSERVATION_YIELDED_TO_TRADES_7397") } catch (_: Throwable) {}
+            throw RuntimeException("Jupiter observation quote yielded after 429 (quota reserved for trades)")
+        }
         // V5.0.3959 — Jupiter quote is core Solana routing and must never be
         // endpoint-disabled. Transient 429/503s are retried/fail this candidate,
         // not cached as a global/silent provider backoff.
@@ -917,6 +949,7 @@ class JupiterApi(apiKey: String = "") {
                     val code = resp.code
                     val body = resp.body?.string()
                     if (code == 429) {
+                        last429AtMs7397 = System.currentTimeMillis()
                         val msg = "Jupiter GET $code: ${body?.take(300) ?: "no body"}"
                         lastErr = RuntimeException(msg)
                         return@use

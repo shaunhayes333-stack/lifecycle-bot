@@ -4,6 +4,13 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7397] — live sells get a Jupiter quote: exit quotes on the keyed host, price lookups yield after a 429
+
+- **Root cause of the failing live sells (forensics, CASHED 4wBjP6ff…).** Every rung from 500 to 9999bps failed with "Jupiter v6 quote exhausted adaptive fallbacks: Jupiter GET 429: Rate limit exceeded". The exit v6 quote and swap build used only the keyless `lite-api.jup.ag`, the same quota the bot's own mark/price lookups drain (`jupiter_quote` 4xx = 2095 in the 5.0.7394 snapshot). PumpPortal (400: not a pump mint) and Raydium could not carry it, so the sell ended NO_SIGNATURE.
+- v6 quote and `/swap` build now go to the keyed `api.jup.ag/swap/v1` first (the app's Jupiter key, already used for Ultra orders) and fall back to `lite-api` only on a 429; a route refusal is not retried on the second host.
+- The mark fan-out, identity-repair and price-fallback quoters are observation-only (`JupiterApi(observationOnly7397 = true)`): for 30 s after any Jupiter 429 they stand down (`JUPITER_OBSERVATION_YIELDED_TO_TRADES_7397`) so exits and buys keep the quota. Exits (ExitHttpScope) are never shed.
+- Buy route, sell route order, Helius Sender and PumpPortal unchanged.
+
 ## [5.0.7396] — the treasury takes a small share of profit, never all of it; MANIPULATED never buys
 
 - **Treasury split.** Every TREASURY-tagged win called `contributeFullyFromTreasuryScalp`, which moved 100% of the profit to the treasury wallet on-chain; 5.0.7389 widened that lane onto meme-scale tokens, so more live wins left the trading wallet whole. It now takes the same balance-banded split as every other win (`currentSplitPct`: 5% under 2 SOL, 10% / 15% / 25% above) — `TREASURY_SCALP_SPLIT_NOT_FULL_PROFIT_7395`.

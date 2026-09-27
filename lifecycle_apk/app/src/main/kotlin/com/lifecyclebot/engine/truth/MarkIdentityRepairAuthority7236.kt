@@ -157,7 +157,7 @@ object MarkIdentityRepairAuthority7236 {
     private const val EXEC_QUOTE_LAMPORTS_7301 = 10_000_000L
     private val executable7301 = ConcurrentHashMap<String, Repaired>()
     private val execAttempt7301 = ConcurrentHashMap<String, Long>()
-    private val quoteApi7301 by lazy { com.lifecyclebot.network.JupiterApi("") }
+    private val quoteApi7301 by lazy { com.lifecyclebot.network.JupiterApi("", observationOnly7397 = true) }
 
     fun requestExecutableQuote7301(mint: String, tokenDecimals: Int) {
         val bare = mint.removePrefix("solana|").trim()

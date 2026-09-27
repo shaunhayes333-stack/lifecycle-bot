@@ -241,7 +241,7 @@ object PriceResolverFallback {
         // Quote 1 whole token (10^decimals) → SOL.
         val oneToken = java.math.BigInteger.TEN.pow(decimals).toLong()
         val quote = try {
-            JupiterApi().getQuote(mint, JupiterApi.SOL_MINT, oneToken, 100)
+            JupiterApi(observationOnly7397 = true).getQuote(mint, JupiterApi.SOL_MINT, oneToken, 100)
         } catch (_: Throwable) { return 0.0 }
         // outAmount is in lamports (SOL has 9 decimals). Convert to SOL, then USD.
         val solOut = quote.outAmount / 1_000_000_000.0

@@ -11320,7 +11320,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun V5_0_7321_live_buy_unchoked_quote_scope_stale_intents_fanout_refill() {
         val jup = java.io.File("src/main/kotlin/com/lifecyclebot/network/JupiterApi.kt").readText()
-        assertTrue(jup.contains("class JupiterApi(apiKey: String = \"\")"))
+        assertTrue(jup.contains("class JupiterApi(\n    apiKey: String = \"\","))
         assertTrue(jup.contains("com.lifecyclebot.data.DefaultKeys.JUPITER"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("com.lifecyclebot.network.ExitHttpScope7314.run {\n                slippageGuard.validateQuote(inMint, outMint, amount, slippageBps, inputSol, buyTaker)"))
@@ -12474,5 +12474,17 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("private const val MANIPULATED_IS_A_BUYER_7395 = false"))
         assertTrue(bot.contains("if (manipSignal.shouldEnter && MANIPULATED_IS_A_BUYER_7395) run manipEntry7389@{"))
+    }
+
+    @Test
+    fun V5_0_7397_exit_quotes_use_the_keyed_jupiter_host_and_observation_lookups_yield() {
+        val jup = java.io.File("src/main/kotlin/com/lifecyclebot/network/JupiterApi.kt").readText()
+        assertTrue(jup.contains("private const val KEYED_V6_7397 = \"https://api.jup.ag/swap/v1\""))
+        assertTrue(jup.contains("if (apiKey.isNotBlank()) listOf(KEYED_V6_7397, BASE_V6) else listOf(BASE_V6)"))
+        assertTrue(jup.contains("if (msg.contains(\" 429\")) continue@hosts"))
+        assertTrue(jup.contains("body = postOrThrow(\"\$base/swap\", payload.toString()); break"))
+        assertTrue(jup.contains("JUPITER_OBSERVATION_YIELDED_TO_TRADES_7397"))
+        val fan = java.io.File("src/main/kotlin/com/lifecyclebot/network/ParallelMarkFanout7088.kt").readText()
+        assertTrue(fan.contains("JupiterApi(\"\", observationOnly7397 = true)"))
     }
 }

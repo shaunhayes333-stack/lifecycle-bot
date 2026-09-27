@@ -529,7 +529,7 @@ object ParallelMarkFanout7088 {
     // V5.0.7281 — six rungs; locked rungs are skipped without a request.
     private const val CURVE_LADDER_RUNGS_7279 = 6
 
-    private val jupiterQuoteApi7269 by lazy { JupiterApi("") }
+    private val jupiterQuoteApi7269 by lazy { JupiterApi("", observationOnly7397 = true) }
 
     private fun solUsd7269(): Double = try {
         com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
