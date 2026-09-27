@@ -273,6 +273,10 @@ object ProjectSniperAI {
         if (ts.lastMcap > MAX_MCAP_USD) {
             return noEngage("HIGH_MCAP: \$${(ts.lastMcap/1000).toInt()}K > \$${(MAX_MCAP_USD/1000).toInt()}K", tokenAgeSecs)
         }
+        // V5.0.7385 — a graduated token is no longer a launch to snipe.
+        if (ts.tokenMap.migratedOrGraduated) {
+            return noEngage("GRADUATED: not a launch", tokenAgeSecs)
+        }
         
         // ═══════════════════════════════════════════════════════════════════
         // THREAT ASSESSMENT - Is it dumping?

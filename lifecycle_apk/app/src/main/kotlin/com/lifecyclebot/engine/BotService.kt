@@ -17736,14 +17736,45 @@ class BotService : Service() {
         // loss — exactly the WR/P&L killer. Doctrine rule: the -15% hard floor is
         // UNCONDITIONAL for all open positions. So evaluate catastrophe + hard floor
         // FIRST; settle-in may only suppress the softer adaptive/give-back paths.
-        if (pnlPct <= catastropheThreshold) {
+        // V5.0.7385 — in the first 45s of a LIVE position, a stop read off a mark on a
+        // different basis than the fill (a synthetic 1e9-supply seed, another pool) must
+        // be confirmed by an executable Jupiter quote before it sells. The tick path
+        // already demands this below -50% (catastrophicConfirmed4485); this path sold at
+        // any age off any mark. A real dump still exits: once the quote agrees, or at
+        // -60% after 10s regardless.
+        val stopConfirmed7385 = run {
+            if (cfg.paperMode || pnlPct > catastropheThreshold && pnlPct > -HARD_FLOOR_STOP_PCT_CONST) return@run true
+            val ageMs = System.currentTimeMillis() - ts.position.entryTime
+            val src = ts.lastPriceSource.uppercase()
+            val offBasis = src.contains("SYNTH") || src.contains("PUMP_FUN_BC") || src.contains("CAP_SEED") ||
+                (ts.position.entryPoolAddress.isNotBlank() && ts.lastPricePoolAddr.isNotBlank() &&
+                    ts.position.entryPoolAddress != ts.lastPricePoolAddr)
+            if (ts.position.entryTime <= 0L || ageMs >= 45_000L || !offBasis) return@run true
+            if (pnlPct <= -60.0 && ageMs >= 10_000L) return@run true
+            val exec = try {
+                com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.getExecutablePriceIfFresh7301(ts.mint)
+            } catch (_: Throwable) { null }
+            val entryPx = ts.position.entryPrice
+            if (exec != null && exec > 0.0 && entryPx > 0.0) {
+                val execPnl = (exec / entryPx - 1.0) * 100.0
+                return@run execPnl <= catastropheThreshold || execPnl <= -HARD_FLOOR_STOP_PCT_CONST
+            }
+            try {
+                val dec = com.lifecyclebot.engine.truth.MintDecimalsAuthority6392.get(ts.mint)
+                    ?: ts.tokenMap.decimals ?: 6
+                com.lifecyclebot.engine.truth.MarkIdentityRepairAuthority7236.requestExecutableQuote7301(ts.mint, dec)
+            } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("RAPID_STOP_AWAITING_EXECUTABLE_CONFIRM_7385") } catch (_: Throwable) {}
+            false
+        }
+        if (pnlPct <= catastropheThreshold && stopConfirmed7385) {
             ErrorLogger.warn("BotService", "🚨 RAPID STOP (CATASTROPHE): ${ts.symbol} at ${pnlPct.toInt()}%")
             addLog("🛑 RAPID CATASTROPHE STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
             executor.requestSell(ts, "RAPID_CATASTROPHE_STOP", wallet, effectiveBalance)
             TradeStateMachine.startCatastropheCooldown(ts.mint, pnlPct)
             return true
         }
-        if (pnlPct <= -HARD_FLOOR_STOP_PCT_CONST) {
+        if (pnlPct <= -HARD_FLOOR_STOP_PCT_CONST && stopConfirmed7385) {
             ErrorLogger.warn("BotService", "🚨 RAPID STOP (HARD_FLOOR/unconditional): ${ts.symbol} at ${pnlPct.toInt()}% (peak=${peakGainPct.toInt()}%)")
             addLog("🛑 RAPID HARD_FLOOR STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
             executor.requestSell(ts, "RAPID_HARD_FLOOR_STOP", wallet, effectiveBalance)

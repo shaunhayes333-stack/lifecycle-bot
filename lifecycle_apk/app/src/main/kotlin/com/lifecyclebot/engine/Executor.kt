@@ -14883,6 +14883,9 @@ class Executor(
      * discovered pool liquidity, then the on-chain curve reserves priced in SOL.
      * Every source is an observation; none is inferred from market cap.
      */
+    /** V5.0.7385 — live sniper entries are launches: mcap at or under this, not graduated. */
+    private val LIVE_SNIPER_MAX_MCAP_USD_7385 = 150_000.0
+
     private fun observedLiquidityUsd7382(ts: TokenState): Double =
         TokenMapAuthority.observedLiquidityUsd(ts)
 
@@ -19594,6 +19597,28 @@ class Executor(
         val routedStyleTag = if (stylePivotAdvisory && canonicalRoutedLane == postPivotExecutableLane && postPivotExecutableLane.isNotBlank()) liveEntryDecision.finalStyle.ifBlank { routedLaneTag } else if (stylePivotAdvisory) originalStyleForPivot else liveEntryDecision.finalStyle.ifBlank { routedLaneTag }
         if (canonicalRoutedLane !in executableLaneSet) {
             return observeOnlyLiveEntry("OBSERVE_ONLY_CANON_LANE_UNRESOLVED", routedLaneTag, liveEntryDecision.decision)
+        }
+        // V5.0.7385 — the sniper's edge is fresh launches (paper S11-25: +208.8% over
+        // 167). Live bought "PROJECT_SNIPER" entries at $28.6M and $37.5M mcap: lanes
+        // carried over from a held/warmup token or elected away from ProjectSniperAI's
+        // own $500k check. Every live sniper buy, whatever path it came by, must be a
+        // launch-sized, un-graduated token. The candidate stays eligible for any
+        // other lane on its next cycle.
+        if (canonicalRoutedLane == "PROJECT_SNIPER") {
+            val mcap7385 = entryMarketSnapshot.marketCapUsd.takeIf { it > 0.0 } ?: ts.lastMcap
+            val graduated7385 = ts.tokenMap.migratedOrGraduated
+            if (mcap7385 > LIVE_SNIPER_MAX_MCAP_USD_7385 || graduated7385) {
+                try {
+                    PipelineHealthCollector.labelInc("LIVE_SNIPER_REFUSED_NOT_A_LAUNCH_7385")
+                    ForensicLogger.lifecycle(
+                        "LIVE_SNIPER_REFUSED_NOT_A_LAUNCH_7385",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} mcap=${mcap7385.toInt()} graduated=$graduated7385 cap=${LIVE_SNIPER_MAX_MCAP_USD_7385.toInt()}",
+                    )
+                } catch (_: Throwable) {}
+                liveStage("LIVE_BUY_ABORTED", "reason=LIVE_SNIPER_NOT_A_LAUNCH_7385 mcap=${mcap7385.toInt()} graduated=$graduated7385")
+                try { emitLiveBuyFail(ts, sol, "LIVE_SNIPER_NOT_A_LAUNCH_7385", "mcap=${mcap7385.toInt()} graduated=$graduated7385") } catch (_: Throwable) {}
+                return false
+            }
         }
         var commonSenseSizeMultiplier4573 = 1.0
         var laneCapitalSizeMultiplier = 1.0
