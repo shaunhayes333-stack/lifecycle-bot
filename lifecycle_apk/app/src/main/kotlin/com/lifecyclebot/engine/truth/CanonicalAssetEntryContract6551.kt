@@ -195,7 +195,26 @@ object CanonicalEntryAuthority6551 {
             } catch (_: Throwable) {}
         }
         val provenAdmit7287 = oracleProven7263 && oracleAdmitted7262 && !oracleHardSafety7287
-        if (!advisoryPass7263 && !provenAdmit7287) {
+        // V5.0.7391 — same doctrine as the meme path (LearnedAdmissionAuthority
+        // 7340/7384). The proof that makes the oracle PROVEN is built from meme
+        // closes; it earns a refusal the right to bind only where the candidate's
+        // OWN measured expectancy is negative and refusing still pays. 5.0.7389
+        // promoted the oracle and every CRYPTO_ALT candidate (no crypto evidence
+        // yet) was blocked on an unevidenced REFUSE: 27/27, zero opens.
+        val evidencedRefuse7391 = oracle7259?.verdict == PredictiveEntryOracle6915.Verdict.REFUSE &&
+            oracle7259.reason == "NEGATIVE_EXPECTANCY_WITH_EVIDENCE_6915"
+        val refuseCohortRet7391 = try { OracleEdgeProof7263.refuseCohortMeanReturn7384() } catch (_: Throwable) { null }
+        val refuseBinds7391 = evidencedRefuse7391 && (refuseCohortRet7391 == null || refuseCohortRet7391 <= 0.0)
+        val provenNonBindingPass7391 = oracleProven7263 && !provenAdmit7287 && !oracleHardSafety7287 && !refuseBinds7391
+        if (provenNonBindingPass7391) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc(
+                    if (evidencedRefuse7391) "CROSS_ASSET_ORACLE_REFUSE_POSITIVE_COHORT_SHAPED_7391"
+                    else "CROSS_ASSET_ORACLE_UNEVIDENCED_REFUSE_NOT_BINDING_7391",
+                )
+            } catch (_: Throwable) {}
+        }
+        if (!advisoryPass7263 && !provenAdmit7287 && !provenNonBindingPass7391) {
             val verdict7259 = oracle7259?.verdict?.name ?: "UNAVAILABLE"
             val reason7259 = if (oracleHardSafety7287) "ORACLE_HARD_SAFETY_REFUSE_7287" else "ORACLE_ADMIT_REQUIRED_7259:$verdict7259"
             try {
@@ -213,7 +232,9 @@ object CanonicalEntryAuthority6551 {
 
         val shaping = CanonicalAssetEntryShaping6551(
             scorePenalty = if (candidate.score < 0.0) 1 else 0,
-            sizeMultiplier = if (candidate.confidence.isFinite()) candidate.confidence.coerceIn(0.35, 1.0) else 0.35,
+            // V5.0.7391 — an evidenced refusal whose refused cohort still pays trades at the floor size.
+            sizeMultiplier = if (provenNonBindingPass7391 && evidencedRefuse7391) 0.35
+                else if (candidate.confidence.isFinite()) candidate.confidence.coerceIn(0.35, 1.0) else 0.35,
             // An admitted trade may still be sized conservatively, but it is
             // never relabelled PROBE_ONLY. V5.0.7287 — the 7262 paper
             // exploration probe is retired with every other probe.

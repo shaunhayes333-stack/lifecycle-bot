@@ -8436,7 +8436,7 @@ class GoldenTapeRegressionTest {
         val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
         assertTrue(markets.contains("!cfg.paperMode") && markets.contains("MARKETS_PAPER_LEARN_EVERYTHING_ADMITTED_6553"))
         assertTrue(crypto.contains("!cfg.paperMode") && crypto.contains("CRYPTO_PAPER_LEARN_EVERYTHING_ADMITTED_6553"))
-        assertTrue(crypto.contains("discoveryAgeMinutes6554") && crypto.contains("CRYPTO_DYN_EXPRESS_EXECUTABLE_6554") && crypto.contains("CRYPTO_DYN_MANIP_EXECUTABLE_6554"))
+        assertTrue(crypto.contains("discoveryAgeMinutes6554") && crypto.contains("CRYPTO_DYN_EXPRESS_EXECUTABLE_6554") && crypto.contains("CRYPTO_DESK_MANIP_OVERLAY_PENALTY_7391"))
         assertFalse(crypto.substring(crypto.indexOf("private suspend fun runDynamicTokenScan"), crypto.indexOf("private suspend fun runScanCycle")).contains("tokenAgeMinutes   = 9999.0"))
     }
 
@@ -12374,5 +12374,26 @@ class GoldenTapeRegressionTest {
         // The degenerate-input cap limits vetoes only, never the floor/sizing tier.
         val uph = java.io.File("src/main/kotlin/com/lifecyclebot/engine/UnifiedPolicyHead.kt").readText()
         assertFalse(uph.contains("fun currentAuthority(lane: String): AuthorityTier = capForDegenerateInputs7389"))
+    }
+
+
+    @Test
+    fun V5_0_7391_crypto_trades_on_the_meme_desk_and_opens_again() {
+        val contract = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalAssetEntryContract6551.kt").readText()
+        assertTrue(contract.contains("CROSS_ASSET_ORACLE_UNEVIDENCED_REFUSE_NOT_BINDING_7391"))
+        assertTrue(contract.contains("!advisoryPass7263 && !provenAdmit7287 && !provenNonBindingPass7391"))
+        val desk = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoLaneDesk7391.kt").readText()
+        assertTrue(desk.contains("ToolkitSignalSheet.build(ts, cls)") && desk.contains("MovementPatternSignal.from(ts)"))
+        assertTrue(desk.contains("LaneEntryContract6342.isLaneIdentityEligible7252(ts, it.lane)"))
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue(crypto.contains("CryptoLaneDesk7391.elect("))
+        assertTrue(crypto.contains("QualityTraderAI.evaluate(") && crypto.contains("DipHunterAI.evaluate("))
+        assertTrue(crypto.contains("DynScan Core ensemble"))
+        assertTrue(crypto.contains("com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(tickPeak, tickPnl, deskLane7391)"))
+        assertTrue(crypto.contains("\"deskLane7391\" to CryptoLaneDesk7391.laneFromReasons(signal.reasons)"))
+        assertFalse(crypto.contains("refreshed.buys24h  / 24"))
+        // Pure desk helpers.
+        assertTrue(com.lifecyclebot.perps.CryptoLaneDesk7391.laneFromReasons(listOf("x", "LANE7391=QUALITY desk=CORE")) == "QUALITY")
+        assertTrue(com.lifecyclebot.perps.CryptoLaneDesk7391.laneFromReasons(listOf("x")) == "")
     }
 }

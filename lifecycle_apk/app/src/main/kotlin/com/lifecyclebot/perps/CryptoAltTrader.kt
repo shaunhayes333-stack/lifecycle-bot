@@ -13,6 +13,7 @@ import com.lifecyclebot.engine.ExecutableOpenGate
 import com.lifecyclebot.engine.PipelineHealthCollector
 import com.lifecyclebot.engine.LaneExecutionCoordinator
 import com.lifecyclebot.engine.ForensicLogger
+import com.lifecyclebot.engine.LaneEntryContract6342
 import com.lifecyclebot.perps.crypto.CryptoFinalBuyCandidate
 import com.lifecyclebot.perps.crypto.CryptoUniverseRouteResolver
 import com.lifecyclebot.perps.crypto.isRealTradeable7005
@@ -1152,9 +1153,11 @@ object CryptoAltTrader {
                 // asset ID. Never relabel bulk 24h volume as token liquidity.
                 val liq = refreshed.liquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
                 val change  = refreshed.priceChange24h
-                val buys1h  = refreshed.buys24h  / 24
-                val sells1h = refreshed.sells24h / 24
-                val buyPct  = if (buys1h + sells1h > 0) (buys1h.toDouble() / (buys1h + sells1h) * 100.0) else 50.0
+                // V5.0.7391 — ratio of the 24h counts. Dividing each by 24 first
+                // (integer) zeroed small counts and pinned buy pressure at 50.
+                val buys24h7391 = refreshed.buys24h.coerceAtLeast(0)
+                val sells24h7391 = refreshed.sells24h.coerceAtLeast(0)
+                val buyPct  = if (buys24h7391 + sells24h7391 > 0) (buys24h7391.toDouble() / (buys24h7391 + sells24h7391) * 100.0) else 50.0
                 val momentum= change   // use 24h change as momentum proxy
                 val isMeme  = refreshed.sector.lowercase().let { it.contains("meme") || it.contains("gaming") }
 
@@ -1172,6 +1175,29 @@ object CryptoAltTrader {
                 val cryptoDecision7244 = scoreDynamicCrypto7244(
                     tok = refreshed, marketCapUsd = mcap, liquidityUsd = liq,
                     volume24hUsd = vol, change24hPct = change, buyPressurePct = buyPct,
+                )
+                // V5.0.7391 — the meme desk. Specialists judge their own mcap
+                // bands on the provider's market cap (as the meme lanes do);
+                // the trusted-only figure still owns CryptoBrain and BlueChip.
+                val bandMcap7391 = when {
+                    mcap > 0.0 -> mcap
+                    refreshed.mcap.isFinite() && refreshed.mcap > 0.0 -> refreshed.mcap
+                    refreshed.fdv.isFinite() && refreshed.fdv > 0.0 -> refreshed.fdv
+                    else -> 0.0
+                }
+                if (mcap <= 0.0 && bandMcap7391 > 0.0) {
+                    try { PipelineHealthCollector.labelInc("CRYPTO_DESK_BAND_MCAP_PROVIDER_7391") } catch (_: Throwable) {}
+                }
+                val deskIdentity7391 = refreshed.canonicalIdentity6544.ifBlank { refreshed.mint }
+                CryptoLaneDesk7391.recordTick(deskIdentity7391, price, bandMcap7391, vol, buys24h7391, sells24h7391)
+                val desk7391 = CryptoLaneDesk7391.elect(
+                    CryptoLaneDesk7391.tokenState(
+                        identity = deskIdentity7391, symbol = refreshed.symbol, name = refreshed.name,
+                        priceUsd = price, marketCapUsd = bandMcap7391, liquidityUsd = liq,
+                        buyPressurePct = buyPct, source = refreshed.source,
+                        ageHours = refreshed.discoveryAgeHours6544,
+                        brainScore = cryptoDecision7244.score, brainConfidence = cryptoDecision7244.confidence,
+                    )
                 )
                 if (cryptoDecision7244.actionableLong) {
                     dynExecutableSignals.add(AltSignal(
@@ -1191,14 +1217,14 @@ object CryptoAltTrader {
                     )
                 }
                 // ── ShitCoin sub-AI (low-cap / meme tokens) ──────────────────────────
-                if ((mcap > 0.0 && mcap < 50_000_000.0) || isMeme) {
+                if ((bandMcap7391 > 0.0 && bandMcap7391 < 50_000_000.0) || isMeme) {
                     if (!ShitCoinTraderAI.hasPosition(tok.mint)) {
                         try {
                             val sig = ShitCoinTraderAI.evaluate(
                                 mint              = tok.mint,
                                 symbol            = tok.symbol,
                                 currentPrice      = price,
-                                marketCapUsd      = mcap,
+                                marketCapUsd      = bandMcap7391,
                                 liquidityUsd      = liq,
                                 topHolderPct      = 0.0,
                                 buyPressurePct    = buyPct,
@@ -1249,7 +1275,10 @@ object CryptoAltTrader {
                 }
 
                 // ── BlueChip sub-AI (large-cap, liquid) ──────────────────────────────
-                if (mcap > 500_000_000.0 && liq > 1_000_000.0) {
+                // V5.0.7391 — also when the desk elects BLUECHIP (trusted cap at its $1M+ floor).
+                if ((mcap > 500_000_000.0 && liq > 1_000_000.0) ||
+                    (desk7391.lane == "BLUECHIP" && mcap >= LaneEntryContract6342.blueChipMcapFloor7389() &&
+                        liq >= LaneEntryContract6342.BLUECHIP_MIN_LIQ_7389)) {
                     if (!BlueChipTraderAI.hasPosition(tok.mint)) {
                         try {
                             val sig = BlueChipTraderAI.evaluate(
@@ -1300,7 +1329,7 @@ object CryptoAltTrader {
                                 mint            = tok.mint,
                                 symbol          = tok.symbol,
                                 currentPrice    = price,
-                                marketCapUsd    = mcap,
+                                marketCapUsd    = bandMcap7391,
                                 liquidityUsd    = liq,
                                 momentum        = momentum,
                                 buyPressurePct  = buyPct,
@@ -1328,19 +1357,19 @@ object CryptoAltTrader {
                 }
 
                 // ── Moonshot sub-AI (ultra-low mcap, trending) ───────────────────────
-                if (mcap in 100_000.0..50_000_000.0 || tok.isTrending) {
+                if (bandMcap7391 in 100_000.0..50_000_000.0 || tok.isTrending || desk7391.lane == "MOONSHOT") {
                     if (!MoonshotTraderAI.hasPosition(tok.mint)) {
                         try {
                             val sig = MoonshotTraderAI.scoreToken(
                                 mint           = tok.mint,
                                 symbol         = tok.symbol,
-                                marketCapUsd   = mcap,
+                                marketCapUsd   = bandMcap7391,
                                 liquidityUsd   = liq,
                                 volumeScore    = minOf(100, (vol / 10_000).toInt()),
                                 buyPressurePct = buyPct,
                                 rugcheckScore  = if (tok.source.contains("Jupiter")) 5 else 3,
-                                v3EntryScore   = 60.0,
-                                v3Confidence   = 60.0,
+                                v3EntryScore   = cryptoDecision7244.score.toDouble(),
+                                v3Confidence   = cryptoDecision7244.confidence.toDouble(),
                                 phase          = "DynamicAlt",
                                 isPaper        = isPaperMode.get()
                             )
@@ -1365,14 +1394,86 @@ object CryptoAltTrader {
                     }
                 }
 
+                // ── QUALITY desk (V5.0.7391; crypto never called it) ─────────────────
+                if (desk7391.lane == "QUALITY" || bandMcap7391 in LaneEntryContract6342.qualityMcapBand7389()) {
+                    if (!QualityTraderAI.hasPosition(tok.mint)) {
+                        try {
+                            val q = QualityTraderAI.evaluate(
+                                mint = tok.mint, symbol = tok.symbol, currentPrice = price,
+                                marketCapUsd = bandMcap7391, liquidityUsd = liq,
+                                buyPressure = buyPct.toInt(), tokenAgeMinutes = discoveryAgeMinutes6554,
+                                v3Score = cryptoDecision7244.score, isMeme = isMeme,
+                            )
+                            if (q.shouldEnter) {
+                                signals++
+                                val qScore = maxOf(q.qualityScore, desk7391.conviction.toInt()).coerceIn(0, 100)
+                                dynExecutableSignals.add(AltSignal(
+                                    market = PerpsMarket.DYN, direction = PerpsDirection.LONG,
+                                    score = qScore, confidence = qScore, price = price,
+                                    priceChange24h = change, reasons = listOf("DynScan Quality ${q.reason}"),
+                                    layerVotes = emptyMap(), dynSymbol = tok.symbol, dynName = tok.name,
+                                    dynMint = tok.mint, dynChainId = tok.chainId, dynAssetKey = tok.canonicalIdentity6544,
+                                ))
+                                try { PipelineHealthCollector.labelInc("CRYPTO_DESK_QUALITY_SIGNAL_7391") } catch (_: Throwable) {}
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+
+                // ── DIP_HUNTER desk (V5.0.7391) — buys a confirmed bounce ─────────────
+                if (desk7391.lane == "DIP_HUNTER" || bandMcap7391 in 50_000.0..5_000_000.0) {
+                    if (!com.lifecyclebot.v3.scoring.DipHunterAI.hasDip(tok.mint)) {
+                        try {
+                            val recorded7391 = CryptoLaneDesk7391.prices(deskIdentity7391)
+                            // The recent high: the recorded series, or the 24h open implied by a 24h fall.
+                            val implied24hHigh = if (change < 0.0 && change > -99.0) price / (1.0 + change / 100.0) else price
+                            val high7391 = maxOf(recorded7391.maxOrNull() ?: price, implied24hHigh, price)
+                            val d = com.lifecyclebot.v3.scoring.DipHunterAI.evaluate(
+                                mint = tok.mint, symbol = tok.symbol, currentPrice = price, highPrice = high7391,
+                                marketCapUsd = bandMcap7391, liquidityUsd = liq, buyPressurePct = buyPct,
+                                volumeVsAvg = 1.0, tokenAgeHours = refreshed.discoveryAgeHours6544.coerceAtMost(9_000.0),
+                                holderCount = 100, holderChange24h = 0, isDevSelling = false,
+                                bounceConfirmed = CryptoLaneDesk7391.bounceConfirmed(deskIdentity7391, buyPct),
+                            )
+                            if (d.shouldBuy) {
+                                signals++
+                                dynExecutableSignals.add(AltSignal(
+                                    market = PerpsMarket.DYN, direction = PerpsDirection.LONG,
+                                    score = d.confidence, confidence = d.confidence, price = price,
+                                    priceChange24h = change, reasons = listOf("DynScan DipHunter ${d.reason}"),
+                                    layerVotes = emptyMap(), dynSymbol = tok.symbol, dynName = tok.name,
+                                    dynMint = tok.mint, dynChainId = tok.chainId, dynAssetKey = tok.canonicalIdentity6544,
+                                ))
+                                try { PipelineHealthCollector.labelInc("CRYPTO_DESK_DIP_SIGNAL_7391") } catch (_: Throwable) {}
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+
+                // ── CORE ensemble (V5.0.7391) — two or more desks rate it, none leads ─
+                if (desk7391.lane == "CORE" && desk7391.voters >= 2 && buyPct >= 50.0 &&
+                    desk7391.movementPattern !in setOf("FREEFALL_NO_RECLAIM", "EXHAUSTION_CHASE")) {
+                    val coreScore7391 = maxOf(desk7391.conviction, cryptoDecision7244.score.toDouble()).toInt().coerceIn(0, 100)
+                    dynExecutableSignals.add(AltSignal(
+                        market = PerpsMarket.DYN, direction = PerpsDirection.LONG,
+                        score = coreScore7391, confidence = desk7391.conviction.toInt().coerceIn(0, 100), price = price,
+                        priceChange24h = change,
+                        reasons = listOf("DynScan Core ensemble voters=${desk7391.voters} setup=${desk7391.setup}"),
+                        layerVotes = emptyMap(), dynSymbol = tok.symbol, dynName = tok.name,
+                        dynMint = tok.mint, dynChainId = tok.chainId, dynAssetKey = tok.canonicalIdentity6544,
+                    ))
+                    try { PipelineHealthCollector.labelInc("CRYPTO_DESK_CORE_SIGNAL_7391") } catch (_: Throwable) {}
+                }
+
                 // ── Manipulated sub-AI (pump signals) ────────────────────────────────
+                var manipDanger7391 = false
                 if (!ManipulatedTraderAI.hasPosition(tok.mint)) {
                     try {
                         val sig = ManipulatedTraderAI.evaluate(
                             mint          = tok.mint,
                             symbol        = tok.symbol,
                             currentPrice  = price,
-                            marketCapUsd  = mcap,
+                            marketCapUsd  = bandMcap7391,
                             liquidityUsd  = liq,
                             momentum      = momentum,
                             buyPressurePct= buyPct,
@@ -1382,20 +1483,48 @@ object CryptoAltTrader {
                             rugcheckScore = if (tok.source.contains("Jupiter")) 5 else 3,
                             isPaper       = isPaperMode.get()
                         )
-                        if (sig.shouldEnter) {
-                            signals++
-                            ErrorLogger.info(TAG, "🪙🎭 DynSig Manip: ${tok.symbol}")
-                            val manipDir6554 = if (momentum >= 0.0) PerpsDirection.LONG else PerpsDirection.SHORT
-                            dynExecutableSignals.add(AltSignal(
-                                market = PerpsMarket.DYN, direction = manipDir6554,
-                                score = sig.manipScore, confidence = sig.manipScore, price = price,
-                                priceChange24h = change, reasons = listOf("DynScan Manip ${sig.reason} ${manipDir6554.name}"),
-                                layerVotes = emptyMap(), dynSymbol = tok.symbol, dynName = tok.name,
-                                dynMint = tok.mint, dynChainId = tok.chainId, dynAssetKey = tok.canonicalIdentity6544
-                            ))
-                            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_DYN_MANIP_EXECUTABLE_6554") } catch (_: Throwable) {}
-                        }
+                        // V5.0.7391 — MANIPULATED is a danger read, not a buyer (as on
+                        // the meme desk since 5.0.7389): a manipulation read shrinks this
+                        // token's other signals (the meme overlay's -40 score penalty,
+                        // MANIP_OVERLAY_DUST_PROBE_SCORE_PENALTY_6011) instead of opening one.
+                        if (sig.shouldEnter) manipDanger7391 = true
                     } catch (_: Exception) {}
+                }
+                // V5.0.7391 — a manipulation read shrinks this token's signals by the
+                // meme overlay's -40; every signal carries its lane (and the desk's
+                // election) so the position's exits and learning read the same lane.
+                if (manipDanger7391 && dynExecutableSignals.size > executableSignalCountBefore6567) {
+                    try { PipelineHealthCollector.labelInc("CRYPTO_DESK_MANIP_OVERLAY_PENALTY_7391") } catch (_: Throwable) {}
+                }
+                // V5.0.7391 — a candidate priced from a registry figure older than
+                // the entry-basis window (7281: 180 s) was refused at the fill as
+                // CRYPTO_PAPER_ENTRY_BASIS_UNOBSERVED_7275 (215 vs 11 observed). Only
+                // tokens that produced a signal are re-priced now, so the signal and
+                // the basis come from one fresh observation.
+                var freshPrice7391 = 0.0
+                if (dynExecutableSignals.size > executableSignalCountBefore6567 &&
+                    System.currentTimeMillis() - refreshed.lastUpdatedMs > 150_000L) {
+                    freshPrice7391 = try {
+                        withContext(Dispatchers.IO) {
+                            DynamicAltTokenRegistry.refreshPriceForMintBlocking(refreshed.canonicalIdentity6544, forceRefresh = true)
+                        }
+                    } catch (_: Throwable) { 0.0 }
+                    val reobserved7391 = DynamicAltTokenRegistry.heldMarkSnapshot7251(refreshed.canonicalIdentity6544).freshObservation
+                    if (!reobserved7391) freshPrice7391 = 0.0
+                    try {
+                        PipelineHealthCollector.labelInc(
+                            if (freshPrice7391 > 0.0) "CRYPTO_DESK_SIGNAL_REPRICED_7391" else "CRYPTO_DESK_SIGNAL_REPRICE_FAILED_7391",
+                        )
+                    } catch (_: Throwable) {}
+                }
+                for (i7391 in executableSignalCountBefore6567 until dynExecutableSignals.size) {
+                    val s7391 = dynExecutableSignals[i7391]
+                    val lane7391 = cryptoDeskLaneOf7391(s7391.reasons, desk7391.lane)
+                    dynExecutableSignals[i7391] = s7391.copy(
+                        score = if (manipDanger7391) (s7391.score - 40).coerceAtLeast(0) else s7391.score,
+                        price = if (freshPrice7391 > 0.0) freshPrice7391 else s7391.price,
+                        reasons = s7391.reasons + "${CryptoLaneDesk7391.LANE_REASON_PREFIX}$lane7391 desk=${desk7391.lane.ifBlank { "NONE" }} setup=${desk7391.setup} move=${desk7391.movementPattern}",
+                    )
                 }
                 if (dynExecutableSignals.size > executableSignalCountBefore6567) {
                     com.lifecyclebot.engine.truth.CanonicalEntryAuthority6540.markProducerStage6569(com.lifecyclebot.engine.truth.AssetClass.CRYPTO_ALT, "ACTIONABLE_SIGNAL")
@@ -2303,7 +2432,25 @@ object CryptoAltTrader {
         else -> CryptoFinalBuyCandidate.MarketCapLane.MICRO_CAP
     }
 
+    /** V5.0.7391 — the lane a DynScan signal belongs to (the specialist that produced it). */
+    private fun cryptoDeskLaneOf7391(reasons: List<String>, deskLane: String): String {
+        val r = reasons.joinToString(" ")
+        return when {
+            r.contains("DynScan ShitCoin", true) -> "SHITCOIN"
+            r.contains("DynScan BlueChip", true) -> "BLUECHIP"
+            r.contains("DynScan Express", true) -> "EXPRESS"
+            r.contains("DynScan Moonshot", true) -> "MOONSHOT"
+            r.contains("DynScan Quality", true) -> "QUALITY"
+            r.contains("DynScan DipHunter", true) -> "DIP_HUNTER"
+            r.contains("DynScan Core", true) -> "CORE"
+            else -> deskLane.ifBlank { "CORE" }   // CryptoBrain's own signal: the desk's owner
+        }
+    }
+
     private fun cryptoSignalStyle(signal: AltSignal): String = when {
+        signal.reasons.any { it.contains("DynScan Quality", ignoreCase = true) } -> "QUALITY_SWING"
+        signal.reasons.any { it.contains("DynScan DipHunter", ignoreCase = true) } -> "DIP_RECLAIM"
+        signal.reasons.any { it.contains("DynScan Core", ignoreCase = true) } -> "CORE_ENSEMBLE"
         signal.reasons.any { it.contains("Moonshot", ignoreCase = true) } -> "MOMENTUM_BREAKOUT"
         signal.reasons.any { it.contains("BlueChip", ignoreCase = true) } -> "BLUECHIP_MOMENTUM"
         signal.reasons.any { it.contains("Manip", ignoreCase = true) } -> "MANIPULATION_REVERSAL"
@@ -3054,7 +3201,11 @@ object CryptoAltTrader {
                 direction = signal.direction.name, requestedVenue = candidate.venue,
                 adapter = candidate.executionAdapter, source = candidate.universe,
                 specialist = "CRYPTO", score = candidate.score.toDouble(), confidence = 1.0,
-                evidence = mapOf("upstreamConfidence" to candidate.confidence.toString(), "walletSol" to balance.toString()),
+                evidence = mapOf(
+                    "upstreamConfidence" to candidate.confidence.toString(), "walletSol" to balance.toString(),
+                    // V5.0.7391 — the desk lane that owns this asset.
+                    "deskLane7391" to CryptoLaneDesk7391.laneFromReasons(signal.reasons).ifBlank { "NONE" },
+                ),
                 requestedSizeSol = finalSize, price = signal.price, liquidityUsd = candidate.liquidityUsd,
                 routeAvailable = isPaperMode.get() || candidate.executionAdapter != "NONE",
                 hardSafetyReasons = candidate.hardNoReasons, candidateVersion = candidate.candidateVersion,
@@ -3800,6 +3951,7 @@ object CryptoAltTrader {
                 }
                 // ─── Peak give-back trailing (lock big runners) ───
                 val tickPeak = if (updated.highestPnlPct > tickPnl) updated.highestPnlPct else tickPnl
+                var deskExited7391 = false
                 val tickGiveBackRatio = when {
                     tickPeak >= 500.0 -> 0.30   // 5x+ : lock 70% of peak
                     tickPeak >= 200.0 -> 0.40   // 2x+ : lock 60% of peak
@@ -3818,6 +3970,38 @@ object CryptoAltTrader {
                         continue
                     }
                 }
+
+                // V5.0.7391 — the meme exit tools on crypto positions, keyed by the
+                // desk lane the position was opened under: the sliding give-back
+                // lock and the fluid profit floor (both arm from the start), the
+                // MFE profit floor, and the runner lanes' early cut. Crypto's own
+                // give-back table, hard SL/TP and fluid stop all still apply.
+                run {
+                    val deskLane7391 = CryptoLaneDesk7391.laneFromReasons(updated.reasons)
+                    if (deskLane7391.isBlank() || !tickPnl.isFinite()) return@run
+                    val ageMs7391 = (System.currentTimeMillis() - updated.openTime).coerceAtLeast(0L)
+                    val fluidFloor7391 = try {
+                        com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(
+                            tickPeak, holdSeconds = ageMs7391 / 1000.0, lane = deskLane7391,
+                        )
+                    } catch (_: Throwable) { Double.NEGATIVE_INFINITY }
+                    val why7391 = when {
+                        com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(tickPeak, tickPnl, deskLane7391) -> "PEAK_DRAWDOWN_LOCK"
+                        com.lifecyclebot.engine.PeakDrawdownLock.shouldFloorLock(tickPeak, tickPnl) -> "MFE_PROFIT_FLOOR"
+                        tickPnl < fluidFloor7391 -> "FLUID_PROFIT_FLOOR"
+                        com.lifecyclebot.engine.RunnerExitProfile7277.earlyCut(deskLane7391, tickPnl, ageMs7391) -> "RUNNER_EARLY_CUT"
+                        else -> ""
+                    }
+                    if (why7391.isNotEmpty()) {
+                        try { PipelineHealthCollector.labelInc("CRYPTO_DESK_EXIT_7391_$why7391") } catch (_: Throwable) {}
+                        ErrorLogger.warn(TAG,
+                            "🔒 DESK_EXIT_7391 ${updated.marketSymbol} lane=$deskLane7391 $why7391 " +
+                            "peak=${"%.1f".format(tickPeak)}% now=${"%.1f".format(tickPnl)}%")
+                        closePosition(id, "DESK_${why7391}_${deskLane7391}_peak${tickPeak.toInt()}_now${tickPnl.toInt()}_7391")
+                        deskExited7391 = true
+                    }
+                }
+                if (deskExited7391) continue
 
                 // V5.9.272: HARD SL — fire before anything else if price crossed stop
                 val slPriceOk = updated.stopLossPrice > 0 && updated.entryPrice > 0

@@ -4,6 +4,26 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7391] — crypto trades on the meme desk; crypto opens again
+
+Operator: "crypto is totally dead" and "crypto needs the same lanes, trading tools, signals, specialists as the meme trader."
+
+Why crypto opened nothing (5.0.7389 regression)
+- 5.0.7389 dropped win rate from OracleEdgeProof, so the oracle was promoted to PROVEN. Once PROVEN, every CRYPTO_ALT candidate needed an explicit ADMIT, but the proof is built from meme closes and crypto has no evidence: CROSS_ASSET_ORACLE_BLOCK_7259 = 27 of 27 submits. The cross-asset contract now follows the meme rule (7340/7384): a PROVEN refusal binds only when it is evidenced by the candidate's own negative expectancy and refusing still pays; otherwise it passes (an evidenced refusal whose refused cohort still returns > 0 trades at the floor size). Hard-safety refusals always bind.
+
+Crypto on the meme desk (CryptoLaneDesk7391)
+- Each crypto token is presented to the meme machinery as a TokenState: a per-asset price series recorded at scan time (marked synthetic: no per-candle volume, so volume patterns stay neutral), CryptoBrain's score in the scorer slot, provider market cap, liquidity, buy pressure, age.
+- The same tools run on it: ModeRouter.classify, ToolkitSignalSheet (desk hypotheses per lane), MovementPatternSignal, lane identity eligibility, and the meme election (strongest desk owns; CORE owns when two or more lanes rate it >= 45 and none leads; a lane at >= 75 keeps it).
+- Specialists judge their own bands on the provider market cap (they were handed 0 whenever the cap was not "trusted", so almost every token failed every band). The trusted cap still owns CryptoBrain and BlueChip sizing.
+- New on crypto: QUALITY and DIP_HUNTER (bounce confirmed on the recorded series), and the CORE ensemble signal. BLUECHIP also evaluates when the desk elects it at its $1M+ floor. MOONSHOT reads CryptoBrain's score instead of a fixed 60.
+- MANIPULATED is a danger read, not a buyer (as on memes): it applies the meme overlay's -40 score penalty to the token's other signals.
+- Buy pressure is the ratio of the 24h buy/sell counts (the old per-hour integer division pinned it at 50).
+- Each signal and position carries its lane (LANE7391=...), sent to the entry authority as deskLane7391 evidence.
+- A signalled token priced from a registry figure older than 150 s is re-priced before entry (215 entries were refused for no fresh basis vs 11 observed).
+
+Exits
+- Crypto positions opened under a desk lane also run the meme exit tools keyed by that lane: PeakDrawdownLock (sliding, from the start), the MFE profit floor, the fluid profit floor and the runner early cut. Crypto's own give-back table, hard SL/TP and fluid stop are unchanged.
+
 ## [5.0.7390] — 5.0.7389 verified: review fixes (the 7389 entry below describes the combined behaviour)
 
 An independent review of 5.0.7389 found these; all fixed:
