@@ -10669,9 +10669,7 @@ class BotService : Service() {
                                     "PEAK_CAPTURE_DECISION_6394",
                                     "mint=${ts.mint.take(10)} sym=${ts.symbol} peak=${"%.1f".format(peakPnlPct)}% " +
                                     "current=${"%.1f".format(pnlPct)}% verdict=${peakDecision.verdict} " +
-                                    "sellFrac=${"%.2f".format(peakDecision.sellFraction)} reason=${peakDecision.reason} " +
-                                    // V5.0.7385 — a deferred verdict on a runner lane is logged, not executed.
-                                    "runnerDeferred=${RunnerExitProfile7277.isRunnerLane(ts.position.tradingMode) && peakPnlPct < RunnerExitProfile7277.MIN_PEAK_FOR_GIVEBACK_LOCK_PCT}",
+                                    "sellFrac=${"%.2f".format(peakDecision.sellFraction)} reason=${peakDecision.reason}",
                                 )
                                 addLog("🎯 PEAK CAPTURE ${peakDecision.verdict}: ${ts.symbol} " +
                                     "peak=${peakPnlPct.toInt()}% now=${pnlPct.toInt()}% " +
@@ -29024,21 +29022,15 @@ if (hotExitHandledSweep) {
                             if (mission != null) {
                                 // V5.0.7385 — the sniper's signals were all executed as 100%
                                 // sells: a TP tier meant to bank 33% closed the whole position
-                                // at +15%, and trailing/momentum-fade exits fired off tiny
-                                // peaks (live winners held 0.8 min at ~+8%). Now:
+                                // at +15%. Now:
                                 //   stop loss / time limit  → full exit, unchanged;
                                 //   TP tiers (exitPct < 100) → bank that slice, keep riding;
-                                //   profit exits under the runner arming bar (+50% peak) → hold;
-                                //   profit exits past it → full exit tagged TRAIL, which the
-                                //   moonbag gate turns into a 60% bank + ride.
+                                //   trailing / momentum-fade profit exits → full exit tagged
+                                //   TRAIL, which the moonbag gate turns into a 60% bank + ride
+                                //   once the peak passed +50% (V5.0.7386: no hold-back).
                                 val lossExit7385 = exitSignal.reason.startsWith("STOP_LOSS") ||
                                     exitSignal.reason.startsWith("TIME_LIMIT")
-                                val peak7385 = ts.position.peakGainPct
-                                if (!lossExit7385 && com.lifecyclebot.engine.RunnerExitProfile7277.deferGiveBackLock("PROJECT_SNIPER", peak7385) &&
-                                    exitSignal.exitPct >= 100
-                                ) {
-                                    try { PipelineHealthCollector.labelInc("SNIPER_PROFIT_EXIT_HELD_UNDER_RUNNER_BAR_7385") } catch (_: Throwable) {}
-                                } else if (!lossExit7385 && exitSignal.exitPct in 1..99) {
+                                if (!lossExit7385 && exitSignal.exitPct in 1..99) {
                                     val r7385 = executor.requestPartialSellConfirmed6566(
                                         ts, exitSignal.exitPct / 100.0,
                                         "SNIPER_TP_${exitSignal.rank.name}", wallet, effectiveBalance,

@@ -10938,8 +10938,7 @@ class Executor(
             }
         } catch (_: Throwable) {}
 
-        // V5.0.7385 — the live-only Gemini exit also respects the runner arming bar.
-        if (!isPaperRT() && gainPct >= 15 && !RunnerExitProfile7277.deferGiveBackLock(pos.tradingMode, pos.peakGainPct)) {
+        if (!isPaperRT() && gainPct >= 15) {
             try {
                 val recentPrices = ts.history.takeLast(10).map { it.priceUsd }
                 val peakPnl6479 = pos.highestPrice.let { if (it > 0) ((it - pos.entryPrice) / pos.entryPrice) * 100 else gainPct }
@@ -11152,11 +11151,7 @@ class Executor(
                     "symbol=${ts.symbol} pnl=${"%.1f".format(gainPct)}% heldSecs=${"%.1f".format(heldSecs)} dynLimit=${dynamicStopPct.toInt()} floor=-${effectiveHardFloorPct.toInt()} lock=40s"
                 )
             } catch (_: Throwable) {}
-        } else if (gainPct <= dynamicStopPct &&
-            // V5.0.7385 — a POSITIVE dynamic stop is a profit lock; on a runner lane it
-            // arms only past the +50% runner bar (a +16% peak locked +13% and sold).
-            !(dynamicStopPct > 0.0 && RunnerExitProfile7277.deferGiveBackLock(pos.tradingMode, peakPnlPct))
-        ) {
+        } else if (gainPct <= dynamicStopPct) {
             // V5.0.6415 — MOONSHOT PATIENT-HOLD SL SUPPRESSION.
             // Operator directive: "buy a good sized chunk and hold for huge
             // profits. it needs to be SMART, LEARN and INTEGRATE ACROSS THE
@@ -11211,9 +11206,7 @@ class Executor(
         // :8905 — and not ts.lastPrice. They are usually equal and occasionally
         // are not, and a guard that tests a different value than the one the rest
         // of the decision used is the defect class this audit keeps turning up.
-        if (breakevenArmed6948 && pos.entryPrice > 0.0 && price > 0.0 &&
-            !RunnerExitProfile7277.deferGiveBackLock(pos.tradingMode, peakPnlPct) // V5.0.7385
-        ) {
+        if (breakevenArmed6948 && pos.entryPrice > 0.0 && price > 0.0) {
             // V5.0.6952 — FEE MODEL, NOT A FEE CONSTANT. 6948 shipped this with a
             // flat feePct = 1.6, the nominal live round trip. That is wrong in the
             // direction that costs money: real break-even also carries PRICE
@@ -11438,9 +11431,7 @@ class Executor(
             exhaust = ts.meta.exhaustion,
         )
         
-        if (trailingStopActive && price < smartFloor &&
-            !RunnerExitProfile7277.deferGiveBackLock(pos.tradingMode, pos.peakGainPct) // V5.0.7385
-        ) {
+        if (trailingStopActive && price < smartFloor) {
             return "trailing_stop"
         }
         return null

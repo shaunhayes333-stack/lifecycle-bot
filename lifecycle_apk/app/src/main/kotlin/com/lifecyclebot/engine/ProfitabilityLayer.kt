@@ -48,8 +48,6 @@ object ProfitabilityLayer {
             // on every poll via the existing highestPrice tracking.
             val peakPct = pos.peakGainPct
             if (peakPct < activate) return null
-            // V5.0.7385 — runner lanes arm at their own +50% bar (RunnerExitProfile7277).
-            if (RunnerExitProfile7277.deferGiveBackLock(pos.tradingMode, peakPct)) return null
 
             // Trailing hit when pullback from peak exceeds giveback budget.
             val pullback = peakPct - pnlPct

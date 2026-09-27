@@ -4,6 +4,13 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7386] — the sliding profit lock arms from the start on every lane
+
+Operator: "the sliding profit locks are meant to slide up with positions and lock the profit near peak."
+- RunnerExitProfile7277: the runner-lane hold-back (no give-back lock until a +50% peak) is removed at its source. deferGiveBackLock is false and armThresholdPct returns the caller's default on every lane, so PeakDrawdownLock, the fluid trail, the tick profit lock, the 6080 give-back lock and peak capture all arm early and ratchet toward the peak (V5.0.7282 give-back fraction: 0.40 under +50%, 0.30 at +100%, 0.12 at +1000%).
+- The 7385 call-site gates that extended the hold-back are removed.
+- Kept from 7385: sniper TP tiers bank their slice instead of the whole position; the moonbag banks 60% and lets 40% ride once the peak passed +50%.
+
 ## [5.0.7385] — live trade quality: sniper hunts launches, runners are allowed to run (bundled)
 
 Entry quality:

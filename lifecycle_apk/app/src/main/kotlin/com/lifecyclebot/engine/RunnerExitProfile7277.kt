@@ -46,19 +46,18 @@ object RunnerExitProfile7277 {
         return false
     }
 
-    /** True when a give-back lock should wait: runner lane and the peak is under the arming bar. */
-    fun deferGiveBackLock(lane: String?, peakPnlPct: Double): Boolean {
-        if (!isRunnerLane(lane)) return false
-        val deferred = !peakPnlPct.isFinite() || peakPnlPct < MIN_PEAK_FOR_GIVEBACK_LOCK_PCT
-        if (deferred) {
-            try { PipelineHealthCollector.labelInc("RUNNER_GIVEBACK_LOCK_DEFERRED_UNDER_MIN_PEAK_7277") } catch (_: Throwable) {}
-        }
-        return deferred
-    }
+    /**
+     * V5.0.7386 — no hold-back. Operator: "the sliding profit locks are meant to
+     * slide up with positions and lock the profit near peak." The sliding lock
+     * (PeakDrawdownLock / fluid trail, V5.0.7282) arms early and ratchets toward
+     * the peak on every lane; runner lanes keep their upside through the moonbag
+     * (MoonbagRunner7322 banks 60% and lets 40% ride from a +50% peak), not by
+     * running unlocked. Kept as a function so every caller reads one decision.
+     */
+    fun deferGiveBackLock(lane: String?, peakPnlPct: Double): Boolean = false
 
-    /** Give-back arming threshold for [lane]: the runner bar, or the caller's default. */
-    fun armThresholdPct(lane: String?, defaultPct: Double): Double =
-        if (isRunnerLane(lane)) maxOf(defaultPct, MIN_PEAK_FOR_GIVEBACK_LOCK_PCT) else defaultPct
+    /** Give-back arming threshold for [lane]: the caller's default on every lane (V5.0.7386). */
+    fun armThresholdPct(lane: String?, defaultPct: Double): Double = defaultPct
 
     /** True when a runner-lane position should be cut on the first strike. */
     fun earlyCut(lane: String?, pnlPct: Double, positionAgeMs: Long): Boolean {

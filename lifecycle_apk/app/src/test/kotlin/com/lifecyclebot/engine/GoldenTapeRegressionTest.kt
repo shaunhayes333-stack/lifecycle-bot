@@ -10341,13 +10341,14 @@ class GoldenTapeRegressionTest {
         assertTrue(com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane("PROJECT_SNIPER"))
         assertFalse(com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane("BLUECHIP"))
         assertFalse(com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane("CRYPTO_SPOT"))
-        assertTrue(com.lifecyclebot.engine.RunnerExitProfile7277.deferGiveBackLock("MOONSHOT", 14.0))
+        // V5.0.7386 — no hold-back: the sliding lock arms early on every lane.
+        assertFalse(com.lifecyclebot.engine.RunnerExitProfile7277.deferGiveBackLock("MOONSHOT", 14.0))
         assertFalse(com.lifecyclebot.engine.RunnerExitProfile7277.deferGiveBackLock("MOONSHOT", 55.0))
         assertFalse(com.lifecyclebot.engine.RunnerExitProfile7277.deferGiveBackLock("BLUECHIP", 14.0))
         assertTrue(com.lifecyclebot.engine.RunnerExitProfile7277.earlyCut("SHITCOIN", -21.0, 60_000L))
         assertFalse(com.lifecyclebot.engine.RunnerExitProfile7277.earlyCut("SHITCOIN", -21.0, 180_000L))
         assertFalse(com.lifecyclebot.engine.RunnerExitProfile7277.earlyCut("QUALITY", -21.0, 60_000L))
-        assertFalse(com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(30.0, 5.0, "MOONSHOT"))
+        assertTrue(com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(30.0, 5.0, "MOONSHOT"))
         assertTrue(com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(30.0, 5.0, "BLUECHIP"))
         assertTrue(peak.contains("if (peakPnlPct < RunnerExitProfile7277.armThresholdPct(lane, ARM_THRESHOLD_PCT)) return false"))
         assertTrue(tuner.contains("st.tpMult = shrunkTp7186.coerceIn(tpFloor7277, TP_MAX)"))
@@ -12274,15 +12275,24 @@ class GoldenTapeRegressionTest {
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("LIVE_SNIPER_REFUSED_NOT_A_LAUNCH_7385"))
         assertTrue(ex.contains("private val LIVE_SNIPER_MAX_MCAP_USD_7385 = 150_000.0"))
-        assertTrue(ex.contains("!(dynamicStopPct > 0.0 && RunnerExitProfile7277.deferGiveBackLock(pos.tradingMode, peakPnlPct))"))
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("SNIPER_TP_PARTIAL_7385"))
-        assertTrue(bot.contains("SNIPER_PROFIT_EXIT_HELD_UNDER_RUNNER_BAR_7385"))
         assertTrue(bot.contains("if (pnlPct <= catastropheThreshold && stopConfirmed7385) {"))
         assertTrue(bot.contains("PoolCreationTime7385.record(mint, System.currentTimeMillis(), \"PUMPPORTAL_CREATE\")"))
         val floor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEntryFloor7266.kt").readText()
         assertTrue(floor.contains("const val LIVE_BAND_COST_MARGIN_PCT_7385 = 10.0"))
         assertTrue(MoonbagRunner7322.decide("MOONSHOT", "RAPID_TRAILING_STOP", 40.0, 60.0, null) == MoonbagRunner7322.Action.BANK_PARTIAL)
         assertTrue(MoonbagRunner7322.decide("MOONSHOT", "RAPID_TRAILING_STOP", 30.0, 45.0, null) == MoonbagRunner7322.Action.PASS)
+    }
+
+
+    @Test
+    fun V5_0_7386_sliding_lock_arms_early_on_every_lane() {
+        assertFalse(com.lifecyclebot.engine.RunnerExitProfile7277.deferGiveBackLock("PROJECT_SNIPER", 10.0))
+        assertEquals(20.0, com.lifecyclebot.engine.RunnerExitProfile7277.armThresholdPct("MOONSHOT", 20.0), 1e-9)
+        assertTrue(com.lifecyclebot.engine.PeakDrawdownLock.shouldLock(30.0, 5.0, "PROJECT_SNIPER"))
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("SNIPER_TP_PARTIAL_7385"))
+        assertTrue(bot.contains("if (lossExit7385) \"SNIPER_${exitSignal.rank.name}\" else \"SNIPER_TRAIL_${exitSignal.rank.name}\""))
     }
 }
