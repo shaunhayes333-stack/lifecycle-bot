@@ -103,7 +103,21 @@ object LaneEntryContract6342 {
 
         // 1. Governor HOLD hard-veto — no live BUY tickets while HOLD.
         val govState = try { LiveEntrySafetyHold.currentGovernorState().name } catch (_: Throwable) { "BASELINE" }
-        if (govState == "HOLD") {
+        // V5.0.7376 — the governor is advisory (operator: "the governor should be
+        // advisory. it's choking out trading completely"). HOLD no longer vetoes an
+        // entry or confines it to the 1-open / 3-per-hour probation limiter; it is
+        // recorded and the entry continues to the lane checks below. The only block
+        // kept is BLOCKED_INFRASTRUCTURE — wallet, ledger or reconciler not available,
+        // where a buy could not be tracked or sold.
+        val infraBlocked7376 = try {
+            com.lifecyclebot.engine.truth.GovernorRecovery6388.state() ==
+                com.lifecyclebot.engine.truth.GovernorRecovery6388.State.BLOCKED_INFRASTRUCTURE
+        } catch (_: Throwable) { false }
+        if (govState == "HOLD" && !infraBlocked7376) {
+            reasons += "GOVERNOR_HOLD_ADVISORY_7376"
+            try { PipelineHealthCollector.labelInc("GOVERNOR_HOLD_ADVISORY_7376") } catch (_: Throwable) {}
+        }
+        if (govState == "HOLD" && infraBlocked7376) {
             reasons += "GOVERNOR_HOLD_VETO_6342"
             // V5.0.6388 (S4/S5/S13) — consult recovery state machine. If the
             // machine has automatically promoted the runtime to HOLD_PROBATION

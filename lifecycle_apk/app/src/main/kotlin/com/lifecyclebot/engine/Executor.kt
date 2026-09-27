@@ -18551,22 +18551,14 @@ class Executor(
             val probationSized6388 = try {
                 com.lifecyclebot.engine.truth.GovernorRecovery6388.entryAuthority().probationSized
             } catch (_: Throwable) { false }
-            val finalShaped6388 = if (probationSized6388) {
-                val clamped = try {
-                    com.lifecyclebot.engine.truth.GovernorRecovery6388.probationSize(shaped)
-                } catch (_: Throwable) { shaped.coerceIn(0.005, 0.010) }
-                if (clamped < shaped) {
-                    try {
-                        PipelineHealthCollector.labelInc("LIVE_BUY_PROBATION_SIZE_CLAMPED_6388")
-                        ForensicLogger.lifecycle(
-                            "LIVE_BUY_PROBATION_SIZE_CLAMPED_6388",
-                            "mint=${ts.mint.take(10)} sym=${ts.symbol} shaped=${"%.4f".format(shaped)} clamped=${"%.4f".format(clamped)}",
-                        )
-                    } catch (_: Throwable) {}
-                }
-                clamped
-            } else shaped
-            finalShaped6388
+            // V5.0.7376 — the governor is advisory: the probation clamp (0.005-0.010
+            // SOL) sat below the 0.041 SOL routable minimum, so every governed entry
+            // was refused as dust. Recorded, not applied; size is left to the
+            // governor multiplier and the risk sizing above.
+            if (probationSized6388) {
+                try { PipelineHealthCollector.labelInc("LIVE_BUY_PROBATION_CLAMP_ADVISORY_7376") } catch (_: Throwable) {}
+            }
+            shaped
         }
 
         // V5.0.3939 — TRUE LIVE ATTEMPT BOUNDARY.

@@ -12109,4 +12109,16 @@ class GoldenTapeRegressionTest {
         assertTrue(bs.contains("_sniperScore < _sniperFloor7375 || _sniperIsDanger"))
         assertFalse(bs.contains("_sniperScore < 30 || _sniperIsDanger"))
     }
+
+
+    @Test
+    fun V5_0_7376_governor_is_advisory() {
+        val lec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneEntryContract6342.kt").readText()
+        assertTrue(lec.contains("if (govState == \"HOLD\" && !infraBlocked7376) {"))
+        assertTrue(lec.contains("if (govState == \"HOLD\" && infraBlocked7376) {"))
+        assertTrue(lec.contains("GOVERNOR_HOLD_ADVISORY_7376"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("LIVE_BUY_PROBATION_CLAMP_ADVISORY_7376"))
+        assertFalse(ex.contains("GovernorRecovery6388.probationSize(shaped)"))
+    }
 }

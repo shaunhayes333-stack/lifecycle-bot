@@ -4,6 +4,29 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7376] - 2026-09-27 — THE GOVERNOR IS ADVISORY
+
+Operator: "the governor should be advisory. it's choking out trading completely."
+
+Two places still enforced governor HOLD on live buys (LiveEntrySafetyHold itself was
+already shape-only since 6332):
+
+- **LaneEntryContract6342** vetoed every entry under HOLD unless the recovery machine
+  allowed it, and then confined it to the probation limiter (1 open, 3/hour, 3-min
+  spacing). HOLD is now recorded (`GOVERNOR_HOLD_ADVISORY_7376`) and the entry
+  continues to the lane checks. The one block kept is recovery state
+  BLOCKED_INFRASTRUCTURE — wallet, ledger or reconciler unavailable, where a buy
+  could not be tracked or sold.
+- **The probation size clamp** (0.005–0.010 SOL) sat below the 0.041 SOL routable
+  minimum, so any governed entry was refused as dust. It is recorded
+  (`LIVE_BUY_PROBATION_CLAMP_ADVISORY_7376`), not applied; size is left to the
+  governor's own size multiplier and the risk sizing.
+
+The governor still shapes size and floor through LiveEntrySafetyHold, and still reports
+its state everywhere it did before.
+
+---
+
 ## [5.0.7375] - 2026-09-27 — THE LAST FIXED-30 LIVE GATES FOLLOW THE FLUID FLOOR
 
 Operator: "the base score is meant to be fluid. i'd already authorised it to shift from
