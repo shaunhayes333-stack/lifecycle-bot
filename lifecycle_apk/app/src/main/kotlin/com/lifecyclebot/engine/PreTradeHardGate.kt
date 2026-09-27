@@ -180,14 +180,16 @@ object PreTradeHardGate {
             try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=LOW_LIQUIDITY_SIZE_REDUCED source=PreTradeHardGate liveEligible=true") } catch (_: Throwable) {}
         }
 
-        if (!ts.holderDataResolved) pendingProofs.add("HOLDER_DATA_PENDING")
         val topHolder = listOfNotNull(ts.topHolderPct, safety.topHolderPct.takeIf { it >= 0.0 }).maxOrNull() ?: -1.0
+        // V5.0.7379 — a known top-10 concentration (rugcheck or on-chain) is resolved
+        // holder data, whether or not a holder-count candle has arrived.
+        if (!ts.holderDataResolved && topHolder < 0.0) pendingProofs.add("HOLDER_DATA_PENDING")
         if (topHolder < 0.0) pendingProofs.add("HOLDER_DATA_UNKNOWN")
         // V5.0.3986 — operator screenshot breach: single-holder/high-ownership/
         // top10/unverified token risk must never spend real SOL. Unknown holder
         // distribution is a live hydration defer; confirmed concentration is a
         // hard block. Paper learning can still sample outside this live-only gate.
-        if (!ts.holderDataResolved || topHolder < 0.0) {
+        if (topHolder < 0.0) {
             pendingProofs.add("HOLDER_DISTRIBUTION_PENDING")
         }
         val criticalProofUnknown = pendingProofs.contains("MINT_AUTHORITY_UNKNOWN") &&

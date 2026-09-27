@@ -834,6 +834,13 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             }
         }
 
+        // V5.0.7379 — rugcheck has no top-holder figure for many fresh launches (and
+        // Birdeye is dead); read it from chain, counting only wallet owners so the
+        // bonding curve and pool vaults are not mistaken for whales.
+        if (topHolderPct < 0) {
+            com.lifecyclebot.engine.truth.OnChainHolderConcentration7379.top10Pct(mint)?.let { topHolderPct = it }
+        }
+
         // ── 5. Holder concentration
         // V5.9.495z39 — WCOR FIX: >80% top holder concentration = HARD BLOCK in both modes.
         // Previously this was only a soft +20 penalty. WCOR had 80%+ concentration and

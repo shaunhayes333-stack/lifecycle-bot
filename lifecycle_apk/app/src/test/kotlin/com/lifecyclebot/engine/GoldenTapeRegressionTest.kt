@@ -12149,4 +12149,19 @@ class GoldenTapeRegressionTest {
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue(fdg.contains("CanonicalEntryFloor7266.bandProvesLane7378(laneKey) ||"))
     }
+
+
+    @Test
+    fun V5_0_7379_onchain_holder_concentration_excludes_program_owned_accounts() {
+        // Program IDs are ordinary keys (on curve); PDAs such as the pump.fun global
+        // account and the Raydium AMM authority are off curve and never counted.
+        assertTrue(com.lifecyclebot.engine.truth.OnChainHolderConcentration7379.isOnCurve("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"))
+        assertTrue(com.lifecyclebot.engine.truth.OnChainHolderConcentration7379.isOnCurve("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"))
+        assertFalse(com.lifecyclebot.engine.truth.OnChainHolderConcentration7379.isOnCurve("4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf"))
+        assertFalse(com.lifecyclebot.engine.truth.OnChainHolderConcentration7379.isOnCurve("5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"))
+        val t = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenSafetyChecker.kt").readText()
+        assertTrue(t.contains("OnChainHolderConcentration7379.top10Pct(mint)?.let { topHolderPct = it }"))
+        val g = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
+        assertTrue(g.contains("if (!ts.holderDataResolved && topHolder < 0.0) pendingProofs.add(\"HOLDER_DATA_PENDING\")"))
+    }
 }

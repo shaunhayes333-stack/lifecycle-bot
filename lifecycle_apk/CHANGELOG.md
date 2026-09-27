@@ -4,6 +4,26 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7379] - 2026-09-27 — HOLDER CONCENTRATION READ FROM CHAIN (FREE)
+
+Operator: "do the free fix."
+
+Holder data came from Birdeye (key dead, 401) and rugcheck's topHolders.top10Pct, which
+fresh launches often lack, so nearly every fresh meme carried HOLDER_DATA_UNKNOWN /
+HOLDER_DISTRIBUTION_PENDING into the pre-trade gate (pending penalty, smaller size).
+
+- `OnChainHolderConcentration7379`: when rugcheck has no figure, top-10 concentration is
+  read from chain (getTokenSupply, getTokenLargestAccounts, getMultipleAccounts —
+  Helius first, then the public ladder; cached 10 min per mint, 60 s after a miss).
+- The bonding curve and pool vaults are not counted: their token accounts are owned by
+  program-derived addresses, which are off the ed25519 curve; only on-curve (wallet)
+  owners are summed, per owner, top 10 as % of supply — the quantity rugcheck reports.
+  The existing thresholds apply unchanged (>80% hard block, >35% live fatal gate).
+- A known concentration now counts as resolved holder data in PreTradeHardGate, whether
+  or not a holder-count candle has arrived.
+
+---
+
 ## [5.0.7378] - 2026-09-27 — PAPER'S LEARNING SURVIVES A JOURNAL CLEAR; APPROVED BUYS ROUTE
 
 Operator: "why isn't it passing the learnt score bands from paper ... it did 1000 trades
