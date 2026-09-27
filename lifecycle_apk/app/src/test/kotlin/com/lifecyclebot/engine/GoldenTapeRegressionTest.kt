@@ -11323,7 +11323,7 @@ class GoldenTapeRegressionTest {
         assertTrue(jup.contains("com.lifecyclebot.data.DefaultKeys.JUPITER"))
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("com.lifecyclebot.network.ExitHttpScope7314.run {\n                slippageGuard.validateQuote(inMint, outMint, amount, slippageBps, inputSol, buyTaker)"))
-        assertTrue(ex.contains("observedLiquidityUsd7321 = ts.lastLiquidityUsd,"))
+        assertTrue(ex.contains("observedLiquidityUsd7321 = observedLiq7382,"))
         val sg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SlippageGuard.kt").readText()
         assertTrue(sg.contains("lastQuoteError7321.set(e.message ?: e.javaClass.simpleName)"))
         assertFalse(sg.contains("Quote 1 failed after retries - Jupiter API may be down"))
@@ -11888,7 +11888,7 @@ class GoldenTapeRegressionTest {
         assertTrue(fn > 0 && reprice > fn && defer > reprice)
         // Strict: corroborated only, observed liquidity only, rebuilt through the same rules.
         assertTrue(ex.contains("if (fan7361 != null && (fan7361.corroborated || singleAgrees7371) && fan7361.priceUsd.isFinite() && fan7361.priceUsd > 0.0) {"))
-        assertTrue(ex.contains("if (!RuntimeModeAuthority.isPaper() && ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0) {"))
+        assertTrue(ex.contains("if (!RuntimeModeAuthority.isPaper() && observedLiquidityUsd7382(ts) > 0.0) {"))
         assertTrue(ex.contains("val repriced7361 = mintEntryMarketSnapshot(ts)"))
         assertTrue(ex.contains("private val ENTRY_REPRICE_COOLDOWN_MS_7361 = 30_000L"))
     }
