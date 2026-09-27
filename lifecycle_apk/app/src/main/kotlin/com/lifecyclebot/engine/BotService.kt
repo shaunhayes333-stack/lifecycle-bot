@@ -13048,7 +13048,7 @@ class BotService : Service() {
                 )
             }
             val zeroSignal = laneBase.entryScore <= 0.0 && laneBase.aiConfidence <= 10.0
-            val streakDefense6487 = try { com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.defensiveActiveFor6488(lane) } catch (_: Throwable) { false }
+            val streakDefense6487 = try { com.lifecyclebot.engine.truth.ExecutableEntryAuthority6450.defensiveSuppressWait7377(lane) } catch (_: Throwable) { false }
             if (streakDefense6487 && (zeroSignal || laneBase.finalSignal.equals("WAIT", true))) {
                 try {
                     PipelineHealthCollector.labelInc("DEFENSIVE_WAIT_PROBE_SUPPRESSED_6487")

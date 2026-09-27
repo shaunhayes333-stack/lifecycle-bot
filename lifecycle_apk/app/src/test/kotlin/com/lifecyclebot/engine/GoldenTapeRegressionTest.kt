@@ -12121,4 +12121,17 @@ class GoldenTapeRegressionTest {
         assertTrue(ex.contains("LIVE_BUY_PROBATION_CLAMP_ADVISORY_7376"))
         assertFalse(ex.contains("GovernorRecovery6388.probationSize(shaped)"))
     }
+
+
+    @Test
+    fun V5_0_7377_live_floor_inherits_paper_bands_and_streak_no_longer_locks_wait() {
+        val f = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalEntryFloor7266.kt").readText()
+        assertTrue(f.contains("val maturity = maxOf(liveMaturity7377, inheritedMaturity7377)"))
+        assertTrue(f.contains("(0..9).sumOf { ScoreExpectancyTracker.bucketSamples(lane, it * 10) }"))
+        assertTrue(f.contains("waitFloor = floor + WAIT_PROMOTION_MARGIN_7243 * (if (learned != null) (1.0 - maturity) else 1.0),"))
+        val e = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ExecutableEntryAuthority6450.kt").readText()
+        assertTrue(e.contains("consecutiveLossesFor6488(lane, mode) >= STREAK_HARD_LIMIT && !lanePaysEv7334(lane)"))
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bs.contains("ExecutableEntryAuthority6450.defensiveSuppressWait7377(lane)"))
+    }
 }

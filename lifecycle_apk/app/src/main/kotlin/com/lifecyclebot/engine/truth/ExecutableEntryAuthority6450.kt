@@ -397,6 +397,18 @@ object ExecutableEntryAuthority6450 {
         consecutiveLossesFor6488(lane, mode) > 0L
 
     /**
+     * V5.0.7377 — when a streak may suppress a lane's WAIT candidates outright.
+     * defensiveActiveFor6488 is "any loss": one loss (or a paper streak seeded
+     * into live) sent every WAIT candidate in the lane to shadow, and a lane can
+     * only clear its streak by winning, so it locked itself out (5.0.7376: 200
+     * DEFENSIVE_WAIT_SHADOW_ONLY_6487 in 10 min, MOONSHOT streak=1). Suppression now
+     * needs the hard limit and a lane that does not pay; below that the streak's
+     * score-floor delta shapes entries instead.
+     */
+    fun defensiveSuppressWait7377(lane: String, mode: String = currentMode()): Boolean =
+        consecutiveLossesFor6488(lane, mode) >= STREAK_HARD_LIMIT && !lanePaysEv7334(lane)
+
+    /**
      * V5.0.7334 — a streak on a lane whose measured expectancy is positive
      * (n>=10) is the lane's fat-tailed shape, not a cold spell. 5.0.7333:
      * SHITCOIN streak=3 raised its floor 72 -> 87 (939 times) while its

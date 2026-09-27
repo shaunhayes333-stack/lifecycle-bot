@@ -141,8 +141,24 @@ object CanonicalEntryFloor7266 {
         val learned = learnedFloor(lane)
         val target = learned ?: MATURE_DEFAULT_FLOOR_7243
         val closes = try { LaneExpectancyDamper.sameModeCloses7265(lane) } catch (_: Throwable) { 0 }
-        val maturity = (closes.toDouble() /
+        val liveMaturity7377 = (closes.toDouble() /
             (closes.toDouble() + LaneExpectancyDamper.MATURE_EVIDENCE_CLOSES_7265.toDouble())).coerceIn(0.0, 1.0)
+        // V5.0.7377 — the learned band is inherited from paper. ScoreExpectancyTracker
+        // records every finalized close (paper and live), so `learned` is already the
+        // band paper proved; but the weight given to it was live same-mode closes only
+        // (n=0-2 per lane on the live device), so live never moved off the 15 base
+        // and never used the band paper found (PROJECT_SNIPER L0, CORE L10, MOONSHOT
+        // L20). The band now carries the maturity of the closes behind it. Live closes
+        // still count, and a lane with no proven band is unchanged.
+        val bandEvidence7377 = if (learned == null) 0 else try {
+            (0..9).sumOf { ScoreExpectancyTracker.bucketSamples(lane, it * 10) }
+        } catch (_: Throwable) { 0 }
+        val inheritedMaturity7377 = (bandEvidence7377.toDouble() /
+            (bandEvidence7377.toDouble() + LaneExpectancyDamper.MATURE_EVIDENCE_CLOSES_7265.toDouble())).coerceIn(0.0, 1.0)
+        val maturity = maxOf(liveMaturity7377, inheritedMaturity7377)
+        if (inheritedMaturity7377 > liveMaturity7377) {
+            try { PipelineHealthCollector.labelInc("CANONICAL_FLOOR_BAND_INHERITED_FROM_PAPER_7377_$lane") } catch (_: Throwable) {}
+        }
         val regimeDelta = try { RegimeDetector.scoreFloorDelta().toDouble() } catch (_: Throwable) { 0.0 }
         val damperDelta = try { LaneExpectancyDamper.admissionScoreFloorDelta(lane) } catch (_: Throwable) { 0.0 }
         val base7276 = bootstrap + (target - bootstrap) * maturity
@@ -172,7 +188,11 @@ object CanonicalEntryFloor7266 {
         val floor = (base7276 + cappedRaise7276 + negativeDelta7276)
             .coerceIn(FLOOR_MIN, FLOOR_MAX)
         val r = Resolution(
-            lane = lane, floor = floor, waitFloor = floor + WAIT_PROMOTION_MARGIN_7243,
+            // V5.0.7377 — the WAIT-promotion margin narrows as the lane's band is
+            // proven: an unproven lane keeps +25, a lane whose learned band carries
+            // mature evidence promotes WAIT signals close to its own floor.
+            lane = lane, floor = floor,
+            waitFloor = floor + WAIT_PROMOTION_MARGIN_7243 * (if (learned != null) (1.0 - maturity) else 1.0),
             bootstrap = bootstrap, target = target, learnedFloor = learned, maturity = maturity,
             closes = closes, regimeDelta = regimeDelta, damperDelta = damperDelta,
         )

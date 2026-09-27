@@ -4,6 +4,31 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7377] - 2026-09-27 — LIVE INHERITS THE SCORE BANDS PAPER FOUND
+
+Operator: "we made the live scoring fluid. it's meant to have a base of 15-30 depending
+on the trader, lane or specialist, then adjust once the best scoring zone is learnt ...
+and have the score band inherited from paper where it's found the best score bands."
+
+5.0.7376, 10 min: one live buy. The FDG floor already learns each lane's best band from
+ScoreExpectancyTracker, which records paper and live closes alike (PROJECT_SNIPER L0,
+CORE L10, MOONSHOT L20), but:
+
+- **The band carried no weight in live.** Movement from the base toward the learned
+  band was scaled by live same-mode closes only (0-2 per lane), so live sat on the 15
+  base and never used the band paper proved. The band now carries the maturity of the
+  closes behind it (paper + live); live closes still count; lanes with no proven band
+  are unchanged (base 15 moving toward 30 as they mature).
+- **The WAIT-promotion bar was base + a fixed 25** (41 on the device), and nearly
+  every candidate's base signal is WAIT. The margin now narrows with the lane's band
+  maturity; unproven lanes keep +25.
+- **One loss locked a lane's WAIT candidates out.** DEFENSIVE_WAIT_SHADOW_ONLY_6487
+  fired on any streak > 0 (MOONSHOT streak=1, 200 in 10 min), and a lane can only clear
+  its streak by winning. Suppression now needs the hard limit (3) on a lane whose
+  measured expectancy is not positive; below that the streak's floor delta shapes it.
+
+---
+
 ## [5.0.7376] - 2026-09-27 — THE GOVERNOR IS ADVISORY
 
 Operator: "the governor should be advisory. it's choking out trading completely."
