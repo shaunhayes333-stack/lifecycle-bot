@@ -4,6 +4,26 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7374] - 2026-09-27 — WALLET READS FALL BACK TO THE MINTS THE BOT ALREADY KNOWS
+
+Operator: "the wallet reconciliation can be done with other already on board rows yeah?"
+
+5.0.7371: every wallet token read failed on all 14 endpoints (Helius 429, public nodes
+403 / "chain not available"), 39 in five minutes, and the bot saw an empty wallet. The
+read asks getTokenAccountsByOwner for a whole token program — one of the heaviest RPC
+reads, which public nodes refuse.
+
+- When that scan fails or times out, the bounded read now queries each mint the bot
+  already has rows for (canonical live positions, pending entries, live tracker rows),
+  filtered by mint. That call is light, served by the public nodes, and covers both
+  token programs. It has its own 6 s budget.
+- The result is marked partial: it proves those mints are held (positions stay visible
+  and managed) and can never be read as proof that anything else is gone.
+- WalletReconciler's zombie-close pass now skips on a partial snapshot, like the tracker
+  (7140) and the sell reconciler (7372) already do.
+
+---
+
 ## [5.0.7373] - 2026-09-27 — THE FALSE CLOSES MADE HELD TOKENS UNSELLABLE
 
 Operator: "but it didn't sell anything either."

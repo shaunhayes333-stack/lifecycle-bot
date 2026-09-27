@@ -133,10 +133,14 @@ object WalletReconciler {
         // ── Pass 2: zombie closure ──────────────────────────────────────────
         // Every open position with zero wallet balance must be closed —
         // unless a sell is actively VERIFYING (we let the verifier own it).
+        // V5.0.7374 — a partial snapshot (Token-2022 unread, or the known-mints
+        // fallback) proves what is held, never what is gone.
+        val partial7374 = try { com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.isLastPartial() } catch (_: Throwable) { true }
         for (ts in status.openPositions.toList()) {
             val pair = walletMints[ts.mint]
             val walletUi = pair?.first ?: 0.0
             if (walletUi > 0.0) continue
+            if (partial7374) continue
             // Wallet has zero — but defer if a sell verification is in flight
             // and TradeVerifier hasn't yet reached a terminal state.
             if (LiveTradeLogStore.isTerminallyResolved(

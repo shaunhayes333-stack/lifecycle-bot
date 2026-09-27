@@ -789,10 +789,18 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         return applyRoundRobin(candidates)
     }
 
-    private fun rpcTokenAccountsByOwnerFast(programId: String): JSONObject {
+    private fun rpcTokenAccountsByOwnerFast(programId: String): JSONObject =
+        rpcTokenAccountsByOwnerFiltered(JSONObject().put("programId", programId), programId)
+
+    /**
+     * V5.0.7374 — the same endpoint ladder, for any getTokenAccountsByOwner filter.
+     * [programId] is the label used in logs; [overallDeadlineMs] (>0) stops the
+     * ladder once a caller's own budget is spent.
+     */
+    private fun rpcTokenAccountsByOwnerFiltered(filter: JSONObject, programId: String, overallDeadlineMs: Long = 0L): JSONObject {
         val params = JSONArray()
             .put(publicKeyB58)
-            .put(JSONObject().put("programId", programId))
+            .put(filter)
             .put(JSONObject()
                 .put("encoding", "jsonParsed")
                 .put("commitment", "confirmed"))
@@ -841,6 +849,10 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         val ladderDeadlineMs7210 = System.currentTimeMillis() + 9_000L
         val failures = mutableListOf<String>()
         for ((idx7210, endpoint) in endpoints.withIndex()) {
+            if (overallDeadlineMs > 0L && System.currentTimeMillis() > overallDeadlineMs) {
+                failures.add("CALLER_DEADLINE_7374_after_$idx7210")
+                break
+            }
             // Never abandon the ladder before the FIRST endpoint has answered:
             // the preferred head is index 0 and it is the one most likely to
             // succeed, so the deadline may only cut the anonymous tail.
@@ -1168,11 +1180,99 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             try { fut.cancel(true) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKEN_READ_INDETERMINATE", "reason=TIMEOUT timeoutMs=$timeoutMs") } catch (_: Throwable) {}
             android.util.Log.w("SolanaWallet", "getTokenAccountsWithDecimalsBounded: RPC exceeded ${timeoutMs} ms — indeterminate, not empty wallet")
+            knownMintsFallbackBounded7374()?.let { return it }
             throw RuntimeException("wallet token snapshot timeout after ${timeoutMs}ms", e)
         } catch (e: Throwable) {
             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKEN_READ_INDETERMINATE", "reason=${e.message?.take(160)}") } catch (_: Throwable) {}
+            knownMintsFallbackBounded7374()?.let { return it }
             throw RuntimeException("wallet token snapshot failed: ${e.message}", e)
         }
+    }
+
+    /**
+     * V5.0.7374 — when the whole-wallet scan fails, read the mints the bot already
+     * knows about, one at a time. getTokenAccountsByOwner over a whole token
+     * program is one of the heaviest reads there is; public nodes refuse it (403)
+     * and Helius was at 429, so on 5.0.7371 every read failed on all 14 endpoints
+     * and the bot saw an empty wallet. The same method filtered by one mint is
+     * cheap, is served by those nodes, and covers both token programs.
+     *
+     * The result is a lower bound: it is marked partial, so it proves the listed
+     * mints are held and can never be read as proof that anything else is gone.
+     * Returns null (caller keeps its indeterminate path) when no mint was answered.
+     */
+    private fun knownMintsFallbackBounded7374(budgetMs: Long = 6_000L): Map<String, CanonicalTokenAmount>? {
+        val mints = knownBotMints7374()
+        if (mints.isEmpty()) return null
+        val fut = try {
+            boundedRpcExecutor().submit(java.util.concurrent.Callable { readKnownMints7374(mints, System.currentTimeMillis() + budgetMs - 250L) })
+        } catch (_: Throwable) { return null }
+        val result = try {
+            fut.get(budgetMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: Throwable) {
+            try { fut.cancel(true) } catch (_: Throwable) {}
+            null
+        } ?: return null
+        val (held, answered) = result
+        if (answered == 0) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("WALLET_KNOWN_MINTS_FALLBACK_UNANSWERED_7374") } catch (_: Throwable) {}
+            return null
+        }
+        try {
+            com.lifecyclebot.engine.truth.WalletSnapshotCompleteness7140.markPartial("KNOWN_MINTS_FALLBACK_7374 answered=$answered/${mints.size}")
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("WALLET_KNOWN_MINTS_FALLBACK_OK_7374")
+            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                "WALLET_KNOWN_MINTS_FALLBACK_OK_7374",
+                "known=${mints.size} answered=$answered held=${held.size} action=partial_snapshot_positive_only",
+            )
+        } catch (_: Throwable) {}
+        return held
+    }
+
+    private fun readKnownMints7374(mints: List<String>, deadlineMs: Long): Pair<Map<String, CanonicalTokenAmount>, Int> {
+        val out = mutableMapOf<String, CanonicalTokenAmount>()
+        var answered = 0
+        for (mint in mints) {
+            if (System.currentTimeMillis() > deadlineMs) break
+            val json = try {
+                rpcTokenAccountsByOwnerFiltered(JSONObject().put("mint", mint), "mint:${mint.take(8)}", deadlineMs)
+            } catch (_: Throwable) { continue }
+            val arr = json.optJSONObject("result")?.optJSONArray("value") ?: continue
+            answered++
+            var total = java.math.BigInteger.ZERO
+            var decimals = -1
+            for (i in 0 until arr.length()) {
+                val info = arr.optJSONObject(i)?.optJSONObject("account")?.optJSONObject("data")
+                    ?.optJSONObject("parsed")?.optJSONObject("info") ?: continue
+                if (info.optString("state", "").equals("frozen", ignoreCase = true)) { total = java.math.BigInteger.ZERO; decimals = -1; break }
+                val ta = info.optJSONObject("tokenAmount") ?: continue
+                val amt = try { CanonicalTokenAmount.fromRpcAmount(ta.optString("amount", ""), ta.optInt("decimals", -1)) } catch (_: Throwable) { null } ?: continue
+                total = total.add(amt.raw)
+                decimals = amt.decimals
+            }
+            if (total.signum() > 0 && decimals >= 0) {
+                val amt = try { CanonicalTokenAmount.fromRpcAmount(total.toString(), decimals) } catch (_: Throwable) { null }
+                if (amt != null) out[mint] = amt
+            }
+        }
+        return out to answered
+    }
+
+    /** Mints the bot has rows for: canonical live positions and live tracker rows. */
+    private fun knownBotMints7374(): List<String> {
+        val s = LinkedHashSet<String>()
+        try {
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                .filter { it.mode.equals("live", true) }.forEach { s += it.mint }
+            com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.pendingEntryPositions6461()
+                .filter { it.mode.equals("live", true) }.forEach { s += it.mint }
+        } catch (_: Throwable) {}
+        try {
+            com.lifecyclebot.engine.HostWalletTokenTracker.snapshot()
+                .filter { !it.status.name.startsWith("CLOSED") && it.status.name != "SOLD_CONFIRMED" }
+                .forEach { s += it.mint }
+        } catch (_: Throwable) {}
+        return s.filter { it.isNotBlank() }.take(20)
     }
 
     /**

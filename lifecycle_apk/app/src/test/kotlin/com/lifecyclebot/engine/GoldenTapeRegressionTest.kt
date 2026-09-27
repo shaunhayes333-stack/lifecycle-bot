@@ -12084,4 +12084,16 @@ class GoldenTapeRegressionTest {
         val r = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellReconciler.kt").readText()
         assertTrue(r.contains("LivePositionCloseAuthority.releaseUnsignedCloseOnWalletHeld7373(pos.mint"))
     }
+
+
+    @Test
+    fun V5_0_7374_wallet_read_falls_back_to_known_mints_and_stays_partial() {
+        val w = java.io.File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText()
+        assertTrue(w.contains("private fun rpcTokenAccountsByOwnerFiltered(filter: JSONObject, programId: String, overallDeadlineMs: Long = 0L): JSONObject"))
+        assertTrue(w.contains("knownMintsFallbackBounded7374()?.let { return it }"))
+        assertTrue(w.contains("WalletSnapshotCompleteness7140.markPartial(\"KNOWN_MINTS_FALLBACK_7374"))
+        assertTrue(w.contains("rpcTokenAccountsByOwnerFiltered(JSONObject().put(\"mint\", mint)"))
+        val r = java.io.File("src/main/kotlin/com/lifecyclebot/engine/WalletReconciler.kt").readText()
+        assertTrue(r.contains("if (partial7374) continue"))
+    }
 }
