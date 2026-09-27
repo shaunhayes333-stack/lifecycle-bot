@@ -12274,7 +12274,7 @@ class GoldenTapeRegressionTest {
     fun V5_0_7385_live_sniper_is_launch_only_and_runner_exits_wait_for_the_bar() {
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(ex.contains("LIVE_SNIPER_REFUSED_NOT_A_LAUNCH_7385"))
-        assertTrue(ex.contains("private val LIVE_SNIPER_MAX_MCAP_USD_7385 = 150_000.0"))
+        assertTrue(ex.contains("private val LIVE_SNIPER_MAX_MCAP_USD_7385 = LaneEntryContract6342.SNIPER_LAUNCH_MAX_MCAP_USD_7393"))
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("SNIPER_TP_PARTIAL_7385"))
         assertTrue(bot.contains("if (pnlPct <= catastropheThreshold && stopConfirmed7385) {"))
