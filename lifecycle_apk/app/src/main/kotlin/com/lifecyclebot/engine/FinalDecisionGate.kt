@@ -1022,6 +1022,23 @@ object FinalDecisionGate {
             )
         }
 
+        // V5.0.7393b — the executor's pre-lease floor must judge a live specialist
+        // on the score this gate just cleared, whatever path cleared it. 7308
+        // recorded it only for the lane-own-score branch; a lane candidate whose
+        // raised entry score cleared the canonical floor directly reached the
+        // executor carrying the ticket's generic V3 score (0) and was refused:
+        // LIVE_BUY_REFUSED_PRELEASE_SCORE_7256 = 179 of 216 attempts, 3 buys.
+        if (!config.paperMode && specialistLane != null && effectiveEntryScore7292.isFinite() &&
+            effectiveEntryScore7292 >= canonicalFloor7266 && !laneOwnScoreAdmitted7292
+        ) {
+            try {
+                com.lifecyclebot.engine.truth.LaneScoreAdmission7308.record(
+                    ts.mint, floorLane7266, effectiveEntryScore7292, exploration = false,
+                )
+                PipelineHealthCollector.labelInc("LIVE_CLEARED_SCORE_CARRIED_TO_EXECUTOR_7393")
+            } catch (_: Throwable) {}
+        }
+
         val laneName = tradingModeTag?.name ?: "STANDARD"
         // V5.0.6658 §SPECIALIST_LANE_STAMP_ALIGNMENT — operator dump Feb
         //   2026 (build 5.0.6657, 3140s uptime):

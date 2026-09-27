@@ -12435,4 +12435,18 @@ class GoldenTapeRegressionTest {
         assertTrue(crypto.contains("val paperSafe = isLive || unified?.accountAvailable == true"))
         assertFalse(crypto.contains("unified?.status == com.lifecyclebot.engine.truth.UnifiedAccountSnapshot6635.Status.RECONCILED ||"))
     }
+
+
+    @Test
+    fun V5_0_7394_live_buys_land_on_their_cleared_score_and_fill_basis() {
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("LIVE_CLEARED_SCORE_CARRIED_TO_EXECUTOR_7393"))
+        val lec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneEntryContract6342.kt").readText()
+        assertTrue(lec.contains("if (lane == \"PROJECT_SNIPER\" && !isSniperLaunch7393(ts)) return false"))
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(ex.contains("private val LIVE_SNIPER_MAX_MCAP_USD_7385 = LaneEntryContract6342.SNIPER_LAUNCH_MAX_MCAP_USD_7393"))
+        assertTrue(ex.contains("LIVE_ENTRY_RESTAMPED_FROM_FILL_7393"))
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("val entryPxForTickLock = basisPx7393"))
+    }
 }

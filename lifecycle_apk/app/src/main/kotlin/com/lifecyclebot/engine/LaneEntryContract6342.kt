@@ -90,6 +90,23 @@ object LaneEntryContract6342 {
         return floor..maxOf(floor, ceiling)
     }
 
+    /**
+     * V5.0.7393b — the sniper's launch test, shared by election and the live buy
+     * (Executor 7385). Election handed PROJECT_SNIPER tokens that were not
+     * launches; the live buy refused them (LIVE_SNIPER_NOT_A_LAUNCH_7385 = 31 of
+     * 39 buy fails) and the next cycle elected the sniper again, so the token
+     * never traded. One definition, read by both.
+     */
+    const val SNIPER_LAUNCH_MAX_MCAP_USD_7393 = 150_000.0
+    const val SNIPER_LAUNCH_MAX_AGE_SECS_7393 = 2L * 3600L
+
+    fun isSniperLaunch7393(ts: TokenState): Boolean {
+        if (try { ts.tokenMap.migratedOrGraduated } catch (_: Throwable) { false }) return false
+        if (ts.lastMcap > SNIPER_LAUNCH_MAX_MCAP_USD_7393) return false
+        val age = try { com.lifecyclebot.engine.truth.PoolCreationTime7385.ageSecs(ts.mint) } catch (_: Throwable) { null }
+        return age == null || age <= SNIPER_LAUNCH_MAX_AGE_SECS_7393
+    }
+
     /** Liquidity each lane's BotService proof (qualityLaneProofOk) requires. */
     const val QUALITY_MIN_LIQ_7389 = 15_000.0
     const val BLUECHIP_MIN_LIQ_7389 = 50_000.0
@@ -109,6 +126,7 @@ object LaneEntryContract6342 {
     fun isLaneIdentityEligible7252(ts: TokenState, laneRequested: String): Boolean {
         val lane = laneRequested.uppercase()
         if ((lane == "BLUECHIP" || lane == "BLUE_CHIP") && isPumpFunMint(ts.mint)) return false
+        if (lane == "PROJECT_SNIPER" && !isSniperLaunch7393(ts)) return false
         // V5.0.7388 — QUALITY and CORE are not launch lanes. The desk's role
         // hypotheses (DIAMOND_HANDS_RUNNER, CHART_BREAKOUT, PULLBACK_RECLAIM) tag a
         // pumping $3-4k curve launch QUALITY with no mcap check, and the V3 trunk

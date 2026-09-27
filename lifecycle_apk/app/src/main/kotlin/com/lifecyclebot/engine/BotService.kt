@@ -12163,7 +12163,22 @@ class BotService : Service() {
                             // has the freshest price and must provide the universal hard-floor +
                             // peak/giveback shell for ALL open positions. Lane-specific exits can
                             // still add smarter behavior; they cannot be the only runner safety net.
-                                val rawTickPnlPctNow = (priceUsd - entryPx) / entryPx * 100.0
+                                // V5.0.7393b — a LIVE position's basis is its fill: SOL spent over
+                                // tokens received. A stamped entry price read from a wrong or stale
+                                // pair (2c7Azo: $0.0000976 stamped vs $0.0000069 filled, 13.8x) made
+                                // every exit think a flat position was down 93% and cut it. When the
+                                // stamp and the fill disagree by more than 1.5x, exits use the fill.
+                                val fillBasis7393: Double? = try {
+                                    val su = WalletManager.lastKnownSolPrice
+                                    if (!pos.isPaperPosition && pos.qtyToken > 0.0 && pos.costSol > 0.0 && su in 20.0..2_000.0)
+                                        (pos.costSol * su / pos.qtyToken).takeIf { it.isFinite() && it > 0.0 }
+                                    else null
+                                } catch (_: Throwable) { null }
+                                val basisPx7393 = if (fillBasis7393 != null && (entryPx / fillBasis7393) !in (1.0 / 1.5)..1.5) {
+                                    try { PipelineHealthCollector.labelInc("LIVE_EXIT_BASIS_FROM_FILL_7393") } catch (_: Throwable) {}
+                                    fillBasis7393
+                                } else entryPx
+                                val rawTickPnlPctNow = (priceUsd - basisPx7393) / basisPx7393 * 100.0
                                 // V5.0.4152 — UI/EXEC HIGH-LOCK PARITY.
                                 // Operator screenshot: TARGET Peak +2600% / lock +2600%,
                                 // but position stayed open. Root cause: the UI displayed
@@ -12174,7 +12189,7 @@ class BotService : Service() {
                                 val execPxForTickLock = try {
                                     executor.getActualPricePublic(ts).takeIf { it.isFinite() && it > 0.0 }
                                 } catch (_: Throwable) { null }
-                                val entryPxForTickLock = pos.entryPrice.takeIf { it.isFinite() && it > 0.0 } ?: entryPx
+                                val entryPxForTickLock = basisPx7393
                                 val safeExecPxForTickLock4481 = walletCorrespondentOpenPrice4481(ts, execPxForTickLock ?: priceUsd, "TICK_PROFIT_LOCK")
                                 val execPnlPctNow = if (safeExecPxForTickLock4481 > 0.0 && entryPxForTickLock > 0.0)
                                     ((safeExecPxForTickLock4481 - entryPxForTickLock) / entryPxForTickLock) * 100.0

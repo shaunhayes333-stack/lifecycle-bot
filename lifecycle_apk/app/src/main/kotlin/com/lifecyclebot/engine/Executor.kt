@@ -14965,9 +14965,9 @@ class Executor(
     private val lastNewHighMs7388 = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     /** V5.0.7385 — live sniper entries are launches: mcap at or under this, not graduated. */
-    private val LIVE_SNIPER_MAX_MCAP_USD_7385 = 150_000.0
+    private val LIVE_SNIPER_MAX_MCAP_USD_7385 = LaneEntryContract6342.SNIPER_LAUNCH_MAX_MCAP_USD_7393
     /** V5.0.7385 — and launch-aged: a known first pool older than this is not a launch. */
-    private val LIVE_SNIPER_MAX_AGE_SECS_7385 = 2L * 3600L
+    private val LIVE_SNIPER_MAX_AGE_SECS_7385 = LaneEntryContract6342.SNIPER_LAUNCH_MAX_AGE_SECS_7393
 
     private fun observedLiquidityUsd7382(ts: TokenState): Double =
         TokenMapAuthority.observedLiquidityUsd(ts)
@@ -21259,6 +21259,28 @@ class Executor(
                 // attempt. This preserves duplicate safety while making the buy real
                 // to StrategyTruthLedger / learning / reports.
                 onLog("✅ Position opened during confirmation wait — late-confirm success (idempotent)", ts.mint)
+                // V5.0.7393b — the reconciler opened this placeholder at whatever mark it
+                // had; the fill is SOL spent over tokens received. A stamp more than 1.5x
+                // off the fill (2c7Azo: 13.8x, a wrong/stale pair) is replaced by the fill
+                // before it is journaled, so exits, P&L and learning read the real basis.
+                try {
+                    val su7393 = WalletManager.lastKnownSolPrice
+                    val p7393 = ts.position
+                    if (p7393.qtyToken > 0.0 && p7393.costSol > 0.0 && su7393 in 20.0..2_000.0) {
+                        val fill7393 = p7393.costSol * su7393 / p7393.qtyToken
+                        if (fill7393.isFinite() && fill7393 > 0.0 &&
+                            (p7393.entryPrice <= 0.0 || (p7393.entryPrice / fill7393) !in (1.0 / 1.5)..1.5)
+                        ) {
+                            ForensicLogger.lifecycle(
+                                "LIVE_ENTRY_RESTAMPED_FROM_FILL_7393",
+                                "mint=${ts.mint.take(10)} sym=${ts.symbol} stamped=${p7393.entryPrice} fill=$fill7393 " +
+                                    "cost=${p7393.costSol} qty=${p7393.qtyToken} solUsd=$su7393",
+                            )
+                            PipelineHealthCollector.labelInc("LIVE_ENTRY_RESTAMPED_FROM_FILL_7393")
+                            ts.position = p7393.copy(entryPrice = fill7393)
+                        }
+                    }
+                } catch (_: Throwable) {}
                 val existingPos4576 = ts.position
                 // V5.0.7305 — the wallet reconciler can see the tokens land
                 // before this confirmation returns and open a placeholder

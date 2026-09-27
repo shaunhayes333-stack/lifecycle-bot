@@ -4,6 +4,13 @@ All notable changes to AATE — the Autonomous Algorithmic Trading Engine.
 
 ---
 
+## [5.0.7394] — live buys land: the cleared score reaches the executor; the sniper only gets launches; live basis is the fill
+
+From the 5.0.7393 live snapshot (0.18 SOL, 696 s): 216 buy attempts, 3 buys.
+- LIVE_BUY_REFUSED_PRELEASE_SCORE_7256 = 179 (score=0.0 vs floor 15.5). FDG cleared lane candidates on their lane-raised score (PCAT MOONSHOT 59), but carried that score to the executor only on its lane-own-score branch; the executor then judged the ticket's generic V3 score (0). FDG now records the score it cleared the canonical floor with for every live specialist pass (LIVE_CLEARED_SCORE_CARRIED_TO_EXECUTOR_7393).
+- LIVE_SNIPER_NOT_A_LAUNCH_7385 = 31 of 39 buy fails. Election gave PROJECT_SNIPER tokens that were not launches, the live buy refused them, and the next cycle elected the sniper again. The launch test (not graduated, mcap <= $150k, first pool <= 2 h old when known) is now one shared definition read by election and the live buy, so a non-launch goes to another lane.
+- A live position's basis is its fill (SOL spent / tokens received). MOONSHOT 2c7Azo was stamped $0.0000976 from a wrong/stale pair against a $0.0000069 fill (13.8x), and the tick exit cut a flat position as -93% (RUNNER_EARLY_CUT; actual -4%). Exits use the fill when the stamp is more than 1.5x off (LIVE_EXIT_BASIS_FROM_FILL_7393), and the late-confirm path re-stamps the entry from the fill before journaling (LIVE_ENTRY_RESTAMPED_FROM_FILL_7393).
+
 ## [5.0.7393] — 5.0.7392 builds; one account authority for every hero
 
 - 5.0.7392 failed CI before compiling (new-dead-code guard: two public labels only used in their own file). Fixed; this build carries everything listed under 5.0.7392.
