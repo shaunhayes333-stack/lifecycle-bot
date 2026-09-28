@@ -56,6 +56,13 @@ object CanonicalFinalizedTradeBus6464 {
         val holdingTimeMs: Long = 0L,
         val entryScore: Int = 0,
         val entryTactic: String = "",
+        // V5.0.7427 — exact immutable strategy identity from entry snapshot.
+        val entryTradeType: String = "",
+        val entrySetup: String = "",
+        val entryStyle: String = "",
+        val entryEntryStyle: String = "",
+        val entryExitStyle: String = "",
+        val entryStrategyVariantId: String = "",
         val entrySource: String = "",
         val marketRegime: String = "",
         val scoreBand: String = "",
