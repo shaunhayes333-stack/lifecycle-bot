@@ -238,8 +238,10 @@ object AgenticStyleRouter {
         val score = try { (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(0, 150) } catch (_: Throwable) { 0 }
         val tactic = try { TacticSwitcher.currentTactic(if (laneHint.isBlank()) "SHITCOIN" else laneHint, score) } catch (_: Throwable) { TacticSwitcher.Tactic.MOMENTUM }
         val ddAgg = try { com.lifecyclebot.v3.scoring.DrawdownCircuitAI.getAggression() } catch (_: Throwable) { 1.0 }
-        val ageMin = try { ((System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0).coerceAtLeast(0.0) } catch (_: Throwable) { 999.0 }
-        val lowInfoFresh = ageMin <= 5.0 && ts.lastBuyPressurePct in 45.0..55.0 && ts.lastLiquidityUsd in 1_000.0..8_000.0
+        val launch7402 = try { com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.snapshot(ts) } catch (_: Throwable) { null }
+        val ageMin = try { (launch7402?.ageMs ?: com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.trueAgeMs(ts)) / 60_000.0 } catch (_: Throwable) { 999.0 }
+        val lowInfoFresh = ageMin <= 3.0 && launch7402?.tooLateForSnipe != true &&
+            ts.lastBuyPressurePct in 45.0..55.0 && ts.lastLiquidityUsd in 1_000.0..8_000.0
         // V5.0.3718 — hot-path safe. Do NOT call the synchronous regime
         // snapshot here; it can refresh by scanning TradeHistoryStore. This router runs per
         // candidate, so use the O(1) stale-while-revalidate catastrophic flag.
@@ -248,6 +250,9 @@ object AgenticStyleRouter {
         val weakChopSheet = isWeakChopSheet(sheet) || isWeakRuntimeRegime()
         val toolkitStyle = if (sheet.confidence >= 38.0) styleForToolkit(sheet)?.let { weakChopStylePivot(it, sheet, weakChopSheet, laneHint) } else null
         val electedStyle7044 = when {
+            // V5.0.7402 — post-pump/fade can never be expressed as a sniper style,
+            // even if a cached toolkit sheet or stale tradeType still says FRESH_LAUNCH.
+            launch7402?.tooLateForSnipe == true -> sameLaneWeakPivotStyle(laneHint, Style.EXHAUSTION_QUICK_FLIP)
             toolkitStyle != null -> toolkitStyle
             // V5.0.3716 — do not let PULLBACK/LAB tactics route score-0 CHOP
             // candidates into DIP_HUNTER as primary during a catastrophic paper
@@ -261,7 +266,10 @@ object AgenticStyleRouter {
             tactic == TacticSwitcher.Tactic.BREAKOUT -> Style.BREAKOUT_RUNNER
             weakChopSheet && classification.tradeType in setOf(ModeRouter.TradeType.FRESH_LAUNCH, ModeRouter.TradeType.SENTIMENT_IGNITION, ModeRouter.TradeType.GRADUATION) -> sameLaneWeakPivotStyle(laneHint, Style.DEFENSIVE_PROBE)
             weakChopSheet && classification.tradeType == ModeRouter.TradeType.BREAKOUT_CONTINUATION -> sameLaneWeakPivotStyle(laneHint, Style.BREAKOUT_RUNNER)
-            classification.tradeType == ModeRouter.TradeType.FRESH_LAUNCH && ageMin <= 3.0 -> Style.MICRO_SNIPE
+            classification.tradeType == ModeRouter.TradeType.FRESH_LAUNCH &&
+                launch7402?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.IGNITION -> Style.MICRO_SNIPE
+            classification.tradeType == ModeRouter.TradeType.FRESH_LAUNCH &&
+                launch7402?.phase == com.lifecyclebot.engine.truth.LaunchPhaseAuthority7401.Phase.PRE_IGNITION -> Style.MICRO_SNIPE
             classification.tradeType == ModeRouter.TradeType.FRESH_LAUNCH -> Style.QUICK_FLIP
             classification.tradeType == ModeRouter.TradeType.BREAKOUT_CONTINUATION -> Style.BREAKOUT_RUNNER
             classification.tradeType == ModeRouter.TradeType.GRADUATION -> Style.SWING_HOLD
