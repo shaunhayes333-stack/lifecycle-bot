@@ -2688,8 +2688,19 @@ object CryptoAltTrader {
                     laneTimedOut4151   -> "CRYPTO_LANE_TIMEOUT"
                     else               -> "CRYPTO_SCANNER_BRIDGE_VETO"
                 }
-                try { ForensicLogger.lifecycle("CRYPTO_DISCIPLINE_VETO_V4151", "symbol=${candidate.symbol} assetKey=$assetKey4151 lane=$lane4151 src=$srcTag4151 reason=$reasonTag4151 pause=$pauseDefensive4151 topLane=$topLane4151 timeout=$laneTimedOut4151 bridge=$bridgeToxic4151") } catch (_: Throwable) {}
-                return false
+                // V5.0.7400 — learned performance state is shaping authority,
+                // not execution safety. Preserve the warning for learning/size/
+                // priority consumers, but do not hard-veto here. Rug blacklist,
+                // route proof, canonical FDG, wallet and finality remain hard.
+                try {
+                    PipelineHealthCollector.labelInc("CRYPTO_DISCIPLINE_SOFT_SHAPED_7400")
+                    PipelineHealthCollector.labelInc("CRYPTO_DISCIPLINE_SOFT_SHAPED_7400_$reasonTag4151")
+                    ForensicLogger.lifecycle(
+                        "CRYPTO_DISCIPLINE_SOFT_SHAPED_7400",
+                        "symbol=${candidate.symbol} assetKey=$assetKey4151 lane=$lane4151 src=$srcTag4151 " +
+                            "reason=$reasonTag4151 pause=$pauseDefensive4151 topLane=$topLane4151 timeout=$laneTimedOut4151 bridge=$bridgeToxic4151 action=continue_to_canonical_authority",
+                    )
+                } catch (_: Throwable) {}
             }
         }
 
